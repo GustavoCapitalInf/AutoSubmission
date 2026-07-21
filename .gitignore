@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+output/
+.pytest_cache/
+# Do NOT ignore BankStatements/ — samples are needed for golden tests
