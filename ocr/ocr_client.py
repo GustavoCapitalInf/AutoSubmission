@@ -42,6 +42,28 @@ def strip_refusal_commentary(text: str) -> str:
     return _REFUSAL_RE.sub("", text)
 
 
+# A monetary token, and a run of 3+ such tokens separated only by whitespace.
+_MONEY_TOKEN = r"-?\$?[\d,]+\.\d{2}"
+_MONEY_RUN_RE = re.compile(rf"{_MONEY_TOKEN}(?:\s+{_MONEY_TOKEN}){{2,}}")
+
+
+def collapse_repeated_amounts(text: str) -> str:
+    """Collapse model repetition-degeneration: a run of 3+ bare, whitespace-only-
+    separated money tokens where one value repeats >=3 times is replaced by that
+    single dominant value. Legitimate amounts live in table cells (separated by
+    </td><td>, never bare whitespace) or on lines with dates/descriptions, so this
+    only fires on degenerate footer bursts, and a run of distinct amounts (no value
+    repeated 3+ times) is left untouched."""
+    from collections import Counter
+
+    def repl(match: re.Match) -> str:
+        tokens = re.findall(_MONEY_TOKEN, match.group(0))
+        value, count = Counter(tokens).most_common(1)[0]
+        return value if count >= 3 else match.group(0)
+
+    return _MONEY_RUN_RE.sub(repl, text)
+
+
 # Transaction-table column headers the model fuses into the first data row
 # (e.g. "DATE01/02", "AMOUNT$1,000.00"). Matched longest-first so multi-word
 # headers ("DATE PAID") win over their prefixes ("DATE").
@@ -183,6 +205,7 @@ def ocr_page(image: Image.Image, *, settings: Settings | None = None, client=Non
             )
             text = resp.choices[0].message.content or ""
             cleaned = strip_refusal_commentary(strip_det_tags(text))
+            cleaned = collapse_repeated_amounts(cleaned)
             return fix_amount_column_bleed(split_fused_header_row(cleaned))
         except Exception as e:  # transient network / server errors
             last_exc = e

@@ -2,7 +2,7 @@ from PIL import Image
 from ocr.config import Settings
 from ocr.ocr_client import (
     build_prompt, image_to_data_uri, ocr_page, strip_det_tags, strip_refusal_commentary,
-    split_fused_header_row, fix_amount_column_bleed,
+    split_fused_header_row, fix_amount_column_bleed, collapse_repeated_amounts,
 )
 
 
@@ -36,6 +36,26 @@ def test_strip_det_tags_handles_multiple_tags():
     raw = ("<|det|>header [1, 2, 3, 4]<|/det|>CHASE\n"
            "<|det|>text [5, 6, 7, 8]<|/det|>Account: 123")
     assert strip_det_tags(raw) == "CHASE\nAccount: 123"
+
+
+def test_collapse_repeated_amounts_collapses_degenerate_run():
+    # Real BofA footer degeneration: -$200.27 repeated (with one -$200.17 outlier).
+    raw = ("Total withdrawals and other debits\n"
+           "-$200.27 -$200.27 -$200.27 -$200.17 -$200.27\n-$200.27\n-$200.27")
+    out = collapse_repeated_amounts(raw)
+    assert out == "Total withdrawals and other debits\n-$200.27"
+
+
+def test_collapse_repeated_amounts_leaves_distinct_amounts():
+    # A run of distinct amounts (no value repeated 3+ times) must be untouched.
+    text = "$100.00 $200.00 $300.00"
+    assert collapse_repeated_amounts(text) == text
+
+
+def test_collapse_repeated_amounts_leaves_table_cells_untouched():
+    # Amounts in table cells are separated by </td><td>, not bare whitespace.
+    tbl = "<td>-$200.27</td><td>-$200.27</td><td>-$200.27</td><td>-$200.27</td>"
+    assert collapse_repeated_amounts(tbl) == tbl
 
 
 def test_strip_det_tags_removes_orphan_footer_tags():
