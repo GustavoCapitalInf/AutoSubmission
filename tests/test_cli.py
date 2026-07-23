@@ -15,6 +15,21 @@ def test_main_writes_markdown(monkeypatch, tmp_path):
     assert out.read_text(encoding="utf-8").startswith("<!-- x -->")
 
 
+def test_main_writes_html_when_flag_set(monkeypatch, tmp_path):
+    pdf = tmp_path / "s.pdf"
+    pdf.write_bytes(b"%PDF-fake")
+    out = tmp_path / "s.html"
+    fake_doc = types.SimpleNamespace(to_markdown=lambda: "# Hello")
+    monkeypatch.setattr(cli, "parse_statement",
+                        lambda pdf_bytes, source_file="", dpi=200, model=None: fake_doc)
+    rc = cli.main([str(pdf), "--out", str(out), "--html"])
+    assert rc == 0
+    written = out.read_text(encoding="utf-8")
+    assert "<html" in written.lower()
+    assert "<h1>Hello</h1>" in written
+    assert "<title>s.pdf</title>" in written
+
+
 def test_main_missing_pdf_returns_2(capsys):
     rc = cli.main(["does_not_exist.pdf"])
     assert rc == 2
