@@ -55,10 +55,28 @@ function drawBoxes(byPage) {
       const color = BOX_COLORS[b.label] || "#5c8cff";
       const left = b.x0 / 10, top = b.y0 / 10;
       const w = (b.x1 - b.x0) / 10, h = (b.y1 - b.y0) / 10;
+      // Translucent fill + solid border + label, like the demo's visualization.
       return `<div class="box" style="left:${left}%;top:${top}%;width:${w}%;height:${h}%;` +
-             `border-color:${color}"><span class="box-label" style="background:${color}">` +
-             `${b.label}</span></div>`;
+             `border-color:${color};background:${color}22">` +
+             `<span class="box-label" style="background:${color}">${b.label}</span></div>`;
     }).join("");
+  }
+}
+
+// Scroll the Document panel to the page currently being read so the boxes appear
+// in view as they stream — matching "what shows in the pdf as it's being read".
+let lastActivePage = -1;
+function followActivePage(byPage) {
+  const pages = Object.keys(byPage)
+    .map(Number)
+    .filter((p) => byPage[p] && byPage[p].length > 0);
+  if (!pages.length) return;
+  const active = Math.max(...pages);
+  if (active > lastActivePage) {
+    lastActivePage = active;
+    const overlay = document.getElementById(`boxes-${active}`);
+    const wrap = overlay && overlay.parentElement;
+    if (wrap) wrap.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 }
 
@@ -195,7 +213,9 @@ function startLivePoll(jobId) {
           const atBottom = mid.scrollTop + mid.clientHeight >= mid.scrollHeight - 40;
           sourceEl.textContent = data.live_text || "Reading…";
           if (atBottom) mid.scrollTop = mid.scrollHeight;  // follow the stream
-          drawBoxes(parseBoxes(data.live_text));           // boxes appear as detected
+          const byPage = parseBoxes(data.live_text);       // boxes appear as detected
+          drawBoxes(byPage);
+          followActivePage(byPage);                        // doc panel follows reading
         } else {
           stopLivePoll();
           selectDoc(jobId);  // done/error -> load final panels
@@ -221,6 +241,7 @@ function selectDoc(jobId) {
   if (!jobId || !job) return;
   stopLivePoll();
   stopRenderPoll();
+  lastActivePage = -1;  // reset doc-panel auto-follow for the new selection
   currentJobId = jobId;
   if (docSelect.value !== jobId) docSelect.value = jobId;
   refreshStatusUI(jobId);
