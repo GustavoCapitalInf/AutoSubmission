@@ -16,7 +16,7 @@ def sample_pdf(samples_dir) -> Path:
 
 
 def pytest_configure(config):
-    config.addinivalue_line("markers", "live: hits the real Nanonets endpoint (run with -m live)")
+    config.addinivalue_line("markers", "live: hits the real OCR endpoint (run with -m live)")
 
 
 @pytest.fixture

@@ -1,6 +1,6 @@
 from PIL import Image
 from ocr.config import Settings
-from ocr.ocr_client import build_prompt, image_to_data_uri, ocr_page
+from ocr.ocr_client import build_prompt, image_to_data_uri, ocr_page, strip_det_tags
 
 
 def _img():
@@ -8,7 +8,8 @@ def _img():
 
 
 def _settings():
-    return Settings(base_url="http://x/v1", model="m", api_key="EMPTY", timeout=5, retries=3)
+    return Settings(base_url="http://x/v1", model="m", api_key="EMPTY", timeout=5,
+                    retries=3, ngram_size=35, window_size=128)
 
 
 def test_image_to_data_uri():
@@ -17,9 +18,21 @@ def test_image_to_data_uri():
     assert len(uri) > len("data:image/png;base64,")
 
 
-def test_build_prompt_mentions_html_tables():
-    p = build_prompt().lower()
-    assert "html" in p and "table" in p
+def test_build_prompt_starts_with_image_token():
+    p = build_prompt()
+    assert p.startswith("<image>")
+    assert len(p) > len("<image>")
+
+
+def test_strip_det_tags_removes_region_annotations():
+    raw = "<|det|>title [20, 82, 283, 147]<|/det|>HELLO WORLD"
+    assert strip_det_tags(raw) == "HELLO WORLD"
+
+
+def test_strip_det_tags_handles_multiple_tags():
+    raw = ("<|det|>header [1, 2, 3, 4]<|/det|>CHASE\n"
+           "<|det|>text [5, 6, 7, 8]<|/det|>Account: 123")
+    assert strip_det_tags(raw) == "CHASE\nAccount: 123"
 
 
 class _M:  # generic attribute holder
@@ -55,17 +68,27 @@ class _FakeClient:
         self.chat = _FakeChat(_FakeCompletions(text, fail_times))
 
 
-def test_ocr_page_sends_image_and_prompt_and_returns_text():
+def test_ocr_page_sends_image_and_prompt_with_required_params():
     client = _FakeClient("# Page markdown\n<table></table>")
     out = ocr_page(_img(), settings=_settings(), client=client)
     assert out == "# Page markdown\n<table></table>"
     sent = client.chat.completions.calls[0]
     assert sent["model"] == "m"
+    # text content comes before the image, and starts with the <image> token
     content = sent["messages"][-1]["content"]
-    kinds = {part["type"] for part in content}
-    assert "image_url" in kinds and "text" in kinds
-    img_part = next(p for p in content if p["type"] == "image_url")
-    assert img_part["image_url"]["url"].startswith("data:image/png;base64,")
+    assert content[0]["type"] == "text"
+    assert content[0]["text"].startswith("<image>")
+    assert content[1]["type"] == "image_url"
+    assert content[1]["image_url"]["url"].startswith("data:image/png;base64,")
+    # required extra params for this model
+    assert sent["extra_body"]["skip_special_tokens"] is False
+    assert sent["extra_body"]["vllm_xargs"] == {"ngram_size": 35, "window_size": 128}
+
+
+def test_ocr_page_strips_det_tags_from_response():
+    client = _FakeClient("<|det|>title [1, 2, 3, 4]<|/det|>HELLO WORLD 12345")
+    out = ocr_page(_img(), settings=_settings(), client=client)
+    assert out == "HELLO WORLD 12345"
 
 
 def test_ocr_page_retries_then_succeeds():

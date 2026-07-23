@@ -6,7 +6,7 @@ from ocr.pipeline import parse_statement
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Bank statement PDF -> Markdown via Nanonets-OCR2.")
+    ap = argparse.ArgumentParser(description="Bank statement PDF -> Markdown via Unlimited-OCR.")
     ap.add_argument("pdf", help="Path to the statement PDF")
     ap.add_argument("--out", help="Write Markdown here instead of stdout")
     ap.add_argument("--dpi", type=int, default=200)

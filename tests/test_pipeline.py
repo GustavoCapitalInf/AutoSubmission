@@ -10,9 +10,9 @@ def test_parse_statement_uses_injected_ocr(monkeypatch):
         return f"# md for {image}"
 
     doc = parse_statement(b"%PDF-fake", source_file="s.pdf", dpi=150,
-                          model="nanonets/Nanonets-OCR2-1.5B-exp", page_ocr_fn=fake_ocr)
+                          model="baidu/Unlimited-OCR", page_ocr_fn=fake_ocr)
     assert doc.source_file == "s.pdf"
-    assert doc.model == "nanonets/Nanonets-OCR2-1.5B-exp"
+    assert doc.model == "baidu/Unlimited-OCR"
     assert doc.pages == ["# md for p0", "# md for p1", "# md for p2"]
     assert len(calls) == 3
     assert "--- Page 3 ---" in doc.to_markdown()

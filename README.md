@@ -1,7 +1,7 @@
-# Bank Statement → Markdown (Nanonets-OCR2)
+# Bank Statement → Markdown (Unlimited-OCR)
 
 Converts a bank-statement PDF into one Markdown file by running each page through
-a Nanonets-OCR2 model on an **OpenAI-compatible endpoint**. The markdown is meant
+`baidu/Unlimited-OCR` on an **OpenAI-compatible endpoint**. The markdown is meant
 to be handed to a downstream AI that does the math (e.g. daily average balance).
 This tool does no math and no JSON extraction.
 
@@ -9,8 +9,8 @@ This tool does no math and no JSON extraction.
 
 The model runs on a GPU **elsewhere** — this machine is only the client:
 
-- **Now:** a rented **RunPod** NVIDIA GPU serving `nanonets/Nanonets-OCR2-1.5B-exp`
-  via vLLM (exposes `/v1`).
+- **Now:** a rented **RunPod** NVIDIA GPU serving `baidu/Unlimited-OCR` via vLLM's
+  dedicated `vllm/vllm-openai:unlimited-ocr` image (exposes `/v1`).
 - **Later:** your **RX 7800 XT** box (vLLM / Ollama / llama.cpp). Same client —
   only the base URL / model / key change.
 
@@ -26,14 +26,33 @@ py -3.12 -m venv .venv
 
 Poppler must be installed (Windows: `C:\poppler-24.08.0\Library\bin`).
 
+## Serving the model (RunPod)
+
+Requires the dedicated image (the architecture isn't in a stable vLLM pip release):
+
+```
+Container image:        vllm/vllm-openai:unlimited-ocr
+Container start command: baidu/Unlimited-OCR --host 0.0.0.0 --port 8000 --trust-remote-code \
+                          --logits_processors vllm.model_executor.models.unlimited_ocr:NGramPerReqLogitsProcessor \
+                          --no-enable-prefix-caching --mm-processor-cache-gb 0
+Environment variables:  HF_HUB_DISABLE_XET=1
+Container disk:         60GB
+Expose HTTP ports:      8000
+GPU:                    any card with >=8GB VRAM (BF16)
+```
+
 ## Configure the endpoint
 
 ```bash
-export NANONETS_BASE_URL="https://<pod-id>-8000.proxy.runpod.net/v1"   # or http://localhost:8000/v1
-export NANONETS_MODEL="nanonets/Nanonets-OCR2-1.5B-exp"                # default
-export NANONETS_API_KEY="EMPTY"                                        # or the token your server expects
-# optional: NANONETS_TIMEOUT (default 120), NANONETS_RETRIES (default 3)
+export OCR_BASE_URL="https://<pod-id>-8000.proxy.runpod.net/v1"   # or http://localhost:8000/v1
+export OCR_MODEL="baidu/Unlimited-OCR"                            # default
+export OCR_API_KEY="EMPTY"                                        # or the token your server expects
+# optional: OCR_TIMEOUT (default 120), OCR_RETRIES (default 3),
+#           OCR_NGRAM_SIZE (default 35), OCR_WINDOW_SIZE (default 128)
 ```
+
+`OCR_WINDOW_SIZE` should be raised (e.g. 1024) if you send multi-page/whole-document
+requests instead of single pages.
 
 ## Usage
 
@@ -43,11 +62,12 @@ export NANONETS_API_KEY="EMPTY"                                        # or the 
 ```
 
 Output: one `.md` with a provenance comment header and pages separated by
-`--- Page N ---`.
+`--- Page N ---`. The model's own `<|det|>...<|/det|>` region-annotation tags are
+stripped automatically, leaving clean text and HTML tables.
 
 ## Tests
 
 ```bash
 .venv/Scripts/python.exe -m pytest            # fast unit tests (network mocked)
-NANONETS_BASE_URL=... .venv/Scripts/python.exe -m pytest -m live   # real-endpoint smoke
+OCR_BASE_URL=... .venv/Scripts/python.exe -m pytest -m live   # real-endpoint smoke
 ```
