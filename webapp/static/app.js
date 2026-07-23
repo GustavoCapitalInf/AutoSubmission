@@ -22,6 +22,15 @@ boxToggle.addEventListener("change", () => {
   docEl.classList.toggle("hide-boxes", !boxToggle.checked);
 });
 
+// Toggle the colored region boxes in the Rendered (right) panel, so the rendered
+// text can be read cleanly. Applies inside the iframe document.
+const renderBoxToggle = document.getElementById("renderBoxToggle");
+function applyRenderBoxes() {
+  const doc = renderedEl.contentDocument;
+  if (doc && doc.body) doc.body.classList.toggle("hide-regions", !renderBoxToggle.checked);
+}
+renderBoxToggle.addEventListener("change", applyRenderBoxes);
+
 const BOX_COLORS = {
   title: "#ff5c5c", header: "#ffb020", text: "#5c8cff", table: "#23c4a8",
   footer: "#8b8b95", figure: "#c77dff", list: "#9d7bff", image: "#c77dff",
@@ -158,8 +167,27 @@ function stopRenderPoll() {
   if (renderTimer) { clearInterval(renderTimer); renderTimer = null; }
 }
 
+function injectRender(fragment) {
+  if (!renderReady || !renderedEl.contentDocument) return;
+  const root = renderedEl.contentDocument.getElementById("live-root");
+  if (root) root.innerHTML = fragment;
+  applyRenderBoxes();  // keep the render-boxes toggle state after each update
+}
+
+function renderTick(jobId) {
+  fetch(`/render/${jobId}`)
+    .then((r) => r.json())
+    .then((data) => {
+      if (currentJobId !== jobId) return;
+      injectRender(data.fragment);
+      if (data.status === "done" || data.status === "error") stopRenderPoll();
+    })
+    .catch(() => {});
+}
+
 // Load the styled iframe shell (once), then poll /render and inject the current
-// rendered fragment into it live — so the Rendered panel fills in as pages stream.
+// boxed fragment into it — so the Rendered panel fills in, region by region, as
+// pages stream. Also used for already-done jobs (renders once, then stops).
 async function startRenderPoll(jobId) {
   stopRenderPoll();
   renderReady = false;
@@ -169,31 +197,12 @@ async function startRenderPoll(jobId) {
   }
   if (currentJobId !== jobId) return;
   renderedEl.removeAttribute("src");
-  renderedEl.onload = () => { renderReady = true; };
+  renderedEl.onload = () => { renderReady = true; renderTick(jobId); };
   renderedEl.srcdoc = skeletonHtml;
-
   renderTimer = setInterval(() => {
     if (currentJobId !== jobId) { stopRenderPoll(); return; }
-    fetch(`/render/${jobId}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (currentJobId !== jobId) return;
-        if (renderReady && renderedEl.contentDocument) {
-          const root = renderedEl.contentDocument.getElementById("live-root");
-          if (root) root.innerHTML = data.fragment;
-        }
-        if (data.status === "done" || data.status === "error") stopRenderPoll();
-      })
-      .catch(() => {});
+    renderTick(jobId);
   }, 1000);
-}
-
-// Swap the iframe from the live shell to the final rendered result (with images).
-function showFinalRender(jobId) {
-  stopRenderPoll();
-  renderedEl.onload = null;
-  renderedEl.removeAttribute("srcdoc");
-  renderedEl.src = `/result/${jobId}`;
 }
 
 // Poll the live buffer fast so the raw OCR output streams into the middle panel.
@@ -270,7 +279,7 @@ function selectDoc(jobId) {
     fetch(`/markdown/${jobId}`)
       .then((r) => r.text())
       .then((md) => { if (currentJobId === jobId) sourceEl.textContent = md; });
-    showFinalRender(jobId);
+    startRenderPoll(jobId);  // boxed render (with images) — renders once, then stops
   } else if (job.status === "error") {
     sourceEl.textContent = "Error: " + (job.error || "unknown");
     renderedEl.removeAttribute("srcdoc");

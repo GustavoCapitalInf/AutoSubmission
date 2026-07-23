@@ -1,6 +1,44 @@
+from PIL import Image
+
 from ocr.render import (
     markdown_to_html, promote_headers, render_fragment, rendered_skeleton,
+    render_boxed, REGION_COLORS,
 )
+
+
+def test_render_boxed_wraps_regions_with_colored_labels():
+    raw = ("<|det|>title [10,10,90,40]<|/det|>ROYAL BANK OF CANADA"
+           "<|det|>text [10,50,90,80]<|/det|>P.O. BOX 4047")
+    out = render_boxed([raw])
+    assert out.count('class="region"') == 2
+    # region type label + its color both present
+    assert '>title<' in out and '>text<' in out
+    assert f"border-color:{REGION_COLORS['title']}" in out
+    assert f"border-color:{REGION_COLORS['text']}" in out
+    assert "ROYAL BANK OF CANADA" in out
+    assert "P.O. BOX 4047" in out
+    # det tags themselves are gone from the rendered output
+    assert "<|det|>" not in out
+
+
+def test_render_boxed_page_separator_and_plain_start():
+    # No complete region tag yet -> still renders the partial text (no crash).
+    out = render_boxed(["Just some text so far"])
+    assert "Page 1" in out
+    assert "Just some text so far" in out
+
+
+def test_render_boxed_embeds_picture_region_when_image_given():
+    img = Image.new("RGB", (1000, 1000), (200, 50, 50))
+    raw = "<|det|>image [100,100,400,400]<|/det|>"
+    out = render_boxed([raw], page_images=[img])
+    assert '<img class="doc-image" src="data:image/png;base64,' in out
+
+
+def test_rendered_skeleton_supports_region_toggle():
+    skel = rendered_skeleton()
+    assert "body.hide-regions .region" in skel
+    assert ".region-tag" in skel
 
 
 def test_render_fragment_has_no_page_wrapper():

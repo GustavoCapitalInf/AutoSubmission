@@ -103,6 +103,19 @@ code, pre { font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
 pre { background: var(--zebra); padding: 1rem; border-radius: 6px; overflow-x: auto; }
 img.doc-image { max-width: 100%; height: auto; display: block; margin: .8em 0;
                 border: 1px solid var(--line); border-radius: 4px; }
+/* Region boxes (mirror the demo's rendered-with-boxes view). */
+.page-sep { margin: 1.4rem 0 .6rem; font-size: .72rem; letter-spacing: .12em;
+            text-transform: uppercase; color: var(--muted); }
+.region { position: relative; border: 1.5px solid transparent; border-radius: 5px;
+          padding: .45rem .6rem; margin: .85rem 0 .35rem; }
+.region > :first-child { margin-top: 0; }
+.region > :last-child { margin-bottom: 0; }
+.region-tag { position: absolute; top: -.62rem; left: .5rem; font-size: .58rem;
+              line-height: 1.05rem; text-transform: uppercase; letter-spacing: .06em;
+              color: #fff; padding: 0 .35rem; border-radius: 3px; font-weight: 600; }
+/* Toggled off: read the rendered text cleanly with no boxes. */
+body.hide-regions .region { border-color: transparent !important; padding: 0; margin: .4rem 0; }
+body.hide-regions .region-tag { display: none; }
 """
 
 _PAGE_TEMPLATE = """<!DOCTYPE html>
@@ -136,3 +149,67 @@ def rendered_skeleton() -> str:
     """A full styled page with an empty '#live-root' container, loaded once into
     the viewer's iframe so live fragments can be injected without reloading."""
     return _PAGE_TEMPLATE.format(title="", style=_STYLE, body='<div id="live-root"></div>')
+
+
+# Per-region colors, matching the document-panel overlay (app.js BOX_COLORS).
+REGION_COLORS = {
+    "title": "#ff5c5c", "header": "#ffb020", "text": "#5c8cff", "table": "#23c4a8",
+    "footer": "#8b8b95", "figure": "#c77dff", "image": "#c77dff", "list": "#9d7bff",
+    "page_number": "#8b8b95", "caption": "#23c4a8",
+}
+_PICTURE_LABELS = {"image", "figure", "picture", "photo", "chart", "diagram",
+                   "logo", "signature"}
+# A region tag with its label and 0-1000 normalized box: <|det|>label [x0,y0,x1,y1]<|/det|>
+_REGION_SPLIT_RE = re.compile(
+    r"<\|det\|>\s*(\w+)\s*\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\](?:<\|/det\|>)?"
+)
+
+
+def _image_region_html(coords, page_image) -> str:
+    from .ocr_client import _crop_data_uri
+    w, h = page_image.size
+    x0 = max(0, round(coords[0] / 1000 * w)); y0 = max(0, round(coords[1] / 1000 * h))
+    x1 = min(w, round(coords[2] / 1000 * w)); y1 = min(h, round(coords[3] / 1000 * h))
+    if x1 <= x0 or y1 <= y0:
+        return ""
+    return f'<img class="doc-image" src="{_crop_data_uri(page_image, (x0, y0, x1, y1))}" alt="image" />'
+
+
+def _region_html(label: str, coords, content: str, page_image) -> str:
+    from .ocr_client import postprocess
+    label = label.lower()
+    color = REGION_COLORS.get(label, "#5c8cff")
+    if page_image is not None and label in _PICTURE_LABELS:
+        inner = _image_region_html(coords, page_image)
+    else:
+        inner = render_fragment(postprocess(content))
+    return (f'<div class="region" style="border-color:{color}">'
+            f'<span class="region-tag" style="background:{color}">{html.escape(label)}</span>'
+            f'{inner}</div>')
+
+
+def _render_boxed_page(raw: str, page_image) -> str:
+    from .ocr_client import postprocess
+    parts = _REGION_SPLIT_RE.split(raw)
+    regions = []
+    for j in range(1, len(parts), 6):
+        label, x0, y0, x1, y1, content = parts[j:j + 6]
+        regions.append(_region_html(label, (int(x0), int(y0), int(x1), int(y1)),
+                                     content, page_image))
+    if not regions:
+        # No complete region tags yet (very start of a page's stream): plain text.
+        return render_fragment(postprocess(raw))
+    return "".join(regions)
+
+
+def render_boxed(pages: list[str], page_images=None) -> str:
+    """Render per-page raw OCR output into an HTML body fragment where each
+    detected region is wrapped in a colored, labeled box (mirroring the demo's
+    rendered-with-boxes view). `page_images`, when given (final render), lets
+    picture regions embed the cropped image instead of a placeholder box."""
+    out = []
+    for i, raw in enumerate(pages):
+        img = page_images[i] if page_images and i < len(page_images) else None
+        out.append(f'<div class="page-sep">Page {i + 1}</div>')
+        out.append(_render_boxed_page(raw, img))
+    return "\n".join(out)

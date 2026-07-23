@@ -93,6 +93,8 @@ def test_live_unknown_job_returns_404():
 
 def test_render_route_returns_live_fragment(monkeypatch):
     _mock_processing(monkeypatch)
+    monkeypatch.setattr("webapp.app.rasterize_page",
+                        lambda pdf_bytes, n, dpi=200: Image.new("RGB", (8, 8)))
     client = app.test_client()
     job_id = _upload_one(client)["jobs"][0]["id"]
     resp = client.get(f"/render/{job_id}")

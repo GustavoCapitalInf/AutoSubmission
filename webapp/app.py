@@ -4,9 +4,7 @@ import threading
 from flask import Flask, request, jsonify, render_template, Response, abort
 
 from ocr.rasterize import pdf_page_count, rasterize_page
-from ocr.render import rendered_skeleton, render_fragment
-from ocr.document import StatementMarkdown
-from ocr.ocr_client import postprocess
+from ocr.render import rendered_skeleton, render_boxed
 from .jobs import JobStore
 from .worker import run_job
 
@@ -66,16 +64,23 @@ def rendered_skeleton_route():
 
 @app.route("/render/<job_id>")
 def render(job_id):
-    """Render the current (possibly partial) OCR output to an HTML body fragment,
-    using the same postprocess + markdown pipeline as the final view, so the
-    Rendered panel fills in live as pages stream. Images are embedded only in the
-    final /result; the live preview shows text and tables forming."""
+    """Render the current (possibly partial) OCR output to an HTML body fragment
+    where each detected region is wrapped in a colored, labeled box — mirroring
+    the demo's rendered-with-boxes view — so the Rendered panel fills in live as
+    pages stream. When the job is done, page images are rasterized so picture
+    regions (e.g. check scans) embed their crop; during live they show a box."""
     job = store.get(job_id)
     if job is None:
         abort(404)
-    pages = [postprocess(p) for p in store.pages_live_ordered(job_id) if p.strip()]
-    md = StatementMarkdown(source_file=job.filename, model="", pages=pages).to_markdown()
-    return jsonify({"status": job.status, "fragment": render_fragment(md)})
+    pages = store.pages_live_ordered(job_id)
+    page_images = None
+    if job.status == "done" and job.pdf_bytes is not None:
+        try:
+            page_images = [rasterize_page(job.pdf_bytes, i, dpi=200)
+                           for i in range(len(pages))]
+        except Exception:
+            page_images = None  # degrade to boxes-without-crops rather than 500
+    return jsonify({"status": job.status, "fragment": render_boxed(pages, page_images)})
 
 
 @app.route("/markdown/<job_id>")
