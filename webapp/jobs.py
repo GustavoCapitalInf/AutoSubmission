@@ -12,6 +12,8 @@ class Job:
     markdown: str | None = None
     html: str | None = None
     error: str | None = None
+    pdf_bytes: bytes | None = None
+    page_count: int = 0
 
 
 class JobStore:

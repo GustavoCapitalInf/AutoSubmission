@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unlimited-OCR — Bank Statement Parser</title>
+<style>
+  :root {
+    --bg: #0e0e11; --panel: #151519; --panel-2: #1b1b21; --border: #2a2a31;
+    --text: #e6e6ea; --muted: #8b8b95; --accent: #7c5cff; --accent-2: #23c4a8;
+    --ok: #2ea043; --warn: #c9a227; --err: #e5534b;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); display: flex; flex-direction: column;
+         font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+
+  /* Toolbar */
+  .toolbar { display: flex; align-items: center; gap: .75rem; padding: .6rem 1rem;
+             background: var(--panel); border-bottom: 1px solid var(--border); flex: 0 0 auto; }
+  .wordmark { font-weight: 700; letter-spacing: .02em; font-size: 1.05rem; margin-right: .5rem; }
+  .wordmark .u { color: var(--accent); }
+  .wordmark .o { color: var(--accent-2); }
+  .btn { border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
+         padding: .42rem .8rem; border-radius: 7px; font-size: .85rem; cursor: pointer;
+         transition: .15s; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  select.btn { appearance: none; padding-right: 1.6rem;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%238b8b95'/></svg>");
+    background-repeat: no-repeat; background-position: right .6rem center; }
+  .spacer { flex: 1; }
+  .pill { font-size: .78rem; padding: .3rem .6rem; border-radius: 999px; font-weight: 600;
+          border: 1px solid var(--border); color: var(--muted); }
+  .pill.processing, .pill.queued { color: var(--warn); border-color: var(--warn); }
+  .pill.done { color: var(--ok); border-color: var(--ok); }
+  .pill.error { color: var(--err); border-color: var(--err); }
+
+  /* Panels */
+  .panels { flex: 1; display: flex; min-height: 0; position: relative; }
+  .panel { flex: 1; min-width: 0; display: flex; flex-direction: column;
+           border-right: 1px solid var(--border); }
+  .panel:last-child { border-right: 0; }
+  .panel-head { flex: 0 0 auto; padding: .5rem .9rem; font-size: .72rem; letter-spacing: .12em;
+                text-transform: uppercase; color: var(--muted); background: var(--panel);
+                border-bottom: 1px solid var(--border); }
+  .panel-head .k { color: var(--accent); }
+  .panel-body { flex: 1; overflow: auto; }
+
+  /* Left: document images (light) */
+  #doc { background: #33343a; padding: 1rem; display: flex; flex-direction: column; gap: 1rem; align-items: center; }
+  #doc img { width: 100%; max-width: 780px; background: #fff; border-radius: 4px;
+             box-shadow: 0 2px 10px rgba(0,0,0,.4); }
+
+  /* Middle: markdown source (dark, monospace) */
+  #source { margin: 0; padding: 1rem 1.1rem; white-space: pre-wrap; word-break: break-word;
+            font-family: "SF Mono", "Cascadia Code", Consolas, monospace; font-size: .82rem;
+            line-height: 1.5; color: #c8cdd6; }
+
+  /* Right: rendered (iframe, light) */
+  #rendered { width: 100%; height: 100%; border: 0; background: #fff; }
+
+  .placeholder { color: var(--muted); padding: 2rem; text-align: center; font-size: .9rem; }
+  #drophint { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+              background: rgba(124,92,255,.12); border: 2px dashed var(--accent); font-size: 1.1rem;
+              color: var(--accent); pointer-events: none; z-index: 5; }
+  body.drag #drophint { display: flex; }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <span class="wordmark"><span class="u">Unlimited</span>-<span class="o">OCR</span></span>
+    <button class="btn primary" id="uploadBtn">Upload PDFs</button>
+    <input type="file" id="fileInput" multiple accept="application/pdf" style="display:none">
+    <select class="btn" id="docSelect" title="Document"><option value="">No documents</option></select>
+    <span class="spacer"></span>
+    <button class="btn" id="dlMd" disabled>Download .md</button>
+    <button class="btn" id="dlHtml" disabled>Download .html</button>
+    <span class="pill" id="statusPill">idle</span>
+  </div>
+
+  <div class="panels">
+    <div id="drophint">Drop PDF statements to parse</div>
+    <div class="panel">
+      <div class="panel-head"><span class="k">◧</span> Document</div>
+      <div class="panel-body" id="doc"><div class="placeholder">Upload a PDF to begin.</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><span class="k">{ }</span> Markdown source</div>
+      <div class="panel-body"><pre id="source"><div class="placeholder">Markdown will appear here.</div></pre></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><span class="k">&para;</span> Rendered</div>
+      <div class="panel-body"><iframe id="rendered"></iframe></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

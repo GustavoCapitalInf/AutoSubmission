@@ -1,4 +1,4 @@
-from ocr.render import markdown_to_html
+from ocr.render import markdown_to_html, promote_headers
 
 
 def test_markdown_to_html_wraps_in_page_with_title():
@@ -18,3 +18,38 @@ def test_markdown_to_html_passes_through_raw_html_tables():
 def test_markdown_to_html_includes_basic_styling():
     html = markdown_to_html("text", title="x")
     assert "<style>" in html
+
+
+def test_promote_headers_promotes_allcaps_section_titles():
+    md = "DEPOSITS AND ADDITIONS\nCHECKING SUMMARY\nCUSTOMER SERVICE INFORMATION"
+    out = promote_headers(md)
+    assert "## DEPOSITS AND ADDITIONS" in out
+    assert "## CHECKING SUMMARY" in out
+    assert "## CUSTOMER SERVICE INFORMATION" in out
+
+
+def test_promote_headers_leaves_data_and_mixed_case_alone():
+    md = (
+        "01/02 Orig CO Name:Paymentech 1,000.00\n"        # has digits
+        "Online Banking transfer from CHK 6973\n"          # mixed case
+        "<table><tr><td>DATE</td></tr></table>\n"          # HTML
+        "SALOMON MANAGEMENT GROUP INC ACCOUNT 000012345"   # has digits
+    )
+    out = promote_headers(md)
+    assert "## " not in out
+
+
+def test_promote_headers_excludes_company_and_person_names():
+    # ALL-CAPS account-holder / entity lines must NOT become headings.
+    md = (
+        "SALOMON MANAGEMENT GROUP, INC.\n"   # comma + INC + GROUP
+        "DBA SALOMON INSURANCE GROUP\n"      # DBA + GROUP
+        "JPMORGAN CHASE BANK N.A."           # N.A.
+    )
+    out = promote_headers(md)
+    assert "## " not in out
+
+
+def test_promote_headers_rendered_as_h2():
+    html = markdown_to_html("DEPOSITS AND ADDITIONS\n\nSome content", title="x")
+    assert "<h2>DEPOSITS AND ADDITIONS</h2>" in html
