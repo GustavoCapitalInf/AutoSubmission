@@ -9,8 +9,9 @@ const sourceEl = document.getElementById("source");
 const renderedEl = document.getElementById("rendered");
 const body = document.body;
 
-// jobId -> {filename, status, page_count}
+// jobId -> {filename, status, error, page_count}
 const jobs = {};
+let currentJobId = null;
 
 uploadBtn.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", () => {
@@ -26,7 +27,7 @@ fileInput.addEventListener("change", () => {
   window.addEventListener(ev, (e) => {
     e.preventDefault();
     if (ev === "drop" && e.dataTransfer) uploadFiles(e.dataTransfer.files);
-    if (e.relatedTarget === null || ev === "drop") body.classList.remove("drag");
+    if (ev === "drop") body.classList.remove("drag");
   })
 );
 
@@ -42,21 +43,24 @@ function uploadFiles(fileList) {
       let firstNew = null;
       for (const job of data.jobs) {
         jobs[job.id] = { filename: job.filename, status: "queued", page_count: job.page_count };
-        addOption(job.id, job.filename);
+        addOption(job.id, job.filename, "queued");
         pollJob(job.id);
         if (firstNew === null) firstNew = job.id;
       }
-      if (firstNew && !docSelect.value) { docSelect.value = firstNew; selectDoc(firstNew); }
+      // Auto-open the first uploaded doc if nothing is being viewed yet.
+      if (firstNew && currentJobId === null) {
+        docSelect.value = firstNew;
+        selectDoc(firstNew);
+      }
     });
 }
 
-function addOption(jobId, filename) {
-  // Remove the "No documents" placeholder option.
-  const ph = docSelect.querySelector('option[value=""]');
-  if (ph) ph.remove();
+function addOption(jobId, filename, status) {
+  const placeholder = docSelect.querySelector('option[value=""]');
+  if (placeholder) placeholder.remove();
   const opt = document.createElement("option");
   opt.value = jobId;
-  opt.textContent = `${filename}  (queued)`;
+  opt.textContent = `${filename}  (${status})`;
   docSelect.appendChild(opt);
 }
 
@@ -65,12 +69,19 @@ function pollJob(jobId) {
     fetch(`/status/${jobId}`)
       .then((r) => r.json())
       .then((data) => {
-        jobs[jobId].status = data.status;
-        jobs[jobId].error = data.error;
-        if (data.page_count) jobs[jobId].page_count = data.page_count;
+        const job = jobs[jobId];
+        if (!job) return;
+        const changed = job.status !== data.status;
+        job.status = data.status;
+        job.error = data.error;
+        if (data.page_count) job.page_count = data.page_count;
+
         const opt = docSelect.querySelector(`option[value="${jobId}"]`);
-        if (opt) opt.textContent = `${jobs[jobId].filename}  (${data.status})`;
-        if (docSelect.value === jobId) refreshStatusUI(jobId);
+        if (opt) opt.textContent = `${job.filename}  (${data.status})`;
+
+        // If this is the doc currently on screen, refresh the panels on any change.
+        if (jobId === currentJobId && changed) selectDoc(jobId);
+
         if (data.status === "done" || data.status === "error") clearInterval(interval);
       });
   }, 2000);
@@ -89,11 +100,13 @@ function refreshStatusUI(jobId) {
 }
 
 function selectDoc(jobId) {
-  if (!jobId || !jobs[jobId]) return;
-  refreshStatusUI(jobId);
   const job = jobs[jobId];
+  if (!jobId || !job) return;
+  currentJobId = jobId;
+  if (docSelect.value !== jobId) docSelect.value = jobId;
+  refreshStatusUI(jobId);
 
-  // Left: page images.
+  // Left panel: original page images (available as soon as the file is uploaded).
   docEl.innerHTML = "";
   if (job.page_count > 0) {
     for (let n = 0; n < job.page_count; n++) {
@@ -106,10 +119,11 @@ function selectDoc(jobId) {
     docEl.innerHTML = '<div class="placeholder">No pages.</div>';
   }
 
+  // Middle + right panels depend on OCR completion.
   if (job.status === "done") {
     fetch(`/markdown/${jobId}`)
       .then((r) => r.text())
-      .then((md) => { sourceEl.textContent = md; });
+      .then((md) => { if (currentJobId === jobId) sourceEl.textContent = md; });
     renderedEl.src = `/result/${jobId}`;
   } else if (job.status === "error") {
     sourceEl.textContent = "Error: " + (job.error || "unknown");
