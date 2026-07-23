@@ -101,6 +101,8 @@ td:last-child { font-variant-numeric: tabular-nums; }
 code, pre { font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
             font-size: .88rem; }
 pre { background: var(--zebra); padding: 1rem; border-radius: 6px; overflow-x: auto; }
+img.doc-image { max-width: 100%; height: auto; display: block; margin: .8em 0;
+                border: 1px solid var(--line); border-radius: 4px; }
 """
 
 _PAGE_TEMPLATE = """<!DOCTYPE html>

@@ -3,7 +3,7 @@ from ocr.config import Settings
 from ocr.ocr_client import (
     build_prompt, image_to_data_uri, ocr_page, strip_det_tags, strip_refusal_commentary,
     split_fused_header_row, fix_amount_column_bleed, collapse_repeated_amounts,
-    collapse_repeated_page_numbers,
+    collapse_repeated_page_numbers, embed_image_regions,
 )
 
 
@@ -57,6 +57,32 @@ def test_collapse_repeated_amounts_leaves_table_cells_untouched():
     # Amounts in table cells are separated by </td><td>, not bare whitespace.
     tbl = "<td>-$200.27</td><td>-$200.27</td><td>-$200.27</td><td>-$200.27</td>"
     assert collapse_repeated_amounts(tbl) == tbl
+
+
+def test_embed_image_regions_crops_and_embeds():
+    img = Image.new("RGB", (1000, 1000), (255, 0, 0))
+    raw = ("<|det|>image [100, 100, 400, 400]<|/det|>"
+           "<|det|>text [0, 0, 10, 10]<|/det|>hello")
+    out = embed_image_regions(raw, img)
+    # picture region -> embedded <img> crop
+    assert '<img class="doc-image" src="data:image/png;base64,' in out
+    assert "image [100" not in out
+    # text region left intact for the normal det-stripping step
+    assert "<|det|>text [0, 0, 10, 10]<|/det|>hello" in out
+
+
+def test_embed_image_regions_ignores_text_only():
+    img = Image.new("RGB", (100, 100), (0, 0, 0))
+    raw = "<|det|>header [1, 2, 3, 4]<|/det|>CHASE"
+    assert embed_image_regions(raw, img) == raw
+
+
+def test_ocr_page_embeds_check_images(monkeypatch):
+    # A page that returns an image region should render an <img> crop.
+    img = Image.new("RGB", (1000, 1000), (0, 128, 255))
+    client = _FakeClient("<|det|>image [200, 200, 800, 800]<|/det|>")
+    out = ocr_page(img, settings=_settings(), client=client)
+    assert '<img class="doc-image" src="data:image/png;base64,' in out
 
 
 def test_collapse_repeated_page_numbers():

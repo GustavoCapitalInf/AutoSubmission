@@ -184,6 +184,43 @@ def image_to_data_uri(image: Image.Image) -> str:
     return f"data:image/png;base64,{b64}"
 
 
+# Region types that are pictures (check scans, logos, figures, signatures) rather
+# than text. The model tags them with 0-1000-normalized bounding boxes.
+_IMAGE_DET_RE = re.compile(
+    r"<\|det\|>(image|figure|picture|photo|chart|diagram|logo|signature)\s*"
+    r"\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\](?:<\|/det\|>)?",
+    re.IGNORECASE,
+)
+
+
+def _crop_data_uri(image: Image.Image, box_px) -> str:
+    crop = image.convert("RGB").crop(box_px)
+    buf = io.BytesIO()
+    crop.save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def embed_image_regions(raw: str, page_image: Image.Image) -> str:
+    """Replace picture regions (image/figure/check/logo/signature) in the raw
+    output with the actual pixels cropped from the page, embedded as <img> — so
+    e.g. TD check-image scans render inline instead of being dropped as text.
+    Coordinates are 0-1000 per-axis normalized. Degenerate boxes are dropped."""
+    W, H = page_image.size
+
+    def repl(match: re.Match) -> str:
+        label = match.group(1).lower()
+        x0 = max(0, round(int(match.group(2)) / 1000 * W))
+        y0 = max(0, round(int(match.group(3)) / 1000 * H))
+        x1 = min(W, round(int(match.group(4)) / 1000 * W))
+        y1 = min(H, round(int(match.group(5)) / 1000 * H))
+        if x1 <= x0 or y1 <= y0:
+            return ""
+        uri = _crop_data_uri(page_image, (x0, y0, x1, y1))
+        return f'\n\n<img class="doc-image" src="{uri}" alt="{label}" />\n\n'
+
+    return _IMAGE_DET_RE.sub(repl, raw)
+
+
 def _build_client(settings: Settings):
     from openai import OpenAI
     return OpenAI(base_url=settings.base_url, api_key=settings.api_key, timeout=settings.timeout)
@@ -242,6 +279,8 @@ def ocr_page(image: Image.Image, *, settings: Settings | None = None, client=Non
                     if delta:
                         raw += delta
                         on_delta(delta)
+            # Embed picture regions (crop from the page) before text det tags are stripped.
+            raw = embed_image_regions(raw, image)
             return postprocess(raw)
         except Exception as e:  # transient network / server errors
             last_exc = e
