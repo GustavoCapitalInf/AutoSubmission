@@ -120,7 +120,19 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
 """
 
 
-def markdown_to_html(markdown_text: str, title: str = "") -> str:
+def render_fragment(markdown_text: str) -> str:
+    """Render markdown to just the HTML body fragment (no page wrapper/styles).
+    Used for live incremental rendering into an already-styled container."""
     promoted = promote_headers(markdown_text)
-    body = markdown.markdown(promoted, extensions=["tables"])
-    return _PAGE_TEMPLATE.format(title=html.escape(title), style=_STYLE, body=body)
+    return markdown.markdown(promoted, extensions=["tables"])
+
+
+def markdown_to_html(markdown_text: str, title: str = "") -> str:
+    return _PAGE_TEMPLATE.format(title=html.escape(title), style=_STYLE,
+                                 body=render_fragment(markdown_text))
+
+
+def rendered_skeleton() -> str:
+    """A full styled page with an empty '#live-root' container, loaded once into
+    the viewer's iframe so live fragments can be injected without reloading."""
+    return _PAGE_TEMPLATE.format(title="", style=_STYLE, body='<div id="live-root"></div>')

@@ -1,4 +1,20 @@
-from ocr.render import markdown_to_html, promote_headers
+from ocr.render import (
+    markdown_to_html, promote_headers, render_fragment, rendered_skeleton,
+)
+
+
+def test_render_fragment_has_no_page_wrapper():
+    frag = render_fragment("# Hello\n\nSome text.")
+    assert "<h1>Hello</h1>" in frag
+    assert "<!DOCTYPE html>" not in frag
+    assert "<html" not in frag.lower()
+
+
+def test_rendered_skeleton_has_styled_live_root():
+    skel = rendered_skeleton()
+    assert '<div id="live-root"></div>' in skel
+    assert "<style>" in skel
+    assert "<!DOCTYPE html>" in skel
 
 
 def test_markdown_to_html_wraps_in_page_with_title():

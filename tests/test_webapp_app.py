@@ -91,6 +91,30 @@ def test_live_unknown_job_returns_404():
     assert app.test_client().get("/live/nope").status_code == 404
 
 
+def test_render_route_returns_live_fragment(monkeypatch):
+    _mock_processing(monkeypatch)
+    client = app.test_client()
+    job_id = _upload_one(client)["jobs"][0]["id"]
+    resp = client.get(f"/render/{job_id}")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    # A body fragment (no full-page wrapper), rendered from the live buffer.
+    assert "raw stream" in body["fragment"]
+    assert "<!DOCTYPE html>" not in body["fragment"]
+
+
+def test_render_unknown_job_returns_404():
+    assert app.test_client().get("/render/nope").status_code == 404
+
+
+def test_rendered_skeleton_has_live_root():
+    resp = app.test_client().get("/rendered_skeleton")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert 'id="live-root"' in html
+    assert "<style>" in html
+
+
 def test_page_route_returns_png(monkeypatch):
     _mock_processing(monkeypatch, page_count=2)
     monkeypatch.setattr("webapp.app.rasterize_page",

@@ -13,6 +13,9 @@ const body = document.body;
 const jobs = {};
 let currentJobId = null;
 let liveTimer = null;
+let renderTimer = null;
+let renderReady = false;      // iframe skeleton loaded, safe to inject
+let skeletonHtml = null;      // cached "/rendered_skeleton" shell
 
 const boxToggle = document.getElementById("boxToggle");
 boxToggle.addEventListener("change", () => {
@@ -133,6 +136,48 @@ function stopLivePoll() {
   if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
 }
 
+function stopRenderPoll() {
+  if (renderTimer) { clearInterval(renderTimer); renderTimer = null; }
+}
+
+// Load the styled iframe shell (once), then poll /render and inject the current
+// rendered fragment into it live — so the Rendered panel fills in as pages stream.
+async function startRenderPoll(jobId) {
+  stopRenderPoll();
+  renderReady = false;
+  if (skeletonHtml === null) {
+    try { skeletonHtml = await fetch("/rendered_skeleton").then((r) => r.text()); }
+    catch { skeletonHtml = "<div id='live-root'></div>"; }
+  }
+  if (currentJobId !== jobId) return;
+  renderedEl.removeAttribute("src");
+  renderedEl.onload = () => { renderReady = true; };
+  renderedEl.srcdoc = skeletonHtml;
+
+  renderTimer = setInterval(() => {
+    if (currentJobId !== jobId) { stopRenderPoll(); return; }
+    fetch(`/render/${jobId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (currentJobId !== jobId) return;
+        if (renderReady && renderedEl.contentDocument) {
+          const root = renderedEl.contentDocument.getElementById("live-root");
+          if (root) root.innerHTML = data.fragment;
+        }
+        if (data.status === "done" || data.status === "error") stopRenderPoll();
+      })
+      .catch(() => {});
+  }, 1000);
+}
+
+// Swap the iframe from the live shell to the final rendered result (with images).
+function showFinalRender(jobId) {
+  stopRenderPoll();
+  renderedEl.onload = null;
+  renderedEl.removeAttribute("srcdoc");
+  renderedEl.src = `/result/${jobId}`;
+}
+
 // Poll the live buffer fast so the raw OCR output streams into the middle panel.
 function startLivePoll(jobId) {
   stopLivePoll();
@@ -175,6 +220,7 @@ function selectDoc(jobId) {
   const job = jobs[jobId];
   if (!jobId || !job) return;
   stopLivePoll();
+  stopRenderPoll();
   currentJobId = jobId;
   if (docSelect.value !== jobId) docSelect.value = jobId;
   refreshStatusUI(jobId);
@@ -203,14 +249,16 @@ function selectDoc(jobId) {
     fetch(`/markdown/${jobId}`)
       .then((r) => r.text())
       .then((md) => { if (currentJobId === jobId) sourceEl.textContent = md; });
-    renderedEl.src = `/result/${jobId}`;
+    showFinalRender(jobId);
   } else if (job.status === "error") {
     sourceEl.textContent = "Error: " + (job.error || "unknown");
+    renderedEl.removeAttribute("srcdoc");
     renderedEl.removeAttribute("src");
   } else {
-    // Queued/processing: stream the raw OCR output live into the middle panel.
+    // Queued/processing: stream the raw OCR output live into the middle panel,
+    // and render it live into the right panel.
     sourceEl.textContent = "Reading…";
-    renderedEl.removeAttribute("src");
     startLivePoll(jobId);
+    startRenderPoll(jobId);
   }
 }

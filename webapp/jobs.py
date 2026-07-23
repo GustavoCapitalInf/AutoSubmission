@@ -54,6 +54,14 @@ class JobStore:
             if job is not None:
                 job.pages_live[page] = job.pages_live.get(page, "") + chunk
 
+    def pages_live_ordered(self, job_id: str) -> list[str]:
+        """Snapshot the per-page live buffers in page order (thread-safe)."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return []
+            return [job.pages_live[p] for p in sorted(job.pages_live)]
+
     def set_result(self, job_id: str, markdown: str, html: str) -> None:
         with self._lock:
             job = self._jobs.get(job_id)
