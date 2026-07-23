@@ -59,6 +59,56 @@ def _split_fused_cell(cell_text: str) -> tuple[str, str] | None:
     return None
 
 
+# A monetary value at the very end of a cell, optionally preceded by other text.
+# e.g. "ID:9531796 INDN:HEARTLAND SE CO -74.88" -> prefix + "-74.88".
+_AMOUNT_BLEED_RE = re.compile(r"^(.+?)\s+(-?\$?[\d,]+\.\d{2})$", re.DOTALL)
+
+
+def fix_amount_column_bleed(text: str) -> str:
+    """Repair tables (BofA-style) where a wrapped transaction description bleeds
+    into the Amount column, so the amount cell reads '<description tail> <money>'.
+    In any table with an 'Amount' header, split such cells: keep only the trailing
+    money in the amount cell and append the leading text to that row's description
+    (the column immediately left of Amount). Cells that are money-only are untouched."""
+    def fix_table(match: re.Match) -> str:
+        table = match.group(0)
+        rows = re.findall(r"<tr>.*?</tr>", table, re.DOTALL)
+        if len(rows) < 2:
+            return table
+        header_cells = _CELL_RE.findall(rows[0])
+        amount_idx = next(
+            (i for i, c in enumerate(header_cells) if c.strip().lower() == "amount"),
+            None,
+        )
+        if amount_idx is None or amount_idx < 1:
+            return table
+        desc_idx = amount_idx - 1
+
+        changed = False
+        new_rows = [rows[0]]
+        for row in rows[1:]:
+            cells = _CELL_RE.findall(row)
+            if len(cells) <= amount_idx:
+                new_rows.append(row)
+                continue
+            m = _AMOUNT_BLEED_RE.match(cells[amount_idx].strip())
+            if m is None:
+                new_rows.append(row)
+                continue
+            prefix, money = m.group(1).strip(), m.group(2)
+            cells[amount_idx] = money
+            existing_desc = cells[desc_idx].strip()
+            cells[desc_idx] = f"{existing_desc} {prefix}".strip()
+            new_rows.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
+            changed = True
+
+        if not changed:
+            return table
+        return "<table>" + "".join(new_rows) + "</table>"
+
+    return _TABLE_RE.sub(fix_table, text)
+
+
 def split_fused_header_row(text: str) -> str:
     """Repair Unlimited-OCR's transaction tables where the column-header row is
     merged into the first data row (every first-row cell is "<HEADER><value>").
@@ -123,9 +173,8 @@ def ocr_page(image: Image.Image, *, settings: Settings | None = None, client=Non
                 },
             )
             text = resp.choices[0].message.content or ""
-            return split_fused_header_row(
-                strip_refusal_commentary(strip_det_tags(text))
-            )
+            cleaned = strip_refusal_commentary(strip_det_tags(text))
+            return fix_amount_column_bleed(split_fused_header_row(cleaned))
         except Exception as e:  # transient network / server errors
             last_exc = e
             time.sleep(min(2 ** attempt, 8) * 0.1)

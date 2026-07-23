@@ -2,7 +2,7 @@ from PIL import Image
 from ocr.config import Settings
 from ocr.ocr_client import (
     build_prompt, image_to_data_uri, ocr_page, strip_det_tags, strip_refusal_commentary,
-    split_fused_header_row,
+    split_fused_header_row, fix_amount_column_bleed,
 )
 
 
@@ -100,6 +100,43 @@ def test_split_fused_header_row_leaves_label_value_summary_untouched():
         "<tr><td>Chase Platinum</td><td>000000727011905</td><td>$28,314.72</td></tr></table>"
     )
     assert split_fused_header_row(summary) == summary
+
+
+def test_fix_amount_column_bleed_moves_wrapped_desc_out_of_amount():
+    # Real BofA output: wrapped description continuation bled into the Amount column.
+    raw = (
+        "<table><tr><td>Date</td><td>Description</td><td>Amount</td></tr>"
+        "<tr><td>11/03/25</td><td>ONLINE PAYROLL DES:PAYROLL ID:0000217279 CCD</td>"
+        "<td>ID:9531796 INDN:HEARTLAND FINANCIAL SE CO -74.88</td></tr>"
+        "<tr><td>11/05/25</td><td>THE HARTFORD DES:INSPMTCL CCD</td><td>-110.00</td></tr>"
+        "</table>"
+    )
+    out = fix_amount_column_bleed(raw)
+    # Broken row: amount cell is now just the money...
+    assert "<td>-74.88</td>" in out
+    assert "HEARTLAND FINANCIAL SE CO -74.88" not in out
+    # ...and the bled text was appended to that row's description.
+    assert ("<td>ONLINE PAYROLL DES:PAYROLL ID:0000217279 CCD "
+            "ID:9531796 INDN:HEARTLAND FINANCIAL SE CO</td>") in out
+    # Clean row (money only) is untouched.
+    assert "<tr><td>11/05/25</td><td>THE HARTFORD DES:INSPMTCL CCD</td><td>-110.00</td></tr>" in out
+
+
+def test_fix_amount_column_bleed_ignores_tables_without_amount_header():
+    other = (
+        "<table><tr><td>Item</td><td>Note</td></tr>"
+        "<tr><td>Foo</td><td>bar baz -74.88</td></tr></table>"
+    )
+    assert fix_amount_column_bleed(other) == other
+
+
+def test_fix_amount_column_bleed_leaves_clean_amount_table_untouched():
+    clean = (
+        "<table><tr><td>Date</td><td>Description</td><td>Amount</td></tr>"
+        "<tr><td>11/03/25</td><td>Online Banking transfer Confirmation# 7701269064</td>"
+        "<td>6,000.00</td></tr></table>"
+    )
+    assert fix_amount_column_bleed(clean) == clean
 
 
 class _M:  # generic attribute holder
