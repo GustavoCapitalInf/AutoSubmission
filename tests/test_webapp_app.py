@@ -22,9 +22,9 @@ def _mock_processing(monkeypatch, page_count=2):
     monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
     monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: page_count)
 
-    def fake_parse(pdf_bytes, source_file="", on_delta=None):
-        if on_delta:
-            on_delta("raw stream")
+    def fake_parse(pdf_bytes, source_file="", on_page_delta=None):
+        if on_page_delta:
+            on_page_delta(0, "raw stream")
         return _FakeDoc()
 
     monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)

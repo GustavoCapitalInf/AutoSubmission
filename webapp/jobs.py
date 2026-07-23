@@ -1,7 +1,7 @@
 from __future__ import annotations
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -14,7 +14,17 @@ class Job:
     error: str | None = None
     pdf_bytes: bytes | None = None
     page_count: int = 0
-    live_text: str = ""
+    # Per-page live OCR buffers, keyed by 0-based page index. Pages are OCR'd
+    # concurrently, so buffers fill out of order; `live_text` renders them back
+    # in page order with the "--- Page N ---" markers the viewer keys boxes on.
+    pages_live: dict[int, str] = field(default_factory=dict)
+
+    @property
+    def live_text(self) -> str:
+        return "".join(
+            f"\n\n--- Page {p + 1} ---\n\n{self.pages_live[p]}"
+            for p in sorted(self.pages_live)
+        )
 
 
 class JobStore:
@@ -38,11 +48,11 @@ class JobStore:
             if job is not None:
                 job.status = status
 
-    def append_live(self, job_id: str, chunk: str) -> None:
+    def append_page_live(self, job_id: str, page: int, chunk: str) -> None:
         with self._lock:
             job = self._jobs.get(job_id)
             if job is not None:
-                job.live_text += chunk
+                job.pages_live[page] = job.pages_live.get(page, "") + chunk
 
     def set_result(self, job_id: str, markdown: str, html: str) -> None:
         with self._lock:

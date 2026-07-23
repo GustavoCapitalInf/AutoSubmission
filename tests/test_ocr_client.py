@@ -13,7 +13,7 @@ def _img():
 
 def _settings():
     return Settings(base_url="http://x/v1", model="m", api_key="EMPTY", timeout=5,
-                    retries=3, ngram_size=35, window_size=128)
+                    retries=3, ngram_size=35, window_size=128, max_workers=3)
 
 
 def test_image_to_data_uri():

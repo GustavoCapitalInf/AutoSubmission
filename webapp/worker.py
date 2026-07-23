@@ -9,7 +9,7 @@ def run_job(job_id: str, pdf_bytes: bytes, filename: str, store: JobStore) -> No
     try:
         doc = parse_statement(
             pdf_bytes, source_file=filename,
-            on_delta=lambda chunk: store.append_live(job_id, chunk),
+            on_page_delta=lambda page, chunk: store.append_page_live(job_id, page, chunk),
         )
         markdown = doc.to_markdown()
         html = markdown_to_html(markdown, title=filename)

@@ -12,6 +12,7 @@ class Settings:
     retries: int
     ngram_size: int
     window_size: int
+    max_workers: int
 
 
 def load_settings(model_override: str | None = None) -> Settings:
@@ -23,4 +24,11 @@ def load_settings(model_override: str | None = None) -> Settings:
         retries=int(os.environ.get("OCR_RETRIES", "3")),
         ngram_size=int(os.environ.get("OCR_NGRAM_SIZE", "35")),
         window_size=int(os.environ.get("OCR_WINDOW_SIZE", "128")),
+        # How many pages to OCR concurrently. Defaults to 1 (sequential) because
+        # on a single 24GB GPU (3090) the model already saturates the GPU per
+        # page — concurrent requests thrash the KV cache and run SLOWER. On a
+        # larger GPU (A100/H100) with spare KV-cache headroom, vLLM batches the
+        # requests and this gives a real 2-3x speedup on multi-page statements
+        # without changing output; raise OCR_MAX_WORKERS there (e.g. 4).
+        max_workers=int(os.environ.get("OCR_MAX_WORKERS", "1")),
     )

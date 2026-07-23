@@ -3,7 +3,7 @@ from ocr.config import load_settings, Settings
 
 def test_defaults(monkeypatch):
     for k in ("OCR_BASE_URL", "OCR_MODEL", "OCR_API_KEY", "OCR_TIMEOUT",
-              "OCR_RETRIES", "OCR_NGRAM_SIZE", "OCR_WINDOW_SIZE"):
+              "OCR_RETRIES", "OCR_NGRAM_SIZE", "OCR_WINDOW_SIZE", "OCR_MAX_WORKERS"):
         monkeypatch.delenv(k, raising=False)
     s = load_settings()
     assert isinstance(s, Settings)
@@ -14,6 +14,7 @@ def test_defaults(monkeypatch):
     assert s.retries == 3
     assert s.ngram_size == 35
     assert s.window_size == 128
+    assert s.max_workers == 1
 
 
 def test_env_and_override(monkeypatch):
@@ -23,6 +24,7 @@ def test_env_and_override(monkeypatch):
     monkeypatch.setenv("OCR_RETRIES", "5")
     monkeypatch.setenv("OCR_NGRAM_SIZE", "40")
     monkeypatch.setenv("OCR_WINDOW_SIZE", "1024")
+    monkeypatch.setenv("OCR_MAX_WORKERS", "6")
     s = load_settings(model_override="some/other-model")
     assert s.base_url == "https://pod-8000.proxy.runpod.net/v1"
     assert s.api_key == "tok"
@@ -30,4 +32,5 @@ def test_env_and_override(monkeypatch):
     assert s.retries == 5
     assert s.ngram_size == 40
     assert s.window_size == 1024
+    assert s.max_workers == 6
     assert s.model == "some/other-model"
