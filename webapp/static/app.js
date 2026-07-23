@@ -14,6 +14,51 @@ const jobs = {};
 let currentJobId = null;
 let liveTimer = null;
 
+const boxToggle = document.getElementById("boxToggle");
+boxToggle.addEventListener("change", () => {
+  docEl.classList.toggle("hide-boxes", !boxToggle.checked);
+});
+
+const BOX_COLORS = {
+  title: "#ff5c5c", header: "#ffb020", text: "#5c8cff", table: "#23c4a8",
+  footer: "#8b8b95", figure: "#c77dff", list: "#9d7bff", image: "#c77dff",
+  page_number: "#8b8b95", caption: "#23c4a8",
+};
+const _BOX_RE = /<\|det\|>(\w+)\s*\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]/g;
+
+// Parse detected-region boxes out of the raw live output, grouped by 0-indexed page.
+// Coordinates are 0-1000 per-axis normalized, so they map to CSS percentages directly.
+function parseBoxes(liveText) {
+  const byPage = {};
+  const parts = (liveText || "").split(/---\s*Page\s+(\d+)\s*---/);
+  for (let i = 1; i < parts.length; i += 2) {
+    const page = parseInt(parts[i], 10) - 1;
+    const boxes = [];
+    let m;
+    _BOX_RE.lastIndex = 0;
+    while ((m = _BOX_RE.exec(parts[i + 1] || "")) !== null) {
+      boxes.push({ label: m[1], x0: +m[2], y0: +m[3], x1: +m[4], y1: +m[5] });
+    }
+    byPage[page] = boxes;
+  }
+  return byPage;
+}
+
+function drawBoxes(byPage) {
+  for (const page in byPage) {
+    const overlay = document.getElementById(`boxes-${page}`);
+    if (!overlay) continue;
+    overlay.innerHTML = byPage[page].map((b) => {
+      const color = BOX_COLORS[b.label] || "#5c8cff";
+      const left = b.x0 / 10, top = b.y0 / 10;
+      const w = (b.x1 - b.x0) / 10, h = (b.y1 - b.y0) / 10;
+      return `<div class="box" style="left:${left}%;top:${top}%;width:${w}%;height:${h}%;` +
+             `border-color:${color}"><span class="box-label" style="background:${color}">` +
+             `${b.label}</span></div>`;
+    }).join("");
+  }
+}
+
 uploadBtn.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", () => {
   uploadFiles(fileInput.files);
@@ -105,6 +150,7 @@ function startLivePoll(jobId) {
           const atBottom = mid.scrollTop + mid.clientHeight >= mid.scrollHeight - 40;
           sourceEl.textContent = data.live_text || "Reading…";
           if (atBottom) mid.scrollTop = mid.scrollHeight;  // follow the stream
+          drawBoxes(parseBoxes(data.live_text));           // boxes appear as detected
         } else {
           stopLivePoll();
           selectDoc(jobId);  // done/error -> load final panels
@@ -133,18 +179,25 @@ function selectDoc(jobId) {
   if (docSelect.value !== jobId) docSelect.value = jobId;
   refreshStatusUI(jobId);
 
-  // Left panel: original page images (available right after upload).
+  // Left panel: original page images + region-overlay containers.
   docEl.innerHTML = "";
   if (job.page_count > 0) {
     for (let n = 0; n < job.page_count; n++) {
-      const img = document.createElement("img");
-      img.src = `/page/${jobId}/${n}`;
-      img.alt = `Page ${n + 1}`;
-      docEl.appendChild(img);
+      const wrap = document.createElement("div");
+      wrap.className = "page-wrap";
+      wrap.innerHTML =
+        `<img src="/page/${jobId}/${n}" alt="Page ${n + 1}">` +
+        `<div class="overlay" id="boxes-${n}"></div>`;
+      docEl.appendChild(wrap);
     }
   } else {
     docEl.innerHTML = '<div class="placeholder">No pages.</div>';
   }
+
+  // Draw whatever boxes exist so far (works for done, and seeds the live view).
+  fetch(`/live/${jobId}`).then((r) => r.json()).then((data) => {
+    if (currentJobId === jobId) drawBoxes(parseBoxes(data.live_text));
+  }).catch(() => {});
 
   if (job.status === "done") {
     fetch(`/markdown/${jobId}`)
