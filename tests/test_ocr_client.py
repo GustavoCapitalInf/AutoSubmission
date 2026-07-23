@@ -2,6 +2,7 @@ from PIL import Image
 from ocr.config import Settings
 from ocr.ocr_client import (
     build_prompt, image_to_data_uri, ocr_page, strip_det_tags, strip_refusal_commentary,
+    split_fused_header_row,
 )
 
 
@@ -56,6 +57,49 @@ def test_strip_refusal_commentary_removes_inline_refusal():
 def test_strip_refusal_commentary_leaves_normal_text_alone():
     text = "CHASE\nAccount: 123\nBeginning balance $100.00"
     assert strip_refusal_commentary(text) == text
+
+
+def test_split_fused_header_row_splits_chase_deposits_table():
+    # Real Unlimited-OCR output: the header row is fused into the first data row.
+    raw = (
+        "<table>"
+        "<tr><td>DATE01/02</td><td>DESCRIPTIONOrig CO Name:Paymentech Trn: 0024333937Tc</td>"
+        "<td>AMOUNT$1,000.00</td></tr>"
+        "<tr><td>01/06</td><td>Orig CO Name:Paymentech Trn: 0066135043Tc</td><td>4,870.00</td></tr>"
+        "</table>"
+    )
+    out = split_fused_header_row(raw)
+    # A proper header row is recovered...
+    assert "<tr><td>DATE</td><td>DESCRIPTION</td><td>AMOUNT</td></tr>" in out
+    # ...and the first data row is clean.
+    assert "<td>01/02</td>" in out
+    assert "<td>Orig CO Name:Paymentech Trn: 0024333937Tc</td>" in out
+    assert "<td>$1,000.00</td>" in out
+    # No fused cell remains.
+    assert "DATE01/02" not in out
+    assert "AMOUNT$1,000.00" not in out
+    # The already-clean second row is untouched.
+    assert "<tr><td>01/06</td><td>Orig CO Name:Paymentech Trn: 0066135043Tc</td><td>4,870.00</td></tr>" in out
+
+
+def test_split_fused_header_row_leaves_clean_header_untouched():
+    # BofA-style: header row is already correct — must not be altered.
+    clean = (
+        "<table><tr><td>Date</td><td>Description</td><td>Amount</td></tr>"
+        "<tr><td>11/03/25</td><td>Online Banking transfer</td><td>6,000.00</td></tr></table>"
+    )
+    assert split_fused_header_row(clean) == clean
+
+
+def test_split_fused_header_row_leaves_label_value_summary_untouched():
+    # Chase balance summary: first cell is not a header+value fusion, and
+    # "ACCOUNT 000000..." has a space (legit label), so nothing must split.
+    summary = (
+        "<table><tr><td>Checking &amp; Savings</td><td>ACCOUNT</td>"
+        "<td>BEGINNING BALANCE THIS PERIOD</td></tr>"
+        "<tr><td>Chase Platinum</td><td>000000727011905</td><td>$28,314.72</td></tr></table>"
+    )
+    assert split_fused_header_row(summary) == summary
 
 
 class _M:  # generic attribute holder
