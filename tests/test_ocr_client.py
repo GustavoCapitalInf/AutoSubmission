@@ -3,6 +3,7 @@ from ocr.config import Settings
 from ocr.ocr_client import (
     build_prompt, image_to_data_uri, ocr_page, strip_det_tags, strip_refusal_commentary,
     split_fused_header_row, fix_amount_column_bleed, collapse_repeated_amounts,
+    collapse_repeated_page_numbers,
 )
 
 
@@ -56,6 +57,15 @@ def test_collapse_repeated_amounts_leaves_table_cells_untouched():
     # Amounts in table cells are separated by </td><td>, not bare whitespace.
     tbl = "<td>-$200.27</td><td>-$200.27</td><td>-$200.27</td><td>-$200.27</td>"
     assert collapse_repeated_amounts(tbl) == tbl
+
+
+def test_collapse_repeated_page_numbers():
+    assert collapse_repeated_page_numbers("Page 4 of 10 Page 4 of 10") == "Page 4 of 10"
+    assert collapse_repeated_page_numbers(
+        "Page 4 of 10 Page 4 of 10 Page 4 of 10") == "Page 4 of 10"
+    # Distinct pages must NOT collapse.
+    assert collapse_repeated_page_numbers(
+        "Page 4 of 10 Page 5 of 10") == "Page 4 of 10 Page 5 of 10"
 
 
 def test_strip_det_tags_removes_orphan_footer_tags():

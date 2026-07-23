@@ -64,6 +64,19 @@ def collapse_repeated_amounts(text: str) -> str:
     return _MONEY_RUN_RE.sub(repl, text)
 
 
+# A "Page N of M" (or "Page: N of M", "Page N/M") footer repeated consecutively.
+_PAGE_DUP_RE = re.compile(
+    r"(Page:?\s*\d+\s*(?:of|/)\s*\d+)(?:\s+\1)+", re.IGNORECASE
+)
+
+
+def collapse_repeated_page_numbers(text: str) -> str:
+    """Collapse a page-number footer that the model duplicated consecutively
+    (e.g. 'Page 4 of 10 Page 4 of 10') down to a single occurrence. Only exact
+    consecutive repeats collapse (backreference), so distinct pages are untouched."""
+    return _PAGE_DUP_RE.sub(r"\1", text)
+
+
 # Transaction-table column headers the model fuses into the first data row
 # (e.g. "DATE01/02", "AMOUNT$1,000.00"). Matched longest-first so multi-word
 # headers ("DATE PAID") win over their prefixes ("DATE").
@@ -206,6 +219,7 @@ def ocr_page(image: Image.Image, *, settings: Settings | None = None, client=Non
             text = resp.choices[0].message.content or ""
             cleaned = strip_refusal_commentary(strip_det_tags(text))
             cleaned = collapse_repeated_amounts(cleaned)
+            cleaned = collapse_repeated_page_numbers(cleaned)
             return fix_amount_column_bleed(split_fused_header_row(cleaned))
         except Exception as e:  # transient network / server errors
             last_exc = e
