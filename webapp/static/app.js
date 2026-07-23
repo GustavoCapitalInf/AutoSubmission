@@ -12,6 +12,7 @@ const body = document.body;
 // jobId -> {filename, status, error, page_count}
 const jobs = {};
 let currentJobId = null;
+let liveTimer = null;
 
 uploadBtn.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", () => {
@@ -19,7 +20,6 @@ fileInput.addEventListener("change", () => {
   fileInput.value = "";
 });
 
-// Drag-and-drop anywhere on the page.
 ["dragover", "dragenter"].forEach((ev) =>
   window.addEventListener(ev, (e) => { e.preventDefault(); body.classList.add("drag"); })
 );
@@ -47,7 +47,6 @@ function uploadFiles(fileList) {
         pollJob(job.id);
         if (firstNew === null) firstNew = job.id;
       }
-      // Auto-open the first uploaded doc if nothing is being viewed yet.
       if (firstNew && currentJobId === null) {
         docSelect.value = firstNew;
         selectDoc(firstNew);
@@ -79,12 +78,39 @@ function pollJob(jobId) {
         const opt = docSelect.querySelector(`option[value="${jobId}"]`);
         if (opt) opt.textContent = `${job.filename}  (${data.status})`;
 
-        // If this is the doc currently on screen, refresh the panels on any change.
         if (jobId === currentJobId && changed) selectDoc(jobId);
-
         if (data.status === "done" || data.status === "error") clearInterval(interval);
       });
   }, 2000);
+}
+
+function stopLivePoll() {
+  if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+}
+
+// Poll the live buffer fast so the raw OCR output streams into the middle panel.
+function startLivePoll(jobId) {
+  stopLivePoll();
+  liveTimer = setInterval(() => {
+    if (currentJobId !== jobId) { stopLivePoll(); return; }
+    fetch(`/live/${jobId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const job = jobs[jobId];
+        if (!job) return;
+        job.status = data.status;
+        job.error = data.error;
+        if (data.status === "processing" || data.status === "queued") {
+          const mid = sourceEl.parentElement;
+          const atBottom = mid.scrollTop + mid.clientHeight >= mid.scrollHeight - 40;
+          sourceEl.textContent = data.live_text || "Reading…";
+          if (atBottom) mid.scrollTop = mid.scrollHeight;  // follow the stream
+        } else {
+          stopLivePoll();
+          selectDoc(jobId);  // done/error -> load final panels
+        }
+      });
+  }, 400);
 }
 
 function refreshStatusUI(jobId) {
@@ -102,11 +128,12 @@ function refreshStatusUI(jobId) {
 function selectDoc(jobId) {
   const job = jobs[jobId];
   if (!jobId || !job) return;
+  stopLivePoll();
   currentJobId = jobId;
   if (docSelect.value !== jobId) docSelect.value = jobId;
   refreshStatusUI(jobId);
 
-  // Left panel: original page images (available as soon as the file is uploaded).
+  // Left panel: original page images (available right after upload).
   docEl.innerHTML = "";
   if (job.page_count > 0) {
     for (let n = 0; n < job.page_count; n++) {
@@ -119,7 +146,6 @@ function selectDoc(jobId) {
     docEl.innerHTML = '<div class="placeholder">No pages.</div>';
   }
 
-  // Middle + right panels depend on OCR completion.
   if (job.status === "done") {
     fetch(`/markdown/${jobId}`)
       .then((r) => r.text())
@@ -129,7 +155,9 @@ function selectDoc(jobId) {
     sourceEl.textContent = "Error: " + (job.error || "unknown");
     renderedEl.removeAttribute("src");
   } else {
-    sourceEl.textContent = "Processing…";
+    // Queued/processing: stream the raw OCR output live into the middle panel.
+    sourceEl.textContent = "Reading…";
     renderedEl.removeAttribute("src");
+    startLivePoll(jobId);
   }
 }

@@ -7,7 +7,10 @@ from .jobs import JobStore
 def run_job(job_id: str, pdf_bytes: bytes, filename: str, store: JobStore) -> None:
     store.set_status(job_id, "processing")
     try:
-        doc = parse_statement(pdf_bytes, source_file=filename)
+        doc = parse_statement(
+            pdf_bytes, source_file=filename,
+            on_delta=lambda chunk: store.append_live(job_id, chunk),
+        )
         markdown = doc.to_markdown()
         html = markdown_to_html(markdown, title=filename)
         store.set_result(job_id, markdown, html)

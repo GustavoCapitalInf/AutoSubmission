@@ -196,12 +196,25 @@ class _FakeCompletions:
         if self.fail_times > 0:
             self.fail_times -= 1
             raise RuntimeError("transient")
+        if kwargs.get("stream"):
+            return self._stream()
         m = _M()
         m.message = _M()
         m.message.content = self.text
         r = _M()
         r.choices = [m]
         return r
+
+    def _stream(self):
+        # Yield the text in a couple of chunks as streaming deltas.
+        mid = len(self.text) // 2
+        for part in (self.text[:mid], self.text[mid:]):
+            chunk = _M()
+            choice = _M()
+            choice.delta = _M()
+            choice.delta.content = part
+            chunk.choices = [choice]
+            yield chunk
 
 
 class _FakeChat:
@@ -242,3 +255,17 @@ def test_ocr_page_retries_then_succeeds():
     out = ocr_page(_img(), settings=_settings(), client=client)
     assert out == "ok"
     assert len(client.chat.completions.calls) == 3
+
+
+def test_ocr_page_streams_deltas_to_callback():
+    client = _FakeClient("HELLO WORLD 12345")
+    deltas = []
+    out = ocr_page(_img(), settings=_settings(), client=client,
+                   on_delta=lambda d: deltas.append(d))
+    # streaming was requested...
+    assert client.chat.completions.calls[0].get("stream") is True
+    # ...chunks were delivered live...
+    assert "".join(deltas) == "HELLO WORLD 12345"
+    assert len(deltas) >= 2
+    # ...and the returned value is still the (cleaned) full text.
+    assert out == "HELLO WORLD 12345"

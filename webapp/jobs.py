@@ -14,6 +14,7 @@ class Job:
     error: str | None = None
     pdf_bytes: bytes | None = None
     page_count: int = 0
+    live_text: str = ""
 
 
 class JobStore:
@@ -36,6 +37,12 @@ class JobStore:
             job = self._jobs.get(job_id)
             if job is not None:
                 job.status = status
+
+    def append_live(self, job_id: str, chunk: str) -> None:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is not None:
+                job.live_text += chunk
 
     def set_result(self, job_id: str, markdown: str, html: str) -> None:
         with self._lock:

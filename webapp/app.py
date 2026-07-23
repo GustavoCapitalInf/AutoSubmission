@@ -47,6 +47,14 @@ def status(job_id):
     return jsonify({"status": job.status, "error": job.error, "page_count": job.page_count})
 
 
+@app.route("/live/<job_id>")
+def live(job_id):
+    job = store.get(job_id)
+    if job is None:
+        abort(404)
+    return jsonify({"status": job.status, "live_text": job.live_text, "error": job.error})
+
+
 @app.route("/markdown/<job_id>")
 def markdown(job_id):
     job = store.get(job_id)

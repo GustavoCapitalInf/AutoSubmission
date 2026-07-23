@@ -189,7 +189,21 @@ def _build_client(settings: Settings):
     return OpenAI(base_url=settings.base_url, api_key=settings.api_key, timeout=settings.timeout)
 
 
-def ocr_page(image: Image.Image, *, settings: Settings | None = None, client=None) -> str:
+def postprocess(raw: str) -> str:
+    """Full cleanup chain applied to the model's raw output."""
+    cleaned = strip_refusal_commentary(strip_det_tags(raw))
+    cleaned = collapse_repeated_amounts(cleaned)
+    cleaned = collapse_repeated_page_numbers(cleaned)
+    return fix_amount_column_bleed(split_fused_header_row(cleaned))
+
+
+def ocr_page(image: Image.Image, *, settings: Settings | None = None, client=None,
+             on_delta=None) -> str:
+    """Run OCR on one page image and return the cleaned markdown.
+
+    If `on_delta` is given, the request is streamed and each raw text chunk is
+    passed to `on_delta(chunk)` as it arrives (for live display). The returned
+    value is always the fully-cleaned markdown regardless of streaming."""
     settings = settings or load_settings()
     if client is None:
         client = _build_client(settings)
@@ -200,27 +214,35 @@ def ocr_page(image: Image.Image, *, settings: Settings | None = None, client=Non
             {"type": "image_url", "image_url": {"url": image_to_data_uri(image)}},
         ],
     }]
+    kwargs = dict(
+        model=settings.model,
+        messages=messages,
+        temperature=0.0,
+        max_tokens=_MAX_TOKENS,
+        extra_body={
+            "skip_special_tokens": False,
+            "vllm_xargs": {
+                "ngram_size": settings.ngram_size,
+                "window_size": settings.window_size,
+            },
+        },
+    )
     last_exc = None
     for attempt in range(max(1, settings.retries)):
         try:
-            resp = client.chat.completions.create(
-                model=settings.model,
-                messages=messages,
-                temperature=0.0,
-                max_tokens=_MAX_TOKENS,
-                extra_body={
-                    "skip_special_tokens": False,
-                    "vllm_xargs": {
-                        "ngram_size": settings.ngram_size,
-                        "window_size": settings.window_size,
-                    },
-                },
-            )
-            text = resp.choices[0].message.content or ""
-            cleaned = strip_refusal_commentary(strip_det_tags(text))
-            cleaned = collapse_repeated_amounts(cleaned)
-            cleaned = collapse_repeated_page_numbers(cleaned)
-            return fix_amount_column_bleed(split_fused_header_row(cleaned))
+            if on_delta is None:
+                resp = client.chat.completions.create(**kwargs)
+                raw = resp.choices[0].message.content or ""
+            else:
+                raw = ""
+                for chunk in client.chat.completions.create(stream=True, **kwargs):
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta.content or ""
+                    if delta:
+                        raw += delta
+                        on_delta(delta)
+            return postprocess(raw)
         except Exception as e:  # transient network / server errors
             last_exc = e
             time.sleep(min(2 ** attempt, 8) * 0.1)

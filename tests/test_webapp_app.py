@@ -21,8 +21,13 @@ class _FakeDoc:
 def _mock_processing(monkeypatch, page_count=2):
     monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
     monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: page_count)
-    monkeypatch.setattr("webapp.worker.parse_statement",
-                        lambda pdf_bytes, source_file="": _FakeDoc())
+
+    def fake_parse(pdf_bytes, source_file="", on_delta=None):
+        if on_delta:
+            on_delta("raw stream")
+        return _FakeDoc()
+
+    monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)
 
 
 def _upload_one(client):
@@ -68,6 +73,22 @@ def test_markdown_before_done_returns_404():
     job = store.create("pending.pdf")
     resp = client.get(f"/markdown/{job.id}")
     assert resp.status_code == 404
+
+
+def test_live_route_returns_streamed_text(monkeypatch):
+    _mock_processing(monkeypatch)
+    client = app.test_client()
+    job_id = _upload_one(client)["jobs"][0]["id"]
+    resp = client.get(f"/live/{job_id}")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["status"] == "done"
+    assert "raw stream" in body["live_text"]
+
+
+def test_live_unknown_job_returns_404():
+    client = app.test_client()
+    assert app.test_client().get("/live/nope").status_code == 404
 
 
 def test_page_route_returns_png(monkeypatch):
