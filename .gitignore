@@ -3,4 +3,5 @@ __pycache__/
 *.pyc
 output/
 .pytest_cache/
+logs.txt
 # Do NOT ignore BankStatements/ — samples are needed for golden tests

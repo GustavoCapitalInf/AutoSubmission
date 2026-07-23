@@ -9,6 +9,12 @@ from .config import Settings, load_settings
 _TASK = "Free OCR."
 _MAX_TOKENS = 4096
 _DET_TAG_RE = re.compile(r"<\|det\|>.*?<\|/det\|>")
+_REFUSAL_RE = re.compile(
+    r"The image (?:provided )?is a[^.]*\.\s*"
+    r"It does not contain[^.]*\.\s*"
+    r"Therefore,?\s*no textual content can be extracted from (?:this|the) image\.?",
+    re.IGNORECASE,
+)
 
 
 def build_prompt() -> str:
@@ -19,6 +25,12 @@ def strip_det_tags(text: str) -> str:
     """Remove Unlimited-OCR's <|det|>label [x0,y0,x1,y1]<|/det|> region annotations,
     keeping the transcribed content that follows each tag."""
     return _DET_TAG_RE.sub("", text)
+
+
+def strip_refusal_commentary(text: str) -> str:
+    """Remove Unlimited-OCR's occasional inline refusal commentary on graphics it
+    can't parse (e.g. QR codes), which otherwise leaks into the markdown output."""
+    return _REFUSAL_RE.sub("", text)
 
 
 def image_to_data_uri(image: Image.Image) -> str:
@@ -61,7 +73,7 @@ def ocr_page(image: Image.Image, *, settings: Settings | None = None, client=Non
                 },
             )
             text = resp.choices[0].message.content or ""
-            return strip_det_tags(text)
+            return strip_refusal_commentary(strip_det_tags(text))
         except Exception as e:  # transient network / server errors
             last_exc = e
             time.sleep(min(2 ** attempt, 8) * 0.1)

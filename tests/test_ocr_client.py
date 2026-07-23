@@ -1,6 +1,8 @@
 from PIL import Image
 from ocr.config import Settings
-from ocr.ocr_client import build_prompt, image_to_data_uri, ocr_page, strip_det_tags
+from ocr.ocr_client import (
+    build_prompt, image_to_data_uri, ocr_page, strip_det_tags, strip_refusal_commentary,
+)
 
 
 def _img():
@@ -33,6 +35,27 @@ def test_strip_det_tags_handles_multiple_tags():
     raw = ("<|det|>header [1, 2, 3, 4]<|/det|>CHASE\n"
            "<|det|>text [5, 6, 7, 8]<|/det|>Account: 123")
     assert strip_det_tags(raw) == "CHASE\nAccount: 123"
+
+
+def test_strip_refusal_commentary_removes_inline_refusal():
+    raw = (
+        "STATEMENT OF ACCOUNT\n"
+        "The image provided is a QR code. It does not contain any text, "
+        "mathematical formulas, tables, or figures that can be processed "
+        "according to the OCR instructions. Therefore, no textual content "
+        "can be extracted from this image.\n"
+        "Go paperless."
+    )
+    out = strip_refusal_commentary(raw)
+    assert "QR code" not in out
+    assert "cannot be processed" not in out
+    assert "STATEMENT OF ACCOUNT" in out
+    assert "Go paperless." in out
+
+
+def test_strip_refusal_commentary_leaves_normal_text_alone():
+    text = "CHASE\nAccount: 123\nBeginning balance $100.00"
+    assert strip_refusal_commentary(text) == text
 
 
 class _M:  # generic attribute holder
