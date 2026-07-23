@@ -38,6 +38,18 @@ def test_strip_det_tags_handles_multiple_tags():
     assert strip_det_tags(raw) == "CHASE\nAccount: 123"
 
 
+def test_strip_det_tags_removes_orphan_footer_tags():
+    # Unclosed tags the model emits around footers (no <|/det|>).
+    raw = ("Total withdrawals and other debits -$200.27 "
+           "<|det|>footer [819, 811, 942, 825] -$200.27 "
+           "<|det|>footer [819, 811, 942, 825]] Page 4 of 10")
+    out = strip_det_tags(raw)
+    assert "<|det|>" not in out
+    assert "footer" not in out
+    assert "-$200.27" in out
+    assert "Page 4 of 10" in out
+
+
 def test_strip_refusal_commentary_removes_inline_refusal():
     raw = (
         "STATEMENT OF ACCOUNT\n"

@@ -50,6 +50,21 @@ def test_promote_headers_excludes_company_and_person_names():
     assert "## " not in out
 
 
+def test_promote_headers_promotes_titlecase_known_sections():
+    # BofA-style Title-Case section headers should be promoted too.
+    md = (
+        "Account summary\n"
+        "Deposits and other credits\n"
+        "Withdrawals and other debits\n"
+        "Deposits and other credits - continued"
+    )
+    out = promote_headers(md)
+    assert "## Account summary" in out
+    assert "## Deposits and other credits" in out
+    assert "## Withdrawals and other debits" in out
+    assert "## Deposits and other credits - continued" in out
+
+
 def test_promote_headers_rendered_as_h2():
     html = markdown_to_html("DEPOSITS AND ADDITIONS\n\nSome content", title="x")
     assert "<h2>DEPOSITS AND ADDITIONS</h2>" in html

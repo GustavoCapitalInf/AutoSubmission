@@ -8,7 +8,12 @@ from .config import Settings, load_settings
 
 _TASK = "Free OCR."
 _MAX_TOKENS = 4096
-_DET_TAG_RE = re.compile(r"<\|det\|>.*?<\|/det\|>")
+# Well-formed region tag: <|det|>label [x0,y0,x1,y1]<|/det|>
+_DET_PAIR_RE = re.compile(r"<\|det\|>.*?<\|/det\|>")
+# Orphan tag (no closing), e.g. "<|det|>footer [819, 811, 942, 825]" or "...]]"
+_DET_ORPHAN_RE = re.compile(r"<\|det\|>\s*\w+\s*\[[^\]\n]*\]+")
+# Any bare leftover tag.
+_DET_BARE_RE = re.compile(r"<\|/?det\|>")
 _REFUSAL_RE = re.compile(
     r"The image (?:provided )?is a[^.]*\.\s*"
     r"It does not contain[^.]*\.\s*"
@@ -23,8 +28,12 @@ def build_prompt() -> str:
 
 def strip_det_tags(text: str) -> str:
     """Remove Unlimited-OCR's <|det|>label [x0,y0,x1,y1]<|/det|> region annotations,
-    keeping the transcribed content that follows each tag."""
-    return _DET_TAG_RE.sub("", text)
+    keeping the transcribed content that follows each tag. Handles both well-formed
+    pairs and orphan/unclosed tags (which the model emits around footers)."""
+    text = _DET_PAIR_RE.sub("", text)
+    text = _DET_ORPHAN_RE.sub("", text)
+    text = _DET_BARE_RE.sub("", text)
+    return text
 
 
 def strip_refusal_commentary(text: str) -> str:

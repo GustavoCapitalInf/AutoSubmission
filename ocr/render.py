@@ -14,9 +14,34 @@ _NAME_TOKENS = {
     "DBA", "GROUP", "N.A.", "N.A", "ASSOCIATION", "COMPANY", "TRUST", "ESTATE",
 }
 
+# Known statement section titles (lowercased), matched case-insensitively so
+# Title-Case banks (BofA: "Account summary", "Deposits and other credits") get
+# promoted too, not just ALL-CAPS ones (Chase). A trailing "- continued" /
+# "(continued)" is tolerated.
+_KNOWN_TITLES = {
+    "account summary", "account activity", "deposits and other credits",
+    "withdrawals and other debits", "total deposits and other credits",
+    "total withdrawals and other debits", "your checking account",
+    "your savings account", "checks", "service fees", "daily ledger balances",
+    "daily balance summary", "deposits and additions", "electronic withdrawals",
+    "checking summary", "savings summary", "checks paid", "transaction detail",
+    "customer service information", "consolidated balance summary",
+    "atm & debit card withdrawals", "atm & debit card summary",
+    "service charge summary", "service charge detail", "overdraft protection",
+    "interest summary", "fees", "assets", "total assets",
+}
+_CONTINUED_RE = re.compile(r"\s*[-(]\s*continued\s*\)?$", re.IGNORECASE)
+
+
+def _is_known_title(s: str) -> bool:
+    base = _CONTINUED_RE.sub("", s.strip()).strip().lower()
+    return base in _KNOWN_TITLES
+
 
 def _is_section_title(line: str) -> bool:
     s = line.strip()
+    if _is_known_title(s):
+        return True
     if not (3 <= len(s) <= 50):
         return False
     if "<" in s or ">" in s or "," in s:
