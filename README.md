@@ -65,6 +65,29 @@ Output: one `.md` with a provenance comment header and pages separated by
 `--- Page N ---`. The model's own `<|det|>...<|/det|>` region-annotation tags are
 stripped automatically, leaving clean text and HTML tables.
 
+## Local web frontend
+
+A dark, 3-panel document viewer (original page images | markdown source |
+rendered markdown) with a toolbar to upload PDFs, switch between documents, and
+download results. Easiest way to launch (PowerShell) — pass the current RunPod
+pod id and it derives the endpoint + key for you:
+
+```powershell
+.\run.ps1 -PodId jy39vysntpffa0
+```
+
+Or set the env vars yourself and run it directly with the venv Python (note:
+plain `python` is the wrong interpreter — use the venv one so the deps resolve):
+
+```powershell
+$env:OCR_BASE_URL = "https://<pod-id>-8000.proxy.runpod.net/v1"
+$env:OCR_API_KEY  = "sk-<pod-id>"
+.venv\Scripts\python.exe -m webapp.app
+```
+
+Then open `http://localhost:5000`. Uses the same `OCR_*` environment variables as
+the CLI.
+
 ## Tests
 
 ```bash
