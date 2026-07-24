@@ -1,0 +1,8 @@
+# Dependencies for the downstream analysis layer (analysis/ + analyze.py), which
+# turns the OCR markdown into structured metrics and MCA/lender findings using
+# Google Gemini. Install on top of the base client:
+#   .venv/bin/python -m pip install -r requirements-analysis.txt
+# Needs a GEMINI_API_KEY in a (gitignored) .env file.
+google-genai
+python-dotenv
+pydantic

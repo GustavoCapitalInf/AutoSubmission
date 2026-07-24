@@ -42,6 +42,15 @@ _load_lock = threading.Lock()
 _infer_lock = threading.Lock()
 
 
+def _sdpa_math():
+    """Force the MATH attention backend. The vision encoder calls
+    scaled_dot_product_attention directly, and on RDNA3 (gfx1101) the experimental
+    flash/mem-efficient ROCm kernels fault with an HSA hardware exception on some
+    image sizes. The math backend is always correct on ROCm (a bit slower)."""
+    from torch.nn.attention import sdpa_kernel, SDPBackend
+    return sdpa_kernel(SDPBackend.MATH)
+
+
 def _load_model():
     global _model, _tokenizer
     with _load_lock:
@@ -104,7 +113,7 @@ def _run_ocr(prompt: str, img_b64: str, ngram_size: int, window_size: int) -> st
     _load_model()
     tmp, img_path = _write_temp_image(img_b64)
     try:
-        with _infer_lock:
+        with _infer_lock, _sdpa_math():
             result = _model.infer(
                 _tokenizer,
                 prompt=prompt,
@@ -150,7 +159,7 @@ def _run_ocr_stream(prompt: str, img_b64: str, ngram_size: int, window_size: int
 
     def worker():
         try:
-            with _infer_lock:
+            with _infer_lock, _sdpa_math():
                 # redirect_stdout is process-global, but _infer_lock guarantees a
                 # single in-flight infer, and nothing else writes stdout per-request.
                 with contextlib.redirect_stdout(_QueueWriter(q)):

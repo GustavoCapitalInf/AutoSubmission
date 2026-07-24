@@ -5,7 +5,7 @@ from .document import StatementMarkdown
 from .config import load_settings
 
 
-def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 200,
+def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
                     model: str | None = None, page_ocr_fn=None,
                     on_page_delta=None, max_workers: int | None = None) -> StatementMarkdown:
     """Rasterize the PDF and OCR its pages into one StatementMarkdown.

@@ -10,7 +10,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Bank statement PDF -> Markdown via Unlimited-OCR.")
     ap.add_argument("pdf", help="Path to the statement PDF")
     ap.add_argument("--out", help="Write output here instead of stdout")
-    ap.add_argument("--dpi", type=int, default=200)
+    ap.add_argument("--dpi", type=int, default=300)
     ap.add_argument("--model", default=None, help="Override the model name")
     ap.add_argument("--html", action="store_true",
                     help="Render as a styled HTML page instead of raw Markdown")

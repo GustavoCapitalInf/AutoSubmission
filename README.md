@@ -1,9 +1,11 @@
 # Bank Statement → Markdown (Unlimited-OCR)
 
 Converts a bank-statement PDF into one Markdown file by running each page through
-`baidu/Unlimited-OCR` on an **OpenAI-compatible endpoint**. The markdown is meant
-to be handed to a downstream AI that does the math (e.g. daily average balance).
-This tool does no math and no JSON extraction.
+`baidu/Unlimited-OCR` on an **OpenAI-compatible endpoint**. The OCR stage itself
+does no math — it only transcribes. The downstream
+[analysis layer](#analysis-layer--statement--metrics--mcalender-findings-gemini)
+turns that markdown into structured metrics (daily average balance, deposits, NSF
+counts) and MCA/lender findings.
 
 ## How it runs
 
@@ -83,6 +85,16 @@ Notes:
 - The vLLM-only request fields (`skip_special_tokens`, `vllm_xargs`) are accepted
   and mapped where meaningful (`ngram_size`→`no_repeat_ngram_size`,
   `window_size`→`ngram_window`) or ignored.
+- **RDNA3 stability fix:** the server forces the math SDPA backend during
+  inference. The vision encoder's `scaled_dot_product_attention` otherwise hits an
+  experimental ROCm flash/mem-efficient kernel that faults with an HSA hardware
+  exception on gfx1101 for larger image tensors. Math is always correct (slightly
+  slower). Keep `image_size` at 640 (Gundam crop) — `image_size=1024` crashes even
+  with the math backend.
+- **DPI 300 is the tuned default** (`parse.py`/pipeline). On dense check-detail
+  tables, 200→300 measurably recovers amounts the model dropped at 200; 400 is
+  *worse* (oversampling degrades the crop tiling). The prompt stays `Free OCR.` —
+  the `<image>\n<|grounding|>…` markdown prompts return empty output on this model.
 
 ## Configure the endpoint
 
@@ -101,7 +113,7 @@ requests instead of single pages.
 
 ```bash
 .venv/Scripts/python.exe parse.py "BankStatements/CHASE_BANK/Chase Salomon January.pdf" --out output/chase.md
-# flags: --out FILE (else stdout), --dpi N (default 200), --model NAME (override)
+# flags: --out FILE (else stdout), --dpi N (default 300), --model NAME (override)
 ```
 
 Output: one `.md` with a provenance comment header and pages separated by
@@ -130,6 +142,42 @@ $env:OCR_API_KEY  = "sk-<pod-id>"
 
 Then open `http://localhost:5000`. Uses the same `OCR_*` environment variables as
 the CLI.
+
+## Analysis layer — statement → metrics + MCA/lender findings (Gemini)
+
+The `analysis/` package turns the OCR markdown into structured underwriting data.
+It's built on **separation of concerns**: an LLM (Google **Gemini**, cheap
+`gemini-3.5-flash-lite`) only transcribes the statement into a normalized ledger;
+all math and detection is deterministic Python. Stages:
+
+1. **Extract** (`extract.py`) — markdown → `Statement` via Gemini structured
+   outputs (Pydantic `response_schema`). Captures line items *and* the bank's own
+   printed summary block (totals, counts, printed average balance).
+2. **Reconcile** (`reconcile.py`) — `beginning + Σamounts == ending`, running-
+   balance continuity, and **line-item coverage vs the bank's stated totals**.
+   Catches OCR/extraction errors before any number is trusted. A statement that
+   fails reconciliation is automatically re-extracted with the stronger
+   `gemini-3.5-flash` (you pay flash-lite prices for the clean majority).
+3. **Metrics** (`metrics.py`) — daily average balance (from dated running
+   balances, carrying forward across no-activity days), or the bank's printed
+   average when line items are incomplete; deposits/withdrawals, NSF count,
+   negative days.
+4. **Detect** (`detect.py`) — MCA/lender detection: a known-funder dictionary
+   plus recurring fixed-debit pattern detection (the daily/weekly remittance
+   signature), each returning the evidence transactions.
+
+```bash
+# one-time: deps + API key (key lives in a gitignored .env, never in code)
+.venv/bin/python -m pip install -r requirements-analysis.txt
+echo 'GEMINI_API_KEY=your-key-here' > .env
+
+# analyze an OCR'd statement
+.venv/bin/python analyze.py output/ace.md              # human-readable report
+.venv/bin/python analyze.py output/ace.md --json out.json
+```
+
+Tune via env: `GEMINI_MODEL`, `GEMINI_ESCALATION_MODEL`. Extend the funder list in
+`analysis/detect.py::KNOWN_FUNDERS`.
 
 ## Tests
 
