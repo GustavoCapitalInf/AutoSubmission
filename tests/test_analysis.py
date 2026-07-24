@@ -57,18 +57,32 @@ def test_reconcile_flags_scrambled_summary():
     )
     r = reconcile(s)
     assert not r.ok
+    assert r.summary_ok is False
     assert any("summary does not reconcile" in i for i in r.issues)
 
 
-def test_reconcile_good_summary_passes_with_service_charge_residual():
-    # Real F&M values: residual is the $8 service charge listed outside the total.
+def test_reconcile_good_summary_with_separate_service_charge():
+    # Real F&M values: -78.68 + 7329.22 - 3945.12 - 8.00 SC + 0 interest == 3297.42
     s = Statement(
         beginning_balance=-78.68, ending_balance=3297.42,
         stated_total_credits=7329.22, stated_total_debits=3945.12,
+        stated_service_charge=8.00, stated_interest_paid=0.0,
         transactions=[],
     )
     r = reconcile(s)
+    assert r.summary_ok is True
     assert not any("summary does not reconcile" in i for i in r.issues)
+
+
+def test_reconcile_good_summary_service_charge_folded_into_debits():
+    # Bank folds the $8 charge into the debit total; no separate SC field.
+    s = Statement(
+        beginning_balance=-78.68, ending_balance=3297.42,
+        stated_total_credits=7329.22, stated_total_debits=3953.12,  # 3945.12 + 8
+        transactions=[],
+    )
+    r = reconcile(s)
+    assert r.summary_ok is True
 
 
 def test_reconcile_debit_coverage_flags_incomplete_ocr():

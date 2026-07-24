@@ -19,6 +19,9 @@ _TOL = 0.01
 class ReconResult:
     ok: bool
     issues: list[str] = field(default_factory=list)
+    # The backbone signal for small-bank/image statements: did the bank's OWN
+    # stated summary reconcile? None when there aren't enough stated fields to tell.
+    summary_ok: bool | None = None
     # Filled when the inputs are present, for reporting.
     computed_ending: float | None = None
     stated_ending: float | None = None
@@ -32,6 +35,7 @@ class ReconResult:
 
 def reconcile(stmt: Statement) -> ReconResult:
     issues: list[str] = []
+    summary_ok: bool | None = None
 
     total = sum(t.amount for t in stmt.transactions)
     computed_ending = stated_ending = sum_delta = None
@@ -65,21 +69,28 @@ def reconcile(stmt: Statement) -> ReconResult:
         if t.running_balance is not None:
             prev = t.running_balance
 
-    # Does the bank's OWN stated summary reconcile? Catches a scrambled summary
-    # extraction (credits/debits swapped, a count read as an amount) — otherwise
-    # we'd "fall back" to figures that are themselves wrong. A small residual is
-    # normal (a service charge listed outside the debit total).
+    # Does the bank's OWN stated summary reconcile? This is the backbone check for
+    # small-bank / image statements where line items are incomplete but the summary
+    # is authoritative. Catches a scrambled extraction (credits/debits swapped, a
+    # count read as an amount). The exact identity is:
+    #     beginning + credits - debits - service_charge + interest == ending
+    # but some banks fold the service charge into the debit total, so we accept the
+    # summary if it reconciles either WITH or WITHOUT subtracting it.
     if (stmt.beginning_balance is not None and stmt.ending_balance is not None
             and stmt.stated_total_credits is not None and stmt.stated_total_debits is not None):
-        resid = round(stmt.beginning_balance + stmt.stated_total_credits
-                      - stmt.stated_total_debits - stmt.ending_balance, 2)
-        if abs(resid) > max(50.0, 0.02 * abs(stmt.ending_balance)):
+        sc = stmt.stated_service_charge or 0.0
+        interest = stmt.stated_interest_paid or 0.0
+        base = stmt.beginning_balance + stmt.stated_total_credits - stmt.stated_total_debits + interest
+        resid_sc = round(base - sc - stmt.ending_balance, 2)      # service charge separate
+        resid_no = round(base - stmt.ending_balance, 2)           # service charge folded into debits
+        resid = min((resid_sc, resid_no), key=abs)
+        summary_ok = abs(resid) <= 1.00
+        if not summary_ok:
             issues.append(
                 f"bank-stated summary does not reconcile (off by {resid:+.2f}): "
-                f"beginning {stmt.beginning_balance:.2f} + stated credits "
-                f"{stmt.stated_total_credits:.2f} - stated debits {stmt.stated_total_debits:.2f} "
-                f"!= ending {stmt.ending_balance:.2f} — the summary figures look "
-                f"mis-extracted; don't trust them either"
+                f"beginning {stmt.beginning_balance:.2f} + credits {stmt.stated_total_credits:.2f} "
+                f"- debits {stmt.stated_total_debits:.2f} != ending {stmt.ending_balance:.2f} "
+                f"— the summary figures look mis-extracted; don't trust them either"
             )
 
     # Coverage vs the bank's own stated totals (informational, not pass/fail):
@@ -102,7 +113,7 @@ def reconcile(stmt: Statement) -> ReconResult:
 
     ok = not issues
     return ReconResult(
-        ok=ok, issues=issues,
+        ok=ok, issues=issues, summary_ok=summary_ok,
         computed_ending=computed_ending, stated_ending=stated_ending,
         sum_delta=sum_delta, continuity_breaks=breaks,
         credit_coverage=credit_cov, debit_coverage=debit_cov,

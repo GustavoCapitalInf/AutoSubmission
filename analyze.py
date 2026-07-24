@@ -25,6 +25,11 @@ def _render(report: Report) -> str:
     L.append(f"Model: {report.model_used}{'  (escalated)' if report.escalated else ''}")
 
     L.append("\n## Reconciliation")
+    # The backbone signal: is the bank's own printed summary internally consistent?
+    if r.summary_ok is True:
+        L.append("  Bank summary: reconciles ✓  (stated totals are trustworthy)")
+    elif r.summary_ok is False:
+        L.append("  Bank summary: INCONSISTENT ✗  (stated totals look mis-extracted — needs review)")
     L.append("  OK" if r.ok else "  ISSUES FOUND — trust the bank-stated figures over line-item sums:")
     for issue in r.issues:
         L.append(f"    - {issue}")
@@ -49,7 +54,10 @@ def _render(report: Report) -> str:
     if s.stated_total_debits is not None:
         wd += f"   | bank-stated ${s.stated_total_debits:,.2f} ({s.stated_debit_count})"
     L.append(wd)
-    L.append(f"  NSF / overdraft rows  : {m.nsf_count}")
+    nsf = f"  NSF / overdraft       : {m.nsf_count} (line items)"
+    if m.stated_nsf_count is not None:
+        nsf += f"   | bank-stated {m.stated_nsf_count}"
+    L.append(nsf)
     for note in m.notes:
         L.append(f"  note: {note}")
 

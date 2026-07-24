@@ -33,17 +33,32 @@ Rules:
 - `date`: output full ISO dates (YYYY-MM-DD). Statements often print MM/DD with no
   year — infer the year from the statement period (watch for a Dec->Jan rollover).
 - `running_balance`: the balance printed after a row, if present; otherwise null.
-- Include summary-line amounts (beginning/ending balance) at the statement level,
-  not as transactions. List each real transaction once, in statement order.
-- Also capture the bank's own printed SUMMARY block into the statement-level
-  `stated_*` fields: total deposits/credits, total checks/debits (as a positive
-  number), their counts, days in period, and any printed average balance
-  ("Average Ledger", "Average Collected", "Average Daily Balance"). These are the
-  bank's totals — copy them; do not add them up yourself.
-- OCR often misplaces amounts: a debit's amount may be glued into its description
-  text with the Amount column left blank (e.g. "PREM PMT BCBS OF AL 32.00"). When
-  a row's amount cell is empty but a monetary value appears at the end of its
-  description, use that trailing value as the transaction amount.
+- Capture the bank's own printed SUMMARY block into the statement-level `stated_*`
+  and beginning/ending balance fields. This is the most important part — on many
+  statements (especially small banks) the per-transaction detail is incomplete but
+  the summary is authoritative. Copy the bank's totals; never add them up yourself.
+  Summary fields: beginning/ending balance, total deposits/credits, total
+  checks/debits (positive), their counts, service charge, interest paid, days in
+  period, and any printed average balance ("Average Ledger", "Average Collected",
+  "Average Daily Balance").
+  Only set `stated_nsf_count` if the statement explicitly prints a COUNT of NSF /
+  returned / overdraft ITEMS for THIS period. Many statements instead show
+  overdraft/returned-item FEES as dollar amounts, often in a "This Period /
+  Year-to-Date" table — those are not counts; leave `stated_nsf_count` null. Never
+  guess it from a dollar amount, a service charge, or a year-to-date figure.
+- SUMMARY ALIGNMENT — read carefully. Small-bank statements often print the
+  summary as a column of LABELS followed by a separate column of VALUES, e.g.:
+      Previous Balance / 3 Deposits/Credits / 26 Checks/Debits / Service Charge /
+      Interest Paid / Ending Balance   ...then...   78.68- / 7,329.22 / 3,945.12 /
+      8.00 / .00 / 3,297.42
+  Align them BY POSITION: the 1st value goes with the 1st label, etc. Do NOT read a
+  count as an amount (e.g. "26 Checks/Debits" means count=26 with the amount on the
+  values side — here 3,945.12). A trailing "-" means negative (78.68- = -78.68).
+  Sanity check yourself: beginning + credits - debits - service_charge + interest
+  should equal the ending balance. If it doesn't, you mis-aligned — fix it.
+- A transaction is one real posting. List each once, in order. OCR often misplaces
+  amounts: a debit's amount may be glued into its description with the Amount cell
+  blank (e.g. "PREM PMT BCBS OF AL 32.00"); use that trailing value as the amount.
 - Pages are separated by "--- Page N ---" markers; merge them into one statement.
 
 Statement markdown follows:

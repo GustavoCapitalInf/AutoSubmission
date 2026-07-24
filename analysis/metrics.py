@@ -52,7 +52,8 @@ class Metrics:
     total_withdrawals: float = 0.0
     num_deposits: int = 0
     num_withdrawals: int = 0
-    nsf_count: int = 0
+    nsf_count: int = 0                     # from line items (a lower bound if detail is incomplete)
+    stated_nsf_count: int | None = None    # bank-printed count this period, when available
     notes: list[str] = field(default_factory=list)
 
 
@@ -93,6 +94,7 @@ def daily_closing_balances(stmt: Statement) -> dict[date, float]:
 def compute_metrics(stmt: Statement) -> Metrics:
     m = Metrics()
     m.stated_average_balance = stmt.stated_average_balance
+    m.stated_nsf_count = stmt.stated_nsf_count
     for t in stmt.transactions:
         if t.amount >= 0:
             m.total_deposits += t.amount

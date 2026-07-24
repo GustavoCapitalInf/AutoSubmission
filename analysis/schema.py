@@ -43,5 +43,11 @@ class Statement(BaseModel):
         default=None,
         description="Bank-printed average balance if shown ('Average Ledger', 'Average Collected', 'Average Daily Balance'). Prefer the ledger/daily figure.",
     )
+    stated_service_charge: float | None = Field(
+        default=None, description="Bank-stated total service charge / fees for the period, as a POSITIVE magnitude.")
+    stated_interest_paid: float | None = Field(
+        default=None, description="Bank-stated interest paid/credited for the period, as a POSITIVE magnitude.")
+    stated_nsf_count: int | None = Field(
+        default=None, description="Bank-stated count of NSF / overdraft / returned items THIS period (not year-to-date), if printed.")
 
     transactions: list[Transaction] = Field(default_factory=list)
