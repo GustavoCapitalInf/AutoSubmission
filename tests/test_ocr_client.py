@@ -4,7 +4,7 @@ from ocr.ocr_client import (
     build_prompt, image_to_data_uri, ocr_page, strip_det_tags, strip_refusal_commentary,
     split_fused_header_row, fix_amount_column_bleed, collapse_repeated_amounts,
     collapse_repeated_page_numbers, embed_image_regions, strip_placeholder_markers,
-    postprocess, looks_missegmented,
+    postprocess, looks_missegmented, repair_fused_amount_table,
 )
 
 
@@ -22,6 +22,39 @@ def test_looks_missegmented_ignores_normal_tables():
     assert not looks_missegmented(_CLEAN_TABLE)
     # a legit single amount cell (not a run) must not trip it
     assert not looks_missegmented("<table><tr><td>AMOUNT($)</td></tr><tr><td>5.00</td></tr></table>")
+
+
+def test_repair_fused_amount_table_partial_fusion_and_spill():
+    # Chase-style: header fused into row 1, description spilled into a 4th column,
+    # and later rows alternate 3-cell / 4-cell.
+    fused = (
+        "<table>"
+        "<tr><td>DATE04/06</td><td>DESCRIPTIONOrig CO Name:Sq</td>"
+        "<td>Orig ID:9424 Ind Name:Choudhri</td><td>AMOUNT260.00</td></tr>"
+        "<tr><td>04/06</td><td>Payment Received</td><td>04/05 Lyft Card 0298</td><td>235.17</td></tr>"
+        "<tr><td>04/13</td><td>Zelle From Mumtaz</td><td>450.00</td></tr>"
+        "</table>"
+    )
+    out = repair_fused_amount_table(fused)
+    assert "<td>DATE</td><td>DESCRIPTION</td><td>AMOUNT</td>" in out  # clean header
+    assert "DATE04/06" not in out and "AMOUNT260.00" not in out       # fusion gone
+    # first data row reconstructed from the fused header row, description merged
+    assert "<td>04/06</td><td>Orig CO Name:Sq Orig ID:9424 Ind Name:Choudhri</td><td>260.00</td></tr>" in out
+    # 4-cell row collapsed to 3, description merged, amount preserved
+    assert "<td>04/06</td><td>Payment Received 04/05 Lyft Card 0298</td><td>235.17</td></tr>" in out
+    # 3-cell row unchanged
+    assert "<td>04/13</td><td>Zelle From Mumtaz</td><td>450.00</td></tr>" in out
+
+
+def test_repair_fused_amount_table_leaves_normal_tables():
+    # A correct table (and a legit "AMOUNT($)" header) must be untouched.
+    clean = ("<table><tr><td>DATE</td><td>CHECK #</td><td>AMOUNT($)</td></tr>"
+             "<tr><td>03/23</td><td>207</td><td>74.08</td></tr></table>")
+    assert repair_fused_amount_table(clean) == clean
+    # a debit/credit/balance table must never be collapsed to 3 columns
+    dcb = ("<table><tr><td>DATE04/06</td><td>DESCRIPTIONx</td><td>DEBIT10.00</td>"
+           "<td>BALANCE5.00</td></tr></table>")
+    assert repair_fused_amount_table(dcb) == dcb
 
 
 def _img():

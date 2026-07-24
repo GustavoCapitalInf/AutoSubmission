@@ -205,12 +205,64 @@ _ORPHAN_AMOUNT_TABLE_RE = re.compile(
     r"(?:\s*<tr>\s*<td[^>]*>\s*-?\$?[\d,]+\.\d{2}\s*</td>\s*</tr>){2,}",
     re.IGNORECASE,
 )
-
-
 def looks_missegmented(text: str) -> bool:
     """True if the output shows the column-split mis-segmentation (a standalone
     single-column amount table). Used to trigger a lower-DPI re-OCR of the page."""
     return bool(_ORPHAN_AMOUNT_TABLE_RE.search(text))
+
+
+# A first-row cell where a column header is glued onto its first data value, e.g.
+# "DATE04/06", "AMOUNT260.00", "DESCRIPTIONOrig CO...". The lookahead requires a
+# value-like continuation so legit headers ("AMOUNT($)", "DATE PAID") never match.
+_FUSED_HEADER_CELL_RE = re.compile(r"^(DATE|AMOUNT|BALANCE|DESCRIPTION)(?=[0-9A-Z][0-9a-z])")
+_MONEY_CELL_RE = re.compile(r"^-?\$?[\d,]+\.\d{2}$")
+
+
+def repair_fused_amount_table(text: str) -> str:
+    """Repair a DATE|DESCRIPTION|AMOUNT transaction table where the model fused the
+    header row into the first data row AND split a wrapped description into an
+    extra column (Chase-style). split_fused_header_row only handles the case where
+    every cell is fused; this handles the partial fusion + description spill.
+
+    Normalizes every row to three columns: first cell = date, last cell = amount,
+    everything between merged as the description. Only fires when the first row's
+    leading cell is a fused DATE and its trailing cell is a fused AMOUNT (never a
+    debit/credit/balance table), so other tables are left untouched."""
+    def fix(match: re.Match) -> str:
+        table = match.group(0)
+        rows = re.findall(r"<tr>(.*?)</tr>", table, re.DOTALL)
+        if len(rows) < 2:
+            return table
+        fc = _CELL_RE.findall(rows[0])
+        if len(fc) < 3:
+            return table
+        h0 = _FUSED_HEADER_CELL_RE.match(fc[0].strip())
+        hL = _FUSED_HEADER_CELL_RE.match(fc[-1].strip())
+        if not (h0 and h0.group(1) == "DATE" and hL and hL.group(1) == "AMOUNT"):
+            return table
+
+        def unfuse(cell: str) -> str:
+            m = _FUSED_HEADER_CELL_RE.match(cell.strip())
+            return cell.strip()[len(m.group(1)):] if m else cell.strip()
+
+        # Reconstruct the first data row hidden inside the fused header row.
+        date0 = fc[0].strip()[len("DATE"):]
+        amt0 = fc[-1].strip()[len("AMOUNT"):]
+        desc0 = " ".join(x for x in (unfuse(c) for c in fc[1:-1]) if x)
+        out = ["<tr><td>DATE</td><td>DESCRIPTION</td><td>AMOUNT</td></tr>",
+               f"<tr><td>{date0.strip()}</td><td>{desc0}</td><td>{amt0.strip()}</td></tr>"]
+        for row in rows[1:]:
+            cells = [c.strip() for c in _CELL_RE.findall(row)]
+            # Only collapse genuine transaction rows (last cell is money); leave
+            # totals / "continued" / colspan rows as they are.
+            if len(cells) >= 3 and _MONEY_CELL_RE.match(cells[-1]):
+                desc = " ".join(c for c in cells[1:-1] if c)
+                out.append(f"<tr><td>{cells[0]}</td><td>{desc}</td><td>{cells[-1]}</td></tr>")
+            else:
+                out.append("<tr>" + row + "</tr>")
+        return "<table>" + "".join(out) + "</table>"
+
+    return _TABLE_RE.sub(fix, text)
 
 
 def image_to_data_uri(image: Image.Image) -> str:
@@ -267,7 +319,8 @@ def postprocess(raw: str) -> str:
     cleaned = strip_placeholder_markers(strip_refusal_commentary(strip_det_tags(raw)))
     cleaned = collapse_repeated_amounts(cleaned)
     cleaned = collapse_repeated_page_numbers(cleaned)
-    return fix_amount_column_bleed(split_fused_header_row(cleaned))
+    cleaned = repair_fused_amount_table(split_fused_header_row(cleaned))
+    return fix_amount_column_bleed(cleaned)
 
 
 def ocr_page(image: Image.Image, *, settings: Settings | None = None, client=None,
