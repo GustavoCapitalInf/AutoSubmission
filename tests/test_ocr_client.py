@@ -3,12 +3,37 @@ from ocr.config import Settings
 from ocr.ocr_client import (
     build_prompt, image_to_data_uri, ocr_page, strip_det_tags, strip_refusal_commentary,
     split_fused_header_row, fix_amount_column_bleed, collapse_repeated_amounts,
-    collapse_repeated_page_numbers, embed_image_regions,
+    collapse_repeated_page_numbers, embed_image_regions, strip_placeholder_markers,
+    postprocess,
 )
 
 
 def _img():
     return Image.new("RGB", (12, 8), (255, 255, 255))
+
+
+def test_strip_placeholder_markers_drops_marker_lines():
+    text = "Beginning Balance $100.00\n[Non-Text]\n[No text]\n[NO TEXT]\nEnding Balance $50.00"
+    out = strip_placeholder_markers(text)
+    assert "Non-Text" not in out and "No text" not in out and "NO TEXT" not in out
+    assert "Beginning Balance $100.00" in out
+    assert "Ending Balance $50.00" in out
+    # marker-only lines are dropped, not left blank
+    assert out == "Beginning Balance $100.00\nEnding Balance $50.00"
+
+
+def test_strip_placeholder_markers_removes_inline_but_keeps_text():
+    assert strip_placeholder_markers("Logo [Non-Text] here").strip() == "Logo  here".strip()
+
+
+def test_strip_placeholder_markers_preserves_bracketed_content():
+    # Only text/non-text placeholders go; real bracketed content stays.
+    text = "[Continued] see page 2\nCheck [image] attached"
+    assert strip_placeholder_markers(text) == text
+
+
+def test_postprocess_strips_placeholder_markers():
+    assert "Non-Text" not in postprocess("Deposits\n[Non-Text]\n$5.00")
 
 
 def _settings():

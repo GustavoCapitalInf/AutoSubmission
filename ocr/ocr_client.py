@@ -42,6 +42,23 @@ def strip_refusal_commentary(text: str) -> str:
     return _REFUSAL_RE.sub("", text)
 
 
+# The model's placeholder for a detected region it read as having no text (a logo,
+# stamp, graphic). Casing/spacing varies: "[Non-Text]", "[NO TEXT]", "[No text]".
+_PLACEHOLDER_RE = re.compile(r"\[\s*non?[-\s]?text\s*\]", re.IGNORECASE)
+
+
+def strip_placeholder_markers(text: str) -> str:
+    """Remove the model's '[Non-Text]' / '[No text]' region placeholders. Lines
+    that are only a placeholder are dropped entirely; inline ones are removed in
+    place. Real content is untouched."""
+    out = []
+    for line in text.splitlines():
+        if _PLACEHOLDER_RE.fullmatch(line.strip()):
+            continue  # a line that is just the placeholder -> drop it
+        out.append(_PLACEHOLDER_RE.sub("", line))
+    return "\n".join(out)
+
+
 # A monetary token, and a run of 3+ such tokens separated only by whitespace.
 _MONEY_TOKEN = r"-?\$?[\d,]+\.\d{2}"
 _MONEY_RUN_RE = re.compile(rf"{_MONEY_TOKEN}(?:\s+{_MONEY_TOKEN}){{2,}}")
@@ -228,7 +245,7 @@ def _build_client(settings: Settings):
 
 def postprocess(raw: str) -> str:
     """Full cleanup chain applied to the model's raw output."""
-    cleaned = strip_refusal_commentary(strip_det_tags(raw))
+    cleaned = strip_placeholder_markers(strip_refusal_commentary(strip_det_tags(raw)))
     cleaned = collapse_repeated_amounts(cleaned)
     cleaned = collapse_repeated_page_numbers(cleaned)
     return fix_amount_column_bleed(split_fused_header_row(cleaned))
