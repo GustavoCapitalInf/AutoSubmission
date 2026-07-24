@@ -9,10 +9,13 @@ This tool does no math and no JSON extraction.
 
 The model runs on a GPU **elsewhere** — this machine is only the client:
 
-- **Now:** a rented **RunPod** NVIDIA GPU serving `baidu/Unlimited-OCR` via vLLM's
-  dedicated `vllm/vllm-openai:unlimited-ocr` image (exposes `/v1`).
-- **Later:** your **RX 7800 XT** box (vLLM / Ollama / llama.cpp). Same client —
-  only the base URL / model / key change.
+- **Remote:** a rented **RunPod** NVIDIA GPU serving `baidu/Unlimited-OCR` via
+  vLLM's dedicated `vllm/vllm-openai:unlimited-ocr` image (exposes `/v1`).
+- **Local (AMD):** your **RX 7800 XT** box, via transformers + PyTorch-ROCm behind
+  a small OpenAI-compatible shim (`local_ocr_server.py`). vLLM/SGLang are CUDA-only
+  and Ollama/llama.cpp don't support this architecture, so transformers is the
+  route on RDNA3. Same client — only the base URL / key change. See
+  [Serving locally on an AMD GPU](#serving-locally-on-an-amd-gpu-rx-7800-xt--rocm).
 
 No OpenAI account or cost is involved; the `openai` package just speaks the same
 wire format your server exposes.
@@ -40,6 +43,46 @@ Container disk:         60GB
 Expose HTTP ports:      8000
 GPU:                    any card with >=8GB VRAM (BF16)
 ```
+
+## Serving locally on an AMD GPU (RX 7800 XT / ROCm)
+
+Runs `baidu/Unlimited-OCR` on your own GPU instead of RunPod — no per-hour cost.
+`local_ocr_server.py` loads the model via its `trust_remote_code` `model.infer(...)`
+and exposes the same `/v1/chat/completions` the client already speaks, so the CLI
+and webapp work unchanged. Verified on an RX 7800 XT (gfx1101), ROCm 6.3/7.x,
+Python 3.12–3.14, at ~23 s/page.
+
+```bash
+# one-time: add the GPU-serving deps on top of the client venv
+.venv/bin/python -m pip install -r requirements-local.txt
+
+# start the server (loads the model, then serves on http://localhost:8000/v1)
+./serve_local.sh
+```
+
+Then, in another shell, point the client at it and run as usual:
+
+```bash
+export OCR_BASE_URL=http://localhost:8000/v1
+export OCR_API_KEY=EMPTY
+.venv/bin/python -m webapp.app          # or: .venv/bin/python parse.py <pdf> --out out.md
+```
+
+Notes:
+- **transformers must be 4.x** (pinned in `requirements-local.txt`) — the model's
+  remote code imports `is_torch_fx_available`, removed in transformers 5.x.
+- `serve_local.sh` sets `HSA_OVERRIDE_GFX_VERSION=11.0.0` (the standard RDNA3
+  desktop workaround) and `HF_HUB_DISABLE_XET=1`.
+- **Live streaming + region boxes work.** The server calls `infer()` in
+  `eval_mode` (non-streaming client) or taps its internal `TextStreamer`
+  (streaming client) so the raw `<|det|>label [x0,y0,x1,y1]<|/det|>` region tags
+  reach the client token-by-token — driving the webapp's live fill, colored box
+  overlays, and inline check-image cropping. (`save_results` mode would instead
+  strip those tags into a clean `result.md`, killing the boxes — so the server
+  avoids it.)
+- The vLLM-only request fields (`skip_special_tokens`, `vllm_xargs`) are accepted
+  and mapped where meaningful (`ngram_size`→`no_repeat_ngram_size`,
+  `window_size`→`ngram_window`) or ignored.
 
 ## Configure the endpoint
 

@@ -1,0 +1,18 @@
+# Extra deps to SERVE baidu/Unlimited-OCR locally on an AMD/ROCm GPU
+# (RX 7800 XT, gfx1101), replacing the remote RunPod/vLLM endpoint. The base
+# requirements.txt is only the lightweight client; install THIS on top of it,
+# and only on the GPU box that runs local_ocr_server.py. Not needed when the
+# client points at a remote endpoint.
+#
+# ROCm wheels come from PyTorch's ROCm index:
+--extra-index-url https://download.pytorch.org/whl/rocm6.3
+torch==2.9.1+rocm6.3
+torchvision==0.24.1+rocm6.3
+transformers==4.57.1   # must be 4.x: the model's trust_remote_code imports
+                       # is_torch_fx_available, which transformers 5.x removed.
+accelerate
+einops
+addict
+easydict
+matplotlib             # imported by the model's remote deepencoder.py
+requests               # imported by the model's remote code
