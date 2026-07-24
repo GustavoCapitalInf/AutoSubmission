@@ -44,6 +44,55 @@ def test_parse_statement_ocrs_pages_concurrently(monkeypatch):
     assert peak >= 2  # pages actually ran in parallel
 
 
+_ORPHAN = ("<table><tr><td>AMOUNT($)</td></tr><tr><td>66.07</td></tr>"
+           "<tr><td>1.00</td></tr><tr><td>2.00</td></tr></table>")
+_CLEAN = ("<table><tr><td>DATE</td><td>DESCRIPTION</td><td>AMOUNT($)</td></tr>"
+          "<tr><td>03/19</td><td>x</td><td>66.07</td></tr></table>")
+
+
+def test_parse_statement_reocrs_missegmented_page_at_fallback_dpi(monkeypatch):
+    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: ["main"])
+    monkeypatch.setattr("ocr.pipeline.rasterize_page", lambda b, i, dpi=250: "alt")
+
+    def fake_ocr(image, *, settings, client, on_delta=None):
+        return _ORPHAN if image == "main" else _CLEAN  # 300 splits, 250 is clean
+
+    monkeypatch.setattr("ocr.ocr_client.ocr_page", fake_ocr)
+    monkeypatch.setattr("ocr.ocr_client._build_client", lambda settings: object())
+
+    doc = parse_statement(b"%PDF", max_workers=1)
+    assert doc.pages == [_CLEAN]  # kept the clean fallback read
+
+
+def test_parse_statement_keeps_original_when_fallback_also_bad(monkeypatch):
+    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: ["main"])
+    monkeypatch.setattr("ocr.pipeline.rasterize_page", lambda b, i, dpi=250: "alt")
+    monkeypatch.setattr("ocr.ocr_client.ocr_page",
+                        lambda image, *, settings, client, on_delta=None: _ORPHAN)
+    monkeypatch.setattr("ocr.ocr_client._build_client", lambda settings: object())
+
+    doc = parse_statement(b"%PDF", max_workers=1)
+    assert doc.pages == [_ORPHAN]  # fallback no better -> keep original
+
+
+def test_parse_statement_no_fallback_when_disabled(monkeypatch):
+    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: ["main"])
+    calls = []
+
+    def fake_page(b, i, dpi=250):
+        calls.append(i)
+        return "alt"
+
+    monkeypatch.setattr("ocr.pipeline.rasterize_page", fake_page)
+    monkeypatch.setattr("ocr.ocr_client.ocr_page",
+                        lambda image, *, settings, client, on_delta=None: _ORPHAN)
+    monkeypatch.setattr("ocr.ocr_client._build_client", lambda settings: object())
+
+    doc = parse_statement(b"%PDF", max_workers=1, fallback_dpi=None)
+    assert doc.pages == [_ORPHAN]
+    assert calls == []  # fallback disabled -> no re-rasterize
+
+
 def test_parse_statement_streams_page_indexed_deltas(monkeypatch):
     monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=200: ["p0", "p1"])
 

@@ -4,8 +4,24 @@ from ocr.ocr_client import (
     build_prompt, image_to_data_uri, ocr_page, strip_det_tags, strip_refusal_commentary,
     split_fused_header_row, fix_amount_column_bleed, collapse_repeated_amounts,
     collapse_repeated_page_numbers, embed_image_regions, strip_placeholder_markers,
-    postprocess,
+    postprocess, looks_missegmented,
 )
+
+
+_ORPHAN = ("<table><tr><td>AMOUNT($)</td></tr><tr><td>66.07</td></tr>"
+           "<tr><td>1.00</td></tr><tr><td>2,100.00</td></tr></table>")
+_CLEAN_TABLE = ("<table><tr><td>DATE</td><td>DESCRIPTION</td><td>AMOUNT($)</td></tr>"
+                "<tr><td>03/19</td><td>DEBIT CARD FOOD LION</td><td>66.07</td></tr></table>")
+
+
+def test_looks_missegmented_detects_orphan_amount_table():
+    assert looks_missegmented("Other withdrawals\n" + _ORPHAN)
+
+
+def test_looks_missegmented_ignores_normal_tables():
+    assert not looks_missegmented(_CLEAN_TABLE)
+    # a legit single amount cell (not a run) must not trip it
+    assert not looks_missegmented("<table><tr><td>AMOUNT($)</td></tr><tr><td>5.00</td></tr></table>")
 
 
 def _img():

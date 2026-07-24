@@ -194,6 +194,25 @@ def split_fused_header_row(text: str) -> str:
     return _TABLE_RE.sub(fix_table, text)
 
 
+# Mis-segmentation signature. On tables with wide intra-description whitespace
+# (e.g. Truist "Other withdrawals"), Unlimited-OCR reads the gap as a column
+# break and splits the amounts off into their own standalone single-column
+# "AMOUNT($)" table, divorced from the descriptions. A lone amount-only table
+# never occurs in a correctly-read statement, so it's a safe signal to re-OCR
+# the page at a lower DPI (which does not trip the false column break).
+_ORPHAN_AMOUNT_TABLE_RE = re.compile(
+    r"<table>\s*<tr>\s*<td[^>]*>\s*AMOUNT\s*\(\$\)\s*</td>\s*</tr>"
+    r"(?:\s*<tr>\s*<td[^>]*>\s*-?\$?[\d,]+\.\d{2}\s*</td>\s*</tr>){2,}",
+    re.IGNORECASE,
+)
+
+
+def looks_missegmented(text: str) -> bool:
+    """True if the output shows the column-split mis-segmentation (a standalone
+    single-column amount table). Used to trigger a lower-DPI re-OCR of the page."""
+    return bool(_ORPHAN_AMOUNT_TABLE_RE.search(text))
+
+
 def image_to_data_uri(image: Image.Image) -> str:
     buf = io.BytesIO()
     image.convert("RGB").save(buf, format="PNG")
