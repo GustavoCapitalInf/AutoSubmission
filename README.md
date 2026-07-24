@@ -171,10 +171,21 @@ all math and detection is deterministic Python. Stages:
 .venv/bin/python -m pip install -r requirements-analysis.txt
 echo 'GEMINI_API_KEY=your-key-here' > .env
 
-# analyze an OCR'd statement
+# analyze one OCR'd statement
 .venv/bin/python analyze.py output/ace.md              # human-readable report
 .venv/bin/python analyze.py output/ace.md --json out.json
+
+# batch-triage a whole folder into a CSV (one row per statement)
+.venv/bin/python batch.py output/ --out triage.csv     # folder of .md
+OCR_BASE_URL=http://localhost:8000/v1 OCR_API_KEY=EMPTY \
+    .venv/bin/python batch.py BankStatements/ --out triage.csv   # PDFs (OCR + analyze)
 ```
+
+The batch CSV carries the key underwriting figures per statement plus a
+`needs_review` flag driven by whether the bank's own summary reconciles — clean
+statements flow through, only the questionable ones get human eyes. Small-bank /
+image statements (where per-transaction detail is incomplete) still yield
+trustworthy figures from the bank's printed summary, which reconciliation validates.
 
 Tune via env: `GEMINI_MODEL`, `GEMINI_ESCALATION_MODEL`. Extend the funder list in
 `analysis/detect.py::KNOWN_FUNDERS`.
