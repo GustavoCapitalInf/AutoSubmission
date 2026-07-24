@@ -8,7 +8,7 @@ from .config import load_settings
 def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
                     model: str | None = None, page_ocr_fn=None,
                     on_page_delta=None, max_workers: int | None = None,
-                    fallback_dpi: int | None = 250) -> StatementMarkdown:
+                    fallback_dpi: int | None = 250, on_page_replace=None) -> StatementMarkdown:
     """Rasterize the PDF and OCR its pages into one StatementMarkdown.
 
     Pages are OCR'd concurrently (up to `max_workers` at a time; defaults to
@@ -35,6 +35,13 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
                                  looks_truncated_td, recover_truncated_td_page)
         client = _build_client(settings)
 
+        def use_alt(page_index, alt):
+            # A fallback/recovery re-OCR happened off-stream, so the live buffer the
+            # web UI renders still holds the original (broken) read — overwrite it.
+            if on_page_replace is not None:
+                on_page_replace(page_index, alt)
+            return alt
+
         def ocr_call(image, page_index):
             cb = None
             if on_page_delta is not None:
@@ -46,14 +53,14 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
                 alt_img = rasterize_page(pdf_bytes, page_index, dpi=fallback_dpi)
                 alt = ocr_page(alt_img, settings=settings, client=client)
                 if not looks_missegmented(alt):
-                    return alt
+                    return use_alt(page_index, alt)
             # A truncated TD page-1 (the QR-code refusal derails generation) reads
             # fully under some render variant — try them and keep a recovered read.
             if looks_truncated_td(out):
                 alt = recover_truncated_td_page(pdf_bytes, page_index,
                                                 settings=settings, client=client)
                 if alt is not None:
-                    return alt
+                    return use_alt(page_index, alt)
             return out
     else:
         def ocr_call(image, page_index):

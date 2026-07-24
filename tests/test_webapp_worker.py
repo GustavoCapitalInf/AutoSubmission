@@ -11,7 +11,7 @@ def test_run_job_success(monkeypatch):
     store = JobStore()
     job = store.create("s.pdf")
 
-    def fake_parse(pdf_bytes, source_file="", on_page_delta=None):
+    def fake_parse(pdf_bytes, source_file="", on_page_delta=None, on_page_replace=None):
         if on_page_delta:
             on_page_delta(0, "streamed chunk")  # simulate live streaming of page 1
         return _FakeDoc()
@@ -31,7 +31,7 @@ def test_run_job_failure(monkeypatch):
     store = JobStore()
     job = store.create("s.pdf")
 
-    def boom(pdf_bytes, source_file="", on_page_delta=None):
+    def boom(pdf_bytes, source_file="", on_page_delta=None, on_page_replace=None):
         raise RuntimeError("connection error")
 
     monkeypatch.setattr("webapp.worker.parse_statement", boom)

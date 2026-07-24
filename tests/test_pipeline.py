@@ -114,9 +114,13 @@ def test_parse_statement_recovers_truncated_td_page(monkeypatch):
     monkeypatch.setattr("ocr.ocr_client.ocr_page", fake_ocr)
     monkeypatch.setattr("ocr.ocr_client._build_client", lambda settings: object())
 
-    doc = parse_statement(b"%PDF", max_workers=1)
+    replaced = []
+    doc = parse_statement(b"%PDF", max_workers=1,
+                          on_page_replace=lambda p, t: replaced.append((p, t)))
     assert doc.pages == [_TD_FULL]  # kept the recovered full read
     assert dpis and dpis[0] == 200  # first recovery variant tried
+    # the live buffer for page 0 is overwritten with the recovered read (web UI fix)
+    assert replaced == [(0, _TD_FULL)]
 
 
 def test_parse_statement_no_td_recovery_for_normal_page(monkeypatch):

@@ -42,6 +42,14 @@ def test_set_error_marks_error():
     assert fetched.error == "boom"
 
 
+def test_set_page_live_replaces_buffer():
+    store = JobStore()
+    job = store.create("x.pdf")
+    store.append_page_live(job.id, 0, "truncated first attempt")
+    store.set_page_live(job.id, 0, "recovered full read")  # fallback overwrites
+    assert store.get(job.id).pages_live[0] == "recovered full read"
+
+
 def test_append_page_live_renders_in_page_order():
     store = JobStore()
     job = store.create("x.pdf")

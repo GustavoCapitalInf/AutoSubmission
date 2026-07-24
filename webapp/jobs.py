@@ -54,6 +54,14 @@ class JobStore:
             if job is not None:
                 job.pages_live[page] = job.pages_live.get(page, "") + chunk
 
+    def set_page_live(self, job_id: str, page: int, text: str) -> None:
+        """Replace a page's live buffer wholesale — used when a fallback/recovery
+        re-OCR (off-stream) supersedes the originally streamed read."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is not None:
+                job.pages_live[page] = text
+
     def pages_live_ordered(self, job_id: str) -> list[str]:
         """Snapshot the per-page live buffers in page order (thread-safe)."""
         with self._lock:
