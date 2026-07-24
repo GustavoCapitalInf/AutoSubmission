@@ -6,6 +6,15 @@ from analysis.schema import Statement, Transaction
 from analysis.reconcile import reconcile
 from analysis.metrics import compute_metrics, daily_closing_balances
 from analysis.detect import detect, find_known_funders, find_recurring_debits
+from analysis.extract import strip_embedded_images
+
+
+def test_strip_embedded_images_removes_base64_bloat():
+    md = ('Deposits\n<img class="doc-image" src="data:image/png;base64,QUJDRA==" alt="image" />\n'
+          '<table><tr><td>04/01</td><td>ACH</td><td>100.00</td></tr></table>')
+    out = strip_embedded_images(md)
+    assert "base64" not in out and "<img" not in out
+    assert "Deposits" in out and "100.00" in out  # text ledger preserved
 
 
 def _txn(date, amount, desc="x", bal=None):

@@ -4,12 +4,24 @@ with Gemini's structured output (Pydantic response_schema → validated object).
 The model only transcribes and normalizes; it never computes totals or averages.
 All math happens later in deterministic Python (reconcile.py / metrics.py)."""
 from __future__ import annotations
+import re
 from google import genai
 from google.genai import types
 from .config import Settings, load_settings
 from .schema import Statement
 
 _client: genai.Client | None = None
+
+# The OCR markdown embeds check-image crops as base64 <img> tags for the viewer.
+# Gemini only needs the text ledger, and a single image-heavy statement can carry
+# megabytes of base64 (Santander: 30 images, ~3 MB) — pure prompt bloat/cost and a
+# context-blowout risk. Strip the tags before sending; the transactions are all in
+# the text tables anyway.
+_IMG_TAG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
+
+
+def strip_embedded_images(markdown: str) -> str:
+    return _IMG_TAG_RE.sub("", markdown)
 
 
 def _get_client(settings: Settings) -> genai.Client:
@@ -72,7 +84,7 @@ def extract_statement(markdown: str, *, settings: Settings | None = None,
     client = _get_client(settings)
     resp = client.models.generate_content(
         model=model or settings.model,
-        contents=_INSTRUCTIONS + markdown,
+        contents=_INSTRUCTIONS + strip_embedded_images(markdown),
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=Statement,
