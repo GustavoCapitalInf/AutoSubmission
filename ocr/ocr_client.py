@@ -211,6 +211,57 @@ def looks_missegmented(text: str) -> bool:
     return bool(_ORPHAN_AMOUNT_TABLE_RE.search(text))
 
 
+# TD statement markers. TD's first page carries a QR code ("Go paperless"); at the
+# tuned 300 DPI the model emits a refusal on the QR region and then stops early,
+# skipping the ACCOUNT SUMMARY and the entire daily-activity body. It reads the
+# whole page at 200 DPI, so the pipeline re-OCRs a truncated TD page there.
+_TD_MARKERS_RE = re.compile(r"most convenient bank|td business|\btd bank\b", re.IGNORECASE)
+
+
+def is_td_statement(text: str) -> bool:
+    return bool(_TD_MARKERS_RE.search(text))
+
+
+def looks_truncated_td(text: str) -> bool:
+    """True for a TD page-1 read that stopped after the header block — the TD
+    'STATEMENT OF ACCOUNT' banner is present but the ACCOUNT SUMMARY that always
+    follows it on page 1 is missing (generation was derailed by the QR code)."""
+    low = text.lower()
+    return (is_td_statement(text) and "statement of account" in low
+            and "account summary" not in low)
+
+
+def _mask_qr(image: Image.Image) -> Image.Image:
+    """White out TD's top-right corner (the QR code + 'Go paperless' green box)
+    so the model doesn't emit a QR refusal that derails generation."""
+    from PIL import ImageDraw
+    im = image.copy()
+    w, h = im.size
+    ImageDraw.Draw(im).rectangle([int(w * 0.72), 0, w, int(h * 0.075)], fill="white")
+    return im
+
+
+# TD's first page is unstable across renders: the QR-code refusal makes the model
+# stop after the header, and which render avoids it varies per statement (some read
+# at 150 DPI, some at 200, some only with the QR masked out). Try these variants in
+# order and keep the first that recovers the ACCOUNT SUMMARY. (dpi, mask_qr):
+_TD_RECOVERY_VARIANTS = [(200, False), (150, False), (300, True), (250, False), (150, True)]
+
+
+def recover_truncated_td_page(pdf_bytes: bytes, page_index: int, *, settings, client) -> str | None:
+    """Re-OCR a truncated TD page across render variants; return the first full
+    read (ACCOUNT SUMMARY present), or None if every variant still truncates."""
+    from .rasterize import rasterize_page
+    for dpi, mask in _TD_RECOVERY_VARIANTS:
+        img = rasterize_page(pdf_bytes, page_index, dpi=dpi)
+        if mask:
+            img = _mask_qr(img)
+        out = ocr_page(img, settings=settings, client=client)
+        if not looks_truncated_td(out) and "account summary" in out.lower():
+            return out
+    return None
+
+
 # A first-row cell where a column header is glued onto its first data value, e.g.
 # "DATE04/06", "AMOUNT260.00", "DESCRIPTIONOrig CO...". The lookahead requires a
 # value-like continuation so legit headers ("AMOUNT($)", "DATE PAID") never match.

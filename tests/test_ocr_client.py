@@ -5,7 +5,25 @@ from ocr.ocr_client import (
     split_fused_header_row, fix_amount_column_bleed, collapse_repeated_amounts,
     collapse_repeated_page_numbers, embed_image_regions, strip_placeholder_markers,
     postprocess, looks_missegmented, repair_fused_amount_table,
+    is_td_statement, looks_truncated_td,
 )
+
+
+def test_looks_truncated_td_detects_header_only_page():
+    truncated = ("TD Bank America's Most Convenient Bank STATEMENT OF ACCOUNT\n"
+                 "NARROWCAST MEDIA LLC\nPage: 1 of 10\nCust Ref #: 826-713")
+    assert is_td_statement(truncated)
+    assert looks_truncated_td(truncated)
+
+
+def test_looks_truncated_td_false_when_body_present():
+    full = ("TD Bank STATEMENT OF ACCOUNT\nACCOUNT SUMMARY\nBeginning Balance 11,982.22")
+    assert not looks_truncated_td(full)
+
+
+def test_looks_truncated_td_false_for_non_td():
+    # Another bank's page with 'statement of account' must not trigger TD logic.
+    assert not looks_truncated_td("Chase STATEMENT OF ACCOUNT\nsome header only")
 
 
 _ORPHAN = ("<table><tr><td>AMOUNT($)</td></tr><tr><td>66.07</td></tr>"

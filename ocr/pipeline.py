@@ -31,7 +31,8 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
     workers = max_workers if max_workers is not None else settings.max_workers
 
     if page_ocr_fn is None:
-        from .ocr_client import ocr_page, _build_client, looks_missegmented
+        from .ocr_client import (ocr_page, _build_client, looks_missegmented,
+                                 looks_truncated_td, recover_truncated_td_page)
         client = _build_client(settings)
 
         def ocr_call(image, page_index):
@@ -45,6 +46,13 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
                 alt_img = rasterize_page(pdf_bytes, page_index, dpi=fallback_dpi)
                 alt = ocr_page(alt_img, settings=settings, client=client)
                 if not looks_missegmented(alt):
+                    return alt
+            # A truncated TD page-1 (the QR-code refusal derails generation) reads
+            # fully under some render variant — try them and keep a recovered read.
+            if looks_truncated_td(out):
+                alt = recover_truncated_td_page(pdf_bytes, page_index,
+                                                settings=settings, client=client)
+                if alt is not None:
                     return alt
             return out
     else:
