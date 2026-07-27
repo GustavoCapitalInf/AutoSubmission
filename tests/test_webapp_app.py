@@ -99,6 +99,28 @@ def test_json_download_returns_analysis(monkeypatch):
     assert '"Test Bank"' in resp.get_data(as_text=True)
 
 
+def test_csv_download_returns_flat_analysis(monkeypatch):
+    _mock_processing(monkeypatch)
+    client = app.test_client()
+    job_id = _upload_one(client)["jobs"][0]["id"]
+    resp = client.get(f"/download/{job_id}/csv")
+    assert resp.status_code == 200
+    assert resp.mimetype == "text/csv"
+    body = resp.get_data(as_text=True)
+    assert "section,field,value" in body
+    assert "statement,bank,Test Bank" in body
+
+
+def test_xlsx_download_returns_workbook(monkeypatch):
+    _mock_processing(monkeypatch)
+    client = app.test_client()
+    job_id = _upload_one(client)["jobs"][0]["id"]
+    resp = client.get(f"/download/{job_id}/xlsx")
+    assert resp.status_code == 200
+    assert resp.mimetype == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert resp.get_data()[:2] == b"PK"
+
+
 def test_markdown_before_done_returns_404():
     client = app.test_client()
     job = store.create("pending.pdf")
