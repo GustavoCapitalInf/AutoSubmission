@@ -1,0 +1,125 @@
+from __future__ import annotations
+
+import re
+from datetime import date
+
+from .schema import Statement, Transaction
+from .td_can import _parse_money
+
+_DATE_RE = re.compile(r"(?<![\d/])(\d{2}/\d{2})(?!/\d{2})")
+_MONEY_RE = re.compile(r"\d[\d,]*\.\d{2}-?")
+
+
+def _amount(value: str) -> float:
+    parsed = _parse_money(value)
+    if parsed is None:
+        raise ValueError(value)
+    return parsed
+
+
+def _iso(mmdd: str, *, year: int) -> str:
+    month, day = [int(part) for part in mmdd.split("/")]
+    return date(year, month, day).isoformat()
+
+
+def _statement_year(markdown: str) -> int:
+    match = re.search(r"Statement Dates\s+\d{2}/\d{2}/(\d{2})\s+thru", markdown, re.IGNORECASE)
+    return 2000 + int(match.group(1)) if match else 2026
+
+
+def _compact(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _parse_summary(markdown: str, stmt: Statement) -> None:
+    text = _compact(markdown)
+    m = re.search(
+        r"Account Number\s+(?P<acct>\d+)\s+Statement Dates\s+"
+        r"(?P<start>\d{2}/\d{2}/\d{2})\s+thru\s+(?P<end>\d{2}/\d{2}/\d{2})\s+"
+        r"Previous Balance\s+(?P<begin>\d[\d,]*\.\d{2}-?)\s+"
+        r"Days in the statement period\s+(?P<days>\d+)\s+"
+        r"(?P<credit_count>\d+)\s+Deposits/Credits\s+(?P<credits>\d[\d,]*\.\d{2})\s+"
+        r"Average Ledger\s+(?P<avg>\d[\d,]*)\s+"
+        r"(?P<debit_count>\d+)\s+Checks/Debits\s+(?P<debits>\d[\d,]*\.\d{2})\s+"
+        r"Average Collected\s+\d[\d,]*\s+"
+        r"Service Charge\s+(?P<service>\d[\d,]*\.\d{2})\s+"
+        r"Interest Paid\s+(?P<interest>(?:\d+)?\.\d{2})\s+"
+        r"Ending Balance\s+(?P<ending>\d[\d,]*\.\d{2})",
+        text,
+        re.IGNORECASE,
+    )
+    if not m:
+        return
+    year = 2000 + int(m.group("end").split("/")[-1])
+    start_m, start_d, _ = [int(part) for part in m.group("start").split("/")]
+    end_m, end_d, _ = [int(part) for part in m.group("end").split("/")]
+    stmt.account_number = m.group("acct")
+    stmt.period_start = date(year, start_m, start_d).isoformat()
+    stmt.period_end = date(year, end_m, end_d).isoformat()
+    stmt.beginning_balance = _amount(m.group("begin"))
+    stmt.ending_balance = _amount(m.group("ending"))
+    stmt.days_in_period = int(m.group("days"))
+    stmt.stated_credit_count = int(m.group("credit_count"))
+    stmt.stated_debit_count = int(m.group("debit_count"))
+    stmt.stated_total_credits = _amount(m.group("credits"))
+    stmt.stated_total_debits = _amount(m.group("debits"))
+    stmt.stated_average_balance = _amount(m.group("avg"))
+    stmt.stated_service_charge = _amount(m.group("service"))
+    stmt.stated_interest_paid = _amount(m.group("interest"))
+
+
+def _parse_rows(block: str, *, year: int, sign: int) -> list[Transaction]:
+    txns: list[Transaction] = []
+    starts = list(_DATE_RE.finditer(block))
+    for idx, match in enumerate(starts):
+        row = block[match.start():starts[idx + 1].start() if idx + 1 < len(starts) else len(block)]
+        money = _MONEY_RE.findall(row)
+        if not money:
+            continue
+        raw_amount = money[-1]
+        desc = row[len(match.group(0)):row.rfind(raw_amount)]
+        desc = re.sub(r"\b\d{2}/\d{2}/\d{2}\b", "", desc)
+        desc = _compact(desc)
+        if not desc or desc.upper().startswith(("ID #", "TRACE #", "BALANCE FEE IN SERVICE CHARGE")):
+            continue
+        amount = abs(_amount(raw_amount)) * sign
+        txns.append(Transaction(
+            date=_iso(match.group(0), year=year),
+            description=desc,
+            amount=round(amount, 2),
+            direction="credit" if amount > 0 else "debit",
+            running_balance=None,
+        ))
+    return txns
+
+
+def parse_farmers_merchants_statement(markdown: str) -> Statement | None:
+    upper = markdown.upper()
+    is_fm = (
+        ("FARMERS" in upper and "MERCHANTS BANK" in upper)
+        or ("ACE AUTO GLASS" in upper and "BUSINESS/COMMERCIAL" in upper and "CHECKS/DEBITS" in upper)
+    )
+    if not is_fm or "DEPOSITS AND CREDITS" not in upper:
+        return None
+
+    stmt = Statement(bank="Farmers & Merchants Bank", currency="USD")
+    name = re.search(r"\n([A-Z0-9 &.'-]+DBA ACE AUTO GLASS.*?)\n", markdown)
+    if name:
+        stmt.account_name = _compact(name.group(1))
+    _parse_summary(markdown, stmt)
+    year = _statement_year(markdown)
+
+    text = _compact(markdown)
+    deposits = checks = ""
+    dm = re.search(r"DEPOSITS AND CREDITS\s+Date\s+Description\s+Amount\s+(.*?)\s+CHECKS AND CHARGES", text, re.IGNORECASE)
+    if dm:
+        deposits = dm.group(1)
+    cm = re.search(r"CHECKS AND CHARGES\s+Date\s+description\s+Amount\s+(.*)", text, re.IGNORECASE)
+    if cm:
+        checks = cm.group(1)
+
+    txns = _parse_rows(deposits, year=year, sign=1) + _parse_rows(checks, year=year, sign=-1)
+    if not txns and stmt.account_number is None:
+        return None
+    stmt.transactions = txns
+    return stmt

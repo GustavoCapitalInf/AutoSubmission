@@ -22,8 +22,11 @@ from analysis.pipeline import analyze_markdown, Report
 FIELDS = [
     "file", "bank", "account", "period_start", "period_end",
     "summary_reconciles", "avg_balance", "total_deposits", "total_debits",
+    "true_revenue", "cash_flow", "lender_credits", "lender_debits",
+    "monthly_lender_debits", "withholding_rate", "pos_count", "loan_count",
     "debit_coverage", "nsf", "mca_funders", "recurring_debit_groups",
-    "needs_review", "model", "error",
+    "quality", "transaction_detail_reliable", "corporate_use", "needs_review",
+    "model", "error",
 ]
 
 
@@ -37,11 +40,9 @@ def _markdown_for(path: Path) -> str:
 
 def _row(path: Path, report: Report) -> dict:
     s, r, m, d = report.statement, report.reconciliation, report.metrics, report.detection
-    avg = m.stated_average_balance if m.stated_average_balance is not None else m.average_daily_balance
-    nsf = m.stated_nsf_count if m.stated_nsf_count is not None else m.nsf_count
     # A statement needs human review when the bank's own summary doesn't reconcile
     # (mis-extracted or internally inconsistent) — the figures can't be trusted.
-    needs_review = r.summary_ok is False or (r.summary_ok is None and not r.ok)
+    needs_review = report.quality.corporate_use == "manual_review_required"
     return {
         "file": path.name,
         "bank": s.bank or "",
@@ -49,13 +50,24 @@ def _row(path: Path, report: Report) -> dict:
         "period_start": s.period_start or "",
         "period_end": s.period_end or "",
         "summary_reconciles": {True: "yes", False: "NO", None: "n/a"}[r.summary_ok],
-        "avg_balance": f"{avg:.2f}" if avg is not None else "",
-        "total_deposits": f"{s.stated_total_credits:.2f}" if s.stated_total_credits is not None else f"{m.total_deposits:.2f}",
-        "total_debits": f"{s.stated_total_debits:.2f}" if s.stated_total_debits is not None else f"{m.total_withdrawals:.2f}",
+        "avg_balance": f"{m.average_balance:.2f}" if m.average_balance is not None else "",
+        "total_deposits": f"{m.effective_total_deposits:.2f}",
+        "total_debits": f"{m.effective_total_withdrawals:.2f}",
+        "true_revenue": f"{m.true_revenue:.2f}",
+        "cash_flow": f"{m.cash_flow:.2f}",
+        "lender_credits": f"{m.lender_credits:.2f}",
+        "lender_debits": f"{m.lender_debits:.2f}",
+        "monthly_lender_debits": f"{m.monthly_lender_debits:.2f}",
+        "withholding_rate": f"{m.withholding_rate:.2f}" if m.withholding_rate is not None else "",
+        "pos_count": m.pos_count,
+        "loan_count": m.loan_count,
         "debit_coverage": f"{r.debit_coverage:.0%}" if r.debit_coverage is not None else "",
-        "nsf": nsf,
+        "nsf": m.effective_nsf_count,
         "mca_funders": "; ".join(fm.funder for fm in d.known_funders),
         "recurring_debit_groups": sum(1 for rc in d.recurring_debits if rc.cadence in ("daily", "weekly")),
+        "quality": report.quality.level,
+        "transaction_detail_reliable": "yes" if report.quality.transaction_detail_reliable else "no",
+        "corporate_use": report.quality.corporate_use,
         "needs_review": "REVIEW" if needs_review else "",
         "model": report.model_used,
         "error": "",

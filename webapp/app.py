@@ -1,5 +1,6 @@
 from __future__ import annotations
 import io
+import json
 import threading
 from flask import Flask, request, jsonify, render_template, Response, abort
 
@@ -22,21 +23,28 @@ def upload():
     files = request.files.getlist("files")
     if not files:
         return jsonify({"error": "no files uploaded"}), 400
+    force_ocr = request.form.get("force_ocr") == "1"
 
     jobs = []
     for f in files:
         pdf_bytes = f.read()
         job = store.create(f.filename)
         job.pdf_bytes = pdf_bytes
+        job.force_ocr = force_ocr
         try:
             job.page_count = pdf_page_count(pdf_bytes)
         except Exception:
             job.page_count = 0
         thread = threading.Thread(
-            target=run_job, args=(job.id, pdf_bytes, f.filename, store), daemon=True,
+            target=run_job, args=(job.id, pdf_bytes, f.filename, store, force_ocr), daemon=True,
         )
         thread.start()
-        jobs.append({"id": job.id, "filename": job.filename, "page_count": job.page_count})
+        jobs.append({
+            "id": job.id,
+            "filename": job.filename,
+            "page_count": job.page_count,
+            "force_ocr": force_ocr,
+        })
     return jsonify({"jobs": jobs})
 
 
@@ -45,7 +53,16 @@ def status(job_id):
     job = store.get(job_id)
     if job is None:
         abort(404)
-    return jsonify({"status": job.status, "error": job.error, "page_count": job.page_count})
+    return jsonify({
+        "status": job.status,
+        "stage": job.stage,
+        "error": job.error,
+        "page_count": job.page_count,
+        "analysis_ready": job.analysis is not None,
+        "analysis_error": job.analysis_error,
+        "parse_model": job.parse_model,
+        "force_ocr": job.force_ocr,
+    })
 
 
 @app.route("/live/<job_id>")
@@ -91,6 +108,17 @@ def markdown(job_id):
     return Response(job.markdown, mimetype="text/plain; charset=utf-8")
 
 
+@app.route("/analysis/<job_id>")
+def analysis(job_id):
+    job = store.get(job_id)
+    if job is None or job.status != "done":
+        abort(404)
+    return jsonify({
+        "analysis": job.analysis,
+        "analysis_error": job.analysis_error,
+    })
+
+
 @app.route("/page/<job_id>/<int:n>")
 def page(job_id, n):
     job = store.get(job_id)
@@ -112,13 +140,19 @@ def result(job_id):
 
 @app.route("/download/<job_id>/<fmt>")
 def download(job_id, fmt):
-    if fmt not in ("md", "html"):
+    if fmt not in ("md", "html", "json"):
         abort(400)
     job = store.get(job_id)
     if job is None or job.status != "done":
         abort(404)
-    content = job.markdown if fmt == "md" else job.html
-    mimetype = "text/markdown" if fmt == "md" else "text/html"
+    if fmt == "json":
+        if job.analysis is None:
+            abort(404)
+        content = json.dumps(job.analysis, indent=2)
+        mimetype = "application/json"
+    else:
+        content = job.markdown if fmt == "md" else job.html
+        mimetype = "text/markdown" if fmt == "md" else "text/html"
     base_name = job.filename.rsplit(".", 1)[0]
     return Response(
         content,

@@ -14,6 +14,8 @@ class _FakeThread:
 
 
 class _FakeDoc:
+    model = "test-model"
+
     def to_markdown(self):
         return "# Hello"
 
@@ -22,12 +24,18 @@ def _mock_processing(monkeypatch, page_count=2):
     monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
     monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: page_count)
 
-    def fake_parse(pdf_bytes, source_file="", on_page_delta=None, on_page_replace=None):
+    def fake_parse(pdf_bytes, source_file="", on_page_delta=None, on_page_replace=None, force_ocr=False):
         if on_page_delta:
             on_page_delta(0, "raw stream")
         return _FakeDoc()
 
     monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)
+    monkeypatch.setattr("webapp.worker.analyze_markdown", lambda markdown: object())
+    monkeypatch.setattr("webapp.worker.report_to_json", lambda report: {
+        "statement": {"bank": "Test Bank"},
+        "metrics": {"average_balance": 123.45},
+        "quality": {"level": "transaction_level", "corporate_use": "approved"},
+    })
 
 
 def _upload_one(client):
@@ -50,6 +58,8 @@ def test_upload_creates_and_completes_job(monkeypatch):
     body = status_resp.get_json()
     assert body["status"] == "done"
     assert body["page_count"] == 3
+    assert body["parse_model"] == "test-model"
+    assert body["force_ocr"] is False
 
     result_resp = client.get(f"/result/{job_id}")
     assert "<h1>Hello</h1>" in result_resp.get_data(as_text=True)
@@ -66,6 +76,27 @@ def test_markdown_source_route(monkeypatch):
     resp = client.get(f"/markdown/{job_id}")
     assert resp.status_code == 200
     assert resp.get_data(as_text=True) == "# Hello"
+
+
+def test_analysis_route_returns_report(monkeypatch):
+    _mock_processing(monkeypatch)
+    client = app.test_client()
+    job_id = _upload_one(client)["jobs"][0]["id"]
+    resp = client.get(f"/analysis/{job_id}")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["analysis"]["statement"]["bank"] == "Test Bank"
+    assert body["analysis_error"] is None
+
+
+def test_json_download_returns_analysis(monkeypatch):
+    _mock_processing(monkeypatch)
+    client = app.test_client()
+    job_id = _upload_one(client)["jobs"][0]["id"]
+    resp = client.get(f"/download/{job_id}/json")
+    assert resp.status_code == 200
+    assert resp.mimetype == "application/json"
+    assert '"Test Bank"' in resp.get_data(as_text=True)
 
 
 def test_markdown_before_done_returns_404():
@@ -137,6 +168,30 @@ def test_upload_with_no_files_returns_400():
     client = app.test_client()
     resp = client.post("/upload", data={}, content_type="multipart/form-data")
     assert resp.status_code == 400
+
+
+def test_upload_can_force_visual_ocr(monkeypatch):
+    seen = {}
+    monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
+    monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: 1)
+
+    def fake_parse(pdf_bytes, source_file="", on_page_delta=None, on_page_replace=None, force_ocr=False):
+        seen["force_ocr"] = force_ocr
+        return _FakeDoc()
+
+    monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)
+    monkeypatch.setattr("webapp.worker.analyze_markdown", lambda markdown: object())
+    monkeypatch.setattr("webapp.worker.report_to_json", lambda report: {"quality": {"level": "transaction_level"}})
+
+    client = app.test_client()
+    resp = client.post(
+        "/upload",
+        data={"force_ocr": "1", "files": (io.BytesIO(b"%PDF-fake"), "s.pdf")},
+        content_type="multipart/form-data",
+    )
+    body = resp.get_json()
+    assert body["jobs"][0]["force_ocr"] is True
+    assert seen["force_ocr"] is True
 
 
 def test_status_unknown_job_returns_404():

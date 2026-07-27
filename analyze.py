@@ -16,21 +16,26 @@ from analysis.pipeline import analyze_markdown, Report
 def _render(report: Report) -> str:
     s, r, m, d = report.statement, report.reconciliation, report.metrics, report.detection
     L: list[str] = []
-    L.append(f"# {s.bank or 'Bank'} — {s.account_name or 'Account'}")
+    L.append(f"# {s.bank or 'Bank'} - {s.account_name or 'Account'}")
     if s.account_number:
         L.append(f"Account: {s.account_number}")
     L.append(f"Period: {s.period_start} -> {s.period_end}")
     L.append(f"Balance: {s.beginning_balance} -> {s.ending_balance}   "
              f"({len(s.transactions)} transactions)")
     L.append(f"Model: {report.model_used}{'  (escalated)' if report.escalated else ''}")
+    L.append(
+        f"Quality: {report.quality.level} "
+        f"(corporate_use={report.quality.corporate_use}, "
+        f"transaction_detail_reliable={report.quality.transaction_detail_reliable})"
+    )
 
     L.append("\n## Reconciliation")
     # The backbone signal: is the bank's own printed summary internally consistent?
     if r.summary_ok is True:
-        L.append("  Bank summary: reconciles ✓  (stated totals are trustworthy)")
+        L.append("  Bank summary: reconciles OK  (stated totals are trustworthy)")
     elif r.summary_ok is False:
-        L.append("  Bank summary: INCONSISTENT ✗  (stated totals look mis-extracted — needs review)")
-    L.append("  OK" if r.ok else "  ISSUES FOUND — trust the bank-stated figures over line-item sums:")
+        L.append("  Bank summary: INCONSISTENT  (stated totals look mis-extracted - needs review)")
+    L.append("  OK" if r.ok else "  ISSUES FOUND - trust the bank-stated figures over line-item sums:")
     for issue in r.issues:
         L.append(f"    - {issue}")
     if r.debit_coverage is not None:
@@ -38,28 +43,37 @@ def _render(report: Report) -> str:
                  + (f"{r.credit_coverage:.0%} of stated credits" if r.credit_coverage is not None else "credits n/a"))
 
     L.append("\n## Metrics")
-    if m.stated_average_balance is not None:
-        L.append(f"  Average balance (bank): ${m.stated_average_balance:,.2f}   [as printed on the statement]")
-    adb = f"${m.average_daily_balance:,.2f}" if m.average_daily_balance is not None else "n/a"
-    L.append(f"  Average daily balance : {adb}"
-             + (f"  (computed over {m.days_in_period} days)" if m.average_daily_balance is not None and m.days_in_period else "  [computed]"))
+    avg = f"${m.average_balance:,.2f}" if m.average_balance is not None else "n/a"
+    L.append(f"  Average balance       : {avg}"
+             + (f"  [{m.average_balance_source}]" if m.average_balance_source else ""))
+    if m.stated_average_balance is not None and m.average_daily_balance is not None:
+        L.append(f"  Average daily balance : ${m.average_daily_balance:,.2f}  (computed over {m.days_in_period} days)")
     if m.min_balance is not None:
         L.append(f"  Min / max balance     : ${m.min_balance:,.2f} / ${m.max_balance:,.2f}")
     L.append(f"  Negative days         : {m.negative_days}")
-    dep = f"  Deposits (line items) : ${m.total_deposits:,.2f}  ({m.num_deposits})"
-    if s.stated_total_credits is not None:
-        dep += f"   | bank-stated ${s.stated_total_credits:,.2f} ({s.stated_credit_count})"
+    dep = (f"  Deposits              : ${m.effective_total_deposits:,.2f}  "
+           f"({m.effective_num_deposits}) [{m.deposits_source}]")
+    if m.deposits_source != "line_items":
+        dep += f"   | line items ${m.total_deposits:,.2f} ({m.num_deposits})"
     L.append(dep)
-    wd = f"  Withdrawals (line item): ${m.total_withdrawals:,.2f}  ({m.num_withdrawals})"
-    if s.stated_total_debits is not None:
-        wd += f"   | bank-stated ${s.stated_total_debits:,.2f} ({s.stated_debit_count})"
+    wd = (f"  Withdrawals           : ${m.effective_total_withdrawals:,.2f}  "
+          f"({m.effective_num_withdrawals}) [{m.withdrawals_source}]")
+    if m.withdrawals_source != "line_items":
+        wd += f"   | line items ${m.total_withdrawals:,.2f} ({m.num_withdrawals})"
     L.append(wd)
-    nsf = f"  NSF / overdraft       : {m.nsf_count} (line items)"
-    if m.stated_nsf_count is not None:
-        nsf += f"   | bank-stated {m.stated_nsf_count}"
-    L.append(nsf)
+    L.append(f"  True revenue          : ${m.true_revenue:,.2f}  "
+             f"(deposits minus lender credits ${m.lender_credits:,.2f})")
+    L.append(f"  Cash flow             : ${m.cash_flow:,.2f}")
+    withholding = f"{m.withholding_rate:.2f}%" if m.withholding_rate is not None else "n/a"
+    L.append(f"  Lender debits         : ${m.lender_debits:,.2f}  "
+             f"(monthly ${m.monthly_lender_debits:,.2f}, withholding {withholding})")
+    L.append(f"  POS / loan count      : {m.pos_count} / {m.loan_count}")
+    L.append(f"  NSF / overdraft       : {m.effective_nsf_count} [{m.nsf_source}]")
     for note in m.notes:
         L.append(f"  note: {note}")
+    if report.quality.notes:
+        for note in report.quality.notes:
+            L.append(f"  quality note: {note}")
 
     L.append("\n## MCA / lender detection")
     if d.known_funders:
@@ -96,6 +110,7 @@ def _json_safe(report: Report) -> dict:
                 for rc in report.detection.recurring_debits
             ],
         },
+        "quality": asdict(report.quality),
         "model_used": report.model_used,
         "escalated": report.escalated,
     }

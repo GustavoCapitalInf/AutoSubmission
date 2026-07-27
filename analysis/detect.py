@@ -17,32 +17,7 @@ from datetime import date
 from statistics import mean, pstdev
 from .schema import Statement, Transaction
 from .metrics import _parse_date
-
-# Known merchant-cash-advance funders and common alt-lenders. Keys are canonical
-# names; values are lowercase alias substrings to match against descriptions.
-KNOWN_FUNDERS: dict[str, list[str]] = {
-    "Kapitus": ["kapitus", "colonial funding"],
-    "OnDeck": ["ondeck", "on deck capital"],
-    "Forward Financing": ["forward financing"],
-    "Fora Financial": ["fora financial"],
-    "Rapid Finance": ["rapid finance", "rapidadvance"],
-    "Credibly": ["credibly"],
-    "BlueVine": ["bluevine"],
-    "Fundbox": ["fundbox"],
-    "Square Capital / Loans": ["square capital", "square loans", "sq *loans"],
-    "PayPal Working Capital": ["paypal working capital", "paypal wc"],
-    "Reliant Funding": ["reliant funding"],
-    "Everest Business Funding": ["everest business"],
-    "Mantis Funding": ["mantis funding"],
-    "CFG Merchant Solutions": ["cfg merchant"],
-    "Libertas Funding": ["libertas"],
-    "Fundomate": ["fundomate"],
-    "National Funding": ["national funding"],
-    "Newtek": ["newtek"],
-    "Headway Capital": ["headway capital"],
-    "Lendio": ["lendio"],
-    "Enova / Headway": ["enova"],
-}
+from .lenders import find_lender_match, has_false_lender_keyword
 
 
 @dataclass
@@ -72,15 +47,15 @@ class DetectionResult:
 def find_known_funders(stmt: Statement) -> list[FunderMatch]:
     matches: dict[str, FunderMatch] = {}
     for t in stmt.transactions:
-        desc = t.description.lower()
-        for funder, aliases in KNOWN_FUNDERS.items():
-            hit = next((a for a in aliases if a in desc), None)
-            if hit:
-                m = matches.get(funder) or FunderMatch(funder=funder, matched_alias=hit)
-                m.transactions.append(t)
-                if t.amount < 0:
-                    m.total_debited += -t.amount
-                matches[funder] = m
+        found = find_lender_match(t.description)
+        if not found:
+            continue
+        funder, hit = found
+        m = matches.get(funder) or FunderMatch(funder=funder, matched_alias=hit)
+        m.transactions.append(t)
+        if t.amount < 0:
+            m.total_debited += -t.amount
+        matches[funder] = m
     for m in matches.values():
         m.total_debited = round(m.total_debited, 2)
     return sorted(matches.values(), key=lambda m: len(m.transactions), reverse=True)
@@ -114,6 +89,8 @@ def find_recurring_debits(stmt: Statement, *, min_count: int = 3) -> list[Recurr
     groups: dict[tuple[str, float], list[Transaction]] = defaultdict(list)
     for t in stmt.transactions:
         if t.amount < 0:
+            if find_lender_match(t.description) is None and has_false_lender_keyword(t.description):
+                continue
             groups[(_desc_key(t.description), round(t.amount, 2))].append(t)
 
     out: list[RecurringDebit] = []

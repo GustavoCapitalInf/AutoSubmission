@@ -4,7 +4,7 @@ from ocr.ocr_client import (
     build_prompt, image_to_data_uri, ocr_page, strip_det_tags, strip_refusal_commentary,
     split_fused_header_row, fix_amount_column_bleed, collapse_repeated_amounts,
     collapse_repeated_page_numbers, embed_image_regions, strip_placeholder_markers,
-    postprocess, looks_missegmented, repair_fused_amount_table,
+    postprocess, looks_missegmented, repair_fused_amount_table, strip_oversized_embedded_images,
     is_td_statement, looks_truncated_td,
 )
 
@@ -163,6 +163,31 @@ def test_embed_image_regions_crops_and_embeds():
     assert "<|det|>text [0, 0, 10, 10]<|/det|>hello" in out
 
 
+def test_embed_image_regions_drops_oversized_regions():
+    img = Image.new("RGB", (1000, 1000), (255, 0, 0))
+    raw = "<|det|>image [0, 0, 1000, 900]<|/det|>legal notice text"
+    out = embed_image_regions(raw, img)
+    assert "data:image/png;base64" not in out
+    assert out == "legal notice text"
+
+
+def test_embed_image_regions_drops_tall_disclosure_slices():
+    img = Image.new("RGB", (2500, 3300), (255, 0, 0))
+    raw = "<|det|>image [350, 250, 600, 800]<|/det|>legal notice text"
+    out = embed_image_regions(raw, img)
+    assert "data:image/png;base64" not in out
+    assert out == "legal notice text"
+
+
+def test_strip_oversized_embedded_images_removes_large_data_uri():
+    big = '<img class="doc-image" src="data:image/png;base64,' + ("A" * 100) + '" alt="image" />'
+    small = '<img class="doc-image" src="data:image/png;base64,AAAA" alt="image" />'
+    out = strip_oversized_embedded_images(f"before {big} middle {small} after", max_len=80)
+    assert big not in out
+    assert small in out
+    assert "before  middle" in out
+
+
 def test_embed_image_regions_ignores_text_only():
     img = Image.new("RGB", (100, 100), (0, 0, 0))
     raw = "<|det|>header [1, 2, 3, 4]<|/det|>CHASE"
@@ -172,7 +197,7 @@ def test_embed_image_regions_ignores_text_only():
 def test_ocr_page_embeds_check_images(monkeypatch):
     # A page that returns an image region should render an <img> crop.
     img = Image.new("RGB", (1000, 1000), (0, 128, 255))
-    client = _FakeClient("<|det|>image [200, 200, 800, 800]<|/det|>")
+    client = _FakeClient("<|det|>image [250, 250, 700, 700]<|/det|>")
     out = ocr_page(img, settings=_settings(), client=client)
     assert '<img class="doc-image" src="data:image/png;base64,' in out
 

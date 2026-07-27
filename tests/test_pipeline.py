@@ -107,6 +107,7 @@ def test_parse_statement_recovers_truncated_td_page(monkeypatch):
         return f"rec-{dpi}"
 
     monkeypatch.setattr("ocr.rasterize.rasterize_page", fake_page)  # used by recovery
+    monkeypatch.setattr("ocr.ocr_client._mask_qr", lambda image: image)
 
     def fake_ocr(image, *, settings, client, on_delta=None):
         return _TD_TRUNC if image == "main" else _TD_FULL  # any recovery variant is full
@@ -118,7 +119,7 @@ def test_parse_statement_recovers_truncated_td_page(monkeypatch):
     doc = parse_statement(b"%PDF", max_workers=1,
                           on_page_replace=lambda p, t: replaced.append((p, t)))
     assert doc.pages == [_TD_FULL]  # kept the recovered full read
-    assert dpis and dpis[0] == 200  # first recovery variant tried
+    assert dpis and dpis[0] == 300  # masked 300 DPI recovery is tried first
     # the live buffer for page 0 is overwritten with the recovered read (web UI fix)
     assert replaced == [(0, _TD_FULL)]
 
@@ -135,6 +136,23 @@ def test_parse_statement_no_td_recovery_for_normal_page(monkeypatch):
     doc = parse_statement(b"%PDF", max_workers=1)
     assert doc.pages == [_TD_FULL]
     assert calls == []  # full TD page -> no recovery
+
+
+def test_parse_statement_no_td_recovery_after_first_page(monkeypatch):
+    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: [_TD_FULL, _TD_TRUNC])
+    calls = []
+    monkeypatch.setattr("ocr.rasterize.rasterize_page",
+                        lambda b, i, dpi=200: calls.append((i, dpi)) or "rec")
+
+    def fake_ocr(image, *, settings, client, on_delta=None):
+        return image
+
+    monkeypatch.setattr("ocr.ocr_client.ocr_page", fake_ocr)
+    monkeypatch.setattr("ocr.ocr_client._build_client", lambda settings: object())
+
+    doc = parse_statement(b"%PDF", max_workers=1)
+    assert doc.pages == [_TD_FULL, _TD_TRUNC]
+    assert calls == []
 
 
 def test_parse_statement_streams_page_indexed_deltas(monkeypatch):

@@ -9,7 +9,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from statistics import median
 from .schema import Statement
+from .lenders import find_lender_match, is_loan_transaction, is_pos_transaction
 
 # NSF / overdraft / returned-item fee signatures seen in real statements.
 _NSF_RE = re.compile(
@@ -44,16 +46,37 @@ class Metrics:
     # our own figure computed from dated running balances (used when there's no
     # printed one, or to cross-check it).
     stated_average_balance: float | None = None
+    average_balance: float | None = None
+    average_balance_source: str | None = None
     average_daily_balance: float | None = None
     min_balance: float | None = None
     max_balance: float | None = None
     negative_days: int = 0
+    # Line-item totals: computed only from extracted transaction rows.
     total_deposits: float = 0.0
     total_withdrawals: float = 0.0
     num_deposits: int = 0
     num_withdrawals: int = 0
+    # Effective underwriting totals: prefer reconciled bank summary figures when
+    # available; otherwise fall back to line-item totals and expose the source.
+    effective_total_deposits: float = 0.0
+    effective_total_withdrawals: float = 0.0
+    effective_num_deposits: int | None = None
+    effective_num_withdrawals: int | None = None
+    deposits_source: str = "line_items"
+    withdrawals_source: str = "line_items"
     nsf_count: int = 0                     # from line items (a lower bound if detail is incomplete)
     stated_nsf_count: int | None = None    # bank-printed count this period, when available
+    effective_nsf_count: int = 0
+    nsf_source: str = "line_items"
+    lender_credits: float = 0.0
+    lender_debits: float = 0.0
+    monthly_lender_debits: float = 0.0
+    true_revenue: float = 0.0
+    cash_flow: float = 0.0
+    withholding_rate: float | None = None
+    pos_count: int = 0
+    loan_count: int = 0
     notes: list[str] = field(default_factory=list)
 
 
@@ -64,24 +87,31 @@ def daily_closing_balances(stmt: Statement) -> dict[date, float]:
     start = _parse_date(stmt.period_start)
     end = _parse_date(stmt.period_end)
     dated = [(d, t) for t in stmt.transactions if (d := _parse_date(t.date)) is not None]
-    if not dated or any(t.running_balance is None for _, t in dated):
+    dated_with_balance = [(d, t) for d, t in dated if t.running_balance is not None]
+    if not dated_with_balance:
         return {}
     if start is None:
-        start = min(d for d, _ in dated)
+        start = min(d for d, _ in dated_with_balance)
     if end is None:
-        end = max(d for d, _ in dated)
+        end = max(d for d, _ in dated_with_balance)
 
     # Last running balance recorded on each day (transactions are in order).
     eod: dict[date, float] = {}
-    for d, t in dated:
+    for d, t in dated_with_balance:
         if start <= d <= end:
             eod[d] = t.running_balance
+    if not eod:
+        return {}
 
     balances: dict[date, float] = {}
-    # Balance entering the period: the opening balance, else the first day's close.
+    # Balance entering the period: the opening balance. If missing, only compute
+    # from the first dated balance forward; earlier days would be unsupported.
     carry = stmt.beginning_balance
     if carry is None:
-        carry = dated[0][1].running_balance
+        first_balance_day = min(eod)
+        carry = eod[first_balance_day]
+        start = first_balance_day
+
     day = start
     while day <= end:
         if day in eod:
@@ -91,10 +121,52 @@ def daily_closing_balances(stmt: Statement) -> dict[date, float]:
     return balances
 
 
-def compute_metrics(stmt: Statement) -> Metrics:
+def _summary_debits_with_service_charge(stmt: Statement) -> float | None:
+    if stmt.stated_total_debits is None:
+        return None
+    debits = round(stmt.stated_total_debits, 2)
+    sc = stmt.stated_service_charge or 0.0
+    if (
+        sc
+        and stmt.beginning_balance is not None
+        and stmt.ending_balance is not None
+        and stmt.stated_total_credits is not None
+    ):
+        interest = stmt.stated_interest_paid or 0.0
+        base = stmt.beginning_balance + stmt.stated_total_credits - debits + interest
+        separate_resid = round(base - sc - stmt.ending_balance, 2)
+        folded_resid = round(base - stmt.ending_balance, 2)
+        if abs(separate_resid) <= 1.00 and abs(folded_resid) > 1.00:
+            debits = round(debits + sc, 2)
+    return debits
+
+
+def _monthly_lender_debit_total(groups: dict[str, list[tuple[date | None, float]]]) -> float:
+    total = 0.0
+    for payments in groups.values():
+        amounts = [amount for _, amount in payments]
+        if not amounts:
+            continue
+        dates = sorted({d for d, _ in payments if d is not None})
+        gaps = [(dates[i] - dates[i - 1]).days for i in range(1, len(dates))]
+        weekly_hits = sum(1 for gap in gaps if 5 <= gap <= 9)
+        if gaps and weekly_hits >= max(1, (len(gaps) + 1) // 2):
+            total += median(amounts) * 4.33
+        else:
+            total += sum(amounts)
+    return round(total, 2)
+
+
+def compute_metrics(
+    stmt: Statement,
+    *,
+    trust_stated_summary: bool | None = None,
+    trust_running_balances: bool = True,
+) -> Metrics:
     m = Metrics()
     m.stated_average_balance = stmt.stated_average_balance
     m.stated_nsf_count = stmt.stated_nsf_count
+    lender_debit_groups: dict[str, list[tuple[date | None, float]]] = {}
     for t in stmt.transactions:
         if t.amount >= 0:
             m.total_deposits += t.amount
@@ -104,10 +176,29 @@ def compute_metrics(stmt: Statement) -> Metrics:
             m.num_withdrawals += 1
         if _NSF_RE.search(t.description):
             m.nsf_count += 1
+        lender_match = find_lender_match(t.description)
+        if lender_match is not None:
+            if t.amount > 0:
+                m.lender_credits += t.amount
+            elif t.amount < 0:
+                m.lender_debits += -t.amount
+                lender_debit_groups.setdefault(lender_match[0], []).append((_parse_date(t.date), -t.amount))
+        if is_pos_transaction(t.description):
+            m.pos_count += 1
+        if is_loan_transaction(t.description):
+            m.loan_count += 1
     m.total_deposits = round(m.total_deposits, 2)
     m.total_withdrawals = round(m.total_withdrawals, 2)
+    m.lender_credits = round(m.lender_credits, 2)
+    m.lender_debits = round(m.lender_debits, 2)
+    m.monthly_lender_debits = _monthly_lender_debit_total(lender_debit_groups)
+    m.effective_total_deposits = m.total_deposits
+    m.effective_total_withdrawals = m.total_withdrawals
+    m.effective_num_deposits = m.num_deposits
+    m.effective_num_withdrawals = m.num_withdrawals
+    m.effective_nsf_count = m.nsf_count
 
-    balances = daily_closing_balances(stmt)
+    balances = daily_closing_balances(stmt) if trust_running_balances else {}
     if balances:
         vals = list(balances.values())
         m.days_in_period = len(vals)
@@ -116,11 +207,62 @@ def compute_metrics(stmt: Statement) -> Metrics:
         m.max_balance = round(max(vals), 2)
         m.negative_days = sum(1 for v in vals if v < 0)
     elif m.stated_average_balance is None:
-        m.notes.append(
-            "no average balance available: statement prints none and lacks dated "
-            "running balances to compute one"
-        )
+        if trust_running_balances:
+            m.notes.append(
+                "no average balance available: statement prints none and lacks dated "
+                "running balances to compute one"
+            )
+        else:
+            m.notes.append("not computing average balance from line items because reconciliation failed")
     else:
         m.days_in_period = stmt.days_in_period
-        m.notes.append("using the bank's printed average balance (no running balances to compute our own)")
+        if trust_running_balances:
+            m.notes.append("using the bank's printed average balance (no running balances to compute our own)")
+        else:
+            m.notes.append("using the bank's printed average balance because line-item balances did not reconcile")
+
+    if m.stated_average_balance is not None:
+        m.average_balance = m.stated_average_balance
+        m.average_balance_source = "bank_stated"
+    elif m.average_daily_balance is not None:
+        m.average_balance = m.average_daily_balance
+        m.average_balance_source = "computed_daily_closing"
+
+    if stmt.days_in_period is not None and m.days_in_period is None:
+        m.days_in_period = stmt.days_in_period
+
+    if trust_stated_summary is True:
+        if stmt.stated_total_credits is not None:
+            m.effective_total_deposits = round(stmt.stated_total_credits, 2)
+            m.deposits_source = "bank_stated_reconciled"
+        if stmt.stated_total_debits is not None:
+            m.effective_total_withdrawals = _summary_debits_with_service_charge(stmt) or round(stmt.stated_total_debits, 2)
+            m.withdrawals_source = "bank_stated_reconciled"
+        if stmt.stated_credit_count is not None:
+            m.effective_num_deposits = stmt.stated_credit_count
+        if stmt.stated_debit_count is not None:
+            m.effective_num_withdrawals = stmt.stated_debit_count
+    elif trust_stated_summary is False and (
+        stmt.stated_total_credits is not None or stmt.stated_total_debits is not None
+    ):
+        m.notes.append("ignored bank-stated deposit/debit totals because the summary did not reconcile")
+    elif trust_stated_summary is None:
+        if stmt.stated_total_credits is not None:
+            m.effective_total_deposits = round(stmt.stated_total_credits, 2)
+            m.deposits_source = "bank_stated_unverified"
+        if stmt.stated_total_debits is not None:
+            m.effective_total_withdrawals = round(stmt.stated_total_debits, 2)
+            m.withdrawals_source = "bank_stated_unverified"
+        if stmt.stated_credit_count is not None:
+            m.effective_num_deposits = stmt.stated_credit_count
+        if stmt.stated_debit_count is not None:
+            m.effective_num_withdrawals = stmt.stated_debit_count
+
+    if stmt.stated_nsf_count is not None:
+        m.effective_nsf_count = stmt.stated_nsf_count
+        m.nsf_source = "bank_stated"
+    m.true_revenue = round(m.effective_total_deposits - m.lender_credits, 2)
+    m.cash_flow = round(m.effective_total_deposits - m.effective_total_withdrawals, 2)
+    if m.true_revenue > 0:
+        m.withholding_rate = round((m.monthly_lender_debits / m.true_revenue) * 100, 2)
     return m

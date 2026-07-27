@@ -122,8 +122,8 @@ stripped automatically, leaving clean text and HTML tables.
 
 ## Local web frontend
 
-A dark, 3-panel document viewer (original page images | markdown source |
-rendered markdown) with a toolbar to upload PDFs, switch between documents, and
+A dark, 4-panel document viewer (original page images | markdown source |
+rendered markdown | analysis metrics) with a toolbar to upload PDFs, switch between documents, and
 download results. Easiest way to launch (PowerShell) — pass the current RunPod
 pod id and it derives the endpoint + key for you:
 

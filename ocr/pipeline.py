@@ -3,12 +3,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .rasterize import rasterize_pdf, rasterize_page
 from .document import StatementMarkdown
 from .config import load_settings
+from .native_text import parse_native_pdf_text, parse_native_td_canada, parse_native_wells_fargo
 
 
 def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
                     model: str | None = None, page_ocr_fn=None,
                     on_page_delta=None, max_workers: int | None = None,
-                    fallback_dpi: int | None = 250, on_page_replace=None) -> StatementMarkdown:
+                    fallback_dpi: int | None = 250, on_page_replace=None,
+                    force_ocr: bool = False) -> StatementMarkdown:
     """Rasterize the PDF and OCR its pages into one StatementMarkdown.
 
     Pages are OCR'd concurrently (up to `max_workers` at a time; defaults to
@@ -27,6 +29,18 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
     `on_page_delta(page_index, chunk)` — the web UI joins these per-page buffers
     (in page order) to show what the OCR is reading in real time. `page_ocr_fn`
     is injectable for tests and receives a single page image."""
+    if page_ocr_fn is None and not force_ocr:
+        native = parse_native_td_canada(pdf_bytes, source_file=source_file)
+        if native is None:
+            native = parse_native_wells_fargo(pdf_bytes, source_file=source_file)
+        if native is None:
+            native = parse_native_pdf_text(pdf_bytes, source_file=source_file)
+        if native is not None:
+            if on_page_replace is not None:
+                for i, page in enumerate(native.pages):
+                    on_page_replace(i, page)
+            return native
+
     settings = load_settings(model_override=model)
     workers = max_workers if max_workers is not None else settings.max_workers
 
@@ -56,7 +70,7 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
                     return use_alt(page_index, alt)
             # A truncated TD page-1 (the QR-code refusal derails generation) reads
             # fully under some render variant — try them and keep a recovered read.
-            if looks_truncated_td(out):
+            if page_index == 0 and looks_truncated_td(out):
                 alt = recover_truncated_td_page(pdf_bytes, page_index,
                                                 settings=settings, client=client)
                 if alt is not None:

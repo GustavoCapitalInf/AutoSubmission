@@ -237,7 +237,7 @@ def _mask_qr(image: Image.Image) -> Image.Image:
     from PIL import ImageDraw
     im = image.copy()
     w, h = im.size
-    ImageDraw.Draw(im).rectangle([int(w * 0.72), 0, w, int(h * 0.075)], fill="white")
+    ImageDraw.Draw(im).rectangle([int(w * 0.60), 0, w, int(h * 0.12)], fill="white")
     return im
 
 
@@ -245,7 +245,7 @@ def _mask_qr(image: Image.Image) -> Image.Image:
 # stop after the header, and which render avoids it varies per statement (some read
 # at 150 DPI, some at 200, some only with the QR masked out). Try these variants in
 # order and keep the first that recovers the ACCOUNT SUMMARY. (dpi, mask_qr):
-_TD_RECOVERY_VARIANTS = [(200, False), (150, False), (300, True), (250, False), (150, True)]
+_TD_RECOVERY_VARIANTS = [(300, True), (250, True), (200, True), (200, False), (150, False)]
 
 
 def recover_truncated_td_page(pdf_bytes: bytes, page_index: int, *, settings, client) -> str | None:
@@ -330,6 +330,7 @@ _IMAGE_DET_RE = re.compile(
     r"\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\](?:<\|/det\|>)?",
     re.IGNORECASE,
 )
+_DATA_IMG_RE = re.compile(r'<img\b[^>]*src="data:image/[^"]+"[^>]*>', re.IGNORECASE)
 
 
 def _crop_data_uri(image: Image.Image, box_px) -> str:
@@ -343,8 +344,11 @@ def embed_image_regions(raw: str, page_image: Image.Image) -> str:
     """Replace picture regions (image/figure/check/logo/signature) in the raw
     output with the actual pixels cropped from the page, embedded as <img> — so
     e.g. TD check-image scans render inline instead of being dropped as text.
-    Coordinates are 0-1000 per-axis normalized. Degenerate boxes are dropped."""
+    Coordinates are 0-1000 per-axis normalized. Degenerate and oversized boxes
+    are dropped: the model sometimes tags an entire disclosure page as an image,
+    which creates huge base64 blobs with no underwriting value."""
     W, H = page_image.size
+    page_area = W * H
 
     def repl(match: re.Match) -> str:
         label = match.group(1).lower()
@@ -354,10 +358,27 @@ def embed_image_regions(raw: str, page_image: Image.Image) -> str:
         y1 = min(H, round(int(match.group(5)) / 1000 * H))
         if x1 <= x0 or y1 <= y0:
             return ""
+        crop_width = x1 - x0
+        crop_height = y1 - y0
+        crop_area = crop_width * crop_height
+        width_frac = crop_width / W
+        height_frac = crop_height / H
+        if crop_area / page_area > 0.35 or (height_frac > 0.45 and width_frac > 0.15):
+            return ""
         uri = _crop_data_uri(page_image, (x0, y0, x1, y1))
+        if len(uri) > 25_000:
+            return ""
         return f'\n\n<img class="doc-image" src="{uri}" alt="{label}" />\n\n'
 
     return _IMAGE_DET_RE.sub(repl, raw)
+
+
+def strip_oversized_embedded_images(text: str, *, max_len: int = 25_000) -> str:
+    """Drop very large embedded data-URI images from OCR markdown."""
+    def repl(match: re.Match) -> str:
+        return "" if len(match.group(0)) > max_len else match.group(0)
+
+    return _DATA_IMG_RE.sub(repl, text)
 
 
 def _build_client(settings: Settings):
@@ -368,6 +389,7 @@ def _build_client(settings: Settings):
 def postprocess(raw: str) -> str:
     """Full cleanup chain applied to the model's raw output."""
     cleaned = strip_placeholder_markers(strip_refusal_commentary(strip_det_tags(raw)))
+    cleaned = strip_oversized_embedded_images(cleaned)
     cleaned = collapse_repeated_amounts(cleaned)
     cleaned = collapse_repeated_page_numbers(cleaned)
     cleaned = repair_fused_amount_table(split_fused_header_row(cleaned))
