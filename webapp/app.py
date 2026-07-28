@@ -198,6 +198,8 @@ def _package_analysis(jobs) -> dict:
     }
 
     funders: dict[str, dict] = {}
+    package_transactions: list[dict] = []
+    package_funder_matches: list[dict] = []
     for job in jobs:
         analysis = job.analysis or {}
         statement = analysis.get("statement") or {}
@@ -245,6 +247,28 @@ def _package_analysis(jobs) -> dict:
             item = funders.setdefault(name, {"funder": name, "documents": 0, "total_debited": 0.0})
             item["documents"] += 1
             item["total_debited"] = round(item["total_debited"] + _num(match.get("total_debited")), 2)
+            package_funder_matches.append(
+                {
+                    "funder": name,
+                    "source_job": job.id,
+                    "transactions": match.get("transactions") or [],
+                }
+            )
+
+        # Flattened ledger so the dashboard can show every statement's rows at once.
+        for tx in statement.get("transactions") or []:
+            if not isinstance(tx, dict):
+                continue
+            package_transactions.append(
+                {
+                    **tx,
+                    "source_job": job.id,
+                    "source_document": job.filename,
+                    "source_bank": statement.get("bank"),
+                    "source_period_start": statement.get("period_start"),
+                    "source_period_end": statement.get("period_end"),
+                }
+            )
 
         doc_row = {
             "id": job.id,
@@ -309,6 +333,8 @@ def _package_analysis(jobs) -> dict:
         "documents": documents,
         "monthly": sorted(monthly, key=lambda r: (r.get("period_end") or "", r.get("filename") or "")),
         "funders": sorted(funders.values(), key=lambda r: r["total_debited"], reverse=True),
+        "transactions": package_transactions,
+        "detection": {"known_funders": package_funder_matches},
     }
 
 

@@ -16,6 +16,12 @@ const els = {
   decisionPill: document.getElementById("decisionPill"),
   lenderTable: document.getElementById("lenderTable"),
   lenderCount: document.getElementById("lenderCount"),
+  transactionTable: document.getElementById("transactionTable"),
+  transactionCount: document.getElementById("transactionCount"),
+  transactionCard: document.getElementById("transactionCard"),
+  transactionScope: document.getElementById("transactionScope"),
+  transactionMore: document.getElementById("transactionMore"),
+  statementModalTransactionMore: document.getElementById("statementModalTransactionMore"),
   monthlyCard: document.getElementById("monthlyCard"),
   monthlyTable: document.getElementById("monthlyTable"),
   monthlyCount: document.getElementById("monthlyCount"),
@@ -36,9 +42,12 @@ const els = {
   statementModalMetrics: document.getElementById("statementModalMetrics"),
   statementModalAccount: document.getElementById("statementModalAccount"),
   statementModalLenders: document.getElementById("statementModalLenders"),
+  statementModalTransactions: document.getElementById("statementModalTransactions"),
+  statementModalTransactionCount: document.getElementById("statementModalTransactionCount"),
   modalJsonDownload: document.getElementById("modalJsonDownload"),
   modalCopyData: document.getElementById("modalCopyData"),
   copyBuffer: document.getElementById("copyBuffer"),
+  appearanceToggle: document.getElementById("appearanceToggle"),
 };
 
 let currentJobId = null;
@@ -52,6 +61,14 @@ let pollTimer = null;
 let modalAnalysis = null;
 let modalLastFocus = null;
 let modalScrollY = 0;
+let transactionFilter = "all";
+let modalTransactionFilter = "all";
+let transactionSort = "date";
+let modalTransactionSort = "date";
+// Ledgers can run to thousands of rows across a package, so render in pages.
+const TRANSACTION_PAGE = 100;
+let transactionLimit = TRANSACTION_PAGE;
+let modalTransactionLimit = TRANSACTION_PAGE;
 
 function selectedParseMode() {
   return document.querySelector('input[name="parseMode"]:checked')?.value || "auto";
@@ -67,39 +84,39 @@ const emptyMetricSections = [
     sub: "Incoming money",
     items: [
       ["Total Credits", "N/A", "All inflows", "CR", "green"],
-      ["Deposits", "N/A", "Total deposit volume", "DEP", "green"],
-      ["ACH Credits", "N/A", "Incoming ACH items", "ACH", "green"],
+      ["Deposits", "N/A", "Total deposit volume", "DEP", "neutral"],
+      ["ACH Credits", "N/A", "Incoming ACH items", "ACH", "neutral"],
     ],
   },
   {
     title: "Debits",
     sub: "Outgoing money",
     items: [
-      ["Total Debits", "N/A", "All outflows", "DB", "red"],
-      ["Withholding Rate", "N/A", "Lender debits as a share of revenue", "%", "red"],
-      ["ACH Debits", "N/A", "Outgoing ACH items", "ACH", "blue"],
-      ["POS Transactions", "N/A", "Card-present debits", "POS", "blue"],
-      ["ATM Withdrawals", "N/A", "ATM cash activity", "ATM", "blue"],
-      ["Checks Detected", "N/A", "Check payments found", "CHK", "blue"],
+      ["Total Debits", "N/A", "All outflows", "DB", "neutral"],
+      ["Withholding Rate", "N/A", "Lender debits as a share of revenue", "%", "neutral"],
+      ["ACH Debits", "N/A", "Outgoing ACH items", "ACH", "neutral"],
+      ["POS Transactions", "N/A", "Card-present debits", "POS", "neutral"],
+      ["ATM Withdrawals", "N/A", "ATM cash activity", "ATM", "neutral"],
+      ["Checks Detected", "N/A", "Check payments found", "CHK", "neutral"],
     ],
   },
   {
     title: "Risk Signals",
     sub: "Balance and NSF indicators",
     items: [
-      ["NSFs", "N/A", "Returned or insufficient funds", "NSF", "red"],
-      ["Average Daily Balance", "N/A", "Computed from daily ledger", "AVG", "blue"],
-      ["Ending Balance", "N/A", "Statement close balance", "END", "blue"],
-      ["Lowest Balance", "N/A", "Lowest daily balance", "LOW", "red"],
-      ["Highest Balance", "N/A", "Highest daily balance", "HIGH", "green"],
+      ["NSFs", "N/A", "Returned or insufficient funds", "NSF", "neutral"],
+      ["Average Daily Balance", "N/A", "Computed from daily ledger", "AVG", "neutral"],
+      ["Ending Balance", "N/A", "Statement close balance", "END", "neutral"],
+      ["Lowest Balance", "N/A", "Lowest daily balance", "LOW", "neutral"],
+      ["Highest Balance", "N/A", "Highest daily balance", "HIGH", "neutral"],
     ],
   },
   {
     title: "Lenders",
     sub: "Funding activity",
     items: [
-      ["Lenders Detected", "N/A", "Known funder matches", "LEN", "blue"],
-      ["Monthly Cash Flow", "N/A", "Credits minus debits", "CF", "blue"],
+      ["Lenders Detected", "N/A", "Known funder matches", "LEN", "neutral"],
+      ["Monthly Cash Flow", "N/A", "Credits minus debits", "CF", "neutral"],
     ],
   },
 ];
@@ -206,6 +223,10 @@ function txDescription(tx) {
   return String(tx.description || tx.memo || tx.name || tx.details || "").toUpperCase();
 }
 
+function txDescriptionRaw(tx) {
+  return String(tx.description || tx.memo || tx.name || tx.details || "");
+}
+
 function txAmount(tx) {
   const candidates = [tx.amount, tx.value, tx.credit, tx.debit];
   for (const candidate of candidates) {
@@ -217,6 +238,214 @@ function txAmount(tx) {
 
 function countTransactions(transactions, matcher) {
   return transactions.reduce((count, tx) => count + (matcher(txDescription(tx), txAmount(tx), tx) ? 1 : 0), 0);
+}
+
+function normalizeTransactionText(value) {
+  return String(value || "").toUpperCase().replace(/\s+/g, " ").trim();
+}
+
+function transactionKey(tx) {
+  return [
+    String(tx.date || ""),
+    normalizeTransactionText(txDescriptionRaw(tx)),
+    txAmount(tx).toFixed(2),
+  ].join("|");
+}
+
+function lenderMapFromDetection(detection = {}) {
+  const map = new Map();
+  const funders = Array.isArray(detection.known_funders) ? detection.known_funders : [];
+  funders.forEach((funder) => {
+    const name = funder.funder || funder.lender || "Known lender";
+    const txs = Array.isArray(funder.transactions) ? funder.transactions : [];
+    txs.forEach((tx) => map.set(transactionKey(tx), name));
+  });
+  return map;
+}
+
+function isNsfTransaction(tx) {
+  const desc = normalizeTransactionText(txDescriptionRaw(tx));
+  return /\bNSF\b|NON[- ]?SUFFICIENT|INSUFFICIENT FUNDS|OVERDRAFT|RETURN(?:ED)? ITEM|RETURN(?:ED)? CHECK|UNCOLLECTED FUNDS/.test(desc);
+}
+
+function isPosTransaction(tx) {
+  const desc = normalizeTransactionText(txDescriptionRaw(tx));
+  if (txAmount(tx) >= 0) return false;
+  return /\bPOS\b|CARD PURCHASE|CHECKCARD|DEBIT CARD PURCHASE|PURCHASE AUTHORIZED|POINT OF SALE|INTERAC PURCHASE|PIN PURCHASE/.test(desc);
+}
+
+function lenderNameForTransaction(tx, lenderMap) {
+  if (lenderMap && lenderMap.has(transactionKey(tx))) return lenderMap.get(transactionKey(tx));
+  return "";
+}
+
+function transactionCategory(tx, lenderMap) {
+  const lender = lenderNameForTransaction(tx, lenderMap);
+  if (lender) return { label: lender, glyph: "⌂", tone: "amber" };
+  if (isNsfTransaction(tx)) return { label: "NSF", glyph: "⚠", tone: "red" };
+  if (isPosTransaction(tx)) return { label: "Point of Sale", glyph: "▤", tone: "neutral" };
+  const credit = txAmount(tx) >= 0;
+  return { label: credit ? "Credit" : "Debit", glyph: credit ? "↑" : "↓", tone: "neutral" };
+}
+
+function filterTransactions(transactions, filter, lenderMap) {
+  if (filter === "nsf") return transactions.filter(isNsfTransaction);
+  if (filter === "lender") return transactions.filter((tx) => Boolean(lenderNameForTransaction(tx, lenderMap)));
+  if (filter === "pos") return transactions.filter(isPosTransaction);
+  return transactions;
+}
+
+function txDateValue(tx) {
+  const raw = String(tx.date || "").trim();
+  if (!raw) return null;
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return Date.UTC(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+  const us = raw.match(/^(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?/);
+  if (us) {
+    const year = us[3] ? Number(us[3]) : 2000;
+    return Date.UTC(year < 100 ? 2000 + year : year, Number(us[1]) - 1, Number(us[2]));
+  }
+  const parsed = Date.parse(raw);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+// Stable: rows that cannot be ordered keep their original ledger position.
+function sortTransactions(transactions, sort) {
+  const decorated = transactions.map((tx, index) => ({ tx, index }));
+  if (sort === "credits" || sort === "debits") {
+    const direction = sort === "credits" ? -1 : 1;
+    decorated.sort((a, b) => (txAmount(a.tx) - txAmount(b.tx)) * direction || a.index - b.index);
+  } else {
+    decorated.sort((a, b) => {
+      const av = txDateValue(a.tx);
+      const bv = txDateValue(b.tx);
+      if (av === null || bv === null) return a.index - b.index;
+      return av - bv || a.index - b.index;
+    });
+  }
+  return decorated.map((entry) => entry.tx);
+}
+
+function renderTransactionRows(tableEl, countEl, transactions, detection, filter, currency = "USD", options = {}) {
+  if (!tableEl || !countEl) return;
+  const { sort = "date", showSource = false, limit = TRANSACTION_PAGE, moreEl = null } = options;
+  const rows = Array.isArray(transactions) ? transactions : [];
+  const lenderMap = lenderMapFromDetection(detection);
+  const matched = sortTransactions(filterTransactions(rows, filter, lenderMap), sort);
+  const visible = matched.slice(0, limit);
+  const filterLabel = filter === "all" ? "transactions" : `${filter} matches`;
+  countEl.textContent = visible.length < matched.length
+    ? `${formatNumber(visible.length)} of ${formatNumber(matched.length)} ${filterLabel}`
+    : `${formatNumber(matched.length)} ${filterLabel}`;
+  if (moreEl) {
+    const remaining = matched.length - visible.length;
+    moreEl.hidden = remaining <= 0;
+    if (remaining > 0) {
+      const next = Math.min(remaining, TRANSACTION_PAGE);
+      moreEl.innerHTML = `
+        <button class="table-action" type="button" data-more-step="${next}">Show ${formatNumber(next)} more</button>
+        <button class="table-action" type="button" data-more-step="all">Show all ${formatNumber(matched.length)}</button>
+      `;
+    } else {
+      moreEl.innerHTML = "";
+    }
+  }
+  const sourceHead = showSource ? "<td>N/A</td>" : "";
+  if (!visible.length) {
+    tableEl.innerHTML = `
+      <tr>
+        <td><strong>No transactions found</strong></td>
+        <td>${escapeHtml(filter === "all" ? "No statement returned transaction rows." : "No rows matched this filter.")}</td>
+        ${sourceHead}
+        <td>${glassChip("", "Empty", "neutral")}</td>
+        <td>N/A</td>
+        <td>N/A</td>
+      </tr>
+    `;
+    return;
+  }
+  tableEl.innerHTML = visible.map((tx) => {
+    const amount = txAmount(tx);
+    const category = transactionCategory(tx, lenderMap);
+    const source = showSource
+      ? `<td class="transaction-source">${escapeHtml(tx.source_document || tx.source_bank || "Statement")}</td>`
+      : "";
+    return `
+      <tr>
+        <td><strong>${escapeHtml(tx.date || "N/A")}</strong></td>
+        <td class="transaction-desc">${escapeHtml(txDescriptionRaw(tx) || "N/A")}</td>
+        ${source}
+        <td>${glassChip(category.glyph, category.label, category.tone)}</td>
+        <td class="amount-cell ${amount < 0 ? "amount-debit" : "amount-credit"}">${escapeHtml(formatMoney(amount, currency))}</td>
+        <td class="amount-cell">${escapeHtml(formatMoney(tx.running_balance, currency))}</td>
+      </tr>
+    `;
+  }).join("");
+}
+
+// Single source of truth for the main ledger table: a package shows every
+// statement's rows combined, a single upload shows just its own.
+function mainTransactionContext() {
+  const pkg = currentAnalysis?.package;
+  if (pkg) {
+    return {
+      transactions: Array.isArray(pkg.transactions) ? pkg.transactions : [],
+      detection: pkg.detection || {},
+      currency: "USD",
+      multi: true,
+    };
+  }
+  const statement = currentAnalysis?.statement || {};
+  return {
+    transactions: getTransactions(statement),
+    detection: currentAnalysis?.detection || {},
+    currency: statement.currency || "USD",
+    multi: false,
+  };
+}
+
+function renderMainTransactions({ keepLimit = false } = {}) {
+  if (!keepLimit) transactionLimit = TRANSACTION_PAGE;
+  const ctx = mainTransactionContext();
+  if (els.transactionCard) {
+    els.transactionCard.style.display = "block";
+    els.transactionCard.classList.toggle("multi-statement", ctx.multi);
+  }
+  if (els.transactionScope) {
+    els.transactionScope.textContent = ctx.multi ? "All statements" : "This statement";
+  }
+  renderTransactionRows(
+    els.transactionTable,
+    els.transactionCount,
+    ctx.transactions,
+    ctx.detection,
+    transactionFilter,
+    ctx.currency,
+    { sort: transactionSort, showSource: ctx.multi, limit: transactionLimit, moreEl: els.transactionMore }
+  );
+}
+
+function renderModalTransactions({ keepLimit = false } = {}) {
+  if (!keepLimit) modalTransactionLimit = TRANSACTION_PAGE;
+  const statement = modalAnalysis?.statement || {};
+  renderTransactionRows(
+    els.statementModalTransactions,
+    els.statementModalTransactionCount,
+    getTransactions(statement),
+    modalAnalysis?.detection || {},
+    modalTransactionFilter,
+    statement.currency || "USD",
+    { sort: modalTransactionSort, limit: modalTransactionLimit, moreEl: els.statementModalTransactionMore }
+  );
+}
+
+function setTransactionFilterButtons(selector, activeValue) {
+  const attribute = selector.replace(/^\[|\]$/g, "");
+  document.querySelectorAll(selector).forEach((button) => {
+    const isActive = button.getAttribute(attribute) === activeValue;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
 }
 
 function confidenceFrom(report) {
@@ -296,6 +525,7 @@ function setStatusRows(rows) {
 
 function setInitialState() {
   if (els.monthlyCard) els.monthlyCard.style.display = "none";
+  if (els.transactionCard) els.transactionCard.style.display = "block";
   renderMetricSections(emptyMetricSections);
   renderAccountSummary(accountFieldRows());
   setBanner("pending", "Ready for extraction", "--");
@@ -309,6 +539,7 @@ function setInitialState() {
     ["File size", "--"],
   ]);
   renderLenders([]);
+  renderMainTransactions();
 }
 
 function setActions(jobId, ready) {
@@ -367,12 +598,82 @@ function setPackageActions(jobIds) {
   }
 }
 
+// Legacy metric codes -> [monochrome glyph, plain-language label]
+const CHIP_VOCABULARY = {
+  CR: ["↑", "Credits"],
+  DB: ["↓", "Debits"],
+  DEP: ["↧", "Deposits"],
+  AVG: ["◎", "Average"],
+  ADB: ["◎", "Daily Average"],
+  CF: ["⇄", "Cash Flow"],
+  ACH: ["⇄", "ACH"],
+  NSF: ["⚠", "NSF"],
+  OK: ["✓", "Approved"],
+  REV: ["◐", "Review"],
+  ERR: ["✕", "Error"],
+  DOC: ["◈", "Integrity"],
+  LEN: ["⌂", "Lender"],
+  POS: ["▤", "Point of Sale"],
+  ATM: ["▣", "ATM"],
+  CHK: ["✎", "Checks"],
+  END: ["◍", "Ending"],
+  HIGH: ["▲", "Highest"],
+  LOW: ["▼", "Lowest"],
+  "%": ["%", "Rate"],
+};
+
+const CHIP_TONES = { green: "success", red: "error", blue: "info", amber: "warning", neutral: "neutral" };
+
+/* Colour restraint: a chip is tinted only when it reports something the
+   reviewer should act on. Anything purely informational stays neutral
+   frosted glass, so an accent colour anywhere on screen means "look here". */
+function countTone(value) {
+  return numberOrNull(value) ? "red" : "neutral";
+}
+
+function presenceTone(value) {
+  return numberOrNull(value) ? "amber" : "neutral";
+}
+
+function negativeTone(value) {
+  const n = numberOrNull(value);
+  return n !== null && n < 0 ? "red" : "neutral";
+}
+
+function withholdingTone(value) {
+  const n = numberOrNull(value);
+  if (n === null || n <= 0) return "neutral";
+  return n >= 20 ? "red" : "amber";
+}
+
+function integrityTone(integrity = {}) {
+  if (integrity.risk_level === "high") return "red";
+  if (integrity.risk_level === "review") return "amber";
+  return "neutral";
+}
+
+function chipTone(tone) {
+  return CHIP_TONES[tone] || "neutral";
+}
+
+function glassChip(glyph, text, tone, extraClass = "") {
+  const classes = ["glass-chip", chipTone(tone), extraClass].filter(Boolean).join(" ");
+  const mark = glyph ? `<span class="chip-glyph" aria-hidden="true">${escapeHtml(glyph)}</span>` : "";
+  return `<span class="${escapeHtml(classes)}">${mark}<span class="chip-text">${escapeHtml(text)}</span></span>`;
+}
+
+function metricChip(icon, tone) {
+  if (!icon) return "";
+  const [glyph, text] = CHIP_VOCABULARY[icon] || ["", icon];
+  return glassChip(glyph, text, tone, "metric-chip");
+}
+
 function renderMetricCard([label, value, sub, icon, tone]) {
   return `
     <article class="metric">
       <div class="metric-top">
         <div class="metric-label">${escapeHtml(label)}</div>
-        <div class="metric-icon ${escapeHtml(tone || "blue")}">${escapeHtml(icon || "")}</div>
+        ${metricChip(icon, tone)}
       </div>
       <div class="metric-value">${escapeHtml(value)}</div>
       <div class="metric-sub">${escapeHtml(sub || "")}</div>
@@ -404,7 +705,7 @@ function renderLenders(funders, currency = "USD", dateReported = "N/A") {
         <td>Bank statement</td>
         <td>N/A</td>
         <td>${escapeHtml(dateReported)}</td>
-        <td><span class="status-badge">Clear</span></td>
+        <td>${glassChip("✓", "Clear", "green")}</td>
       </tr>
     `;
     return;
@@ -415,7 +716,7 @@ function renderLenders(funders, currency = "USD", dateReported = "N/A") {
       <td>${escapeHtml(funder.account_type || "Lender debit")}</td>
       <td>${escapeHtml(formatMoney(funder.total_debited ?? funder.balance, currency))}</td>
       <td>${escapeHtml(funder.date_reported || dateReported)}</td>
-      <td><span class="status-badge">${escapeHtml(funder.status || "Detected")}</span></td>
+      <td>${glassChip("⌂", funder.status || "Detected", "amber")}</td>
     </tr>
   `).join("");
 }
@@ -478,45 +779,46 @@ function renderAnalysis(report) {
       sub: "Incoming money",
       items: [
         ["Total Credits", formatMoney(totalCredits, currency), "All credit inflows", "CR", "green"],
-        ["Deposits", formatMoney(totalCredits, currency), `${formatNumber(metrics.effective_num_deposits)} deposit items`, "DEP", "green"],
-        ["ACH Credits", formatNumber(metrics.ach_credit_count ?? achCredits), "Incoming ACH deposits", "ACH", "green"],
+        ["Deposits", formatMoney(totalCredits, currency), `${formatNumber(metrics.effective_num_deposits)} deposit items`, "DEP", "neutral"],
+        ["ACH Credits", formatNumber(metrics.ach_credit_count ?? achCredits), "Incoming ACH deposits", "ACH", "neutral"],
       ],
     },
     {
       title: "Debits",
       sub: "Outgoing money",
       items: [
-        ["Total Debits", formatMoney(totalDebits, currency), "All debit outflows", "DB", "red"],
-        ["Withholding Rate", formatPercent(metrics.withholding_rate), "Lender debits as a share of revenue", "%", "red"],
-        ["ACH Debits", formatNumber(metrics.ach_debit_count ?? achDebits), "Outgoing ACH debits", "ACH", "blue"],
-        ["POS Transactions", formatNumber(metrics.pos_count), "Card point-of-sale debits", "POS", "blue"],
-        ["ATM Withdrawals", formatNumber(metrics.atm_withdrawal_count ?? atms), "ATM cash withdrawals", "ATM", "blue"],
-        ["Checks Detected", formatNumber(metrics.check_count ?? checks), "Check transactions found", "CHK", "blue"],
+        ["Total Debits", formatMoney(totalDebits, currency), "All debit outflows", "DB", "neutral"],
+        ["Withholding Rate", formatPercent(metrics.withholding_rate), "Lender debits as a share of revenue", "%", withholdingTone(metrics.withholding_rate)],
+        ["ACH Debits", formatNumber(metrics.ach_debit_count ?? achDebits), "Outgoing ACH debits", "ACH", "neutral"],
+        ["POS Transactions", formatNumber(metrics.pos_count), "Card point-of-sale debits", "POS", "neutral"],
+        ["ATM Withdrawals", formatNumber(metrics.atm_withdrawal_count ?? atms), "ATM cash withdrawals", "ATM", "neutral"],
+        ["Checks Detected", formatNumber(metrics.check_count ?? checks), "Check transactions found", "CHK", "neutral"],
       ],
     },
     {
       title: "Risk Signals",
       sub: "NSFs and balances",
       items: [
-        ["NSFs", formatNumber(metrics.effective_nsf_count), metrics.nsf_source || "Returned item detection", "NSF", "red"],
-        ["Document Integrity", integrityLabel(integrity), (integrity.flags || []).join(", ") || "No source contradictions detected", "DOC", integrity.risk_level === "high" ? "red" : integrity.risk_level === "review" ? "blue" : "green"],
-        ["Average Daily Balance", formatMoney(metrics.average_balance, currency), metrics.average_balance_source || "Daily balance calculation", "AVG", "blue"],
-        ["Ending Balance", formatMoney(statement.ending_balance, currency), "Statement close balance", "END", "blue"],
-        ["Lowest Balance", formatMoney(metrics.min_balance, currency), "Lowest daily balance", "LOW", "red"],
-        ["Highest Balance", formatMoney(metrics.max_balance, currency), "Highest daily balance", "HIGH", "green"],
+        ["NSFs", formatNumber(metrics.effective_nsf_count), metrics.nsf_source || "Returned item detection", "NSF", countTone(metrics.effective_nsf_count)],
+        ["Document Integrity", integrityLabel(integrity), (integrity.flags || []).join(", ") || "No source contradictions detected", "DOC", integrityTone(integrity)],
+        ["Average Daily Balance", formatMoney(metrics.average_balance, currency), metrics.average_balance_source || "Daily balance calculation", "AVG", "neutral"],
+        ["Ending Balance", formatMoney(statement.ending_balance, currency), "Statement close balance", "END", "neutral"],
+        ["Lowest Balance", formatMoney(metrics.min_balance, currency), "Lowest daily balance", "LOW", negativeTone(metrics.min_balance)],
+        ["Highest Balance", formatMoney(metrics.max_balance, currency), "Highest daily balance", "HIGH", "neutral"],
       ],
     },
     {
       title: "Lenders",
       sub: "Funding activity",
       items: [
-        ["Lenders Detected", formatNumber(funders.length), "Known funder keyword matches", "LEN", "blue"],
-        ["Monthly Cash Flow", formatMoney(metrics.cash_flow, currency), "Credits minus debits", "CF", "blue"],
+        ["Lenders Detected", formatNumber(funders.length), "Known funder keyword matches", "LEN", presenceTone(funders.length)],
+        ["Monthly Cash Flow", formatMoney(metrics.cash_flow, currency), "Credits minus debits", "CF", negativeTone(metrics.cash_flow)],
       ],
     },
   ]);
   renderAccountSummary(accountFieldRows(statement, currentMarkdown));
   renderLenders(funders, currency, statement.period_end || "N/A");
+  renderMainTransactions();
 }
 
 function renderError(message) {
@@ -569,6 +871,7 @@ function uploadFiles(fileList) {
   els.statusHeading.textContent = "Uploading PDF";
   setBanner("pending", "Uploading PDF", "--");
   renderAccountSummary(accountFieldRows());
+  renderMainTransactions();
   els.summaryBox.textContent = "Processing statement...";
 
   const form = new FormData();
@@ -703,6 +1006,7 @@ function loadPackage(jobIds) {
 function renderPackageAnalysis(pkg) {
   currentAnalysis = { package: pkg };
   currentMarkdown = "";
+  renderMainTransactions();
   const totals = pkg.totals || {};
   const documents = Array.isArray(pkg.documents) ? pkg.documents : [];
   const funders = Array.isArray(pkg.funders) ? pkg.funders : [];
@@ -727,38 +1031,38 @@ function renderPackageAnalysis(pkg) {
       sub: `${formatNumber(totals.months)} statement periods`,
       items: [
         ["Total Credits", formatMoney(totals.total_credits), "Combined incoming money", "CR", "green"],
-        ["Avg Monthly Credits", formatMoney(totals.avg_monthly_credits), "Monthly revenue baseline", "AVG", "green"],
-        ["Total Debits", formatMoney(totals.total_debits), "Combined outgoing money", "DB", "red"],
-        ["Avg Monthly Debits", formatMoney(totals.avg_monthly_debits), "Monthly expense baseline", "AVG", "red"],
+        ["Avg Monthly Credits", formatMoney(totals.avg_monthly_credits), "Monthly revenue baseline", "AVG", "neutral"],
+        ["Total Debits", formatMoney(totals.total_debits), "Combined outgoing money", "DB", "neutral"],
+        ["Avg Monthly Debits", formatMoney(totals.avg_monthly_debits), "Monthly expense baseline", "AVG", "neutral"],
       ],
     },
     {
       title: "Cash Flow",
       sub: "Package-level affordability signals",
       items: [
-        ["Total Cash Flow", formatMoney(totals.cash_flow), "Credits minus debits", "CF", totals.cash_flow < 0 ? "red" : "green"],
-        ["Avg Monthly Cash Flow", formatMoney(totals.avg_monthly_cash_flow), "Average statement cash flow", "AVG", totals.avg_monthly_cash_flow < 0 ? "red" : "green"],
-        ["Average Daily Balance", formatMoney(totals.average_daily_balance), "Weighted across statement periods", "ADB", "blue"],
-        ["NSFs", formatNumber(totals.nsf_count), "Total returned items", "NSF", totals.nsf_count ? "red" : "green"],
-        ["Package Withholding", formatPercent(totals.package_withholding_rate), "Lender debits as revenue share", "%", totals.package_withholding_rate ? "red" : "green"],
+        ["Total Cash Flow", formatMoney(totals.cash_flow), "Credits minus debits", "CF", negativeTone(totals.cash_flow)],
+        ["Avg Monthly Cash Flow", formatMoney(totals.avg_monthly_cash_flow), "Average statement cash flow", "AVG", negativeTone(totals.avg_monthly_cash_flow)],
+        ["Average Daily Balance", formatMoney(totals.average_daily_balance), "Weighted across statement periods", "ADB", "neutral"],
+        ["NSFs", formatNumber(totals.nsf_count), "Total returned items", "NSF", countTone(totals.nsf_count)],
+        ["Package Withholding", formatPercent(totals.package_withholding_rate), "Lender debits as revenue share", "%", withholdingTone(totals.package_withholding_rate)],
       ],
     },
     {
       title: "Quality",
       sub: "Corporate-use readiness",
       items: [
-        ["Approved", formatNumber(totals.approved), "Corporate-approved statements", "OK", "green"],
-        ["Manual Review", formatNumber(totals.manual_review), "Statements withheld from automated approval", "REV", totals.manual_review ? "red" : "green"],
-        ["Integrity High", formatNumber(totals.integrity_high), "Possible document issue", "DOC", totals.integrity_high ? "red" : "green"],
-        ["Failed", formatNumber(totals.failed), "Statements needing rerun", "ERR", totals.failed ? "red" : "green"],
+        ["Approved", formatNumber(totals.approved), "Corporate-approved statements", "OK", totals.approved ? "green" : "neutral"],
+        ["Manual Review", formatNumber(totals.manual_review), "Statements withheld from automated approval", "REV", totals.manual_review ? "amber" : "neutral"],
+        ["Integrity High", formatNumber(totals.integrity_high), "Possible document issue", "DOC", countTone(totals.integrity_high)],
+        ["Failed", formatNumber(totals.failed), "Statements needing rerun", "ERR", countTone(totals.failed)],
       ],
     },
     {
       title: "Lenders",
       sub: "Known funding activity",
       items: [
-        ["Lenders Detected", formatNumber(funders.length), "Unique lender names", "LEN", funders.length ? "red" : "green"],
-        ["Total Lender Debits", formatMoney(totals.lender_debits), "Observed funding debits", "DB", totals.lender_debits ? "red" : "green"],
+        ["Lenders Detected", formatNumber(funders.length), "Unique lender names", "LEN", presenceTone(funders.length)],
+        ["Total Lender Debits", formatMoney(totals.lender_debits), "Observed funding debits", "DB", "neutral"],
       ],
     },
   ]);
@@ -793,7 +1097,7 @@ function renderPackageTables(pkg) {
         <td>N/A</td>
         <td>N/A</td>
         <td>N/A</td>
-        <td><span class="status-badge">Review</span></td>
+        <td>${glassChip("◐", "Review", "amber")}</td>
       </tr>
     `;
   } else {
@@ -843,9 +1147,10 @@ function openStatementModal(jobId) {
       <td><strong>Loading</strong></td>
       <td>N/A</td>
       <td>N/A</td>
-      <td><span class="status-badge">Pending</span></td>
+      <td>${glassChip("◐", "Pending", "blue")}</td>
     </tr>
   `;
+  renderTransactionRows(els.statementModalTransactions, els.statementModalTransactionCount, [], {}, modalTransactionFilter, "USD", { sort: modalTransactionSort });
   if (els.modalJsonDownload) {
     els.modalJsonDownload.href = "#";
     els.modalJsonDownload.classList.add("disabled");
@@ -875,9 +1180,10 @@ function openStatementModal(jobId) {
           <td><strong>Unable to load statement</strong></td>
           <td>N/A</td>
           <td>N/A</td>
-          <td><span class="status-badge">Review</span></td>
+          <td>${glassChip("◐", "Review", "amber")}</td>
         </tr>
       `;
+      renderTransactionRows(els.statementModalTransactions, els.statementModalTransactionCount, [], {}, modalTransactionFilter, "USD", { sort: modalTransactionSort });
     });
 }
 
@@ -895,15 +1201,15 @@ function renderStatementModal(jobId, report, markdown) {
   els.statementModalSubtitle.textContent = `${period(statement)} - ${labelize(quality.corporate_use || quality.level || "review required")}`;
   els.statementModalMetrics.innerHTML = [
     ["Total Credits", formatMoney(metrics.effective_total_deposits, currency), "Incoming money", "CR", "green"],
-    ["Total Debits", formatMoney(metrics.effective_total_withdrawals, currency), "Outgoing money", "DB", "red"],
-    ["Cash Flow", formatMoney(metrics.cash_flow, currency), "Credits minus debits", "CF", metrics.cash_flow < 0 ? "red" : "green"],
-    ["Average Daily Balance", formatMoney(metrics.average_balance, currency), "Daily ledger average", "AVG", "blue"],
-    ["Ending Balance", formatMoney(statement.ending_balance, currency), "Statement close balance", "END", "blue"],
-    ["NSFs", formatNumber(metrics.effective_nsf_count), "Returned items", "NSF", metrics.effective_nsf_count ? "red" : "green"],
-    ["Withholding Rate", formatPercent(metrics.withholding_rate), "Lender debits vs credits", "%", metrics.withholding_rate ? "red" : "green"],
-    ["Lenders Detected", formatNumber(funders.length), "Known funder matches", "LEN", funders.length ? "red" : "green"],
-    ["Document Integrity", integrityLabel(integrity), (integrity.flags || []).join(", ") || "No source contradictions detected", "DOC", integrity.risk_level === "high" ? "red" : integrity.risk_level === "review" ? "blue" : "green"],
-    ["Quality", labelize(quality.corporate_use || quality.level || "review"), "Corporate-use status", "OK", quality.corporate_use === "approved" ? "green" : "red"],
+    ["Total Debits", formatMoney(metrics.effective_total_withdrawals, currency), "Outgoing money", "DB", "neutral"],
+    ["Cash Flow", formatMoney(metrics.cash_flow, currency), "Credits minus debits", "CF", negativeTone(metrics.cash_flow)],
+    ["Average Daily Balance", formatMoney(metrics.average_balance, currency), "Daily ledger average", "AVG", "neutral"],
+    ["Ending Balance", formatMoney(statement.ending_balance, currency), "Statement close balance", "END", "neutral"],
+    ["NSFs", formatNumber(metrics.effective_nsf_count), "Returned items", "NSF", countTone(metrics.effective_nsf_count)],
+    ["Withholding Rate", formatPercent(metrics.withholding_rate), "Lender debits vs credits", "%", withholdingTone(metrics.withholding_rate)],
+    ["Lenders Detected", formatNumber(funders.length), "Known funder matches", "LEN", presenceTone(funders.length)],
+    ["Document Integrity", integrityLabel(integrity), (integrity.flags || []).join(", ") || "No source contradictions detected", "DOC", integrityTone(integrity)],
+    ["Quality", labelize(quality.corporate_use || quality.level || "review"), "Corporate-use status", "OK", quality.corporate_use === "approved" ? "green" : "amber"],
   ].map(renderMetricCard).join("");
   els.statementModalAccount.innerHTML = summaryRowsHtml(accountFieldRows(statement, markdown));
 
@@ -913,7 +1219,7 @@ function renderStatementModal(jobId, report, markdown) {
         <td><strong>No lenders detected</strong></td>
         <td>Bank statement</td>
         <td>N/A</td>
-        <td><span class="status-badge">Clear</span></td>
+        <td>${glassChip("✓", "Clear", "green")}</td>
       </tr>
     `;
   } else {
@@ -922,10 +1228,11 @@ function renderStatementModal(jobId, report, markdown) {
         <td><strong>${escapeHtml(funder.funder || funder.lender || "Unknown lender")}</strong></td>
         <td>${escapeHtml(funder.account_type || "Lender debit")}</td>
         <td>${escapeHtml(formatMoney(funder.total_debited ?? funder.balance, currency))}</td>
-        <td><span class="status-badge">${escapeHtml(funder.status || "Detected")}</span></td>
+        <td>${glassChip("⌂", funder.status || "Detected", "amber")}</td>
       </tr>
     `).join("");
   }
+  renderModalTransactions();
 
   if (els.modalJsonDownload) {
     els.modalJsonDownload.href = `/download/${jobId}/json`;
@@ -999,10 +1306,29 @@ els.fileInput.addEventListener("change", () => {
   els.fileInput.value = "";
 });
 
+/* Gentle parallax: the illustration leans a few pixels toward the pointer
+   while a file is being dragged over the zone, so it reads as a physical
+   object floating above the surface rather than a flat graphic. */
+const PARALLAX_RANGE = 7;
+function setDropzoneParallax(event) {
+  const bounds = els.dropzone.getBoundingClientRect();
+  if (!bounds.width || !bounds.height) return;
+  const x = (event.clientX - bounds.left) / bounds.width - 0.5;
+  const y = (event.clientY - bounds.top) / bounds.height - 0.5;
+  els.dropzone.style.setProperty("--tilt-x", `${(x * PARALLAX_RANGE).toFixed(2)}px`);
+  els.dropzone.style.setProperty("--tilt-y", `${(y * PARALLAX_RANGE * 0.6).toFixed(2)}px`);
+}
+
+function clearDropzoneParallax() {
+  els.dropzone.style.removeProperty("--tilt-x");
+  els.dropzone.style.removeProperty("--tilt-y");
+}
+
 ["dragenter", "dragover"].forEach((eventName) => {
   els.dropzone.addEventListener(eventName, (event) => {
     event.preventDefault();
     els.dropzone.classList.add("drag");
+    setDropzoneParallax(event);
   });
 });
 
@@ -1010,6 +1336,7 @@ els.fileInput.addEventListener("change", () => {
   els.dropzone.addEventListener(eventName, (event) => {
     event.preventDefault();
     els.dropzone.classList.remove("drag");
+    clearDropzoneParallax();
     if (eventName === "drop" && event.dataTransfer) uploadFiles(event.dataTransfer.files);
   });
 });
@@ -1025,6 +1352,114 @@ if (els.monthlyTable) {
     const jobId = button.getAttribute("data-job-id");
     if (!jobId) return;
     openStatementModal(jobId);
+  });
+}
+document.querySelectorAll("[data-transaction-filter]").forEach((button) => {
+  button.addEventListener("click", () => {
+    transactionFilter = button.getAttribute("data-transaction-filter") || "all";
+    setTransactionFilterButtons("[data-transaction-filter]", transactionFilter);
+    renderMainTransactions();
+  });
+});
+document.querySelectorAll("[data-transaction-sort]").forEach((button) => {
+  button.addEventListener("click", () => {
+    transactionSort = button.getAttribute("data-transaction-sort") || "date";
+    setTransactionFilterButtons("[data-transaction-sort]", transactionSort);
+    renderMainTransactions();
+  });
+});
+document.querySelectorAll("[data-modal-transaction-filter]").forEach((button) => {
+  button.addEventListener("click", () => {
+    modalTransactionFilter = button.getAttribute("data-modal-transaction-filter") || "all";
+    setTransactionFilterButtons("[data-modal-transaction-filter]", modalTransactionFilter);
+    renderModalTransactions();
+  });
+});
+document.querySelectorAll("[data-modal-transaction-sort]").forEach((button) => {
+  button.addEventListener("click", () => {
+    modalTransactionSort = button.getAttribute("data-modal-transaction-sort") || "date";
+    setTransactionFilterButtons("[data-modal-transaction-sort]", modalTransactionSort);
+    renderModalTransactions();
+  });
+});
+
+/* --- appearance ------------------------------------------------------
+   The theme is resolved inline in the document head before first paint;
+   this only handles switching it afterwards. */
+const APPEARANCE_KEY = "ocr-appearance";
+let appearanceShiftTimer = null;
+
+function currentAppearance() {
+  return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+}
+
+function syncAppearanceButtons(theme) {
+  document.querySelectorAll("[data-appearance]").forEach((button) => {
+    const isActive = button.getAttribute("data-appearance") === theme;
+    button.setAttribute("aria-checked", isActive ? "true" : "false");
+    button.tabIndex = isActive ? 0 : -1;
+  });
+}
+
+function setAppearance(theme, { persist = true } = {}) {
+  const next = theme === "dark" ? "dark" : "light";
+  const root = document.documentElement;
+  const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  if (next !== currentAppearance() && !reduced) {
+    // crossfade the whole interface, then hand timing back to the components
+    root.classList.add("appearance-shift");
+    clearTimeout(appearanceShiftTimer);
+    appearanceShiftTimer = setTimeout(() => root.classList.remove("appearance-shift"), 320);
+  }
+  root.setAttribute("data-theme", next);
+  if (persist) {
+    try { localStorage.setItem(APPEARANCE_KEY, next); } catch (error) { /* private mode */ }
+  }
+  syncAppearanceButtons(next);
+}
+
+document.querySelectorAll("[data-appearance]").forEach((button) => {
+  button.addEventListener("click", () => setAppearance(button.getAttribute("data-appearance")));
+});
+if (els.appearanceToggle) {
+  // arrow keys move between segments, matching a native segmented control
+  els.appearanceToggle.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const next = event.key === "ArrowLeft" ? "light" : "dark";
+    setAppearance(next);
+    els.appearanceToggle.querySelector(`[data-appearance="${next}"]`)?.focus();
+  });
+}
+// keep following the system until the user makes an explicit choice
+const appearanceQuery = window.matchMedia?.("(prefers-color-scheme: dark)");
+appearanceQuery?.addEventListener?.("change", (event) => {
+  let stored = null;
+  try { stored = localStorage.getItem(APPEARANCE_KEY); } catch (error) { /* private mode */ }
+  if (!stored) setAppearance(event.matches ? "dark" : "light", { persist: false });
+});
+syncAppearanceButtons(currentAppearance());
+
+function moreStepFrom(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  const button = target ? target.closest("[data-more-step]") : null;
+  return button ? button.getAttribute("data-more-step") : null;
+}
+
+if (els.transactionMore) {
+  els.transactionMore.addEventListener("click", (event) => {
+    const step = moreStepFrom(event);
+    if (!step) return;
+    transactionLimit = step === "all" ? Number.MAX_SAFE_INTEGER : transactionLimit + Number(step);
+    renderMainTransactions({ keepLimit: true });
+  });
+}
+if (els.statementModalTransactionMore) {
+  els.statementModalTransactionMore.addEventListener("click", (event) => {
+    const step = moreStepFrom(event);
+    if (!step) return;
+    modalTransactionLimit = step === "all" ? Number.MAX_SAFE_INTEGER : modalTransactionLimit + Number(step);
+    renderModalTransactions({ keepLimit: true });
   });
 }
 if (els.statementModalClose) {
@@ -1053,4 +1488,8 @@ document.addEventListener("keydown", (event) => {
 });
 
 setInitialState();
+setTransactionFilterButtons("[data-transaction-filter]", transactionFilter);
+setTransactionFilterButtons("[data-transaction-sort]", transactionSort);
+setTransactionFilterButtons("[data-modal-transaction-filter]", modalTransactionFilter);
+setTransactionFilterButtons("[data-modal-transaction-sort]", modalTransactionSort);
 setActions(null, false);
