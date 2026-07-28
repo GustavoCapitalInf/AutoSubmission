@@ -1,6 +1,150 @@
 from __future__ import annotations
 
+import re
+from datetime import date
+
 from .schema import Statement
+from .schema import Transaction
+from .td_can import _parse_money
+
+
+_MONEY_RE = re.compile(r"-?\$?\d[\d,]*\.\d{2}-?")
+
+
+def _compact(text: str) -> str:
+    text = re.sub(r"--- Page \d+ ---", " ", text)
+    text = re.sub(r"Docusign Envelope ID:\s*[A-F0-9-]+", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"POST DATE DESCRIPTION DEBITS CREDITS BALANCE", " ", text, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _money(value: str) -> float | None:
+    return _parse_money(value.replace("$", ""))
+
+
+def _iso(mmdd: str, *, year: int) -> str:
+    month, day = [int(part) for part in mmdd.split("/")]
+    return date(year, month, day).isoformat()
+
+
+def _business_plus_block(markdown: str) -> str:
+    match = re.search(
+        r"BUSINESS PLUS CKG-(\d+-70)\s+(.*?)(?=\s+--- Page 12 ---|\Z)",
+        markdown,
+        re.IGNORECASE | re.DOTALL,
+    )
+    return match.group(0) if match else ""
+
+
+def _parse_activity_rows(block: str, *, year: int) -> list[Transaction]:
+    activity = re.search(
+        r"ACCOUNT ACTIVITY\s+(.*?)(?=\s+10/31 Ending Balance\s+\$?\d|\s+OVERDRAFT AND RETURNED ITEM FEES|\s+ACCOUNT ANALYSIS STATEMENT|\Z)",
+        block,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not activity:
+        return []
+    rows: list[str] = []
+    current = ""
+    for raw_line in activity.group(1).splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        line = re.sub(r"Docusign Envelope ID:\s*[A-F0-9-]+", " ", line, flags=re.IGNORECASE).strip()
+        line = re.sub(r"POST DATE DESCRIPTION DEBITS CREDITS BALANCE", " ", line, flags=re.IGNORECASE).strip()
+        line = re.sub(r"--- Page \d+ ---", " ", line).strip()
+        if not line:
+            continue
+        if re.match(r"^\d{2}/\d{2}\b", line):
+            if current:
+                rows.append(current)
+            current = line
+        elif current:
+            current += " " + line
+    if current:
+        rows.append(current)
+
+    txns: list[Transaction] = []
+    for row in rows:
+        row = re.sub(r"\s+", " ", row).strip()
+        mmdd = row[:5]
+        if "Beginning Balance" in row or "Ending Balance" in row:
+            continue
+        amounts = list(_MONEY_RE.finditer(row))
+        if len(amounts) < 2:
+            continue
+        amount_match = amounts[-2]
+        balance_match = amounts[-1]
+        amount = _money(amount_match.group(0))
+        balance = _money(balance_match.group(0))
+        if amount is None or balance is None:
+            continue
+        prefix = row[:amount_match.start()].rstrip()
+        if amount > 0 and prefix.endswith("-"):
+            amount *= -1
+        desc = row[len(mmdd):amount_match.start()].strip()
+        desc = desc.rstrip("-").strip()
+        desc = re.sub(r"\s+", " ", desc)
+        if not desc:
+            continue
+        txns.append(Transaction(
+            date=_iso(mmdd, year=year),
+            description=desc,
+            amount=round(amount, 2),
+            direction="credit" if amount >= 0 else "debit",
+            running_balance=round(balance, 2),
+        ))
+    return txns
+
+
+def parse_first_community_statement(markdown: str) -> Statement | None:
+    upper = markdown.upper()
+    if "FIRSTCOMMUNITY.COM" not in upper or "BUSINESS PLUS CKG" not in upper:
+        return None
+    ending = re.search(r"STATEMENT ENDING\s+(\d{2})/(\d{2})/(\d{4})", markdown, re.IGNORECASE)
+    if not ending:
+        return None
+    end_month, _end_day, year_text = ending.groups()
+    year = int(year_text)
+
+    block = _business_plus_block(markdown)
+    if not block:
+        return None
+    text = _compact(block)
+    summary = re.search(
+        r"ACCOUNT SUMMARY\s+DATE DESCRIPTION AMOUNT\s+"
+        r"(?P<start>\d{2}/\d{2}) Beginning Balance \$?(?P<begin>-?\d[\d,]*\.\d{2})\s+"
+        r".*?(?P<credit_count>\d+) Credits This Period \$?(?P<credits>\d[\d,]*\.\d{2})\s+"
+        r".*?(?P<debit_count>\d+) Debits This Period \$?(?P<debits>\d[\d,]*\.\d{2})\s+"
+        r".*?(?P<end>\d{2}/\d{2}) Ending Balance \$?(?P<ending>-?\d[\d,]*\.\d{2})",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not summary:
+        return None
+
+    acct = re.search(r"BUSINESS PLUS CKG-(\d+-70)", block, re.IGNORECASE)
+    avg = re.search(r"Service Class BPCK-BUSINESS PLUS CHKG Average Daily Balance \$?([\d,]+\.\d{2})", text, re.IGNORECASE)
+    service = re.search(r"Accumulated Fees \$?([\d,]+\.\d{2})", text, re.IGNORECASE)
+
+    stmt = Statement(
+        bank="First Community Credit Union",
+        account_name="Business Plus Checking",
+        account_number=acct.group(1) if acct else None,
+        period_start=_iso(summary.group("start"), year=year),
+        period_end=_iso(summary.group("end"), year=year),
+        days_in_period=int(summary.group("end").split("/")[1]),
+        beginning_balance=_money(summary.group("begin")),
+        ending_balance=_money(summary.group("ending")),
+        stated_total_credits=_money(summary.group("credits")),
+        stated_total_debits=_money(summary.group("debits")),
+        stated_credit_count=int(summary.group("credit_count")),
+        stated_debit_count=int(summary.group("debit_count")),
+        stated_average_balance=_money(avg.group(1)) if avg else None,
+        stated_service_charge=_money(service.group(1)) if service else None,
+        transactions=_parse_activity_rows(block, year=year),
+    )
+    return stmt if stmt.transactions else None
 
 
 def repair_first_community_posted_activity(stmt: Statement) -> Statement:

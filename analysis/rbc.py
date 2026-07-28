@@ -14,7 +14,7 @@ _MONTH_NAMES = {
     "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
     "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
 }
-_DATE_START_RE = re.compile(r"^(\d{1,2})\s+([A-Za-z]{3})\b")
+_DATE_START_RE = re.compile(r"^(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b", re.IGNORECASE)
 _MONEY_RE = re.compile(r"(?<![#\w])-?\$?[\d,]+\.\d{2}(?!\w)")
 
 
@@ -74,7 +74,7 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
 
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "Royal Bank of Canada"
-    transactions: list[Transaction] = []
+    rows: list[dict] = []
     default_year: int | None = None
     in_activity = False
 
@@ -127,8 +127,13 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
             rest = line[dm.end():].strip()
             if _DATE_START_RE.match(rest):
                 rest = rest[_DATE_START_RE.match(rest).end():].strip()
-        elif transactions:
-            tx_date = transactions[-1].date
+        elif rows:
+            fee_breakdown = re.match(r"^\d+\s+Crs\s+@\s+\d+\.\d{2}\s+([\d,]+\.\d{2})$", line, re.IGNORECASE)
+            if fee_breakdown and rows[-1]["description"].upper().startswith("REGULAR TRANSACTION FEE"):
+                rows[-1]["abs_amount"] = abs(_parse_money(fee_breakdown.group(1)) or rows[-1]["abs_amount"])
+                rows[-1]["amount"] = -rows[-1]["abs_amount"]
+                continue
+            tx_date = rows[-1]["date"]
             rest = line
         else:
             continue
@@ -150,16 +155,36 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
             signed = -amount
         else:
             signed = -amount
-        transactions.append(Transaction(
-            date=tx_date,
-            description=desc,
-            amount=round(signed, 2),
-            direction="credit" if signed > 0 else "debit",
-            running_balance=running_balance,
-        ))
+        rows.append({
+            "date": tx_date,
+            "description": desc,
+            "abs_amount": amount,
+            "amount": round(signed, 2),
+            "balance": running_balance,
+        })
 
-    if not transactions:
+    if not rows:
         return None
+    prev_balance = stmt.beginning_balance
+    segment: list[dict] = []
+    for row in rows:
+        segment.append(row)
+        if row["balance"] is None or prev_balance is None:
+            continue
+        _solve_segment(segment, round(row["balance"] - prev_balance, 2))
+        prev_balance = row["balance"]
+        segment = []
+
+    transactions = [
+        Transaction(
+            date=row["date"],
+            description=row["description"],
+            amount=row["amount"],
+            direction="credit" if row["amount"] > 0 else "debit",
+            running_balance=row["balance"],
+        )
+        for row in rows
+    ]
     stmt.transactions = transactions
     return stmt
 

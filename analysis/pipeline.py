@@ -9,17 +9,43 @@ from .extract import extract_statement
 from .reconcile import reconcile, ReconResult
 from .metrics import compute_metrics, Metrics
 from .detect import detect, DetectionResult
+from .altana import parse_altana_statement
+from .atb import parse_atb_statement
+from .amex import parse_amex_statement
+from .b1 import parse_b1_statement
+from .banco_popular import parse_banco_popular_statement
+from .bluevine import parse_bluevine_statement
+from .cibc import parse_cibc_french_statement
+from .community_section import parse_dakota_west_statement, parse_mission_valley_statement
+from .consumers import parse_consumers_statement
+from .demo_national import parse_demo_national_statement
+from .desjardins import parse_desjardins_statement
+from .ibc import parse_ibc_statement
+from .linkbank import parse_linkbank_statement
+from .midflorida import parse_midflorida_statement
+from .navy_federal import parse_navy_federal_statement
 from .td_can import parse_td_canada_statement
+from .td_us import parse_td_us_statement
+from .texas_bank import parse_texas_bank_statement
+from .truist import parse_truist_statement
+from .us_bank import parse_us_bank_statement
 from .bofa import parse_bofa_statement, repair_bofa_summary
 from .regions import parse_regions_statement, repair_regions_summary
-from .first_community import repair_first_community_posted_activity
+from .first_community import parse_first_community_statement, repair_first_community_posted_activity
+from .first_citizens import parse_first_citizens_statement
 from .bmo import parse_bmo_statement
 from .capital_one import parse_capital_one_statement
 from .chase import parse_chase_statement
+from .citizens import parse_citizens_statement
 from .farmers_merchants import parse_farmers_merchants_statement
+from .pnc import parse_pnc_statement
 from .rbc import parse_rbc_statement
+from .santander import parse_santander_statement
 from .scotia import parse_scotiabank_statement
+from .scanned_small_bank import parse_apex_scanned_statement, parse_southside_scanned_statement
+from .secu import parse_secu_statement
 from .wells import parse_wells_statement
+from .wilson_muir import parse_wilson_muir_statement
 from .bank_repairs import (
     repair_b1_beginning_balance,
     repair_capital_one_running_amount,
@@ -87,12 +113,21 @@ class Quality:
 
 
 @dataclass
+class DocumentIntegrity:
+    risk_level: str
+    flags: list[str]
+    notes: list[str]
+    possible_document_issue: bool = False
+
+
+@dataclass
 class Report:
     statement: Statement
     reconciliation: ReconResult
     metrics: Metrics
     detection: DetectionResult
     quality: Quality
+    integrity: DocumentIntegrity
     model_used: str
     escalated: bool
 
@@ -100,6 +135,16 @@ class Report:
 def assess_quality(stmt: Statement, recon: ReconResult) -> Quality:
     aggregate_rows = sum(1 for t in stmt.transactions if "UNCAPTURED" in t.description.upper())
     notes: list[str] = []
+    if stmt.bank == "Chase Transaction Export":
+        notes.append("Chase for Business transaction export lacks a formal statement summary/period")
+        return Quality(
+            level="needs_review",
+            transaction_detail_reliable=recon.ok,
+            summary_totals_reliable=False,
+            aggregate_rows=aggregate_rows,
+            corporate_use="manual_review_required",
+            notes=notes,
+        )
     if aggregate_rows:
         notes.append(
             "transaction list includes bank-summary aggregate rows for activity not available as individual postings"
@@ -131,11 +176,11 @@ def assess_quality(stmt: Statement, recon: ReconResult) -> Quality:
         )
     if recon.summary_ok is True:
         return Quality(
-            level="summary_trusted",
+            level="needs_review",
             transaction_detail_reliable=False,
             summary_totals_reliable=True,
             aggregate_rows=aggregate_rows,
-            corporate_use="summary_only",
+            corporate_use="manual_review_required",
             notes=notes,
         )
     return Quality(
@@ -148,27 +193,157 @@ def assess_quality(stmt: Statement, recon: ReconResult) -> Quality:
     )
 
 
-def analyze_markdown(markdown: str, *, settings: Settings | None = None) -> Report:
-    settings = settings or load_settings()
+def _bmo_summary_contradictions(markdown: str, stmt: Statement) -> list[str]:
+    if (stmt.bank or "").upper() != "BMO":
+        return []
+    text = " ".join(markdown.split())
 
-    model_used = settings.model
-    deterministic_stmt = (
+    def amount_after(label: str) -> float | None:
+        import re
+        from .td_can import _parse_money
+
+        m = re.search(label + r"\s+\$?\s*(-?\d[\d,]*\.\d{2})", text, re.IGNORECASE)
+        if not m:
+            return None
+        return _parse_money(m.group(1))
+
+    contradictions: list[str] = []
+    page_total_deposits = amount_after(r"Account Summary Totals\s+Total Deposits")
+    if (
+        stmt.stated_total_credits is not None
+        and page_total_deposits is not None
+        and abs(stmt.stated_total_credits - page_total_deposits) > 0.01
+    ):
+        contradictions.append(
+            "conflicting bank-stated deposit totals across summary sections"
+        )
+    return contradictions
+
+
+def assess_document_integrity(
+    stmt: Statement,
+    recon: ReconResult,
+    quality: Quality,
+    *,
+    markdown: str = "",
+) -> DocumentIntegrity:
+    flags: list[str] = []
+    notes: list[str] = []
+
+    if recon.summary_ok is False:
+        flags.append("summary_math_inconsistent")
+        notes.append("bank-stated summary totals do not reconcile to beginning and ending balances")
+    if recon.sum_delta is not None and abs(recon.sum_delta) > 1.0:
+        flags.append("ledger_sum_mismatch")
+        notes.append("transaction sum does not reconcile to the printed ending balance")
+    if recon.continuity_breaks:
+        flags.append("running_balance_breaks")
+        notes.append(f"{recon.continuity_breaks} printed running-balance continuity break(s) detected")
+    if recon.credit_coverage is not None and (recon.credit_coverage < 0.98 or recon.credit_coverage > 1.02):
+        flags.append("credit_detail_coverage_mismatch")
+        notes.append("line-item credits do not match the bank-stated credit total")
+    if recon.debit_coverage is not None and (recon.debit_coverage < 0.98 or recon.debit_coverage > 1.02):
+        flags.append("debit_detail_coverage_mismatch")
+        notes.append("line-item debits do not match the bank-stated debit total")
+    if quality.level in {"summary_aggregate", "summary_trusted"} or (
+        quality.summary_totals_reliable and not quality.transaction_detail_reliable
+    ):
+        flags.append("transaction_detail_not_corporate_reliable")
+        notes.append("summary figures may be usable, but transaction-level detail is not reliable enough for corporate approval")
+    if stmt.bank == "Chase Transaction Export":
+        flags.append("not_a_formal_statement")
+        notes.append("document is a Chase online transaction export, not a complete bank statement")
+    contradictions = _bmo_summary_contradictions(markdown, stmt) if markdown else []
+    if contradictions:
+        flags.append("conflicting_statement_summaries")
+        notes.extend(contradictions)
+
+    unique_flags = list(dict.fromkeys(flags))
+    unique_notes = list(dict.fromkeys(notes))
+    possible_document_issue = (
+        recon.summary_ok is False
+        or recon.continuity_breaks >= 3
+        or bool(contradictions)
+        or (
+            quality.level == "summary_trusted"
+            and recon.continuity_breaks > 0
+            and any("coverage_mismatch" in flag for flag in unique_flags)
+        )
+    )
+    if possible_document_issue:
+        risk_level = "high"
+    elif unique_flags:
+        risk_level = "review"
+    else:
+        risk_level = "clear"
+
+    return DocumentIntegrity(
+        risk_level=risk_level,
+        flags=unique_flags,
+        notes=unique_notes,
+        possible_document_issue=possible_document_issue,
+    )
+
+
+def _deterministic_statement(markdown: str) -> Statement | None:
+    return (
         parse_td_canada_statement(markdown)
+        or parse_td_us_statement(markdown)
+        or parse_altana_statement(markdown)
+        or parse_amex_statement(markdown)
+        or parse_atb_statement(markdown)
+        or parse_b1_statement(markdown)
+        or parse_banco_popular_statement(markdown)
+        or parse_bluevine_statement(markdown)
+        or parse_cibc_french_statement(markdown)
+        or parse_consumers_statement(markdown)
+        or parse_demo_national_statement(markdown)
+        or parse_desjardins_statement(markdown)
+        or parse_ibc_statement(markdown)
+        or parse_mission_valley_statement(markdown)
+        or parse_dakota_west_statement(markdown)
+        or parse_linkbank_statement(markdown)
+        or parse_midflorida_statement(markdown)
+        or parse_navy_federal_statement(markdown)
+        or parse_santander_statement(markdown)
+        or parse_southside_scanned_statement(markdown)
+        or parse_apex_scanned_statement(markdown)
+        or parse_texas_bank_statement(markdown)
+        or parse_truist_statement(markdown)
+        or parse_us_bank_statement(markdown)
         or parse_rbc_statement(markdown)
         or parse_scotiabank_statement(markdown)
+        or parse_secu_statement(markdown)
         or parse_wells_statement(markdown)
+        or parse_wilson_muir_statement(markdown)
         or parse_bofa_statement(markdown)
         or parse_regions_statement(markdown)
+        or parse_pnc_statement(markdown)
         or parse_farmers_merchants_statement(markdown)
+        or parse_first_community_statement(markdown)
+        or parse_first_citizens_statement(markdown)
         or parse_bmo_statement(markdown)
         or parse_capital_one_statement(markdown)
         or parse_chase_statement(markdown)
+        or parse_citizens_statement(markdown)
     )
+
+
+def analyze_markdown(markdown: str, *, settings: Settings | None = None,
+                     parse_mode: str = "auto") -> Report:
+    settings = settings or load_settings()
+    if parse_mode not in {"auto", "deterministic"}:
+        raise ValueError(f"unknown parse_mode: {parse_mode}")
+
+    model_used = settings.model
+    deterministic_stmt = _deterministic_statement(markdown)
     if deterministic_stmt is not None:
         stmt = apply_statement_repairs(markdown, normalize_statement(deterministic_stmt))
         bank_label = (stmt.bank or "bank").lower().replace(" ", "-")
         model_used = f"{bank_label}-deterministic"
     else:
+        if parse_mode == "deterministic":
+            raise RuntimeError("no deterministic parser matched this statement")
         stmt = normalize_statement(extract_statement(markdown, settings=settings, model=model_used))
         stmt = apply_statement_repairs(markdown, stmt)
     recon = reconcile(stmt)
@@ -212,6 +387,20 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None) -> Repo
         for note in quality.notes:
             if note not in metrics.notes:
                 metrics.notes.append(note)
+    integrity = assess_document_integrity(stmt, recon, quality, markdown=markdown)
+    if integrity.possible_document_issue and quality.corporate_use != "approved":
+        quality = Quality(
+            level="needs_review",
+            transaction_detail_reliable=False,
+            summary_totals_reliable=False,
+            aggregate_rows=quality.aggregate_rows,
+            corporate_use="manual_review_required",
+            notes=(quality.notes or []) + ["document integrity issue prevents automated corporate approval"],
+        )
+    if integrity.possible_document_issue:
+        note = "document integrity review recommended; inconsistent source data can be a fraud-risk signal but is not proof of fraud"
+        if note not in metrics.notes:
+            metrics.notes.append(note)
 
     return Report(
         statement=stmt,
@@ -219,6 +408,7 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None) -> Repo
         metrics=metrics,
         detection=detect(stmt),
         quality=quality,
+        integrity=integrity,
         model_used=model_used,
         escalated=escalated,
     )

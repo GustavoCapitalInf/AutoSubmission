@@ -3,7 +3,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .rasterize import rasterize_pdf, rasterize_page
 from .document import StatementMarkdown
 from .config import load_settings
-from .native_text import parse_native_pdf_text, parse_native_td_canada, parse_native_wells_fargo
+from .native_text import (
+    parse_native_desjardins,
+    parse_native_pdf_text,
+    parse_native_td_canada,
+    parse_native_wells_fargo,
+)
 
 
 def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
@@ -33,6 +38,8 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
         native = parse_native_td_canada(pdf_bytes, source_file=source_file)
         if native is None:
             native = parse_native_wells_fargo(pdf_bytes, source_file=source_file)
+        if native is None:
+            native = parse_native_desjardins(pdf_bytes, source_file=source_file)
         if native is None:
             native = parse_native_pdf_text(pdf_bytes, source_file=source_file)
         if native is not None:

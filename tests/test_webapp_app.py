@@ -15,6 +15,7 @@ class _FakeThread:
 
 class _FakeDoc:
     model = "test-model"
+    pages = ["# Hello"]
 
     def to_markdown(self):
         return "# Hello"
@@ -30,7 +31,7 @@ def _mock_processing(monkeypatch, page_count=2):
         return _FakeDoc()
 
     monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)
-    monkeypatch.setattr("webapp.worker.analyze_markdown", lambda markdown: object())
+    monkeypatch.setattr("webapp.worker.analyze_markdown", lambda markdown, parse_mode="auto": object())
     monkeypatch.setattr("webapp.worker.report_to_json", lambda report: {
         "statement": {"bank": "Test Bank"},
         "metrics": {"average_balance": 123.45},
@@ -202,7 +203,7 @@ def test_upload_can_force_visual_ocr(monkeypatch):
         return _FakeDoc()
 
     monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)
-    monkeypatch.setattr("webapp.worker.analyze_markdown", lambda markdown: object())
+    monkeypatch.setattr("webapp.worker.analyze_markdown", lambda markdown, parse_mode="auto": object())
     monkeypatch.setattr("webapp.worker.report_to_json", lambda report: {"quality": {"level": "transaction_level"}})
 
     client = app.test_client()
@@ -214,6 +215,113 @@ def test_upload_can_force_visual_ocr(monkeypatch):
     body = resp.get_json()
     assert body["jobs"][0]["force_ocr"] is True
     assert seen["force_ocr"] is True
+
+
+def test_upload_can_request_deterministic_parse_mode(monkeypatch):
+    seen = {}
+    monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
+    monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: 1)
+    monkeypatch.setattr("webapp.worker._native_statement", lambda pdf_bytes, filename: _FakeDoc())
+
+    def fake_analyze(markdown, parse_mode="auto"):
+        seen["parse_mode"] = parse_mode
+        return object()
+
+    monkeypatch.setattr("webapp.worker.analyze_markdown", fake_analyze)
+    monkeypatch.setattr("webapp.worker.report_to_json", lambda report: {"quality": {"level": "transaction_level"}})
+
+    client = app.test_client()
+    resp = client.post(
+        "/upload",
+        data={"parse_mode": "deterministic", "files": (io.BytesIO(b"%PDF-fake"), "s.pdf")},
+        content_type="multipart/form-data",
+    )
+    body = resp.get_json()
+    job_id = body["jobs"][0]["id"]
+    assert body["jobs"][0]["parse_mode"] == "deterministic"
+    assert seen["parse_mode"] == "deterministic"
+
+    status = client.get(f"/status/{job_id}").get_json()
+    assert status["parse_mode"] == "deterministic"
+
+
+def test_upload_rejects_invalid_parse_mode():
+    client = app.test_client()
+    resp = client.post(
+        "/upload",
+        data={"parse_mode": "llm-only", "files": (io.BytesIO(b"%PDF-fake"), "s.pdf")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400
+
+
+def test_package_analysis_aggregates_completed_jobs():
+    client = app.test_client()
+    job1 = store.create("jan.pdf")
+    job2 = store.create("feb.pdf")
+    store.set_result(job1.id, "# Jan", "<h1>Jan</h1>", analysis={
+        "statement": {"bank": "TD Bank", "period_start": "2026-01-01", "period_end": "2026-01-31"},
+        "metrics": {
+            "effective_total_deposits": 10000,
+            "effective_total_withdrawals": 7000,
+            "cash_flow": 3000,
+            "effective_nsf_count": 1,
+            "average_balance": 100,
+            "lender_debits": 1000,
+            "monthly_lender_debits": 1000,
+            "withholding_rate": 10,
+        },
+        "quality": {"level": "transaction_level", "corporate_use": "approved"},
+        "integrity": {"risk_level": "clear"},
+        "detection": {"known_funders": [{"funder": "ONDECK", "total_debited": 1000}]},
+    })
+    store.set_result(job2.id, "# Feb", "<h1>Feb</h1>", analysis={
+        "statement": {"bank": "TD Bank", "period_start": "2026-02-01", "period_end": "2026-02-28"},
+        "metrics": {
+            "effective_total_deposits": 12000,
+            "effective_total_withdrawals": 8000,
+            "cash_flow": 4000,
+            "effective_nsf_count": 0,
+            "average_balance": 200,
+            "lender_debits": 500,
+            "monthly_lender_debits": 500,
+            "withholding_rate": 4.17,
+        },
+        "quality": {"level": "transaction_level", "corporate_use": "approved"},
+        "integrity": {"risk_level": "clear"},
+        "detection": {"known_funders": [{"funder": "ONDECK", "total_debited": 500}]},
+    })
+
+    resp = client.get(f"/package_analysis?ids={job1.id},{job2.id}")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    totals = body["totals"]
+    assert totals["documents"] == 2
+    assert totals["completed"] == 2
+    assert totals["approved"] == 2
+    assert totals["total_credits"] == 22000
+    assert totals["total_debits"] == 15000
+    assert totals["cash_flow"] == 7000
+    assert totals["avg_monthly_credits"] == 11000
+    assert totals["average_daily_balance"] == 147.46
+    assert totals["package_withholding_rate"] == 6.82
+    assert totals["decision"] == "approved"
+    assert body["funders"] == [{"funder": "ONDECK", "documents": 2, "total_debited": 1500.0}]
+
+    json_resp = client.get(f"/package_download/json?ids={job1.id},{job2.id}")
+    assert json_resp.status_code == 200
+    assert json_resp.mimetype == "application/json"
+    assert '"package_withholding_rate": 6.82' in json_resp.get_data(as_text=True)
+
+    csv_resp = client.get(f"/package_download/csv?ids={job1.id},{job2.id}")
+    assert csv_resp.status_code == 200
+    assert csv_resp.mimetype == "text/csv"
+    assert "totals,total_credits,22000.0" in csv_resp.get_data(as_text=True)
+
+    xlsx_resp = client.get(f"/package_download/xlsx?ids={job1.id},{job2.id}")
+    assert xlsx_resp.status_code == 200
+    assert xlsx_resp.mimetype == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert xlsx_resp.get_data()[:2] == b"PK"
 
 
 def test_status_unknown_job_returns_404():

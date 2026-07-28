@@ -263,6 +263,6 @@ def compute_metrics(
         m.nsf_source = "bank_stated"
     m.true_revenue = round(m.effective_total_deposits - m.lender_credits, 2)
     m.cash_flow = round(m.effective_total_deposits - m.effective_total_withdrawals, 2)
-    if m.true_revenue > 0:
+    if m.true_revenue > 0 and m.monthly_lender_debits > 0:
         m.withholding_rate = round((m.monthly_lender_debits / m.true_revenue) * 100, 2)
     return m

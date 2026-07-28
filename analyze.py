@@ -28,6 +28,10 @@ def _render(report: Report) -> str:
         f"(corporate_use={report.quality.corporate_use}, "
         f"transaction_detail_reliable={report.quality.transaction_detail_reliable})"
     )
+    L.append(
+        f"Integrity: {report.integrity.risk_level} "
+        f"(possible_document_issue={report.integrity.possible_document_issue})"
+    )
 
     L.append("\n## Reconciliation")
     # The backbone signal: is the bank's own printed summary internally consistent?
@@ -74,6 +78,8 @@ def _render(report: Report) -> str:
     if report.quality.notes:
         for note in report.quality.notes:
             L.append(f"  quality note: {note}")
+    for note in report.integrity.notes:
+        L.append(f"  integrity note: {note}")
 
     L.append("\n## MCA / lender detection")
     if d.known_funders:
@@ -111,6 +117,7 @@ def _json_safe(report: Report) -> dict:
             ],
         },
         "quality": asdict(report.quality),
+        "integrity": asdict(report.integrity),
         "model_used": report.model_used,
         "escalated": report.escalated,
     }

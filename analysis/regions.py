@@ -11,6 +11,14 @@ _ROW_RE = re.compile(r"<tr>(.*?)</tr>", re.IGNORECASE | re.DOTALL)
 _CELL_RE = re.compile(r"<td[^>]*>(.*?)</td>", re.IGNORECASE | re.DOTALL)
 _TAG_RE = re.compile(r"<[^>]+>")
 _IMG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE | re.DOTALL)
+_NATIVE_HEADINGS = (
+    "DEPOSITS & CREDITS",
+    "WITHDRAWALS",
+    "FEES",
+    "RETURNED CHECKS",
+    "CHECKS",
+    "DAILY BALANCE SUMMARY",
+)
 
 
 def _clean(value: str) -> str:
@@ -28,6 +36,12 @@ def _money(value: str) -> float | None:
     neg = text.endswith("-") or text.startswith("-")
     amount = abs(_parse_money(re.sub(r"[^0-9,.-]", "", text)) or 0.0)
     return -amount if neg else amount
+
+
+def _plain_text(markdown: str) -> str:
+    text = _IMG_RE.sub("", markdown)
+    text = unescape(_TAG_RE.sub(" ", text))
+    return re.sub(r"[ \t]+", " ", text)
 
 
 def _period(markdown: str) -> tuple[str, str] | None:
@@ -90,8 +104,84 @@ def _parse_section(markdown: str, heading: str, *, year: int, sign: int) -> list
     return txns
 
 
+def _native_chunks(markdown: str, heading: str) -> list[str]:
+    heading_re = re.escape(heading)
+    start_re = re.compile(rf"(?im)^\s*{heading_re}(?:\s+\(CONTINUED\))?\s*$")
+    boundary_re = re.compile(
+        r"(?im)^\s*(?:"
+        + "|".join(re.escape(h) for h in _NATIVE_HEADINGS)
+        + r")(?:\s+\(CONTINUED\))?\s*$|^\s*Total\b|^\s*For all your banking needs\b|^\s*--- Page\b"
+    )
+    chunks: list[str] = []
+    for match in start_re.finditer(markdown):
+        start = match.end()
+        end_match = boundary_re.search(markdown, start)
+        chunks.append(markdown[start:end_match.start() if end_match else len(markdown)])
+    return chunks
+
+
+def _native_rows(markdown: str, heading: str) -> list[str]:
+    rows: list[str] = []
+    for chunk in _native_chunks(markdown, heading):
+        chunk = re.sub(r"(?im)^\s*Date\s+Check\s+No\.\s+Amount\s*", "", chunk)
+        parts = re.split(r"\s+(?=\d{2}/\d{2}\s)", chunk.strip())
+        for part in parts:
+            row = re.split(r"\s+Total\b|For all your banking needs\b", part.strip(), maxsplit=1, flags=re.IGNORECASE)[0].strip()
+            if re.match(r"^\d{2}/\d{2}\b", row):
+                rows.append(row)
+    return rows
+
+
+def _parse_native_section(markdown: str, heading: str, *, year: int, sign: int) -> list[Transaction]:
+    txns: list[Transaction] = []
+    for row in _native_rows(markdown, heading):
+        m = re.match(r"^(\d{2}/\d{2})\s+(.+)\s+(\d[\d,]*\.\d{2})(?:\s+\*)?\s*$", row)
+        if not m:
+            continue
+        txn_date = _iso(m.group(1), year)
+        amount = _money(m.group(3))
+        if txn_date is None or amount is None:
+            continue
+        signed = round(abs(amount) * sign, 2)
+        txns.append(Transaction(
+            date=txn_date,
+            description=re.sub(r"\s+", " ", m.group(2)).strip(),
+            amount=signed,
+            direction="credit" if signed >= 0 else "debit",
+            running_balance=None,
+        ))
+    return txns
+
+
+def _parse_native_checks(markdown: str, *, year: int) -> list[Transaction]:
+    txns: list[Transaction] = []
+    for row in _native_rows(markdown, "CHECKS"):
+        m = re.match(r"^(\d{2}/\d{2})\s+(\d{3,})\s+\*?\s*(\d[\d,]*\.\d{2})\b", row)
+        if m:
+            txn_date = _iso(m.group(1), year)
+            amount = _money(m.group(3))
+            description = f"Check {m.group(2)}"
+        else:
+            m = re.match(r"^(\d{2}/\d{2})\s+(\d[\d,]*\.\d{2})\b", row)
+            if not m:
+                continue
+            txn_date = _iso(m.group(1), year)
+            amount = _money(m.group(2))
+            description = "Check"
+        if txn_date is None or amount is None:
+            continue
+        txns.append(Transaction(
+            date=txn_date,
+            description=description,
+            amount=round(-abs(amount), 2),
+            direction="debit",
+            running_balance=None,
+        ))
+    return txns
+
+
 def parse_regions_statement(markdown: str) -> Statement | None:
-    text = _IMG_RE.sub("", markdown)
+    text = _plain_text(markdown)
     if "REGIONS" not in text.upper() or "SUMMARY" not in text.upper():
         return None
     period = _period(text)
@@ -100,16 +190,31 @@ def parse_regions_statement(markdown: str) -> Statement | None:
     year = int(period[1][:4])
 
     stmt = Statement(bank="Regions Bank", period_start=period[0], period_end=period[1])
-    acct = re.search(r"ACCOUNT #\s*\n\s*([0-9]+)", text, re.IGNORECASE)
+    acct = re.search(r"ACCOUNT #\s*([0-9]+)", text, re.IGNORECASE)
     if acct:
         stmt.account_number = acct.group(1)
     name = re.search(r"Page 1 of \d+\s*\n([A-Z][A-Z0-9 &-]+)\s*\n[A-Z][a-z]+ \d{1,2},", text)
     if name:
         stmt.account_name = name.group(1).strip()
+    else:
+        name = re.search(r"\n([A-Z][A-Z0-9 &/-]+)\s*\n[A-Z][a-z]+ \d{1,2},", text)
+        if name:
+            stmt.account_name = name.group(1).strip()
 
-    summary_match = re.search(r"SUMMARY\s*(<table>.*?</table>)", text, re.IGNORECASE | re.DOTALL)
+    summary_match = re.search(r"SUMMARY\s*(<table>.*?</table>)", markdown, re.IGNORECASE | re.DOTALL)
     if not summary_match:
-        return None
+        stmt = repair_regions_summary(text, stmt)
+        txns = []
+        txns.extend(_parse_native_section(markdown, "DEPOSITS & CREDITS", year=year, sign=1))
+        txns.extend(_parse_native_section(markdown, "WITHDRAWALS", year=year, sign=-1))
+        txns.extend(_parse_native_section(markdown, "FEES", year=year, sign=-1))
+        txns.extend(_parse_native_section(markdown, "RETURNED CHECKS", year=year, sign=1))
+        txns.extend(_parse_native_checks(markdown, year=year))
+        if not txns or stmt.beginning_balance is None or stmt.ending_balance is None:
+            return None
+        stmt.transactions = txns
+        return stmt
+
     fees = checks = 0.0
     for cells in _rows(summary_match.group(1)):
         if len(cells) < 2:
@@ -145,7 +250,7 @@ def parse_regions_statement(markdown: str) -> Statement | None:
 
 
 def _money_after(label: str, text: str) -> float | None:
-    m = re.search(label + r"\s+\$?([\d,]+\.\d{2})(?:\s*(-))?", text, re.IGNORECASE)
+    m = re.search(label + r"\s+\$?([\d,]+(?:\.\d{2})?)(?:\s*(-))?", text, re.IGNORECASE)
     if not m:
         return None
     value = abs(_parse_money(m.group(1)) or 0.0)

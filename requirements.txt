@@ -4,3 +4,4 @@ pillow
 markdown
 flask
 pytest
+PyMuPDF

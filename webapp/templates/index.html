@@ -187,6 +187,22 @@
   @keyframes progress { from { transform: translateX(-75%); } to { transform: translateX(230%); } }
   .force-row { margin-top: 10px; display: flex; gap: 9px; align-items: center; color: var(--muted); font-size: 12px; }
   .force-row input { accent-color: var(--blue); }
+  .mode-control { margin-top: 12px; display: grid; gap: 7px; }
+  .mode-label { color: var(--muted); font-size: 11px; font-weight: 780; text-transform: uppercase; letter-spacing: .08em; }
+  .mode-options {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 999px;
+    background: rgba(255,255,255,.72); border: 1px solid var(--hairline); box-shadow: inset 0 1px 0 white;
+  }
+  .mode-option { position: relative; min-width: 0; }
+  .mode-option input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .mode-option span {
+    min-height: 32px; border-radius: 999px; display: grid; place-items: center; padding: 0 10px;
+    color: var(--muted); font-size: 12px; font-weight: 740; transition: background .16s ease, color .16s ease, box-shadow .16s ease;
+  }
+  .mode-option input:checked + span {
+    background: var(--blue); color: white; box-shadow: 0 8px 18px rgba(0,122,255,.2);
+  }
+  .mode-option input:focus-visible + span { outline: 3px solid rgba(0,122,255,.28); outline-offset: 3px; }
 
   .status-banner {
     margin-top: 18px; min-height: 64px; border-radius: 14px; display: flex; align-items: center; gap: 12px;
@@ -266,6 +282,13 @@
   td { padding: 10px 18px; border-top: 1px solid rgba(15,23,42,.06); color: var(--ink-soft); font-size: 13px; }
   td strong { color: var(--ink); }
   .status-badge { border-radius: 999px; padding: 5px 9px; background: rgba(40,167,69,.1); color: var(--green); font-size: 12px; font-weight: 760; }
+  .table-action {
+    border: 1px solid var(--hairline); border-radius: 999px; background: rgba(255,255,255,.78);
+    color: var(--blue-dark); font-size: 12px; font-weight: 760; padding: 7px 11px;
+    box-shadow: inset 0 1px 0 white; transition: background .18s ease, transform .18s ease;
+  }
+  .table-action:hover { background: white; transform: translateY(-1px); }
+  .table-action:disabled { opacity: .45; cursor: not-allowed; transform: none; }
 
   .quick-panel { border-radius: var(--radius-lg); padding: 18px; position: sticky; top: 8px; min-height: 320px; }
   .quick-list { display: grid; gap: 12px; margin-top: 22px; }
@@ -282,6 +305,33 @@
     margin-top: 14px; border-radius: 12px; background: rgba(255,255,255,.68);
     border: 1px solid var(--hairline); padding: 14px; color: var(--ink-soft); font-size: 13px; line-height: 1.55;
   }
+  .modal-backdrop {
+    position: fixed; inset: 0; z-index: 50; padding: 28px;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(226, 233, 244, .48); backdrop-filter: blur(18px) saturate(120%);
+    -webkit-backdrop-filter: blur(18px) saturate(120%);
+  }
+  .modal-backdrop.show { display: flex; }
+  .statement-modal {
+    width: min(1120px, 100%); max-height: min(860px, calc(100vh - 56px)); overflow: hidden;
+    border-radius: 28px; background: rgba(255,255,255,.9); border: 1px solid rgba(255,255,255,.72);
+    box-shadow: 0 28px 80px rgba(29, 45, 72, .22), inset 0 1px 0 rgba(255,255,255,.9);
+    display: grid; grid-template-rows: auto minmax(0, 1fr);
+  }
+  .modal-head {
+    padding: 20px 22px; display: flex; justify-content: space-between; gap: 18px; align-items: flex-start;
+    border-bottom: 1px solid rgba(15,23,42,.08);
+  }
+  .modal-kicker { color: var(--muted); font-size: 11px; font-weight: 820; letter-spacing: .1em; text-transform: uppercase; }
+  .modal-title { margin: 5px 0 0; font-size: 23px; letter-spacing: -.04em; line-height: 1.12; overflow-wrap: anywhere; }
+  .modal-subtitle { margin-top: 7px; color: var(--ink-soft); font-size: 13px; }
+  .modal-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  .modal-close { width: 38px; height: 38px; border-radius: 999px; border: 1px solid var(--hairline); background: rgba(255,255,255,.82); color: var(--ink); font-size: 20px; line-height: 1; }
+  .modal-body { padding: 18px 22px 22px; overflow: auto; display: grid; gap: 16px; }
+  .modal-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .modal-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .modal-panel { border-radius: 18px; background: rgba(255,255,255,.68); border: 1px solid var(--hairline); padding: 14px; }
+  .modal-panel h3 { margin: 0 0 12px; font-size: 14px; letter-spacing: -.02em; }
   .hidden-textarea { position: fixed; left: -9999px; top: -9999px; }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
@@ -296,6 +346,8 @@
     .metric-section-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .top-header { height: auto; align-items: stretch; flex-direction: column; }
     .search { max-width: none; }
+    .modal-grid, .modal-detail-grid { grid-template-columns: 1fr; }
+    .modal-backdrop { padding: 14px; }
   }
   @media (max-width: 560px) {
     .app-shell { padding: 14px; gap: 14px; }
@@ -319,15 +371,6 @@
       <button class="nav-item active" type="button"><span class="nav-icon">OCR</span>OCR</button>
     </nav>
     <div class="sidebar-bottom">
-      <div class="storage-card">
-        <div class="storage-head"><span>Storage</span><span></span></div>
-        <div class="storage-bar"><div class="storage-fill"></div></div>
-        <div class="logo-sub" style="margin-top:10px">2.4 GB of 10 GB used</div>
-      </div>
-      <div class="storage-card">
-        <div class="storage-head"><span>Upgrade Plan</span><span></span></div>
-        <div class="logo-sub" style="margin-top:8px">Unlock more uploads and features.</div>
-      </div>
       <div class="profile-card">
         <div class="avatar">GP</div>
         <div>
@@ -377,6 +420,19 @@
         <label class="force-row" title="Bypass native PDF text and send pages through visual OCR.">
           <input type="checkbox" id="forceOcrToggle"> Force visual OCR
         </label>
+        <div class="mode-control" aria-label="Parsing mode">
+          <div class="mode-label">Parsing mode</div>
+          <div class="mode-options">
+            <label class="mode-option">
+              <input type="radio" name="parseMode" value="auto" checked>
+              <span>Auto</span>
+            </label>
+            <label class="mode-option">
+              <input type="radio" name="parseMode" value="deterministic">
+              <span>Deterministic only</span>
+            </label>
+          </div>
+        </div>
         <div class="progress-track" id="progressTrack"><div class="progress-bar"></div></div>
       </section>
 
@@ -429,6 +485,29 @@
             </table>
           </div>
         </div>
+        <div class="table-card" id="monthlyCard" style="display:none">
+          <div class="table-head">
+            <h3>Monthly Statements</h3>
+            <span class="section-label" id="monthlyCount">0 statements</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Statement</th>
+                  <th>Period</th>
+                  <th>Credits</th>
+                  <th>Debits</th>
+                  <th>Cash Flow</th>
+                  <th>Avg Daily Balance</th>
+                  <th>NSFs</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="monthlyTable"></tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <aside class="quick-panel glass">
@@ -447,7 +526,48 @@
     </section>
   </main>
 </div>
+<div class="modal-backdrop" id="statementModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="statementModalTitle" aria-hidden="true">
+  <section class="statement-modal">
+    <div class="modal-head">
+      <div>
+        <div class="modal-kicker">Monthly Statement</div>
+        <h2 class="modal-title" id="statementModalTitle">Statement Details</h2>
+        <div class="modal-subtitle" id="statementModalSubtitle">Loading extracted information...</div>
+      </div>
+      <div class="modal-actions">
+        <a class="btn" id="modalJsonDownload" href="#" aria-disabled="true">JSON</a>
+        <button class="btn" id="modalCopyData" type="button">Copy Data</button>
+        <button class="modal-close" id="statementModalClose" type="button" aria-label="Close statement details">&times;</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-grid" id="statementModalMetrics"></div>
+      <div class="modal-detail-grid">
+        <div class="modal-panel">
+          <h3>Account Details</h3>
+          <div class="account-summary" id="statementModalAccount"></div>
+        </div>
+        <div class="modal-panel">
+          <h3>Lenders Detected</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Lender</th>
+                  <th>Type</th>
+                  <th>Amount</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="statementModalLenders"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
 <textarea class="hidden-textarea" id="copyBuffer" aria-hidden="true"></textarea>
-<script src="/static/app.js?v=metrics-groups-v2"></script>
+<script src="/static/app.js?v=package-adb-v1"></script>
 </body>
 </html>

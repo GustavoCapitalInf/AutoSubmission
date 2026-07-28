@@ -42,6 +42,35 @@ def parse_native_pdf_text(pdf_bytes: bytes, source_file: str = "") -> StatementM
     return StatementMarkdown(source_file=source_file, model="native-pdf-text", pages=pages)
 
 
+def parse_native_desjardins(pdf_bytes: bytes, source_file: str = "") -> StatementMarkdown | None:
+    """Return layout-preserved native text for Desjardins statements.
+
+    Generic block extraction collapses Desjardins' amount columns into the
+    description stream. PyMuPDF's sorted text preserves enough spacing and row
+    continuation to parse the ledger deterministically.
+    """
+    try:
+        import fitz
+    except Exception:
+        return None
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception:
+        return None
+
+    pages = [page.get_text("text", sort=True) or "" for page in doc]
+    full_text = "\n".join(pages).upper()
+    if (
+        "CAISSE DESJARDINS" not in full_text
+        or "STATEMENT OF ACCOUNT" not in full_text
+        or "DESJARDINS CORPORATE BUILD-UP ACCOUNT" not in full_text
+    ):
+        return None
+    if sum(len(page.strip()) for page in pages) < 500:
+        return None
+    return StatementMarkdown(source_file=source_file, model="native-pdf-text+desjardins-layout", pages=pages)
+
+
 def parse_native_td_canada(pdf_bytes: bytes, source_file: str = "") -> StatementMarkdown | None:
     """Return native text for selectable-text TD Canada PDFs.
 

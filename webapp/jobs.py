@@ -15,6 +15,7 @@ class Job:
     analysis_error: str | None = None
     parse_model: str | None = None
     force_ocr: bool = False
+    parse_mode: str = "auto"
     error: str | None = None
     pdf_bytes: bytes | None = None
     page_count: int = 0

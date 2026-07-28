@@ -10,6 +10,10 @@ _ROW_RE = re.compile(r"<tr>(.*?)</tr>", re.IGNORECASE | re.DOTALL)
 _CELL_RE = re.compile(r"<td[^>]*>(.*?)</td>", re.IGNORECASE | re.DOTALL)
 _TAG_RE = re.compile(r"<[^>]+>")
 _IMG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE | re.DOTALL)
+_EXPORT_MONTHS = {
+    "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
+    "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12,
+}
 
 
 def _clean(value: str) -> str:
@@ -57,12 +61,220 @@ def _iso(mmdd: str, year: int) -> str:
     return date(year, month, day).isoformat()
 
 
+def _money_required(value: str) -> float:
+    amount = _money(value)
+    if amount is None:
+        raise ValueError(value)
+    return amount
+
+
+def _parse_chase_business_export(markdown: str) -> Statement | None:
+    if "Printed from Chase for Business" not in markdown or "Transactions" not in markdown:
+        return None
+    if "CHECKING SUMMARY" in markdown:
+        return None
+
+    account = re.search(r"BUS COMPLETE CHK\s+\(\.\.\.(\d+)\)", markdown, re.IGNORECASE)
+    name = re.search(
+        r"BUS COMPLETE CHK\s+\(\.\.\.\d+\)\s*\nBUS COMPLETE CHK\s+\(\.\.\.\d+\)\s*\n([A-Z0-9 &.'-]+)",
+        markdown,
+    )
+    display_rows: list[Transaction] = []
+    current_date: date | None = None
+    month_names = "|".join(_EXPORT_MONTHS)
+    row_date_re = re.compile(rf"^({month_names})[a-z]*\s+(\d{{1,2}}),\s+(\d{{4}})\s+(.+)$", re.IGNORECASE)
+
+    for raw_line in markdown.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("---") or line.lower().startswith("pending "):
+            continue
+        date_match = row_date_re.match(line)
+        if date_match:
+            raw_month, raw_day, raw_year, line = date_match.groups()
+            current_date = date(int(raw_year), _EXPORT_MONTHS[raw_month[:3].title()], int(raw_day))
+        if current_date is None:
+            continue
+        money_matches = list(re.finditer(r"-?\$\d[\d,]*\.\d{2}", line))
+        if len(money_matches) < 2:
+            continue
+        amount_match = money_matches[-2]
+        balance_match = money_matches[-1]
+        description = line[:amount_match.start()].strip()
+        if not description:
+            continue
+        amount = _money_required(amount_match.group(0))
+        balance = _money_required(balance_match.group(0))
+        display_rows.append(Transaction(
+            date=current_date.isoformat(),
+            description=_clean(description),
+            amount=round(amount, 2),
+            direction="credit" if amount > 0 else "debit",
+            running_balance=round(balance, 2),
+        ))
+
+    if len(display_rows) < 3:
+        return None
+    transactions = list(reversed(display_rows))
+    beginning = round((transactions[0].running_balance or 0.0) - transactions[0].amount, 2)
+    ending = transactions[-1].running_balance
+    if ending is None:
+        return None
+    stmt = Statement(
+        bank="Chase Transaction Export",
+        account_name=name.group(1).strip() if name else None,
+        account_number=f"...{account.group(1)}" if account else None,
+        period_start=transactions[0].date,
+        period_end=transactions[-1].date,
+        beginning_balance=beginning,
+        ending_balance=ending,
+        currency="USD",
+        transactions=transactions,
+    )
+    return stmt
+
+
 def _tables_after(markdown: str, heading: str) -> list[str]:
     pattern = re.compile(
         rf"(?m)^\s*{re.escape(heading)}(?: \(continued\))?\s*$.*?(<table>.*?</table>)",
         re.IGNORECASE | re.DOTALL,
     )
     return [m.group(1) for m in pattern.finditer(markdown)]
+
+
+def _native_blocks(markdown: str, heading: str) -> list[str]:
+    blocks = []
+    for match in re.finditer(r"\*start\*[^\n]*\n(.*?)\*end\*", markdown, re.IGNORECASE | re.DOTALL):
+        block = match.group(1)
+        if re.search(rf"(?im)^\s*{re.escape(heading)}(?:\s|\(|$)", block):
+            blocks.append(block)
+    return blocks
+
+
+_ROW_STARTERS = (
+    "Orig CO Name",
+    "Real Time Payment",
+    "Real Time Transfer",
+    "Remote Online Deposit",
+    "Payment Received",
+    "Payment Sent",
+    "Payment To",
+    "Zelle Payment",
+    "Deposit",
+    "Fee Reversal",
+    "Recurring Card Purchase",
+    "Card Purchase",
+    "ATM Withdrawal",
+    "Withdrawal",
+    "Monthly Service Fee",
+    "Service Charges",
+    "Book Transfer",
+    "Online Transfer",
+    "Online Transfer From",
+    "Online Transfer To",
+    "Online ACH Payment",
+    "Online Payment",
+    "Overdraft Fee",
+)
+
+
+def _native_lines(block: str) -> list[str]:
+    text = re.sub(r"\s+", " ", block.replace("\n", " ")).strip()
+    text = re.sub(r"DATE DESCRIPTION AMOUNT\s+", "DATE DESCRIPTION AMOUNT\n", text, flags=re.IGNORECASE)
+    starters = "|".join(re.escape(item) for item in _ROW_STARTERS)
+    text = re.sub(
+        rf"\s+(?=(\d{{2}}/\d{{2}}\s+(?:\d{{2}}/\d{{2}}\s+)?(?:{starters})\b))",
+        "\n",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\s+(?=(?:Total|ATM & Debit Card Summary|DAILY ENDING BALANCE)\b)", "\n", text, flags=re.IGNORECASE)
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def _parse_native_section(markdown: str, heading: str, *, year: int, sign: int) -> list[Transaction]:
+    txns: list[Transaction] = []
+    for block in _native_blocks(markdown, heading):
+        for line in _native_lines(block):
+            if line.upper().startswith(("DATE DESCRIPTION AMOUNT", "TOTAL ", heading.upper())):
+                continue
+            m = re.match(r"(?P<date>\d{2}/\d{2})\s+(?P<body>.+)", line)
+            if not m:
+                continue
+            if m.group("body").lower().startswith("date "):
+                continue
+            amounts = list(re.finditer(r"\$?\s*[0-9][0-9,]*\.[0-9]{2}", m.group("body")))
+            if not amounts:
+                continue
+            amount_match = amounts[-1]
+            amount = _money(amount_match.group(0))
+            if amount is None:
+                continue
+            desc = (m.group("body")[:amount_match.start()] + m.group("body")[amount_match.end():]).strip()
+            desc = re.sub(r"\s+", " ", desc)
+            if not desc or desc.lower().startswith("total"):
+                continue
+            signed = round(abs(amount) * sign, 2)
+            txns.append(Transaction(
+                date=_iso(m.group("date"), year),
+                description=desc,
+                amount=signed,
+                direction="credit" if signed >= 0 else "debit",
+                running_balance=None,
+            ))
+    return txns
+
+
+def _parse_native_checks(markdown: str, *, year: int) -> list[Transaction]:
+    txns: list[Transaction] = []
+    for block in _native_blocks(markdown, "CHECKS PAID"):
+        for check_no, mmdd, amount_text in re.findall(
+            r"\b(\d{3,})\s+\*?\s*\^?\s+(\d{2}/\d{2})\s+\$?\s*([0-9][0-9,]*\.[0-9]{2})",
+            block,
+        ):
+            amount = _money(amount_text)
+            if amount is None:
+                continue
+            txns.append(Transaction(
+                date=_iso(mmdd, year),
+                description=f"Check Paid {check_no}",
+                amount=round(-abs(amount), 2),
+                direction="debit",
+                running_balance=None,
+            ))
+    return txns
+
+
+def _parse_native_summary(text: str, stmt: Statement) -> bool:
+    match = re.search(r"CHECKING SUMMARY(.*?)\*end\*summary", text, re.IGNORECASE | re.DOTALL)
+    if not match:
+        return False
+    summary = re.sub(r"\s+", " ", match.group(1)).strip()
+
+    beginning = re.search(r"Beginning Balance\s+(\$?[0-9][0-9,]*\.[0-9]{2})", summary, re.IGNORECASE)
+    ending = re.search(r"Ending Balance(?:\s+\d+)?\s+(\$?[0-9][0-9,]*\.[0-9]{2})", summary, re.IGNORECASE)
+    deposits = re.search(r"Deposits and Additions\s+(\d+)\s+(-?\$?[0-9][0-9,]*\.[0-9]{2})", summary, re.IGNORECASE)
+    if beginning:
+        stmt.beginning_balance = _money(beginning.group(1))
+    if ending:
+        stmt.ending_balance = _money(ending.group(1))
+    if deposits:
+        stmt.stated_credit_count = int(deposits.group(1))
+        stmt.stated_total_credits = abs(_money(deposits.group(2)) or 0.0)
+
+    debit_total = 0.0
+    debit_count = 0
+    for label in ("Checks Paid", "ATM & Debit Card Withdrawals", "Electronic Withdrawals", "Other Withdrawals", "Fees"):
+        m = re.search(rf"{re.escape(label)}\s+(\d+)\s+(-?\$?[0-9][0-9,]*\.[0-9]{{2}})", summary, re.IGNORECASE)
+        if not m:
+            continue
+        debit_count += int(m.group(1))
+        amount = abs(_money(m.group(2)) or 0.0)
+        debit_total += amount
+        if label == "Fees":
+            stmt.stated_service_charge = amount
+    stmt.stated_debit_count = debit_count or None
+    stmt.stated_total_debits = round(debit_total, 2) if debit_total else None
+    return stmt.beginning_balance is not None and stmt.ending_balance is not None
 
 
 def _parse_txn_table(table: str, *, year: int, sign: int) -> tuple[list[Transaction], list[tuple[str, str]]]:
@@ -138,6 +350,9 @@ def _parse_section(markdown: str, heading: str, *, total_label: str, year: int, 
 
 def parse_chase_statement(markdown: str) -> Statement | None:
     text = _IMG_RE.sub("", markdown)
+    export = _parse_chase_business_export(text)
+    if export is not None:
+        return export
     if "JPMorgan Chase Bank" not in text and "\nCHASE\n" not in text:
         return None
     if "CHECKING SUMMARY" not in text:
@@ -158,32 +373,33 @@ def parse_chase_statement(markdown: str) -> Statement | None:
         stmt.account_name = name.group(1).strip()
 
     summary_match = re.search(r"CHECKING SUMMARY.*?(<table>.*?</table>)", text, re.IGNORECASE | re.DOTALL)
-    if not summary_match:
+    if summary_match:
+        debit_total = 0.0
+        debit_count = 0
+        for cells in _rows(summary_match.group(1)):
+            if len(cells) < 3:
+                continue
+            label = cells[0].lower()
+            instances = re.sub(r"[^0-9]", "", cells[1])
+            amount = _money(cells[2])
+            if "beginning balance" in label:
+                stmt.beginning_balance = amount
+            elif "deposits and additions" in label:
+                stmt.stated_credit_count = int(instances) if instances else None
+                stmt.stated_total_credits = amount
+            elif any(name in label for name in ("checks paid", "atm", "electronic withdrawals", "other withdrawals", "fees")):
+                if amount is not None:
+                    debit_total += abs(amount)
+                if instances:
+                    debit_count += int(instances)
+                if "fees" in label and amount is not None:
+                    stmt.stated_service_charge = abs(amount)
+            elif "ending balance" in label:
+                stmt.ending_balance = amount
+        stmt.stated_total_debits = round(debit_total, 2) if debit_total else None
+        stmt.stated_debit_count = debit_count or None
+    elif not _parse_native_summary(text, stmt):
         return None
-    debit_total = 0.0
-    debit_count = 0
-    for cells in _rows(summary_match.group(1)):
-        if len(cells) < 3:
-            continue
-        label = cells[0].lower()
-        instances = re.sub(r"[^0-9]", "", cells[1])
-        amount = _money(cells[2])
-        if "beginning balance" in label:
-            stmt.beginning_balance = amount
-        elif "deposits and additions" in label:
-            stmt.stated_credit_count = int(instances) if instances else None
-            stmt.stated_total_credits = amount
-        elif "atm" in label or "electronic withdrawals" in label or "fees" in label:
-            if amount is not None:
-                debit_total += abs(amount)
-            if instances:
-                debit_count += int(instances)
-            if "fees" in label and amount is not None:
-                stmt.stated_service_charge = abs(amount)
-        elif "ending balance" in label:
-            stmt.ending_balance = amount
-    stmt.stated_total_debits = round(debit_total, 2) if debit_total else None
-    stmt.stated_debit_count = debit_count or None
 
     txns: list[Transaction] = []
     txns.extend(_parse_section(
@@ -214,6 +430,13 @@ def parse_chase_statement(markdown: str) -> Statement | None:
         year=year,
         sign=-1,
     ))
+    if not txns:
+        txns.extend(_parse_native_section(text, "DEPOSITS AND ADDITIONS", year=year, sign=1))
+        txns.extend(_parse_native_checks(text, year=year))
+        txns.extend(_parse_native_section(text, "ATM & DEBIT CARD WITHDRAWALS", year=year, sign=-1))
+        txns.extend(_parse_native_section(text, "ELECTRONIC WITHDRAWALS", year=year, sign=-1))
+        txns.extend(_parse_native_section(text, "OTHER WITHDRAWALS", year=year, sign=-1))
+        txns.extend(_parse_native_section(text, "FEES", year=year, sign=-1))
 
     if not txns or stmt.beginning_balance is None or stmt.ending_balance is None:
         return None

@@ -31,9 +31,90 @@ def _money(value: str) -> float | None:
     return -amount if neg else amount
 
 
+def _native_summary(markdown: str, stmt: Statement) -> Statement:
+    m = re.search(
+        r"Previous Balance\s+\d{2}/\d{2}/\d{2}\s+(\(?\$[\d,]+\.\d{2}\)?)\s+"
+        r"Number of Days in Cycle\s+(\d+)\s+"
+        r"(\d+)\s+Deposits/Credits\s+\$([\d,]+\.\d{2})\s+"
+        r"Minimum Balance This Cycle\s+\(?\$[\d,]+\.\d{2}\)?\s+"
+        r"(\d+)\s+Checks/Debits\s+\(\$([\d,]+\.\d{2})\)\s+"
+        r"Average Collected Balance\s+\$([\d,]+\.\d{2})\s+"
+        r"Service Charges\s+\(\$([\d,]+\.\d{2})\)\s+"
+        r"Ending Balance\s+\d{2}/\d{2}/\d{2}\s+(\(?\$[\d,]+\.\d{2}\)?)",
+        markdown,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not m:
+        return stmt
+    beginning, days, credit_count, credits, debit_count, debits, avg, fees, ending = m.groups()
+    return stmt.model_copy(update={
+        "beginning_balance": _money(beginning),
+        "days_in_period": int(days),
+        "stated_credit_count": int(credit_count),
+        "stated_total_credits": _money(credits),
+        "stated_debit_count": int(debit_count),
+        "stated_total_debits": abs(_money(debits) or 0.0),
+        "stated_average_balance": _money(avg),
+        "stated_service_charge": abs(_money(fees) or 0.0),
+        "ending_balance": _money(ending),
+    })
+
+
+def _native_transactions(markdown: str, *, year: int, beginning_balance: float | None) -> list[Transaction]:
+    detail = re.search(
+        r"ACCOUNT DETAIL\s+FOR PERIOD.*?(?=Total For This Period|Date Service Description|PAGE \d+ OF \d+\s*$|$)",
+        markdown,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not detail:
+        return []
+    text = re.sub(r"\s+", " ", detail.group(0))
+    row_re = re.compile(
+        r"(\d{2}/\d{2})\s+(.+?)\s+\$([\d,]+\.\d{2})\s+(\(?\$[\d,]+\.\d{2}\)?)"
+        r"(?=\s+\d{2}/\d{2}\s+[A-Za-z]|\s+Total\s+\$|\s+Thank you\b|\s+PAGE\s+\d+\s+OF\b|"
+        r"\s+Products and services\b|\s+--- Page\b|\s+Total For This Period\b|\s+Date Service Description\b|$)",
+        re.DOTALL,
+    )
+    txns: list[Transaction] = []
+    prev_balance = beginning_balance
+    for m in row_re.finditer(text):
+        txn_date, desc, raw_amount, raw_balance = m.groups()
+        balance = _money(raw_balance)
+        amount = _money(raw_amount)
+        if balance is None or amount is None:
+            continue
+        if prev_balance is not None:
+            signed = round(balance - prev_balance, 2)
+            if abs(abs(signed) - abs(amount)) > 0.01:
+                signed = amount if _looks_like_credit(desc) else -abs(amount)
+        else:
+            signed = amount if _looks_like_credit(desc) else -abs(amount)
+        txns.append(Transaction(
+            date=_iso(txn_date, year),
+            description=re.sub(r"\s+", " ", desc).strip(),
+            amount=signed,
+            direction="credit" if signed >= 0 else "debit",
+            running_balance=balance,
+        ))
+        prev_balance = balance
+    return txns
+
+
+def _looks_like_credit(description: str) -> bool:
+    desc = description.upper()
+    return any(token in desc for token in (
+        "DEPOSIT",
+        "MONEY RECEIVED",
+        "TRANSFER RECEIVED",
+        "INSTANT TRANSFER RECEIVED",
+        "ATM CASH DEPOSIT",
+        "DEBIT CARD MONEY RECEIVED",
+    ))
+
+
 def _period(markdown: str) -> tuple[str, str] | None:
     m = re.search(
-        r"ACCOUNT SUMMARY FOR PERIOD\s+([A-Z]+)\s+(\d{1,2}),\s+(\d{4})\s+-\s+([A-Z]+)\s+(\d{1,2}),\s+(\d{4})",
+        r"ACCOUNT SUMMARY\s+FOR PERIOD\s+([A-Z]+)\s+(\d{1,2}),\s+(\d{4})\s+-\s+([A-Z]+)\s+(\d{1,2}),\s+(\d{4})",
         markdown,
         re.IGNORECASE,
     )
@@ -57,7 +138,7 @@ def _iso(mmdd: str, year: int) -> str:
 def parse_capital_one_statement(markdown: str) -> Statement | None:
     if "CAPITALONE" not in markdown.upper().replace(" ", ""):
         return None
-    if "ACCOUNT SUMMARY FOR PERIOD" not in markdown.upper():
+    if not re.search(r"ACCOUNT SUMMARY\s+FOR PERIOD", markdown, re.IGNORECASE):
         return None
 
     period = _period(markdown)
@@ -141,6 +222,10 @@ def parse_capital_one_statement(markdown: str) -> Statement | None:
             running_balance=balance,
         ))
         prev_balance = balance
+
+    if not txns:
+        stmt = _native_summary(markdown, stmt)
+        txns = _native_transactions(markdown, year=year, beginning_balance=stmt.beginning_balance)
 
     if not txns or stmt.beginning_balance is None or stmt.ending_balance is None:
         return None
