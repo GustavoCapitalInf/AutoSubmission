@@ -16,7 +16,7 @@ const els = {
   decisionPill: document.getElementById("decisionPill"),
   lenderTable: document.getElementById("lenderTable"),
   lenderCount: document.getElementById("lenderCount"),
-  textPreview: document.getElementById("textPreview"),
+  accountSummary: document.getElementById("accountSummary"),
   copyTextBtn: document.getElementById("copyTextBtn"),
   openTextBtn: document.getElementById("openTextBtn"),
   downloadJson: document.getElementById("downloadJson"),
@@ -36,27 +36,47 @@ let currentFile = null;
 let startedAt = null;
 let pollTimer = null;
 
-const emptyMetrics = [
-  ["NSFs", "N/A", "Returned or insufficient funds", "NSF", "red"],
-  ["POS Transactions", "N/A", "Card-present debits", "POS", "blue"],
-  ["ACH Credits", "N/A", "Incoming ACH items", "ACH", "green"],
-  ["ACH Debits", "N/A", "Outgoing ACH items", "ACH", "blue"],
-  ["ATM Withdrawals", "N/A", "ATM cash activity", "ATM", "blue"],
-  ["Checks Detected", "N/A", "Check payments found", "CHK", "blue"],
-  ["Deposits", "N/A", "Total deposit volume", "DEP", "green"],
-  ["Average Daily Balance", "N/A", "Computed from daily ledger", "AVG", "blue"],
-  ["Ending Balance", "N/A", "Statement close balance", "END", "blue"],
-  ["Lowest Balance", "N/A", "Lowest daily balance", "LOW", "red"],
-  ["Highest Balance", "N/A", "Highest daily balance", "HIGH", "green"],
-  ["Total Credits", "N/A", "All inflows", "CR", "green"],
-  ["Total Debits", "N/A", "All outflows", "DB", "red"],
-  ["Monthly Cash Flow", "N/A", "Credits minus debits", "CF", "blue"],
-  ["Lenders Detected", "N/A", "Known funder matches", "LEN", "blue"],
-  ["Bank Name", "N/A", "Detected institution", "BNK", "blue"],
-  ["Account Type", "N/A", "Detected account category", "ACC", "blue"],
-  ["Statement Period", "N/A", "Statement date range", "PER", "blue"],
-  ["Routing Number", "N/A", "If present in PDF", "RTE", "blue"],
-  ["Account Number (masked)", "N/A", "Last digits only", "#", "blue"],
+const emptyMetricSections = [
+  {
+    title: "Credits",
+    sub: "Incoming money",
+    items: [
+      ["Total Credits", "N/A", "All inflows", "CR", "green"],
+      ["Deposits", "N/A", "Total deposit volume", "DEP", "green"],
+      ["ACH Credits", "N/A", "Incoming ACH items", "ACH", "green"],
+    ],
+  },
+  {
+    title: "Debits",
+    sub: "Outgoing money",
+    items: [
+      ["Total Debits", "N/A", "All outflows", "DB", "red"],
+      ["Withholding Rate", "N/A", "Lender debits as a share of revenue", "%", "red"],
+      ["ACH Debits", "N/A", "Outgoing ACH items", "ACH", "blue"],
+      ["POS Transactions", "N/A", "Card-present debits", "POS", "blue"],
+      ["ATM Withdrawals", "N/A", "ATM cash activity", "ATM", "blue"],
+      ["Checks Detected", "N/A", "Check payments found", "CHK", "blue"],
+    ],
+  },
+  {
+    title: "Risk Signals",
+    sub: "Balance and NSF indicators",
+    items: [
+      ["NSFs", "N/A", "Returned or insufficient funds", "NSF", "red"],
+      ["Average Daily Balance", "N/A", "Computed from daily ledger", "AVG", "blue"],
+      ["Ending Balance", "N/A", "Statement close balance", "END", "blue"],
+      ["Lowest Balance", "N/A", "Lowest daily balance", "LOW", "red"],
+      ["Highest Balance", "N/A", "Highest daily balance", "HIGH", "green"],
+    ],
+  },
+  {
+    title: "Lenders",
+    sub: "Funding activity",
+    items: [
+      ["Lenders Detected", "N/A", "Known funder matches", "LEN", "blue"],
+      ["Monthly Cash Flow", "N/A", "Credits minus debits", "CF", "blue"],
+    ],
+  },
 ];
 
 function escapeHtml(value) {
@@ -94,6 +114,12 @@ function formatNumber(value) {
   return n.toLocaleString("en-US");
 }
 
+function formatPercent(value) {
+  const n = numberOrNull(value);
+  if (n === null) return "N/A";
+  return `${Number.isInteger(n) ? n.toFixed(0) : n.toFixed(2)}%`;
+}
+
 function formatBytes(value) {
   const n = numberOrNull(value);
   if (n === null) return "N/A";
@@ -106,6 +132,38 @@ function maskAccount(value) {
   if (!raw) return "N/A";
   const tail = raw.slice(-4);
   return `•••• ${tail}`;
+}
+
+function firstMatch(text, patterns) {
+  const source = String(text || "");
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    if (match && match[1]) return match[1].trim();
+  }
+  return "";
+}
+
+function accountFieldRows(statement = {}, markdown = "") {
+  const routing = statement.routing_number || firstMatch(markdown, [
+    /\bRouting(?:\s+Transit)?(?:\s+(?:Number|No\.?|#))?\s*[:#]?\s*([0-9]{9})\b/i,
+    /\bRTN\s*[:#]?\s*([0-9]{9})\b/i,
+  ]);
+  const accountNumber = statement.account_number || firstMatch(markdown, [
+    /\bAccount(?:\s+(?:Number|No\.?|#))\s*[:#]?\s*([*xX.\-\s]*\d[\d*Xx.\-\s]{2,})/i,
+    /\bAcct(?:\.|ount)?\s*#?\s*[:#]?\s*([*xX.\-\s]*\d[\d*Xx.\-\s]{2,})/i,
+  ]);
+  const accountType = statement.account_type || statement.account_name || firstMatch(markdown, [
+    /\bAccount\s+Type\s*[:#]?\s*([^\n\r|]+)/i,
+    /\bProduct\s+Name\s*[:#]?\s*([^\n\r|]+)/i,
+  ]);
+
+  return [
+    ["Account Type", accountType || "N/A"],
+    ["Statement Period", period(statement)],
+    ["Routing Number", routing || "N/A"],
+    ["Account Number (masked)", maskAccount(accountNumber)],
+    ["Bank Name", statement.bank || "N/A"],
+  ];
 }
 
 function period(statement) {
@@ -167,7 +225,8 @@ function setStatusRows(rows) {
 }
 
 function setInitialState() {
-  renderMetrics(emptyMetrics);
+  renderMetricSections(emptyMetricSections);
+  renderAccountSummary(accountFieldRows());
   setBanner("pending", "Ready for extraction", "--");
   setStatusRows([
     ["OCR completed", "No"],
@@ -201,13 +260,14 @@ function setActions(jobId, ready) {
     }
   });
   [els.copyDataBtn, els.summaryBtn, els.copyTextBtn].forEach((button) => {
+    if (!button) return;
     button.disabled = !ready;
     button.classList.toggle("disabled", !ready);
   });
 }
 
-function renderMetrics(items) {
-  els.metricsGrid.innerHTML = items.map(([label, value, sub, icon, tone]) => `
+function renderMetricCard([label, value, sub, icon, tone]) {
+  return `
     <article class="metric">
       <div class="metric-top">
         <div class="metric-label">${escapeHtml(label)}</div>
@@ -216,6 +276,20 @@ function renderMetrics(items) {
       <div class="metric-value">${escapeHtml(value)}</div>
       <div class="metric-sub">${escapeHtml(sub || "")}</div>
     </article>
+  `;
+}
+
+function renderMetricSections(sections) {
+  els.metricsGrid.innerHTML = sections.map((section) => `
+    <section class="metric-section">
+      <div class="metric-section-head">
+        <div class="metric-section-title">${escapeHtml(section.title)}</div>
+        <div class="metric-section-sub">${escapeHtml(section.sub || "")}</div>
+      </div>
+      <div class="metric-section-grid">
+        ${(section.items || []).map(renderMetricCard).join("")}
+      </div>
+    </section>
   `).join("");
 }
 
@@ -245,6 +319,16 @@ function renderLenders(funders, currency = "USD", dateReported = "N/A") {
   `).join("");
 }
 
+function renderAccountSummary(rows) {
+  if (!els.accountSummary) return;
+  els.accountSummary.innerHTML = rows.map(([label, value]) => `
+    <div class="summary-item">
+      <div class="summary-key">${escapeHtml(label)}</div>
+      <div class="summary-value">${escapeHtml(value || "N/A")}</div>
+    </div>
+  `).join("");
+}
+
 function renderAnalysis(report) {
   currentAnalysis = report;
   const statement = report.statement || {};
@@ -259,6 +343,8 @@ function renderAnalysis(report) {
   const achDebits = countTransactions(transactions, (desc, amount) => amount < 0 && desc.includes("ACH"));
   const atms = countTransactions(transactions, (desc, amount) => amount < 0 && desc.includes("ATM"));
   const checks = countTransactions(transactions, (desc) => desc.includes("CHECK"));
+  const totalCredits = metrics.effective_total_deposits;
+  const totalDebits = metrics.effective_total_withdrawals;
   const confidence = confidenceFrom(report);
   const elapsed = startedAt ? `${((Date.now() - startedAt) / 1000).toFixed(1)}s` : "Complete";
 
@@ -276,28 +362,49 @@ function renderAnalysis(report) {
     ["File size", formatBytes(currentFile && currentFile.size)],
   ]);
 
-  renderMetrics([
-    ["NSFs", formatNumber(metrics.effective_nsf_count), metrics.nsf_source || "Returned item detection", "NSF", "red"],
-    ["POS Transactions", formatNumber(metrics.pos_count), "Card point-of-sale debits", "POS", "blue"],
-    ["ACH Credits", formatNumber(metrics.ach_credit_count ?? achCredits), "Incoming ACH deposits", "ACH", "green"],
-    ["ACH Debits", formatNumber(metrics.ach_debit_count ?? achDebits), "Outgoing ACH debits", "ACH", "blue"],
-    ["ATM Withdrawals", formatNumber(metrics.atm_withdrawal_count ?? atms), "ATM cash withdrawals", "ATM", "blue"],
-    ["Checks Detected", formatNumber(metrics.check_count ?? checks), "Check transactions found", "CHK", "blue"],
-    ["Deposits", formatMoney(metrics.effective_total_deposits, currency), `${formatNumber(metrics.effective_num_deposits)} deposit items`, "DEP", "green"],
-    ["Average Daily Balance", formatMoney(metrics.average_balance, currency), metrics.average_balance_source || "Daily balance calculation", "AVG", "blue"],
-    ["Ending Balance", formatMoney(statement.ending_balance, currency), "Statement close balance", "END", "blue"],
-    ["Lowest Balance", formatMoney(metrics.min_balance, currency), "Lowest daily balance", "LOW", "red"],
-    ["Highest Balance", formatMoney(metrics.max_balance, currency), "Highest daily balance", "HIGH", "green"],
-    ["Total Credits", formatMoney(metrics.effective_total_deposits, currency), "All credit inflows", "CR", "green"],
-    ["Total Debits", formatMoney(metrics.effective_total_withdrawals, currency), "All debit outflows", "DB", "red"],
-    ["Monthly Cash Flow", formatMoney(metrics.cash_flow, currency), "Credits minus debits", "CF", "blue"],
-    ["Lenders Detected", formatNumber(funders.length), "Known funder keyword matches", "LEN", "blue"],
-    ["Bank Name", statement.bank || "N/A", "Detected institution", "BNK", "blue"],
-    ["Account Type", statement.account_type || "Bank Statement", "Detected account category", "ACC", "blue"],
-    ["Statement Period", period(statement), "Statement date range", "PER", "blue"],
-    ["Routing Number", statement.routing_number || "N/A", "If present in PDF", "RTE", "blue"],
-    ["Account Number (masked)", maskAccount(statement.account_number), "Sensitive digits masked", "#", "blue"],
+  renderMetricSections([
+    {
+      title: "Credits",
+      sub: "Incoming money",
+      items: [
+        ["Total Credits", formatMoney(totalCredits, currency), "All credit inflows", "CR", "green"],
+        ["Deposits", formatMoney(totalCredits, currency), `${formatNumber(metrics.effective_num_deposits)} deposit items`, "DEP", "green"],
+        ["ACH Credits", formatNumber(metrics.ach_credit_count ?? achCredits), "Incoming ACH deposits", "ACH", "green"],
+      ],
+    },
+    {
+      title: "Debits",
+      sub: "Outgoing money",
+      items: [
+        ["Total Debits", formatMoney(totalDebits, currency), "All debit outflows", "DB", "red"],
+        ["Withholding Rate", formatPercent(metrics.withholding_rate), "Lender debits as a share of revenue", "%", "red"],
+        ["ACH Debits", formatNumber(metrics.ach_debit_count ?? achDebits), "Outgoing ACH debits", "ACH", "blue"],
+        ["POS Transactions", formatNumber(metrics.pos_count), "Card point-of-sale debits", "POS", "blue"],
+        ["ATM Withdrawals", formatNumber(metrics.atm_withdrawal_count ?? atms), "ATM cash withdrawals", "ATM", "blue"],
+        ["Checks Detected", formatNumber(metrics.check_count ?? checks), "Check transactions found", "CHK", "blue"],
+      ],
+    },
+    {
+      title: "Risk Signals",
+      sub: "NSFs and balances",
+      items: [
+        ["NSFs", formatNumber(metrics.effective_nsf_count), metrics.nsf_source || "Returned item detection", "NSF", "red"],
+        ["Average Daily Balance", formatMoney(metrics.average_balance, currency), metrics.average_balance_source || "Daily balance calculation", "AVG", "blue"],
+        ["Ending Balance", formatMoney(statement.ending_balance, currency), "Statement close balance", "END", "blue"],
+        ["Lowest Balance", formatMoney(metrics.min_balance, currency), "Lowest daily balance", "LOW", "red"],
+        ["Highest Balance", formatMoney(metrics.max_balance, currency), "Highest daily balance", "HIGH", "green"],
+      ],
+    },
+    {
+      title: "Lenders",
+      sub: "Funding activity",
+      items: [
+        ["Lenders Detected", formatNumber(funders.length), "Known funder keyword matches", "LEN", "blue"],
+        ["Monthly Cash Flow", formatMoney(metrics.cash_flow, currency), "Credits minus debits", "CF", "blue"],
+      ],
+    },
   ]);
+  renderAccountSummary(accountFieldRows(statement, currentMarkdown));
   renderLenders(funders, currency, statement.period_end || "N/A");
 }
 
@@ -308,6 +415,7 @@ function renderError(message) {
   els.decisionPill.textContent = "review required";
   els.decisionPill.className = "decision-pill error";
   els.summaryBox.textContent = message;
+  renderAccountSummary(accountFieldRows());
 }
 
 function showSelectedFile(file) {
@@ -343,7 +451,7 @@ function uploadFiles(fileList) {
   setProgress(true);
   els.statusHeading.textContent = "Uploading PDF";
   setBanner("pending", "Uploading PDF", "--");
-  els.textPreview.innerHTML = '<span class="preview-empty">OCR text will appear after processing completes.</span>';
+  renderAccountSummary(accountFieldRows());
   els.summaryBox.textContent = "Processing statement...";
 
   const form = new FormData();
@@ -412,21 +520,10 @@ function loadResults(jobId) {
       if (!payload.analysis) throw new Error(payload.analysis_error || "No analysis report was generated");
       currentMarkdown = markdown || "";
       renderAnalysis(payload.analysis);
-      renderTextPreview(currentMarkdown);
       setActions(jobId, true);
       els.summaryBox.textContent = "Exports and copy actions are ready.";
     })
     .catch((error) => renderError(error.message || String(error)));
-}
-
-function renderTextPreview(markdown) {
-  const trimmed = String(markdown || "").trim();
-  if (!trimmed) {
-    els.textPreview.innerHTML = '<span class="preview-empty">No extracted text was returned for this statement.</span>';
-    return;
-  }
-  const preview = trimmed.length > 1800 ? `${trimmed.slice(0, 1800)}...` : trimmed;
-  els.textPreview.innerHTML = `<pre style="margin:0;white-space:pre-wrap;font:inherit">${escapeHtml(preview)}</pre>`;
 }
 
 function copyText(value) {
@@ -483,7 +580,7 @@ els.fileInput.addEventListener("change", () => {
   });
 });
 
-els.copyTextBtn.addEventListener("click", () => copyText(currentMarkdown));
+if (els.copyTextBtn) els.copyTextBtn.addEventListener("click", () => copyText(currentMarkdown));
 els.copyDataBtn.addEventListener("click", () => copyText(JSON.stringify(currentAnalysis || {}, null, 2)));
 els.summaryBtn.addEventListener("click", generateSummary);
 

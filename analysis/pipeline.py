@@ -10,10 +10,12 @@ from .reconcile import reconcile, ReconResult
 from .metrics import compute_metrics, Metrics
 from .detect import detect, DetectionResult
 from .td_can import parse_td_canada_statement
-from .bofa import repair_bofa_summary
-from .regions import repair_regions_summary
+from .bofa import parse_bofa_statement, repair_bofa_summary
+from .regions import parse_regions_statement, repair_regions_summary
 from .first_community import repair_first_community_posted_activity
 from .bmo import parse_bmo_statement
+from .capital_one import parse_capital_one_statement
+from .chase import parse_chase_statement
 from .farmers_merchants import parse_farmers_merchants_statement
 from .rbc import parse_rbc_statement
 from .scotia import parse_scotiabank_statement
@@ -155,8 +157,12 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None) -> Repo
         or parse_rbc_statement(markdown)
         or parse_scotiabank_statement(markdown)
         or parse_wells_statement(markdown)
+        or parse_bofa_statement(markdown)
+        or parse_regions_statement(markdown)
         or parse_farmers_merchants_statement(markdown)
         or parse_bmo_statement(markdown)
+        or parse_capital_one_statement(markdown)
+        or parse_chase_statement(markdown)
     )
     if deterministic_stmt is not None:
         stmt = apply_statement_repairs(markdown, normalize_statement(deterministic_stmt))

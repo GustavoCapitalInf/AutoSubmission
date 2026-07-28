@@ -10,6 +10,8 @@ from analysis.extract import strip_embedded_images
 from analysis.pipeline import analyze_markdown, normalize_statement
 from analysis.td_can import parse_td_canada_statement
 from analysis.bofa import repair_bofa_summary
+from analysis.capital_one import parse_capital_one_statement
+from analysis.chase import parse_chase_statement
 from analysis.first_community import repair_first_community_posted_activity
 from analysis.regions import repair_regions_summary
 
@@ -103,6 +105,63 @@ Debits 2 73.39
     assert report.reconciliation.ok
     assert report.metrics.effective_total_deposits == 100.0
     assert report.metrics.effective_total_withdrawals == 73.39
+
+
+def test_parse_capital_one_uses_running_balances_to_fix_miscolumned_credits():
+    md = """
+CapitalOne Bank
+ACCOUNT SUMMARY FOR PERIOD MARCH 01, 2026 - MARCH 31, 2026
+Business Basic Checking 00005733890536
+<table><tr><td>Previous Balance 02/28/26</td><td>$619.39</td></tr><tr><td>19 Deposits/Credits</td><td>$9,230.78</td></tr><tr><td>30 Checks/Debits</td><td>($8,968.79)</td></tr><tr><td>Service Charges</td><td>($15.00)</td></tr><tr><td>Ending Balance 03/31/26</td><td>$866.38</td></tr></table>
+<table><tr><td>Number of Days in Cycle</td><td>31</td></tr><tr><td>Minimum Balance This Cycle</td><td>($20.71)</td></tr><tr><td>Average Collected Balance</td><td>$194.39</td></tr></table>
+<table><tr><td>Date</td><td>Description</td><td>Deposits/Credits</td><td>Withdrawals/Debits</td><td>Resulting Balance</td></tr>
+<tr><td>03/02</td><td>TRANSFER DEPOSIT From ....2395</td><td>$550.00</td><td></td><td>$1,169.39</td></tr>
+<tr><td>03/02</td><td>Debit Card Purchase AFFIRMCOM PAYMENTS</td><td></td><td>$26.10</td><td>$1,143.29</td></tr>
+<tr><td>03/09</td><td>TRANSFER DEPOSIT From ....2395</td><td></td><td>$150.00</td><td>$1,293.29</td></tr>
+<tr><td>03/24</td><td>DEBIT CARD MONEY RECEIVED SQ ID6IGNYR2</td><td></td><td>$700.90</td><td>$1,994.19</td></tr>
+<tr><td>03/24</td><td>TRANSFER WITHDRAWAL To ....2395</td><td></td><td>$1,127.81</td><td>$866.38</td></tr>
+</table>
+"""
+    stmt = parse_capital_one_statement(md)
+    assert stmt is not None
+    assert stmt.account_number == "00005733890536"
+    assert stmt.stated_total_credits == 9230.78
+    assert stmt.stated_total_debits == 8968.79
+    assert stmt.stated_service_charge == 15.0
+    assert [t.amount for t in stmt.transactions] == [550.0, -26.1, 150.0, 700.9, -1127.81]
+    recon = reconcile(stmt)
+    assert recon.sum_delta == 0.0
+    assert recon.continuity_breaks == 0
+
+
+def test_parse_chase_sections_and_infers_single_missing_section_amount():
+    md = """
+CHASE
+JPMorgan Chase Bank, N.A.
+April 29, 2023 through May 31, 2023
+Account Number: 000000987168322
+CHECKING SUMMARY
+Chase Business Complete Checking
+<table><tr><td></td><td>INSTANCES</td><td>AMOUNT</td></tr><tr><td>Beginning Balance</td><td></td><td>$100.00</td></tr><tr><td>Deposits and Additions</td><td>2</td><td>300.00</td></tr><tr><td>ATM &amp; Debit Card Withdrawals</td><td>2</td><td>-80.00</td></tr><tr><td>Electronic Withdrawals</td><td>1</td><td>-25.00</td></tr><tr><td>Fees</td><td>1</td><td>-15.00</td></tr><tr><td>Ending Balance</td><td>6</td><td>$280.00</td></tr></table>
+DEPOSITS AND ADDITIONS
+<table><tr><td>DATE</td><td>DESCRIPTION</td><td>AMOUNT</td></tr><tr><td>05/01</td><td>Payment Received</td><td>$100.00</td></tr><tr><td>05/02</td><td>Remote Online Deposit 1</td><td>200.00</td></tr><tr><td colspan="2">Total Deposits and Additions</td><td>$300.00</td></tr></table>
+ATM & DEBIT CARD WITHDRAWALS
+<table><tr><td>DATE</td><td>DESCRIPTION</td><td>AMOUNT</td></tr><tr><td>05/03</td><td>Card Purchase</td><td>Store NY Card 8651</td></tr><tr><td>05/04</td><td>Card Purchase</td><td>Gas Station NY Card 8651</td><td>50.00</td></tr><tr><td colspan="2">Total ATM &amp; Debit Card Withdrawals</td><td>$80.00</td></tr></table>
+ELECTRONIC WITHDRAWALS
+<table><tr><td>DATE</td><td>DESCRIPTION</td><td>AMOUNT</td></tr><tr><td>05/05</td><td>Zelle Payment To My Normal Bank</td><td>25.00</td></tr><tr><td colspan="2">Total Electronic Withdrawals</td><td>$25.00</td></tr></table>
+FEES
+<table><tr><td>DATE</td><td>DESCRIPTION</td><td>AMOUNT</td></tr><tr><td>05/31</td><td>Monthly Service Fee</td><td>$15.00</td></tr><tr><td colspan="2">Total Fees</td><td>$15.00</td></tr></table>
+"""
+    stmt = parse_chase_statement(md)
+    assert stmt is not None
+    assert stmt.bank == "Chase"
+    assert stmt.account_number == "000000987168322"
+    assert stmt.account_name == "Chase Business Complete Checking"
+    assert stmt.stated_total_credits == 300.0
+    assert stmt.stated_total_debits == 120.0
+    assert [t.amount for t in stmt.transactions] == [100.0, 200.0, -50.0, -30.0, -25.0, -15.0]
+    assert stmt.transactions[3].description == "Card Purchase Store NY Card 8651"
+    assert reconcile(stmt).ok
 
 
 def test_repair_bofa_summary_folds_checks_and_service_fees():
@@ -472,6 +531,17 @@ def test_detect_known_funder():
     assert len(matches) == 1
     assert matches[0].funder == "KAPITUS"
     assert matches[0].total_debited == 900.0
+
+
+def test_detect_affirm_without_space():
+    s = Statement(transactions=[
+        _txn("2026-03-02", -26.10, "Debit Card Purchase 030226 AFFIRMCOM PAYMENTS 8554233729 CA"),
+        _txn("2026-03-30", -26.10, "Recur Debit Card Purchase 033026 AFFIRM COM PAYMENTS 8554233729 CA"),
+    ])
+    matches = find_known_funders(s)
+    assert len(matches) == 1
+    assert matches[0].funder == "AFFIRM"
+    assert matches[0].total_debited == 52.2
 
 
 def test_detect_expanded_lender_keyword_aliases():

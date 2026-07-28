@@ -155,13 +155,10 @@
     transition: background .2s ease, border-color .2s ease, transform .2s ease;
   }
   .dropzone.drag { background: rgba(235,245,255,.92); border-color: var(--blue); }
-  .file-page {
-    width: 62px; height: 72px; border-radius: 14px; margin: 0 auto 14px;
-    background: linear-gradient(145deg, white, #eef6ff);
-    border: 1px solid rgba(15,23,42,.08); box-shadow: var(--shadow-soft);
-    position: relative;
+  .upload-visual {
+    width: min(242px, 88%); height: 172px; object-fit: contain;
+    display: block; margin: -18px auto -4px; filter: drop-shadow(0 18px 28px rgba(0, 95, 255, .2));
   }
-  .file-page::after { content: ""; position: absolute; right: -1px; top: -1px; border-left: 17px solid transparent; border-bottom: 17px solid rgba(0,122,255,.13); }
   .drop-title { font-size: 16px; font-weight: 760; letter-spacing: -.01em; }
   .drop-meta { margin-top: 6px; color: var(--muted); font-size: 13px; }
   .btn {
@@ -214,11 +211,17 @@
   .status-value { color: var(--ink); font-weight: 720; font-size: 13px; text-align: right; }
   .confidence-value { font-weight: 760; }
   .preview-card { min-height: 100%; }
-  .preview-box {
-    margin-top: 12px; border-radius: 14px; background: rgba(255,255,255,.72);
-    border: 1px solid var(--hairline); height: 232px; padding: 16px;
-    color: var(--ink-soft); font-size: 13px; line-height: 1.6; overflow: auto;
+  .account-summary {
+    margin-top: 14px; display: grid; gap: 10px;
   }
+  .summary-item {
+    border-radius: 12px; background: rgba(255,255,255,.72);
+    border: 1px solid var(--hairline); padding: 12px 13px;
+    display: grid; grid-template-columns: minmax(120px, .55fr) minmax(0, 1fr);
+    gap: 14px; align-items: center;
+  }
+  .summary-key { color: var(--muted); font-size: 11px; font-weight: 780; text-transform: uppercase; letter-spacing: .08em; }
+  .summary-value { color: var(--ink); font-size: 14px; font-weight: 760; overflow-wrap: anywhere; text-align: right; }
   .preview-empty { color: var(--muted); }
 
   .main-grid { display: grid; grid-template-columns: minmax(0, 1fr) 30%; gap: 16px; align-items: start; }
@@ -231,7 +234,15 @@
   }
   .decision-pill.approved { color: var(--green); }
   .decision-pill.manual_review_required, .decision-pill.error { color: var(--red); }
-  .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .metric-grid { display: grid; gap: 14px; }
+  .metric-section {
+    border-radius: 14px; background: rgba(255,255,255,.45);
+    border: 1px solid rgba(15,23,42,.06); padding: 12px;
+  }
+  .metric-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  .metric-section-title { color: var(--ink); font-size: 13px; font-weight: 800; letter-spacing: -.01em; }
+  .metric-section-sub { color: var(--muted); font-size: 12px; font-weight: 650; text-align: right; }
+  .metric-section-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
   .metric {
     border-radius: 12px; background: rgba(255,255,255,.68); border: 1px solid var(--hairline);
     padding: 12px; min-height: 64px; box-shadow: inset 0 1px 0 white;
@@ -282,14 +293,14 @@
     .quick-panel { position: static; }
   }
   @media (max-width: 900px) {
-    .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .metric-section-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .top-header { height: auto; align-items: stretch; flex-direction: column; }
     .search { max-width: none; }
   }
   @media (max-width: 560px) {
     .app-shell { padding: 14px; gap: 14px; }
     .sidebar, .top-header, .card, .information-card, .quick-panel { border-radius: 22px; }
-    .metric-grid { grid-template-columns: 1fr; }
+    .metric-section-grid { grid-template-columns: 1fr; }
     .header-actions { width: 100%; justify-content: space-between; }
   }
 </style>
@@ -305,13 +316,7 @@
       </div>
     </div>
     <nav class="nav-section">
-      <button class="nav-item" type="button"><span class="nav-icon">DB</span>Dashboard</button>
       <button class="nav-item active" type="button"><span class="nav-icon">OCR</span>OCR</button>
-      <button class="nav-item" type="button"><span class="nav-icon">DOC</span>Documents</button>
-      <button class="nav-item" type="button"><span class="nav-icon">DAT</span>Extracted Data</button>
-      <button class="nav-item" type="button"><span class="nav-icon">HIS</span>History</button>
-      <button class="nav-item" type="button"><span class="nav-icon">TMP</span>Templates</button>
-      <button class="nav-item" type="button"><span class="nav-icon">SET</span>Settings</button>
     </nav>
     <div class="sidebar-bottom">
       <div class="storage-card">
@@ -355,7 +360,7 @@
         <h2 id="uploadTitle">Upload PDF</h2>
         <div class="dropzone" id="dropzone">
           <div>
-            <div class="file-page" aria-hidden="true"></div>
+            <img class="upload-visual" src="/static/pdf-upload-icon-cropped.png?v=1" alt="" aria-hidden="true">
             <div class="drop-title">Drag &amp; drop your PDF here</div>
             <div class="drop-meta">or</div>
             <div class="upload-actions" style="justify-content:center">
@@ -388,12 +393,9 @@
       </section>
 
       <section class="card glass preview-card">
-        <h2>Extracted Text <span style="font-weight:500;color:var(--muted)">(Preview)</span></h2>
-        <div class="upload-actions">
-          <button class="btn" id="copyTextBtn" type="button" disabled>Copy</button>
-          <a class="btn disabled" id="openTextBtn" href="#" aria-disabled="true">Open full extracted text</a>
-        </div>
-        <div class="preview-box" id="textPreview"><span class="preview-empty">No extracted text yet.</span></div>
+        <h2>Account Summary</h2>
+        <p class="card-copy">Statement identity fields extracted from the document</p>
+        <div class="account-summary" id="accountSummary"></div>
       </section>
     </section>
 
@@ -446,6 +448,6 @@
   </main>
 </div>
 <textarea class="hidden-textarea" id="copyBuffer" aria-hidden="true"></textarea>
-<script src="/static/app.js?v=apple-liquid-glass"></script>
+<script src="/static/app.js?v=metrics-groups-v2"></script>
 </body>
 </html>

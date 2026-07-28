@@ -1,10 +1,147 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 from html import unescape
 
-from .schema import Statement
+from .schema import Statement, Transaction
 from .td_can import _parse_money
+
+_ROW_RE = re.compile(r"<tr>(.*?)</tr>", re.IGNORECASE | re.DOTALL)
+_CELL_RE = re.compile(r"<td[^>]*>(.*?)</td>", re.IGNORECASE | re.DOTALL)
+_TAG_RE = re.compile(r"<[^>]+>")
+_IMG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE | re.DOTALL)
+
+
+def _clean(value: str) -> str:
+    return re.sub(r"\s+", " ", unescape(_TAG_RE.sub("", value))).strip()
+
+
+def _rows(table: str) -> list[list[str]]:
+    return [[_clean(cell) for cell in _CELL_RE.findall(row)] for row in _ROW_RE.findall(table)]
+
+
+def _money(value: str) -> float | None:
+    text = value.strip().replace("–", "-")
+    if not re.search(r"\d+(?:\.\d{2})?", text):
+        return None
+    neg = text.endswith("-") or text.startswith("-")
+    amount = abs(_parse_money(re.sub(r"[^0-9,.-]", "", text)) or 0.0)
+    return -amount if neg else amount
+
+
+def _period(markdown: str) -> tuple[str, str] | None:
+    m = re.search(
+        r"([A-Z][a-z]+)\s+(\d{1,2}),\s+(\d{4})\s+through\s+([A-Z][a-z]+)\s+(\d{1,2}),\s+(\d{4})",
+        markdown,
+    )
+    if not m:
+        return None
+    months = {
+        "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6,
+        "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12,
+    }
+    sm, sd, sy, em, ed, ey = m.groups()
+    return (
+        date(int(sy), months[sm], int(sd)).isoformat(),
+        date(int(ey), months[em], int(ed)).isoformat(),
+    )
+
+
+def _iso(mmdd: str, year: int) -> str | None:
+    m = re.fullmatch(r"(\d{2})/(\d{2})", mmdd.strip())
+    if not m:
+        return None
+    month, day = m.groups()
+    return date(year, int(month), int(day)).isoformat()
+
+
+def _tables_after(markdown: str, heading: str) -> list[str]:
+    pattern = re.compile(
+        rf"(?m)^\s*{re.escape(heading)}\s*$.*?(<table>.*?</table>)",
+        re.IGNORECASE | re.DOTALL,
+    )
+    return [m.group(1) for m in pattern.finditer(markdown)]
+
+
+def _parse_section(markdown: str, heading: str, *, year: int, sign: int) -> list[Transaction]:
+    txns: list[Transaction] = []
+    for table in _tables_after(markdown, heading):
+        for cells in _rows(table):
+            if len(cells) < 3:
+                continue
+            txn_date = _iso(cells[0], year)
+            if txn_date is None:
+                continue
+            amount_idx = next((idx for idx in range(len(cells) - 1, 1, -1) if _money(cells[idx]) is not None), None)
+            if amount_idx is None:
+                continue
+            amount = _money(cells[amount_idx])
+            if amount is None:
+                continue
+            signed = round(abs(amount) * sign, 2)
+            txns.append(Transaction(
+                date=txn_date,
+                description=" ".join(cells[1:amount_idx]).strip(),
+                amount=signed,
+                direction="credit" if signed >= 0 else "debit",
+                running_balance=None,
+            ))
+    return txns
+
+
+def parse_regions_statement(markdown: str) -> Statement | None:
+    text = _IMG_RE.sub("", markdown)
+    if "REGIONS" not in text.upper() or "SUMMARY" not in text.upper():
+        return None
+    period = _period(text)
+    if period is None:
+        return None
+    year = int(period[1][:4])
+
+    stmt = Statement(bank="Regions Bank", period_start=period[0], period_end=period[1])
+    acct = re.search(r"ACCOUNT #\s*\n\s*([0-9]+)", text, re.IGNORECASE)
+    if acct:
+        stmt.account_number = acct.group(1)
+    name = re.search(r"Page 1 of \d+\s*\n([A-Z][A-Z0-9 &-]+)\s*\n[A-Z][a-z]+ \d{1,2},", text)
+    if name:
+        stmt.account_name = name.group(1).strip()
+
+    summary_match = re.search(r"SUMMARY\s*(<table>.*?</table>)", text, re.IGNORECASE | re.DOTALL)
+    if not summary_match:
+        return None
+    fees = checks = 0.0
+    for cells in _rows(summary_match.group(1)):
+        if len(cells) < 2:
+            continue
+        label = cells[0].lower()
+        amount = _money(cells[1])
+        if "beginning balance" in label:
+            stmt.beginning_balance = abs(amount) if amount is not None else None
+        elif "deposits" in label:
+            stmt.stated_total_credits = abs(amount) if amount is not None else None
+        elif "withdrawals" in label:
+            stmt.stated_total_debits = abs(amount) if amount is not None else None
+        elif "fees" in label and amount is not None:
+            fees = abs(amount)
+            stmt.stated_service_charge = fees
+        elif label == "checks" and amount is not None:
+            checks = abs(amount)
+        elif "ending balance" in label:
+            stmt.ending_balance = amount
+        if len(cells) >= 4 and "average balance" in cells[2].lower():
+            stmt.stated_average_balance = abs(_money(cells[3]) or 0.0)
+    if stmt.stated_total_debits is not None:
+        stmt.stated_total_debits = round(stmt.stated_total_debits + fees + checks, 2)
+
+    txns = []
+    txns.extend(_parse_section(text, "DEPOSITS & CREDITS", year=year, sign=1))
+    txns.extend(_parse_section(text, "WITHDRAWALS", year=year, sign=-1))
+    txns.extend(_parse_section(text, "FEES", year=year, sign=-1))
+    if not txns or stmt.beginning_balance is None or stmt.ending_balance is None:
+        return None
+    stmt.transactions = txns
+    return stmt
 
 
 def _money_after(label: str, text: str) -> float | None:

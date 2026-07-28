@@ -4,6 +4,7 @@ import csv
 import json
 import threading
 import zipfile
+from collections import deque
 from datetime import UTC, datetime
 from flask import Flask, request, jsonify, render_template, Response, abort
 
@@ -14,6 +15,31 @@ from .worker import run_job
 
 app = Flask(__name__)
 store = JobStore()
+_job_queue: deque[tuple[str, bytes, str, bool]] = deque()
+_job_queue_lock = threading.Lock()
+_job_worker_active = False
+
+
+def _process_job_queue() -> None:
+    global _job_worker_active
+    while True:
+        with _job_queue_lock:
+            if not _job_queue:
+                _job_worker_active = False
+                return
+            job_id, pdf_bytes, filename, force_ocr = _job_queue.popleft()
+        run_job(job_id, pdf_bytes, filename, store, force_ocr)
+
+
+def _enqueue_job(job_id: str, pdf_bytes: bytes, filename: str, force_ocr: bool) -> None:
+    global _job_worker_active
+    with _job_queue_lock:
+        _job_queue.append((job_id, pdf_bytes, filename, force_ocr))
+        should_start = not _job_worker_active
+        if should_start:
+            _job_worker_active = True
+    if should_start:
+        threading.Thread(target=_process_job_queue, daemon=True).start()
 
 
 def _analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
@@ -119,10 +145,7 @@ def upload():
             job.page_count = pdf_page_count(pdf_bytes)
         except Exception:
             job.page_count = 0
-        thread = threading.Thread(
-            target=run_job, args=(job.id, pdf_bytes, f.filename, store, force_ocr), daemon=True,
-        )
-        thread.start()
+        _enqueue_job(job.id, pdf_bytes, f.filename, force_ocr)
         jobs.append({
             "id": job.id,
             "filename": job.filename,

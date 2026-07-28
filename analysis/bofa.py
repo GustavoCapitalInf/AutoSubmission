@@ -1,9 +1,182 @@
 from __future__ import annotations
 
 import re
+from datetime import date
+from html import unescape
 
-from .schema import Statement
+from .schema import Statement, Transaction
 from .td_can import _parse_money
+
+_ROW_RE = re.compile(r"<tr>(.*?)</tr>", re.IGNORECASE | re.DOTALL)
+_CELL_RE = re.compile(r"<td[^>]*>(.*?)</td>", re.IGNORECASE | re.DOTALL)
+_TAG_RE = re.compile(r"<[^>]+>")
+_IMG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE | re.DOTALL)
+
+
+def _clean(value: str) -> str:
+    return re.sub(r"\s+", " ", unescape(_TAG_RE.sub("", value))).strip()
+
+
+def _rows(table: str) -> list[list[str]]:
+    return [[_clean(cell) for cell in _CELL_RE.findall(row)] for row in _ROW_RE.findall(table)]
+
+
+def _money(value: str) -> float | None:
+    text = value.strip()
+    if not re.fullmatch(r"-?\$?\s*[0-9][0-9,]*(?:\.[0-9]{2})|-?\$?0(?:\.00)?", text):
+        return None
+    return _parse_money(text)
+
+
+def _parse_date(value: str) -> str | None:
+    m = re.fullmatch(r"(\d{2})/(\d{2})/(\d{2})", value.strip())
+    if not m:
+        return None
+    month, day, year = m.groups()
+    return date(2000 + int(year), int(month), int(day)).isoformat()
+
+
+def _period(markdown: str) -> tuple[str, str] | None:
+    m = re.search(
+        r"for\s+([A-Z][a-z]+)\s+(\d{1,2}),\s+(\d{4})\s+to\s+([A-Z][a-z]+)\s+(\d{1,2}),\s+(\d{4})",
+        markdown,
+    )
+    if not m:
+        return None
+    months = {
+        "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6,
+        "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12,
+    }
+    sm, sd, sy, em, ed, ey = m.groups()
+    return (
+        date(int(sy), months[sm], int(sd)).isoformat(),
+        date(int(ey), months[em], int(ed)).isoformat(),
+    )
+
+
+def _tables_after(markdown: str, heading: str) -> list[str]:
+    pattern = re.compile(
+        rf"(?m)^\s*{re.escape(heading)}(?: - continued)?\s*$.*?(<table>.*?</table>)",
+        re.IGNORECASE | re.DOTALL,
+    )
+    return [m.group(1) for m in pattern.finditer(markdown)]
+
+
+def _table_total(table: str, label: str) -> float | None:
+    for cells in _rows(table):
+        if len(cells) < 2 or label.lower() not in cells[0].lower():
+            continue
+        for cell in reversed(cells):
+            amount = _money(cell)
+            if amount is not None:
+                return abs(amount)
+    return None
+
+
+def _parse_section(markdown: str, heading: str, *, total_label: str, sign: int) -> list[Transaction]:
+    txns: list[Transaction] = []
+    missing: list[tuple[str, str]] = []
+    stated_total = 0.0
+
+    for table in _tables_after(markdown, heading):
+        for cells in _rows(table):
+            if len(cells) < 3 or cells[0].lower() == "date":
+                continue
+            txn_date = _parse_date(cells[0])
+            if txn_date is None:
+                continue
+            amount_idx = next((idx for idx in range(len(cells) - 1, 1, -1) if _money(cells[idx]) is not None), None)
+            if amount_idx is None:
+                desc = " ".join(cells[1:]).strip()
+                if desc:
+                    missing.append((txn_date, desc))
+                continue
+            amount = _money(cells[amount_idx])
+            if amount is None:
+                continue
+            signed = round(abs(amount) * sign, 2)
+            txns.append(Transaction(
+                date=txn_date,
+                description=" ".join(cells[1:amount_idx]).strip(),
+                amount=signed,
+                direction="credit" if signed >= 0 else "debit",
+                running_balance=None,
+            ))
+        total = _table_total(table, total_label)
+        if total is not None:
+            stated_total += total
+
+    parsed_total = round(sum(abs(t.amount) for t in txns), 2)
+    missing_total = round(stated_total - parsed_total, 2) if stated_total else 0.0
+    if len(missing) == 1 and missing_total > 0:
+        txn_date, desc = missing[0]
+        signed = round(missing_total * sign, 2)
+        txns.append(Transaction(
+            date=txn_date,
+            description=desc,
+            amount=signed,
+            direction="credit" if signed >= 0 else "debit",
+            running_balance=None,
+        ))
+    return txns
+
+
+def parse_bofa_statement(markdown: str) -> Statement | None:
+    text = _IMG_RE.sub("", markdown)
+    if "BANK OF AMERICA" not in text.upper() or "ACCOUNT SUMMARY" not in text.upper():
+        return None
+    period = _period(text)
+    if period is None:
+        return None
+
+    stmt = Statement(bank="Bank of America", period_start=period[0], period_end=period[1])
+    acct = re.search(r"Account number:\s*([0-9 ]+)", text, re.IGNORECASE)
+    if acct:
+        stmt.account_number = re.sub(r"\s+", "", acct.group(1))
+    acct_name = re.search(r"Your\s+(.+?)\s+for\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}\s+to", text, re.IGNORECASE | re.DOTALL)
+    if acct_name:
+        stmt.account_name = re.sub(r"\s+", " ", acct_name.group(1)).strip()
+
+    summary_match = re.search(r"Account summary\s*(<table>.*?</table>)", text, re.IGNORECASE | re.DOTALL)
+    if not summary_match:
+        return None
+    for cells in _rows(summary_match.group(1)):
+        if len(cells) < 2:
+            continue
+        label = cells[0].lower()
+        amount = _money(cells[1])
+        extra = cells[2] if len(cells) > 2 else ""
+        if "beginning balance" in label:
+            stmt.beginning_balance = abs(amount) if amount is not None else None
+        elif "deposits and other credits" in label:
+            stmt.stated_total_credits = abs(amount) if amount is not None else None
+        elif "withdrawals and other debits" in label:
+            stmt.stated_total_debits = abs(amount) if amount is not None else None
+        elif label == "checks" and amount is not None:
+            stmt.stated_total_debits = round((stmt.stated_total_debits or 0.0) + abs(amount), 2)
+        elif "service fees" in label and amount is not None:
+            stmt.stated_total_debits = round((stmt.stated_total_debits or 0.0) + abs(amount), 2)
+            stmt.stated_service_charge = abs(amount)
+        elif "ending balance" in label:
+            stmt.ending_balance = abs(amount) if amount is not None else None
+
+        count = re.search(r"# of deposits/credits:\s*(\d+)", extra, re.IGNORECASE)
+        if count:
+            stmt.stated_credit_count = int(count.group(1))
+        count = re.search(r"# of withdrawals/debits:\s*(\d+)", extra, re.IGNORECASE)
+        if count:
+            stmt.stated_debit_count = int(count.group(1))
+        avg = re.search(r"Average ledger balance:\s*(\$?[\d,]+\.\d{2})", extra, re.IGNORECASE)
+        if avg:
+            stmt.stated_average_balance = abs(_parse_money(avg.group(1)) or 0.0)
+
+    txns = []
+    txns.extend(_parse_section(text, "Deposits and other credits", total_label="Total deposits and other credits", sign=1))
+    txns.extend(_parse_section(text, "Withdrawals and other debits", total_label="Total withdrawals and other debits", sign=-1))
+    if not txns or stmt.beginning_balance is None or stmt.ending_balance is None:
+        return None
+    stmt.transactions = txns
+    return stmt
 
 
 def repair_bofa_summary(markdown: str, stmt: Statement) -> Statement:
