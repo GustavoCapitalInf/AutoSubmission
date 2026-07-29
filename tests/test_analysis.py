@@ -1997,20 +1997,23 @@ def test_daily_average_balance_carries_forward():
 
 def test_daily_average_balance_tolerates_rows_without_running_balance():
     # Real statements sometimes omit the balance on fee/detail rows. Those rows
-    # should not prevent ADB as long as dated EOD balances still exist.
+    # must still move that day's ending balance — the money did leave the
+    # account — and must not prevent ADB from being computed.
     s = Statement(
         period_start="2026-01-01", period_end="2026-01-04",
-        beginning_balance=1000.0, ending_balance=1150.0, transactions=[
+        beginning_balance=1000.0, ending_balance=1125.0, transactions=[
             _txn("2026-01-01", 200.0, bal=1200.0),
             _txn("2026-01-02", -25.0, "SERVICE FEE", bal=None),
-            _txn("2026-01-03", -50.0, bal=1150.0),
+            _txn("2026-01-03", -50.0, bal=1125.0),
         ],
     )
     balances = daily_closing_balances(s)
-    assert balances[date(2026, 1, 2)] == 1200.0
-    assert balances[date(2026, 1, 4)] == 1150.0
+    assert balances[date(2026, 1, 2)] == 1175.0  # reconstructed: 1200 - 25
+    assert balances[date(2026, 1, 4)] == 1125.0  # carried from Jan 3
     m = compute_metrics(s)
-    assert m.average_daily_balance == round((1200 + 1200 + 1150 + 1150) / 4, 2)
+    assert m.average_daily_balance == round((1200 + 1175 + 1125 + 1125) / 4, 2)  # 1156.25
+    assert m.adb is not None and m.adb.ok
+    assert m.adb.validations["ledger_reconciles_to_closing"] is True
 
 
 def test_metrics_uses_bank_stated_average_when_no_running_balances():

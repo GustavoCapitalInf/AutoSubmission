@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from .config import Settings, load_settings
 from .schema import Statement
+from .dates import assign_transaction_years
 from .extract import extract_statement
 from .reconcile import reconcile, ReconResult
 from .metrics import compute_metrics, Metrics
@@ -99,6 +100,10 @@ def apply_statement_repairs(markdown: str, stmt: Statement) -> Statement:
     stmt = repair_santander_signs_from_balances(stmt)
     stmt = repair_scotiabank_misc_payment_sign(stmt)
     stmt = repair_single_row_signs_from_balances(stmt)
+    # Statement periods that cross a year boundary: parsers stamp one year on
+    # every MM/DD row, so re-derive the year from the period before anything
+    # chronological (ADB, daily ledger) is built on these dates.
+    stmt = assign_transaction_years(stmt)
     return normalize_statement(stmt)
 
 

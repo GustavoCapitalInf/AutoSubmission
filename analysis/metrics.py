@@ -1,15 +1,18 @@
 """Stage 3a — deterministic analytics. Every number a funder cares about is
 computed here in plain Python from the reconciled ledger, never by the LLM.
 
-Daily average balance (ADB) is the headline figure: the mean of each calendar
-day's closing balance across the statement period, carrying the last known
-balance forward across days with no activity.
+Average Daily Balance is the headline figure and lives in its own module,
+`analysis.adb`, because it carries its own daily ledger, validation suite and
+audit trail. This module consumes that result and exposes it on `Metrics`
+(`average_daily_balance`, `daily_balance_sum`, `calendar_day_count`, `adb`).
 """
 from __future__ import annotations
 import re
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date
 from statistics import median
+from .adb import AverageDailyBalanceResult, compute_average_daily_balance
+from .dates import parse_date as _parse_date
 from .schema import Statement
 from .lenders import find_lender_match, is_loan_transaction, is_pos_transaction
 
@@ -19,23 +22,6 @@ _NSF_RE = re.compile(
     r"return(ed)? (deposit|check|item)|uncollected funds)\b",
     re.IGNORECASE,
 )
-
-
-def _parse_date(s: str | None) -> date | None:
-    if not s:
-        return None
-    s = s.strip()
-    try:
-        return date.fromisoformat(s[:10])
-    except ValueError:
-        pass
-    for fmt in ("%m/%d/%Y", "%m-%d-%Y", "%m/%d/%y", "%d %b %Y", "%b %d, %Y"):
-        try:
-            from datetime import datetime
-            return datetime.strptime(s, fmt).date()
-        except ValueError:
-            continue
-    return None
 
 
 @dataclass
@@ -49,6 +35,12 @@ class Metrics:
     average_balance: float | None = None
     average_balance_source: str | None = None
     average_daily_balance: float | None = None
+    # Full underwriting-grade ADB working: the daily ledger, its sum, the
+    # calendar-day divisor, and every validation that was run. See analysis/adb.py.
+    adb: AverageDailyBalanceResult | None = None
+    daily_balance_sum: float | None = None
+    calendar_day_count: int | None = None
+    adb_ok: bool | None = None
     min_balance: float | None = None
     max_balance: float | None = None
     negative_days: int = 0
@@ -81,44 +73,14 @@ class Metrics:
 
 
 def daily_closing_balances(stmt: Statement) -> dict[date, float]:
-    """Map each calendar day in the period to its closing balance, carrying the
-    last known running balance forward across no-activity days. Requires dated
-    transactions with running balances; returns {} if those aren't available."""
-    start = _parse_date(stmt.period_start)
-    end = _parse_date(stmt.period_end)
-    dated = [(d, t) for t in stmt.transactions if (d := _parse_date(t.date)) is not None]
-    dated_with_balance = [(d, t) for d, t in dated if t.running_balance is not None]
-    if not dated_with_balance:
-        return {}
-    if start is None:
-        start = min(d for d, _ in dated_with_balance)
-    if end is None:
-        end = max(d for d, _ in dated_with_balance)
+    """Each calendar day in the statement period mapped to its ending balance.
 
-    # Last running balance recorded on each day (transactions are in order).
-    eod: dict[date, float] = {}
-    for d, t in dated_with_balance:
-        if start <= d <= end:
-            eod[d] = t.running_balance
-    if not eod:
-        return {}
-
-    balances: dict[date, float] = {}
-    # Balance entering the period: the opening balance. If missing, only compute
-    # from the first dated balance forward; earlier days would be unsupported.
-    carry = stmt.beginning_balance
-    if carry is None:
-        first_balance_day = min(eod)
-        carry = eod[first_balance_day]
-        start = first_balance_day
-
-    day = start
-    while day <= end:
-        if day in eod:
-            carry = eod[day]
-        balances[day] = carry
-        day += timedelta(days=1)
-    return balances
+    A thin view over `compute_average_daily_balance` so there is exactly one
+    implementation of the daily ledger. Returns {} when no period or opening
+    balance can be established.
+    """
+    result = compute_average_daily_balance(stmt)
+    return {date.fromisoformat(d.date): d.ending_balance for d in result.daily_balances}
 
 
 def _summary_debits_with_service_charge(stmt: Statement) -> float | None:
@@ -198,11 +160,22 @@ def compute_metrics(
     m.effective_num_withdrawals = m.num_withdrawals
     m.effective_nsf_count = m.nsf_count
 
-    balances = daily_closing_balances(stmt) if trust_running_balances else {}
+    # Always compute the ADB working so the daily ledger and its validations are
+    # available for audit, even when policy says not to report the figure.
+    adb = compute_average_daily_balance(stmt)
+    m.adb = adb
+    m.calendar_day_count = adb.calendar_day_count
+    m.daily_balance_sum = adb.daily_balance_sum
+    m.adb_ok = adb.ok if adb.daily_balances else None
+    for warning in adb.warnings:
+        if warning not in m.notes:
+            m.notes.append(warning)
+
+    balances = {d.date: d.ending_balance for d in adb.daily_balances} if trust_running_balances else {}
     if balances:
         vals = list(balances.values())
-        m.days_in_period = len(vals)
-        m.average_daily_balance = round(sum(vals) / len(vals), 2)
+        m.days_in_period = adb.calendar_day_count or len(vals)
+        m.average_daily_balance = adb.average_daily_balance
         m.min_balance = round(min(vals), 2)
         m.max_balance = round(max(vals), 2)
         m.negative_days = sum(1 for v in vals if v < 0)
@@ -221,12 +194,22 @@ def compute_metrics(
         else:
             m.notes.append("using the bank's printed average balance because line-item balances did not reconcile")
 
-    if m.stated_average_balance is not None:
+    # Underwriting policy: report OUR computed ADB whenever the daily ledger
+    # fully validates. Banks usually print an average COLLECTED balance, which
+    # lags by float days and is not the same measure as average ledger balance
+    # — comparing them is apples to oranges, and only the computed figure is
+    # reproducible from the parsed statement. The printed figure is the fallback
+    # for statements whose ledger cannot be validated, and is always still
+    # available as `stated_average_balance` for cross-checking.
+    if m.average_daily_balance is not None and m.adb_ok:
+        m.average_balance = m.average_daily_balance
+        m.average_balance_source = "computed_daily_ledger"
+    elif m.stated_average_balance is not None:
         m.average_balance = m.stated_average_balance
         m.average_balance_source = "bank_stated"
     elif m.average_daily_balance is not None:
         m.average_balance = m.average_daily_balance
-        m.average_balance_source = "computed_daily_closing"
+        m.average_balance_source = "computed_daily_ledger_unvalidated"
 
     if stmt.days_in_period is not None and m.days_in_period is None:
         m.days_in_period = stmt.days_in_period

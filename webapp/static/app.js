@@ -105,7 +105,7 @@ const emptyMetricSections = [
     sub: "Balance and NSF indicators",
     items: [
       ["NSFs", "N/A", "Returned or insufficient funds", "NSF", "neutral"],
-      ["Average Daily Balance", "N/A", "Computed from daily ledger", "AVG", "neutral"],
+      ["Average Daily Balance", "N/A", "Daily ending balances across the statement period", "AVG", "neutral"],
       ["Ending Balance", "N/A", "Statement close balance", "END", "neutral"],
       ["Lowest Balance", "N/A", "Lowest daily balance", "LOW", "neutral"],
       ["Highest Balance", "N/A", "Highest daily balance", "HIGH", "neutral"],
@@ -652,6 +652,47 @@ function integrityTone(integrity = {}) {
   return "neutral";
 }
 
+/* Average Daily Balance provenance. The figure is our own computed daily-ledger
+   average whenever that ledger validates; a bank-printed average is the
+   fallback and is worth calling out, because banks generally print average
+   COLLECTED balance, which lags by float days. */
+function averageBalanceNote(metrics = {}) {
+  const days = numberOrNull(metrics.calendar_day_count);
+  const span = days ? `${formatNumber(days)} calendar days` : "the statement period";
+  switch (metrics.average_balance_source) {
+    case "computed_daily_ledger":
+      return `Daily ending balances across ${span}`;
+    case "computed_daily_ledger_unvalidated":
+      return `Daily ledger across ${span} — did not fully validate`;
+    case "bank_stated":
+      return "Bank-printed average (ledger could not be validated)";
+    default:
+      return "No average balance available";
+  }
+}
+
+function averageBalanceTone(metrics = {}) {
+  return metrics.average_balance_source === "computed_daily_ledger" ? "neutral" : "amber";
+}
+
+/* Package rollup: the days-weighted mean of each statement's daily-balance
+   average. Say plainly when any statement contributed a bank-printed average
+   instead of a validated ledger, since that weakens the combined figure. */
+function packageAverageBalanceNote(documents = []) {
+  const ready = documents.filter((doc) => doc && doc.average_balance !== null && doc.average_balance !== undefined);
+  if (!ready.length) return "Days-weighted across statement periods";
+  const fallback = ready.filter((doc) => doc.average_balance_source !== "computed_daily_ledger").length;
+  const days = ready.reduce((sum, doc) => sum + (numberOrNull(doc.adb_calendar_days) || 0), 0);
+  const span = days ? `${formatNumber(days)} calendar days` : "statement periods";
+  if (!fallback) return `Days-weighted across ${span}`;
+  return `Days-weighted across ${span} — ${formatNumber(fallback)} of ${formatNumber(ready.length)} used the bank-printed average`;
+}
+
+function packageAverageBalanceTone(documents = []) {
+  const ready = documents.filter((doc) => doc && doc.average_balance !== null && doc.average_balance !== undefined);
+  return ready.some((doc) => doc.average_balance_source !== "computed_daily_ledger") ? "amber" : "neutral";
+}
+
 function chipTone(tone) {
   return CHIP_TONES[tone] || "neutral";
 }
@@ -801,7 +842,7 @@ function renderAnalysis(report) {
       items: [
         ["NSFs", formatNumber(metrics.effective_nsf_count), metrics.nsf_source || "Returned item detection", "NSF", countTone(metrics.effective_nsf_count)],
         ["Document Integrity", integrityLabel(integrity), (integrity.flags || []).join(", ") || "No source contradictions detected", "DOC", integrityTone(integrity)],
-        ["Average Daily Balance", formatMoney(metrics.average_balance, currency), metrics.average_balance_source || "Daily balance calculation", "AVG", "neutral"],
+        ["Average Daily Balance", formatMoney(metrics.average_balance, currency), averageBalanceNote(metrics), "AVG", averageBalanceTone(metrics)],
         ["Ending Balance", formatMoney(statement.ending_balance, currency), "Statement close balance", "END", "neutral"],
         ["Lowest Balance", formatMoney(metrics.min_balance, currency), "Lowest daily balance", "LOW", negativeTone(metrics.min_balance)],
         ["Highest Balance", formatMoney(metrics.max_balance, currency), "Highest daily balance", "HIGH", "neutral"],
@@ -1042,7 +1083,7 @@ function renderPackageAnalysis(pkg) {
       items: [
         ["Total Cash Flow", formatMoney(totals.cash_flow), "Credits minus debits", "CF", negativeTone(totals.cash_flow)],
         ["Avg Monthly Cash Flow", formatMoney(totals.avg_monthly_cash_flow), "Average statement cash flow", "AVG", negativeTone(totals.avg_monthly_cash_flow)],
-        ["Average Daily Balance", formatMoney(totals.average_daily_balance), "Weighted across statement periods", "ADB", "neutral"],
+        ["Average Daily Balance", formatMoney(totals.average_daily_balance), packageAverageBalanceNote(documents), "ADB", packageAverageBalanceTone(documents)],
         ["NSFs", formatNumber(totals.nsf_count), "Total returned items", "NSF", countTone(totals.nsf_count)],
         ["Package Withholding", formatPercent(totals.package_withholding_rate), "Lender debits as revenue share", "%", withholdingTone(totals.package_withholding_rate)],
       ],
@@ -1203,7 +1244,7 @@ function renderStatementModal(jobId, report, markdown) {
     ["Total Credits", formatMoney(metrics.effective_total_deposits, currency), "Incoming money", "CR", "green"],
     ["Total Debits", formatMoney(metrics.effective_total_withdrawals, currency), "Outgoing money", "DB", "neutral"],
     ["Cash Flow", formatMoney(metrics.cash_flow, currency), "Credits minus debits", "CF", negativeTone(metrics.cash_flow)],
-    ["Average Daily Balance", formatMoney(metrics.average_balance, currency), "Daily ledger average", "AVG", "neutral"],
+    ["Average Daily Balance", formatMoney(metrics.average_balance, currency), averageBalanceNote(metrics), "AVG", averageBalanceTone(metrics)],
     ["Ending Balance", formatMoney(statement.ending_balance, currency), "Statement close balance", "END", "neutral"],
     ["NSFs", formatNumber(metrics.effective_nsf_count), "Returned items", "NSF", countTone(metrics.effective_nsf_count)],
     ["Withholding Rate", formatPercent(metrics.withholding_rate), "Lender debits vs credits", "%", withholdingTone(metrics.withholding_rate)],

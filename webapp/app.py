@@ -42,15 +42,46 @@ def _enqueue_job(job_id: str, pdf_bytes: bytes, filename: str, force_ocr: bool, 
         threading.Thread(target=_process_job_queue, daemon=True).start()
 
 
+def _adb_rows(metrics: dict) -> list[tuple[str, str, object]]:
+    """The Average Daily Balance working, one row per calendar day, so an
+    underwriter can re-add the column in a spreadsheet and land on the same
+    figure. Kept out of the flattened `metrics` section, where the whole daily
+    ledger would collapse into a single unreadable JSON cell."""
+    adb = metrics.get("adb")
+    if not isinstance(adb, dict):
+        return []
+    rows: list[tuple[str, str, object]] = []
+    for key in (
+        "period_start", "period_end", "calendar_day_count",
+        "opening_balance", "opening_balance_source", "closing_balance",
+        "computed_closing_balance", "total_credits", "total_debits",
+        "daily_balance_sum", "average_daily_balance", "ok", "reconciled",
+    ):
+        item = adb.get(key)
+        rows.append(("adb", key, "" if item is None else item))
+    for name, passed in (adb.get("validations") or {}).items():
+        rows.append(("adb_validation", name, "pass" if passed else "FAIL"))
+    for warning in adb.get("warnings") or []:
+        rows.append(("adb_warning", "", warning))
+    for day in adb.get("daily_balances") or []:
+        rows.append(("adb_daily_balance", day.get("date", ""), day.get("ending_balance", "")))
+    return rows
+
+
 def _analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
     rows: list[tuple[str, str, object]] = []
     for section in ("statement", "metrics", "quality", "integrity", "reconciliation"):
         value = analysis.get(section)
         if isinstance(value, dict):
             for key, item in value.items():
+                if section == "metrics" and key == "adb":
+                    continue  # emitted as its own section below
                 if isinstance(item, (dict, list)):
                     item = json.dumps(item)
                 rows.append((section, key, "" if item is None else item))
+    metrics = analysis.get("metrics")
+    if isinstance(metrics, dict):
+        rows.extend(_adb_rows(metrics))
     detection = analysis.get("detection")
     if isinstance(detection, dict):
         for key, item in detection.items():
@@ -234,6 +265,9 @@ def _package_analysis(jobs) -> dict:
         nsf_count = int(_num(metrics.get("effective_nsf_count"), 0.0))
         average_balance = metrics.get("average_balance")
         average_balance_num = _num(average_balance, default=float("nan"))
+        average_balance_source = metrics.get("average_balance_source")
+        adb_calendar_days = metrics.get("calendar_day_count")
+        adb_validated = metrics.get("adb_ok")
 
         totals["total_credits"] = round(totals["total_credits"] + credits, 2)
         totals["total_debits"] = round(totals["total_debits"] + debits, 2)
@@ -288,6 +322,9 @@ def _package_analysis(jobs) -> dict:
             "debits": debits,
             "cash_flow": cash_flow,
             "average_balance": average_balance,
+            "average_balance_source": average_balance_source,
+            "adb_calendar_days": adb_calendar_days,
+            "adb_validated": adb_validated,
             "nsf_count": nsf_count,
             "lender_debits": lender_debits,
             "withholding_rate": metrics.get("withholding_rate"),
@@ -297,11 +334,17 @@ def _package_analysis(jobs) -> dict:
             monthly.append(doc_row)
             if average_balance_num == average_balance_num:
                 average_balance_values.append(average_balance_num)
-                days = _period_days(statement.get("period_start"), statement.get("period_end")) or 1
+                days = (
+                    int(adb_calendar_days)
+                    if isinstance(adb_calendar_days, (int, float)) and adb_calendar_days
+                    else _period_days(statement.get("period_start"), statement.get("period_end")) or 1
+                )
                 average_balance_weighted_sum += average_balance_num * days
                 average_balance_weight += days
 
     months = max(1, len(monthly))
+    # Days-weighted mean of the per-statement daily-balance averages: summing
+    # every statement's daily balances and dividing by every calendar day.
     package_average_balance = None
     if average_balance_weight > 0:
         package_average_balance = round(average_balance_weighted_sum / average_balance_weight, 2)
