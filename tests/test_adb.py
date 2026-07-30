@@ -414,6 +414,107 @@ def test_metrics_exposes_the_full_adb_working():
     assert m.min_balance == 100.0 and m.max_balance == 400.0
 
 
+# ---- date-collapse guard -----------------------------------------------------
+
+_COLLAPSE_SOURCE = """Date Description Cheques & Debits ($) Deposits & Credits ($) Balance ($)
+Opening balance 100.00
+02 Feb Monthly fee 10.00 90.00
+03 Feb Royal Foreign Exchange deposit
+Reference 0521903 500.00 590.00
+04 Feb Misc Payment 90.00 500.00
+Closing balance 500.00
+"""
+
+
+def test_guard_catches_a_parser_that_folded_posting_dates_together():
+    # The statement prints three posting dates; the parser produced two because
+    # it dropped the "03 Feb" line (which carries no amount). Every arithmetic
+    # check still passes - the amounts and the closing balance are right - so the
+    # date guard is the only thing that can catch this.
+    s = Statement(
+        period_start="2026-02-02", period_end="2026-02-04",
+        beginning_balance=100.0, ending_balance=500.0,
+        transactions=[
+            _txn("2026-02-02", -10.0, "Monthly fee", bal=90.0),
+            _txn("2026-02-02", 500.0, "Reference 0521903", bal=590.0),   # really 03 Feb
+            _txn("2026-02-04", -90.0, "Misc Payment", bal=500.0),
+        ],
+    )
+    clean = compute_average_daily_balance(s)
+    assert clean.validations["ledger_reconciles_to_closing"] is True
+    assert clean.validations["final_balance_matches_statement_closing"] is True
+    assert clean.ok is True          # arithmetic alone cannot see the problem
+
+    guarded = compute_average_daily_balance(s, source_markdown=_COLLAPSE_SOURCE)
+    assert guarded.validations["posting_dates_cover_source"] is False
+    assert guarded.ok is False
+    assert guarded.parsed_posting_days == 2
+    assert guarded.source_posting_days == 3
+    assert guarded.missing_posting_dates == ["2026-02-03"]
+    assert any("folded together" in w for w in guarded.warnings)
+
+
+def test_guard_passes_when_the_parser_covers_every_posting_date():
+    s = Statement(
+        period_start="2026-02-02", period_end="2026-02-04",
+        beginning_balance=100.0, ending_balance=500.0,
+        transactions=[
+            _txn("2026-02-02", -10.0, "Monthly fee", bal=90.0),
+            _txn("2026-02-03", 500.0, "Reference 0521903", bal=590.0),
+            _txn("2026-02-04", -90.0, "Misc Payment", bal=500.0),
+        ],
+    )
+    r = compute_average_daily_balance(s, source_markdown=_COLLAPSE_SOURCE)
+    assert r.validations["posting_dates_cover_source"] is True
+    assert r.missing_posting_dates == []
+    assert r.ok is True
+
+
+def test_guard_is_absent_when_no_source_text_is_supplied():
+    s = Statement(
+        period_start="2026-02-02", period_end="2026-02-03",
+        beginning_balance=0.0, ending_balance=50.0,
+        transactions=[_txn("2026-02-02", 50.0, bal=50.0)],
+    )
+    r = compute_average_daily_balance(s)
+    assert "posting_dates_cover_source" not in r.validations
+    assert r.source_posting_days is None
+
+
+def test_source_posting_dates_ignores_headers_grids_and_footers():
+    from analysis.dates import source_posting_dates
+
+    start, end = date(2026, 2, 1), date(2026, 2, 28)
+    md = "\n".join([
+        "02 Feb Monthly fee 10.00 90.00",               # a real posting row
+        "February 1, 2026 through February 28, 2026",   # period header
+        "02/03 -225.43 02/12 4.68 02/22 -14.82",        # daily-balance summary grid
+        "02/28/2026 Ending Balance $288.40",            # balance label
+        "February 28, 2026          Page 10 of 10",     # page footer
+        "February 5, 2026",                             # bare date in a page header
+        "To:",
+        "February 20, 2026",
+        "FLEXICUENTA DE NEGOCIOS",
+    ])
+    assert source_posting_dates(md, start, end) == {date(2026, 2, 2)}
+
+
+def test_source_posting_dates_accepts_a_bare_date_line_followed_by_amounts():
+    # Navy Federal prints the date on its own line above the description/amounts.
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "05-18",
+        "POS Debit- Business Debit Card 0875",
+        "162.00 0.48",
+        "05-19",
+        "Transfer From Checking",
+        "1,800.00 0.48",
+    ])
+    got = source_posting_dates(md, date(2026, 5, 1), date(2026, 5, 31))
+    assert got == {date(2026, 5, 18), date(2026, 5, 19)}
+
+
 # ---- which average the dashboards display ------------------------------------
 
 def test_validated_computed_adb_is_preferred_over_the_bank_printed_average():

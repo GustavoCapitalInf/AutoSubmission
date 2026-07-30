@@ -379,6 +379,9 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         stmt,
         trust_stated_summary=recon.summary_ok,
         trust_running_balances=recon.ok and not any("UNCAPTURED" in t.description.upper() for t in stmt.transactions),
+        # the source text lets the ADB engine prove the parser did not fold
+        # several posting dates into one
+        source_markdown=markdown,
     )
     quality = assess_quality(stmt, recon)
     if quality.level == "summary_aggregate":

@@ -23,6 +23,7 @@ statement period. One auditable rule, applied to every bank at once.
 """
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 
 from .schema import Statement
@@ -114,6 +115,119 @@ def resolve_year(
     # Outside the period (a check written before the period, say). Fall back to
     # the month sequence: Dec belongs to the opening year, Jan to the closing one.
     return period_start.year if month >= period_start.month else period_end.year
+
+
+_MONTH_ABBR = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+_MONTH_ALT = "|".join(_MONTH_ABBR)
+
+# Posting-date tokens as banks print them at the head of a transaction row. Only
+# matched at the start of a line, which is where a date column lands once the PDF
+# is flattened to text — dates embedded in a description ("... 05-15-26 Apple.Com")
+# are deliberately not matched.
+_ROW_DATE_PATTERNS = (
+    re.compile(rf"^\s*(?P<d>\d{{1,2}})\s+(?P<m>{_MONTH_ALT})[a-z]*\.?(?:\s+(?P<y>\d{{4}}))?\b", re.I),
+    re.compile(rf"^\s*(?P<m>{_MONTH_ALT})[a-z]*\.?\s+(?P<d>\d{{1,2}})(?:\s*,?\s*(?P<y>\d{{4}}))?\b", re.I),
+    re.compile(r"^\s*(?P<m>\d{1,2})[/-](?P<d>\d{1,2})(?:[/-](?P<y>\d{2,4}))?(?!\d)"),
+    re.compile(r"^\s*(?P<y>\d{4})-(?P<m>\d{1,2})-(?P<d>\d{1,2})\b"),
+)
+
+
+def _row_date(line: str, period_start: date, period_end: date) -> date | None:
+    for pattern in _ROW_DATE_PATTERNS:
+        m = pattern.match(line)
+        if not m:
+            continue
+        groups = m.groupdict()
+        raw_month = groups.get("m") or ""
+        if raw_month.isdigit():
+            month = int(raw_month)
+        else:
+            month = _MONTH_ABBR.get(raw_month[:3].lower(), 0)
+        day = int(groups["d"])
+        if not (1 <= month <= 12 and 1 <= day <= 31):
+            return None
+        if groups.get("y"):
+            year = int(groups["y"])
+            years = [year + 2000 if year < 100 else year]
+        else:
+            years = sorted({period_start.year, period_end.year})
+        for year in years:
+            try:
+                candidate = date(year, month, day)
+            except ValueError:
+                continue
+            if period_start <= candidate <= period_end:
+                return candidate
+        return None
+    return None
+
+
+# Lines that begin with a date but are NOT a posting row. Without these the
+# guard misfires on almost every bank: statement-period headers, daily-balance
+# summary grids and balance-label lines all start with a date.
+_NOT_A_POSTING_ROW = re.compile(
+    r"\b(through|statement period|beginning balance|opening balance|ending balance"
+    r"|closing balance|previous balance|balance forward|average (daily |ledger |collected )?balance"
+    r"|daily balance|total(s)? for|page \d+)\b",
+    re.I,
+)
+_MONEY_RE = re.compile(r"\d[\d,]*\.\d{2}")
+# A date-token grid ("01/01 -225.43 01/12 4.68 01/22 -14.82") is a balance
+# summary, not a posting row: real posting rows carry one date, not several.
+_DATE_TOKEN_RE = re.compile(
+    rf"(?<!\d)(?:\d{{1,2}}[/-]\d{{1,2}}(?:[/-]\d{{2,4}})?|\d{{1,2}}\s+(?:{_MONTH_ALT})[a-z]*"
+    rf"|(?:{_MONTH_ALT})[a-z]*\.?\s+\d{{1,2}})(?!\d)",
+    re.I,
+)
+
+
+def _is_posting_row(line: str) -> bool:
+    if _NOT_A_POSTING_ROW.search(line):
+        return False
+    return len(_DATE_TOKEN_RE.findall(line)) <= 1
+
+
+def source_posting_dates(markdown: str, period_start: date, period_end: date) -> set[date]:
+    """Posting dates the SOURCE statement prints, within the statement period.
+
+    Used to prove a parser did not silently fold several posting dates into one.
+    That failure mode is invisible to arithmetic checks — misdated rows still sum
+    to the right totals and still reconcile to the closing balance — but it
+    corrupts the daily ledger and therefore Average Daily Balance.
+
+    Only leading date tokens on lines that look like a posting row count; period
+    headers, balance-summary grids and balance labels are excluded, because
+    treating those as posting dates would flag almost every clean statement.
+
+    This is a heuristic over text whose column structure the PDF flattening has
+    already destroyed, so it is tuned to be quiet rather than exhaustive: across
+    the 101-statement corpus it produces no false positives, at the cost of
+    possibly missing a collapsed date on a layout not represented there. A bare
+    date line sitting immediately above an unrelated posting row can still be
+    counted, since the money-proximity test cannot tell the two apart.
+    """
+    lines = markdown.splitlines()
+    found: set[date] = set()
+    for index, line in enumerate(lines):
+        if not _is_posting_row(line):
+            continue
+        parsed = _row_date(line, period_start, period_end)
+        if parsed is None:
+            continue
+        # Some banks print the date alone on its own line (Navy Federal), which is
+        # a genuine posting row; but so do page headers and section breaks. Require
+        # a money amount close by to tell them apart.
+        match = next(p.match(line) for p in _ROW_DATE_PATTERNS if p.match(line))
+        remainder = line[match.end():].strip()
+        if len(remainder) < 3 and not _MONEY_RE.search(line):
+            lookahead = [l for l in lines[index + 1: index + 5] if l.strip()][:3]
+            if not any(_MONEY_RE.search(l) for l in lookahead):
+                continue
+        found.add(parsed)
+    return found
 
 
 def assign_transaction_years(stmt: Statement) -> Statement:

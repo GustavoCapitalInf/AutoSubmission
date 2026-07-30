@@ -32,7 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-from .dates import parse_date
+from .dates import parse_date, source_posting_dates
 from .schema import Statement
 
 # Money is compared to the cent; allow a hair of float slop.
@@ -76,6 +76,12 @@ class AverageDailyBalanceResult:
     reconciled: bool | None = None
     validations: dict[str, bool] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+
+    # Date-collapse guard: posting dates the parser produced vs the ones the
+    # source statement prints. Populated only when the source text is supplied.
+    parsed_posting_days: int | None = None
+    source_posting_days: int | None = None
+    missing_posting_dates: list[str] = field(default_factory=list)
 
     @property
     def posting_days(self) -> int:
@@ -176,7 +182,9 @@ def _resolve_opening(
     return None, None
 
 
-def compute_average_daily_balance(stmt: Statement) -> AverageDailyBalanceResult:
+def compute_average_daily_balance(
+    stmt: Statement, *, source_markdown: str | None = None
+) -> AverageDailyBalanceResult:
     """Reconstruct a daily balance ledger for the statement period and average it.
 
     Returns a result even when validation fails, with `ok=False` and populated
@@ -293,7 +301,8 @@ def compute_average_daily_balance(stmt: Statement) -> AverageDailyBalanceResult:
     result.daily_balance_sum = round(sum(d.ending_balance for d in daily), 2)
     result.average_daily_balance = round(result.daily_balance_sum / calendar_days, 2)
 
-    _validate(result, stmt, start, end, calendar_days, opening, total)
+    _validate(result, stmt, start, end, calendar_days, opening, total,
+              source_markdown=source_markdown)
     return result
 
 
@@ -305,6 +314,8 @@ def _validate(
     calendar_days: int,
     opening: float,
     total: float,
+    *,
+    source_markdown: str | None = None,
 ) -> None:
     daily = result.daily_balances
     checks: dict[str, bool] = {}
@@ -368,6 +379,35 @@ def _validate(
             f"statement prints no beginning balance; opening balance was {result.opening_balance_source}"
         )
 
+    # Date-collapse guard.
+    #
+    # Arithmetic checks cannot see this failure mode: when a parser folds several
+    # posting dates into one, the rows still carry the right amounts and signs, so
+    # totals still reconcile and the ledger still lands on the printed closing
+    # balance — every check above passes while the daily ledger is wrong and the
+    # ADB with it. The only way to catch it is to compare the posting dates the
+    # parser produced against the ones the source statement actually prints.
+    if source_markdown:
+        source_dates = {d for d in source_posting_dates(source_markdown, start, end)}
+        parsed_dates = {
+            parsed for parsed in (parse_date(t.date) for t in stmt.transactions)
+            if parsed is not None and start <= parsed <= end
+        }
+        result.parsed_posting_days = len(parsed_dates)
+        result.source_posting_days = len(source_dates)
+        missing = sorted(source_dates - parsed_dates)
+        result.missing_posting_dates = [d.isoformat() for d in missing]
+        checks["posting_dates_cover_source"] = not missing
+        if missing:
+            shown = ", ".join(d.isoformat() for d in missing[:6])
+            more = f" (+{len(missing) - 6} more)" if len(missing) > 6 else ""
+            result.warnings.append(
+                f"parser produced {len(parsed_dates)} posting date(s) but the statement "
+                f"prints {len(source_dates)}: no transaction was dated {shown}{more}. "
+                "Posting dates have been folded together, so end-of-day balances are "
+                "attributed to the wrong days and the ADB is not trustworthy"
+            )
+
     # Cross-check the bank's own printed average, when it prints one.
     if stmt.stated_average_balance is not None and result.average_daily_balance is not None:
         gap = abs(round(stmt.stated_average_balance - result.average_daily_balance, 2))
@@ -399,4 +439,6 @@ def _validate(
     ]
     if "ledger_reconciles_to_closing" in checks:
         required.append("ledger_reconciles_to_closing")
+    if "posting_dates_cover_source" in checks:
+        required.append("posting_dates_cover_source")
     result.ok = all(checks.get(name, False) for name in required)

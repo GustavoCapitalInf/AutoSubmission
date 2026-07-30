@@ -124,6 +124,7 @@ def compute_metrics(
     *,
     trust_stated_summary: bool | None = None,
     trust_running_balances: bool = True,
+    source_markdown: str | None = None,
 ) -> Metrics:
     m = Metrics()
     m.stated_average_balance = stmt.stated_average_balance
@@ -162,7 +163,7 @@ def compute_metrics(
 
     # Always compute the ADB working so the daily ledger and its validations are
     # available for audit, even when policy says not to report the figure.
-    adb = compute_average_daily_balance(stmt)
+    adb = compute_average_daily_balance(stmt, source_markdown=source_markdown)
     m.adb = adb
     m.calendar_day_count = adb.calendar_day_count
     m.daily_balance_sum = adb.daily_balance_sum

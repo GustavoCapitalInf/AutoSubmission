@@ -77,6 +77,7 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
     rows: list[dict] = []
     default_year: int | None = None
     in_activity = False
+    current_date: str | None = None
 
     for raw in markdown.splitlines():
         line = re.sub(r"\s+", " ", raw).strip()
@@ -123,19 +124,29 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
 
         dm = _DATE_START_RE.match(line)
         if dm:
-            tx_date = _date_from(dm.group(1), dm.group(2), default_year=default_year)
+            # Record the posting date the moment it is seen. RBC puts the date on
+            # the first line of each group, and that line often carries no amount
+            # because the description wraps ("03 Feb Royal Foreign Exchange
+            # deposit" / "Reference 0521... 90.00"). Tracking the date separately
+            # from row creation is what keeps the following rows on the right day
+            # — deriving it from rows[-1] instead silently folded whole posting
+            # dates into the previous one and corrupted the daily ledger.
+            current_date = _date_from(dm.group(1), dm.group(2), default_year=default_year)
             rest = line[dm.end():].strip()
             if _DATE_START_RE.match(rest):
                 rest = rest[_DATE_START_RE.match(rest).end():].strip()
-        elif rows:
+        elif rows or current_date is not None:
             fee_breakdown = re.match(r"^\d+\s+Crs\s+@\s+\d+\.\d{2}\s+([\d,]+\.\d{2})$", line, re.IGNORECASE)
-            if fee_breakdown and rows[-1]["description"].upper().startswith("REGULAR TRANSACTION FEE"):
+            if fee_breakdown and rows and rows[-1]["description"].upper().startswith("REGULAR TRANSACTION FEE"):
                 rows[-1]["abs_amount"] = abs(_parse_money(fee_breakdown.group(1)) or rows[-1]["abs_amount"])
                 rows[-1]["amount"] = -rows[-1]["abs_amount"]
                 continue
-            tx_date = rows[-1]["date"]
             rest = line
         else:
+            continue
+
+        tx_date = current_date if current_date is not None else (rows[-1]["date"] if rows else None)
+        if tx_date is None:
             continue
 
         amounts = _money_matches(rest)

@@ -185,6 +185,18 @@ def _parse_transactions(section: str, account: str, *, year: int, beginning: flo
 
             txn_date = current_date
             description = " ".join(desc_parts).strip()
+            # KNOWN DEFECT (flagged, not silent): Navy Federal's flattened text
+            # carries two row orders - "date / description / amount balance" and
+            # "amount / balance / date / description" - and this sign-based rule
+            # picks the wrong one often enough to fold posting dates together, so
+            # the daily ledger is wrong on all four sample statements. The ADB
+            # engine's date-coverage guard catches it, so these statements report
+            # ok=False rather than a plausible wrong number.
+            #
+            # Do not "fix" this by always looking ahead: that dates the rows almost
+            # perfectly (ADB lands within $0.01 of the bank-printed average) but
+            # consumes the following row's description, which halves the NSF count.
+            # Correcting it properly needs a layout-aware rewrite of this loop.
             if signed > 0:
                 following = _consume_following_date_desc(lines, next_idx)
                 if following is not None:
