@@ -25,20 +25,39 @@ def _transaction_dict(
 
 
 def _funder_dict(match) -> dict:
+    is_potential = match.classification == "potential_lender"
+    potential_evidence = [
+        evidence
+        for evidence in match.evidence
+        if evidence.contributes_to_potential_lender_totals
+    ]
+    debit_count = len(potential_evidence) if is_potential and potential_evidence else match.debit_count
+    total_debited = (
+        round(sum(abs(evidence.amount) for evidence in potential_evidence), 2)
+        if is_potential and potential_evidence
+        else match.total_debited
+    )
+    potential_exposure = match.potential_withholding_exposure
+    if is_potential and match.eligible_deposit_denominator is not None:
+        potential_exposure = (
+            abs(total_debited) / match.eligible_deposit_denominator * 100
+            if match.eligible_deposit_denominator > 0
+            else None
+        )
     return {
         "funder": match.funder,
         "matched_alias": match.matched_alias,
         "classification": match.classification,
-        "debit_count": match.debit_count,
-        "total_debited": match.total_debited,
+        "debit_count": debit_count,
+        "total_debited": total_debited,
         "potential_lender_debit_count": (
-            match.debit_count if match.classification == "potential_lender" else 0
+            debit_count if is_potential else 0
         ),
         "potential_lender_debit_total": (
-            match.total_debited if match.classification == "potential_lender" else 0.0
+            total_debited if is_potential else 0.0
         ),
         "eligible_deposit_denominator": match.eligible_deposit_denominator,
-        "potential_withholding_exposure": match.potential_withholding_exposure,
+        "potential_withholding_exposure": potential_exposure,
         "potential_withholding_formula": match.potential_withholding_formula,
         "review_required": match.review_required,
         "status": match.status,

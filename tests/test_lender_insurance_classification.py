@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -332,6 +333,22 @@ def test_metrics_api_tables_filters_and_withholding_share_exact_evidence():
     assert len(package["insurance_evidence"]) == 2
 
 
+def test_potential_funder_serialization_rebuilds_values_from_authoritative_evidence():
+    report = _audit_report()
+    candidate = report.detection.potential_lenders[0]
+    candidate.debit_count = 0
+    candidate.total_debited = 0.0
+    candidate.potential_withholding_exposure = None
+
+    serialized = report_to_dict(report)["detection"]["potential_lenders"][0]
+    assert serialized["debit_count"] == serialized["potential_lender_debit_count"] == 1
+    assert serialized["total_debited"] == serialized["potential_lender_debit_total"] == 125.0
+    assert serialized["eligible_deposit_denominator"] == 16898.73
+    assert serialized["potential_withholding_exposure"] == pytest.approx(
+        125.0 / 16898.73 * 100
+    )
+
+
 def test_duplicate_lender_row_is_classified_but_excluded_from_all_totals():
     statement = Statement(
         transactions=[
@@ -464,8 +481,8 @@ def test_td_cmca_fixture_reports_potential_amount_and_exposure_without_promotion
     candidate = candidates[0]
     assert candidate["funder"] == "CMCA Finance"
     assert candidate["classification"] == "potential_lender"
-    assert candidate["debit_count"] == 20
-    assert candidate["total_debited"] == 2235.0
+    assert candidate["debit_count"] == candidate["potential_lender_debit_count"] == 20
+    assert candidate["total_debited"] == candidate["potential_lender_debit_total"] == 2235.0
     assert candidate["eligible_deposit_denominator"] == 16898.73
     assert candidate["potential_withholding_exposure"] == pytest.approx(2235.0 / 16898.73 * 100)
     assert len(candidate["transactions"]) == len(candidate["evidence"]) == 20
@@ -482,7 +499,37 @@ def test_td_cmca_fixture_reports_potential_amount_and_exposure_without_promotion
     assert totals["potential_withholding_exposure"] == 13.23
     assert totals["decision"] == "review_required"
     assert len(package["potential_lender_evidence"]) == 20
-    assert package["potential_lenders"][0]["total_debited"] == 2235.0
+    package_candidate = package["potential_lenders"][0]
+    assert package_candidate["debit_count"] == 20
+    assert package_candidate["total_debited"] == 2235.0
+    assert package_candidate["eligible_deposit_denominator"] == 16898.73
+    assert package_candidate["potential_withholding_exposure"] == pytest.approx(
+        2235.0 / 16898.73 * 100
+    )
+
+    stale_payload = deepcopy(payload)
+    stale_candidate = stale_payload["detection"]["potential_lenders"][0]
+    for key in (
+        "debit_count",
+        "potential_lender_debit_count",
+        "potential_lender_debit_total",
+        "eligible_deposit_denominator",
+        "potential_withholding_exposure",
+    ):
+        stale_candidate.pop(key, None)
+    stale_candidate["total_debited"] = 0.0
+    rebuilt_package = _package_analysis(
+        [Job(id="td-cmca-stale", filename=pdf.name, status="done", analysis=stale_payload)]
+    )
+    rebuilt_candidate = rebuilt_package["potential_lenders"][0]
+    assert rebuilt_candidate["debit_count"] == 20
+    assert rebuilt_candidate["total_debited"] == 2235.0
+    assert rebuilt_candidate["eligible_deposit_denominator"] == 16898.73
+    assert rebuilt_candidate["potential_withholding_exposure"] == pytest.approx(
+        2235.0 / 16898.73 * 100
+    )
+    assert rebuilt_package["totals"]["lender_debits"] == 0.0
+    assert rebuilt_package["totals"]["potential_lender_debit_total"] == 2235.0
 
 
 def test_browser_consumes_classification_records_without_keyword_scans():
@@ -496,6 +543,9 @@ def test_browser_consumes_classification_records_without_keyword_scans():
     assert "potential_withholding_exposure" in javascript
     assert "data-lender-evidence-entity" in javascript
     assert 'funder.classification === "potential_lender" ? "N/A"' not in javascript
+    assert html.count("<th>Potential Withholding</th>") == 2
+    assert "<th>Eligible Deposits</th>" not in html
+    assert "<th>Exposure</th>" not in html
     assert "function lenderMapFromDetection" not in javascript
     assert "function isNsfTransaction" not in javascript
     assert "function isPosTransaction" not in javascript

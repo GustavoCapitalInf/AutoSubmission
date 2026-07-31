@@ -795,24 +795,42 @@ function lenderEvidenceControl(funder, potential) {
 
 function lenderRowHtml(funder, currency = "USD") {
   const isPotential = funder.classification === "potential_lender";
-  const count = funder.debit_count
-    ?? funder.potential_lender_debit_count
-    ?? (Array.isArray(funder.transactions) ? funder.transactions.length : null);
+  const count = isPotential
+    ? funder.potential_lender_debit_count
+      ?? funder.debit_count
+      ?? (Array.isArray(funder.transactions) ? funder.transactions.length : null)
+    : funder.debit_count
+      ?? (Array.isArray(funder.transactions) ? funder.transactions.length : null);
   const total = isPotential
     ? funder.potential_lender_debit_total ?? funder.total_debited ?? funder.balance
     : funder.total_debited ?? funder.balance;
   const denominator = isPotential
     ? funder.eligible_deposit_denominator ?? funder.potential_withholding_denominator
     : null;
-  const exposure = isPotential ? funder.potential_withholding_exposure : null;
+  const totalNumber = numberOrNull(total);
+  const denominatorNumber = numberOrNull(denominator);
+  let exposure = isPotential ? funder.potential_withholding_exposure : null;
+  if (
+    isPotential
+    && numberOrNull(exposure) === null
+    && totalNumber !== null
+    && (denominatorNumber ?? 0) > 0
+  ) {
+    exposure = Math.abs(totalNumber) / denominatorNumber * 100;
+  }
+  const potentialWithholding = isPotential && (denominatorNumber ?? 0) > 0
+    ? `
+      <strong>${escapeHtml(formatPercent(exposure))}</strong>
+      <div class="table-cell-detail">${escapeHtml(formatMoney(denominator, currency))} eligible deposits</div>
+    `
+    : isPotential ? "N/A" : "--";
   return `
     <tr>
       <td>${lenderEvidenceControl(funder, isPotential)}</td>
       <td>${escapeHtml(isPotential ? "Potential lender" : "Confirmed lender")}</td>
       <td>${escapeHtml(formatNumber(count))}</td>
       <td>${escapeHtml(formatMoney(total, currency))}</td>
-      <td>${isPotential ? escapeHtml(formatMoney(denominator, currency)) : "--"}</td>
-      <td>${isPotential ? escapeHtml(formatPercent(exposure)) : "--"}</td>
+      <td>${potentialWithholding}</td>
       <td>${glassChip(isPotential ? "?" : "LEN", isPotential ? "Review required" : "Confirmed", "amber")}</td>
     </tr>
   `;
@@ -834,7 +852,6 @@ function renderLenders(funders, potentialLenders = [], currency = "USD") {
         <td>0</td>
         <td>${escapeHtml(formatMoney(0, currency))}</td>
         <td>--</td>
-        <td>N/A</td>
         <td>${glassChip("✓", "Clear", "green")}</td>
       </tr>
     `;
@@ -1328,7 +1345,6 @@ function openStatementModal(jobId) {
       <td>N/A</td>
       <td>N/A</td>
       <td>N/A</td>
-      <td>N/A</td>
       <td>${glassChip("◐", "Pending", "blue")}</td>
     </tr>
   `;
@@ -1370,7 +1386,6 @@ function openStatementModal(jobId) {
       els.statementModalLenders.innerHTML = `
         <tr>
           <td><strong>Unable to load statement</strong></td>
-          <td>N/A</td>
           <td>N/A</td>
           <td>N/A</td>
           <td>N/A</td>
@@ -1440,7 +1455,6 @@ function renderStatementModal(jobId, report, markdown) {
         <td>Bank statement</td>
         <td>0</td>
         <td>${escapeHtml(formatMoney(0, currency))}</td>
-        <td>--</td>
         <td>--</td>
         <td>${glassChip("✓", "Clear", "green")}</td>
       </tr>

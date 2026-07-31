@@ -406,8 +406,45 @@ def _package_analysis(jobs) -> dict:
                 }
             )
 
-        for match in detection.get("potential_lenders") or []:
-            name = match.get("funder") or "Unknown candidate"
+        potential_matches_by_entity = {
+            match.get("funder") or "Unknown candidate": match
+            for match in detection.get("potential_lenders") or []
+        }
+        potential_rows_by_entity: dict[str, list[dict]] = {}
+        for row in potential_lender_rows:
+            classification = row["classification"]
+            name = classification.get("canonical_entity") or "Unknown candidate"
+            potential_rows_by_entity.setdefault(name, []).append(row)
+
+        for name in sorted(set(potential_matches_by_entity) | set(potential_rows_by_entity)):
+            match = potential_matches_by_entity.get(name) or {}
+            entity_rows = potential_rows_by_entity.get(name) or []
+            if entity_rows:
+                match_count = len(entity_rows)
+                match_total = round(
+                    sum(abs(_num(row.get("amount"))) for row in entity_rows),
+                    2,
+                )
+                match_transactions = entity_rows
+                match_evidence = [row["classification"] for row in entity_rows]
+            else:
+                match_count = int(
+                    _num(
+                        match.get("potential_lender_debit_count"),
+                        _num(match.get("debit_count"), len(match.get("transactions") or [])),
+                    )
+                )
+                match_total = _num(
+                    match.get("potential_lender_debit_total"),
+                    _num(match.get("total_debited")),
+                )
+                match_transactions = match.get("transactions") or []
+                match_evidence = match.get("evidence") or []
+            match_exposure = (
+                abs(match_total) / eligible_deposits * 100
+                if eligible_deposits > 0
+                else None
+            )
             item = potential_lenders.setdefault(
                 name,
                 {
@@ -420,16 +457,6 @@ def _package_analysis(jobs) -> dict:
                     "status": "review_required",
                     "review_required": True,
                 },
-            )
-            match_count = int(
-                _num(
-                    match.get("potential_lender_debit_count"),
-                    _num(match.get("debit_count"), len(match.get("transactions") or [])),
-                )
-            )
-            match_total = _num(
-                match.get("potential_lender_debit_total"),
-                _num(match.get("total_debited")),
             )
             item["documents"] += 1
             item["debit_count"] += match_count
@@ -445,9 +472,9 @@ def _package_analysis(jobs) -> dict:
                     "total_debited": round(match_total, 2),
                     "potential_lender_debit_total": round(match_total, 2),
                     "eligible_deposit_denominator": eligible_deposits,
-                    "potential_withholding_exposure": match.get("potential_withholding_exposure"),
-                    "transactions": match.get("transactions") or [],
-                    "evidence": match.get("evidence") or [],
+                    "potential_withholding_exposure": match_exposure,
+                    "transactions": match_transactions,
+                    "evidence": match_evidence,
                     "status": "review_required",
                 }
             )
