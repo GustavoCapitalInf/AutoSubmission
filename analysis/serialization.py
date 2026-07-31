@@ -8,6 +8,7 @@ from .transaction_classifier import (
     TransactionClassification,
     classify_statement_transactions,
 )
+from .revenue import rebuild_serialized_revenue_views
 
 if TYPE_CHECKING:
     from .pipeline import Report
@@ -109,7 +110,7 @@ def report_to_dict(report: Report) -> dict:
         for transaction, classification in zip(report.statement.transactions, records)
     ]
     detection = report.detection
-    return {
+    payload = {
         "statement": statement,
         "classifications": [asdict(record) for record in records],
         "reconciliation": asdict(report.reconciliation),
@@ -124,6 +125,15 @@ def report_to_dict(report: Report) -> dict:
                 asdict(item) for item in detection.potential_lender_evidence
             ],
             "insurance_evidence": [asdict(item) for item in detection.insurance_evidence],
+            "true_revenue_evidence": [
+                asdict(item) for item in detection.true_revenue_evidence
+            ],
+            "potential_revenue_evidence": [
+                asdict(item) for item in detection.potential_revenue_evidence
+            ],
+            "non_revenue_evidence": [
+                asdict(item) for item in detection.non_revenue_evidence
+            ],
             "manual_review": [asdict(item) for item in detection.manual_review],
         },
         "quality": asdict(report.quality),
@@ -131,3 +141,4 @@ def report_to_dict(report: Report) -> dict:
         "model_used": report.model_used,
         "escalated": report.escalated,
     }
+    return rebuild_serialized_revenue_views(payload)

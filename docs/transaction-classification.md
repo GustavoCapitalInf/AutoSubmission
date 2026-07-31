@@ -16,6 +16,19 @@ Every row has exactly one state:
 `payroll`, `tax`, `utility`, `rent`, `pos`, `atm`, `nsf_or_return`,
 `refund_or_reversal`, or `other`.
 
+Every posted credit also has exactly one independent revenue state:
+
+`true_revenue`, `potential_revenue`, or `non_revenue`.
+
+This second state does not replace the transaction state. For example, a
+returned e-transfer remains `refund_or_reversal` and is also `non_revenue`.
+Revenue classification applies lender and strong non-revenue exclusions first,
+then verified operating-income aliases and descriptors. Generic ACH credits,
+e-transfers, mobile deposits, checks, cash deposits, and unidentified credits
+are `potential_revenue` until reviewed. The record stores the revenue match
+method, alias/rule, confidence, reason, review status, and mutually exclusive
+revenue contribution flags.
+
 Classification is applied in this order:
 
 1. Non-posted items, NSF/returns, refunds, and reversals.
@@ -60,6 +73,23 @@ status, and every metric contribution flag.
 - `total_lender_debits`: absolute sum of those exact rows.
 - `insurance_count` and `insurance_total`: qualifying posted insurance debit
   rows and their absolute sum.
+- `confirmed_true_revenue_total` and `confirmed_true_revenue_count`: posted
+  credits marked `contributes_to_true_revenue`.
+- `potential_revenue_total` and `potential_revenue_count`: posted credits that
+  require revenue review.
+- `non_revenue_total` and `non_revenue_count`: funding, transfers,
+  contributions, returns, refunds, corrections, proceeds, and proven duplicate
+  credits.
+- `maximum_revenue`: confirmed true revenue plus potential revenue.
+
+Revenue must reconcile from the authoritative rows:
+
+`confirmed true revenue + potential revenue + non-revenue = total posted credits`
+
+Reviewer confirmation changes a potential row to `true_revenue`; rejection
+changes it to `non_revenue`. Reset restores the automated potential state. The
+API, package aggregation, filters, evidence tables, and exports are rebuilt from
+the updated record.
 
 Credits, funding deposits, duplicates proven by a repeated printed running
 balance, refunds, reversals, NSF returns, insurance, leases, fees, and all other
@@ -76,6 +106,12 @@ The existing eligible-deposit policy is preserved:
 `effective_total_deposits` uses a reconciled bank-printed total when available
 and otherwise uses parsed credit rows. Recognized lender funding credits are
 excluded because they are financing proceeds, not operating deposits.
+
+The default mode is explicitly exposed as `legacy_eligible_deposits`. Set
+`WITHHOLDING_DENOMINATOR_MODE=confirmed_true_revenue` to opt into confirmed
+classified revenue instead. API and UI output include
+`withholding_denominator_mode` and `withholding_denominator_label`; the mode is
+never switched implicitly when revenue classification is available.
 
 The formula is:
 

@@ -121,6 +121,21 @@ POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
+VERIFIED_REVENUE_ALIASES: dict[str, tuple[str, ...]] = {
+    "11-101 Signal R": ("11 101 SIGNAL R", "SIGNAL R"),
+    "Amazon Marketplace": ("AMAZON MARKETPLACE PAYOUT", "AMAZON SELLER PAYOUT"),
+    "DoorDash": ("DOORDASH PAYOUT", "DOORDASH SETTLEMENT"),
+    "Etsy": ("ETSY PAYOUT", "ETSY SETTLEMENT"),
+    "Grubhub": ("GRUBHUB PAYOUT", "GRUBHUB SETTLEMENT"),
+    "Shopify Payments": ("SHOPIFY PAYMENTS", "SHOPIFY PAYOUT"),
+    "SkipTheDishes": ("SKIPTHEDISHES", "SKIP THE DISHES"),
+    "Square": ("SQUARE SETTLEMENT", "SQUARE PAYOUT", "SQ SETTLEMENT"),
+    "Stripe": ("STRIPE PAYOUT", "STRIPE SETTLEMENT"),
+    "Toast": ("TOAST SETTLEMENT", "TOAST PAYOUT"),
+    "Uber Eats": ("UBER EATS PAYOUT", "UBEREATS PAYOUT"),
+}
+
+
 INSURANCE_PROVIDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Co-operators": (
         "CO OPERATORS",

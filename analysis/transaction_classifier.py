@@ -13,8 +13,10 @@ from .classification_registry import (
     INSURANCE_PROVIDER_ALIASES,
     LEASE_PROVIDER_ALIASES,
     POTENTIAL_LENDER_ALIASES,
+    VERIFIED_REVENUE_ALIASES,
 )
 from .dates import parse_date
+from .revenue import RevenueState, revenue_contribution_flags
 
 if TYPE_CHECKING:
     from .schema import Statement
@@ -58,7 +60,18 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
     "other",
 )
 
-CLASSIFICATION_VERSION = "2.1"
+CLASSIFICATION_VERSION = "3.0"
+
+
+@dataclass(frozen=True)
+class _RevenueDecision:
+    classification: RevenueState
+    canonical_entity: str | None
+    match_method: str
+    matched_alias: str | None
+    matched_rule: str
+    confidence_score: float
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -81,6 +94,18 @@ class TransactionClassification:
     reason: str = "No higher-confidence classification rule matched."
     is_posted: bool = True
     review_required: bool = False
+    revenue_classification: RevenueState | None = None
+    revenue_initial_classification: RevenueState | None = None
+    revenue_canonical_entity: str | None = None
+    revenue_match_method: str | None = None
+    revenue_matched_alias: str | None = None
+    revenue_matched_rule: str | None = None
+    revenue_confidence_score: float | None = None
+    revenue_reason: str | None = None
+    revenue_review_required: bool = False
+    revenue_review_status: str | None = None
+    revenue_review_note: str | None = None
+    revenue_reviewed_at: str | None = None
     duplicate_of: str | None = None
     contributes_to_lender_count: bool = False
     contributes_to_potential_lender_count: bool = False
@@ -89,6 +114,9 @@ class TransactionClassification:
     contributes_to_potential_lender_totals: bool = False
     contributes_to_potential_withholding_exposure: bool = False
     contributes_to_insurance_totals: bool = False
+    contributes_to_true_revenue: bool = False
+    contributes_to_potential_revenue: bool = False
+    contributes_to_non_revenue: bool = False
     contributes_to_lender_credit_exclusion: bool = False
     is_ach: bool = False
     is_check: bool = False
@@ -342,9 +370,156 @@ _PAYMENT_MARKER_PATTERNS = (
     re.compile(r"\bBUSINESS PAD\b"),
 )
 
+_NON_REVENUE_CREDIT_PATTERNS = (
+    re.compile(
+        r"\b(?:LOAN|BUSINESS LOAN|MCA|MERCHANT CASH ADVANCE|FINANCING) "
+        r"(?:FUNDING|PROCEEDS|DISBURSEMENT|ADVANCE)\b"
+    ),
+    re.compile(r"\b(?:LOAN|MCA) ORIGINATION CREDIT\b"),
+    re.compile(r"\b(?:INTERNAL|ACCOUNT|BOOK|FUNDS?) TRANSFER\b"),
+    re.compile(r"\bTRANSFER (?:FROM|BETWEEN) (?:OWN|MY|INTERNAL) ACCOUNTS?\b"),
+    re.compile(r"\bOWNER(?:S)? (?:CONTRIBUTION|CAPITAL|DEPOSIT|TRANSFER)\b"),
+    re.compile(r"\bSHAREHOLDER (?:CONTRIBUTION|LOAN|DEPOSIT)\b"),
+    re.compile(r"\bCAPITAL CONTRIBUTION\b"),
+    re.compile(r"\bREFUND(?:ED)?\b"),
+    re.compile(r"\bREIMBURSEMENT\b"),
+    re.compile(r"\bE TRANSFER RETURNED\b"),
+    re.compile(r"\bETRANSFER RETURNED\b"),
+    re.compile(r"\bRETURNED (?:E TRANSFER|ETRANSFER|PAYMENT|ITEM|CHECK|CHEQUE)\b"),
+    re.compile(r"\bNSF\b"),
+    re.compile(r"\bREVERS(?:AL|ED|E)\b"),
+    re.compile(r"\bBANK (?:CORRECTION|ADJUSTMENT|ERROR)\b"),
+    re.compile(r"\bCREDIT (?:CORRECTION|ADJUSTMENT)\b"),
+    re.compile(r"\bINSURANCE (?:PROCEEDS|CLAIM|PAYMENT)\b"),
+    re.compile(r"\bTAX REFUND\b"),
+    re.compile(r"\b(?:IRS|CRA|REVENUE AGENCY) REFUND\b"),
+    re.compile(r"\b(?:ASSET|VEHICLE|EQUIPMENT|PROPERTY) SALE (?:PROCEEDS|DEPOSIT)\b"),
+    re.compile(r"\bPROCEEDS FROM (?:ASSET|VEHICLE|EQUIPMENT|PROPERTY) SALE\b"),
+)
+_TRUE_REVENUE_CREDIT_PATTERNS = (
+    re.compile(r"\bMRCH\d{5,}\b"),
+    re.compile(r"\bMERCHANT (?:PROCESSOR )?(?:SETTLEMENT|DEPOSIT|PAYOUT)\b"),
+    re.compile(r"\bCARD SALES? (?:DEPOSIT|SETTLEMENT|PAYOUT)\b"),
+    re.compile(r"\bCUSTOMER\b.*\b(?:ACH|PAYMENT|DEPOSIT|CHECK|CHEQUE)\b"),
+    re.compile(r"\b(?:ACH|PAYMENT|DEPOSIT|CHECK|CHEQUE)\b.*\bCUSTOMER\b"),
+    re.compile(r"\bINVOICE (?:PAYMENT|PAID|DEPOSIT)\b"),
+    re.compile(r"\bACCOUNTS? RECEIVABLE\b"),
+    re.compile(r"\bMARKETPLACE (?:PAYOUT|SETTLEMENT)\b"),
+    re.compile(r"\bBUSINESS CASH DEPOSIT\b"),
+)
+_POTENTIAL_REVENUE_CREDIT_PATTERNS = (
+    re.compile(r"\bMOBILE DEPOSIT\b"),
+    re.compile(r"\bACH CREDIT\b"),
+    re.compile(r"\bDIRECT DEPOSIT\b"),
+    re.compile(r"\bE TRANSFER (?:RECEIVED|DEPOSIT)\b"),
+    re.compile(r"\bETRANSFER (?:RECEIVED|DEPOSIT)\b"),
+    re.compile(r"\b(?:CHECK|CHEQUE) DEPOSIT\b"),
+    re.compile(r"\bCASH DEPOSIT\b"),
+    re.compile(r"\bDEPOSIT\b"),
+)
+
 
 def _matches_any(text: str, patterns: Sequence[re.Pattern[str]]) -> bool:
     return any(pattern.search(text) is not None for pattern in patterns)
+
+
+def _classify_credit_revenue(
+    text: str,
+    amount: float,
+    *,
+    posted: bool,
+) -> _RevenueDecision | None:
+    if amount <= 0 or not posted:
+        return None
+
+    insurance_match = _registry_match(text, INSURANCE_PROVIDER_ALIASES)
+    if insurance_match is not None:
+        entity, alias = insurance_match
+        return _RevenueDecision(
+            "non_revenue",
+            entity,
+            "insurance_provider_credit_exclusion",
+            alias,
+            "insurance_proceeds_or_refund",
+            0.99,
+            f"Credit matched insurance provider alias '{alias}' and is not operating revenue.",
+        )
+    lender_match = _registry_match(text, CONFIRMED_LENDER_ALIASES)
+    if lender_match is not None:
+        entity, alias = lender_match
+        return _RevenueDecision(
+            "non_revenue",
+            entity,
+            "lender_registry_credit_exclusion",
+            alias,
+            "confirmed_lender_funding_credit",
+            0.99,
+            f"Credit matched confirmed lender alias '{alias}' and is funding, not revenue.",
+        )
+    potential_lender_match = _registry_match(text, POTENTIAL_LENDER_ALIASES)
+    if potential_lender_match is not None:
+        entity, alias = potential_lender_match
+        return _RevenueDecision(
+            "non_revenue",
+            entity,
+            "potential_lender_registry_credit_exclusion",
+            alias,
+            "potential_lender_funding_credit",
+            0.95,
+            f"Credit matched potential lender alias '{alias}' and is excluded from revenue.",
+        )
+    if _matches_any(text, _NON_REVENUE_CREDIT_PATTERNS):
+        return _RevenueDecision(
+            "non_revenue",
+            None,
+            "strong_non_revenue_rule",
+            None,
+            "non_operating_credit",
+            0.97,
+            "Credit matched a transfer, contribution, return, refund, correction, or proceeds exclusion.",
+        )
+
+    revenue_match = _registry_match(text, VERIFIED_REVENUE_ALIASES)
+    if revenue_match is not None:
+        entity, alias = revenue_match
+        return _RevenueDecision(
+            "true_revenue",
+            entity,
+            "verified_revenue_alias",
+            alias,
+            "verified_operating_income_source",
+            0.97,
+            f"Credit matched verified operating-income alias '{alias}'.",
+        )
+    if _matches_any(text, _TRUE_REVENUE_CREDIT_PATTERNS):
+        return _RevenueDecision(
+            "true_revenue",
+            None,
+            "operating_income_descriptor",
+            None,
+            "verified_operating_income_descriptor",
+            0.93,
+            "Credit has a customer-payment, merchant-settlement, card-sales, invoice, or verified business-deposit descriptor.",
+        )
+    if _matches_any(text, _POTENTIAL_REVENUE_CREDIT_PATTERNS):
+        return _RevenueDecision(
+            "potential_revenue",
+            None,
+            "ambiguous_credit_descriptor",
+            None,
+            "deposit_source_requires_review",
+            0.60,
+            "The credit is a deposit or incoming transfer without enough evidence to confirm operating revenue.",
+        )
+    return _RevenueDecision(
+        "potential_revenue",
+        None,
+        "unidentified_posted_credit",
+        None,
+        "unknown_credit_source_requires_review",
+        0.40,
+        "The posted credit source is not identified strongly enough to confirm or exclude revenue.",
+    )
 
 
 _ENTITY_NOISE = {
@@ -405,6 +580,9 @@ def _build_record(
     contributes_lender = classification == "confirmed_lender" and is_debit and is_posted
     contributes_potential = classification == "potential_lender" and is_debit and is_posted
     contributes_insurance = classification == "insurance" and is_debit and is_posted
+    revenue = _classify_credit_revenue(text, amount, posted=is_posted)
+    revenue_state = revenue.classification if revenue is not None else None
+    revenue_flags = revenue_contribution_flags(revenue_state)
     return TransactionClassification(
         original_description=description,
         normalized_description=text,
@@ -424,6 +602,19 @@ def _build_record(
         reason=reason,
         is_posted=is_posted,
         review_required=review_required,
+        revenue_classification=revenue_state,
+        revenue_initial_classification=revenue_state,
+        revenue_canonical_entity=revenue.canonical_entity if revenue else None,
+        revenue_match_method=revenue.match_method if revenue else None,
+        revenue_matched_alias=revenue.matched_alias if revenue else None,
+        revenue_matched_rule=revenue.matched_rule if revenue else None,
+        revenue_confidence_score=revenue.confidence_score if revenue else None,
+        revenue_reason=revenue.reason if revenue else None,
+        revenue_review_required=revenue_state == "potential_revenue",
+        revenue_review_status=(
+            "pending" if revenue_state == "potential_revenue"
+            else "not_required" if revenue_state else None
+        ),
         contributes_to_lender_count=contributes_lender,
         contributes_to_potential_lender_count=contributes_potential,
         contributes_to_lender_totals=contributes_lender,
@@ -431,6 +622,7 @@ def _build_record(
         contributes_to_potential_lender_totals=contributes_potential,
         contributes_to_potential_withholding_exposure=contributes_potential,
         contributes_to_insurance_totals=contributes_insurance,
+        **revenue_flags,
         contributes_to_lender_credit_exclusion=contributes_to_lender_credit_exclusion,
         is_ach=_contains_alias(text, "ACH"),
         is_check=_matches_any(text, _CHECK_PATTERNS),
@@ -848,6 +1040,7 @@ def classify_statement_transactions(
 
     for index, original_index in duplicate_of.items():
         record = records[index]
+        duplicate_revenue = record.amount > 0 and record.is_posted
         records[index] = replace(
             record,
             duplicate_of=f"transaction:{original_index + 1}",
@@ -861,6 +1054,20 @@ def classify_statement_transactions(
             contributes_to_potential_withholding_exposure=False,
             contributes_to_insurance_totals=False,
             contributes_to_lender_credit_exclusion=False,
+            revenue_classification="non_revenue" if duplicate_revenue else None,
+            revenue_initial_classification="non_revenue" if duplicate_revenue else None,
+            revenue_match_method="duplicate_credit_exclusion" if duplicate_revenue else None,
+            revenue_matched_rule="proven_duplicate_credit" if duplicate_revenue else None,
+            revenue_confidence_score=1.0 if duplicate_revenue else None,
+            revenue_reason=(
+                f"Exact duplicate of transaction:{original_index + 1}; excluded from revenue."
+                if duplicate_revenue else None
+            ),
+            revenue_review_required=False,
+            revenue_review_status="not_required" if duplicate_revenue else None,
+            contributes_to_true_revenue=False,
+            contributes_to_potential_revenue=False,
+            contributes_to_non_revenue=duplicate_revenue,
         )
 
     return records

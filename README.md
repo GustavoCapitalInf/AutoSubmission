@@ -187,8 +187,10 @@ statements flow through, only the questionable ones get human eyes. Small-bank /
 image statements (where per-transaction detail is incomplete) still yield
 trustworthy figures from the bank's printed summary, which reconciliation validates.
 
-Tune via env: `GEMINI_MODEL`, `GEMINI_ESCALATION_MODEL`. Extend maintained lender,
-candidate, insurance, and exclusion aliases in
+Tune via env: `GEMINI_MODEL`, `GEMINI_ESCALATION_MODEL`. Withholding continues to
+use legacy eligible deposits by default; explicitly set
+`WITHHOLDING_DENOMINATOR_MODE=confirmed_true_revenue` to use confirmed classified
+revenue instead. Extend maintained lender, candidate, insurance, revenue, and exclusion aliases in
 `analysis/classification_registry.py`.
 
 Transaction categories, lender/insurance precedence, contribution flags, and the

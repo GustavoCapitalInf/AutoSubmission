@@ -58,6 +58,9 @@ class DetectionResult:
     lender_evidence: list[TransactionClassification] = field(default_factory=list)
     potential_lender_evidence: list[TransactionClassification] = field(default_factory=list)
     insurance_evidence: list[TransactionClassification] = field(default_factory=list)
+    true_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
+    potential_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
+    non_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
     manual_review: list[TransactionClassification] = field(default_factory=list)
 
 
@@ -209,7 +212,16 @@ def detect(
         record for record in records if record.contributes_to_potential_lender_totals
     ]
     insurance_evidence = [record for record in records if record.contributes_to_insurance_totals]
-    manual_review = [record for record in records if record.review_required]
+    true_revenue_evidence = [record for record in records if record.contributes_to_true_revenue]
+    potential_revenue_evidence = [
+        record for record in records if record.contributes_to_potential_revenue
+    ]
+    non_revenue_evidence = [record for record in records if record.contributes_to_non_revenue]
+    manual_review = [
+        record
+        for record in records
+        if record.review_required or record.revenue_review_required
+    ]
     return DetectionResult(
         known_funders=find_known_funders(stmt, records),
         potential_lenders=find_potential_lenders(
@@ -222,5 +234,8 @@ def detect(
         lender_evidence=lender_evidence,
         potential_lender_evidence=potential_lender_evidence,
         insurance_evidence=insurance_evidence,
+        true_revenue_evidence=true_revenue_evidence,
+        potential_revenue_evidence=potential_revenue_evidence,
+        non_revenue_evidence=non_revenue_evidence,
         manual_review=manual_review,
     )

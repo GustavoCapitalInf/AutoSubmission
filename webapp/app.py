@@ -5,11 +5,13 @@ import json
 import threading
 import zipfile
 from collections import deque
+from copy import deepcopy
 from datetime import UTC, date, datetime
 from flask import Flask, request, jsonify, render_template, Response, abort
 
 from ocr.rasterize import pdf_page_count, rasterize_page
 from ocr.render import rendered_skeleton, render_boxed
+from analysis.revenue import apply_serialized_revenue_review, REVENUE_STATES
 from .jobs import JobStore
 from .worker import run_job
 
@@ -125,6 +127,10 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     for idx, evidence in enumerate(package.get("insurance_evidence") or [], start=1):
         for key, value in evidence.items():
             rows.append((f"insurance_evidence_{idx}", key, "" if value is None else value))
+    for state in REVENUE_STATES:
+        for idx, evidence in enumerate(package.get(f"{state}_evidence") or [], start=1):
+            for key, value in evidence.items():
+                rows.append((f"{state}_evidence_{idx}", key, "" if value is None else value))
     return rows
 
 
@@ -243,6 +249,17 @@ def _package_analysis(jobs) -> dict:
         "integrity_high": 0,
         "integrity_review": 0,
         "total_credits": 0.0,
+        "total_posted_credits": 0.0,
+        "total_posted_credit_count": 0,
+        "true_revenue": 0.0,
+        "confirmed_true_revenue": 0.0,
+        "confirmed_true_revenue_total": 0.0,
+        "confirmed_true_revenue_count": 0,
+        "potential_revenue_total": 0.0,
+        "potential_revenue_count": 0,
+        "non_revenue_total": 0.0,
+        "non_revenue_count": 0,
+        "maximum_revenue": 0.0,
         "total_debits": 0.0,
         "cash_flow": 0.0,
         "lender_debits": 0.0,
@@ -272,6 +289,10 @@ def _package_analysis(jobs) -> dict:
     package_lender_evidence: list[dict] = []
     package_potential_lender_evidence: list[dict] = []
     package_insurance_evidence: list[dict] = []
+    package_revenue_evidence: dict[str, list[dict]] = {
+        state: [] for state in REVENUE_STATES
+    }
+    denominator_modes: set[str] = set()
     for job in jobs:
         analysis = job.analysis or {}
         statement = analysis.get("statement") or {}
@@ -326,6 +347,41 @@ def _package_analysis(jobs) -> dict:
             for transaction in authoritative_rows
             if transaction["classification"].get("contributes_to_insurance_totals") is True
         ]
+        positive_statement_rows = [
+            transaction
+            for transaction in statement_transactions
+            if _num(transaction.get("amount")) > 0
+        ]
+        classified_positive_rows = [
+            transaction
+            for transaction in positive_statement_rows
+            if isinstance(transaction.get("classification"), dict)
+        ]
+        posted_credit_rows = [
+            transaction
+            for transaction in classified_positive_rows
+            if transaction["classification"].get("is_posted") is not False
+        ]
+        revenue_rows = {
+            state: [
+                transaction
+                for transaction in posted_credit_rows
+                if transaction["classification"].get("revenue_classification") == state
+            ]
+            for state in REVENUE_STATES
+        }
+        revenue_rows_are_authoritative = (
+            bool(authoritative_rows)
+            and len(classified_positive_rows) == len(positive_statement_rows)
+            and all(
+                transaction["classification"].get("is_posted") is False
+                or transaction["classification"].get("revenue_classification")
+                in REVENUE_STATES
+                for transaction in classified_positive_rows
+            )
+            and len(posted_credit_rows)
+            == sum(len(rows) for rows in revenue_rows.values())
+        )
         if authoritative_rows:
             lender_debits = round(sum(abs(_num(row.get("amount"))) for row in lender_rows), 2)
             lender_debit_count = len(lender_rows)
@@ -350,10 +406,44 @@ def _package_analysis(jobs) -> dict:
             )
             insurance_count = int(_num(metrics.get("insurance_count"), 0.0))
             insurance_total = _num(metrics.get("insurance_total"))
+        if revenue_rows_are_authoritative:
+            posted_credit_total = round(
+                sum(_num(row.get("amount")) for row in posted_credit_rows),
+                2,
+            )
+            posted_credit_count = len(posted_credit_rows)
+            revenue_totals = {
+                state: round(sum(_num(row.get("amount")) for row in rows), 2)
+                for state, rows in revenue_rows.items()
+            }
+            revenue_counts = {
+                state: len(rows) for state, rows in revenue_rows.items()
+            }
+        else:
+            posted_credit_total = _num(metrics.get("total_posted_credits"), credits)
+            posted_credit_count = int(
+                _num(metrics.get("total_posted_credit_count"), metrics.get("effective_num_deposits") or 0)
+            )
+            confirmed_fallback = _num(
+                metrics.get("confirmed_true_revenue_total"),
+                _num(metrics.get("true_revenue"), posted_credit_total),
+            )
+            revenue_totals = {
+                "true_revenue": confirmed_fallback,
+                "potential_revenue": _num(metrics.get("potential_revenue_total")),
+                "non_revenue": _num(metrics.get("non_revenue_total")),
+            }
+            revenue_counts = {
+                "true_revenue": int(_num(metrics.get("confirmed_true_revenue_count"))),
+                "potential_revenue": int(_num(metrics.get("potential_revenue_count"))),
+                "non_revenue": int(_num(metrics.get("non_revenue_count"))),
+            }
         eligible_deposits = _num(
             metrics.get("withholding_denominator"),
             _num(metrics.get("true_revenue"), credits),
         )
+        denominator_mode = metrics.get("withholding_denominator_mode") or "legacy_eligible_deposits"
+        denominator_modes.add(str(denominator_mode))
         nsf_count = int(_num(metrics.get("effective_nsf_count"), 0.0))
         average_balance = metrics.get("average_balance")
         average_balance_num = _num(average_balance, default=float("nan"))
@@ -362,6 +452,28 @@ def _package_analysis(jobs) -> dict:
         adb_validated = metrics.get("adb_ok")
 
         totals["total_credits"] = round(totals["total_credits"] + credits, 2)
+        totals["total_posted_credits"] = round(
+            totals["total_posted_credits"] + posted_credit_total,
+            2,
+        )
+        totals["total_posted_credit_count"] += posted_credit_count
+        totals["confirmed_true_revenue_total"] = round(
+            totals["confirmed_true_revenue_total"] + revenue_totals["true_revenue"],
+            2,
+        )
+        totals["confirmed_true_revenue"] = totals["confirmed_true_revenue_total"]
+        totals["true_revenue"] = totals["confirmed_true_revenue_total"]
+        totals["confirmed_true_revenue_count"] += revenue_counts["true_revenue"]
+        totals["potential_revenue_total"] = round(
+            totals["potential_revenue_total"] + revenue_totals["potential_revenue"],
+            2,
+        )
+        totals["potential_revenue_count"] += revenue_counts["potential_revenue"]
+        totals["non_revenue_total"] = round(
+            totals["non_revenue_total"] + revenue_totals["non_revenue"],
+            2,
+        )
+        totals["non_revenue_count"] += revenue_counts["non_revenue"]
         totals["total_debits"] = round(totals["total_debits"] + debits, 2)
         totals["cash_flow"] = round(totals["cash_flow"] + cash_flow, 2)
         totals["lender_debits"] = round(totals["lender_debits"] + lender_debits, 2)
@@ -523,6 +635,9 @@ def _package_analysis(jobs) -> dict:
                 package_potential_lender_evidence.append(evidence)
             if classification.get("contributes_to_insurance_totals") is True:
                 package_insurance_evidence.append(evidence)
+            revenue_state = classification.get("revenue_classification")
+            if revenue_state in REVENUE_STATES and _num(tx.get("amount")) > 0:
+                package_revenue_evidence[revenue_state].append(evidence)
 
         doc_row = {
             "id": job.id,
@@ -539,6 +654,19 @@ def _package_analysis(jobs) -> dict:
             "integrity_risk": integrity_risk,
             "reconciles": (analysis.get("reconciliation") or {}).get("ok"),
             "credits": credits,
+            "total_posted_credits": posted_credit_total,
+            "total_posted_credit_count": posted_credit_count,
+            "confirmed_true_revenue_total": revenue_totals["true_revenue"],
+            "confirmed_true_revenue_count": revenue_counts["true_revenue"],
+            "potential_revenue_total": revenue_totals["potential_revenue"],
+            "potential_revenue_count": revenue_counts["potential_revenue"],
+            "non_revenue_total": revenue_totals["non_revenue"],
+            "non_revenue_count": revenue_counts["non_revenue"],
+            "maximum_revenue": round(
+                revenue_totals["true_revenue"] + revenue_totals["potential_revenue"],
+                2,
+            ),
+            "revenue_reconciles": round(sum(revenue_totals.values()), 2) == posted_credit_total,
             "debits": debits,
             "cash_flow": cash_flow,
             "average_balance": average_balance,
@@ -559,6 +687,8 @@ def _package_analysis(jobs) -> dict:
             "withholding_numerator": lender_debits,
             "withholding_denominator": eligible_deposits,
             "withholding_review_required": bool(metrics.get("withholding_review_required")) or eligible_deposits <= 0,
+            "withholding_denominator_mode": denominator_mode,
+            "withholding_denominator_label": metrics.get("withholding_denominator_label") or "Legacy eligible deposits",
             "potential_withholding_exposure": metrics.get("potential_withholding_exposure"),
             "potential_withholding_numerator": potential_lender_debit_total,
             "potential_withholding_denominator": eligible_deposits,
@@ -590,6 +720,30 @@ def _package_analysis(jobs) -> dict:
         package_average_balance = round(sum(average_balance_values) / len(average_balance_values), 2)
     totals["lenders_detected"] = len(funders)
     totals["potential_lenders_detected"] = len(potential_lenders)
+    totals["maximum_revenue"] = round(
+        totals["confirmed_true_revenue_total"] + totals["potential_revenue_total"],
+        2,
+    )
+    totals["revenue_classified_total"] = round(
+        totals["confirmed_true_revenue_total"]
+        + totals["potential_revenue_total"]
+        + totals["non_revenue_total"],
+        2,
+    )
+    totals["revenue_classified_count"] = (
+        totals["confirmed_true_revenue_count"]
+        + totals["potential_revenue_count"]
+        + totals["non_revenue_count"]
+    )
+    totals["revenue_reconciliation_delta"] = round(
+        totals["revenue_classified_total"] - totals["total_posted_credits"],
+        2,
+    )
+    totals["revenue_reconciles"] = (
+        totals["revenue_reconciliation_delta"] == 0.0
+        and totals["revenue_classified_count"] == totals["total_posted_credit_count"]
+    )
+    totals["revenue_review_required"] = totals["potential_revenue_count"] > 0
     package_withholding_raw = (
         abs(totals["withholding_numerator"]) / totals["withholding_denominator"] * 100
         if totals["withholding_denominator"] > 0
@@ -626,6 +780,8 @@ def _package_analysis(jobs) -> dict:
         or totals["integrity_high"]
         or totals["manual_review"]
         or potential_withholding_review_required
+        or totals["revenue_review_required"]
+        or not totals["revenue_reconciles"]
     ):
         decision = "review_required"
     elif totals["summary_only"] or totals["integrity_review"]:
@@ -649,6 +805,16 @@ def _package_analysis(jobs) -> dict:
             "potential_withholding_formula": "abs(potential_lender_debit_total) / eligible_deposits * 100",
             "potential_withholding_review_required": potential_withholding_review_required,
             "decision": decision,
+            "withholding_denominator_mode": (
+                next(iter(denominator_modes)) if len(denominator_modes) == 1 else "mixed"
+            ),
+            "withholding_denominator_label": (
+                "Confirmed true revenue"
+                if denominator_modes == {"confirmed_true_revenue"}
+                else "Legacy eligible deposits"
+                if denominator_modes == {"legacy_eligible_deposits"}
+                else "Mixed denominator configuration"
+            ),
         },
         "documents": documents,
         "monthly": sorted(monthly, key=lambda r: (r.get("period_end") or "", r.get("filename") or "")),
@@ -663,6 +829,9 @@ def _package_analysis(jobs) -> dict:
         "lender_evidence": package_lender_evidence,
         "potential_lender_evidence": package_potential_lender_evidence,
         "insurance_evidence": package_insurance_evidence,
+        "true_revenue_evidence": package_revenue_evidence["true_revenue"],
+        "potential_revenue_evidence": package_revenue_evidence["potential_revenue"],
+        "non_revenue_evidence": package_revenue_evidence["non_revenue"],
         "detection": {
             "known_funders": package_funder_matches,
             "potential_lenders": package_potential_matches,
@@ -670,6 +839,9 @@ def _package_analysis(jobs) -> dict:
             "lender_evidence": package_lender_evidence,
             "potential_lender_evidence": package_potential_lender_evidence,
             "insurance_evidence": package_insurance_evidence,
+            "true_revenue_evidence": package_revenue_evidence["true_revenue"],
+            "potential_revenue_evidence": package_revenue_evidence["potential_revenue"],
+            "non_revenue_evidence": package_revenue_evidence["non_revenue"],
         },
     }
 
@@ -781,6 +953,32 @@ def analysis(job_id):
         "analysis": job.analysis,
         "analysis_error": job.analysis_error,
     })
+
+
+@app.route("/analysis/<job_id>/revenue-review", methods=["POST"])
+def revenue_review(job_id):
+    job = store.get(job_id)
+    if job is None or job.status != "done" or job.analysis is None:
+        abort(404)
+    payload = request.get_json(silent=True) or {}
+    source_location = str(payload.get("source_location") or "").strip()
+    decision = str(payload.get("decision") or "").strip().lower()
+    if not source_location:
+        return jsonify({"error": "source_location is required"}), 400
+    try:
+        updated = apply_serialized_revenue_review(
+            deepcopy(job.analysis),
+            source_location=source_location,
+            decision=decision,
+        )
+    except LookupError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    stored = store.replace_analysis(job_id, updated)
+    if stored is None:
+        abort(404)
+    return jsonify({"analysis": stored})
 
 
 @app.route("/package_analysis")

@@ -18,6 +18,8 @@ const els = {
   lenderCount: document.getElementById("lenderCount"),
   insuranceTable: document.getElementById("insuranceTable"),
   insuranceCount: document.getElementById("insuranceCount"),
+  revenueTable: document.getElementById("revenueTable"),
+  revenueCount: document.getElementById("revenueCount"),
   transactionTable: document.getElementById("transactionTable"),
   transactionCount: document.getElementById("transactionCount"),
   transactionCard: document.getElementById("transactionCard"),
@@ -45,6 +47,7 @@ const els = {
   statementModalAccount: document.getElementById("statementModalAccount"),
   statementModalLenders: document.getElementById("statementModalLenders"),
   statementModalInsurance: document.getElementById("statementModalInsurance"),
+  statementModalRevenue: document.getElementById("statementModalRevenue"),
   statementModalTransactions: document.getElementById("statementModalTransactions"),
   statementModalTransactionCount: document.getElementById("statementModalTransactionCount"),
   modalJsonDownload: document.getElementById("modalJsonDownload"),
@@ -62,6 +65,7 @@ let currentFiles = [];
 let startedAt = null;
 let pollTimer = null;
 let modalAnalysis = null;
+let modalJobId = null;
 let modalLastFocus = null;
 let modalScrollY = 0;
 let transactionFilter = "all";
@@ -89,7 +93,10 @@ const emptyMetricSections = [
     sub: "Incoming money",
     items: [
       ["Total Credits", "N/A", "All inflows", "CR", "green"],
-      ["Deposits", "N/A", "Total deposit volume", "DEP", "neutral"],
+      ["Confirmed True Revenue", "N/A", "Verified operating credits", "REV", "green"],
+      ["Potential Revenue", "N/A", "Credits requiring review", "?", "amber"],
+      ["Non-Revenue", "N/A", "Excluded credit inflows", "X", "neutral"],
+      ["Maximum Revenue", "N/A", "Confirmed plus potential revenue", "MAX", "neutral"],
       ["ACH Credits", "N/A", "Incoming ACH items", "ACH", "neutral"],
     ],
   },
@@ -179,7 +186,14 @@ function withholdingAuditNote(metrics = {}, currency = "USD") {
   if (metrics.withholding_review_required) return "Eligible deposits unavailable - review required";
   const numerator = formatMoney(metrics.withholding_numerator ?? metrics.lender_debits, currency);
   const denominator = formatMoney(metrics.withholding_denominator ?? metrics.eligible_deposits, currency);
-  return `${numerator} lender debits / ${denominator} eligible deposits`;
+  const label = metrics.withholding_denominator_label || "Legacy eligible deposits";
+  return `${numerator} lender debits / ${denominator} ${label.toLowerCase()}`;
+}
+
+function activeDenominatorNote(metrics = {}) {
+  const label = metrics.withholding_denominator_label || "Legacy eligible deposits";
+  const definition = metrics.eligible_deposit_definition || "Effective credits minus lender funding";
+  return `${label} - ${definition}`;
 }
 
 function potentialLenderDebitTotal(metrics = {}) {
@@ -281,6 +295,16 @@ function transactionClassification(tx) {
 
 function transactionCategory(tx) {
   const record = transactionClassification(tx);
+  const revenueState = record.revenue_classification;
+  if (txAmount(tx) > 0 && revenueState === "true_revenue") {
+    return { label: "True revenue", glyph: "REV", tone: "green" };
+  }
+  if (txAmount(tx) > 0 && revenueState === "potential_revenue") {
+    return { label: "Potential revenue", glyph: "?", tone: "amber" };
+  }
+  if (txAmount(tx) > 0 && revenueState === "non_revenue") {
+    return { label: "Non-revenue", glyph: "X", tone: "neutral" };
+  }
   const state = record.classification || "other";
   const entity = record.canonical_entity || "";
   const categories = {
@@ -320,8 +344,35 @@ function filterTransactions(transactions, filter, canonicalEntity = null) {
   if (filter === "potential") matched = transactions.filter(contributesToPotentialTotals);
   if (filter === "insurance") matched = transactions.filter((tx) => transactionClassification(tx).contributes_to_insurance_totals === true);
   if (filter === "pos") matched = transactions.filter((tx) => transactionClassification(tx).classification === "pos");
+  if (["true_revenue", "potential_revenue", "non_revenue"].includes(filter)) {
+    matched = transactions.filter(
+      (tx) => transactionClassification(tx).revenue_classification === filter
+    );
+  }
   if (!canonicalEntity) return matched;
   return matched.filter((tx) => transactionClassification(tx).canonical_entity === canonicalEntity);
+}
+
+function revenueReviewControls(tx, fallbackJobId = null) {
+  const record = transactionClassification(tx);
+  if (record.revenue_initial_classification !== "potential_revenue") return "";
+  const jobId = tx.source_job || fallbackJobId;
+  const sourceLocation = record.source_location;
+  if (!jobId || !sourceLocation) return "";
+  const common = `data-revenue-review-job="${escapeHtml(jobId)}" data-revenue-review-location="${escapeHtml(sourceLocation)}"`;
+  if (record.revenue_review_status === "confirmed" || record.revenue_review_status === "rejected") {
+    return `
+      <div class="revenue-review-actions">
+        <button class="table-action" type="button" ${common} data-revenue-review-action="reset">Reset review</button>
+      </div>
+    `;
+  }
+  return `
+    <div class="revenue-review-actions">
+      <button class="table-action review-confirm" type="button" ${common} data-revenue-review-action="confirm">Confirm</button>
+      <button class="table-action review-reject" type="button" ${common} data-revenue-review-action="reject">Reject</button>
+    </div>
+  `;
 }
 
 function txDateValue(tx) {
@@ -363,6 +414,7 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
     limit = TRANSACTION_PAGE,
     moreEl = null,
     canonicalEntity = null,
+    reviewJobId = null,
   } = options;
   const rows = Array.isArray(transactions) ? transactions : [];
   const matched = sortTransactions(filterTransactions(rows, filter, canonicalEntity), sort);
@@ -409,7 +461,7 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
         <td><strong>${escapeHtml(tx.date || "N/A")}</strong></td>
         <td class="transaction-desc">${escapeHtml(txDescriptionRaw(tx) || "N/A")}</td>
         ${source}
-        <td>${glassChip(category.glyph, category.label, category.tone)}</td>
+        <td>${glassChip(category.glyph, category.label, category.tone)}${revenueReviewControls(tx, reviewJobId)}</td>
         <td class="amount-cell ${amount < 0 ? "amount-debit" : "amount-credit"}">${escapeHtml(formatMoney(amount, currency))}</td>
         <td class="amount-cell">${escapeHtml(formatMoney(tx.running_balance, currency))}</td>
       </tr>
@@ -458,6 +510,7 @@ function renderMainTransactions({ keepLimit = false } = {}) {
       limit: transactionLimit,
       moreEl: els.transactionMore,
       canonicalEntity: transactionEntityFilter,
+      reviewJobId: currentJobId,
     }
   );
 }
@@ -476,6 +529,7 @@ function renderModalTransactions({ keepLimit = false } = {}) {
       limit: modalTransactionLimit,
       moreEl: els.statementModalTransactionMore,
       canonicalEntity: modalTransactionEntityFilter,
+      reviewJobId: modalJobId,
     }
   );
 }
@@ -581,6 +635,15 @@ function setInitialState() {
   ]);
   renderLenders([]);
   renderInsurance([]);
+  renderRevenueEvidence({
+    total_posted_credit_count: 0,
+    confirmed_true_revenue_count: 0,
+    confirmed_true_revenue_total: 0,
+    potential_revenue_count: 0,
+    potential_revenue_total: 0,
+    non_revenue_count: 0,
+    non_revenue_total: 0,
+  });
   renderMainTransactions();
 }
 
@@ -751,16 +814,21 @@ function metricChip(icon, tone) {
   return glassChip(glyph, text, tone, "metric-chip");
 }
 
-function renderMetricCard([label, value, sub, icon, tone]) {
+function renderMetricCard([label, value, sub, icon, tone, action]) {
+  const actionable = action && action.revenueFilter;
+  const tag = actionable ? "button" : "article";
+  const attributes = actionable
+    ? ` type="button" data-revenue-filter="${escapeHtml(action.revenueFilter)}" aria-label="Show exact ${escapeHtml(label)} transactions"`
+    : "";
   return `
-    <article class="metric">
+    <${tag} class="metric${actionable ? " metric-action" : ""}"${attributes}>
       <div class="metric-top">
         <div class="metric-label">${escapeHtml(label)}</div>
         ${metricChip(icon, tone)}
       </div>
       <div class="metric-value">${escapeHtml(value)}</div>
       <div class="metric-sub">${escapeHtml(sub || "")}</div>
-    </article>
+    </${tag}>
   `;
 }
 
@@ -886,6 +954,38 @@ function renderInsurance(providers, currency = "USD") {
   `).join("");
 }
 
+const revenueRows = [
+  ["true_revenue", "Confirmed true revenue", "REV", "Confirmed", "green"],
+  ["potential_revenue", "Potential revenue", "?", "Review required", "amber"],
+  ["non_revenue", "Non-revenue", "X", "Excluded", "neutral"],
+];
+
+function revenueEvidenceRowsHtml(metrics = {}, currency = "USD", modal = false) {
+  return revenueRows.map(([state, label, glyph, status, tone]) => {
+    const countKey = state === "true_revenue"
+      ? "confirmed_true_revenue_count"
+      : `${state}_count`;
+    const totalKey = state === "true_revenue"
+      ? "confirmed_true_revenue_total"
+      : `${state}_total`;
+    const filterAttribute = modal ? "data-modal-revenue-filter" : "data-revenue-filter";
+    return `
+      <tr>
+        <td><button class="evidence-link" type="button" ${filterAttribute}="${state}" aria-label="Show exact ${escapeHtml(label)} transactions">${escapeHtml(label)}</button></td>
+        <td>${escapeHtml(formatNumber(metrics[countKey]))}</td>
+        <td>${escapeHtml(formatMoney(metrics[totalKey], currency))}</td>
+        <td>${glassChip(glyph, status, tone)}</td>
+      </tr>
+    `;
+  }).join("");
+}
+
+function renderRevenueEvidence(metrics = {}, currency = "USD") {
+  if (!els.revenueTable || !els.revenueCount) return;
+  els.revenueTable.innerHTML = revenueEvidenceRowsHtml(metrics, currency, false);
+  els.revenueCount.textContent = `${formatNumber(metrics.total_posted_credit_count)} posted credits`;
+}
+
 function renderAccountSummary(rows) {
   if (!els.accountSummary) return;
   els.accountSummary.innerHTML = summaryRowsHtml(rows);
@@ -917,7 +1017,7 @@ function renderAnalysis(report) {
   const totalDebits = metrics.effective_total_withdrawals;
   const confidence = confidenceFrom(report);
   const elapsed = startedAt ? `${((Date.now() - startedAt) / 1000).toFixed(1)}s` : "Complete";
-  const decision = hasMaterialPotentialLenderDebits(metrics)
+  const decision = hasMaterialPotentialLenderDebits(metrics) || metrics.revenue_review_required
     ? "review_required"
     : quality.corporate_use || quality.level || "review_required";
 
@@ -933,6 +1033,8 @@ function renderAnalysis(report) {
     ["Parsing mode", parseModeLabel(report.parse_mode || selectedParseMode())],
     ["Parser used", report.model_used || "N/A"],
     ["Document integrity", integrityLabel(integrity)],
+    ["Revenue reconciliation", metrics.revenue_reconciles ? "Balanced" : "Review required"],
+    ["Withholding denominator", metrics.withholding_denominator_label || "Legacy eligible deposits"],
     ["OCR confidence", `${confidence}%`],
     ["Text blocks detected", formatNumber(transactions.length || metrics.effective_num_deposits || "--")],
     ["File size", formatBytes(currentFile && currentFile.size)],
@@ -944,7 +1046,10 @@ function renderAnalysis(report) {
       sub: "Incoming money",
       items: [
         ["Total Credits", formatMoney(totalCredits, currency), "All credit inflows", "CR", "green"],
-        ["Deposits", formatMoney(totalCredits, currency), `${formatNumber(metrics.effective_num_deposits)} deposit items`, "DEP", "neutral"],
+        ["Confirmed True Revenue", formatMoney(metrics.confirmed_true_revenue_total, currency), `${formatNumber(metrics.confirmed_true_revenue_count)} verified credits`, "REV", "green", { revenueFilter: "true_revenue" }],
+        ["Potential Revenue", formatMoney(metrics.potential_revenue_total, currency), `${formatNumber(metrics.potential_revenue_count)} credits require review`, "?", "amber", { revenueFilter: "potential_revenue" }],
+        ["Non-Revenue", formatMoney(metrics.non_revenue_total, currency), `${formatNumber(metrics.non_revenue_count)} excluded credits`, "X", "neutral", { revenueFilter: "non_revenue" }],
+        ["Maximum Revenue", formatMoney(metrics.maximum_revenue, currency), "Confirmed plus potential revenue", "MAX", "neutral"],
         ["ACH Credits", formatNumber(metrics.ach_credit_count), "Incoming ACH deposits", "ACH", "neutral"],
       ],
     },
@@ -982,7 +1087,7 @@ function renderAnalysis(report) {
         ["Confirmed Lender Debits", formatMoney(metrics.lender_debits, currency), "Confirmed withholding numerator", "$", "neutral"],
         ["Potential Lender Debit Count", formatNumber(metrics.potential_lender_debit_count), "Exact candidate evidence rows", "DB", countTone(metrics.potential_lender_debit_count)],
         ["Potential Lender Debits", formatMoney(potentialLenderDebitTotal(metrics), currency), "Excluded from confirmed lender metrics", "$", countTone(metrics.potential_lender_debit_count)],
-        ["Eligible Deposits", formatMoney(metrics.potential_withholding_denominator ?? metrics.eligible_deposits, currency), metrics.eligible_deposit_definition || "Confirmed and potential denominator", "DEP", "neutral"],
+        ["Active Withholding Denominator", formatMoney(metrics.potential_withholding_denominator ?? metrics.eligible_deposits, currency), activeDenominatorNote(metrics), "DEP", "neutral"],
         ["Potential Withholding Exposure", formatPercent(metrics.potential_withholding_exposure), potentialWithholdingAuditNote(metrics, currency), "%", hasMaterialPotentialLenderDebits(metrics) ? "amber" : "neutral"],
         ["Insurance Debits", formatNumber(metrics.insurance_count), "Posted insurance debit rows", "INS", "neutral"],
         ["Insurance Total", formatMoney(metrics.insurance_total, currency), "Insurance debits excluded from lenders", "$", "neutral"],
@@ -990,6 +1095,7 @@ function renderAnalysis(report) {
     },
   ]);
   renderAccountSummary(accountFieldRows(statement, currentMarkdown));
+  renderRevenueEvidence(metrics, currency);
   renderLenders(funders, potentialLenders, currency);
   renderInsurance(insuranceProviders, currency);
   renderMainTransactions();
@@ -1203,6 +1309,8 @@ function renderPackageAnalysis(pkg) {
     ["Processing errors", formatNumber(totals.failed)],
     ["Confirmed withholding", formatPercent(totals.package_withholding_rate)],
     ["Potential exposure", formatPercent(totals.potential_withholding_exposure)],
+    ["Revenue reconciliation", totals.revenue_reconciles ? "Balanced" : "Review required"],
+    ["Withholding denominator", totals.withholding_denominator_label || "Legacy eligible deposits"],
   ]);
 
   renderMetricSections([
@@ -1211,6 +1319,10 @@ function renderPackageAnalysis(pkg) {
       sub: `${formatNumber(totals.months)} statement periods`,
       items: [
         ["Total Credits", formatMoney(totals.total_credits), "Combined incoming money", "CR", "green"],
+        ["Confirmed True Revenue", formatMoney(totals.confirmed_true_revenue_total), `${formatNumber(totals.confirmed_true_revenue_count)} verified credits`, "REV", "green", { revenueFilter: "true_revenue" }],
+        ["Potential Revenue", formatMoney(totals.potential_revenue_total), `${formatNumber(totals.potential_revenue_count)} credits require review`, "?", "amber", { revenueFilter: "potential_revenue" }],
+        ["Non-Revenue", formatMoney(totals.non_revenue_total), `${formatNumber(totals.non_revenue_count)} excluded credits`, "X", "neutral", { revenueFilter: "non_revenue" }],
+        ["Maximum Revenue", formatMoney(totals.maximum_revenue), "Confirmed plus potential revenue", "MAX", "neutral"],
         ["Avg Monthly Credits", formatMoney(totals.avg_monthly_credits), "Monthly revenue baseline", "AVG", "neutral"],
         ["Total Debits", formatMoney(totals.total_debits), "Combined outgoing money", "DB", "neutral"],
         ["Avg Monthly Debits", formatMoney(totals.avg_monthly_debits), "Monthly expense baseline", "AVG", "neutral"],
@@ -1247,7 +1359,7 @@ function renderPackageAnalysis(pkg) {
         ["Confirmed Lender Debits", formatMoney(totals.lender_debits), "Confirmed withholding numerator", "$", "neutral"],
         ["Potential Lender Debit Count", formatNumber(totals.potential_lender_debit_count), "Exact candidate evidence rows", "DB", countTone(totals.potential_lender_debit_count)],
         ["Potential Lender Debits", formatMoney(potentialLenderDebitTotal(totals)), "Excluded from confirmed lender metrics", "$", countTone(totals.potential_lender_debit_count)],
-        ["Eligible Deposits", formatMoney(totals.potential_withholding_denominator ?? totals.eligible_deposits), "Confirmed and potential denominator", "DEP", "neutral"],
+        ["Active Withholding Denominator", formatMoney(totals.potential_withholding_denominator ?? totals.eligible_deposits), activeDenominatorNote(totals), "DEP", "neutral"],
         ["Potential Withholding Exposure", formatPercent(totals.potential_withholding_exposure), potentialWithholdingAuditNote(totals), "%", hasMaterialPotentialLenderDebits(totals) ? "amber" : "neutral"],
         ["Insurance Debits", formatNumber(totals.insurance_count), "Posted insurance debit rows", "INS", "neutral"],
         ["Insurance Total", formatMoney(totals.insurance_total), "Excluded from lender metrics", "$", "neutral"],
@@ -1275,6 +1387,7 @@ function renderPackageTables(pkg) {
   const insuranceProviders = Array.isArray(pkg.insurance_providers) ? pkg.insurance_providers : [];
   renderLenders(funders, potentialLenders, "USD");
   renderInsurance(insuranceProviders, "USD");
+  renderRevenueEvidence(pkg.totals || {}, "USD");
   if (els.monthlyCard) els.monthlyCard.style.display = "block";
   if (els.monthlyCount) {
     els.monthlyCount.textContent = `${documents.length} ${documents.length === 1 ? "statement" : "statements"}`;
@@ -1321,6 +1434,7 @@ function openStatementModal(jobId) {
   if (!els.statementModalBackdrop) return;
   modalLastFocus = document.activeElement;
   modalAnalysis = null;
+  modalJobId = jobId;
   modalTransactionFilter = "all";
   modalTransactionEntityFilter = null;
   setTransactionFilterButtons("[data-modal-transaction-filter]", modalTransactionFilter);
@@ -1355,6 +1469,16 @@ function openStatementModal(jobId) {
         <td>N/A</td>
         <td>N/A</td>
         <td>${glassChip("INS", "Pending", "blue")}</td>
+      </tr>
+    `;
+  }
+  if (els.statementModalRevenue) {
+    els.statementModalRevenue.innerHTML = `
+      <tr>
+        <td><strong>Loading</strong></td>
+        <td>N/A</td>
+        <td>N/A</td>
+        <td>${glassChip("REV", "Pending", "blue")}</td>
       </tr>
     `;
   }
@@ -1403,6 +1527,16 @@ function openStatementModal(jobId) {
           </tr>
         `;
       }
+      if (els.statementModalRevenue) {
+        els.statementModalRevenue.innerHTML = `
+          <tr>
+            <td><strong>Unable to load revenue evidence</strong></td>
+            <td>N/A</td>
+            <td>N/A</td>
+            <td>${glassChip("REV", "Review", "amber")}</td>
+          </tr>
+        `;
+      }
       renderTransactionRows(els.statementModalTransactions, els.statementModalTransactionCount, [], modalTransactionFilter, "USD", { sort: modalTransactionSort });
     });
 }
@@ -1422,7 +1556,7 @@ function renderStatementModal(jobId, report, markdown) {
     ...potentialLenders.map((item) => ({ ...item, classification: "potential_lender" })),
   ];
   const title = statement.bank ? `${statement.bank} Statement` : "Bank Statement";
-  const decision = hasMaterialPotentialLenderDebits(metrics)
+  const decision = hasMaterialPotentialLenderDebits(metrics) || metrics.revenue_review_required
     ? "review_required"
     : quality.corporate_use || quality.level || "review_required";
 
@@ -1430,6 +1564,10 @@ function renderStatementModal(jobId, report, markdown) {
   els.statementModalSubtitle.textContent = `${period(statement)} - ${labelize(decision)}`;
   els.statementModalMetrics.innerHTML = [
     ["Total Credits", formatMoney(metrics.effective_total_deposits, currency), "Incoming money", "CR", "green"],
+    ["Confirmed True Revenue", `${formatNumber(metrics.confirmed_true_revenue_count)} / ${formatMoney(metrics.confirmed_true_revenue_total, currency)}`, "Verified operating credits", "REV", "green", { revenueFilter: "true_revenue" }],
+    ["Potential Revenue", `${formatNumber(metrics.potential_revenue_count)} / ${formatMoney(metrics.potential_revenue_total, currency)}`, "Review required", "?", "amber", { revenueFilter: "potential_revenue" }],
+    ["Non-Revenue", `${formatNumber(metrics.non_revenue_count)} / ${formatMoney(metrics.non_revenue_total, currency)}`, "Excluded credits", "X", "neutral", { revenueFilter: "non_revenue" }],
+    ["Maximum Revenue", formatMoney(metrics.maximum_revenue, currency), "Confirmed plus potential revenue", "MAX", "neutral"],
     ["Total Debits", formatMoney(metrics.effective_total_withdrawals, currency), "Outgoing money", "DB", "neutral"],
     ["Cash Flow", formatMoney(metrics.cash_flow, currency), "Credits minus debits", "CF", negativeTone(metrics.cash_flow)],
     ["Average Daily Balance", formatMoney(metrics.average_balance, currency), averageBalanceNote(metrics), "AVG", averageBalanceTone(metrics)],
@@ -1440,7 +1578,7 @@ function renderStatementModal(jobId, report, markdown) {
     ["Potential Lenders", formatNumber(metrics.potential_lenders_detected), "Distinct entities requiring review", "?", countTone(metrics.potential_lenders_detected)],
     ["Confirmed Lender Debits", `${formatNumber(metrics.lender_debit_count)} / ${formatMoney(metrics.lender_debits, currency)}`, "Count and confirmed numerator", "DB", "neutral"],
     ["Potential Lender Debits", `${formatNumber(metrics.potential_lender_debit_count)} / ${formatMoney(potentialLenderDebitTotal(metrics), currency)}`, "Exact candidate evidence rows and total", "?", countTone(metrics.potential_lender_debit_count)],
-    ["Eligible Deposits", formatMoney(metrics.potential_withholding_denominator ?? metrics.eligible_deposits, currency), metrics.eligible_deposit_definition || "Confirmed and potential denominator", "DEP", "neutral"],
+    ["Active Withholding Denominator", formatMoney(metrics.potential_withholding_denominator ?? metrics.eligible_deposits, currency), activeDenominatorNote(metrics), "DEP", "neutral"],
     ["Potential Withholding Exposure", formatPercent(metrics.potential_withholding_exposure), potentialWithholdingAuditNote(metrics, currency), "%", hasMaterialPotentialLenderDebits(metrics) ? "amber" : "neutral"],
     ["Insurance", `${formatNumber(metrics.insurance_count)} / ${formatMoney(metrics.insurance_total, currency)}`, "Count and total excluded from lenders", "INS", "neutral"],
     ["Document Integrity", integrityLabel(integrity), (integrity.flags || []).join(", ") || "No source contradictions detected", "DOC", integrityTone(integrity)],
@@ -1483,6 +1621,9 @@ function renderStatementModal(jobId, report, markdown) {
         </tr>
       `;
   }
+  if (els.statementModalRevenue) {
+    els.statementModalRevenue.innerHTML = revenueEvidenceRowsHtml(metrics, currency, true);
+  }
   renderModalTransactions();
 
   if (els.modalJsonDownload) {
@@ -1505,6 +1646,7 @@ function closeStatementModal() {
   document.body.style.width = "";
   window.scrollTo(0, modalScrollY);
   if (modalLastFocus && typeof modalLastFocus.focus === "function") modalLastFocus.focus();
+  modalJobId = null;
 }
 
 function copyText(value) {
@@ -1611,6 +1753,92 @@ if (els.monthlyTable) {
     openStatementModal(jobId);
   });
 }
+
+function revenueFilterFromEvent(event, attribute = "data-revenue-filter") {
+  const target = event.target instanceof Element ? event.target : null;
+  const control = target ? target.closest(`[${attribute}]`) : null;
+  return control ? control.getAttribute(attribute) : null;
+}
+
+function showMainRevenueEvidence(filter) {
+  if (!filter) return;
+  transactionFilter = filter;
+  transactionEntityFilter = null;
+  setTransactionFilterButtons("[data-transaction-filter]", transactionFilter);
+  renderMainTransactions();
+  els.transactionCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function showModalRevenueEvidence(filter) {
+  if (!filter) return;
+  modalTransactionFilter = filter;
+  modalTransactionEntityFilter = null;
+  setTransactionFilterButtons("[data-modal-transaction-filter]", modalTransactionFilter);
+  renderModalTransactions();
+  els.statementModalTransactions?.closest(".modal-panel")?.scrollIntoView({ block: "start" });
+}
+
+els.metricsGrid?.addEventListener("click", (event) => {
+  showMainRevenueEvidence(revenueFilterFromEvent(event));
+});
+els.revenueTable?.addEventListener("click", (event) => {
+  showMainRevenueEvidence(revenueFilterFromEvent(event));
+});
+els.statementModalMetrics?.addEventListener("click", (event) => {
+  showModalRevenueEvidence(revenueFilterFromEvent(event));
+});
+els.statementModalRevenue?.addEventListener("click", (event) => {
+  showModalRevenueEvidence(revenueFilterFromEvent(event, "data-modal-revenue-filter"));
+});
+
+async function submitRevenueReview(button) {
+  const jobId = button.getAttribute("data-revenue-review-job");
+  const sourceLocation = button.getAttribute("data-revenue-review-location");
+  const decision = button.getAttribute("data-revenue-review-action");
+  if (!jobId || !sourceLocation || !decision) return;
+  button.disabled = true;
+  try {
+    const response = await fetch(`/analysis/${encodeURIComponent(jobId)}/revenue-review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source_location: sourceLocation, decision }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.analysis) {
+      throw new Error(payload.error || `Revenue review failed (${response.status})`);
+    }
+
+    if (currentJobIds.length > 1) {
+      const packageResponse = await fetch(
+        `/package_analysis?ids=${encodeURIComponent(currentJobIds.join(","))}`
+      );
+      if (!packageResponse.ok) throw new Error("Package refresh failed");
+      renderPackageAnalysis(await packageResponse.json());
+      setPackageActions(currentJobIds);
+    } else if (currentJobId === jobId) {
+      renderAnalysis(payload.analysis);
+      setActions(jobId, true);
+    }
+
+    if (modalJobId === jobId) {
+      modalAnalysis = payload.analysis;
+      renderStatementModal(jobId, payload.analysis, "");
+    }
+  } catch (error) {
+    button.disabled = false;
+    window.alert(error.message || String(error));
+  }
+}
+
+function handleRevenueReviewClick(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  const button = target ? target.closest("[data-revenue-review-action]") : null;
+  if (button) submitRevenueReview(button);
+}
+
+els.transactionTable?.addEventListener("click", handleRevenueReviewClick);
+els.statementModalTransactions?.addEventListener("click", handleRevenueReviewClick);
+
 document.querySelectorAll("[data-transaction-filter]").forEach((button) => {
   button.addEventListener("click", () => {
     transactionFilter = button.getAttribute("data-transaction-filter") || "all";

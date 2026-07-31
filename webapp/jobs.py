@@ -1,6 +1,7 @@
 from __future__ import annotations
 import threading
 import uuid
+from copy import deepcopy
 from dataclasses import dataclass, field
 
 
@@ -103,6 +104,14 @@ class JobStore:
                 job.analysis_error = analysis_error
                 job.parse_model = parse_model
                 job.status = "done"
+
+    def replace_analysis(self, job_id: str, analysis: dict) -> dict | None:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None or job.analysis is None:
+                return None
+            job.analysis = deepcopy(analysis)
+            return deepcopy(job.analysis)
 
     def set_error(self, job_id: str, error: str) -> None:
         with self._lock:

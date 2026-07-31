@@ -16,11 +16,22 @@ class Settings:
     # (still cheap) escalation model — you pay flash-lite prices for the clean 90%.
     model: str
     escalation_model: str
+    withholding_denominator_mode: str = "legacy_eligible_deposits"
 
 
 def load_settings() -> Settings:
+    denominator_mode = os.environ.get(
+        "WITHHOLDING_DENOMINATOR_MODE",
+        "legacy_eligible_deposits",
+    )
+    if denominator_mode not in {
+        "legacy_eligible_deposits",
+        "confirmed_true_revenue",
+    }:
+        denominator_mode = "legacy_eligible_deposits"
     return Settings(
         api_key=os.environ.get("GEMINI_API_KEY", ""),
         model=os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite"),
         escalation_model=os.environ.get("GEMINI_ESCALATION_MODEL", "gemini-3.5-flash"),
+        withholding_denominator_mode=denominator_mode,
     )

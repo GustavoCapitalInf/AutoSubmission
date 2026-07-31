@@ -389,6 +389,7 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         # several posting dates into one
         source_markdown=markdown,
         classifications=classifications,
+        withholding_denominator_mode=settings.withholding_denominator_mode,
     )
     quality = assess_quality(stmt, recon)
     if quality.level == "summary_aggregate":

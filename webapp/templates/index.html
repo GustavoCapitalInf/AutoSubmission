@@ -550,6 +550,10 @@
     padding: 18px; min-height: 64px; box-shadow: inset 0 1px 1px var(--inset-top), inset 0 -1px 1px var(--sheen-bottom);
     transition: transform .18s var(--spring), background .18s var(--spring), box-shadow .18s var(--spring);
   }
+  .metric-action {
+    width: 100%; color: inherit; text-align: left; font: inherit; cursor: pointer;
+  }
+  .metric-action:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
   .metric:hover { transform: translateY(-2px); background: var(--surface-hover); box-shadow: inset 0 1px 0 var(--inset-top), var(--shadow-hover); }
   .metric:hover .metric-chip {
     background: linear-gradient(var(--chip-neutral), var(--chip-neutral)), var(--chip-base-hover);
@@ -637,6 +641,10 @@
   }
   .table-action:active { transform: scale(.98); }
   .table-action:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+  .revenue-review-actions { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 6px; }
+  .revenue-review-actions .table-action { padding: 3px 8px; font-size: 11px; }
+  .review-confirm { color: var(--tone-success-ink); }
+  .review-reject { color: var(--tone-error-ink); }
   .table-head-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; min-width: 0; max-width: 100%; }
   .transaction-filters {
     display: flex; align-items: center; gap: 4px; padding: 4px; border-radius: 999px;
@@ -1024,6 +1032,25 @@
         <div class="metric-grid" id="metricsGrid"></div>
         <div class="table-card">
           <div class="table-head">
+            <h3>Revenue Evidence</h3>
+            <span class="section-label" id="revenueCount">0 posted credits</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Classification</th>
+                  <th>Credit Count</th>
+                  <th>Total</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="revenueTable"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="table-head">
             <h3>Lenders and Candidates</h3>
             <span class="section-label" id="lenderCount">0 records</span>
           </div>
@@ -1073,9 +1100,12 @@
                 <button class="transaction-filter active" type="button" data-transaction-filter="all">All</button>
                 <button class="transaction-filter" type="button" data-transaction-filter="nsf">NSFs</button>
                 <button class="transaction-filter" type="button" data-transaction-filter="lender">Lenders</button>
-                <button class="transaction-filter" type="button" data-transaction-filter="potential">Potential</button>
+                <button class="transaction-filter" type="button" data-transaction-filter="potential">Potential Lender</button>
                 <button class="transaction-filter" type="button" data-transaction-filter="insurance">Insurance</button>
                 <button class="transaction-filter" type="button" data-transaction-filter="pos">POS</button>
+                <button class="transaction-filter" type="button" data-transaction-filter="true_revenue">True Revenue</button>
+                <button class="transaction-filter" type="button" data-transaction-filter="potential_revenue">Potential Revenue</button>
+                <button class="transaction-filter" type="button" data-transaction-filter="non_revenue">Non-Revenue</button>
               </div>
               <div class="transaction-filters" role="group" aria-label="Sort transactions">
                 <button class="transaction-filter active" type="button" data-transaction-sort="date">Date</button>
@@ -1264,6 +1294,22 @@
             </table>
           </div>
         </div>
+        <div class="modal-panel">
+          <h3>Revenue Evidence</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Classification</th>
+                  <th>Count</th>
+                  <th>Total</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="statementModalRevenue"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
       <div class="modal-panel">
         <div class="table-head" style="padding:0 0 12px;border-bottom:0">
@@ -1273,9 +1319,12 @@
               <button class="transaction-filter active" type="button" data-modal-transaction-filter="all">All</button>
               <button class="transaction-filter" type="button" data-modal-transaction-filter="nsf">NSFs</button>
               <button class="transaction-filter" type="button" data-modal-transaction-filter="lender">Lenders</button>
-              <button class="transaction-filter" type="button" data-modal-transaction-filter="potential">Potential</button>
+              <button class="transaction-filter" type="button" data-modal-transaction-filter="potential">Potential Lender</button>
               <button class="transaction-filter" type="button" data-modal-transaction-filter="insurance">Insurance</button>
               <button class="transaction-filter" type="button" data-modal-transaction-filter="pos">POS</button>
+              <button class="transaction-filter" type="button" data-modal-transaction-filter="true_revenue">True Revenue</button>
+              <button class="transaction-filter" type="button" data-modal-transaction-filter="potential_revenue">Potential Revenue</button>
+              <button class="transaction-filter" type="button" data-modal-transaction-filter="non_revenue">Non-Revenue</button>
             </div>
             <div class="transaction-filters" role="group" aria-label="Sort statement transactions">
               <button class="transaction-filter active" type="button" data-modal-transaction-sort="date">Date</button>
@@ -1305,6 +1354,6 @@
   </section>
 </div>
 <textarea class="hidden-textarea" id="copyBuffer" aria-hidden="true"></textarea>
-<script src="/static/app.js?v=classification-v2"></script>
+<script src="/static/app.js?v=classification-v3"></script>
 </body>
 </html>
