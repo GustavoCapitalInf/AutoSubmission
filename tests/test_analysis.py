@@ -38,13 +38,31 @@ from analysis.pnc import parse_pnc_statement
 from analysis.rbc import parse_rbc_statement
 from analysis.regions import parse_regions_statement, repair_regions_summary
 from analysis.santander import parse_santander_statement
+from analysis.scanned_small_bank import _section, parse_apex_scanned_statement
 from analysis.secu import parse_secu_statement
 from analysis.wilson_muir import parse_wilson_muir_statement
-from ocr.native_text import parse_native_desjardins
+from ocr.native_text import (
+    parse_native_desjardins,
+    parse_native_navy_federal,
+    parse_native_pdf_text,
+)
 
 
 def _artifact_markdown(filename: str) -> str:
-    return Path("output/new_bank_statements_artifacts", filename).read_text(encoding="utf-8")
+    artifact = Path("output/new_bank_statements_artifacts", filename)
+    if artifact.exists():
+        return artifact.read_text(encoding="utf-8")
+
+    statement_stem = Path(filename[4:]).stem
+    matches = [
+        path for path in Path("Bank Statements").rglob("*.pdf")
+        if path.stem == statement_stem
+    ]
+    assert len(matches) == 1, f"expected one source PDF for missing artifact {filename}"
+    source = matches[0]
+    document = parse_native_pdf_text(source.read_bytes(), source_file=source.name)
+    assert document is not None, f"no native text in source PDF for {filename}"
+    return document.to_markdown()
 
 
 def test_strip_embedded_images_removes_base64_bloat():
@@ -735,8 +753,50 @@ Mbr Business Savings
     assert stmt.ending_balance == -58.52
     assert stmt.stated_average_balance == -12.9
     assert [t.amount for t in stmt.transactions] == [-29.0, -30.0]
-    assert stmt.stated_nsf_count == 2
+    assert stmt.stated_nsf_count is None
+    assert compute_metrics(stmt).nsf_count == 2
     assert reconcile(stmt).ok
+
+
+@pytest.mark.parametrize(
+    ("filename", "transaction_count", "posting_days", "nsf_count", "average_daily_balance"),
+    [
+        ("APRIL 2026.pdf", 80, 11, 1, 87.58),
+        ("MAY 2026.pdf", 87, 15, 2, 73.00),
+        ("JUNE 2026.pdf", 63, 14, 2, 138.77),
+        ("MARCH 2026.pdf", 5, 3, 0, -12.91),
+    ],
+)
+def test_navy_federal_native_layout_preserves_dates_and_descriptions(
+    filename: str,
+    transaction_count: int,
+    posting_days: int,
+    nsf_count: int,
+    average_daily_balance: float,
+):
+    path = Path("Bank Statements/Navy Fed", filename)
+    doc = parse_native_navy_federal(path.read_bytes(), source_file=filename)
+    assert doc is not None
+    assert doc.model == "native-pdf-text+navy-federal-layout"
+
+    report = analyze_markdown(doc.to_markdown(), parse_mode="deterministic")
+    assert len(report.statement.transactions) == transaction_count
+    assert reconcile(report.statement).ok
+    assert report.metrics.nsf_count == nsf_count
+    assert report.statement.stated_nsf_count is None
+
+    adb = report.metrics.adb
+    assert adb is not None
+    assert adb.average_daily_balance == average_daily_balance
+    assert adb.validations["posting_dates_cover_source"] is True
+    assert adb.parsed_posting_days == posting_days
+    assert adb.source_posting_days == posting_days
+    assert adb.missing_posting_dates == []
+    assert adb.ok is True
+    assert report.statement.stated_average_balance is not None
+    assert round(
+        abs(average_daily_balance - report.statement.stated_average_balance), 2
+    ) <= 0.01
 
 
 def test_parse_consumers_primary_business_checking_with_wrapped_amounts():
@@ -811,7 +871,7 @@ def test_parse_ibc_statement_reconciles_corrected_daily_ledger():
     assert reconcile(stmt).ok
     metrics = compute_metrics(stmt)
     assert metrics.average_daily_balance == 4534.03
-    assert metrics.nsf_count == 5
+    assert metrics.nsf_count == 1
     assert metrics.lender_debits > 0
 
 
@@ -1675,8 +1735,8 @@ def test_parse_citizens_native_text_sections():
     assert stmt.stated_average_balance == 822.0
     assert stmt.stated_total_credits == 300.0
     assert stmt.stated_total_debits == 105.0
-    assert report.metrics.effective_nsf_count == 3
-    assert stmt.stated_nsf_count == 3
+    assert report.metrics.effective_nsf_count == 2
+    assert stmt.stated_nsf_count is None
     assert [t.amount for t in stmt.transactions] == [-35.0, -70.0, 100.0, 200.0]
     assert reconcile(stmt).ok
 
@@ -1811,7 +1871,8 @@ Transactions
 Date Description Type Amount Balance
 May 14, 2026 ORIG CO ACH credit $20.00 $115.00
 May 13, 2026 SAMPLE Card -$5.00 $95.00
-Apr 13, 2026 REMOTE ONLINE Deposit $100.00 $100.00
+Apr 30 (...2896)
+Apr 13,2026 REMOTE ONLINE Deposit $100.00 $100.00
 JPMorgan Chase Bank, N.A. Member FDIC
 """
     report = analyze_markdown(md, parse_mode="deterministic")
@@ -1819,7 +1880,10 @@ JPMorgan Chase Bank, N.A. Member FDIC
     assert report.statement.account_name == "SEA WONDERS LLC"
     assert report.statement.beginning_balance == 0.0
     assert report.statement.ending_balance == 115.0
+    assert report.statement.period_start == "2026-04-13"
     assert report.reconciliation.ok
+    assert report.metrics.adb is not None
+    assert report.metrics.adb.validations["posting_dates_cover_source"] is True
     assert report.quality.corporate_use == "manual_review_required"
     assert "not_a_formal_statement" in report.integrity.flags
 
@@ -1858,6 +1922,89 @@ Date Balance Date Balance
     assert report.reconciliation.ok
     assert report.quality.corporate_use == "approved"
     assert report.metrics.average_daily_balance is not None
+
+
+def test_southside_discards_corrupted_ocr_balance_grid_after_detail_reconciles():
+    md = """
+SOUTHSIDE STATEMENT OF ACCOUNT
+THE GRANITE GIRLS, LLC
+BUILDER ACCOUNT
+ACCOUNT SUMMARY
+Commercial Checking
+Account Number 1626833 Statement Dates 6/01/26 thru 6/30/26
+Previous Balance 8,816.33 Days in Statement Period 30
+2 Deposits/Credits 2,300.00
+2 Checks/Debits 1,300.00
+Total Service Charge 0.00
+Interest Paid 0.00
+Ending Balance 9,816.33
+*** DEPOSITS ***
+Date Description Amount
+6/02 Regular Deposit 1,800.00
+6/05 Telephone transfer 500.00
+WITHDRAWALS ***
+Date Description Amount
+6/02 Telephone transfer per Cherie 800.00
+--- Page 2 ---
+SUMMARY BY CHECK NUMBER
+Date Check Number Amount
+6/03 1938 500.00
+DAILY BALANCE SUMMARY
+Date Balance Date Balance
+6/02 19,816.33 6/03 9,316.33 6/30 9,816.33
+"""
+    report = analyze_markdown(md, parse_mode="deterministic")
+    assert report.reconciliation.ok
+    assert report.metrics.adb_ok is True
+    assert all(t.running_balance is None for t in report.statement.transactions)
+
+
+def test_scanned_section_groups_alternative_stop_patterns():
+    assert _section("START wanted FIRST STOP trailing", r"START", r"FIRST STOP|SECOND STOP").strip() == "wanted"
+
+
+def test_apex_scanned_parser_handles_ocr_headings_and_complete_detail():
+    other_debits = "\n".join(
+        f"05/{day:02d}/2026 10.00 Ach withdrawal\nVendor {day}"
+        for day in range(1, 15)
+    )
+    md = f"""
+KLR ENTERPRISES
+SUMMIT BUSINESS CHECKING
+Account Number: ****4124
+Balance Forward From 05/01/2026 1,000.00
+3 Deposits/Credits 300.00 + Minimum Balance 830.00
+17 Withdrawals/Debits 170.00 - Average Balance 1,100.00
+Ending Balance As Of 05/31/2026 1,130.00
+Interest Paid This Period 0.00
+Days In Earnings Period 31
+DATE AMOUNT DESCRIPTION DATE AMOUNT DESCRIPTION
+05/15/2026 100.00 Regular Deposit 05/26/2026 100.00 Regular Deposit
+OTHER CREDITS
+DATE AMOUNT DESCRIPTION
+05/04/2026 100.00 Wire Transfer In
+CHECK NO DATE AMOUNT CHECK NO DATE AMOUNT
+2847 05/01/2026 10.00
+* - denotes missing check number in sequence
+OTHER DEBITS
+DATE AMOUNT DESCRIPTION
+{other_debits}
+SERVICE CHARGES
+DATE AMOUNT DESCRIPTION
+05/29/2026 10.00 Net Service Charge
+SFRVICE CHARGE ANALYSIS
+FEESCHARGED
+DATE AMOUNT DESCRIPTION
+05/13/2026 10.00 NSF Charge
+TOTAL FEES FOR THIS PERIOD
+DAILY BALANCE INFORMATION
+"""
+    stmt = parse_apex_scanned_statement(md)
+    assert stmt is not None
+    assert len(stmt.transactions) == 20
+    assert round(sum(t.amount for t in stmt.transactions if t.amount > 0), 2) == 300.00
+    assert round(-sum(t.amount for t in stmt.transactions if t.amount < 0), 2) == 170.00
+    assert reconcile(stmt).ok
 
 
 def _txn(date, amount, desc="x", bal=None):
@@ -2097,14 +2244,15 @@ def test_metrics_counts_and_nsf():
     assert m.nsf_count == 2
 
 
-def test_metrics_effective_nsf_prefers_bank_stated_count():
+def test_metrics_effective_nsf_uses_classified_rows_over_bank_stated_count():
     s = Statement(stated_nsf_count=4, transactions=[
         _txn("2026-01-02", -30.0, "NSF FEE"),
     ])
     m = compute_metrics(s)
     assert m.nsf_count == 1
-    assert m.effective_nsf_count == 4
-    assert m.nsf_source == "bank_stated"
+    assert m.effective_nsf_count == 1
+    assert m.nsf_source == "classified_line_items"
+    assert any("bank-stated NSF count 4 differs" in note for note in m.notes)
 
 
 def test_metrics_computes_true_revenue_cash_flow_lender_pos_and_loan_counts():

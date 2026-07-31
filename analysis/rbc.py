@@ -78,12 +78,18 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
     default_year: int | None = None
     in_activity = False
     current_date: str | None = None
+    pending_description: list[str] = []
 
     for raw in markdown.splitlines():
         line = re.sub(r"\s+", " ", raw).strip()
         if not line:
             continue
         u = line.upper()
+
+        if line.startswith("--- Page"):
+            in_activity = False
+            pending_description = []
+            continue
 
         pm = _PERIOD_RE.search(line)
         if pm:
@@ -113,9 +119,11 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
 
         if "DATE DESCRIPTION CHEQUES & DEBITS" in u:
             in_activity = True
+            pending_description = []
             continue
         if in_activity and (u.startswith("CLOSING BALANCE") or u.startswith("ACCOUNT FEES:")):
             in_activity = False
+            pending_description = []
             continue
         if not in_activity or default_year is None:
             continue
@@ -135,6 +143,7 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
             rest = line[dm.end():].strip()
             if _DATE_START_RE.match(rest):
                 rest = rest[_DATE_START_RE.match(rest).end():].strip()
+            pending_description = []
         elif rows or current_date is not None:
             fee_breakdown = re.match(r"^\d+\s+Crs\s+@\s+\d+\.\d{2}\s+([\d,]+\.\d{2})$", line, re.IGNORECASE)
             if fee_breakdown and rows and rows[-1]["description"].upper().startswith("REGULAR TRANSACTION FEE"):
@@ -151,6 +160,8 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
 
         amounts = _money_matches(rest)
         if not amounts:
+            if rest:
+                pending_description.append(rest)
             continue
         has_date = bool(dm)
         has_balance = len(amounts) >= 2 and amounts[-1].end() == len(rest) and "TRANSACTION FEE" not in rest.upper()
@@ -158,6 +169,9 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
         amount = abs(_parse_money(amount_match.group(0)) or 0.0)
         running_balance = _parse_money(amounts[-1].group(0)) if has_balance else None
         desc = rest[:amount_match.start()].strip()
+        if pending_description:
+            desc = " ".join([*pending_description, desc]).strip()
+            pending_description = []
         if not desc:
             continue
         if _is_credit(desc):

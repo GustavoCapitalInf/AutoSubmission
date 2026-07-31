@@ -71,8 +71,12 @@ def _render(report: Report) -> str:
     withholding = f"{m.withholding_rate:.2f}%" if m.withholding_rate is not None else "n/a"
     L.append(f"  Lender debits         : ${m.lender_debits:,.2f}  "
              f"(monthly ${m.monthly_lender_debits:,.2f}, withholding {withholding})")
-    L.append(f"  POS / loan count      : {m.pos_count} / {m.loan_count}")
-    L.append(f"  NSF / overdraft       : {m.effective_nsf_count} [{m.nsf_source}]")
+    L.append(
+        f"  POS purchases/credits : {m.pos_count} / {m.pos_credit_count}"
+    )
+    L.append(f"  ATM withdrawals       : {m.atm_withdrawal_count}")
+    L.append(f"  Loan count            : {m.loan_count}")
+    L.append(f"  NSF events            : {m.effective_nsf_count} [{m.nsf_source}]")
     for note in m.notes:
         L.append(f"  note: {note}")
     if report.quality.notes:

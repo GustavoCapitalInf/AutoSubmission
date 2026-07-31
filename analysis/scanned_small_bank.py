@@ -83,7 +83,11 @@ def _sort_txns(txns: list[Transaction]) -> list[Transaction]:
 
 
 def _section(markdown: str, start: str, stop: str) -> str:
-    match = re.search(start + r"(.*?)" + stop, markdown, re.IGNORECASE | re.DOTALL)
+    match = re.search(
+        rf"(?:{start})(.*?)(?:{stop})",
+        markdown,
+        re.IGNORECASE | re.DOTALL,
+    )
     return match.group(1) if match else ""
 
 
@@ -152,6 +156,51 @@ def _parse_checks(block: str, *, sign: int = -1) -> list[Transaction]:
     return txns
 
 
+def _discard_inconsistent_ocr_balances(
+    stmt: Statement,
+    txns: list[Transaction],
+) -> list[Transaction]:
+    """Ignore an OCR balance grid only after the line-item ledger proves complete."""
+    if not any(txn.running_balance is not None for txn in txns):
+        return txns
+    required = (
+        stmt.beginning_balance,
+        stmt.ending_balance,
+        stmt.stated_credit_count,
+        stmt.stated_debit_count,
+        stmt.stated_total_credits,
+        stmt.stated_total_debits,
+    )
+    if any(value is None for value in required):
+        return txns
+
+    credits = [txn for txn in txns if txn.amount > 0]
+    debits = [txn for txn in txns if txn.amount < 0]
+    detail_matches_summary = (
+        len(credits) == stmt.stated_credit_count
+        and len(debits) == stmt.stated_debit_count
+        and abs(sum(txn.amount for txn in credits) - stmt.stated_total_credits) <= 0.01
+        and abs(abs(sum(txn.amount for txn in debits)) - stmt.stated_total_debits) <= 0.01
+        and abs(
+            stmt.beginning_balance
+            + sum(txn.amount for txn in txns)
+            - stmt.ending_balance
+        ) <= 0.01
+    )
+    if not detail_matches_summary:
+        return txns
+
+    expected = stmt.beginning_balance
+    for txn in txns:
+        expected = round(expected + txn.amount, 2)
+        if txn.running_balance is not None and abs(expected - txn.running_balance) > 0.01:
+            return [
+                row.model_copy(update={"running_balance": None})
+                for row in txns
+            ]
+    return txns
+
+
 def parse_southside_scanned_statement(markdown: str) -> Statement | None:
     upper = markdown.upper()
     if "SOUTHSIDE" not in upper or "ACCOUNT SUMMARY" not in upper or "BUILDER ACCOUNT" not in upper:
@@ -199,6 +248,7 @@ def parse_southside_scanned_statement(markdown: str) -> Statement | None:
     txns.extend(_parse_southside_checks(checks, year=year))
     txns = _repair_southside_check_ocr(markdown, txns, stmt)
     txns = _attach_daily_balances(_sort_txns(txns), _daily_balances(markdown))
+    txns = _discard_inconsistent_ocr_balances(stmt, txns)
     if len(txns) < (stmt.stated_credit_count or 0):
         return None
     stmt.transactions = txns
@@ -288,9 +338,10 @@ def parse_apex_scanned_statement(markdown: str) -> Statement | None:
     if "KLR ENTERPRISES" not in upper or "SUMMIT BUSINESS CHECKING" not in upper:
         return None
 
-    text = _compact(markdown)
+    source = re.sub(r"(?<=\d)\.(?=\d{3}\.\d{2}\b)", ",", markdown)
+    text = _compact(source)
     stmt = Statement(bank="Apex Bank", account_name="KLR Enterprises", currency="USD")
-    acct = re.search(r"Account Number:\s*([*A-Z0-9]+)", text, re.IGNORECASE)
+    acct = re.search(r"Account Number:\s*([*%A-Z0-9]+)", text, re.IGNORECASE)
     if acct:
         stmt.account_number = acct.group(1)
     sm = re.search(
@@ -318,14 +369,42 @@ def parse_apex_scanned_statement(markdown: str) -> Statement | None:
     stmt.stated_total_debits = _money(sm.group("debits"))
     stmt.stated_average_balance = _money(sm.group("avg"))
     stmt.stated_interest_paid = _money(sm.group("interest"))
-    stmt.stated_nsf_count = len(re.findall(r"\bNSF Charge\b", markdown, re.IGNORECASE))
-
-    deposits = _section(markdown, r"\bDEPOSITS\b.*?DATE AMOUNT DESCRIPTION", r"OTHER CREDITS")
-    credits = _section(markdown, r"OTHER CREDITS.*?DATE AMOUNT DESCRIPTION", r"ECCHECKS|CHECKS")
-    checks = _section(markdown, r"(?:ECCHECKS|CHECKS)", r"OTHER DEBITS")
-    debits = _section(markdown, r"OTHER DEBITS.*?DATE AMOUNT DESCRIPTION", r"SERVICE CHARGES")
-    service = _section(markdown, r"SERVICE CHARGES.*?DATE AMOUNT DESCRIPTION", r"SERVICE CHARGE ANALYSIS")
-    fees = _section(markdown, r"FEES CHARGED.*?DATE AMOUNT DESCRIPTION", r"TOTAL FEES|DAILY BALANCE INFORMATION")
+    deposits = _section(
+        source,
+        r"DATE AMOUNT DESCRIPTION\s+DATE AMOUNT DESCRIPTION",
+        r"OTHER CREDITS",
+    )
+    credits = _section(
+        source,
+        r"OTHER CREDITS.*?DATE AMOUNT DESCRIPTION",
+        r"CHECK NO DATE AMOUNT CHECK NO DATE AMOUNT",
+    )
+    checks = _section(
+        source,
+        r"CHECK NO DATE AMOUNT CHECK NO DATE AMOUNT",
+        r"[^\n]*denotes missing check[^\n]*",
+    )
+    debits = _section(
+        source,
+        r"[^\n]*denotes missing check[^\n]*",
+        r"SERVICE CHARGES",
+    )
+    debits = re.sub(
+        r"\s*--- Page \d+ ---\s+KLR Enterprises.*?DATE AMOUNT DESCRIPTION\s*",
+        "\n",
+        debits,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    service = _section(
+        source,
+        r"SERVICE CHARGES.*?DATE AMOUNT DESCRIPTION",
+        r"S[EF]RVICE CHARGE ANALY",
+    )
+    fees = _section(
+        source,
+        r"FEES\s*CHARGED.*?DATE AMOUNT DESCRIPTION",
+        r"TOTAL FEES",
+    )
 
     txns: list[Transaction] = []
     txns.extend(_parse_two_column_date_amount_desc(deposits, sign=1))
@@ -334,7 +413,8 @@ def parse_apex_scanned_statement(markdown: str) -> Statement | None:
     txns.extend(_parse_date_amount_description_rows(debits, sign=-1))
     txns.extend(_parse_date_amount_description_rows(service, sign=-1))
     txns.extend(_parse_date_amount_description_rows(fees, sign=-1))
-    txns = _attach_daily_balances(_sort_txns(txns), _daily_balances(markdown))
+    txns = _attach_daily_balances(_sort_txns(txns), _daily_balances(source))
+    txns = _discard_inconsistent_ocr_balances(stmt, txns)
     if len(txns) < 20:
         return None
     stmt.transactions = txns

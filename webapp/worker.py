@@ -6,6 +6,7 @@ from ocr.document import StatementMarkdown
 from ocr.local_tesseract import parse_local_tesseract
 from ocr.native_text import (
     parse_native_desjardins,
+    parse_native_navy_federal,
     parse_native_pdf_text,
     parse_native_td_canada,
     parse_native_wells_fargo,
@@ -45,7 +46,8 @@ def report_to_json(report: Report) -> dict:
 
 def _native_statement(pdf_bytes: bytes, filename: str) -> StatementMarkdown | None:
     return (
-        parse_native_td_canada(pdf_bytes, source_file=filename)
+        parse_native_navy_federal(pdf_bytes, source_file=filename)
+        or parse_native_td_canada(pdf_bytes, source_file=filename)
         or parse_native_wells_fargo(pdf_bytes, source_file=filename)
         or parse_native_desjardins(pdf_bytes, source_file=filename)
         or parse_native_pdf_text(pdf_bytes, source_file=filename)

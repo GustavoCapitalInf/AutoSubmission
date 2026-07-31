@@ -128,6 +128,41 @@ def _consume_following_date_desc(lines: list[str], idx: int) -> tuple[str, str, 
     return txn_date, " ".join(parts), idx
 
 
+def _parse_native_transactions(
+    markdown: str, account: str, *, year: int, beginning: float
+) -> list[Transaction] | None:
+    txns: list[Transaction] = []
+    prev_balance = beginning
+    for line in markdown.splitlines():
+        if not line.startswith("NFCU_TX|"):
+            continue
+        parts = line.split("|", 5)
+        if len(parts) != 6 or parts[1] != account:
+            continue
+        _, _, txn_date, printed_amount, printed_balance, description = parts
+        if not _is_date(txn_date):
+            return None
+        amount = _money(printed_amount)
+        balance = _money(printed_balance)
+        if amount is None or balance is None:
+            return None
+        signed = round(balance - prev_balance, 2)
+        if abs(abs(signed) - abs(amount)) > 0.01:
+            return None
+        txns.append(
+            Transaction(
+                date=date(year, int(txn_date[:2]), int(txn_date[3:])).isoformat(),
+                description=re.sub(r"\s+", " ", description).strip()
+                or "Navy Federal transaction",
+                amount=signed,
+                direction="credit" if signed >= 0 else "debit",
+                running_balance=balance,
+            )
+        )
+        prev_balance = balance
+    return txns or None
+
+
 def _parse_transactions(section: str, account: str, *, year: int, beginning: float) -> list[Transaction] | None:
     lines = [line.strip() for line in section.splitlines() if line.strip()]
     lines = [line for line in lines if not _line_is_noise(line, account)]
@@ -185,18 +220,9 @@ def _parse_transactions(section: str, account: str, *, year: int, beginning: flo
 
             txn_date = current_date
             description = " ".join(desc_parts).strip()
-            # KNOWN DEFECT (flagged, not silent): Navy Federal's flattened text
-            # carries two row orders - "date / description / amount balance" and
-            # "amount / balance / date / description" - and this sign-based rule
-            # picks the wrong one often enough to fold posting dates together, so
-            # the daily ledger is wrong on all four sample statements. The ADB
-            # engine's date-coverage guard catches it, so these statements report
-            # ok=False rather than a plausible wrong number.
-            #
-            # Do not "fix" this by always looking ahead: that dates the rows almost
-            # perfectly (ADB lands within $0.01 of the bank-printed average) but
-            # consumes the following row's description, which halves the NSF count.
-            # Correcting it properly needs a layout-aware rewrite of this loop.
+            # Compatibility path for OCR text without native layout markers.
+            # Digitally generated Navy Federal PDFs use the coordinate-aware rows
+            # above, where date and description ownership is explicit.
             if signed > 0:
                 following = _consume_following_date_desc(lines, next_idx)
                 if following is not None:
@@ -237,7 +263,10 @@ def parse_navy_federal_statement(markdown: str) -> Statement | None:
     section = _checking_section(markdown, account)
     if not section:
         return None
-    txns = _parse_transactions(section, account, year=year, beginning=beginning)
+    if "NFCU_NATIVE_TRANSACTIONS_BEGIN" in markdown:
+        txns = _parse_native_transactions(markdown, account, year=year, beginning=beginning)
+    else:
+        txns = _parse_transactions(section, account, year=year, beginning=beginning)
     if not txns:
         return None
     if abs(sum(tx.amount for tx in txns if tx.amount > 0) - credits) > 0.01:
@@ -263,5 +292,4 @@ def parse_navy_federal_statement(markdown: str) -> Statement | None:
         stated_average_balance=_average_balance(section),
         transactions=txns,
     )
-    stmt.stated_nsf_count = len([tx for tx in txns if "RETURNED ITEM FEE" in tx.description.upper()])
     return stmt

@@ -144,6 +144,5 @@ def parse_consumers_statement(markdown: str) -> Statement | None:
         ending_balance=ending_balance,
         stated_total_credits=credits,
         stated_total_debits=debits,
-        stated_nsf_count=0,
         transactions=txns,
     )

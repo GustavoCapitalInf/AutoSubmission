@@ -17,6 +17,7 @@ from ocr.document import StatementMarkdown
 from ocr.local_tesseract import parse_local_tesseract
 from ocr.native_text import (
     parse_native_desjardins,
+    parse_native_navy_federal,
     parse_native_pdf_text,
     parse_native_td_canada,
     parse_native_wells_fargo,
@@ -48,6 +49,12 @@ FIELDS = [
     "reconciliation_issues",
     "avg_balance",
     "avg_source",
+    "adb_ok",
+    "adb_validations",
+    "adb_warnings",
+    "pos_count",
+    "pos_credit_count",
+    "atm_withdrawal_count",
     "total_credits",
     "total_debits",
     "cash_flow",
@@ -61,7 +68,8 @@ FIELDS = [
 
 def native_statement(pdf_bytes: bytes, source_file: str = "") -> StatementMarkdown | None:
     return (
-        parse_native_td_canada(pdf_bytes, source_file=source_file)
+        parse_native_navy_federal(pdf_bytes, source_file=source_file)
+        or parse_native_td_canada(pdf_bytes, source_file=source_file)
         or parse_native_wells_fargo(pdf_bytes, source_file=source_file)
         or parse_native_desjardins(pdf_bytes, source_file=source_file)
         or parse_native_pdf_text(pdf_bytes, source_file=source_file)
@@ -151,6 +159,7 @@ def audit_file(
             json_path = str(json_file)
 
         s, r, m, d = report.statement, report.reconciliation, report.metrics, report.detection
+        adb = m.adb
         return {
             **base,
             "native_status": source_status,
@@ -175,6 +184,15 @@ def audit_file(
             "reconciliation_issues": "; ".join(r.issues),
             "avg_balance": f"{m.average_balance:.2f}" if m.average_balance is not None else "",
             "avg_source": m.average_balance_source or "",
+            "adb_ok": _summary(adb.ok if adb and adb.daily_balances else None),
+            "adb_validations": "; ".join(
+                f"{name}={_summary(passed)}"
+                for name, passed in (adb.validations.items() if adb else [])
+            ),
+            "adb_warnings": "; ".join(adb.warnings if adb else []),
+            "pos_count": m.pos_count,
+            "pos_credit_count": m.pos_credit_count,
+            "atm_withdrawal_count": m.atm_withdrawal_count,
             "total_credits": f"{m.effective_total_deposits:.2f}",
             "total_debits": f"{m.effective_total_withdrawals:.2f}",
             "cash_flow": f"{m.cash_flow:.2f}",

@@ -208,8 +208,29 @@ def source_posting_dates(markdown: str, period_start: date, period_end: date) ->
     possibly missing a collapsed date on a layout not represented there. A bare
     date line sitting immediately above an unrelated posting row can still be
     counted, since the money-proximity test cannot tell the two apart.
+
+    Layout-aware native extractors can provide a scoped
+    `SOURCE_POSTING_DATES_BEGIN` block. That authoritative source list takes
+    precedence over the fallback heuristic, avoiding dates from other accounts
+    in the same PDF.
     """
     lines = markdown.splitlines()
+    if "SOURCE_POSTING_DATES_BEGIN" in lines:
+        found: set[date] = set()
+        inside = False
+        for line in lines:
+            if line == "SOURCE_POSTING_DATES_BEGIN":
+                inside = True
+                continue
+            if line == "SOURCE_POSTING_DATES_END":
+                break
+            if not inside or not line.startswith("SOURCE_POSTING_DATE|"):
+                continue
+            parsed = _row_date(line.split("|", 1)[1], period_start, period_end)
+            if parsed is not None:
+                found.add(parsed)
+        return found
+
     found: set[date] = set()
     for index, line in enumerate(lines):
         if not _is_posting_row(line):
@@ -222,6 +243,10 @@ def source_posting_dates(markdown: str, period_start: date, period_end: date) ->
         # a money amount close by to tell them apart.
         match = next(p.match(line) for p in _ROW_DATE_PATTERNS if p.match(line))
         remainder = line[match.end():].strip()
+        # Chase card rows can begin with the card's purchase date followed only
+        # by a masked card suffix. That is not the account posting date.
+        if re.fullmatch(r"\(\s*\.\.\.\s*\d+\s*\)", remainder):
+            continue
         if len(remainder) < 3 and not _MONEY_RE.search(line):
             lookahead = [l for l in lines[index + 1: index + 5] if l.strip()][:3]
             if not any(_MONEY_RE.search(l) for l in lookahead):

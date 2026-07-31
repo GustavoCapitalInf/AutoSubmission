@@ -188,12 +188,6 @@ def _misc_transactions(markdown: str, *, year: int) -> list[Transaction]:
     return txns
 
 
-def _nsf_count(txns: list[Transaction], service_charge: float) -> int | None:
-    hits = sum(1 for tx in txns if "NSF" in tx.description.upper() or "NAF" in tx.description.upper())
-    service_hits = int(round(service_charge / 15.0)) if service_charge and service_charge < 100 else 0
-    return hits or service_hits or None
-
-
 def parse_banco_popular_statement(markdown: str) -> Statement | None:
     if "FLEXICUENTA DE NEGOCIOS" not in markdown or "Banco Popular" not in markdown and "TeleBanco Comercial" not in markdown:
         return None
@@ -235,5 +229,4 @@ def parse_banco_popular_statement(markdown: str) -> Statement | None:
         stated_average_balance=_average_balance(markdown),
         transactions=txns,
     )
-    stmt.stated_nsf_count = _nsf_count(txns, service_charge)
     return stmt

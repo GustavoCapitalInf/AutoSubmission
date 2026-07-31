@@ -7,21 +7,14 @@ audit trail. This module consumes that result and exposes it on `Metrics`
 (`average_daily_balance`, `daily_balance_sum`, `calendar_day_count`, `adb`).
 """
 from __future__ import annotations
-import re
 from dataclasses import dataclass, field
 from datetime import date
 from statistics import median
 from .adb import AverageDailyBalanceResult, compute_average_daily_balance
 from .dates import parse_date as _parse_date
 from .schema import Statement
-from .lenders import find_lender_match, is_loan_transaction, is_pos_transaction
-
-# NSF / overdraft / returned-item fee signatures seen in real statements.
-_NSF_RE = re.compile(
-    r"\b(nsf|non[- ]?sufficient|insufficient funds|overdraft|returned item|"
-    r"return(ed)? (deposit|check|item)|uncollected funds)\b",
-    re.IGNORECASE,
-)
+from .lenders import find_lender_match, is_loan_transaction
+from .transaction_classifier import classify_transaction
 
 
 @dataclass
@@ -60,7 +53,7 @@ class Metrics:
     nsf_count: int = 0                     # from line items (a lower bound if detail is incomplete)
     stated_nsf_count: int | None = None    # bank-printed count this period, when available
     effective_nsf_count: int = 0
-    nsf_source: str = "line_items"
+    nsf_source: str = "classified_line_items"
     lender_credits: float = 0.0
     lender_debits: float = 0.0
     monthly_lender_debits: float = 0.0
@@ -68,6 +61,8 @@ class Metrics:
     cash_flow: float = 0.0
     withholding_rate: float | None = None
     pos_count: int = 0
+    pos_credit_count: int = 0
+    atm_withdrawal_count: int = 0
     loan_count: int = 0
     notes: list[str] = field(default_factory=list)
 
@@ -130,6 +125,7 @@ def compute_metrics(
     m.stated_average_balance = stmt.stated_average_balance
     m.stated_nsf_count = stmt.stated_nsf_count
     lender_debit_groups: dict[str, list[tuple[date | None, float]]] = {}
+    counted_pos_rows: set[tuple[str, str, float, float | None]] = set()
     for t in stmt.transactions:
         if t.amount >= 0:
             m.total_deposits += t.amount
@@ -137,7 +133,8 @@ def compute_metrics(
         else:
             m.total_withdrawals += -t.amount
             m.num_withdrawals += 1
-        if _NSF_RE.search(t.description):
+        classification = classify_transaction(t.description, t.amount)
+        if classification.is_nsf_event:
             m.nsf_count += 1
         lender_match = find_lender_match(t.description)
         if lender_match is not None:
@@ -146,8 +143,20 @@ def compute_metrics(
             elif t.amount < 0:
                 m.lender_debits += -t.amount
                 lender_debit_groups.setdefault(lender_match[0], []).append((_parse_date(t.date), -t.amount))
-        if is_pos_transaction(t.description):
-            m.pos_count += 1
+        if classification.is_pos_purchase:
+            pos_key = (
+                t.date,
+                classification.normalized_description,
+                round(t.amount, 2),
+                round(t.running_balance, 2) if t.running_balance is not None else None,
+            )
+            if pos_key not in counted_pos_rows:
+                m.pos_count += 1
+                counted_pos_rows.add(pos_key)
+        if classification.is_pos_credit_or_refund:
+            m.pos_credit_count += 1
+        if classification.is_atm_withdrawal:
+            m.atm_withdrawal_count += 1
         if is_loan_transaction(t.description):
             m.loan_count += 1
     m.total_deposits = round(m.total_deposits, 2)
@@ -242,9 +251,11 @@ def compute_metrics(
         if stmt.stated_debit_count is not None:
             m.effective_num_withdrawals = stmt.stated_debit_count
 
-    if stmt.stated_nsf_count is not None:
-        m.effective_nsf_count = stmt.stated_nsf_count
-        m.nsf_source = "bank_stated"
+    if stmt.stated_nsf_count is not None and stmt.stated_nsf_count != m.nsf_count:
+        m.notes.append(
+            f"bank-stated NSF count {stmt.stated_nsf_count} differs from "
+            f"{m.nsf_count} classified posted row(s); using the row count"
+        )
     m.true_revenue = round(m.effective_total_deposits - m.lender_credits, 2)
     m.cash_flow = round(m.effective_total_deposits - m.effective_total_withdrawals, 2)
     if m.true_revenue > 0 and m.monthly_lender_debits > 0:

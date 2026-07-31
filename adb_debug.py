@@ -23,6 +23,7 @@ from ocr.document import StatementMarkdown
 from ocr.local_tesseract import parse_local_tesseract
 from ocr.native_text import (
     parse_native_desjardins,
+    parse_native_navy_federal,
     parse_native_pdf_text,
     parse_native_td_canada,
     parse_native_wells_fargo,
@@ -34,20 +35,23 @@ _TEXT_SUFFIXES = {".md", ".markdown", ".txt"}
 
 def _native_statement(pdf_bytes: bytes, source_file: str = "") -> StatementMarkdown | None:
     return (
-        parse_native_td_canada(pdf_bytes, source_file=source_file)
+        parse_native_navy_federal(pdf_bytes, source_file=source_file)
+        or parse_native_td_canada(pdf_bytes, source_file=source_file)
         or parse_native_wells_fargo(pdf_bytes, source_file=source_file)
         or parse_native_desjardins(pdf_bytes, source_file=source_file)
         or parse_native_pdf_text(pdf_bytes, source_file=source_file)
     )
 
 
-def _statement_from_path(path: Path, *, use_local_ocr: bool, parse_mode: str) -> Statement:
+def _statement_from_path(
+    path: Path, *, use_local_ocr: bool, parse_mode: str
+) -> tuple[Statement, str | None]:
     suffix = path.suffix.lower()
 
     if suffix == ".json":
         payload = json.loads(path.read_text(encoding="utf-8"))
         # Accept either a bare Statement or a full analysis payload.
-        return Statement.model_validate(payload.get("statement", payload))
+        return Statement.model_validate(payload.get("statement", payload)), None
 
     if suffix in _TEXT_SUFFIXES:
         markdown = path.read_text(encoding="utf-8", errors="replace")
@@ -63,7 +67,7 @@ def _statement_from_path(path: Path, *, use_local_ocr: bool, parse_mode: str) ->
     else:
         raise RuntimeError(f"unsupported file type: {path.suffix or path.name}")
 
-    return analyze_markdown(markdown, parse_mode=parse_mode).statement
+    return analyze_markdown(markdown, parse_mode=parse_mode).statement, markdown
 
 
 def _statement_files(target: Path) -> list[Path]:
@@ -97,8 +101,10 @@ def main() -> int:
     failures = 0
     for path in files:
         try:
-            stmt = _statement_from_path(path, use_local_ocr=args.local_ocr, parse_mode=args.parse_mode)
-            result = compute_average_daily_balance(stmt)
+            stmt, source_markdown = _statement_from_path(
+                path, use_local_ocr=args.local_ocr, parse_mode=args.parse_mode
+            )
+            result = compute_average_daily_balance(stmt, source_markdown=source_markdown)
         except Exception as exc:  # a bad file must not abort a directory sweep
             failures += 1
             print(f"{path.name}: ERROR {type(exc).__name__}: {exc}", file=sys.stderr)

@@ -72,18 +72,6 @@ def _average_balance(text: str) -> float | None:
     return abs(_money(m.group(1)) or 0.0) if m else None
 
 
-def _nsf_count(text: str) -> int | None:
-    period = re.search(
-        r"Total Returned Item Fees \(NSF\)\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})",
-        text,
-        re.IGNORECASE,
-    )
-    if not period:
-        return None
-    amount = abs(_money(period.group(1)) or 0.0)
-    return int(round(amount / 36.0)) if amount else 0
-
-
 def _section_chunks(markdown: str, heading: str) -> list[str]:
     activity = re.search(r"Activity Detail(?P<body>.*?)(?:Detail of Services Used During Current Period|Member FDIC|$)", markdown, re.DOTALL | re.IGNORECASE)
     if not activity:
@@ -142,7 +130,6 @@ def parse_pnc_statement(markdown: str) -> Statement | None:
         stated_total_credits=credits,
         stated_total_debits=debits,
         stated_average_balance=_average_balance(markdown),
-        stated_nsf_count=_nsf_count(markdown),
     )
     acct = re.search(r"Primary Account Number:\s*([X0-9-]+)", markdown, re.IGNORECASE)
     if acct:

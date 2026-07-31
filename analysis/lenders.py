@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import re
 
+from .transaction_classifier import (
+    classify_transaction,
+    normalize_transaction_description,
+)
+
 LENDER_KEYWORDS: dict[str, list[str]] = {
     "ACH CAPITAL": ["ACH CAPITAL"],
     "AFFIRM": ["AFFIRM", "AFFIRMCOM", "AFFIRM PAY", "AFFIRM COM", "AFFIRM COM PAYME"],
@@ -93,17 +98,13 @@ FALSE_LENDER_KEYWORDS: list[str] = [
     "CLOVER", "TOAST",
 ]
 
-POS_KEYWORDS = [
-    "CARD PURCHASE", "CHECKCARD", "POS", "INTERAC PURCHASE", "DEBIT CARD PURCHASE", "POINT OF SALE",
-]
-
 LOAN_KEYWORDS = [
     "LOAN", "MORTGAGE", "MORTG", "LINE OF CREDIT", "LOC PMT", "LOC PYMT", "LOC PAY", "SBA",
 ]
 
 
 def normalize_description(description: str) -> str:
-    return re.sub(r"\s+", " ", description.upper()).strip()
+    return normalize_transaction_description(description)
 
 
 def _contains_alias(text: str, alias: str) -> bool:
@@ -129,9 +130,8 @@ def has_false_lender_keyword(description: str) -> bool:
     return any(_contains_alias(text, alias) for alias in FALSE_LENDER_KEYWORDS)
 
 
-def is_pos_transaction(description: str) -> bool:
-    text = normalize_description(description)
-    return any(_contains_alias(text, alias) for alias in POS_KEYWORDS)
+def is_pos_transaction(description: str, amount: float = -1.0) -> bool:
+    return classify_transaction(description, amount).is_pos_purchase
 
 
 def is_loan_transaction(description: str) -> bool:

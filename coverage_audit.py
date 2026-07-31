@@ -27,7 +27,8 @@ FIELDS = [
     "reconciles", "credit_coverage", "debit_coverage", "avg_balance",
     "avg_source", "deposits", "deposit_count", "withdrawals",
     "withdrawal_count", "true_revenue", "cash_flow", "lender_credits",
-    "lender_debits", "monthly_lender_debits", "withholding_rate", "pos_count", "loan_count",
+    "lender_debits", "monthly_lender_debits", "withholding_rate", "pos_count",
+    "pos_credit_count", "atm_withdrawal_count", "loan_count",
     "nsf", "known_funders", "recurring_debit_groups",
     "markdown", "json", "error",
 ]
@@ -87,6 +88,8 @@ def _row(path: Path, root: Path, markdown_path: Path, json_path: Path, doc, repo
         "monthly_lender_debits": f"{m.monthly_lender_debits:.2f}",
         "withholding_rate": f"{m.withholding_rate:.2f}" if m.withholding_rate is not None else "",
         "pos_count": m.pos_count,
+        "pos_credit_count": m.pos_credit_count,
+        "atm_withdrawal_count": m.atm_withdrawal_count,
         "loan_count": m.loan_count,
         "nsf": m.effective_nsf_count,
         "known_funders": "; ".join(fm.funder for fm in d.known_funders),

@@ -82,7 +82,10 @@ def _parse_chase_business_export(markdown: str) -> Statement | None:
     display_rows: list[Transaction] = []
     current_date: date | None = None
     month_names = "|".join(_EXPORT_MONTHS)
-    row_date_re = re.compile(rf"^({month_names})[a-z]*\s+(\d{{1,2}}),\s+(\d{{4}})\s+(.+)$", re.IGNORECASE)
+    row_date_re = re.compile(
+        rf"^({month_names})[a-z]*\s+(\d{{1,2}}),?\s*(\d{{4}})\s+(.+)$",
+        re.IGNORECASE,
+    )
 
     for raw_line in markdown.splitlines():
         line = raw_line.strip()

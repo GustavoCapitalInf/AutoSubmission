@@ -116,7 +116,6 @@ def parse_midflorida_statement(markdown: str) -> Statement | None:
         stated_total_debits=debits,
         stated_credit_count=int(credit_count),
         stated_debit_count=int(debit_count),
-        stated_nsf_count=len([t for t in txns if "NSF" in t.description.upper()]),
         transactions=txns,
     )
     return stmt

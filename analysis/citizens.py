@@ -130,16 +130,6 @@ def _parse_checks(markdown: str, *, year: int) -> list[Transaction]:
     return txns
 
 
-def _nsf_count(txns: list[Transaction]) -> int | None:
-    count = 0
-    for tx in txns:
-        if "RETURNED ITEM FEE" not in tx.description.upper() and "OVERDRAFT FEE" not in tx.description.upper():
-            continue
-        m = re.search(r"\(\s*(\d+)\s+AT\s+\$?35(?:\s+EACH)?\s*\)", tx.description, re.IGNORECASE)
-        count += int(m.group(1)) if m else 1
-    return count
-
-
 def parse_citizens_statement(markdown: str) -> Statement | None:
     if "citizensbank.com" not in markdown.lower() or "Business Advisor Checking" not in markdown:
         return None
@@ -171,5 +161,4 @@ def parse_citizens_statement(markdown: str) -> Statement | None:
     if not txns:
         return None
     stmt.transactions = txns
-    stmt.stated_nsf_count = _nsf_count(txns)
     return stmt

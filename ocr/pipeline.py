@@ -5,6 +5,7 @@ from .document import StatementMarkdown
 from .config import load_settings
 from .native_text import (
     parse_native_desjardins,
+    parse_native_navy_federal,
     parse_native_pdf_text,
     parse_native_td_canada,
     parse_native_wells_fargo,
@@ -35,7 +36,9 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
     (in page order) to show what the OCR is reading in real time. `page_ocr_fn`
     is injectable for tests and receives a single page image."""
     if page_ocr_fn is None and not force_ocr:
-        native = parse_native_td_canada(pdf_bytes, source_file=source_file)
+        native = parse_native_navy_federal(pdf_bytes, source_file=source_file)
+        if native is None:
+            native = parse_native_td_canada(pdf_bytes, source_file=source_file)
         if native is None:
             native = parse_native_wells_fargo(pdf_bytes, source_file=source_file)
         if native is None:
