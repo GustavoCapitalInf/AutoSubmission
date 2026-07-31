@@ -9,12 +9,12 @@ audit trail. This module consumes that result and exposes it on `Metrics`
 from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
-from statistics import median
 from .adb import AverageDailyBalanceResult, compute_average_daily_balance
-from .dates import parse_date as _parse_date
 from .schema import Statement
-from .lenders import find_lender_match, is_loan_transaction
-from .transaction_classifier import classify_transaction
+from .transaction_classifier import (
+    TransactionClassification,
+    classify_statement_transactions,
+)
 
 
 @dataclass
@@ -56,13 +56,31 @@ class Metrics:
     nsf_source: str = "classified_line_items"
     lender_credits: float = 0.0
     lender_debits: float = 0.0
+    lender_debit_count: int = 0
+    lenders_detected: int = 0
+    potential_lenders_detected: int = 0
     monthly_lender_debits: float = 0.0
+    insurance_count: int = 0
+    insurance_total: float = 0.0
     true_revenue: float = 0.0
     cash_flow: float = 0.0
     withholding_rate: float | None = None
+    withholding_numerator: float = 0.0
+    withholding_denominator: float = 0.0
+    withholding_formula: str = "abs(total_qualifying_lender_debits) / eligible_deposits * 100"
+    withholding_review_required: bool = False
+    eligible_deposits: float = 0.0
+    eligible_deposit_definition: str = (
+        "effective total deposits minus recognized lender funding credits"
+    )
+    lender_evidence: list[TransactionClassification] = field(default_factory=list)
+    insurance_evidence: list[TransactionClassification] = field(default_factory=list)
     pos_count: int = 0
     pos_credit_count: int = 0
     atm_withdrawal_count: int = 0
+    ach_credit_count: int = 0
+    ach_debit_count: int = 0
+    check_count: int = 0
     loan_count: int = 0
     notes: list[str] = field(default_factory=list)
 
@@ -98,72 +116,68 @@ def _summary_debits_with_service_charge(stmt: Statement) -> float | None:
     return debits
 
 
-def _monthly_lender_debit_total(groups: dict[str, list[tuple[date | None, float]]]) -> float:
-    total = 0.0
-    for payments in groups.values():
-        amounts = [amount for _, amount in payments]
-        if not amounts:
-            continue
-        dates = sorted({d for d, _ in payments if d is not None})
-        gaps = [(dates[i] - dates[i - 1]).days for i in range(1, len(dates))]
-        weekly_hits = sum(1 for gap in gaps if 5 <= gap <= 9)
-        if gaps and weekly_hits >= max(1, (len(gaps) + 1) // 2):
-            total += median(amounts) * 4.33
-        else:
-            total += sum(amounts)
-    return round(total, 2)
-
-
 def compute_metrics(
     stmt: Statement,
     *,
     trust_stated_summary: bool | None = None,
     trust_running_balances: bool = True,
     source_markdown: str | None = None,
+    classifications: list[TransactionClassification] | None = None,
 ) -> Metrics:
     m = Metrics()
     m.stated_average_balance = stmt.stated_average_balance
     m.stated_nsf_count = stmt.stated_nsf_count
-    lender_debit_groups: dict[str, list[tuple[date | None, float]]] = {}
-    counted_pos_rows: set[tuple[str, str, float, float | None]] = set()
-    for t in stmt.transactions:
+    records = classifications if classifications is not None else classify_statement_transactions(stmt)
+    if len(records) != len(stmt.transactions):
+        raise ValueError("classification count must equal transaction count")
+    confirmed_entities: set[str] = set()
+    potential_entities: set[str] = set()
+    for t, classification in zip(stmt.transactions, records):
         if t.amount >= 0:
             m.total_deposits += t.amount
             m.num_deposits += 1
         else:
             m.total_withdrawals += -t.amount
             m.num_withdrawals += 1
-        classification = classify_transaction(t.description, t.amount)
         if classification.is_nsf_event:
             m.nsf_count += 1
-        lender_match = find_lender_match(t.description)
-        if lender_match is not None:
-            if t.amount > 0:
-                m.lender_credits += t.amount
-            elif t.amount < 0:
-                m.lender_debits += -t.amount
-                lender_debit_groups.setdefault(lender_match[0], []).append((_parse_date(t.date), -t.amount))
-        if classification.is_pos_purchase:
-            pos_key = (
-                t.date,
-                classification.normalized_description,
-                round(t.amount, 2),
-                round(t.running_balance, 2) if t.running_balance is not None else None,
-            )
-            if pos_key not in counted_pos_rows:
-                m.pos_count += 1
-                counted_pos_rows.add(pos_key)
-        if classification.is_pos_credit_or_refund:
+        if classification.contributes_to_lender_credit_exclusion:
+            m.lender_credits += abs(t.amount)
+        if classification.contributes_to_lender_totals:
+            m.lender_debits += abs(t.amount)
+            m.lender_debit_count += 1
+            m.lender_evidence.append(classification)
+        if classification.contributes_to_lender_count and classification.canonical_entity:
+            confirmed_entities.add(classification.canonical_entity)
+        if classification.contributes_to_potential_lender_count and classification.canonical_entity:
+            potential_entities.add(classification.canonical_entity)
+        if classification.contributes_to_insurance_totals:
+            m.insurance_count += 1
+            m.insurance_total += abs(t.amount)
+            m.insurance_evidence.append(classification)
+        if classification.is_pos_purchase and classification.duplicate_of is None:
+            m.pos_count += 1
+        if classification.is_pos_credit_or_refund and classification.duplicate_of is None:
             m.pos_credit_count += 1
-        if classification.is_atm_withdrawal:
+        if classification.is_atm_withdrawal and classification.duplicate_of is None:
             m.atm_withdrawal_count += 1
-        if is_loan_transaction(t.description):
+        if classification.is_ach and classification.duplicate_of is None:
+            if t.amount >= 0:
+                m.ach_credit_count += 1
+            else:
+                m.ach_debit_count += 1
+        if classification.is_check and classification.duplicate_of is None:
+            m.check_count += 1
+        if classification.is_loan_payment and classification.duplicate_of is None:
             m.loan_count += 1
     m.total_deposits = round(m.total_deposits, 2)
     m.total_withdrawals = round(m.total_withdrawals, 2)
     m.lender_credits = round(m.lender_credits, 2)
     m.lender_debits = round(m.lender_debits, 2)
-    m.monthly_lender_debits = _monthly_lender_debit_total(lender_debit_groups)
+    m.monthly_lender_debits = m.lender_debits
+    m.insurance_total = round(m.insurance_total, 2)
+    m.lenders_detected = len(confirmed_entities)
+    m.potential_lenders_detected = len(potential_entities)
     m.effective_total_deposits = m.total_deposits
     m.effective_total_withdrawals = m.total_withdrawals
     m.effective_num_deposits = m.num_deposits
@@ -258,6 +272,14 @@ def compute_metrics(
         )
     m.true_revenue = round(m.effective_total_deposits - m.lender_credits, 2)
     m.cash_flow = round(m.effective_total_deposits - m.effective_total_withdrawals, 2)
-    if m.true_revenue > 0 and m.monthly_lender_debits > 0:
-        m.withholding_rate = round((m.monthly_lender_debits / m.true_revenue) * 100, 2)
+    m.eligible_deposits = m.true_revenue
+    m.withholding_numerator = m.lender_debits
+    m.withholding_denominator = m.eligible_deposits
+    if m.withholding_denominator <= 0:
+        m.withholding_review_required = True
+        m.notes.append("withholding rate is unavailable because eligible deposits are zero or missing")
+    else:
+        m.withholding_rate = (
+            abs(m.withholding_numerator) / m.withholding_denominator
+        ) * 100
     return m

@@ -9,8 +9,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import asdict
 from analysis.pipeline import analyze_markdown, Report
+from analysis.serialization import report_to_dict
 
 
 def _render(report: Report) -> str:
@@ -69,8 +69,15 @@ def _render(report: Report) -> str:
              f"(deposits minus lender credits ${m.lender_credits:,.2f})")
     L.append(f"  Cash flow             : ${m.cash_flow:,.2f}")
     withholding = f"{m.withholding_rate:.2f}%" if m.withholding_rate is not None else "n/a"
-    L.append(f"  Lender debits         : ${m.lender_debits:,.2f}  "
-             f"(monthly ${m.monthly_lender_debits:,.2f}, withholding {withholding})")
+    L.append(
+        f"  Lender debits         : {m.lender_debit_count} row(s), ${m.lender_debits:,.2f}  "
+        f"(withholding {withholding})"
+    )
+    L.append(
+        f"  Withholding working   : ${m.withholding_numerator:,.2f} / "
+        f"${m.withholding_denominator:,.2f} eligible deposits"
+    )
+    L.append(f"  Insurance debits      : {m.insurance_count} row(s), ${m.insurance_total:,.2f}")
     L.append(
         f"  POS purchases/credits : {m.pos_count} / {m.pos_credit_count}"
     )
@@ -93,6 +100,21 @@ def _render(report: Report) -> str:
                      f"${fm.total_debited:,.2f} debited (alias '{fm.matched_alias}')")
     else:
         L.append("  Known funders matched: none")
+    if d.potential_lenders:
+        L.append("  Potential lenders requiring review:")
+        for fm in d.potential_lenders:
+            L.append(f"    - {fm.funder}: {len(fm.transactions)} evidence row(s)")
+    else:
+        L.append("  Potential lenders: none")
+    if d.insurance_providers:
+        L.append("  Insurance providers:")
+        for provider in d.insurance_providers:
+            L.append(
+                f"    - {provider.provider}: {provider.count} debit(s), "
+                f"${provider.total_debited:,.2f}"
+            )
+    else:
+        L.append("  Insurance providers: none")
     regular = [rc for rc in d.recurring_debits if rc.cadence in ("daily", "weekly")]
     if regular:
         L.append("  Recurring fixed debits (MCA remittance pattern):")
@@ -104,28 +126,7 @@ def _render(report: Report) -> str:
 
 
 def _json_safe(report: Report) -> dict:
-    d = {
-        "statement": report.statement.model_dump(),
-        "reconciliation": asdict(report.reconciliation),
-        "metrics": asdict(report.metrics),
-        "detection": {
-            "known_funders": [
-                {**{k: v for k, v in asdict(fm).items() if k != "transactions"},
-                 "transactions": [t.model_dump() for t in fm.transactions]}
-                for fm in report.detection.known_funders
-            ],
-            "recurring_debits": [
-                {**{k: v for k, v in asdict(rc).items() if k != "transactions"},
-                 "transactions": [t.model_dump() for t in rc.transactions]}
-                for rc in report.detection.recurring_debits
-            ],
-        },
-        "quality": asdict(report.quality),
-        "integrity": asdict(report.integrity),
-        "model_used": report.model_used,
-        "escalated": report.escalated,
-    }
-    return d
+    return report_to_dict(report)
 
 
 def main() -> None:

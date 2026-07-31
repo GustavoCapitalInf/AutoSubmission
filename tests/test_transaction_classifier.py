@@ -190,7 +190,7 @@ def test_atm_withdrawal_exclusions(description: str, amount: float):
     assert not classify_transaction(description, amount).is_atm_withdrawal
 
 
-def test_duplicate_pos_rows_count_once_but_distinct_balances_count_separately():
+def test_identical_rows_without_balance_evidence_remain_distinct():
     statement = Statement(
         transactions=[
             _txn("POS debit coffee", -5.0),
@@ -199,7 +199,7 @@ def test_duplicate_pos_rows_count_once_but_distinct_balances_count_separately():
             _txn("POS debit coffee", -5.0, balance=90.0),
         ]
     )
-    assert compute_metrics(statement).pos_count == 3
+    assert compute_metrics(statement).pos_count == 4
 
 
 def test_classification_preserves_transaction_description():
@@ -295,4 +295,4 @@ def test_atb_august_classification_regression():
     assert classify_transaction(
         returned_transfer.description,
         returned_transfer.amount,
-    ).categories == ()
+    ).classification == "refund_or_reversal"

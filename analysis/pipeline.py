@@ -2,7 +2,7 @@
 metrics -> detect. Extraction runs on the cheap flash-lite model; only a
 statement that fails reconciliation is re-extracted with the stronger model."""
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from .config import Settings, load_settings
 from .schema import Statement
 from .dates import assign_transaction_years
@@ -10,6 +10,10 @@ from .extract import extract_statement
 from .reconcile import reconcile, ReconResult
 from .metrics import compute_metrics, Metrics
 from .detect import detect, DetectionResult
+from .transaction_classifier import (
+    TransactionClassification,
+    classify_statement_transactions,
+)
 from .altana import parse_altana_statement
 from .atb import parse_atb_statement
 from .amex import parse_amex_statement
@@ -135,6 +139,7 @@ class Report:
     integrity: DocumentIntegrity
     model_used: str
     escalated: bool
+    classifications: list[TransactionClassification] = field(default_factory=list)
 
 
 def assess_quality(stmt: Statement, recon: ReconResult) -> Quality:
@@ -375,6 +380,7 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
                 f"escalation extraction failed ({type(e).__name__}); using primary extraction with review guards"
             )
 
+    classifications = classify_statement_transactions(stmt)
     metrics = compute_metrics(
         stmt,
         trust_stated_summary=recon.summary_ok,
@@ -382,6 +388,7 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         # the source text lets the ADB engine prove the parser did not fold
         # several posting dates into one
         source_markdown=markdown,
+        classifications=classifications,
     )
     quality = assess_quality(stmt, recon)
     if quality.level == "summary_aggregate":
@@ -414,9 +421,10 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         statement=stmt,
         reconciliation=recon,
         metrics=metrics,
-        detection=detect(stmt),
+        detection=detect(stmt, classifications=classifications),
         quality=quality,
         integrity=integrity,
         model_used=model_used,
         escalated=escalated,
+        classifications=classifications,
     )

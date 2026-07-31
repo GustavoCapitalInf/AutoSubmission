@@ -872,7 +872,8 @@ def test_parse_ibc_statement_reconciles_corrected_daily_ledger():
     metrics = compute_metrics(stmt)
     assert metrics.average_daily_balance == 4534.03
     assert metrics.nsf_count == 1
-    assert metrics.lender_debits > 0
+    # MUDFLAP rows are card-present fuel purchases, not lender repayments.
+    assert metrics.lender_debits == 0.0
 
 
 @pytest.mark.parametrize(
@@ -2274,7 +2275,7 @@ def test_metrics_computes_true_revenue_cash_flow_lender_pos_and_loan_counts():
     assert m.loan_count == 1
 
 
-def test_metrics_normalizes_weekly_lender_debits_for_withholding_rate():
+def test_metrics_uses_exact_posted_lender_debits_for_withholding_rate():
     s = Statement(stated_total_credits=4330.0, stated_total_debits=400.0, transactions=[
         _txn("2026-01-01", 4330.0, "CUSTOMER DEPOSIT"),
         _txn("2026-01-02", -100.0, "ACH DEBIT RAPID FINANCE PAYMENT"),
@@ -2284,11 +2285,13 @@ def test_metrics_normalizes_weekly_lender_debits_for_withholding_rate():
     ])
     m = compute_metrics(s, trust_stated_summary=True)
     assert m.lender_debits == 400.0
-    assert m.monthly_lender_debits == 433.0
-    assert m.withholding_rate == 10.0
+    assert m.monthly_lender_debits == 400.0
+    assert m.withholding_numerator == 400.0
+    assert m.withholding_denominator == 4330.0
+    assert m.withholding_rate == 400.0 / 4330.0 * 100
 
 
-def test_metrics_withholding_rate_is_none_without_lender_debits():
+def test_metrics_withholding_rate_is_zero_without_lender_debits():
     s = Statement(stated_total_credits=10000.0, stated_total_debits=500.0, transactions=[
         _txn("2026-01-01", 10000.0, "CUSTOMER DEPOSIT"),
         _txn("2026-01-02", 750.0, "ACH CREDIT CAN CAPITAL FUNDING"),
@@ -2297,7 +2300,8 @@ def test_metrics_withholding_rate_is_none_without_lender_debits():
     m = compute_metrics(s, trust_stated_summary=True)
     assert m.lender_credits == 750.0
     assert m.lender_debits == 0.0
-    assert m.withholding_rate is None
+    assert m.withholding_rate == 0.0
+    assert not m.withholding_review_required
 
 
 def test_metrics_counts_forward_funding_alias_for_withholding_rate():
@@ -2308,7 +2312,7 @@ def test_metrics_counts_forward_funding_alias_for_withholding_rate():
     m = compute_metrics(s, trust_stated_summary=True)
     assert m.lender_debits == 205.0
     assert m.monthly_lender_debits == 205.0
-    assert m.withholding_rate == 2.05
+    assert m.withholding_rate == 205.0 / 10000.0 * 100
 
 
 # ---- detection ---------------------------------------------------------------
@@ -2330,9 +2334,8 @@ def test_detect_affirm_without_space():
         _txn("2026-03-30", -26.10, "Recur Debit Card Purchase 033026 AFFIRM COM PAYMENTS 8554233729 CA"),
     ])
     matches = find_known_funders(s)
-    assert len(matches) == 1
-    assert matches[0].funder == "AFFIRM"
-    assert matches[0].total_debited == 52.2
+    assert matches == []
+    assert compute_metrics(s).pos_count == 2
 
 
 def test_detect_expanded_lender_keyword_aliases():
@@ -2341,7 +2344,7 @@ def test_detect_expanded_lender_keyword_aliases():
         _txn("2026-01-03", -225.0, "DIRECT DEB DELAGELANDEN LEASE"),
     ])
     matches = find_known_funders(s)
-    assert [m.funder for m in matches] == ["FUNDWORKS", "DE LAGE LANDEN"]
+    assert [m.funder for m in matches] == ["FUNDWORKS"]
 
 
 def test_recurring_debits_filters_generic_processors():
@@ -2363,10 +2366,7 @@ def test_detect_recurring_daily_pattern():
         _txn("2026-01-08", -450.0, "ACH Debit Funder 0108"),
     ])
     rec = find_recurring_debits(s)
-    assert len(rec) == 1
-    assert rec[0].count == 5
-    assert rec[0].amount == 450.0
-    assert rec[0].cadence == "daily"
+    assert rec == []
 
 
 def test_detect_ignores_one_off_debits():

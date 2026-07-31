@@ -475,7 +475,7 @@
   .preview-empty { color: var(--muted); }
 
   .main-grid { display: grid; grid-template-columns: minmax(0, 1fr) 30%; gap: 16px; align-items: start; }
-  .information-card { border-radius: var(--radius-lg); padding: 18px; }
+  .information-card { min-width: 0; border-radius: var(--radius-lg); padding: 18px; }
   .info-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 16px; }
   .info-title { margin: 0; font-size: 16px; letter-spacing: -.02em; }
   .decision-pill {
@@ -500,7 +500,7 @@
   .metric-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
   .metric-section-title { color: var(--ink); font-size: 13px; font-weight: 800; letter-spacing: -.01em; }
   .metric-section-sub { color: var(--muted); font-size: 12px; font-weight: 650; text-align: right; }
-  .metric-section-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .metric-section-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
   /* --- Liquid Glass status chip ------------------------------------------ */
   .glass-chip {
     position: relative;
@@ -566,8 +566,8 @@
   /* floats 2px above the card surface, 8px from the top edge / 10px from the right */
   .metric-chip { margin: -5px -5px 0 0; transform: translateY(-3px); }
   .metric-value {
-    margin-top: 19px; font-size: 30px; font-weight: 700; letter-spacing: -.028em;
-    line-height: 1.06; overflow-wrap: anywhere;
+    margin-top: 19px; font-size: 28px; font-weight: 700; letter-spacing: 0;
+    line-height: 1.06; white-space: nowrap; overflow-wrap: normal;
     font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
   .metric-sub { margin-top: 15px; color: var(--muted-2); font-size: 13px; line-height: 1.35; }
@@ -627,9 +627,11 @@
   }
   .table-action:active { transform: scale(.98); }
   .table-action:disabled { opacity: .45; cursor: not-allowed; transform: none; }
-  .table-head-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+  .table-head-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; min-width: 0; max-width: 100%; }
   .transaction-filters {
     display: flex; align-items: center; gap: 4px; padding: 4px; border-radius: 999px;
+    min-width: 0; max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain;
+    scrollbar-width: thin;
     border: 1px solid var(--chip-border); background: var(--chip-base);
     backdrop-filter: blur(24px) saturate(180%);
     -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -637,6 +639,7 @@
   }
   .transaction-filter {
     border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--muted);
+    flex: 0 0 auto;
     padding: 5px 11px; font-size: 12px; font-weight: 590; letter-spacing: -.005em;
     transition:
       background 200ms var(--spring), color 200ms var(--spring),
@@ -843,7 +846,7 @@
   @media (max-width: 1280px) {
     .app-shell { grid-template-columns: 1fr; }
     .sidebar { position: static; height: auto; }
-    .top-grid, .main-grid { grid-template-columns: 1fr; }
+    .top-grid, .main-grid { grid-template-columns: minmax(0, 1fr); }
     .quick-panel { position: static; }
   }
   @media (max-width: 900px) {
@@ -858,6 +861,8 @@
     .sidebar, .top-header, .card, .information-card, .quick-panel { border-radius: 22px; }
     .metric-section-grid { grid-template-columns: 1fr; }
     .header-actions { width: 100%; justify-content: space-between; }
+    .table-head { align-items: stretch; flex-direction: column; }
+    .table-head-actions, .transaction-filters { width: 100%; justify-content: flex-start; }
   }
 </style>
 <script>
@@ -1009,7 +1014,7 @@
         <div class="metric-grid" id="metricsGrid"></div>
         <div class="table-card">
           <div class="table-head">
-            <h3>Lenders Detected</h3>
+            <h3>Lenders and Candidates</h3>
             <span class="section-label" id="lenderCount">0 records</span>
           </div>
           <div class="table-wrap">
@@ -1017,13 +1022,32 @@
               <thead>
                 <tr>
                   <th>Lender</th>
-                  <th>Account Type</th>
-                  <th>Balance</th>
+                  <th>Classification</th>
+                  <th>Qualifying Total</th>
                   <th>Date Reported</th>
                   <th>Status</th>
                 </tr>
               </thead>
               <tbody id="lenderTable"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="table-head">
+            <h3>Insurance Evidence</h3>
+            <span class="section-label" id="insuranceCount">0 debits</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Provider</th>
+                  <th>Debit Count</th>
+                  <th>Total</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="insuranceTable"></tbody>
             </table>
           </div>
         </div>
@@ -1038,6 +1062,8 @@
                 <button class="transaction-filter active" type="button" data-transaction-filter="all">All</button>
                 <button class="transaction-filter" type="button" data-transaction-filter="nsf">NSFs</button>
                 <button class="transaction-filter" type="button" data-transaction-filter="lender">Lenders</button>
+                <button class="transaction-filter" type="button" data-transaction-filter="potential">Potential</button>
+                <button class="transaction-filter" type="button" data-transaction-filter="insurance">Insurance</button>
                 <button class="transaction-filter" type="button" data-transaction-filter="pos">POS</button>
               </div>
               <div class="transaction-filters" role="group" aria-label="Sort transactions">
@@ -1194,7 +1220,7 @@
           <div class="account-summary" id="statementModalAccount"></div>
         </div>
         <div class="modal-panel">
-          <h3>Lenders Detected</h3>
+          <h3>Lenders and Candidates</h3>
           <div class="table-wrap">
             <table>
               <thead>
@@ -1209,6 +1235,22 @@
             </table>
           </div>
         </div>
+        <div class="modal-panel">
+          <h3>Insurance Evidence</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Provider</th>
+                  <th>Count</th>
+                  <th>Total</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="statementModalInsurance"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
       <div class="modal-panel">
         <div class="table-head" style="padding:0 0 12px;border-bottom:0">
@@ -1218,6 +1260,8 @@
               <button class="transaction-filter active" type="button" data-modal-transaction-filter="all">All</button>
               <button class="transaction-filter" type="button" data-modal-transaction-filter="nsf">NSFs</button>
               <button class="transaction-filter" type="button" data-modal-transaction-filter="lender">Lenders</button>
+              <button class="transaction-filter" type="button" data-modal-transaction-filter="potential">Potential</button>
+              <button class="transaction-filter" type="button" data-modal-transaction-filter="insurance">Insurance</button>
               <button class="transaction-filter" type="button" data-modal-transaction-filter="pos">POS</button>
             </div>
             <div class="transaction-filters" role="group" aria-label="Sort statement transactions">
@@ -1248,6 +1292,6 @@
   </section>
 </div>
 <textarea class="hidden-textarea" id="copyBuffer" aria-hidden="true"></textarea>
-<script src="/static/app.js?v=liquid-glass-polish-v5"></script>
+<script src="/static/app.js?v=classification-v2"></script>
 </body>
 </html>

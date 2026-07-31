@@ -324,6 +324,30 @@ def test_package_analysis_aggregates_completed_jobs():
     assert xlsx_resp.get_data()[:2] == b"PK"
 
 
+def test_package_withholding_is_zero_with_deposits_and_no_lender_debits():
+    client = app.test_client()
+    job = store.create("no-lenders.pdf")
+    store.set_result(job.id, "# No lenders", "<h1>No lenders</h1>", analysis={
+        "statement": {"bank": "Audit Bank", "transactions": []},
+        "metrics": {
+            "effective_total_deposits": 5000,
+            "effective_total_withdrawals": 1000,
+            "withholding_numerator": 0,
+            "withholding_denominator": 5000,
+            "lender_debits": 0,
+        },
+        "quality": {"level": "transaction_level", "corporate_use": "approved"},
+        "integrity": {"risk_level": "clear"},
+        "detection": {"known_funders": []},
+    })
+
+    totals = client.get(f"/package_analysis?ids={job.id}").get_json()["totals"]
+    assert totals["withholding_numerator"] == 0
+    assert totals["withholding_denominator"] == 5000
+    assert totals["package_withholding_rate"] == 0.0
+    assert totals["withholding_review_required"] is False
+
+
 def test_status_unknown_job_returns_404():
     client = app.test_client()
     resp = client.get("/status/does-not-exist")

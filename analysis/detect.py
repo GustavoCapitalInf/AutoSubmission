@@ -1,30 +1,35 @@
-"""Stage 3b — MCA / lender detection. Two complementary, fully deterministic
-signals, each returning the evidence transactions so a human can audit:
-
-  1. Known-entity match: transaction descriptions vs a maintained funder/lender
-     dictionary (fast, precise, explainable).
-  2. Recurring-debit pattern: fixed-amount debits repeating on a regular (daily or
-     weekly) cadence — the MCA remittance signature — even when the name is a
-     generic ACH/merchant descriptor.
-
-The dictionary is intentionally easy to extend; add aliases as you see new funders.
-"""
+"""Authoritative lender, potential-lender, and insurance evidence views."""
 from __future__ import annotations
-import re
-from collections import defaultdict
+
 from dataclasses import dataclass, field
-from datetime import date
-from statistics import mean, pstdev
+
+from .dates import parse_date
 from .schema import Statement, Transaction
-from .metrics import _parse_date
-from .lenders import find_lender_match, has_false_lender_keyword
+from .transaction_classifier import (
+    TransactionClassification,
+    classify_cadence,
+    classify_statement_transactions,
+)
 
 
 @dataclass
 class FunderMatch:
     funder: str
-    matched_alias: str
+    matched_alias: str | None
+    classification: str = "confirmed_lender"
     transactions: list[Transaction] = field(default_factory=list)
+    evidence: list[TransactionClassification] = field(default_factory=list)
+    total_debited: float = 0.0
+    status: str = "confirmed"
+
+
+@dataclass
+class InsuranceMatch:
+    provider: str
+    matched_alias: str | None
+    transactions: list[Transaction] = field(default_factory=list)
+    evidence: list[TransactionClassification] = field(default_factory=list)
+    count: int = 0
     total_debited: float = 0.0
 
 
@@ -33,83 +38,156 @@ class RecurringDebit:
     description_key: str
     amount: float
     count: int
-    cadence: str            # "daily", "weekly", or "irregular"
+    cadence: str
     avg_gap_days: float | None
     transactions: list[Transaction] = field(default_factory=list)
+    evidence: list[TransactionClassification] = field(default_factory=list)
 
 
 @dataclass
 class DetectionResult:
     known_funders: list[FunderMatch] = field(default_factory=list)
+    potential_lenders: list[FunderMatch] = field(default_factory=list)
+    insurance_providers: list[InsuranceMatch] = field(default_factory=list)
     recurring_debits: list[RecurringDebit] = field(default_factory=list)
+    lender_evidence: list[TransactionClassification] = field(default_factory=list)
+    insurance_evidence: list[TransactionClassification] = field(default_factory=list)
+    manual_review: list[TransactionClassification] = field(default_factory=list)
 
 
-def find_known_funders(stmt: Statement) -> list[FunderMatch]:
+def _records(
+    stmt: Statement,
+    classifications: list[TransactionClassification] | None,
+) -> list[TransactionClassification]:
+    records = classifications if classifications is not None else classify_statement_transactions(stmt)
+    if len(records) != len(stmt.transactions):
+        raise ValueError("classification count must equal transaction count")
+    return records
+
+
+def _group_funders(
+    stmt: Statement,
+    records: list[TransactionClassification],
+    *,
+    state: str,
+) -> list[FunderMatch]:
     matches: dict[str, FunderMatch] = {}
-    for t in stmt.transactions:
-        found = find_lender_match(t.description)
-        if not found:
+    for transaction, record in zip(stmt.transactions, records):
+        contributes = (
+            record.contributes_to_lender_count
+            if state == "confirmed_lender"
+            else record.contributes_to_potential_lender_count
+        )
+        if record.classification != state or not record.canonical_entity or not contributes:
             continue
-        funder, hit = found
-        m = matches.get(funder) or FunderMatch(funder=funder, matched_alias=hit)
-        m.transactions.append(t)
-        if t.amount < 0:
-            m.total_debited += -t.amount
-        matches[funder] = m
-    for m in matches.values():
-        m.total_debited = round(m.total_debited, 2)
-    return sorted(matches.values(), key=lambda m: len(m.transactions), reverse=True)
+        match = matches.get(record.canonical_entity)
+        if match is None:
+            match = FunderMatch(
+                funder=record.canonical_entity,
+                matched_alias=record.matched_alias,
+                classification=state,
+                status="confirmed" if state == "confirmed_lender" else "review_required",
+            )
+        match.transactions.append(transaction)
+        match.evidence.append(record)
+        if state == "confirmed_lender" and record.contributes_to_lender_totals:
+            match.total_debited += abs(record.amount)
+        matches[record.canonical_entity] = match
+    for match in matches.values():
+        match.total_debited = round(match.total_debited, 2)
+    return sorted(matches.values(), key=lambda item: (-item.total_debited, item.funder))
 
 
-# Strip trailing IDs/dates so "ACH Debit Kapitus 0102" and "...0103" group together.
-_NORMALIZE_RE = re.compile(r"[0-9]{2,}|#\w+|\bx+\d+\b", re.IGNORECASE)
+def find_known_funders(
+    stmt: Statement,
+    classifications: list[TransactionClassification] | None = None,
+) -> list[FunderMatch]:
+    return _group_funders(stmt, _records(stmt, classifications), state="confirmed_lender")
 
 
-def _desc_key(desc: str) -> str:
-    return re.sub(r"\s+", " ", _NORMALIZE_RE.sub("", desc.lower())).strip()
+def find_potential_lenders(
+    stmt: Statement,
+    classifications: list[TransactionClassification] | None = None,
+) -> list[FunderMatch]:
+    return _group_funders(stmt, _records(stmt, classifications), state="potential_lender")
 
 
-def _classify_cadence(dates: list[date]) -> tuple[str, float | None]:
-    ds = sorted(dates)
-    gaps = [(b - a).days for a, b in zip(ds, ds[1:]) if (b - a).days > 0]
-    if not gaps:
-        return "irregular", None
-    g = mean(gaps)
-    spread = pstdev(gaps) if len(gaps) > 1 else 0.0
-    if g <= 1.6 and spread <= 1.5:
-        return "daily", round(g, 1)          # business-day daily (~1 with weekend gaps)
-    if 5 <= g <= 9 and spread <= 2.5:
-        return "weekly", round(g, 1)
-    return "irregular", round(g, 1)
-
-
-def find_recurring_debits(stmt: Statement, *, min_count: int = 3) -> list[RecurringDebit]:
-    """Group debits by (normalized description, exact amount); flag groups that
-    repeat >= min_count times as candidate advance remittances."""
-    groups: dict[tuple[str, float], list[Transaction]] = defaultdict(list)
-    for t in stmt.transactions:
-        if t.amount < 0:
-            if find_lender_match(t.description) is None and has_false_lender_keyword(t.description):
-                continue
-            groups[(_desc_key(t.description), round(t.amount, 2))].append(t)
-
-    out: list[RecurringDebit] = []
-    for (key, amount), txns in groups.items():
-        if len(txns) < min_count:
+def find_insurance(
+    stmt: Statement,
+    classifications: list[TransactionClassification] | None = None,
+) -> list[InsuranceMatch]:
+    records = _records(stmt, classifications)
+    matches: dict[str, InsuranceMatch] = {}
+    for transaction, record in zip(stmt.transactions, records):
+        if not record.contributes_to_insurance_totals:
             continue
-        dates = [d for t in txns if (d := _parse_date(t.date)) is not None]
-        cadence, avg_gap = _classify_cadence(dates) if len(dates) >= 2 else ("irregular", None)
-        out.append(RecurringDebit(
-            description_key=key or "(blank)", amount=abs(amount), count=len(txns),
-            cadence=cadence, avg_gap_days=avg_gap, transactions=txns,
-        ))
-    # Most suspicious first: regular cadence and high frequency.
-    out.sort(key=lambda r: (r.cadence in ("daily", "weekly"), r.count), reverse=True)
-    return out
+        provider = record.canonical_entity or "Insurance provider not identified"
+        match = matches.get(provider)
+        if match is None:
+            match = InsuranceMatch(provider=provider, matched_alias=record.matched_alias)
+        match.transactions.append(transaction)
+        match.evidence.append(record)
+        match.count += 1
+        match.total_debited += abs(record.amount)
+        matches[provider] = match
+    for match in matches.values():
+        match.total_debited = round(match.total_debited, 2)
+    return sorted(matches.values(), key=lambda item: (-item.total_debited, item.provider))
 
 
-def detect(stmt: Statement, *, min_count: int = 3) -> DetectionResult:
+def find_recurring_debits(
+    stmt: Statement,
+    *,
+    min_count: int = 3,
+    classifications: list[TransactionClassification] | None = None,
+) -> list[RecurringDebit]:
+    records = _records(stmt, classifications)
+    groups: dict[tuple[str, float], list[int]] = {}
+    for index, record in enumerate(records):
+        if (
+            record.classification == "potential_lender"
+            and record.match_method == "recurring_financing_counterparty"
+            and record.contributes_to_potential_lender_count
+            and record.canonical_entity
+        ):
+            groups.setdefault((record.canonical_entity, round(abs(record.amount), 2)), []).append(index)
+
+    output: list[RecurringDebit] = []
+    for (entity, amount), indexes in groups.items():
+        if len(indexes) < min_count:
+            continue
+        dates = [parsed for index in indexes if (parsed := parse_date(records[index].date)) is not None]
+        cadence, average_gap = classify_cadence(dates)
+        output.append(
+            RecurringDebit(
+                description_key=entity,
+                amount=amount,
+                count=len(indexes),
+                cadence=cadence,
+                avg_gap_days=average_gap,
+                transactions=[stmt.transactions[index] for index in indexes],
+                evidence=[records[index] for index in indexes],
+            )
+        )
+    return sorted(output, key=lambda item: (-item.count, item.description_key))
+
+
+def detect(
+    stmt: Statement,
+    *,
+    min_count: int = 3,
+    classifications: list[TransactionClassification] | None = None,
+) -> DetectionResult:
+    records = _records(stmt, classifications)
+    lender_evidence = [record for record in records if record.contributes_to_lender_totals]
+    insurance_evidence = [record for record in records if record.contributes_to_insurance_totals]
+    manual_review = [record for record in records if record.review_required]
     return DetectionResult(
-        known_funders=find_known_funders(stmt),
-        recurring_debits=find_recurring_debits(stmt, min_count=min_count),
+        known_funders=find_known_funders(stmt, records),
+        potential_lenders=find_potential_lenders(stmt, records),
+        insurance_providers=find_insurance(stmt, records),
+        recurring_debits=find_recurring_debits(stmt, min_count=min_count, classifications=records),
+        lender_evidence=lender_evidence,
+        insurance_evidence=insurance_evidence,
+        manual_review=manual_review,
     )

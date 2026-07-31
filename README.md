@@ -187,8 +187,13 @@ statements flow through, only the questionable ones get human eyes. Small-bank /
 image statements (where per-transaction detail is incomplete) still yield
 trustworthy figures from the bank's printed summary, which reconciliation validates.
 
-Tune via env: `GEMINI_MODEL`, `GEMINI_ESCALATION_MODEL`. Extend the funder list in
-`analysis/detect.py::KNOWN_FUNDERS`.
+Tune via env: `GEMINI_MODEL`, `GEMINI_ESCALATION_MODEL`. Extend maintained lender,
+candidate, insurance, and exclusion aliases in
+`analysis/classification_registry.py`.
+
+Transaction categories, lender/insurance precedence, contribution flags, and the
+eligible-deposit denominator are defined in
+[`docs/transaction-classification.md`](docs/transaction-classification.md).
 
 ## Tests
 

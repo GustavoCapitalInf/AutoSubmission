@@ -110,6 +110,18 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     for idx, funder in enumerate(package.get("funders") or [], start=1):
         for key, value in funder.items():
             rows.append((f"funder_{idx}", key, "" if value is None else value))
+    for idx, funder in enumerate(package.get("potential_lenders") or [], start=1):
+        for key, value in funder.items():
+            rows.append((f"potential_lender_{idx}", key, "" if value is None else value))
+    for idx, provider in enumerate(package.get("insurance_providers") or [], start=1):
+        for key, value in provider.items():
+            rows.append((f"insurance_provider_{idx}", key, "" if value is None else value))
+    for idx, evidence in enumerate(package.get("lender_evidence") or [], start=1):
+        for key, value in evidence.items():
+            rows.append((f"lender_evidence_{idx}", key, "" if value is None else value))
+    for idx, evidence in enumerate(package.get("insurance_evidence") or [], start=1):
+        for key, value in evidence.items():
+            rows.append((f"insurance_evidence_{idx}", key, "" if value is None else value))
     return rows
 
 
@@ -224,13 +236,26 @@ def _package_analysis(jobs) -> dict:
         "total_debits": 0.0,
         "cash_flow": 0.0,
         "lender_debits": 0.0,
+        "lender_debit_count": 0,
+        "lenders_detected": 0,
+        "potential_lenders_detected": 0,
         "monthly_lender_debits": 0.0,
+        "insurance_count": 0,
+        "insurance_total": 0.0,
+        "withholding_numerator": 0.0,
+        "withholding_denominator": 0.0,
         "nsf_count": 0,
     }
 
     funders: dict[str, dict] = {}
+    potential_lenders: dict[str, dict] = {}
+    insurance_providers: dict[str, dict] = {}
     package_transactions: list[dict] = []
     package_funder_matches: list[dict] = []
+    package_potential_matches: list[dict] = []
+    package_insurance_matches: list[dict] = []
+    package_lender_evidence: list[dict] = []
+    package_insurance_evidence: list[dict] = []
     for job in jobs:
         analysis = job.analysis or {}
         statement = analysis.get("statement") or {}
@@ -260,8 +285,42 @@ def _package_analysis(jobs) -> dict:
         credits = _num(metrics.get("effective_total_deposits"))
         debits = _num(metrics.get("effective_total_withdrawals"))
         cash_flow = _num(metrics.get("cash_flow"))
-        lender_debits = _num(metrics.get("lender_debits"))
-        monthly_lender_debits = _num(metrics.get("monthly_lender_debits"))
+        statement_transactions = [
+            transaction
+            for transaction in (statement.get("transactions") or [])
+            if isinstance(transaction, dict)
+        ]
+        authoritative_rows = [
+            transaction
+            for transaction in statement_transactions
+            if isinstance(transaction.get("classification"), dict)
+        ]
+        lender_rows = [
+            transaction
+            for transaction in authoritative_rows
+            if transaction["classification"].get("contributes_to_withholding_rate") is True
+        ]
+        insurance_rows = [
+            transaction
+            for transaction in authoritative_rows
+            if transaction["classification"].get("contributes_to_insurance_totals") is True
+        ]
+        if authoritative_rows:
+            lender_debits = round(sum(abs(_num(row.get("amount"))) for row in lender_rows), 2)
+            lender_debit_count = len(lender_rows)
+            insurance_count = len(insurance_rows)
+            insurance_total = round(sum(abs(_num(row.get("amount"))) for row in insurance_rows), 2)
+        else:
+            # Compatibility for already-completed in-memory jobs created before
+            # classification records were added. New reports always take the path above.
+            lender_debits = _num(metrics.get("withholding_numerator"), _num(metrics.get("lender_debits")))
+            lender_debit_count = int(_num(metrics.get("lender_debit_count"), 0.0))
+            insurance_count = int(_num(metrics.get("insurance_count"), 0.0))
+            insurance_total = _num(metrics.get("insurance_total"))
+        eligible_deposits = _num(
+            metrics.get("withholding_denominator"),
+            _num(metrics.get("true_revenue"), credits),
+        )
         nsf_count = int(_num(metrics.get("effective_nsf_count"), 0.0))
         average_balance = metrics.get("average_balance")
         average_balance_num = _num(average_balance, default=float("nan"))
@@ -273,7 +332,15 @@ def _package_analysis(jobs) -> dict:
         totals["total_debits"] = round(totals["total_debits"] + debits, 2)
         totals["cash_flow"] = round(totals["cash_flow"] + cash_flow, 2)
         totals["lender_debits"] = round(totals["lender_debits"] + lender_debits, 2)
-        totals["monthly_lender_debits"] = round(totals["monthly_lender_debits"] + monthly_lender_debits, 2)
+        totals["lender_debit_count"] += lender_debit_count
+        totals["monthly_lender_debits"] = totals["lender_debits"]
+        totals["insurance_count"] += insurance_count
+        totals["insurance_total"] = round(totals["insurance_total"] + insurance_total, 2)
+        totals["withholding_numerator"] = totals["lender_debits"]
+        totals["withholding_denominator"] = round(
+            totals["withholding_denominator"] + eligible_deposits,
+            2,
+        )
         totals["nsf_count"] += nsf_count
 
         for match in detection.get("known_funders") or []:
@@ -286,23 +353,69 @@ def _package_analysis(jobs) -> dict:
                     "funder": name,
                     "source_job": job.id,
                     "transactions": match.get("transactions") or [],
+                    "evidence": match.get("evidence") or [],
+                }
+            )
+
+        for match in detection.get("potential_lenders") or []:
+            name = match.get("funder") or "Unknown candidate"
+            item = potential_lenders.setdefault(
+                name,
+                {"funder": name, "documents": 0, "status": "review_required"},
+            )
+            item["documents"] += 1
+            package_potential_matches.append(
+                {
+                    "funder": name,
+                    "source_job": job.id,
+                    "transactions": match.get("transactions") or [],
+                    "evidence": match.get("evidence") or [],
+                    "status": "review_required",
+                }
+            )
+
+        for match in detection.get("insurance_providers") or []:
+            name = match.get("provider") or "Insurance provider not identified"
+            item = insurance_providers.setdefault(
+                name,
+                {"provider": name, "documents": 0, "count": 0, "total_debited": 0.0},
+            )
+            item["documents"] += 1
+            item["count"] += int(_num(match.get("count"), 0.0))
+            item["total_debited"] = round(
+                item["total_debited"] + _num(match.get("total_debited")),
+                2,
+            )
+            package_insurance_matches.append(
+                {
+                    "provider": name,
+                    "source_job": job.id,
+                    "transactions": match.get("transactions") or [],
+                    "evidence": match.get("evidence") or [],
                 }
             )
 
         # Flattened ledger so the dashboard can show every statement's rows at once.
-        for tx in statement.get("transactions") or []:
-            if not isinstance(tx, dict):
-                continue
-            package_transactions.append(
-                {
-                    **tx,
-                    "source_job": job.id,
-                    "source_document": job.filename,
-                    "source_bank": statement.get("bank"),
-                    "source_period_start": statement.get("period_start"),
-                    "source_period_end": statement.get("period_end"),
-                }
-            )
+        for tx in statement_transactions:
+            package_transaction = {
+                **tx,
+                "source_job": job.id,
+                "source_document": job.filename,
+                "source_bank": statement.get("bank"),
+                "source_period_start": statement.get("period_start"),
+                "source_period_end": statement.get("period_end"),
+            }
+            package_transactions.append(package_transaction)
+            classification = tx.get("classification") or {}
+            evidence = {
+                **classification,
+                "source_job": job.id,
+                "source_document": job.filename,
+            }
+            if classification.get("contributes_to_withholding_rate") is True:
+                package_lender_evidence.append(evidence)
+            if classification.get("contributes_to_insurance_totals") is True:
+                package_insurance_evidence.append(evidence)
 
         doc_row = {
             "id": job.id,
@@ -327,7 +440,15 @@ def _package_analysis(jobs) -> dict:
             "adb_validated": adb_validated,
             "nsf_count": nsf_count,
             "lender_debits": lender_debits,
+            "lender_debit_count": lender_debit_count,
+            "lenders_detected": int(_num(metrics.get("lenders_detected"), len(detection.get("known_funders") or []))),
+            "potential_lenders_detected": int(_num(metrics.get("potential_lenders_detected"), len(detection.get("potential_lenders") or []))),
+            "insurance_count": insurance_count,
+            "insurance_total": insurance_total,
             "withholding_rate": metrics.get("withholding_rate"),
+            "withholding_numerator": lender_debits,
+            "withholding_denominator": eligible_deposits,
+            "withholding_review_required": bool(metrics.get("withholding_review_required")) or eligible_deposits <= 0,
         }
         documents.append(doc_row)
         if ready:
@@ -350,12 +471,15 @@ def _package_analysis(jobs) -> dict:
         package_average_balance = round(average_balance_weighted_sum / average_balance_weight, 2)
     elif average_balance_values:
         package_average_balance = round(sum(average_balance_values) / len(average_balance_values), 2)
-    total_revenue = totals["total_credits"]
-    package_withholding = (
-        round((totals["monthly_lender_debits"] / total_revenue) * 100, 2)
-        if total_revenue > 0 and totals["monthly_lender_debits"] > 0
+    totals["lenders_detected"] = len(funders)
+    totals["potential_lenders_detected"] = len(potential_lenders)
+    package_withholding_raw = (
+        abs(totals["withholding_numerator"]) / totals["withholding_denominator"] * 100
+        if totals["withholding_denominator"] > 0
         else None
     )
+    package_withholding = round(package_withholding_raw, 2) if package_withholding_raw is not None else None
+    withholding_review_required = totals["withholding_denominator"] <= 0
     decision = "approved"
     if totals["failed"] or totals["integrity_high"] or totals["manual_review"]:
         decision = "review_required"
@@ -371,13 +495,30 @@ def _package_analysis(jobs) -> dict:
             "avg_monthly_cash_flow": round(totals["cash_flow"] / months, 2),
             "average_daily_balance": package_average_balance,
             "package_withholding_rate": package_withholding,
+            "package_withholding_rate_raw": package_withholding_raw,
+            "withholding_formula": "abs(total_qualifying_lender_debits) / eligible_deposits * 100",
+            "withholding_review_required": withholding_review_required,
             "decision": decision,
         },
         "documents": documents,
         "monthly": sorted(monthly, key=lambda r: (r.get("period_end") or "", r.get("filename") or "")),
         "funders": sorted(funders.values(), key=lambda r: r["total_debited"], reverse=True),
+        "potential_lenders": sorted(potential_lenders.values(), key=lambda r: r["funder"]),
+        "insurance_providers": sorted(
+            insurance_providers.values(),
+            key=lambda r: r["total_debited"],
+            reverse=True,
+        ),
         "transactions": package_transactions,
-        "detection": {"known_funders": package_funder_matches},
+        "lender_evidence": package_lender_evidence,
+        "insurance_evidence": package_insurance_evidence,
+        "detection": {
+            "known_funders": package_funder_matches,
+            "potential_lenders": package_potential_matches,
+            "insurance_providers": package_insurance_matches,
+            "lender_evidence": package_lender_evidence,
+            "insurance_evidence": package_insurance_evidence,
+        },
     }
 
 

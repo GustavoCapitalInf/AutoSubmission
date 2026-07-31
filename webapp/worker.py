@@ -1,7 +1,6 @@
 from __future__ import annotations
-from dataclasses import asdict
-
 from analysis.pipeline import Report, analyze_markdown
+from analysis.serialization import report_to_dict
 from ocr.document import StatementMarkdown
 from ocr.local_tesseract import parse_local_tesseract
 from ocr.native_text import (
@@ -17,31 +16,7 @@ from .jobs import JobStore
 
 
 def report_to_json(report: Report) -> dict:
-    return {
-        "statement": report.statement.model_dump(),
-        "reconciliation": asdict(report.reconciliation),
-        "metrics": asdict(report.metrics),
-        "detection": {
-            "known_funders": [
-                {
-                    **{k: v for k, v in asdict(match).items() if k != "transactions"},
-                    "transactions": [t.model_dump() for t in match.transactions],
-                }
-                for match in report.detection.known_funders
-            ],
-            "recurring_debits": [
-                {
-                    **{k: v for k, v in asdict(item).items() if k != "transactions"},
-                    "transactions": [t.model_dump() for t in item.transactions],
-                }
-                for item in report.detection.recurring_debits
-            ],
-        },
-        "quality": asdict(report.quality),
-        "integrity": asdict(report.integrity),
-        "model_used": report.model_used,
-        "escalated": report.escalated,
-    }
+    return report_to_dict(report)
 
 
 def _native_statement(pdf_bytes: bytes, filename: str) -> StatementMarkdown | None:
