@@ -66,6 +66,8 @@ let modalLastFocus = null;
 let modalScrollY = 0;
 let transactionFilter = "all";
 let modalTransactionFilter = "all";
+let transactionEntityFilter = null;
+let modalTransactionEntityFilter = null;
 let transactionSort = "date";
 let modalTransactionSort = "date";
 // Ledgers can run to thousands of rows across a package, so render in pages.
@@ -96,7 +98,7 @@ const emptyMetricSections = [
     sub: "Outgoing money",
     items: [
       ["Total Debits", "N/A", "All outflows", "DB", "neutral"],
-      ["Withholding Rate", "N/A", "Lender debits as a share of revenue", "%", "neutral"],
+      ["Confirmed Withholding", "N/A", "Confirmed lender debits as a share of revenue", "%", "neutral"],
       ["ACH Debits", "N/A", "Outgoing ACH items", "ACH", "neutral"],
       ["POS Transactions", "N/A", "Card-present debits", "POS", "neutral"],
       ["ATM Withdrawals", "N/A", "ATM cash activity", "ATM", "neutral"],
@@ -116,10 +118,18 @@ const emptyMetricSections = [
   },
   {
     title: "Lenders",
-    sub: "Funding activity",
+    sub: "Classified funding and insurance activity",
     items: [
-      ["Lenders Detected", "N/A", "Known funder matches", "LEN", "neutral"],
-      ["Monthly Cash Flow", "N/A", "Credits minus debits", "CF", "neutral"],
+      ["Confirmed Lenders", "N/A", "Distinct confirmed entities", "LEN", "neutral"],
+      ["Potential Lenders", "N/A", "Distinct entities requiring review", "?", "neutral"],
+      ["Confirmed Lender Debit Count", "N/A", "Qualifying confirmed debit rows", "DB", "neutral"],
+      ["Confirmed Lender Debits", "N/A", "Confirmed withholding numerator", "$", "neutral"],
+      ["Potential Lender Debit Count", "N/A", "Exact candidate evidence rows", "DB", "neutral"],
+      ["Potential Lender Debits", "N/A", "Excluded from confirmed lender metrics", "$", "neutral"],
+      ["Eligible Deposits", "N/A", "Confirmed and potential denominator", "DEP", "neutral"],
+      ["Potential Withholding Exposure", "N/A", "Candidate debit exposure", "%", "neutral"],
+      ["Insurance Debits", "N/A", "Posted insurance debit rows", "INS", "neutral"],
+      ["Insurance Total", "N/A", "Insurance debits excluded from lenders", "$", "neutral"],
     ],
   },
 ];
@@ -170,6 +180,27 @@ function withholdingAuditNote(metrics = {}, currency = "USD") {
   const numerator = formatMoney(metrics.withholding_numerator ?? metrics.lender_debits, currency);
   const denominator = formatMoney(metrics.withholding_denominator ?? metrics.eligible_deposits, currency);
   return `${numerator} lender debits / ${denominator} eligible deposits`;
+}
+
+function potentialLenderDebitTotal(metrics = {}) {
+  return metrics.potential_lender_debit_total ?? metrics.potential_lender_debits;
+}
+
+function hasMaterialPotentialLenderDebits(metrics = {}) {
+  if (metrics.potential_withholding_review_required === true) return true;
+  const total = numberOrNull(potentialLenderDebitTotal(metrics));
+  return total !== null && Math.abs(total) > 0;
+}
+
+function potentialWithholdingAuditNote(metrics = {}, currency = "USD") {
+  const total = potentialLenderDebitTotal(metrics);
+  const denominator = metrics.potential_withholding_denominator ?? metrics.eligible_deposits;
+  if (numberOrNull(total) === null) return "Potential debit amount unavailable - review required";
+  const reviewSuffix = hasMaterialPotentialLenderDebits(metrics) ? " - review required" : "";
+  if ((numberOrNull(denominator) ?? 0) <= 0) {
+    return `${formatMoney(total, currency)} potential lender debits / eligible deposits unavailable${reviewSuffix}`;
+  }
+  return `${formatMoney(total, currency)} potential lender debits / ${formatMoney(denominator, currency)} eligible deposits${reviewSuffix}`;
 }
 
 function formatBytes(value) {
@@ -274,13 +305,23 @@ function transactionCategory(tx) {
   return { label: credit ? "Other Credit" : "Other Debit", glyph: credit ? "+" : "-", tone: "neutral" };
 }
 
-function filterTransactions(transactions, filter) {
-  if (filter === "nsf") return transactions.filter((tx) => transactionClassification(tx).classification === "nsf_or_return");
-  if (filter === "lender") return transactions.filter((tx) => transactionClassification(tx).contributes_to_withholding_rate === true);
-  if (filter === "potential") return transactions.filter((tx) => transactionClassification(tx).contributes_to_potential_lender_count === true);
-  if (filter === "insurance") return transactions.filter((tx) => transactionClassification(tx).contributes_to_insurance_totals === true);
-  if (filter === "pos") return transactions.filter((tx) => transactionClassification(tx).classification === "pos");
-  return transactions;
+function contributesToPotentialTotals(tx) {
+  const record = transactionClassification(tx);
+  if (record.contributes_to_potential_lender_totals !== undefined) {
+    return record.contributes_to_potential_lender_totals === true;
+  }
+  return record.contributes_to_potential_lender_count === true;
+}
+
+function filterTransactions(transactions, filter, canonicalEntity = null) {
+  let matched = transactions;
+  if (filter === "nsf") matched = transactions.filter((tx) => transactionClassification(tx).classification === "nsf_or_return");
+  if (filter === "lender") matched = transactions.filter((tx) => transactionClassification(tx).contributes_to_withholding_rate === true);
+  if (filter === "potential") matched = transactions.filter(contributesToPotentialTotals);
+  if (filter === "insurance") matched = transactions.filter((tx) => transactionClassification(tx).contributes_to_insurance_totals === true);
+  if (filter === "pos") matched = transactions.filter((tx) => transactionClassification(tx).classification === "pos");
+  if (!canonicalEntity) return matched;
+  return matched.filter((tx) => transactionClassification(tx).canonical_entity === canonicalEntity);
 }
 
 function txDateValue(tx) {
@@ -316,11 +357,17 @@ function sortTransactions(transactions, sort) {
 
 function renderTransactionRows(tableEl, countEl, transactions, filter, currency = "USD", options = {}) {
   if (!tableEl || !countEl) return;
-  const { sort = "date", showSource = false, limit = TRANSACTION_PAGE, moreEl = null } = options;
+  const {
+    sort = "date",
+    showSource = false,
+    limit = TRANSACTION_PAGE,
+    moreEl = null,
+    canonicalEntity = null,
+  } = options;
   const rows = Array.isArray(transactions) ? transactions : [];
-  const matched = sortTransactions(filterTransactions(rows, filter), sort);
+  const matched = sortTransactions(filterTransactions(rows, filter, canonicalEntity), sort);
   const visible = matched.slice(0, limit);
-  const filterLabel = filter === "all" ? "transactions" : `${filter} matches`;
+  const filterLabel = canonicalEntity || (filter === "all" ? "transactions" : `${filter} matches`);
   countEl.textContent = visible.length < matched.length
     ? `${formatNumber(visible.length)} of ${formatNumber(matched.length)} ${filterLabel}`
     : `${formatNumber(matched.length)} ${filterLabel}`;
@@ -405,7 +452,13 @@ function renderMainTransactions({ keepLimit = false } = {}) {
     ctx.transactions,
     transactionFilter,
     ctx.currency,
-    { sort: transactionSort, showSource: ctx.multi, limit: transactionLimit, moreEl: els.transactionMore }
+    {
+      sort: transactionSort,
+      showSource: ctx.multi,
+      limit: transactionLimit,
+      moreEl: els.transactionMore,
+      canonicalEntity: transactionEntityFilter,
+    }
   );
 }
 
@@ -418,7 +471,12 @@ function renderModalTransactions({ keepLimit = false } = {}) {
     getTransactions(statement),
     modalTransactionFilter,
     statement.currency || "USD",
-    { sort: modalTransactionSort, limit: modalTransactionLimit, moreEl: els.statementModalTransactionMore }
+    {
+      sort: modalTransactionSort,
+      limit: modalTransactionLimit,
+      moreEl: els.statementModalTransactionMore,
+      canonicalEntity: modalTransactionEntityFilter,
+    }
   );
 }
 
@@ -720,7 +778,47 @@ function renderMetricSections(sections) {
   `).join("");
 }
 
-function renderLenders(funders, potentialLenders = [], currency = "USD", dateReported = "N/A") {
+function lenderEvidenceControl(funder, potential) {
+  const entity = funder.funder || funder.lender || "";
+  if (!entity) return "<strong>Unknown lender</strong>";
+  const filter = potential ? "potential" : "lender";
+  return `
+    <button
+      class="evidence-link"
+      type="button"
+      data-lender-evidence-filter="${filter}"
+      data-lender-evidence-entity="${escapeHtml(entity)}"
+      aria-label="Show exact transaction evidence for ${escapeHtml(entity)}"
+    >${escapeHtml(entity)}</button>
+  `;
+}
+
+function lenderRowHtml(funder, currency = "USD") {
+  const isPotential = funder.classification === "potential_lender";
+  const count = funder.debit_count
+    ?? funder.potential_lender_debit_count
+    ?? (Array.isArray(funder.transactions) ? funder.transactions.length : null);
+  const total = isPotential
+    ? funder.potential_lender_debit_total ?? funder.total_debited ?? funder.balance
+    : funder.total_debited ?? funder.balance;
+  const denominator = isPotential
+    ? funder.eligible_deposit_denominator ?? funder.potential_withholding_denominator
+    : null;
+  const exposure = isPotential ? funder.potential_withholding_exposure : null;
+  return `
+    <tr>
+      <td>${lenderEvidenceControl(funder, isPotential)}</td>
+      <td>${escapeHtml(isPotential ? "Potential lender" : "Confirmed lender")}</td>
+      <td>${escapeHtml(formatNumber(count))}</td>
+      <td>${escapeHtml(formatMoney(total, currency))}</td>
+      <td>${isPotential ? escapeHtml(formatMoney(denominator, currency)) : "--"}</td>
+      <td>${isPotential ? escapeHtml(formatPercent(exposure)) : "--"}</td>
+      <td>${glassChip(isPotential ? "?" : "LEN", isPotential ? "Review required" : "Confirmed", "amber")}</td>
+    </tr>
+  `;
+}
+
+function renderLenders(funders, potentialLenders = [], currency = "USD") {
   const confirmed = Array.isArray(funders) ? funders : [];
   const potential = Array.isArray(potentialLenders) ? potentialLenders : [];
   const lenders = [
@@ -733,22 +831,16 @@ function renderLenders(funders, potentialLenders = [], currency = "USD", dateRep
       <tr>
         <td><strong>No lenders detected</strong></td>
         <td>Bank statement</td>
+        <td>0</td>
+        <td>${escapeHtml(formatMoney(0, currency))}</td>
+        <td>--</td>
         <td>N/A</td>
-        <td>${escapeHtml(dateReported)}</td>
         <td>${glassChip("✓", "Clear", "green")}</td>
       </tr>
     `;
     return;
   }
-  els.lenderTable.innerHTML = lenders.map((funder) => `
-    <tr>
-      <td><strong>${escapeHtml(funder.funder || funder.lender || "Unknown lender")}</strong></td>
-      <td>${escapeHtml(funder.classification === "potential_lender" ? "Potential lender" : "Confirmed lender")}</td>
-      <td>${funder.classification === "potential_lender" ? "N/A" : escapeHtml(formatMoney(funder.total_debited ?? funder.balance, currency))}</td>
-      <td>${escapeHtml(funder.date_reported || dateReported)}</td>
-      <td>${glassChip(funder.classification === "potential_lender" ? "?" : "LEN", funder.classification === "potential_lender" ? "Review" : "Confirmed", "amber")}</td>
-    </tr>
-  `).join("");
+  els.lenderTable.innerHTML = lenders.map((funder) => lenderRowHtml(funder, currency)).join("");
 }
 
 function renderInsurance(providers, currency = "USD") {
@@ -808,11 +900,14 @@ function renderAnalysis(report) {
   const totalDebits = metrics.effective_total_withdrawals;
   const confidence = confidenceFrom(report);
   const elapsed = startedAt ? `${((Date.now() - startedAt) / 1000).toFixed(1)}s` : "Complete";
+  const decision = hasMaterialPotentialLenderDebits(metrics)
+    ? "review_required"
+    : quality.corporate_use || quality.level || "review_required";
 
   els.statusHeading.textContent = "OCR completed";
   setBanner("done", "Extraction completed", `${confidence}%`);
-  els.decisionPill.textContent = labelize(quality.corporate_use || quality.level || "review required");
-  els.decisionPill.className = `decision-pill ${quality.corporate_use || quality.level || ""}`.trim();
+  els.decisionPill.textContent = labelize(decision);
+  els.decisionPill.className = `decision-pill ${decision}`.trim();
 
   setStatusRows([
     ["OCR completed", "Yes"],
@@ -841,7 +936,7 @@ function renderAnalysis(report) {
       sub: "Outgoing money",
       items: [
         ["Total Debits", formatMoney(totalDebits, currency), "All debit outflows", "DB", "neutral"],
-        ["Withholding Rate", formatPercent(metrics.withholding_rate), withholdingAuditNote(metrics, currency), "%", withholdingTone(metrics.withholding_rate)],
+        ["Confirmed Withholding", formatPercent(metrics.withholding_rate), withholdingAuditNote(metrics, currency), "%", withholdingTone(metrics.withholding_rate)],
         ["ACH Debits", formatNumber(metrics.ach_debit_count), "Outgoing ACH debits", "ACH", "neutral"],
         ["POS Transactions", formatNumber(metrics.pos_count), "Card point-of-sale debits", "POS", "neutral"],
         ["ATM Withdrawals", formatNumber(metrics.atm_withdrawal_count), "ATM cash withdrawals", "ATM", "neutral"],
@@ -864,17 +959,21 @@ function renderAnalysis(report) {
       title: "Lenders",
       sub: "Classified funding and insurance activity",
       items: [
-        ["Lenders Detected", formatNumber(metrics.lenders_detected), "Distinct confirmed entities", "LEN", presenceTone(metrics.lenders_detected)],
+        ["Confirmed Lenders", formatNumber(metrics.lenders_detected), "Distinct confirmed entities", "LEN", presenceTone(metrics.lenders_detected)],
         ["Potential Lenders", formatNumber(metrics.potential_lenders_detected), "Distinct entities requiring review", "?", countTone(metrics.potential_lenders_detected)],
-        ["Lender Debit Count", formatNumber(metrics.lender_debit_count), "Qualifying posted debit rows", "DB", "neutral"],
-        ["Total Lender Debits", formatMoney(metrics.lender_debits, currency), "Exact withholding numerator", "$", "neutral"],
+        ["Confirmed Lender Debit Count", formatNumber(metrics.lender_debit_count), "Qualifying confirmed debit rows", "DB", "neutral"],
+        ["Confirmed Lender Debits", formatMoney(metrics.lender_debits, currency), "Confirmed withholding numerator", "$", "neutral"],
+        ["Potential Lender Debit Count", formatNumber(metrics.potential_lender_debit_count), "Exact candidate evidence rows", "DB", countTone(metrics.potential_lender_debit_count)],
+        ["Potential Lender Debits", formatMoney(potentialLenderDebitTotal(metrics), currency), "Excluded from confirmed lender metrics", "$", countTone(metrics.potential_lender_debit_count)],
+        ["Eligible Deposits", formatMoney(metrics.potential_withholding_denominator ?? metrics.eligible_deposits, currency), metrics.eligible_deposit_definition || "Confirmed and potential denominator", "DEP", "neutral"],
+        ["Potential Withholding Exposure", formatPercent(metrics.potential_withholding_exposure), potentialWithholdingAuditNote(metrics, currency), "%", hasMaterialPotentialLenderDebits(metrics) ? "amber" : "neutral"],
         ["Insurance Debits", formatNumber(metrics.insurance_count), "Posted insurance debit rows", "INS", "neutral"],
         ["Insurance Total", formatMoney(metrics.insurance_total, currency), "Insurance debits excluded from lenders", "$", "neutral"],
       ],
     },
   ]);
   renderAccountSummary(accountFieldRows(statement, currentMarkdown));
-  renderLenders(funders, potentialLenders, currency, statement.period_end || "N/A");
+  renderLenders(funders, potentialLenders, currency);
   renderInsurance(insuranceProviders, currency);
   renderMainTransactions();
 }
@@ -922,6 +1021,9 @@ function uploadFiles(fileList) {
   currentFiles = files;
   currentAnalysis = null;
   currentMarkdown = "";
+  transactionFilter = "all";
+  transactionEntityFilter = null;
+  setTransactionFilterButtons("[data-transaction-filter]", transactionFilter);
   startedAt = Date.now();
   showSelectedFile(file);
   setActions(null, false);
@@ -1082,7 +1184,8 @@ function renderPackageAnalysis(pkg) {
     ["Manual review", formatNumber(totals.manual_review)],
     ["High integrity risk", formatNumber(totals.integrity_high)],
     ["Processing errors", formatNumber(totals.failed)],
-    ["Package withholding", formatPercent(totals.package_withholding_rate)],
+    ["Confirmed withholding", formatPercent(totals.package_withholding_rate)],
+    ["Potential exposure", formatPercent(totals.potential_withholding_exposure)],
   ]);
 
   renderMetricSections([
@@ -1104,7 +1207,7 @@ function renderPackageAnalysis(pkg) {
         ["Avg Monthly Cash Flow", formatMoney(totals.avg_monthly_cash_flow), "Average statement cash flow", "AVG", negativeTone(totals.avg_monthly_cash_flow)],
         ["Average Daily Balance", formatMoney(totals.average_daily_balance), packageAverageBalanceNote(documents), "ADB", packageAverageBalanceTone(documents)],
         ["NSFs", formatNumber(totals.nsf_count), "Total returned items", "NSF", countTone(totals.nsf_count)],
-        ["Package Withholding", formatPercent(totals.package_withholding_rate), withholdingAuditNote(totals), "%", withholdingTone(totals.package_withholding_rate)],
+        ["Confirmed Withholding", formatPercent(totals.package_withholding_rate), withholdingAuditNote(totals), "%", withholdingTone(totals.package_withholding_rate)],
       ],
     },
     {
@@ -1121,10 +1224,14 @@ function renderPackageAnalysis(pkg) {
       title: "Lenders",
       sub: "Classified funding and insurance activity",
       items: [
-        ["Lenders Detected", formatNumber(totals.lenders_detected), "Distinct confirmed entities", "LEN", presenceTone(totals.lenders_detected)],
+        ["Confirmed Lenders", formatNumber(totals.lenders_detected), "Distinct confirmed entities", "LEN", presenceTone(totals.lenders_detected)],
         ["Potential Lenders", formatNumber(totals.potential_lenders_detected), "Distinct entities requiring review", "?", countTone(totals.potential_lenders_detected)],
-        ["Lender Debit Count", formatNumber(totals.lender_debit_count), "Qualifying posted debit rows", "DB", "neutral"],
-        ["Total Lender Debits", formatMoney(totals.lender_debits), "Exact withholding numerator", "$", "neutral"],
+        ["Confirmed Lender Debit Count", formatNumber(totals.lender_debit_count), "Qualifying confirmed debit rows", "DB", "neutral"],
+        ["Confirmed Lender Debits", formatMoney(totals.lender_debits), "Confirmed withholding numerator", "$", "neutral"],
+        ["Potential Lender Debit Count", formatNumber(totals.potential_lender_debit_count), "Exact candidate evidence rows", "DB", countTone(totals.potential_lender_debit_count)],
+        ["Potential Lender Debits", formatMoney(potentialLenderDebitTotal(totals)), "Excluded from confirmed lender metrics", "$", countTone(totals.potential_lender_debit_count)],
+        ["Eligible Deposits", formatMoney(totals.potential_withholding_denominator ?? totals.eligible_deposits), "Confirmed and potential denominator", "DEP", "neutral"],
+        ["Potential Withholding Exposure", formatPercent(totals.potential_withholding_exposure), potentialWithholdingAuditNote(totals), "%", hasMaterialPotentialLenderDebits(totals) ? "amber" : "neutral"],
         ["Insurance Debits", formatNumber(totals.insurance_count), "Posted insurance debit rows", "INS", "neutral"],
         ["Insurance Total", formatMoney(totals.insurance_total), "Excluded from lender metrics", "$", "neutral"],
       ],
@@ -1137,7 +1244,9 @@ function renderPackageAnalysis(pkg) {
     ["Period Range", packagePeriod(documents)],
     ["Average Daily Balance", formatMoney(totals.average_daily_balance)],
     ["Top Lenders", funders.length ? funders.slice(0, 3).map((f) => f.funder).join(", ") : "None detected"],
-    ["Total Lender Debits", formatMoney(totals.lender_debits)],
+    ["Confirmed Lender Debits", formatMoney(totals.lender_debits)],
+    ["Potential Lender Debits", formatMoney(potentialLenderDebitTotal(totals))],
+    ["Potential Exposure", formatPercent(totals.potential_withholding_exposure)],
   ]);
   renderPackageTables(pkg);
 }
@@ -1147,7 +1256,7 @@ function renderPackageTables(pkg) {
   const funders = Array.isArray(pkg.funders) ? pkg.funders : [];
   const potentialLenders = Array.isArray(pkg.potential_lenders) ? pkg.potential_lenders : [];
   const insuranceProviders = Array.isArray(pkg.insurance_providers) ? pkg.insurance_providers : [];
-  renderLenders(funders, potentialLenders, "USD", packagePeriod(documents));
+  renderLenders(funders, potentialLenders, "USD");
   renderInsurance(insuranceProviders, "USD");
   if (els.monthlyCard) els.monthlyCard.style.display = "block";
   if (els.monthlyCount) {
@@ -1195,6 +1304,9 @@ function openStatementModal(jobId) {
   if (!els.statementModalBackdrop) return;
   modalLastFocus = document.activeElement;
   modalAnalysis = null;
+  modalTransactionFilter = "all";
+  modalTransactionEntityFilter = null;
+  setTransactionFilterButtons("[data-modal-transaction-filter]", modalTransactionFilter);
   modalScrollY = window.scrollY || document.documentElement.scrollTop || 0;
   els.statementModalBackdrop.classList.add("show");
   els.statementModalBackdrop.setAttribute("aria-hidden", "false");
@@ -1212,6 +1324,9 @@ function openStatementModal(jobId) {
   els.statementModalLenders.innerHTML = `
     <tr>
       <td><strong>Loading</strong></td>
+      <td>N/A</td>
+      <td>N/A</td>
+      <td>N/A</td>
       <td>N/A</td>
       <td>N/A</td>
       <td>${glassChip("◐", "Pending", "blue")}</td>
@@ -1257,6 +1372,9 @@ function openStatementModal(jobId) {
           <td><strong>Unable to load statement</strong></td>
           <td>N/A</td>
           <td>N/A</td>
+          <td>N/A</td>
+          <td>N/A</td>
+          <td>N/A</td>
           <td>${glassChip("◐", "Review", "amber")}</td>
         </tr>
       `;
@@ -1289,9 +1407,12 @@ function renderStatementModal(jobId, report, markdown) {
     ...potentialLenders.map((item) => ({ ...item, classification: "potential_lender" })),
   ];
   const title = statement.bank ? `${statement.bank} Statement` : "Bank Statement";
+  const decision = hasMaterialPotentialLenderDebits(metrics)
+    ? "review_required"
+    : quality.corporate_use || quality.level || "review_required";
 
   els.statementModalTitle.textContent = title;
-  els.statementModalSubtitle.textContent = `${period(statement)} - ${labelize(quality.corporate_use || quality.level || "review required")}`;
+  els.statementModalSubtitle.textContent = `${period(statement)} - ${labelize(decision)}`;
   els.statementModalMetrics.innerHTML = [
     ["Total Credits", formatMoney(metrics.effective_total_deposits, currency), "Incoming money", "CR", "green"],
     ["Total Debits", formatMoney(metrics.effective_total_withdrawals, currency), "Outgoing money", "DB", "neutral"],
@@ -1299,13 +1420,16 @@ function renderStatementModal(jobId, report, markdown) {
     ["Average Daily Balance", formatMoney(metrics.average_balance, currency), averageBalanceNote(metrics), "AVG", averageBalanceTone(metrics)],
     ["Ending Balance", formatMoney(statement.ending_balance, currency), "Statement close balance", "END", "neutral"],
     ["NSFs", formatNumber(metrics.effective_nsf_count), "Returned items", "NSF", countTone(metrics.effective_nsf_count)],
-    ["Withholding Rate", formatPercent(metrics.withholding_rate), withholdingAuditNote(metrics, currency), "%", withholdingTone(metrics.withholding_rate)],
-    ["Lenders Detected", formatNumber(metrics.lenders_detected), "Distinct confirmed entities", "LEN", presenceTone(metrics.lenders_detected)],
+    ["Confirmed Withholding", formatPercent(metrics.withholding_rate), withholdingAuditNote(metrics, currency), "%", withholdingTone(metrics.withholding_rate)],
+    ["Confirmed Lenders", formatNumber(metrics.lenders_detected), "Distinct confirmed entities", "LEN", presenceTone(metrics.lenders_detected)],
     ["Potential Lenders", formatNumber(metrics.potential_lenders_detected), "Distinct entities requiring review", "?", countTone(metrics.potential_lenders_detected)],
-    ["Lender Debits", `${formatNumber(metrics.lender_debit_count)} / ${formatMoney(metrics.lender_debits, currency)}`, "Count and exact numerator", "DB", "neutral"],
+    ["Confirmed Lender Debits", `${formatNumber(metrics.lender_debit_count)} / ${formatMoney(metrics.lender_debits, currency)}`, "Count and confirmed numerator", "DB", "neutral"],
+    ["Potential Lender Debits", `${formatNumber(metrics.potential_lender_debit_count)} / ${formatMoney(potentialLenderDebitTotal(metrics), currency)}`, "Exact candidate evidence rows and total", "?", countTone(metrics.potential_lender_debit_count)],
+    ["Eligible Deposits", formatMoney(metrics.potential_withholding_denominator ?? metrics.eligible_deposits, currency), metrics.eligible_deposit_definition || "Confirmed and potential denominator", "DEP", "neutral"],
+    ["Potential Withholding Exposure", formatPercent(metrics.potential_withholding_exposure), potentialWithholdingAuditNote(metrics, currency), "%", hasMaterialPotentialLenderDebits(metrics) ? "amber" : "neutral"],
     ["Insurance", `${formatNumber(metrics.insurance_count)} / ${formatMoney(metrics.insurance_total, currency)}`, "Count and total excluded from lenders", "INS", "neutral"],
     ["Document Integrity", integrityLabel(integrity), (integrity.flags || []).join(", ") || "No source contradictions detected", "DOC", integrityTone(integrity)],
-    ["Quality", labelize(quality.corporate_use || quality.level || "review"), "Corporate-use status", "OK", quality.corporate_use === "approved" ? "green" : "amber"],
+    ["Status", labelize(decision), "Corporate-use and lender-review status", "OK", decision === "approved" ? "green" : "amber"],
   ].map(renderMetricCard).join("");
   els.statementModalAccount.innerHTML = summaryRowsHtml(accountFieldRows(statement, markdown));
 
@@ -1314,19 +1438,17 @@ function renderStatementModal(jobId, report, markdown) {
       <tr>
         <td><strong>No lenders detected</strong></td>
         <td>Bank statement</td>
-        <td>N/A</td>
+        <td>0</td>
+        <td>${escapeHtml(formatMoney(0, currency))}</td>
+        <td>--</td>
+        <td>--</td>
         <td>${glassChip("✓", "Clear", "green")}</td>
       </tr>
     `;
   } else {
-    els.statementModalLenders.innerHTML = lenderRows.map((funder) => `
-      <tr>
-        <td><strong>${escapeHtml(funder.funder || funder.lender || "Unknown lender")}</strong></td>
-        <td>${escapeHtml(funder.classification === "potential_lender" ? "Potential lender" : "Confirmed lender")}</td>
-        <td>${funder.classification === "potential_lender" ? "N/A" : escapeHtml(formatMoney(funder.total_debited ?? funder.balance, currency))}</td>
-        <td>${glassChip(funder.classification === "potential_lender" ? "?" : "LEN", funder.classification === "potential_lender" ? "Review" : "Confirmed", "amber")}</td>
-      </tr>
-    `).join("");
+    els.statementModalLenders.innerHTML = lenderRows
+      .map((funder) => lenderRowHtml(funder, currency))
+      .join("");
   }
   if (els.statementModalInsurance) {
     els.statementModalInsurance.innerHTML = insuranceProviders.length
@@ -1391,8 +1513,9 @@ function generateSummary() {
     els.summaryBox.textContent =
       `Package ${packagePeriod(pkg.documents || [])}: ${formatNumber(totals.completed)} of ${formatNumber(totals.documents)} statements completed, ` +
       `${formatMoney(totals.avg_monthly_credits)} average monthly credits, ${formatMoney(totals.avg_monthly_cash_flow)} average monthly cash flow, ` +
-      `${formatNumber(totals.nsf_count)} NSF events, ${formatPercent(totals.package_withholding_rate)} package withholding, ` +
-      `and ${formatNumber(funders.length)} lender detections. Decision: ${labelize(totals.decision || "review required")}.`;
+      `${formatNumber(totals.nsf_count)} NSF events, ${formatPercent(totals.package_withholding_rate)} confirmed withholding, ` +
+      `${formatMoney(potentialLenderDebitTotal(totals))} potential lender debits and ${formatPercent(totals.potential_withholding_exposure)} potential exposure. ` +
+      `${formatNumber(funders.length)} confirmed lender detections. Decision: ${labelize(totals.decision || "review required")}.`;
     return;
   }
   const s = currentAnalysis.statement || {};
@@ -1401,11 +1524,16 @@ function generateSummary() {
   const q = currentAnalysis.quality || {};
   const currency = s.currency || "USD";
   const lenders = Array.isArray(d.known_funders) ? d.known_funders.length : 0;
+  const decision = hasMaterialPotentialLenderDebits(m)
+    ? "review_required"
+    : q.corporate_use || q.level || "review_required";
   els.summaryBox.textContent =
     `${s.bank || "Statement"} ${period(s)}: average daily balance ${formatMoney(m.average_balance, currency)}, ` +
     `ending balance ${formatMoney(s.ending_balance, currency)}, cash flow ${formatMoney(m.cash_flow, currency)}, ` +
-    `${formatNumber(m.effective_nsf_count)} NSF events, and ${formatNumber(lenders)} lender detections. ` +
-    `Quality status: ${labelize(q.corporate_use || q.level || "review required")}.`;
+    `${formatNumber(m.effective_nsf_count)} NSF events, ${formatNumber(lenders)} confirmed lender detections, ` +
+    `${formatMoney(m.lender_debits, currency)} confirmed lender debits, and ` +
+    `${formatMoney(potentialLenderDebitTotal(m), currency)} potential lender debits at ${formatPercent(m.potential_withholding_exposure)} exposure. ` +
+    `Status: ${labelize(decision)}.`;
 }
 
 document.querySelectorAll(".nav-item").forEach((button) => {
@@ -1472,6 +1600,7 @@ if (els.monthlyTable) {
 document.querySelectorAll("[data-transaction-filter]").forEach((button) => {
   button.addEventListener("click", () => {
     transactionFilter = button.getAttribute("data-transaction-filter") || "all";
+    transactionEntityFilter = null;
     setTransactionFilterButtons("[data-transaction-filter]", transactionFilter);
     renderMainTransactions();
   });
@@ -1486,6 +1615,7 @@ document.querySelectorAll("[data-transaction-sort]").forEach((button) => {
 document.querySelectorAll("[data-modal-transaction-filter]").forEach((button) => {
   button.addEventListener("click", () => {
     modalTransactionFilter = button.getAttribute("data-modal-transaction-filter") || "all";
+    modalTransactionEntityFilter = null;
     setTransactionFilterButtons("[data-modal-transaction-filter]", modalTransactionFilter);
     renderModalTransactions();
   });
@@ -1497,6 +1627,39 @@ document.querySelectorAll("[data-modal-transaction-sort]").forEach((button) => {
     renderModalTransactions();
   });
 });
+
+function lenderEvidenceSelection(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  const button = target ? target.closest("[data-lender-evidence-filter]") : null;
+  if (!button) return null;
+  const filter = button.getAttribute("data-lender-evidence-filter");
+  const entity = button.getAttribute("data-lender-evidence-entity");
+  if (!filter || !entity) return null;
+  return { filter, entity };
+}
+
+if (els.lenderTable) {
+  els.lenderTable.addEventListener("click", (event) => {
+    const selection = lenderEvidenceSelection(event);
+    if (!selection) return;
+    transactionFilter = selection.filter;
+    transactionEntityFilter = selection.entity;
+    setTransactionFilterButtons("[data-transaction-filter]", transactionFilter);
+    renderMainTransactions();
+    els.transactionCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+}
+if (els.statementModalLenders) {
+  els.statementModalLenders.addEventListener("click", (event) => {
+    const selection = lenderEvidenceSelection(event);
+    if (!selection) return;
+    modalTransactionFilter = selection.filter;
+    modalTransactionEntityFilter = selection.entity;
+    setTransactionFilterButtons("[data-modal-transaction-filter]", modalTransactionFilter);
+    renderModalTransactions();
+    els.statementModalTransactions?.closest(".modal-panel")?.scrollIntoView({ block: "start" });
+  });
+}
 
 /* --- appearance ------------------------------------------------------
    The theme is resolved inline in the document head before first paint;

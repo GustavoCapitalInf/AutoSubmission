@@ -29,7 +29,18 @@ def _funder_dict(match) -> dict:
         "funder": match.funder,
         "matched_alias": match.matched_alias,
         "classification": match.classification,
+        "debit_count": match.debit_count,
         "total_debited": match.total_debited,
+        "potential_lender_debit_count": (
+            match.debit_count if match.classification == "potential_lender" else 0
+        ),
+        "potential_lender_debit_total": (
+            match.total_debited if match.classification == "potential_lender" else 0.0
+        ),
+        "eligible_deposit_denominator": match.eligible_deposit_denominator,
+        "potential_withholding_exposure": match.potential_withholding_exposure,
+        "potential_withholding_formula": match.potential_withholding_formula,
+        "review_required": match.review_required,
         "status": match.status,
         "transactions": [
             _transaction_dict(transaction, evidence)
@@ -90,6 +101,9 @@ def report_to_dict(report: Report) -> dict:
             "insurance_providers": [_insurance_dict(match) for match in detection.insurance_providers],
             "recurring_debits": [_recurring_dict(item) for item in detection.recurring_debits],
             "lender_evidence": [asdict(item) for item in detection.lender_evidence],
+            "potential_lender_evidence": [
+                asdict(item) for item in detection.potential_lender_evidence
+            ],
             "insurance_evidence": [asdict(item) for item in detection.insurance_evidence],
             "manual_review": [asdict(item) for item in detection.manual_review],
         },

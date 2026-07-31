@@ -119,6 +119,9 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     for idx, evidence in enumerate(package.get("lender_evidence") or [], start=1):
         for key, value in evidence.items():
             rows.append((f"lender_evidence_{idx}", key, "" if value is None else value))
+    for idx, evidence in enumerate(package.get("potential_lender_evidence") or [], start=1):
+        for key, value in evidence.items():
+            rows.append((f"potential_lender_evidence_{idx}", key, "" if value is None else value))
     for idx, evidence in enumerate(package.get("insurance_evidence") or [], start=1):
         for key, value in evidence.items():
             rows.append((f"insurance_evidence_{idx}", key, "" if value is None else value))
@@ -205,6 +208,13 @@ def _num(value: object, default: float = 0.0) -> float:
         return default
 
 
+def _contributes_to_potential_totals(classification: dict) -> bool:
+    explicit = classification.get("contributes_to_potential_lender_totals")
+    if explicit is not None:
+        return explicit is True
+    return classification.get("contributes_to_potential_lender_count") is True
+
+
 def _period_days(start: object, end: object) -> int | None:
     if not start or not end:
         return None
@@ -239,11 +249,16 @@ def _package_analysis(jobs) -> dict:
         "lender_debit_count": 0,
         "lenders_detected": 0,
         "potential_lenders_detected": 0,
+        "potential_lender_debit_count": 0,
+        "potential_lender_debit_total": 0.0,
+        "potential_lender_debits": 0.0,
         "monthly_lender_debits": 0.0,
         "insurance_count": 0,
         "insurance_total": 0.0,
         "withholding_numerator": 0.0,
         "withholding_denominator": 0.0,
+        "potential_withholding_numerator": 0.0,
+        "potential_withholding_denominator": 0.0,
         "nsf_count": 0,
     }
 
@@ -255,6 +270,7 @@ def _package_analysis(jobs) -> dict:
     package_potential_matches: list[dict] = []
     package_insurance_matches: list[dict] = []
     package_lender_evidence: list[dict] = []
+    package_potential_lender_evidence: list[dict] = []
     package_insurance_evidence: list[dict] = []
     for job in jobs:
         analysis = job.analysis or {}
@@ -300,6 +316,11 @@ def _package_analysis(jobs) -> dict:
             for transaction in authoritative_rows
             if transaction["classification"].get("contributes_to_withholding_rate") is True
         ]
+        potential_lender_rows = [
+            transaction
+            for transaction in authoritative_rows
+            if _contributes_to_potential_totals(transaction["classification"])
+        ]
         insurance_rows = [
             transaction
             for transaction in authoritative_rows
@@ -308,6 +329,11 @@ def _package_analysis(jobs) -> dict:
         if authoritative_rows:
             lender_debits = round(sum(abs(_num(row.get("amount"))) for row in lender_rows), 2)
             lender_debit_count = len(lender_rows)
+            potential_lender_debit_total = round(
+                sum(abs(_num(row.get("amount"))) for row in potential_lender_rows),
+                2,
+            )
+            potential_lender_debit_count = len(potential_lender_rows)
             insurance_count = len(insurance_rows)
             insurance_total = round(sum(abs(_num(row.get("amount"))) for row in insurance_rows), 2)
         else:
@@ -315,6 +341,13 @@ def _package_analysis(jobs) -> dict:
             # classification records were added. New reports always take the path above.
             lender_debits = _num(metrics.get("withholding_numerator"), _num(metrics.get("lender_debits")))
             lender_debit_count = int(_num(metrics.get("lender_debit_count"), 0.0))
+            potential_lender_debit_total = _num(
+                metrics.get("potential_lender_debit_total"),
+                _num(metrics.get("potential_lender_debits")),
+            )
+            potential_lender_debit_count = int(
+                _num(metrics.get("potential_lender_debit_count"), 0.0)
+            )
             insurance_count = int(_num(metrics.get("insurance_count"), 0.0))
             insurance_total = _num(metrics.get("insurance_total"))
         eligible_deposits = _num(
@@ -333,20 +366,36 @@ def _package_analysis(jobs) -> dict:
         totals["cash_flow"] = round(totals["cash_flow"] + cash_flow, 2)
         totals["lender_debits"] = round(totals["lender_debits"] + lender_debits, 2)
         totals["lender_debit_count"] += lender_debit_count
+        totals["potential_lender_debit_total"] = round(
+            totals["potential_lender_debit_total"] + potential_lender_debit_total,
+            2,
+        )
+        totals["potential_lender_debits"] = totals["potential_lender_debit_total"]
+        totals["potential_lender_debit_count"] += potential_lender_debit_count
         totals["monthly_lender_debits"] = totals["lender_debits"]
         totals["insurance_count"] += insurance_count
         totals["insurance_total"] = round(totals["insurance_total"] + insurance_total, 2)
         totals["withholding_numerator"] = totals["lender_debits"]
+        totals["potential_withholding_numerator"] = totals["potential_lender_debit_total"]
         totals["withholding_denominator"] = round(
             totals["withholding_denominator"] + eligible_deposits,
             2,
         )
+        totals["potential_withholding_denominator"] = totals["withholding_denominator"]
         totals["nsf_count"] += nsf_count
 
         for match in detection.get("known_funders") or []:
             name = match.get("funder") or "Unknown"
-            item = funders.setdefault(name, {"funder": name, "documents": 0, "total_debited": 0.0})
+            item = funders.setdefault(
+                name,
+                {"funder": name, "documents": 0, "total_debited": 0.0},
+            )
             item["documents"] += 1
+            match_debit_count = int(
+                _num(match.get("debit_count"), len(match.get("transactions") or []))
+            )
+            if match_debit_count:
+                item["debit_count"] = item.get("debit_count", 0) + match_debit_count
             item["total_debited"] = round(item["total_debited"] + _num(match.get("total_debited")), 2)
             package_funder_matches.append(
                 {
@@ -361,13 +410,42 @@ def _package_analysis(jobs) -> dict:
             name = match.get("funder") or "Unknown candidate"
             item = potential_lenders.setdefault(
                 name,
-                {"funder": name, "documents": 0, "status": "review_required"},
+                {
+                    "funder": name,
+                    "documents": 0,
+                    "debit_count": 0,
+                    "potential_lender_debit_count": 0,
+                    "total_debited": 0.0,
+                    "potential_lender_debit_total": 0.0,
+                    "status": "review_required",
+                    "review_required": True,
+                },
+            )
+            match_count = int(
+                _num(
+                    match.get("potential_lender_debit_count"),
+                    _num(match.get("debit_count"), len(match.get("transactions") or [])),
+                )
+            )
+            match_total = _num(
+                match.get("potential_lender_debit_total"),
+                _num(match.get("total_debited")),
             )
             item["documents"] += 1
+            item["debit_count"] += match_count
+            item["potential_lender_debit_count"] = item["debit_count"]
+            item["total_debited"] = round(item["total_debited"] + match_total, 2)
+            item["potential_lender_debit_total"] = item["total_debited"]
             package_potential_matches.append(
                 {
                     "funder": name,
                     "source_job": job.id,
+                    "debit_count": match_count,
+                    "potential_lender_debit_count": match_count,
+                    "total_debited": round(match_total, 2),
+                    "potential_lender_debit_total": round(match_total, 2),
+                    "eligible_deposit_denominator": eligible_deposits,
+                    "potential_withholding_exposure": match.get("potential_withholding_exposure"),
                     "transactions": match.get("transactions") or [],
                     "evidence": match.get("evidence") or [],
                     "status": "review_required",
@@ -414,6 +492,8 @@ def _package_analysis(jobs) -> dict:
             }
             if classification.get("contributes_to_withholding_rate") is True:
                 package_lender_evidence.append(evidence)
+            if _contributes_to_potential_totals(classification):
+                package_potential_lender_evidence.append(evidence)
             if classification.get("contributes_to_insurance_totals") is True:
                 package_insurance_evidence.append(evidence)
 
@@ -443,12 +523,22 @@ def _package_analysis(jobs) -> dict:
             "lender_debit_count": lender_debit_count,
             "lenders_detected": int(_num(metrics.get("lenders_detected"), len(detection.get("known_funders") or []))),
             "potential_lenders_detected": int(_num(metrics.get("potential_lenders_detected"), len(detection.get("potential_lenders") or []))),
+            "potential_lender_debit_count": potential_lender_debit_count,
+            "potential_lender_debit_total": potential_lender_debit_total,
+            "potential_lender_debits": potential_lender_debit_total,
             "insurance_count": insurance_count,
             "insurance_total": insurance_total,
             "withholding_rate": metrics.get("withholding_rate"),
             "withholding_numerator": lender_debits,
             "withholding_denominator": eligible_deposits,
             "withholding_review_required": bool(metrics.get("withholding_review_required")) or eligible_deposits <= 0,
+            "potential_withholding_exposure": metrics.get("potential_withholding_exposure"),
+            "potential_withholding_numerator": potential_lender_debit_total,
+            "potential_withholding_denominator": eligible_deposits,
+            "potential_withholding_review_required": (
+                bool(metrics.get("potential_withholding_review_required"))
+                or potential_lender_debit_count > 0
+            ),
         }
         documents.append(doc_row)
         if ready:
@@ -480,8 +570,36 @@ def _package_analysis(jobs) -> dict:
     )
     package_withholding = round(package_withholding_raw, 2) if package_withholding_raw is not None else None
     withholding_review_required = totals["withholding_denominator"] <= 0
+    potential_withholding_raw = (
+        abs(totals["potential_withholding_numerator"])
+        / totals["potential_withholding_denominator"]
+        * 100
+        if totals["potential_withholding_denominator"] > 0
+        else None
+    )
+    potential_withholding = (
+        round(potential_withholding_raw, 2)
+        if potential_withholding_raw is not None
+        else None
+    )
+    potential_withholding_review_required = totals["potential_lender_debit_count"] > 0
+    for item in potential_lenders.values():
+        item["eligible_deposit_denominator"] = totals["potential_withholding_denominator"]
+        item["potential_withholding_exposure"] = (
+            abs(item["total_debited"]) / totals["potential_withholding_denominator"] * 100
+            if totals["potential_withholding_denominator"] > 0
+            else None
+        )
+        item["potential_withholding_formula"] = (
+            "abs(potential_lender_debit_total) / eligible_deposits * 100"
+        )
     decision = "approved"
-    if totals["failed"] or totals["integrity_high"] or totals["manual_review"]:
+    if (
+        totals["failed"]
+        or totals["integrity_high"]
+        or totals["manual_review"]
+        or potential_withholding_review_required
+    ):
         decision = "review_required"
     elif totals["summary_only"] or totals["integrity_review"]:
         decision = "limited_review"
@@ -496,8 +614,13 @@ def _package_analysis(jobs) -> dict:
             "average_daily_balance": package_average_balance,
             "package_withholding_rate": package_withholding,
             "package_withholding_rate_raw": package_withholding_raw,
+            "eligible_deposits": totals["withholding_denominator"],
             "withholding_formula": "abs(total_qualifying_lender_debits) / eligible_deposits * 100",
             "withholding_review_required": withholding_review_required,
+            "potential_withholding_exposure": potential_withholding,
+            "potential_withholding_exposure_raw": potential_withholding_raw,
+            "potential_withholding_formula": "abs(potential_lender_debit_total) / eligible_deposits * 100",
+            "potential_withholding_review_required": potential_withholding_review_required,
             "decision": decision,
         },
         "documents": documents,
@@ -511,12 +634,14 @@ def _package_analysis(jobs) -> dict:
         ),
         "transactions": package_transactions,
         "lender_evidence": package_lender_evidence,
+        "potential_lender_evidence": package_potential_lender_evidence,
         "insurance_evidence": package_insurance_evidence,
         "detection": {
             "known_funders": package_funder_matches,
             "potential_lenders": package_potential_matches,
             "insurance_providers": package_insurance_matches,
             "lender_evidence": package_lender_evidence,
+            "potential_lender_evidence": package_potential_lender_evidence,
             "insurance_evidence": package_insurance_evidence,
         },
     }

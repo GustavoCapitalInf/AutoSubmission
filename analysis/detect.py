@@ -19,7 +19,12 @@ class FunderMatch:
     classification: str = "confirmed_lender"
     transactions: list[Transaction] = field(default_factory=list)
     evidence: list[TransactionClassification] = field(default_factory=list)
+    debit_count: int = 0
     total_debited: float = 0.0
+    eligible_deposit_denominator: float | None = None
+    potential_withholding_exposure: float | None = None
+    potential_withholding_formula: str | None = None
+    review_required: bool = False
     status: str = "confirmed"
 
 
@@ -51,6 +56,7 @@ class DetectionResult:
     insurance_providers: list[InsuranceMatch] = field(default_factory=list)
     recurring_debits: list[RecurringDebit] = field(default_factory=list)
     lender_evidence: list[TransactionClassification] = field(default_factory=list)
+    potential_lender_evidence: list[TransactionClassification] = field(default_factory=list)
     insurance_evidence: list[TransactionClassification] = field(default_factory=list)
     manual_review: list[TransactionClassification] = field(default_factory=list)
 
@@ -70,13 +76,14 @@ def _group_funders(
     records: list[TransactionClassification],
     *,
     state: str,
+    eligible_deposits: float | None = None,
 ) -> list[FunderMatch]:
     matches: dict[str, FunderMatch] = {}
     for transaction, record in zip(stmt.transactions, records):
         contributes = (
-            record.contributes_to_lender_count
+            record.contributes_to_lender_totals
             if state == "confirmed_lender"
-            else record.contributes_to_potential_lender_count
+            else record.contributes_to_potential_lender_totals
         )
         if record.classification != state or not record.canonical_entity or not contributes:
             continue
@@ -87,14 +94,24 @@ def _group_funders(
                 matched_alias=record.matched_alias,
                 classification=state,
                 status="confirmed" if state == "confirmed_lender" else "review_required",
+                review_required=state == "potential_lender",
             )
         match.transactions.append(transaction)
         match.evidence.append(record)
-        if state == "confirmed_lender" and record.contributes_to_lender_totals:
-            match.total_debited += abs(record.amount)
+        match.debit_count += 1
+        match.total_debited += abs(record.amount)
         matches[record.canonical_entity] = match
     for match in matches.values():
         match.total_debited = round(match.total_debited, 2)
+        if state == "potential_lender":
+            match.eligible_deposit_denominator = eligible_deposits
+            match.potential_withholding_formula = (
+                "abs(potential_lender_debit_total) / eligible_deposits * 100"
+            )
+            if eligible_deposits is not None and eligible_deposits > 0:
+                match.potential_withholding_exposure = (
+                    abs(match.total_debited) / eligible_deposits
+                ) * 100
     return sorted(matches.values(), key=lambda item: (-item.total_debited, item.funder))
 
 
@@ -108,8 +125,15 @@ def find_known_funders(
 def find_potential_lenders(
     stmt: Statement,
     classifications: list[TransactionClassification] | None = None,
+    *,
+    eligible_deposits: float | None = None,
 ) -> list[FunderMatch]:
-    return _group_funders(stmt, _records(stmt, classifications), state="potential_lender")
+    return _group_funders(
+        stmt,
+        _records(stmt, classifications),
+        state="potential_lender",
+        eligible_deposits=eligible_deposits,
+    )
 
 
 def find_insurance(
@@ -177,17 +201,26 @@ def detect(
     *,
     min_count: int = 3,
     classifications: list[TransactionClassification] | None = None,
+    eligible_deposits: float | None = None,
 ) -> DetectionResult:
     records = _records(stmt, classifications)
     lender_evidence = [record for record in records if record.contributes_to_lender_totals]
+    potential_lender_evidence = [
+        record for record in records if record.contributes_to_potential_lender_totals
+    ]
     insurance_evidence = [record for record in records if record.contributes_to_insurance_totals]
     manual_review = [record for record in records if record.review_required]
     return DetectionResult(
         known_funders=find_known_funders(stmt, records),
-        potential_lenders=find_potential_lenders(stmt, records),
+        potential_lenders=find_potential_lenders(
+            stmt,
+            records,
+            eligible_deposits=eligible_deposits,
+        ),
         insurance_providers=find_insurance(stmt, records),
         recurring_debits=find_recurring_debits(stmt, min_count=min_count, classifications=records),
         lender_evidence=lender_evidence,
+        potential_lender_evidence=potential_lender_evidence,
         insurance_evidence=insurance_evidence,
         manual_review=manual_review,
     )

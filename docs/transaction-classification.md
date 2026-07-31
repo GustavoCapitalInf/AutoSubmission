@@ -52,8 +52,10 @@ status, and every metric contribution flag.
 - `lenders_detected`: distinct canonical entities with qualifying posted
   `confirmed_lender` debit rows.
 - `potential_lenders_detected`: distinct canonical entities with qualifying
-  posted `potential_lender` debit rows. Potential rows do not affect lender
-  totals or withholding.
+  posted `potential_lender` debit rows.
+- `potential_lender_debit_count` and `potential_lender_debit_total`: qualifying
+  posted potential-lender debit rows and their absolute sum. These rows remain
+  excluded from confirmed lender totals and confirmed withholding.
 - `lender_debit_count`: qualifying posted confirmed-lender debit rows.
 - `total_lender_debits`: absolute sum of those exact rows.
 - `insurance_count` and `insurance_total`: qualifying posted insurance debit
@@ -83,6 +85,18 @@ The numerator is the exact lender debit total represented by the lender evidence
 records and lender transaction filter. Full precision is retained internally;
 rounding occurs only for display. A zero or missing denominator returns no rate
 and sets `withholding_review_required`.
+
+Potential lender exposure is a separate review metric over the same eligible
+deposit definition:
+
+`potential_withholding_exposure = abs(potential_lender_debit_total) / eligible_deposits * 100`
+
+Its numerator is the exact set of rows marked
+`contributes_to_potential_withholding_exposure`; those rows are exposed in the
+potential evidence table and transaction filter. A material potential debit sets
+`potential_withholding_review_required` even when confirmed withholding is 0%.
+The potential amount remains available when the denominator is unavailable; only
+the exposure is reported as `N/A` in that case.
 
 ## Extension rule
 

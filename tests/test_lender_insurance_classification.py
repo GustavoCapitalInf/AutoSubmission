@@ -6,7 +6,7 @@ import pytest
 
 from analysis.detect import detect
 from analysis.metrics import compute_metrics
-from analysis.pipeline import DocumentIntegrity, Quality, Report
+from analysis.pipeline import DocumentIntegrity, Quality, Report, analyze_markdown
 from analysis.reconcile import reconcile
 from analysis.schema import Statement, Transaction
 from analysis.serialization import report_to_dict
@@ -15,6 +15,7 @@ from analysis.transaction_classifier import (
     classify_statement_transactions,
     classify_transaction,
 )
+from ocr.native_text import parse_native_td_canada
 from webapp.app import _package_analysis
 from webapp.jobs import Job
 
@@ -79,6 +80,8 @@ def test_ordered_non_lender_rules_precede_lender_detection(
     assert not result.contributes_to_lender_count
     assert not result.contributes_to_lender_totals
     assert not result.contributes_to_withholding_rate
+    assert not result.contributes_to_potential_lender_totals
+    assert not result.contributes_to_potential_withholding_exposure
     assert result.contributes_to_insurance_totals is (expected_state == "insurance")
 
 
@@ -142,6 +145,13 @@ def test_unknown_recurring_financing_counterparty_is_potential_and_fail_closed()
     assert metrics.potential_lenders_detected == 1
     assert metrics.lender_debit_count == 0
     assert metrics.lender_debits == 0.0
+    assert metrics.potential_lender_debit_count == 5
+    assert metrics.potential_lender_debit_total == metrics.potential_lender_debits == 450.0
+    assert metrics.potential_withholding_numerator == 450.0
+    assert metrics.potential_withholding_denominator == 0.0
+    assert metrics.potential_withholding_exposure is None
+    assert metrics.potential_withholding_review_required
+    assert len(metrics.potential_lender_evidence) == 5
 
 
 def test_recurring_counterparty_normalization_removes_ids_not_business_name():
@@ -172,7 +182,11 @@ def test_repeated_insurance_debits_count_rows_and_one_provider():
     )
     records = classify_statement_transactions(statement)
     metrics = compute_metrics(statement, classifications=records)
-    detection = detect(statement, classifications=records)
+    detection = detect(
+        statement,
+        classifications=records,
+        eligible_deposits=metrics.eligible_deposits,
+    )
     assert metrics.insurance_count == 3
     assert metrics.insurance_total == 375.0
     assert metrics.lenders_detected == 0
@@ -203,7 +217,11 @@ def _audit_report() -> Report:
     )
     records = classify_statement_transactions(statement)
     metrics = compute_metrics(statement, trust_stated_summary=True, classifications=records)
-    detection = detect(statement, classifications=records)
+    detection = detect(
+        statement,
+        classifications=records,
+        eligible_deposits=metrics.eligible_deposits,
+    )
     return Report(
         statement=statement,
         reconciliation=reconcile(statement),
@@ -232,12 +250,18 @@ def test_metrics_api_tables_filters_and_withholding_share_exact_evidence():
         for transaction in transactions
         if transaction["classification"]["contributes_to_withholding_rate"]
     ]
+    potential_filter_rows = [
+        transaction
+        for transaction in transactions
+        if transaction["classification"]["contributes_to_potential_lender_totals"]
+    ]
     insurance_filter_rows = [
         transaction
         for transaction in transactions
         if transaction["classification"]["contributes_to_insurance_totals"]
     ]
     lender_evidence = payload["detection"]["lender_evidence"]
+    potential_lender_evidence = payload["detection"]["potential_lender_evidence"]
     insurance_evidence = payload["detection"]["insurance_evidence"]
 
     assert metrics["lenders_detected"] == 2
@@ -250,6 +274,16 @@ def test_metrics_api_tables_filters_and_withholding_share_exact_evidence():
     assert metrics["withholding_rate"] == pytest.approx(2235.0 / 16898.73 * 100)
     assert round(metrics["withholding_rate"], 2) == 13.23
 
+    assert metrics["potential_lender_debit_count"] == len(potential_filter_rows) == 1
+    assert metrics["potential_lender_debit_total"] == metrics["potential_lender_debits"] == 125.0
+    assert metrics["potential_withholding_numerator"] == 125.0
+    assert metrics["potential_withholding_denominator"] == 16898.73
+    assert metrics["potential_withholding_exposure"] == pytest.approx(125.0 / 16898.73 * 100)
+    assert metrics["potential_withholding_review_required"]
+    assert len(potential_lender_evidence) == 1
+    assert sum(abs(row["amount"]) for row in potential_filter_rows) == 125.0
+    assert sum(abs(row["amount"]) for row in potential_lender_evidence) == 125.0
+
     assert metrics["insurance_count"] == len(insurance_filter_rows) == len(insurance_evidence) == 2
     assert metrics["insurance_total"] == 600.0
     assert sum(abs(row["amount"]) for row in insurance_filter_rows) == 600.0
@@ -260,6 +294,12 @@ def test_metrics_api_tables_filters_and_withholding_share_exact_evidence():
     assert [item["funder"] for item in payload["detection"]["potential_lenders"]] == [
         "CMCA Finance"
     ]
+    candidate = payload["detection"]["potential_lenders"][0]
+    assert candidate["debit_count"] == candidate["potential_lender_debit_count"] == 1
+    assert candidate["total_debited"] == candidate["potential_lender_debit_total"] == 125.0
+    assert candidate["eligible_deposit_denominator"] == 16898.73
+    assert candidate["potential_withholding_exposure"] == pytest.approx(125.0 / 16898.73 * 100)
+    assert len(candidate["transactions"]) == len(candidate["evidence"]) == 1
     assert {item["provider"] for item in payload["detection"]["insurance_providers"]} == {
         "Co-operators",
         "Intact Insurance",
@@ -277,6 +317,16 @@ def test_metrics_api_tables_filters_and_withholding_share_exact_evidence():
     assert totals["withholding_denominator"] == 16898.73
     assert totals["package_withholding_rate"] == 13.23
     assert len(package["lender_evidence"]) == 3
+    assert totals["potential_lender_debit_count"] == 1
+    assert totals["potential_lender_debit_total"] == totals["potential_lender_debits"] == 125.0
+    assert totals["potential_withholding_numerator"] == 125.0
+    assert totals["potential_withholding_denominator"] == 16898.73
+    assert totals["potential_withholding_exposure"] == 0.74
+    assert totals["potential_withholding_exposure_raw"] == pytest.approx(125.0 / 16898.73 * 100)
+    assert totals["potential_withholding_review_required"]
+    assert totals["decision"] == "review_required"
+    assert len(package["potential_lender_evidence"]) == 1
+    assert package["potential_lenders"][0]["total_debited"] == 125.0
     assert totals["insurance_count"] == 2
     assert totals["insurance_total"] == 600.0
     assert len(package["insurance_evidence"]) == 2
@@ -302,6 +352,26 @@ def test_duplicate_lender_row_is_classified_but_excluded_from_all_totals():
     assert metrics.lenders_detected == 1
     assert metrics.lender_debit_count == 2
     assert metrics.lender_debits == 500.0
+
+
+def test_duplicate_potential_lender_row_is_excluded_from_potential_totals():
+    statement = Statement(
+        transactions=[
+            _txn("2026-01-02", "CMCA Finance BUS payment", -125.0, balance=875.0),
+            _txn("2026-01-02", "CMCA Finance BUS payment", -125.0, balance=875.0),
+            _txn("2026-01-09", "CMCA Finance BUS payment", -125.0, balance=750.0),
+        ]
+    )
+    records = classify_statement_transactions(statement)
+    assert records[1].duplicate_of == "transaction:1"
+    assert not records[1].contributes_to_potential_lender_totals
+    assert not records[1].contributes_to_potential_withholding_exposure
+    metrics = compute_metrics(statement, classifications=records)
+    assert metrics.lenders_detected == 0
+    assert metrics.lender_debits == 0.0
+    assert metrics.potential_lenders_detected == 1
+    assert metrics.potential_lender_debit_count == 2
+    assert metrics.potential_lender_debit_total == 250.0
 
 
 def test_lender_credit_refund_and_zero_denominator_do_not_enter_numerator():
@@ -353,12 +423,79 @@ def test_every_record_exposes_required_audit_fields():
     assert record.contributes_to_insurance_totals
 
 
+def test_td_cmca_fixture_reports_potential_amount_and_exposure_without_promotion():
+    root = Path(__file__).resolve().parents[1]
+    pdf = root / "Bank Statements" / "TD Can" / "Jan_30-Feb_27_2026 (3).pdf"
+    document = parse_native_td_canada(pdf.read_bytes(), source_file=pdf.name)
+    assert document is not None
+
+    report = analyze_markdown(document.to_markdown(), parse_mode="deterministic")
+    payload = report_to_dict(report)
+    metrics = payload["metrics"]
+    candidate_rows = [
+        transaction
+        for transaction in payload["statement"]["transactions"]
+        if transaction["classification"]["contributes_to_potential_lender_totals"]
+    ]
+
+    assert payload["statement"]["bank"] == "TD Canada Trust"
+    assert payload["statement"]["currency"] == "CAD"
+    assert metrics["lenders_detected"] == 0
+    assert metrics["lender_debit_count"] == 0
+    assert metrics["lender_debits"] == metrics["withholding_numerator"] == 0.0
+    assert metrics["withholding_rate"] == 0.0
+    assert metrics["potential_lenders_detected"] == 1
+    assert metrics["potential_lender_debit_count"] == len(candidate_rows) == 20
+    assert metrics["potential_lender_debit_total"] == 2235.0
+    assert sum(abs(row["amount"]) for row in candidate_rows) == 2235.0
+    assert metrics["eligible_deposits"] == metrics["potential_withholding_denominator"] == 16898.73
+    assert metrics["potential_withholding_numerator"] == 2235.0
+    assert metrics["potential_withholding_exposure"] == pytest.approx(2235.0 / 16898.73 * 100)
+    assert round(metrics["potential_withholding_exposure"], 2) == 13.23
+    assert metrics["potential_withholding_review_required"]
+    assert {row["description"] for row in candidate_rows} == {"CMCA Finance BUS"}
+    assert {row["amount"] for row in candidate_rows} == {-111.75}
+    assert {
+        row["classification"]["canonical_entity"] for row in candidate_rows
+    } == {"CMCA Finance"}
+
+    candidates = payload["detection"]["potential_lenders"]
+    assert len(candidates) == 1
+    candidate = candidates[0]
+    assert candidate["funder"] == "CMCA Finance"
+    assert candidate["classification"] == "potential_lender"
+    assert candidate["debit_count"] == 20
+    assert candidate["total_debited"] == 2235.0
+    assert candidate["eligible_deposit_denominator"] == 16898.73
+    assert candidate["potential_withholding_exposure"] == pytest.approx(2235.0 / 16898.73 * 100)
+    assert len(candidate["transactions"]) == len(candidate["evidence"]) == 20
+    assert len(payload["detection"]["potential_lender_evidence"]) == 20
+
+    package = _package_analysis(
+        [Job(id="td-cmca", filename=pdf.name, status="done", analysis=payload)]
+    )
+    totals = package["totals"]
+    assert totals["lender_debits"] == totals["package_withholding_rate"] == 0.0
+    assert totals["potential_lender_debit_count"] == 20
+    assert totals["potential_lender_debit_total"] == 2235.0
+    assert totals["potential_withholding_denominator"] == 16898.73
+    assert totals["potential_withholding_exposure"] == 13.23
+    assert totals["decision"] == "review_required"
+    assert len(package["potential_lender_evidence"]) == 20
+    assert package["potential_lenders"][0]["total_debited"] == 2235.0
+
+
 def test_browser_consumes_classification_records_without_keyword_scans():
     javascript = Path("webapp/static/app.js").read_text(encoding="utf-8")
     html = Path("webapp/templates/index.html").read_text(encoding="utf-8")
     assert "contributes_to_withholding_rate" in javascript
     assert "contributes_to_insurance_totals" in javascript
     assert "contributes_to_potential_lender_count" in javascript
+    assert "contributes_to_potential_lender_totals" in javascript
+    assert "potential_lender_debit_total" in javascript
+    assert "potential_withholding_exposure" in javascript
+    assert "data-lender-evidence-entity" in javascript
+    assert 'funder.classification === "potential_lender" ? "N/A"' not in javascript
     assert "function lenderMapFromDetection" not in javascript
     assert "function isNsfTransaction" not in javascript
     assert "function isPosTransaction" not in javascript

@@ -29,7 +29,10 @@ FIELDS = [
     "withdrawal_count", "true_revenue", "cash_flow", "lender_credits",
     "lender_debits", "lender_debit_count", "lenders_detected",
     "potential_lenders_detected", "insurance_count", "insurance_total",
-    "withholding_numerator", "withholding_denominator", "withholding_rate", "pos_count",
+    "potential_lender_debit_count", "potential_lender_debit_total",
+    "withholding_numerator", "withholding_denominator", "withholding_rate",
+    "potential_withholding_numerator", "potential_withholding_denominator",
+    "potential_withholding_exposure", "potential_withholding_review_required", "pos_count",
     "pos_credit_count", "atm_withdrawal_count", "loan_count",
     "nsf", "known_funders", "recurring_debit_groups",
     "markdown", "json", "error",
@@ -90,11 +93,21 @@ def _row(path: Path, root: Path, markdown_path: Path, json_path: Path, doc, repo
         "lender_debit_count": m.lender_debit_count,
         "lenders_detected": m.lenders_detected,
         "potential_lenders_detected": m.potential_lenders_detected,
+        "potential_lender_debit_count": m.potential_lender_debit_count,
+        "potential_lender_debit_total": f"{m.potential_lender_debit_total:.2f}",
         "insurance_count": m.insurance_count,
         "insurance_total": f"{m.insurance_total:.2f}",
         "withholding_numerator": f"{m.withholding_numerator:.2f}",
         "withholding_denominator": f"{m.withholding_denominator:.2f}",
         "withholding_rate": f"{m.withholding_rate:.2f}" if m.withholding_rate is not None else "",
+        "potential_withholding_numerator": f"{m.potential_withholding_numerator:.2f}",
+        "potential_withholding_denominator": f"{m.potential_withholding_denominator:.2f}",
+        "potential_withholding_exposure": (
+            f"{m.potential_withholding_exposure:.2f}"
+            if m.potential_withholding_exposure is not None
+            else ""
+        ),
+        "potential_withholding_review_required": m.potential_withholding_review_required,
         "pos_count": m.pos_count,
         "pos_credit_count": m.pos_credit_count,
         "atm_withdrawal_count": m.atm_withdrawal_count,

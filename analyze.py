@@ -77,6 +77,21 @@ def _render(report: Report) -> str:
         f"  Withholding working   : ${m.withholding_numerator:,.2f} / "
         f"${m.withholding_denominator:,.2f} eligible deposits"
     )
+    potential_exposure = (
+        f"{m.potential_withholding_exposure:.2f}%"
+        if m.potential_withholding_exposure is not None
+        else "n/a"
+    )
+    potential_status = "review required" if m.potential_withholding_review_required else "clear"
+    L.append(
+        f"  Potential debits      : {m.potential_lender_debit_count} row(s), "
+        f"${m.potential_lender_debit_total:,.2f} "
+        f"(exposure {potential_exposure}; {potential_status})"
+    )
+    L.append(
+        f"  Potential working     : ${m.potential_withholding_numerator:,.2f} / "
+        f"${m.potential_withholding_denominator:,.2f} eligible deposits"
+    )
     L.append(f"  Insurance debits      : {m.insurance_count} row(s), ${m.insurance_total:,.2f}")
     L.append(
         f"  POS purchases/credits : {m.pos_count} / {m.pos_credit_count}"
@@ -103,7 +118,20 @@ def _render(report: Report) -> str:
     if d.potential_lenders:
         L.append("  Potential lenders requiring review:")
         for fm in d.potential_lenders:
-            L.append(f"    - {fm.funder}: {len(fm.transactions)} evidence row(s)")
+            exposure = (
+                f"{fm.potential_withholding_exposure:.2f}%"
+                if fm.potential_withholding_exposure is not None
+                else "n/a"
+            )
+            denominator = (
+                f"${fm.eligible_deposit_denominator:,.2f}"
+                if fm.eligible_deposit_denominator is not None
+                else "n/a"
+            )
+            L.append(
+                f"    - {fm.funder}: {fm.debit_count} debit(s), "
+                f"${fm.total_debited:,.2f}; {exposure} exposure / {denominator} deposits"
+            )
     else:
         L.append("  Potential lenders: none")
     if d.insurance_providers:

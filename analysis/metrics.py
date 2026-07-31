@@ -59,6 +59,9 @@ class Metrics:
     lender_debit_count: int = 0
     lenders_detected: int = 0
     potential_lenders_detected: int = 0
+    potential_lender_debit_count: int = 0
+    potential_lender_debit_total: float = 0.0
+    potential_lender_debits: float = 0.0
     monthly_lender_debits: float = 0.0
     insurance_count: int = 0
     insurance_total: float = 0.0
@@ -69,11 +72,19 @@ class Metrics:
     withholding_denominator: float = 0.0
     withholding_formula: str = "abs(total_qualifying_lender_debits) / eligible_deposits * 100"
     withholding_review_required: bool = False
+    potential_withholding_exposure: float | None = None
+    potential_withholding_numerator: float = 0.0
+    potential_withholding_denominator: float = 0.0
+    potential_withholding_formula: str = (
+        "abs(potential_lender_debit_total) / eligible_deposits * 100"
+    )
+    potential_withholding_review_required: bool = False
     eligible_deposits: float = 0.0
     eligible_deposit_definition: str = (
         "effective total deposits minus recognized lender funding credits"
     )
     lender_evidence: list[TransactionClassification] = field(default_factory=list)
+    potential_lender_evidence: list[TransactionClassification] = field(default_factory=list)
     insurance_evidence: list[TransactionClassification] = field(default_factory=list)
     pos_count: int = 0
     pos_credit_count: int = 0
@@ -151,6 +162,10 @@ def compute_metrics(
             confirmed_entities.add(classification.canonical_entity)
         if classification.contributes_to_potential_lender_count and classification.canonical_entity:
             potential_entities.add(classification.canonical_entity)
+        if classification.contributes_to_potential_lender_totals:
+            m.potential_lender_debit_total += abs(t.amount)
+            m.potential_lender_debit_count += 1
+            m.potential_lender_evidence.append(classification)
         if classification.contributes_to_insurance_totals:
             m.insurance_count += 1
             m.insurance_total += abs(t.amount)
@@ -174,6 +189,8 @@ def compute_metrics(
     m.total_withdrawals = round(m.total_withdrawals, 2)
     m.lender_credits = round(m.lender_credits, 2)
     m.lender_debits = round(m.lender_debits, 2)
+    m.potential_lender_debit_total = round(m.potential_lender_debit_total, 2)
+    m.potential_lender_debits = m.potential_lender_debit_total
     m.monthly_lender_debits = m.lender_debits
     m.insurance_total = round(m.insurance_total, 2)
     m.lenders_detected = len(confirmed_entities)
@@ -275,11 +292,23 @@ def compute_metrics(
     m.eligible_deposits = m.true_revenue
     m.withholding_numerator = m.lender_debits
     m.withholding_denominator = m.eligible_deposits
+    m.potential_withholding_numerator = m.potential_lender_debit_total
+    m.potential_withholding_denominator = m.eligible_deposits
+    m.potential_withholding_review_required = m.potential_lender_debit_count > 0
     if m.withholding_denominator <= 0:
         m.withholding_review_required = True
         m.notes.append("withholding rate is unavailable because eligible deposits are zero or missing")
     else:
         m.withholding_rate = (
             abs(m.withholding_numerator) / m.withholding_denominator
+        ) * 100
+    if m.potential_withholding_denominator <= 0:
+        if m.potential_lender_debit_count:
+            m.notes.append(
+                "potential withholding exposure is unavailable because eligible deposits are zero or missing"
+            )
+    else:
+        m.potential_withholding_exposure = (
+            abs(m.potential_withholding_numerator) / m.potential_withholding_denominator
         ) * 100
     return m

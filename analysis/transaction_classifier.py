@@ -86,6 +86,8 @@ class TransactionClassification:
     contributes_to_potential_lender_count: bool = False
     contributes_to_lender_totals: bool = False
     contributes_to_withholding_rate: bool = False
+    contributes_to_potential_lender_totals: bool = False
+    contributes_to_potential_withholding_exposure: bool = False
     contributes_to_insurance_totals: bool = False
     contributes_to_lender_credit_exclusion: bool = False
     is_ach: bool = False
@@ -421,6 +423,8 @@ def _build_record(
         contributes_to_potential_lender_count=contributes_potential,
         contributes_to_lender_totals=contributes_lender,
         contributes_to_withholding_rate=contributes_lender,
+        contributes_to_potential_lender_totals=contributes_potential,
+        contributes_to_potential_withholding_exposure=contributes_potential,
         contributes_to_insurance_totals=contributes_insurance,
         contributes_to_lender_credit_exclusion=contributes_to_lender_credit_exclusion,
         is_ach=_contains_alias(text, "ACH"),
@@ -818,6 +822,8 @@ def classify_statement_transactions(
                 ),
                 review_required=True,
                 contributes_to_potential_lender_count=True,
+                contributes_to_potential_lender_totals=True,
+                contributes_to_potential_withholding_exposure=True,
             )
 
     for index, original_index in duplicate_of.items():
@@ -831,6 +837,8 @@ def classify_statement_transactions(
             contributes_to_potential_lender_count=False,
             contributes_to_lender_totals=False,
             contributes_to_withholding_rate=False,
+            contributes_to_potential_lender_totals=False,
+            contributes_to_potential_withholding_exposure=False,
             contributes_to_insurance_totals=False,
             contributes_to_lender_credit_exclusion=False,
         )
