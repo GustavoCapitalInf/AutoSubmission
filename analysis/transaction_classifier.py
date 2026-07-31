@@ -58,7 +58,7 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
     "other",
 )
 
-CLASSIFICATION_VERSION = "2.0"
+CLASSIFICATION_VERSION = "2.1"
 
 
 @dataclass(frozen=True)
@@ -311,12 +311,17 @@ _INSURANCE_TERM_PATTERNS = (
     re.compile(r"\bPROPERTY COVERAGE\b"),
     re.compile(r"\bVEHICLE COVERAGE\b"),
 )
+_DIRECT_DEBIT_LOAN_PATTERNS = (
+    re.compile(r"\b(?:DIRECT DEB(?:IT)?|ACH DEBIT|BUSINESS PAD)\b.*\bLOANS?\b"),
+    re.compile(r"\bLOANS?\b.*\b(?:DIRECT DEB(?:IT)?|ACH DEBIT|BUSINESS PAD)\b"),
+)
 _EXPLICIT_REPAYMENT_PATTERNS = (
     re.compile(r"\bLOAN (?:PAYMENT|PMT|PYMT|REPAYMENT)\b"),
     re.compile(r"\b(?:PAYMENT|PMT|PYMT|REPAYMENT) (?:ON |FOR )?(?:A )?LOAN\b"),
     re.compile(r"\b(?:ADVANCE|FINANCING|FUNDING) (?:PAYMENT|PMT|PYMT|REPAYMENT)\b"),
     re.compile(r"\b(?:PAYMENT|PMT|PYMT|REPAYMENT) (?:FOR )?(?:ADVANCE|FINANCING|FUNDING)\b"),
     re.compile(r"\bMCA (?:PAYMENT|PMT|PYMT|REMITTANCE)\b"),
+    *_DIRECT_DEBIT_LOAN_PATTERNS,
 )
 _FINANCING_SIGNAL_PATTERNS = (
     re.compile(r"\bLOAN\b"),
@@ -696,6 +701,21 @@ def classify_transaction(
             matched_rule="potential_lender_registry",
             confidence_score=0.82,
             reason=f"Matched maintained candidate alias '{alias}'; confirmation requires review.",
+            review_required=True,
+        )
+
+    if amount < 0 and _matches_any(text, _DIRECT_DEBIT_LOAN_PATTERNS):
+        return _build_record(
+            **common,
+            classification="potential_lender",
+            canonical_entity="Unidentified lender obligation",
+            match_method="unidentified_loan_obligation",
+            matched_rule="direct_debit_loan_without_verified_counterparty",
+            confidence_score=0.78,
+            reason=(
+                "The posted debit explicitly identifies a loan obligation, but no verified "
+                "lender counterparty is available."
+            ),
             review_required=True,
         )
 

@@ -7,8 +7,11 @@ import pytest
 from analysis.metrics import compute_metrics
 from analysis.pipeline import analyze_markdown
 from analysis.schema import Statement, Transaction
+from analysis.serialization import report_to_dict
 from analysis.transaction_classifier import classify_transaction
 from ocr.native_text import parse_native_navy_federal, parse_native_pdf_text
+from webapp.app import _package_analysis
+from webapp.jobs import Job
 
 
 def _txn(
@@ -296,3 +299,84 @@ def test_atb_august_classification_regression():
         returned_transfer.description,
         returned_transfer.amount,
     ).classification == "refund_or_reversal"
+
+
+def test_atb_november_lender_and_potential_obligation_regression():
+    report = _real_statement_report("ATB/ATB Nov 2023.pdf")
+    metrics = report.metrics
+
+    assert report.statement.period_start == "2023-11-01"
+    assert report.statement.period_end == "2023-11-30"
+    assert report.reconciliation.ok
+    assert metrics.lenders_detected == 3
+    assert metrics.lender_debit_count == 43
+    assert metrics.lender_debits == 8658.91
+    assert metrics.potential_lenders_detected == 1
+    assert metrics.potential_lender_debit_count == 1
+    assert metrics.potential_lender_debit_total == 571.88
+    assert metrics.eligible_deposits == 59310.74
+    assert metrics.potential_withholding_numerator == 571.88
+    assert metrics.potential_withholding_denominator == 59310.74
+    assert metrics.potential_withholding_exposure == pytest.approx(
+        571.88 / 59310.74 * 100
+    )
+    assert round(metrics.potential_withholding_exposure, 2) == 0.96
+
+    known_funders = {match.funder: match for match in report.detection.known_funders}
+    assert set(known_funders) == {"BDC", "CanaCap", "Forward Funding"}
+    assert known_funders["Forward Funding"].debit_count == 21
+    assert known_funders["Forward Funding"].total_debited == 4305.0
+
+    assert len(report.detection.potential_lenders) == 1
+    potential = report.detection.potential_lenders[0]
+    assert potential.funder == "Unidentified lender obligation"
+    assert potential.debit_count == 1
+    assert potential.total_debited == 571.88
+    assert potential.eligible_deposit_denominator == 59310.74
+    assert potential.potential_withholding_exposure == pytest.approx(
+        571.88 / 59310.74 * 100
+    )
+    assert potential.review_required
+    assert [transaction.description for transaction in potential.transactions] == [
+        "Direct Debit Loans FC"
+    ]
+    assert [transaction.amount for transaction in potential.transactions] == [-571.88]
+    assert len(report.detection.lender_evidence) == 43
+    assert sum(abs(record.amount) for record in report.detection.lender_evidence) == 8658.91
+    assert len(report.detection.potential_lender_evidence) == 1
+    assert not report.detection.potential_lender_evidence[0].contributes_to_lender_totals
+
+    payload = report_to_dict(report)
+    serialized = payload["detection"]["potential_lenders"][0]
+    assert serialized["funder"] == "Unidentified lender obligation"
+    assert serialized["debit_count"] == 1
+    assert serialized["total_debited"] == 571.88
+    assert serialized["eligible_deposit_denominator"] == 59310.74
+    assert serialized["potential_withholding_exposure"] == pytest.approx(
+        571.88 / 59310.74 * 100
+    )
+    assert serialized["status"] == "review_required"
+
+    package = _package_analysis(
+        [Job(id="atb-nov", filename="ATB Nov 2023.pdf", status="done", analysis=payload)]
+    )
+    totals = package["totals"]
+    assert totals["lenders_detected"] == 3
+    assert totals["lender_debit_count"] == 43
+    assert totals["lender_debits"] == 8658.91
+    assert totals["potential_lenders_detected"] == 1
+    assert totals["potential_lender_debit_count"] == 1
+    assert totals["potential_lender_debit_total"] == 571.88
+    assert totals["eligible_deposits"] == 59310.74
+    assert totals["potential_withholding_exposure"] == 0.96
+    assert totals["decision"] == "review_required"
+
+    package_candidate = package["potential_lenders"][0]
+    assert package_candidate["funder"] == "Unidentified lender obligation"
+    assert package_candidate["debit_count"] == 1
+    assert package_candidate["total_debited"] == 571.88
+    assert package_candidate["eligible_deposit_denominator"] == 59310.74
+    assert package_candidate["status"] == "review_required"
+    assert [row["original_description"] for row in package["potential_lender_evidence"]] == [
+        "Direct Debit Loans FC"
+    ]

@@ -106,7 +106,8 @@ def test_canonical_lender_aliases_do_not_merge_canacap_and_can_capital():
         ("CMCAFINANCE debit", "potential_lender", "CMCA Finance"),
         ("91003457252 EFT Payment xxxxxx1111 Lily Advance 8008545315", "potential_lender", "Lily Advance"),
         ("External Withdrawal SNAP FINANCE - PAYMENT", "potential_lender", "SNAP Finance"),
-        ("Direct Debit Business PAD Forward Funding", "confirmed_lender", "Forward Financing"),
+        ("Direct Debit Business PAD Forward Funding", "confirmed_lender", "Forward Funding"),
+        ("Direct Debit Business PAD Forward Financing", "confirmed_lender", "Forward Financing"),
         ("BDC loan payment", "confirmed_lender", "BDC"),
     ],
 )
@@ -114,6 +115,34 @@ def test_named_financing_aliases(description: str, state: str, entity: str):
     result = classify_transaction(description, -125.0)
     assert result.classification == state
     assert result.canonical_entity == entity
+
+
+def test_forward_funding_and_forward_financing_are_distinct_lenders():
+    funding = classify_transaction("Forward Funding", -205.0)
+    financing = classify_transaction("Forward Financing", -205.0)
+
+    assert funding.classification == financing.classification == "confirmed_lender"
+    assert funding.canonical_entity == "Forward Funding"
+    assert financing.canonical_entity == "Forward Financing"
+    assert funding.canonical_entity != financing.canonical_entity
+
+
+def test_unidentified_direct_debit_loan_is_potential_and_requires_review():
+    result = classify_transaction("Direct Debit Loans FC", -571.88)
+
+    assert result.classification == "potential_lender"
+    assert result.canonical_entity == "Unidentified lender obligation"
+    assert result.amount == -571.88
+    assert result.match_method == "unidentified_loan_obligation"
+    assert result.matched_rule == "direct_debit_loan_without_verified_counterparty"
+    assert result.review_required
+    assert result.is_loan_payment
+    assert result.contributes_to_potential_lender_count
+    assert result.contributes_to_potential_lender_totals
+    assert result.contributes_to_potential_withholding_exposure
+    assert not result.contributes_to_lender_count
+    assert not result.contributes_to_lender_totals
+    assert not result.contributes_to_withholding_rate
 
 
 def test_generic_recurring_debit_is_not_a_lender_without_counterparty_evidence():
