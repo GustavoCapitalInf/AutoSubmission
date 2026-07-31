@@ -65,8 +65,23 @@ def _render(report: Report) -> str:
     if m.withdrawals_source != "line_items":
         wd += f"   | line items ${m.total_withdrawals:,.2f} ({m.num_withdrawals})"
     L.append(wd)
-    L.append(f"  True revenue          : ${m.true_revenue:,.2f}  "
-             f"(deposits minus lender credits ${m.lender_credits:,.2f})")
+    L.append(
+        f"  Verified revenue      : ${m.verified_revenue_total:,.2f}  "
+        f"({m.verified_revenue_count} credit(s))"
+    )
+    L.append(
+        f"  Unverified deposits   : ${m.unverified_deposit_total:,.2f}  "
+        f"({m.unverified_deposit_count} credit(s); review required)"
+    )
+    L.append(
+        f"  Non-revenue credits   : ${m.non_revenue_total:,.2f}  "
+        f"({m.non_revenue_count} credit(s))"
+    )
+    L.append(f"  Maximum revenue       : ${m.maximum_revenue:,.2f}")
+    L.append(
+        f"  Revenue reconciliation: {'balanced' if m.revenue_reconciles else 'REVIEW'}  "
+        f"(delta ${m.revenue_reconciliation_delta:,.2f})"
+    )
     L.append(f"  Cash flow             : ${m.cash_flow:,.2f}")
     withholding = f"{m.withholding_rate:.2f}%" if m.withholding_rate is not None else "n/a"
     L.append(

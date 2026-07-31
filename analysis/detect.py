@@ -58,6 +58,9 @@ class DetectionResult:
     lender_evidence: list[TransactionClassification] = field(default_factory=list)
     potential_lender_evidence: list[TransactionClassification] = field(default_factory=list)
     insurance_evidence: list[TransactionClassification] = field(default_factory=list)
+    verified_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
+    unverified_deposit_evidence: list[TransactionClassification] = field(default_factory=list)
+    # Deprecated aliases for version 3.0 API consumers.
     true_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
     potential_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
     non_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
@@ -212,9 +215,11 @@ def detect(
         record for record in records if record.contributes_to_potential_lender_totals
     ]
     insurance_evidence = [record for record in records if record.contributes_to_insurance_totals]
-    true_revenue_evidence = [record for record in records if record.contributes_to_true_revenue]
-    potential_revenue_evidence = [
-        record for record in records if record.contributes_to_potential_revenue
+    verified_revenue_evidence = [
+        record for record in records if record.contributes_to_verified_revenue
+    ]
+    unverified_deposit_evidence = [
+        record for record in records if record.contributes_to_unverified_deposit
     ]
     non_revenue_evidence = [record for record in records if record.contributes_to_non_revenue]
     manual_review = [
@@ -234,8 +239,10 @@ def detect(
         lender_evidence=lender_evidence,
         potential_lender_evidence=potential_lender_evidence,
         insurance_evidence=insurance_evidence,
-        true_revenue_evidence=true_revenue_evidence,
-        potential_revenue_evidence=potential_revenue_evidence,
+        verified_revenue_evidence=verified_revenue_evidence,
+        unverified_deposit_evidence=unverified_deposit_evidence,
+        true_revenue_evidence=verified_revenue_evidence,
+        potential_revenue_evidence=unverified_deposit_evidence,
         non_revenue_evidence=non_revenue_evidence,
         manual_review=manual_review,
     )

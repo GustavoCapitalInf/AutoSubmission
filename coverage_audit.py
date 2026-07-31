@@ -26,7 +26,10 @@ FIELDS = [
     "period_start", "period_end", "transactions", "summary_reconciles",
     "reconciles", "credit_coverage", "debit_coverage", "avg_balance",
     "avg_source", "deposits", "deposit_count", "withdrawals",
-    "withdrawal_count", "true_revenue", "cash_flow", "lender_credits",
+    "withdrawal_count", "total_posted_credits", "verified_revenue_total",
+    "verified_revenue_count", "unverified_deposit_total", "unverified_deposit_count",
+    "non_revenue_total", "non_revenue_count", "maximum_revenue",
+    "revenue_reconciles", "revenue_reconciliation_delta", "cash_flow", "lender_credits",
     "lender_debits", "lender_debit_count", "lenders_detected",
     "potential_lenders_detected", "insurance_count", "insurance_total",
     "potential_lender_debit_count", "potential_lender_debit_total",
@@ -40,6 +43,8 @@ FIELDS = [
 
 
 def _status(report) -> str:
+    if report.metrics.revenue_review_required or not report.metrics.revenue_reconciles:
+        return "needs_review"
     if report.quality.level == "summary_aggregate":
         return "summary_aggregate"
     r = report.reconciliation
@@ -86,7 +91,16 @@ def _row(path: Path, root: Path, markdown_path: Path, json_path: Path, doc, repo
         "deposit_count": m.effective_num_deposits,
         "withdrawals": f"{m.effective_total_withdrawals:.2f}",
         "withdrawal_count": m.effective_num_withdrawals,
-        "true_revenue": f"{m.true_revenue:.2f}",
+        "total_posted_credits": f"{m.total_posted_credits:.2f}",
+        "verified_revenue_total": f"{m.verified_revenue_total:.2f}",
+        "verified_revenue_count": m.verified_revenue_count,
+        "unverified_deposit_total": f"{m.unverified_deposit_total:.2f}",
+        "unverified_deposit_count": m.unverified_deposit_count,
+        "non_revenue_total": f"{m.non_revenue_total:.2f}",
+        "non_revenue_count": m.non_revenue_count,
+        "maximum_revenue": f"{m.maximum_revenue:.2f}",
+        "revenue_reconciles": "yes" if m.revenue_reconciles else "no",
+        "revenue_reconciliation_delta": f"{m.revenue_reconciliation_delta:.2f}",
         "cash_flow": f"{m.cash_flow:.2f}",
         "lender_credits": f"{m.lender_credits:.2f}",
         "lender_debits": f"{m.lender_debits:.2f}",

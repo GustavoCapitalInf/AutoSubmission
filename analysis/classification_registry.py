@@ -121,19 +121,98 @@ POTENTIAL_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
-VERIFIED_REVENUE_ALIASES: dict[str, tuple[str, ...]] = {
+OPERATING_REVENUE_SOURCE_ALIASES: dict[str, tuple[str, ...]] = {
     "11-101 Signal R": ("11 101 SIGNAL R", "SIGNAL R"),
-    "Amazon Marketplace": ("AMAZON MARKETPLACE PAYOUT", "AMAZON SELLER PAYOUT"),
-    "DoorDash": ("DOORDASH PAYOUT", "DOORDASH SETTLEMENT"),
-    "Etsy": ("ETSY PAYOUT", "ETSY SETTLEMENT"),
-    "Grubhub": ("GRUBHUB PAYOUT", "GRUBHUB SETTLEMENT"),
-    "Shopify Payments": ("SHOPIFY PAYMENTS", "SHOPIFY PAYOUT"),
-    "SkipTheDishes": ("SKIPTHEDISHES", "SKIP THE DISHES"),
-    "Square": ("SQUARE SETTLEMENT", "SQUARE PAYOUT", "SQ SETTLEMENT"),
-    "Stripe": ("STRIPE PAYOUT", "STRIPE SETTLEMENT"),
-    "Toast": ("TOAST SETTLEMENT", "TOAST PAYOUT"),
-    "Uber Eats": ("UBER EATS PAYOUT", "UBEREATS PAYOUT"),
+    "Adyen": ("ADYEN", "ADYEN PAYMENTS"),
+    "Amazon Marketplace": (
+        "AMAZON MARKETPLACE",
+        "AMAZON SELLER",
+        "AMZN MARKETPLACE",
+    ),
+    "Authorize.Net": ("AUTHORIZE NET", "AUTHORIZENET"),
+    "Bambora": ("BAMBORA", "BAMB0RA"),
+    "Chase Paymentech": ("CHASE PAYMENTECH", "PAYMENTECH"),
+    "Clover": ("CLOVER", "CLOVER NETWORK", "CL0VER"),
+    "DoorDash": ("DOORDASH", "DOOR DASH", "D00RDASH"),
+    "Elavon": ("ELAVON", "ELAV0N"),
+    "Etsy": ("ETSY", "ETSY PAYMENTS"),
+    "Fiserv": ("FISERV", "FIRST DATA MERCHANT"),
+    "FreshBooks Payments": ("FRESHBOOKS PAYMENTS", "FRESH BOOKS PAYMENTS"),
+    "Global Payments": ("GLOBAL PAYMENTS", "GL0BAL PAYMENTS", "GLOBALPAY"),
+    "GoDaddy Payments": ("GODADDY PAYMENTS", "GO DADDY PAYMENTS"),
+    "Grubhub": ("GRUBHUB", "GRUB HUB"),
+    "Helcim": ("HELCIM", "HELC1M"),
+    "Instacart": ("INSTACART", "INSTA CART"),
+    "Lightspeed": ("LIGHTSPEED", "L1GHTSPEED"),
+    "Moneris": ("MONERIS", "M0NERIS"),
+    "Nuvei": ("NUVEI",),
+    "PayPal": ("PAYPAL", "PAY PAL", "PAYPAI"),
+    "QuickBooks Payments": (
+        "QUICKBOOKS PAYMENTS",
+        "QUICK BOOKS PAYMENTS",
+        "INTUIT PAYMENTS",
+    ),
+    "Shopify Payments": ("SHOPIFY", "SHOPIFY PAYMENTS", "SH0PIFY"),
+    "SkipTheDishes": (
+        "SKIPTHEDISHES",
+        "SKIP THE DISHES",
+        "SKIPTHED1SHES",
+    ),
+    "Square": ("SQUARE", "SQUARE INC", "SQUARF", "SQ SETTLEMENT"),
+    "Stripe": ("STRIPE", "STR1PE"),
+    "Toast": ("TOAST", "TOASTTAB", "T0AST"),
+    "Uber Eats": ("UBER EATS", "UBEREATS", "UBFR EATS"),
+    "Uber": (
+        "UBER HOLDINGS C",
+        "UBER HOLDINGS",
+        "UBER H0LDINGS",
+        "UBFR HOLDINGS",
+        "UBER CANADA",
+        "UBER BV",
+        "UBER",
+    ),
+    "Wave Payments": ("WAVE PAYMENTS", "WAVEAPPS PAYMENTS"),
+    "Worldpay": ("WORLDPAY", "WORLD PAY"),
 }
+
+
+OPERATING_REVENUE_SOURCE_TYPES: dict[str, str] = {
+    "11-101 Signal R": "known_operating_counterparty",
+    "Adyen": "merchant_processor",
+    "Amazon Marketplace": "ecommerce_marketplace",
+    "Authorize.Net": "customer_payment_platform",
+    "Bambora": "merchant_processor",
+    "Chase Paymentech": "merchant_processor",
+    "Clover": "merchant_processor",
+    "DoorDash": "delivery_marketplace",
+    "Elavon": "merchant_processor",
+    "Etsy": "ecommerce_marketplace",
+    "Fiserv": "merchant_processor",
+    "FreshBooks Payments": "invoice_and_receivables",
+    "Global Payments": "merchant_processor",
+    "GoDaddy Payments": "merchant_processor",
+    "Grubhub": "delivery_marketplace",
+    "Helcim": "merchant_processor",
+    "Instacart": "delivery_marketplace",
+    "Lightspeed": "merchant_processor",
+    "Moneris": "merchant_processor",
+    "Nuvei": "merchant_processor",
+    "PayPal": "customer_payment_platform",
+    "QuickBooks Payments": "invoice_and_receivables",
+    "Shopify Payments": "ecommerce_platform",
+    "SkipTheDishes": "delivery_marketplace",
+    "Square": "merchant_processor",
+    "Stripe": "merchant_processor",
+    "Toast": "merchant_processor",
+    "Uber Eats": "delivery_marketplace",
+    "Uber": "delivery_marketplace",
+    "Wave Payments": "invoice_and_receivables",
+    "Worldpay": "merchant_processor",
+}
+
+
+# Compatibility import for extensions written against classification version 3.0.
+VERIFIED_REVENUE_ALIASES = OPERATING_REVENUE_SOURCE_ALIASES
 
 
 INSURANCE_PROVIDER_ALIASES: dict[str, tuple[str, ...]] = {

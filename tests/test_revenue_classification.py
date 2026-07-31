@@ -5,6 +5,9 @@ from pathlib import Path
 
 import pytest
 
+from analyze import _render
+from batch import _row as batch_row
+from coverage_audit import _status as coverage_status
 from analysis.config import load_settings
 from analysis.metrics import compute_metrics
 from analysis.pipeline import analyze_markdown
@@ -48,16 +51,16 @@ def _txn(
         ("Direct Deposit Misc. Payments 11-101 Signal R", "11-101 Signal R"),
     ],
 )
-def test_verified_operating_credits_are_true_revenue(
+def test_verified_operating_credits_are_verified_revenue(
     description: str,
     entity: str | None,
 ):
     record = classify_transaction(description, 125.0)
-    assert record.revenue_classification == "true_revenue"
-    assert record.revenue_initial_classification == "true_revenue"
+    assert record.revenue_classification == "verified_revenue"
+    assert record.revenue_initial_classification == "verified_revenue"
     assert record.revenue_canonical_entity == entity
-    assert record.contributes_to_true_revenue
-    assert not record.contributes_to_potential_revenue
+    assert record.contributes_to_verified_revenue
+    assert not record.contributes_to_unverified_deposit
     assert not record.contributes_to_non_revenue
     assert not record.revenue_review_required
     assert record.revenue_reason
@@ -76,11 +79,11 @@ def test_verified_operating_credits_are_true_revenue(
         "Incoming credit from unknown source",
     ],
 )
-def test_ambiguous_credits_are_potential_revenue(description: str):
+def test_ambiguous_credits_are_unverified_deposits(description: str):
     record = classify_transaction(description, 125.0)
-    assert record.revenue_classification == "potential_revenue"
-    assert record.contributes_to_potential_revenue
-    assert not record.contributes_to_true_revenue
+    assert record.revenue_classification == "unverified_deposit"
+    assert record.contributes_to_unverified_deposit
+    assert not record.contributes_to_verified_revenue
     assert not record.contributes_to_non_revenue
     assert record.revenue_review_required
     assert record.revenue_review_status == "pending"
@@ -99,6 +102,11 @@ def test_ambiguous_credits_are_potential_revenue(description: str):
         ("Customer refund", None),
         ("Expense reimbursement", None),
         ("INTERAC e-Transfer Returned", None),
+        ("Interac e-Transfer Cancel", None),
+        ("Cancelled transfer", None),
+        ("Chargeback reversal credit", None),
+        ("Reversed check 1042", None),
+        ("Provisional credit", None),
         ("NSF return credit", None),
         ("Payment reversal", None),
         ("Bank correction credit", None),
@@ -115,8 +123,8 @@ def test_non_operating_credits_are_non_revenue(
     assert record.revenue_classification == "non_revenue"
     assert record.revenue_canonical_entity == entity
     assert record.contributes_to_non_revenue
-    assert not record.contributes_to_true_revenue
-    assert not record.contributes_to_potential_revenue
+    assert not record.contributes_to_verified_revenue
+    assert not record.contributes_to_unverified_deposit
     assert not record.revenue_review_required
 
 
@@ -125,8 +133,8 @@ def test_non_posted_credit_has_no_revenue_state():
     assert record.revenue_classification is None
     assert not any(
         (
-            record.contributes_to_true_revenue,
-            record.contributes_to_potential_revenue,
+            record.contributes_to_verified_revenue,
+            record.contributes_to_unverified_deposit,
             record.contributes_to_non_revenue,
         )
     )
@@ -151,12 +159,12 @@ def test_proven_duplicate_credit_is_non_revenue_without_changing_credit_math():
     records = classify_statement_transactions(statement)
     metrics = compute_metrics(statement, classifications=records)
 
-    assert records[0].revenue_classification == "true_revenue"
+    assert records[0].revenue_classification == "verified_revenue"
     assert records[1].duplicate_of == "transaction:1"
     assert records[1].revenue_classification == "non_revenue"
     assert records[1].revenue_matched_rule == "proven_duplicate_credit"
     assert metrics.total_deposits == 200.0
-    assert metrics.confirmed_true_revenue_total == 100.0
+    assert metrics.verified_revenue_total == 100.0
     assert metrics.non_revenue_total == 100.0
     assert metrics.revenue_reconciles
 
@@ -175,10 +183,10 @@ def test_revenue_metrics_reconcile_to_exact_posted_credit_rows():
 
     assert metrics.total_posted_credits == 175.0
     assert metrics.total_posted_credit_count == 3
-    assert metrics.confirmed_true_revenue_total == 100.0
-    assert metrics.confirmed_true_revenue_count == 1
-    assert metrics.potential_revenue_total == 50.0
-    assert metrics.potential_revenue_count == 1
+    assert metrics.verified_revenue_total == 100.0
+    assert metrics.verified_revenue_count == 1
+    assert metrics.unverified_deposit_total == 50.0
+    assert metrics.unverified_deposit_count == 1
     assert metrics.non_revenue_total == 25.0
     assert metrics.non_revenue_count == 1
     assert metrics.maximum_revenue == 150.0
@@ -187,8 +195,8 @@ def test_revenue_metrics_reconcile_to_exact_posted_credit_rows():
     assert metrics.revenue_reconciliation_delta == 0.0
     assert metrics.revenue_reconciles
     assert metrics.revenue_review_required
-    assert len(metrics.true_revenue_evidence) == 1
-    assert len(metrics.potential_revenue_evidence) == 1
+    assert len(metrics.verified_revenue_evidence) == 1
+    assert len(metrics.unverified_deposit_evidence) == 1
     assert len(metrics.non_revenue_evidence) == 1
 
 
@@ -215,20 +223,22 @@ def test_withholding_denominator_is_legacy_by_default_and_configurable():
     confirmed = compute_metrics(
         statement,
         classifications=records,
-        withholding_denominator_mode="confirmed_true_revenue",
+        withholding_denominator_mode="verified_revenue",
     )
     assert confirmed.legacy_eligible_deposits == 1300.0
     assert confirmed.eligible_deposits == confirmed.withholding_denominator == 1000.0
-    assert confirmed.withholding_denominator_mode == "confirmed_true_revenue"
-    assert confirmed.withholding_denominator_label == "Confirmed true revenue"
+    assert confirmed.withholding_denominator_mode == "verified_revenue"
+    assert confirmed.withholding_denominator_label == "Verified revenue"
     assert confirmed.withholding_rate == 10.0
 
 
 def test_withholding_denominator_environment_configuration(monkeypatch):
     monkeypatch.delenv("WITHHOLDING_DENOMINATOR_MODE", raising=False)
     assert load_settings().withholding_denominator_mode == "legacy_eligible_deposits"
+    monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "verified_revenue")
+    assert load_settings().withholding_denominator_mode == "verified_revenue"
     monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "confirmed_true_revenue")
-    assert load_settings().withholding_denominator_mode == "confirmed_true_revenue"
+    assert load_settings().withholding_denominator_mode == "verified_revenue"
     monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "invalid")
     assert load_settings().withholding_denominator_mode == "legacy_eligible_deposits"
 
@@ -250,10 +260,10 @@ def test_atb_november_true_revenue_regression_from_exact_evidence():
 
     assert metrics.total_deposits == metrics.effective_total_deposits == 59310.74
     assert metrics.total_posted_credits == 59310.74
-    assert metrics.confirmed_true_revenue_total == 53776.77
-    assert metrics.confirmed_true_revenue_count == 30
-    assert metrics.potential_revenue_total == 4033.97
-    assert metrics.potential_revenue_count == 7
+    assert metrics.verified_revenue_total == 53776.77
+    assert metrics.verified_revenue_count == 30
+    assert metrics.unverified_deposit_total == 4033.97
+    assert metrics.unverified_deposit_count == 7
     assert metrics.non_revenue_total == 1500.0
     assert metrics.non_revenue_count == 1
     assert metrics.maximum_revenue == 57810.74
@@ -264,12 +274,12 @@ def test_atb_november_true_revenue_regression_from_exact_evidence():
     true_rows = [
         transaction
         for transaction, record in zip(report.statement.transactions, report.classifications)
-        if record.contributes_to_true_revenue
+        if record.contributes_to_verified_revenue
     ]
     potential_rows = [
         transaction
         for transaction, record in zip(report.statement.transactions, report.classifications)
-        if record.contributes_to_potential_revenue
+        if record.contributes_to_unverified_deposit
     ]
     non_revenue_rows = [
         transaction
@@ -305,8 +315,8 @@ def test_atb_november_true_revenue_regression_from_exact_evidence():
     assert metrics.insurance_total == 362.17
 
     payload = report_to_dict(report)
-    assert len(payload["detection"]["true_revenue_evidence"]) == 30
-    assert len(payload["detection"]["potential_revenue_evidence"]) == 7
+    assert len(payload["detection"]["verified_revenue_evidence"]) == 30
+    assert len(payload["detection"]["unverified_deposit_evidence"]) == 7
     assert len(payload["detection"]["non_revenue_evidence"]) == 1
     assert all(
         transaction["classification"]["revenue_classification"] in REVENUE_STATES
@@ -319,19 +329,283 @@ def test_atb_november_true_revenue_regression_from_exact_evidence():
     )
     totals = package["totals"]
     assert totals["total_credits"] == totals["total_posted_credits"] == 59310.74
-    assert totals["confirmed_true_revenue_total"] == 53776.77
-    assert totals["confirmed_true_revenue_count"] == 30
-    assert totals["potential_revenue_total"] == 4033.97
-    assert totals["potential_revenue_count"] == 7
+    assert totals["verified_revenue_total"] == 53776.77
+    assert totals["verified_revenue_count"] == 30
+    assert totals["unverified_deposit_total"] == 4033.97
+    assert totals["unverified_deposit_count"] == 7
     assert totals["non_revenue_total"] == 1500.0
     assert totals["non_revenue_count"] == 1
     assert totals["maximum_revenue"] == 57810.74
     assert totals["revenue_reconciles"]
     assert totals["withholding_denominator"] == 59310.74
     assert totals["withholding_denominator_mode"] == "legacy_eligible_deposits"
-    assert len(package["true_revenue_evidence"]) == 30
-    assert len(package["potential_revenue_evidence"]) == 7
+    assert len(package["verified_revenue_evidence"]) == 30
+    assert len(package["unverified_deposit_evidence"]) == 7
     assert len(package["non_revenue_evidence"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("bank", "description", "entity"),
+    [
+        ("ATB Financial", "Direct Deposit Misc. Payments UBER H0LDINGS", "Uber"),
+        ("Wells Fargo", "ACH Settlement STR1PE", "Stripe"),
+        ("Chase", "Marketplace payout D00RDASH", "DoorDash"),
+        ("TD Canada Trust", "Merchant deposit M0NERIS", "Moneris"),
+        ("Royal Bank of Canada", "GL0BAL PAYMENTS settlement", "Global Payments"),
+        ("Bank of America", "SQUARF card sales deposit", "Square"),
+        ("Navy Federal", "PAY PAL merchant settlement", "PayPal"),
+        ("CIBC", "SH0PIFY payout", "Shopify Payments"),
+        ("PNC", "CL0VER batch settlement", "Clover"),
+        ("Truist", "T0AST card sales deposit", "Toast"),
+        ("US Bank", "L1GHTSPEED settlement", "Lightspeed"),
+    ],
+)
+def test_operating_source_registry_is_shared_across_bank_contexts(
+    bank: str,
+    description: str,
+    entity: str,
+):
+    record = classify_transaction(
+        description,
+        125.0,
+        bank=bank,
+        account_name="Business Operating Checking",
+        direction="credit",
+    )
+    assert record.revenue_classification == "verified_revenue"
+    assert record.revenue_canonical_entity == entity
+    assert record.revenue_source_type
+    assert "credit_direction" in record.revenue_context_signals
+    assert "settlement_or_payout_descriptor" in record.revenue_context_signals
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "Uber service fee",
+        "Stripe processing fee",
+        "DoorDash commission",
+        "Shopify monthly charge",
+        "Clover equipment lease",
+        "PayPal chargeback",
+    ],
+)
+def test_operating_provider_debits_never_receive_a_revenue_state(description: str):
+    record = classify_transaction(
+        description,
+        -125.0,
+        bank="Wells Fargo",
+        account_name="Business Checking",
+        direction="debit",
+    )
+    assert record.revenue_classification is None
+    assert not record.contributes_to_verified_revenue
+    assert not record.contributes_to_unverified_deposit
+    assert not record.contributes_to_non_revenue
+
+
+@pytest.mark.parametrize("description", ["Uber", "PayPal", "Stripe", "Shopify"])
+def test_company_name_without_transaction_context_is_not_verified(description: str):
+    record = classify_transaction(description, 125.0)
+    assert record.revenue_classification == "unverified_deposit"
+    assert record.revenue_canonical_entity
+    assert record.revenue_matched_rule == "operating_source_without_payout_context"
+    assert record.revenue_review_required
+
+
+def test_recurring_platform_credits_supply_statement_context():
+    statement = Statement(
+        bank="Wells Fargo",
+        account_name="Business Checking",
+        transactions=[
+            _txn("2026-04-01", "PayPal", 500.0),
+            _txn("2026-04-08", "PAY PAL", 625.0),
+        ],
+    )
+    records = classify_statement_transactions(statement)
+    assert {record.revenue_classification for record in records} == {"verified_revenue"}
+    assert all(record.revenue_canonical_entity == "PayPal" for record in records)
+    assert all(record.revenue_match_method == "recurring_operating_source" for record in records)
+
+
+def test_two_platform_names_without_business_context_remain_unverified():
+    statement = Statement(
+        bank="Wells Fargo",
+        transactions=[
+            _txn("2026-04-01", "PayPal", 500.0),
+            _txn("2026-04-08", "PAY PAL", 625.0),
+        ],
+    )
+    records = classify_statement_transactions(statement)
+    assert {record.revenue_classification for record in records} == {
+        "unverified_deposit"
+    }
+
+
+def test_related_processing_fee_supplies_platform_context_without_classifying_debit():
+    statement = Statement(
+        bank="Chase",
+        account_name="Business Complete Banking",
+        transactions=[
+            _txn("2026-04-01", "Stripe", 900.0),
+            _txn("2026-04-02", "Stripe processing fee", -25.0),
+        ],
+    )
+    credit, debit = classify_statement_transactions(statement)
+    assert credit.revenue_classification == "verified_revenue"
+    assert credit.revenue_match_method == "operating_source_related_activity"
+    assert "related_platform_fee_or_chargeback" in credit.revenue_context_signals
+    assert debit.revenue_classification is None
+
+
+def test_reversed_check_pair_is_excluded_from_maximum_revenue():
+    statement = Statement(
+        bank="Bank of America",
+        account_name="Business Fundamentals Checking",
+        transactions=[
+            _txn("2026-04-01", "Customer check deposit 1042", 750.0),
+            _txn("2026-04-02", "Reversed check 1042", -750.0),
+            _txn("2026-04-03", "Merchant processor settlement", 1000.0),
+        ],
+    )
+    records = classify_statement_transactions(statement)
+    metrics = compute_metrics(statement, classifications=records)
+    assert records[0].revenue_classification == "non_revenue"
+    assert records[0].revenue_related_transaction == "transaction:2"
+    assert records[0].revenue_match_method == "matched_reversal_pair"
+    assert metrics.verified_revenue_total == 1000.0
+    assert metrics.non_revenue_total == 750.0
+    assert metrics.maximum_revenue == 1000.0
+    assert metrics.revenue_reconciles
+
+
+def test_source_direction_conflict_fails_closed():
+    record = classify_transaction(
+        "Stripe settlement",
+        500.0,
+        direction="debit",
+    )
+    assert not record.direction_consistent
+    assert record.revenue_classification == "unverified_deposit"
+    assert record.revenue_matched_rule == "source_direction_conflicts_with_signed_amount"
+
+
+def _atb_december_report():
+    path = Path("Bank Statements/ATB/ATB Dec 2023.pdf")
+    pdf_bytes = path.read_bytes()
+    document = (
+        parse_native_navy_federal(pdf_bytes, source_file=path.name)
+        or parse_native_pdf_text(pdf_bytes, source_file=path.name)
+    )
+    assert document is not None
+    return analyze_markdown(document.to_markdown(), parse_mode="deterministic")
+
+
+def test_atb_december_revenue_regression_from_transaction_evidence():
+    report = _atb_december_report()
+    metrics = report.metrics
+    assert metrics.total_posted_credits == metrics.total_deposits == 60750.99
+    assert metrics.verified_revenue_total == 47195.63
+    assert metrics.verified_revenue_count == 30
+    assert metrics.unverified_deposit_total == 11675.11
+    assert metrics.unverified_deposit_count == 8
+    assert metrics.non_revenue_total == 1880.25
+    assert metrics.non_revenue_count == 2
+    assert metrics.maximum_revenue == 58870.74
+    assert metrics.revenue_reconciles
+
+    uber_rows = [
+        (transaction, record)
+        for transaction, record in zip(report.statement.transactions, report.classifications)
+        if record.revenue_canonical_entity == "Uber"
+    ]
+    assert len(uber_rows) == 2
+    assert round(sum(transaction.amount for transaction, _ in uber_rows), 2) == 2188.82
+    assert all(record.revenue_classification == "verified_revenue" for _, record in uber_rows)
+
+    cancel_rows = [
+        (transaction, record)
+        for transaction, record in zip(report.statement.transactions, report.classifications)
+        if "CANCEL" in transaction.description.upper()
+    ]
+    assert len(cancel_rows) == 1
+    cancel_transaction, cancel_record = cancel_rows[0]
+    assert cancel_transaction.amount == 635.25
+    assert cancel_record.revenue_classification == "non_revenue"
+    assert cancel_record.revenue_related_transaction == "transaction:45"
+
+    payload = report_to_dict(report)
+    assert len(payload["detection"]["verified_revenue_evidence"]) == 30
+    assert len(payload["detection"]["unverified_deposit_evidence"]) == 8
+    assert len(payload["detection"]["non_revenue_evidence"]) == 2
+
+    package = _package_analysis([
+        Job(
+            id="atb-dec-revenue",
+            filename="ATB Dec 2023.pdf",
+            status="done",
+            analysis=payload,
+        )
+    ])
+    totals = package["totals"]
+    assert totals["verified_revenue_total"] == 47195.63
+    assert totals["unverified_deposit_total"] == 11675.11
+    assert totals["non_revenue_total"] == 1880.25
+    assert totals["maximum_revenue"] == 58870.74
+    assert totals["total_posted_credits"] == 60750.99
+    assert totals["revenue_reconciles"]
+    assert len(package["verified_revenue_evidence"]) == 30
+    assert len(package["unverified_deposit_evidence"]) == 8
+    assert len(package["non_revenue_evidence"]) == 2
+
+    rendered = _render(report)
+    assert "Verified revenue      : $47,195.63" in rendered
+    assert "Unverified deposits   : $11,675.11" in rendered
+    export_row = batch_row(Path("ATB Dec 2023.pdf"), report)
+    assert export_row["verified_revenue_total"] == "47195.63"
+    assert export_row["unverified_deposit_total"] == "11675.11"
+    assert export_row["non_revenue_total"] == "1880.25"
+    assert export_row["needs_review"] == "REVIEW"
+    assert coverage_status(report) == "needs_review"
+
+    client = app.test_client()
+    job = store.create("atb-dec-revenue.pdf")
+    store.set_result(job.id, "# ATB December", "<h1>ATB December</h1>", analysis=payload)
+    api_analysis = client.get(f"/analysis/{job.id}").get_json()["analysis"]
+    assert api_analysis["metrics"]["verified_revenue_total"] == 47195.63
+    assert api_analysis["metrics"]["unverified_deposit_total"] == 11675.11
+    api_package = client.get(f"/package_analysis?ids={job.id}").get_json()
+    assert api_package["totals"]["maximum_revenue"] == 58870.74
+    csv_body = client.get(f"/download/{job.id}/csv").get_data(as_text=True)
+    assert "verified_revenue" in csv_body
+    assert "unverified_deposit" in csv_body
+
+
+def test_package_revenue_reconciliation_fails_closed_on_invalid_credit_state():
+    transaction = _txn("2026-04-01", "Merchant settlement", 100.0)
+    record = asdict(classify_transaction(transaction.description, transaction.amount))
+    record["revenue_classification"] = None
+    record["contributes_to_verified_revenue"] = False
+    record["contributes_to_unverified_deposit"] = False
+    record["contributes_to_non_revenue"] = False
+    analysis = {
+        "statement": {
+            "bank": "Audit Bank",
+            "transactions": [{**transaction.model_dump(), "classification": record}],
+        },
+        "metrics": {"effective_total_deposits": 100.0},
+        "quality": {"level": "transaction_level", "corporate_use": "approved"},
+        "integrity": {"risk_level": "clear"},
+        "detection": {},
+    }
+    package = _package_analysis([
+        Job(id="invalid-revenue", filename="invalid.pdf", status="done", analysis=analysis)
+    ])
+    assert package["totals"]["total_posted_credits"] == 100.0
+    assert package["totals"]["revenue_classified_total"] == 0.0
+    assert package["totals"]["revenue_reconciliation_delta"] == -100.0
+    assert not package["totals"]["revenue_reconciles"]
+    assert package["totals"]["decision"] == "review_required"
 
 
 def _reviewable_analysis() -> dict:
@@ -381,18 +655,18 @@ def test_revenue_review_api_updates_records_metrics_package_and_exports():
     confirmed_analysis = confirmed.get_json()["analysis"]
     confirmed_metrics = confirmed_analysis["metrics"]
     confirmed_record = confirmed_analysis["statement"]["transactions"][0]["classification"]
-    assert confirmed_record["revenue_classification"] == "true_revenue"
+    assert confirmed_record["revenue_classification"] == "verified_revenue"
     assert confirmed_record["revenue_review_status"] == "confirmed"
-    assert confirmed_metrics["confirmed_true_revenue_total"] == 441.0
-    assert confirmed_metrics["potential_revenue_total"] == 0.0
+    assert confirmed_metrics["verified_revenue_total"] == 441.0
+    assert confirmed_metrics["unverified_deposit_total"] == 0.0
     assert confirmed_metrics["revenue_reconciles"]
     assert confirmed_metrics["withholding_denominator"] == 441.0
 
     package = client.get(f"/package_analysis?ids={job.id}").get_json()
-    assert package["totals"]["confirmed_true_revenue_total"] == 441.0
-    assert package["totals"]["potential_revenue_count"] == 0
-    assert len(package["true_revenue_evidence"]) == 1
-    assert package["potential_revenue_evidence"] == []
+    assert package["totals"]["verified_revenue_total"] == 441.0
+    assert package["totals"]["unverified_deposit_count"] == 0
+    assert len(package["verified_revenue_evidence"]) == 1
+    assert package["unverified_deposit_evidence"] == []
 
     downloaded = client.get(f"/download/{job.id}/json").get_json()
     assert downloaded["statement"]["transactions"][0]["classification"][
@@ -400,13 +674,13 @@ def test_revenue_review_api_updates_records_metrics_package_and_exports():
     ] == "confirmed"
     csv_body = client.get(f"/download/{job.id}/csv").get_data(as_text=True)
     assert "revenue_classification" in csv_body
-    assert "true_revenue" in csv_body
+    assert "verified_revenue" in csv_body
 
     rejected = client.post(
         f"/analysis/{job.id}/revenue-review",
         json={"source_location": "transaction:1", "decision": "reject"},
     ).get_json()["analysis"]
-    assert rejected["metrics"]["confirmed_true_revenue_total"] == 0.0
+    assert rejected["metrics"]["verified_revenue_total"] == 0.0
     assert rejected["metrics"]["non_revenue_total"] == 441.0
     assert rejected["statement"]["transactions"][0]["classification"][
         "revenue_review_status"
@@ -416,7 +690,7 @@ def test_revenue_review_api_updates_records_metrics_package_and_exports():
         f"/analysis/{job.id}/revenue-review",
         json={"source_location": "transaction:1", "decision": "reset"},
     ).get_json()["analysis"]
-    assert reset["metrics"]["potential_revenue_total"] == 441.0
+    assert reset["metrics"]["unverified_deposit_total"] == 441.0
     assert reset["metrics"]["revenue_review_required"]
     assert reset["statement"]["transactions"][0]["classification"][
         "revenue_review_status"
@@ -449,5 +723,9 @@ def test_revenue_ui_uses_authoritative_fields_and_exposes_review_controls():
     assert "record.revenue_classification" in javascript
     assert "data-revenue-review-action" in javascript
     assert "/revenue-review" in javascript
+    assert "Verified Revenue" in html
+    assert "Unverified Deposits" in html
+    assert "Potential Revenue" not in html
+    assert "Potential Revenue" not in javascript
     assert "SKIPTHEDISHES" not in javascript
     assert "MOBILE DEPOSIT" not in javascript

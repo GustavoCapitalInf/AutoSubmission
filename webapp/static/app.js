@@ -93,10 +93,10 @@ const emptyMetricSections = [
     sub: "Incoming money",
     items: [
       ["Total Credits", "N/A", "All inflows", "CR", "green"],
-      ["Confirmed True Revenue", "N/A", "Verified operating credits", "REV", "green"],
-      ["Potential Revenue", "N/A", "Credits requiring review", "?", "amber"],
+      ["Verified Revenue", "N/A", "Verified operating credits", "REV", "green"],
+      ["Unverified Deposits", "N/A", "Deposits requiring review", "?", "amber"],
       ["Non-Revenue", "N/A", "Excluded credit inflows", "X", "neutral"],
-      ["Maximum Revenue", "N/A", "Confirmed plus potential revenue", "MAX", "neutral"],
+      ["Maximum Revenue", "N/A", "Verified plus unverified deposits", "MAX", "neutral"],
       ["ACH Credits", "N/A", "Incoming ACH items", "ACH", "neutral"],
     ],
   },
@@ -296,11 +296,11 @@ function transactionClassification(tx) {
 function transactionCategory(tx) {
   const record = transactionClassification(tx);
   const revenueState = record.revenue_classification;
-  if (txAmount(tx) > 0 && revenueState === "true_revenue") {
-    return { label: "True revenue", glyph: "REV", tone: "green" };
+  if (txAmount(tx) > 0 && revenueState === "verified_revenue") {
+    return { label: "Verified revenue", glyph: "REV", tone: "green" };
   }
-  if (txAmount(tx) > 0 && revenueState === "potential_revenue") {
-    return { label: "Potential revenue", glyph: "?", tone: "amber" };
+  if (txAmount(tx) > 0 && revenueState === "unverified_deposit") {
+    return { label: "Unverified deposit", glyph: "?", tone: "amber" };
   }
   if (txAmount(tx) > 0 && revenueState === "non_revenue") {
     return { label: "Non-revenue", glyph: "X", tone: "neutral" };
@@ -344,7 +344,7 @@ function filterTransactions(transactions, filter, canonicalEntity = null) {
   if (filter === "potential") matched = transactions.filter(contributesToPotentialTotals);
   if (filter === "insurance") matched = transactions.filter((tx) => transactionClassification(tx).contributes_to_insurance_totals === true);
   if (filter === "pos") matched = transactions.filter((tx) => transactionClassification(tx).classification === "pos");
-  if (["true_revenue", "potential_revenue", "non_revenue"].includes(filter)) {
+  if (["verified_revenue", "unverified_deposit", "non_revenue"].includes(filter)) {
     matched = transactions.filter(
       (tx) => transactionClassification(tx).revenue_classification === filter
     );
@@ -355,7 +355,7 @@ function filterTransactions(transactions, filter, canonicalEntity = null) {
 
 function revenueReviewControls(tx, fallbackJobId = null) {
   const record = transactionClassification(tx);
-  if (record.revenue_initial_classification !== "potential_revenue") return "";
+  if (record.revenue_initial_classification !== "unverified_deposit") return "";
   const jobId = tx.source_job || fallbackJobId;
   const sourceLocation = record.source_location;
   if (!jobId || !sourceLocation) return "";
@@ -637,10 +637,10 @@ function setInitialState() {
   renderInsurance([]);
   renderRevenueEvidence({
     total_posted_credit_count: 0,
-    confirmed_true_revenue_count: 0,
-    confirmed_true_revenue_total: 0,
-    potential_revenue_count: 0,
-    potential_revenue_total: 0,
+    verified_revenue_count: 0,
+    verified_revenue_total: 0,
+    unverified_deposit_count: 0,
+    unverified_deposit_total: 0,
     non_revenue_count: 0,
     non_revenue_total: 0,
   });
@@ -955,18 +955,18 @@ function renderInsurance(providers, currency = "USD") {
 }
 
 const revenueRows = [
-  ["true_revenue", "Confirmed true revenue", "REV", "Confirmed", "green"],
-  ["potential_revenue", "Potential revenue", "?", "Review required", "amber"],
+  ["verified_revenue", "Verified revenue", "REV", "Verified", "green"],
+  ["unverified_deposit", "Unverified deposits", "?", "Review required", "amber"],
   ["non_revenue", "Non-revenue", "X", "Excluded", "neutral"],
 ];
 
 function revenueEvidenceRowsHtml(metrics = {}, currency = "USD", modal = false) {
   return revenueRows.map(([state, label, glyph, status, tone]) => {
-    const countKey = state === "true_revenue"
-      ? "confirmed_true_revenue_count"
+    const countKey = state === "verified_revenue"
+      ? "verified_revenue_count"
       : `${state}_count`;
-    const totalKey = state === "true_revenue"
-      ? "confirmed_true_revenue_total"
+    const totalKey = state === "verified_revenue"
+      ? "verified_revenue_total"
       : `${state}_total`;
     const filterAttribute = modal ? "data-modal-revenue-filter" : "data-revenue-filter";
     return `
@@ -1046,10 +1046,10 @@ function renderAnalysis(report) {
       sub: "Incoming money",
       items: [
         ["Total Credits", formatMoney(totalCredits, currency), "All credit inflows", "CR", "green"],
-        ["Confirmed True Revenue", formatMoney(metrics.confirmed_true_revenue_total, currency), `${formatNumber(metrics.confirmed_true_revenue_count)} verified credits`, "REV", "green", { revenueFilter: "true_revenue" }],
-        ["Potential Revenue", formatMoney(metrics.potential_revenue_total, currency), `${formatNumber(metrics.potential_revenue_count)} credits require review`, "?", "amber", { revenueFilter: "potential_revenue" }],
+        ["Verified Revenue", formatMoney(metrics.verified_revenue_total, currency), `${formatNumber(metrics.verified_revenue_count)} verified credits`, "REV", "green", { revenueFilter: "verified_revenue" }],
+        ["Unverified Deposits", formatMoney(metrics.unverified_deposit_total, currency), `${formatNumber(metrics.unverified_deposit_count)} deposits require review`, "?", "amber", { revenueFilter: "unverified_deposit" }],
         ["Non-Revenue", formatMoney(metrics.non_revenue_total, currency), `${formatNumber(metrics.non_revenue_count)} excluded credits`, "X", "neutral", { revenueFilter: "non_revenue" }],
-        ["Maximum Revenue", formatMoney(metrics.maximum_revenue, currency), "Confirmed plus potential revenue", "MAX", "neutral"],
+        ["Maximum Revenue", formatMoney(metrics.maximum_revenue, currency), "Verified plus unverified deposits", "MAX", "neutral"],
         ["ACH Credits", formatNumber(metrics.ach_credit_count), "Incoming ACH deposits", "ACH", "neutral"],
       ],
     },
@@ -1319,10 +1319,10 @@ function renderPackageAnalysis(pkg) {
       sub: `${formatNumber(totals.months)} statement periods`,
       items: [
         ["Total Credits", formatMoney(totals.total_credits), "Combined incoming money", "CR", "green"],
-        ["Confirmed True Revenue", formatMoney(totals.confirmed_true_revenue_total), `${formatNumber(totals.confirmed_true_revenue_count)} verified credits`, "REV", "green", { revenueFilter: "true_revenue" }],
-        ["Potential Revenue", formatMoney(totals.potential_revenue_total), `${formatNumber(totals.potential_revenue_count)} credits require review`, "?", "amber", { revenueFilter: "potential_revenue" }],
+        ["Verified Revenue", formatMoney(totals.verified_revenue_total), `${formatNumber(totals.verified_revenue_count)} verified credits`, "REV", "green", { revenueFilter: "verified_revenue" }],
+        ["Unverified Deposits", formatMoney(totals.unverified_deposit_total), `${formatNumber(totals.unverified_deposit_count)} deposits require review`, "?", "amber", { revenueFilter: "unverified_deposit" }],
         ["Non-Revenue", formatMoney(totals.non_revenue_total), `${formatNumber(totals.non_revenue_count)} excluded credits`, "X", "neutral", { revenueFilter: "non_revenue" }],
-        ["Maximum Revenue", formatMoney(totals.maximum_revenue), "Confirmed plus potential revenue", "MAX", "neutral"],
+        ["Maximum Revenue", formatMoney(totals.maximum_revenue), "Verified plus unverified deposits", "MAX", "neutral"],
         ["Avg Monthly Credits", formatMoney(totals.avg_monthly_credits), "Monthly revenue baseline", "AVG", "neutral"],
         ["Total Debits", formatMoney(totals.total_debits), "Combined outgoing money", "DB", "neutral"],
         ["Avg Monthly Debits", formatMoney(totals.avg_monthly_debits), "Monthly expense baseline", "AVG", "neutral"],
@@ -1564,10 +1564,10 @@ function renderStatementModal(jobId, report, markdown) {
   els.statementModalSubtitle.textContent = `${period(statement)} - ${labelize(decision)}`;
   els.statementModalMetrics.innerHTML = [
     ["Total Credits", formatMoney(metrics.effective_total_deposits, currency), "Incoming money", "CR", "green"],
-    ["Confirmed True Revenue", `${formatNumber(metrics.confirmed_true_revenue_count)} / ${formatMoney(metrics.confirmed_true_revenue_total, currency)}`, "Verified operating credits", "REV", "green", { revenueFilter: "true_revenue" }],
-    ["Potential Revenue", `${formatNumber(metrics.potential_revenue_count)} / ${formatMoney(metrics.potential_revenue_total, currency)}`, "Review required", "?", "amber", { revenueFilter: "potential_revenue" }],
+    ["Verified Revenue", `${formatNumber(metrics.verified_revenue_count)} / ${formatMoney(metrics.verified_revenue_total, currency)}`, "Verified operating credits", "REV", "green", { revenueFilter: "verified_revenue" }],
+    ["Unverified Deposits", `${formatNumber(metrics.unverified_deposit_count)} / ${formatMoney(metrics.unverified_deposit_total, currency)}`, "Review required", "?", "amber", { revenueFilter: "unverified_deposit" }],
     ["Non-Revenue", `${formatNumber(metrics.non_revenue_count)} / ${formatMoney(metrics.non_revenue_total, currency)}`, "Excluded credits", "X", "neutral", { revenueFilter: "non_revenue" }],
-    ["Maximum Revenue", formatMoney(metrics.maximum_revenue, currency), "Confirmed plus potential revenue", "MAX", "neutral"],
+    ["Maximum Revenue", formatMoney(metrics.maximum_revenue, currency), "Verified plus unverified deposits", "MAX", "neutral"],
     ["Total Debits", formatMoney(metrics.effective_total_withdrawals, currency), "Outgoing money", "DB", "neutral"],
     ["Cash Flow", formatMoney(metrics.cash_flow, currency), "Credits minus debits", "CF", negativeTone(metrics.cash_flow)],
     ["Average Daily Balance", formatMoney(metrics.average_balance, currency), averageBalanceNote(metrics), "AVG", averageBalanceTone(metrics)],

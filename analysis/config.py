@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from dotenv import load_dotenv
+from .revenue import normalize_withholding_denominator_mode
 
 load_dotenv()
 
@@ -20,15 +21,12 @@ class Settings:
 
 
 def load_settings() -> Settings:
-    denominator_mode = os.environ.get(
-        "WITHHOLDING_DENOMINATOR_MODE",
-        "legacy_eligible_deposits",
+    denominator_mode = normalize_withholding_denominator_mode(
+        os.environ.get(
+            "WITHHOLDING_DENOMINATOR_MODE",
+            "legacy_eligible_deposits",
+        )
     )
-    if denominator_mode not in {
-        "legacy_eligible_deposits",
-        "confirmed_true_revenue",
-    }:
-        denominator_mode = "legacy_eligible_deposits"
     return Settings(
         api_key=os.environ.get("GEMINI_API_KEY", ""),
         model=os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite"),

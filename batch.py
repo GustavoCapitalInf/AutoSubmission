@@ -22,7 +22,10 @@ from analysis.pipeline import analyze_markdown, Report
 FIELDS = [
     "file", "bank", "account", "period_start", "period_end",
     "summary_reconciles", "avg_balance", "total_deposits", "total_debits",
-    "true_revenue", "cash_flow", "lender_credits", "lender_debits",
+    "total_posted_credits", "verified_revenue_total", "verified_revenue_count",
+    "unverified_deposit_total", "unverified_deposit_count", "non_revenue_total",
+    "non_revenue_count", "maximum_revenue", "revenue_reconciles",
+    "revenue_reconciliation_delta", "cash_flow", "lender_credits", "lender_debits",
     "lender_debit_count", "lenders_detected", "potential_lenders_detected",
     "potential_lender_debit_count", "potential_lender_debit_total",
     "insurance_count", "insurance_total", "withholding_numerator",
@@ -48,7 +51,11 @@ def _row(path: Path, report: Report) -> dict:
     s, r, m, d = report.statement, report.reconciliation, report.metrics, report.detection
     # A statement needs human review when the bank's own summary doesn't reconcile
     # (mis-extracted or internally inconsistent) — the figures can't be trusted.
-    needs_review = report.quality.corporate_use == "manual_review_required"
+    needs_review = (
+        report.quality.corporate_use == "manual_review_required"
+        or m.revenue_review_required
+        or not m.revenue_reconciles
+    )
     return {
         "file": path.name,
         "bank": s.bank or "",
@@ -59,7 +66,16 @@ def _row(path: Path, report: Report) -> dict:
         "avg_balance": f"{m.average_balance:.2f}" if m.average_balance is not None else "",
         "total_deposits": f"{m.effective_total_deposits:.2f}",
         "total_debits": f"{m.effective_total_withdrawals:.2f}",
-        "true_revenue": f"{m.true_revenue:.2f}",
+        "total_posted_credits": f"{m.total_posted_credits:.2f}",
+        "verified_revenue_total": f"{m.verified_revenue_total:.2f}",
+        "verified_revenue_count": m.verified_revenue_count,
+        "unverified_deposit_total": f"{m.unverified_deposit_total:.2f}",
+        "unverified_deposit_count": m.unverified_deposit_count,
+        "non_revenue_total": f"{m.non_revenue_total:.2f}",
+        "non_revenue_count": m.non_revenue_count,
+        "maximum_revenue": f"{m.maximum_revenue:.2f}",
+        "revenue_reconciles": "yes" if m.revenue_reconciles else "NO",
+        "revenue_reconciliation_delta": f"{m.revenue_reconciliation_delta:.2f}",
         "cash_flow": f"{m.cash_flow:.2f}",
         "lender_credits": f"{m.lender_credits:.2f}",
         "lender_debits": f"{m.lender_debits:.2f}",

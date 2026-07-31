@@ -18,14 +18,23 @@ Every row has exactly one state:
 
 Every posted credit also has exactly one independent revenue state:
 
-`true_revenue`, `potential_revenue`, or `non_revenue`.
+`verified_revenue`, `unverified_deposit`, or `non_revenue`.
 
 This second state does not replace the transaction state. For example, a
 returned e-transfer remains `refund_or_reversal` and is also `non_revenue`.
-Revenue classification applies lender and strong non-revenue exclusions first,
-then verified operating-income aliases and descriptors. Generic ACH credits,
+Revenue classification applies cancellations, reversals, lender funding, and
+strong non-revenue exclusions before operating-income rules. A maintained
+operating-source alias is supporting evidence, not sufficient evidence by
+itself. Verification also requires credit direction plus settlement, payout,
+merchant-deposit, or similar context; alternatively, statement-level recurrence
+on a business account or related processing fees, commissions, chargebacks, and
+adjustments can supply that context. Generic ACH credits, counterparty-free
 e-transfers, mobile deposits, checks, cash deposits, and unidentified credits
-are `potential_revenue` until reviewed. The record stores the revenue match
+are `unverified_deposit` until reviewed.
+
+Cancellation and reversal rows are matched to opposite-direction transactions
+by amount, date proximity, and description family when possible. The record
+stores the related source location, revenue source type, context signals, match
 method, alias/rule, confidence, reason, review status, and mutually exclusive
 revenue contribution flags.
 
@@ -53,7 +62,8 @@ Normalization standardizes whitespace, punctuation, hyphens, common OCR errors,
 and safe transaction identifiers while preserving meaningful counterparty
 tokens. Registry aliases use token-boundary matching and resolve to one canonical
 entity. Insurance aliases are maintained separately and have precedence over
-lender rules.
+lender rules. Operating revenue aliases and source types are maintained in
+`OPERATING_REVENUE_SOURCE_ALIASES` and `OPERATING_REVENUE_SOURCE_TYPES`.
 
 The record stores the source description, normalized description, canonical
 entity, date, amount/direction, bank/account, source location, match method,
@@ -73,21 +83,21 @@ status, and every metric contribution flag.
 - `total_lender_debits`: absolute sum of those exact rows.
 - `insurance_count` and `insurance_total`: qualifying posted insurance debit
   rows and their absolute sum.
-- `confirmed_true_revenue_total` and `confirmed_true_revenue_count`: posted
-  credits marked `contributes_to_true_revenue`.
-- `potential_revenue_total` and `potential_revenue_count`: posted credits that
-  require revenue review.
+- `verified_revenue_total` and `verified_revenue_count`: posted credits marked
+  `contributes_to_verified_revenue`.
+- `unverified_deposit_total` and `unverified_deposit_count`: posted credits that
+  could be operating revenue but require review.
 - `non_revenue_total` and `non_revenue_count`: funding, transfers,
   contributions, returns, refunds, corrections, proceeds, and proven duplicate
   credits.
-- `maximum_revenue`: confirmed true revenue plus potential revenue.
+- `maximum_revenue`: verified revenue plus unverified deposits.
 
 Revenue must reconcile from the authoritative rows:
 
-`confirmed true revenue + potential revenue + non-revenue = total posted credits`
+`verified revenue + unverified deposits + non-revenue = total posted credits`
 
-Reviewer confirmation changes a potential row to `true_revenue`; rejection
-changes it to `non_revenue`. Reset restores the automated potential state. The
+Reviewer confirmation changes an unverified row to `verified_revenue`; rejection
+changes it to `non_revenue`. Reset restores `unverified_deposit`. The
 API, package aggregation, filters, evidence tables, and exports are rebuilt from
 the updated record.
 
@@ -108,8 +118,9 @@ and otherwise uses parsed credit rows. Recognized lender funding credits are
 excluded because they are financing proceeds, not operating deposits.
 
 The default mode is explicitly exposed as `legacy_eligible_deposits`. Set
-`WITHHOLDING_DENOMINATOR_MODE=confirmed_true_revenue` to opt into confirmed
-classified revenue instead. API and UI output include
+`WITHHOLDING_DENOMINATOR_MODE=verified_revenue` to opt into verified classified
+revenue instead. The legacy value `confirmed_true_revenue` is accepted and
+normalized to `verified_revenue`. API and UI output include
 `withholding_denominator_mode` and `withholding_denominator_label`; the mode is
 never switched implicitly when revenue classification is available.
 

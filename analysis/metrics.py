@@ -15,7 +15,10 @@ from .transaction_classifier import (
     TransactionClassification,
     classify_statement_transactions,
 )
-from .revenue import WITHHOLDING_DENOMINATOR_MODES
+from .revenue import (
+    WITHHOLDING_DENOMINATOR_MODES,
+    normalize_withholding_denominator_mode,
+)
 
 
 @dataclass
@@ -66,14 +69,22 @@ class Metrics:
     monthly_lender_debits: float = 0.0
     insurance_count: int = 0
     insurance_total: float = 0.0
+    verified_revenue_total: float = 0.0
+    verified_revenue_count: int = 0
+    unverified_deposit_total: float = 0.0
+    unverified_deposit_count: int = 0
+    non_revenue_total: float = 0.0
+    non_revenue_count: int = 0
+    verified_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
+    unverified_deposit_evidence: list[TransactionClassification] = field(default_factory=list)
+    non_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
+    # Deprecated aliases retained for consumers of the version 3.0 API.
     true_revenue: float = 0.0
     confirmed_true_revenue: float = 0.0
     confirmed_true_revenue_total: float = 0.0
     confirmed_true_revenue_count: int = 0
     potential_revenue_total: float = 0.0
     potential_revenue_count: int = 0
-    non_revenue_total: float = 0.0
-    non_revenue_count: int = 0
     maximum_revenue: float = 0.0
     total_posted_credits: float = 0.0
     total_posted_credit_count: int = 0
@@ -108,7 +119,6 @@ class Metrics:
     insurance_evidence: list[TransactionClassification] = field(default_factory=list)
     true_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
     potential_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
-    non_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
     pos_count: int = 0
     pos_credit_count: int = 0
     atm_withdrawal_count: int = 0
@@ -159,10 +169,13 @@ def compute_metrics(
     classifications: list[TransactionClassification] | None = None,
     withholding_denominator_mode: str = "legacy_eligible_deposits",
 ) -> Metrics:
+    withholding_denominator_mode = normalize_withholding_denominator_mode(
+        withholding_denominator_mode
+    )
     if withholding_denominator_mode not in WITHHOLDING_DENOMINATOR_MODES:
         raise ValueError(
             "withholding_denominator_mode must be legacy_eligible_deposits "
-            "or confirmed_true_revenue"
+            "or verified_revenue"
         )
     m = Metrics()
     m.withholding_denominator_mode = withholding_denominator_mode
@@ -202,8 +215,8 @@ def compute_metrics(
             m.insurance_evidence.append(classification)
         if t.amount > 0 and classification.is_posted:
             revenue_flags = (
-                classification.contributes_to_true_revenue,
-                classification.contributes_to_potential_revenue,
+                classification.contributes_to_verified_revenue,
+                classification.contributes_to_unverified_deposit,
                 classification.contributes_to_non_revenue,
             )
             if sum(revenue_flags) != 1:
@@ -212,14 +225,14 @@ def compute_metrics(
                 )
             m.total_posted_credits += t.amount
             m.total_posted_credit_count += 1
-            if classification.contributes_to_true_revenue:
-                m.confirmed_true_revenue_total += t.amount
-                m.confirmed_true_revenue_count += 1
-                m.true_revenue_evidence.append(classification)
-            elif classification.contributes_to_potential_revenue:
-                m.potential_revenue_total += t.amount
-                m.potential_revenue_count += 1
-                m.potential_revenue_evidence.append(classification)
+            if classification.contributes_to_verified_revenue:
+                m.verified_revenue_total += t.amount
+                m.verified_revenue_count += 1
+                m.verified_revenue_evidence.append(classification)
+            elif classification.contributes_to_unverified_deposit:
+                m.unverified_deposit_total += t.amount
+                m.unverified_deposit_count += 1
+                m.unverified_deposit_evidence.append(classification)
             else:
                 m.non_revenue_total += t.amount
                 m.non_revenue_count += 1
@@ -247,25 +260,31 @@ def compute_metrics(
     m.potential_lender_debits = m.potential_lender_debit_total
     m.monthly_lender_debits = m.lender_debits
     m.insurance_total = round(m.insurance_total, 2)
-    m.confirmed_true_revenue_total = round(m.confirmed_true_revenue_total, 2)
-    m.confirmed_true_revenue = m.confirmed_true_revenue_total
-    m.true_revenue = m.confirmed_true_revenue_total
-    m.potential_revenue_total = round(m.potential_revenue_total, 2)
+    m.verified_revenue_total = round(m.verified_revenue_total, 2)
+    m.unverified_deposit_total = round(m.unverified_deposit_total, 2)
     m.non_revenue_total = round(m.non_revenue_total, 2)
+    m.confirmed_true_revenue_total = m.verified_revenue_total
+    m.confirmed_true_revenue_count = m.verified_revenue_count
+    m.confirmed_true_revenue = m.verified_revenue_total
+    m.true_revenue = m.verified_revenue_total
+    m.potential_revenue_total = m.unverified_deposit_total
+    m.potential_revenue_count = m.unverified_deposit_count
+    m.true_revenue_evidence = m.verified_revenue_evidence
+    m.potential_revenue_evidence = m.unverified_deposit_evidence
     m.maximum_revenue = round(
-        m.confirmed_true_revenue_total + m.potential_revenue_total,
+        m.verified_revenue_total + m.unverified_deposit_total,
         2,
     )
     m.total_posted_credits = round(m.total_posted_credits, 2)
     m.revenue_classified_total = round(
-        m.confirmed_true_revenue_total
-        + m.potential_revenue_total
+        m.verified_revenue_total
+        + m.unverified_deposit_total
         + m.non_revenue_total,
         2,
     )
     m.revenue_classified_count = (
-        m.confirmed_true_revenue_count
-        + m.potential_revenue_count
+        m.verified_revenue_count
+        + m.unverified_deposit_count
         + m.non_revenue_count
     )
     m.revenue_reconciliation_delta = round(
@@ -276,7 +295,7 @@ def compute_metrics(
         m.revenue_reconciliation_delta == 0.0
         and m.revenue_classified_count == m.total_posted_credit_count
     )
-    m.revenue_review_required = m.potential_revenue_count > 0
+    m.revenue_review_required = m.unverified_deposit_count > 0
     m.lenders_detected = len(confirmed_entities)
     m.potential_lenders_detected = len(potential_entities)
     m.effective_total_deposits = m.total_deposits
@@ -376,10 +395,10 @@ def compute_metrics(
         m.effective_total_deposits - m.lender_credits,
         2,
     )
-    if withholding_denominator_mode == "confirmed_true_revenue":
-        m.eligible_deposits = m.confirmed_true_revenue_total
-        m.eligible_deposit_definition = "confirmed classified true revenue"
-        m.withholding_denominator_label = "Confirmed true revenue"
+    if withholding_denominator_mode == "verified_revenue":
+        m.eligible_deposits = m.verified_revenue_total
+        m.eligible_deposit_definition = "verified classified revenue"
+        m.withholding_denominator_label = "Verified revenue"
     else:
         m.eligible_deposits = m.legacy_eligible_deposits
         m.withholding_denominator_label = "Legacy eligible deposits"

@@ -125,14 +125,20 @@ def report_to_dict(report: Report) -> dict:
                 asdict(item) for item in detection.potential_lender_evidence
             ],
             "insurance_evidence": [asdict(item) for item in detection.insurance_evidence],
-            "true_revenue_evidence": [
-                asdict(item) for item in detection.true_revenue_evidence
+            "verified_revenue_evidence": [
+                asdict(item) for item in detection.verified_revenue_evidence
             ],
-            "potential_revenue_evidence": [
-                asdict(item) for item in detection.potential_revenue_evidence
+            "unverified_deposit_evidence": [
+                asdict(item) for item in detection.unverified_deposit_evidence
             ],
             "non_revenue_evidence": [
                 asdict(item) for item in detection.non_revenue_evidence
+            ],
+            "true_revenue_evidence": [
+                asdict(item) for item in detection.verified_revenue_evidence
+            ],
+            "potential_revenue_evidence": [
+                asdict(item) for item in detection.unverified_deposit_evidence
             ],
             "manual_review": [asdict(item) for item in detection.manual_review],
         },

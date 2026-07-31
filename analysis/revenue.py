@@ -6,23 +6,40 @@ from datetime import UTC, datetime
 from typing import Literal
 
 
-RevenueState = Literal["true_revenue", "potential_revenue", "non_revenue"]
+RevenueState = Literal["verified_revenue", "unverified_deposit", "non_revenue"]
 REVENUE_STATES: tuple[RevenueState, ...] = (
-    "true_revenue",
-    "potential_revenue",
+    "verified_revenue",
+    "unverified_deposit",
     "non_revenue",
 )
 WITHHOLDING_DENOMINATOR_MODES = (
     "legacy_eligible_deposits",
-    "confirmed_true_revenue",
+    "verified_revenue",
 )
+LEGACY_REVENUE_STATE_MAP = {
+    "true_revenue": "verified_revenue",
+    "potential_revenue": "unverified_deposit",
+}
+LEGACY_WITHHOLDING_DENOMINATOR_MODES = {
+    "confirmed_true_revenue": "verified_revenue",
+}
+
+
+def normalize_withholding_denominator_mode(value: object) -> str:
+    mode = str(value or "legacy_eligible_deposits")
+    mode = LEGACY_WITHHOLDING_DENOMINATOR_MODES.get(mode, mode)
+    return mode if mode in WITHHOLDING_DENOMINATOR_MODES else "legacy_eligible_deposits"
 
 
 def revenue_contribution_flags(state: RevenueState | None) -> dict[str, bool]:
     return {
-        "contributes_to_true_revenue": state == "true_revenue",
-        "contributes_to_potential_revenue": state == "potential_revenue",
+        "contributes_to_verified_revenue": state == "verified_revenue",
+        "contributes_to_unverified_deposit": state == "unverified_deposit",
         "contributes_to_non_revenue": state == "non_revenue",
+        # Deprecated aliases remain serialized for existing API consumers. They
+        # are derived from the canonical state and are never scanned separately.
+        "contributes_to_true_revenue": state == "verified_revenue",
+        "contributes_to_potential_revenue": state == "unverified_deposit",
     }
 
 
@@ -58,9 +75,18 @@ def rebuild_serialized_revenue_views(analysis: dict) -> dict:
             continue
         posted_total += amount
         posted_count += 1
-        state = record.get("revenue_classification")
+        state = LEGACY_REVENUE_STATE_MAP.get(
+            record.get("revenue_classification"),
+            record.get("revenue_classification"),
+        )
         if state not in REVENUE_STATES:
             raise ValueError("every posted credit must have a valid revenue classification")
+        record["revenue_classification"] = state
+        initial_state = record.get("revenue_initial_classification")
+        record["revenue_initial_classification"] = LEGACY_REVENUE_STATE_MAP.get(
+            initial_state,
+            initial_state,
+        )
         flags = revenue_contribution_flags(state)
         record.update(flags)
         serialized_records.append(deepcopy(record))
@@ -79,33 +105,45 @@ def rebuild_serialized_revenue_views(analysis: dict) -> dict:
     metrics.update({
         "total_posted_credits": posted_total,
         "total_posted_credit_count": posted_count,
-        "true_revenue": totals["true_revenue"],
-        "confirmed_true_revenue": totals["true_revenue"],
-        "confirmed_true_revenue_total": totals["true_revenue"],
-        "confirmed_true_revenue_count": counts["true_revenue"],
-        "potential_revenue_total": totals["potential_revenue"],
-        "potential_revenue_count": counts["potential_revenue"],
+        "verified_revenue_total": totals["verified_revenue"],
+        "verified_revenue_count": counts["verified_revenue"],
+        "unverified_deposit_total": totals["unverified_deposit"],
+        "unverified_deposit_count": counts["unverified_deposit"],
         "non_revenue_total": totals["non_revenue"],
         "non_revenue_count": counts["non_revenue"],
         "maximum_revenue": round(
-            totals["true_revenue"] + totals["potential_revenue"], 2
+            totals["verified_revenue"] + totals["unverified_deposit"], 2
         ),
         "revenue_classified_total": classified_total,
         "revenue_classified_count": classified_count,
         "revenue_reconciliation_delta": delta,
         "revenue_reconciles": delta == 0.0 and classified_count == posted_count,
-        "revenue_review_required": counts["potential_revenue"] > 0,
-        "true_revenue_evidence": evidence["true_revenue"],
-        "potential_revenue_evidence": evidence["potential_revenue"],
+        "revenue_review_required": counts["unverified_deposit"] > 0,
+        "verified_revenue_evidence": evidence["verified_revenue"],
+        "unverified_deposit_evidence": evidence["unverified_deposit"],
         "non_revenue_evidence": evidence["non_revenue"],
+        # Deprecated aggregate aliases, all derived from canonical records.
+        "true_revenue": totals["verified_revenue"],
+        "confirmed_true_revenue": totals["verified_revenue"],
+        "confirmed_true_revenue_total": totals["verified_revenue"],
+        "confirmed_true_revenue_count": counts["verified_revenue"],
+        "potential_revenue_total": totals["unverified_deposit"],
+        "potential_revenue_count": counts["unverified_deposit"],
+        "true_revenue_evidence": evidence["verified_revenue"],
+        "potential_revenue_evidence": evidence["unverified_deposit"],
     })
 
-    if metrics.get("withholding_denominator_mode") == "confirmed_true_revenue":
-        denominator = totals["true_revenue"]
+    denominator_mode = normalize_withholding_denominator_mode(
+        metrics.get("withholding_denominator_mode")
+    )
+    metrics["withholding_denominator_mode"] = denominator_mode
+    if denominator_mode == "verified_revenue":
+        denominator = totals["verified_revenue"]
         metrics["eligible_deposits"] = denominator
         metrics["withholding_denominator"] = denominator
         metrics["potential_withholding_denominator"] = denominator
-        metrics["eligible_deposit_definition"] = "confirmed classified true revenue"
+        metrics["withholding_denominator_label"] = "Verified revenue"
+        metrics["eligible_deposit_definition"] = "verified classified revenue"
         numerator = _number(metrics.get("withholding_numerator"))
         potential_numerator = _number(metrics.get("potential_withholding_numerator"))
         metrics["withholding_rate"] = (
@@ -117,9 +155,11 @@ def rebuild_serialized_revenue_views(analysis: dict) -> dict:
         metrics["withholding_review_required"] = denominator <= 0
 
     detection = analysis.setdefault("detection", {})
-    detection["true_revenue_evidence"] = evidence["true_revenue"]
-    detection["potential_revenue_evidence"] = evidence["potential_revenue"]
+    detection["verified_revenue_evidence"] = evidence["verified_revenue"]
+    detection["unverified_deposit_evidence"] = evidence["unverified_deposit"]
     detection["non_revenue_evidence"] = evidence["non_revenue"]
+    detection["true_revenue_evidence"] = evidence["verified_revenue"]
+    detection["potential_revenue_evidence"] = evidence["unverified_deposit"]
     detection["manual_review"] = [
         deepcopy(record)
         for record in serialized_records
@@ -156,11 +196,12 @@ def apply_serialized_revenue_review(
         raise LookupError("transaction source location was not found")
     record = target.get("classification") or {}
     initial_state = record.get("revenue_initial_classification")
-    if initial_state != "potential_revenue":
-        raise ValueError("only automatically potential revenue can be reviewed")
+    initial_state = LEGACY_REVENUE_STATE_MAP.get(initial_state, initial_state)
+    if initial_state != "unverified_deposit":
+        raise ValueError("only automatically unverified deposits can be reviewed")
 
     if decision == "confirm":
-        state: RevenueState = "true_revenue"
+        state: RevenueState = "verified_revenue"
         status = "confirmed"
         note = "Reviewer confirmed this credit as operating revenue."
     elif decision == "reject":
@@ -168,12 +209,12 @@ def apply_serialized_revenue_review(
         status = "rejected"
         note = "Reviewer rejected this credit as operating revenue."
     else:
-        state = "potential_revenue"
+        state = "unverified_deposit"
         status = "pending"
         note = None
 
     record["revenue_classification"] = state
-    record["revenue_review_required"] = state == "potential_revenue"
+    record["revenue_review_required"] = state == "unverified_deposit"
     record["revenue_review_status"] = status
     record["revenue_review_note"] = note
     record["revenue_reviewed_at"] = (

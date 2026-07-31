@@ -189,8 +189,9 @@ trustworthy figures from the bank's printed summary, which reconciliation valida
 
 Tune via env: `GEMINI_MODEL`, `GEMINI_ESCALATION_MODEL`. Withholding continues to
 use legacy eligible deposits by default; explicitly set
-`WITHHOLDING_DENOMINATOR_MODE=confirmed_true_revenue` to use confirmed classified
-revenue instead. Extend maintained lender, candidate, insurance, revenue, and exclusion aliases in
+`WITHHOLDING_DENOMINATOR_MODE=verified_revenue` to use verified classified
+revenue instead. Extend maintained lender, candidate, insurance, operating-revenue,
+and exclusion aliases in
 `analysis/classification_registry.py`.
 
 Transaction categories, lender/insurance precedence, contribution flags, and the

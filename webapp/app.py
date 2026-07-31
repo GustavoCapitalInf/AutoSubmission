@@ -11,7 +11,11 @@ from flask import Flask, request, jsonify, render_template, Response, abort
 
 from ocr.rasterize import pdf_page_count, rasterize_page
 from ocr.render import rendered_skeleton, render_boxed
-from analysis.revenue import apply_serialized_revenue_review, REVENUE_STATES
+from analysis.revenue import (
+    apply_serialized_revenue_review,
+    normalize_withholding_denominator_mode,
+    REVENUE_STATES,
+)
 from .jobs import JobStore
 from .worker import run_job
 
@@ -251,14 +255,19 @@ def _package_analysis(jobs) -> dict:
         "total_credits": 0.0,
         "total_posted_credits": 0.0,
         "total_posted_credit_count": 0,
+        "verified_revenue_total": 0.0,
+        "verified_revenue_count": 0,
+        "unverified_deposit_total": 0.0,
+        "unverified_deposit_count": 0,
+        "non_revenue_total": 0.0,
+        "non_revenue_count": 0,
+        # Deprecated aliases for version 3.0 API consumers.
         "true_revenue": 0.0,
         "confirmed_true_revenue": 0.0,
         "confirmed_true_revenue_total": 0.0,
         "confirmed_true_revenue_count": 0,
         "potential_revenue_total": 0.0,
         "potential_revenue_count": 0,
-        "non_revenue_total": 0.0,
-        "non_revenue_count": 0,
         "maximum_revenue": 0.0,
         "total_debits": 0.0,
         "cash_flow": 0.0,
@@ -419,30 +428,70 @@ def _package_analysis(jobs) -> dict:
             revenue_counts = {
                 state: len(rows) for state, rows in revenue_rows.items()
             }
+        elif authoritative_rows:
+            # A partially classified new report fails reconciliation closed.
+            # Valid state rows remain visible as evidence, while every positive
+            # row still remains in the posted-credit side of the equation.
+            incomplete_posted_rows = [
+                transaction
+                for transaction in positive_statement_rows
+                if not isinstance(transaction.get("classification"), dict)
+                or transaction["classification"].get("is_posted") is not False
+            ]
+            posted_credit_total = round(
+                sum(_num(row.get("amount")) for row in incomplete_posted_rows),
+                2,
+            )
+            posted_credit_count = len(incomplete_posted_rows)
+            revenue_totals = {
+                state: round(sum(_num(row.get("amount")) for row in rows), 2)
+                for state, rows in revenue_rows.items()
+            }
+            revenue_counts = {
+                state: len(rows) for state, rows in revenue_rows.items()
+            }
         else:
             posted_credit_total = _num(metrics.get("total_posted_credits"), credits)
             posted_credit_count = int(
                 _num(metrics.get("total_posted_credit_count"), metrics.get("effective_num_deposits") or 0)
             )
-            confirmed_fallback = _num(
-                metrics.get("confirmed_true_revenue_total"),
-                _num(metrics.get("true_revenue"), posted_credit_total),
+            verified_fallback = _num(
+                metrics.get("verified_revenue_total"),
+                _num(
+                    metrics.get("confirmed_true_revenue_total"),
+                    _num(metrics.get("true_revenue"), posted_credit_total),
+                ),
             )
             revenue_totals = {
-                "true_revenue": confirmed_fallback,
-                "potential_revenue": _num(metrics.get("potential_revenue_total")),
+                "verified_revenue": verified_fallback,
+                "unverified_deposit": _num(
+                    metrics.get("unverified_deposit_total"),
+                    _num(metrics.get("potential_revenue_total")),
+                ),
                 "non_revenue": _num(metrics.get("non_revenue_total")),
             }
             revenue_counts = {
-                "true_revenue": int(_num(metrics.get("confirmed_true_revenue_count"))),
-                "potential_revenue": int(_num(metrics.get("potential_revenue_count"))),
+                "verified_revenue": int(
+                    _num(
+                        metrics.get("verified_revenue_count"),
+                        _num(metrics.get("confirmed_true_revenue_count")),
+                    )
+                ),
+                "unverified_deposit": int(
+                    _num(
+                        metrics.get("unverified_deposit_count"),
+                        _num(metrics.get("potential_revenue_count")),
+                    )
+                ),
                 "non_revenue": int(_num(metrics.get("non_revenue_count"))),
             }
         eligible_deposits = _num(
             metrics.get("withholding_denominator"),
             _num(metrics.get("true_revenue"), credits),
         )
-        denominator_mode = metrics.get("withholding_denominator_mode") or "legacy_eligible_deposits"
+        denominator_mode = normalize_withholding_denominator_mode(
+            metrics.get("withholding_denominator_mode")
+        )
         denominator_modes.add(str(denominator_mode))
         nsf_count = int(_num(metrics.get("effective_nsf_count"), 0.0))
         average_balance = metrics.get("average_balance")
@@ -457,18 +506,23 @@ def _package_analysis(jobs) -> dict:
             2,
         )
         totals["total_posted_credit_count"] += posted_credit_count
-        totals["confirmed_true_revenue_total"] = round(
-            totals["confirmed_true_revenue_total"] + revenue_totals["true_revenue"],
+        totals["verified_revenue_total"] = round(
+            totals["verified_revenue_total"] + revenue_totals["verified_revenue"],
             2,
         )
-        totals["confirmed_true_revenue"] = totals["confirmed_true_revenue_total"]
-        totals["true_revenue"] = totals["confirmed_true_revenue_total"]
-        totals["confirmed_true_revenue_count"] += revenue_counts["true_revenue"]
-        totals["potential_revenue_total"] = round(
-            totals["potential_revenue_total"] + revenue_totals["potential_revenue"],
+        totals["verified_revenue_count"] += revenue_counts["verified_revenue"]
+        totals["unverified_deposit_total"] = round(
+            totals["unverified_deposit_total"]
+            + revenue_totals["unverified_deposit"],
             2,
         )
-        totals["potential_revenue_count"] += revenue_counts["potential_revenue"]
+        totals["unverified_deposit_count"] += revenue_counts["unverified_deposit"]
+        totals["confirmed_true_revenue_total"] = totals["verified_revenue_total"]
+        totals["confirmed_true_revenue"] = totals["verified_revenue_total"]
+        totals["true_revenue"] = totals["verified_revenue_total"]
+        totals["confirmed_true_revenue_count"] = totals["verified_revenue_count"]
+        totals["potential_revenue_total"] = totals["unverified_deposit_total"]
+        totals["potential_revenue_count"] = totals["unverified_deposit_count"]
         totals["non_revenue_total"] = round(
             totals["non_revenue_total"] + revenue_totals["non_revenue"],
             2,
@@ -656,14 +710,19 @@ def _package_analysis(jobs) -> dict:
             "credits": credits,
             "total_posted_credits": posted_credit_total,
             "total_posted_credit_count": posted_credit_count,
-            "confirmed_true_revenue_total": revenue_totals["true_revenue"],
-            "confirmed_true_revenue_count": revenue_counts["true_revenue"],
-            "potential_revenue_total": revenue_totals["potential_revenue"],
-            "potential_revenue_count": revenue_counts["potential_revenue"],
+            "verified_revenue_total": revenue_totals["verified_revenue"],
+            "verified_revenue_count": revenue_counts["verified_revenue"],
+            "unverified_deposit_total": revenue_totals["unverified_deposit"],
+            "unverified_deposit_count": revenue_counts["unverified_deposit"],
+            "confirmed_true_revenue_total": revenue_totals["verified_revenue"],
+            "confirmed_true_revenue_count": revenue_counts["verified_revenue"],
+            "potential_revenue_total": revenue_totals["unverified_deposit"],
+            "potential_revenue_count": revenue_counts["unverified_deposit"],
             "non_revenue_total": revenue_totals["non_revenue"],
             "non_revenue_count": revenue_counts["non_revenue"],
             "maximum_revenue": round(
-                revenue_totals["true_revenue"] + revenue_totals["potential_revenue"],
+                revenue_totals["verified_revenue"]
+                + revenue_totals["unverified_deposit"],
                 2,
             ),
             "revenue_reconciles": round(sum(revenue_totals.values()), 2) == posted_credit_total,
@@ -721,18 +780,18 @@ def _package_analysis(jobs) -> dict:
     totals["lenders_detected"] = len(funders)
     totals["potential_lenders_detected"] = len(potential_lenders)
     totals["maximum_revenue"] = round(
-        totals["confirmed_true_revenue_total"] + totals["potential_revenue_total"],
+        totals["verified_revenue_total"] + totals["unverified_deposit_total"],
         2,
     )
     totals["revenue_classified_total"] = round(
-        totals["confirmed_true_revenue_total"]
-        + totals["potential_revenue_total"]
+        totals["verified_revenue_total"]
+        + totals["unverified_deposit_total"]
         + totals["non_revenue_total"],
         2,
     )
     totals["revenue_classified_count"] = (
-        totals["confirmed_true_revenue_count"]
-        + totals["potential_revenue_count"]
+        totals["verified_revenue_count"]
+        + totals["unverified_deposit_count"]
         + totals["non_revenue_count"]
     )
     totals["revenue_reconciliation_delta"] = round(
@@ -743,7 +802,7 @@ def _package_analysis(jobs) -> dict:
         totals["revenue_reconciliation_delta"] == 0.0
         and totals["revenue_classified_count"] == totals["total_posted_credit_count"]
     )
-    totals["revenue_review_required"] = totals["potential_revenue_count"] > 0
+    totals["revenue_review_required"] = totals["unverified_deposit_count"] > 0
     package_withholding_raw = (
         abs(totals["withholding_numerator"]) / totals["withholding_denominator"] * 100
         if totals["withholding_denominator"] > 0
@@ -809,8 +868,8 @@ def _package_analysis(jobs) -> dict:
                 next(iter(denominator_modes)) if len(denominator_modes) == 1 else "mixed"
             ),
             "withholding_denominator_label": (
-                "Confirmed true revenue"
-                if denominator_modes == {"confirmed_true_revenue"}
+                "Verified revenue"
+                if denominator_modes == {"verified_revenue"}
                 else "Legacy eligible deposits"
                 if denominator_modes == {"legacy_eligible_deposits"}
                 else "Mixed denominator configuration"
@@ -829,8 +888,10 @@ def _package_analysis(jobs) -> dict:
         "lender_evidence": package_lender_evidence,
         "potential_lender_evidence": package_potential_lender_evidence,
         "insurance_evidence": package_insurance_evidence,
-        "true_revenue_evidence": package_revenue_evidence["true_revenue"],
-        "potential_revenue_evidence": package_revenue_evidence["potential_revenue"],
+        "verified_revenue_evidence": package_revenue_evidence["verified_revenue"],
+        "unverified_deposit_evidence": package_revenue_evidence["unverified_deposit"],
+        "true_revenue_evidence": package_revenue_evidence["verified_revenue"],
+        "potential_revenue_evidence": package_revenue_evidence["unverified_deposit"],
         "non_revenue_evidence": package_revenue_evidence["non_revenue"],
         "detection": {
             "known_funders": package_funder_matches,
@@ -839,8 +900,10 @@ def _package_analysis(jobs) -> dict:
             "lender_evidence": package_lender_evidence,
             "potential_lender_evidence": package_potential_lender_evidence,
             "insurance_evidence": package_insurance_evidence,
-            "true_revenue_evidence": package_revenue_evidence["true_revenue"],
-            "potential_revenue_evidence": package_revenue_evidence["potential_revenue"],
+            "verified_revenue_evidence": package_revenue_evidence["verified_revenue"],
+            "unverified_deposit_evidence": package_revenue_evidence["unverified_deposit"],
+            "true_revenue_evidence": package_revenue_evidence["verified_revenue"],
+            "potential_revenue_evidence": package_revenue_evidence["unverified_deposit"],
             "non_revenue_evidence": package_revenue_evidence["non_revenue"],
         },
     }

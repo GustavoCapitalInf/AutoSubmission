@@ -12,8 +12,9 @@ from .classification_registry import (
     CONFIRMED_LENDER_ALIASES,
     INSURANCE_PROVIDER_ALIASES,
     LEASE_PROVIDER_ALIASES,
+    OPERATING_REVENUE_SOURCE_ALIASES,
+    OPERATING_REVENUE_SOURCE_TYPES,
     POTENTIAL_LENDER_ALIASES,
-    VERIFIED_REVENUE_ALIASES,
 )
 from .dates import parse_date
 from .revenue import RevenueState, revenue_contribution_flags
@@ -60,7 +61,7 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
     "other",
 )
 
-CLASSIFICATION_VERSION = "3.0"
+CLASSIFICATION_VERSION = "4.0"
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,8 @@ class _RevenueDecision:
     matched_rule: str
     confidence_score: float
     reason: str
+    source_type: str | None = None
+    context_signals: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -84,6 +87,9 @@ class TransactionClassification:
     direction: str = "debit"
     bank: str | None = None
     account: str | None = None
+    account_name: str | None = None
+    source_direction: str | None = None
+    direction_consistent: bool = True
     source_page: int | None = None
     source_location: str | None = None
     canonical_entity: str | None = None
@@ -102,6 +108,9 @@ class TransactionClassification:
     revenue_matched_rule: str | None = None
     revenue_confidence_score: float | None = None
     revenue_reason: str | None = None
+    revenue_source_type: str | None = None
+    revenue_context_signals: tuple[str, ...] = ()
+    revenue_related_transaction: str | None = None
     revenue_review_required: bool = False
     revenue_review_status: str | None = None
     revenue_review_note: str | None = None
@@ -114,6 +123,8 @@ class TransactionClassification:
     contributes_to_potential_lender_totals: bool = False
     contributes_to_potential_withholding_exposure: bool = False
     contributes_to_insurance_totals: bool = False
+    contributes_to_verified_revenue: bool = False
+    contributes_to_unverified_deposit: bool = False
     contributes_to_true_revenue: bool = False
     contributes_to_potential_revenue: bool = False
     contributes_to_non_revenue: bool = False
@@ -370,6 +381,24 @@ _PAYMENT_MARKER_PATTERNS = (
     re.compile(r"\bBUSINESS PAD\b"),
 )
 
+_REVERSAL_CANCELLATION_CREDIT_PATTERNS = (
+    re.compile(r"\b(?:E TRANSFER|ETRANSFER|TRANSFER) (?:RETURNED|CANCEL(?:LED|ED)?|CNCL)\b"),
+    re.compile(r"\b(?:RETURNED|CANCEL(?:LED|ED)?|CNCL) (?:E TRANSFER|ETRANSFER|TRANSFER)\b"),
+    re.compile(r"\bCANCEL(?:LED|ED|LATION)?\b"),
+    re.compile(r"\bCNCL\b"),
+    re.compile(r"\bREVERS(?:AL|ED|E)\b"),
+    re.compile(r"\bREFUND(?:ED)?\b"),
+    re.compile(r"\bREIMBURSEMENT\b"),
+    re.compile(r"\bNSF\b"),
+    re.compile(r"\bRETURNED (?:PAYMENT|ITEM|CHECK|CHEQUE|DEPOSIT)\b"),
+    re.compile(r"\b(?:CHECK|CHEQUE) (?:RETURNED|REVERSED)\b"),
+    re.compile(r"\bCHARGEBACK (?:REVERSAL|REVERSE|RETURN|CREDIT)\b"),
+    re.compile(r"\bREVERSED CHARGEBACK\b"),
+    re.compile(r"\bBANK (?:CORRECTION|ADJUSTMENT|ERROR)\b"),
+    re.compile(r"\bCREDIT (?:CORRECTION|ADJUSTMENT)\b"),
+    re.compile(r"\b(?:PROVISIONAL|TEMPORARY|CONDITIONAL) CREDIT\b"),
+    re.compile(r"\bCREDIT PENDING (?:REVIEW|FINAL|VERIFICATION)\b"),
+)
 _NON_REVENUE_CREDIT_PATTERNS = (
     re.compile(
         r"\b(?:LOAN|BUSINESS LOAN|MCA|MERCHANT CASH ADVANCE|FINANCING) "
@@ -381,22 +410,13 @@ _NON_REVENUE_CREDIT_PATTERNS = (
     re.compile(r"\bOWNER(?:S)? (?:CONTRIBUTION|CAPITAL|DEPOSIT|TRANSFER)\b"),
     re.compile(r"\bSHAREHOLDER (?:CONTRIBUTION|LOAN|DEPOSIT)\b"),
     re.compile(r"\bCAPITAL CONTRIBUTION\b"),
-    re.compile(r"\bREFUND(?:ED)?\b"),
-    re.compile(r"\bREIMBURSEMENT\b"),
-    re.compile(r"\bE TRANSFER RETURNED\b"),
-    re.compile(r"\bETRANSFER RETURNED\b"),
-    re.compile(r"\bRETURNED (?:E TRANSFER|ETRANSFER|PAYMENT|ITEM|CHECK|CHEQUE)\b"),
-    re.compile(r"\bNSF\b"),
-    re.compile(r"\bREVERS(?:AL|ED|E)\b"),
-    re.compile(r"\bBANK (?:CORRECTION|ADJUSTMENT|ERROR)\b"),
-    re.compile(r"\bCREDIT (?:CORRECTION|ADJUSTMENT)\b"),
     re.compile(r"\bINSURANCE (?:PROCEEDS|CLAIM|PAYMENT)\b"),
     re.compile(r"\bTAX REFUND\b"),
     re.compile(r"\b(?:IRS|CRA|REVENUE AGENCY) REFUND\b"),
     re.compile(r"\b(?:ASSET|VEHICLE|EQUIPMENT|PROPERTY) SALE (?:PROCEEDS|DEPOSIT)\b"),
     re.compile(r"\bPROCEEDS FROM (?:ASSET|VEHICLE|EQUIPMENT|PROPERTY) SALE\b"),
 )
-_TRUE_REVENUE_CREDIT_PATTERNS = (
+_VERIFIED_REVENUE_CREDIT_PATTERNS = (
     re.compile(r"\bMRCH\d{5,}\b"),
     re.compile(r"\bMERCHANT (?:PROCESSOR )?(?:SETTLEMENT|DEPOSIT|PAYOUT)\b"),
     re.compile(r"\bCARD SALES? (?:DEPOSIT|SETTLEMENT|PAYOUT)\b"),
@@ -407,7 +427,19 @@ _TRUE_REVENUE_CREDIT_PATTERNS = (
     re.compile(r"\bMARKETPLACE (?:PAYOUT|SETTLEMENT)\b"),
     re.compile(r"\bBUSINESS CASH DEPOSIT\b"),
 )
-_POTENTIAL_REVENUE_CREDIT_PATTERNS = (
+_OPERATING_CREDIT_CONTEXT_PATTERNS = (
+    re.compile(r"\b(?:SETTLEMENT|PAYOUT|DISBURSEMENT)\b"),
+    re.compile(r"\bMERCHANT (?:CREDIT|DEPOSIT|PAYMENT|BATCH|PROCESSING)\b"),
+    re.compile(r"\bCARD SALES?\b"),
+    re.compile(r"\bSALES? (?:CREDIT|DEPOSIT|PROCEEDS)\b"),
+    re.compile(r"\bDIRECT DEPOSIT MISC(?:ELLANEOUS)? PAYMENTS?\b"),
+    re.compile(r"\bACH (?:CREDIT|SETTLEMENT|PAYOUT)\b"),
+    re.compile(r"\bMARKETPLACE (?:PAYMENT|PAYOUT|SETTLEMENT)\b"),
+    re.compile(r"\bBATCH (?:CREDIT|DEPOSIT|SETTLEMENT)\b"),
+    re.compile(r"\bINVOICE (?:PAYMENT|PAID|DEPOSIT)\b"),
+    re.compile(r"\bACCOUNTS? RECEIVABLE\b"),
+)
+_UNVERIFIED_DEPOSIT_CREDIT_PATTERNS = (
     re.compile(r"\bMOBILE DEPOSIT\b"),
     re.compile(r"\bACH CREDIT\b"),
     re.compile(r"\bDIRECT DEPOSIT\b"),
@@ -416,6 +448,26 @@ _POTENTIAL_REVENUE_CREDIT_PATTERNS = (
     re.compile(r"\b(?:CHECK|CHEQUE) DEPOSIT\b"),
     re.compile(r"\bCASH DEPOSIT\b"),
     re.compile(r"\bDEPOSIT\b"),
+)
+_BUSINESS_ACCOUNT_PATTERNS = (
+    re.compile(r"\bBUSINESS\b"),
+    re.compile(r"\bCOMMERCIAL\b"),
+    re.compile(r"\bOPERATING\b"),
+    re.compile(r"\bMERCHANT\b"),
+)
+_OPERATING_PLATFORM_DEBIT_CONTEXT_PATTERNS = (
+    re.compile(r"\b(?:PROCESSING|MERCHANT|PLATFORM|SERVICE) FEES?\b"),
+    re.compile(r"\bCOMMISSIONS?\b"),
+    re.compile(r"\bCHARGEBACK\b"),
+    re.compile(r"\bSETTLEMENT ADJUSTMENT\b"),
+)
+_PAIR_FAMILY_PATTERNS = (
+    re.compile(r"\bE TRANSFER\b"),
+    re.compile(r"\bETRANSFER\b"),
+    re.compile(r"\bCHECK\b"),
+    re.compile(r"\bCHEQUE\b"),
+    re.compile(r"\bACH\b"),
+    re.compile(r"\bWIRE\b"),
 )
 
 
@@ -428,9 +480,34 @@ def _classify_credit_revenue(
     amount: float,
     *,
     posted: bool,
+    account_name: str | None,
+    direction_consistent: bool,
 ) -> _RevenueDecision | None:
     if amount <= 0 or not posted:
         return None
+
+    if not direction_consistent:
+        return _RevenueDecision(
+            "unverified_deposit",
+            None,
+            "direction_conflict",
+            None,
+            "source_direction_conflicts_with_signed_amount",
+            0.20,
+            "The source direction conflicts with the signed amount, so the credit requires review.",
+            context_signals=("positive_amount", "direction_conflict"),
+        )
+    if _matches_any(text, _REVERSAL_CANCELLATION_CREDIT_PATTERNS):
+        return _RevenueDecision(
+            "non_revenue",
+            None,
+            "reversal_cancellation_exclusion",
+            None,
+            "returned_cancelled_reversed_or_provisional_credit",
+            0.99,
+            "Credit is a return, cancellation, reversal, refund, correction, chargeback reversal, or provisional credit.",
+            context_signals=("credit_direction", "strong_non_revenue_descriptor"),
+        )
 
     insurance_match = _registry_match(text, INSURANCE_PROVIDER_ALIASES)
     if insurance_match is not None:
@@ -443,6 +520,7 @@ def _classify_credit_revenue(
             "insurance_proceeds_or_refund",
             0.99,
             f"Credit matched insurance provider alias '{alias}' and is not operating revenue.",
+            context_signals=("credit_direction", "insurance_provider"),
         )
     lender_match = _registry_match(text, CONFIRMED_LENDER_ALIASES)
     if lender_match is not None:
@@ -455,6 +533,7 @@ def _classify_credit_revenue(
             "confirmed_lender_funding_credit",
             0.99,
             f"Credit matched confirmed lender alias '{alias}' and is funding, not revenue.",
+            context_signals=("credit_direction", "confirmed_lender_source"),
         )
     potential_lender_match = _registry_match(text, POTENTIAL_LENDER_ALIASES)
     if potential_lender_match is not None:
@@ -467,6 +546,20 @@ def _classify_credit_revenue(
             "potential_lender_funding_credit",
             0.95,
             f"Credit matched potential lender alias '{alias}' and is excluded from revenue.",
+            context_signals=("credit_direction", "potential_lender_source"),
+        )
+    lease_match = _registry_match(text, LEASE_PROVIDER_ALIASES)
+    if lease_match is not None:
+        entity, alias = lease_match
+        return _RevenueDecision(
+            "non_revenue",
+            entity,
+            "lease_provider_credit_exclusion",
+            alias,
+            "lease_or_equipment_financing_credit",
+            0.95,
+            f"Credit matched lease or equipment-financing alias '{alias}' and is not operating revenue.",
+            context_signals=("credit_direction", "lease_provider"),
         )
     if _matches_any(text, _NON_REVENUE_CREDIT_PATTERNS):
         return _RevenueDecision(
@@ -477,48 +570,83 @@ def _classify_credit_revenue(
             "non_operating_credit",
             0.97,
             "Credit matched a transfer, contribution, return, refund, correction, or proceeds exclusion.",
+            context_signals=("credit_direction", "strong_non_revenue_descriptor"),
         )
 
-    revenue_match = _registry_match(text, VERIFIED_REVENUE_ALIASES)
+    revenue_match = _registry_match(text, OPERATING_REVENUE_SOURCE_ALIASES)
     if revenue_match is not None:
         entity, alias = revenue_match
-        return _RevenueDecision(
-            "true_revenue",
-            entity,
-            "verified_revenue_alias",
-            alias,
-            "verified_operating_income_source",
-            0.97,
-            f"Credit matched verified operating-income alias '{alias}'.",
+        source_type = OPERATING_REVENUE_SOURCE_TYPES.get(entity)
+        has_operating_context = _matches_any(text, _OPERATING_CREDIT_CONTEXT_PATTERNS)
+        business_account = _matches_any(
+            normalize_transaction_description(account_name or ""),
+            _BUSINESS_ACCOUNT_PATTERNS,
         )
-    if _matches_any(text, _TRUE_REVENUE_CREDIT_PATTERNS):
+        signals = ["credit_direction", "maintained_operating_source"]
+        if has_operating_context:
+            signals.append("settlement_or_payout_descriptor")
+        if business_account:
+            signals.append("business_account")
+        if has_operating_context:
+            return _RevenueDecision(
+                "verified_revenue",
+                entity,
+                "operating_source_with_credit_context",
+                alias,
+                "verified_operating_source_credit",
+                0.98 if business_account else 0.96,
+                (
+                    f"Credit matched maintained {source_type or 'operating-source'} alias "
+                    f"'{alias}' with settlement, payout, or deposit context."
+                ),
+                source_type=source_type,
+                context_signals=tuple(signals),
+            )
         return _RevenueDecision(
-            "true_revenue",
+            "unverified_deposit",
+            entity,
+            "operating_source_requires_context",
+            alias,
+            "operating_source_without_payout_context",
+            0.70,
+            (
+                f"Credit matched maintained {source_type or 'operating-source'} alias "
+                f"'{alias}', but the row needs recurrence or related operating activity to verify revenue."
+            ),
+            source_type=source_type,
+            context_signals=tuple(signals),
+        )
+    if _matches_any(text, _VERIFIED_REVENUE_CREDIT_PATTERNS):
+        return _RevenueDecision(
+            "verified_revenue",
             None,
             "operating_income_descriptor",
             None,
             "verified_operating_income_descriptor",
             0.93,
             "Credit has a customer-payment, merchant-settlement, card-sales, invoice, or verified business-deposit descriptor.",
+            context_signals=("credit_direction", "operating_income_descriptor"),
         )
-    if _matches_any(text, _POTENTIAL_REVENUE_CREDIT_PATTERNS):
+    if _matches_any(text, _UNVERIFIED_DEPOSIT_CREDIT_PATTERNS):
         return _RevenueDecision(
-            "potential_revenue",
+            "unverified_deposit",
             None,
             "ambiguous_credit_descriptor",
             None,
             "deposit_source_requires_review",
             0.60,
             "The credit is a deposit or incoming transfer without enough evidence to confirm operating revenue.",
+            context_signals=("credit_direction", "generic_deposit_descriptor"),
         )
     return _RevenueDecision(
-        "potential_revenue",
+        "unverified_deposit",
         None,
         "unidentified_posted_credit",
         None,
         "unknown_credit_source_requires_review",
         0.40,
         "The posted credit source is not identified strongly enough to confirm or exclude revenue.",
+        context_signals=("credit_direction", "unidentified_source"),
     )
 
 
@@ -564,6 +692,9 @@ def _build_record(
     date_value: str,
     bank: str | None,
     account: str | None,
+    account_name: str | None,
+    source_direction: str | None,
+    direction_consistent: bool,
     source_page: int | None,
     source_location: str | None,
     canonical_entity: str | None = None,
@@ -580,7 +711,13 @@ def _build_record(
     contributes_lender = classification == "confirmed_lender" and is_debit and is_posted
     contributes_potential = classification == "potential_lender" and is_debit and is_posted
     contributes_insurance = classification == "insurance" and is_debit and is_posted
-    revenue = _classify_credit_revenue(text, amount, posted=is_posted)
+    revenue = _classify_credit_revenue(
+        text,
+        amount,
+        posted=is_posted,
+        account_name=account_name,
+        direction_consistent=direction_consistent,
+    )
     revenue_state = revenue.classification if revenue is not None else None
     revenue_flags = revenue_contribution_flags(revenue_state)
     return TransactionClassification(
@@ -592,6 +729,9 @@ def _build_record(
         direction="debit" if amount < 0 else "credit",
         bank=bank,
         account=account,
+        account_name=account_name,
+        source_direction=source_direction,
+        direction_consistent=direction_consistent,
         source_page=source_page,
         source_location=source_location,
         canonical_entity=canonical_entity,
@@ -610,9 +750,11 @@ def _build_record(
         revenue_matched_rule=revenue.matched_rule if revenue else None,
         revenue_confidence_score=revenue.confidence_score if revenue else None,
         revenue_reason=revenue.reason if revenue else None,
-        revenue_review_required=revenue_state == "potential_revenue",
+        revenue_source_type=revenue.source_type if revenue else None,
+        revenue_context_signals=revenue.context_signals if revenue else (),
+        revenue_review_required=revenue_state == "unverified_deposit",
         revenue_review_status=(
-            "pending" if revenue_state == "potential_revenue"
+            "pending" if revenue_state == "unverified_deposit"
             else "not_required" if revenue_state else None
         ),
         contributes_to_lender_count=contributes_lender,
@@ -638,11 +780,16 @@ def classify_transaction(
     date: str = "",
     bank: str | None = None,
     account: str | None = None,
+    account_name: str | None = None,
+    direction: str | None = None,
     source_page: int | None = None,
     source_location: str | None = None,
     posted: bool = True,
 ) -> TransactionClassification:
     text = normalize_transaction_description(description)
+    derived_direction = "credit" if amount >= 0 else "debit"
+    source_direction = str(direction or derived_direction).strip().lower()
+    direction_consistent = source_direction == derived_direction
     common = {
         "description": description,
         "text": text,
@@ -650,6 +797,9 @@ def classify_transaction(
         "date_value": date,
         "bank": bank,
         "account": account,
+        "account_name": account_name,
+        "source_direction": source_direction,
+        "direction_consistent": direction_consistent,
         "source_page": source_page,
         "source_location": source_location,
     }
@@ -963,6 +1113,202 @@ def classify_cadence(dates: list[date]) -> tuple[str, float | None]:
     return "irregular", round(average, 1)
 
 
+def _replace_revenue_state(
+    record: TransactionClassification,
+    state: RevenueState,
+    *,
+    match_method: str,
+    matched_rule: str,
+    confidence_score: float,
+    reason: str,
+    context_signals: Sequence[str],
+    related_transaction: str | None = None,
+) -> TransactionClassification:
+    return replace(
+        record,
+        revenue_classification=state,
+        revenue_initial_classification=state,
+        revenue_match_method=match_method,
+        revenue_matched_rule=matched_rule,
+        revenue_confidence_score=confidence_score,
+        revenue_reason=reason,
+        revenue_context_signals=tuple(dict.fromkeys(context_signals)),
+        revenue_related_transaction=related_transaction,
+        revenue_review_required=state == "unverified_deposit",
+        revenue_review_status=(
+            "pending" if state == "unverified_deposit" else "not_required"
+        ),
+        **revenue_contribution_flags(state),
+    )
+
+
+_REVENUE_PAIR_NOISE = {
+    "CANCEL", "CANCELED", "CANCELLED", "CANCELLATION", "CNCL",
+    "RETURN", "RETURNED", "REVERSAL", "REVERSED", "REVERSE",
+    "REFUND", "REFUNDED", "CREDIT", "DEBIT", "SENT", "RECEIVED",
+    "PAYMENT", "ITEM", "PROVISIONAL", "TEMPORARY", "CONDITIONAL",
+}
+
+
+def _revenue_pair_tokens(text: str) -> set[str]:
+    return {
+        token
+        for token in text.split()
+        if token not in _REVENUE_PAIR_NOISE and len(token) > 1
+    }
+
+
+def _descriptions_share_pair_context(left: str, right: str) -> bool:
+    if _revenue_pair_tokens(left) & _revenue_pair_tokens(right):
+        return True
+    return any(pattern.search(left) and pattern.search(right) for pattern in _PAIR_FAMILY_PATTERNS)
+
+
+def _apply_reversal_pair_context(
+    records: list[TransactionClassification],
+    duplicate_indexes: set[int],
+) -> list[TransactionClassification]:
+    updated = list(records)
+    for credit_index, credit in enumerate(records):
+        if (
+            credit_index in duplicate_indexes
+            or credit.amount <= 0
+            or not credit.is_posted
+        ):
+            continue
+        credit_has_marker = _matches_any(
+            credit.normalized_description,
+            _REVERSAL_CANCELLATION_CREDIT_PATTERNS,
+        )
+        candidates: list[tuple[int, int]] = []
+        credit_date = parse_date(credit.date)
+        for debit_index, debit in enumerate(records):
+            if (
+                debit_index in duplicate_indexes
+                or debit.amount >= 0
+                or not debit.is_posted
+                or round(abs(debit.amount), 2) != round(credit.amount, 2)
+            ):
+                continue
+            debit_has_marker = _matches_any(
+                debit.normalized_description,
+                _REVERSAL_CANCELLATION_CREDIT_PATTERNS,
+            )
+            if not credit_has_marker and not debit_has_marker:
+                continue
+            debit_date = parse_date(debit.date)
+            day_gap = (
+                abs((credit_date - debit_date).days)
+                if credit_date is not None and debit_date is not None
+                else 0
+            )
+            if day_gap > 14 or not _descriptions_share_pair_context(
+                credit.normalized_description,
+                debit.normalized_description,
+            ):
+                continue
+            candidates.append((day_gap, debit_index))
+        if not candidates:
+            continue
+        _, debit_index = min(
+            candidates,
+            key=lambda item: (item[0], abs(item[1] - credit_index), item[1]),
+        )
+        debit = records[debit_index]
+        related_location = debit.source_location or f"transaction:{debit_index + 1}"
+        updated[credit_index] = _replace_revenue_state(
+            credit,
+            "non_revenue",
+            match_method="matched_reversal_pair",
+            matched_rule="opposite_direction_amount_date_description_match",
+            confidence_score=1.0,
+            reason=(
+                f"Credit matches reversal or cancellation row {related_location} by "
+                "amount, date proximity, and transaction-family description."
+            ),
+            context_signals=(
+                *credit.revenue_context_signals,
+                "matched_opposite_direction_row",
+                "amount_date_description_match",
+            ),
+            related_transaction=related_location,
+        )
+    return updated
+
+
+def _apply_operating_source_context(
+    records: list[TransactionClassification],
+    duplicate_indexes: set[int],
+) -> list[TransactionClassification]:
+    updated = list(records)
+    credits_by_entity: dict[str, list[int]] = {}
+    activity_by_entity: dict[str, list[int]] = {}
+    for index, record in enumerate(records):
+        if index in duplicate_indexes or not record.is_posted:
+            continue
+        match = _registry_match(
+            record.normalized_description,
+            OPERATING_REVENUE_SOURCE_ALIASES,
+        )
+        if match is None:
+            continue
+        entity, _ = match
+        if record.amount > 0 and record.revenue_classification == "unverified_deposit":
+            credits_by_entity.setdefault(entity, []).append(index)
+        elif record.amount < 0 and _matches_any(
+            record.normalized_description,
+            _OPERATING_PLATFORM_DEBIT_CONTEXT_PATTERNS,
+        ):
+            activity_by_entity.setdefault(entity, []).append(index)
+
+    for entity, indexes in credits_by_entity.items():
+        business_context = any(
+            "business_account" in records[index].revenue_context_signals
+            for index in indexes
+        )
+        recurring = len(indexes) >= 3 or (len(indexes) >= 2 and business_context)
+        related_activity = activity_by_entity.get(entity) or []
+        if not recurring and not related_activity:
+            continue
+        for index in indexes:
+            record = updated[index]
+            signals = list(record.revenue_context_signals)
+            if recurring:
+                signals.append(f"recurring_source_{len(indexes)}_credits")
+            if business_context:
+                signals.append("business_account")
+            if related_activity:
+                signals.append("related_platform_fee_or_chargeback")
+            method = (
+                "recurring_operating_source"
+                if recurring
+                else "operating_source_related_activity"
+            )
+            rule = (
+                "maintained_source_recurs_across_statement"
+                if recurring
+                else "maintained_source_has_related_operating_debit"
+            )
+            evidence_text = (
+                f"recurs in {len(indexes)} posted credits"
+                if recurring
+                else "has a related processing fee, commission, chargeback, or adjustment"
+            )
+            updated[index] = _replace_revenue_state(
+                record,
+                "verified_revenue",
+                match_method=method,
+                matched_rule=rule,
+                confidence_score=0.90 if recurring else 0.88,
+                reason=(
+                    f"Maintained operating source '{entity}' {evidence_text}; "
+                    "the credit is verified as operating revenue."
+                ),
+                context_signals=signals,
+            )
+    return updated
+
+
 def classify_statement_transactions(
     statement: Statement,
     *,
@@ -976,6 +1322,8 @@ def classify_statement_transactions(
             date=transaction.date,
             bank=statement.bank,
             account=statement.account_number,
+            account_name=statement.account_name,
+            direction=transaction.direction,
             source_location=f"transaction:{index + 1}",
         )
         for index, transaction in enumerate(statement.transactions)
@@ -1038,6 +1386,9 @@ def classify_statement_transactions(
                 contributes_to_potential_withholding_exposure=True,
             )
 
+    records = _apply_reversal_pair_context(records, set(duplicate_of))
+    records = _apply_operating_source_context(records, set(duplicate_of))
+
     for index, original_index in duplicate_of.items():
         record = records[index]
         duplicate_revenue = record.amount > 0 and record.is_posted
@@ -1065,6 +1416,12 @@ def classify_statement_transactions(
             ),
             revenue_review_required=False,
             revenue_review_status="not_required" if duplicate_revenue else None,
+            revenue_context_signals=("proven_duplicate",) if duplicate_revenue else (),
+            revenue_related_transaction=(
+                f"transaction:{original_index + 1}" if duplicate_revenue else None
+            ),
+            contributes_to_verified_revenue=False,
+            contributes_to_unverified_deposit=False,
             contributes_to_true_revenue=False,
             contributes_to_potential_revenue=False,
             contributes_to_non_revenue=duplicate_revenue,
