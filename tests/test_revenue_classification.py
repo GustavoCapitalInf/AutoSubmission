@@ -801,6 +801,21 @@ def test_revenue_ui_uses_authoritative_fields_and_exposes_review_controls():
     assert "/revenue-review" in javascript
     assert "Verified Revenue" in html
     assert "Unverified Deposits" in html
+    assert "Revenue Upper Bound" in javascript
+    assert "Upper-bound estimate: verified revenue plus unverified deposits" in javascript
+    assert "Confirmed operating revenue" in javascript
+    assert "Deposits requiring analyst review" in javascript
+    assert "Excluded from revenue analysis" in javascript
+    assert "Confirm Revenue" in javascript
+    assert "Mark Non-Revenue" in javascript
+    assert "Generic deposit with insufficient source information." in javascript
+    assert 'REV: ["◐", "Revenue"]' in javascript
+    assert 'REVIEW: ["◐", "Review"]' in javascript
+    assert "data-running-balance-column" in html
+    assert "showRunningBalance" in javascript
+    assert "Transaction Count" in html
+    assert "Credit Count" not in html
+    assert "Maximum Revenue" not in javascript
     assert "Potential Revenue" not in html
     assert "Potential Revenue" not in javascript
     assert "SKIPTHEDISHES" not in javascript

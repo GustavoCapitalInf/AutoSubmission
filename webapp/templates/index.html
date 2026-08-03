@@ -982,7 +982,7 @@
           <div class="file-preview-label">Uploaded file</div>
           <div class="file-preview-name" id="fileName">No file selected</div>
         </div>
-        <label class="force-row" title="Bypass native PDF text and send pages through visual OCR.">
+        <label class="force-row" title="Use visual OCR when a scanned statement has no selectable text.">
           <input type="checkbox" id="forceOcrToggle"> Force visual OCR
         </label>
         <div class="mode-control" aria-label="Parsing mode">
@@ -1015,7 +1015,7 @@
 
       <section class="card glass preview-card">
         <h2>Account Summary</h2>
-        <p class="card-copy">Statement identity fields extracted from the document</p>
+        <p class="card-copy">Account and statement details used in underwriting review</p>
         <div class="account-summary" id="accountSummary"></div>
       </section>
     </section>
@@ -1025,7 +1025,7 @@
         <div class="info-header">
           <div>
             <h1 class="info-title">Extracted Information</h1>
-            <p class="card-copy">Key data points automatically extracted from the document</p>
+            <p class="card-copy">Key statement metrics for underwriting review</p>
           </div>
           <div class="decision-pill" id="decisionPill">No statement loaded</div>
         </div>
@@ -1033,14 +1033,14 @@
         <div class="table-card">
           <div class="table-head">
             <h3>Revenue Evidence</h3>
-            <span class="section-label" id="revenueCount">0 posted credits</span>
+            <span class="section-label" id="revenueCount">0 credit transactions</span>
           </div>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Classification</th>
-                  <th>Credit Count</th>
+                  <th>Transaction Count</th>
                   <th>Total</th>
                   <th>Status</th>
                 </tr>
@@ -1100,7 +1100,7 @@
                 <button class="transaction-filter active" type="button" data-transaction-filter="all">All</button>
                 <button class="transaction-filter" type="button" data-transaction-filter="nsf">NSFs</button>
                 <button class="transaction-filter" type="button" data-transaction-filter="lender">Lenders</button>
-                <button class="transaction-filter" type="button" data-transaction-filter="potential">Potential Lender</button>
+                <button class="transaction-filter" type="button" data-transaction-filter="potential">Potential Lenders</button>
                 <button class="transaction-filter" type="button" data-transaction-filter="insurance">Insurance</button>
                 <button class="transaction-filter" type="button" data-transaction-filter="pos">POS</button>
                 <button class="transaction-filter" type="button" data-transaction-filter="verified_revenue">Verified Revenue</button>
@@ -1124,7 +1124,7 @@
                   <th class="tx-source-col">Statement</th>
                   <th>Category</th>
                   <th>Amount</th>
-                  <th>Running Balance</th>
+                  <th data-running-balance-column>Running Balance</th>
                 </tr>
               </thead>
               <tbody id="transactionTable"></tbody>
@@ -1301,7 +1301,7 @@
               <thead>
                 <tr>
                   <th>Classification</th>
-                  <th>Count</th>
+                  <th>Transaction Count</th>
                   <th>Total</th>
                   <th>Status</th>
                 </tr>
@@ -1319,7 +1319,7 @@
               <button class="transaction-filter active" type="button" data-modal-transaction-filter="all">All</button>
               <button class="transaction-filter" type="button" data-modal-transaction-filter="nsf">NSFs</button>
               <button class="transaction-filter" type="button" data-modal-transaction-filter="lender">Lenders</button>
-              <button class="transaction-filter" type="button" data-modal-transaction-filter="potential">Potential Lender</button>
+              <button class="transaction-filter" type="button" data-modal-transaction-filter="potential">Potential Lenders</button>
               <button class="transaction-filter" type="button" data-modal-transaction-filter="insurance">Insurance</button>
               <button class="transaction-filter" type="button" data-modal-transaction-filter="pos">POS</button>
               <button class="transaction-filter" type="button" data-modal-transaction-filter="verified_revenue">Verified Revenue</button>
@@ -1342,7 +1342,7 @@
                 <th>Description</th>
                 <th>Category</th>
                 <th>Amount</th>
-                <th>Running Balance</th>
+                <th data-running-balance-column>Running Balance</th>
               </tr>
             </thead>
             <tbody id="statementModalTransactions"></tbody>
@@ -1354,6 +1354,6 @@
   </section>
 </div>
 <textarea class="hidden-textarea" id="copyBuffer" aria-hidden="true"></textarea>
-<script src="/static/app.js?v=classification-v4"></script>
+<script src="/static/app.js?v=underwriting-ux-v2"></script>
 </body>
 </html>

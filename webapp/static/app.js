@@ -87,29 +87,38 @@ function parseModeLabel(value) {
   return value === "deterministic" ? "Deterministic only" : "Auto";
 }
 
+const REVENUE_METRIC_COPY = Object.freeze({
+  totalCredits: "All posted credit transactions",
+  verifiedRevenue: "Confirmed operating revenue",
+  unverifiedDeposits: "Deposits requiring analyst review",
+  nonRevenue: "Excluded from revenue analysis",
+  revenueUpperBound: "Upper-bound estimate: verified revenue plus unverified deposits",
+  achCredits: "Posted ACH credit transactions",
+});
+
 const emptyMetricSections = [
   {
     title: "Credits",
-    sub: "Incoming money",
+    sub: "Posted credit transactions",
     items: [
-      ["Total Credits", "N/A", "All inflows", "CR", "green"],
-      ["Verified Revenue", "N/A", "Verified operating credits", "REV", "green"],
-      ["Unverified Deposits", "N/A", "Deposits requiring review", "?", "amber"],
-      ["Non-Revenue", "N/A", "Excluded credit inflows", "X", "neutral"],
-      ["Maximum Revenue", "N/A", "Verified plus unverified deposits", "MAX", "neutral"],
-      ["ACH Credits", "N/A", "Incoming ACH items", "ACH", "neutral"],
+      ["Total Credits", "N/A", REVENUE_METRIC_COPY.totalCredits, "CR", "green"],
+      ["Verified Revenue", "N/A", REVENUE_METRIC_COPY.verifiedRevenue, "REV", "green"],
+      ["Unverified Deposits", "N/A", REVENUE_METRIC_COPY.unverifiedDeposits, "?", "amber"],
+      ["Non-Revenue", "N/A", REVENUE_METRIC_COPY.nonRevenue, "X", "neutral"],
+      ["Revenue Upper Bound", "N/A", REVENUE_METRIC_COPY.revenueUpperBound, "MAX", "neutral"],
+      ["ACH Credits", "N/A", REVENUE_METRIC_COPY.achCredits, "ACH", "neutral"],
     ],
   },
   {
     title: "Debits",
-    sub: "Outgoing money",
+    sub: "Posted debit transactions",
     items: [
-      ["Total Debits", "N/A", "All outflows", "DB", "neutral"],
+      ["Total Debits", "N/A", "All posted debit transactions", "DB", "neutral"],
       ["Confirmed Withholding", "N/A", "Confirmed lender debits as a share of revenue", "%", "neutral"],
-      ["ACH Debits", "N/A", "Outgoing ACH items", "ACH", "neutral"],
-      ["POS Transactions", "N/A", "Card-present debits", "POS", "neutral"],
-      ["ATM Withdrawals", "N/A", "ATM cash activity", "ATM", "neutral"],
-      ["Checks Detected", "N/A", "Check payments found", "CHK", "neutral"],
+      ["ACH Debits", "N/A", "Posted ACH debit transactions", "ACH", "neutral"],
+      ["POS Transactions", "N/A", "Card purchase transactions", "POS", "neutral"],
+      ["ATM Withdrawals", "N/A", "Posted ATM withdrawals", "ATM", "neutral"],
+      ["Checks Detected", "N/A", "Posted check transactions", "CHK", "neutral"],
     ],
   },
   {
@@ -117,26 +126,26 @@ const emptyMetricSections = [
     sub: "Balance and NSF indicators",
     items: [
       ["NSFs", "N/A", "Returned or insufficient funds", "NSF", "neutral"],
-      ["Average Daily Balance", "N/A", "Daily ending balances across the statement period", "AVG", "neutral"],
-      ["Ending Balance", "N/A", "Statement close balance", "END", "neutral"],
-      ["Lowest Balance", "N/A", "Lowest daily balance", "LOW", "neutral"],
-      ["Highest Balance", "N/A", "Highest daily balance", "HIGH", "neutral"],
+      ["Average Daily Balance", "N/A", "Average of daily ending balances for the statement period", "AVG", "neutral"],
+      ["Ending Balance", "N/A", "Closing balance for the statement period", "END", "neutral"],
+      ["Lowest Balance", "N/A", "Lowest daily ending balance", "LOW", "neutral"],
+      ["Highest Balance", "N/A", "Highest daily ending balance", "HIGH", "neutral"],
     ],
   },
   {
     title: "Lenders",
-    sub: "Classified funding and insurance activity",
+    sub: "Lender and insurance transaction analysis",
     items: [
-      ["Confirmed Lenders", "N/A", "Distinct confirmed entities", "LEN", "neutral"],
-      ["Potential Lenders", "N/A", "Distinct entities requiring review", "?", "neutral"],
-      ["Confirmed Lender Debit Count", "N/A", "Qualifying confirmed debit rows", "DB", "neutral"],
-      ["Confirmed Lender Debits", "N/A", "Confirmed withholding numerator", "$", "neutral"],
-      ["Potential Lender Debit Count", "N/A", "Exact candidate evidence rows", "DB", "neutral"],
-      ["Potential Lender Debits", "N/A", "Excluded from confirmed lender metrics", "$", "neutral"],
-      ["Eligible Deposits", "N/A", "Confirmed and potential denominator", "DEP", "neutral"],
-      ["Potential Withholding Exposure", "N/A", "Candidate debit exposure", "%", "neutral"],
-      ["Insurance Debits", "N/A", "Posted insurance debit rows", "INS", "neutral"],
-      ["Insurance Total", "N/A", "Insurance debits excluded from lenders", "$", "neutral"],
+      ["Confirmed Lenders", "N/A", "Lenders confirmed from statement transactions", "LEN", "neutral"],
+      ["Potential Lenders", "N/A", "Possible lenders requiring analyst review", "?", "neutral"],
+      ["Confirmed Lender Debit Count", "N/A", "Transactions paid to confirmed lenders", "DB", "neutral"],
+      ["Confirmed Lender Debits", "N/A", "Total paid to confirmed lenders", "$", "neutral"],
+      ["Potential Lender Debit Count", "N/A", "Transactions linked to possible lenders", "DB", "neutral"],
+      ["Potential Lender Debits", "N/A", "Excluded until lender status is confirmed", "$", "neutral"],
+      ["Eligible Deposits", "N/A", "Deposits used to calculate withholding rates", "DEP", "neutral"],
+      ["Potential Withholding Exposure", "N/A", "Possible lender debits as a share of eligible deposits", "%", "neutral"],
+      ["Insurance Debits", "N/A", "Insurance debit transactions", "INS", "neutral"],
+      ["Insurance Total", "N/A", "Excluded from lender payment totals", "$", "neutral"],
     ],
   },
 ];
@@ -183,17 +192,15 @@ function formatPercent(value) {
 }
 
 function withholdingAuditNote(metrics = {}, currency = "USD") {
-  if (metrics.withholding_review_required) return "Eligible deposits unavailable - review required";
+  if (metrics.withholding_review_required) return "Eligible deposits are unavailable; analyst review is required";
   const numerator = formatMoney(metrics.withholding_numerator ?? metrics.lender_debits, currency);
   const denominator = formatMoney(metrics.withholding_denominator ?? metrics.eligible_deposits, currency);
-  const label = metrics.withholding_denominator_label || "Legacy eligible deposits";
-  return `${numerator} lender debits / ${denominator} ${label.toLowerCase()}`;
+  const label = metrics.withholding_denominator_label || "Eligible deposits";
+  return `${numerator} confirmed lender debits divided by ${denominator} ${label.toLowerCase()}`;
 }
 
 function activeDenominatorNote(metrics = {}) {
-  const label = metrics.withholding_denominator_label || "Legacy eligible deposits";
-  const definition = metrics.eligible_deposit_definition || "Effective credits minus lender funding";
-  return `${label} - ${definition}`;
+  return metrics.eligible_deposit_definition || "Deposits used to calculate withholding rates";
 }
 
 function potentialLenderDebitTotal(metrics = {}) {
@@ -209,12 +216,12 @@ function hasMaterialPotentialLenderDebits(metrics = {}) {
 function potentialWithholdingAuditNote(metrics = {}, currency = "USD") {
   const total = potentialLenderDebitTotal(metrics);
   const denominator = metrics.potential_withholding_denominator ?? metrics.eligible_deposits;
-  if (numberOrNull(total) === null) return "Potential debit amount unavailable - review required";
-  const reviewSuffix = hasMaterialPotentialLenderDebits(metrics) ? " - review required" : "";
+  if (numberOrNull(total) === null) return "Potential lender debits are unavailable; analyst review is required";
+  const reviewSuffix = hasMaterialPotentialLenderDebits(metrics) ? "; analyst review is required" : "";
   if ((numberOrNull(denominator) ?? 0) <= 0) {
-    return `${formatMoney(total, currency)} potential lender debits / eligible deposits unavailable${reviewSuffix}`;
+    return `${formatMoney(total, currency)} potential lender debits; eligible deposits are unavailable${reviewSuffix}`;
   }
-  return `${formatMoney(total, currency)} potential lender debits / ${formatMoney(denominator, currency)} eligible deposits${reviewSuffix}`;
+  return `${formatMoney(total, currency)} potential lender debits divided by ${formatMoney(denominator, currency)} eligible deposits${reviewSuffix}`;
 }
 
 function formatBytes(value) {
@@ -297,13 +304,13 @@ function transactionCategory(tx) {
   const record = transactionClassification(tx);
   const revenueState = record.revenue_classification;
   if (txAmount(tx) > 0 && revenueState === "verified_revenue") {
-    return { label: "Verified revenue", glyph: "REV", tone: "green" };
+    return { label: "Verified Revenue", glyph: "REV", tone: "green" };
   }
   if (txAmount(tx) > 0 && revenueState === "unverified_deposit") {
-    return { label: "Unverified deposit", glyph: "?", tone: "amber" };
+    return { label: "Unverified Deposit", glyph: "?", tone: "amber" };
   }
   if (txAmount(tx) > 0 && revenueState === "non_revenue") {
-    return { label: "Non-revenue", glyph: "X", tone: "neutral" };
+    return { label: "Non-Revenue", glyph: "X", tone: "neutral" };
   }
   const state = record.classification || "other";
   const entity = record.canonical_entity || "";
@@ -363,16 +370,33 @@ function revenueReviewControls(tx, fallbackJobId = null) {
   if (record.revenue_review_status === "confirmed" || record.revenue_review_status === "rejected") {
     return `
       <div class="revenue-review-actions">
-        <button class="table-action" type="button" ${common} data-revenue-review-action="reset">Reset review</button>
+        <button class="table-action" type="button" ${common} data-revenue-review-action="reset">Reset Decision</button>
       </div>
     `;
   }
   return `
     <div class="revenue-review-actions">
-      <button class="table-action review-confirm" type="button" ${common} data-revenue-review-action="confirm">Confirm</button>
-      <button class="table-action review-reject" type="button" ${common} data-revenue-review-action="reject">Reject</button>
+      <button class="table-action review-confirm" type="button" ${common} data-revenue-review-action="confirm" aria-label="Confirm this deposit as operating revenue">Confirm Revenue</button>
+      <button class="table-action review-reject" type="button" ${common} data-revenue-review-action="reject" aria-label="Exclude this deposit from operating revenue">Mark Non-Revenue</button>
     </div>
   `;
+}
+
+function revenueReviewReason(tx) {
+  const record = transactionClassification(tx);
+  if (txAmount(tx) <= 0 || record.revenue_classification !== "unverified_deposit") return "";
+  const reasons = {
+    deposit_source_requires_review: "Generic deposit with insufficient source information.",
+    unknown_credit_source_requires_review: "Unable to determine whether this deposit represents operating revenue.",
+    operating_source_without_payout_context: "Recognized source without enough evidence to confirm operating revenue.",
+    source_direction_conflicts_with_signed_amount: "Transaction direction conflicts with the posted credit amount.",
+  };
+  return reasons[record.revenue_matched_rule]
+    || "Unable to determine whether this deposit represents operating revenue.";
+}
+
+function runningBalanceValue(tx) {
+  return numberOrNull(tx && tx.running_balance);
 }
 
 function txDateValue(tx) {
@@ -419,6 +443,9 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
   const rows = Array.isArray(transactions) ? transactions : [];
   const matched = sortTransactions(filterTransactions(rows, filter, canonicalEntity), sort);
   const visible = matched.slice(0, limit);
+  const showRunningBalance = matched.some((tx) => runningBalanceValue(tx) !== null);
+  const runningBalanceHeader = tableEl.closest("table")?.querySelector("[data-running-balance-column]");
+  if (runningBalanceHeader) runningBalanceHeader.hidden = !showRunningBalance;
   const filterLabel = canonicalEntity || (filter === "all" ? "transactions" : `${filter} matches`);
   countEl.textContent = visible.length < matched.length
     ? `${formatNumber(visible.length)} of ${formatNumber(matched.length)} ${filterLabel}`
@@ -437,6 +464,7 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
     }
   }
   const sourceHead = showSource ? "<td>N/A</td>" : "";
+  const runningBalanceEmptyCell = showRunningBalance ? "<td>N/A</td>" : "";
   if (!visible.length) {
     tableEl.innerHTML = `
       <tr>
@@ -445,7 +473,7 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
         ${sourceHead}
         <td>${glassChip("", "Empty", "neutral")}</td>
         <td>N/A</td>
-        <td>N/A</td>
+        ${runningBalanceEmptyCell}
       </tr>
     `;
     return;
@@ -456,14 +484,21 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
     const source = showSource
       ? `<td class="transaction-source">${escapeHtml(tx.source_document || tx.source_bank || "Statement")}</td>`
       : "";
+    const reviewReason = revenueReviewReason(tx);
+    const reviewReasonHtml = reviewReason
+      ? `<div class="table-head-scope"><strong>Reason:</strong> ${escapeHtml(reviewReason)}</div>`
+      : "";
+    const runningBalance = showRunningBalance
+      ? `<td class="amount-cell">${escapeHtml(formatMoney(runningBalanceValue(tx), currency))}</td>`
+      : "";
     return `
       <tr>
         <td><strong>${escapeHtml(tx.date || "N/A")}</strong></td>
         <td class="transaction-desc">${escapeHtml(txDescriptionRaw(tx) || "N/A")}</td>
         ${source}
-        <td>${glassChip(category.glyph, category.label, category.tone)}${revenueReviewControls(tx, reviewJobId)}</td>
+        <td>${glassChip(category.glyph, category.label, category.tone)}${reviewReasonHtml}${revenueReviewControls(tx, reviewJobId)}</td>
         <td class="amount-cell ${amount < 0 ? "amount-debit" : "amount-credit"}">${escapeHtml(formatMoney(amount, currency))}</td>
-        <td class="amount-cell">${escapeHtml(formatMoney(tx.running_balance, currency))}</td>
+        ${runningBalance}
       </tr>
     `;
   }).join("");
@@ -714,7 +749,9 @@ const CHIP_VOCABULARY = {
   ACH: ["⇄", "ACH"],
   NSF: ["⚠", "NSF"],
   OK: ["✓", "Approved"],
-  REV: ["◐", "Review"],
+  REV: ["◐", "Revenue"],
+  REVIEW: ["◐", "Review"],
+  MAX: ["", "Upper Bound"],
   ERR: ["✕", "Error"],
   DOC: ["◈", "Integrity"],
   LEN: ["⌂", "Lender"],
@@ -762,9 +799,9 @@ function averageBalanceNote(metrics = {}) {
   const days = numberOrNull(metrics.calendar_day_count);
   const span = days ? `${formatNumber(days)} calendar days` : "the statement period";
   if (metrics.average_daily_balance === null || metrics.average_daily_balance === undefined) {
-    return "No average balance available";
+    return "Unavailable because daily balances could not be verified";
   }
-  return `Daily ending balances across ${span}`;
+  return `Average of daily ending balances across ${span}`;
 }
 
 function averageBalanceTone(metrics = {}) {
@@ -774,10 +811,10 @@ function averageBalanceTone(metrics = {}) {
 /* Package rollup: days-weighted validated statement ADB values from the API. */
 function packageAverageBalanceNote(documents = []) {
   const ready = documents.filter((doc) => doc && doc.average_daily_balance !== null && doc.average_daily_balance !== undefined);
-  if (!ready.length) return "Days-weighted across statement periods";
+  if (!ready.length) return "Unavailable because daily balances could not be verified";
   const days = ready.reduce((sum, doc) => sum + (numberOrNull(doc.adb_calendar_days) || 0), 0);
   const span = days ? `${formatNumber(days)} calendar days` : "statement periods";
-  return `Days-weighted across ${span}`;
+  return `Days-weighted average across ${span}`;
 }
 
 function packageAverageBalanceTone() {
@@ -941,9 +978,9 @@ function renderInsurance(providers, currency = "USD") {
 }
 
 const revenueRows = [
-  ["verified_revenue", "Verified revenue", "REV", "Verified", "green"],
-  ["unverified_deposit", "Unverified deposits", "?", "Review required", "amber"],
-  ["non_revenue", "Non-revenue", "X", "Excluded", "neutral"],
+  ["verified_revenue", "Verified Revenue", "REV", "Verified", "green"],
+  ["unverified_deposit", "Unverified Deposits", "?", "Review Required", "amber"],
+  ["non_revenue", "Non-Revenue", "X", "Excluded", "neutral"],
 ];
 
 function revenueEvidenceRowsHtml(metrics = {}, currency = "USD", modal = false) {
@@ -969,7 +1006,7 @@ function revenueEvidenceRowsHtml(metrics = {}, currency = "USD", modal = false) 
 function renderRevenueEvidence(metrics = {}, currency = "USD") {
   if (!els.revenueTable || !els.revenueCount) return;
   els.revenueTable.innerHTML = revenueEvidenceRowsHtml(metrics, currency, false);
-  els.revenueCount.textContent = `${formatNumber(metrics.total_posted_credit_count)} posted credits`;
+  els.revenueCount.textContent = `${formatNumber(metrics.total_posted_credit_count)} credit transactions`;
 }
 
 function renderAccountSummary(rows) {
@@ -1020,7 +1057,7 @@ function renderAnalysis(report) {
     ["Parser used", report.model_used || "N/A"],
     ["Document integrity", integrityLabel(integrity)],
     ["Revenue reconciliation", metrics.revenue_reconciles ? "Balanced" : "Review required"],
-    ["Withholding denominator", metrics.withholding_denominator_label || "Legacy eligible deposits"],
+    ["Eligible deposits basis", metrics.withholding_denominator_label || "Eligible deposits"],
     ["OCR confidence", `${confidence}%`],
     ["Text blocks detected", formatNumber(transactions.length || metrics.effective_num_deposits || "--")],
     ["File size", formatBytes(currentFile && currentFile.size)],
@@ -1029,26 +1066,26 @@ function renderAnalysis(report) {
   renderMetricSections([
     {
       title: "Credits",
-      sub: "Incoming money",
+      sub: "Posted credit transactions",
       items: [
-        ["Total Credits", formatMoney(totalCredits, currency), "All credit inflows", "CR", "green"],
-        ["Verified Revenue", formatMoney(metrics.verified_revenue_total, currency), `${formatNumber(metrics.verified_revenue_count)} verified credits`, "REV", "green", { revenueFilter: "verified_revenue" }],
-        ["Unverified Deposits", formatMoney(metrics.unverified_deposit_total, currency), `${formatNumber(metrics.unverified_deposit_count)} deposits require review`, "?", "amber", { revenueFilter: "unverified_deposit" }],
-        ["Non-Revenue", formatMoney(metrics.non_revenue_total, currency), `${formatNumber(metrics.non_revenue_count)} excluded credits`, "X", "neutral", { revenueFilter: "non_revenue" }],
-        ["Maximum Revenue", formatMoney(metrics.maximum_revenue, currency), "Verified plus unverified deposits", "MAX", "neutral"],
-        ["ACH Credits", formatNumber(metrics.ach_credit_count), "Incoming ACH deposits", "ACH", "neutral"],
+        ["Total Credits", formatMoney(totalCredits, currency), REVENUE_METRIC_COPY.totalCredits, "CR", "green"],
+        ["Verified Revenue", formatMoney(metrics.verified_revenue_total, currency), REVENUE_METRIC_COPY.verifiedRevenue, "REV", "green", { revenueFilter: "verified_revenue" }],
+        ["Unverified Deposits", formatMoney(metrics.unverified_deposit_total, currency), REVENUE_METRIC_COPY.unverifiedDeposits, "?", "amber", { revenueFilter: "unverified_deposit" }],
+        ["Non-Revenue", formatMoney(metrics.non_revenue_total, currency), REVENUE_METRIC_COPY.nonRevenue, "X", "neutral", { revenueFilter: "non_revenue" }],
+        ["Revenue Upper Bound", formatMoney(metrics.maximum_revenue, currency), REVENUE_METRIC_COPY.revenueUpperBound, "MAX", "neutral"],
+        ["ACH Credits", formatNumber(metrics.ach_credit_count), REVENUE_METRIC_COPY.achCredits, "ACH", "neutral"],
       ],
     },
     {
       title: "Debits",
-      sub: "Outgoing money",
+      sub: "Posted debit transactions",
       items: [
-        ["Total Debits", formatMoney(totalDebits, currency), "All debit outflows", "DB", "neutral"],
+        ["Total Debits", formatMoney(totalDebits, currency), "All posted debit transactions", "DB", "neutral"],
         ["Confirmed Withholding", formatPercent(metrics.withholding_rate), withholdingAuditNote(metrics, currency), "%", withholdingTone(metrics.withholding_rate)],
-        ["ACH Debits", formatNumber(metrics.ach_debit_count), "Outgoing ACH debits", "ACH", "neutral"],
-        ["POS Transactions", formatNumber(metrics.pos_count), "Card point-of-sale debits", "POS", "neutral"],
-        ["ATM Withdrawals", formatNumber(metrics.atm_withdrawal_count), "ATM cash withdrawals", "ATM", "neutral"],
-        ["Checks Detected", formatNumber(metrics.check_count), "Check transactions found", "CHK", "neutral"],
+        ["ACH Debits", formatNumber(metrics.ach_debit_count), "Posted ACH debit transactions", "ACH", "neutral"],
+        ["POS Transactions", formatNumber(metrics.pos_count), "Card purchase transactions", "POS", "neutral"],
+        ["ATM Withdrawals", formatNumber(metrics.atm_withdrawal_count), "Posted ATM withdrawals", "ATM", "neutral"],
+        ["Checks Detected", formatNumber(metrics.check_count), "Posted check transactions", "CHK", "neutral"],
       ],
     },
     {
@@ -1058,25 +1095,25 @@ function renderAnalysis(report) {
         ["NSFs", formatNumber(metrics.effective_nsf_count), metrics.nsf_source || "Returned item detection", "NSF", countTone(metrics.effective_nsf_count)],
         ["Document Integrity", integrityLabel(integrity), (integrity.flags || []).join(", ") || "No source contradictions detected", "DOC", integrityTone(integrity)],
         ["Average Daily Balance", formatMoney(metrics.average_daily_balance, currency), averageBalanceNote(metrics), "AVG", averageBalanceTone(metrics)],
-        ["Ending Balance", formatMoney(statement.ending_balance, currency), "Statement close balance", "END", "neutral"],
-        ["Lowest Balance", formatMoney(metrics.min_balance, currency), "Lowest daily balance", "LOW", negativeTone(metrics.min_balance)],
-        ["Highest Balance", formatMoney(metrics.max_balance, currency), "Highest daily balance", "HIGH", "neutral"],
+        ["Ending Balance", formatMoney(statement.ending_balance, currency), "Closing balance for the statement period", "END", "neutral"],
+        ["Lowest Balance", formatMoney(metrics.min_balance, currency), "Lowest daily ending balance", "LOW", negativeTone(metrics.min_balance)],
+        ["Highest Balance", formatMoney(metrics.max_balance, currency), "Highest daily ending balance", "HIGH", "neutral"],
       ],
     },
     {
       title: "Lenders",
-      sub: "Classified funding and insurance activity",
+      sub: "Lender and insurance transaction analysis",
       items: [
-        ["Confirmed Lenders", formatNumber(metrics.lenders_detected), "Distinct confirmed entities", "LEN", presenceTone(metrics.lenders_detected)],
-        ["Potential Lenders", formatNumber(metrics.potential_lenders_detected), "Distinct entities requiring review", "?", countTone(metrics.potential_lenders_detected)],
-        ["Confirmed Lender Debit Count", formatNumber(metrics.lender_debit_count), "Qualifying confirmed debit rows", "DB", "neutral"],
-        ["Confirmed Lender Debits", formatMoney(metrics.lender_debits, currency), "Confirmed withholding numerator", "$", "neutral"],
-        ["Potential Lender Debit Count", formatNumber(metrics.potential_lender_debit_count), "Exact candidate evidence rows", "DB", countTone(metrics.potential_lender_debit_count)],
-        ["Potential Lender Debits", formatMoney(potentialLenderDebitTotal(metrics), currency), "Excluded from confirmed lender metrics", "$", countTone(metrics.potential_lender_debit_count)],
-        ["Active Withholding Denominator", formatMoney(metrics.potential_withholding_denominator ?? metrics.eligible_deposits, currency), activeDenominatorNote(metrics), "DEP", "neutral"],
+        ["Confirmed Lenders", formatNumber(metrics.lenders_detected), "Lenders confirmed from statement transactions", "LEN", presenceTone(metrics.lenders_detected)],
+        ["Potential Lenders", formatNumber(metrics.potential_lenders_detected), "Possible lenders requiring analyst review", "?", countTone(metrics.potential_lenders_detected)],
+        ["Confirmed Lender Debit Count", formatNumber(metrics.lender_debit_count), "Transactions paid to confirmed lenders", "DB", "neutral"],
+        ["Confirmed Lender Debits", formatMoney(metrics.lender_debits, currency), "Total paid to confirmed lenders", "$", "neutral"],
+        ["Potential Lender Debit Count", formatNumber(metrics.potential_lender_debit_count), "Transactions linked to possible lenders", "DB", countTone(metrics.potential_lender_debit_count)],
+        ["Potential Lender Debits", formatMoney(potentialLenderDebitTotal(metrics), currency), "Excluded until lender status is confirmed", "$", countTone(metrics.potential_lender_debit_count)],
+        ["Eligible Deposits", formatMoney(metrics.potential_withholding_denominator ?? metrics.eligible_deposits, currency), activeDenominatorNote(metrics), "DEP", "neutral"],
         ["Potential Withholding Exposure", formatPercent(metrics.potential_withholding_exposure), potentialWithholdingAuditNote(metrics, currency), "%", hasMaterialPotentialLenderDebits(metrics) ? "amber" : "neutral"],
-        ["Insurance Debits", formatNumber(metrics.insurance_count), "Posted insurance debit rows", "INS", "neutral"],
-        ["Insurance Total", formatMoney(metrics.insurance_total, currency), "Insurance debits excluded from lenders", "$", "neutral"],
+        ["Insurance Debits", formatNumber(metrics.insurance_count), "Insurance debit transactions", "INS", "neutral"],
+        ["Insurance Total", formatMoney(metrics.insurance_total, currency), "Excluded from lender payment totals", "$", "neutral"],
       ],
     },
   ]);
@@ -1296,7 +1333,7 @@ function renderPackageAnalysis(pkg) {
     ["Confirmed withholding", formatPercent(totals.package_withholding_rate)],
     ["Potential exposure", formatPercent(totals.potential_withholding_exposure)],
     ["Revenue reconciliation", totals.revenue_reconciles ? "Balanced" : "Review required"],
-    ["Withholding denominator", totals.withholding_denominator_label || "Legacy eligible deposits"],
+    ["Eligible deposits basis", totals.withholding_denominator_label || "Eligible deposits"],
   ]);
 
   renderMetricSections([
@@ -1304,14 +1341,14 @@ function renderPackageAnalysis(pkg) {
       title: "Package Revenue",
       sub: `${formatNumber(totals.months)} statement periods`,
       items: [
-        ["Total Credits", formatMoney(totals.total_credits), "Combined incoming money", "CR", "green"],
-        ["Verified Revenue", formatMoney(totals.verified_revenue_total), `${formatNumber(totals.verified_revenue_count)} verified credits`, "REV", "green", { revenueFilter: "verified_revenue" }],
-        ["Unverified Deposits", formatMoney(totals.unverified_deposit_total), `${formatNumber(totals.unverified_deposit_count)} deposits require review`, "?", "amber", { revenueFilter: "unverified_deposit" }],
-        ["Non-Revenue", formatMoney(totals.non_revenue_total), `${formatNumber(totals.non_revenue_count)} excluded credits`, "X", "neutral", { revenueFilter: "non_revenue" }],
-        ["Maximum Revenue", formatMoney(totals.maximum_revenue), "Verified plus unverified deposits", "MAX", "neutral"],
-        ["Avg Monthly Credits", formatMoney(totals.avg_monthly_credits), "Monthly revenue baseline", "AVG", "neutral"],
-        ["Total Debits", formatMoney(totals.total_debits), "Combined outgoing money", "DB", "neutral"],
-        ["Avg Monthly Debits", formatMoney(totals.avg_monthly_debits), "Monthly expense baseline", "AVG", "neutral"],
+        ["Total Credits", formatMoney(totals.total_credits), REVENUE_METRIC_COPY.totalCredits, "CR", "green"],
+        ["Verified Revenue", formatMoney(totals.verified_revenue_total), REVENUE_METRIC_COPY.verifiedRevenue, "REV", "green", { revenueFilter: "verified_revenue" }],
+        ["Unverified Deposits", formatMoney(totals.unverified_deposit_total), REVENUE_METRIC_COPY.unverifiedDeposits, "?", "amber", { revenueFilter: "unverified_deposit" }],
+        ["Non-Revenue", formatMoney(totals.non_revenue_total), REVENUE_METRIC_COPY.nonRevenue, "X", "neutral", { revenueFilter: "non_revenue" }],
+        ["Revenue Upper Bound", formatMoney(totals.maximum_revenue), REVENUE_METRIC_COPY.revenueUpperBound, "MAX", "neutral"],
+        ["Avg Monthly Credits", formatMoney(totals.avg_monthly_credits), "Average posted credits per statement period", "AVG", "neutral"],
+        ["Total Debits", formatMoney(totals.total_debits), "All posted debit transactions", "DB", "neutral"],
+        ["Avg Monthly Debits", formatMoney(totals.avg_monthly_debits), "Average posted debits per statement period", "AVG", "neutral"],
       ],
     },
     {
@@ -1330,25 +1367,25 @@ function renderPackageAnalysis(pkg) {
       sub: "Corporate-use readiness",
       items: [
         ["Approved", formatNumber(totals.approved), "Corporate-approved statements", "OK", totals.approved ? "green" : "neutral"],
-        ["Manual Review", formatNumber(totals.manual_review), "Statements withheld from automated approval", "REV", totals.manual_review ? "amber" : "neutral"],
+        ["Manual Review", formatNumber(totals.manual_review), "Statements requiring analyst review", "REVIEW", totals.manual_review ? "amber" : "neutral"],
         ["Integrity High", formatNumber(totals.integrity_high), "Possible document issue", "DOC", countTone(totals.integrity_high)],
         ["Failed", formatNumber(totals.failed), "Statements needing rerun", "ERR", countTone(totals.failed)],
       ],
     },
     {
       title: "Lenders",
-      sub: "Classified funding and insurance activity",
+      sub: "Lender and insurance transaction analysis",
       items: [
-        ["Confirmed Lenders", formatNumber(totals.lenders_detected), "Distinct confirmed entities", "LEN", presenceTone(totals.lenders_detected)],
-        ["Potential Lenders", formatNumber(totals.potential_lenders_detected), "Distinct entities requiring review", "?", countTone(totals.potential_lenders_detected)],
-        ["Confirmed Lender Debit Count", formatNumber(totals.lender_debit_count), "Qualifying confirmed debit rows", "DB", "neutral"],
-        ["Confirmed Lender Debits", formatMoney(totals.lender_debits), "Confirmed withholding numerator", "$", "neutral"],
-        ["Potential Lender Debit Count", formatNumber(totals.potential_lender_debit_count), "Exact candidate evidence rows", "DB", countTone(totals.potential_lender_debit_count)],
-        ["Potential Lender Debits", formatMoney(potentialLenderDebitTotal(totals)), "Excluded from confirmed lender metrics", "$", countTone(totals.potential_lender_debit_count)],
-        ["Active Withholding Denominator", formatMoney(totals.potential_withholding_denominator ?? totals.eligible_deposits), activeDenominatorNote(totals), "DEP", "neutral"],
+        ["Confirmed Lenders", formatNumber(totals.lenders_detected), "Lenders confirmed from statement transactions", "LEN", presenceTone(totals.lenders_detected)],
+        ["Potential Lenders", formatNumber(totals.potential_lenders_detected), "Possible lenders requiring analyst review", "?", countTone(totals.potential_lenders_detected)],
+        ["Confirmed Lender Debit Count", formatNumber(totals.lender_debit_count), "Transactions paid to confirmed lenders", "DB", "neutral"],
+        ["Confirmed Lender Debits", formatMoney(totals.lender_debits), "Total paid to confirmed lenders", "$", "neutral"],
+        ["Potential Lender Debit Count", formatNumber(totals.potential_lender_debit_count), "Transactions linked to possible lenders", "DB", countTone(totals.potential_lender_debit_count)],
+        ["Potential Lender Debits", formatMoney(potentialLenderDebitTotal(totals)), "Excluded until lender status is confirmed", "$", countTone(totals.potential_lender_debit_count)],
+        ["Eligible Deposits", formatMoney(totals.potential_withholding_denominator ?? totals.eligible_deposits), activeDenominatorNote(totals), "DEP", "neutral"],
         ["Potential Withholding Exposure", formatPercent(totals.potential_withholding_exposure), potentialWithholdingAuditNote(totals), "%", hasMaterialPotentialLenderDebits(totals) ? "amber" : "neutral"],
-        ["Insurance Debits", formatNumber(totals.insurance_count), "Posted insurance debit rows", "INS", "neutral"],
-        ["Insurance Total", formatMoney(totals.insurance_total), "Excluded from lender metrics", "$", "neutral"],
+        ["Insurance Debits", formatNumber(totals.insurance_count), "Insurance debit transactions", "INS", "neutral"],
+        ["Insurance Total", formatMoney(totals.insurance_total), "Excluded from lender payment totals", "$", "neutral"],
       ],
     },
   ]);
@@ -1549,24 +1586,24 @@ function renderStatementModal(jobId, report, markdown) {
   els.statementModalTitle.textContent = title;
   els.statementModalSubtitle.textContent = `${period(statement)} - ${labelize(decision)}`;
   els.statementModalMetrics.innerHTML = [
-    ["Total Credits", formatMoney(metrics.effective_total_deposits, currency), "Incoming money", "CR", "green"],
-    ["Verified Revenue", `${formatNumber(metrics.verified_revenue_count)} / ${formatMoney(metrics.verified_revenue_total, currency)}`, "Verified operating credits", "REV", "green", { revenueFilter: "verified_revenue" }],
-    ["Unverified Deposits", `${formatNumber(metrics.unverified_deposit_count)} / ${formatMoney(metrics.unverified_deposit_total, currency)}`, "Review required", "?", "amber", { revenueFilter: "unverified_deposit" }],
-    ["Non-Revenue", `${formatNumber(metrics.non_revenue_count)} / ${formatMoney(metrics.non_revenue_total, currency)}`, "Excluded credits", "X", "neutral", { revenueFilter: "non_revenue" }],
-    ["Maximum Revenue", formatMoney(metrics.maximum_revenue, currency), "Verified plus unverified deposits", "MAX", "neutral"],
-    ["Total Debits", formatMoney(metrics.effective_total_withdrawals, currency), "Outgoing money", "DB", "neutral"],
+    ["Total Credits", formatMoney(metrics.effective_total_deposits, currency), REVENUE_METRIC_COPY.totalCredits, "CR", "green"],
+    ["Verified Revenue", `${formatNumber(metrics.verified_revenue_count)} / ${formatMoney(metrics.verified_revenue_total, currency)}`, REVENUE_METRIC_COPY.verifiedRevenue, "REV", "green", { revenueFilter: "verified_revenue" }],
+    ["Unverified Deposits", `${formatNumber(metrics.unverified_deposit_count)} / ${formatMoney(metrics.unverified_deposit_total, currency)}`, REVENUE_METRIC_COPY.unverifiedDeposits, "?", "amber", { revenueFilter: "unverified_deposit" }],
+    ["Non-Revenue", `${formatNumber(metrics.non_revenue_count)} / ${formatMoney(metrics.non_revenue_total, currency)}`, REVENUE_METRIC_COPY.nonRevenue, "X", "neutral", { revenueFilter: "non_revenue" }],
+    ["Revenue Upper Bound", formatMoney(metrics.maximum_revenue, currency), REVENUE_METRIC_COPY.revenueUpperBound, "MAX", "neutral"],
+    ["Total Debits", formatMoney(metrics.effective_total_withdrawals, currency), "All posted debit transactions", "DB", "neutral"],
     ["Cash Flow", formatMoney(metrics.cash_flow, currency), "Credits minus debits", "CF", negativeTone(metrics.cash_flow)],
     ["Average Daily Balance", formatMoney(metrics.average_daily_balance, currency), averageBalanceNote(metrics), "AVG", averageBalanceTone(metrics)],
-    ["Ending Balance", formatMoney(statement.ending_balance, currency), "Statement close balance", "END", "neutral"],
+    ["Ending Balance", formatMoney(statement.ending_balance, currency), "Closing balance for the statement period", "END", "neutral"],
     ["NSFs", formatNumber(metrics.effective_nsf_count), "Returned items", "NSF", countTone(metrics.effective_nsf_count)],
     ["Confirmed Withholding", formatPercent(metrics.withholding_rate), withholdingAuditNote(metrics, currency), "%", withholdingTone(metrics.withholding_rate)],
-    ["Confirmed Lenders", formatNumber(metrics.lenders_detected), "Distinct confirmed entities", "LEN", presenceTone(metrics.lenders_detected)],
-    ["Potential Lenders", formatNumber(metrics.potential_lenders_detected), "Distinct entities requiring review", "?", countTone(metrics.potential_lenders_detected)],
-    ["Confirmed Lender Debits", `${formatNumber(metrics.lender_debit_count)} / ${formatMoney(metrics.lender_debits, currency)}`, "Count and confirmed numerator", "DB", "neutral"],
-    ["Potential Lender Debits", `${formatNumber(metrics.potential_lender_debit_count)} / ${formatMoney(potentialLenderDebitTotal(metrics), currency)}`, "Exact candidate evidence rows and total", "?", countTone(metrics.potential_lender_debit_count)],
-    ["Active Withholding Denominator", formatMoney(metrics.potential_withholding_denominator ?? metrics.eligible_deposits, currency), activeDenominatorNote(metrics), "DEP", "neutral"],
+    ["Confirmed Lenders", formatNumber(metrics.lenders_detected), "Lenders confirmed from statement transactions", "LEN", presenceTone(metrics.lenders_detected)],
+    ["Potential Lenders", formatNumber(metrics.potential_lenders_detected), "Possible lenders requiring analyst review", "?", countTone(metrics.potential_lenders_detected)],
+    ["Confirmed Lender Debits", `${formatNumber(metrics.lender_debit_count)} / ${formatMoney(metrics.lender_debits, currency)}`, "Transaction count and total paid to confirmed lenders", "DB", "neutral"],
+    ["Potential Lender Debits", `${formatNumber(metrics.potential_lender_debit_count)} / ${formatMoney(potentialLenderDebitTotal(metrics), currency)}`, "Transaction count and total linked to possible lenders", "?", countTone(metrics.potential_lender_debit_count)],
+    ["Eligible Deposits", formatMoney(metrics.potential_withholding_denominator ?? metrics.eligible_deposits, currency), activeDenominatorNote(metrics), "DEP", "neutral"],
     ["Potential Withholding Exposure", formatPercent(metrics.potential_withholding_exposure), potentialWithholdingAuditNote(metrics, currency), "%", hasMaterialPotentialLenderDebits(metrics) ? "amber" : "neutral"],
-    ["Insurance", `${formatNumber(metrics.insurance_count)} / ${formatMoney(metrics.insurance_total, currency)}`, "Count and total excluded from lenders", "INS", "neutral"],
+    ["Insurance", `${formatNumber(metrics.insurance_count)} / ${formatMoney(metrics.insurance_total, currency)}`, "Transaction count and total excluded from lender payments", "INS", "neutral"],
     ["Document Integrity", integrityLabel(integrity), (integrity.flags || []).join(", ") || "No source contradictions detected", "DOC", integrityTone(integrity)],
     ["Status", labelize(decision), "Corporate-use and lender-review status", "OK", decision === "approved" ? "green" : "amber"],
   ].map(renderMetricCard).join("");
