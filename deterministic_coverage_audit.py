@@ -47,8 +47,7 @@ FIELDS = [
     "integrity_notes",
     "quality_notes",
     "reconciliation_issues",
-    "avg_balance",
-    "avg_source",
+    "average_daily_balance",
     "adb_ok",
     "adb_validations",
     "adb_warnings",
@@ -196,8 +195,11 @@ def audit_file(
             "integrity_notes": "; ".join(report.integrity.notes),
             "quality_notes": "; ".join(report.quality.notes or []),
             "reconciliation_issues": "; ".join(r.issues),
-            "avg_balance": f"{m.average_balance:.2f}" if m.average_balance is not None else "",
-            "avg_source": m.average_balance_source or "",
+            "average_daily_balance": (
+                f"{m.average_daily_balance:.2f}"
+                if m.average_daily_balance is not None
+                else ""
+            ),
             "adb_ok": _summary(adb.ok if adb and adb.daily_balances else None),
             "adb_validations": "; ".join(
                 f"{name}={_summary(passed)}"

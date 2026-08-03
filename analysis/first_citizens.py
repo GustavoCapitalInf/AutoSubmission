@@ -80,6 +80,18 @@ def _account(markdown: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _average_ledger_balance(markdown: str) -> float | None:
+    """Recover the average from the native PDF's interleaved summary columns."""
+    match = re.search(
+        r"Statement Period Days Average Ledger Balance.*?\n\s*\d+\s*\n"
+        r"\s*[\d,]+\.\d{2}\s*\nBeginning Balance.*?\n"
+        r"\s*[\d,]+\.\d{2}\s*\n\s*([\d,]+\.\d{2})\+?",
+        markdown,
+        re.IGNORECASE | re.DOTALL,
+    )
+    return _money(match.group(1)) if match else None
+
+
 def _daily_balances(markdown: str) -> list[tuple[int, float]]:
     block = _section(markdown, "Daily Balance Summary", "An updated")
     entries: list[tuple[int, float]] = []
@@ -235,6 +247,6 @@ def parse_first_citizens_statement(markdown: str) -> Statement | None:
         ending_balance=ending_balance,
         stated_total_credits=stated_total_credits,
         stated_total_debits=stated_total_debits,
-        stated_average_balance=None,
+        stated_average_balance=_average_ledger_balance(markdown),
         transactions=txns,
     )

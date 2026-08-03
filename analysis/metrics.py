@@ -24,13 +24,9 @@ from .revenue import (
 @dataclass
 class Metrics:
     days_in_period: int | None = None
-    # Bank-printed average balance ("Average Ledger" etc.) when the statement shows
-    # one — authoritative and needs no computation. `average_daily_balance` below is
-    # our own figure computed from dated running balances (used when there's no
-    # printed one, or to cross-check it).
+    # Bank-printed averages are comparison evidence. The label may describe a
+    # collected, available, credit-only, rounded, or ledger balance.
     stated_average_balance: float | None = None
-    average_balance: float | None = None
-    average_balance_source: str | None = None
     average_daily_balance: float | None = None
     # Full underwriting-grade ADB working: the daily ledger, its sum, the
     # calendar-day divisor, and every validation that was run. See analysis/adb.py.
@@ -309,13 +305,21 @@ def compute_metrics(
     adb = compute_average_daily_balance(stmt, source_markdown=source_markdown)
     m.adb = adb
     m.calendar_day_count = adb.calendar_day_count
-    m.daily_balance_sum = adb.daily_balance_sum
-    m.adb_ok = adb.ok if adb.daily_balances else None
+    m.adb_ok = (
+        trust_running_balances and adb.ok
+        if adb.daily_balances
+        else None
+    )
+    m.daily_balance_sum = adb.daily_balance_sum if m.adb_ok else None
     for warning in adb.warnings:
         if warning not in m.notes:
             m.notes.append(warning)
 
-    balances = {d.date: d.ending_balance for d in adb.daily_balances} if trust_running_balances else {}
+    balances = (
+        {d.date: d.ending_balance for d in adb.daily_balances}
+        if m.adb_ok
+        else {}
+    )
     if balances:
         vals = list(balances.values())
         m.days_in_period = adb.calendar_day_count or len(vals)
@@ -323,37 +327,13 @@ def compute_metrics(
         m.min_balance = round(min(vals), 2)
         m.max_balance = round(max(vals), 2)
         m.negative_days = sum(1 for v in vals if v < 0)
-    elif m.stated_average_balance is None:
-        if trust_running_balances:
-            m.notes.append(
-                "no average balance available: statement prints none and lacks dated "
-                "running balances to compute one"
-            )
-        else:
-            m.notes.append("not computing average balance from line items because reconciliation failed")
+    elif trust_running_balances and adb.daily_balances:
+        m.notes.append("not reporting average daily balance because its ledger validation failed")
+    elif not trust_running_balances:
+        m.notes.append("not computing average balance from line items because reconciliation failed")
     else:
         m.days_in_period = stmt.days_in_period
-        if trust_running_balances:
-            m.notes.append("using the bank's printed average balance (no running balances to compute our own)")
-        else:
-            m.notes.append("using the bank's printed average balance because line-item balances did not reconcile")
-
-    # Underwriting policy: report OUR computed ADB whenever the daily ledger
-    # fully validates. Banks usually print an average COLLECTED balance, which
-    # lags by float days and is not the same measure as average ledger balance
-    # — comparing them is apples to oranges, and only the computed figure is
-    # reproducible from the parsed statement. The printed figure is the fallback
-    # for statements whose ledger cannot be validated, and is always still
-    # available as `stated_average_balance` for cross-checking.
-    if m.average_daily_balance is not None and m.adb_ok:
-        m.average_balance = m.average_daily_balance
-        m.average_balance_source = "computed_daily_ledger"
-    elif m.stated_average_balance is not None:
-        m.average_balance = m.stated_average_balance
-        m.average_balance_source = "bank_stated"
-    elif m.average_daily_balance is not None:
-        m.average_balance = m.average_daily_balance
-        m.average_balance_source = "computed_daily_ledger_unvalidated"
+        m.notes.append("no validated daily ledger is available for average daily balance")
 
     if stmt.days_in_period is not None and m.days_in_period is None:
         m.days_in_period = stmt.days_in_period

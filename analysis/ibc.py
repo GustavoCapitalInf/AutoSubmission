@@ -60,6 +60,15 @@ def _summary(markdown: str) -> tuple[str, int, float, int, float, float] | None:
     return account, int(credit_count), _money(credits), int(debit_count), _money(debits), _money(service_charge)
 
 
+def _average_collected_balance(markdown: str) -> float | None:
+    match = re.search(
+        r"Average Collected Balance\s+(-?\d[\d,]*\.\d{2})",
+        markdown,
+        re.IGNORECASE,
+    )
+    return _money(match.group(1)) if match else None
+
+
 def _parse_deposits(markdown: str, *, year: int) -> list[Transaction]:
     block = markdown.split("Deposits (Credits)", 1)[1].split("Checks (Debits)", 1)[0]
     txns: list[Transaction] = []
@@ -196,6 +205,6 @@ def parse_ibc_statement(markdown: str) -> Statement | None:
         stated_credit_count=credit_count,
         stated_debit_count=debit_count,
         stated_service_charge=service_charge,
-        stated_average_balance=None,
+        stated_average_balance=_average_collected_balance(markdown),
         transactions=_with_daily_running_balances(txns, daily, year=year),
     )

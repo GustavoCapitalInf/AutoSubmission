@@ -135,6 +135,28 @@ def _iso(mmdd: str, year: int) -> str:
     return date(year, month, day).isoformat()
 
 
+def _normalize_cycle_service_charge_dates(
+    transactions: list[Transaction], period_end: str
+) -> list[Transaction]:
+    """Apply cycle charges printed after a short cycle to its final cycle day."""
+    end = date.fromisoformat(period_end)
+    normalized: list[Transaction] = []
+    for txn in transactions:
+        posted = date.fromisoformat(txn.date)
+        is_cycle_charge = bool(
+            re.search(r"\b(?:maintenance|cycle service)\s+charge\b", txn.description, re.IGNORECASE)
+        )
+        if is_cycle_charge and 0 < (posted - end).days <= 3:
+            txn = txn.model_copy(
+                update={
+                    "date": period_end,
+                    "description": f"{txn.description} (printed {posted.isoformat()})",
+                }
+            )
+        normalized.append(txn)
+    return normalized
+
+
 def parse_capital_one_statement(markdown: str) -> Statement | None:
     if "CAPITALONE" not in markdown.upper().replace(" ", ""):
         return None
@@ -229,5 +251,5 @@ def parse_capital_one_statement(markdown: str) -> Statement | None:
 
     if not txns or stmt.beginning_balance is None or stmt.ending_balance is None:
         return None
-    stmt.transactions = txns
+    stmt.transactions = _normalize_cycle_service_charge_dates(txns, period_end)
     return stmt

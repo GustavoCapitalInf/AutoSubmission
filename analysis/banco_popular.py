@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from .schema import Statement, Transaction
+from .schema import Statement, StatementDailyBalance, Transaction
 from .td_can import _parse_money
 
 _MONTHS = {
@@ -80,6 +80,50 @@ def _account(markdown: str) -> str | None:
 def _average_balance(markdown: str) -> float | None:
     m = re.search(r"Average balance during this cycle:\s+\$?([\d,]+\.\d{2})", markdown, re.IGNORECASE)
     return _money(m.group(1)) if m else None
+
+
+def _daily_book_balances(
+    markdown: str, period_start: str, period_end: str
+) -> list[StatementDailyBalance]:
+    """Parse Banco Popular's explicit Date/Book Balance history."""
+    match = re.search(
+        r"Daily Balance History(?P<body>.*?)Average balance during this cycle:",
+        markdown,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return []
+
+    start = date.fromisoformat(period_start)
+    end = date.fromisoformat(period_end)
+    row_re = re.compile(
+        r"(?<!\d)(\d{2})-(\d{2})\s+([\d,]+\.\d{2})(-?)\s+"
+        r"[\d,]+\.\d{2}-?"
+    )
+    balances: list[StatementDailyBalance] = []
+    for month_raw, day_raw, amount_raw, negative in row_re.findall(match.group("body")):
+        month = int(month_raw)
+        day = int(day_raw)
+        candidates = []
+        for year in range(start.year, end.year + 1):
+            try:
+                candidate = date(year, month, day)
+            except ValueError:
+                continue
+            if start <= candidate <= end:
+                candidates.append(candidate)
+        if len(candidates) != 1:
+            continue
+        amount = _money(amount_raw)
+        if amount is None:
+            continue
+        balances.append(
+            StatementDailyBalance(
+                date=candidates[0].isoformat(),
+                balance=round(-abs(amount) if negative else abs(amount), 2),
+            )
+        )
+    return sorted(balances, key=lambda balance: balance.date)
 
 
 def _detail_text(markdown: str) -> str:
@@ -227,6 +271,7 @@ def parse_banco_popular_statement(markdown: str) -> Statement | None:
         stated_total_debits=debits,
         stated_service_charge=service_charge,
         stated_average_balance=_average_balance(markdown),
+        stated_daily_balances=_daily_book_balances(markdown, start, end),
         transactions=txns,
     )
     return stmt

@@ -5,6 +5,7 @@ from datetime import date
 from pathlib import Path
 import pytest
 from analysis.schema import Statement, Transaction
+from analysis.adb import compute_average_daily_balance
 from analysis.reconcile import reconcile
 from analysis.metrics import compute_metrics, daily_closing_balances
 from analysis.detect import detect, find_known_funders, find_recurring_debits
@@ -13,6 +14,7 @@ from analysis.altana import parse_altana_statement
 from analysis.atb import parse_atb_statement
 from analysis.b1 import parse_b1_statement
 from analysis.banco_popular import parse_banco_popular_statement
+from analysis.bmo import parse_bmo_statement
 from analysis.bluevine import parse_bluevine_statement
 from analysis.cibc import parse_cibc_french_statement
 from analysis.community_section import parse_dakota_west_statement, parse_mission_valley_statement
@@ -63,6 +65,58 @@ def _artifact_markdown(filename: str) -> str:
     document = parse_native_pdf_text(source.read_bytes(), source_file=source.name)
     assert document is not None, f"no native text in source PDF for {filename}"
     return document.to_markdown()
+
+
+def _raw_pdf_report(relative_path: str):
+    source = Path("Bank Statements", relative_path)
+    document = parse_native_pdf_text(source.read_bytes(), source_file=source.name)
+    assert document is not None
+    markdown = document.to_markdown()
+    return markdown, analyze_markdown(markdown, parse_mode="deterministic")
+
+
+def _assert_withheld_adb_is_not_public(report, filename: str) -> None:
+    import io
+    import zipfile
+
+    from analysis.serialization import report_to_dict
+    from webapp.app import _analysis_csv, _analysis_rows, _analysis_xlsx, _package_analysis
+    from webapp.jobs import Job
+
+    payload = report_to_dict(report)
+    metrics = payload["metrics"]
+    assert metrics["adb_ok"] is False
+    assert metrics["average_daily_balance"] is None
+    assert metrics["daily_balance_sum"] is None
+    assert "average_balance" not in metrics
+    assert "average_balance_source" not in metrics
+    assert "average_daily_balance" not in metrics["adb"]
+    assert metrics["adb"]["ok"] is False
+    assert metrics["adb"]["daily_balance_sum"] is None
+    assert metrics["adb"]["daily_balances"] == []
+
+    rows = _analysis_rows(payload)
+    assert not any(section == "adb_daily_balance" for section, _, _ in rows)
+    assert not any(
+        section == "adb" and field in {"average_daily_balance", "daily_balance_sum"}
+        for section, field, _ in rows
+    )
+    csv_export = _analysis_csv(payload)
+    assert "adb_daily_balance" not in csv_export
+    assert "adb,average_daily_balance" not in csv_export
+
+    workbook = _analysis_xlsx(payload)
+    with zipfile.ZipFile(io.BytesIO(workbook)) as archive:
+        sheet = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+    assert "adb_daily_balance" not in sheet
+    assert "adb,average_daily_balance" not in sheet
+
+    package = _package_analysis([
+        Job(id=f"withheld-{filename}", filename=filename, status="done", analysis=payload)
+    ])
+    assert package["documents"][0]["average_daily_balance"] is None
+    assert package["documents"][0]["adb_validated"] is False
+    assert package["totals"]["average_daily_balance"] is None
 
 
 def test_strip_embedded_images_removes_base64_bloat():
@@ -555,6 +609,7 @@ Checks in Number Order
     assert stmt.ending_balance == -250.0
     assert stmt.stated_total_credits == 1500.0
     assert stmt.stated_total_debits == 1850.0
+    assert stmt.stated_average_balance == 500.0
     assert [t.amount for t in stmt.transactions] == [1000.0, -1200.0, -500.0, 500.0, -150.0]
     assert reconcile(stmt).ok
 
@@ -830,6 +885,16 @@ Account Fee Summary
     assert reconcile(stmt).ok
 
 
+def test_consumers_included_prior_date_rows_are_applied_to_opening_day():
+    stmt = parse_consumers_statement(_artifact_markdown("041_Consumers March - Monthly Statement.md"))
+    assert stmt is not None
+    assert all(stmt.period_start <= txn.date <= stmt.period_end for txn in stmt.transactions)
+    shifted = [txn for txn in stmt.transactions if "printed 2025-02-28" in txn.description]
+    assert len(shifted) == 2
+    assert all(txn.date == "2025-03-01" for txn in shifted)
+    assert compute_metrics(stmt).average_daily_balance == 26804.59
+
+
 def test_parse_first_citizens_statement_reconciles_section_totals():
     md = _artifact_markdown("064_First Citizens Bank.md")
     stmt = parse_first_citizens_statement(md)
@@ -843,6 +908,7 @@ def test_parse_first_citizens_statement_reconciles_section_totals():
     assert len(stmt.transactions) == 116
     assert stmt.stated_total_credits == 99911.91
     assert stmt.stated_total_debits == 84063.49
+    assert stmt.stated_average_balance == 8117.14
     assert round(sum(t.amount for t in stmt.transactions if t.amount > 0), 2) == 99911.91
     assert round(-sum(t.amount for t in stmt.transactions if t.amount < 0), 2) == 84063.49
     assert any("Specialty Capit Funding" in t.description for t in stmt.transactions)
@@ -866,6 +932,7 @@ def test_parse_ibc_statement_reconciles_corrected_daily_ledger():
     assert stmt.stated_total_credits == 98812.6
     assert stmt.stated_total_debits == 89744.94
     assert stmt.stated_service_charge == 46.85
+    assert stmt.stated_average_balance == 14388.96
     assert any("NSF Return Item Fee" in t.description for t in stmt.transactions)
     assert any("MUDFLAP" in t.description for t in stmt.transactions)
     assert reconcile(stmt).ok
@@ -946,11 +1013,14 @@ def test_parse_desjardins_usd_layout_statement_reconciles_native_text():
 
 
 @pytest.mark.parametrize(
-    ("filename", "period_start", "period_end", "row_count", "beginning", "ending", "credits", "debits", "service"),
+    (
+        "filename", "period_start", "period_end", "row_count", "beginning",
+        "ending", "credits", "debits", "service", "daily_count", "adb",
+    ),
     [
-        ("059_Banco Popular April 2026.md", "2026-04-01", "2026-04-30", 179, 470.78, 42.30, 76943.18, 77088.92, 282.74),
-        ("060_Banco Popular Junio 2026.md", "2026-05-30", "2026-06-30", 172, 1908.41, 1821.39, 96990.28, 96605.21, 472.09),
-        ("061_Banco Popular May 2026.md", "2026-05-01", "2026-05-29", 180, 42.30, 1908.41, 114025.86, 111959.70, 200.05),
+        ("059_Banco Popular April 2026.md", "2026-04-01", "2026-04-30", 179, 470.78, 42.30, 76943.18, 77088.92, 282.74, 22, 679.27),
+        ("060_Banco Popular Junio 2026.md", "2026-05-30", "2026-06-30", 172, 1908.41, 1821.39, 96990.28, 96605.21, 472.09, 21, 1507.80),
+        ("061_Banco Popular May 2026.md", "2026-05-01", "2026-05-29", 180, 42.30, 1908.41, 114025.86, 111959.70, 200.05, 20, 2342.51),
     ],
 )
 def test_parse_banco_popular_statement_reconciles_with_service_charge(
@@ -963,6 +1033,8 @@ def test_parse_banco_popular_statement_reconciles_with_service_charge(
     credits,
     debits,
     service,
+    daily_count,
+    adb,
 ):
     stmt = parse_banco_popular_statement(_artifact_markdown(filename))
     assert stmt is not None
@@ -975,12 +1047,16 @@ def test_parse_banco_popular_statement_reconciles_with_service_charge(
     assert stmt.stated_total_credits == credits
     assert stmt.stated_total_debits == debits
     assert stmt.stated_service_charge == service
+    assert len(stmt.stated_daily_balances) == daily_count
     assert len(stmt.transactions) == row_count
     assert stmt.transactions[-1].description == "Service charges"
     assert stmt.transactions[-1].amount == -service
     assert round(sum(t.amount for t in stmt.transactions if t.amount > 0), 2) == credits
     assert round(-sum(t.amount for t in stmt.transactions if t.amount < 0), 2) == round(debits + service, 2)
     assert reconcile(stmt).ok
+    metrics = compute_metrics(stmt)
+    assert metrics.average_daily_balance == adb
+    assert metrics.adb is not None and metrics.adb.ok
 
 
 def test_parse_mission_valley_sectioned_statement_with_checks_and_daily_balances():
@@ -1174,6 +1250,25 @@ Total For This Period Total Year-to-Date
     assert stmt.stated_average_balance == 194.39
     assert [t.amount for t in stmt.transactions] == [550.0, -550.0, 150.0, -5.0, -130.0, -15.0]
     assert reconcile(stmt).ok
+
+
+@pytest.mark.parametrize(
+    ("filename", "expected_adb", "printed_date"),
+    [
+        ("018_capital one february 2026.md", 986.45, "2026-02-28"),
+        ("020_capital one may 2026.md", 311.37, "2026-05-31"),
+    ],
+)
+def test_capital_one_short_cycle_charge_is_normalized_to_cycle_end(
+    filename, expected_adb, printed_date
+):
+    stmt = parse_capital_one_statement(_artifact_markdown(filename))
+    assert stmt is not None
+    assert all(stmt.period_start <= txn.date <= stmt.period_end for txn in stmt.transactions)
+    charge = next(txn for txn in stmt.transactions if txn.description.startswith("Maintenance charge"))
+    assert charge.date == stmt.period_end
+    assert f"printed {printed_date}" in charge.description
+    assert compute_metrics(stmt).average_daily_balance == expected_adb
 
 
 def test_parse_chase_sections_and_infers_single_missing_section_amount():
@@ -1599,11 +1694,13 @@ Total Withdrawals $65,850.69
 Total Fees $108.00
 Total Returned Checks $17,142.47
 Total Checks $12,786.27
+Average Balance $297
 """
     stmt = repair_regions_summary(md, Statement(bank="Regions Bank"))
     assert stmt.ending_balance == -595.51
     assert stmt.stated_total_credits == 70832.11
     assert stmt.stated_total_debits == 78744.96
+    assert stmt.stated_average_balance == 297.0
     assert reconcile(stmt).summary_ok is True
 
 
@@ -2164,12 +2261,12 @@ def test_daily_average_balance_tolerates_rows_without_running_balance():
     assert m.adb.validations["ledger_reconciles_to_closing"] is True
 
 
-def test_metrics_uses_bank_stated_average_when_no_running_balances():
+def test_metrics_retains_bank_stated_average_only_as_comparison_evidence():
     s = Statement(stated_average_balance=1569.0, transactions=[_txn("2026-01-01", 100.0)])
     m = compute_metrics(s)
     assert m.stated_average_balance == 1569.0
-    assert m.average_balance == 1569.0
-    assert m.average_balance_source == "bank_stated"
+    assert "average_balance" not in vars(m)
+    assert "average_balance_source" not in vars(m)
     assert m.average_daily_balance is None  # nothing to compute
 
 
@@ -2212,11 +2309,11 @@ def test_metrics_does_not_compute_adb_when_running_balances_untrusted():
         transactions=[_txn("2026-01-01", 50.0, bal=150.0)],
     )
     m = compute_metrics(s, trust_running_balances=False)
-    assert m.average_balance == 100.0
-    assert m.average_balance_source == "bank_stated"
     assert m.average_daily_balance is None
+    assert m.adb_ok is False
+    assert m.daily_balance_sum is None
     assert m.min_balance is None
-    assert any("line-item balances did not reconcile" in n for n in m.notes)
+    assert any("reconciliation failed" in n for n in m.notes)
 
 
 def test_metrics_ignores_bank_totals_when_summary_fails():
@@ -2313,6 +2410,157 @@ def test_metrics_counts_forward_funding_alias_for_withholding_rate():
     assert m.lender_debits == 205.0
     assert m.monthly_lender_debits == 205.0
     assert m.withholding_rate == 205.0 / 10000.0 * 100
+
+
+# ---- withheld-source forensic regressions -----------------------------------
+
+def test_farmers_merchants_source_pdf_is_complete_extraction_but_incomplete_ledger():
+    markdown, report = _raw_pdf_report("Misc/Ace_Auto_Final_Cut.pdf")
+    stmt = report.statement
+
+    assert markdown.count("--- Page") == 3
+    assert report.model_used == "farmers-&-merchants-bank-deterministic"
+    assert [(txn.date, txn.amount) for txn in stmt.transactions] == [
+        ("2025-12-01", 1104.71),
+        ("2025-12-08", 3000.0),
+        ("2025-12-29", 3224.51),
+        ("2025-12-01", -19.29),
+        ("2025-12-02", -32.0),
+        ("2025-12-10", -184.16),
+        ("2025-12-11", -200.0),
+        ("2025-12-19", -50.0),
+        ("2025-12-23", -73.63),
+        ("2025-12-23", -110.45),
+        ("2025-12-30", -19.29),
+        ("2025-12-31", -2.0),
+        ("2025-12-31", -151.62),
+        ("2025-12-31", -159.23),
+        ("2025-12-31", -8.0),
+    ]
+    assert stmt.stated_credit_count == 3
+    assert stmt.stated_debit_count == 26
+    assert stmt.stated_total_credits == 7329.22
+    assert stmt.stated_total_debits == 3945.12
+    assert round(sum(txn.amount for txn in stmt.transactions if txn.amount > 0), 2) == 7329.22
+    normal_debits = round(-sum(
+        txn.amount
+        for txn in stmt.transactions
+        if txn.amount < 0 and txn.description != "TOTAL SERVICE CHARGE"
+    ), 2)
+    assert normal_debits == 1001.67
+
+    adb = compute_average_daily_balance(stmt, source_markdown=markdown)
+    assert adb.computed_closing_balance == 6240.87
+    assert adb.daily_balance_sum == 101004.80
+    assert adb.average_daily_balance == 3258.22
+    assert not adb.ok
+    assert report.reconciliation.summary_ok is True
+    assert report.reconciliation.sum_delta == 2943.45
+    assert report.metrics.average_daily_balance is None
+    _assert_withheld_adb_is_not_public(report, "Ace_Auto_Final_Cut.pdf")
+
+
+def test_bmo_source_pdf_rows_are_fully_captured_but_mutually_contradictory():
+    markdown, report = _raw_pdf_report(
+        "Others/BMO/BMO_Statement_January_2026 Final-1-2 (1).pdf"
+    )
+    stmt = report.statement
+
+    assert markdown.count("--- Page") == 2
+    assert report.model_used == "bmo-deterministic"
+    assert [(txn.date, txn.amount, txn.running_balance) for txn in stmt.transactions] == [
+        ("2026-01-01", 11788.0, 740888.0),
+        ("2026-01-01", 11788.0, 751676.0),
+        ("2026-01-02", -1000.0, 762464.0),
+        ("2026-01-02", 14000.0, 765676.0),
+        ("2026-01-03", -650.0, 765026.0),
+        ("2026-01-03", 11788.0, 792600.0),
+        ("2026-01-04", 11788.0, 773252.0),
+        ("2026-01-04", -1000.0, 803600.0),
+        ("2026-01-05", 11788.0, 814600.0),
+        ("2026-01-05", 12800.0, 823890.0),
+        ("2026-01-06", -1800.0, 821090.0),
+        ("2026-01-06", 11788.0, 824600.0),
+        ("2026-01-07", 13500.0, 835878.0),
+        ("2026-01-07", -2800.0, 833570.0),
+        ("2026-01-08", 11788.0, 835100.0),
+        ("2026-01-08", 11788.0, 846100.0),
+        ("2026-01-09", -1000.0, 856600.0),
+        ("2026-01-09", 11788.0, 867600.0),
+        ("2026-01-10", 11788.0, 877600.0),
+        ("2026-01-11", -1000.0, 888600.0),
+        ("2026-01-12", 11788.0, 899100.0),
+        ("2026-01-13", 14000.0, 899050.0),
+        ("2026-01-14", -7000.0, 895050.0),
+        ("2026-01-15", 11788.0, 910100.0),
+        ("2026-01-16", 13000.0, 917550.0),
+        ("2026-01-17", -2000.0, 915550.0),
+        ("2026-01-18", 11788.0, 920600.0),
+        ("2026-01-19", 11788.0, 931600.0),
+        ("2026-01-20", -1000.0, 942600.0),
+        ("2026-01-21", 1200.0, 953100.0),
+        ("2026-01-22", 1200.0, 963600.0),
+        ("2026-01-23", -1000.0, 973600.0),
+        ("2026-01-24", 1380.0, 983600.0),
+        ("2026-01-25", -1000.0, 982600.0),
+        ("2026-01-26", 1188.0, 983688.0),
+        ("2026-01-27", 1200.0, 884600.0),
+        ("2026-01-28", -1000.0, 983600.0),
+        ("2026-01-28", 1300.0, 984100.0),
+        ("2026-01-29", 1300.0, 986600.0),
+        ("2026-01-30", -1000.0, 985600.0),
+        ("2026-01-31", 14400.0, 1000000.0),
+    ]
+    assert sum(txn.amount for txn in stmt.transactions if txn.amount > 0) == 255500.0
+    assert -sum(txn.amount for txn in stmt.transactions if txn.amount < 0) == 23250.0
+
+    adb = compute_average_daily_balance(stmt, source_markdown=markdown)
+    assert adb.computed_closing_balance == 962350.0
+    assert adb.daily_balance_sum == 27733670.0
+    assert adb.average_daily_balance == 894634.52
+    assert not adb.ok
+    assert report.reconciliation.sum_delta == -37650.0
+    assert report.reconciliation.continuity_breaks == 36
+    assert report.metrics.average_daily_balance is None
+    assert "conflicting_statement_summaries" in report.integrity.flags
+    assert any(
+        "secondary bank-stated summary does not reconcile" in note
+        for note in report.integrity.notes
+    )
+    _assert_withheld_adb_is_not_public(
+        report, "BMO_Statement_January_2026 Final-1-2 (1).pdf"
+    )
+
+
+def test_bmo_parser_uses_the_printed_period_and_balance_continuity():
+    markdown = """
+BMO BANK STATEMENT
+Statement Period: February 2028
+Example Company
+Account Number: 123456 | Currency: USD
+Account Summary
+Opening Balance $ 100.00
+Total Deposits $ 50.00
+Total Withdrawals $ 20.00
+Interest Earned $ 0.00
+Fees and Charges $ -0.00
+Closing Balance $ 130.00
+Transaction Details
+Date Description Withdrawal Deposit Balance
+02/02 Neutral row alpha $ 20.00 $ 80.00
+02/29 Neutral row beta $ 50.00 $ 130.00
+Page 1 - Transactions 1-2
+"""
+    stmt = parse_bmo_statement(markdown)
+    assert stmt is not None
+    assert stmt.period_start == "2028-02-01"
+    assert stmt.period_end == "2028-02-29"
+    assert stmt.currency == "USD"
+    assert [(txn.date, txn.amount) for txn in stmt.transactions] == [
+        ("2028-02-02", -20.0),
+        ("2028-02-29", 50.0),
+    ]
+    assert compute_metrics(stmt).average_daily_balance == 82.41
 
 
 # ---- detection ---------------------------------------------------------------

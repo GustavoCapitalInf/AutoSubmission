@@ -115,7 +115,8 @@ def reconcile(stmt: Statement) -> ReconResult:
             )
 
     # Coverage vs the bank's own stated totals (informational, not pass/fail):
-    # reveals when the line-item detail is incomplete because of bad OCR.
+    # reveals when line-item detail is incomplete. The cause may be extraction loss
+    # or an internally inconsistent source document, so do not diagnose OCR here.
     credits = round(sum(t.amount for t in stmt.transactions if t.amount > 0), 2)
     debits = round(-sum(t.amount for t in stmt.transactions if t.amount < 0), 2)
     credit_cov = debit_cov = None
@@ -125,15 +126,15 @@ def reconcile(stmt: Statement) -> ReconResult:
             issues.append(
                 f"captured ${credits:,.2f} of the bank's stated ${stmt.stated_total_credits:,.2f} "
                 f"in credits ({credit_cov:.0%}) - line-item detail is inconsistent "
-                f"(likely mangled OCR); rely on the bank's stated summary figures"
+                f"or incomplete; do not use it for daily-balance reconstruction"
             )
     if stmt.stated_total_debits:
         debit_cov = round(debits / stmt.stated_total_debits, 3)
         if debit_cov < 0.98 or debit_cov > 1.02:
             issues.append(
                 f"captured ${debits:,.2f} of the bank's stated ${stmt.stated_total_debits:,.2f} "
-                f"in debits ({debit_cov:.0%}) — line-item detail is incomplete "
-                f"(likely mangled OCR); rely on the bank's stated summary figures"
+                f"in debits ({debit_cov:.0%}) - line-item detail is inconsistent "
+                f"or incomplete; do not use it for daily-balance reconstruction"
             )
 
     ok = not issues

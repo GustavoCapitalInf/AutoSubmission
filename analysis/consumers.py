@@ -111,9 +111,18 @@ def parse_consumers_statement(markdown: str) -> Statement | None:
         if not month:
             return None
         txn_year = year - 1 if month > int(end[5:7]) else year
+        printed_date = date(txn_year, month, int(day))
+        period_start = date.fromisoformat(start)
+        effective_date = (
+            period_start
+            if 0 < (period_start - printed_date).days <= 3
+            else printed_date
+        )
+        if effective_date != printed_date:
+            desc = f"{desc} (printed {printed_date.isoformat()})"
         txns.append(
             Transaction(
-                date=date(txn_year, month, int(day)).isoformat(),
+                date=effective_date.isoformat(),
                 description=desc,
                 amount=signed,
                 direction="credit" if signed >= 0 else "debit",

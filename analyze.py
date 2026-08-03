@@ -47,11 +47,14 @@ def _render(report: Report) -> str:
                  + (f"{r.credit_coverage:.0%} of stated credits" if r.credit_coverage is not None else "credits n/a"))
 
     L.append("\n## Metrics")
-    avg = f"${m.average_balance:,.2f}" if m.average_balance is not None else "n/a"
-    L.append(f"  Average balance       : {avg}"
-             + (f"  [{m.average_balance_source}]" if m.average_balance_source else ""))
-    if m.stated_average_balance is not None and m.average_daily_balance is not None:
-        L.append(f"  Average daily balance : ${m.average_daily_balance:,.2f}  (computed over {m.days_in_period} days)")
+    adb = (
+        f"${m.average_daily_balance:,.2f}  (computed over {m.days_in_period} days)"
+        if m.average_daily_balance is not None
+        else "n/a"
+    )
+    L.append(f"  Average daily balance : {adb}")
+    if m.stated_average_balance is not None:
+        L.append(f"  Bank-printed average  : ${m.stated_average_balance:,.2f}  (comparison only)")
     if m.min_balance is not None:
         L.append(f"  Min / max balance     : ${m.min_balance:,.2f} / ${m.max_balance:,.2f}")
     L.append(f"  Negative days         : {m.negative_days}")

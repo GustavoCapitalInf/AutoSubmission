@@ -21,7 +21,7 @@ from analysis.pipeline import analyze_markdown, Report
 
 FIELDS = [
     "file", "bank", "account", "period_start", "period_end",
-    "summary_reconciles", "avg_balance", "total_deposits", "total_debits",
+    "summary_reconciles", "average_daily_balance", "total_deposits", "total_debits",
     "total_posted_credits", "verified_revenue_total", "verified_revenue_count",
     "unverified_deposit_total", "unverified_deposit_count", "non_revenue_total",
     "non_revenue_count", "maximum_revenue", "revenue_reconciles",
@@ -63,7 +63,11 @@ def _row(path: Path, report: Report) -> dict:
         "period_start": s.period_start or "",
         "period_end": s.period_end or "",
         "summary_reconciles": {True: "yes", False: "NO", None: "n/a"}[r.summary_ok],
-        "avg_balance": f"{m.average_balance:.2f}" if m.average_balance is not None else "",
+        "average_daily_balance": (
+            f"{m.average_daily_balance:.2f}"
+            if m.average_daily_balance is not None
+            else ""
+        ),
         "total_deposits": f"{m.effective_total_deposits:.2f}",
         "total_debits": f"{m.effective_total_withdrawals:.2f}",
         "total_posted_credits": f"{m.total_posted_credits:.2f}",

@@ -61,7 +61,7 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
     "other",
 )
 
-CLASSIFICATION_VERSION = "4.0"
+CLASSIFICATION_VERSION = "4.1"
 
 
 @dataclass(frozen=True)
@@ -243,6 +243,11 @@ _REFUND_REVERSAL_PATTERNS = (
     re.compile(r"\bRETURNED (?:TRANSFER|DEPOSIT)\b"),
     re.compile(r"\bPURCHASE RETURN(?:ED)?\b"),
     re.compile(r"\bMERCHANT RETURN\b"),
+    re.compile(r"\bDEBIT CARD (?:CREDIT|RETURN)\b"),
+    re.compile(r"\b(?:ACH|CARD|MERCHANT) RETURN(?:ED)?(?: CREDIT)?\b"),
+    re.compile(r"\bRETURN CREDIT\b"),
+    re.compile(r"\bRETURN OF POSTED (?:CHECK|CHEQUE|ITEM)\b"),
+    re.compile(r"\bCHARGEBACK\b"),
     re.compile(r"\bPOS CREDIT\b"),
     re.compile(r"\bCREDIT ADJUSTMENT\b"),
 )
@@ -382,37 +387,73 @@ _PAYMENT_MARKER_PATTERNS = (
 )
 
 _REVERSAL_CANCELLATION_CREDIT_PATTERNS = (
+    *_REFUND_REVERSAL_PATTERNS,
     re.compile(r"\b(?:E TRANSFER|ETRANSFER|TRANSFER) (?:RETURNED|CANCEL(?:LED|ED)?|CNCL)\b"),
     re.compile(r"\b(?:RETURNED|CANCEL(?:LED|ED)?|CNCL) (?:E TRANSFER|ETRANSFER|TRANSFER)\b"),
-    re.compile(r"\bCANCEL(?:LED|ED|LATION)?\b"),
     re.compile(r"\bCNCL\b"),
-    re.compile(r"\bREVERS(?:AL|ED|E)\b"),
-    re.compile(r"\bREFUND(?:ED)?\b"),
     re.compile(r"\bREIMBURSEMENT\b"),
     re.compile(r"\bNSF\b"),
     re.compile(r"\bRETURNED (?:PAYMENT|ITEM|CHECK|CHEQUE|DEPOSIT)\b"),
     re.compile(r"\b(?:CHECK|CHEQUE) (?:RETURNED|REVERSED)\b"),
-    re.compile(r"\bCHARGEBACK (?:REVERSAL|REVERSE|RETURN|CREDIT)\b"),
-    re.compile(r"\bREVERSED CHARGEBACK\b"),
     re.compile(r"\bBANK (?:CORRECTION|ADJUSTMENT|ERROR)\b"),
     re.compile(r"\bCREDIT (?:CORRECTION|ADJUSTMENT)\b"),
     re.compile(r"\b(?:PROVISIONAL|TEMPORARY|CONDITIONAL) CREDIT\b"),
     re.compile(r"\bCREDIT PENDING (?:REVIEW|FINAL|VERIFICATION)\b"),
+)
+
+_INTERNAL_ACCOUNT_SOURCE = (
+    r"(?:ACCOUNTS?|CHK|CHECKING|CK|SAV|SAVINGS|SV|SHARES?|MMA|"
+    r"MONEY MARKET|PCA|(?:SUB )?RESERVE ACCOUNTS?)"
+)
+_INTERNAL_TRANSFER_CREDIT_PATTERNS = (
+    re.compile(r"\b(?:INTERNAL|ACCOUNT|BOOK|FUNDS?) TRANSFER\b"),
+    re.compile(r"\bTRANSFER (?:FROM|BETWEEN) (?:OWN|MY|INTERNAL) ACCOUNTS?\b"),
+    re.compile(rf"\b(?:TRANSFER|XFER|TFR) FROM {_INTERNAL_ACCOUNT_SOURCE}\b"),
+    re.compile(
+        rf"\b(?:BRANCH|ONLINE|MOBILE|INTERNET|HOME|BUSINESS ONLINE|TELEPHONE)"
+        rf"(?: BANKING)?(?: ACCOUNT)? (?:TRANSFER|XFER)(?: TRANSFER)? FROM "
+        rf"(?:{_INTERNAL_ACCOUNT_SOURCE}|X+\d*|\d{{3,}})\b"
+    ),
+    re.compile(r"\bTRANSFER DEPOSIT FROM (?:ACCOUNT )?(?:X+\d*|\d{3,})\b"),
+    re.compile(r"\bTFR FROM (?:X+\d*|\d{3,})\b.*\bTRANSFER DEPOSIT\b"),
+    re.compile(r"\bDEPOSIT TRANSFER FROM (?:X+\d*|\d{3,})\b"),
+    re.compile(r"\b(?:ATM )?(?:SH TO SH|SHARE TO SHARE|ACCOUNT TO ACCOUNT) TRANSFER\b"),
+    re.compile(r"\bTRANSFER FROM X+\d* TO X+\d*\b"),
+    re.compile(
+        r"\bTRANSFER FROM (?:X+\d*|\d{3,})(?: \d+){0,4}\b.*"
+        r"\b(?:MB|MOBILE) TRANSFER\b"
+    ),
+    re.compile(r"\b(?:INTER CURRENCY|INTERCURRENCY) TRANSFER\b"),
+    re.compile(
+        rf"\bTRANSFER\b.*\b(?:ONLINE|MOBILE|INTERNET|HOME)\b.*"
+        rf"\bFROM (?:X+\d*|\d{{3,}}) {_INTERNAL_ACCOUNT_SOURCE}\b"
+    ),
+    re.compile(r"\bTRANSFER (?:INCOMING|CREDIT)\b.*\b(?:SUB )?RESERVE ACCOUNT\b"),
 )
 _NON_REVENUE_CREDIT_PATTERNS = (
     re.compile(
         r"\b(?:LOAN|BUSINESS LOAN|MCA|MERCHANT CASH ADVANCE|FINANCING) "
         r"(?:FUNDING|PROCEEDS|DISBURSEMENT|ADVANCE)\b"
     ),
+    re.compile(r"\b(?:BUSINESS |COMMERCIAL )?LOANS?\b"),
+    re.compile(r"\b(?:MCA|MERCHANT CASH ADVANCES?)\b"),
     re.compile(r"\b(?:LOAN|MCA) ORIGINATION CREDIT\b"),
-    re.compile(r"\b(?:INTERNAL|ACCOUNT|BOOK|FUNDS?) TRANSFER\b"),
-    re.compile(r"\bTRANSFER (?:FROM|BETWEEN) (?:OWN|MY|INTERNAL) ACCOUNTS?\b"),
+    *_INTERNAL_TRANSFER_CREDIT_PATTERNS,
     re.compile(r"\bOWNER(?:S)? (?:CONTRIBUTION|CAPITAL|DEPOSIT|TRANSFER)\b"),
     re.compile(r"\bSHAREHOLDER (?:CONTRIBUTION|LOAN|DEPOSIT)\b"),
     re.compile(r"\bCAPITAL CONTRIBUTION\b"),
     re.compile(r"\bINSURANCE (?:PROCEEDS|CLAIM|PAYMENT)\b"),
     re.compile(r"\bTAX REFUND\b"),
     re.compile(r"\b(?:IRS|CRA|REVENUE AGENCY) REFUND\b"),
+    re.compile(
+        r"\b(?:CASH ?BACK|CASH ?REWARDS?|CARD REWARDS?|CREDIT CARD REWARDS?)"
+        r"(?: CREDIT|REDEMPTION|REBATE)?\b"
+    ),
+    re.compile(r"\bINTEREST (?:CREDIT(?:ED)?|PAID|PAYMENT|DEPOSIT|EARNED)\b"),
+    re.compile(r"\bCREDIT INTEREST\b"),
+    re.compile(r"\b(?:BANK |SERVICE |ACCOUNT )?FEES? (?:REFUND|REBATE|REVERSAL|CREDIT)\b"),
+    re.compile(r"\bDAILY CAP OF \d+ FEES?\b"),
+    re.compile(r"\bINVEST(?:MENT)? TRANSFER\b"),
     re.compile(r"\b(?:ASSET|VEHICLE|EQUIPMENT|PROPERTY) SALE (?:PROCEEDS|DEPOSIT)\b"),
     re.compile(r"\bPROCEEDS FROM (?:ASSET|VEHICLE|EQUIPMENT|PROPERTY) SALE\b"),
 )
@@ -425,7 +466,6 @@ _VERIFIED_REVENUE_CREDIT_PATTERNS = (
     re.compile(r"\bINVOICE (?:PAYMENT|PAID|DEPOSIT)\b"),
     re.compile(r"\bACCOUNTS? RECEIVABLE\b"),
     re.compile(r"\bMARKETPLACE (?:PAYOUT|SETTLEMENT)\b"),
-    re.compile(r"\bBUSINESS CASH DEPOSIT\b"),
 )
 _OPERATING_CREDIT_CONTEXT_PATTERNS = (
     re.compile(r"\b(?:SETTLEMENT|PAYOUT|DISBURSEMENT)\b"),
@@ -505,7 +545,7 @@ def _classify_credit_revenue(
             None,
             "returned_cancelled_reversed_or_provisional_credit",
             0.99,
-            "Credit is a return, cancellation, reversal, refund, correction, chargeback reversal, or provisional credit.",
+            "Credit is a return, cancellation, reversal, refund, correction, chargeback, or provisional credit.",
             context_signals=("credit_direction", "strong_non_revenue_descriptor"),
         )
 
@@ -569,7 +609,10 @@ def _classify_credit_revenue(
             None,
             "non_operating_credit",
             0.97,
-            "Credit matched a transfer, contribution, return, refund, correction, or proceeds exclusion.",
+            (
+                "Credit matched identifiable financing, own-account transfer, reward, "
+                "interest, contribution, or other non-operating proceeds evidence."
+            ),
             context_signals=("credit_direction", "strong_non_revenue_descriptor"),
         )
 

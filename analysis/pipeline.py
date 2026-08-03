@@ -2,6 +2,7 @@
 metrics -> detect. Extraction runs on the cheap flash-lite model; only a
 statement that fails reconciliation is re-extracted with the stronger model."""
 from __future__ import annotations
+import re
 from dataclasses import dataclass, field
 from .config import Settings, load_settings
 from .schema import Statement
@@ -29,7 +30,7 @@ from .ibc import parse_ibc_statement
 from .linkbank import parse_linkbank_statement
 from .midflorida import parse_midflorida_statement
 from .navy_federal import parse_navy_federal_statement
-from .td_can import parse_td_canada_statement
+from .td_can import _parse_money, parse_td_canada_statement
 from .td_us import parse_td_us_statement
 from .texas_bank import parse_texas_bank_statement
 from .truist import parse_truist_statement
@@ -208,17 +209,27 @@ def _bmo_summary_contradictions(markdown: str, stmt: Statement) -> list[str]:
         return []
     text = " ".join(markdown.split())
 
-    def amount_after(label: str) -> float | None:
-        import re
-        from .td_can import _parse_money
+    contradictions: list[str] = []
+    secondary = re.search(
+        r"Account Summary Totals\s+(.*?)(?:Important Information|Page 2 of 2|$)",
+        text,
+        re.IGNORECASE,
+    )
+    secondary_text = secondary.group(1) if secondary else ""
 
-        m = re.search(label + r"\s+\$?\s*(-?\d[\d,]*\.\d{2})", text, re.IGNORECASE)
+    def secondary_amount(label: str) -> float | None:
+        if not secondary_text:
+            return None
+        m = re.search(
+            label + r"\s+\$?\s*(-?\d[\d,]*\.\d{2})",
+            secondary_text,
+            re.IGNORECASE,
+        )
         if not m:
             return None
         return _parse_money(m.group(1))
 
-    contradictions: list[str] = []
-    page_total_deposits = amount_after(r"Account Summary Totals\s+Total Deposits")
+    page_total_deposits = secondary_amount(r"Total Deposits")
     if (
         stmt.stated_total_credits is not None
         and page_total_deposits is not None
@@ -227,6 +238,31 @@ def _bmo_summary_contradictions(markdown: str, stmt: Statement) -> list[str]:
         contradictions.append(
             "conflicting bank-stated deposit totals across summary sections"
         )
+
+    page_total_withdrawals = secondary_amount(r"Total Withdrawals")
+    page_interest = secondary_amount(r"Interest Earned")
+    page_fees = secondary_amount(r"Service Fees")
+    page_final = secondary_amount(r"Final Balance")
+    if (
+        stmt.beginning_balance is not None
+        and page_total_deposits is not None
+        and page_total_withdrawals is not None
+        and page_final is not None
+    ):
+        base = (
+            stmt.beginning_balance
+            + page_total_deposits
+            - page_total_withdrawals
+            + (page_interest or 0.0)
+        )
+        # Some statements include fees in withdrawals; others list them separately.
+        residuals = [base - page_final]
+        if page_fees is not None:
+            residuals.append(base - page_fees - page_final)
+        if min(abs(residual) for residual in residuals) > 1.0:
+            contradictions.append(
+                "secondary bank-stated summary does not reconcile to the opening and final balances"
+            )
     return contradictions
 
 

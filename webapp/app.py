@@ -6,7 +6,9 @@ import threading
 import zipfile
 from collections import deque
 from copy import deepcopy
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
+from decimal import Decimal, ROUND_HALF_UP
+from math import isfinite
 from flask import Flask, request, jsonify, render_template, Response, abort
 
 from ocr.rasterize import pdf_page_count, rasterize_page
@@ -56,21 +58,29 @@ def _adb_rows(metrics: dict) -> list[tuple[str, str, object]]:
     adb = metrics.get("adb")
     if not isinstance(adb, dict):
         return []
+    validated = (
+        metrics.get("adb_ok") is True
+        and metrics.get("average_daily_balance") is not None
+        and adb.get("ok") is True
+    )
     rows: list[tuple[str, str, object]] = []
     for key in (
         "period_start", "period_end", "calendar_day_count",
         "opening_balance", "opening_balance_source", "closing_balance",
         "computed_closing_balance", "total_credits", "total_debits",
-        "daily_balance_sum", "average_daily_balance", "ok", "reconciled",
+        "ok", "reconciled",
     ):
         item = adb.get(key)
         rows.append(("adb", key, "" if item is None else item))
+    if validated:
+        rows.append(("adb", "daily_balance_sum", adb.get("daily_balance_sum", "")))
     for name, passed in (adb.get("validations") or {}).items():
         rows.append(("adb_validation", name, "pass" if passed else "FAIL"))
     for warning in adb.get("warnings") or []:
         rows.append(("adb_warning", "", warning))
-    for day in adb.get("daily_balances") or []:
-        rows.append(("adb_daily_balance", day.get("date", ""), day.get("ending_balance", "")))
+    if validated:
+        for day in adb.get("daily_balances") or []:
+            rows.append(("adb_daily_balance", day.get("date", ""), day.get("ending_balance", "")))
     return rows
 
 
@@ -225,24 +235,11 @@ def _contributes_to_potential_totals(classification: dict) -> bool:
     return classification.get("contributes_to_potential_lender_count") is True
 
 
-def _period_days(start: object, end: object) -> int | None:
-    if not start or not end:
-        return None
-    try:
-        start_date = date.fromisoformat(str(start)[:10])
-        end_date = date.fromisoformat(str(end)[:10])
-    except ValueError:
-        return None
-    days = (end_date - start_date).days + 1
-    return days if days > 0 else None
-
-
 def _package_analysis(jobs) -> dict:
     documents = []
     monthly = []
-    average_balance_weighted_sum = 0.0
-    average_balance_weight = 0
-    average_balance_values: list[float] = []
+    adb_weighted_sum = Decimal("0")
+    adb_weight = 0
     totals = {
         "documents": len(jobs),
         "completed": 0,
@@ -494,11 +491,21 @@ def _package_analysis(jobs) -> dict:
         )
         denominator_modes.add(str(denominator_mode))
         nsf_count = int(_num(metrics.get("effective_nsf_count"), 0.0))
-        average_balance = metrics.get("average_balance")
-        average_balance_num = _num(average_balance, default=float("nan"))
-        average_balance_source = metrics.get("average_balance_source")
         adb_calendar_days = metrics.get("calendar_day_count")
-        adb_validated = metrics.get("adb_ok")
+        average_daily_balance_num = _num(
+            metrics.get("average_daily_balance"),
+            default=float("nan"),
+        )
+        adb_validated = (
+            metrics.get("adb_ok") is True
+            and isfinite(average_daily_balance_num)
+            and isinstance(adb_calendar_days, int)
+            and not isinstance(adb_calendar_days, bool)
+            and adb_calendar_days > 0
+        )
+        average_daily_balance = (
+            metrics.get("average_daily_balance") if adb_validated else None
+        )
 
         totals["total_credits"] = round(totals["total_credits"] + credits, 2)
         totals["total_posted_credits"] = round(
@@ -728,8 +735,7 @@ def _package_analysis(jobs) -> dict:
             "revenue_reconciles": round(sum(revenue_totals.values()), 2) == posted_credit_total,
             "debits": debits,
             "cash_flow": cash_flow,
-            "average_balance": average_balance,
-            "average_balance_source": average_balance_source,
+            "average_daily_balance": average_daily_balance,
             "adb_calendar_days": adb_calendar_days,
             "adb_validated": adb_validated,
             "nsf_count": nsf_count,
@@ -759,24 +765,19 @@ def _package_analysis(jobs) -> dict:
         documents.append(doc_row)
         if ready:
             monthly.append(doc_row)
-            if average_balance_num == average_balance_num:
-                average_balance_values.append(average_balance_num)
-                days = (
-                    int(adb_calendar_days)
-                    if isinstance(adb_calendar_days, (int, float)) and adb_calendar_days
-                    else _period_days(statement.get("period_start"), statement.get("period_end")) or 1
-                )
-                average_balance_weighted_sum += average_balance_num * days
-                average_balance_weight += days
+            if adb_validated:
+                adb_value = Decimal(str(average_daily_balance_num))
+                adb_weighted_sum += adb_value * adb_calendar_days
+                adb_weight += adb_calendar_days
 
     months = max(1, len(monthly))
     # Days-weighted mean of the per-statement daily-balance averages: summing
     # every statement's daily balances and dividing by every calendar day.
-    package_average_balance = None
-    if average_balance_weight > 0:
-        package_average_balance = round(average_balance_weighted_sum / average_balance_weight, 2)
-    elif average_balance_values:
-        package_average_balance = round(sum(average_balance_values) / len(average_balance_values), 2)
+    package_average_daily_balance = None
+    if adb_weight > 0:
+        package_average_daily_balance = float(
+            (adb_weighted_sum / adb_weight).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        )
     totals["lenders_detected"] = len(funders)
     totals["potential_lenders_detected"] = len(potential_lenders)
     totals["maximum_revenue"] = round(
@@ -853,7 +854,7 @@ def _package_analysis(jobs) -> dict:
             "avg_monthly_credits": round(totals["total_credits"] / months, 2),
             "avg_monthly_debits": round(totals["total_debits"] / months, 2),
             "avg_monthly_cash_flow": round(totals["cash_flow"] / months, 2),
-            "average_daily_balance": package_average_balance,
+            "average_daily_balance": package_average_daily_balance,
             "package_withholding_rate": package_withholding,
             "package_withholding_rate_raw": package_withholding_raw,
             "eligible_deposits": totals["withholding_denominator"],

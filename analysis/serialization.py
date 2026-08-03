@@ -99,6 +99,30 @@ def _recurring_dict(item) -> dict:
     }
 
 
+def _metrics_dict(metrics) -> dict:
+    """Serialize one public ADB value and fail closed on rejected ledgers."""
+    data = asdict(metrics)
+    adb = data.get("adb")
+    validated = (
+        data.get("adb_ok") is True
+        and data.get("average_daily_balance") is not None
+    )
+    if not validated:
+        data["average_daily_balance"] = None
+        data["daily_balance_sum"] = None
+    if isinstance(adb, dict):
+        # `metrics.average_daily_balance` is the sole public ADB field. The
+        # nested object carries validation evidence, not a second value.
+        adb.pop("average_daily_balance", None)
+        adb["ok"] = validated
+        if not validated:
+            # Candidate working remains available on the in-process result for
+            # forensic review, but rejected numbers are never API/export data.
+            adb["daily_balance_sum"] = None
+            adb["daily_balances"] = []
+    return data
+
+
 def report_to_dict(report: Report) -> dict:
     records = report.classifications or classify_statement_transactions(report.statement)
     if len(records) != len(report.statement.transactions):
@@ -114,7 +138,7 @@ def report_to_dict(report: Report) -> dict:
         "statement": statement,
         "classifications": [asdict(record) for record in records],
         "reconciliation": asdict(report.reconciliation),
-        "metrics": asdict(report.metrics),
+        "metrics": _metrics_dict(report.metrics),
         "detection": {
             "known_funders": [_funder_dict(match) for match in detection.known_funders],
             "potential_lenders": [_funder_dict(match) for match in detection.potential_lenders],

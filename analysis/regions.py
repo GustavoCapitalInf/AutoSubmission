@@ -271,6 +271,8 @@ def repair_regions_summary(markdown: str, stmt: Statement) -> Statement:
     checks = _money_after(r"Total Checks", text) or _money_after(r"(?<!Returned )Checks", text)
     ending = _money_after(r"Ending Balance", text)
     avg = _money_after(r"Average Monthly Statement Balance", text)
+    if avg is None:
+        avg = _money_after(r"Average Balance", text)
 
     updates = {}
     if beginning is not None:

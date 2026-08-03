@@ -45,7 +45,6 @@ def _txn(
         ("Customer check deposit", None),
         ("DoorDash payout", "DoorDash"),
         ("Invoice payment 1042", None),
-        ("Business cash deposit", None),
         ("Direct Deposit Misc. Payments MRCH22064280019", None),
         ("Direct Deposit Misc. Payments SKIPTHEDISHES", "SkipTheDishes"),
         ("Direct Deposit Misc. Payments 11-101 Signal R", "11-101 Signal R"),
@@ -71,8 +70,18 @@ def test_verified_operating_credits_are_verified_revenue(
     "description",
     [
         "ATB - Mobile Deposit",
+        "Generic deposit",
+        "Business cash deposit",
         "Mobile deposit",
+        "Branch deposit",
+        "ATM deposit",
+        "Night deposit",
         "ACH Credit Deposit",
+        "Unknown ACH credit",
+        "Unknown wire credit",
+        "Unknown RTP credit",
+        "Unknown Zelle credit",
+        "Unknown eTransfer credit",
         "INTERAC e-Transfer Received",
         "Check deposit",
         "Cash deposit",
@@ -97,8 +106,26 @@ def test_ambiguous_credits_are_unverified_deposits(description: str):
         ("Business loan disbursement", None),
         ("MCA funding advance", None),
         ("Merchant cash advance proceeds", None),
+        ("Merchant cash advance", None),
         ("Internal transfer from savings", None),
+        ("Transfer from savings", None),
+        ("Transfer from checking", None),
+        ("Online Banking transfer from CHK 6973", None),
+        ("Home Banking Transfer From Share 1", None),
+        ("Mobile Banking Transfer From Account 104787701788", None),
+        ("TRANSFER DEPOSIT From ....2395", None),
+        ("TFR FROM XXXXXX6330 TRANSFER DEPOSIT", None),
+        ("TRANSFER FROM 01180 02960 15 04013853 MB-TRANSFER", None),
+        ("Online Xfer Transfer from SV 00003290308705", None),
         ("Owner contribution", None),
+        ("Debit Card Credit", None),
+        ("Debit Card Return", None),
+        ("Card refund", None),
+        ("Merchant refund", None),
+        ("Purchase reversal", None),
+        ("Chargeback", None),
+        ("Return credit", None),
+        ("ACH return", None),
         ("Customer refund", None),
         ("Expense reimbursement", None),
         ("INTERAC e-Transfer Returned", None),
@@ -111,8 +138,15 @@ def test_ambiguous_credits_are_unverified_deposits(description: str):
         ("Payment reversal", None),
         ("Bank correction credit", None),
         ("Cooperators insurance claim payment", "Co-operators"),
+        ("Insurance proceeds", None),
         ("CRA tax refund", None),
+        ("Cashback rewards", None),
+        ("Credit card reward credit", None),
+        ("Bank fee refund", None),
+        ("Interest credit", None),
         ("Asset sale proceeds", None),
+        ("Acorns investment transfer", None),
+        ("NETCREDIT CCBANK-NTC loan proceeds", "NETCREDIT"),
     ],
 )
 def test_non_operating_credits_are_non_revenue(
@@ -198,6 +232,44 @@ def test_revenue_metrics_reconcile_to_exact_posted_credit_rows():
     assert len(metrics.verified_revenue_evidence) == 1
     assert len(metrics.unverified_deposit_evidence) == 1
     assert len(metrics.non_revenue_evidence) == 1
+
+
+def test_only_ambiguous_deposits_enter_the_revenue_review_queue():
+    statement = Statement(
+        transactions=[
+            _txn("2026-01-02", "Customer ACH payment", 100.0),
+            _txn("2026-01-03", "Mobile deposit", 50.0),
+            _txn("2026-01-04", "Debit Card Credit", 25.0),
+            _txn("2026-01-05", "Online transfer from savings 1234", 40.0),
+            _txn("2026-01-06", "Interest paid", 1.0),
+            _txn("2026-01-07", "Merchant cash advance", 500.0),
+        ]
+    )
+    records = classify_statement_transactions(statement)
+    analysis = rebuild_serialized_revenue_views({
+        "statement": {
+            "transactions": [
+                {**transaction.model_dump(), "classification": asdict(record)}
+                for transaction, record in zip(statement.transactions, records)
+            ]
+        },
+        "metrics": {},
+        "detection": {},
+    })
+
+    metrics = analysis["metrics"]
+    assert metrics["total_posted_credits"] == 716.0
+    assert metrics["verified_revenue_total"] == 100.0
+    assert metrics["unverified_deposit_total"] == 50.0
+    assert metrics["non_revenue_total"] == 566.0
+    assert metrics["maximum_revenue"] == 150.0
+    assert metrics["revenue_reconciles"]
+    assert [
+        record["source_location"]
+        for record in analysis["detection"]["manual_review"]
+        if record.get("revenue_review_required")
+    ] == ["transaction:2"]
+    assert len(analysis["detection"]["unverified_deposit_evidence"]) == 1
 
 
 def test_withholding_denominator_is_legacy_by_default_and_configurable():
@@ -305,7 +377,7 @@ def test_atb_november_true_revenue_regression_from_exact_evidence():
     ]
 
     # Existing non-revenue analytics remain unchanged by the added credit layer.
-    assert metrics.average_balance == 3861.78
+    assert metrics.average_daily_balance == 3861.78
     assert metrics.pos_count == 0
     assert metrics.nsf_count == 0
     assert metrics.lenders_detected == 3
@@ -315,6 +387,10 @@ def test_atb_november_true_revenue_regression_from_exact_evidence():
     assert metrics.insurance_total == 362.17
 
     payload = report_to_dict(report)
+    assert payload["metrics"]["average_daily_balance"] == 3861.78
+    assert "average_balance" not in payload["metrics"]
+    assert "average_balance_source" not in payload["metrics"]
+    assert "average_daily_balance" not in payload["metrics"]["adb"]
     assert len(payload["detection"]["verified_revenue_evidence"]) == 30
     assert len(payload["detection"]["unverified_deposit_evidence"]) == 7
     assert len(payload["detection"]["non_revenue_evidence"]) == 1

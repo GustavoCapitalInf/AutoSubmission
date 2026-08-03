@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 import pytest
 
 from analysis.adb import compute_average_daily_balance
 from analysis.dates import assign_transaction_years, parse_date, resolve_year
 from analysis.metrics import compute_metrics
-from analysis.schema import Statement, Transaction
+from analysis.schema import Statement, StatementDailyBalance, Transaction
 
 
 def _txn(day: str, amount: float, desc: str = "ITEM", bal: float | None = None) -> Transaction:
@@ -121,7 +122,7 @@ def test_full_month_divisor_uses_calendar_days_not_posting_days():
 
 # ---- balance reconstruction --------------------------------------------------
 
-def test_printed_running_balances_are_preferred():
+def test_printed_running_balances_validate_but_do_not_drive_the_ledger():
     s = Statement(
         period_start="2026-02-01", period_end="2026-02-03",
         beginning_balance=1000.0, ending_balance=1300.0,
@@ -131,7 +132,66 @@ def test_printed_running_balances_are_preferred():
         ],
     )
     r = compute_average_daily_balance(s)
-    assert [d.source for d in r.daily_balances] == ["printed", "printed", "carried"]
+    assert [d.source for d in r.daily_balances] == ["reconstructed", "reconstructed", "carried"]
+    assert r.validations["running_balances_support_daily_ledger"] is True
+
+
+def test_wrong_running_balance_cannot_change_adb_and_fails_validation():
+    s = Statement(
+        period_start="2026-02-01", period_end="2026-02-02",
+        beginning_balance=100.0, ending_balance=150.0,
+        transactions=[_txn("2026-02-01", 50.0, bal=999.0)],
+    )
+    r = compute_average_daily_balance(s)
+    assert [d.ending_balance for d in r.daily_balances] == [150.0, 150.0]
+    assert r.average_daily_balance == 150.0
+    assert r.validations["running_balances_support_daily_ledger"] is False
+    assert r.ok is False
+
+
+def test_final_same_day_running_balance_is_the_end_of_day_evidence():
+    s = Statement(
+        period_start="2026-02-01", period_end="2026-02-02",
+        beginning_balance=100.0, ending_balance=150.0,
+        transactions=[
+            _txn("2026-02-01", 100.0, bal=150.0),
+            _txn("2026-02-01", -50.0, bal=999.0),
+        ],
+    )
+    r = compute_average_daily_balance(s)
+    assert r.average_daily_balance == 150.0
+    assert r.validations["running_balances_support_daily_ledger"] is False
+    assert r.ok is False
+
+
+def test_bank_daily_book_history_is_authoritative_end_of_day_evidence():
+    s = Statement(
+        period_start="2026-02-01", period_end="2026-02-04",
+        beginning_balance=100.0, ending_balance=500.0,
+        transactions=[_txn("2026-02-02", 400.0)],
+        stated_daily_balances=[
+            StatementDailyBalance(date="2026-02-02", balance=300.0),
+            StatementDailyBalance(date="2026-02-04", balance=500.0),
+        ],
+    )
+    r = compute_average_daily_balance(s)
+    assert [d.ending_balance for d in r.daily_balances] == [100.0, 300.0, 300.0, 500.0]
+    assert [d.source for d in r.daily_balances] == [
+        "carried", "bank_daily_summary", "carried", "bank_daily_summary",
+    ]
+    assert r.average_daily_balance == 300.0
+    assert r.ok
+
+
+def test_half_cent_average_uses_financial_half_up_rounding():
+    s = Statement(
+        period_start="2026-02-01", period_end="2026-02-02",
+        beginning_balance=1.0, ending_balance=1.01,
+        transactions=[_txn("2026-02-02", 0.01)],
+    )
+    r = compute_average_daily_balance(s)
+    assert r.daily_balance_sum == 2.01
+    assert r.average_daily_balance == 1.01
 
 
 def test_missing_running_balances_are_reconstructed_from_amounts():
@@ -330,6 +390,30 @@ def test_missing_period_and_dates_yields_no_figure_with_a_warning():
     assert not r.ok
 
 
+def test_inferred_or_inverted_period_is_never_reportable():
+    inferred = Statement(
+        period_end="2026-01-03",
+        beginning_balance=100.0,
+        ending_balance=150.0,
+        transactions=[_txn("2026-01-02", 50.0, bal=150.0)],
+    )
+    inferred_result = compute_average_daily_balance(inferred)
+    assert inferred_result.average_daily_balance is not None
+    assert inferred_result.validations["statement_period_dates_valid"] is False
+    assert inferred_result.ok is False
+
+    inverted = Statement(
+        period_start="2026-01-03",
+        period_end="2026-01-01",
+        beginning_balance=100.0,
+        ending_balance=100.0,
+        transactions=[],
+    )
+    inverted_result = compute_average_daily_balance(inverted)
+    assert inverted_result.validations["statement_period_dates_valid"] is False
+    assert inverted_result.ok is False
+
+
 def test_undated_transactions_are_reported():
     s = Statement(
         period_start="2026-01-01", period_end="2026-01-02",
@@ -340,7 +424,7 @@ def test_undated_transactions_are_reported():
     assert any("no parseable date" in w for w in r.warnings)
 
 
-def test_out_of_period_transaction_is_clamped_and_reported():
+def test_out_of_period_transaction_is_excluded_and_fails_validation():
     s = Statement(
         period_start="2026-01-10", period_end="2026-01-12",
         beginning_balance=0.0, ending_balance=100.0,
@@ -348,8 +432,10 @@ def test_out_of_period_transaction_is_clamped_and_reported():
     )
     r = compute_average_daily_balance(s)
     assert any("outside the statement period" in w for w in r.warnings)
-    assert r.daily_balances[0].ending_balance == 100.0
-    assert r.validations["final_balance_matches_statement_closing"] is True
+    assert r.daily_balances[0].ending_balance == 0.0
+    assert r.validations["transactions_within_period"] is False
+    assert r.validations["final_balance_matches_statement_closing"] is False
+    assert r.ok is False
 
 
 # ---- determinism and reproducibility ----------------------------------------
@@ -529,14 +615,12 @@ def test_validated_computed_adb_is_preferred_over_the_bank_printed_average():
     m = compute_metrics(s)
     assert m.adb_ok is True
     assert m.average_daily_balance == round((100 + 500 + 500 + 500) / 4, 2)  # 400.0
-    assert m.average_balance == 400.0
-    assert m.average_balance_source == "computed_daily_ledger"
+    assert "average_balance" not in vars(m)
+    assert "average_balance_source" not in vars(m)
     assert m.stated_average_balance == 999.0  # still available for cross-checking
 
 
-def test_unvalidated_ledger_falls_back_to_the_bank_printed_average():
-    # Ledger does not reconcile to the printed closing balance, so the bank's
-    # own figure is the safer one to display.
+def test_unvalidated_ledger_never_substitutes_the_bank_printed_average():
     s = Statement(
         period_start="2026-01-01", period_end="2026-01-03",
         beginning_balance=100.0, ending_balance=9999.0,
@@ -545,11 +629,12 @@ def test_unvalidated_ledger_falls_back_to_the_bank_printed_average():
     )
     m = compute_metrics(s)
     assert m.adb_ok is False
-    assert m.average_balance == 250.0
-    assert m.average_balance_source == "bank_stated"
+    assert m.average_daily_balance is None
+    assert m.daily_balance_sum is None
+    assert m.stated_average_balance == 250.0
 
 
-def test_unvalidated_ledger_with_no_printed_average_is_labelled_unvalidated():
+def test_unvalidated_ledger_with_no_printed_average_is_withheld():
     s = Statement(
         period_start="2026-01-01", period_end="2026-01-03",
         beginning_balance=100.0, ending_balance=9999.0,
@@ -557,8 +642,8 @@ def test_unvalidated_ledger_with_no_printed_average_is_labelled_unvalidated():
     )
     m = compute_metrics(s)
     assert m.adb_ok is False
-    assert m.average_balance is not None
-    assert m.average_balance_source == "computed_daily_ledger_unvalidated"
+    assert m.average_daily_balance is None
+    assert m.daily_balance_sum is None
 
 
 def test_package_rollup_weights_each_statement_by_its_own_calendar_days():
@@ -576,8 +661,7 @@ def test_package_rollup_weights_each_statement_by_its_own_calendar_days():
             self.analysis = {
                 "statement": {"period_start": "2026-01-01", "period_end": "2026-01-31", "transactions": []},
                 "metrics": {
-                    "average_balance": adb,
-                    "average_balance_source": "computed_daily_ledger",
+                    "average_daily_balance": adb,
                     "calendar_day_count": days,
                     "adb_ok": True,
                 },
@@ -591,6 +675,7 @@ def test_package_rollup_weights_each_statement_by_its_own_calendar_days():
     assert pkg["totals"]["average_daily_balance"] == expected
     assert [d["adb_calendar_days"] for d in pkg["documents"]] == [31, 28]
     assert all(d["adb_validated"] for d in pkg["documents"])
+    assert [d["average_daily_balance"] for d in pkg["documents"]] == [100.0, 200.0]
 
 
 def test_csv_export_emits_one_row_per_day_not_a_json_blob():
@@ -608,28 +693,50 @@ def test_csv_export_emits_one_row_per_day_not_a_json_blob():
     assert [(r[1], r[2]) for r in daily] == [
         ("2026-01-01", 0.0), ("2026-01-02", 90.0), ("2026-01-03", 90.0),
     ]
-    assert ("adb", "average_daily_balance", 60.0) in rows
+    assert ("metrics", "average_daily_balance", 60.0) in rows
     assert ("adb", "calendar_day_count", 3) in rows
+    assert not any(r[0] == "adb" and r[1] == "average_daily_balance" for r in rows)
     assert any(r[0] == "adb_validation" for r in rows)
     # the raw nested structure must not be dumped into the metrics section
     assert not any(r[0] == "metrics" and r[1] == "adb" for r in rows)
 
 
-def test_metrics_adb_survives_serialization():
-    # webapp/worker.py serialises Metrics with dataclasses.asdict.
-    from dataclasses import asdict
-
+def test_metrics_retains_full_internal_adb_working():
     s = Statement(
         period_start="2026-01-01", period_end="2026-01-03",
         beginning_balance=0.0, ending_balance=90.0,
         transactions=[_txn("2026-01-02", 90.0, bal=90.0)],
     )
-    payload = asdict(compute_metrics(s))
-    assert payload["average_daily_balance"] == 60.0
-    assert payload["calendar_day_count"] == 3
-    assert payload["adb"]["daily_balances"][0] == {
-        "date": "2026-01-01",
-        "ending_balance": 0.0,
-        "source": "carried",
-        "transaction_count": 0,
-    }
+    metrics = compute_metrics(s)
+    assert metrics.average_daily_balance == 60.0
+    assert metrics.calendar_day_count == 3
+    assert metrics.adb is not None
+    first = metrics.adb.daily_balances[0]
+    assert (first.date, first.ending_balance, first.source, first.transaction_count) == (
+        "2026-01-01", 0.0, "carried", 0,
+    )
+
+
+def test_existing_dashboard_field_binds_directly_to_authoritative_api_adb():
+    javascript = Path("webapp/static/app.js").read_text(encoding="utf-8")
+    assert "formatMoney(metrics.average_daily_balance, currency)" in javascript
+    assert "formatMoney(doc.average_daily_balance)" in javascript
+    assert "formatMoney(totals.average_daily_balance)" in javascript
+    assert "metrics.average_balance" not in javascript
+    assert "doc.average_balance" not in javascript
+    assert "m.average_balance" not in javascript
+    assert "metrics.stated_average_balance" not in javascript
+    assert "daily_balances.reduce" not in javascript
+
+
+def test_dashboard_has_no_adb_audit_components_or_duplicate_visible_fields():
+    javascript = Path("webapp/static/app.js").read_text(encoding="utf-8")
+    assert javascript.count('"Average Daily Balance"') == 5
+    for forbidden in (
+        "Printed ADB",
+        "Parser ADB",
+        "ADB Difference",
+        "ADB Confidence",
+        "ADB Mismatch",
+    ):
+        assert forbidden not in javascript

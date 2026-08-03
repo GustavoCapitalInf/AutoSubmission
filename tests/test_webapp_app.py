@@ -34,7 +34,7 @@ def _mock_processing(monkeypatch, page_count=2):
     monkeypatch.setattr("webapp.worker.analyze_markdown", lambda markdown, parse_mode="auto": object())
     monkeypatch.setattr("webapp.worker.report_to_json", lambda report: {
         "statement": {"bank": "Test Bank"},
-        "metrics": {"average_balance": 123.45},
+        "metrics": {"average_daily_balance": 123.45},
         "quality": {"level": "transaction_level", "corporate_use": "approved"},
     })
 
@@ -266,7 +266,9 @@ def test_package_analysis_aggregates_completed_jobs():
             "effective_total_withdrawals": 7000,
             "cash_flow": 3000,
             "effective_nsf_count": 1,
-            "average_balance": 100,
+            "average_daily_balance": 100,
+            "adb_ok": True,
+            "calendar_day_count": 31,
             "lender_debits": 1000,
             "monthly_lender_debits": 1000,
             "withholding_rate": 10,
@@ -282,7 +284,9 @@ def test_package_analysis_aggregates_completed_jobs():
             "effective_total_withdrawals": 8000,
             "cash_flow": 4000,
             "effective_nsf_count": 0,
-            "average_balance": 200,
+            "average_daily_balance": 200,
+            "adb_ok": True,
+            "calendar_day_count": 28,
             "lender_debits": 500,
             "monthly_lender_debits": 500,
             "withholding_rate": 4.17,
@@ -304,6 +308,7 @@ def test_package_analysis_aggregates_completed_jobs():
     assert totals["cash_flow"] == 7000
     assert totals["avg_monthly_credits"] == 11000
     assert totals["average_daily_balance"] == 147.46
+    assert [doc["average_daily_balance"] for doc in body["documents"]] == [100, 200]
     assert totals["package_withholding_rate"] == 6.82
     assert totals["decision"] == "approved"
     assert body["funders"] == [{"funder": "ONDECK", "documents": 2, "total_debited": 1500.0}]
@@ -322,6 +327,43 @@ def test_package_analysis_aggregates_completed_jobs():
     assert xlsx_resp.status_code == 200
     assert xlsx_resp.mimetype == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     assert xlsx_resp.get_data()[:2] == b"PK"
+
+
+def test_package_adb_ignores_rejected_or_unvalidated_cached_values():
+    rejected = store.create("rejected-adb.pdf")
+    missing_status = store.create("legacy-adb.pdf")
+    missing_days = store.create("missing-adb-days.pdf")
+    for job, adb_ok, days in (
+        (rejected, False, 31),
+        (missing_status, None, 31),
+        (missing_days, True, None),
+    ):
+        metrics = {
+            "average_daily_balance": 999999.0,
+        }
+        if days is not None:
+            metrics["calendar_day_count"] = days
+        if adb_ok is not None:
+            metrics["adb_ok"] = adb_ok
+        store.set_result(job.id, "# Statement", "<h1>Statement</h1>", analysis={
+            "statement": {
+                "bank": "Audit Bank",
+                "period_start": "2026-01-01",
+                "period_end": "2026-01-31",
+                "transactions": [],
+            },
+            "metrics": metrics,
+            "quality": {"level": "needs_review", "corporate_use": "manual_review_required"},
+            "integrity": {"risk_level": "review"},
+            "detection": {"known_funders": []},
+        })
+
+    body = app.test_client().get(
+        f"/package_analysis?ids={rejected.id},{missing_status.id},{missing_days.id}"
+    ).get_json()
+    assert body["totals"]["average_daily_balance"] is None
+    assert [doc["average_daily_balance"] for doc in body["documents"]] == [None, None, None]
+    assert [doc["adb_validated"] for doc in body["documents"]] == [False, False, False]
 
 
 def test_package_withholding_is_zero_with_deposits_and_no_lender_debits():

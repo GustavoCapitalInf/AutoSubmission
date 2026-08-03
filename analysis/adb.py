@@ -1,44 +1,39 @@
-"""Underwriting-grade Average Daily Balance.
+"""Deterministic Average Daily Balance reconstruction.
 
-ADB is the single figure a funder leans on hardest, so it is computed here in
-one deterministic, auditable pass that behaves identically for every supported
-bank. The definition implemented is the commercial-underwriting one:
+The authoritative calculation is:
 
-    ADB = (sum of each calendar day's ending balance) / (calendar days in period)
+    ADB = sum(each calendar day's ending ledger balance) / calendar days
 
-Every calendar day in the statement period counts exactly once — weekends,
-holidays, and days with no posting activity included. A day with no activity
-inherits the previous day's ending balance. Negative balances are summed as
-negative; they are never clamped or excluded. The divisor is always the
-inclusive calendar-day count of the period, never the number of posting days.
+Every day in the inclusive statement period contributes exactly once. Missing
+activity days carry the previous ending balance, and negative balances remain
+negative. Transaction running balances are validation evidence only; they never
+replace the ledger reconstructed from the opening balance and signed postings.
 
-Explicitly NOT what this computes:
-  - the mean of per-transaction running balances
-  - the mean over posting days only
-  - anything that drops, weights, or clamps a day
-
-Balance sourcing, per day, in priority order:
-  1. `printed`       — the bank's own running balance on the last row that day
-  2. `reconstructed` — previous day's ending balance plus that day's amounts
-  3. `carried`       — no activity, so the previous day's ending balance stands
-
-That ordering honours the printed record where it exists and reconstructs only
-what the statement leaves out, which keeps the result reproducible from the
-parsed statement while surviving banks that print balances sparsely (or not at
-all). Every day records which rule produced it, so any figure can be traced.
+When a statement prints a dated daily book/ledger balance history, those explicit
+end-of-day snapshots outrank transaction-date reconstruction. Missing dates
+between snapshots still carry or reconstruct normally.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Any
 
 from .dates import parse_date, source_posting_dates
 from .schema import Statement
 
-# Money is compared to the cent; allow a hair of float slop.
-_TOL = 0.01
-# Closing-balance drift we will report but still return a figure for.
-_CLOSING_TOL = 1.00
+
+_CENT = Decimal("0.01")
+
+
+def _decimal(value: float | int | str | Decimal) -> Decimal:
+    return value if isinstance(value, Decimal) else Decimal(str(value))
+
+
+def _money(value: float | int | str | Decimal) -> Decimal:
+    """Round currency to cents using conventional financial half-up rounding."""
+    return _decimal(value).quantize(_CENT, rounding=ROUND_HALF_UP)
 
 
 @dataclass
@@ -47,7 +42,7 @@ class DailyBalance:
 
     date: str
     ending_balance: float
-    source: str  # printed | reconstructed | carried
+    source: str  # bank_daily_summary | reconstructed | carried
     transaction_count: int = 0
 
     def __str__(self) -> str:
@@ -65,9 +60,8 @@ class AverageDailyBalanceResult:
     period_end: str | None = None
     opening_balance: float | None = None
     closing_balance: float | None = None
-    # Where the opening balance came from: stated | derived_from_closing | first_printed_balance
+    # stated | derived_from_closing | first_printed_balance
     opening_balance_source: str | None = None
-    # Closing balance implied by opening + all parsed transactions.
     computed_closing_balance: float | None = None
     total_credits: float = 0.0
     total_debits: float = 0.0
@@ -77,27 +71,28 @@ class AverageDailyBalanceResult:
     validations: dict[str, bool] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
-    # Date-collapse guard: posting dates the parser produced vs the ones the
-    # source statement prints. Populated only when the source text is supplied.
     parsed_posting_days: int | None = None
     source_posting_days: int | None = None
     missing_posting_dates: list[str] = field(default_factory=list)
+    out_of_period_transaction_count: int = 0
+    stated_daily_balance_count: int = 0
 
     @property
     def posting_days(self) -> int:
-        return sum(1 for d in self.daily_balances if d.transaction_count)
+        return sum(1 for day in self.daily_balances if day.transaction_count)
 
     @property
     def negative_days(self) -> int:
-        return sum(1 for d in self.daily_balances if d.ending_balance < 0)
+        return sum(1 for day in self.daily_balances if day.ending_balance < 0)
 
     def debug_report(self) -> str:
-        """Exactly how the ADB was calculated, line by line."""
-        lines: list[str] = []
-        lines.append("Average Daily Balance - calculation trace")
-        lines.append("=" * 52)
-        lines.append(f"Statement period : {self.period_start} through {self.period_end}")
-        lines.append(f"Calendar days    : {self.calendar_day_count}")
+        """Return the complete, human-readable ADB calculation trace."""
+        lines: list[str] = [
+            "Average Daily Balance - calculation trace",
+            "=" * 52,
+            f"Statement period : {self.period_start} through {self.period_end}",
+            f"Calendar days    : {self.calendar_day_count}",
+        ]
         opening = "n/a" if self.opening_balance is None else f"{self.opening_balance:,.2f}"
         lines.append(f"Opening balance  : {opening} ({self.opening_balance_source or 'unavailable'})")
         closing = "n/a" if self.closing_balance is None else f"{self.closing_balance:,.2f}"
@@ -109,47 +104,51 @@ class AverageDailyBalanceResult:
                 f"- debits {self.total_debits:,.2f} "
                 f"= {self.computed_closing_balance:,.2f}"
             )
-        lines.append("")
-        lines.append("Daily ending balances (every calendar day):")
+
+        lines.extend(["", "Daily ending balances (every calendar day):"])
+        markers = {"bank_daily_summary": "B", "reconstructed": "*", "carried": "="}
         for entry in self.daily_balances:
-            marker = {"printed": " ", "reconstructed": "*", "carried": "="}.get(entry.source, "?")
+            marker = markers.get(entry.source, "?")
             txns = f"{entry.transaction_count} txn" if entry.transaction_count else "no activity"
             lines.append(f"  {marker} {entry.date}  {entry.ending_balance:>14,.2f}   {txns}")
-        lines.append("")
-        lines.append("  legend:   (blank) bank-printed balance   * reconstructed   = carried forward")
-        lines.append("")
+        lines.extend([
+            "",
+            "  legend: B bank daily summary   * reconstructed   = carried forward",
+            "",
+        ])
         if self.daily_balance_sum is not None and self.calendar_day_count:
-            lines.append(f"Sum of daily balances : {self.daily_balance_sum:,.2f}")
-            lines.append(f"Divided by days       : {self.calendar_day_count}")
-            lines.append(f"Average Daily Balance : ${self.average_daily_balance:,.2f}")
+            lines.extend([
+                f"Sum of daily balances : {self.daily_balance_sum:,.2f}",
+                f"Divided by days       : {self.calendar_day_count}",
+                f"Average Daily Balance : ${self.average_daily_balance:,.2f}",
+            ])
         else:
             lines.append("Average Daily Balance : not computable")
         if self.validations:
-            lines.append("")
-            lines.append("Validations:")
+            lines.extend(["", "Validations:"])
             for name, passed in self.validations.items():
                 lines.append(f"  [{'PASS' if passed else 'FAIL'}] {name}")
         if self.warnings:
-            lines.append("")
-            lines.append("Warnings:")
-            for warning in self.warnings:
-                lines.append(f"  - {warning}")
+            lines.extend(["", "Warnings:"])
+            lines.extend(f"  - {warning}" for warning in self.warnings)
         return "\n".join(lines)
 
 
-def _resolve_period(stmt: Statement, dated: list[tuple[date, object]]) -> tuple[date | None, date | None, list[str]]:
-    """Statement period from the header, falling back to the transaction span."""
+def _resolve_period(
+    stmt: Statement, dated: list[tuple[date, Any]]
+) -> tuple[date | None, date | None, list[str]]:
+    """Resolve the period, retaining a transaction-span fallback for diagnostics."""
     warnings: list[str] = []
     start = parse_date(stmt.period_start)
     end = parse_date(stmt.period_end)
     if start is None and dated:
-        start = min(d for d, _ in dated)
+        start = min(day for day, _ in dated)
         warnings.append(
             "statement period start missing; using the earliest transaction date "
             f"({start.isoformat()}) - ADB divisor may not match the bank's period"
         )
     if end is None and dated:
-        end = max(d for d, _ in dated)
+        end = max(day for day, _ in dated)
         warnings.append(
             "statement period end missing; using the latest transaction date "
             f"({end.isoformat()}) - ADB divisor may not match the bank's period"
@@ -165,43 +164,38 @@ def _resolve_period(stmt: Statement, dated: list[tuple[date, object]]) -> tuple[
 
 def _resolve_opening(
     stmt: Statement,
-    ordered: list[tuple[date, object]],
-    total: float,
-) -> tuple[float | None, str | None]:
-    """The balance entering the period, before day one's activity posts."""
+    ordered: list[tuple[date, Any]],
+    total: Decimal,
+) -> tuple[Decimal | None, str | None]:
+    """Resolve the balance entering day one, before that day's activity."""
     if stmt.beginning_balance is not None:
-        return round(stmt.beginning_balance, 2), "stated"
+        return _money(stmt.beginning_balance), "stated"
     if stmt.ending_balance is not None:
-        # Closing minus everything that posted during the period.
-        return round(stmt.ending_balance - total, 2), "derived_from_closing"
-    # Last resort: work backwards from the first printed running balance.
+        return _money(_decimal(stmt.ending_balance) - total), "derived_from_closing"
     for index, (_, txn) in enumerate(ordered):
         if txn.running_balance is not None:
-            prior = sum(t.amount for _, t in ordered[: index + 1])
-            return round(txn.running_balance - prior, 2), "first_printed_balance"
+            prior = sum(
+                (_decimal(row.amount) for _, row in ordered[: index + 1]),
+                Decimal("0"),
+            )
+            return _money(_decimal(txn.running_balance) - prior), "first_printed_balance"
     return None, None
 
 
 def compute_average_daily_balance(
     stmt: Statement, *, source_markdown: str | None = None
 ) -> AverageDailyBalanceResult:
-    """Reconstruct a daily balance ledger for the statement period and average it.
-
-    Returns a result even when validation fails, with `ok=False` and populated
-    `warnings`, so callers can decide whether to surface the figure, flag it for
-    review, or fall back to a bank-printed average.
-    """
+    """Build one inclusive end-of-day ledger and compute its arithmetic mean."""
     result = AverageDailyBalanceResult()
 
-    dated: list[tuple[date, object]] = []
+    dated: list[tuple[date, Any]] = []
     undated = 0
     for txn in stmt.transactions:
         parsed = parse_date(txn.date)
         if parsed is None:
             undated += 1
-            continue
-        dated.append((parsed, txn))
-
+        else:
+            dated.append((parsed, txn))
     if undated:
         result.warnings.append(
             f"{undated} transaction(s) have no parseable date and cannot be placed "
@@ -212,7 +206,6 @@ def compute_average_daily_balance(
     result.warnings.extend(period_warnings)
     result.period_start = start.isoformat() if start else None
     result.period_end = end.isoformat() if end else None
-
     if start is None or end is None:
         result.warnings.append(
             "cannot determine a statement period: no header period and no dated "
@@ -223,74 +216,87 @@ def compute_average_daily_balance(
     calendar_days = (end - start).days + 1
     result.calendar_day_count = calendar_days
 
-    # Chronological order is what makes the reconstruction deterministic. Bank
-    # parsers emit rows grouped by section (deposits, then checks, then
-    # withdrawals), so list order is NOT date order. Ties inside a day keep the
-    # statement's own order, which is what "last row of the day" means for the
-    # printed-balance rule; the reconstructed rule sums the day and so is
-    # order-independent either way.
-    ordered = sorted(enumerate(dated), key=lambda pair: (pair[1][0], pair[0]))
-    ordered = [entry for _, entry in ordered]
+    indexed = sorted(enumerate(dated), key=lambda item: (item[1][0], item[0]))
+    all_ordered = [entry for _, entry in indexed]
+    ordered = [(day, txn) for day, txn in all_ordered if start <= day <= end]
+    outside = [(day, txn) for day, txn in all_ordered if not start <= day <= end]
+    result.out_of_period_transaction_count = len(outside)
+    if outside:
+        shown = ", ".join(day.isoformat() for day, _ in outside[:6])
+        more = f" (+{len(outside) - 6} more)" if len(outside) > 6 else ""
+        result.warnings.append(
+            f"{len(outside)} transaction(s) fall outside the statement period "
+            f"({shown}{more}); they were excluded rather than moved to a boundary day"
+        )
 
-    total = round(sum(txn.amount for _, txn in ordered), 2)
-    result.total_credits = round(sum(t.amount for _, t in ordered if t.amount > 0), 2)
-    result.total_debits = round(-sum(t.amount for _, t in ordered if t.amount < 0), 2)
+    total = sum((_decimal(txn.amount) for _, txn in ordered), Decimal("0"))
+    credits = sum(
+        (_decimal(txn.amount) for _, txn in ordered if txn.amount > 0),
+        Decimal("0"),
+    )
+    debits = -sum(
+        (_decimal(txn.amount) for _, txn in ordered if txn.amount < 0),
+        Decimal("0"),
+    )
+    result.total_credits = float(_money(credits))
+    result.total_debits = float(_money(debits))
 
     opening, opening_source = _resolve_opening(stmt, ordered, total)
-    result.opening_balance = opening
+    result.opening_balance = float(opening) if opening is not None else None
     result.opening_balance_source = opening_source
-    result.closing_balance = round(stmt.ending_balance, 2) if stmt.ending_balance is not None else None
-
+    result.closing_balance = (
+        float(_money(stmt.ending_balance)) if stmt.ending_balance is not None else None
+    )
     if opening is None:
         result.warnings.append(
             "no opening balance and none derivable (statement lacks both beginning "
             "and ending balance, and no row prints a running balance); ADB not computable"
         )
         return result
+    result.computed_closing_balance = float(_money(opening + total))
 
-    result.computed_closing_balance = round(opening + total, 2)
-
-    # Transactions dated outside the period still belong to the ledger - the
-    # closing balance reflects them - so clamp them onto the nearest in-period
-    # day rather than dropping them, and say so.
-    by_day: dict[date, list[object]] = {}
-    clamped = 0
+    by_day: dict[date, list[Any]] = {}
     for day, txn in ordered:
-        if day < start:
-            day = start
-            clamped += 1
-        elif day > end:
-            day = end
-            clamped += 1
         by_day.setdefault(day, []).append(txn)
-    if clamped:
-        result.warnings.append(
-            f"{clamped} transaction(s) fall outside the statement period and were "
-            "applied to the nearest in-period day to preserve the closing balance"
-        )
 
-    # Single forward walk across every calendar day.
+    snapshot_map: dict[date, Decimal] = {}
+    snapshot_dates_valid = True
+    for snapshot in stmt.stated_daily_balances:
+        snapshot_day = parse_date(snapshot.date)
+        if snapshot_day is None or not start <= snapshot_day <= end:
+            snapshot_dates_valid = False
+            result.warnings.append(
+                f"bank daily balance has invalid or out-of-period date {snapshot.date!r}"
+            )
+            continue
+        if snapshot_day in snapshot_map:
+            snapshot_dates_valid = False
+            result.warnings.append(
+                f"bank daily balance history contains duplicate date {snapshot_day.isoformat()}"
+            )
+        snapshot_map[snapshot_day] = _money(snapshot.balance)
+    result.stated_daily_balance_count = len(snapshot_map)
+
     carry = opening
     daily: list[DailyBalance] = []
     day = start
     while day <= end:
         txns = by_day.get(day, [])
-        printed = None
-        for txn in txns:  # statement order within the day; last printed wins
-            if txn.running_balance is not None:
-                printed = round(txn.running_balance, 2)
-        if printed is not None:
-            carry = printed
-            source = "printed"
-        elif txns:
-            carry = round(carry + sum(t.amount for t in txns), 2)
+        if txns:
+            carry = _money(
+                carry
+                + sum((_decimal(txn.amount) for txn in txns), Decimal("0"))
+            )
             source = "reconstructed"
         else:
             source = "carried"
+        if day in snapshot_map:
+            carry = snapshot_map[day]
+            source = "bank_daily_summary"
         daily.append(
             DailyBalance(
                 date=day.isoformat(),
-                ending_balance=carry,
+                ending_balance=float(carry),
                 source=source,
                 transaction_count=len(txns),
             )
@@ -298,11 +304,25 @@ def compute_average_daily_balance(
         day += timedelta(days=1)
 
     result.daily_balances = daily
-    result.daily_balance_sum = round(sum(d.ending_balance for d in daily), 2)
-    result.average_daily_balance = round(result.daily_balance_sum / calendar_days, 2)
+    daily_sum = sum((_decimal(entry.ending_balance) for entry in daily), Decimal("0"))
+    result.daily_balance_sum = float(_money(daily_sum))
+    result.average_daily_balance = float(
+        _money(daily_sum / Decimal(calendar_days))
+    )
 
-    _validate(result, stmt, start, end, calendar_days, opening, total,
-              source_markdown=source_markdown)
+    _validate(
+        result,
+        stmt,
+        start,
+        end,
+        calendar_days,
+        opening,
+        total,
+        ordered,
+        undated=undated,
+        snapshot_dates_valid=snapshot_dates_valid,
+        source_markdown=source_markdown,
+    )
     return result
 
 
@@ -312,21 +332,41 @@ def _validate(
     start: date,
     end: date,
     calendar_days: int,
-    opening: float,
-    total: float,
+    opening: Decimal,
+    total: Decimal,
+    ordered: list[tuple[date, Any]],
     *,
+    undated: int,
+    snapshot_dates_valid: bool,
     source_markdown: str | None = None,
 ) -> None:
     daily = result.daily_balances
     checks: dict[str, bool] = {}
 
+    stated_start = parse_date(stmt.period_start)
+    stated_end = parse_date(stmt.period_end)
+    checks["statement_period_dates_valid"] = (
+        stated_start is not None
+        and stated_end is not None
+        and stated_start <= stated_end
+        and stated_start == start
+        and stated_end == end
+    )
+    if not checks["statement_period_dates_valid"]:
+        result.warnings.append(
+            "statement does not provide a valid, ordered start and end date; "
+            "a transaction-span fallback cannot support a reportable ADB"
+        )
+
+    checks["all_transactions_dated"] = undated == 0
+    checks["transactions_within_period"] = result.out_of_period_transaction_count == 0
+    checks["bank_daily_balance_dates_valid"] = snapshot_dates_valid
     checks["daily_balance_count_equals_calendar_days"] = len(daily) == calendar_days
     if not checks["daily_balance_count_equals_calendar_days"]:
         result.warnings.append(
             f"reconstructed {len(daily)} daily balances for a {calendar_days}-day period"
         )
 
-    # No gaps and no duplicates: consecutive days from start to end.
     expected = start
     contiguous = True
     for entry in daily:
@@ -334,21 +374,24 @@ def _validate(
             contiguous = False
             break
         expected += timedelta(days=1)
-    checks["daily_balances_contiguous"] = contiguous and (not daily or expected - timedelta(days=1) == end)
+    checks["daily_balances_contiguous"] = contiguous and (
+        not daily or expected - timedelta(days=1) == end
+    )
     if not checks["daily_balances_contiguous"]:
         result.warnings.append("daily balance series has a gap or an out-of-order date")
 
     checks["covers_opening_day"] = bool(daily) and daily[0].date == start.isoformat()
     checks["covers_closing_day"] = bool(daily) and daily[-1].date == end.isoformat()
 
-    # Last reconstructed balance must equal the statement's closing balance.
     if result.closing_balance is not None and daily:
-        drift = round(daily[-1].ending_balance - result.closing_balance, 2)
-        checks["final_balance_matches_statement_closing"] = abs(drift) <= _CLOSING_TOL
-        if abs(drift) > _CLOSING_TOL:
+        drift = _money(
+            _decimal(daily[-1].ending_balance) - _decimal(result.closing_balance)
+        )
+        checks["final_balance_matches_statement_closing"] = drift == Decimal("0.00")
+        if drift:
             result.warnings.append(
                 f"final reconstructed balance {daily[-1].ending_balance:,.2f} differs from the "
-                f"statement closing balance {result.closing_balance:,.2f} by {drift:+,.2f}"
+                f"statement closing balance {result.closing_balance:,.2f} by {float(drift):+,.2f}"
             )
     else:
         checks["final_balance_matches_statement_closing"] = False
@@ -356,22 +399,22 @@ def _validate(
             "statement prints no closing balance; cannot verify the reconstructed ledger ends correctly"
         )
 
-    # opening + credits - debits == closing
     if result.closing_balance is not None:
-        residual = round(opening + total - result.closing_balance, 2)
-        result.reconciled = abs(residual) <= _TOL
+        residual = _money(opening + total - _decimal(result.closing_balance))
+        result.reconciled = residual == Decimal("0.00")
         checks["ledger_reconciles_to_closing"] = result.reconciled
         if not result.reconciled:
             result.warnings.append(
-                f"ledger does not reconcile (off by {residual:+,.2f}): opening {opening:,.2f} "
-                f"+ credits {result.total_credits:,.2f} - debits {result.total_debits:,.2f} "
-                f"= {result.computed_closing_balance:,.2f}, statement closing is "
+                f"ledger does not reconcile (off by {float(residual):+,.2f}): "
+                f"opening {float(opening):,.2f} + credits {result.total_credits:,.2f} "
+                f"- debits {result.total_debits:,.2f} = "
+                f"{result.computed_closing_balance:,.2f}, statement closing is "
                 f"{result.closing_balance:,.2f}"
             )
 
     if stmt.beginning_balance is not None:
         checks["opening_balance_matches_statement"] = (
-            abs(round(stmt.beginning_balance, 2) - opening) <= _TOL
+            _money(stmt.beginning_balance) == opening
         )
     else:
         checks["opening_balance_matches_statement"] = False
@@ -379,27 +422,40 @@ def _validate(
             f"statement prints no beginning balance; opening balance was {result.opening_balance_source}"
         )
 
-    # Date-collapse guard.
-    #
-    # Arithmetic checks cannot see this failure mode: when a parser folds several
-    # posting dates into one, the rows still carry the right amounts and signs, so
-    # totals still reconcile and the ledger still lands on the printed closing
-    # balance — every check above passes while the daily ledger is wrong and the
-    # ADB with it. The only way to catch it is to compare the posting dates the
-    # parser produced against the ones the source statement actually prints.
+    daily_map = {entry.date: _money(entry.ending_balance) for entry in daily}
+    printed_by_day: dict[date, list[Decimal]] = {}
+    for day, txn in ordered:
+        if txn.running_balance is not None:
+            printed_by_day.setdefault(day, []).append(_money(txn.running_balance))
+    if printed_by_day:
+        mismatches = [
+            day
+            for day, balances in printed_by_day.items()
+            if daily_map.get(day.isoformat()) != balances[-1]
+        ]
+        checks["running_balances_support_daily_ledger"] = not mismatches
+        if mismatches:
+            shown = ", ".join(day.isoformat() for day in mismatches[:6])
+            more = f" (+{len(mismatches) - 6} more)" if len(mismatches) > 6 else ""
+            result.warnings.append(
+                "transaction running balances do not support the reconstructed "
+                f"end-of-day balance on {shown}{more}"
+            )
+
     if source_markdown:
-        source_dates = {d for d in source_posting_dates(source_markdown, start, end)}
+        source_dates = set(source_posting_dates(source_markdown, start, end))
         parsed_dates = {
-            parsed for parsed in (parse_date(t.date) for t in stmt.transactions)
+            parsed
+            for parsed in (parse_date(txn.date) for txn in stmt.transactions)
             if parsed is not None and start <= parsed <= end
         }
         result.parsed_posting_days = len(parsed_dates)
         result.source_posting_days = len(source_dates)
         missing = sorted(source_dates - parsed_dates)
-        result.missing_posting_dates = [d.isoformat() for d in missing]
+        result.missing_posting_dates = [day.isoformat() for day in missing]
         checks["posting_dates_cover_source"] = not missing
         if missing:
-            shown = ", ".join(d.isoformat() for d in missing[:6])
+            shown = ", ".join(day.isoformat() for day in missing[:6])
             more = f" (+{len(missing) - 6} more)" if len(missing) > 6 else ""
             result.warnings.append(
                 f"parser produced {len(parsed_dates)} posting date(s) but the statement "
@@ -408,29 +464,11 @@ def _validate(
                 "attributed to the wrong days and the ADB is not trustworthy"
             )
 
-    # Cross-check the bank's own printed average, when it prints one.
-    if stmt.stated_average_balance is not None and result.average_daily_balance is not None:
-        gap = abs(round(stmt.stated_average_balance - result.average_daily_balance, 2))
-        tolerance = max(1.00, abs(stmt.stated_average_balance) * 0.01)
-        checks["agrees_with_bank_stated_average"] = gap <= tolerance
-        if gap > tolerance:
-            result.warnings.append(
-                f"computed ADB {result.average_daily_balance:,.2f} differs from the bank-printed "
-                f"average {stmt.stated_average_balance:,.2f} by {gap:,.2f} - the bank may average "
-                "collected rather than ledger balances, or detail may be missing"
-            )
-
-    # `ok` gates on the structural guarantees, the reconstructed ledger ending on
-    # the printed closing balance, and the ledger identity reconciling.
-    #
-    # Deliberately NOT gated on:
-    #   - agrees_with_bank_stated_average: banks commonly print average COLLECTED
-    #     balance (which lags by float days) rather than average ledger balance,
-    #     so a small gap is normal and is reported as a warning instead.
-    #   - opening_balance_matches_statement: many statements omit a printed
-    #     beginning balance, and deriving it from the closing balance is exact.
-    result.validations = checks
     required = [
+        "statement_period_dates_valid",
+        "all_transactions_dated",
+        "transactions_within_period",
+        "bank_daily_balance_dates_valid",
         "daily_balance_count_equals_calendar_days",
         "daily_balances_contiguous",
         "covers_opening_day",
@@ -439,6 +477,27 @@ def _validate(
     ]
     if "ledger_reconciles_to_closing" in checks:
         required.append("ledger_reconciles_to_closing")
+    if "running_balances_support_daily_ledger" in checks:
+        required.append("running_balances_support_daily_ledger")
     if "posting_dates_cover_source" in checks:
         required.append("posting_dates_cover_source")
     result.ok = all(checks.get(name, False) for name in required)
+
+    if (
+        result.ok
+        and stmt.stated_average_balance is not None
+        and result.average_daily_balance is not None
+    ):
+        gap = abs(
+            _money(stmt.stated_average_balance)
+            - _money(result.average_daily_balance)
+        )
+        checks["agrees_with_bank_stated_average"] = gap == Decimal("0.00")
+        if gap:
+            result.warnings.append(
+                f"computed ADB {result.average_daily_balance:,.2f} differs from the bank-printed "
+                f"average {stmt.stated_average_balance:,.2f} by {float(gap):,.2f}; the printed "
+                "figure may use collected/available balances or another disclosed basis"
+            )
+
+    result.validations = checks

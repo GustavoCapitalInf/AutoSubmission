@@ -23,14 +23,20 @@ Every posted credit also has exactly one independent revenue state:
 This second state does not replace the transaction state. For example, a
 returned e-transfer remains `refund_or_reversal` and is also `non_revenue`.
 Revenue classification applies cancellations, reversals, lender funding, and
-strong non-revenue exclusions before operating-income rules. A maintained
+strong non-revenue exclusions before operating-income rules. Identifiable card
+credits and refunds, purchase/payment/ACH returns, chargebacks, own-account
+transfers, financing and insurance proceeds, tax refunds, rewards, fee refunds,
+interest, and reimbursements bypass manual revenue review as `non_revenue`.
+A maintained
 operating-source alias is supporting evidence, not sufficient evidence by
 itself. Verification also requires credit direction plus settlement, payout,
 merchant-deposit, or similar context; alternatively, statement-level recurrence
 on a business account or related processing fees, commissions, chargebacks, and
-adjustments can supply that context. Generic ACH credits, counterparty-free
-e-transfers, mobile deposits, checks, cash deposits, and unidentified credits
-are `unverified_deposit` until reviewed.
+adjustments can supply that context. Generic ACH, wire, RTP, Zelle, and
+e-transfer credits, mobile/branch/ATM/night deposits, checks, cash deposits, and
+unidentified credits are `unverified_deposit` until reviewed. Own-account
+transfers are excluded when the description identifies the internal account or
+self-service transfer channel.
 
 Cancellation and reversal rows are matched to opposite-direction transactions
 by amount, date proximity, and description family when possible. The record
@@ -87,9 +93,9 @@ status, and every metric contribution flag.
   `contributes_to_verified_revenue`.
 - `unverified_deposit_total` and `unverified_deposit_count`: posted credits that
   could be operating revenue but require review.
-- `non_revenue_total` and `non_revenue_count`: funding, transfers,
-  contributions, returns, refunds, corrections, proceeds, and proven duplicate
-  credits.
+- `non_revenue_total` and `non_revenue_count`: funding, identifiable own-account
+  transfers, contributions, returns, refunds, corrections, rewards, interest,
+  proceeds, and proven duplicate credits.
 - `maximum_revenue`: verified revenue plus unverified deposits.
 
 Revenue must reconcile from the authoritative rows:

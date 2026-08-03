@@ -21,6 +21,11 @@ class Transaction(BaseModel):
     )
 
 
+class StatementDailyBalance(BaseModel):
+    date: str = Field(description="Calendar date as ISO YYYY-MM-DD.")
+    balance: float = Field(description="Bank-printed end-of-day book or ledger balance.")
+
+
 class Statement(BaseModel):
     bank: str | None = Field(default=None, description="Bank name, e.g. 'Chase'.")
     account_name: str | None = Field(default=None, description="Account holder / product name.")
@@ -50,4 +55,11 @@ class Statement(BaseModel):
     stated_nsf_count: int | None = Field(
         default=None, description="Bank-stated count of NSF / overdraft / returned items THIS period (not year-to-date), if printed.")
 
+    stated_daily_balances: list[StatementDailyBalance] = Field(
+        default_factory=list,
+        description=(
+            "Bank-printed dated book/ledger balance snapshots. These are source "
+            "evidence, not averages; missing calendar dates carry the prior balance."
+        ),
+    )
     transactions: list[Transaction] = Field(default_factory=list)

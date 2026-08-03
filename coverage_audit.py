@@ -24,8 +24,8 @@ FIELDS = [
     "parse_seconds", "analysis_seconds", "status", "quality", "corporate_use",
     "transaction_detail_reliable", "aggregate_rows", "bank", "account",
     "period_start", "period_end", "transactions", "summary_reconciles",
-    "reconciles", "credit_coverage", "debit_coverage", "avg_balance",
-    "avg_source", "deposits", "deposit_count", "withdrawals",
+    "reconciles", "credit_coverage", "debit_coverage", "average_daily_balance",
+    "deposits", "deposit_count", "withdrawals",
     "withdrawal_count", "total_posted_credits", "verified_revenue_total",
     "verified_revenue_count", "unverified_deposit_total", "unverified_deposit_count",
     "non_revenue_total", "non_revenue_count", "maximum_revenue",
@@ -85,8 +85,11 @@ def _row(path: Path, root: Path, markdown_path: Path, json_path: Path, doc, repo
         "reconciles": "yes" if r.ok else "no",
         "credit_coverage": _pct(r.credit_coverage),
         "debit_coverage": _pct(r.debit_coverage),
-        "avg_balance": f"{m.average_balance:.2f}" if m.average_balance is not None else "",
-        "avg_source": m.average_balance_source or "",
+        "average_daily_balance": (
+            f"{m.average_daily_balance:.2f}"
+            if m.average_daily_balance is not None
+            else ""
+        ),
         "deposits": f"{m.effective_total_deposits:.2f}",
         "deposit_count": m.effective_num_deposits,
         "withdrawals": f"{m.effective_total_withdrawals:.2f}",
