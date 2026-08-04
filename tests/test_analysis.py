@@ -94,6 +94,8 @@ def _assert_withheld_adb_is_not_public(report, filename: str) -> None:
     assert metrics["adb"]["ok"] is False
     assert metrics["adb"]["daily_balance_sum"] is None
     assert metrics["adb"]["daily_balances"] == []
+    assert metrics["min_balance"] is None
+    assert metrics["max_balance"] is None
 
     rows = _analysis_rows(payload)
     assert not any(section == "adb_daily_balance" for section, _, _ in rows)
@@ -116,6 +118,9 @@ def _assert_withheld_adb_is_not_public(report, filename: str) -> None:
     ])
     assert package["documents"][0]["average_daily_balance"] is None
     assert package["documents"][0]["adb_validated"] is False
+    assert package["documents"][0]["min_balance"] is None
+    assert package["documents"][0]["max_balance"] is None
+    assert package["documents"][0]["daily_balance_extrema_validated"] is False
     assert package["totals"]["average_daily_balance"] is None
 
 
@@ -916,7 +921,7 @@ def test_parse_first_citizens_statement_reconciles_section_totals():
     assert reconcile(stmt).ok
 
 
-def test_parse_ibc_statement_reconciles_corrected_daily_ledger():
+def test_ibc_source_summary_conflict_fails_closed():
     md = _artifact_markdown("065_IBC April (1).md")
     stmt = parse_ibc_statement(md)
     assert stmt is not None
@@ -924,8 +929,11 @@ def test_parse_ibc_statement_reconciles_corrected_daily_ledger():
     assert stmt.account_number == "2117858783"
     assert stmt.period_start == "2026-04-01"
     assert stmt.period_end == "2026-04-30"
-    assert stmt.beginning_balance == -625.31
-    assert stmt.ending_balance == 8442.35
+    assert stmt.beginning_balance == 10625.31
+    assert stmt.ending_balance == 18442.35
+    assert len(stmt.stated_daily_balances) == 21
+    assert stmt.stated_daily_balances[0].balance == -625.31
+    assert stmt.stated_daily_balances[-1].balance == 8442.35
     assert len(stmt.transactions) == 317
     assert stmt.stated_credit_count == 21
     assert stmt.stated_debit_count == 296
@@ -935,12 +943,30 @@ def test_parse_ibc_statement_reconciles_corrected_daily_ledger():
     assert stmt.stated_average_balance == 14388.96
     assert any("NSF Return Item Fee" in t.description for t in stmt.transactions)
     assert any("MUDFLAP" in t.description for t in stmt.transactions)
-    assert reconcile(stmt).ok
+    reconciliation = reconcile(stmt)
+    assert reconciliation.ok is False
+    assert reconciliation.summary_ok is False
+    assert reconciliation.stated_beginning == 10625.31
+    assert reconciliation.stated_ending == 18442.35
+    assert reconciliation.computed_ending == 19692.97
+    assert reconciliation.sum_delta == 1250.62
     metrics = compute_metrics(stmt)
-    assert metrics.average_daily_balance == 4534.03
+    assert metrics.adb_ok is False
+    assert metrics.average_daily_balance is None
+    assert metrics.min_balance is None
+    assert metrics.max_balance is None
     assert metrics.nsf_count == 1
     # MUDFLAP rows are card-present fuel purchases, not lender repayments.
     assert metrics.lender_debits == 0.0
+
+    report = analyze_markdown(md, parse_mode="deterministic")
+    from analysis.serialization import report_to_dict
+
+    payload = report_to_dict(report)
+    assert payload["statement"]["beginning_balance"] == 10625.31
+    assert payload["statement"]["ending_balance"] is None
+    assert payload["reconciliation"]["stated_ending"] == 18442.35
+    _assert_withheld_adb_is_not_public(report, "IBC April (1).pdf")
 
 
 @pytest.mark.parametrize(

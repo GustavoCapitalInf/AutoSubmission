@@ -24,6 +24,7 @@ class ReconResult:
     summary_ok: bool | None = None
     # Filled when the inputs are present, for reporting.
     computed_ending: float | None = None
+    stated_beginning: float | None = None
     stated_ending: float | None = None
     sum_delta: float | None = None
     continuity_breaks: int = 0
@@ -31,6 +32,43 @@ class ReconResult:
     # (< 1.0 means OCR/extraction dropped detail — stated summary is still usable).
     credit_coverage: float | None = None
     debit_coverage: float | None = None
+    coverage_adjusted_for_reversals: bool = False
+    reversal_pair_count: int = 0
+    gross_credit_total: float | None = None
+    gross_debit_total: float | None = None
+    settled_credit_detail: float | None = None
+    settled_debit_detail: float | None = None
+
+
+def _debit_coverage_target(
+    stmt: Statement,
+    beginning: float | None,
+) -> float | None:
+    target = stmt.stated_total_debits
+    service_charge = stmt.stated_service_charge or 0.0
+    if (
+        target is None
+        or not service_charge
+        or beginning is None
+        or stmt.ending_balance is None
+        or stmt.stated_total_credits is None
+    ):
+        return target
+    interest = stmt.stated_interest_paid or 0.0
+    base = beginning + stmt.stated_total_credits - target + interest
+    if (
+        abs(round(base - service_charge - stmt.ending_balance, 2)) <= 1.00
+        and abs(round(base - stmt.ending_balance, 2)) > 1.00
+    ):
+        return round(target + service_charge, 2)
+    return target
+
+
+def _coverage_mismatch(captured: float, target: float | None) -> bool:
+    if not target:
+        return False
+    coverage = captured / target
+    return coverage < 0.98 or coverage > 1.02
 
 
 def reconcile(stmt: Statement) -> ReconResult:
@@ -119,20 +157,70 @@ def reconcile(stmt: Statement) -> ReconResult:
     # or an internally inconsistent source document, so do not diagnose OCR here.
     credits = round(sum(t.amount for t in stmt.transactions if t.amount > 0), 2)
     debits = round(-sum(t.amount for t in stmt.transactions if t.amount < 0), 2)
+    settled_credits = credits
+    settled_debits = debits
+    reversal_pair_count = 0
+    coverage_adjusted = False
+    debit_target = _debit_coverage_target(stmt, beginning_for_checks)
+    needs_reversal_coverage = (
+        _coverage_mismatch(credits, stmt.stated_total_credits)
+        or _coverage_mismatch(debits, debit_target)
+    )
+    if stmt.transactions and needs_reversal_coverage:
+        from .transaction_classifier import classify_statement_transactions
+
+        classifications = classify_statement_transactions(stmt)
+        reversal_credits = round(
+            sum(
+                record.amount
+                for record in classifications
+                if record.amount > 0 and record.settlement_reversal
+            ),
+            2,
+        )
+        reversed_debits = round(
+            -sum(
+                record.amount
+                for record in classifications
+                if record.amount < 0 and record.reversed_by is not None
+            ),
+            2,
+        )
+        reversal_pair_count = sum(
+            1 for record in classifications if record.settlement_reversal
+        )
+        candidate_credits = round(credits - reversal_credits, 2)
+        candidate_debits = round(debits - reversed_debits, 2)
+        if (
+            stmt.stated_total_credits
+            and abs(candidate_credits - stmt.stated_total_credits)
+            < abs(credits - stmt.stated_total_credits)
+        ):
+            settled_credits = candidate_credits
+            coverage_adjusted = True
+
+        if (
+            debit_target
+            and abs(candidate_debits - debit_target) < abs(debits - debit_target)
+        ):
+            settled_debits = candidate_debits
+            coverage_adjusted = True
+
     credit_cov = debit_cov = None
     if stmt.stated_total_credits:
-        credit_cov = round(credits / stmt.stated_total_credits, 3)
+        credit_cov = round(settled_credits / stmt.stated_total_credits, 3)
         if credit_cov < 0.98 or credit_cov > 1.02:
             issues.append(
-                f"captured ${credits:,.2f} of the bank's stated ${stmt.stated_total_credits:,.2f} "
+                f"captured ${settled_credits:,.2f} of the bank's stated ${stmt.stated_total_credits:,.2f} "
                 f"in credits ({credit_cov:.0%}) - line-item detail is inconsistent "
                 f"or incomplete; do not use it for daily-balance reconstruction"
             )
     if stmt.stated_total_debits:
-        debit_cov = round(debits / stmt.stated_total_debits, 3)
+        assert debit_target is not None
+        debit_cov = round(settled_debits / debit_target, 3)
         if debit_cov < 0.98 or debit_cov > 1.02:
             issues.append(
-                f"captured ${debits:,.2f} of the bank's stated ${stmt.stated_total_debits:,.2f} "
+                f"captured ${settled_debits:,.2f} of the bank's stated ${debit_target:,.2f} "
                 f"in debits ({debit_cov:.0%}) - line-item detail is inconsistent "
                 f"or incomplete; do not use it for daily-balance reconstruction"
             )
@@ -140,7 +228,19 @@ def reconcile(stmt: Statement) -> ReconResult:
     ok = not issues
     return ReconResult(
         ok=ok, issues=issues, summary_ok=summary_ok,
-        computed_ending=computed_ending, stated_ending=stated_ending,
+        computed_ending=computed_ending,
+        stated_beginning=(
+            round(stmt.beginning_balance, 2)
+            if stmt.beginning_balance is not None
+            else None
+        ),
+        stated_ending=stated_ending,
         sum_delta=sum_delta, continuity_breaks=breaks,
         credit_coverage=credit_cov, debit_coverage=debit_cov,
+        coverage_adjusted_for_reversals=coverage_adjusted,
+        reversal_pair_count=reversal_pair_count,
+        gross_credit_total=credits,
+        gross_debit_total=debits,
+        settled_credit_detail=settled_credits,
+        settled_debit_detail=settled_debits,
     )

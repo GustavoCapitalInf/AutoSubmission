@@ -129,6 +129,16 @@ def report_to_dict(report: Report) -> dict:
         raise ValueError("classification count must equal transaction count")
 
     statement = report.statement.model_dump()
+    # A printed ending balance remains reconciliation evidence, but it is not a
+    # reportable metric when neither the detailed ledger nor the bank's own
+    # summary identity supports it. The reconciliation object retains the source
+    # value and computed value for forensic review.
+    closing_balance_valid = (
+        report.reconciliation.ok
+        or report.reconciliation.summary_ok is True
+    )
+    if not closing_balance_valid:
+        statement["ending_balance"] = None
     statement["transactions"] = [
         _transaction_dict(transaction, classification)
         for transaction, classification in zip(report.statement.transactions, records)

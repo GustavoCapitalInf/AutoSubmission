@@ -116,6 +116,9 @@ class TransactionClassification:
     revenue_review_note: str | None = None
     revenue_reviewed_at: str | None = None
     duplicate_of: str | None = None
+    reversal_of: str | None = None
+    reversed_by: str | None = None
+    settlement_reversal: bool = False
     contributes_to_lender_count: bool = False
     contributes_to_potential_lender_count: bool = False
     contributes_to_lender_totals: bool = False
@@ -176,6 +179,8 @@ def normalize_transaction_description(description: str) -> str:
     normalized = re.sub(r"\bA(?:\s)*[T7](?:\s)*M\b", "ATM", normalized)
     normalized = re.sub(r"\b1NSURANCE\b|\bINSURANCF\b", "INSURANCE", normalized)
     normalized = re.sub(r"\bF1NANCE\b", "FINANCE", normalized)
+    normalized = re.sub(r"\bLN\b", "LOAN", normalized)
+    normalized = re.sub(r"\bPAYMT\b", "PAYMENT", normalized)
     return re.sub(r"\s+", " ", normalized).strip()
 
 
@@ -250,12 +255,15 @@ _REFUND_REVERSAL_PATTERNS = (
     re.compile(r"\bCHARGEBACK\b"),
     re.compile(r"\bPOS CREDIT\b"),
     re.compile(r"\bCREDIT ADJUSTMENT\b"),
+    re.compile(r"\bREJECTED\b"),
+    re.compile(r"\bRETURNED ACH\b"),
 )
 _POS_PATTERNS = (
     re.compile(r"\bPOS\b"),
     re.compile(r"\bPOINT OF SALE\b"),
     re.compile(r"\bCARD PURCHASE\b"),
     re.compile(r"\bDEBIT CARD PURCHASE\b"),
+    re.compile(r"\bDEBIT CARD CREDIT\b"),
     re.compile(r"\bDEBIT PURCHASE\b"),
     re.compile(r"\bBUSINESS DEBIT MERCH(?:ANT)?\b"),
     re.compile(r"\bINTERAC PURCHASE\b"),
@@ -270,8 +278,12 @@ _POS_EXCLUSION_PATTERNS = (
     re.compile(r"\bCASH ADVANCE\b"),
     re.compile(r"\bFEES?\b"),
     re.compile(r"\bSERVICE CHARGE\b"),
-    re.compile(r"\bTRANSFER\b"),
     re.compile(r"\bATM\b"),
+)
+_EXPLICIT_CARD_PURCHASE_PATTERNS = (
+    re.compile(r"\b(?:DEBIT |VISA DEBIT |MASTER ?CARD DEBIT )?CARD PURCHASE\b"),
+    re.compile(r"\bDEBIT CARD PURCHASE\b"),
+    re.compile(r"\bBUSINESS DEBIT MERCH(?:ANT)?\b"),
 )
 _ATM_PATTERNS = (
     re.compile(r"\bATM\s+(?:CASH\s+)?WITHDRAW(?:AL)?\b"),
@@ -335,6 +347,7 @@ _CREDIT_CARD_PATTERNS = (
     re.compile(r"\b(?:VISA|MASTER ?CARD|AMEX|AMERICAN EXPRESS) (?:PAYMENT|PMT|PYMT|EPAYMENT)\b"),
     re.compile(r"\bATB MASTER ?CARD\b"),
     re.compile(r"\bCAPITAL ONE\b.*\b(?:ONLINE PMT|CARD PAYMENT|PAYMENT)\b"),
+    re.compile(r"\bCAPITAL ?ON ?TAP\b"),
     re.compile(r"\bPAYMENT TO (?:VISA|MASTER ?CARD|AMEX|AMERICAN EXPRESS)\b"),
 )
 _CHECK_PATTERNS = (
@@ -348,6 +361,7 @@ _SUBSCRIPTION_PATTERNS = (
 _INSURANCE_TERM_PATTERNS = (
     re.compile(r"\bINSURANCE\b"),
     re.compile(r"\bPREMIUM\b"),
+    re.compile(r"\bINS PREM\b"),
     re.compile(r"\bPOLICY\b"),
     re.compile(r"\bCOMMERCIAL INSURANCE\b"),
     re.compile(r"\bBUSINESS INSURANCE\b"),
@@ -401,6 +415,17 @@ _REVERSAL_CANCELLATION_CREDIT_PATTERNS = (
     re.compile(r"\bCREDIT PENDING (?:REVIEW|FINAL|VERIFICATION)\b"),
 )
 
+_SETTLEMENT_REVERSAL_PATTERNS = (
+    re.compile(r"\bRETURN(?:ED)?\b"),
+    re.compile(r"\bREJECTED\b"),
+    re.compile(r"\bREVERS(?:AL|ED|E)\b"),
+    re.compile(r"\bVOID(?:ED)?\b"),
+    re.compile(r"\bCANCEL(?:LED|ED|LATION)?\b"),
+    re.compile(r"\bCNCL\b"),
+    re.compile(r"\bNSF\b"),
+    re.compile(r"\bCHARGEBACK\b"),
+)
+
 _INTERNAL_ACCOUNT_SOURCE = (
     r"(?:ACCOUNTS?|CHK|CHECKING|CK|SAV|SAVINGS|SV|SHARES?|MMA|"
     r"MONEY MARKET|PCA|(?:SUB )?RESERVE ACCOUNTS?)"
@@ -437,6 +462,7 @@ _NON_REVENUE_CREDIT_PATTERNS = (
     ),
     re.compile(r"\b(?:BUSINESS |COMMERCIAL )?LOANS?\b"),
     re.compile(r"\b(?:MCA|MERCHANT CASH ADVANCES?)\b"),
+    re.compile(r"\bCASH ADVANCE\b"),
     re.compile(r"\b(?:LOAN|MCA) ORIGINATION CREDIT\b"),
     *_INTERNAL_TRANSFER_CREDIT_PATTERNS,
     re.compile(r"\bOWNER(?:S)? (?:CONTRIBUTION|CAPITAL|DEPOSIT|TRANSFER)\b"),
@@ -466,6 +492,10 @@ _VERIFIED_REVENUE_CREDIT_PATTERNS = (
     re.compile(r"\bINVOICE (?:PAYMENT|PAID|DEPOSIT)\b"),
     re.compile(r"\bACCOUNTS? RECEIVABLE\b"),
     re.compile(r"\bMARKETPLACE (?:PAYOUT|SETTLEMENT)\b"),
+    re.compile(r"\bH(?:C|E)?CLAIMPMT\b"),
+    re.compile(r"\bEDIRPAY\b"),
+    re.compile(r"\bMERCHANT BANK(?:CD|CARD|ED) DEPOSIT\b"),
+    re.compile(r"\bMTOT DEP\b"),
 )
 _OPERATING_CREDIT_CONTEXT_PATTERNS = (
     re.compile(r"\b(?:SETTLEMENT|PAYOUT|DISBURSEMENT)\b"),
@@ -697,7 +727,7 @@ _ENTITY_NOISE = {
     "ACH", "EFT", "DEBIT", "DIRECT", "DEB", "EXTERNAL", "WITHDRAWAL",
     "AUTOMATIC", "AUTO", "W", "D", "ORIG", "ORIGINATOR", "CO", "COMPANY",
     "NAME", "DESCR", "DESCRIPTION", "ENTRY", "DETAIL", "PAYMENT", "PAYMENTS",
-    "PMT", "PYMT", "REPAYMENT", "REMITTANCE", "PAD", "BUSINESS", "ONLINE",
+    "PAY", "PMT", "PYMT", "REPAYMENT", "REMITTANCE", "PAD", "BUSINESS", "ONLINE",
     "WEB", "CCD", "PPD", "LOAN", "MCA", "TO", "FROM", "FOR",
 }
 _ENTITY_ACRONYMS = {"ACH", "BDC", "CMCA", "EFT", "LLC", "MCA", "SBA", "SNAP"}
@@ -907,6 +937,10 @@ def classify_transaction(
         amount < 0
         and _matches_any(text, _POS_PATTERNS)
         and not _matches_any(text, _POS_EXCLUSION_PATTERNS)
+        and (
+            "TRANSFER" not in text
+            or _matches_any(text, _EXPLICIT_CARD_PURCHASE_PATTERNS)
+        )
         and not _matches_any(text, _LEASE_PATTERNS)
         and _registry_match(text, LEASE_PROVIDER_ALIASES) is None
     ):
@@ -1108,11 +1142,11 @@ def classify_transaction(
     financing_signal = _matches_any(text, _FINANCING_SIGNAL_PATTERNS)
     payment_marker = _matches_any(text, _PAYMENT_MARKER_PATTERNS)
     candidate = _canonical_unknown_entity(text) if financing_signal else None
-    if amount < 0 and explicit_repayment and candidate:
+    if amount < 0 and explicit_repayment:
         return _build_record(
             **common,
             classification="potential_lender",
-            canonical_entity=candidate,
+            canonical_entity=candidate or "Unidentified lender obligation",
             match_method="explicit_financing_repayment",
             matched_rule="unknown_explicit_repayment",
             confidence_score=0.78,
@@ -1189,7 +1223,9 @@ _REVENUE_PAIR_NOISE = {
     "CANCEL", "CANCELED", "CANCELLED", "CANCELLATION", "CNCL",
     "RETURN", "RETURNED", "REVERSAL", "REVERSED", "REVERSE",
     "REFUND", "REFUNDED", "CREDIT", "DEBIT", "SENT", "RECEIVED",
-    "PAYMENT", "ITEM", "PROVISIONAL", "TEMPORARY", "CONDITIONAL",
+    "PAYMENT", "PAY", "PMT", "PYMT", "ITEM", "PROVISIONAL", "TEMPORARY",
+    "CONDITIONAL", "ACH", "PULL", "CARD", "PURCHASE", "CHECK", "CHEQUE",
+    "WIRE", "TRANSFER", "DEPOSIT", "WITHDRAWAL",
 }
 
 
@@ -1212,6 +1248,7 @@ def _apply_reversal_pair_context(
     duplicate_indexes: set[int],
 ) -> list[TransactionClassification]:
     updated = list(records)
+    matched_debit_indexes: set[int] = set()
     for credit_index, credit in enumerate(records):
         if (
             credit_index in duplicate_indexes
@@ -1228,6 +1265,7 @@ def _apply_reversal_pair_context(
         for debit_index, debit in enumerate(records):
             if (
                 debit_index in duplicate_indexes
+                or debit_index in matched_debit_indexes
                 or debit.amount >= 0
                 or not debit.is_posted
                 or round(abs(debit.amount), 2) != round(credit.amount, 2)
@@ -1258,8 +1296,17 @@ def _apply_reversal_pair_context(
             key=lambda item: (item[0], abs(item[1] - credit_index), item[1]),
         )
         debit = records[debit_index]
+        matched_debit_indexes.add(debit_index)
         related_location = debit.source_location or f"transaction:{debit_index + 1}"
-        updated[credit_index] = _replace_revenue_state(
+        credit_location = credit.source_location or f"transaction:{credit_index + 1}"
+        is_settlement_reversal = _matches_any(
+            credit.normalized_description,
+            _SETTLEMENT_REVERSAL_PATTERNS,
+        ) or _matches_any(
+            debit.normalized_description,
+            _SETTLEMENT_REVERSAL_PATTERNS,
+        )
+        updated_credit = _replace_revenue_state(
             credit,
             "non_revenue",
             match_method="matched_reversal_pair",
@@ -1276,6 +1323,23 @@ def _apply_reversal_pair_context(
             ),
             related_transaction=related_location,
         )
+        updated[credit_index] = replace(
+            updated_credit,
+            reversal_of=related_location if is_settlement_reversal else None,
+            settlement_reversal=is_settlement_reversal,
+        )
+        if is_settlement_reversal:
+            updated[debit_index] = replace(
+                updated[debit_index],
+                reversed_by=credit_location,
+                contributes_to_lender_count=False,
+                contributes_to_potential_lender_count=False,
+                contributes_to_lender_totals=False,
+                contributes_to_withholding_rate=False,
+                contributes_to_potential_lender_totals=False,
+                contributes_to_potential_withholding_exposure=False,
+                contributes_to_insurance_totals=False,
+            )
     return updated
 
 

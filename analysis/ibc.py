@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from .schema import Statement, Transaction
+from .schema import Statement, StatementDailyBalance, Transaction
 
 
 _MONEY_RE = re.compile(r"-?\d[\d,]*\.\d{2}")
@@ -43,21 +43,41 @@ def _daily_balances(markdown: str) -> dict[str, float]:
     return balances
 
 
-def _summary(markdown: str) -> tuple[str, int, float, int, float, float] | None:
+def _summary(
+    markdown: str,
+) -> tuple[str, float, int, float, int, float, float, float] | None:
     flat = re.sub(r"\s+", " ", markdown)
     m = re.search(
         r"Biz Rite Account Recap Account Number:\s*(\d+).*?"
         r"Balance\s+Credits\s+Credits\s+Debits\s+Debits\s+Balance\s+"
-        r"[-\d,]+\.\d{2}\s+(\d+)\s+(\d[\d,]*\.\d{2})\s+"
-        r"(\d+)\s+(\d[\d,]*\.\d{2})\s+[-\d,]+\.\d{2}.*?"
+        r"([-\d,]+\.\d{2})\s+(\d+)\s+(\d[\d,]*\.\d{2})\s+"
+        r"(\d+)\s+(\d[\d,]*\.\d{2})\s+([-\d,]+\.\d{2}).*?"
         r"Total Service Charge Posted\s+(\d[\d,]*\.\d{2})",
         flat,
         re.IGNORECASE,
     )
     if not m:
         return None
-    account, credit_count, credits, debit_count, debits, service_charge = m.groups()
-    return account, int(credit_count), _money(credits), int(debit_count), _money(debits), _money(service_charge)
+    (
+        account,
+        beginning,
+        credit_count,
+        credits,
+        debit_count,
+        debits,
+        ending,
+        service_charge,
+    ) = m.groups()
+    return (
+        account,
+        _money(beginning),
+        int(credit_count),
+        _money(credits),
+        int(debit_count),
+        _money(debits),
+        _money(ending),
+        _money(service_charge),
+    )
 
 
 def _average_collected_balance(markdown: str) -> float | None:
@@ -164,7 +184,16 @@ def parse_ibc_statement(markdown: str) -> Statement | None:
     if period is None or summary is None or not daily:
         return None
     start, end, year = period
-    account, credit_count, total_credits, debit_count, total_debits, service_charge = summary
+    (
+        account,
+        beginning_balance,
+        credit_count,
+        total_credits,
+        debit_count,
+        total_debits,
+        ending_balance,
+        service_charge,
+    ) = summary
 
     deposits = _parse_deposits(markdown, year=year)
     electronic_credits = _parse_electronic_credits(markdown, year=year)
@@ -184,9 +213,9 @@ def parse_ibc_statement(markdown: str) -> Statement | None:
         return None
 
     first_balance = daily[min(daily)]
-    ending_balance = daily[max(daily)]
-    beginning_balance = round(ending_balance - credits + debits, 2)
-    if abs(beginning_balance - first_balance) > 0.01:
+    detail_ending = daily[max(daily)]
+    detail_beginning = round(detail_ending - credits + debits, 2)
+    if abs(detail_beginning - first_balance) > 0.01:
         return None
 
     start_date = date.fromisoformat(start)
@@ -206,5 +235,12 @@ def parse_ibc_statement(markdown: str) -> Statement | None:
         stated_debit_count=debit_count,
         stated_service_charge=service_charge,
         stated_average_balance=_average_collected_balance(markdown),
+        stated_daily_balances=[
+            StatementDailyBalance(
+                date=date(year, int(mmdd[:2]), int(mmdd[3:])).isoformat(),
+                balance=balance,
+            )
+            for mmdd, balance in sorted(daily.items())
+        ],
         transactions=_with_daily_running_balances(txns, daily, year=year),
     )

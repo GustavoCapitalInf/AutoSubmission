@@ -43,13 +43,17 @@ from .bmo import parse_bmo_statement
 from .capital_one import parse_capital_one_statement
 from .chase import parse_chase_statement
 from .citizens import parse_citizens_statement
+from .columbia_bank import parse_columbia_bank_statement
 from .farmers_merchants import parse_farmers_merchants_statement
+from .first_farmers import parse_first_farmers_statement
+from .navigant import parse_navigant_statement
 from .pnc import parse_pnc_statement
 from .rbc import parse_rbc_statement
 from .santander import parse_santander_statement
 from .scotia import parse_scotiabank_statement
 from .scanned_small_bank import parse_apex_scanned_statement, parse_southside_scanned_statement
 from .secu import parse_secu_statement
+from .relay import parse_relay_statement
 from .wells import parse_wells_statement
 from .wilson_muir import parse_wilson_muir_statement
 from .bank_repairs import (
@@ -303,6 +307,25 @@ def assess_document_integrity(
     if contradictions:
         flags.append("conflicting_statement_summaries")
         notes.extend(contradictions)
+    declared_pages = [
+        (int(current), int(total))
+        for current, total in re.findall(
+            r"\bPage\s*:?\s*(\d+)\s+of\s+(\d+)\b",
+            markdown,
+            re.IGNORECASE,
+        )
+    ]
+    if declared_pages:
+        declared_total = max(total for _, total in declared_pages)
+        present = {current for current, total in declared_pages if total == declared_total}
+        missing = sorted(set(range(1, declared_total + 1)) - present)
+        if missing:
+            flags.append("missing_declared_statement_page")
+            notes.append(
+                "statement declares "
+                f"{declared_total} bank page(s), but page label(s) "
+                f"{', '.join(str(page) for page in missing)} are absent from the supplied PDF"
+            )
 
     unique_flags = list(dict.fromkeys(flags))
     unique_notes = list(dict.fromkeys(notes))
@@ -333,7 +356,11 @@ def assess_document_integrity(
 
 def _deterministic_statement(markdown: str) -> Statement | None:
     return (
-        parse_td_canada_statement(markdown)
+        parse_columbia_bank_statement(markdown)
+        or parse_first_farmers_statement(markdown)
+        or parse_navigant_statement(markdown)
+        or parse_relay_statement(markdown)
+        or parse_td_canada_statement(markdown)
         or parse_td_us_statement(markdown)
         or parse_altana_statement(markdown)
         or parse_amex_statement(markdown)

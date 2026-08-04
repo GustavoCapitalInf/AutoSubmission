@@ -171,7 +171,7 @@ def _row_date(line: str, period_start: date, period_end: date) -> date | None:
 _NOT_A_POSTING_ROW = re.compile(
     r"\b(through|statement period|beginning balance|opening balance|ending balance"
     r"|closing balance|previous balance|balance forward|average (daily |ledger |collected )?balance"
-    r"|daily balance|total(s)? for|page \d+)\b",
+    r"|daily balance|total(s)? for|page\s*:?\s*\d+)\b",
     re.I,
 )
 _MONEY_RE = re.compile(r"\d[\d,]*\.\d{2}")
@@ -180,6 +180,16 @@ _MONEY_RE = re.compile(r"\d[\d,]*\.\d{2}")
 _DATE_TOKEN_RE = re.compile(
     rf"(?<!\d)(?:\d{{1,2}}[/-]\d{{1,2}}(?:[/-]\d{{2,4}})?|\d{{1,2}}\s+(?:{_MONTH_ALT})[a-z]*"
     rf"|(?:{_MONTH_ALT})[a-z]*\.?\s+\d{{1,2}})(?!\d)",
+    re.I,
+)
+
+_DAILY_BALANCE_SECTION_START = re.compile(
+    r"^\s*(?:daily balances?|daily balance (?:summary|history)|balance by date)\s*$",
+    re.I,
+)
+_DAILY_BALANCE_SECTION_END = re.compile(
+    r"^\s*(?:overdraft|returned item|checks?|deposits?|withdrawals?|transactions?|"
+    r"service charges?|fees?|account summary|page\b)",
     re.I,
 )
 
@@ -232,7 +242,16 @@ def source_posting_dates(markdown: str, period_start: date, period_end: date) ->
         return found
 
     found: set[date] = set()
+    in_daily_balance_section = False
     for index, line in enumerate(lines):
+        if _DAILY_BALANCE_SECTION_START.match(line):
+            in_daily_balance_section = True
+            continue
+        if in_daily_balance_section:
+            if _DAILY_BALANCE_SECTION_END.match(line):
+                in_daily_balance_section = False
+            else:
+                continue
         if not _is_posting_row(line):
             continue
         parsed = _row_date(line, period_start, period_end)

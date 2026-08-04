@@ -233,20 +233,25 @@ def compute_metrics(
                 m.non_revenue_total += t.amount
                 m.non_revenue_count += 1
                 m.non_revenue_evidence.append(classification)
-        if classification.is_pos_purchase and classification.duplicate_of is None:
+        counts_as_settled_activity = (
+            classification.duplicate_of is None
+            and not classification.settlement_reversal
+            and classification.reversed_by is None
+        )
+        if classification.is_pos_purchase and counts_as_settled_activity:
             m.pos_count += 1
-        if classification.is_pos_credit_or_refund and classification.duplicate_of is None:
+        if classification.is_pos_credit_or_refund and counts_as_settled_activity:
             m.pos_credit_count += 1
-        if classification.is_atm_withdrawal and classification.duplicate_of is None:
+        if classification.is_atm_withdrawal and counts_as_settled_activity:
             m.atm_withdrawal_count += 1
-        if classification.is_ach and classification.duplicate_of is None:
+        if classification.is_ach and counts_as_settled_activity:
             if t.amount >= 0:
                 m.ach_credit_count += 1
             else:
                 m.ach_debit_count += 1
-        if classification.is_check and classification.duplicate_of is None:
+        if classification.is_check and counts_as_settled_activity:
             m.check_count += 1
-        if classification.is_loan_payment and classification.duplicate_of is None:
+        if classification.is_loan_payment and counts_as_settled_activity:
             m.loan_count += 1
     m.total_deposits = round(m.total_deposits, 2)
     m.total_withdrawals = round(m.total_withdrawals, 2)

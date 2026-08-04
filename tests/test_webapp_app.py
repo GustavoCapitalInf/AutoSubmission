@@ -260,7 +260,13 @@ def test_package_analysis_aggregates_completed_jobs():
     job1 = store.create("jan.pdf")
     job2 = store.create("feb.pdf")
     store.set_result(job1.id, "# Jan", "<h1>Jan</h1>", analysis={
-        "statement": {"bank": "TD Bank", "period_start": "2026-01-01", "period_end": "2026-01-31"},
+        "statement": {
+            "bank": "TD Bank",
+            "period_start": "2026-01-01",
+            "period_end": "2026-01-31",
+            "beginning_balance": 500,
+            "ending_balance": 900,
+        },
         "metrics": {
             "effective_total_deposits": 10000,
             "effective_total_withdrawals": 7000,
@@ -269,6 +275,8 @@ def test_package_analysis_aggregates_completed_jobs():
             "average_daily_balance": 100,
             "adb_ok": True,
             "calendar_day_count": 31,
+            "min_balance": 250,
+            "max_balance": 1200,
             "lender_debits": 1000,
             "monthly_lender_debits": 1000,
             "withholding_rate": 10,
@@ -278,7 +286,13 @@ def test_package_analysis_aggregates_completed_jobs():
         "detection": {"known_funders": [{"funder": "ONDECK", "total_debited": 1000}]},
     })
     store.set_result(job2.id, "# Feb", "<h1>Feb</h1>", analysis={
-        "statement": {"bank": "TD Bank", "period_start": "2026-02-01", "period_end": "2026-02-28"},
+        "statement": {
+            "bank": "TD Bank",
+            "period_start": "2026-02-01",
+            "period_end": "2026-02-28",
+            "beginning_balance": 900,
+            "ending_balance": 1100,
+        },
         "metrics": {
             "effective_total_deposits": 12000,
             "effective_total_withdrawals": 8000,
@@ -287,6 +301,8 @@ def test_package_analysis_aggregates_completed_jobs():
             "average_daily_balance": 200,
             "adb_ok": True,
             "calendar_day_count": 28,
+            "min_balance": 700,
+            "max_balance": 1500,
             "lender_debits": 500,
             "monthly_lender_debits": 500,
             "withholding_rate": 4.17,
@@ -309,6 +325,11 @@ def test_package_analysis_aggregates_completed_jobs():
     assert totals["avg_monthly_credits"] == 11000
     assert totals["average_daily_balance"] == 147.46
     assert [doc["average_daily_balance"] for doc in body["documents"]] == [100, 200]
+    assert [doc["beginning_balance"] for doc in body["documents"]] == [500, 900]
+    assert [doc["ending_balance"] for doc in body["documents"]] == [900, 1100]
+    assert [doc["min_balance"] for doc in body["documents"]] == [250, 700]
+    assert [doc["max_balance"] for doc in body["documents"]] == [1200, 1500]
+    assert all(doc["daily_balance_extrema_validated"] for doc in body["documents"])
     assert totals["package_withholding_rate"] == 6.82
     assert totals["decision"] == "approved"
     assert body["funders"] == [{"funder": "ONDECK", "documents": 2, "total_debited": 1500.0}]
@@ -322,6 +343,8 @@ def test_package_analysis_aggregates_completed_jobs():
     assert csv_resp.status_code == 200
     assert csv_resp.mimetype == "text/csv"
     assert "totals,total_credits,22000.0" in csv_resp.get_data(as_text=True)
+    assert "document_1,min_balance,250" in csv_resp.get_data(as_text=True)
+    assert "document_2,max_balance,1500" in csv_resp.get_data(as_text=True)
 
     xlsx_resp = client.get(f"/package_download/xlsx?ids={job1.id},{job2.id}")
     assert xlsx_resp.status_code == 200
@@ -364,6 +387,13 @@ def test_package_adb_ignores_rejected_or_unvalidated_cached_values():
     assert body["totals"]["average_daily_balance"] is None
     assert [doc["average_daily_balance"] for doc in body["documents"]] == [None, None, None]
     assert [doc["adb_validated"] for doc in body["documents"]] == [False, False, False]
+    assert [doc["min_balance"] for doc in body["documents"]] == [None, None, None]
+    assert [doc["max_balance"] for doc in body["documents"]] == [None, None, None]
+    assert [doc["daily_balance_extrema_validated"] for doc in body["documents"]] == [
+        False,
+        False,
+        False,
+    ]
 
 
 def test_package_withholding_is_zero_with_deposits_and_no_lender_debits():

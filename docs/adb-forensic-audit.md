@@ -2,18 +2,18 @@
 
 ## Result
 
-- Statements audited: **105**
-- Valid independent ledgers passed end to end: **103**
-- Correctly withheld invalid source ledgers: **2**
+- Statements audited: **109**
+- Valid independent ledgers passed end to end: **106**
+- Correctly withheld invalid source ledgers: **3**
 - Incorrect production outputs after fixes: **0**
-- Automatic calculation coverage: **98.10%**
+- Automatic calculation coverage: **97.25%**
 - Pass rate among mathematically valid statements: **100.00%**
 - Statements with independently parsed raw daily-ledger tables: **27**
-- Bank-printed averages found: **57**; non-exact comparisons explained: **49**
-- Inclusive period lengths covered: **27 days: 1, 28 days: 10, 29 days: 8, 30 days: 35, 31 days: 31, 32 days: 12, 33 days: 5, 34 days: 3**
+- Bank-printed averages found: **59**; non-exact comparisons explained: **50**
+- Inclusive period lengths covered: **27 days: 1, 28 days: 10, 29 days: 8, 30 days: 38, 31 days: 32, 32 days: 12, 33 days: 5, 34 days: 3**
 - Corpus periods containing February 29: **0** (the synthetic February 2028 regression verifies leap-day inclusion)
 
-`WITHHELD` is a successful fail-closed result, not a fabricated ADB. The two source ledgers do not contain enough internally consistent evidence to calculate one reliably.
+`WITHHELD` is a successful fail-closed result, not a fabricated ADB. These 3 source ledgers do not contain enough internally consistent evidence to calculate one reliably.
 
 ## Method
 
@@ -63,8 +63,10 @@ The expected-value routine in `adb_forensic_audit.py` never imports or calls `an
 | Ace_Auto_Final_Cut.pdf | Farmers & Merchants Bank | $1,569.00 | $3,258.22 | - | - | - | - | WITHHELD |
 | Builder June 2026.pdf | Southside Bank | - | $6,303.69 | $6,303.69 | $6,303.69 | $6,303.69 | $0.00 | PASS |
 | Checking Account Statements - 1_30_2026 - 4001245.pdf | Mission Valley Bank | - | $121,318.02 | $121,318.02 | $121,318.02 | $121,318.02 | $0.00 | PASS |
+| Columbia May 26 complete.pdf | Columbia Bank | $13,275.65 | $13,275.65 | $13,275.65 | $13,275.65 | $13,275.65 | $0.00 | PASS |
 | Consumers March - Monthly Statement.pdf | Consumers Credit Union | - | $26,804.59 | $26,804.59 | $26,804.59 | $26,804.59 | $0.00 | PASS |
 | Field Trucking November 2025 .pdf | Dakota West Credit Union | - | $6,725.12 | $6,725.12 | $6,725.12 | $6,725.12 | $0.00 | PASS |
+| First Farmers 2026 01-document.pdf | First Farmers Bank & Trust | $2,979.63 | $2,979.64 | $2,979.64 | $2,979.64 | $2,979.64 | $0.00 | PASS |
 | KLR.May 31,2026 (1).pdf | Apex Bank | $2,786.20 | $2,785.53 | $2,785.53 | $2,785.53 | $2,785.53 | $0.00 | PASS |
 | Link Bank April statement.pdf | LINKBANK | $14,655.66 | $14,655.66 | $14,655.66 | $14,655.66 | $14,655.66 | $0.00 | PASS |
 | MidFlorida.pdf | MIDFLORIDA Credit Union | - | $2,462.42 | $2,462.42 | $2,462.42 | $2,462.42 | $0.00 | PASS |
@@ -87,7 +89,9 @@ The expected-value routine in `adb_forensic_audit.py` never imports or calls `an
 | bluevine_Statement_2026-04-02T21_36_47.777670Z (1).pdf | Bluevine | - | $11,652.27 | $11,652.27 | $11,652.27 | $11,652.27 | $0.00 | PASS |
 | BMO_Statement_January_2026 Final-1-2 (1).pdf | BMO | - | $894,634.52 | - | - | - | - | WITHHELD |
 | First Citizens Bank.pdf | First Citizens Bank | $8,117.14 | $8,116.50 | $8,116.50 | $8,116.50 | $8,116.50 | $0.00 | PASS |
-| IBC April (1).pdf | IBC Bank | $14,388.96 | $4,534.03 | $4,534.03 | $4,534.03 | $4,534.03 | $0.00 | PASS |
+| IBC April (1).pdf | IBC Bank | $14,388.96 | $4,534.03 | - | - | - | - | WITHHELD |
+| Navigant Credit Union 2026-06-30.pdf | Navigant Credit Union | - | $2,770.02 | $2,770.02 | $2,770.02 | $2,770.02 | $0.00 | PASS |
+| Relay Operations-June-2026.pdf | Thread Bank (Relay) | - | $122.62 | $122.62 | $122.62 | $122.62 | $0.00 | PASS |
 | Santander_April26.pdf | Santander Bank | $770,434.95 | $770,434.95 | $770,434.95 | $770,434.95 | $770,434.95 | $0.00 | PASS |
 | Santander_February 2026.pdf | Santander Bank | $411,379.06 | $411,379.06 | $411,379.06 | $411,379.06 | $411,379.06 | $0.00 | PASS |
 | Santander_March 2026.pdf | Santander Bank | $526,096.09 | $526,096.09 | $526,096.09 | $526,096.09 | $526,096.09 | $0.00 | PASS |
@@ -157,6 +161,19 @@ The expected-value routine in `adb_forensic_audit.py` never imports or calls `an
 - Recommended handling: retain fail-closed behavior and require a corrected statement or manual source-document review.
 - Confidence: high
 
+### IBC April (1).pdf
+
+- Bank: IBC Bank
+- Expected / actual ADB difference: not mathematically determinable / withheld / N/A
+- Incomplete-ledger candidate (not reportable): $4,534.03
+- Closing drift: -$10,000.00
+- Backend / API / dashboard: withheld
+- Root cause: opening plus raw line items misses closing by +1250.62; independent final daily balance misses closing by -10000.00
+- Affected parser: `ibc-bank-deterministic`
+- Affected code: `analysis/ibc.py`; fail-closed gate in `analysis/adb.py`
+- Recommended handling: retain fail-closed behavior and require a corrected statement or manual source-document review.
+- Confidence: high
+
 ## Printed-Average Differences
 
 - **BofA 2026-05-29.pdf** (Bank of America): printed $2,718.80, independent $2,498.72, difference -$220.08 (8.0947%). The raw dated ledger-balance table independently matches the calculated ADB; the printed summary uses an inconsistent or undisclosed basis.
@@ -176,6 +193,7 @@ The expected-value routine in `adb_forensic_audit.py` never imports or calls `an
 - **Citizens May 2026.pdf** (Citizens Bank): printed $17.00, independent $15.09, difference -$1.91 (11.2353%). The bank displays a whole-dollar qualifying/summary value; the independent ledger retains cents.
 - **7429_Statement_October_2025_Statement.pdf** (First Community Credit Union): printed $1,233.51, independent $1,714.41, difference $480.90 (38.9863%). The account-analysis average uses a collected/availability basis not reproduced by posted ledger EOD balances.
 - **Ace_Auto_Final_Cut.pdf** (Farmers & Merchants Bank): printed $1,569.00, independent $3,258.22, difference $1,689.22 (107.6622%). opening plus raw line items misses closing by +2943.45; independent final daily balance misses closing by +2943.45
+- **First Farmers 2026 01-document.pdf** (First Farmers Bank & Trust): printed $2,979.63, independent $2,979.64, difference $0.01 (0.0003%). One-cent presentation difference caused by the bank's rounding/truncation convention.
 - **KLR.May 31,2026 (1).pdf** (Apex Bank): printed $2,786.20, independent $2,785.53, difference -$0.67 (0.0240%). The raw ledger closes, but the bank-printed average uses an undisclosed alternate balance basis.
 - **Texas Bank.pdf** (Texas Bank and Trust): printed $4,879.33, independent $4,879.00, difference -$0.33 (0.0068%). The raw ledger closes, but the bank-printed average uses an undisclosed alternate balance basis.
 - **WMB May 25.pdf** (Wilson & Muir Bank & Trust): printed $22,677.84, independent $22,677.85, difference $0.01 (0.0000%). One-cent presentation difference caused by the bank's rounding/truncation convention.
@@ -187,7 +205,7 @@ The expected-value routine in `adb_forensic_audit.py` never imports or calls `an
 - **Banco Popular Junio 2026.pdf** (Banco Popular): printed $1,508.41, independent $1,507.80, difference -$0.61 (0.0404%). The bank's cycle average differs from the arithmetic mean of its own printed Book Balance history.
 - **Banco Popular May 2026.pdf** (Banco Popular): printed $2,333.48, independent $2,342.51, difference $9.03 (0.3870%). The bank's cycle average differs from the arithmetic mean of its own printed Book Balance history.
 - **First Citizens Bank.pdf** (First Citizens Bank): printed $8,117.14, independent $8,116.50, difference -$0.64 (0.0079%). The raw dated ledger-balance table independently matches the calculated ADB; the printed summary uses an inconsistent or undisclosed basis.
-- **IBC April (1).pdf** (IBC Bank): printed $14,388.96, independent $4,534.03, difference -$9,854.93 (68.4895%). Different disclosed basis: the bank prints collected balance, while ADB uses posted ledger EOD balances.
+- **IBC April (1).pdf** (IBC Bank): printed $14,388.96, independent $4,534.03, difference -$9,854.93 (68.4895%). opening plus raw line items misses closing by +1250.62; independent final daily balance misses closing by -10000.00
 - **PNC_Statement-2026-01-29.pdf** (PNC Bank): printed $541.22, independent $538.46, difference -$2.76 (0.5100%). The raw dated ledger-balance table independently matches the calculated ADB; the printed summary uses an inconsistent or undisclosed basis.
 - **PNC_Statement-2026-02-26.pdf** (PNC Bank): printed $728.48, independent $746.57, difference $18.09 (2.4833%). The raw dated ledger-balance table independently matches the calculated ADB; the printed summary uses an inconsistent or undisclosed basis.
 - **PNC_Statement-2026-03-30.pdf** (PNC Bank): printed $884.26, independent $864.63, difference -$19.63 (2.2199%). The raw dated ledger-balance table independently matches the calculated ADB; the printed summary uses an inconsistent or undisclosed basis.

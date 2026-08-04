@@ -729,6 +729,16 @@ def test_existing_dashboard_field_binds_directly_to_authoritative_api_adb():
     assert "daily_balances.reduce" not in javascript
 
 
+def test_dashboard_balance_cards_bind_to_backend_fields_without_recalculation():
+    javascript = Path("webapp/static/app.js").read_text(encoding="utf-8")
+    assert 'formatMoney(statement.ending_balance, currency)' in javascript
+    assert 'formatMoney(metrics.min_balance, currency)' in javascript
+    assert 'formatMoney(metrics.max_balance, currency)' in javascript
+    assert "daily_balances" not in javascript
+    assert javascript.count("metrics.min_balance") == 2
+    assert javascript.count("metrics.max_balance") == 1
+
+
 def test_dashboard_has_no_adb_audit_components_or_duplicate_visible_fields():
     javascript = Path("webapp/static/app.js").read_text(encoding="utf-8")
     assert javascript.count('"Average Daily Balance"') == 5

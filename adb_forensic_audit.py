@@ -554,7 +554,7 @@ def write_report(rows: list[dict[str, Any]], destination: Path, csv_path: Path) 
         f"- Inclusive period lengths covered: **{day_count_summary}**",
         f"- Corpus periods containing February 29: **{leap_periods}** (the synthetic February 2028 regression verifies leap-day inclusion)",
         "",
-        "`WITHHELD` is a successful fail-closed result, not a fabricated ADB. The two source ledgers do not contain enough internally consistent evidence to calculate one reliably.",
+        f"`WITHHELD` is a successful fail-closed result, not a fabricated ADB. These {withheld} source ledgers do not contain enough internally consistent evidence to calculate one reliably.",
         "",
         "## Method",
         "",
@@ -589,6 +589,7 @@ def write_report(rows: list[dict[str, Any]], destination: Path, csv_path: Path) 
     parser_paths = {
         "Farmers & Merchants Bank": "analysis/farmers_merchants.py",
         "BMO": "analysis/bmo.py",
+        "IBC Bank": "analysis/ibc.py",
     }
     for row in rows:
         if row["status"] != "WITHHELD":
@@ -667,6 +668,17 @@ def main() -> None:
         print(f"[{index}/{len(files)}] {path}", flush=True)
         if artifact_root:
             artifact = artifact_root / f"{index:03d}_{path.stem}.md"
+            if not artifact.exists():
+                matches = [
+                    candidate
+                    for candidate in artifact_root.glob("*.md")
+                    if candidate.stem.partition("_")[2] == path.stem
+                ]
+                if len(matches) != 1:
+                    raise RuntimeError(
+                        f"expected one cached source artifact for {path}, found {len(matches)}"
+                    )
+                artifact = matches[0]
             markdown = artifact.read_text(encoding="utf-8")
         else:
             pdf_bytes = path.read_bytes()

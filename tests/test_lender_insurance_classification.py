@@ -197,9 +197,11 @@ def test_recurring_counterparty_normalization_removes_ids_not_business_name():
     assert {record.classification for record in records} == {"potential_lender"}
 
     unidentified = classify_transaction("PAYMENT - AUTOMATIC LOAN PYMT W/D", -370.17)
-    assert unidentified.classification == "other"
-    assert unidentified.canonical_entity is None
+    assert unidentified.classification == "potential_lender"
+    assert unidentified.canonical_entity == "Unidentified lender obligation"
     assert unidentified.review_required
+    assert unidentified.contributes_to_potential_lender_count
+    assert not unidentified.contributes_to_lender_count
 
 
 def test_repeated_insurance_debits_count_rows_and_one_provider():
