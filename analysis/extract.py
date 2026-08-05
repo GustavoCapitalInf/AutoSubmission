@@ -5,12 +5,16 @@ The model only transcribes and normalizes; it never computes totals or averages.
 All math happens later in deterministic Python (reconcile.py / metrics.py)."""
 from __future__ import annotations
 import re
+import time
+from dataclasses import dataclass
+from typing import Callable
 from google import genai
 from google.genai import types
 from .config import Settings, load_settings
 from .schema import Statement
 
 _client: genai.Client | None = None
+_client_config: tuple[str, int, int] | None = None
 
 # The OCR markdown embeds check-image crops as base64 <img> tags for the viewer.
 # Gemini only needs the text ledger, and a single image-heavy statement can carry
@@ -20,16 +24,81 @@ _client: genai.Client | None = None
 _IMG_TAG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
 
 
+@dataclass(frozen=True)
+class ExtractionAttempt:
+    """Non-sensitive operational evidence for one external model call."""
+
+    provider: str
+    model: str
+    source_kind: str
+    status: str
+    latency_ms: int
+    prompt_tokens: int | None = None
+    response_tokens: int | None = None
+    thinking_tokens: int | None = None
+    total_tokens: int | None = None
+    estimated_cost_usd: float | None = None
+    pricing_version: str | None = None
+    error_type: str | None = None
+
+
+# Standard paid-tier rates published by Google on 2026-07-30. Keeping the
+# version beside every estimate makes historical cost reports auditable when
+# provider pricing changes. Unknown model IDs still report tokens but no cost.
+_MODEL_RATES_PER_MILLION: dict[str, tuple[float, float]] = {
+    "gemini-3.5-flash-lite": (0.30, 2.50),
+    "gemini-3.5-flash": (1.50, 9.00),
+    "gemini-3.6-flash": (1.50, 7.50),
+}
+GEMINI_PRICING_VERSION = "google-gemini-paid-standard-2026-07-30"
+
+
+def _model_rates(model: str) -> tuple[float, float] | None:
+    if model in _MODEL_RATES_PER_MILLION:
+        return _MODEL_RATES_PER_MILLION[model]
+    for model_id, rates in _MODEL_RATES_PER_MILLION.items():
+        if model.startswith(model_id + "-"):
+            return rates
+    return None
+
+
+def estimate_extraction_cost(
+    model: str,
+    *,
+    prompt_tokens: int | None,
+    response_tokens: int | None,
+) -> float | None:
+    rates = _model_rates(model)
+    if rates is None or prompt_tokens is None or response_tokens is None:
+        return None
+    input_rate, output_rate = rates
+    cost = (prompt_tokens * input_rate + response_tokens * output_rate) / 1_000_000
+    return round(cost, 8)
+
+
+def _token_count(value: object, name: str) -> int | None:
+    raw = getattr(value, name, None)
+    return int(raw) if raw is not None else None
+
+
 def strip_embedded_images(markdown: str) -> str:
     return _IMG_TAG_RE.sub("", markdown)
 
 
 def _get_client(settings: Settings) -> genai.Client:
-    global _client
-    if _client is None:
+    global _client, _client_config
+    config = (settings.api_key, settings.request_timeout_ms, settings.http_attempts)
+    if _client is None or _client_config != config:
         if not settings.api_key:
             raise RuntimeError("GEMINI_API_KEY is not set (put it in .env).")
-        _client = genai.Client(api_key=settings.api_key)
+        _client = genai.Client(
+            api_key=settings.api_key,
+            http_options=types.HttpOptions(
+                timeout=settings.request_timeout_ms,
+                retry_options=types.HttpRetryOptions(attempts=settings.http_attempts),
+            ),
+        )
+        _client_config = config
     return _client
 
 
@@ -45,6 +114,19 @@ Rules:
 - `date`: output full ISO dates (YYYY-MM-DD). Statements often print MM/DD with no
   year — infer the year from the statement period (watch for a Dec->Jan rollover).
 - `running_balance`: the balance printed after a row, if present; otherwise null.
+- `source_page`: copy the one-based page number from the nearest "--- Page N ---"
+  marker. This is evidence for audit, not a transaction date.
+- Apply the same `source_page` rule to every row copied into
+  `stated_daily_balances`.
+- ACCOUNT ISOLATION: count the distinct financial accounts represented in the
+  document and set `document_account_count`. Never merge activity, balances, or
+  summaries from different accounts. For one account, set
+  `account_selection_status="single_account"`. If several accounts are present
+  and one clearly labeled operating/checking account can be isolated, extract
+  only that account and set `account_selection_status="selected_primary"`. If a
+  unique account cannot be isolated, set `account_selection_status="ambiguous"`,
+  leave account-dependent values unset, and do not fabricate a combined ledger.
+- Copy the printed account type and routing/transit number when present.
 - Capture the bank's own printed SUMMARY block into the statement-level `stated_*`
   and beginning/ending balance fields. This is the most important part — on many
   statements (especially small banks) the per-transaction detail is incomplete but
@@ -77,21 +159,70 @@ Statement markdown follows:
 """
 
 
-def extract_statement(markdown: str, *, settings: Settings | None = None,
-                      model: str | None = None) -> Statement:
+def extract_statement(
+    markdown: str,
+    *,
+    settings: Settings | None = None,
+    model: str | None = None,
+    attempt_sink: Callable[[ExtractionAttempt], None] | None = None,
+) -> Statement:
     """Extract one statement's markdown into a Statement object."""
     settings = settings or load_settings()
     client = _get_client(settings)
-    resp = client.models.generate_content(
-        model=model or settings.model,
-        contents=_INSTRUCTIONS + strip_embedded_images(markdown),
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=Statement,
-            temperature=0.0,
-        ),
-    )
-    stmt = resp.parsed
-    if not isinstance(stmt, Statement):  # schema violation / empty response
-        raise RuntimeError(f"extraction did not return a Statement: {resp.text[:300]!r}")
-    return stmt
+    selected_model = model or settings.model
+    started = time.perf_counter()
+    try:
+        resp = client.models.generate_content(
+            model=selected_model,
+            contents=_INSTRUCTIONS + strip_embedded_images(markdown),
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=Statement,
+            ),
+        )
+        stmt = resp.parsed
+        if not isinstance(stmt, Statement):  # schema violation / empty response
+            raise RuntimeError(f"extraction did not return a Statement: {resp.text[:300]!r}")
+
+        if attempt_sink is not None:
+            usage = getattr(resp, "usage_metadata", None)
+            prompt_tokens = _token_count(usage, "prompt_token_count") if usage else None
+            candidate_tokens = _token_count(usage, "candidates_token_count") if usage else None
+            thinking_tokens = _token_count(usage, "thoughts_token_count") if usage else None
+            response_tokens = None
+            if candidate_tokens is not None or thinking_tokens is not None:
+                response_tokens = (candidate_tokens or 0) + (thinking_tokens or 0)
+            attempt_sink(
+                ExtractionAttempt(
+                    provider="google_gemini",
+                    model=selected_model,
+                    source_kind="ocr_markdown",
+                    status="success",
+                    latency_ms=round((time.perf_counter() - started) * 1000),
+                    prompt_tokens=prompt_tokens,
+                    response_tokens=response_tokens,
+                    thinking_tokens=thinking_tokens,
+                    total_tokens=_token_count(usage, "total_token_count") if usage else None,
+                    estimated_cost_usd=estimate_extraction_cost(
+                        selected_model,
+                        prompt_tokens=prompt_tokens,
+                        response_tokens=response_tokens,
+                    ),
+                    pricing_version=GEMINI_PRICING_VERSION,
+                )
+            )
+        return stmt
+    except Exception as exc:
+        if attempt_sink is not None:
+            attempt_sink(
+                ExtractionAttempt(
+                    provider="google_gemini",
+                    model=selected_model,
+                    source_kind="ocr_markdown",
+                    status="error",
+                    latency_ms=round((time.perf_counter() - started) * 1000),
+                    pricing_version=GEMINI_PRICING_VERSION,
+                    error_type=type(exc).__name__,
+                )
+            )
+        raise

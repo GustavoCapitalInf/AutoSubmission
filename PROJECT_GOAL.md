@@ -1,144 +1,149 @@
-# Project Goal: In-House Bank Statement Analysis
+# Project Goal: Universal Bank Statement Intelligence
 
-## Objective
+## Mission
 
-Replace the current MoneyThumb workflow, which costs approximately $3 per
-uploaded statement, with an in-house bank-statement analysis platform that runs
-on company-controlled infrastructure at negligible marginal cost.
+Build an in-house replacement for MoneyThumb that can process defensible
+underwriting data from bank statements issued by virtually any financial
+institution. The system must support major banks, regional credit unions,
+community banks, unfamiliar institutions, digital PDFs, scans, and degraded
+photocopies without requiring a new parser for every bank name.
 
-The replacement must extract complete transaction data, calculate underwriting
-metrics accurately, reject or escalate statements it cannot prove correct, and
-provide evidence an underwriter can audit.
+The priority order is:
 
-## Target Capability
+1. Accuracy.
+2. Evidence-based validation.
+3. Fail-closed behavior.
+4. Broad bank compatibility.
+5. Low processing cost.
+6. Maintainability.
+7. Performance.
 
-For every supported statement format, the platform should:
+An unfamiliar layout is not an automatic failure, and a plausible result is not
+an automatic success. The system may approve a result only when the source
+evidence and reconstructed ledger prove it.
 
-- Read native-text, scanned, and image-based PDF statements.
-- Extract every posted transaction with its date, original description, amount,
-  direction, and running balance when printed.
-- Extract account type, statement period, bank name, routing number, and masked
-  account number.
-- Calculate beginning, ending, lowest, and average daily balances.
-- Calculate credits, debits, withholding rate, negative days, POS purchases,
-  NSF events, and ATM cash withdrawals.
-- Detect known MCA lenders and recurring debit obligations with transaction
-  evidence.
-- Reconcile line items against printed balances and statement summaries.
-- Detect missing posting dates, incomplete transaction detail, arithmetic
-  contradictions, and running-balance discontinuities.
-- Approve a result automatically only when the source data and reconstructed
-  ledger pass the required validations.
-- Export standardized transaction and underwriting data through the UI and API.
-- Preserve the original statement and classification evidence for audit.
+## Target Architecture
+
+```text
+PDF intake
+-> document inspection
+-> native text and layout extraction
+-> local OCR preflight when native text is insufficient
+-> known deterministic parser attempt
+-> layout-aware visual OCR only when needed
+-> generic statement extraction for unknown layouts
+-> normalized single-account financial model
+-> source grounding and mathematical reconciliation
+-> integrity and confidence decision
+-> deterministic underwriting metrics
+-> API, dashboard, batch, and exports
+```
+
+Dedicated parsers remain useful for certified, high-volume layouts. They are an
+optimization layer, not the boundary of bank support. Unknown layouts use the
+generic extraction path and must satisfy the same financial contracts before
+their values become authoritative.
+
+## Approval Contract
+
+For an authoritative result, the platform must:
+
+- Identify one unambiguous source account and statement period.
+- Extract every posted transaction with direction, amount, date, description,
+  and page provenance; preserve a printed running balance when available.
+- Locate generic-model transactions and statement-level amounts in source text.
+- Reconcile beginning balance plus credits minus debits to ending balance.
+- Reconcile printed summaries and running balances when those controls exist.
+- Reconstruct every calendar day's ending balance for balance metrics.
+- Calculate all financial values in deterministic code, not in the model.
+- Classify each credit exactly once as verified revenue, unverified deposit, or
+  non-revenue.
+- Preserve lender, insurance, NSF, return, ACH, POS, ATM, and check evidence.
+- Return an explicit unavailable/manual-review state when any required proof is
+  missing or contradictory.
+
+Failed source grounding, ambiguous account selection, incomplete ledgers, and
+source contradictions must never produce zero-valued or stale financial output.
+
+## Cost Policy
+
+Use the least expensive reliable route per document:
+
+1. Native PDF text and deterministic parser: no model call.
+2. Local Tesseract preflight for scanned text: no model call.
+3. Unlimited OCR for one layout-aware visual read when local evidence is weak.
+4. One paid Gemini document transcription only when Unlimited OCR is unavailable.
+5. Gemini 3.5 Flash-Lite for generic normalization of an unknown layout.
+6. One stronger extraction only when budget remains and validation fails.
+7. Manual review after the document-wide external-attempt budget is exhausted.
+
+The default Gemini budget is two calls per document across document transcription
+and structured extraction. A visual fallback therefore leaves one normalization
+call and cannot escalate again. Every successful call records model, latency,
+token use, estimated cost, and pricing version. Provider errors record only the
+exception type, not statement data.
+
+Production bank statements must use a paid Gemini project. Google's paid-service
+terms do not use prompts or responses to improve its products; the unpaid tier
+must not receive confidential statements.
 
 ## Current Baseline
 
-Measured against the repository corpus as of July 30, 2026:
+Measured on August 4, 2026:
 
-- 105 of 105 statement PDFs parse.
-- 103 of 105 statements have validated Average Daily Balance results.
-- 102 of 105 statements pass strict ADB and corporate-use approval.
-- 37 bank labels have at least one corporate-validated fixture.
-- 323 automated tests pass.
-- Local visual OCR runs on the RX 7800 XT without a per-document vendor charge.
-- Recognized formats use deterministic parsers without a Gemini extraction call.
+- The ordered deterministic registry contains 43 parser variants.
+- The existing repository corpus remains regression-tested.
+- Unknown layouts have a bounded generic route with page-level source grounding.
+- Multi-account ambiguity and ungrounded generic extraction fail closed.
+- Web and batch PDF processing share one authoritative routing function.
+- API, dashboard, package, and export payloads receive withheld values as null,
+  not fabricated zeroes.
+- 564 offline automated tests pass; three live tests remain opt-in.
+- A paid live Gemini smoke test reconstructed and approved a synthetic unseen
+  community-bank statement in one external attempt.
 
-This baseline demonstrates strong support for the tested statement layouts. It
-does not establish universal support for every layout, account type, or revision
-issued by those banks.
+This baseline proves the architecture and known regression corpus. It does not
+prove universal accuracy on every institution or document condition.
 
-## Known Exceptions
+## Known Source Exceptions
 
-- Farmers & Merchants: the source PDF omits transaction detail required to
-  independently reconstruct the ledger.
-- BMO: the source statement contains conflicting printed totals and numerous
+- Farmers & Merchants: the supplied PDF omits transaction detail needed to
+  reconstruct a unique ledger.
+- BMO: the supplied statement contains conflicting printed totals and many
   running-balance breaks.
-- Chase transaction export: parses, but it is not a complete formal statement
-  and therefore requires manual review.
+- Chase transaction export: the file is not a complete formal statement and
+  remains a manual-review document.
 
-These documents must remain review cases instead of receiving plausible but
-unproven automatic approval.
-
-## Remaining Work
-
-### Format Certification
-
-- Build a deeper regression corpus for the highest-volume US banks.
-- Cover multiple months, business and personal accounts, revised layouts,
-  multi-page statements, scans, and degraded PDFs.
-- Compare production output against independently reconstructed ledgers and the
-  existing MoneyThumb result set.
-- Track accuracy by bank, layout fingerprint, field, and transaction category.
-
-### Underwriting Coverage
-
-- Expand true-revenue and non-revenue transaction categorization.
-- Add broader transfer, payroll, loan, tax, refund, fee, and cash-flow classes.
-- Define configurable underwriting scorecards and approval rules.
-- Add multi-statement and multi-account applicant summaries.
-
-### Document Integrity
-
-- Add PDF metadata and structural inspection.
-- Detect altered objects, replaced images, inconsistent fonts and coordinates,
-  regenerated OCR layers, and suspicious producer history.
-- Build known-good layout fingerprints without treating an unfamiliar layout as
-  proof of fraud.
-- Produce explainable risk flags; do not claim fraud from arithmetic anomalies
-  alone.
-
-### Production Platform
-
-- Add authentication, authorization, tenant separation, and audit logging.
-- Replace the in-memory job store and single-process queue with durable storage
-  and resilient workers.
-- Encrypt documents in transit and at rest and implement retention/deletion
-  policies.
-- Add rate limits, upload validation, monitoring, failure alerts, backups, and
-  operational dashboards.
-- Publish a versioned API with stable schemas and idempotent job submission.
-
-### Cost and Performance
-
-- Keep native extraction, deterministic parsing, and visual OCR local by
-  default.
-- Remove the Gemini fallback from the zero-vendor-cost production path; route an
-  unsupported format to review or parser development instead.
-- Measure electricity, hardware utilization, queue time, and maintenance cost
-  per statement.
-- Improve scanned-document throughput beyond the current approximately
-  23 seconds per visually OCR'd page.
+These sources must remain review cases instead of receiving plausible estimates.
 
 ## Replacement Milestones
 
-1. Controlled use: process validated layouts in-house and retain MoneyThumb only
-   as fallback.
-2. Parallel validation: compare at least 500 to 1,000 real statements against
-   MoneyThumb and independent ledger checks.
-3. Limited replacement: stop sending certified layouts to MoneyThumb after they
-   meet the accuracy and review-rate thresholds.
-4. Primary platform: route all uploads in-house and use manual review for unknown
-   or failed layouts.
-5. Full replacement: remove the MoneyThumb dependency after production security,
-   reliability, format coverage, and fraud controls meet business requirements.
+1. Architecture foundation: generic unknown-layout route, independent source
+   grounding, hard cost limits, fail-closed serialization, and unified routing.
+2. Shadow validation: compare 500 to 1,000 varied real statements against
+   independently reconstructed ledgers and the current MoneyThumb output.
+3. Measured rollout: route certified layouts and high-confidence generic results
+   in-house while tracking field accuracy and manual-review rate by layout.
+4. Production hardening: durable jobs, object storage, authentication,
+   authorization, tenant isolation, audit logs, encryption, retention controls,
+   rate limiting, malware screening, monitoring, and disaster recovery.
+5. Primary platform: remove routine MoneyThumb dependence once accuracy,
+   reliability, security, licensing, and review operations meet company policy.
 
-## Release Standard
+## Production Release Gates
 
-A bank or layout is corporate-certified only when:
+Before this becomes the company's primary processor:
 
-- Complete transaction detail is captured.
-- Beginning balance plus all posted activity reproduces the ending balance.
-- Printed running balances are continuous when present.
-- Parsed posting dates cover the transaction dates printed by the source.
-- Credits and debits agree with the bank summary when the summary is present.
-- Average Daily Balance can be independently reconstructed.
-- POS, NSF, ATM, lender, and revenue classifications pass fixture evidence
-  review.
-- At least several independent statements for the layout pass, including edge
-  cases.
-- Failures produce an explicit manual-review result rather than an approved
-  estimate.
+- Run a representative blinded benchmark, including unfamiliar community banks,
+  Canadian institutions, multi-account documents, scans, and damaged PDFs.
+- Define and meet field-level accuracy, false-approval, and manual-review service
+  level thresholds.
+- Enable paid Gemini billing and execute the applicable data-processing terms.
+- Resolve all third-party license obligations documented in
+  `docs/production-dependency-licenses.md`.
+- Replace the in-memory job store and single-process worker with durable,
+  observable infrastructure.
+- Complete security, privacy, retention, and incident-response review.
 
-The operating priority is a near-zero false-approval rate. Unsupported or
-internally contradictory documents should fail closed.
+The operating standard is a near-zero false-approval rate. Unknown formats are
+expected; unsupported evidence is not an excuse to invent an answer.

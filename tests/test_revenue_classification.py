@@ -669,7 +669,7 @@ def test_package_revenue_reconciliation_fails_closed_on_invalid_credit_state():
             "bank": "Audit Bank",
             "transactions": [{**transaction.model_dump(), "classification": record}],
         },
-        "metrics": {"effective_total_deposits": 100.0},
+        "metrics": {"authoritative": True, "effective_total_deposits": 100.0},
         "quality": {"level": "transaction_level", "corporate_use": "approved"},
         "integrity": {"risk_level": "clear"},
         "detection": {},
@@ -700,6 +700,7 @@ def _reviewable_analysis() -> dict:
             "transactions": [{**transaction.model_dump(), "classification": asdict(record)}],
         },
         "metrics": {
+            "authoritative": True,
             "effective_total_deposits": 441.0,
             "effective_total_withdrawals": 0.0,
             "cash_flow": 441.0,

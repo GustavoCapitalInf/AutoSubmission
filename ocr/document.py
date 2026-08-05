@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -7,6 +8,8 @@ class StatementMarkdown:
     source_file: str
     model: str
     pages: list[str] = field(default_factory=list)
+    external_attempts: list[Any] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_markdown(self) -> str:
         empty = sum(1 for p in self.pages if not p.strip())

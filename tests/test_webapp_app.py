@@ -268,6 +268,7 @@ def test_package_analysis_aggregates_completed_jobs():
             "ending_balance": 900,
         },
         "metrics": {
+            "authoritative": True,
             "effective_total_deposits": 10000,
             "effective_total_withdrawals": 7000,
             "cash_flow": 3000,
@@ -294,6 +295,7 @@ def test_package_analysis_aggregates_completed_jobs():
             "ending_balance": 1100,
         },
         "metrics": {
+            "authoritative": True,
             "effective_total_deposits": 12000,
             "effective_total_withdrawals": 8000,
             "cash_flow": 4000,
@@ -385,6 +387,8 @@ def test_package_adb_ignores_rejected_or_unvalidated_cached_values():
         f"/package_analysis?ids={rejected.id},{missing_status.id},{missing_days.id}"
     ).get_json()
     assert body["totals"]["average_daily_balance"] is None
+    assert body["totals"]["authoritative_documents"] == 0
+    assert body["totals"]["total_credits"] is None
     assert [doc["average_daily_balance"] for doc in body["documents"]] == [None, None, None]
     assert [doc["adb_validated"] for doc in body["documents"]] == [False, False, False]
     assert [doc["min_balance"] for doc in body["documents"]] == [None, None, None]
@@ -402,6 +406,7 @@ def test_package_withholding_is_zero_with_deposits_and_no_lender_debits():
     store.set_result(job.id, "# No lenders", "<h1>No lenders</h1>", analysis={
         "statement": {"bank": "Audit Bank", "transactions": []},
         "metrics": {
+            "authoritative": True,
             "effective_total_deposits": 5000,
             "effective_total_withdrawals": 1000,
             "withholding_numerator": 0,

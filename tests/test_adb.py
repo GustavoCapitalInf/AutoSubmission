@@ -661,6 +661,7 @@ def test_package_rollup_weights_each_statement_by_its_own_calendar_days():
             self.analysis = {
                 "statement": {"period_start": "2026-01-01", "period_end": "2026-01-31", "transactions": []},
                 "metrics": {
+                    "authoritative": True,
                     "average_daily_balance": adb,
                     "calendar_day_count": days,
                     "adb_ok": True,

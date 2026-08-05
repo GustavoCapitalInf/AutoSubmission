@@ -6,6 +6,8 @@ metrics, detection) that do all the math. Amounts are always signed: negative =
 money leaving the account (debit), positive = money entering (credit).
 """
 from __future__ import annotations
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -19,17 +21,42 @@ class Transaction(BaseModel):
     running_balance: float | None = Field(
         default=None, description="Account balance printed after this transaction, if any."
     )
+    source_page: int | None = Field(
+        default=None,
+        description="One-based PDF page containing this posted transaction.",
+    )
 
 
 class StatementDailyBalance(BaseModel):
     date: str = Field(description="Calendar date as ISO YYYY-MM-DD.")
     balance: float = Field(description="Bank-printed end-of-day book or ledger balance.")
+    source_page: int | None = Field(
+        default=None,
+        description="One-based PDF page containing this printed daily balance row.",
+    )
 
 
 class Statement(BaseModel):
     bank: str | None = Field(default=None, description="Bank name, e.g. 'Chase'.")
     account_name: str | None = Field(default=None, description="Account holder / product name.")
     account_number: str | None = Field(default=None, description="Account number as printed.")
+    account_type: str | None = Field(default=None, description="Deposit account type as printed.")
+    routing_number: str | None = Field(default=None, description="Routing or transit number as printed.")
+    document_account_count: int | None = Field(
+        default=None,
+        ge=1,
+        description="Number of distinct financial accounts represented in the source document.",
+    )
+    account_selection_status: Literal[
+        "single_account",
+        "selected_primary",
+        "ambiguous",
+    ] | None = Field(
+        default=None,
+        description=(
+            "One of single_account, selected_primary, or ambiguous. Generic extraction must never combine accounts."
+        ),
+    )
     period_start: str | None = Field(default=None, description="Statement period start, ISO YYYY-MM-DD.")
     period_end: str | None = Field(default=None, description="Statement period end, ISO YYYY-MM-DD.")
     beginning_balance: float | None = Field(default=None, description="Opening balance for the period.")

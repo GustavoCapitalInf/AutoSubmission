@@ -7,7 +7,8 @@ from dataclasses import dataclass, field
 from .config import Settings, load_settings
 from .schema import Statement
 from .dates import assign_transaction_years
-from .extract import extract_statement
+from .extract import ExtractionAttempt, extract_statement
+from .grounding import SourceValidation, parser_validated_source, validate_generic_source
 from .reconcile import reconcile, ReconResult
 from .metrics import compute_metrics, Metrics
 from .detect import detect, DetectionResult
@@ -15,47 +16,11 @@ from .transaction_classifier import (
     TransactionClassification,
     classify_statement_transactions,
 )
-from .altana import parse_altana_statement
-from .atb import parse_atb_statement
-from .amex import parse_amex_statement
-from .b1 import parse_b1_statement
-from .banco_popular import parse_banco_popular_statement
-from .bluevine import parse_bluevine_statement
-from .cibc import parse_cibc_french_statement
-from .community_section import parse_dakota_west_statement, parse_mission_valley_statement
-from .consumers import parse_consumers_statement
-from .demo_national import parse_demo_national_statement
-from .desjardins import parse_desjardins_statement
-from .ibc import parse_ibc_statement
-from .linkbank import parse_linkbank_statement
-from .midflorida import parse_midflorida_statement
-from .navy_federal import parse_navy_federal_statement
-from .td_can import _parse_money, parse_td_canada_statement
-from .td_us import parse_td_us_statement
-from .texas_bank import parse_texas_bank_statement
-from .truist import parse_truist_statement
-from .us_bank import parse_us_bank_statement
-from .bofa import parse_bofa_statement, repair_bofa_summary
-from .regions import parse_regions_statement, repair_regions_summary
-from .first_community import parse_first_community_statement, repair_first_community_posted_activity
-from .first_citizens import parse_first_citizens_statement
-from .bmo import parse_bmo_statement
-from .capital_one import parse_capital_one_statement
-from .chase import parse_chase_statement
-from .citizens import parse_citizens_statement
-from .columbia_bank import parse_columbia_bank_statement
-from .farmers_merchants import parse_farmers_merchants_statement
-from .first_farmers import parse_first_farmers_statement
-from .navigant import parse_navigant_statement
-from .pnc import parse_pnc_statement
-from .rbc import parse_rbc_statement
-from .santander import parse_santander_statement
-from .scotia import parse_scotiabank_statement
-from .scanned_small_bank import parse_apex_scanned_statement, parse_southside_scanned_statement
-from .secu import parse_secu_statement
-from .relay import parse_relay_statement
-from .wells import parse_wells_statement
-from .wilson_muir import parse_wilson_muir_statement
+from .parser_registry import parse_deterministic_statement
+from .td_can import _parse_money
+from .bofa import repair_bofa_summary
+from .regions import repair_regions_summary
+from .first_community import repair_first_community_posted_activity
 from .bank_repairs import (
     repair_b1_beginning_balance,
     repair_capital_one_running_amount,
@@ -145,11 +110,23 @@ class Report:
     model_used: str
     escalated: bool
     classifications: list[TransactionClassification] = field(default_factory=list)
+    extraction_attempts: list[ExtractionAttempt] = field(default_factory=list)
+    source_validation: SourceValidation = field(default_factory=parser_validated_source)
 
 
 def assess_quality(stmt: Statement, recon: ReconResult) -> Quality:
     aggregate_rows = sum(1 for t in stmt.transactions if "UNCAPTURED" in t.description.upper())
     notes: list[str] = []
+    if stmt.account_selection_status == "ambiguous":
+        notes.append("multiple source accounts could not be isolated into one unambiguous ledger")
+        return Quality(
+            level="needs_review",
+            transaction_detail_reliable=False,
+            summary_totals_reliable=False,
+            aggregate_rows=aggregate_rows,
+            corporate_use="manual_review_required",
+            notes=notes,
+        )
     if stmt.bank == "Chase Transaction Export":
         notes.append("Chase for Business transaction export lacks a formal statement summary/period")
         return Quality(
@@ -276,9 +253,24 @@ def assess_document_integrity(
     quality: Quality,
     *,
     markdown: str = "",
+    source_validation: SourceValidation | None = None,
 ) -> DocumentIntegrity:
     flags: list[str] = []
     notes: list[str] = []
+
+    if stmt.account_selection_status == "ambiguous":
+        flags.append("ambiguous_account_selection")
+        notes.append("the document contains multiple accounts and no unique account ledger was selected")
+    elif (
+        stmt.document_account_count is not None
+        and stmt.document_account_count > 1
+        and stmt.account_selection_status == "selected_primary"
+    ):
+        flags.append("multiple_accounts_present")
+        notes.append("metrics are scoped to the selected primary account; other document accounts were excluded")
+    if source_validation is not None and not source_validation.ok:
+        flags.append("generic_source_grounding_failed")
+        notes.extend(source_validation.notes)
 
     if recon.summary_ok is False:
         flags.append("summary_math_inconsistent")
@@ -330,7 +322,8 @@ def assess_document_integrity(
     unique_flags = list(dict.fromkeys(flags))
     unique_notes = list(dict.fromkeys(notes))
     possible_document_issue = (
-        recon.summary_ok is False
+        stmt.account_selection_status == "ambiguous"
+        or recon.summary_ok is False
         or recon.continuity_breaks >= 3
         or bool(contradictions)
         or (
@@ -355,60 +348,25 @@ def assess_document_integrity(
 
 
 def _deterministic_statement(markdown: str) -> Statement | None:
-    return (
-        parse_columbia_bank_statement(markdown)
-        or parse_first_farmers_statement(markdown)
-        or parse_navigant_statement(markdown)
-        or parse_relay_statement(markdown)
-        or parse_td_canada_statement(markdown)
-        or parse_td_us_statement(markdown)
-        or parse_altana_statement(markdown)
-        or parse_amex_statement(markdown)
-        or parse_atb_statement(markdown)
-        or parse_b1_statement(markdown)
-        or parse_banco_popular_statement(markdown)
-        or parse_bluevine_statement(markdown)
-        or parse_cibc_french_statement(markdown)
-        or parse_consumers_statement(markdown)
-        or parse_demo_national_statement(markdown)
-        or parse_desjardins_statement(markdown)
-        or parse_ibc_statement(markdown)
-        or parse_mission_valley_statement(markdown)
-        or parse_dakota_west_statement(markdown)
-        or parse_linkbank_statement(markdown)
-        or parse_midflorida_statement(markdown)
-        or parse_navy_federal_statement(markdown)
-        or parse_santander_statement(markdown)
-        or parse_southside_scanned_statement(markdown)
-        or parse_apex_scanned_statement(markdown)
-        or parse_texas_bank_statement(markdown)
-        or parse_truist_statement(markdown)
-        or parse_us_bank_statement(markdown)
-        or parse_rbc_statement(markdown)
-        or parse_scotiabank_statement(markdown)
-        or parse_secu_statement(markdown)
-        or parse_wells_statement(markdown)
-        or parse_wilson_muir_statement(markdown)
-        or parse_bofa_statement(markdown)
-        or parse_regions_statement(markdown)
-        or parse_pnc_statement(markdown)
-        or parse_farmers_merchants_statement(markdown)
-        or parse_first_community_statement(markdown)
-        or parse_first_citizens_statement(markdown)
-        or parse_bmo_statement(markdown)
-        or parse_capital_one_statement(markdown)
-        or parse_chase_statement(markdown)
-        or parse_citizens_statement(markdown)
-    )
+    return parse_deterministic_statement(markdown)
 
 
-def analyze_markdown(markdown: str, *, settings: Settings | None = None,
-                     parse_mode: str = "auto") -> Report:
+def analyze_markdown(
+    markdown: str,
+    *,
+    settings: Settings | None = None,
+    parse_mode: str = "auto",
+    external_attempt_budget: int | None = None,
+) -> Report:
     settings = settings or load_settings()
     if parse_mode not in {"auto", "deterministic"}:
         raise ValueError(f"unknown parse_mode: {parse_mode}")
 
     model_used = settings.model
+    extraction_attempts: list[ExtractionAttempt] = []
+    attempt_limit = settings.max_external_extraction_attempts
+    if external_attempt_budget is not None:
+        attempt_limit = max(0, min(attempt_limit, external_attempt_budget))
     deterministic_stmt = _deterministic_statement(markdown)
     if deterministic_stmt is not None:
         stmt = apply_statement_repairs(markdown, normalize_statement(deterministic_stmt))
@@ -417,27 +375,61 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
     else:
         if parse_mode == "deterministic":
             raise RuntimeError("no deterministic parser matched this statement")
-        stmt = normalize_statement(extract_statement(markdown, settings=settings, model=model_used))
+        if attempt_limit == 0:
+            raise RuntimeError(
+                "external extraction budget exhausted; no deterministic parser matched this statement"
+            )
+        stmt = normalize_statement(
+            extract_statement(
+                markdown,
+                settings=settings,
+                model=model_used,
+                attempt_sink=extraction_attempts.append,
+            )
+        )
         stmt = apply_statement_repairs(markdown, stmt)
     recon = reconcile(stmt)
+    source_validation = (
+        parser_validated_source()
+        if deterministic_stmt is not None
+        else validate_generic_source(stmt, markdown)
+    )
 
     escalated = False
-    # Cheap model's mistakes surface as reconciliation failures — re-extract those
-    # with the stronger model before trusting the numbers. On small-bank / image
-    # statements the line items are often incomplete (coverage always fails), so
-    # what matters most is a SELF-RECONCILING SUMMARY: escalate whenever the summary
-    # is inconsistent (or fully clean), and prefer whichever extraction's summary
-    # reconciles, falling back to fewer overall issues.
-    needs_escalation = not recon.ok and (recon.summary_ok is not True)
-    if deterministic_stmt is None and needs_escalation and settings.escalation_model != settings.model:
+    # Cheap-model mistakes surface through arithmetic or source-grounding
+    # failures. Permit one stronger extraction inside the document-wide budget,
+    # then prefer grounded output before comparing reconciliation quality.
+    needs_escalation = (
+        (not recon.ok and recon.summary_ok is not True)
+        or not source_validation.ok
+    )
+    if (
+        deterministic_stmt is None
+        and needs_escalation
+        and settings.escalation_model != settings.model
+        and len(extraction_attempts) < attempt_limit
+    ):
         try:
-            alt = normalize_statement(extract_statement(markdown, settings=settings, model=settings.escalation_model))
+            alt = normalize_statement(
+                extract_statement(
+                    markdown,
+                    settings=settings,
+                    model=settings.escalation_model,
+                    attempt_sink=extraction_attempts.append,
+                )
+            )
             alt = apply_statement_repairs(markdown, alt)
             alt_recon = reconcile(alt)
+            alt_source_validation = validate_generic_source(alt, markdown)
+            better_grounding = alt_source_validation.ok and not source_validation.ok
             better_summary = bool(alt_recon.summary_ok) and not recon.summary_ok
             fewer_issues = alt_recon.summary_ok == recon.summary_ok and len(alt_recon.issues) < len(recon.issues)
-            if alt_recon.ok or better_summary or fewer_issues:
+            equally_grounded = alt_source_validation.ok == source_validation.ok
+            if better_grounding or (
+                equally_grounded and (alt_recon.ok or better_summary or fewer_issues)
+            ):
                 stmt, recon, model_used, escalated = alt, alt_recon, settings.escalation_model, True
+                source_validation = alt_source_validation
         except Exception as e:
             recon.issues.append(
                 f"escalation extraction failed ({type(e).__name__}); using primary extraction with review guards"
@@ -455,6 +447,15 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         withholding_denominator_mode=settings.withholding_denominator_mode,
     )
     quality = assess_quality(stmt, recon)
+    if not source_validation.ok:
+        quality = Quality(
+            level="needs_review",
+            transaction_detail_reliable=False,
+            summary_totals_reliable=False,
+            aggregate_rows=quality.aggregate_rows,
+            corporate_use="manual_review_required",
+            notes=list(dict.fromkeys((quality.notes or []) + source_validation.notes)),
+        )
     if quality.level == "summary_aggregate":
         metrics.notes = [
             note for note in metrics.notes
@@ -466,7 +467,13 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         for note in quality.notes:
             if note not in metrics.notes:
                 metrics.notes.append(note)
-    integrity = assess_document_integrity(stmt, recon, quality, markdown=markdown)
+    integrity = assess_document_integrity(
+        stmt,
+        recon,
+        quality,
+        markdown=markdown,
+        source_validation=source_validation,
+    )
     if integrity.possible_document_issue and quality.corporate_use != "approved":
         quality = Quality(
             level="needs_review",
@@ -495,4 +502,6 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         model_used=model_used,
         escalated=escalated,
         classifications=classifications,
+        extraction_attempts=extraction_attempts,
+        source_validation=source_validation,
     )

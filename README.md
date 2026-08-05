@@ -1,11 +1,14 @@
-# Bank Statement → Markdown (Unlimited-OCR)
+# Universal Bank Statement Intelligence
 
-Converts a bank-statement PDF into one Markdown file by running each page through
-`baidu/Unlimited-OCR` on an **OpenAI-compatible endpoint**. The OCR stage itself
-does no math — it only transcribes. The downstream
+Processes native and scanned bank statements through a cost-aware extraction and
+validation cascade. `baidu/Unlimited-OCR` remains the layout-aware visual OCR
+layer behind an **OpenAI-compatible endpoint**, but native text, local OCR, and
+certified deterministic parsers are used first. OCR does no math; the downstream
 [analysis layer](#analysis-layer--statement--metrics--mcalender-findings-gemini)
 turns that markdown into structured metrics (daily average balance, deposits, NSF
-counts) and MCA/lender findings.
+counts) and MCA/lender findings. Unknown bank layouts use bounded generic
+extraction and become authoritative only after source grounding and ledger
+reconciliation pass.
 
 ## How it runs
 
@@ -145,26 +148,29 @@ the CLI.
 
 ## Analysis layer — statement → metrics + MCA/lender findings (Gemini)
 
-The `analysis/` package turns the OCR markdown into structured underwriting data.
-It's built on **separation of concerns**: an LLM (Google **Gemini**, cheap
-`gemini-3.5-flash-lite`) only transcribes the statement into a normalized ledger;
-all math and detection is deterministic Python. Stages:
+The `analysis/` package turns source markdown into structured underwriting data.
+The web worker and PDF batch route both call `webapp.worker.analyze_pdf`, so all
+consumers use the same extraction policy. Stages:
 
-1. **Extract** (`extract.py`) — markdown → `Statement` via Gemini structured
-   outputs (Pydantic `response_schema`). Captures line items *and* the bank's own
-   printed summary block (totals, counts, printed average balance).
-2. **Reconcile** (`reconcile.py`) — `beginning + Σamounts == ending`, running-
-   balance continuity, and **line-item coverage vs the bank's stated totals**.
-   Catches OCR/extraction errors before any number is trusted. A statement that
-   fails reconciliation is automatically re-extracted with the stronger
-   `gemini-3.5-flash` (you pay flash-lite prices for the clean majority).
-3. **Metrics** (`metrics.py`) — daily average balance (from dated running
-   balances, carrying forward across no-activity days), or the bank's printed
-   average when line items are incomplete; deposits/withdrawals, NSF count,
-   negative days.
-4. **Detect** (`detect.py`) — MCA/lender detection: a known-funder dictionary
-   plus recurring fixed-debit pattern detection (the daily/weekly remittance
-   signature), each returning the evidence transactions.
+1. **Inspect** — read native text first, then use local Tesseract as a free scan
+   preflight. Visual Unlimited OCR runs only when better document evidence is
+   needed. If that service is unavailable, one paid Gemini PDF transcription is
+   allowed inside the same document-wide call budget.
+2. **Parse** — try the ordered deterministic registry for certified layouts.
+   Unknown layouts use Gemini structured extraction into the shared `Statement`
+   schema. The model normalizes source data but never computes underwriting math.
+3. **Ground** (`grounding.py`) — independently locate every generic transaction
+   amount and description on its claimed source page and verify statement-level
+   amounts are present. Self-consistent hallucinations fail this control.
+4. **Reconcile** (`reconcile.py`) — verify `beginning + credits - debits ==
+   ending`, running-balance continuity, and line-item coverage against printed
+   summary totals. Failed grounding or reconciliation may use one stronger model
+   extraction within the document-wide call budget.
+5. **Calculate and detect** — deterministic Python reconstructs daily balances,
+   revenue, lender and insurance activity, NSFs, returns, ACH, POS, ATM, and check
+   evidence.
+6. **Fail closed** — ambiguous accounts or ungrounded generic values are returned
+   as unavailable (`null`), never as zero or a stale fallback.
 
 ```bash
 # one-time: deps + API key (key lives in a gitignored .env, never in code)
@@ -182,13 +188,17 @@ OCR_BASE_URL=http://localhost:8000/v1 OCR_API_KEY=EMPTY \
 ```
 
 The batch CSV carries the key underwriting figures per statement plus a
-`needs_review` flag driven by whether the bank's own summary reconciles — clean
-statements flow through, only the questionable ones get human eyes. Small-bank /
-image statements (where per-transaction detail is incomplete) still yield
-trustworthy figures from the bank's printed summary, which reconciliation validates.
+`needs_review` flag. A small-bank or image statement can use the generic path,
+but values are released only when the selected account, source rows, and ledger
+are independently validated. Incomplete or contradictory evidence remains a
+manual-review result.
 
-Tune via env: `GEMINI_MODEL`, `GEMINI_ESCALATION_MODEL`. Withholding continues to
-use legacy eligible deposits by default; explicitly set
+Tune via env: `GEMINI_MODEL`, `GEMINI_ESCALATION_MODEL`,
+`GEMINI_MAX_EXTRACTION_ATTEMPTS` (default `2`), `GEMINI_TIMEOUT_MS` (default
+`90000`), and `GEMINI_HTTP_ATTEMPTS` (default `1`). Production customer
+statements must use a billing-enabled Gemini project; do not submit confidential
+data through the unpaid tier. Withholding continues to use legacy eligible
+deposits by default; explicitly set
 `WITHHOLDING_DENOMINATOR_MODE=verified_revenue` to use verified classified
 revenue instead. Extend maintained lender, candidate, insurance, operating-revenue,
 and exclusion aliases in
@@ -197,10 +207,14 @@ and exclusion aliases in
 Transaction categories, lender/insurance precedence, contribution flags, and the
 eligible-deposit denominator are defined in
 [`docs/transaction-classification.md`](docs/transaction-classification.md).
+The universal routing and validation contract is documented in
+[`docs/universal-statement-intelligence.md`](docs/universal-statement-intelligence.md).
+Commercial dependency obligations are tracked in
+[`docs/production-dependency-licenses.md`](docs/production-dependency-licenses.md).
 
 ## Tests
 
 ```bash
-.venv/Scripts/python.exe -m pytest            # fast unit tests (network mocked)
-OCR_BASE_URL=... .venv/Scripts/python.exe -m pytest -m live   # real-endpoint smoke
+.venv/Scripts/python.exe -m pytest            # offline regression suite
+.venv/Scripts/python.exe -m pytest -m live    # opt-in OCR and Gemini smoke tests
 ```

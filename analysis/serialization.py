@@ -123,6 +123,76 @@ def _metrics_dict(metrics) -> dict:
     return data
 
 
+def _withhold_untrusted_generic_values(payload: dict, *, reason: str) -> dict:
+    """Keep validation evidence while removing every untrusted public value."""
+    statement = payload.get("statement") or {}
+    for key in (
+        "beginning_balance",
+        "ending_balance",
+        "days_in_period",
+        "stated_total_credits",
+        "stated_total_debits",
+        "stated_credit_count",
+        "stated_debit_count",
+        "stated_average_balance",
+        "stated_service_charge",
+        "stated_interest_paid",
+        "stated_nsf_count",
+    ):
+        statement[key] = None
+    statement["stated_daily_balances"] = []
+    statement["transactions"] = []
+
+    metrics = payload.get("metrics") or {}
+    for key, value in list(metrics.items()):
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            metrics[key] = None
+        elif isinstance(value, list) and key.endswith("_evidence"):
+            metrics[key] = []
+    metrics["adb_ok"] = False
+    metrics["revenue_reconciles"] = False
+    metrics["revenue_review_required"] = True
+    metrics["withholding_review_required"] = True
+    metrics["potential_withholding_review_required"] = True
+    metrics["authoritative"] = False
+    metrics["unavailable_reason"] = reason
+    if isinstance(metrics.get("adb"), dict):
+        adb = metrics["adb"]
+        for key, value in list(adb.items()):
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                adb[key] = None
+        adb["ok"] = False
+        adb["reconciled"] = False
+        adb["daily_balance_sum"] = None
+        adb["daily_balances"] = []
+        if isinstance(adb.get("validations"), dict):
+            adb["validations"] = {
+                key: False for key in adb["validations"]
+            }
+
+    detection = payload.get("detection") or {}
+    for key, value in list(detection.items()):
+        if isinstance(value, list):
+            detection[key] = []
+    payload["classifications"] = []
+    return payload
+
+
+def report_unavailable_reason(report: Report) -> str | None:
+    """Return why report financial values must not cross the public boundary."""
+    if report.statement.account_selection_status == "ambiguous":
+        return "ambiguous_account_selection"
+    if report.source_validation.method != "generic_ocr_text_grounding":
+        return None
+    if not report.source_validation.ok:
+        return "generic_source_grounding_failed"
+    if not report.reconciliation.ok:
+        return "generic_financial_reconciliation_failed"
+    if report.quality.corporate_use != "approved":
+        return "generic_validation_failed"
+    return None
+
+
 def report_to_dict(report: Report) -> dict:
     records = report.classifications or classify_statement_transactions(report.statement)
     if len(records) != len(report.statement.transactions):
@@ -144,6 +214,12 @@ def report_to_dict(report: Report) -> dict:
         for transaction, classification in zip(report.statement.transactions, records)
     ]
     detection = report.detection
+    extraction_attempts = [asdict(attempt) for attempt in report.extraction_attempts]
+    estimated_costs = [
+        attempt["estimated_cost_usd"]
+        for attempt in extraction_attempts
+        if attempt.get("estimated_cost_usd") is not None
+    ]
     payload = {
         "statement": statement,
         "classifications": [asdict(record) for record in records],
@@ -178,7 +254,24 @@ def report_to_dict(report: Report) -> dict:
         },
         "quality": asdict(report.quality),
         "integrity": asdict(report.integrity),
+        "source_validation": asdict(report.source_validation),
         "model_used": report.model_used,
         "escalated": report.escalated,
+        "extraction": {
+            "attempt_count": len(extraction_attempts),
+            "attempts": extraction_attempts,
+            "estimated_cost_usd": round(sum(estimated_costs), 8),
+            "cost_complete": len(estimated_costs) == len(extraction_attempts),
+        },
     }
-    return rebuild_serialized_revenue_views(payload)
+    payload = rebuild_serialized_revenue_views(payload)
+    unavailable_reason = report_unavailable_reason(report)
+    if unavailable_reason is not None:
+        payload = _withhold_untrusted_generic_values(
+            payload,
+            reason=unavailable_reason,
+        )
+    else:
+        payload["metrics"]["authoritative"] = True
+        payload["metrics"]["unavailable_reason"] = None
+    return payload

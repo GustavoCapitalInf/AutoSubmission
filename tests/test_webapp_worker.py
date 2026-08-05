@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from webapp.jobs import JobStore
 from webapp.worker import report_to_json, run_job
 from analysis.detect import DetectionResult
@@ -48,6 +50,10 @@ def test_run_job_failure(monkeypatch):
         raise RuntimeError("connection error")
 
     monkeypatch.setattr("webapp.worker.parse_statement", boom)
+    monkeypatch.setattr(
+        "webapp.worker.load_analysis_settings",
+        lambda: SimpleNamespace(max_external_extraction_attempts=0),
+    )
 
     run_job(job.id, b"%PDF-fake", "s.pdf", store)
 

@@ -299,6 +299,8 @@ def _package_analysis(jobs) -> dict:
         state: [] for state in REVENUE_STATES
     }
     denominator_modes: set[str] = set()
+    authoritative_document_count = 0
+    unavailable_document_count = 0
     for job in jobs:
         analysis = job.analysis or {}
         statement = analysis.get("statement") or {}
@@ -309,6 +311,11 @@ def _package_analysis(jobs) -> dict:
         corporate_use = quality.get("corporate_use") or ""
         integrity_risk = integrity.get("risk_level") or ""
         ready = job.status == "done" and job.analysis is not None
+        financial_values_available = ready and metrics.get("authoritative") is True
+        if financial_values_available:
+            authoritative_document_count += 1
+        elif ready:
+            unavailable_document_count += 1
 
         if ready:
             totals["completed"] += 1
@@ -489,7 +496,8 @@ def _package_analysis(jobs) -> dict:
         denominator_mode = normalize_withholding_denominator_mode(
             metrics.get("withholding_denominator_mode")
         )
-        denominator_modes.add(str(denominator_mode))
+        if financial_values_available:
+            denominator_modes.add(str(denominator_mode))
         nsf_count = int(_num(metrics.get("effective_nsf_count"), 0.0))
         adb_calendar_days = metrics.get("calendar_day_count")
         average_daily_balance_num = _num(
@@ -766,7 +774,52 @@ def _package_analysis(jobs) -> dict:
                 bool(metrics.get("potential_withholding_review_required"))
                 or potential_lender_debit_count > 0
             ),
+            "financial_values_available": financial_values_available,
         }
+        if not financial_values_available:
+            for key in (
+                "beginning_balance",
+                "ending_balance",
+                "min_balance",
+                "max_balance",
+                "credits",
+                "total_posted_credits",
+                "total_posted_credit_count",
+                "verified_revenue_total",
+                "verified_revenue_count",
+                "unverified_deposit_total",
+                "unverified_deposit_count",
+                "confirmed_true_revenue_total",
+                "confirmed_true_revenue_count",
+                "potential_revenue_total",
+                "potential_revenue_count",
+                "non_revenue_total",
+                "non_revenue_count",
+                "maximum_revenue",
+                "debits",
+                "cash_flow",
+                "average_daily_balance",
+                "adb_calendar_days",
+                "nsf_count",
+                "lender_debits",
+                "lender_debit_count",
+                "lenders_detected",
+                "potential_lenders_detected",
+                "potential_lender_debit_count",
+                "potential_lender_debit_total",
+                "potential_lender_debits",
+                "insurance_count",
+                "insurance_total",
+                "withholding_rate",
+                "withholding_numerator",
+                "withholding_denominator",
+                "potential_withholding_exposure",
+                "potential_withholding_numerator",
+                "potential_withholding_denominator",
+            ):
+                doc_row[key] = None
+            doc_row["revenue_reconciles"] = False
+            doc_row["adb_validated"] = False
         documents.append(doc_row)
         if ready:
             monthly.append(doc_row)
@@ -775,7 +828,9 @@ def _package_analysis(jobs) -> dict:
                 adb_weighted_sum += adb_value * adb_calendar_days
                 adb_weight += adb_calendar_days
 
-    months = max(1, len(monthly))
+    # Withheld documents remain visible in the monthly review table but cannot
+    # dilute averages derived from authoritative financial values.
+    months = max(1, authoritative_document_count)
     # Days-weighted mean of the per-statement daily-balance averages: summing
     # every statement's daily balances and dividing by every calendar day.
     package_average_daily_balance = None
@@ -842,6 +897,7 @@ def _package_analysis(jobs) -> dict:
     decision = "approved"
     if (
         totals["failed"]
+        or unavailable_document_count
         or totals["integrity_high"]
         or totals["manual_review"]
         or potential_withholding_review_required
@@ -852,9 +908,9 @@ def _package_analysis(jobs) -> dict:
     elif totals["summary_only"] or totals["integrity_review"]:
         decision = "limited_review"
 
-    return {
-        "totals": {
+    package_totals = {
             **totals,
+            "authoritative_documents": authoritative_document_count,
             "months": months,
             "avg_monthly_credits": round(totals["total_credits"] / months, 2),
             "avg_monthly_debits": round(totals["total_debits"] / months, 2),
@@ -880,7 +936,60 @@ def _package_analysis(jobs) -> dict:
                 if denominator_modes == {"legacy_eligible_deposits"}
                 else "Mixed denominator configuration"
             ),
-        },
+        }
+    if authoritative_document_count == 0:
+        for key in (
+            "total_credits",
+            "total_posted_credits",
+            "total_posted_credit_count",
+            "verified_revenue_total",
+            "verified_revenue_count",
+            "unverified_deposit_total",
+            "unverified_deposit_count",
+            "non_revenue_total",
+            "non_revenue_count",
+            "true_revenue",
+            "confirmed_true_revenue",
+            "confirmed_true_revenue_total",
+            "confirmed_true_revenue_count",
+            "potential_revenue_total",
+            "potential_revenue_count",
+            "maximum_revenue",
+            "total_debits",
+            "cash_flow",
+            "lender_debits",
+            "lender_debit_count",
+            "lenders_detected",
+            "potential_lenders_detected",
+            "potential_lender_debit_count",
+            "potential_lender_debit_total",
+            "potential_lender_debits",
+            "monthly_lender_debits",
+            "insurance_count",
+            "insurance_total",
+            "withholding_numerator",
+            "withholding_denominator",
+            "potential_withholding_numerator",
+            "potential_withholding_denominator",
+            "nsf_count",
+            "avg_monthly_credits",
+            "avg_monthly_debits",
+            "avg_monthly_cash_flow",
+            "average_daily_balance",
+            "package_withholding_rate",
+            "package_withholding_rate_raw",
+            "eligible_deposits",
+            "potential_withholding_exposure",
+            "potential_withholding_exposure_raw",
+        ):
+            package_totals[key] = None
+        package_totals["revenue_reconciles"] = False
+        package_totals["revenue_review_required"] = True
+        package_totals["withholding_review_required"] = True
+        package_totals["decision"] = "review_required"
+
+    return {
+        "totals": package_totals,
         "documents": documents,
         "monthly": sorted(monthly, key=lambda r: (r.get("period_end") or "", r.get("filename") or "")),
         "funders": sorted(funders.values(), key=lambda r: r["total_debited"], reverse=True),

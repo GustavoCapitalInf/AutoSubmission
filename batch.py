@@ -18,6 +18,8 @@ import traceback
 from pathlib import Path
 
 from analysis.pipeline import analyze_markdown, Report
+from analysis.serialization import report_unavailable_reason
+from webapp.worker import analyze_pdf
 
 FIELDS = [
     "file", "bank", "account", "period_start", "period_end",
@@ -39,15 +41,39 @@ FIELDS = [
 ]
 
 
-def _markdown_for(path: Path) -> str:
+def _report_for(path: Path) -> Report:
     if path.suffix.lower() == ".pdf":
-        from ocr.pipeline import parse_statement
-        doc = parse_statement(path.read_bytes(), source_file=path.name)
-        return doc.to_markdown()
-    return path.read_text(encoding="utf-8")
+        result = analyze_pdf(path.read_bytes(), path.name)
+        if not isinstance(result.report, Report):
+            raise RuntimeError(result.error or "statement analysis did not produce a report")
+        return result.report
+    return analyze_markdown(path.read_text(encoding="utf-8"))
+
+
+def _unavailable_row(path: Path, report: Report, *, reason: str) -> dict:
+    statement = report.statement
+    return {
+        **{key: "" for key in FIELDS},
+        "file": path.name,
+        "bank": statement.bank or "",
+        "account": statement.account_number or "",
+        "period_start": statement.period_start or "",
+        "period_end": statement.period_end or "",
+        "summary_reconciles": "n/a",
+        "quality": report.quality.level,
+        "transaction_detail_reliable": "no",
+        "corporate_use": "manual_review_required",
+        "needs_review": "REVIEW",
+        "model": report.model_used,
+        "error": reason,
+    }
 
 
 def _row(path: Path, report: Report) -> dict:
+    unavailable_reason = report_unavailable_reason(report)
+    if unavailable_reason is not None:
+        return _unavailable_row(path, report, reason=unavailable_reason)
+
     s, r, m, d = report.statement, report.reconciliation, report.metrics, report.detection
     # A statement needs human review when the bank's own summary doesn't reconcile
     # (mis-extracted or internally inconsistent) — the figures can't be trusted.
@@ -137,7 +163,7 @@ def main() -> None:
     for path in files:
         print(f"analyzing {path.name} ...", file=sys.stderr, flush=True)
         try:
-            report = analyze_markdown(_markdown_for(path))
+            report = _report_for(path)
             rows.append(_row(path, report))
         except Exception as e:  # keep going; record the failure in its row
             traceback.print_exc()

@@ -1431,7 +1431,12 @@ def classify_statement_transactions(
             account=statement.account_number,
             account_name=statement.account_name,
             direction=transaction.direction,
-            source_location=f"transaction:{index + 1}",
+            source_page=transaction.source_page,
+            source_location=(
+                f"page:{transaction.source_page}:transaction:{index + 1}"
+                if transaction.source_page is not None
+                else f"transaction:{index + 1}"
+            ),
         )
         for index, transaction in enumerate(statement.transactions)
     ]

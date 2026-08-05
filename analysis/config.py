@@ -18,6 +18,9 @@ class Settings:
     model: str
     escalation_model: str
     withholding_denominator_mode: str = "legacy_eligible_deposits"
+    max_external_extraction_attempts: int = 2
+    request_timeout_ms: int = 90_000
+    http_attempts: int = 1
 
 
 def load_settings() -> Settings:
@@ -32,4 +35,10 @@ def load_settings() -> Settings:
         model=os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite"),
         escalation_model=os.environ.get("GEMINI_ESCALATION_MODEL", "gemini-3.5-flash"),
         withholding_denominator_mode=denominator_mode,
+        max_external_extraction_attempts=max(
+            0,
+            int(os.environ.get("GEMINI_MAX_EXTRACTION_ATTEMPTS", "2")),
+        ),
+        request_timeout_ms=max(5_000, int(os.environ.get("GEMINI_TIMEOUT_MS", "90000"))),
+        http_attempts=max(1, int(os.environ.get("GEMINI_HTTP_ATTEMPTS", "1"))),
     )
