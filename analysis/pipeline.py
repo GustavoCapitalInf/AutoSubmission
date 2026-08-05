@@ -402,47 +402,27 @@ def _deterministic_statement(markdown: str) -> Statement | None:
     )
 
 
-def analyze_markdown(markdown: str, *, settings: Settings | None = None,
-                     parse_mode: str = "auto") -> Report:
+def deterministic_statement(markdown: str) -> Statement | None:
+    """Public alias: the certified per-bank parser for this markdown, if any."""
+    return _deterministic_statement(markdown)
+
+
+def build_report(
+    markdown: str,
+    stmt: Statement,
+    recon: ReconResult,
+    *,
+    settings: Settings | None = None,
+    model_used: str,
+    escalated: bool = False,
+) -> Report:
+    """Run the frozen post-structuring stages over an already-reconciled statement.
+
+    Classification, metrics, ADB, detection, quality and integrity in the exact
+    order and with the exact inputs `analyze_markdown` uses, so every route
+    (deterministic parser, universal structurer) reaches the identical gate.
+    """
     settings = settings or load_settings()
-    if parse_mode not in {"auto", "deterministic"}:
-        raise ValueError(f"unknown parse_mode: {parse_mode}")
-
-    model_used = settings.model
-    deterministic_stmt = _deterministic_statement(markdown)
-    if deterministic_stmt is not None:
-        stmt = apply_statement_repairs(markdown, normalize_statement(deterministic_stmt))
-        bank_label = (stmt.bank or "bank").lower().replace(" ", "-")
-        model_used = f"{bank_label}-deterministic"
-    else:
-        if parse_mode == "deterministic":
-            raise RuntimeError("no deterministic parser matched this statement")
-        stmt = normalize_statement(extract_statement(markdown, settings=settings, model=model_used))
-        stmt = apply_statement_repairs(markdown, stmt)
-    recon = reconcile(stmt)
-
-    escalated = False
-    # Cheap model's mistakes surface as reconciliation failures — re-extract those
-    # with the stronger model before trusting the numbers. On small-bank / image
-    # statements the line items are often incomplete (coverage always fails), so
-    # what matters most is a SELF-RECONCILING SUMMARY: escalate whenever the summary
-    # is inconsistent (or fully clean), and prefer whichever extraction's summary
-    # reconciles, falling back to fewer overall issues.
-    needs_escalation = not recon.ok and (recon.summary_ok is not True)
-    if deterministic_stmt is None and needs_escalation and settings.escalation_model != settings.model:
-        try:
-            alt = normalize_statement(extract_statement(markdown, settings=settings, model=settings.escalation_model))
-            alt = apply_statement_repairs(markdown, alt)
-            alt_recon = reconcile(alt)
-            better_summary = bool(alt_recon.summary_ok) and not recon.summary_ok
-            fewer_issues = alt_recon.summary_ok == recon.summary_ok and len(alt_recon.issues) < len(recon.issues)
-            if alt_recon.ok or better_summary or fewer_issues:
-                stmt, recon, model_used, escalated = alt, alt_recon, settings.escalation_model, True
-        except Exception as e:
-            recon.issues.append(
-                f"escalation extraction failed ({type(e).__name__}); using primary extraction with review guards"
-            )
-
     classifications = classify_statement_transactions(stmt)
     metrics = compute_metrics(
         stmt,
@@ -495,4 +475,55 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         model_used=model_used,
         escalated=escalated,
         classifications=classifications,
+    )
+
+
+def analyze_markdown(markdown: str, *, settings: Settings | None = None,
+                     parse_mode: str = "auto") -> Report:
+    settings = settings or load_settings()
+    if parse_mode not in {"auto", "deterministic"}:
+        raise ValueError(f"unknown parse_mode: {parse_mode}")
+
+    model_used = settings.model
+    deterministic_stmt = _deterministic_statement(markdown)
+    if deterministic_stmt is not None:
+        stmt = apply_statement_repairs(markdown, normalize_statement(deterministic_stmt))
+        bank_label = (stmt.bank or "bank").lower().replace(" ", "-")
+        model_used = f"{bank_label}-deterministic"
+    else:
+        if parse_mode == "deterministic":
+            raise RuntimeError("no deterministic parser matched this statement")
+        stmt = normalize_statement(extract_statement(markdown, settings=settings, model=model_used))
+        stmt = apply_statement_repairs(markdown, stmt)
+    recon = reconcile(stmt)
+
+    escalated = False
+    # Cheap model's mistakes surface as reconciliation failures — re-extract those
+    # with the stronger model before trusting the numbers. On small-bank / image
+    # statements the line items are often incomplete (coverage always fails), so
+    # what matters most is a SELF-RECONCILING SUMMARY: escalate whenever the summary
+    # is inconsistent (or fully clean), and prefer whichever extraction's summary
+    # reconciles, falling back to fewer overall issues.
+    needs_escalation = not recon.ok and (recon.summary_ok is not True)
+    if deterministic_stmt is None and needs_escalation and settings.escalation_model != settings.model:
+        try:
+            alt = normalize_statement(extract_statement(markdown, settings=settings, model=settings.escalation_model))
+            alt = apply_statement_repairs(markdown, alt)
+            alt_recon = reconcile(alt)
+            better_summary = bool(alt_recon.summary_ok) and not recon.summary_ok
+            fewer_issues = alt_recon.summary_ok == recon.summary_ok and len(alt_recon.issues) < len(recon.issues)
+            if alt_recon.ok or better_summary or fewer_issues:
+                stmt, recon, model_used, escalated = alt, alt_recon, settings.escalation_model, True
+        except Exception as e:
+            recon.issues.append(
+                f"escalation extraction failed ({type(e).__name__}); using primary extraction with review guards"
+            )
+
+    return build_report(
+        markdown,
+        stmt,
+        recon,
+        settings=settings,
+        model_used=model_used,
+        escalated=escalated,
     )

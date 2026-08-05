@@ -103,7 +103,6 @@ def _write_temp_image(img_b64: str):
         f.write(base64.b64decode(img_b64))
     return tmp, img_path
 
-
 def _run_ocr(prompt: str, img_b64: str, ngram_size: int, window_size: int) -> str:
     """Non-streaming (CLI) path. eval_mode=True returns the RAW decoded text with
     the model's own <|det|>label [x0,y0,x1,y1]<|/det|> region tags intact — the

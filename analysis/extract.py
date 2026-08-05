@@ -78,13 +78,30 @@ Statement markdown follows:
 
 
 def extract_statement(markdown: str, *, settings: Settings | None = None,
-                      model: str | None = None) -> Statement:
-    """Extract one statement's markdown into a Statement object."""
+                      model: str | None = None,
+                      extra_instructions: str | None = None) -> Statement:
+    """Extract one statement's markdown into a Statement object.
+
+    `extra_instructions` appends targeted correction guidance (for example the
+    reconciliation issues a previous attempt produced) so a re-extract can be
+    aimed at the rows that failed instead of blindly repeating the same read.
+    It only ever adds instructions; it never supplies a value.
+    """
     settings = settings or load_settings()
     client = _get_client(settings)
+    instructions = _INSTRUCTIONS
+    if extra_instructions:
+        instructions = (
+            _INSTRUCTIONS.rstrip("\n")
+            + "\n\nThe previous extraction of this statement did not reconcile. "
+            "Re-read the source and fix these problems; do not invent numbers to "
+            "make the arithmetic close:\n"
+            + extra_instructions.strip()
+            + "\n\nStatement markdown follows:\n"
+        )
     resp = client.models.generate_content(
         model=model or settings.model,
-        contents=_INSTRUCTIONS + strip_embedded_images(markdown),
+        contents=instructions + strip_embedded_images(markdown),
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=Statement,
