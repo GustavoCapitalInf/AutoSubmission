@@ -3,8 +3,9 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .money import parse_money
 from .schema import Statement, Transaction
-from .td_can import _parse_money, normalize_mojibake
+from .td_can import normalize_mojibake
 
 
 _MONTH_RE = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{2,4})")
@@ -41,7 +42,7 @@ def _compact(text: str) -> str:
 
 
 def _money(value: str) -> float:
-    parsed = _parse_money(value.replace("$", "").strip())
+    parsed = parse_money(value.replace("$", "").strip())
     if parsed is None:
         raise ValueError(value)
     return parsed

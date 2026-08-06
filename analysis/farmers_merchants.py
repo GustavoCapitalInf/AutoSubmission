@@ -3,15 +3,15 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .money import parse_money
 from .schema import Statement, Transaction
-from .td_can import _parse_money
 
 _DATE_RE = re.compile(r"(?<![\d/])(\d{2}/\d{2})(?!/\d{2})")
 _MONEY_RE = re.compile(r"\d[\d,]*\.\d{2}-?")
 
 
 def _amount(value: str) -> float:
-    parsed = _parse_money(value)
+    parsed = parse_money(value)
     if parsed is None:
         raise ValueError(value)
     return parsed

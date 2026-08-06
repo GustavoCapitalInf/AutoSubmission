@@ -10,6 +10,7 @@ import html
 import re
 from datetime import date
 
+from .money import parse_money, parse_money_tokens
 from .schema import Statement, Transaction
 
 _TABLE_RE = re.compile(r"<table>.*?</table>", re.IGNORECASE | re.DOTALL)
@@ -26,6 +27,11 @@ _MONTHS = {
     "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
 }
 
+
+#: Back-compat alias. `analysis/pipeline.py` still imports `_parse_money` from
+#: this module; that import moves to `analysis.money` in R-3, which owns the
+#: dispatch seam. R-2 does not edit pipeline.py.
+_parse_money = parse_money
 
 #: Signature sequences that only occur when UTF-8 bytes were mis-decoded as
 #: cp1252/latin-1 ("mojibake"). Written as escapes on purpose: source code
@@ -84,34 +90,6 @@ def _tables(markdown: str) -> list[list[list[str]]]:
         if rows:
             parsed.append(rows)
     return parsed
-
-
-def _parse_money(value: str | None) -> float | None:
-    if not value:
-        return None
-    text = value.replace("$", "").replace(",", "").replace("*", "").strip()
-    m = re.search(r"(-)?(\d+(?:\.\d{2,3})?)([A-Z/-]*)?", text, re.IGNORECASE)
-    if not m:
-        return None
-    amount = float(m.group(2))
-    if amount == 0:
-        return 0.0
-    if m.group(1) or (m.group(3) and ("D" in m.group(3).upper() or "-" in m.group(3))):
-        amount *= -1
-    return round(amount, 2)
-
-
-def _money_tokens(value: str | None) -> list[float]:
-    if not value:
-        return []
-    out = []
-    for number, suffix in re.findall(r"\$?(\d[\d,]*(?:\.\d{2,3})?)([D*-]?)", value):
-        text = number.replace(",", "")
-        amount = float(text)
-        if "D" in suffix.upper() or "-" in suffix:
-            amount *= -1
-        out.append(round(amount, 2))
-    return out
 
 
 def _parse_summary_count_amount(value: str | None) -> tuple[int, float] | None:
@@ -178,7 +156,7 @@ def _native_date_to_iso(value: str, *, default_year: int) -> str:
 
 
 def _looks_like_money(value: str | None) -> bool:
-    return bool(_money_tokens(value))
+    return bool(parse_money_tokens(value))
 
 
 def _tx(date_value: str, description: str, amount: float, balance: float | None = None) -> Transaction:
@@ -262,7 +240,7 @@ def _parse_native_td_canada(markdown: str, base: Statement | None = None) -> Sta
         if "BUSINESS CHEQUING" in upper:
             stmt.account_name = "BUSINESS CHEQUING ACCOUNT - CAD"
         if upper.startswith("MONTHLY AVER. CR. BAL."):
-            avg = _parse_money(line)
+            avg = parse_money(line)
             if avg is not None:
                 stmt.stated_average_balance = abs(avg)
         if upper.startswith("CREDITS "):
@@ -291,7 +269,7 @@ def _parse_native_td_canada(markdown: str, base: Statement | None = None) -> Sta
             continue
 
         tx_date = _native_date_to_iso(tokens[date_index], default_year=default_year)
-        balance = _parse_money(tokens[date_index + 1]) if date_index + 1 < len(tokens) else None
+        balance = parse_money(tokens[date_index + 1]) if date_index + 1 < len(tokens) else None
         if upper.startswith("BALANCE FORWARD"):
             if stmt.beginning_balance is None and balance is not None:
                 stmt.beginning_balance = balance
@@ -300,7 +278,7 @@ def _parse_native_td_canada(markdown: str, base: Statement | None = None) -> Sta
         amount_index = None
         amount = None
         for i in range(date_index - 1, -1, -1):
-            parsed = _parse_money(tokens[i])
+            parsed = parse_money(tokens[i])
             if parsed is not None and "." in tokens[i]:
                 amount_index = i
                 amount = abs(parsed)
@@ -370,7 +348,7 @@ def parse_td_canada_statement(markdown: str, base: Statement | None = None) -> S
             if not joined or upper == "-":
                 continue
             if upper.startswith("MONTHLY AVER. CR. BAL."):
-                avg = next((_parse_money(c) for c in cells if _parse_money(c) is not None), None)
+                avg = next((parse_money(c) for c in cells if parse_money(c) is not None), None)
                 if avg is not None:
                     stmt.stated_average_balance = abs(avg)
                 credit = _summary_count_amount(cells, "CREDITS")
@@ -411,23 +389,23 @@ def parse_td_canada_statement(markdown: str, base: Statement | None = None) -> S
                 default_year = int(stmt.period_end[:4])
 
             if desc.upper().startswith("BALANCE FORWARD"):
-                bal = _parse_money(balance_cell)
+                bal = parse_money(balance_cell)
                 if bal is not None and stmt.beginning_balance is None:
                     stmt.beginning_balance = bal
                 rest = desc[len("BALANCE FORWARD"):].strip()
                 dates = _date_tokens(date_cell, default_year=default_year)
-                credits = _money_tokens(credit_cell)
+                credits = parse_money_tokens(credit_cell)
                 if rest and credits and len(dates) >= 2 and len(rest.split()) <= 6:
                     transactions.append(_tx(dates[-1], rest, abs(credits[0])))
                 continue
 
             dates = _date_tokens(date_cell, default_year=default_year)
-            balance = _parse_money(balance_cell)
+            balance = parse_money(balance_cell)
             if _looks_like_money(date_cell):
                 shifted_dates = _date_tokens(balance_cell, default_year=default_year)
                 if shifted_dates:
-                    shifted_amount = abs(_money_tokens(date_cell)[0])
-                    if _money_tokens(debit_cell) or _money_tokens(credit_cell):
+                    shifted_amount = abs(parse_money_tokens(date_cell)[0])
+                    if parse_money_tokens(debit_cell) or parse_money_tokens(credit_cell):
                         pending_credit = (shifted_amount, shifted_dates[0])
                     elif _credit_like(desc):
                         # Column-shifted amount with no printed column evidence:
@@ -438,7 +416,7 @@ def parse_td_canada_statement(markdown: str, base: Statement | None = None) -> S
                     dates = dates or shifted_dates
                     balance = None
 
-            if pending_credit and not _money_tokens(debit_cell) and not _money_tokens(credit_cell):
+            if pending_credit and not parse_money_tokens(debit_cell) and not parse_money_tokens(credit_cell):
                 amount, d = pending_credit
                 transactions.append(_tx(d, desc, amount, balance))
                 pending_credit = None
@@ -447,8 +425,8 @@ def parse_td_canada_statement(markdown: str, base: Statement | None = None) -> S
             if not dates:
                 continue
 
-            debits = [abs(v) for v in _money_tokens(debit_cell)]
-            credits = [abs(v) for v in _money_tokens(credit_cell)]
+            debits = [abs(v) for v in parse_money_tokens(debit_cell)]
+            credits = [abs(v) for v in parse_money_tokens(credit_cell)]
             if debits:
                 split_dates = dates if len(dates) == len(debits) else [dates[0]] * len(debits)
                 for i, amount in enumerate(debits):

@@ -4,8 +4,8 @@ import re
 from datetime import date
 from html import unescape
 
+from .money import parse_money
 from .schema import Statement, Transaction
-from .td_can import _parse_money
 
 _ROW_RE = re.compile(r"<tr>(.*?)</tr>", re.IGNORECASE | re.DOTALL)
 _CELL_RE = re.compile(r"<td[^>]*>(.*?)</td>", re.IGNORECASE | re.DOTALL)
@@ -34,7 +34,7 @@ def _money(value: str) -> float | None:
     if not re.search(r"\d+(?:\.\d{2})?", text):
         return None
     neg = text.endswith("-") or text.startswith("-")
-    amount = abs(_parse_money(re.sub(r"[^0-9,.-]", "", text)) or 0.0)
+    amount = abs(parse_money(re.sub(r"[^0-9,.-]", "", text)) or 0.0)
     return -amount if neg else amount
 
 
@@ -253,7 +253,7 @@ def _money_after(label: str, text: str) -> float | None:
     m = re.search(label + r"\s+\$?([\d,]+(?:\.\d{2})?)(?:\s*(-))?", text, re.IGNORECASE)
     if not m:
         return None
-    value = abs(_parse_money(m.group(1)) or 0.0)
+    value = abs(parse_money(m.group(1)) or 0.0)
     return -value if m.group(2) else value
 
 

@@ -4,8 +4,8 @@ import re
 from datetime import date
 from html import unescape
 
+from .money import parse_money
 from .schema import Statement, Transaction
-from .td_can import _parse_money
 
 _ROW_RE = re.compile(r"<tr>(.*?)</tr>", re.IGNORECASE | re.DOTALL)
 _CELL_RE = re.compile(r"<td[^>]*>(.*?)</td>", re.IGNORECASE | re.DOTALL)
@@ -25,7 +25,7 @@ def _money(value: str) -> float | None:
     text = value.strip()
     if not re.fullmatch(r"-?\$?\s*[0-9][0-9,]*(?:\.[0-9]{2})|-?\$?0(?:\.00)?", text):
         return None
-    return _parse_money(text)
+    return parse_money(text)
 
 
 def _parse_date(value: str) -> str | None:
@@ -311,7 +311,7 @@ def parse_bofa_statement(markdown: str) -> Statement | None:
                 stmt.stated_debit_count = int(count.group(1))
             avg = re.search(r"Average ledger balance:\s*(\$?[\d,]+\.\d{2})", extra, re.IGNORECASE)
             if avg:
-                stmt.stated_average_balance = abs(_parse_money(avg.group(1)) or 0.0)
+                stmt.stated_average_balance = abs(parse_money(avg.group(1)) or 0.0)
     elif not _parse_native_summary(text, stmt):
         return None
 
@@ -344,7 +344,7 @@ def repair_bofa_summary(markdown: str, stmt: Statement) -> Statement:
         m = re.search(label + r"\s+(-?\$?[\d,]+\.\d{2})", text, re.IGNORECASE)
         if not m:
             return None
-        amount = _parse_money(m.group(1))
+        amount = parse_money(m.group(1))
         if amount is None:
             return None
         return abs(amount) if absolute else amount

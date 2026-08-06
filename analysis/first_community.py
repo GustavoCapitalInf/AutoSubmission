@@ -3,9 +3,9 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .money import parse_money
 from .schema import Statement
 from .schema import Transaction
-from .td_can import _parse_money
 
 
 _MONEY_RE = re.compile(r"-?\$?\d[\d,]*\.\d{2}-?")
@@ -19,7 +19,7 @@ def _compact(text: str) -> str:
 
 
 def _money(value: str) -> float | None:
-    return _parse_money(value.replace("$", ""))
+    return parse_money(value.replace("$", ""))
 
 
 def _iso(mmdd: str, *, year: int) -> str:

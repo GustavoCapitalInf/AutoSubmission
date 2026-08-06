@@ -3,8 +3,8 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .money import parse_money
 from .schema import Statement, Transaction
-from .td_can import _parse_money
 
 _PERIOD_RE = re.compile(r"Statement period activity summary.*?Beginning balance on (\d{1,2})/(\d{1,2})", re.IGNORECASE | re.DOTALL)
 _SUMMARY_RE = re.compile(
@@ -34,7 +34,7 @@ def _iso(mmdd: str, *, year: int) -> str:
 
 
 def _amount(text: str) -> float | None:
-    return _parse_money(text.replace("$", ""))
+    return parse_money(text.replace("$", ""))
 
 
 def _is_credit(desc: str) -> bool:

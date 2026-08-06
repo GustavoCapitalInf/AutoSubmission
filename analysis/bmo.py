@@ -5,8 +5,8 @@ import re
 from datetime import date
 
 from .dates import resolve_year
+from .money import parse_money
 from .schema import Statement, Transaction
-from .td_can import _parse_money
 
 _ROW_RE = re.compile(
     r"(\d{1,2}/\d{1,2})\s+(.*?)\s+\$\s*(\d[\d,]*\.\d{2})\s+"
@@ -39,7 +39,7 @@ def _compact(text: str) -> str:
 
 def _amount(value: str) -> float:
     cleaned = value.replace("$", "").strip()
-    parsed = _parse_money(cleaned)
+    parsed = parse_money(cleaned)
     if parsed is None:
         raise ValueError(value)
     return parsed

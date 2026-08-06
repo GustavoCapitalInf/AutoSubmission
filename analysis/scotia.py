@@ -3,8 +3,8 @@ from __future__ import annotations
 import re
 from datetime import date, datetime
 
+from .money import parse_money
 from .schema import Statement, Transaction
-from .td_can import _parse_money
 
 _DATE_RE = re.compile(r"\b(\d{2})/(\d{2})/(\d{4})\b")
 _MONEY_RE = re.compile(r"\$?-?\d[\d,]*(?:\.\d{2})?-?")
@@ -15,7 +15,7 @@ def _money_values(text: str) -> list[float]:
     for token in _MONEY_RE.findall(text):
         if re.fullmatch(r"\d{4}", token):
             continue
-        value = _parse_money(token)
+        value = parse_money(token)
         if value is not None:
             values.append(value)
     return values
@@ -61,9 +61,9 @@ def parse_scotiabank_statement(markdown: str, base: Statement | None = None) -> 
     )
     if summary:
         stmt.stated_debit_count = int(summary.group("debit_count"))
-        stmt.stated_total_debits = _parse_money(summary.group("debits"))
+        stmt.stated_total_debits = parse_money(summary.group("debits"))
         stmt.stated_credit_count = int(summary.group("credit_count"))
-        stmt.stated_total_credits = _parse_money(summary.group("credits"))
+        stmt.stated_total_credits = parse_money(summary.group("credits"))
 
     rows = _split_rows(markdown)
     txns: list[Transaction] = []

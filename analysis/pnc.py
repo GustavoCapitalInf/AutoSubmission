@@ -3,8 +3,8 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .money import parse_money
 from .schema import Statement, Transaction
-from .td_can import _parse_money
 
 _SECTION_SIGNS = {
     "Deposits": 1,
@@ -31,7 +31,7 @@ def _money(value: str | None) -> float | None:
     value = value.strip()
     if value.startswith("."):
         value = "0" + value
-    return _parse_money(value)
+    return parse_money(value)
 
 
 def _iso(mmdd: str, year: int) -> str | None:
