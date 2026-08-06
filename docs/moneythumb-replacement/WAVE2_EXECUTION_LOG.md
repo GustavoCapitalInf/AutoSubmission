@@ -129,6 +129,33 @@ deselect, no assertion changes), keep a real-tesseract opt-in marker, prove
 version-drift by local rerun first. 10 → 4 failures progress; gate step still
 pending its first remote execution.
 
+---
+
+## 2026-08-06 — CI-1b (Agent C / HARBOR, `wave2-proof`) — REVIEWED: APPROVED; **MERGED to main as `91d5d92` (ff), pushed; verification run 31128834443 dispatched**
+
+Drift proven before any edit (the 4 columbia tests pass unchanged on local
+tesseract 5.5.0; runner runs 5.3.4 — the failure was detection-miss, "no
+deterministic parser matched", not a wrong value; first_farmers cleared the
+gap by luck and was converted too). Fix: scanned fixtures resolve through the
+same pinned-artifact mechanism as the gate (`cached_markdown`, re-verified
+against manifest pins on every read). Zero assertion values changed —
+verified: removed lines are nine lines of source selection. New permanent
+tests: artifact-pin chain equality (default suite) and live-tesseract
+reproduction (opt-in `live`, skipif-no-binary). 803 passed / 4 deselected.
+Exactly 2 files changed. **Ocean ruling:** widened `live` marker semantics
+accepted ("runs real OCR rather than a committed fixture", documented); a
+dedicated `tesseract` marker isn't worth the pytest.ini churn.
+
+**CI-2 hypothesis from Agent C's API survey (unverified, checkable by
+Gustavo in one click):** every run reports `billable.UBUNTU.total_ms = 0` on
+a private repo where minutes must be metered — if run attribution to the
+Actions entitlement is broken/exhausted, entitlement checks gate *creation*
+of webhook-triggered runs while `workflow_dispatch` (direct authenticated
+user action) bypasses. Consistent with all observations. **Operator check:
+Settings → Billing and plans → Plans and usage → Actions minutes** (exhausted
++ $0 spending limit would confirm; a blocking banner would appear on the
+Actions tab). Push-event delivery itself is confirmed working.
+
 **CI-2 (new finding, Ocean, post-merge): push triggers create no runs.** All
 five push events since the first are registered by GitHub
 (`repos/.../events`), the workflow is `active`, yet total runs ever = 2 (the
