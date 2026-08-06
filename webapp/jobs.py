@@ -12,6 +12,10 @@ working state stays purely in memory:
 Single-writer discipline: this facade is used by exactly one worker thread
 plus request threads in one process — see ``webapp/storage.py`` for the full
 concurrency contract.
+
+D-3: ``JobStore.cache`` hands the worker the content-hash artifact cache
+bound to this store's data directory (``webapp/artifact_cache.py``), so
+re-processing byte-identical content performs zero OCR and zero LLM calls.
 """
 from __future__ import annotations
 import json
