@@ -131,7 +131,66 @@ pending its first remote execution.
 
 ---
 
-## 2026-08-06 — CI-1b (Agent C / HARBOR, `wave2-proof`) — REVIEWED: APPROVED; **MERGED to main as `91d5d92` (ff), pushed; verification run 31128834443 dispatched**
+## 2026-08-06 — R-2 (Agent A / REEF) — REVIEWED: APPROVED; **MERGED as `74acb99`** · D-3 **MERGED as `c7cfb7e`** · O-3 **MERGED as `38c8cd0`**
+
+R-2: 28 money clones → `analysis/money.py` with differential-equivalence
+proofs (every pre-R-2 body frozen as an oracle, asserted identical over a
+~200-input matrix); 18 date bodies → `date_tokens.py`; 23 table bodies →
+`tables.py`; inversion removed for all 13 parsers (one protected-line remnant
+in pipeline.py, deleted by R-3 §7.2, guard-allowlisted). 908 tests; gate
+GREEN ×4; zero protected files (verified mechanically). Deviations 1–4 all
+accepted with their stated rationales. Combined tree after the three merges:
+**967 passed**; full combined suite+gate validation running.
+
+**D-3×O-3 integration gap confirmed as predicted** (put_ocr stores only
+{model, pages}; page_integrity dropped on hit) → **D-3b dispatched to
+Agent B**: round-trip page_integrity, bump OCR_STAGE_VERSION 1→2,
+invalidation + round-trip tests.
+
+**Remote gate first full execution (run 31128834443): suite step GREEN
+(CI-1b works); gate step RED on adb_audit only — every drift line is the
+`folder` metadata column pinned with Windows `\` vs Linux `/`. Zero
+financial drift; balance_audit (POSIX paths) GREEN.** → **CI-1c dispatched
+to Agent C**: separator-agnostic comparison for path-valued fields only,
+with masking-prevention tests; no CSV edits, no oracle changes.
+
+**Archive FROZEN (Gustavo confirmed complete; stability proven):** two
+enumerations 12 min apart byte-identical — 3,768 files / 3,615 PDFs
+(109 pinned + 3,506 discovery) / 996,080,803 bytes. This inventory is the
+discovery corpus of record for DSC-1/DSC-2.
+
+---
+
+## 2026-08-06 — R-3 RFC — OCEAN RULINGS (all six questions)
+
+1. **Score scale: APPROVED as specified** (0.0–1.0, CLAIM_THRESHOLD 0.5,
+   computed required/corroborating formula). The decisive property is
+   migration parity by construction. Scores are not cross-parser
+   probabilities; calibration stays P2-9.
+2. **§7.1/§7.2 literal moves: registration-based mechanism approved as
+   primary, but LLM-path coverage is KEPT** — when no registration claimed
+   the document, look up the registration by bank label (registry data, not a
+   pipeline literal) and apply its `formal_statement`/`integrity_checks`.
+   Today's semantics become a strict subset of the new behavior; nothing
+   narrows. The lookup lives in the registry module, keyed off registration
+   data.
+3. **Ambiguous in `auto` mode: proposal APPROVED** — LLM extraction +
+   `parser_ambiguous` integrity flag naming candidate ids + forced
+   needs_review/manual_review_required. `auto` keeps its "always returns
+   something" contract while approval stays fail-closed.
+   `deterministic` mode raises `AmbiguousParserError` — approved.
+4. **parser_expectations.json: APPROVED with audit-CSV authority** —
+   generated once at R-3.0 against the unmodified chain, committed,
+   regeneration is a deliberate Ocean-reviewed act (added to standing
+   criteria). `tools/` may be created; REEF owns
+   `tools/record_parser_expectations.py`.
+5. **R-8 repairs: AGREED — named leftover.** One seam per wave.
+6. **Six direct-untested parsers: R-4's detection-positive/negative
+   synthetic fixtures for wells/scotia/columbia/navigant/relay/first_farmers
+   are PULLED FORWARD, landing before R-3.4** (the pipeline switch — the
+   moment of real risk). Full R-4 conformance harness still follows R-3.
+   Also: report the measured full-registry detect-sweep cost per document
+   (RFC risk 7) in the R-3 completion report. — REVIEWED: APPROVED; **MERGED to main as `91d5d92` (ff), pushed; verification run 31128834443 dispatched**
 
 Drift proven before any edit (the 4 columbia tests pass unchanged on local
 tesseract 5.5.0; runner runs 5.3.4 — the failure was detection-miss, "no
