@@ -36,7 +36,19 @@ SERVER_THREADS = 16
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+# Durable store (D-1): SQLite + on-disk PDFs under WEBAPP_DATA_DIR
+# (default `webapp_data/` at repo root). See webapp/storage.py for the
+# single-writer concurrency contract.
 store = JobStore()
+
+# Startup re-hydration: any job left queued/processing by a previous process
+# is explicitly marked `interrupted` with an explanatory error — never
+# silently lost. Completed jobs need nothing: their artifacts already serve
+# from storage. (Auto-resume is deliberately not attempted: the one-worker
+# queue holds no durable claim on partially processed OCR state, so a clean,
+# explicit interruption the analyst can see beats a half-blind retry.)
+_INTERRUPTED_ON_STARTUP: list[str] = store.mark_interrupted()
+
 _job_queue: deque[tuple[str, bytes, str, bool, str]] = deque()
 _job_queue_lock = threading.Lock()
 _job_worker_active = False
@@ -1066,11 +1078,16 @@ def upload():
 
     jobs = []
     for filename, pdf_bytes, page_count in accepted:
-        job = store.create(filename)
-        job.pdf_bytes = pdf_bytes
-        job.force_ocr = force_ocr
-        job.parse_mode = parse_mode
-        job.page_count = page_count
+        # Records the document row (with content_sha256) and the job row, and
+        # writes the PDF bytes to the disk store; duplicate-detection UX on
+        # the stored hash is O-1's, not D-1's.
+        job = store.create(
+            filename,
+            page_count=page_count,
+            force_ocr=force_ocr,
+            parse_mode=parse_mode,
+            pdf_bytes=pdf_bytes,
+        )
         _enqueue_job(job.id, pdf_bytes, filename, force_ocr, parse_mode)
         jobs.append({
             "id": job.id,
@@ -1126,12 +1143,16 @@ def render(job_id):
         abort(404)
     pages = store.pages_live_ordered(job_id)
     page_images = None
-    if job.status == "done" and job.pdf_bytes is not None:
-        try:
-            page_images = [rasterize_page(job.pdf_bytes, i, dpi=200)
-                           for i in range(len(pages))]
-        except Exception:
-            page_images = None  # degrade to boxes-without-crops rather than 500
+    if job.status == "done":
+        # Disk-backed after completion: pdf_bytes is released from RAM when a
+        # job finishes, so completed jobs rasterize from the PDF store.
+        pdf_bytes = store.pdf_bytes(job_id)
+        if pdf_bytes is not None:
+            try:
+                page_images = [rasterize_page(pdf_bytes, i, dpi=200)
+                               for i in range(len(pages))]
+            except Exception:
+                page_images = None  # degrade to boxes-without-crops rather than 500
     return jsonify({"status": job.status, "fragment": render_boxed(pages, page_images)})
 
 
@@ -1180,7 +1201,17 @@ def revenue_review(job_id):
         return jsonify({"error": str(exc)}), 404
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-    stored = store.replace_analysis(job_id, updated)
+    # Free-text actor until authentication exists (D-2b); recorded with the
+    # decision timestamp and the prior classification state in the same
+    # storage transaction that persists the mutated analysis.
+    actor = str(payload.get("actor") or "").strip() or "local-analyst"
+    stored = store.apply_review(
+        job_id,
+        updated,
+        source_location=source_location,
+        decision=decision,
+        actor=actor,
+    )
     if stored is None:
         abort(404)
     return jsonify({"analysis": _masked(stored)})
@@ -1194,10 +1225,42 @@ def package_analysis():
     return jsonify(_masked(package))
 
 
+def _requested_job_ids() -> tuple[list[str] | None, tuple | None]:
+    """Resolve the request to an ordered job-id list.
+
+    Accepts the durable form (`?package_id=<id>` minted by POST /package) and
+    the original comma-separated form (`?ids=a,b,c`) unchanged. As a courtesy
+    the ids slot also accepts a durable package id in place of a job id and
+    expands it to the package's members."""
+    package_id = (request.args.get("package_id") or "").strip()
+    if package_id:
+        member_ids = store.package_member_ids(package_id)
+        if member_ids is None:
+            return None, (jsonify({"error": "unknown package id", "missing": [package_id]}), 404)
+        return member_ids, None
+    tokens = [item for item in (request.args.get("ids") or "").split(",") if item]
+    if not tokens:
+        return None, (jsonify({"error": "no job ids supplied"}), 400)
+    ids: list[str] = []
+    missing: list[str] = []
+    for token in tokens:
+        if store.get(token) is not None:
+            ids.append(token)
+            continue
+        member_ids = store.package_member_ids(token)
+        if member_ids is None:
+            missing.append(token)
+        else:
+            ids.extend(member_ids)
+    if missing:
+        return None, (jsonify({"error": "unknown job ids", "missing": missing}), 404)
+    return ids, None
+
+
 def _package_from_request():
-    ids = [item for item in (request.args.get("ids") or "").split(",") if item]
-    if not ids:
-        return jsonify({"error": "no job ids supplied"}), 400
+    ids, error = _requested_job_ids()
+    if error is not None:
+        return error
     jobs = []
     missing = []
     for job_id in ids:
@@ -1209,6 +1272,29 @@ def _package_from_request():
     if missing:
         return jsonify({"error": "unknown job ids", "missing": missing}), 404
     return _package_analysis(jobs)
+
+
+@app.route("/package", methods=["POST"])
+def create_package():
+    """Mint a durable package id for an ordered set of completed-or-pending
+    job ids. The comma-separated ids form keeps working unchanged; the id
+    returned here can be used as `?package_id=` (or in the ids slot) and
+    reproduces the same member set after a restart."""
+    payload = request.get_json(silent=True) or {}
+    ids = payload.get("ids")
+    if isinstance(ids, str):
+        ids = [item for item in ids.split(",") if item]
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"error": "no job ids supplied"}), 400
+    ids = [str(item) for item in ids]
+    missing = [job_id for job_id in ids if store.get(job_id) is None]
+    if missing:
+        return jsonify({"error": "unknown job ids", "missing": missing}), 404
+    reference = payload.get("reference")
+    package_id = store.create_package(
+        ids, reference=str(reference) if reference else None
+    )
+    return jsonify({"package_id": package_id, "ids": ids})
 
 
 @app.route("/package_download/<fmt>")
@@ -1231,6 +1317,10 @@ def package_download(fmt):
         content = _package_xlsx(package)
         mimetype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         suffix = "xlsx"
+    store.record_export(
+        package_id=(request.args.get("package_id") or "").strip() or None,
+        detail={"format": fmt, "ids": request.args.get("ids") or None},
+    )
     return Response(
         content,
         mimetype=mimetype,
@@ -1241,9 +1331,13 @@ def package_download(fmt):
 @app.route("/page/<job_id>/<int:n>")
 def page(job_id, n):
     job = store.get(job_id)
-    if job is None or job.pdf_bytes is None or n < 0 or n >= job.page_count:
+    if job is None or n < 0 or n >= job.page_count:
         abort(404)
-    image = rasterize_page(job.pdf_bytes, n, dpi=100)
+    # In-memory bytes while the job is in flight; the disk store afterwards.
+    pdf_bytes = store.pdf_bytes(job_id)
+    if pdf_bytes is None:
+        abort(404)
+    image = rasterize_page(pdf_bytes, n, dpi=100)
     buf = io.BytesIO()
     image.save(buf, format="PNG")
     return Response(buf.getvalue(), mimetype="image/png")
@@ -1284,6 +1378,7 @@ def download(job_id, fmt):
         # /markdown. Masking the analyst's source view would corrupt it.
         content = job.markdown if fmt == "md" else job.html
         mimetype = "text/markdown" if fmt == "md" else "text/html"
+    store.record_export(job_id=job_id, detail={"format": fmt})
     base_name = _safe_download_name(job.filename.rsplit(".", 1)[0])
     return Response(
         content,

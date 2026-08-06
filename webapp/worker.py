@@ -52,6 +52,11 @@ def run_job(
     force_ocr: bool = False,
     parse_mode: str = "auto",
 ) -> None:
+    # Persistence (D-1): every set_status/set_stage transition and the final
+    # set_result/set_error below write through the JobStore facade into the
+    # durable store (webapp/storage.py). Reaching a terminal state also
+    # releases the job's in-memory pdf_bytes; afterwards /page and /render
+    # serve the PDF from the on-disk content-hash store.
     store.set_status(job_id, "processing")
     try:
         if parse_mode == "deterministic":
