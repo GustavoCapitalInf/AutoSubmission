@@ -84,6 +84,49 @@ required from Gustavo.**
    with archive present) and the push-triggered CI run is being watched;
    results recorded here when they land.
 
+---
+
+## 2026-08-06 — O-3 (Agent D / SONAR, branch `wave2-ocr-integrity`) — REVIEWED: APPROVED, awaiting merge slot (after D-3)
+
+Scope verified: 5 files, all under `ocr/` + new tests; protected trees
+untouched; zero edits to existing test modules (the `PageText` str-subclass
+carries model metadata without any signature change — clean design). Proofs:
+827 passed (+32), corpus-marked full-ladder parity test (2 passed under
+`-m corpus`), gate GREEN, **zero corpus pages flagged on all three probes**.
+Detection: model-side (`finish_reason` length / token-ceiling — previously
+discarded by the client on both response paths) + high-precision structural
+tail signals (unclosed table/row/cell, partial tag), with three higher-recall
+signals explicitly rejected as false-positive generators. Flag-only confirmed:
+`to_markdown()` byte-identical, proven by test.
+
+**Ocean rulings (O-3):**
+1. **`ocr/document.py` allowlist question: APPROVED** — it is inside the
+   brief's `ocr/` ownership and the surfacing instruction required it;
+   the dispatch prompt's parenthetical was illustrative, not exhaustive.
+2. **Flag surfacing to operators:** adopted as an H-3 telemetry field
+   (per-statement truncated-page count/indices) — goes into the H-3 dispatch
+   prompt. Webapp payload surfacing deferred to the same integration.
+3. **Automatic re-OCR routing:** deferred until DSC-2 tranche 2 provides a
+   real base rate. `_MAX_TOKENS = 4096` literal: candidate for H-4 threshold
+   calibration; no change without tranche-2 evidence.
+4. **O-3 merge-integration checklist (Ocean executes at merge):** bump
+   `OCR_STAGE_VERSION` (cached OCR payload shape gains `page_integrity`);
+   verify D-3's cache round-trips `page_integrity` on hit (D-3 predates O-3 —
+   if the cached payload drops the field, a follow-up test + fix lands with
+   the merge); corpus-finding note: the validated corpus contains no
+   visual-OCR text, so model-side signals are exercised only by fixtures
+   until tranche 2.
+
+**CI verification run 31128649695 (fixed workflow, commit 1c82a2b):**
+system-dependency step GREEN, byte-identity GREEN; suite step failed with
+exactly the predicted residual — narrowed to **columbia only** (4 failures,
+"no deterministic parser matched"; first_farmers passed): runner tesseract
+5.3.x output vs local 5.5.0. Per the pre-merge ruling, Agent C resumed with
+**CI-1b**: serve the live-tesseract fixtures from committed artifacts (never
+deselect, no assertion changes), keep a real-tesseract opt-in marker, prove
+version-drift by local rerun first. 10 → 4 failures progress; gate step still
+pending its first remote execution.
+
 **CI-2 (new finding, Ocean, post-merge): push triggers create no runs.** All
 five push events since the first are registered by GitHub
 (`repos/.../events`), the workflow is `active`, yet total runs ever = 2 (the
