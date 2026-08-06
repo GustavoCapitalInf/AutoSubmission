@@ -1,6 +1,7 @@
-# CI-1 — Remote corpus-gate repair: findings
+# CI-1 / CI-1b — Remote corpus-gate repair: findings
 
-Agent C (HARBOR), 2026-08-06. Branch `wave2-proof`. Repo
+Agent C (HARBOR), 2026-08-06. Branch `wave2-proof` (CI-1 merged as `1c82a2b`;
+CI-1b follows on the same branch). Repo
 `GustavoCapitalInf/bankStatementAnalysis` (private, User-owned).
 
 **Headline: the remote gate was never broken by billing, plan, or permissions,
@@ -98,29 +99,78 @@ exist in the repository's entire history), action major versions.
 
 ---
 
-## 3. Known residual risk — read before merging
+## 3. The tesseract-version risk: materialized, then resolved (CI-1b)
+
+**Predicted here, then it happened.** Run **31128649695** (the first run with the
+apt step) got further than any run before it: system dependencies green,
+byte-identity check green, `797 passed` — and then **4 failures, all `columbia`,
+all `RuntimeError: no deterministic parser matched this statement`**:
+
+- `test_new_statement_ledger_and_independent_daily_balances[columbia]`
+- `test_new_statement_revenue_lender_and_transaction_metrics[columbia]`
+- `test_new_statement_printed_average_terminology_and_integrity`
+- `test_new_statement_api_and_exports_preserve_authoritative_values`
+
+`first_farmers` passed on the runner's tesseract; the drift narrowed to one
+document. The gate step still never executed, because the suite step fails
+first. Note what the error is: not a wrong number but *no parser claiming the
+statement at all* — the runner's OCR text diverged enough from a 5.5.0 dev box
+that Columbia's detection strings no longer matched. Nothing about the product
+changed between the two machines.
+
+The version gap, from the step this task added in CI-1 (which is exactly why it
+prints them):
+
+| | Runner (ubuntu-24.04) | This dev box |
+|---|---|---|
+| tesseract | **5.3.4** | **5.5.0.20241111** |
+| leptonica | 1.82.0 | 1.85.0 |
+| poppler | 24.02.0 | 24.08.0 |
+
+**Confirmed as drift, not a masked regression.** Before changing anything, all
+four tests were re-run on this box: `4 passed in 18.68s`.
+
+**Resolution (Ocean's ruling, CI-1b).** The two image-only fixtures are now
+served from the committed OCR artifacts in `tests/corpus_cache/`, keyed by the
+SHA-256 of the source PDF — exactly how `corpus_gate.py` has always resolved
+scanned statements. `corpus_artifacts.cached_markdown` verifies each artifact
+against its manifest pin on every read, so a tampered artifact raises instead of
+quietly moving an assertion. The served markdown is byte-identical to what this
+machine's tesseract produces, so **no asserted value changed** — only where the
+text comes from:
+
+| Fixture | Source PDF SHA-256 | Manifest `artifact_sha256` | Served markdown SHA-256 | Bytes |
+|---|---|---|---|---|
+| columbia | `0CBD2AD897B90137…` | `44BCB603BF57CDFE…3147` | `44BCB603BF57CDFE…3147` | 10,622 |
+| first_farmers | `58CB0DCC7460A445…` | `C53FB08BDA7C02CB…EBA5` | `C53FB08BDA7C02CB…EBA5` | 6,183 |
+
+Live OCR coverage is preserved, not deleted:
+`test_live_tesseract_reproduces_the_committed_artifact_reports` re-OCRs both
+fixtures with the local binary and asserts the resulting report equals the
+artifact-served one. It carries the **`live`** marker, so `pytest.ini`'s addopts
+deselect it from the default run and `pytest -m live` exercises it. `live` is
+documented as "hits the real OCR endpoint"; this widens it to "runs real OCR
+rather than a committed fixture". A dedicated `tesseract` marker would be
+cleaner, but registering it *and* keeping it out of the default run needs a
+`pytest.ini` edit, which was outside CI-1b's allowlist — a two-line change for
+Ocean if preferred. The test also skips (never fails) where no tesseract binary
+exists.
+
+Proof that the runner's condition is now green: with tesseract removed from
+`PATH` entirely, `tests/test_new_statement_corpus.py` is `18 passed, 2
+deselected`, and `-m live` is `2 skipped`. Full suite: `803 passed, 4
+deselected`.
+
+**Nothing was deselected and no assertion was loosened.** Deselecting on CI was
+explicitly rejected; the workflow comment still says so.
+
+### Still open, informational
 
 Run 31128260273's log carries the annotation that `actions/checkout@v4`,
 `actions/setup-python@v5` and `actions/upload-artifact@v4` target Node 20 and
-are being **forced onto Node 24**. Informational today; a future maintenance
-bump (`checkout@v5`, `setup-python@v6`, `upload-artifact@v5`) is the eventual
-fix. Not done here — unverifiable without a push, and unrelated to the failure.
-
-**The tesseract-version risk is the one that matters.** Two fixtures
-(`columbia`, `first_farmers`) are re-OCR'd *live* by the suite and then asserted
-against exact financial values. This dev box runs tesseract **5.5.0** /
-leptonica 1.85.0; Ubuntu's repository tesseract is an older 5.3.x. If the runner
-produces even slightly different text, those two fixtures can still be red after
-this fix — the same class of instability that made the corpus gate use committed
-artifacts in the first place.
-
-**Recommended durable fix (needs Ocean's approval — it is test code, outside
-CI-1's allowlist):** serve those two fixtures from the existing committed
-artifact cache instead of live OCR. Both are already pinned there —
-`tests/corpus_cache/manifest.json` covers `Misc/Columbia May 26 complete.pdf`
-and `Misc/First Farmers 2026 01-document.pdf`, keyed by source SHA-256. That
-would make the suite as version-proof as the gate. **Deselecting the tests on CI
-is not an acceptable alternative** and the workflow comment says so.
+are being **forced onto Node 24**. A future maintenance bump (`checkout@v5`,
+`setup-python@v6`, `upload-artifact@v5`) is the eventual fix; unrelated to any
+failure seen so far.
 
 ---
 
@@ -132,16 +182,18 @@ task card were checked and are ruled out by run 31128260273 executing.
 
 The one thing an agent cannot do is the last step:
 
-1. Merge `wave2-proof` (H-0 + CI-1) to `main` and push — pushing is outside
-   every agent's mandate.
-2. The push triggers `Corpus gate` on `main`. Watch it:
+1. Merge `wave2-proof` (CI-1b) to `main` and push — pushing is outside every
+   agent's mandate.
+2. Dispatch the workflow. **Push triggers do not currently create runs** (see
+   CI-2 in `WAVE2_EXECUTION_LOG.md`), so use
+   `gh workflow run corpus-gate.yml --ref main`, then
    `gh run watch $(gh run list --limit 1 --json databaseId --jq '.[0].databaseId')`.
-3. **If it is green:** CI-1's acceptance is met — remote gate live, local gate
-   stops being the sole merge authority.
-4. **If `Default test suite` fails again on `columbia`/`first_farmers` only:**
-   that is the predicted tesseract-version drift, not a regression. Compare the
-   `tesseract --version` line now printed in the log against 5.5.0 and apply
-   §3's cache-backed fix.
+3. **Expected:** the suite step passes with no live OCR — the previously red
+   `columbia` tests now read the committed artifact — and the `Corpus gate` step
+   executes for the first time on hosted infrastructure.
+4. **If `Default test suite` fails on `columbia`/`first_farmers` again:** that
+   would be a genuine surprise, not drift — the artifacts are version-independent.
+   Read the failure before touching anything.
 5. **If the job is again "not acquired by Runner of type hosted":** re-run it.
    That is Failure A, it is GitHub-side, and it cleared itself once already.
 
@@ -152,5 +204,12 @@ The one thing an agent cannot do is the last step:
 | Diagnose root cause | **Done** — two causes, both identified with run-level evidence |
 | Minimal workflow adjustment if implicated | **Done** — one apt step; documented header |
 | Document root cause in workflow header | **Done** |
-| Green run of the full workflow on `main` | **Not achievable by this agent** — requires a push. Fix is committed and ready; verification is step 1 above. |
+| Green run of the full workflow on `main` | **Not achievable by this agent** — requires a push/dispatch. Every known cause is fixed: runner acquisition (transient, cleared), system binaries (CI-1), OCR version drift (CI-1b). Verification is §4 step 2. |
 | Do not change billing | Not touched (and not implicated) |
+
+## 6. Change log
+
+| Date | Task | Change |
+|---|---|---|
+| 2026-08-06 | CI-1 | Diagnosed both failures; added the runner system-dependency step; documented the transient in the workflow header. |
+| 2026-08-06 | CI-1b | Predicted tesseract drift materialized on run 31128649695 (4 × columbia). Scanned fixtures now served from the committed artifact cache; live-OCR path preserved behind the `live` marker. §3 rewritten. |

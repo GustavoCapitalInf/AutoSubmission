@@ -1,7 +1,29 @@
+"""The four newest corpus statements, asserted end to end.
+
+Source-of-truth policy for the two image-only fixtures (columbia,
+first_farmers): their OCR markdown comes from the **committed artifacts** in
+`tests/corpus_cache/`, keyed by the SHA-256 of the source PDF, exactly as
+`corpus_gate.py` resolves scanned statements. Live Tesseract output varies with
+version, language data, and platform, and these tests assert exact financial
+values — on the GitHub runner (tesseract 5.3.x) columbia OCR'd differently
+enough that no deterministic parser matched, while it passes on a 5.5.0 dev box.
+Committed artifacts make the asserted values identical on every machine.
+
+The real local-Tesseract path is preserved, not deleted:
+`test_live_tesseract_reproduces_the_committed_artifact_reports` re-OCRs both
+fixtures with the local binary and compares the resulting report to the
+artifact-served one. It carries the `live` marker, so it is deselected from the
+default run (`pytest.ini` addopts) and runs with `pytest -m live`. That marker
+is documented as "hits the real OCR endpoint"; this widens it to "runs real OCR
+rather than a committed fixture", which is the property that matters here — a
+dedicated marker would need a `pytest.ini` registration plus an addopts change
+to stay out of the default run, and that file is outside this task's allowlist.
+"""
 from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import zipfile
 from decimal import Decimal, ROUND_HALF_UP
 from functools import lru_cache
@@ -12,6 +34,7 @@ import pytest
 
 from analysis.pipeline import analyze_markdown
 from analysis.serialization import report_to_dict
+from corpus_artifacts import cached_markdown, manifest_entries, sha256_hex
 from ocr.local_tesseract import parse_local_tesseract
 from ocr.native_text import parse_native_pdf_text
 from ocr.rasterize import pdf_page_count
@@ -178,20 +201,41 @@ EXPECTED = {
 }
 
 
-@lru_cache(maxsize=None)
-def _source_report(name: str):
+CACHE = ROOT / "tests" / "corpus_cache"
+
+
+def _source_markdown(name: str, *, live_ocr: bool = False) -> str:
+    """Markdown for a fixture: native text, or its committed OCR artifact.
+
+    `live_ocr=True` re-OCRs with the local Tesseract binary instead of reading
+    the artifact. Only the `live`-marked parity test passes it; everything else
+    reads the artifact so the asserted values cannot move with a tesseract
+    upgrade. `cached_markdown` verifies the artifact against its manifest pin,
+    so a tampered or mismatched artifact raises rather than quietly changing an
+    assertion.
+    """
     source = SOURCES[name]
     path = ROOT / source["path"]
     pdf_bytes = path.read_bytes()
     native = parse_native_pdf_text(pdf_bytes, source_file=path.name)
-    if source["ocr"]:
-        assert native is None
-        document = parse_local_tesseract(pdf_bytes, source_file=path.name)
-    else:
+    if not source["ocr"]:
         assert native is not None
-        document = native
-    assert document is not None
-    return analyze_markdown(document.to_markdown(), parse_mode="deterministic")
+        return native.to_markdown()
+
+    assert native is None
+    if live_ocr:
+        document = parse_local_tesseract(pdf_bytes, source_file=path.name)
+        assert document is not None, f"local Tesseract produced nothing for {path.name}"
+        return document.to_markdown()
+
+    markdown = cached_markdown(pdf_bytes, CACHE)
+    assert markdown is not None, f"no committed OCR artifact for {path.name}"
+    return markdown
+
+
+@lru_cache(maxsize=None)
+def _source_report(name: str):
+    return analyze_markdown(_source_markdown(name), parse_mode="deterministic")
 
 
 def _money(value: float) -> Decimal:
@@ -205,6 +249,36 @@ def test_new_source_inventory_is_exact(name: str):
     pdf_bytes = path.read_bytes()
     assert hashlib.sha256(pdf_bytes).hexdigest().upper() == source["sha256"]
     assert pdf_page_count(pdf_bytes) == source["pages"]
+
+
+@pytest.mark.parametrize("name", [name for name, source in SOURCES.items() if source["ocr"]])
+def test_scanned_fixtures_are_served_from_their_pinned_committed_artifact(name: str):
+    """The OCR markdown these tests assert on is the pinned artifact, byte for byte."""
+    source = SOURCES[name]
+    pdf_bytes = (ROOT / source["path"]).read_bytes()
+    entry = manifest_entries(CACHE)[source["sha256"]]
+
+    assert entry["path"] == source["path"].split("Bank Statements/", 1)[1]
+    assert entry["pdf_sha256"] == sha256_hex(pdf_bytes) == source["sha256"]
+
+    markdown = _source_markdown(name)
+    assert sha256_hex(markdown.encode("utf-8")) == entry["artifact_sha256"]
+    assert markdown == (CACHE / entry["artifact"]).read_text(encoding="utf-8")
+
+
+@pytest.mark.live
+@pytest.mark.skipif(shutil.which("tesseract") is None, reason="local Tesseract not installed")
+@pytest.mark.parametrize("name", [name for name, source in SOURCES.items() if source["ocr"]])
+def test_live_tesseract_reproduces_the_committed_artifact_reports(name: str):
+    """Opt-in: the real local-OCR path still produces the artifact's analysis.
+
+    Deselected by default (`live` marker). A failure here is not necessarily a
+    product regression — it means this machine's Tesseract has drifted from the
+    build that produced the committed artifact, which is exactly the drift that
+    took the GitHub runner red. Diagnose before re-baselining anything.
+    """
+    live = analyze_markdown(_source_markdown(name, live_ocr=True), parse_mode="deterministic")
+    assert report_to_dict(live) == report_to_dict(_source_report(name))
 
 
 @pytest.mark.parametrize("name", EXPECTED)
