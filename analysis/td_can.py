@@ -481,3 +481,9 @@ def parse_td_canada_statement(markdown: str, base: Statement | None = None) -> S
     transactions = [t.model_copy(update={"running_balance": None}) for t in transactions]
     stmt.transactions = transactions
     return stmt
+
+
+#: Public entry point for the native-text TD Canada layout, registered in its
+#: own right by R-3. `parse_td_canada_statement` still tries it first until the
+#: pipeline switches to registry dispatch.
+parse_native_td_canada_statement = _parse_native_td_canada

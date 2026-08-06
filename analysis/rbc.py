@@ -467,3 +467,9 @@ def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) ->
         return None
     stmt.transactions = transactions
     return stmt
+
+
+#: Public entry point for the French-language RBC layout, registered in its
+#: own right by R-3. `parse_rbc_statement` still tries it first until the
+#: pipeline switches to registry dispatch.
+parse_rbc_french_statement = _parse_rbc_french_statement

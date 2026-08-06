@@ -83,6 +83,7 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("bmo", "BMO", bmo, "DETECTION_MARKERS", "detection_text", "parse_bmo_statement"),
     ("capital_one", "Capital One", capital_one, "DETECTION_MARKERS", None, "parse_capital_one_statement"),
     ("chase", "Chase", chase, "DETECTION_MARKERS", "detection_text", "parse_chase_statement"),
+    ("chase_export", "Chase Transaction Export", chase, "EXPORT_DETECTION_MARKERS", "detection_text", "parse_chase_export_statement"),
     ("cibc_french", "CIBC", cibc, "DETECTION_MARKERS", None, "parse_cibc_french_statement"),
     ("citizens", "Citizens Bank", citizens, "DETECTION_MARKERS", None, "parse_citizens_statement"),
     ("columbia_bank", "Columbia Bank", columbia_bank, "DETECTION_MARKERS", "detection_text", "parse_columbia_bank_statement"),
@@ -102,6 +103,7 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("navy_federal", "Navy Federal Credit Union", navy_federal, "DETECTION_MARKERS", None, "parse_navy_federal_statement"),
     ("pnc", "PNC Bank", pnc, "DETECTION_MARKERS", None, "parse_pnc_statement"),
     ("rbc", "Royal Bank of Canada", rbc, "DETECTION_MARKERS", "detection_text", "parse_rbc_statement"),
+    ("rbc_french", "Banque Royale du Canada", rbc, "FRENCH_DETECTION_MARKERS", "french_detection_text", "parse_rbc_french_statement"),
     ("regions", "Regions Bank", regions, "DETECTION_MARKERS", "detection_text", "parse_regions_statement"),
     ("relay", "Thread Bank (Relay)", relay, "DETECTION_MARKERS", "detection_text", "parse_relay_statement"),
     ("santander", "Santander Bank", santander, "DETECTION_MARKERS", None, "parse_santander_statement"),
@@ -109,6 +111,7 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("secu", "SECU Maryland", secu, "DETECTION_MARKERS", None, "parse_secu_statement"),
     ("southside_scanned", "Southside Bank", scanned_small_bank, "SOUTHSIDE_DETECTION_MARKERS", "detection_text", "parse_southside_scanned_statement"),
     ("td_canada", "TD Canada Trust", td_can, "DETECTION_MARKERS", None, "parse_td_canada_statement"),
+    ("td_canada_native", "TD Canada Trust", td_can, "NATIVE_DETECTION_MARKERS", "detection_text", "parse_native_td_canada_statement"),
     ("td_us", "TD Bank", td_us, "DETECTION_MARKERS", None, "parse_td_us_statement"),
     ("texas_bank", "Texas Bank and Trust", texas_bank, "DETECTION_MARKERS", None, "parse_texas_bank_statement"),
     ("truist", "Truist", truist, "DETECTION_MARKERS", None, "parse_truist_statement"),
@@ -119,7 +122,22 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
 
 #: Per-registration overrides for anything that is not the default. Kept as a
 #: short, readable exception list rather than widening every row of the table.
-_OVERRIDES: dict[str, dict] = {}
+_OVERRIDES: dict[str, dict] = {
+    # The three sub-dispatches the or-chain hid inside a parser. Each is a
+    # narrower document class of the same institution, so it takes the low band
+    # and supersedes its general form outright - the precedence the nested
+    # `if ... is not None: return ...` used to express by position.
+    "chase_export": {
+        "band": 10,
+        "supersedes": frozenset({"chase"}),
+        # A Chase online transaction export is not a bank statement: it has no
+        # formal summary or period. The pipeline reads this instead of
+        # comparing Statement.bank to a literal.
+        "formal_statement": False,
+    },
+    "rbc_french": {"band": 10, "supersedes": frozenset({"rbc"})},
+    "td_canada_native": {"band": 10, "supersedes": frozenset({"td_canada"})},
+}
 
 _loaded = False
 

@@ -426,3 +426,9 @@ def parse_chase_statement(markdown: str) -> Statement | None:
         return None
     stmt.transactions = txns
     return stmt
+
+
+#: Public entry point for the Chase online transaction export, which R-3
+#: registers in its own right. `parse_chase_statement` still tries it first;
+#: that inner call goes away when the pipeline switches to registry dispatch.
+parse_chase_export_statement = _parse_chase_business_export
