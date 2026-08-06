@@ -229,6 +229,10 @@ strings moved into registration data. Detect sweep re-measured: 3.04 ms/doc
 — a SOURCE-invariance conformance check for all 46 registrations is added to
 R-4 scope (findings, not fixes).
 
+**Run 31131672673 (R-3 merge, `55626eb`): `completed success`** — second
+consecutive fully green remote run; the registry dispatch is remotely
+verified.
+
 **Dispatches:** REEF → R-4 phase (six-parser fixtures, demo_national,
 46-registration conformance harness, SOURCE-invariance check; tests-only;
 any pipeline.py need = stop-and-ask). HARBOR → **H-3 Phase 1: schema design
