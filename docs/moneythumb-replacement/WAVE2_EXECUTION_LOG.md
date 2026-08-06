@@ -145,6 +145,25 @@ deselected; gate GREEN (106/3, 3,507 foreign ignored, 363.7 s)**. Local main
 = `38c8cd0`; origin/main = `74acb99` — push + CI dispatch batched with the
 D-3b + CI-1c merges.
 
+**D-3b MERGED (`33c7bf0`, ff): APPROVED** — page_integrity round-trips the
+cache; OCR_STAGE_VERSION 1→2 (first exercise of the standing rule); 1003
+tests; getattr-tolerance for pre-O-3 document shapes accepted (matches
+ocr/truncation's documented reader contract). H-3 note: truncation facts read
+off the document object (safe on hit and miss); freshness from `cache_hit`
+audit rows.
+
+**CI-1c MERGED (`bac6149`): APPROVED** — quantified root cause (17/109 rows,
+9 nested folders; `folder` the only backslash column anywhere); named
+PATH_VALUED_FIELDS normalization on both compare sides with three
+masking-prevention tests; offline Linux simulation reproduces run 31128834443
+in both directions; ADB writer emits POSIX for future regenerations (report
+surface only). 1004 tests; local gate GREEN. **Batch `D-3`+`O-3`+`D-3b`+
+`CI-1c` pushed (origin/main = `bac6149`); verification run 31129048067
+dispatched — expected to be the first fully green remote run.** CI failure
+genealogy now documented in CI1_FINDINGS.md: four independent, serially
+masked causes (runner transient → missing binaries → OCR version drift →
+path separators), zero financial drift at any point.
+
 **D-3×O-3 integration gap confirmed as predicted** (put_ocr stores only
 {model, pages}; page_integrity dropped on hit) → **D-3b dispatched to
 Agent B**: round-trip page_integrity, bump OCR_STAGE_VERSION 1→2,
