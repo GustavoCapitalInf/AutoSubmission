@@ -5,6 +5,7 @@ from .document import StatementMarkdown
 from .config import load_settings
 from .inspect import DocumentProfile, inspect_pdf
 from .local_tesseract import parse_local_tesseract
+from .truncation import assess_pages
 from .native_text import (
     parse_native_desjardins,
     parse_native_navy_federal,
@@ -87,6 +88,14 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
             _notify_stage(on_stage, "local_ocr")
             native = parse_local_tesseract(pdf_bytes, source_file=source_file)
         if native is not None:
+            # O-3: assess every rung, not just the visual one. The offline rungs
+            # have no token ceiling, so they can only ever raise a structural
+            # signal — and their plain text carries no markup to leave open, so
+            # in practice they raise none (proven over all 109 corpus documents
+            # in tests/test_truncation.py). Assessing them anyway means an empty
+            # `page_integrity` unambiguously means "the ladder did not run",
+            # never "this rung is exempt".
+            native.page_integrity = assess_pages(native.pages)
             if on_page_replace is not None:
                 for i, page in enumerate(native.pages):
                     on_page_replace(i, page)
@@ -147,5 +156,12 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
             for fut in as_completed(futures):
                 results[futures[fut]] = fut.result()
 
+    # O-3: assess the reads that were actually KEPT — this runs after the
+    # mis-segmentation fallback and the TD page-1 recovery have already chosen
+    # between the original and the re-OCR, and the model signals travel on the
+    # PageText itself, so a flag can never describe a discarded read. Flag-only:
+    # nothing below re-OCRs, drops, or rewrites a page because of a flag.
+    integrity = assess_pages(results)
     return StatementMarkdown(source_file=source_file, model=settings.model,
-                             pages=[r or "" for r in results])
+                             pages=[str(r) if r else "" for r in results],
+                             page_integrity=integrity)

@@ -5,6 +5,7 @@ import re
 import time
 from PIL import Image
 from .config import Settings, load_settings
+from .truncation import PageText
 
 _TASK = "Free OCR."
 _MAX_TOKENS = 4096
@@ -386,6 +387,25 @@ def _build_client(settings: Settings):
     return OpenAI(base_url=settings.base_url, api_key=settings.api_key, timeout=settings.timeout)
 
 
+# O-3: the only truncation evidence the endpoint itself offers. Both readers are
+# deliberately defensive — a server (or a test double) that reports neither field
+# must yield "no signal", never a false one. See ocr/truncation.py.
+def _finish_reason(choice) -> str | None:
+    """``choices[0].finish_reason``: 'stop' when the model finished, 'length'
+    when it hit max_tokens mid-page. Absent on every chunk of a stream except
+    the last."""
+    value = getattr(choice, "finish_reason", None)
+    return value if isinstance(value, str) and value else None
+
+
+def _completion_tokens(response, current: int | None = None) -> int | None:
+    """``usage.completion_tokens`` when the endpoint reports it (vLLM does on
+    non-streamed responses; the bundled local_ocr_server.py never does)."""
+    usage = getattr(response, "usage", None)
+    value = getattr(usage, "completion_tokens", None) if usage is not None else None
+    return value if isinstance(value, int) else current
+
+
 def postprocess(raw: str) -> str:
     """Full cleanup chain applied to the model's raw output."""
     cleaned = strip_placeholder_markers(strip_refusal_commentary(strip_det_tags(raw)))
@@ -402,7 +422,14 @@ def ocr_page(image: Image.Image, *, settings: Settings | None = None, client=Non
 
     If `on_delta` is given, the request is streamed and each raw text chunk is
     passed to `on_delta(chunk)` as it arrives (for live display). The returned
-    value is always the fully-cleaned markdown regardless of streaming."""
+    value is always the fully-cleaned markdown regardless of streaming.
+
+    O-3: the return value is a `PageText` — a `str` carrying the model's
+    completion signals (`finish_reason`, `usage.completion_tokens`, and the
+    `max_tokens` ceiling that was requested) so `ocr/pipeline.py` can tell a
+    complete page from one the model stopped writing. It is a `str` subclass
+    precisely so nothing downstream has to change: every existing consumer, and
+    every test double that returns a plain `str`, behaves exactly as before."""
     settings = settings or load_settings()
     if client is None:
         client = _build_client(settings)
@@ -429,21 +456,29 @@ def ocr_page(image: Image.Image, *, settings: Settings | None = None, client=Non
     last_exc = None
     for attempt in range(max(1, settings.retries)):
         try:
+            finish_reason = None
+            completion_tokens = None
             if on_delta is None:
                 resp = client.chat.completions.create(**kwargs)
                 raw = resp.choices[0].message.content or ""
+                finish_reason = _finish_reason(resp.choices[0])
+                completion_tokens = _completion_tokens(resp)
             else:
                 raw = ""
                 for chunk in client.chat.completions.create(stream=True, **kwargs):
+                    # Usage rides on a trailing choice-less chunk; read it first.
+                    completion_tokens = _completion_tokens(chunk, completion_tokens)
                     if not chunk.choices:
                         continue
+                    finish_reason = _finish_reason(chunk.choices[0]) or finish_reason
                     delta = chunk.choices[0].delta.content or ""
                     if delta:
                         raw += delta
                         on_delta(delta)
             # Embed picture regions (crop from the page) before text det tags are stripped.
             raw = embed_image_regions(raw, image)
-            return postprocess(raw)
+            return PageText(postprocess(raw), finish_reason=finish_reason,
+                            completion_tokens=completion_tokens, max_tokens=_MAX_TOKENS)
         except Exception as e:  # transient network / server errors
             last_exc = e
             time.sleep(min(2 ** attempt, 8) * 0.1)
