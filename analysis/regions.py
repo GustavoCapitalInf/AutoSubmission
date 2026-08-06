@@ -151,6 +151,11 @@ def detection_text(markdown: str) -> str:
 DETECTION_MARKERS = (
     required("bank_name", lambda t: "REGIONS" in t),
     required("summary_section", lambda t: "SUMMARY" in t),
+    # Both markers above are generic enough to co-occur in another bank's
+    # statement whenever Regions appears as an ACH originator - it does in all
+    # three Amex documents. Require the footer Regions prints on its own
+    # statements (R3_DETECTION_FINDING.md).
+    required("issuer_footer", lambda t: "THANK YOU FOR BANKING WITH REGIONS!" in t),
 )
 
 detect = make_detector(DETECTION_MARKERS, detection_text)

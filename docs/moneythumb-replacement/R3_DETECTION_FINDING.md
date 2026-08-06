@@ -1,6 +1,6 @@
 # R-3 finding — five parsers detect a counterparty, not the issuing bank
 
-Author: Agent A (REEF). Date: 2026-08-06. Status: **BLOCKING R-3.4 — Ocean ruling requested.**
+Author: Agent A (REEF). Date: 2026-08-06. Status: **RESOLVED — Ocean ruling 2026-08-06; markers landed in R-3.4.**
 Raised by: the R-3 corpus parity control (R3_RFC §6), at stage R-3.3.
 Evidence: `tests/data/parser_expectations.json`, `tests/test_parser_parity.py`.
 
@@ -84,61 +84,99 @@ carry `--- Page N ---` markers) keeps every own document and removes 57 of the
 transactions on page 1 — so it is not sufficient alone, and a tuned character
 offset would be a corpus-fitted constant of exactly the kind R-1 purged.
 
-## 5. What I propose
+## 5. Resolution (Ocean ruling, 2026-08-06)
 
-**Add one required marker per affected parser, drawn from that bank's own
-statement furniture** — the evidence its `parse` already depends on. Candidates
-measured as present in every one of that parser's corpus documents and absent
-from all others:
+Approved: **one issuer-furniture required marker per affected parser** —
+structural evidence the *issuer* prints on its own statements. Prohibited and
+not used: customer names, dates, amounts, account numbers or fragments,
+positional offsets, or any corpus-fitted constant. The candidate search did
+surface such strings (`SALON BARK LLC`, `CLOSING BALANCE $ 1,000,000.00`,
+`--- PAGE 21 ---`); none was used.
 
-| Parser | Proposed additional required marker | Nature |
+### The five-parser table
+
+| Parser | Guard before R-3.4 | Marker added | Class | Evidence document that proved it necessary |
+|---|---|---|---|---|
+| `capital_one` | `"CAPITALONE" in md.upper().replace(" ","")` | `AN IMPORTANT MESSAGE TO OUR CLIENTS` | issuer section heading | `Truist/Truist April, 2026.pdf` — `…CHECK PYMT CAPITAL ONE ARC 0020720 727.93…` (+37 more) |
+| `bmo` | `"BMO" or "BANK OF MONTREAL"` | `ACCOUNT SUMMARY TOTALS` | issuer section heading | `Chase/Chase Mar.pdf` — `…ZELLE PAYMENT FROM … BMOZ000RIJ8B…` (+6 more) |
+| `regions` | `"REGIONS"` + `"SUMMARY"` | `THANK YOU FOR BANKING WITH REGIONS!` | issuer footer | `Amex/Amex Apr2026.pdf` — `…JACK HENRY CO/ REGIONS BANK…` (+2 more) |
+| `bank_of_america` | `"BANK OF AMERICA"` + `"ACCOUNT SUMMARY"` | `BANKOFAMERICA.COM` | issuer domain | `TD/TD BANK NARROW APR.pdf` — `…ELECTRONIC PMT-TEL, BANK OF AMERICA PAYMENT…` |
+| `scotiabank` | `"SCOTIABANK" or "BUSINESS ACCOUNT 01180"` | `THE BANK OF NOVA SCOTIA`, **and the `01180` fragment removed** | issuer legal name (trademark footer) | `Others/Santander/Santander_April26.pdf` — `…USD WIRE IN FROM SCOTIABANK CHIL…` (+2 more) |
+
+Every marker verified present in **all** of that parser's corpus documents and
+absent from **all** others before being written. Tests:
+`tests/test_parser_detection_markers.py` — a detection-positive and a
+detection-negative per marker, each negative reproducing the counterparty text
+of the cited corpus document; corpus-wide coverage is
+`tests/test_parser_parity.py`.
+
+### Measured result
+
+| | Before | After |
 |---|---|---|
-| `bank_of_america` | `BANKOFAMERICA.COM` | issuer domain — the same evidence 8 other parsers already use |
-| `regions` | `THANK YOU FOR BANKING WITH REGIONS!` | issuer footer |
-| `bmo` | `ACCOUNT SUMMARY TOTALS` | BMO section heading (already referenced by the BMO contradiction check in `pipeline.py`) |
-| `capital_one` | to be selected — needs an issuer-owned brand/section string, not the customer name the candidate search surfaced | issuer furniture |
-| `scotiabank` | to be selected on the same basis | issuer furniture |
+| Ambiguous corpus documents | 45 | **0** |
+| Unclaimed | 0 | **0** |
+| Wrong-parser claims | 0 | **0** |
+| Documents with a parse fallthrough | 0 | **0** |
+| Corpus gate | GREEN | **GREEN**, 106 PASS / 3 WITHHELD, no re-baseline |
 
-Constraints I would hold to: structural strings only — issuer domains,
-statement section headings, issuer footers. No customer names, dates, amounts,
-account numbers or page counts. The candidate search did surface such strings
-(`SALON BARK LLC`, `CLOSING BALANCE $ 1,000,000.00`, `--- PAGE 21 ---`); none
-will be used.
+## 6. Semantic note: these parsers now under-claim, deliberately
 
-Parity is provable either way: the affected parsers must still claim all of
-their own corpus documents, and `tests/test_parser_parity.py` asserts it.
+This is not a neutral tightening. Off-corpus, the five parsers now claim
+**strictly fewer** documents than before:
 
-## 6. Why I stopped rather than doing it
+* Before — a statement from *any* institution that merely mentioned the bank
+  (a card payment, a wire, an ACH originator) could be claimed by that bank's
+  parser. Under first-wins that produced a silent wrong parse whenever the
+  mentioning bank had no parser of its own or sat later in the chain.
+* After — such a document produces a *weak* detection (the bank name really is
+  present, so the score is above zero but below the threshold) and no claim.
+  It falls through to unclaimed → LLM extraction → review.
 
-This changes what five parsers *claim*, on the discovery corpus as much as on
-ours. That is a detection-semantics change, materially beyond the mechanical
-transcription R-3.2 was approved for, and WAVE2_BRIEF §3 R-4 is explicit that a
-parser defect found during this work is "reported to Ocean, not silently
-fixed". Ocean's own stop-rule for this stage — report any `supersedes` edge
-beyond the three known ones, with the document that proved it — is aimed at
-exactly this class of discovery; this finding is the same trigger in a stronger
-form.
+**The failure mode moves from "wrong answer" to "no deterministic answer",
+which is the fail-safe direction, and it is intentional for DSC-2.** A
+statement from an unregistered bank that pays a Capital One card is exactly the
+shape the discovery archive is full of; a wrong parse that happens to reconcile
+would corrupt both the result and the coverage statistics the run exists to
+produce, while an honest miss shows up as a named unknown-layout cluster.
 
-R-3.4 cannot land until it is resolved: 45 ambiguous documents would route to
-review and take the corpus gate red, and re-baselining is not mine to do.
+The cost is that a genuine statement from one of these five banks whose layout
+drops the required furniture would now be missed rather than parsed. That is
+visible — it shows up as a coverage miss with a near-threshold score, not as a
+silent wrong answer — and the weak-but-nonzero score is what lets DSC-2 tell
+"almost matched" apart from "never heard of this bank"
+(`test_a_counterparty_mention_still_scores_above_nothing`).
 
-## 7. State of the work
+## 7. Wave-3 backlog: R-1 residual sweep
 
-Stages R-3.0 through R-3.3 are complete, committed, suite-green and
-gate-green. The registry is fully built and exercised; only the pipeline
-switch is blocked.
+Two items found while resolving this. Neither is a dispatch problem; both are
+parser-quality defects of the class R-1 targeted, logged here rather than fixed
+now.
 
-The two parity assertions that depend on the finding are
-`xfail(strict=True)` in `tests/test_parser_parity.py`, referencing this
-document. They flip to passing — and the markers come off — when the ruling
-lands. Everything else in that module passes today.
+1. **`"BMO"` as a three-character marker.** It matches inside opaque reference
+   ids (`BMOZ000RIJ8B`), wire beneficiaries (`BMO BANK NA`, `BMO HARRIS BANK`)
+   and card descriptors (`BMO MASTERCD`). **Partially mitigated now** — the new
+   required `ACCOUNT SUMMARY TOTALS` marker means a stray `BMO` can no longer
+   produce a claim on its own — but the marker itself is still far too weak to
+   carry bank identity and should be replaced with BMO issuer furniture.
+2. **`"BUSINESS ACCOUNT 01180"` in the Scotiabank guard.** An account-number
+   fragment used as detection evidence — an R-1 residual. **Fixed now**, per
+   Ocean's ruling that a residual living in the detection guard of a parser
+   already being touched is in scope. Removing it cost nothing: no Santander
+   document contains it, and the Scotiabank document is still detected by
+   issuer evidence. Regression-guarded by
+   `test_scotiabank_no_longer_detects_on_an_account_number_fragment`.
 
-## 8. The ask
+A third observation, for the same sweep: in the Scotiabank corpus document the
+**first** `SCOTIABANK` occurrence is inside the markdown source comment
+(`<!-- SOURCE: SCOTIABANK -2.PDF ... -->`) — i.e. the filename, echoed into the
+text the parsers detect on. The statement body carries the brand twice more, so
+detection does not depend on it here, but *any* parser detecting on a string
+that also appears in a filename is detecting on metadata. Worth a systematic
+check across all 46 registrations in Wave 3.
 
-1. Approve adding one issuer-furniture required marker to each of the five
-   parsers, under the constraints in §5 — or direct a different resolution.
-2. Confirm that the two `capital_one` / `scotiabank` markers may be selected
-   by me on the stated basis, or that you want to see the candidates first.
-3. Note for Wave 3: `"BMO"` and `"BUSINESS ACCOUNT 01180"` look like
-   independent parser-quality defects worth their own ticket, separate from
-   the dispatch question.
+## 8. State of the work
+
+R-3.0 through R-3.4 complete, committed, suite-green and gate-green. Registry
+dispatch is live in `analysis/pipeline.py`; the orchestrator names no bank.
+R-3.5 and the pulled-forward six-parser fixtures await Ocean's go.

@@ -138,6 +138,11 @@ def _normalize_cycle_service_charge_dates(
 
 DETECTION_MARKERS = (
     required("bank_name", lambda t: "CAPITALONE" in t.upper().replace(" ", "")),
+    # The bank name alone is not evidence the bank ISSUED the statement: a card
+    # payment to Capital One puts it in 38 of the 109 corpus documents, from
+    # Truist to Wells Fargo to RBC. Pair it with a section heading Capital One
+    # prints on its own statements (R3_DETECTION_FINDING.md).
+    required("issuer_notice", lambda t: "AN IMPORTANT MESSAGE TO OUR CLIENTS" in t.upper()),
 )
 
 detect = make_detector(DETECTION_MARKERS)

@@ -31,13 +31,9 @@ SHARED_UTILITIES = {"money.py", "date_tokens.py", "tables.py"}
 #: writing `return None` is not a clone worth reporting.
 MIN_BODY_STATEMENTS = 2
 
-#: The one remaining cross-module private import, and why it is still here.
-#: `analysis/pipeline.py` imports `_parse_money` from `analysis/td_can.py`,
-#: where R-2 left a one-line alias to `analysis.money.parse_money`. Removing it
-#: requires editing pipeline.py, which belongs to R-3 (the dispatch seam).
-#: R-3 deletes both the import and the alias; this entry goes with them.
+#: Cross-module private imports that survive, and why. R-3 removed the
+#: pipeline -> td_can `_parse_money` entry along with the dispatch seam.
 ALLOWED_PRIVATE_IMPORTS = {
-    ("pipeline.py", "td_can", "_parse_money"),
     # rbc.py reads TD Canada's month-abbreviation table. Canadian statements
     # from both banks print the same three-letter month tokens; the table is
     # data, not behaviour, and moving it is a separate cleanup.

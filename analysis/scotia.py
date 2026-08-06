@@ -39,7 +39,11 @@ def detection_text(markdown: str) -> str:
 
 
 DETECTION_MARKERS = (
-    required("bank_name", lambda t: "SCOTIABANK" in t or "BUSINESS ACCOUNT 01180" in t),
+    # "SCOTIABANK" alone matches an incoming-wire description in all three
+    # Santander statements, so pair it with the issuer's legal name, which
+    # Scotiabank prints in its own trademark footer.
+    required("bank_name", lambda t: "SCOTIABANK" in t),
+    required("issuer_identity", lambda t: "THE BANK OF NOVA SCOTIA" in t),
 )
 
 detect = make_detector(DETECTION_MARKERS, detection_text)

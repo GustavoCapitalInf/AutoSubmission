@@ -134,8 +134,17 @@ _OVERRIDES: dict[str, dict] = {
         # formal summary or period. The pipeline reads this instead of
         # comparing Statement.bank to a literal.
         "formal_statement": False,
+        "informal_quality_note": (
+            "Chase for Business transaction export lacks a formal statement summary/period"
+        ),
+        "informal_integrity_note": (
+            "document is a Chase online transaction export, not a complete bank statement"
+        ),
     },
     "rbc_french": {"band": 10, "supersedes": frozenset({"rbc"})},
+    # BMO prints a second summary block; where the two disagree the document
+    # contradicts itself. Registered here so the orchestrator never names BMO.
+    "bmo": {"integrity_checks": (bmo.summary_contradictions,)},
     "td_canada_native": {"band": 10, "supersedes": frozenset({"td_canada"})},
 }
 

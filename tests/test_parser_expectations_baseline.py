@@ -124,18 +124,23 @@ def test_chain_declined_ids_are_a_prefix_of_the_dispatch_order(documents):
         )
 
 
+#: Parsers with no document in the pinned corpus. R-4's synthetic
+#: conformance fixtures are their only coverage, so the set is asserted rather
+#: than discovered: it must not grow without someone noticing.
+CORPUS_UNREPRESENTED = {"demo_national"}
+
+
 def test_the_corpus_exercises_all_but_one_registered_parser(documents):
     """A named, deliberate record of what the corpus does not cover.
 
-    Every parser except `demo_national` claims at least one corpus document.
-    That parser's only fixture is synthetic, so R-4's conformance tests are its
-    sole coverage — worth knowing before the registry starts ranking it against
-    real documents.
+    Every parser except those in `CORPUS_UNREPRESENTED` claims at least one
+    corpus document. Handed to R-4 (RFC §6.2/10) as a required entry in its
+    conformance-completeness list.
     """
     from tools.record_parser_expectations import PIPELINE_ENTRY_POINTS
 
     claiming = {row["parser_id"] for row in documents}
     uncovered = set(PIPELINE_ENTRY_POINTS) - claiming
-    assert uncovered == {"demo_national"}, (
+    assert uncovered == CORPUS_UNREPRESENTED, (
         f"corpus coverage of the parser set changed: uncovered={sorted(uncovered)}"
     )

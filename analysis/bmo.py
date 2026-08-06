@@ -105,6 +105,11 @@ def detection_text(markdown: str) -> str:
 
 DETECTION_MARKERS = (
     required("bank_name", lambda t: "BMO" in t or "BANK OF MONTREAL" in t),
+    # "BMO" is three characters and matches inside opaque reference ids
+    # ("BMOZ000RIJ8B" in a Chase Zelle row) and wire beneficiaries in Wells
+    # Fargo, RBC and Citizens statements. Require BMO's own summary heading
+    # too (R3_DETECTION_FINDING.md).
+    required("summary_section", lambda t: "ACCOUNT SUMMARY TOTALS" in t),
 )
 
 detect = make_detector(DETECTION_MARKERS, detection_text)
@@ -191,3 +196,70 @@ def parse_bmo_statement(markdown: str) -> Statement | None:
 
     stmt.transactions = txns
     return stmt
+
+
+def summary_contradictions(markdown: str, stmt: Statement) -> list[str]:
+    """BMO prints a second summary block; report where the two disagree.
+
+    Registered as this parser's `integrity_check`, so it runs when - and only
+    when - a BMO statement is on the table. Before R-3 it lived in
+    analysis/pipeline.py behind a `stmt.bank == "BMO"` literal, which is the
+    kind of bank knowledge the orchestrator should not carry.
+    """
+    text = " ".join(markdown.split())
+
+    contradictions: list[str] = []
+    secondary = re.search(
+        r"Account Summary Totals\s+(.*?)(?:Important Information|Page 2 of 2|$)",
+        text,
+        re.IGNORECASE,
+    )
+    secondary_text = secondary.group(1) if secondary else ""
+
+    def secondary_amount(label: str) -> float | None:
+        if not secondary_text:
+            return None
+        m = re.search(
+            label + r"\s+\$?\s*(-?\d[\d,]*\.\d{2})",
+            secondary_text,
+            re.IGNORECASE,
+        )
+        if not m:
+            return None
+        return parse_money(m.group(1))
+
+    page_total_deposits = secondary_amount(r"Total Deposits")
+    if (
+        stmt.stated_total_credits is not None
+        and page_total_deposits is not None
+        and abs(stmt.stated_total_credits - page_total_deposits) > 0.01
+    ):
+        contradictions.append(
+            "conflicting bank-stated deposit totals across summary sections"
+        )
+
+    page_total_withdrawals = secondary_amount(r"Total Withdrawals")
+    page_interest = secondary_amount(r"Interest Earned")
+    page_fees = secondary_amount(r"Service Fees")
+    page_final = secondary_amount(r"Final Balance")
+    if (
+        stmt.beginning_balance is not None
+        and page_total_deposits is not None
+        and page_total_withdrawals is not None
+        and page_final is not None
+    ):
+        base = (
+            stmt.beginning_balance
+            + page_total_deposits
+            - page_total_withdrawals
+            + (page_interest or 0.0)
+        )
+        # Some statements include fees in withdrawals; others list them separately.
+        residuals = [base - page_final]
+        if page_fees is not None:
+            residuals.append(base - page_fees - page_final)
+        if min(abs(residual) for residual in residuals) > 1.0:
+            contradictions.append(
+                "secondary bank-stated summary does not reconcile to the opening and final balances"
+            )
+    return contradictions

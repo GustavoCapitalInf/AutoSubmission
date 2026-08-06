@@ -9,15 +9,11 @@ Marked `corpus` (opt-in, like the gate) because it reads the pinned PDFs.
 Offline throughout: native text, or the committed OCR artifacts, resolved
 exactly as `corpus_gate.py` resolves them.
 
-**Known open finding.** Five parsers detect their bank by a bare name
-substring that also matches the bank appearing as a *counterparty* in another
-bank's statement, so 45 corpus documents currently have more than one
-claimant. The or-chain hid this behind position. The affected assertions are
-`xfail(strict=True)` pending Ocean's ruling — see
-`docs/moneythumb-replacement/R3_DETECTION_FINDING.md`. They flip to passing,
-and the xfail markers come off, when the ruling lands. Everything else here
-passes today, including the two properties that matter most: no document
-resolves to the *wrong* parser, and no document is left unclaimed.
+Closed finding: five parsers used to detect their bank by a bare name
+substring that also matched the bank as a *counterparty* in another bank's
+statement, leaving 45 documents with two or more claimants. Each now requires
+issuer furniture as well — see `docs/moneythumb-replacement/R3_DETECTION_FINDING.md`
+and `tests/test_parser_detection_markers.py`. Every assertion below passes.
 """
 from __future__ import annotations
 
@@ -36,12 +32,6 @@ ROOT = Path(__file__).resolve().parent.parent
 CORPUS = ROOT / "Bank Statements"
 EXPECTATIONS = ROOT / "tests" / "data" / "parser_expectations.json"
 BALANCE_CSV = ROOT / "docs" / "balance-metrics-audit-results.csv"
-
-AMBIGUITY_FINDING = (
-    "open finding: five bank-name markers also match the bank as a counterparty "
-    "in another bank's statement - see docs/moneythumb-replacement/R3_DETECTION_FINDING.md"
-)
-
 
 @pytest.fixture(scope="module")
 def documents() -> list[dict]:
@@ -99,7 +89,6 @@ def test_no_corpus_document_resolves_to_the_wrong_parser(documents, sources):
     assert not wrong, "wrong-parser claims:\n  " + "\n  ".join(wrong)
 
 
-@pytest.mark.xfail(reason=AMBIGUITY_FINDING, strict=True)
 def test_no_corpus_document_is_ambiguous(documents, sources):
     ambiguous = {
         row["path"]: _claimants(sources[row["path"]])
@@ -109,7 +98,6 @@ def test_no_corpus_document_is_ambiguous(documents, sources):
     assert not ambiguous, f"{len(ambiguous)} ambiguous documents: {ambiguous}"
 
 
-@pytest.mark.xfail(reason=AMBIGUITY_FINDING, strict=True)
 def test_every_corpus_document_resolves_to_the_recorded_parser(documents, sources):
     """The headline parity assertion, in its final form."""
     mismatches = []

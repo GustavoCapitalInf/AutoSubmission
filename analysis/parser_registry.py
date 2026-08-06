@@ -242,6 +242,11 @@ class Registration:
     #: (an online transaction export, say). Read by the pipeline's quality and
     #: integrity assessment instead of a bank-name literal.
     formal_statement: bool = True
+    #: How to describe this document class when `formal_statement` is False.
+    #: Held here rather than in the orchestrator so the pipeline can report a
+    #: document class it has no knowledge of.
+    informal_quality_note: str | None = None
+    informal_integrity_note: str | None = None
     #: Bank-specific integrity checks, run only when this parser claimed.
     integrity_checks: tuple[IntegrityCheck, ...] = ()
 

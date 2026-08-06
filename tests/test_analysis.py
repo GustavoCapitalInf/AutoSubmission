@@ -1239,6 +1239,7 @@ Total Other Withdrawals $ 512,963.42-
 
 def test_parse_capital_one_uses_running_balances_to_fix_miscolumned_credits():
     md = """
+AN IMPORTANT MESSAGE TO OUR CLIENTS
 CapitalOne Bank
 ACCOUNT SUMMARY FOR PERIOD MARCH 01, 2026 - MARCH 31, 2026
 Business Basic Checking 00005733890536
@@ -1266,6 +1267,7 @@ Business Basic Checking 00005733890536
 
 def test_parse_capital_one_native_text_uses_resulting_balances():
     md = """
+AN IMPORTANT MESSAGE TO OUR CLIENTS
 Capital One
 ACCOUNT SUMMARY      FOR PERIOD
 MARCH 01, 2026  -  MARCH 31, 2026
@@ -1619,6 +1621,7 @@ Ending balance on January 31, 2026 $34.81
 
 def test_parse_bofa_native_text_sections():
     md = """
+bankofamerica.com
 Bank of America, N.A.
 Your Business Advantage Fundamentals Banking
 for January 1, 2026 to January 31, 2026 Account number: 3252 0847 6098
@@ -1658,6 +1661,7 @@ Total withdrawals and other debits -$250.00
 
 def test_parse_bofa_native_card_subtotal_does_not_replace_row_amount():
     md = """
+bankofamerica.com
 Bank of America, N.A.
 Your Business Advantage Fundamentals Banking
 for February 1, 2026 to February 28, 2026 Account number: 3251 9756 7296
@@ -1692,6 +1696,7 @@ Total service fees -$16.00
 
 def test_parse_bofa_native_checks_and_service_fees():
     md = """
+bankofamerica.com
 Bank of America, N.A.
 Your Business Advantage Relationship Banking
 for November 1, 2025 to November 30, 2025 Account number: 2910 2587 9041
@@ -1751,6 +1756,7 @@ Average Balance $297
 
 def test_parse_regions_native_text_sections():
     md = """
+Thank you for banking with Regions!
 Regions Bank Homer Georgia
 ACCOUNT # 0367816126
 ADVANTAGE BUSINESS CHECKING
@@ -2579,6 +2585,7 @@ def test_bmo_source_pdf_rows_are_fully_captured_but_mutually_contradictory():
 
 def test_bmo_parser_uses_the_printed_period_and_balance_continuity():
     markdown = """
+Account Summary Totals
 BMO BANK STATEMENT
 Statement Period: February 2028
 Example Company

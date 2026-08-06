@@ -27,11 +27,6 @@ _MONTHS = {
 }
 
 
-#: Back-compat alias. `analysis/pipeline.py` still imports `_parse_money` from
-#: this module; that import moves to `analysis.money` in R-3, which owns the
-#: dispatch seam. R-2 does not edit pipeline.py.
-_parse_money = parse_money
-
 #: Signature sequences that only occur when UTF-8 bytes were mis-decoded as
 #: cp1252/latin-1 ("mojibake"). Written as escapes on purpose: source code
 #: never carries raw mojibake byte sequences (R-1 item 11).
