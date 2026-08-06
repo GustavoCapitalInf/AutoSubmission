@@ -334,3 +334,73 @@ def test_audit_rows_for_upload_review_and_export(store):
     assert json.loads(exports[0]["detail"])["format"] == "csv"
 
     assert all(event["at"] for event in storage.audit_events())
+
+
+# ---------------------------------------------------------------------------
+# O-1: schema v2 (document profiles), forward migration, duplicate lookup
+# ---------------------------------------------------------------------------
+
+
+def test_fresh_store_lands_on_the_current_schema_version(data_dir):
+    assert Storage(data_dir).schema_version() == SCHEMA_VERSION
+    assert SCHEMA_VERSION == 2
+
+
+def test_v1_store_migrates_forward_to_v2(data_dir):
+    """Open a hand-built v1 database (the exact D-1 script, version row 1,
+    with a seeded pre-migration document row) and verify the forward-only
+    migration hook carries it to v2 without touching existing data."""
+    from webapp.storage import _SCHEMA_V1
+
+    data_dir.mkdir(parents=True)
+    with sqlite3.connect(data_dir / "webapp.db") as conn:
+        conn.executescript(_SCHEMA_V1)
+        conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (1, 'seed')")
+        conn.execute(
+            "INSERT INTO documents (content_sha256, filename, byte_size, page_count, uploaded_at)"
+            " VALUES (?, 'legacy.pdf', 42, 1, 'seed')",
+            (content_sha256(PDF),),
+        )
+        # v1 must not know the v2 column yet — that is what the migration adds.
+        with pytest.raises(sqlite3.OperationalError):
+            conn.execute("SELECT profile_json FROM documents")
+
+    storage = Storage(data_dir)
+    assert storage.schema_version() == 2
+    with sqlite3.connect(storage.db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT filename, profile_json FROM documents").fetchone()
+    assert row["filename"] == "legacy.pdf"  # pre-migration data intact
+    assert row["profile_json"] is None      # additive column, NULL for old rows
+
+
+def test_document_profile_round_trip(store):
+    job = store.create("profiled.pdf", pdf_bytes=PDF)
+    store.storage.set_document_profile(job.id, json.dumps({"classification": "digital"}))
+    assert store.storage.document_profile(job.id) == {"classification": "digital"}
+
+
+def test_document_profile_is_none_when_absent(store):
+    job = store.create("bare.pdf", pdf_bytes=PDF)
+    assert store.storage.document_profile(job.id) is None
+    assert store.storage.document_profile("no-such-job") is None
+
+
+def test_duplicate_of_points_at_the_earliest_prior_upload(data_dir, store):
+    first = store.create("original.pdf", pdf_bytes=PDF)
+    second = store.create("re-upload.pdf", pdf_bytes=PDF)
+    third = store.create("re-upload-again.pdf", pdf_bytes=PDF)
+    other = store.create("different.pdf", pdf_bytes=PDF + b"x")
+
+    assert store.storage.duplicate_of(first.id) is None
+    assert store.storage.duplicate_of(second.id) == first.id
+    assert store.storage.duplicate_of(third.id) == first.id
+    assert store.storage.duplicate_of(other.id) is None
+
+    # Survives a restart like everything else in the store.
+    assert _reopen(data_dir).storage.duplicate_of(third.id) == first.id
+
+
+def test_duplicate_of_is_none_without_a_document(store):
+    job = store.create("no-bytes.pdf")  # no pdf_bytes -> no document row
+    assert store.storage.duplicate_of(job.id) is None

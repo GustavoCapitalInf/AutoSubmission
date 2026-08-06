@@ -19,27 +19,29 @@ Engine and concurrency
 
 Migration / back-compat statement (required by the D-1 brief)
 -------------------------------------------------------------
-v1 ships fresh. NO importer exists because no durable data predates this
-task — the previous store was purely in-memory, so "migrating" it is
-meaningless; that IS the migration/back-compat answer for v1. The
-``schema_version`` table records the schema in force and ``_MIGRATIONS``
-is the forward-only hook: to move from version N to N+1, register a
-callable under ``_MIGRATIONS[N]``. Downgrades are refused. The analysis
-result payload is stored as OPAQUE JSON text (the ``report_to_dict``
-output, verbatim and UNMASKED — masking stays a serve-time concern in
-``webapp/app.py``), so ``analysis/`` contract changes never require a
-schema migration here.
+v1 shipped fresh. NO importer exists because no durable data predated D-1 —
+the previous store was purely in-memory, so "migrating" it is meaningless;
+that IS the migration/back-compat answer for v1. The ``schema_version``
+table records the schema in force and ``_MIGRATIONS`` is the forward-only
+hook: to move from version N to N+1, register a callable under
+``_MIGRATIONS[N]``. Downgrades are refused. The analysis result payload is
+stored as OPAQUE JSON text (the ``report_to_dict`` output, verbatim and
+UNMASKED — masking stays a serve-time concern in ``webapp/app.py``), so
+``analysis/`` contract changes never require a schema migration here.
+v2 (O-1) is the first exercise of the hook: an additive ``profile_json``
+column on ``documents`` storing the preflight DocumentProfile.
 
-Content hash convention (shared with O-1 — do not change unilaterally)
-----------------------------------------------------------------------
+Content hash convention (the O-1 handshake)
+-------------------------------------------
 ``content_sha256(pdf_bytes)`` = UPPERCASE hex SHA-256 of the raw PDF bytes,
-exactly the convention of ``corpus_gate.sha256_upper``. PDF bytes live on
-disk as ``<content_sha256>.pdf`` inside the data directory — never inside
-SQLite, and released from RAM once a job reaches a terminal state.
+exactly the convention of ``corpus_gate.sha256_upper``. The ONE definition
+lives in ``ocr/inspect.py`` (relocated there in O-1) and is re-exported
+here. PDF bytes live on disk as ``<content_sha256>.pdf`` inside the data
+directory — never inside SQLite, and released from RAM once a job reaches a
+terminal state.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -50,11 +52,30 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable
 
-SCHEMA_VERSION = 1
+# O-1: the hash definition RELOCATED to ocr/inspect.py (the preflight needs it
+# and ocr must not depend on webapp). Re-exported here so every D-1 consumer
+# (webapp.jobs, tests) keeps importing webapp.storage.content_sha256 — still
+# exactly ONE definition.
+from ocr.inspect import content_sha256
+
+__all__ = ["Storage", "content_sha256", "default_data_dir", "utc_now_iso", "SCHEMA_VERSION"]
+
+SCHEMA_VERSION = 2
+
+
+def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
+    """v2 (O-1): store the preflight DocumentProfile with the document row.
+
+    Additive only — v1 rows keep working with profile_json NULL."""
+    conn.execute("ALTER TABLE documents ADD COLUMN profile_json TEXT")
+
 
 #: Forward-only migration hook: ``_MIGRATIONS[N]`` upgrades version N -> N+1.
-#: Empty for v1 — see the module docstring for why no importer exists.
-_MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {}
+#: Fresh databases run the v1 script and then every migration, so there is a
+#: single creation path and the hook is exercised on every new store.
+_MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
+    1: _migrate_v1_to_v2,
+}
 
 _SHA256_HEX = re.compile(r"^[0-9A-F]{64}$")
 
@@ -151,15 +172,6 @@ def utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def content_sha256(data: bytes) -> str:
-    """UPPERCASE hex SHA-256 of the raw PDF bytes.
-
-    This is the O-1 handshake definition and matches
-    ``corpus_gate.sha256_upper`` exactly: ``hashlib.sha256(data).hexdigest().upper()``.
-    """
-    return hashlib.sha256(data).hexdigest().upper()
-
-
 def default_data_dir() -> Path:
     """``WEBAPP_DATA_DIR`` env override, else ``webapp_data/`` at repo root."""
     env = os.environ.get("WEBAPP_DATA_DIR", "").strip()
@@ -199,14 +211,18 @@ class Storage:
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'"
             ).fetchone()
             if not has_version_table:
+                # Fresh stores take the same path as old ones: create v1, then
+                # walk the forward migrations — one creation path, and the
+                # migration hook is exercised on every new database.
                 conn.executescript(_SCHEMA_V1)
                 conn.execute(
                     "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
-                    (SCHEMA_VERSION, utc_now_iso()),
+                    (1, utc_now_iso()),
                 )
-                return
-            row = conn.execute("SELECT version FROM schema_version").fetchone()
-            version = int(row["version"]) if row else 0
+                version = 1
+            else:
+                row = conn.execute("SELECT version FROM schema_version").fetchone()
+                version = int(row["version"]) if row else 0
             if version > SCHEMA_VERSION:
                 raise RuntimeError(
                     f"data directory {self.data_dir} holds schema v{version}, but this "
@@ -272,6 +288,50 @@ class Storage:
                 (sha256_upper, filename, byte_size, page_count, utc_now_iso()),
             )
             return int(cursor.lastrowid)
+
+    def set_document_profile(self, job_id: str, profile_json: str) -> None:
+        """Attach the preflight DocumentProfile (as opaque JSON) to the
+        document row belonging to this job (schema v2, O-1)."""
+        with closing(self._connect()) as conn, conn:
+            conn.execute(
+                "UPDATE documents SET profile_json = ?"
+                " WHERE id = (SELECT document_id FROM jobs WHERE id = ?)",
+                (profile_json, job_id),
+            )
+
+    def document_profile(self, job_id: str) -> dict | None:
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT documents.profile_json FROM jobs"
+                " JOIN documents ON documents.id = jobs.document_id"
+                " WHERE jobs.id = ?",
+                (job_id,),
+            ).fetchone()
+            if row is None or row["profile_json"] is None:
+                return None
+            return json.loads(row["profile_json"])
+
+    def duplicate_of(self, job_id: str) -> str | None:
+        """The earliest PRIOR job whose document has the same content_sha256,
+        or None. 'Prior' is by document insertion order, so the first upload of
+        given bytes is never flagged and every re-upload points at it."""
+        with closing(self._connect()) as conn:
+            own = conn.execute(
+                "SELECT documents.id AS document_id, documents.content_sha256 AS sha"
+                " FROM jobs JOIN documents ON documents.id = jobs.document_id"
+                " WHERE jobs.id = ?",
+                (job_id,),
+            ).fetchone()
+            if own is None:
+                return None
+            prior = conn.execute(
+                "SELECT jobs.id FROM jobs"
+                " JOIN documents ON documents.id = jobs.document_id"
+                " WHERE documents.content_sha256 = ? AND documents.id < ?"
+                " ORDER BY documents.id LIMIT 1",
+                (own["sha"], own["document_id"]),
+            ).fetchone()
+            return prior["id"] if prior else None
 
     def create_job(
         self,
