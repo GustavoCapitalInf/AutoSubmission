@@ -210,6 +210,33 @@ gap G4 now enforced remotely as well as locally.** Remaining CI item: CI-2
 (dead push triggers) — manual-dispatch-after-merge protocol stays in force;
 Gustavo's billing-page check is the outstanding diagnostic.
 
+---
+
+## 2026-08-06 — R-3.4 REVIEWED: APPROVED; **R-3.0–3.4 MERGED to main as `55626eb` (ff), pushed; run 31131672673 dispatched**
+
+Marker table verified as approved-class issuer furniture (headings, footer,
+domain, legal name); scotiabank's `01180` account fragment removed with
+regression guard; near-miss band (0, 0.5) tested per marker — a deliberate
+DSC-2 "almost matched" telemetry hook. Parity after markers: **ambiguous 0,
+unclaimed 0, wrong-parser 0, fallthrough 0** (RFC §4.3 closed by
+measurement). 1,224 tests; gate GREEN per stage; pipeline.py −160/+45 with
+zero bank knowledge (verified: the single grep hit is the pre-existing
+regions REPAIR import, narrowed — R-8 leftover as ruled). Judgment calls
+accepted: inert nested sub-dispatch calls kept (flagged), Chase-export note
+strings moved into registration data. Detect sweep re-measured: 3.04 ms/doc
+≈ 10.7 s for the full archive. New defect-class observation logged: the
+`<!-- SOURCE: filename -->` echo puts filename text into detection evidence
+— a SOURCE-invariance conformance check for all 46 registrations is added to
+R-4 scope (findings, not fixes).
+
+**Dispatches:** REEF → R-4 phase (six-parser fixtures, demo_national,
+46-registration conformance harness, SOURCE-invariance check; tests-only;
+any pipeline.py need = stop-and-ask). HARBOR → **H-3 Phase 1: schema design
+only** (H3_SCHEMA.md, mandatory Ocean review before implementation; storage
+= schema v4 + JSONL for batch; Dispatch object as data source; truncation
+facts off the document object; cache_hit rows for freshness; sensitivity
+invariant: hashes/ids/counts/timings, never customer data).
+
 **D-3×O-3 integration gap confirmed as predicted** (put_ocr stores only
 {model, pages}; page_integrity dropped on hit) → **D-3b dispatched to
 Agent B**: round-trip page_integrity, bump OCR_STAGE_VERSION 1→2,
