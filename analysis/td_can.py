@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from .money import parse_money, parse_money_tokens
+from .money import parse_money, parse_money_tokens, strip_currency
 from .schema import Statement, Transaction
 from .tables import CELL_RE, clean_cell
 
@@ -88,7 +88,7 @@ def _tables(markdown: str) -> list[list[list[str]]]:
 def _parse_summary_count_amount(value: str | None) -> tuple[int, float] | None:
     if not value:
         return None
-    text = value.replace("$", "").replace(",", "").strip()
+    text = strip_currency(value)
     m = re.search(r"\b(\d+)\s+(\d+(?:\.\d{2})?)\b", text)
     if not m:
         return None

@@ -26,6 +26,7 @@ __all__ = [
     "iso_from_month_day",
     "iso_from_month_day_strict",
     "iso_from_month_day_year",
+    "period_from_long_dates",
 ]
 
 _MONTH_DAY_RE = re.compile(r"(\d{2})/(\d{2})")
@@ -75,3 +76,30 @@ def iso_from_month_day_year(token: str, *, century: str = "short") -> str:
     if century == "always" or year < 100:
         year += 2000
     return date(year, month, day).isoformat()
+
+
+#: "January 5, 2026 through February 4, 2026" — a full-month-name statement
+#: period. Several banks print the period in exactly this form.
+_LONG_PERIOD_RE = re.compile(
+    r"([A-Z][a-z]+)\s+(\d{1,2}),\s+(\d{4})\s+through\s+([A-Z][a-z]+)\s+(\d{1,2}),\s+(\d{4})"
+)
+_MONTH_NAMES = {
+    "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6,
+    "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12,
+}
+
+
+def period_from_long_dates(markdown: str) -> tuple[str, str] | None:
+    """First "<Month> D, YYYY through <Month> D, YYYY" span, as ISO strings.
+
+    Returns None when the document does not print its period this way, which
+    callers treat as "try another period format", not as an error.
+    """
+    m = _LONG_PERIOD_RE.search(markdown)
+    if not m:
+        return None
+    sm, sd, sy, em, ed, ey = m.groups()
+    return (
+        date(int(sy), _MONTH_NAMES[sm], int(sd)).isoformat(),
+        date(int(ey), _MONTH_NAMES[em], int(ed)).isoformat(),
+    )

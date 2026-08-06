@@ -335,6 +335,10 @@ def _legacy_first_citizens(value: str) -> float:                 # + ibc
     return float(value.replace(",", ""))
 
 
+def _legacy_altana(value: str) -> float:
+    return float(value.replace("$", "").replace(",", "").rstrip("-"))
+
+
 def _legacy_cibc(value: str) -> float:
     return round(float(value.replace(" ", "").replace(",", ".")), 2)
 
@@ -426,6 +430,17 @@ def test_parse_decimal_mixed_separator_matches_first_farmers_clone():
 
 def test_parse_grouped_float_matches_legacy_clone():
     assert_equivalent(_legacy_first_citizens, m.parse_grouped_float)
+
+
+def test_parse_trailing_minus_dropped_matches_legacy_clone():
+    assert_equivalent(_legacy_altana, m.parse_trailing_minus_dropped)
+
+
+def test_parse_trailing_minus_dropped_discards_rather_than_applies_the_marker():
+    assert m.parse_trailing_minus_dropped("1,234.56-") == 1234.56
+    assert m.parse_trailing_minus_dropped("$1,234.56") == 1234.56
+    with pytest.raises(ValueError):
+        m.parse_trailing_minus_dropped("N/A")
 
 
 def test_parse_french_amount_matches_cibc_clone():
@@ -610,3 +625,9 @@ def test_pad_leading_decimal():
     assert m.pad_leading_decimal(".56") == "0.56"
     assert m.pad_leading_decimal("1.56") == "1.56"
     assert m.pad_leading_decimal("") == ""
+
+
+def test_strip_currency_is_the_shared_cleaning_step():
+    assert m.strip_currency("  $1,234.56 ") == "1234.56"
+    assert m.strip_currency("1,234") == "1234"
+    assert m.strip_currency("") == ""

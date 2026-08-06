@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from .date_tokens import iso_from_month_day
+from .date_tokens import iso_from_month_day, period_from_long_dates
 from .money import parse_digit_scrubbed
 from .schema import Statement, Transaction
 from .tables import clean_cell, table_rows, tables_after
@@ -23,24 +23,6 @@ _AMOUNT_RE = re.compile(r"\(?-?\$?\s*[0-9][0-9,]*(?:\.[0-9]{2})?-?\)?")
 def _money(value: str) -> float | None:
     return parse_digit_scrubbed(
         value, parens=True, leading_minus=True, trailing_minus=True, guard=_AMOUNT_RE
-    )
-
-
-def _period(markdown: str) -> tuple[str, str] | None:
-    m = re.search(
-        r"([A-Z][a-z]+)\s+(\d{1,2}),\s+(\d{4})\s+through\s+([A-Z][a-z]+)\s+(\d{1,2}),\s+(\d{4})",
-        markdown,
-    )
-    if not m:
-        return None
-    months = {
-        "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6,
-        "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12,
-    }
-    sm, sd, sy, em, ed, ey = m.groups()
-    return (
-        date(int(sy), months[sm], int(sd)).isoformat(),
-        date(int(ey), months[em], int(ed)).isoformat(),
     )
 
 
@@ -341,7 +323,7 @@ def parse_chase_statement(markdown: str) -> Statement | None:
     if "CHECKING SUMMARY" not in text:
         return None
 
-    period = _period(text)
+    period = period_from_long_dates(text)
     if period is None:
         return None
     period_start, period_end = period

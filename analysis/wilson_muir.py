@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
+from .date_tokens import iso_from_month_day_year
 from .money import STRICT_EITHER_MINUS_OR_PLUS, parse_amount
 from .schema import Statement, Transaction
 from .tables import section_between
@@ -13,8 +14,7 @@ def _money(value: str | None) -> float | None:
 
 
 def _parse_mmddyy(raw: str) -> str:
-    month, day, year = [int(part) for part in raw.split("/")]
-    return date(2000 + year, month, day).isoformat()
+    return iso_from_month_day_year(raw, century="always")
 
 
 def _dated_amount_rows(section: str, sign: int) -> list[Transaction]:

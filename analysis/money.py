@@ -49,9 +49,11 @@ __all__ = [
     "parse_decimal",
     "parse_decimal_mixed_separator",
     "parse_grouped_float",
+    "parse_trailing_minus_dropped",
     "parse_french_amount",
     "parse_digit_scrubbed",
     "pad_leading_decimal",
+    "strip_currency",
     "STRICT_UNSIGNED",
     "STRICT_LEADING_SIGN",
     "STRICT_EITHER_MINUS",
@@ -75,6 +77,17 @@ __all__ = [
 def pad_leading_decimal(text: str) -> str:
     """``.56`` -> ``0.56``. Several banks print sub-dollar amounts that way."""
     return "0" + text if text.startswith(".") else text
+
+
+def strip_currency(value: str) -> str:
+    """Remove the currency symbol and thousands separators, and trim.
+
+    The cleaning step shared by every money format. Exposed so that parsers
+    reading a composite cell (a count and an amount in one column, say) can
+    normalize it without re-implementing the cleaning — which is how the clone
+    family started.
+    """
+    return value.replace("$", "").replace(",", "").strip()
 
 
 @lru_cache(maxsize=None)
@@ -335,6 +348,17 @@ def parse_decimal_mixed_separator(value: str, *, single_comma_only: bool = False
 def parse_grouped_float(value: str) -> float:
     """``1,234.56`` -> ``1234.56``; raises ValueError on anything else."""
     return float(value.replace(",", ""))
+
+
+def parse_trailing_minus_dropped(value: str) -> float:
+    """``1,234.56-`` -> ``1234.56``: the trailing minus is discarded, not
+    applied.
+
+    One layout prints a trailing marker on every amount in a section whose
+    direction the section heading already fixes, so honouring it would
+    double-negate. Raises `ValueError` when the token is not a number.
+    """
+    return float(value.replace("$", "").replace(",", "").rstrip("-"))
 
 
 def parse_french_amount(value: str, *, parens: bool = False) -> float:

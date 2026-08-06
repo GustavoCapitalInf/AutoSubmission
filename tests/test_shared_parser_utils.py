@@ -301,3 +301,50 @@ def test_section_between_returns_the_body_and_empty_when_absent():
 def test_table_rows_keeps_row_positions_for_th_only_rows():
     rows = tb.table_rows("<table><tr><th>h</th></tr><tr><td>a</td></tr></table>")
     assert rows == [[], ["a"]]
+
+
+def _legacy_period(markdown: str) -> tuple[str, str] | None:
+    m = re.search(
+        r"([A-Z][a-z]+)\s+(\d{1,2}),\s+(\d{4})\s+through\s+([A-Z][a-z]+)\s+(\d{1,2}),\s+(\d{4})",
+        markdown,
+    )
+    if not m:
+        return None
+    months = {
+        "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6,
+        "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12,
+    }
+    sm, sd, sy, em, ed, ey = m.groups()
+    return (
+        date(int(sy), months[sm], int(sd)).isoformat(),
+        date(int(ey), months[em], int(ed)).isoformat(),
+    )
+
+
+PERIOD_DOCS = (
+    "January 5, 2026 through February 4, 2026",
+    "period: December 31, 2025 through January 30, 2026 (30 days)",
+    "February 1, 2026 through February 29, 2026",
+    "February 1, 2025 through February 29, 2025",
+    "Jan 5, 2026 through Feb 4, 2026",
+    "January 5 2026 through February 4 2026",
+    "January 5, 2026 to February 4, 2026",
+    "",
+    "no period here",
+)
+
+
+@pytest.mark.parametrize("doc", PERIOD_DOCS)
+def test_period_from_long_dates_matches_clone(doc):
+    left, right = _both(_legacy_period, dt.period_from_long_dates, doc)
+    assert left == right
+
+
+def test_period_from_long_dates_reads_the_first_span():
+    assert dt.period_from_long_dates(
+        "January 5, 2026 through February 4, 2026"
+    ) == ("2026-01-05", "2026-02-04")
+
+
+def test_period_from_long_dates_returns_none_for_other_period_formats():
+    assert dt.period_from_long_dates("01/05/2026 - 02/04/2026") is None

@@ -4,7 +4,7 @@ import re
 from datetime import date
 from html import unescape
 
-from .date_tokens import iso_from_month_day_strict
+from .date_tokens import iso_from_month_day_strict, period_from_long_dates
 from .money import parse_money
 from .schema import Statement, Transaction
 from .tables import TAG_RE, table_rows, tables_after
@@ -33,24 +33,6 @@ def _plain_text(markdown: str) -> str:
     text = _IMG_RE.sub("", markdown)
     text = unescape(TAG_RE.sub(" ", text))
     return re.sub(r"[ \t]+", " ", text)
-
-
-def _period(markdown: str) -> tuple[str, str] | None:
-    m = re.search(
-        r"([A-Z][a-z]+)\s+(\d{1,2}),\s+(\d{4})\s+through\s+([A-Z][a-z]+)\s+(\d{1,2}),\s+(\d{4})",
-        markdown,
-    )
-    if not m:
-        return None
-    months = {
-        "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6,
-        "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12,
-    }
-    sm, sd, sy, em, ed, ey = m.groups()
-    return (
-        date(int(sy), months[sm], int(sd)).isoformat(),
-        date(int(ey), months[em], int(ed)).isoformat(),
-    )
 
 
 def _tables_after(markdown: str, heading: str) -> list[str]:
@@ -164,7 +146,7 @@ def parse_regions_statement(markdown: str) -> Statement | None:
     text = _plain_text(markdown)
     if "REGIONS" not in text.upper() or "SUMMARY" not in text.upper():
         return None
-    period = _period(text)
+    period = period_from_long_dates(text)
     if period is None:
         return None
     year = int(period[1][:4])

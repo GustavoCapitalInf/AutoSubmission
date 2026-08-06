@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .money import parse_trailing_minus_dropped
 from .schema import Statement, Transaction
 from .tables import compact_whitespace
 
@@ -11,7 +12,7 @@ _MONEY_RE = re.compile(r"\$?\d[\d,]*\.\d{2}-?")
 
 
 def _money(value: str) -> float:
-    return float(value.replace("$", "").replace(",", "").rstrip("-"))
+    return parse_trailing_minus_dropped(value)
 
 
 def _summary(markdown: str) -> tuple[str, str, int, float, int, float, float, float] | None:
