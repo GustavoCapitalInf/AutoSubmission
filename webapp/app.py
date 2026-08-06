@@ -14,6 +14,7 @@ from math import isfinite
 from flask import Flask, request, jsonify, render_template, Response, abort
 from werkzeug.exceptions import RequestEntityTooLarge
 
+from ocr.inspect import inspect_pdf
 from ocr.rasterize import pdf_page_count, rasterize_page
 from ocr.render import rendered_skeleton, render_boxed
 from analysis.revenue import (
@@ -1029,26 +1030,36 @@ def _upload_too_large(_exc):
     }), 413
 
 
-def _checked_upload(filename: str, pdf_bytes: bytes) -> tuple[int | None, dict | None]:
-    """Server-side gate for a single uploaded file. Returns (page_count, error)
-    with exactly one of the two populated."""
+def _checked_upload(filename: str, pdf_bytes: bytes) -> tuple[int | None, object, dict | None]:
+    """Server-side gate for a single uploaded file. Returns
+    (page_count, profile, error) with the error exclusive of the other two.
+
+    Validation order and error shape are D-2a's; O-1 adds the preflight
+    profile and rejects password-protected PDFs before any parsing —
+    processing one could only ever fail later with a worse message."""
     if len(pdf_bytes) > MAX_UPLOAD_BYTES:
-        return None, {
+        return None, None, {
             "error": f"file exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit",
             "filename": filename,
         }
     if not pdf_bytes.startswith(b"%PDF-"):
-        return None, {"error": "file is not a PDF", "filename": filename}
+        return None, None, {"error": "file is not a PDF", "filename": filename}
+    profile = inspect_pdf(pdf_bytes)
+    if profile.encrypted:
+        return None, None, {
+            "error": "PDF is password-protected; upload a decrypted copy",
+            "filename": filename,
+        }
     try:
         page_count = pdf_page_count(pdf_bytes)
     except Exception:
-        return None, {"error": "PDF could not be read", "filename": filename}
+        return None, None, {"error": "PDF could not be read", "filename": filename}
     if page_count > MAX_UPLOAD_PAGES:
-        return None, {
+        return None, None, {
             "error": f"PDF has {page_count} pages (limit {MAX_UPLOAD_PAGES})",
             "filename": filename,
         }
-    return page_count, None
+    return page_count, profile, None
 
 
 @app.route("/upload", methods=["POST"])
@@ -1068,19 +1079,18 @@ def upload():
     # Validate the whole batch before creating any job. A half-accepted upload
     # would leave the dashboard aggregating an incomplete package with nothing
     # on screen to say a statement is missing.
-    accepted: list[tuple[str, bytes, int]] = []
+    accepted: list[tuple[str, bytes, int, object]] = []
     for f in files:
         pdf_bytes = f.read()
-        page_count, error = _checked_upload(f.filename, pdf_bytes)
+        page_count, profile, error = _checked_upload(f.filename, pdf_bytes)
         if error is not None:
             return jsonify(error), 400
-        accepted.append((f.filename, pdf_bytes, page_count))
+        accepted.append((f.filename, pdf_bytes, page_count, profile))
 
     jobs = []
-    for filename, pdf_bytes, page_count in accepted:
+    for filename, pdf_bytes, page_count, profile in accepted:
         # Records the document row (with content_sha256) and the job row, and
-        # writes the PDF bytes to the disk store; duplicate-detection UX on
-        # the stored hash is O-1's, not D-1's.
+        # writes the PDF bytes to the disk store.
         job = store.create(
             filename,
             page_count=page_count,
@@ -1088,6 +1098,10 @@ def upload():
             parse_mode=parse_mode,
             pdf_bytes=pdf_bytes,
         )
+        # O-1: persist the preflight profile with the document row and flag a
+        # re-upload of identical bytes (the earliest prior job with this hash).
+        store.storage.set_document_profile(job.id, json.dumps(profile.to_dict()))
+        duplicate_of = store.storage.duplicate_of(job.id)
         _enqueue_job(job.id, pdf_bytes, filename, force_ocr, parse_mode)
         jobs.append({
             "id": job.id,
@@ -1095,6 +1109,8 @@ def upload():
             "page_count": job.page_count,
             "force_ocr": force_ocr,
             "parse_mode": parse_mode,
+            "content_sha256": job.content_sha256,
+            "duplicate_of": duplicate_of,
         })
     return jsonify({"jobs": jobs})
 
@@ -1114,6 +1130,12 @@ def status(job_id):
         "parse_model": job.parse_model,
         "force_ocr": job.force_ocr,
         "parse_mode": job.parse_mode,
+        # O-1 additive surfacing: the document hash and, when these exact
+        # bytes were uploaded before, the earliest prior job holding them.
+        "content_sha256": job.content_sha256,
+        "duplicate_of": (
+            store.storage.duplicate_of(job_id) if job.content_sha256 else None
+        ),
     })
 
 

@@ -3,6 +3,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .rasterize import rasterize_pdf, rasterize_page
 from .document import StatementMarkdown
 from .config import load_settings
+from .inspect import DocumentProfile, inspect_pdf
+from .local_tesseract import parse_local_tesseract
 from .native_text import (
     parse_native_desjardins,
     parse_native_navy_federal,
@@ -12,45 +14,88 @@ from .native_text import (
 )
 
 
+def _native_statement(pdf_bytes: bytes, source_file: str = "") -> StatementMarkdown | None:
+    """The native-text rung: bank-specific layouts first, generic text last.
+
+    O-1: this ladder previously existed twice — here (inline) and privately in
+    webapp/worker.py — and had drifted in rung order. This is now the ONLY
+    copy; the extractors are called, never modified."""
+    return (
+        parse_native_navy_federal(pdf_bytes, source_file=source_file)
+        or parse_native_td_canada(pdf_bytes, source_file=source_file)
+        or parse_native_wells_fargo(pdf_bytes, source_file=source_file)
+        or parse_native_desjardins(pdf_bytes, source_file=source_file)
+        or parse_native_pdf_text(pdf_bytes, source_file=source_file)
+    )
+
+
+def _notify_stage(on_stage, rung: str) -> None:
+    if on_stage is not None:
+        on_stage(rung)
+
+
 def parse_statement(pdf_bytes: bytes, source_file: str = "", dpi: int = 300,
                     model: str | None = None, page_ocr_fn=None,
                     on_page_delta=None, max_workers: int | None = None,
                     fallback_dpi: int | None = 250, on_page_replace=None,
-                    force_ocr: bool = False) -> StatementMarkdown:
-    """Rasterize the PDF and OCR its pages into one StatementMarkdown.
+                    force_ocr: bool = False,
+                    allow_local_ocr: bool = False,
+                    allow_visual_ocr: bool = True,
+                    profile: DocumentProfile | None = None,
+                    on_stage=None) -> StatementMarkdown | None:
+    """The single intake ladder (O-1): native text -> local Tesseract ->
+    visual OCR, driven by the preflight DocumentProfile.
 
-    Pages are OCR'd concurrently (up to `max_workers` at a time; defaults to
-    Settings.max_workers). vLLM batches concurrent requests on the GPU, so this
-    cuts wall-clock time on multi-page statements without changing per-page
-    output. Results are always reassembled in page order.
+    Capability flags preserve each caller's historical behavior exactly:
+    `allow_local_ocr` (default False) gates the Tesseract rung, which has only
+    ever existed for the webapp — the CLI (`parse.py`) does not silently gain
+    an OCR stage it never had. `allow_visual_ocr=False` stops the ladder after
+    the offline rungs and returns None (used by the webapp's deterministic
+    mode); with the default True the return value is never None. `force_ocr`
+    (or an injected `page_ocr_fn`) skips straight to the visual rung, as
+    before. `on_stage(rung)` reports "native" / "local_ocr" / "visual_ocr" as
+    each rung starts, so callers can surface progress without owning routing.
 
-    `fallback_dpi` (default 250) guards against a DPI-specific table
-    mis-segmentation: if a page comes back with the tell-tale orphan amount-only
-    table, it is re-OCR'd once at the fallback DPI and the cleaner read is kept.
-    Set to None to disable. The default `dpi` of 300 is tuned for dense
-    check-detail tables; the lower fallback recovers wide-gap description tables
-    (e.g. Truist) that 300 splits.
+    `profile` (computed here when not supplied) drives the ladder: a valid PDF
+    with zero native text on every page skips the native rung outright — safe
+    because every native extractor keys on extracted text markers, so nothing
+    that could match is skipped.
 
-    If `on_page_delta` is given, raw model output streams to it live as
-    `on_page_delta(page_index, chunk)` — the web UI joins these per-page buffers
-    (in page order) to show what the OCR is reading in real time. `page_ocr_fn`
-    is injectable for tests and receives a single page image."""
+    Visual OCR: pages are rasterized and OCR'd concurrently (up to
+    `max_workers`; defaults to Settings.max_workers), reassembled in page
+    order. `fallback_dpi` (default 250) guards against a DPI-specific table
+    mis-segmentation: a page with the tell-tale orphan amount-only table is
+    re-OCR'd once at the fallback DPI and the cleaner read kept. If
+    `on_page_delta` is given, raw model output streams live as
+    `on_page_delta(page_index, chunk)`; `page_ocr_fn` is injectable for tests
+    and receives a single page image."""
     if page_ocr_fn is None and not force_ocr:
-        native = parse_native_navy_federal(pdf_bytes, source_file=source_file)
-        if native is None:
-            native = parse_native_td_canada(pdf_bytes, source_file=source_file)
-        if native is None:
-            native = parse_native_wells_fargo(pdf_bytes, source_file=source_file)
-        if native is None:
-            native = parse_native_desjardins(pdf_bytes, source_file=source_file)
-        if native is None:
-            native = parse_native_pdf_text(pdf_bytes, source_file=source_file)
+        if profile is None:
+            profile = inspect_pdf(pdf_bytes)
+        native = None
+        # Profile-driven skip: no native text anywhere means no native
+        # extractor can match (they all gate on extracted text markers).
+        no_native_text = (
+            profile.valid_pdf
+            and profile.page_count > 0
+            and profile.native_text_total_chars == 0
+        )
+        if not no_native_text:
+            _notify_stage(on_stage, "native")
+            native = _native_statement(pdf_bytes, source_file=source_file)
+        if native is None and allow_local_ocr:
+            _notify_stage(on_stage, "local_ocr")
+            native = parse_local_tesseract(pdf_bytes, source_file=source_file)
         if native is not None:
             if on_page_replace is not None:
                 for i, page in enumerate(native.pages):
                     on_page_replace(i, page)
             return native
 
+    if not allow_visual_ocr:
+        return None
+
+    _notify_stage(on_stage, "visual_ocr")
     settings = load_settings(model_override=model)
     workers = max_workers if max_workers is not None else settings.max_workers
 

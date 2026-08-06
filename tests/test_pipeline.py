@@ -1,6 +1,9 @@
 import threading
 import time
 
+import fitz
+import pytest
+
 from ocr.pipeline import parse_statement
 
 
@@ -175,3 +178,127 @@ def test_parse_statement_streams_page_indexed_deltas(monkeypatch):
                     on_page_delta=lambda page, chunk: captured.append((page, chunk)))
 
     assert sorted(captured) == [(0, "chunk-p0"), (1, "chunk-p1")]
+
+
+# ---------------------------------------------------------------------------
+# O-1: the single intake ladder (native -> tesseract -> visual OCR).
+# Rungs are patched at their ONE home in ocr.pipeline; the extractors
+# themselves are never touched.
+# ---------------------------------------------------------------------------
+
+
+class _NativeDoc:
+    model = "native-pdf-text"
+    pages = ["native page one", "native page two"]
+
+    def to_markdown(self):
+        return "# native"
+
+
+class _TesseractDoc:
+    model = "local-tesseract-ocr"
+    pages = ["tesseract page"]
+
+    def to_markdown(self):
+        return "# tesseract"
+
+
+def _forbid_visual(monkeypatch):
+    monkeypatch.setattr("ocr.pipeline.load_settings",
+                        lambda **k: pytest.fail("visual OCR rung must not run"))
+
+
+def _mock_visual(monkeypatch, text="# visual"):
+    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: ["img0"])
+    monkeypatch.setattr("ocr.ocr_client.ocr_page",
+                        lambda image, *, settings, client, on_delta=None: text)
+    monkeypatch.setattr("ocr.ocr_client._build_client", lambda settings: object())
+
+
+def test_ladder_native_rung_wins_and_replays_pages(monkeypatch):
+    monkeypatch.setattr("ocr.pipeline._native_statement",
+                        lambda pdf_bytes, source_file="": _NativeDoc())
+    monkeypatch.setattr("ocr.pipeline.parse_local_tesseract",
+                        lambda *a, **k: pytest.fail("tesseract rung must not run"))
+    _forbid_visual(monkeypatch)
+
+    replayed = []
+    stages = []
+    doc = parse_statement(b"%PDF-fake", allow_local_ocr=True,
+                          on_page_replace=lambda p, t: replayed.append((p, t)),
+                          on_stage=stages.append)
+    assert doc.model == "native-pdf-text"
+    assert replayed == [(0, "native page one"), (1, "native page two")]
+    assert stages == ["native"]
+
+
+def test_ladder_tesseract_rung_is_capability_gated(monkeypatch):
+    tesseract_calls = []
+
+    def fake_tesseract(pdf_bytes, source_file="", **kwargs):
+        tesseract_calls.append(source_file)
+        return _TesseractDoc()
+
+    monkeypatch.setattr("ocr.pipeline._native_statement", lambda pdf_bytes, source_file="": None)
+    monkeypatch.setattr("ocr.pipeline.parse_local_tesseract", fake_tesseract)
+    _forbid_visual(monkeypatch)
+
+    # Without the capability the rung is skipped entirely (the CLI's posture)...
+    assert parse_statement(b"%PDF-fake", allow_local_ocr=False, allow_visual_ocr=False) is None
+    assert tesseract_calls == []
+    # ...with it, the scan is served locally and visual OCR is never reached.
+    doc = parse_statement(b"%PDF-fake", allow_local_ocr=True, allow_visual_ocr=False)
+    assert doc.model == "local-tesseract-ocr"
+    assert tesseract_calls == ["" ]
+
+
+def test_ladder_stops_before_visual_when_not_allowed(monkeypatch):
+    monkeypatch.setattr("ocr.pipeline._native_statement", lambda pdf_bytes, source_file="": None)
+    _forbid_visual(monkeypatch)
+    stages = []
+    assert parse_statement(b"%PDF-fake", allow_visual_ocr=False, on_stage=stages.append) is None
+    assert stages == ["native"]  # the withheld visual rung was never announced
+
+
+def test_ladder_force_ocr_skips_offline_rungs(monkeypatch):
+    monkeypatch.setattr("ocr.pipeline._native_statement",
+                        lambda *a, **k: pytest.fail("native rung must not run under force_ocr"))
+    monkeypatch.setattr("ocr.pipeline.parse_local_tesseract",
+                        lambda *a, **k: pytest.fail("tesseract rung must not run under force_ocr"))
+    _mock_visual(monkeypatch)
+
+    stages = []
+    doc = parse_statement(b"%PDF-fake", force_ocr=True, allow_local_ocr=True,
+                          max_workers=1, on_stage=stages.append)
+    assert doc.pages == ["# visual"]
+    assert stages == ["visual_ocr"]
+
+
+def test_ladder_profile_skips_native_for_textless_pdf(monkeypatch):
+    # A REAL image-only PDF: the profile reports zero native text, so the
+    # ladder never even calls the native extractors (safe: they all gate on
+    # extracted text markers).
+    blank = fitz.open()
+    blank.new_page()
+    pdf_bytes = blank.tobytes()
+
+    monkeypatch.setattr("ocr.pipeline._native_statement",
+                        lambda *a, **k: pytest.fail("native rung must be profile-skipped"))
+    _forbid_visual(monkeypatch)
+
+    stages = []
+    result = parse_statement(pdf_bytes, allow_visual_ocr=False, on_stage=stages.append)
+    assert result is None
+    assert stages == []  # no rung ran at all
+
+
+def test_ladder_announces_every_rung_in_order(monkeypatch):
+    monkeypatch.setattr("ocr.pipeline._native_statement", lambda pdf_bytes, source_file="": None)
+    monkeypatch.setattr("ocr.pipeline.parse_local_tesseract", lambda *a, **k: None)
+    _mock_visual(monkeypatch)
+
+    stages = []
+    doc = parse_statement(b"%PDF-fake", allow_local_ocr=True, max_workers=1,
+                          on_stage=stages.append)
+    assert doc.pages == ["# visual"]
+    assert stages == ["native", "local_ocr", "visual_ocr"]

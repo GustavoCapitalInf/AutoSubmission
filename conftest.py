@@ -1,7 +1,25 @@
+import os
+import shutil
+import tempfile
 from pathlib import Path
 import pytest
 
 PROJECT_ROOT = Path(__file__).parent
+
+# O-1 (granted exception): route WEBAPP_DATA_DIR to a per-session tmp dir so
+# test suites never write the repo-root webapp_data/. The assignment must
+# happen at conftest IMPORT time — webapp.app binds its durable store when the
+# test modules import it (collection), which is before any fixture can run —
+# and the session fixture below owns the directory's lifecycle.
+_WEBAPP_TEST_DATA_DIR = tempfile.mkdtemp(prefix="webapp_data_test_")
+os.environ["WEBAPP_DATA_DIR"] = _WEBAPP_TEST_DATA_DIR
+
+
+@pytest.fixture(scope="session", autouse=True)
+def webapp_data_dir():
+    """Session-scoped WEBAPP_DATA_DIR routing (see assignment above)."""
+    yield Path(_WEBAPP_TEST_DATA_DIR)
+    shutil.rmtree(_WEBAPP_TEST_DATA_DIR, ignore_errors=True)
 
 @pytest.fixture
 def samples_dir() -> Path:

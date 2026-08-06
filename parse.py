@@ -23,6 +23,10 @@ def main(argv=None) -> int:
         print(f"error: cannot read PDF: {e}", file=sys.stderr)
         return 2
     try:
+        # O-1: parse_statement IS the single profile-driven intake ladder
+        # (ocr/inspect.py preflight -> native -> visual OCR). The CLI keeps
+        # its historical capabilities: allow_local_ocr stays at its False
+        # default, so no tesseract rung is silently gained here.
         doc = parse_statement(pdf_bytes, source_file=path.name, dpi=args.dpi, model=args.model)
     except Exception as e:
         print(f"error: failed to parse statement: {e}", file=sys.stderr)

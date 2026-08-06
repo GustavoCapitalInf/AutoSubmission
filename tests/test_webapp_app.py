@@ -25,7 +25,9 @@ def _mock_processing(monkeypatch, page_count=2):
     monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
     monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: page_count)
 
-    def fake_parse(pdf_bytes, source_file="", on_page_delta=None, on_page_replace=None, force_ocr=False):
+    # O-1 delta: the worker feeds the unified ladder capability flags and a
+    # preflight profile, so worker-level fakes take **kwargs.
+    def fake_parse(pdf_bytes, source_file="", on_page_delta=None, **kwargs):
         if on_page_delta:
             on_page_delta(0, "raw stream")
         return _FakeDoc()
@@ -198,7 +200,7 @@ def test_upload_can_force_visual_ocr(monkeypatch):
     monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
     monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: 1)
 
-    def fake_parse(pdf_bytes, source_file="", on_page_delta=None, on_page_replace=None, force_ocr=False):
+    def fake_parse(pdf_bytes, source_file="", force_ocr=False, **kwargs):
         seen["force_ocr"] = force_ocr
         return _FakeDoc()
 
@@ -221,7 +223,10 @@ def test_upload_can_request_deterministic_parse_mode(monkeypatch):
     seen = {}
     monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
     monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: 1)
-    monkeypatch.setattr("webapp.worker._native_statement", lambda pdf_bytes, filename: _FakeDoc())
+    # O-1 delta: the native rung is patched at its one home in ocr.pipeline
+    # (the worker no longer owns a private ladder to patch).
+    monkeypatch.setattr("ocr.pipeline._native_statement",
+                        lambda pdf_bytes, source_file="": _FakeDoc())
 
     def fake_analyze(markdown, parse_mode="auto"):
         seen["parse_mode"] = parse_mode
@@ -567,3 +572,83 @@ def test_download_writes_an_export_audit_row(monkeypatch):
     exports = store.storage.audit_events("export", job_id=job_id)
     assert len(exports) == 1
     assert json.loads(exports[0]["detail"])["format"] == "json"
+
+
+# ---------------------------------------------------------------------------
+# O-1 additions: preflight surfacing at the upload boundary.
+# ---------------------------------------------------------------------------
+
+import uuid as _uuid
+
+
+def _upload_bytes(client, data_bytes, name="s.pdf"):
+    resp = client.post(
+        "/upload",
+        data={"files": (io.BytesIO(data_bytes), name)},
+        content_type="multipart/form-data",
+    )
+    return resp.status_code, resp.get_json()
+
+
+def test_duplicate_upload_of_identical_bytes_is_flagged(monkeypatch):
+    _mock_processing(monkeypatch)
+    client = app.test_client()
+    unique = b"%PDF-" + _uuid.uuid4().hex.encode()
+
+    _, first = _upload_bytes(client, unique, "jan.pdf")
+    first_job = first["jobs"][0]
+    assert first_job["duplicate_of"] is None
+    assert first_job["content_sha256"] == hashlib.sha256(unique).hexdigest().upper()
+
+    _, again = _upload_bytes(client, unique, "jan-copy.pdf")
+    again_job = again["jobs"][0]
+    assert again_job["duplicate_of"] == first_job["id"]
+    assert again_job["content_sha256"] == first_job["content_sha256"]
+
+    # The durable indication also serves from /status after upload.
+    status = client.get(f"/status/{again_job['id']}").get_json()
+    assert status["content_sha256"] == first_job["content_sha256"]
+    assert status["duplicate_of"] == first_job["id"]
+    assert client.get(f"/status/{first_job['id']}").get_json()["duplicate_of"] is None
+
+
+def test_distinct_bytes_are_not_flagged_as_duplicates(monkeypatch):
+    _mock_processing(monkeypatch)
+    client = app.test_client()
+    _, one = _upload_bytes(client, b"%PDF-" + _uuid.uuid4().hex.encode(), "a.pdf")
+    _, two = _upload_bytes(client, b"%PDF-" + _uuid.uuid4().hex.encode(), "b.pdf")
+    assert one["jobs"][0]["duplicate_of"] is None
+    assert two["jobs"][0]["duplicate_of"] is None
+    assert one["jobs"][0]["content_sha256"] != two["jobs"][0]["content_sha256"]
+
+
+def test_encrypted_pdf_is_rejected_with_the_d2a_error_shape():
+    # Encrypted fixture generated with PyMuPDF (pypdf is not installed here —
+    # the spec's sanctioned fallback). Rejection happens at preflight, before
+    # any page counting, so no processing mocks are needed.
+    import fitz
+
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "secret")
+    encrypted = doc.tobytes(
+        encryption=fitz.PDF_ENCRYPT_AES_256, user_pw="pw", owner_pw="pw"
+    )
+
+    status_code, body = _upload_bytes(app.test_client(), encrypted, "locked.pdf")
+    assert status_code == 400
+    assert body["filename"] == "locked.pdf"
+    assert "password" in body["error"]
+
+
+def test_upload_persists_the_preflight_profile_with_the_document(monkeypatch):
+    _mock_processing(monkeypatch)
+    client = app.test_client()
+    job_id = _upload_one(client)["jobs"][0]["id"]
+
+    profile = store.storage.document_profile(job_id)
+    assert profile is not None
+    assert profile["content_sha256"] == hashlib.sha256(b"%PDF-fake").hexdigest().upper()
+    assert profile["classification"] in {"digital", "scanned", "mixed", "unknown"}
+    # Advisory fields ride along in storage; nothing in production reads them.
+    assert "likely_account_count" in profile
+    assert "layout_signals" in profile
