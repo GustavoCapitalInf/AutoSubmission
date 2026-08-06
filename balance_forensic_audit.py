@@ -24,6 +24,7 @@ from xml.etree import ElementTree
 
 from analysis.pipeline import analyze_markdown
 from analysis.serialization import report_to_dict
+from corpus_artifacts import ArtifactError, cached_markdown
 from ocr.local_tesseract import parse_local_tesseract
 from ocr.native_text import (
     parse_native_desjardins,
@@ -140,10 +141,26 @@ def native_document(pdf_bytes: bytes, source_file: str):
     )
 
 
-def source_markdown(path: Path) -> tuple[str, str, bytes]:
+def source_markdown(path: Path, *, ocr_cache: Path | None = None) -> tuple[str, str, bytes]:
+    """Resolve statement source text.
+
+    With ``ocr_cache`` set, an image-only PDF is served from its committed OCR
+    artifact and Tesseract is never invoked, which is what makes the corpus gate
+    offline and deterministic. A scanned PDF with no committed artifact is an
+    error rather than a silent skip. Without ``ocr_cache`` the behaviour is
+    unchanged: native text, then a live local Tesseract run.
+    """
     pdf_bytes = path.read_bytes()
     document = native_document(pdf_bytes, path.name)
     source_type = "digital/native"
+    if document is None and ocr_cache is not None:
+        markdown = cached_markdown(pdf_bytes, ocr_cache)
+        if markdown is None:
+            raise ArtifactError(
+                f"{path} has no native text and no committed OCR artifact in "
+                f"{ocr_cache}; refusing to run OCR in offline mode"
+            )
+        return markdown, "scanned/local_ocr", pdf_bytes
     if document is None:
         document = parse_local_tesseract(pdf_bytes, source_file=path.name)
         source_type = "scanned/local_ocr"
@@ -445,8 +462,10 @@ WITHHELD_DETAILS = {
 }
 
 
-def audit_source(path: Path, root: Path) -> tuple[dict[str, Any], Job, dict[str, Any]]:
-    markdown, source_type, pdf_bytes = source_markdown(path)
+def audit_source(
+    path: Path, root: Path, *, ocr_cache: Path | None = None
+) -> tuple[dict[str, Any], Job, dict[str, Any]]:
+    markdown, source_type, pdf_bytes = source_markdown(path, ocr_cache=ocr_cache)
     report = analyze_markdown(markdown, parse_mode="deterministic")
     statement = report.statement
     oracle = independent_balances(statement, markdown)
@@ -754,16 +773,24 @@ def main() -> None:
     parser.add_argument("path", nargs="?", default="Bank Statements")
     parser.add_argument("--csv", default="docs/balance-metrics-audit-results.csv")
     parser.add_argument("--report", default="docs/balance-metrics-production-audit.md")
+    parser.add_argument(
+        "--ocr-cache",
+        help=(
+            "Serve image-only PDFs from committed OCR artifacts instead of running "
+            "Tesseract (offline, deterministic). Usually tests/corpus_cache."
+        ),
+    )
     args = parser.parse_args()
 
     root = Path(args.path)
     files = [root] if root.is_file() else sorted(root.rglob("*.pdf"))
+    ocr_cache = Path(args.ocr_cache) if args.ocr_cache else None
     rows: list[dict[str, Any]] = []
     jobs: list[Job] = []
     expected_by_id: dict[str, dict[str, Decimal | None]] = {}
     for index, path in enumerate(files, start=1):
         print(f"[{index}/{len(files)}] {path}", flush=True)
-        row, job, expected = audit_source(path, root)
+        row, job, expected = audit_source(path, root, ocr_cache=ocr_cache)
         rows.append(row)
         jobs.append(job)
         expected_by_id[job.id] = expected
@@ -783,6 +810,9 @@ def main() -> None:
         for status in ("PASS", "WITHHELD_SOURCE_CONTRADICTION", "FAIL")
     }
     print(f"Wrote {len(rows)} rows to {csv_path} and {report_path}: {counts}")
+    # A FAIL row means production disagrees with the independent oracle. Exit
+    # non-zero so a caller (CI, a shell pipeline) cannot mistake it for success.
+    raise SystemExit(1 if counts["FAIL"] else 0)
 
 
 if __name__ == "__main__":

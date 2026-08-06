@@ -48,9 +48,10 @@ Measured against the repository corpus as of August 6, 2026:
   41 of the 44 banks have at least one fully validated statement. The 3 without
   one (BMO, Farmers & Merchants, IBC) are represented by a single statement
   each, and all three of those are the withheld source contradictions.
-- 523 automated tests pass in the default suite. The corpus gate runs
-  separately (`python corpus_gate.py`, or `pytest -m corpus`) and re-verifies
-  all 109 statements against the committed audits.
+- 533 automated tests pass in the default suite (about 50 seconds). The corpus
+  gate runs separately (`python corpus_gate.py`, or `pytest -m corpus`, about 5
+  minutes) and re-verifies all 109 statements against the committed audits,
+  offline and with no model calls.
 - Local visual OCR runs on the RX 7800 XT without a per-document vendor charge.
 - Recognized formats use deterministic parsers without a Gemini extraction call.
 

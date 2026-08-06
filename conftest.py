@@ -21,6 +21,10 @@ def sample_pdf(samples_dir) -> Path:
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "live: hits the real OCR endpoint (run with -m live)")
+    config.addinivalue_line(
+        "markers",
+        "corpus: re-audits all 109 corpus statements offline (run with -m corpus)",
+    )
 
 
 @pytest.fixture

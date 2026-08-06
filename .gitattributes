@@ -9,6 +9,12 @@
 # corpus documents' bytes and made the pinned hashes unreproducible.
 *.pdf binary
 
+# Committed OCR source artifacts are pinned by SHA-256 in
+# tests/corpus_cache/manifest.json and verified on every read. They are text, so
+# without this they would check out with CRLF on Windows and hash differently
+# there than in CI — the same defect as above, one layer up.
+tests/corpus_cache/ocr/*.md -text
+
 # Other binary evidence and export formats.
 *.png binary
 *.jpg binary
