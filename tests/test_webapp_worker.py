@@ -1,5 +1,16 @@
+# D-1 delta: JobStore persists through webapp.storage now, so tests inject a
+# tmp-dir Storage instead of the bare JobStore() constructor (which would
+# write to the real data dir). All behavioural assertions are unchanged.
+import pytest
+
 from webapp.jobs import JobStore
+from webapp.storage import Storage
 from webapp.worker import report_to_json, run_job
+
+
+@pytest.fixture
+def store(tmp_path):
+    return JobStore(Storage(tmp_path / "data"))
 from analysis.detect import DetectionResult
 from analysis.metrics import Metrics
 from analysis.pipeline import DocumentIntegrity, Quality, Report
@@ -15,8 +26,7 @@ class _FakeDoc:
         return "# Hello"
 
 
-def test_run_job_success(monkeypatch):
-    store = JobStore()
+def test_run_job_success(monkeypatch, store):
     job = store.create("s.pdf")
 
     def fake_parse(pdf_bytes, source_file="", on_page_delta=None, on_page_replace=None, force_ocr=False):
@@ -40,8 +50,7 @@ def test_run_job_success(monkeypatch):
     assert "streamed chunk" in fetched.live_text  # worker forwarded the stream
 
 
-def test_run_job_failure(monkeypatch):
-    store = JobStore()
+def test_run_job_failure(monkeypatch, store):
     job = store.create("s.pdf")
 
     def boom(pdf_bytes, source_file="", on_page_delta=None, on_page_replace=None, force_ocr=False):
@@ -56,8 +65,7 @@ def test_run_job_failure(monkeypatch):
     assert fetched.error == "connection error"
 
 
-def test_deterministic_run_prefers_native_before_forced_visual_ocr(monkeypatch):
-    store = JobStore()
+def test_deterministic_run_prefers_native_before_forced_visual_ocr(monkeypatch, store):
     job = store.create("td.pdf")
     calls = []
 
@@ -78,8 +86,7 @@ def test_deterministic_run_prefers_native_before_forced_visual_ocr(monkeypatch):
     assert calls == []
 
 
-def test_deterministic_run_retries_visual_ocr_when_native_parser_does_not_match(monkeypatch):
-    store = JobStore()
+def test_deterministic_run_retries_visual_ocr_when_native_parser_does_not_match(monkeypatch, store):
     job = store.create("unsupported.pdf")
     calls = []
 
@@ -112,8 +119,7 @@ def test_deterministic_run_retries_visual_ocr_when_native_parser_does_not_match(
     assert calls == [True]
 
 
-def test_deterministic_run_reports_native_text_required_without_force_ocr(monkeypatch):
-    store = JobStore()
+def test_deterministic_run_reports_native_text_required_without_force_ocr(monkeypatch, store):
     job = store.create("scan.pdf")
 
     monkeypatch.setattr("webapp.worker._native_statement", lambda pdf_bytes, filename: None)
@@ -127,8 +133,7 @@ def test_deterministic_run_reports_native_text_required_without_force_ocr(monkey
     assert fetched.parse_model == "deterministic-native-preflight"
 
 
-def test_auto_run_uses_local_ocr_before_remote_visual_ocr(monkeypatch):
-    store = JobStore()
+def test_auto_run_uses_local_ocr_before_remote_visual_ocr(monkeypatch, store):
     job = store.create("scan.pdf")
     remote_calls = []
 
@@ -154,8 +159,7 @@ def test_auto_run_uses_local_ocr_before_remote_visual_ocr(monkeypatch):
     assert remote_calls == []
 
 
-def test_deterministic_run_uses_local_ocr_before_reporting_no_text(monkeypatch):
-    store = JobStore()
+def test_deterministic_run_uses_local_ocr_before_reporting_no_text(monkeypatch, store):
     job = store.create("scan.pdf")
 
     class LocalDoc(_FakeDoc):
