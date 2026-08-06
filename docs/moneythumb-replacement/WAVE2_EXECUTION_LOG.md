@@ -80,9 +80,11 @@ required from Gustavo.**
    enumerations ≥10 min apart must agree (count + content hashes) before the
    dry run or tranche 0; Gustavo asked to confirm when the archive upload is
    complete.
-3. Post-merge validation running in the main checkout (full suite + new gate
-   with archive present) and the push-triggered CI run is being watched;
-   results recorded here when they land.
+3. **Post-merge validation LANDED (main checkout, archive present): 801
+   passed; gate GREEN, "Ignored: 3507 non-corpus PDFs", 106/3, 341.3 s.**
+   H-0's purpose proven in the real environment. (Foreign count still moving
+   with OneDrive sync — 3,507 per gate vs 3,511 per a later enumeration; the
+   DSC-1 sync-stability precondition stands.)
 
 ---
 
