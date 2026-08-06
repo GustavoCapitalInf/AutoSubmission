@@ -233,6 +233,27 @@ R-4 scope (findings, not fixes).
 consecutive fully green remote run; the registry dispatch is remotely
 verified.
 
+---
+
+## 2026-08-06 — H-3 Phase 1 (schema) REVIEWED: APPROVED; Phase 2 GO
+
+H3_SCHEMA.md (`3874e1a` on wave2-proof). Survey findings accepted: (1)
+Dispatch carries claimants only — near-miss band comes from
+`detection_report()`, admissible as run-of-record because detect is
+pure/total by RFC contract; (2) score sparsity measured (~4 non-zero of 46
+per doc) settles the vector question. **Ocean rulings:** 4-line `on_dispatch`
+callback seam approved (no Report.dispatch — Dispatch.statement is the full
+financial record; rationale to live in the module docstring); non-zero
+scores best-first cap 12 + flag; cache-hit hole stays open by design
+(`dispatch.source="cached"`, coverage still computable); sensitivity
+invariant approved (no filenames, no extracted bank strings, exception class
+names only — DSC-1 keeps its own gitignored hash→path map); outcome mapping
+must reproduce the gate's 106/3 as a test; cost fields approved with
+extraction-token capture as Wave-3 backlog; storage v4 + JSONL shape
+equality + batch-no-webapp-import test; **telemetry default ON both paths**
+with one documented env kill-switch (NullSink); retention append-only, expiry
+deferred to D-7 with the trigger-conflict caveat recorded.
+
 **Dispatches:** REEF → R-4 phase (six-parser fixtures, demo_national,
 46-registration conformance harness, SOURCE-invariance check; tests-only;
 any pipeline.py need = stop-and-ask). HARBOR → **H-3 Phase 1: schema design
