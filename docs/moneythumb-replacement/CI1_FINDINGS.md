@@ -1,14 +1,24 @@
-# CI-1 / CI-1b — Remote corpus-gate repair: findings
+# CI-1 / CI-1b / CI-1c — Remote corpus-gate repair: findings
 
-Agent C (HARBOR), 2026-08-06. Branch `wave2-proof` (CI-1 merged as `1c82a2b`;
-CI-1b follows on the same branch). Repo
+Agent C (HARBOR), 2026-08-06. Branch `wave2-proof` (CI-1 merged as `1c82a2b`,
+CI-1b as `91d5d92`; CI-1c follows on the same branch). Repo
 `GustavoCapitalInf/bankStatementAnalysis` (private, User-owned).
 
-**Headline: the remote gate was never broken by billing, plan, or permissions,
-and the workflow content was only half the problem.** There were two unrelated
-failures stacked on top of each other. One is a GitHub-side transient that
-already cleared itself; the other is a real, reproducible environment gap that
-this branch fixes. **No account-level action is required from Gustavo.**
+**Headline: the remote gate was never broken by billing, plan, or permissions.**
+It was four independent problems in a queue, each one only visible once the
+previous was cleared, and each fixed in turn:
+
+| # | Failure | Nature | Status |
+|---|---|---|---|
+| A | Runner never acquired (31122891522) | GitHub-side transient | cleared itself |
+| B | No poppler/tesseract on the runner (31128260273) | environment | fixed, CI-1 |
+| C | Tesseract 5.3.4 vs 5.5.0 OCR drift (31128649695) | reproducibility | fixed, CI-1b |
+| D | `folder` column separator, Windows vs Linux (31128834443) | cross-platform metadata | fixed, CI-1c |
+
+Each fix moved the run one step further: D is the first run whose test suite
+passed on hosted infrastructure *and* whose gate step actually executed. No
+financial value has drifted at any point, and **no account-level action is
+required from Gustavo.**
 
 ---
 
@@ -164,6 +174,45 @@ deselected`.
 **Nothing was deselected and no assertion was loosened.** Deselecting on CI was
 explicitly rejected; the workflow comment still says so.
 
+## 3b. The last cross-platform gap: path separators (CI-1c)
+
+Run **31128834443** is the one that finally got there: `Default test suite`
+**green on the runner** for the first time, and the `Corpus gate` step
+**executed remotely** for the first time. It went RED on `adb_audit` and nothing
+else, and every detail line was one shape:
+
+```
+[FAIL] adb_audit: 109 statements reproduce every audited ADB field ...
+         adb: Others/Altana/Altana april 26.pdf [folder] expected 'Others\Altana', got 'Others/Altana'
+         adb: Others/B1/b1 april 2026.pdf       [folder] expected 'Others\B1',     got 'Others/B1'
+         ...
+```
+
+`inventory`, `foreign_files`, `source_integrity`, `balance_audit` all PASS.
+**Zero financial fields drifted.** The ADB audit renders its `folder` column
+with `os.sep`, so the CSV committed from Windows pins `Others\Altana` while the
+Linux runner reproduces `Others/Altana` — the same folder, a different
+separator. It affects the **17 rows in nested folders (9 distinct folders)**;
+the other 92 sit one level down and have no separator to disagree about. The
+balance audit was immune because its `path` column is already written
+`.as_posix()`.
+
+**Fix (CI-1c), in the gate's comparison layer:** `PATH_VALUED_FIELDS =
+{"folder", "path"}` and a `comparable(column, value)` helper that normalises
+backslashes to forward slashes for exactly those columns before comparing.
+Explicitly *not* a blanket replace across all columns — that would silently
+equate two genuinely different values that happen to contain a backslash (a
+`root_cause` or an escaped regex), which is the opposite of what the gate is
+for. `statement` is deliberately excluded too: a filename may legitimately
+contain a backslash on POSIX, and that must still fail.
+
+No CSV was re-baselined and no oracle logic was touched. One additional
+one-liner in `adb_forensic_audit.py`'s row assembly (report metadata, not
+oracle math) now writes `folder` with `.as_posix()`, so a future regeneration
+is platform-neutral instead of flipping those 17 rows depending on who ran it.
+The gate-side normalisation is what makes today's committed CSV work either
+way.
+
 ### Still open, informational
 
 Run 31128260273's log carries the annotation that `actions/checkout@v4`,
@@ -182,17 +231,18 @@ task card were checked and are ruled out by run 31128260273 executing.
 
 The one thing an agent cannot do is the last step:
 
-1. Merge `wave2-proof` (CI-1b) to `main` and push — pushing is outside every
+1. Merge `wave2-proof` (CI-1c) to `main` and push — pushing is outside every
    agent's mandate.
 2. Dispatch the workflow. **Push triggers do not currently create runs** (see
    CI-2 in `WAVE2_EXECUTION_LOG.md`), so use
    `gh workflow run corpus-gate.yml --ref main`, then
    `gh run watch $(gh run list --limit 1 --json databaseId --jq '.[0].databaseId')`.
-3. **Expected:** the suite step passes with no live OCR — the previously red
-   `columbia` tests now read the committed artifact — and the `Corpus gate` step
-   executes for the first time on hosted infrastructure.
-4. **If `Default test suite` fails on `columbia`/`first_farmers` again:** that
-   would be a genuine surprise, not drift — the artifacts are version-independent.
+3. **Expected: the first fully green run.** Suite green (no live OCR), and the
+   gate step green — `adb_audit` included, now that path-valued columns compare
+   separator-agnostically. That closes CI-1's acceptance: the remote gate stops
+   depending on developer discipline.
+4. **If anything is still red,** it is a new problem rather than a known one:
+   A–D above are all fixed and each has a test or a printed version pinning it.
    Read the failure before touching anything.
 5. **If the job is again "not acquired by Runner of type hosted":** re-run it.
    That is Failure A, it is GitHub-side, and it cleared itself once already.
@@ -213,3 +263,4 @@ The one thing an agent cannot do is the last step:
 |---|---|---|
 | 2026-08-06 | CI-1 | Diagnosed both failures; added the runner system-dependency step; documented the transient in the workflow header. |
 | 2026-08-06 | CI-1b | Predicted tesseract drift materialized on run 31128649695 (4 × columbia). Scanned fixtures now served from the committed artifact cache; live-OCR path preserved behind the `live` marker. §3 rewritten. |
+| 2026-08-06 | CI-1c | Run 31128834443: suite green on the runner, gate step ran remotely for the first time, RED on `adb_audit` only — 17 nested-folder rows differing by `os.sep` alone. Path-valued columns now compare separator-agnostically (`PATH_VALUED_FIELDS`); audit writer emits POSIX folders. See §3b. |

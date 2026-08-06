@@ -148,6 +148,72 @@ def test_gate_reports_drift_in_any_audited_field():
     assert "expected_lowest" in details[0]
 
 
+# --- path separators: the same corpus on Windows and on a Linux runner -------
+
+
+def test_a_path_valued_field_compares_without_regard_to_separator():
+    """`Others\\Altana` and `Others/Altana` are the same folder, not drift."""
+    committed = [{"statement": "Others/Altana/a.pdf", "folder": "Others\\Altana", "backend_adb": "10.00"}]
+    posix = [{"statement": "Others/Altana/a.pdf", "folder": "Others/Altana", "backend_adb": "10.00"}]
+
+    ok, details = corpus_gate.compare_rows(posix, committed, "statement", "adb")
+    assert ok is True, details
+    assert not details
+
+
+def test_a_financial_field_still_fails_when_the_folder_only_differs_by_separator():
+    """Separator tolerance must not carry any other field with it."""
+    committed = [{"statement": "Others/Altana/a.pdf", "folder": "Others\\Altana", "backend_adb": "10.00"}]
+    drifted = [{"statement": "Others/Altana/a.pdf", "folder": "Others/Altana", "backend_adb": "10.01"}]
+
+    ok, details = corpus_gate.compare_rows(drifted, committed, "statement", "adb")
+    assert ok is False
+    assert any("backend_adb" in detail for detail in details)
+    assert not any("folder" in detail for detail in details)
+
+
+def test_a_backslash_difference_outside_a_path_field_still_fails():
+    """No blanket masking: only the named path columns are normalised."""
+    committed = [{"path": "a.pdf", "root_cause": "regex \\d+ mismatch"}]
+    drifted = [{"path": "a.pdf", "root_cause": "regex /d+ mismatch"}]
+
+    ok, details = corpus_gate.compare_rows(drifted, committed, "path", "balance")
+    assert ok is False
+    assert any("root_cause" in detail for detail in details)
+    assert "statement" not in corpus_gate.PATH_VALUED_FIELDS
+
+
+def test_linux_side_adb_rows_reproduce_the_windows_pinned_audit():
+    """Simulate the runner: re-key the committed ADB audit with POSIX folders.
+
+    Run 31128834443 went red on exactly this and nothing else — 109 rows whose
+    only difference was `folder` rendered with the other separator, zero
+    financial fields. Feeding POSIX-folder rows against the pinned CSV is that
+    run, reproduced offline.
+    """
+    committed_csv = corpus_gate.read_csv(corpus_gate.ADB_CSV)
+    assert any("\\" in row["folder"] for row in committed_csv), "CSV no longer pins backslashes"
+
+    as_linux = [dict(row, folder=row["folder"].replace("\\", "/")) for row in committed_csv]
+    committed = [dict(row, statement=corpus_gate.relative_key(row)) for row in committed_csv]
+    fresh = [dict(row, statement=corpus_gate.relative_key(row)) for row in as_linux]
+
+    ok, details = corpus_gate.compare_rows(fresh, committed, "statement", "adb")
+    assert ok is True, details[:5]
+
+    # And the same rows with one ADB value moved are still caught.
+    fresh[0] = dict(fresh[0], backend_adb="-1.00")
+    ok, details = corpus_gate.compare_rows(fresh, committed, "statement", "adb")
+    assert ok is False
+    assert any("backend_adb" in detail for detail in details)
+
+
+def test_the_audit_writer_records_folders_as_posix():
+    """Future regenerations stay platform-neutral on both sides of the compare."""
+    source = (ROOT / "adb_forensic_audit.py").read_text(encoding="utf-8")
+    assert '"folder": path.parent.relative_to(root).as_posix()' in source
+
+
 def test_gate_reports_a_statement_that_disappears_from_the_run():
     committed = [{"path": "a.pdf", "status": "PASS"}, {"path": "b.pdf", "status": "PASS"}]
     ok, details = corpus_gate.compare_rows(

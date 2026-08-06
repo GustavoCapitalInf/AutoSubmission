@@ -498,7 +498,12 @@ def audit_one(path: Path, root: Path, markdown: str) -> dict[str, Any]:
     )
     return {
         "statement": path.name,
-        "folder": str(path.parent.relative_to(root)) if path.parent != root else ".",
+        # POSIX, not os.sep: this column is report metadata, and rendering it
+        # with the local separator makes the CSV platform-dependent (a Windows
+        # regeneration writes "Others\\Altana", a Linux one "Others/Altana").
+        # The gate compares path-valued columns separator-agnostically either
+        # way; this keeps a future re-baseline from flipping 109 rows.
+        "folder": path.parent.relative_to(root).as_posix() if path.parent != root else ".",
         "bank": stmt.bank or "",
         "parser": report.model_used,
         "period_start": stmt.period_start or "",
