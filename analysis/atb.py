@@ -4,6 +4,7 @@ import re
 from datetime import date
 
 from .money import LEADING_MINUS_DROPPED, parse_amount
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 _MONTHS = {
@@ -90,8 +91,16 @@ def _looks_like_credit(description: str) -> bool:
     ))
 
 
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "ATB Financial" in t),
+    required("title", lambda t: "Deposit Account Statement" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_atb_statement(markdown: str) -> Statement | None:
-    if "ATB Financial" not in markdown or "Deposit Account Statement" not in markdown:
+    if not detect(markdown).claims:
         return None
     statement_date = _statement_date(markdown)
     summary = _summary(markdown)

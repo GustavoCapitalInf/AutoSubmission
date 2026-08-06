@@ -5,6 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from .money import parse_decimal
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 
@@ -48,14 +49,24 @@ def _description(label: str, status: str, amount: Decimal) -> str:
     return f"{prefix}{label}".strip()
 
 
+def detection_text(markdown: str) -> str:
+    """The text this parser recognises itself in."""
+    return markdown.upper()
+
+
+DETECTION_MARKERS = (
+    required("platform_name", lambda t: "RELAY FINANCIALS TECHNOLOGY" in t),
+    required("title", lambda t: "ACCOUNT STATEMENT" in t),
+    required("opening_label", lambda t: "OPENING BALANCE" in t),
+    required("closing_label", lambda t: "CLOSING BALANCE" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS, detection_text)
+
+
 def parse_relay_statement(markdown: str) -> Statement | None:
     upper = markdown.upper()
-    if (
-        "RELAY FINANCIALS TECHNOLOGY" not in upper
-        or "ACCOUNT STATEMENT" not in upper
-        or "OPENING BALANCE" not in upper
-        or "CLOSING BALANCE" not in upper
-    ):
+    if not detect(markdown).claims:
         return None
 
     period = re.search(

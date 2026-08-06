@@ -4,6 +4,7 @@ import re
 from datetime import date
 
 from .money import parse_grouped_float
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import compact_whitespace
 
@@ -193,8 +194,15 @@ def _parse_other_debits(markdown: str, *, year: int) -> list[Transaction]:
     return txns
 
 
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "First Citizens" in t or "Central Bank Operations" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_first_citizens_statement(markdown: str) -> Statement | None:
-    if "First Citizens" not in markdown and "Central Bank Operations" not in markdown:
+    if not detect(markdown).claims:
         return None
     if "Other Debits From Your Account" not in markdown or "Daily Balance Summary" not in markdown:
         return None

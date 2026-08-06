@@ -4,6 +4,7 @@ import re
 from datetime import date
 
 from .money import STRICT_UNSIGNED, parse_amount
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 
@@ -54,8 +55,15 @@ def _primary_checking_section(markdown: str) -> str:
     return flat[start:end if end > start else len(flat)]
 
 
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "ConsumersCU.org" in t or "Consumers Credit Union" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_consumers_statement(markdown: str) -> Statement | None:
-    if "ConsumersCU.org" not in markdown and "Consumers Credit Union" not in markdown:
+    if not detect(markdown).claims:
         return None
     period = _period(markdown)
     section = _primary_checking_section(markdown)

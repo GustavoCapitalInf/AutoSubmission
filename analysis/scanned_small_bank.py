@@ -4,6 +4,7 @@ import re
 from datetime import date
 
 from .money import parse_money
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import compact_whitespace
 from .td_can import normalize_mojibake
@@ -226,11 +227,33 @@ def _discard_inconsistent_ocr_balances(
     return txns
 
 
+def detection_text(markdown: str) -> str:
+    """The text these parsers recognise themselves in: scanned sources arrive
+    with double-encoded accents, so repair them before matching."""
+    return normalize_mojibake(markdown).upper()
+
+
+SOUTHSIDE_DETECTION_MARKERS = (
+    required("bank_name", lambda t: "SOUTHSIDE" in t),
+    required("summary_section", lambda t: "ACCOUNT SUMMARY" in t),
+    required("product", lambda t: "BUILDER ACCOUNT" in t),
+)
+
+APEX_DETECTION_MARKERS = (
+    required("product", lambda t: "SUMMIT BUSINESS CHECKING" in t),
+    required("opening_label", lambda t: "BALANCE FORWARD FROM" in t),
+    required("closing_label", lambda t: "ENDING BALANCE AS OF" in t),
+)
+
+detect_southside = make_detector(SOUTHSIDE_DETECTION_MARKERS, detection_text)
+detect_apex = make_detector(APEX_DETECTION_MARKERS, detection_text)
+
+
 def parse_southside_scanned_statement(markdown: str) -> Statement | None:
+    if not detect_southside(markdown).claims:
+        return None
     markdown = normalize_mojibake(markdown)
     upper = markdown.upper()
-    if "SOUTHSIDE" not in upper or "ACCOUNT SUMMARY" not in upper or "BUILDER ACCOUNT" not in upper:
-        return None
 
     text = compact_whitespace(markdown)
     stmt = Statement(bank="Southside Bank", currency="USD")
@@ -407,16 +430,12 @@ def _parse_southside_checks(block: str, *, year: int) -> list[Transaction]:
 
 
 def parse_apex_scanned_statement(markdown: str) -> Statement | None:
-    markdown = normalize_mojibake(markdown)
-    upper = markdown.upper()
     # Structural gates only: the bank's product name plus this layout's
     # summary phrasing (R-1 item 2 - the customer-name gate is gone).
-    if (
-        "SUMMIT BUSINESS CHECKING" not in upper
-        or "BALANCE FORWARD FROM" not in upper
-        or "ENDING BALANCE AS OF" not in upper
-    ):
+    if not detect_apex(markdown).claims:
         return None
+    markdown = normalize_mojibake(markdown)
+    upper = markdown.upper()
 
     source = re.sub(r"(?<=\d)\.(?=\d{3}\.\d{2}\b)", ",", markdown)
     text = compact_whitespace(source)

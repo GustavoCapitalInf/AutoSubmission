@@ -4,6 +4,7 @@ import re
 from datetime import date
 
 from .money import parse_french_amount
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 _MONTHS = {
@@ -146,8 +147,18 @@ def _parse_transactions(markdown: str, *, year: int, beginning: float) -> list[T
     return rows
 
 
+_OPERATIONS_RE = re.compile(r"D.tail de vos op.rations")
+
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "CIBC" in t),
+    required("activity_section", lambda t: bool(_OPERATIONS_RE.search(t))),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_cibc_french_statement(markdown: str) -> Statement | None:
-    if "CIBC" not in markdown or not re.search(r"D.tail de vos op.rations", markdown):
+    if not detect(markdown).claims:
         return None
     period = re.search(r"Du\s+(\d{1,2})\s+(\w+)\s+au\s+(\d{1,2})\s+(\w+)\s+(\d{4})", markdown)
     summary = _summary(markdown)

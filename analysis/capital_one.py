@@ -5,6 +5,7 @@ from datetime import date
 
 from .date_tokens import iso_from_month_day
 from .money import parse_digit_scrubbed
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import table_rows
 
@@ -135,8 +136,15 @@ def _normalize_cycle_service_charge_dates(
     return normalized
 
 
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "CAPITALONE" in t.upper().replace(" ", "")),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_capital_one_statement(markdown: str) -> Statement | None:
-    if "CAPITALONE" not in markdown.upper().replace(" ", ""):
+    if not detect(markdown).claims:
         return None
     if not re.search(r"ACCOUNT SUMMARY\s+FOR PERIOD", markdown, re.IGNORECASE):
         return None

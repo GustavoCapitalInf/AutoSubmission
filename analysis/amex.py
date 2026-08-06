@@ -4,6 +4,7 @@ import re
 from datetime import date
 
 from .money import parse_money
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 
@@ -92,8 +93,16 @@ def _parse_transactions(markdown: str) -> list[Transaction]:
     return txns
 
 
+DETECTION_MARKERS = (
+    required("domain", lambda t: "americanexpress.com/businesscheckinghome" in t),
+    required("title", lambda t: "Business Checking Account Statement" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_amex_statement(markdown: str) -> Statement | None:
-    if "americanexpress.com/businesscheckinghome" not in markdown or "Business Checking Account Statement" not in markdown:
+    if not detect(markdown).claims:
         return None
     period = _period(markdown)
     if period is None:

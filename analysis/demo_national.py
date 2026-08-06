@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 
 from .money import STRICT_LEADING_SIGN, parse_amount
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 
@@ -11,8 +12,16 @@ def _money(value: str | None) -> float | None:
     return parse_amount(value, STRICT_LEADING_SIGN)
 
 
+DETECTION_MARKERS = (
+    required("title", lambda t: "SAMPLE BUSINESS BANK STATEMENT" in t),
+    required("bank_name", lambda t: "Bank: Demo National Bank" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_demo_national_statement(markdown: str) -> Statement | None:
-    if "SAMPLE BUSINESS BANK STATEMENT" not in markdown or "Bank: Demo National Bank" not in markdown:
+    if not detect(markdown).claims:
         return None
     period = re.search(r"Statement Period:\s+([A-Za-z]+ \d{1,2}, \d{4}) - ([A-Za-z]+ \d{1,2}, \d{4})", markdown)
     summary = re.search(

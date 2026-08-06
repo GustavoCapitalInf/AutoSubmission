@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from .date_tokens import iso_from_month_day_year
 from .money import parse_decimal_mixed_separator
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 
@@ -23,14 +24,24 @@ def _description(value: str) -> str:
     return cleaned
 
 
+def detection_text(markdown: str) -> str:
+    """The text this parser recognises itself in."""
+    return markdown.upper()
+
+
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "FIRST FARMERS" in t),
+    required("product", lambda t: "BUSINESS BASIC CHECKING ACCOUNT" in t),
+    required("opening_label", lambda t: "BALANCE LAST STATEMENT" in t),
+    required("period_label", lambda t: "TOTAL DAYS IN STATEMENT PERIOD" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS, detection_text)
+
+
 def parse_first_farmers_statement(markdown: str) -> Statement | None:
     upper = markdown.upper()
-    if (
-        "FIRST FARMERS" not in upper
-        or "BUSINESS BASIC CHECKING ACCOUNT" not in upper
-        or "BALANCE LAST STATEMENT" not in upper
-        or "TOTAL DAYS IN STATEMENT PERIOD" not in upper
-    ):
+    if not detect(markdown).claims:
         return None
 
     product = re.search(r"BUSINESS BASIC CHECKING ACCOUNT\s+([X\d]+)", markdown, re.IGNORECASE)

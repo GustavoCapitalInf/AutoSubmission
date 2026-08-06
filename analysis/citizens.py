@@ -4,6 +4,7 @@ import re
 from datetime import date
 
 from .money import parse_money
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import section_between
 
@@ -126,8 +127,16 @@ def _parse_checks(markdown: str, *, year: int) -> list[Transaction]:
     return txns
 
 
+DETECTION_MARKERS = (
+    required("domain", lambda t: "citizensbank.com" in t.lower()),
+    required("product", lambda t: "Business Advisor Checking" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_citizens_statement(markdown: str) -> Statement | None:
-    if "citizensbank.com" not in markdown.lower() or "Business Advisor Checking" not in markdown:
+    if not detect(markdown).claims:
         return None
     period = _period(markdown)
     summary = _summary(markdown)

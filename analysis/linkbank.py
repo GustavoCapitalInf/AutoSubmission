@@ -5,6 +5,7 @@ from datetime import date
 
 from .date_tokens import iso_from_month_day
 from .money import EITHER_MINUS_PADDED, parse_amount
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 
@@ -12,8 +13,16 @@ def _money(value: str | None) -> float | None:
     return parse_amount(value, EITHER_MINUS_PADDED)
 
 
+DETECTION_MARKERS = (
+    required("domain", lambda t: "LINKBANK.COM" in t),
+    required("section", lambda t: "Activity in Date Order" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_linkbank_statement(markdown: str) -> Statement | None:
-    if "LINKBANK.COM" not in markdown or "Activity in Date Order" not in markdown:
+    if not detect(markdown).claims:
         return None
     number = r"[\d,]+\.\d{2}-?|\.\d{2}-?"
     summary = re.search(

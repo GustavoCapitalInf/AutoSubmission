@@ -4,6 +4,7 @@ import re
 from datetime import date
 
 from .money import STRICT_EITHER_MINUS, parse_amount
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 
@@ -11,8 +12,16 @@ def _money(value: str | None) -> float | None:
     return parse_amount(value, STRICT_EITHER_MINUS)
 
 
+DETECTION_MARKERS = (
+    required("domain", lambda t: "midflorida.com" in t.lower()),
+    required("product", lambda t: "Free Business Checking" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_midflorida_statement(markdown: str) -> Statement | None:
-    if "midflorida.com" not in markdown.lower() or "Free Business Checking" not in markdown:
+    if not detect(markdown).claims:
         return None
 
     summary = re.search(

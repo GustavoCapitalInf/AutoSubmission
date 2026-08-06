@@ -4,6 +4,7 @@ import re
 from datetime import date
 
 from .money import parse_trailing_minus_dropped
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import compact_whitespace
 
@@ -135,8 +136,16 @@ def _parse_transactions(
     return txns
 
 
+DETECTION_MARKERS = (
+    required("domain", lambda t: "altanafcu.org" in t),
+    required("product", lambda t: "FREE BUSINESS CHECKING ID 0050" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_altana_statement(markdown: str) -> Statement | None:
-    if "altanafcu.org" not in markdown or "FREE BUSINESS CHECKING ID 0050" not in markdown:
+    if not detect(markdown).claims:
         return None
     summary = _summary(markdown)
     if summary is None:

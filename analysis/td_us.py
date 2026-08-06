@@ -5,6 +5,7 @@ from datetime import date
 
 from .date_tokens import iso_from_month_day
 from .money import PARENS_OR_LEADING_MINUS, parse_amount
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 _MONTHS = {
@@ -160,8 +161,16 @@ def _parse_section(markdown: str, heading: str, *, year: int, sign: int) -> tupl
     return _line_items(body, year=year, sign=sign), total
 
 
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "TD Bank, N.A." in t),
+    required("title", lambda t: "STATEMENT OF ACCOUNT" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_td_us_statement(markdown: str) -> Statement | None:
-    if "TD Bank, N.A." not in markdown or "STATEMENT OF ACCOUNT" not in markdown:
+    if not detect(markdown).claims:
         return None
     period = _period(markdown)
     if period is None:

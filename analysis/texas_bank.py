@@ -5,6 +5,7 @@ from datetime import date
 
 from .date_tokens import iso_from_month_day_year
 from .money import STRICT_EITHER_MINUS, parse_amount
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import section_between
 
@@ -48,8 +49,15 @@ def _rows(section: str, sign: int) -> list[Transaction]:
     return txns
 
 
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "Texas Bank and Trust" in t or "6250TEXAS" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_texas_bank_statement(markdown: str) -> Statement | None:
-    if "Texas Bank and Trust" not in markdown and "6250TEXAS" not in markdown:
+    if not detect(markdown).claims:
         return None
     summary = re.search(
         r"Account Number\s+(\d+)\s+Balance on\s+(\d{2}/\d{2}/\d{2})\s+([\d,]+\.\d{2})\s+"

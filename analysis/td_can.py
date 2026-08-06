@@ -10,6 +10,7 @@ import re
 from datetime import date
 
 from .money import parse_money, parse_money_tokens, strip_currency
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import CELL_RE, clean_cell
 
@@ -200,8 +201,41 @@ def _native_credit_like(description: str) -> bool:
     return False
 
 
+def detection_text(markdown: str) -> str:
+    """The text this parser recognises itself in."""
+    return markdown.upper()
+
+
+def _table_layout_present(markdown: str) -> bool:
+    """The TD table layout, as the pre-R-3 guard tested for it.
+
+    The bank-name test does not depend on the table being iterated, but the
+    surrounding `any(...)` means an empty table list still fails: this parser
+    reads tables, so a document with none is not its document.
+    """
+    tables = _tables(markdown)
+    return any(
+        "THE TORONTO-DOMINION BANK" in markdown.upper()
+        or "BUSINESS CHEQUING ACCOUNT - CAD" in " ".join(sum(table, []))
+        for table in tables
+    )
+
+
+NATIVE_DETECTION_MARKERS = (
+    required("bank_name", lambda t: "THE TORONTO-DOMINION BANK" in t),
+    required("native_header", lambda t: "DESCRIPTION CHEQUE/DEBIT DEPOSIT/CREDIT DATE BALANCE" in t),
+)
+
+DETECTION_MARKERS = (
+    required("table_layout", _table_layout_present),
+)
+
+detect_native = make_detector(NATIVE_DETECTION_MARKERS, detection_text)
+detect = make_detector(DETECTION_MARKERS)
+
+
 def _parse_native_td_canada(markdown: str, base: Statement | None = None) -> Statement | None:
-    if "THE TORONTO-DOMINION BANK" not in markdown.upper() or "DESCRIPTION CHEQUE/DEBIT DEPOSIT/CREDIT DATE BALANCE" not in markdown.upper():
+    if not detect_native(markdown).claims:
         return None
 
     stmt = base.model_copy(deep=True) if base is not None else Statement()
@@ -297,10 +331,10 @@ def parse_td_canada_statement(markdown: str, base: Statement | None = None) -> S
     if native is not None:
         return native
 
-    tables = _tables(markdown)
-    if not any("THE TORONTO-DOMINION BANK" in markdown.upper() or "BUSINESS CHEQUING ACCOUNT - CAD" in " ".join(sum(t, [])) for t in tables):
+    if not detect(markdown).claims:
         return None
 
+    tables = _tables(markdown)
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "TD Canada Trust"
     stmt.currency = "CAD"

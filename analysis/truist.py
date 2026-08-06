@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 from .date_tokens import iso_from_month_day
 from .money import EITHER_MINUS_DROPPED, parse_amount
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 
@@ -116,8 +117,16 @@ def _parse_checks(block: str, *, year: int) -> list[Transaction]:
     return txns
 
 
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "TRUIST" in t.upper()),
+    required("section", lambda t: "Account summary Your previous balance" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_truist_statement(markdown: str) -> Statement | None:
-    if "TRUIST" not in markdown.upper() or "Account summary Your previous balance" not in markdown:
+    if not detect(markdown).claims:
         return None
     block = _first_account_block(markdown)
     parsed_summary = _summary(block)

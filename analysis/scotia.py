@@ -4,6 +4,7 @@ import re
 from datetime import date, datetime
 
 from .money import parse_money
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 _DATE_RE = re.compile(r"\b(\d{2})/(\d{2})/(\d{4})\b")
@@ -32,9 +33,21 @@ def _split_rows(markdown: str) -> list[str]:
     return rows
 
 
+def detection_text(markdown: str) -> str:
+    """The text this parser recognises itself in."""
+    return markdown.upper()
+
+
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "SCOTIABANK" in t or "BUSINESS ACCOUNT 01180" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS, detection_text)
+
+
 def parse_scotiabank_statement(markdown: str, base: Statement | None = None) -> Statement | None:
     upper = markdown.upper()
-    if "SCOTIABANK" not in upper and "BUSINESS ACCOUNT 01180" not in upper:
+    if not detect(markdown).claims:
         return None
     if "ACCOUNT DETAILS" not in upper and "WITHDRAWALS/DEBITS" not in upper:
         return None

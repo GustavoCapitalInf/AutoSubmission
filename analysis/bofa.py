@@ -4,6 +4,7 @@ import re
 from datetime import date
 
 from .money import parse_money
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import table_rows, tables_after
 
@@ -251,9 +252,22 @@ def _parse_section(markdown: str, heading: str, *, total_label: str, sign: int) 
     return txns
 
 
+def detection_text(markdown: str) -> str:
+    """The text this parser recognises itself in."""
+    return _IMG_RE.sub("", markdown).upper()
+
+
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "BANK OF AMERICA" in t),
+    required("summary_section", lambda t: "ACCOUNT SUMMARY" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS, detection_text)
+
+
 def parse_bofa_statement(markdown: str) -> Statement | None:
     text = _IMG_RE.sub("", markdown)
-    if "BANK OF AMERICA" not in text.upper() or "ACCOUNT SUMMARY" not in text.upper():
+    if not detect(markdown).claims:
         return None
     period = _period(text)
     if period is None:

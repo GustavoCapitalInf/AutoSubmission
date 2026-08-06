@@ -4,6 +4,7 @@ import re
 from datetime import date
 
 from .money import STRICT_EITHER_MINUS_OR_PLUS_SPACED, parse_amount
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 
@@ -244,8 +245,16 @@ def _parse_transactions(section: str, account: str, *, year: int, beginning: flo
     return txns
 
 
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "Navy Federal" in t),
+    required("section", lambda t: "Summary of your deposit accounts" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_navy_federal_statement(markdown: str) -> Statement | None:
-    if "Navy Federal" not in markdown or "Summary of your deposit accounts" not in markdown:
+    if not detect(markdown).claims:
         return None
     period = _parse_period(markdown)
     summary = _summary(markdown)

@@ -5,6 +5,7 @@ import unicodedata
 from datetime import date
 
 from .money import parse_french_amount, parse_money
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .td_can import _MONTHS, normalize_mojibake
 
@@ -69,12 +70,36 @@ def _is_debit(desc: str) -> bool:
     ))
 
 
+def detection_text(markdown: str) -> str:
+    """The text this parser recognises itself in."""
+    return markdown.upper()
+
+
+def french_detection_text(markdown: str) -> str:
+    """As above, after repairing double-encoded accents."""
+    return normalize_mojibake(markdown).upper()
+
+
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "ROYAL BANK OF CANADA" in t),
+    required("activity_section", lambda t: "ACCOUNT ACTIVITY DETAILS" in t),
+)
+
+FRENCH_DETECTION_MARKERS = (
+    required("bank_name", lambda t: "BANQUE ROYALE" in t),
+    required("activity_header", lambda t: "DATE DESCRIPTION RETRAITS" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS, detection_text)
+detect_french = make_detector(FRENCH_DETECTION_MARKERS, french_detection_text)
+
+
 def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Statement | None:
     upper = markdown.upper()
     french = _parse_rbc_french_statement(markdown, base=base)
     if french is not None:
         return french
-    if "ROYAL BANK OF CANADA" not in upper or "ACCOUNT ACTIVITY DETAILS" not in upper:
+    if not detect(markdown).claims:
         return None
 
     stmt = base.model_copy(deep=True) if base is not None else Statement()
@@ -314,7 +339,7 @@ def _solve_segment(rows: list[dict], expected: float) -> None:
 def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) -> Statement | None:
     markdown = normalize_mojibake(markdown)
     upper = markdown.upper()
-    if "BANQUE ROYALE" not in upper or "DATE DESCRIPTION RETRAITS" not in upper:
+    if not detect_french(markdown).claims:
         return None
 
     stmt = base.model_copy(deep=True) if base is not None else Statement()

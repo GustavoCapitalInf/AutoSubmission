@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 from .date_tokens import iso_from_month_day_year
 from .money import STRICT_EITHER_MINUS_OR_PLUS, parse_amount
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import section_between
 
@@ -61,8 +62,16 @@ def _check_rows(section: str) -> list[Transaction]:
     return rows
 
 
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "WILSON & MUIR" in t),
+    required("section", lambda t: "SMALL BUSINESS PACKAGE SUMMARY" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_wilson_muir_statement(markdown: str) -> Statement | None:
-    if "WILSON & MUIR" not in markdown or "SMALL BUSINESS PACKAGE SUMMARY" not in markdown:
+    if not detect(markdown).claims:
         return None
     summary = re.search(
         r"Statement Date:\s+(\d{2}/\d{2}/\d{4})\s+Account No\.:\s+#?(\d+).*?"

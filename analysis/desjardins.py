@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import compact_whitespace
 
@@ -149,8 +150,16 @@ def _transactions(markdown: str, *, year: int, beginning_balance: float) -> list
     return txns
 
 
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "CAISSE DESJARDINS" in t),
+    required("product", lambda t: "DESJARDINS CORPORATE BUILD-UP ACCOUNT" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_desjardins_statement(markdown: str) -> Statement | None:
-    if "CAISSE DESJARDINS" not in markdown or "DESJARDINS CORPORATE BUILD-UP ACCOUNT" not in markdown:
+    if not detect(markdown).claims:
         return None
     period = _period(markdown)
     account = _account_number(markdown)

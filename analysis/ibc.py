@@ -4,6 +4,7 @@ import re
 from datetime import date
 
 from .money import parse_grouped_float
+from .parser_registry import make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
 from .tables import compact_whitespace
 
@@ -173,8 +174,16 @@ def _with_daily_running_balances(txns: list[Transaction], daily: dict[str, float
     return ordered
 
 
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "IBC" in t),
+    required("product", lambda t: "Biz Rite Account Recap" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_ibc_statement(markdown: str) -> Statement | None:
-    if "IBC" not in markdown or "Biz Rite Account Recap" not in markdown:
+    if not detect(markdown).claims:
         return None
     period = _parse_period(markdown)
     summary = _summary(markdown)

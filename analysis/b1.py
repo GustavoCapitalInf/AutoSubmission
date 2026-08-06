@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 from .date_tokens import iso_from_month_day
 from .money import LEADING_MINUS_PADDED, parse_amount
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 
@@ -80,8 +81,16 @@ def _transactions(markdown: str, *, year: int, beginning_balance: float) -> list
     return txns
 
 
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "B1Bank" in t),
+    required("section", lambda t: "DAILY ACTIVITY" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_b1_statement(markdown: str) -> Statement | None:
-    if "B1Bank" not in markdown or "DAILY ACTIVITY" not in markdown:
+    if not detect(markdown).claims:
         return None
     period = _period(markdown)
     totals = _ending_totals(markdown)

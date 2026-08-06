@@ -5,6 +5,7 @@ from datetime import date
 
 from .date_tokens import iso_from_month_day, period_from_long_dates
 from .money import parse_digit_scrubbed
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import clean_cell, table_rows, tables_after
 
@@ -33,8 +34,26 @@ def _money_required(value: str) -> float:
     return amount
 
 
+def detection_text(markdown: str) -> str:
+    """The text this parser recognises itself in: page images carry no words."""
+    return _IMG_RE.sub("", markdown)
+
+
+EXPORT_DETECTION_MARKERS = (
+    required("export_header", lambda t: "Printed from Chase for Business" in t),
+    required("transactions_section", lambda t: "Transactions" in t),
+)
+
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "JPMorgan Chase Bank" in t or "\nCHASE\n" in t),
+)
+
+detect_export = make_detector(EXPORT_DETECTION_MARKERS, detection_text)
+detect = make_detector(DETECTION_MARKERS, detection_text)
+
+
 def _parse_chase_business_export(markdown: str) -> Statement | None:
-    if "Printed from Chase for Business" not in markdown or "Transactions" not in markdown:
+    if not detect_export(markdown).claims:
         return None
     if "CHECKING SUMMARY" in markdown:
         return None
@@ -318,7 +337,7 @@ def parse_chase_statement(markdown: str) -> Statement | None:
     export = _parse_chase_business_export(text)
     if export is not None:
         return export
-    if "JPMorgan Chase Bank" not in text and "\nCHASE\n" not in text:
+    if not detect(markdown).claims:
         return None
     if "CHECKING SUMMARY" not in text:
         return None

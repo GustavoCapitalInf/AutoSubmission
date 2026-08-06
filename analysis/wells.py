@@ -5,6 +5,7 @@ from datetime import date
 
 from .date_tokens import iso_from_month_day
 from .money import parse_money
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 _PERIOD_RE = re.compile(r"Statement period activity summary.*?Beginning balance on (\d{1,2})/(\d{1,2})", re.IGNORECASE | re.DOTALL)
@@ -44,8 +45,16 @@ def _is_credit(desc: str) -> bool:
     ))
 
 
+DETECTION_MARKERS = (
+    required("native_block", lambda t: "WF_NATIVE_TRANSACTIONS" in t),
+    required("bank_name", lambda t: "WELLS FARGO" in t.upper()),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_wells_statement(markdown: str, base: Statement | None = None) -> Statement | None:
-    if "WF_NATIVE_TRANSACTIONS" not in markdown or "WELLS FARGO" not in markdown.upper():
+    if not detect(markdown).claims:
         return None
     year = _infer_year(markdown)
     if year is None:

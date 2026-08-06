@@ -4,6 +4,7 @@ import re
 from datetime import date
 
 from .money import parse_money
+from .parser_registry import make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
 
 _MONTHS = {
@@ -232,8 +233,16 @@ def _misc_transactions(markdown: str, *, year: int) -> list[Transaction]:
     return txns
 
 
+DETECTION_MARKERS = (
+    required("product", lambda t: "FLEXICUENTA DE NEGOCIOS" in t),
+    required("bank_name", lambda t: "Banco Popular" in t or "TeleBanco Comercial" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_banco_popular_statement(markdown: str) -> Statement | None:
-    if "FLEXICUENTA DE NEGOCIOS" not in markdown or "Banco Popular" not in markdown and "TeleBanco Comercial" not in markdown:
+    if not detect(markdown).claims:
         return None
     period = _period(markdown)
     if period is None:

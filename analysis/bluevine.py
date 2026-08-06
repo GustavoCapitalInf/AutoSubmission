@@ -5,6 +5,7 @@ from datetime import datetime
 
 from .date_tokens import iso_from_month_day_year
 from .money import LEADING_MINUS, parse_amount
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 
@@ -16,8 +17,16 @@ def _iso(mmddyy: str) -> str:
     return iso_from_month_day_year(mmddyy, century="always")
 
 
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "Bluevine Inc." in t),
+    required("section", lambda t: "Activity summary" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_bluevine_statement(markdown: str) -> Statement | None:
-    if "Bluevine Inc." not in markdown or "Activity summary" not in markdown:
+    if not detect(markdown).claims:
         return None
     period = re.search(
         r"Statement Period:\s+.+?\((\w+ \d{1,2}, \d{4}) - (\w+ \d{1,2}, \d{4})\)",

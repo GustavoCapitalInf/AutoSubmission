@@ -5,6 +5,7 @@ from datetime import date
 
 from .date_tokens import iso_from_month_day
 from .money import PARENS_OR_LEADING_MINUS_OR_PLUS, parse_amount
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 
@@ -119,8 +120,16 @@ def _transactions(markdown: str, *, year: int, beginning_balance: float) -> list
     return txns
 
 
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "Santander" in t),
+    required("section", lambda t: "Account Activity" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_santander_statement(markdown: str) -> Statement | None:
-    if "Santander" not in markdown or "Account Activity" not in markdown:
+    if not detect(markdown).claims:
         return None
     period = _period(markdown)
     summary = _summary(markdown)

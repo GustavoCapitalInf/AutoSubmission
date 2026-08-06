@@ -6,6 +6,7 @@ from datetime import date
 
 from .dates import resolve_year
 from .money import parse_money
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import compact_whitespace
 
@@ -97,9 +98,21 @@ def _signed_amount(
     return -amount if _is_withdrawal(description) else amount
 
 
+def detection_text(markdown: str) -> str:
+    """The text this parser recognises itself in."""
+    return markdown.upper()
+
+
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "BMO" in t or "BANK OF MONTREAL" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS, detection_text)
+
+
 def parse_bmo_statement(markdown: str) -> Statement | None:
     upper = markdown.upper()
-    if "BMO" not in upper and "BANK OF MONTREAL" not in upper:
+    if not detect(markdown).claims:
         return None
     if "TRANSACTION DETAILS" not in upper or "ACCOUNT SUMMARY" not in upper:
         return None

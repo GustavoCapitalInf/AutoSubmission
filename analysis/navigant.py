@@ -5,6 +5,7 @@ from datetime import date
 from decimal import Decimal
 
 from .money import parse_decimal
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 
@@ -50,14 +51,24 @@ def _transaction_stream(markdown: str) -> str:
     return re.sub(r"\s+", " ", " ".join(parts)).strip()
 
 
+def detection_text(markdown: str) -> str:
+    """The text this parser recognises itself in."""
+    return markdown.upper()
+
+
+DETECTION_MARKERS = (
+    required("domain", lambda t: "NAVIGANTCU.ORG" in t),
+    required("product", lambda t: "QUEST BALANCE CHECKING" in t),
+    required("summary_section", lambda t: "ACCOUNT SUMMARY" in t),
+    required("period_label", lambda t: "STATEMENT PERIOD" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS, detection_text)
+
+
 def parse_navigant_statement(markdown: str) -> Statement | None:
     upper = markdown.upper()
-    if (
-        "NAVIGANTCU.ORG" not in upper
-        or "QUEST BALANCE CHECKING" not in upper
-        or "ACCOUNT SUMMARY" not in upper
-        or "STATEMENT PERIOD" not in upper
-    ):
+    if not detect(markdown).claims:
         return None
 
     period = re.search(

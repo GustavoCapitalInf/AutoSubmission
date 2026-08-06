@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from .money import parse_decimal_mixed_separator
+from .parser_registry import make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
 from .tables import section_between
 
@@ -189,14 +190,24 @@ def _repair_single_section_delta(
     return candidates[0][2]
 
 
+def detection_text(markdown: str) -> str:
+    """The text this parser recognises itself in."""
+    return markdown.upper()
+
+
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "COLUMBIA BANK" in t),
+    required("product", lambda t: "MARKETPLACE CHECKING" in t),
+    required("credits_section", lambda t: "DEPOSITS/ADDITIONS" in t),
+    required("daily_balances", lambda t: "DAILY BALANCES" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS, detection_text)
+
+
 def parse_columbia_bank_statement(markdown: str) -> Statement | None:
     upper = markdown.upper()
-    if (
-        "COLUMBIA BANK" not in upper
-        or "MARKETPLACE CHECKING" not in upper
-        or "DEPOSITS/ADDITIONS" not in upper
-        or "DAILY BALANCES" not in upper
-    ):
+    if not detect(markdown).claims:
         return None
 
     dates = re.search(

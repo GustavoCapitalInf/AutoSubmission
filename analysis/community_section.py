@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 
 from .money import STRICT_UNSIGNED, parse_amount
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 
@@ -211,9 +212,21 @@ def _parse_sectioned_statement(
     return stmt
 
 
+MISSION_VALLEY_DETECTION_MARKERS = (
+    required("bank_name", lambda t: "Mission Valley Bank" in t),
+)
+
+DAKOTA_WEST_DETECTION_MARKERS = (
+    required("domain", lambda t: "dakotawestcu.com" in t.lower()),
+)
+
+detect_mission_valley = make_detector(MISSION_VALLEY_DETECTION_MARKERS)
+detect_dakota_west = make_detector(DAKOTA_WEST_DETECTION_MARKERS)
+
+
 def parse_mission_valley_statement(markdown: str) -> Statement | None:
     # Bank marker only - the customer-name gate is gone (R-1 item 4).
-    if "Mission Valley Bank" not in markdown:
+    if not detect_mission_valley(markdown).claims:
         return None
     return _parse_sectioned_statement(
         markdown,
@@ -238,7 +251,7 @@ def parse_dakota_west_statement(markdown: str) -> Statement | None:
     semantics), replacing the previous gate on one literal account number
     (R-1 item 5).
     """
-    if "dakotawestcu.com" not in markdown.lower():
+    if not detect_dakota_west(markdown).claims:
         return None
     headings: list[tuple[str, str, int]] = []   # (heading, product, start)
     for match in _ACCOUNT_HEADING_RE.finditer(markdown):

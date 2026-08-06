@@ -5,6 +5,7 @@ from datetime import date
 
 from .date_tokens import iso_from_month_day
 from .money import parse_money
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import compact_whitespace
 
@@ -86,13 +87,23 @@ def _parse_rows(block: str, *, year: int, sign: int) -> list[Transaction]:
     return txns
 
 
+def detection_text(markdown: str) -> str:
+    """The text this parser recognises itself in."""
+    return markdown.upper()
+
+
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: ("FARMERS" in t and "MERCHANTS BANK" in t)
+        or ("ACE AUTO GLASS" in t and "BUSINESS/COMMERCIAL" in t and "CHECKS/DEBITS" in t)),
+    required("credits_section", lambda t: "DEPOSITS AND CREDITS" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS, detection_text)
+
+
 def parse_farmers_merchants_statement(markdown: str) -> Statement | None:
     upper = markdown.upper()
-    is_fm = (
-        ("FARMERS" in upper and "MERCHANTS BANK" in upper)
-        or ("ACE AUTO GLASS" in upper and "BUSINESS/COMMERCIAL" in upper and "CHECKS/DEBITS" in upper)
-    )
-    if not is_fm or "DEPOSITS AND CREDITS" not in upper:
+    if not detect(markdown).claims:
         return None
 
     stmt = Statement(bank="Farmers & Merchants Bank", currency="USD")

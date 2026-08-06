@@ -4,6 +4,7 @@ import re
 from datetime import date
 
 from .money import STRICT_EITHER_MINUS_OR_PLUS, parse_amount
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 
@@ -17,8 +18,16 @@ def _clean_description(desc: str) -> str:
     return re.sub(r"\s+", " ", desc).strip()
 
 
+DETECTION_MARKERS = (
+    required("domain", lambda t: "secumd.org" in t.lower()),
+    required("product", lambda t: "Free Business Checking" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_secu_statement(markdown: str) -> Statement | None:
-    if "secumd.org" not in markdown.lower() or "Free Business Checking" not in markdown:
+    if not detect(markdown).claims:
         return None
     period = re.search(
         r"Statement Period:\s+From:\s+(\d{2})/(\d{2})/(\d{4})\s+To:\s+(\d{2})/(\d{2})/(\d{4})",

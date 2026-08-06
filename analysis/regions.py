@@ -6,6 +6,7 @@ from html import unescape
 
 from .date_tokens import iso_from_month_day_strict, period_from_long_dates
 from .money import parse_money
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import TAG_RE, table_rows, tables_after
 
@@ -142,9 +143,22 @@ def _parse_native_checks(markdown: str, *, year: int) -> list[Transaction]:
     return txns
 
 
+def detection_text(markdown: str) -> str:
+    """The text this parser recognises itself in."""
+    return _plain_text(markdown).upper()
+
+
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "REGIONS" in t),
+    required("summary_section", lambda t: "SUMMARY" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS, detection_text)
+
+
 def parse_regions_statement(markdown: str) -> Statement | None:
     text = _plain_text(markdown)
-    if "REGIONS" not in text.upper() or "SUMMARY" not in text.upper():
+    if not detect(markdown).claims:
         return None
     period = period_from_long_dates(text)
     if period is None:

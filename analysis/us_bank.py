@@ -4,6 +4,7 @@ import re
 from datetime import date
 
 from .money import EITHER_MINUS_SPACED, parse_amount
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 _MONTHS = {
@@ -133,8 +134,16 @@ def _rows(text: str, *, year: int, sign: int) -> list[Transaction]:
     return txns
 
 
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "U.S. Bank National Association" in t),
+    required("section", lambda t: "Account Summary" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_us_bank_statement(markdown: str) -> Statement | None:
-    if "U.S. Bank National Association" not in markdown or "Account Summary" not in markdown:
+    if not detect(markdown).claims:
         return None
     period = _period(markdown)
     summary = _summary(markdown)

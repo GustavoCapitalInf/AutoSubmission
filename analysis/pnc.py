@@ -5,6 +5,7 @@ from datetime import date
 
 from .date_tokens import iso_from_month_day_strict
 from .money import parse_money
+from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 _SECTION_SIGNS = {
@@ -105,8 +106,17 @@ def _parse_section(markdown: str, heading: str, *, year: int, sign: int) -> list
     return txns
 
 
+DETECTION_MARKERS = (
+    required("bank_name", lambda t: "PNC Bank" in t),
+    required("product", lambda t: "Business Checking" in t),
+    required("section", lambda t: "Balance Summary" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS)
+
+
 def parse_pnc_statement(markdown: str) -> Statement | None:
-    if "PNC Bank" not in markdown or "Business Checking" not in markdown or "Balance Summary" not in markdown:
+    if not detect(markdown).claims:
         return None
     period = _period(markdown)
     summary = _summary_amounts(markdown)

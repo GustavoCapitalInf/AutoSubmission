@@ -4,6 +4,7 @@ import re
 
 from .date_tokens import iso_from_month_day
 from .money import parse_money
+from .parser_registry import make_detector, required
 from .schema import Statement
 from .schema import Transaction
 
@@ -92,9 +93,22 @@ def _parse_activity_rows(block: str, *, year: int) -> list[Transaction]:
     return txns
 
 
+def detection_text(markdown: str) -> str:
+    """The text this parser recognises itself in."""
+    return markdown.upper()
+
+
+DETECTION_MARKERS = (
+    required("domain", lambda t: "FIRSTCOMMUNITY.COM" in t),
+    required("product", lambda t: "BUSINESS PLUS CKG" in t),
+)
+
+detect = make_detector(DETECTION_MARKERS, detection_text)
+
+
 def parse_first_community_statement(markdown: str) -> Statement | None:
     upper = markdown.upper()
-    if "FIRSTCOMMUNITY.COM" not in upper or "BUSINESS PLUS CKG" not in upper:
+    if not detect(markdown).claims:
         return None
     ending = re.search(r"STATEMENT ENDING\s+(\d{2})/(\d{2})/(\d{4})", markdown, re.IGNORECASE)
     if not ending:
