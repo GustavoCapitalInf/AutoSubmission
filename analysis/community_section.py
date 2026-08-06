@@ -26,7 +26,11 @@ def _iso(value: str) -> str:
 def _clean(text: str) -> str:
     text = re.sub(r"--- Page \d+ ---", " ", text)
     text = re.sub(r"\b[A-F0-9]{32}\b \d{8} [A-Za-z ]+", " ", text)
-    text = re.sub(r"\b(?:GREEN CONVERGENCE|FIELD TRUCKING LLC).*?Page \d+ of \d+", " ", text)
+    # Page headers on this statement platform are single lines ending in
+    # "Page N of M" (holder name / account / "Statement Ending <date>").
+    # Scrub them by that structural marker, never by customer name
+    # (R-1 item 4 - replaced a literal holder-name scrub list).
+    text = re.sub(r"(?m)^[^\n]{0,120}?Page \d+ of \d+", " ", text)
     text = re.sub(r"Account Number:\s*[X0-9]+", " ", text)
     text = re.sub(r"(?:Business Checking|Small Business Checking) - [X0-9]+ \(continued\)", " ", text)
     return re.sub(r"\s+", " ", text).strip()
@@ -212,7 +216,8 @@ def _parse_sectioned_statement(
 
 
 def parse_mission_valley_statement(markdown: str) -> Statement | None:
-    if "Mission Valley Bank" not in markdown or "GREEN CONVERGENCE" not in markdown:
+    # Bank marker only - the customer-name gate is gone (R-1 item 4).
+    if "Mission Valley Bank" not in markdown:
         return None
     return _parse_sectioned_statement(
         markdown,
@@ -222,13 +227,45 @@ def parse_mission_valley_statement(markdown: str) -> Statement | None:
     )
 
 
+#: Section headings of this platform: "<product> (Checking|Savings) - <acct>"
+#: on its own line ("(continued)" reprints are deliberately excluded).
+_ACCOUNT_HEADING_RE = re.compile(
+    r"^([A-Z][A-Za-z ]*?(?:Checking|Savings)) - (\d+)$", re.MULTILINE
+)
+
+
 def parse_dakota_west_statement(markdown: str) -> Statement | None:
-    if "dakotawestcu.com" not in markdown.lower() or "Small Business Checking - 35127380" not in markdown:
+    """Parse the busiest account section of a Dakota West statement.
+
+    Account sections are discovered from the document's own headings and the
+    section with the most transactions is selected (primary-account
+    semantics), replacing the previous gate on one literal account number
+    (R-1 item 5).
+    """
+    if "dakotawestcu.com" not in markdown.lower():
         return None
-    return _parse_sectioned_statement(
-        markdown,
-        bank="Dakota West Credit Union",
-        account_name="Small Business Checking",
-        account_heading="Small Business Checking - 35127380",
-        account_number_pattern=r"Small Business Checking\s*-\s*(\d+)",
-    )
+    headings: list[tuple[str, str, int]] = []   # (heading, product, start)
+    for match in _ACCOUNT_HEADING_RE.finditer(markdown):
+        heading = match.group(0)
+        if all(heading != seen for seen, _, _ in headings):
+            headings.append((heading, match.group(1), match.start()))
+    if not headings:
+        return None
+
+    best: Statement | None = None
+    for index, (heading, product, start) in enumerate(headings):
+        # Truncate at the next different account's heading so one section's
+        # summary can never be attributed to another account.
+        later_starts = [s for _, _, s in headings if s > start]
+        block = markdown[start:min(later_starts)] if later_starts else markdown[start:]
+        stmt = _parse_sectioned_statement(
+            block,
+            bank="Dakota West Credit Union",
+            account_name=product,
+            account_number_pattern=re.escape(product) + r"\s*-\s*(\d+)",
+        )
+        if stmt is not None and (
+            best is None or len(stmt.transactions) > len(best.transactions)
+        ):
+            best = stmt
+    return best

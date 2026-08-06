@@ -149,7 +149,14 @@ def parse_wilson_muir_statement(markdown: str) -> Statement | None:
         account_number=f"#{account}",
         period_start=period_start.isoformat(),
         period_end=period_end.isoformat(),
-        days_in_period=30 if stmt_year == period_end.year else None,
+        # Derived from the printed period bounds (R-1 item 10 - previously a
+        # hardcoded 30-day guess). The year-consistency check keeps the value
+        # fail-closed when the statement date conflicts with the period end.
+        days_in_period=(
+            (period_end - period_start).days + 1
+            if stmt_year == period_end.year
+            else None
+        ),
         beginning_balance=beginning,
         ending_balance=ending,
         stated_total_credits=stated_credits,

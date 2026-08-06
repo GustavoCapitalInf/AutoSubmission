@@ -113,6 +113,20 @@ def repair_truist_converted_checks(stmt: Statement) -> Statement:
 
 
 def repair_chase_remote_deposit_count_column(stmt: Statement) -> Statement:
+    """Undo an item-count digit merged into a Remote Online Deposit amount.
+
+    Chase prints "Remote Online Deposit <count>" next to the amount; flattened
+    text sometimes fuses the count into the amount's leading digits (e.g.
+    count "1" + "40.98" read as "1,040.98"). Evidence gates (R-1 item 6 - the
+    old rule fired only on an exact -1000.00 delta with a 1000-2000 amount):
+
+    - the printed summary identity (beginning + sum = ending) must currently
+      fail by some negative delta;
+    - exactly the correction the identity demands must equal the row's amount
+      with a fused digit prefix removed - i.e. the corrected amount's digits
+      are a proper suffix of the parsed amount's digits;
+    - applying that one correction restores the identity exactly.
+    """
     if "CHASE" not in (stmt.bank or "").upper():
         return stmt
     if stmt.beginning_balance is None or stmt.ending_balance is None:
@@ -121,16 +135,27 @@ def repair_chase_remote_deposit_count_column(stmt: Statement) -> Statement:
     txns = list(stmt.transactions)
     computed = round(stmt.beginning_balance + sum(t.amount for t in txns), 2)
     needed_delta = round(stmt.ending_balance - computed, 2)
-    if needed_delta != -1000.0:
+    if needed_delta >= 0:
         return stmt
 
     for i, t in enumerate(txns):
         desc = t.description.upper()
         amount = round(t.amount, 2)
-        if "REMOTE ONLINE DEPOSIT" in desc and 1000.0 < amount < 2000.0:
-            corrected = round(amount - 1000.0, 2)
-            txns[i] = t.model_copy(update={"amount": corrected, "direction": "credit"})
-            return stmt.model_copy(update={"transactions": txns})
+        if "REMOTE ONLINE DEPOSIT" not in desc or amount <= 0:
+            continue
+        corrected = round(amount + needed_delta, 2)
+        if corrected <= 0:
+            continue
+        amount_digits = str(round(amount * 100))
+        corrected_digits = str(round(corrected * 100))
+        fused_prefix_removed = (
+            len(amount_digits) > len(corrected_digits)
+            and amount_digits.endswith(corrected_digits)
+        )
+        if not fused_prefix_removed:
+            continue
+        txns[i] = t.model_copy(update={"amount": corrected, "direction": "credit"})
+        return stmt.model_copy(update={"transactions": txns})
     return stmt
 
 
