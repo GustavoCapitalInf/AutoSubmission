@@ -2,6 +2,8 @@ from __future__ import annotations
 import io
 import csv
 import json
+import os
+import re
 import threading
 import zipfile
 from collections import deque
@@ -10,6 +12,7 @@ from datetime import UTC, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from math import isfinite
 from flask import Flask, request, jsonify, render_template, Response, abort
+from werkzeug.exceptions import RequestEntityTooLarge
 
 from ocr.rasterize import pdf_page_count, rasterize_page
 from ocr.render import rendered_skeleton, render_boxed
@@ -21,7 +24,18 @@ from analysis.revenue import (
 from .jobs import JobStore
 from .worker import run_job
 
+# Upload ceilings. Every value here is enforced server-side and mirrored in the
+# dropzone caption, so what the operator is told is what the server does.
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+MAX_UPLOAD_FILES = 25
+MAX_UPLOAD_PAGES = 500
+
+# waitress worker threads. The dashboard polls /status, /live and /render for
+# every in-flight job at once, so the stock four would head-of-line block.
+SERVER_THREADS = 16
+
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 store = JobStore()
 _job_queue: deque[tuple[str, bytes, str, bool, str]] = deque()
 _job_queue_lock = threading.Lock()
@@ -48,6 +62,78 @@ def _enqueue_job(job_id: str, pdf_bytes: bytes, filename: str, force_ocr: bool, 
             _job_worker_active = True
     if should_start:
         threading.Thread(target=_process_job_queue, daemon=True).start()
+
+
+# Every payload key that carries the account number as printed. `account` is
+# what the transaction classifier stamps onto each classification record;
+# `account_number` is the statement field and the package document column.
+_ACCOUNT_KEYS = frozenset({"account", "account_number"})
+
+
+def _mask_account(value: object) -> str | None:
+    """Last four digits only — `****1234`. Applied at the webapp boundary and
+    nowhere else: `analysis/serialization.py` keeps emitting the number as
+    printed, because the CLI and the forensic oracles reconcile against it."""
+    if value is None:
+        return None
+    text = str(value)
+    if not text.strip():
+        return None
+    digits = "".join(character for character in text if character.isdigit())
+    return "****" + digits[-4:]
+
+
+def _masked(payload: object) -> object:
+    """A masked copy of a served payload. Copies rather than mutates — the job
+    store holds the analyst's authoritative record and must not be rewritten by
+    the act of serving it."""
+    if isinstance(payload, dict):
+        return {
+            key: _mask_account(value)
+            if key in _ACCOUNT_KEYS and not isinstance(value, (dict, list))
+            else _masked(value)
+            for key, value in payload.items()
+        }
+    if isinstance(payload, list):
+        return [_masked(item) for item in payload]
+    return payload
+
+
+_FORMULA_LEAD = ("=", "+", "-", "@", "\t", "\r")
+
+
+# Money-shaped only. `float()` would also accept "-nan" and "+inf", which a
+# spreadsheet reads as the start of a formula rather than as a number.
+_NUMERIC_CELL = re.compile(r"^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$")
+
+
+def _escape_formula(value: object) -> object:
+    """Neutralize a spreadsheet formula-injection cell by prefixing an
+    apostrophe, which Excel and LibreOffice both read as "this is text".
+
+    Negative money (`-1234.56`) parses as a number in both, so it is left
+    alone — escaping it would turn every debit in the export into a string and
+    break the underwriter's arithmetic to defend against nothing."""
+    if not isinstance(value, str) or not value.startswith(_FORMULA_LEAD):
+        return value
+    if _NUMERIC_CELL.match(value):
+        return value
+    return "'" + value
+
+
+def _escaped_rows(rows: list[tuple[str, str, object]]) -> list[tuple]:
+    return [tuple(_escape_formula(cell) for cell in row) for row in rows]
+
+
+_UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _safe_download_name(name: object) -> str:
+    """Whitelist-sanitize a base name for `Content-Disposition`. The uploaded
+    filename is attacker-supplied, so quotes, CR/LF and path separators must
+    never reach the header."""
+    base = _UNSAFE_NAME.sub("_", str(name or ""))[:100]
+    return base if base.strip("._-") else "download"
 
 
 def _adb_rows(metrics: dict) -> list[tuple[str, str, object]]:
@@ -111,7 +197,7 @@ def _analysis_csv(analysis: dict) -> str:
     buf = io.StringIO(newline="")
     writer = csv.writer(buf)
     writer.writerow(["section", "field", "value"])
-    writer.writerows(_analysis_rows(analysis))
+    writer.writerows(_escaped_rows(_analysis_rows(analysis)))
     return buf.getvalue()
 
 
@@ -152,7 +238,7 @@ def _package_csv(package: dict) -> str:
     buf = io.StringIO(newline="")
     writer = csv.writer(buf)
     writer.writerow(["section", "field", "value"])
-    writer.writerows(_package_rows(package))
+    writer.writerows(_escaped_rows(_package_rows(package)))
     return buf.getvalue()
 
 
@@ -184,6 +270,7 @@ def _xlsx_sheet(rows: list[tuple[str, str, object]]) -> str:
 
 
 def _rows_xlsx(rows: list[tuple[str, str, object]]) -> bytes:
+    rows = _escaped_rows(rows)
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("[Content_Types].xml", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -920,28 +1007,71 @@ def index():
     return render_template("index.html")
 
 
+@app.errorhandler(RequestEntityTooLarge)
+def _upload_too_large(_exc):
+    """Flask aborts oversize requests before the view runs; the dashboard only
+    ever parses JSON, so the stock HTML error page would surface as an opaque
+    failure."""
+    return jsonify({
+        "error": f"upload exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB request limit",
+    }), 413
+
+
+def _checked_upload(filename: str, pdf_bytes: bytes) -> tuple[int | None, dict | None]:
+    """Server-side gate for a single uploaded file. Returns (page_count, error)
+    with exactly one of the two populated."""
+    if len(pdf_bytes) > MAX_UPLOAD_BYTES:
+        return None, {
+            "error": f"file exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit",
+            "filename": filename,
+        }
+    if not pdf_bytes.startswith(b"%PDF-"):
+        return None, {"error": "file is not a PDF", "filename": filename}
+    try:
+        page_count = pdf_page_count(pdf_bytes)
+    except Exception:
+        return None, {"error": "PDF could not be read", "filename": filename}
+    if page_count > MAX_UPLOAD_PAGES:
+        return None, {
+            "error": f"PDF has {page_count} pages (limit {MAX_UPLOAD_PAGES})",
+            "filename": filename,
+        }
+    return page_count, None
+
+
 @app.route("/upload", methods=["POST"])
 def upload():
     files = request.files.getlist("files")
     if not files:
         return jsonify({"error": "no files uploaded"}), 400
+    if len(files) > MAX_UPLOAD_FILES:
+        return jsonify({
+            "error": f"{len(files)} files uploaded (limit {MAX_UPLOAD_FILES} per batch)",
+        }), 400
     force_ocr = request.form.get("force_ocr") == "1"
     parse_mode = request.form.get("parse_mode") or "auto"
     if parse_mode not in {"auto", "deterministic"}:
         return jsonify({"error": "invalid parse_mode"}), 400
 
-    jobs = []
+    # Validate the whole batch before creating any job. A half-accepted upload
+    # would leave the dashboard aggregating an incomplete package with nothing
+    # on screen to say a statement is missing.
+    accepted: list[tuple[str, bytes, int]] = []
     for f in files:
         pdf_bytes = f.read()
-        job = store.create(f.filename)
+        page_count, error = _checked_upload(f.filename, pdf_bytes)
+        if error is not None:
+            return jsonify(error), 400
+        accepted.append((f.filename, pdf_bytes, page_count))
+
+    jobs = []
+    for filename, pdf_bytes, page_count in accepted:
+        job = store.create(filename)
         job.pdf_bytes = pdf_bytes
         job.force_ocr = force_ocr
         job.parse_mode = parse_mode
-        try:
-            job.page_count = pdf_page_count(pdf_bytes)
-        except Exception:
-            job.page_count = 0
-        _enqueue_job(job.id, pdf_bytes, f.filename, force_ocr, parse_mode)
+        job.page_count = page_count
+        _enqueue_job(job.id, pdf_bytes, filename, force_ocr, parse_mode)
         jobs.append({
             "id": job.id,
             "filename": job.filename,
@@ -1007,6 +1137,12 @@ def render(job_id):
 
 @app.route("/markdown/<job_id>")
 def markdown(job_id):
+    """RESIDUAL EXPOSURE (accepted, Wave 0): the raw OCR text still carries the
+    account number exactly as printed, and so do /result and the md/html
+    downloads. Masking is deliberately confined to the structured payloads;
+    redacting the source view would destroy the evidence an underwriter checks
+    a disputed figure against. Closing this needs authentication, which is
+    D-2b — not redaction."""
     job = store.get(job_id)
     if job is None or job.status != "done":
         abort(404)
@@ -1019,7 +1155,7 @@ def analysis(job_id):
     if job is None or job.status != "done":
         abort(404)
     return jsonify({
-        "analysis": job.analysis,
+        "analysis": _masked(job.analysis),
         "analysis_error": job.analysis_error,
     })
 
@@ -1047,7 +1183,7 @@ def revenue_review(job_id):
     stored = store.replace_analysis(job_id, updated)
     if stored is None:
         abort(404)
-    return jsonify({"analysis": stored})
+    return jsonify({"analysis": _masked(stored)})
 
 
 @app.route("/package_analysis")
@@ -1055,7 +1191,7 @@ def package_analysis():
     package = _package_from_request()
     if isinstance(package, tuple):
         return package
-    return jsonify(package)
+    return jsonify(_masked(package))
 
 
 def _package_from_request():
@@ -1082,6 +1218,7 @@ def package_download(fmt):
     package = _package_from_request()
     if isinstance(package, tuple):
         return package
+    package = _masked(package)
     if fmt == "json":
         content = json.dumps(package, indent=2)
         mimetype = "application/json"
@@ -1130,22 +1267,24 @@ def download(job_id, fmt):
     if fmt == "json":
         if job.analysis is None:
             abort(404)
-        content = json.dumps(job.analysis, indent=2)
+        content = json.dumps(_masked(job.analysis), indent=2)
         mimetype = "application/json"
     elif fmt == "csv":
         if job.analysis is None:
             abort(404)
-        content = _analysis_csv(job.analysis)
+        content = _analysis_csv(_masked(job.analysis))
         mimetype = "text/csv"
     elif fmt == "xlsx":
         if job.analysis is None:
             abort(404)
-        content = _analysis_xlsx(job.analysis)
+        content = _analysis_xlsx(_masked(job.analysis))
         mimetype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     else:
+        # Raw OCR source, served verbatim: see the residual-exposure note on
+        # /markdown. Masking the analyst's source view would corrupt it.
         content = job.markdown if fmt == "md" else job.html
         mimetype = "text/markdown" if fmt == "md" else "text/html"
-    base_name = job.filename.rsplit(".", 1)[0]
+    base_name = _safe_download_name(job.filename.rsplit(".", 1)[0])
     return Response(
         content,
         mimetype=mimetype,
@@ -1153,5 +1292,24 @@ def download(job_id, fmt):
     )
 
 
+def _server_config() -> tuple[str, int]:
+    """Loopback by default. The app still has no authentication (that is D-2b),
+    so exposing it beyond this machine has to be a deliberate act rather than
+    the default anyone inherits."""
+    host = os.environ.get("WEBAPP_HOST", "").strip() or "127.0.0.1"
+    port = os.environ.get("WEBAPP_PORT", "").strip() or "5000"
+    return host, int(port)
+
+
+def main() -> None:
+    """Serve through waitress. The Werkzeug development server is never used:
+    its interactive debugger is arbitrary code execution for anyone who can
+    reach the port, and it was previously enabled here with debug=True."""
+    from waitress import serve
+
+    host, port = _server_config()
+    serve(app, host=host, port=port, threads=SERVER_THREADS)
+
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    main()

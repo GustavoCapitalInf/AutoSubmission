@@ -1187,7 +1187,18 @@ function uploadFiles(fileList) {
 
   fetch("/upload", { method: "POST", body: form })
     .then((response) => {
-      if (!response.ok) throw new Error(`Upload failed (${response.status})`);
+      if (!response.ok) {
+        // Server-side upload validation replies {"error": ..., "filename": ...}.
+        // Showing the bare status code would hide which file was refused and why.
+        const fallback = `Upload failed (${response.status})`;
+        return response.json().then(
+          (body) => {
+            const reason = body.error || fallback;
+            throw new Error(body.filename ? `${reason}: ${body.filename}` : reason);
+          },
+          () => { throw new Error(fallback); },
+        );
+      }
       return response.json();
     })
     .then((payload) => {
