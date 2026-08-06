@@ -222,6 +222,13 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     for idx, document in enumerate(package.get("documents") or [], start=1):
         for key, value in document.items():
             rows.append((f"document_{idx}", key, "" if value is None else value))
+    # D-3: duplicate content must survive into the export an underwriter reads,
+    # not only the JSON payload the dashboard renders.
+    for idx, duplicate in enumerate(package.get("duplicates") or [], start=1):
+        for key, value in duplicate.items():
+            if isinstance(value, (dict, list)):
+                value = json.dumps(value)
+            rows.append((f"duplicate_{idx}", key, "" if value is None else value))
     for idx, funder in enumerate(package.get("funders") or [], start=1):
         for key, value in funder.items():
             rows.append((f"funder_{idx}", key, "" if value is None else value))
@@ -335,13 +342,55 @@ def _contributes_to_potential_totals(classification: dict) -> bool:
     return classification.get("contributes_to_potential_lender_count") is True
 
 
+def _package_duplicates(jobs) -> tuple[dict[str, str], list[dict]]:
+    """Members of a package that repeat an EARLIER member's content hash.
+
+    D-3 surfacing. A package that lists the same statement twice double-counts
+    every figure derived from it, so the payload says so explicitly rather
+    than leaving an underwriter to notice two identical rows. Detection is by
+    the O-1 content hash only: a job created without PDF bytes has no hash and
+    is never guessed to duplicate another such job. Returns
+    ``({duplicate_job_id: first_job_id}, [group, ...])``.
+    """
+    first_by_hash: dict[str, object] = {}
+    duplicate_of: dict[str, str] = {}
+    groups: dict[str, dict] = {}
+    for job in jobs:
+        content_hash = getattr(job, "content_sha256", None)
+        if not content_hash:
+            continue
+        first = first_by_hash.get(content_hash)
+        if first is None:
+            first_by_hash[content_hash] = job
+            continue
+        duplicate_of[job.id] = first.id
+        group = groups.setdefault(
+            content_hash,
+            {
+                "content_sha256": content_hash,
+                "job_ids": [first.id],
+                "filenames": [first.filename],
+                "count": 1,
+            },
+        )
+        group["job_ids"].append(job.id)
+        group["filenames"].append(job.filename)
+        group["count"] += 1
+    return duplicate_of, [groups[key] for key in sorted(groups)]
+
+
 def _package_analysis(jobs) -> dict:
+    duplicate_of, duplicate_groups = _package_duplicates(jobs)
     documents = []
     monthly = []
     adb_weighted_sum = Decimal("0")
     adb_weight = 0
     totals = {
         "documents": len(jobs),
+        # D-3: duplicate content inside one package, surfaced explicitly.
+        "duplicate_documents": len(duplicate_of),
+        "distinct_documents": len(jobs) - len(duplicate_of),
+        "has_duplicate_documents": bool(duplicate_of),
         "completed": 0,
         "failed": 0,
         "approved": 0,
@@ -804,6 +853,12 @@ def _package_analysis(jobs) -> dict:
             "id": job.id,
             "filename": job.filename,
             "status": job.status,
+            # D-3: the content identity of this member, and the earlier member
+            # it repeats (None unless this exact content is already in the
+            # package).
+            "content_sha256": getattr(job, "content_sha256", None),
+            "is_duplicate": job.id in duplicate_of,
+            "duplicate_of": duplicate_of.get(job.id),
             "analysis_error": job.analysis_error,
             "error": job.error,
             "bank": statement.get("bank"),
@@ -982,6 +1037,9 @@ def _package_analysis(jobs) -> dict:
             ),
         },
         "documents": documents,
+        # D-3: one entry per content hash present more than once, listing every
+        # member job that carries it (the first occurrence included).
+        "duplicates": duplicate_groups,
         "monthly": sorted(monthly, key=lambda r: (r.get("period_end") or "", r.get("filename") or "")),
         "funders": sorted(funders.values(), key=lambda r: r["total_debited"], reverse=True),
         "potential_lenders": sorted(potential_lenders.values(), key=lambda r: r["funder"]),

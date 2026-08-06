@@ -41,8 +41,18 @@ def _mock_processing(monkeypatch, page_count=2):
     })
 
 
-def _upload_one(client):
-    data = {"files": (io.BytesIO(b"%PDF-fake"), "s.pdf")}
+# D-3 delta: every upload gets UNIQUE bytes by default. The webapp's store is
+# session-scoped, so before the artifact cache existed each test could re-upload
+# the same `%PDF-fake` and still re-run its own monkeypatched parse. With the
+# content-hash cache in place, byte-identical re-uploads are served from the
+# cache and the fakes are never called — which is the feature, not a defect.
+# Tests that assert on cache behavior opt IN by passing explicit content.
+def _fresh_pdf() -> bytes:
+    return b"%PDF-fake-" + _uuid.uuid4().hex.encode()
+
+
+def _upload_one(client, content: bytes | None = None):
+    data = {"files": (io.BytesIO(content if content is not None else _fresh_pdf()), "s.pdf")}
     resp = client.post("/upload", data=data, content_type="multipart/form-data")
     return resp.get_json()
 
@@ -211,7 +221,7 @@ def test_upload_can_force_visual_ocr(monkeypatch):
     client = app.test_client()
     resp = client.post(
         "/upload",
-        data={"force_ocr": "1", "files": (io.BytesIO(b"%PDF-fake"), "s.pdf")},
+        data={"force_ocr": "1", "files": (io.BytesIO(_fresh_pdf()), "s.pdf")},
         content_type="multipart/form-data",
     )
     body = resp.get_json()
@@ -238,7 +248,7 @@ def test_upload_can_request_deterministic_parse_mode(monkeypatch):
     client = app.test_client()
     resp = client.post(
         "/upload",
-        data={"parse_mode": "deterministic", "files": (io.BytesIO(b"%PDF-fake"), "s.pdf")},
+        data={"parse_mode": "deterministic", "files": (io.BytesIO(_fresh_pdf()), "s.pdf")},
         content_type="multipart/form-data",
     )
     body = resp.get_json()
@@ -465,10 +475,11 @@ import json
 def test_upload_records_content_hash_and_upload_audit(monkeypatch):
     _mock_processing(monkeypatch)
     client = app.test_client()
-    job_id = _upload_one(client)["jobs"][0]["id"]
+    content = _fresh_pdf()
+    job_id = _upload_one(client, content)["jobs"][0]["id"]
 
     job = store.get(job_id)
-    expected_sha = hashlib.sha256(b"%PDF-fake").hexdigest().upper()
+    expected_sha = hashlib.sha256(content).hexdigest().upper()
     assert job.content_sha256 == expected_sha
 
     uploads = store.storage.audit_events("upload", job_id=job_id)
@@ -640,14 +651,101 @@ def test_encrypted_pdf_is_rejected_with_the_d2a_error_shape():
     assert "password" in body["error"]
 
 
+# ---------------------------------------------------------------------------
+# D-3 additions: duplicate content surfaced in the package payload.
+# ---------------------------------------------------------------------------
+
+
+def _completed(filename, pdf_bytes=None, deposits=1000.0):
+    job = store.create(filename, pdf_bytes=pdf_bytes)
+    store.set_result(job.id, f"# {filename}", f"<h1>{filename}</h1>", analysis={
+        "statement": {"bank": "Test Bank", "transactions": []},
+        "metrics": {"effective_total_deposits": deposits},
+        "quality": {"level": "transaction_level", "corporate_use": "approved"},
+        "integrity": {"risk_level": "clear"},
+        "detection": {"known_funders": []},
+    })
+    return job
+
+
+def test_package_flags_documents_that_repeat_the_same_content():
+    content = b"%PDF-" + _uuid.uuid4().hex.encode()
+    first = _completed("jan.pdf", content)
+    duplicate = _completed("jan-again.pdf", content)  # same bytes, new name
+    other = _completed("feb.pdf", b"%PDF-" + _uuid.uuid4().hex.encode())
+
+    body = app.test_client().get(
+        f"/package_analysis?ids={first.id},{duplicate.id},{other.id}"
+    ).get_json()
+
+    totals = body["totals"]
+    assert totals["documents"] == 3
+    assert totals["duplicate_documents"] == 1
+    assert totals["distinct_documents"] == 2
+    assert totals["has_duplicate_documents"] is True
+
+    rows = {doc["id"]: doc for doc in body["documents"]}
+    assert rows[first.id]["is_duplicate"] is False
+    assert rows[first.id]["duplicate_of"] is None
+    # The re-listed member points at the earlier one it repeats.
+    assert rows[duplicate.id]["is_duplicate"] is True
+    assert rows[duplicate.id]["duplicate_of"] == first.id
+    assert rows[other.id]["is_duplicate"] is False
+    assert rows[first.id]["content_sha256"] == rows[duplicate.id]["content_sha256"]
+
+    assert body["duplicates"] == [{
+        "content_sha256": first.content_sha256,
+        "job_ids": [first.id, duplicate.id],
+        "filenames": ["jan.pdf", "jan-again.pdf"],
+        "count": 2,
+    }]
+
+
+def test_package_without_repeated_content_reports_no_duplicates():
+    one = _completed("a.pdf", b"%PDF-" + _uuid.uuid4().hex.encode())
+    two = _completed("b.pdf", b"%PDF-" + _uuid.uuid4().hex.encode())
+
+    body = app.test_client().get(f"/package_analysis?ids={one.id},{two.id}").get_json()
+    assert body["duplicates"] == []
+    assert body["totals"]["duplicate_documents"] == 0
+    assert body["totals"]["has_duplicate_documents"] is False
+    assert all(doc["is_duplicate"] is False for doc in body["documents"])
+
+
+def test_jobs_without_content_bytes_are_never_guessed_to_be_duplicates():
+    # Two jobs with no PDF bytes have no content hash at all; identical
+    # nothing is not identical content.
+    one = _completed("no-bytes-1.pdf")
+    two = _completed("no-bytes-2.pdf")
+
+    body = app.test_client().get(f"/package_analysis?ids={one.id},{two.id}").get_json()
+    assert body["duplicates"] == []
+    assert body["totals"]["has_duplicate_documents"] is False
+    assert [doc["content_sha256"] for doc in body["documents"]] == [None, None]
+
+
+def test_duplicate_flag_reaches_the_package_exports():
+    content = b"%PDF-" + _uuid.uuid4().hex.encode()
+    first = _completed("mar.pdf", content)
+    duplicate = _completed("mar-copy.pdf", content)
+
+    csv_body = app.test_client().get(
+        f"/package_download/csv?ids={first.id},{duplicate.id}"
+    ).get_data(as_text=True)
+    assert "totals,duplicate_documents,1" in csv_body
+    assert "duplicate_1,count,2" in csv_body
+    assert "document_2,is_duplicate,True" in csv_body
+
+
 def test_upload_persists_the_preflight_profile_with_the_document(monkeypatch):
     _mock_processing(monkeypatch)
     client = app.test_client()
-    job_id = _upload_one(client)["jobs"][0]["id"]
+    content = _fresh_pdf()
+    job_id = _upload_one(client, content)["jobs"][0]["id"]
 
     profile = store.storage.document_profile(job_id)
     assert profile is not None
-    assert profile["content_sha256"] == hashlib.sha256(b"%PDF-fake").hexdigest().upper()
+    assert profile["content_sha256"] == hashlib.sha256(content).hexdigest().upper()
     assert profile["classification"] in {"digital", "scanned", "mixed", "unknown"}
     # Advisory fields ride along in storage; nothing in production reads them.
     assert "likely_account_count" in profile
