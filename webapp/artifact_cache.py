@@ -11,7 +11,8 @@ same cache the web dashboard fills.
 
 Stages (each cached INDEPENDENTLY)
 ----------------------------------
-``ocr``       raw PDF bytes  -> ``StatementMarkdown`` (pages + model)
+``ocr``       raw PDF bytes  -> ``StatementMarkdown`` (pages + model +
+              O-3 ``page_integrity``)
 ``analysis``  statement markdown -> the ``report_to_dict`` payload
 ``report``    statement markdown -> the rendered HTML artifact
 
@@ -97,6 +98,18 @@ CODE changes are NOT captured by any key. If the OCR ladder or the analysis
 pipeline changes its output, bump :data:`OCR_STAGE_VERSION` /
 :data:`ANALYSIS_STAGE_VERSION` / :data:`REPORT_STAGE_VERSION` in the same
 commit; bumping :data:`CACHE_FORMAT_VERSION` invalidates everything.
+D-3b is the first exercise of that rule: O-3 added ``page_integrity`` to
+``StatementMarkdown``, so the OCR artifact's shape changed and
+:data:`OCR_STAGE_VERSION` went 1 -> 2. Entries written before it lack the
+field and are invalidated rather than silently served without flags.
+
+A cached read must be INDISTINGUISHABLE from a fresh one. For the OCR stage
+that means the reconstructed document carries the model, the pages and the
+O-3 per-page integrity records (truncation flags, signals, finish reason).
+The one thing not reconstructed is the ``PageText`` str subclass the visual
+rung produces: its model-side completion signals are consumed only inside
+``ocr/pipeline.py``, which distils them into ``page_integrity`` BEFORE the
+document exists — so no consumer of a ``StatementMarkdown`` can tell.
 
 Persistence
 -----------
@@ -153,6 +166,7 @@ from typing import Any, Callable, TypeVar
 
 from ocr.document import StatementMarkdown
 from ocr.inspect import content_sha256
+from ocr.truncation import PageIntegrity
 
 from .storage import Storage
 
@@ -181,7 +195,8 @@ __all__ = [
 CACHE_FORMAT_VERSION = 1
 
 #: Bump when the OCR ladder's output changes for unchanged settings.
-OCR_STAGE_VERSION = 1
+#: v2 (D-3b): O-3's ``page_integrity`` joined the cached OCR artifact.
+OCR_STAGE_VERSION = 2
 #: Bump when the analysis pipeline's output changes for unchanged settings.
 ANALYSIS_STAGE_VERSION = 1
 #: Bump when the HTML renderer's output changes for unchanged settings.
@@ -398,6 +413,17 @@ class ArtifactCache:
     def put_ocr(
         self, content_hash: str, settings_key: str, document: StatementMarkdown | None
     ) -> str:
+        """Store an OCR result. Everything a consumer of ``StatementMarkdown``
+        can observe is stored: model, pages, and O-3's per-page integrity
+        records — a cached read is not allowed to be a read with the
+        truncation flags quietly missing. ``pages`` is normalized to plain
+        ``str`` because the visual rung's ``PageText`` carries only the
+        model-side signals already distilled into ``page_integrity``.
+
+        ``page_integrity`` is read through ``getattr`` — the same tolerance
+        O-3 built into its own readers — so a document-shaped object that
+        predates the field (a hand-built extractor result, a test double)
+        stores as "not assessed" instead of raising."""
         return self.put(
             STAGE_OCR,
             content_hash,
@@ -405,7 +431,14 @@ class ArtifactCache:
             {
                 "document": None
                 if document is None
-                else {"model": document.model, "pages": list(document.pages)}
+                else {
+                    "model": document.model,
+                    "pages": [str(page) for page in document.pages],
+                    "page_integrity": [
+                        item.to_dict()
+                        for item in (getattr(document, "page_integrity", None) or [])
+                    ],
+                }
             },
         )
 
@@ -443,6 +476,28 @@ def open_cache(data_dir: str | Path | None = None) -> ArtifactCache:
 # ----------------------------------------------------------------------
 # memoizing wrappers — the API the worker and the CLI both call
 # ----------------------------------------------------------------------
+
+
+def _page_integrity(entries: object) -> list[PageIntegrity]:
+    """Rebuild O-3 ``PageIntegrity`` records from a cached OCR artifact.
+
+    Read defensively (missing keys default to the dataclass's own "no
+    evidence" values) so a payload written by an older shape degrades to an
+    unflagged record rather than raising — though the OCR stage version is
+    what actually keeps such payloads from being served at all."""
+    rebuilt: list[PageIntegrity] = []
+    for index, entry in enumerate(entries or []):
+        if not isinstance(entry, dict):
+            continue
+        rebuilt.append(
+            PageIntegrity(
+                page_index=int(entry.get("page_index", index)),
+                truncated=bool(entry.get("truncated", False)),
+                signals=list(entry.get("signals") or []),
+                finish_reason=entry.get("finish_reason"),
+            )
+        )
+    return rebuilt
 
 
 def cached_ocr(
@@ -497,6 +552,7 @@ def cached_ocr(
                 source_file=source_file,
                 model=document.get("model", ""),
                 pages=list(document.get("pages") or []),
+                page_integrity=_page_integrity(document.get("page_integrity")),
             )
         )
         return CacheResult(value, True, STAGE_OCR, key)

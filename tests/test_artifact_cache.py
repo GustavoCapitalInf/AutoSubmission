@@ -23,8 +23,10 @@ from dataclasses import dataclass
 import pytest
 
 from ocr.document import StatementMarkdown
+from ocr.truncation import PageIntegrity
 from webapp.artifact_cache import (
     ANALYSIS_STAGE_VERSION,
+    OCR_STAGE_VERSION,
     ArtifactCache,
     CACHE_FORMAT_VERSION,
     STAGE_ANALYSIS,
@@ -190,7 +192,9 @@ def test_round_trip_for_every_stage(cache):
     cache.put_ocr(content_sha256(PDF), ocr_key, _doc(pages=["one", "two"]))
     hit, document = cache.get_ocr(content_sha256(PDF), ocr_key)
     assert hit is True
-    assert document == {"model": "fake-ocr", "pages": ["one", "two"]}
+    # D-3b: the stored document also carries O-3's per-page integrity records
+    # (empty here — this fixture was never assessed by the ladder).
+    assert document == {"model": "fake-ocr", "pages": ["one", "two"], "page_integrity": []}
 
     analysis_key = analysis_settings_key(analysis_settings=_AnalysisSettings())
     cache.put_analysis(text_sha256("# md"), analysis_key, {"statement": {"bank": "B"}})
@@ -373,6 +377,12 @@ def test_cached_ocr_caches_a_negative_result(cache):
     assert first.value is None and second.value is None
     assert second.cached is True
     assert len(calls) == 1
+
+    # D-3b: the artifact shape gained page_integrity — a negative result still
+    # stores a null document rather than an empty one, and still round-trips.
+    settings_key = ocr_settings_key(allow_visual_ocr=False)
+    hit, document = cache.get_ocr(content_sha256(PDF), settings_key)
+    assert (hit, document) == (True, None)
 
 
 def test_cached_analysis_computes_once_and_partitions_on_settings(cache):
@@ -611,6 +621,114 @@ def test_the_index_is_a_derived_cache_not_an_append_only_ledger(cache):
         )
         conn.execute("DELETE FROM artifact_cache WHERE cache_key = ?", (key,))
     assert cache.storage.cache_lookup(STAGE_ANALYSIS, key) is None
+
+
+# ---------------------------------------------------------------------------
+# D-3b: O-3 page-integrity flags survive the cache
+# ---------------------------------------------------------------------------
+
+
+def _flagged_doc() -> StatementMarkdown:
+    """Two pages: one clean, one truncated with both evidence classes."""
+    return StatementMarkdown(
+        source_file="scan.pdf",
+        model="fake-ocr",
+        pages=["clean page", "<table><tr><td>cut off"],
+        page_integrity=[
+            PageIntegrity(page_index=0, truncated=False, signals=[], finish_reason="stop"),
+            PageIntegrity(
+                page_index=1,
+                truncated=True,
+                signals=["model_finish_reason_length", "open_table_at_tail"],
+                finish_reason="length",
+            ),
+        ],
+    )
+
+
+def test_cached_ocr_preserves_o3_page_integrity(cache):
+    """A cached read must be indistinguishable from a fresh one: dropping the
+    truncation flags would turn an intake defect back into a silent one."""
+    fresh = _flagged_doc()
+    calls = []
+
+    def compute():
+        calls.append(1)
+        return fresh
+
+    cached_ocr(PDF, compute=compute, cache=cache, source_file="scan.pdf")
+    served = cached_ocr(PDF, compute=compute, cache=cache, source_file="scan.pdf")
+
+    assert served.cached is True and len(calls) == 1
+    document = served.value
+    assert document.has_truncated_pages is True
+    assert document.truncated_pages == fresh.truncated_pages == [1]
+    assert [item.to_dict() for item in document.page_integrity] == [
+        item.to_dict() for item in fresh.page_integrity
+    ]
+    # Field by field, so a partial reconstruction cannot pass on the dict alone.
+    clean, truncated = document.page_integrity
+    assert (clean.page_index, clean.truncated, clean.signals, clean.finish_reason) == (
+        0, False, [], "stop",
+    )
+    assert truncated.page_index == 1 and truncated.truncated is True
+    assert truncated.signals == [
+        "model_finish_reason_length", "open_table_at_tail",
+    ]
+    assert truncated.finish_reason == "length"
+    assert all(isinstance(item, PageIntegrity) for item in document.page_integrity)
+    # And nothing else about the document moved.
+    assert document.pages == fresh.pages and document.model == fresh.model
+
+
+def test_a_document_without_integrity_records_round_trips_as_unassessed(cache):
+    """An empty page_integrity means "the ladder did not assess this" and must
+    stay empty rather than being invented on read."""
+    cached_ocr(PDF, compute=lambda: _doc(pages=["a"]), cache=cache)
+    served = cached_ocr(PDF, compute=lambda: pytest.fail("must be cached"), cache=cache)
+    assert served.value.page_integrity == []
+    assert served.value.has_truncated_pages is False
+
+
+def test_a_document_shaped_object_without_the_o3_field_still_stores(cache):
+    """O-3's own readers tolerate objects that predate the field (its test
+    doubles return plain strings); the cache does the same rather than
+    raising on a hand-built extractor result."""
+
+    class _PreO3Doc:
+        model = "legacy-extractor"
+        pages = ["only a page list and a model"]
+
+    cache.put_ocr(content_sha256(PDF), "SETTINGS", _PreO3Doc())
+    hit, document = cache.get_ocr(content_sha256(PDF), "SETTINGS")
+    assert hit is True
+    assert document["page_integrity"] == []
+
+
+def test_the_ocr_stage_version_bump_invalidates_pre_o3_entries(cache, monkeypatch):
+    """The standing stage-version criterion, exercised: an artifact written
+    under the pre-O-3 shape (v1) must MISS under v2 rather than be served
+    without its truncation flags."""
+    import webapp.artifact_cache as module
+
+    assert OCR_STAGE_VERSION == 2  # pinned: D-3b bumped it from 1
+    calls = []
+
+    def compute():
+        calls.append(1)
+        return _flagged_doc()
+
+    monkeypatch.setattr(module, "OCR_STAGE_VERSION", 1)
+    assert cached_ocr(PDF, compute=compute, cache=cache).cached is False
+    assert cached_ocr(PDF, compute=compute, cache=cache).cached is True
+    assert len(calls) == 1
+
+    monkeypatch.setattr(module, "OCR_STAGE_VERSION", 2)
+    under_v2 = cached_ocr(PDF, compute=compute, cache=cache)
+    assert under_v2.cached is False and len(calls) == 2
+    # The v1 entry is still on disk under its own key — invalidated, not
+    # corrupted, and it never leaks into a v2 read.
+    assert len(cache.storage.cache_entries(STAGE_OCR)) == 2
 
 
 def test_stage_version_constants_are_part_of_the_settings_keys():
