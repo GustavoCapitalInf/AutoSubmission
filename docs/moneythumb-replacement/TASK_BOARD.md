@@ -6,7 +6,7 @@ ordering). Every task lists its MASTER_PLAN item, priority, and acceptance crite
 Status values: TODO / IN-PROGRESS / REVIEW (Ocean) / DONE.
 
 Standing acceptance criteria for EVERY task:
-- Full pytest suite green (currently 523 tests).
+- Full pytest suite green (797 collected / 795 default-selected as of 2026-08-06 post-Wave-1).
 - Forensic corpus audits byte-identical (or intentional deltas documented + approved).
 - No new statement-specific constants; counterparty knowledge only via the registry.
 - No changes to protected financial modules (MASTER_PLAN §4) without Ocean approval.
@@ -17,18 +17,18 @@ Standing acceptance criteria for EVERY task:
 
 | ID | P | Task | Acceptance criteria | Status |
 |----|---|------|---------------------|--------|
-| H-1 | P0-1 | Wire `adb_forensic_audit.py` + `balance_forensic_audit.py` into CI (or a `pytest -m corpus` gate) over the 109-PDF corpus | Any parser regression on any corpus PDF turns the build red; runtime documented; run instructions in README | TODO |
-| H-2 | P0-6 | MoneyThumb comparison harness v1: run pipeline on the 6 benchmark inputs, diff vs `moneythumbResults/` using FIELD_MAPPING verdicts; emit per-field discrepancy report with classification (our defect / MT defect / definition / source contradiction / insufficient evidence) | Committed report for all 6 sets; harness re-runnable with one command; klr_may documented as MT-failure case | TODO |
+| H-1 | P0-1 | Wire `adb_forensic_audit.py` + `balance_forensic_audit.py` into CI (or a `pytest -m corpus` gate) over the 109-PDF corpus | Any parser regression on any corpus PDF turns the build red; runtime documented; run instructions in README | DONE (Wave 0; local gate is merge authority — remote runner acquisition still failing, see PROJECT_STATUS) |
+| H-2 | P0-6 | MoneyThumb comparison harness v1: run pipeline on the 6 benchmark inputs, diff vs `moneythumbResults/` using FIELD_MAPPING verdicts; emit per-field discrepancy report with classification (our defect / MT defect / definition / source contradiction / insufficient evidence) | Committed report for all 6 sets; harness re-runnable with one command; klr_may documented as MT-failure case | DONE (Wave 1; reports write to gitignored `benchmark_reports/` by design) |
 | H-3 | P1-7 | Telemetry: per-statement record of path (native/tesseract/visual), parser or fallback reason, timings, model calls, estimated cost | Batch + webapp both emit records; deterministic-coverage rate computable from logs | TODO |
 | H-4 | P2-9 | Threshold calibration record: document and config-ify every tolerance/cadence constant (R-5) with corpus-derived justification | Constants in one config module with provenance comments; behavior unchanged by default | TODO |
 | H-5 | P2-7 | Per-bank accuracy tracking + layout fingerprints over the expanding corpus | Accuracy by bank/field/layout queryable; report generated in CI | TODO |
-| H-6 | P0 hygiene | Fix stale docs/fixtures: PROJECT_GOAL counts (523/109), `conftest.py` `BankStatements` path typo, backlog path references | Docs match reality; live-test fixture resolves | TODO |
+| H-6 | P0 hygiene | Fix stale docs/fixtures: PROJECT_GOAL counts (523/109), `conftest.py` `BankStatements` path typo, backlog path references | Docs match reality; live-test fixture resolves | DONE (Wave 0) |
 
 ## Agent REEF — Parser Platform & Extraction
 
 | ID | P | Task | Acceptance criteria | Status |
 |----|---|------|---------------------|--------|
-| R-1 | P0-2 | Purge statement-specific hardcodes (RISK R-1 list: scanned_small_bank literal date/check repairs, community_section literal names/accounts, bank_repairs exact-delta rules, rbc/wells hardcoded years, mojibake regexes; registry counterparty entries per R-6 reviewed with Ocean) | Each removal either generalized (evidence-gated rule) or the affected statement fails closed to review; corpus audit rerun documents every status change; zero literal customer names/dates/amounts remain in parsers | TODO |
+| R-1 | P0-2 | Purge statement-specific hardcodes (RISK R-1 list: scanned_small_bank literal date/check repairs, community_section literal names/accounts, bank_repairs exact-delta rules, rbc/wells hardcoded years, mojibake regexes; registry counterparty entries per R-6 reviewed with Ocean) | Each removal either generalized (evidence-gated rule) or the affected statement fails closed to review; corpus audit rerun documents every status change; zero literal customer names/dates/amounts remain in parsers | DONE (Wave 1) |
 | R-2 | P1-1a | Shared utilities: `analysis/money.py` (all `_money`/`_parse_money` variants consolidated, incl. French formats), shared date helpers, shared HTML-table + section-chunking utils | 38 `_money` clones → 1 module; `td_can` import inversion gone; corpus audit byte-identical | TODO |
 | R-3 | P1-1b | `Parser` protocol + registry with detection scoring; or-chain replaced; order becomes explicit tested metadata | Dispatch covered by tests (incl. ambiguity cases); adding a parser touches no orchestrator code; corpus audit byte-identical | TODO |
 | R-4 | P1-1c | Per-parser conformance harness: every parser gets detection-positive, detection-negative, and self-invalidation tests | All 43 parsers covered incl. wells/scotia/columbia/navigant/relay/first_farmers (currently untested directly) | TODO |
@@ -52,8 +52,8 @@ Standing acceptance criteria for EVERY task:
 
 | ID | P | Task | Acceptance criteria | Status |
 |----|---|------|---------------------|--------|
-| D-1 | P0-3 | Durable job/result store + queue that survives restart; analyst review decisions persisted with actor/timestamp/prior value | Kill -9 the server mid-queue → jobs resume; reviews replayable | TODO |
-| D-2 | P0-4 | Hardening minimum: debug off, production WSGI server, API-key auth, server-side upload limits (size/MIME/pages/count), masked account numbers in exports, Content-Disposition sanitization, CSV formula-injection guard | Verified by tests; documented deployment procedure replaces `python -m webapp.app` | TODO |
+| D-1 | P0-3 | Durable job/result store + queue that survives restart; analyst review decisions persisted with actor/timestamp/prior value | Kill -9 the server mid-queue → jobs resume; reviews replayable | DONE (Wave 1) |
+| D-2 | P0-4 | Hardening minimum: debug off, production WSGI server, API-key auth, server-side upload limits (size/MIME/pages/count), masked account numbers in exports, Content-Disposition sanitization, CSV formula-injection guard | Verified by tests; documented deployment procedure replaces `python -m webapp.app` | SPLIT: D-2a DONE (Wave 0); D-2b (auth, rate limiting, runbook) TODO |
 | D-3 | P0-5 | Content-hash artifact cache (sha256 → OCR markdown → extraction → report) + duplicate-upload detection surfaced to packages | Re-upload of identical bytes performs zero OCR/LLM calls; package flags duplicates | TODO |
 | D-4 | P1-5 | Worker pool + per-job timeouts + bounded queue + async completion contract (poll + webhook) | 10-statement package processes concurrently; hung OCR call cannot block other jobs; scanned docs don't require a live connection | TODO |
 | D-5 | P1-4 | Consume unified OCR preflight from `ocr/pipeline.py` (after O-1); delete `webapp/worker.py` duplicate ladder | One ladder, one owner; behavior parity tests | TODO |
@@ -64,7 +64,7 @@ Standing acceptance criteria for EVERY task:
 
 | ID | P | Task | Acceptance criteria | Status |
 |----|---|------|---------------------|--------|
-| O-1 | P1-4a | Unify the native→tesseract→visual preflight ladder inside `ocr/pipeline.py` (single implementation; tesseract becomes a pipeline member, not a webapp bolt-on) | `webapp/worker.py` and `parse.py` consume the same ladder; parity tests on corpus paths | TODO |
+| O-1 | P1-4a | Unify the native→tesseract→visual preflight ladder inside `ocr/pipeline.py` (single implementation; tesseract becomes a pipeline member, not a webapp bolt-on) | `webapp/worker.py` and `parse.py` consume the same ladder; parity tests on corpus paths | DONE (Wave 1) |
 | O-2 | P1-4b | `OcrProvider` interface + postprocess-plugin split (Unlimited-OCR repairs become that provider's plugin) | Adding a provider touches no pipeline code; existing outputs byte-identical | TODO |
 | O-3 | P1-4c | Truncation detection: check finish_reason / token ceilings; flag suspect pages for re-OCR or review instead of silent truncation | Dense-page fixture demonstrates flag; no silent truncation path remains | TODO |
 | O-4 | P1 | Schema the stringly side channels (`NFCU_TX|`, `WF_TX|`, `SOURCE_POSTING_DATE|`) into versioned structured attachments on `StatementMarkdown` | Markdown normalization can no longer silently break extraction; consumers updated | TODO |
@@ -78,3 +78,16 @@ enforcement (MERGE_PLAN.md), protected-module change approval, discrepancy rulin
 H-2 (our defect vs MT defect vs definition difference), registry-entry review (R-6
 class), and roadmap re-prioritization at each milestone gate. Ocean does not take
 implementation tasks except unblocking spikes.
+
+---
+
+## Status updates (2026-08-06, post-Wave-1)
+
+Authoritative current status lives in `PROJECT_STATUS.md`. Deltas against the tables
+above:
+
+- **DONE — Wave 0:** H-1 (as `corpus_gate.py` + `pytest -m corpus` + `.github/workflows/corpus-gate.yml`; local gate is merge authority), H-6, D-2a (the development-server-safety half of D-2).
+- **DONE — Wave 1:** H-2 (`benchmark/` package), D-1 (`webapp/storage.py` SQLite durable store), R-1 (all 12 inventory items; see `R1_HARDCODE_LOG.md`; guard test `tests/test_no_statement_hardcodes.py`), O-1 (`ocr/inspect.py` unified preflight, schema v2 document profiles, duplicate flag, encrypted rejection).
+- **Split:** D-2 is DONE for D-2a scope; **D-2b (API-key auth, rate limiting, deployment runbook) remains TODO.**
+- **Partially staged:** D-3 — content hashing, the `documents` table, and duplicate flagging exist via D-1+O-1; the artifact cache (sha256 → OCR markdown → extraction, zero re-OCR on identical bytes) is still TODO.
+- **Known open infrastructure defect:** the remote GitHub Actions corpus-gate run fails at hosted-runner acquisition (never reaches job steps). Wave 2 entry gate per WAVE1_BRIEF §5.8.
