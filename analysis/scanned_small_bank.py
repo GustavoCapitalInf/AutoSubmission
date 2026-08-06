@@ -4,11 +4,36 @@ import re
 from datetime import date
 
 from .schema import Statement, Transaction
-from .td_can import _parse_money
+from .td_can import _parse_money, normalize_mojibake
 
 
 _MONTH_RE = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{2,4})")
 _MONEY_TOKEN_RE = re.compile(r"\$?\s*\d[\d,]*\.\d{2}")
+#: Account-holder line inside the first page's address block: a name carrying
+#: a business-entity suffix (structural marker - never a memorized customer
+#: name, R-1 item 2).
+_HOLDER_NAME_RE = re.compile(
+    r"([A-Za-z][A-Za-z0-9&'.\- ]{1,60}?,?\s*"
+    r"(?:LLC|L\.L\.C\.|INC|CORP|LTD|LLP|PLLC|COMPANY|ENTERPRISES)\b\.?)",
+    re.IGNORECASE,
+)
+#: Check-image caption printed alongside the scanned check: independent
+#: in-document evidence of a check's true amount (R-1 item 1).
+_CHECK_CAPTION_RE = re.compile(
+    r"Number:\s*(\d{3,})\s+Date:\s*(\d{1,2}/\d{1,2}/\d{2,4})\s+"
+    r"Amount:\s*\$?\s*(\d[\d,]*(?:\.\d{2})?)",
+    re.IGNORECASE,
+)
+
+
+def _extract_holder_name(markdown: str) -> str | None:
+    """Business-entity-suffixed name from the first page's header block."""
+    first_page = re.split(r"--- Page 2 ---", markdown, maxsplit=1)[0]
+    for line in first_page.splitlines():
+        match = _HOLDER_NAME_RE.search(line)
+        if match:
+            return re.sub(r"\s+", " ", match.group(1)).strip()
+    return None
 
 
 def _compact(text: str) -> str:
@@ -142,8 +167,10 @@ def _parse_two_column_date_amount_desc(block: str, *, sign: int) -> list[Transac
 
 def _parse_checks(block: str, *, sign: int = -1) -> list[Transaction]:
     txns: list[Transaction] = []
+    # Real dash characters only - the input is mojibake-normalized first
+    # (R-1 item 11; the class previously carried raw mojibake bytes).
     for check_no, raw_date, amount in re.findall(
-        r"\b(\d{3,})\s+\*?\s*[â€”—\- ]*\s*(\d{1,2}/\d{1,2}/\d{4})\s+(\d[\d,]*\.\d{2})",
+        r"\b(\d{3,})\s+\*?\s*[—–\- ]*\s*(\d{1,2}/\d{1,2}/\d{4})\s+(\d[\d,]*\.\d{2})",
         block,
     ):
         signed = round(abs(_money(amount)) * sign, 2)
@@ -202,18 +229,23 @@ def _discard_inconsistent_ocr_balances(
 
 
 def parse_southside_scanned_statement(markdown: str) -> Statement | None:
+    markdown = normalize_mojibake(markdown)
     upper = markdown.upper()
     if "SOUTHSIDE" not in upper or "ACCOUNT SUMMARY" not in upper or "BUILDER ACCOUNT" not in upper:
         return None
 
     text = _compact(markdown)
     stmt = Statement(bank="Southside Bank", currency="USD")
-    acct = re.search(r"Account Number\s+['â€˜â€™` ]*(\d+)", text, re.IGNORECASE)
+    # Digits must directly follow the label: an occurrence corrupted by stray
+    # OCR quote glyphs is skipped in favor of a clean later occurrence
+    # (R-1 item 11 - the previous class of mojibake quote characters never
+    # matched real text and only obscured that behaviour).
+    acct = re.search(r"Account Number\s+(\d+)", text, re.IGNORECASE)
     if acct:
         stmt.account_number = acct.group(1)
-    name = re.search(r"\bTHE GRANITE GIRLS,\s*LLC\b", text, re.IGNORECASE)
-    if name:
-        stmt.account_name = "THE GRANITE GIRLS, LLC"
+    # Holder from the entity-suffix structural marker, not a memorized
+    # customer name (R-1 item 2).
+    stmt.account_name = _extract_holder_name(markdown)
     summary = re.search(
         r"Statement Dates\s+(?P<start>\d{1,2}/\d{1,2}/\d{2})\s+thru\s+(?P<end>\d{1,2}/\d{1,2}/\d{2})\s+"
         r"Previous Balance\s+(?P<begin>\d[\d,]*\.\d{2})\s+Days in Statement Period\s+(?P<days>\d+)\s+"
@@ -246,7 +278,7 @@ def parse_southside_scanned_statement(markdown: str) -> Statement | None:
     txns.extend(_parse_southside_line_rows(deposits, year=year, sign=1))
     txns.extend(_parse_southside_line_rows(withdrawals, year=year, sign=-1))
     txns.extend(_parse_southside_checks(checks, year=year))
-    txns = _repair_southside_check_ocr(markdown, txns, stmt)
+    txns = _repair_checks_from_image_captions(markdown, txns, stmt)
     txns = _attach_daily_balances(_sort_txns(txns), _daily_balances(markdown))
     txns = _discard_inconsistent_ocr_balances(stmt, txns)
     if len(txns) < (stmt.stated_credit_count or 0):
@@ -297,28 +329,71 @@ def _parse_southside_line_rows(block: str, *, year: int, sign: int) -> list[Tran
     return txns
 
 
-def _repair_southside_check_ocr(markdown: str, txns: list[Transaction], stmt: Statement) -> list[Transaction]:
-    if not any(
-        txn.date == "2026-06-18" and txn.description == "Check 1944" and round(txn.amount, 2) == -4500.00
-        for txn in txns
-    ):
+def _summary_identity_holds(stmt: Statement, txns: list[Transaction]) -> bool:
+    """Detail matches every printed summary figure (counts, totals, balances)."""
+    required = (
+        stmt.beginning_balance,
+        stmt.ending_balance,
+        stmt.stated_credit_count,
+        stmt.stated_debit_count,
+        stmt.stated_total_credits,
+        stmt.stated_total_debits,
+    )
+    if any(value is None for value in required):
+        return False
+    credits = [txn for txn in txns if txn.amount > 0]
+    debits = [txn for txn in txns if txn.amount < 0]
+    return (
+        len(credits) == stmt.stated_credit_count
+        and len(debits) == stmt.stated_debit_count
+        and abs(sum(t.amount for t in credits) - stmt.stated_total_credits) <= 0.01
+        and abs(abs(sum(t.amount for t in debits)) - stmt.stated_total_debits) <= 0.01
+        and abs(
+            stmt.beginning_balance + sum(t.amount for t in txns) - stmt.ending_balance
+        ) <= 0.01
+    )
+
+
+def _repair_checks_from_image_captions(
+    markdown: str, txns: list[Transaction], stmt: Statement
+) -> list[Transaction]:
+    """Correct OCR-misread check amounts from the check-image captions.
+
+    Generic, evidence-gated (R-1 item 1 - replaces a repair keyed to one
+    literal date/check/amount): the statement's own check-image captions
+    ("Number: N  Date: m/d/yyyy  Amount: $X") are independent in-document
+    evidence. A parsed "Check N" row is corrected to its caption amount only
+    when (a) the printed summary identity currently fails, (b) the caption
+    matches the row's check number AND date but disagrees on amount, and
+    (c) applying the corrections makes the summary identity hold exactly.
+    """
+    captions: dict[tuple[str, str], float] = {}
+    for check_no, raw_date, amount in _CHECK_CAPTION_RE.findall(markdown):
+        try:
+            captions[(check_no, _iso(raw_date))] = _money(amount)
+        except ValueError:
+            continue
+    if not captions or _summary_identity_holds(stmt, txns):
         return txns
-    if not re.search(r"Number:\s*1944\s+Date:\s*6/18/2026\s+Amount:\s*\$1500\.00", markdown, re.IGNORECASE):
-        return txns
-    out: list[Transaction] = []
-    repaired = False
+
+    repaired: list[Transaction] = []
+    changed = False
     for txn in txns:
-        if (
-            not repaired
-            and txn.date == "2026-06-18"
-            and txn.description == "Check 1944"
-            and round(txn.amount, 2) == -4500.00
-        ):
-            out.append(txn.model_copy(update={"amount": -1500.00}))
-            repaired = True
+        match = re.fullmatch(r"Check (\d+)", txn.description)
+        caption_amount = captions.get((match.group(1), txn.date)) if match else None
+        if caption_amount is not None and abs(abs(txn.amount) - caption_amount) > 0.01:
+            corrected = round(abs(caption_amount), 2)
+            repaired.append(
+                txn.model_copy(
+                    update={"amount": -corrected if txn.amount < 0 else corrected}
+                )
+            )
+            changed = True
         else:
-            out.append(txn)
-    return out
+            repaired.append(txn)
+    if changed and _summary_identity_holds(stmt, repaired):
+        return repaired
+    return txns
 
 
 def _parse_southside_checks(block: str, *, year: int) -> list[Transaction]:
@@ -334,13 +409,21 @@ def _parse_southside_checks(block: str, *, year: int) -> list[Transaction]:
 
 
 def parse_apex_scanned_statement(markdown: str) -> Statement | None:
+    markdown = normalize_mojibake(markdown)
     upper = markdown.upper()
-    if "KLR ENTERPRISES" not in upper or "SUMMIT BUSINESS CHECKING" not in upper:
+    # Structural gates only: the bank's product name plus this layout's
+    # summary phrasing (R-1 item 2 - the customer-name gate is gone).
+    if (
+        "SUMMIT BUSINESS CHECKING" not in upper
+        or "BALANCE FORWARD FROM" not in upper
+        or "ENDING BALANCE AS OF" not in upper
+    ):
         return None
 
     source = re.sub(r"(?<=\d)\.(?=\d{3}\.\d{2}\b)", ",", markdown)
     text = _compact(source)
-    stmt = Statement(bank="Apex Bank", account_name="KLR Enterprises", currency="USD")
+    holder = _extract_holder_name(markdown)
+    stmt = Statement(bank="Apex Bank", account_name=holder, currency="USD")
     acct = re.search(r"Account Number:\s*([*%A-Z0-9]+)", text, re.IGNORECASE)
     if acct:
         stmt.account_number = acct.group(1)
@@ -389,12 +472,16 @@ def parse_apex_scanned_statement(markdown: str) -> Statement | None:
         r"[^\n]*denotes missing check[^\n]*",
         r"SERVICE CHARGES",
     )
-    debits = re.sub(
-        r"\s*--- Page \d+ ---\s+KLR Enterprises.*?DATE AMOUNT DESCRIPTION\s*",
-        "\n",
-        debits,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
+    if holder:
+        # Continuation pages repeat the holder's header block up to the
+        # re-printed column header; scrub it using the holder name extracted
+        # from the document itself (R-1 item 2 - no memorized name).
+        debits = re.sub(
+            r"\s*--- Page \d+ ---\s+" + re.escape(holder) + r".*?DATE AMOUNT DESCRIPTION\s*",
+            "\n",
+            debits,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
     service = _section(
         source,
         r"SERVICE CHARGES.*?DATE AMOUNT DESCRIPTION",
@@ -413,9 +500,13 @@ def parse_apex_scanned_statement(markdown: str) -> Statement | None:
     txns.extend(_parse_date_amount_description_rows(debits, sign=-1))
     txns.extend(_parse_date_amount_description_rows(service, sign=-1))
     txns.extend(_parse_date_amount_description_rows(fees, sign=-1))
+    txns = _repair_checks_from_image_captions(source, txns, stmt)
     txns = _attach_daily_balances(_sort_txns(txns), _daily_balances(source))
     txns = _discard_inconsistent_ocr_balances(stmt, txns)
-    if len(txns) < 20:
+    # Completeness against the statement's own printed counts, not a magic
+    # threshold (R-1 item 3 - was `len(txns) < 20`).
+    stated_rows = (stmt.stated_credit_count or 0) + (stmt.stated_debit_count or 0)
+    if stated_rows == 0 or len(txns) < stated_rows:
         return None
     stmt.transactions = txns
     return stmt
