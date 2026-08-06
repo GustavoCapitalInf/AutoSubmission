@@ -164,6 +164,46 @@ genealogy now documented in CI1_FINDINGS.md: four independent, serially
 masked causes (runner transient → missing binaries → OCR version drift →
 path separators), zero financial drift at any point.
 
+---
+
+## 2026-08-06 — R-3.0–R-3.3 landed on branch; **STOP-THE-LINE FINDING at R-3.4; Ocean rulings issued**
+
+Agent A executed R-3.0 (baseline recorder + parser_expectations.json, 1008
+tests), R-3.1 (registry machinery, +27), R-3.2 (per-parser detect, 1035),
+R-3.3 (sub-dispatch promotion — chase_export/rbc_fr/td_can_native as
+registrations, 1182 tests), every stage suite- and gate-green, pipeline.py
+untouched. Measured parity: unclaimed 0, wrong-parser 0, outscored 0,
+**ambiguous 45** — which is the finding:
+
+**Five parsers detect by bare bank-name substrings that also match
+counterparty mentions in other banks' statements** (capital_one claims 38
+foreign corpus docs; bmo 7 — including Zelle reference ids containing "BMO";
+regions 3; scotiabank 3; bank_of_america 1). capital_one was correct only by
+chain position (41st of 43). Full evidence: R3_DETECTION_FINDING.md. Agent
+correctly did not fix (detection-semantics change beyond approved mechanical
+transcription); correctly rejected ~52 supersedes edges (chain order
+re-encoded), score-lowering (forbidden), and a positional-offset rule
+(corpus-fitted constant of the R-1-purged kind).
+
+**Ocean rulings:** (1) issuer-furniture required markers APPROVED for the
+five parsers — admissible classes: issuer domains/headings/footers/service
+furniture; prohibited: customer data, offsets, corpus-fitted constants;
+per-marker detection-positive + cited detection-negative fixtures; target
+ambiguous 45→0, parity 109/109, gate byte-identical. Off-corpus semantic
+shift is INTENTIONAL: these parsers now under-claim (fail-safe) instead of
+over-claim. (2) Agent selects capital_one/scotiabank markers itself; Ocean
+reviews the completed five-parser table at the R-3.4 stop. (3) Wave-3
+backlog ticket: "BMO" 3-char substring + "BUSINESS ACCOUNT 01180" residual
+fragment (R-1 residual sweep); fix now only if inside the five parsers'
+guards. New mandatory stop after R-3.4 regardless of supersedes outcomes.
+Also noted: demo_national claims zero corpus documents (→ R-4 list);
+detect-sweep cost measured at 2.95 ms mean/doc ≈ 10 s for the full archive.
+
+**Docs-merge note:** the execution log now merges to main (`2dc45d3`) so
+agents can read rulings in-tree; docs-only merges are exempt from the
+dispatch-after-merge protocol (they cannot affect the gate), recorded here
+as an explicit Ocean ruling.
+
 **Run 31129048067: `completed success` — FIRST FULLY GREEN REMOTE CORPUS-GATE
 RUN (6m43s, suite + gate + report artifact). CI-1 CLOSED; MASTER_PLAN P0-1 /
 gap G4 now enforced remotely as well as locally.** Remaining CI item: CI-2
