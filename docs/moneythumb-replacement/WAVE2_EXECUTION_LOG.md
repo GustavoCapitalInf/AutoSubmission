@@ -235,6 +235,36 @@ verified.
 
 ---
 
+## 2026-08-06 — R-4 conformance harness DONE on branch; three defects found; **R-4b fix-phase dispatched**
+
+R-4 (commit `7f77661`, tests+docs only, pipeline.py untouched): 46/46
+detection-positive; 46×45 = 2,070 cross-product with 0 cross-claims; 46/46
+self-invalidation; filename-invariance sweep 46×109. 1,647 passed + 11
+corpus-marked; gate GREEN byte-identical. R-3.5 confirmed empty (all §7
+moves were in R-3.4). Findings, each pinned by strict xfail
+(R4_CONFORMANCE_FINDINGS.md): **R4-1 HIGH** — first_farmers detects its own
+corpus document only via the `<!-- SOURCE: filename -->` echo (gate coverage
+partially resting on a filename); **R4-2 LOW** — relay scores a
+filename-derived near-miss; **R4-3 MODERATE/HIGH-for-DSC-2** — six more
+parsers (incl. chase: 618 discovery docs, wire-boilerplate exposure) detect
+by a single bank-name marker, the R-3.4 defect class in parsers no corpus
+doc mentions. Plus R-1 residuals: farmers_merchants matches customer name
+ACE AUTO GLASS as an identity branch; altana/texas_bank digit runs.
+
+**Ocean triage (R-4b, same session):** fix R4-1 now via a body-text issuer
+marker (artifact text is the text of record); APPROVE the platform fix —
+strip SOURCE comments in parser_registry, filename text structurally
+inadmissible for all 46 — sequenced with R4-1's marker so the tree stays
+green (closes R4-2 free); fix all six R4-3 parsers now under the R-3.4
+marker standard, chase first; ADD the farmers_merchants customer-name branch
+(R-1 zero-customer-names enforcement, guard-list addition); digit-run
+residuals stay Wave-3 unless inside a guard already being rewritten; strict
+xfails convert to passing assertions with their fixes. Acceptance: parity
+109/109 · ambiguous 0 · cross-claims 0 · gate byte-identical · zero xfails
+remaining for fixed findings.
+
+---
+
 ## 2026-08-06 — H-3 Phase 1 (schema) REVIEWED: APPROVED; Phase 2 GO
 
 H3_SCHEMA.md (`3874e1a` on wave2-proof). Survey findings accepted: (1)
