@@ -205,6 +205,41 @@ eligible-deposit denominator are defined in
 OCR_BASE_URL=... .venv/Scripts/python.exe -m pytest -m live   # real-endpoint smoke
 ```
 
+## MoneyThumb comparison harness
+
+Offline, re-runnable comparison of the six MoneyThumb benchmark result sets
+against our pipeline, the original statement evidence, and the audited
+expectation CSVs. MoneyThumb is never treated as automatic ground truth:
+every compared field is classified into one of eight outcomes
+(`BOTH_MATCH_EXPECTED | OUR_SYSTEM_CORRECT | MONEYTHUMB_CORRECT |
+BOTH_INCORRECT | DIFFERENT_DEFINITION | SOURCE_CONTRADICTION |
+INSUFFICIENT_EVIDENCE | UNRESOLVED`) with evidence pointers, and the rollup
+proves every MoneyThumb JSON field was either compared, skipped by a
+documented FIELD_MAPPING verdict, or recorded as a capability finding.
+
+```bash
+# One command, fully offline (no OCR endpoint, no Gemini, no network).
+# --mt-results points at the read-only moneythumbResults/ directory
+# (default: <repo>/moneythumbResults).
+python -m benchmark --mt-results "path/to/moneythumbResults"
+
+# Optional: --corpus "Bank Statements" --cache tests/corpus_cache \
+#           --out benchmark_reports --sets wmb_may klr_may
+```
+
+Outputs (written to `benchmark_reports/`, gitignored, never committed):
+per-set `<set>/report.json`, cross-set `rollup.json`, `summary.csv`, and a
+human-readable `SUMMARY.md` with an explicit "for Ocean ruling" section.
+All account numbers in every report are masked to last-4; reports never
+contain full ledgers or holder identities. The harness verifies the
+manifest's PDF SHA-256 hashes before running and stops on any mismatch.
+
+Harness unit tests (synthetic fixtures only):
+
+```bash
+python -m pytest tests/test_benchmark_harness.py -q
+```
+
 ## Corpus gate — required before merge
 
 The 106-of-109 guarantee is not a claim in a document; it is re-proved on
