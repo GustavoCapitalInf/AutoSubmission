@@ -5,12 +5,16 @@ PROJECT_ROOT = Path(__file__).parent
 
 @pytest.fixture
 def samples_dir() -> Path:
-    return PROJECT_ROOT / "BankStatements"
+    # The corpus folder name contains a space. Assert rather than return a path
+    # that silently resolves to nothing if the folder is ever renamed.
+    p = PROJECT_ROOT / "Bank Statements"
+    assert p.is_dir(), f"missing statement corpus folder: {p}"
+    return p
 
 @pytest.fixture
 def sample_pdf(samples_dir) -> Path:
     # A known, small digital PDF used across rasterize/live tests.
-    p = samples_dir / "CHASE_BANK" / "Chase Salomon January.pdf"
+    p = samples_dir / "Chase" / "Chase Salomon January.pdf"
     assert p.exists(), f"missing sample: {p}"
     return p
 
