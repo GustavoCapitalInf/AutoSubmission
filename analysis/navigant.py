@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import re
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
+from .money import parse_decimal
 from .schema import Statement, Transaction
 
 
@@ -28,10 +29,7 @@ _ROW_START_RE = re.compile(
 
 
 def _money(value: str) -> Decimal:
-    try:
-        return Decimal(value.replace("$", "").replace(",", "").strip())
-    except InvalidOperation as exc:
-        raise ValueError(value) from exc
+    return parse_decimal(value)
 
 
 def _transaction_stream(markdown: str) -> str:

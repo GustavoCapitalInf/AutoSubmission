@@ -4,6 +4,7 @@ import re
 from datetime import date
 
 from .schema import Statement, Transaction
+from .tables import compact_whitespace
 
 
 _MONEY_RE = re.compile(r"(?<!\d)(?:\d{1,3}(?: \d{3})+|\d+)\.\d{2}(?!\d)")
@@ -26,10 +27,6 @@ _MONTHS = {
 
 def _money(value: str) -> float:
     return float(value.replace(" ", ""))
-
-
-def _compact(value: str) -> str:
-    return re.sub(r"\s+", " ", value).strip()
 
 
 def _period(markdown: str) -> tuple[str, str, int] | None:
@@ -63,7 +60,7 @@ def _period(markdown: str) -> tuple[str, str, int] | None:
 
 def _account_number(markdown: str) -> str | None:
     m = re.search(r"\b(SJ\s+\d{3}-\d{5}-\d)\b", markdown)
-    return _compact(m.group(1)) if m else None
+    return compact_whitespace(m.group(1)) if m else None
 
 
 def _beginning_balance(markdown: str) -> float | None:
@@ -113,7 +110,7 @@ def _description(block_text: str, first_line: str, amount_token: str) -> str:
     amount_idx = desc.rfind(amount_token)
     if amount_idx > 0:
         desc = desc[:amount_idx]
-    return _compact(desc)
+    return compact_whitespace(desc)
 
 
 def _transactions(markdown: str, *, year: int, beginning_balance: float) -> list[Transaction] | None:

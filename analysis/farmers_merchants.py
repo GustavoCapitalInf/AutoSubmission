@@ -3,23 +3,20 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .date_tokens import iso_from_month_day
+from .money import parse_money
 from .schema import Statement, Transaction
-from .td_can import _parse_money
+from .tables import compact_whitespace
 
 _DATE_RE = re.compile(r"(?<![\d/])(\d{2}/\d{2})(?!/\d{2})")
 _MONEY_RE = re.compile(r"\d[\d,]*\.\d{2}-?")
 
 
 def _amount(value: str) -> float:
-    parsed = _parse_money(value)
+    parsed = parse_money(value)
     if parsed is None:
         raise ValueError(value)
     return parsed
-
-
-def _iso(mmdd: str, *, year: int) -> str:
-    month, day = [int(part) for part in mmdd.split("/")]
-    return date(year, month, day).isoformat()
 
 
 def _statement_year(markdown: str) -> int:
@@ -27,12 +24,8 @@ def _statement_year(markdown: str) -> int:
     return 2000 + int(match.group(1)) if match else 2026
 
 
-def _compact(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
-
-
 def _parse_summary(markdown: str, stmt: Statement) -> None:
-    text = _compact(markdown)
+    text = compact_whitespace(markdown)
     m = re.search(
         r"Account Number\s+(?P<acct>\d+)\s+Statement Dates\s+"
         r"(?P<start>\d{2}/\d{2}/\d{2})\s+thru\s+(?P<end>\d{2}/\d{2}/\d{2})\s+"
@@ -79,12 +72,12 @@ def _parse_rows(block: str, *, year: int, sign: int) -> list[Transaction]:
         raw_amount = money[-1]
         desc = row[len(match.group(0)):row.rfind(raw_amount)]
         desc = re.sub(r"\b\d{2}/\d{2}/\d{2}\b", "", desc)
-        desc = _compact(desc)
+        desc = compact_whitespace(desc)
         if not desc or desc.upper().startswith(("ID #", "TRACE #", "BALANCE FEE IN SERVICE CHARGE")):
             continue
         amount = abs(_amount(raw_amount)) * sign
         txns.append(Transaction(
-            date=_iso(match.group(0), year=year),
+            date=iso_from_month_day(match.group(0), year=year),
             description=desc,
             amount=round(amount, 2),
             direction="credit" if amount > 0 else "debit",
@@ -105,11 +98,11 @@ def parse_farmers_merchants_statement(markdown: str) -> Statement | None:
     stmt = Statement(bank="Farmers & Merchants Bank", currency="USD")
     name = re.search(r"\n([A-Z0-9 &.'-]+DBA ACE AUTO GLASS.*?)\n", markdown)
     if name:
-        stmt.account_name = _compact(name.group(1))
+        stmt.account_name = compact_whitespace(name.group(1))
     _parse_summary(markdown, stmt)
     year = _statement_year(markdown)
 
-    text = _compact(markdown)
+    text = compact_whitespace(markdown)
     deposits = checks = ""
     dm = re.search(r"DEPOSITS AND CREDITS\s+Date\s+Description\s+Amount\s+(.*?)\s+CHECKS AND CHARGES", text, re.IGNORECASE)
     if dm:

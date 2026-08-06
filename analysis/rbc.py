@@ -4,8 +4,9 @@ import re
 import unicodedata
 from datetime import date
 
+from .money import parse_french_amount, parse_money
 from .schema import Statement, Transaction
-from .td_can import _MONTHS, _parse_money, normalize_mojibake
+from .td_can import _MONTHS, normalize_mojibake
 
 _PERIOD_RE = re.compile(
     r"([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})\s+to\s+([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})",
@@ -108,18 +109,18 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
 
         m = re.search(r"Opening balance on .*?(-?\$?[\d,]+\.\d{2}|\$-?[\d,]+\.\d{2})", line, re.IGNORECASE)
         if m:
-            stmt.beginning_balance = _parse_money(m.group(1))
+            stmt.beginning_balance = parse_money(m.group(1))
         m = re.search(r"Closing balance on .*?(-?\$?[\d,]+\.\d{2}|\$-?[\d,]+\.\d{2})", line, re.IGNORECASE)
         if m:
-            stmt.ending_balance = _parse_money(m.group(1))
+            stmt.ending_balance = parse_money(m.group(1))
         m = re.search(r"Total deposits & credits \((\d+)\)\s*\+?\s*([\d,]+\.\d{2})", line, re.IGNORECASE)
         if m:
             stmt.stated_credit_count = int(m.group(1))
-            stmt.stated_total_credits = _parse_money(m.group(2))
+            stmt.stated_total_credits = parse_money(m.group(2))
         m = re.search(r"Total cheques & debits \((\d+)\)\s*-?\s*([\d,]+\.\d{2})", line, re.IGNORECASE)
         if m:
             stmt.stated_debit_count = int(m.group(1))
-            stmt.stated_total_debits = _parse_money(m.group(2))
+            stmt.stated_total_debits = parse_money(m.group(2))
 
         if "DATE DESCRIPTION CHEQUES & DEBITS" in u:
             in_activity = True
@@ -151,7 +152,7 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
         elif rows or current_date is not None:
             fee_breakdown = re.match(r"^\d+\s+Crs\s+@\s+\d+\.\d{2}\s+([\d,]+\.\d{2})$", line, re.IGNORECASE)
             if fee_breakdown and rows and rows[-1]["description"].upper().startswith("REGULAR TRANSACTION FEE"):
-                rows[-1]["abs_amount"] = abs(_parse_money(fee_breakdown.group(1)) or rows[-1]["abs_amount"])
+                rows[-1]["abs_amount"] = abs(parse_money(fee_breakdown.group(1)) or rows[-1]["abs_amount"])
                 rows[-1]["amount"] = -rows[-1]["abs_amount"]
                 continue
             rest = line
@@ -170,8 +171,8 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
         has_date = bool(dm)
         has_balance = len(amounts) >= 2 and amounts[-1].end() == len(rest) and "TRANSACTION FEE" not in rest.upper()
         amount_match = amounts[-2] if has_balance else amounts[-1]
-        amount = abs(_parse_money(amount_match.group(0)) or 0.0)
-        running_balance = _parse_money(amounts[-1].group(0)) if has_balance else None
+        amount = abs(parse_money(amount_match.group(0)) or 0.0)
+        running_balance = parse_money(amounts[-1].group(0)) if has_balance else None
         desc = rest[:amount_match.start()].strip()
         if pending_description:
             desc = " ".join([*pending_description, desc]).strip()
@@ -234,9 +235,7 @@ _FR_PERIOD_RE = re.compile(
 
 
 def _money_fr(text: str) -> float:
-    neg = text.strip().startswith("(") and text.strip().endswith(")")
-    value = float(text.strip("()").replace(" ", "").replace(",", "."))
-    return round(-value if neg else value, 2)
+    return parse_french_amount(text, parens=True)
 
 
 def _fr_money_matches(text: str) -> list[re.Match]:

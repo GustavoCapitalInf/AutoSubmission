@@ -3,18 +3,16 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .money import parse_trailing_minus_dropped
 from .schema import Statement, Transaction
+from .tables import compact_whitespace
 
 
 _MONEY_RE = re.compile(r"\$?\d[\d,]*\.\d{2}-?")
 
 
 def _money(value: str) -> float:
-    return float(value.replace("$", "").replace(",", "").rstrip("-"))
-
-
-def _compact(value: str) -> str:
-    return re.sub(r"\s+", " ", value).strip()
+    return parse_trailing_minus_dropped(value)
 
 
 def _summary(markdown: str) -> tuple[str, str, int, float, int, float, float, float] | None:
@@ -90,7 +88,7 @@ def _description(row: str, label_match: re.Match[str], amount_token: str) -> str
     amount_idx = rest.rfind(amount_token)
     if amount_idx > 0:
         rest = rest[:amount_idx]
-    desc = _compact(rest)
+    desc = compact_whitespace(rest)
     return desc or label_match.group(0).split(None, 1)[-1]
 
 

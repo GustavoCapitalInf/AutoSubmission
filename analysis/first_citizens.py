@@ -3,7 +3,9 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .money import parse_grouped_float
 from .schema import Statement, Transaction
+from .tables import compact_whitespace
 
 
 _MONEY_RE = re.compile(r"\d[\d,]*\.\d{2}")
@@ -23,11 +25,7 @@ _CREDIT_START_RE = re.compile(
 
 
 def _money(value: str) -> float:
-    return float(value.replace(",", ""))
-
-
-def _compact(value: str) -> str:
-    return re.sub(r"\s+", " ", value).strip()
+    return parse_grouped_float(value)
 
 
 def _section(markdown: str, start: str, end: str) -> str:
@@ -141,7 +139,7 @@ def _parse_other_credits(markdown: str, *, year: int) -> list[Transaction]:
     if len(lines) < 3:
         return []
     desc_line = re.sub(r"^Date Description Amount\s+", "", lines[0], flags=re.IGNORECASE)
-    descriptions = [_compact(part) for part in _CREDIT_START_RE.split(desc_line) if part.strip()]
+    descriptions = [compact_whitespace(part) for part in _CREDIT_START_RE.split(desc_line) if part.strip()]
     dates, amounts = _dates_and_amounts("\n".join(lines[1:]))
     if len(descriptions) != len(dates) or len(dates) != len(amounts):
         return []
@@ -179,7 +177,7 @@ def _parse_other_debits(markdown: str, *, year: int) -> list[Transaction]:
         if len(lines) < 3:
             continue
         desc_line = re.sub(r"^Date Description Amount\s+", "", lines[0], flags=re.IGNORECASE)
-        descriptions = [_compact(piece) for piece in _DEBIT_START_RE.split(desc_line) if piece.strip()]
+        descriptions = [compact_whitespace(piece) for piece in _DEBIT_START_RE.split(desc_line) if piece.strip()]
         dates, amounts = _dates_and_amounts("\n".join(lines[1:]))
         if len(descriptions) != len(dates) or len(dates) != len(amounts):
             return []

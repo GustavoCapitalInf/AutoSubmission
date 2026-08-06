@@ -3,8 +3,8 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .money import parse_money
 from .schema import Statement, StatementDailyBalance, Transaction
-from .td_can import _parse_money
 
 _MONTHS = {
     "january": 1,
@@ -28,7 +28,7 @@ def _money(value: str | None) -> float | None:
     value = value.replace("$", "").strip()
     if value.startswith("."):
         value = "0" + value
-    return _parse_money(value)
+    return parse_money(value)
 
 
 def _period(markdown: str) -> tuple[str, str] | None:

@@ -3,26 +3,13 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .date_tokens import iso_from_month_day
+from .money import EITHER_MINUS_PADDED, parse_amount
 from .schema import Statement, Transaction
 
 
 def _money(value: str | None) -> float | None:
-    if not value:
-        return None
-    text = value.replace("$", "").replace(",", "").strip()
-    neg = text.endswith("-") or text.startswith("-")
-    text = text.strip("-")
-    if text.startswith("."):
-        text = "0" + text
-    if not re.fullmatch(r"\d+(?:\.\d{2})", text):
-        return None
-    amount = float(text)
-    return -amount if neg else amount
-
-
-def _iso(mmdd: str, year: int) -> str:
-    month, day = [int(part) for part in mmdd.split("/", 1)]
-    return date(year, month, day).isoformat()
+    return parse_amount(value, EITHER_MINUS_PADDED)
 
 
 def parse_linkbank_statement(markdown: str) -> Statement | None:
@@ -102,7 +89,7 @@ def parse_linkbank_statement(markdown: str) -> Statement | None:
             return None
         txns.append(
             Transaction(
-                date=_iso(m.group(1), end_year),
+                date=iso_from_month_day(m.group(1), end_year),
                 description=re.sub(r"\s+", " ", m.group(2)).strip(),
                 amount=signed,
                 direction="credit" if signed > 0 else "debit",

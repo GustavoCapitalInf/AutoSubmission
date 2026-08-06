@@ -3,29 +3,18 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
+from .date_tokens import iso_from_month_day_year
+from .money import STRICT_EITHER_MINUS_OR_PLUS, parse_amount
 from .schema import Statement, Transaction
+from .tables import section_between
 
 
 def _money(value: str | None) -> float | None:
-    if not value:
-        return None
-    text = value.replace("$", "").replace(",", "").strip()
-    neg = text.startswith("-") or text.endswith("-")
-    text = text.strip("+-")
-    if not re.fullmatch(r"\d+\.\d{2}", text):
-        return None
-    amount = float(text)
-    return -amount if neg else amount
+    return parse_amount(value, STRICT_EITHER_MINUS_OR_PLUS)
 
 
 def _parse_mmddyy(raw: str) -> str:
-    month, day, year = [int(part) for part in raw.split("/")]
-    return date(2000 + year, month, day).isoformat()
-
-
-def _section(markdown: str, start: str, end: str) -> str:
-    m = re.search(start + r"(?P<body>.*?)" + end, markdown, re.IGNORECASE | re.DOTALL)
-    return m.group("body") if m else ""
+    return iso_from_month_day_year(raw, century="always")
 
 
 def _dated_amount_rows(section: str, sign: int) -> list[Transaction]:
@@ -121,9 +110,9 @@ def parse_wilson_muir_statement(markdown: str) -> Statement | None:
     if None in {deposits, debits, auto_withdrawals, auto_deposits, card_activity, beginning, ending, average}:
         return None
 
-    credit_section = _section(markdown, r"ALL CREDIT ACTIVITY", r"ELECTRONIC DEBITS")
-    electronic_section = _section(markdown, r"ELECTRONIC DEBITS", r"CHECKS AND OTHER DEBITS")
-    check_section = _section(markdown, r"CHECKS AND OTHER DEBITS", r"DAILY BALANCE SUMMARY")
+    credit_section = section_between(markdown, r"ALL CREDIT ACTIVITY", r"ELECTRONIC DEBITS")
+    electronic_section = section_between(markdown, r"ELECTRONIC DEBITS", r"CHECKS AND OTHER DEBITS")
+    check_section = section_between(markdown, r"CHECKS AND OTHER DEBITS", r"DAILY BALANCE SUMMARY")
     txns = _dated_amount_rows(credit_section, 1)
     txns.extend(_dated_amount_rows(electronic_section, -1))
     txns.extend(_check_rows(check_section))

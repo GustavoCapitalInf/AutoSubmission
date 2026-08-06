@@ -3,8 +3,9 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .money import parse_money
 from .schema import Statement, Transaction
-from .td_can import _parse_money
+from .tables import section_between
 
 _MONTHS = {
     "january": 1,
@@ -28,7 +29,7 @@ def _money(value: str | None) -> float | None:
     value = value.strip().replace("$", "")
     if value.startswith("."):
         value = "0" + value
-    return _parse_money(value)
+    return parse_money(value)
 
 
 def _period(markdown: str) -> tuple[str, str] | None:
@@ -86,11 +87,6 @@ def _days(start: str, end: str) -> int:
     return (date.fromisoformat(end) - date.fromisoformat(start)).days + 1
 
 
-def _section(markdown: str, start_pattern: str, end_pattern: str) -> str:
-    m = re.search(start_pattern + r"(?P<body>.*?)" + end_pattern, markdown, re.IGNORECASE | re.DOTALL)
-    return m.group("body") if m else ""
-
-
 def _parse_inline_rows(text: str, *, year: int, sign: int) -> list[Transaction]:
     compact = re.sub(r"\s+", " ", text)
     compact = re.sub(r"^(?:Total (?:Debits|Deposits & Credits)|Other Debits(?: \(Continued\))?|Date Amount Description|\+\s*[\d,]+\.\d{2}|-\s*[\d,]+\.\d{2})\s+", "", compact, flags=re.IGNORECASE)
@@ -115,7 +111,7 @@ def _parse_inline_rows(text: str, *, year: int, sign: int) -> list[Transaction]:
 
 
 def _parse_checks(markdown: str, *, year: int) -> list[Transaction]:
-    section = _section(markdown, r"Checks .*?Total Checks\s+", r"(?:Debits|Deposits & Credits|Current Balance|Please See)")
+    section = section_between(markdown, r"Checks .*?Total Checks\s+", r"(?:Debits|Deposits & Credits|Current Balance|Please See)")
     txns: list[Transaction] = []
     for check_no, amount_raw, month, day in re.findall(r"(\d+\*?)\s+([\d,]+\.\d{2}|\.\d{2})\s+(\d{2})/(\d{2})", section):
         amount = _money(amount_raw)
@@ -153,8 +149,8 @@ def parse_citizens_statement(markdown: str) -> Statement | None:
         stated_total_debits=debits,
         stated_average_balance=_average_balance(markdown),
     )
-    debits_text = _section(markdown, r"Other Debits\s+", r"Deposits & Credits")
-    credits_text = _section(markdown, r"Deposits & Credits.*?Date Amount Description\s+", r"Current Balance\s+Daily Balance")
+    debits_text = section_between(markdown, r"Other Debits\s+", r"Deposits & Credits")
+    credits_text = section_between(markdown, r"Deposits & Credits.*?Date Amount Description\s+", r"Current Balance\s+Daily Balance")
     txns = _parse_checks(markdown, year=year)
     txns.extend(_parse_inline_rows(debits_text, year=year, sign=-1))
     txns.extend(_parse_inline_rows(credits_text, year=year, sign=1))

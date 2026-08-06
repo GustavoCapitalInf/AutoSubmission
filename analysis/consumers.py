@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .money import STRICT_UNSIGNED, parse_amount
 from .schema import Statement, Transaction
 
 
@@ -23,12 +24,7 @@ _MONTHS = {
 
 
 def _money(value: str | None) -> float | None:
-    if not value:
-        return None
-    text = value.replace("$", "").replace(",", "").strip()
-    if not re.fullmatch(r"\d+\.\d{2}", text):
-        return None
-    return float(text)
+    return parse_amount(value, STRICT_UNSIGNED)
 
 
 def _period(markdown: str) -> tuple[str, str, int] | None:

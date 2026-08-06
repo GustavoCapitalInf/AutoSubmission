@@ -4,9 +4,11 @@ import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
+from .money import parse_decimal_mixed_separator
 from .schema import Statement, StatementDailyBalance, Transaction
+from .tables import section_between
 
 
 _MONEY = r"\d[\d,]*[\.,]\d{2}"
@@ -21,21 +23,7 @@ class _Row:
 
 
 def _money(value: str) -> Decimal:
-    text = value.replace("$", "").strip()
-    if "." not in text and "," in text and len(text.rsplit(",", 1)[1]) == 2:
-        whole, cents = text.rsplit(",", 1)
-        text = f"{whole.replace(',', '')}.{cents}"
-    else:
-        text = text.replace(",", "")
-    try:
-        return Decimal(text)
-    except InvalidOperation as exc:
-        raise ValueError(value) from exc
-
-
-def _section(markdown: str, start: str, stop: str) -> str:
-    match = re.search(start + r"(?P<body>.*?)" + stop, markdown, re.IGNORECASE | re.DOTALL)
-    return match.group("body") if match else ""
+    return parse_decimal_mixed_separator(value)
 
 
 def _clean_description(value: str) -> str:
@@ -236,28 +224,28 @@ def parse_columbia_bank_statement(markdown: str) -> Statement | None:
     total_credits = _money(credits_raw)
     total_debits = _money(debits_raw)
 
-    deposit_block = _section(
+    deposit_block = section_between(
         markdown,
         r"Deposits/Additions\s+Date Description Additions",
         r"Total Additions",
     )
-    ach_debit_block = _section(
+    ach_debit_block = section_between(
         markdown,
         r"ACH and Electronic Payments/Subtractions\s+Date Description Subtractions",
         r"Total ACH and Electronic Payments/Subtractions",
     )
-    ach_credit_block = _section(
+    ach_credit_block = section_between(
         markdown,
         r"ACH and Electronic Deposits/Additions\s+Date Description Additions",
         r"Total ACH and Electronic Deposits/Additions",
     )
-    other_debit_block = _section(
+    other_debit_block = section_between(
         markdown,
         r"Other Withdrawals/Subtractions\s+Date Description Subtractions",
         r"Total Other Withdrawals/Subtractions",
     )
-    daily_block = _section(markdown, r"Daily Balances", r"Overdraft Fee Summary")
-    checks_block = _section(markdown, r"Checks\s+Check # Amount Date", r"\(\* Skip in check sequence")
+    daily_block = section_between(markdown, r"Daily Balances", r"Overdraft Fee Summary")
+    checks_block = section_between(markdown, r"Checks\s+Check # Amount Date", r"\(\* Skip in check sequence")
     if not all((deposit_block, ach_debit_block, ach_credit_block, other_debit_block, daily_block, checks_block)):
         return None
 

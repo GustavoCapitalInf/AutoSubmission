@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .money import parse_french_amount
 from .schema import Statement, Transaction
 
 _MONTHS = {
@@ -28,7 +29,7 @@ _MONEY_RE = re.compile(r"(?<![A-Za-z0-9])-?(?:\d{1,3}(?: \d{3})+|\d+),\d{2}(?![A
 
 
 def _money(value: str) -> float:
-    return round(float(value.replace(" ", "").replace(",", ".")), 2)
+    return parse_french_amount(value)
 
 
 def _money_candidates(value: str) -> list[tuple[float, int]]:

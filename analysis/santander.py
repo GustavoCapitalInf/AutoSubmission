@@ -3,24 +3,17 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .date_tokens import iso_from_month_day
+from .money import PARENS_OR_LEADING_MINUS_OR_PLUS, parse_amount
 from .schema import Statement, Transaction
 
 
 def _money(value: str | None) -> float | None:
-    if not value:
-        return None
-    text = value.replace("$", "").replace(",", "").replace("+", "").strip()
-    neg = text.startswith("-") or (text.startswith("(") and text.endswith(")"))
-    text = text.strip("-()")
-    if not re.fullmatch(r"\d+(?:\.\d{2})", text):
-        return None
-    amount = float(text)
-    return -amount if neg else amount
+    return parse_amount(value, PARENS_OR_LEADING_MINUS_OR_PLUS)
 
 
 def _iso(mmdd: str, year: int) -> str:
-    month, day = [int(part) for part in mmdd.split("-", 1)]
-    return date(year, month, day).isoformat()
+    return iso_from_month_day(mmdd, year, separator="-")
 
 
 def _period(markdown: str) -> tuple[str, str, int] | None:

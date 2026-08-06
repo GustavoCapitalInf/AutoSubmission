@@ -3,8 +3,9 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .date_tokens import iso_from_month_day
+from .money import parse_money
 from .schema import Statement, Transaction
-from .td_can import _parse_money
 
 _PERIOD_RE = re.compile(r"Statement period activity summary.*?Beginning balance on (\d{1,2})/(\d{1,2})", re.IGNORECASE | re.DOTALL)
 _SUMMARY_RE = re.compile(
@@ -28,13 +29,8 @@ def _infer_year(markdown: str) -> int | None:
     return years[0] if years else None
 
 
-def _iso(mmdd: str, *, year: int) -> str:
-    m, d = [int(p) for p in mmdd.split("/")]
-    return date(year, m, d).isoformat()
-
-
 def _amount(text: str) -> float | None:
-    return _parse_money(text.replace("$", ""))
+    return parse_money(text.replace("$", ""))
 
 
 def _is_credit(desc: str) -> bool:
@@ -94,7 +90,7 @@ def parse_wells_statement(markdown: str, base: Statement | None = None) -> State
             # column even for a withdrawal. Fall back to description semantics.
             continue
         txns.append(Transaction(
-            date=_iso(mmdd, year=year),
+            date=iso_from_month_day(mmdd, year=year),
             description=desc,
             amount=round(signed, 2),
             direction="credit" if signed > 0 else "debit",

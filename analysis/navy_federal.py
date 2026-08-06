@@ -3,19 +3,12 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .money import STRICT_EITHER_MINUS_OR_PLUS_SPACED, parse_amount
 from .schema import Statement, Transaction
 
 
 def _money(value: str | None) -> float | None:
-    if not value:
-        return None
-    text = value.replace("$", "").replace(",", "").replace(" ", "").strip()
-    neg = text.startswith("-") or text.endswith("-")
-    text = text.strip("+-")
-    if not re.fullmatch(r"\d+\.\d{2}", text):
-        return None
-    amount = float(text)
-    return -amount if neg else amount
+    return parse_amount(value, STRICT_EITHER_MINUS_OR_PLUS_SPACED)
 
 
 def _is_date(line: str) -> bool:

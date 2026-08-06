@@ -3,14 +3,14 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .money import parse_money
 from .schema import Statement, Transaction
-from .td_can import _parse_money
 
 
 def _money(value: str | None) -> float | None:
     if value is None:
         return None
-    return _parse_money(value.replace("$", ""))
+    return parse_money(value.replace("$", ""))
 
 
 def _period(markdown: str) -> tuple[str, str] | None:
