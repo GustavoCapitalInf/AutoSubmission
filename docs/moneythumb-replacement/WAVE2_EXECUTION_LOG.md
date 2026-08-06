@@ -139,8 +139,11 @@ proofs (every pre-R-2 body frozen as an oracle, asserted identical over a
 `tables.py`; inversion removed for all 13 parsers (one protected-line remnant
 in pipeline.py, deleted by R-3 §7.2, guard-allowlisted). 908 tests; gate
 GREEN ×4; zero protected files (verified mechanically). Deviations 1–4 all
-accepted with their stated rationales. Combined tree after the three merges:
-**967 passed**; full combined suite+gate validation running.
+accepted with their stated rationales. Combined tree after the three merges,
+full validation in the archive-sharing main checkout: **999 passed, 5
+deselected; gate GREEN (106/3, 3,507 foreign ignored, 363.7 s)**. Local main
+= `38c8cd0`; origin/main = `74acb99` — push + CI dispatch batched with the
+D-3b + CI-1c merges.
 
 **D-3×O-3 integration gap confirmed as predicted** (put_ocr stores only
 {model, pages}; page_integrity dropped on hit) → **D-3b dispatched to
