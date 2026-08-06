@@ -3,9 +3,27 @@ name: Corpus gate
 # Required before merge. Re-runs both independent forensic oracles over all 109
 # corpus statements and fails red on any drift from the committed audits.
 #
-# Deliberately offline: no OCR endpoint, no Gemini key, no Tesseract. The six
-# image-only statements are served from committed OCR artifacts, so this job
-# needs nothing but the repository and the analysis dependencies.
+# The GATE is deliberately offline: no OCR endpoint, no Gemini key, no
+# Tesseract. The six image-only statements are served from committed OCR
+# artifacts, so `corpus_gate.py` needs nothing but the repository and the
+# analysis dependencies.
+#
+# The DEFAULT TEST SUITE, which runs in the same job, is a different story: it
+# exercises the real local OCR ladder (poppler page counts, and two scanned
+# fixtures re-OCR'd with tesseract). Those binaries are not on ubuntu-latest by
+# default — see the system-dependency step below.
+#
+# CI-1 history (2026-08-06):
+#   * run 31122891522 (push) never reached a step: "The job was not acquired by
+#     Runner of type hosted even after multiple attempts", job cancelled after
+#     15m with an empty runner_name. Transient hosted-runner acquisition, not
+#     workflow content and not billing: run 31128260273 (workflow_dispatch, same
+#     workflow, same `ubuntu-latest` label, ~3.5h later) picked up a runner in
+#     seconds and executed every step. Nothing to fix here; if it recurs, re-run
+#     the job and check https://www.githubstatus.com.
+#   * run 31128260273 then failed in "Default test suite" with 10 failures, all
+#     missing system binaries (PDFInfoNotInstalledError; parse_local_tesseract
+#     returning None). Fixed by the system-dependency step below.
 
 on:
   pull_request:
@@ -25,6 +43,19 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: Install OCR system dependencies
+        # poppler-utils: `ocr.rasterize.pdf_page_count` shells out to pdfinfo.
+        # tesseract-ocr: two scanned fixtures in tests/test_new_statement_corpus.py
+        # are re-OCR'd live. Version drift between this runner and a developer
+        # box can move OCR-derived assertions; if that happens, the fix is to
+        # serve those two fixtures from the committed artifact cache (as the
+        # gate already does), not to deselect the tests.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-eng
+          pdfinfo -v
+          tesseract --version
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -34,7 +65,7 @@ jobs:
       - name: Verify the corpus checked out byte-identically
         # .gitattributes marks PDFs binary. If that ever regresses, the pinned
         # SHA-256s stop reproducing and every later step is meaningless.
-        run: python -c "import corpus_gate, sys; r = corpus_gate.Result(); corpus_gate.check_source_integrity(r, corpus_gate.corpus_pdfs(corpus_gate.CORPUS), corpus_gate.CORPUS, corpus_gate.read_csv(corpus_gate.BALANCE_CSV)); print(r.checks[0].summary); sys.exit(0 if r.ok else 1)"
+        run: python -c "import corpus_gate, sys; r = corpus_gate.Result(); corpus_gate.check_source_integrity(r, corpus_gate.CORPUS, corpus_gate.read_csv(corpus_gate.BALANCE_CSV)); print(r.checks[0].summary); sys.exit(0 if r.ok else 1)"
 
       - name: Default test suite
         run: python -m pytest -q

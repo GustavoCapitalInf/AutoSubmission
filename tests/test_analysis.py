@@ -1,7 +1,9 @@
 """Unit tests for the deterministic analysis stages (no network / no LLM).
 These lock in the math and detection logic — the parts that must be exactly right."""
 from __future__ import annotations
+import csv
 from datetime import date
+from functools import lru_cache
 from pathlib import Path
 import pytest
 from analysis.schema import Statement, Transaction
@@ -50,16 +52,33 @@ from ocr.native_text import (
 )
 
 
+@lru_cache(maxsize=1)
+def _pinned_corpus_pdfs() -> dict[str, list[Path]]:
+    """Pinned corpus PDFs by file stem, from the committed balance audit.
+
+    Resolution is against the pinned manifest rather than an rglob of
+    `Bank Statements/`: that root is shared with untracked discovery material,
+    whose stems collide with corpus stems, so an rglob would either pick a
+    foreign document or trip the uniqueness assertion below. The manifest is the
+    same 109 paths the corpus gate audits.
+    """
+    manifest = Path("docs/balance-metrics-audit-results.csv")
+    with manifest.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    by_stem: dict[str, list[Path]] = {}
+    for row in rows:
+        path = Path("Bank Statements", row["path"])
+        by_stem.setdefault(path.stem, []).append(path)
+    return by_stem
+
+
 def _artifact_markdown(filename: str) -> str:
     artifact = Path("output/new_bank_statements_artifacts", filename)
     if artifact.exists():
         return artifact.read_text(encoding="utf-8")
 
     statement_stem = Path(filename[4:]).stem
-    matches = [
-        path for path in Path("Bank Statements").rglob("*.pdf")
-        if path.stem == statement_stem
-    ]
+    matches = _pinned_corpus_pdfs().get(statement_stem, [])
     assert len(matches) == 1, f"expected one source PDF for missing artifact {filename}"
     source = matches[0]
     document = parse_native_pdf_text(source.read_bytes(), source_file=source.name)

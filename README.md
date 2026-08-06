@@ -250,8 +250,34 @@ statement and fails red on any drift from the committed audits
 ```bash
 .venv/Scripts/python.exe corpus_gate.py                      # exit 1 on any drift
 .venv/Scripts/python.exe corpus_gate.py --json report.json   # machine-readable report
+.venv/Scripts/python.exe corpus_gate.py --corpus <path>      # audit another checkout's root
 .venv/Scripts/python.exe -m pytest -m corpus                 # the same gate via pytest
 ```
+
+### What the gate is scoped to
+
+The gate audits the **pinned manifest** — the 109 corpus-relative paths recorded
+in the committed audit CSVs — not "whatever PDFs the directory holds". The
+corpus root doubles as the landing zone for untracked discovery material
+(`.gitignore` carries `Bank Statements/**`, so nothing untracked under that root
+can be committed by accident), which makes "every PDF under the root is pinned"
+a property the tree is not meant to have.
+
+The trade is deliberate and narrow:
+
+- **Kept, and tightened.** Every pinned path must exist on disk, hash-match its
+  pin, and carry a row in *both* audits; the two audits must pin the same 109
+  paths. A statement that is deleted, renamed, or edited is red. Committed OCR
+  artifacts are checked against the manifest, so an artifact for an unpinned
+  document is still an orphan error.
+- **Given up.** The gate no longer asserts that the corpus root contains nothing
+  else. Instead it counts what else is there and says so — `foreign_files`
+  reports `N non-corpus PDFs present — ignored (discovery archive)` with a
+  folder count and no file names (unpinned documents under this root are
+  sensitive source data). That check is informational and can never fail the run.
+
+Adding a statement to the validated corpus is therefore an explicit act: the
+audit CSVs must be regenerated (below) and the file added with `git add -f`.
 
 Measured runtime: **4m32s–6m19s** on a Windows dev box (Python 3.14), across the
 script and `pytest -m corpus` forms. Both oracles re-parse every statement
@@ -263,12 +289,22 @@ also wired to run on every pull request
 (`.github/workflows/corpus-gate.yml`). The default `pytest` run deselects it, so
 day-to-day testing stays at about a minute.
 
-What it checks, in order — every one of them fails the run:
+That workflow installs `poppler-utils` and `tesseract-ocr` on the runner before
+the suite: the gate itself needs neither, but the default suite exercises the
+real local OCR ladder (poppler page counts, two live-OCR'd scanned fixtures).
+Hosted-runner acquisition failures ("The job was not acquired by Runner of type
+hosted") are a GitHub-side transient — re-run the job and check
+[githubstatus.com](https://www.githubstatus.com); nothing in this repository
+causes or fixes them. See `docs/moneythumb-replacement/CI1_FINDINGS.md`.
+
+What it checks, in order. Every one of them fails the run except the two marked
+informational (`foreign_files`, `exclusions`), which report and never fail:
 
 | Check | Guarantee |
 |---|---|
-| `inventory` | All 109 corpus PDFs are present and audited. Nothing added, removed, or renamed without an audit row. |
-| `source_integrity` | Every PDF matches its pinned SHA-256, so the documents themselves have not changed. |
+| `inventory` | All 109 pinned corpus PDFs are on disk and audited by both oracles, which pin the same paths. Nothing removed or renamed without an audit row. |
+| `foreign_files` | Counts PDFs under the corpus root that are not pinned and reports them as ignored. **Informational — never fails the run.** |
+| `source_integrity` | Every pinned PDF matches its pinned SHA-256, so the documents themselves have not changed. |
 | `balance_audit` | Every audited opening/ending/highest/lowest value reproduces across backend, API, dashboard binding, CSV, XLSX, and package surfaces — compared field by field, not just by status. |
 | `adb_audit` | Every audited ADB field reproduces across backend, API, and dashboard-package surfaces. |
 | `balance_outcomes` / `adb_outcomes` | Still 106 PASS and 3 WITHHELD, and the withheld set is still the same three statements. A source contradiction cannot quietly become a pass. |
