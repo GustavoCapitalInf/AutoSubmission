@@ -207,7 +207,8 @@ def test_a_foreign_pdf_under_the_corpus_root_is_counted_but_never_fails(tmp_path
     assert result.ok, [c.details for c in result.checks if not c.ok]
     counted = result.checks[0]
     assert counted.ok is True
-    assert counted.summary == "2 non-corpus PDFs present — ignored (discovery archive)"
+    assert counted.summary == "2 non-corpus PDFs present - ignored (discovery archive)"
+    assert counted.summary.isascii()  # printed by the gate; never a console crash
     assert "2 top-level folder(s)" in counted.details[0]
     # Reported by count only: unpinned documents under this root are sensitive.
     assert not any("foreign.pdf" in detail for detail in counted.details)

@@ -257,7 +257,9 @@ def check_foreign_files(result: Result, corpus: Path, manifest: list[str]) -> in
     details: list[str] = []
     if foreign:
         folders = {rel.split("/")[0] if "/" in rel else "." for rel in foreign}
-        summary = f"{len(foreign)} non-corpus PDFs present — ignored (discovery archive)"
+        # ASCII only: this line is printed, and a console in a legacy code page
+        # must not be able to turn the merge authority into a UnicodeEncodeError.
+        summary = f"{len(foreign)} non-corpus PDFs present - ignored (discovery archive)"
         details = [
             f"spread across {len(folders)} top-level folder(s) under the corpus root",
             "names withheld: unpinned documents under this root are sensitive source data",
