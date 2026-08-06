@@ -651,6 +651,92 @@ def test_encrypted_pdf_is_rejected_with_the_d2a_error_shape():
     assert "password" in body["error"]
 
 
+# ---------------------------------------------------------------------------
+# D-3 additions: duplicate content surfaced in the package payload.
+# ---------------------------------------------------------------------------
+
+
+def _completed(filename, pdf_bytes=None, deposits=1000.0):
+    job = store.create(filename, pdf_bytes=pdf_bytes)
+    store.set_result(job.id, f"# {filename}", f"<h1>{filename}</h1>", analysis={
+        "statement": {"bank": "Test Bank", "transactions": []},
+        "metrics": {"effective_total_deposits": deposits},
+        "quality": {"level": "transaction_level", "corporate_use": "approved"},
+        "integrity": {"risk_level": "clear"},
+        "detection": {"known_funders": []},
+    })
+    return job
+
+
+def test_package_flags_documents_that_repeat_the_same_content():
+    content = b"%PDF-" + _uuid.uuid4().hex.encode()
+    first = _completed("jan.pdf", content)
+    duplicate = _completed("jan-again.pdf", content)  # same bytes, new name
+    other = _completed("feb.pdf", b"%PDF-" + _uuid.uuid4().hex.encode())
+
+    body = app.test_client().get(
+        f"/package_analysis?ids={first.id},{duplicate.id},{other.id}"
+    ).get_json()
+
+    totals = body["totals"]
+    assert totals["documents"] == 3
+    assert totals["duplicate_documents"] == 1
+    assert totals["distinct_documents"] == 2
+    assert totals["has_duplicate_documents"] is True
+
+    rows = {doc["id"]: doc for doc in body["documents"]}
+    assert rows[first.id]["is_duplicate"] is False
+    assert rows[first.id]["duplicate_of"] is None
+    # The re-listed member points at the earlier one it repeats.
+    assert rows[duplicate.id]["is_duplicate"] is True
+    assert rows[duplicate.id]["duplicate_of"] == first.id
+    assert rows[other.id]["is_duplicate"] is False
+    assert rows[first.id]["content_sha256"] == rows[duplicate.id]["content_sha256"]
+
+    assert body["duplicates"] == [{
+        "content_sha256": first.content_sha256,
+        "job_ids": [first.id, duplicate.id],
+        "filenames": ["jan.pdf", "jan-again.pdf"],
+        "count": 2,
+    }]
+
+
+def test_package_without_repeated_content_reports_no_duplicates():
+    one = _completed("a.pdf", b"%PDF-" + _uuid.uuid4().hex.encode())
+    two = _completed("b.pdf", b"%PDF-" + _uuid.uuid4().hex.encode())
+
+    body = app.test_client().get(f"/package_analysis?ids={one.id},{two.id}").get_json()
+    assert body["duplicates"] == []
+    assert body["totals"]["duplicate_documents"] == 0
+    assert body["totals"]["has_duplicate_documents"] is False
+    assert all(doc["is_duplicate"] is False for doc in body["documents"])
+
+
+def test_jobs_without_content_bytes_are_never_guessed_to_be_duplicates():
+    # Two jobs with no PDF bytes have no content hash at all; identical
+    # nothing is not identical content.
+    one = _completed("no-bytes-1.pdf")
+    two = _completed("no-bytes-2.pdf")
+
+    body = app.test_client().get(f"/package_analysis?ids={one.id},{two.id}").get_json()
+    assert body["duplicates"] == []
+    assert body["totals"]["has_duplicate_documents"] is False
+    assert [doc["content_sha256"] for doc in body["documents"]] == [None, None]
+
+
+def test_duplicate_flag_reaches_the_package_exports():
+    content = b"%PDF-" + _uuid.uuid4().hex.encode()
+    first = _completed("mar.pdf", content)
+    duplicate = _completed("mar-copy.pdf", content)
+
+    csv_body = app.test_client().get(
+        f"/package_download/csv?ids={first.id},{duplicate.id}"
+    ).get_data(as_text=True)
+    assert "totals,duplicate_documents,1" in csv_body
+    assert "duplicate_1,count,2" in csv_body
+    assert "document_2,is_duplicate,True" in csv_body
+
+
 def test_upload_persists_the_preflight_profile_with_the_document(monkeypatch):
     _mock_processing(monkeypatch)
     client = app.test_client()
