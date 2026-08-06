@@ -2,14 +2,7 @@ from __future__ import annotations
 from analysis.pipeline import Report, analyze_markdown
 from analysis.serialization import report_to_dict
 from ocr.document import StatementMarkdown
-from ocr.local_tesseract import parse_local_tesseract
-from ocr.native_text import (
-    parse_native_desjardins,
-    parse_native_navy_federal,
-    parse_native_pdf_text,
-    parse_native_td_canada,
-    parse_native_wells_fargo,
-)
+from ocr.inspect import inspect_pdf
 from ocr.pipeline import parse_statement
 from ocr.render import markdown_to_html
 from .jobs import JobStore
@@ -19,18 +12,17 @@ def report_to_json(report: Report) -> dict:
     return report_to_dict(report)
 
 
-def _native_statement(pdf_bytes: bytes, filename: str) -> StatementMarkdown | None:
-    return (
-        parse_native_navy_federal(pdf_bytes, source_file=filename)
-        or parse_native_td_canada(pdf_bytes, source_file=filename)
-        or parse_native_wells_fargo(pdf_bytes, source_file=filename)
-        or parse_native_desjardins(pdf_bytes, source_file=filename)
-        or parse_native_pdf_text(pdf_bytes, source_file=filename)
-    )
-
-
-def _local_ocr_statement(pdf_bytes: bytes, filename: str) -> StatementMarkdown | None:
-    return parse_local_tesseract(pdf_bytes, source_file=filename)
+# O-1: the worker owns NO routing decisions. The single intake ladder
+# (native -> tesseract -> visual OCR) lives in ocr.pipeline.parse_statement,
+# driven by the preflight DocumentProfile; this module only expresses mode
+# policy (deterministic short-circuits and the analysis-driven visual-OCR
+# escalation) and job-store bookkeeping. The ladder reports each rung through
+# on_stage, mapped here to the dashboard's historical stage labels.
+_STAGE_NAMES = {
+    "native": "reading",
+    "local_ocr": "reading_local_ocr",
+    "visual_ocr": "reading_visual_ocr",
+}
 
 
 def _analyze_doc(doc: StatementMarkdown, filename: str, parse_mode: str) -> tuple[str, str, dict | None, str | None]:
@@ -59,20 +51,32 @@ def run_job(
     # serve the PDF from the on-disk content-hash store.
     store.set_status(job_id, "processing")
     try:
+        profile = inspect_pdf(pdf_bytes)
+
+        def on_stage(rung: str) -> None:
+            store.set_stage(job_id, _STAGE_NAMES[rung])
+
+        def on_delta(page: int, chunk: str) -> None:
+            store.append_page_live(job_id, page, chunk)
+
+        def on_replace(page: int, text: str) -> None:
+            store.set_page_live(job_id, page, text)
+
         if parse_mode == "deterministic":
-            store.set_stage(job_id, "reading")
-            doc = _native_statement(pdf_bytes, filename)
-            if doc is None:
-                store.set_stage(job_id, "reading_local_ocr")
-                doc = _local_ocr_statement(pdf_bytes, filename)
+            # Offline rungs only (native, then tesseract); no visual OCR yet.
+            doc = parse_statement(
+                pdf_bytes, source_file=filename, profile=profile,
+                allow_local_ocr=True, allow_visual_ocr=False,
+                on_stage=on_stage, on_page_delta=on_delta, on_page_replace=on_replace,
+            )
             if doc is not None:
-                for page, text in enumerate(doc.pages):
-                    store.set_page_live(job_id, page, text)
                 store.set_stage(job_id, "analyzing", doc.model)
                 markdown, html, analysis, analysis_error = _analyze_doc(doc, filename, parse_mode)
                 if analysis is not None or not force_ocr:
                     store.set_result(job_id, markdown, html, analysis, analysis_error, doc.model)
                     return
+                # Analysis failed and the operator forced OCR: escalate to the
+                # visual rung below (mode policy, not ladder routing).
             elif not force_ocr:
                 markdown = (
                     f"<!-- source: {filename} | model: deterministic-native-preflight -->\n\n"
@@ -89,64 +93,24 @@ def run_job(
                 )
                 return
 
-            store.set_stage(job_id, "reading_visual_ocr")
             doc = parse_statement(
-                pdf_bytes, source_file=filename,
-                on_page_delta=lambda page, chunk: store.append_page_live(job_id, page, chunk),
-                on_page_replace=lambda page, text: store.set_page_live(job_id, page, text),
-                force_ocr=True,
+                pdf_bytes, source_file=filename, profile=profile, force_ocr=True,
+                on_stage=on_stage, on_page_delta=on_delta, on_page_replace=on_replace,
             )
             store.set_stage(job_id, "analyzing", doc.model)
             markdown, html, analysis, analysis_error = _analyze_doc(doc, filename, parse_mode)
             store.set_result(job_id, markdown, html, analysis, analysis_error, doc.model)
             return
 
-        effective_force_ocr = force_ocr and parse_mode != "deterministic"
-        doc = None
-        if not effective_force_ocr:
-            store.set_stage(job_id, "reading")
-            doc = _native_statement(pdf_bytes, filename)
-            if doc is None:
-                store.set_stage(job_id, "reading_local_ocr")
-                doc = _local_ocr_statement(pdf_bytes, filename)
-            if doc is not None:
-                for page, text in enumerate(doc.pages):
-                    store.set_page_live(job_id, page, text)
-        if doc is None:
-            store.set_stage(job_id, "reading_visual_ocr" if effective_force_ocr else "reading")
-            doc = parse_statement(
-                pdf_bytes, source_file=filename,
-                on_page_delta=lambda page, chunk: store.append_page_live(job_id, page, chunk),
-                on_page_replace=lambda page, text: store.set_page_live(job_id, page, text),
-                force_ocr=effective_force_ocr,
-            )
+        # Auto mode: the full ladder in one call (force_ocr jumps straight to
+        # the visual rung, exactly as before).
+        doc = parse_statement(
+            pdf_bytes, source_file=filename, profile=profile,
+            force_ocr=force_ocr, allow_local_ocr=True,
+            on_stage=on_stage, on_page_delta=on_delta, on_page_replace=on_replace,
+        )
         store.set_stage(job_id, "analyzing", doc.model)
-        markdown = doc.to_markdown()
-        html = markdown_to_html(markdown, title=filename)
-        analysis = None
-        analysis_error = None
-        try:
-            analysis = report_to_json(analyze_markdown(markdown, parse_mode=parse_mode))
-            analysis["parse_mode"] = parse_mode
-        except Exception as e:
-            analysis_error = str(e)
-            if parse_mode == "deterministic" and force_ocr and doc.model.startswith("native-"):
-                store.set_stage(job_id, "reading_visual_ocr")
-                doc = parse_statement(
-                    pdf_bytes, source_file=filename,
-                    on_page_delta=lambda page, chunk: store.append_page_live(job_id, page, chunk),
-                    on_page_replace=lambda page, text: store.set_page_live(job_id, page, text),
-                    force_ocr=True,
-                )
-                store.set_stage(job_id, "analyzing", doc.model)
-                markdown = doc.to_markdown()
-                html = markdown_to_html(markdown, title=filename)
-                try:
-                    analysis = report_to_json(analyze_markdown(markdown, parse_mode=parse_mode))
-                    analysis["parse_mode"] = parse_mode
-                    analysis_error = None
-                except Exception as retry_error:
-                    analysis_error = f"{analysis_error}; visual OCR retry also failed: {retry_error}"
+        markdown, html, analysis, analysis_error = _analyze_doc(doc, filename, parse_mode)
         store.set_result(job_id, markdown, html, analysis, analysis_error, doc.model)
     except Exception as e:
         store.set_error(job_id, str(e))
