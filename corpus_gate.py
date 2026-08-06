@@ -8,17 +8,30 @@ unchanged and compares their output, field by field, with
 
     python corpus_gate.py                     # the gate
     python corpus_gate.py --json report.json  # plus a machine-readable report
+    python corpus_gate.py --corpus <path>     # same gate against another root
     pytest -m corpus                          # same gate, through pytest
+
+Scope: the **pinned manifest**, not the directory. The gate enumerates the 109
+corpus-relative paths recorded in the committed audit CSVs and audits exactly
+those. The corpus root is shared with untracked, sensitive discovery material
+(`.gitignore`: `Bank Statements/**`), so "every PDF under the root is pinned" is
+no longer a property the tree can have. What replaces it is stricter about the
+validated set and honest about the rest — see `check_foreign_files`.
 
 Guarantees:
 
 - Offline. No OCR endpoint, no Gemini, no network, no Tesseract binary. The 6
   image-only statements are served from committed OCR artifacts keyed by the
   SHA-256 of their source PDF (see `corpus_artifacts`).
-- Complete. Every PDF under the corpus root is accounted for. A statement is
-  never skipped silently: a missing artifact, an unpinned file, or an
-  unreadable document is a failure, and any deliberate exclusion is named and
-  counted in the report.
+- Complete over the pinned manifest. Every pinned path must exist on disk, must
+  hash-match its pin, and must carry a row in *both* committed audits; the two
+  audits must pin the same 109 paths. A statement is never skipped silently: a
+  missing file, a missing artifact, or an unreadable document is a failure, and
+  any deliberate exclusion is named and counted in the report.
+- Explicit about foreign files. PDFs under the root that are not in the manifest
+  are counted and reported ("N non-corpus PDFs present — ignored"). Never
+  silently, and never a failure: they are not the validated corpus and the gate
+  makes no claim about them.
 - Read-only against the truth set. The audit CSVs are consumed, never written.
   Regenerating them is `adb_forensic_audit.py` / `balance_forensic_audit.py`,
   which is a separate, deliberate act.
@@ -117,7 +130,27 @@ def as_csv_rows(rows: list[dict[str, Any]], fields: list[str]) -> list[dict[str,
 
 
 def corpus_pdfs(corpus: Path) -> list[Path]:
+    """Every PDF on disk under the root — pinned and foreign alike.
+
+    Used only for foreign-file accounting. The audited set comes from
+    `manifest_paths`, never from this.
+    """
     return sorted(corpus.rglob("*.pdf"))
+
+
+def manifest_paths(balance_csv: list[dict[str, str]]) -> list[str]:
+    """The pinned manifest: corpus-relative POSIX paths of the audited set.
+
+    The balance audit is the enumerator because it stores the whole relative
+    path in one column. `check_inventory` proves the ADB audit pins exactly the
+    same paths, so neither audit can drift into being the sole authority.
+    """
+    return sorted({row["path"] for row in balance_csv})
+
+
+def manifest_pdfs(corpus: Path, manifest: list[str]) -> list[Path]:
+    """Resolve the pinned manifest against a corpus root, in manifest order."""
+    return [corpus / Path(rel) for rel in manifest]
 
 
 def sha256_upper(data: bytes) -> str:
@@ -168,46 +201,84 @@ def compare_rows(
     return (not missing and not added and drifted == 0), details
 
 
-def check_inventory(result: Result, pdfs: list[Path], corpus: Path,
+def check_inventory(result: Result, manifest: list[str], corpus: Path,
                     balance_csv: list[dict[str, str]], adb_csv: list[dict[str, str]]) -> None:
-    on_disk = [path.relative_to(corpus).as_posix() for path in pdfs]
+    """The pinned manifest is complete, agreed by both audits, and on disk."""
     details: list[str] = []
     ok = True
 
-    if len(on_disk) != EXPECTED_PDF_COUNT:
+    if len(manifest) != EXPECTED_PDF_COUNT:
         ok = False
-        details.append(f"corpus holds {len(on_disk)} PDFs, expected {EXPECTED_PDF_COUNT}")
+        details.append(
+            f"pinned manifest holds {len(manifest)} paths, expected {EXPECTED_PDF_COUNT}"
+        )
 
     for label, audited in (("balance audit", [row["path"] for row in balance_csv]),
                            ("ADB audit", [relative_key(row) for row in adb_csv])):
         if len(audited) != EXPECTED_PDF_COUNT:
             ok = False
             details.append(f"{label} holds {len(audited)} rows, expected {EXPECTED_PDF_COUNT}")
-        for name in sorted(set(on_disk) - set(audited)):
+        if len(set(audited)) != len(audited):
             ok = False
-            details.append(f"{label}: {name} is in the corpus but has no audited row")
-        for name in sorted(set(audited) - set(on_disk)):
+            details.append(f"{label} holds duplicate paths")
+        for name in sorted(set(manifest) - set(audited)):
             ok = False
-            details.append(f"{label}: {name} is audited but missing from the corpus")
+            details.append(f"{label}: {name} is pinned but has no audited row")
+        for name in sorted(set(audited) - set(manifest)):
+            ok = False
+            details.append(f"{label}: {name} is audited but absent from the pinned manifest")
+
+    for rel in manifest:
+        if not (corpus / Path(rel)).is_file():
+            ok = False
+            details.append(f"{rel} is pinned but missing from the corpus root")
 
     result.add(
         "inventory",
         ok,
-        f"{len(on_disk)} corpus PDFs, all present in both committed audits",
+        f"{len(manifest)} pinned corpus PDFs, all on disk and audited by both oracles",
         details,
     )
 
 
-def check_source_integrity(result: Result, pdfs: list[Path], corpus: Path,
+def check_foreign_files(result: Result, corpus: Path, manifest: list[str]) -> int:
+    """Count PDFs under the root that are not pinned. Reported, never fatal.
+
+    The corpus root doubles as the landing zone for untracked discovery
+    material. Those documents are not the validated corpus, carry no audit row,
+    and the gate makes no claim about them — but it must never pretend they are
+    not there. Names are deliberately withheld: they are sensitive source data.
+    """
+    pinned = set(manifest)
+    foreign = sorted(
+        rel for rel in (path.relative_to(corpus).as_posix() for path in corpus_pdfs(corpus))
+        if rel not in pinned
+    )
+    details: list[str] = []
+    if foreign:
+        folders = {rel.split("/")[0] if "/" in rel else "." for rel in foreign}
+        summary = f"{len(foreign)} non-corpus PDFs present — ignored (discovery archive)"
+        details = [
+            f"spread across {len(folders)} top-level folder(s) under the corpus root",
+            "names withheld: unpinned documents under this root are sensitive source data",
+            "these are not audited, not parsed, and not part of any gate claim",
+        ]
+    else:
+        summary = "no non-corpus PDFs under the corpus root"
+    result.add("foreign_files", True, summary, details)
+    return len(foreign)
+
+
+def check_source_integrity(result: Result, corpus: Path,
                            balance_csv: list[dict[str, str]]) -> None:
+    """Every pinned PDF exists and still hashes to its pinned SHA-256."""
     pinned = {row["path"]: row["sha256"] for row in balance_csv}
     details: list[str] = []
     verified = 0
-    for path in pdfs:
-        rel = path.relative_to(corpus).as_posix()
-        expected = pinned.get(rel)
-        if expected is None:
-            details.append(f"{rel} has no pinned SHA-256")
+    for rel, expected in sorted(pinned.items()):
+        path = corpus / Path(rel)
+        if not path.is_file():
+            details.append(f"{rel} is pinned but missing from the corpus root")
             continue
         actual = sha256_upper(path.read_bytes())
         if actual != expected:
@@ -217,18 +288,18 @@ def check_source_integrity(result: Result, pdfs: list[Path], corpus: Path,
     result.add(
         "source_integrity",
         not details,
-        f"{verified}/{len(pdfs)} source PDFs match their pinned SHA-256",
+        f"{verified}/{len(pinned)} pinned source PDFs match their pinned SHA-256",
         details,
     )
 
 
 def check_ocr_coverage(result: Result, source_types: dict[str, str],
-                       corpus: Path, cache: Path) -> None:
+                       manifest: list[str], cache: Path) -> None:
     scanned = sorted(name for name, kind in source_types.items() if kind.startswith("scanned"))
     native = sorted(name for name, kind in source_types.items() if not kind.startswith("scanned"))
     entries = manifest_entries(cache)
-    on_disk = {path.relative_to(corpus).as_posix() for path in corpus_pdfs(corpus)}
-    orphans = sorted(entry["path"] for entry in entries.values() if entry["path"] not in on_disk)
+    pinned = set(manifest)
+    orphans = sorted(entry["path"] for entry in entries.values() if entry["path"] not in pinned)
 
     details = [f"served from committed OCR artifact: {name}" for name in scanned]
     details += [f"cache holds an artifact for a document not in the corpus: {name}" for name in orphans]
@@ -305,16 +376,48 @@ def check_oracle_independence(result: Result) -> None:
     )
 
 
+def _stats(source_types: dict[str, str], pinned: int, foreign: int, started: float) -> dict[str, Any]:
+    return {
+        "corpus_pdfs": pinned,
+        "foreign_pdfs": foreign,
+        "native_text_statements": sum(
+            1 for kind in source_types.values() if not kind.startswith("scanned")
+        ),
+        "committed_ocr_statements": sum(
+            1 for kind in source_types.values() if kind.startswith("scanned")
+        ),
+        "pass": EXPECTED_PASS,
+        "withheld": EXPECTED_WITHHELD,
+        "exclusions": len(KNOWN_EXCLUSIONS),
+        "runtime_seconds": round(time.perf_counter() - started, 1),
+    }
+
+
 def run_gate(corpus: Path, cache: Path) -> Result:
     result = Result()
     started = time.perf_counter()
 
-    pdfs = corpus_pdfs(corpus)
     balance_csv = read_csv(BALANCE_CSV)
     adb_csv = read_csv(ADB_CSV)
+    manifest = manifest_paths(balance_csv)
+    pdfs = manifest_pdfs(corpus, manifest)
 
-    check_inventory(result, pdfs, corpus, balance_csv, adb_csv)
-    check_source_integrity(result, pdfs, corpus, balance_csv)
+    check_inventory(result, manifest, corpus, balance_csv, adb_csv)
+    foreign = check_foreign_files(result, corpus, manifest)
+    check_source_integrity(result, corpus, balance_csv)
+
+    absent = [path for path in pdfs if not path.is_file()]
+    if absent:
+        # Both oracles would raise on the first unreadable file. Stop here so
+        # the run still renders a red report naming what is gone.
+        result.add(
+            "audits",
+            False,
+            f"not run: {len(absent)} pinned statement(s) missing from {corpus}",
+            [f"{path.relative_to(corpus).as_posix()} is pinned but missing" for path in absent[:25]],
+        )
+        result.stats = _stats({}, len(manifest), foreign, started)
+        return result
 
     # Balance oracle: opening/ending/highest/lowest across backend, API,
     # dashboard binding, CSV, XLSX, and the package surfaces.
@@ -362,23 +465,11 @@ def run_gate(corpus: Path, cache: Path) -> Result:
 
     check_outcomes(result, "balance", fresh_balance, "PASS", "WITHHELD_SOURCE_CONTRADICTION")
     check_outcomes(result, "adb", fresh_adb, "PASS", "WITHHELD")
-    check_ocr_coverage(result, source_types, corpus, cache)
+    check_ocr_coverage(result, source_types, manifest, cache)
     check_exclusions(result)
     check_oracle_independence(result)
 
-    result.stats = {
-        "corpus_pdfs": len(pdfs),
-        "native_text_statements": sum(
-            1 for kind in source_types.values() if not kind.startswith("scanned")
-        ),
-        "committed_ocr_statements": sum(
-            1 for kind in source_types.values() if kind.startswith("scanned")
-        ),
-        "pass": EXPECTED_PASS,
-        "withheld": EXPECTED_WITHHELD,
-        "exclusions": len(KNOWN_EXCLUSIONS),
-        "runtime_seconds": round(time.perf_counter() - started, 1),
-    }
+    result.stats = _stats(source_types, len(pdfs), foreign, started)
     return result
 
 
@@ -388,10 +479,11 @@ def render(result: Result) -> str:
         lines.append(f"[{'PASS' if check.ok else 'FAIL'}] {check.name}: {check.summary}")
         for detail in check.details:
             lines.append(f"         {detail}")
-    lines += ["", f"Coverage: {result.stats['corpus_pdfs']} PDFs "
+    lines += ["", f"Coverage: {result.stats['corpus_pdfs']} pinned PDFs "
                   f"({result.stats['native_text_statements']} native text, "
                   f"{result.stats['committed_ocr_statements']} committed OCR), "
                   f"{result.stats['exclusions']} exclusions",
+              f"Ignored:  {result.stats['foreign_pdfs']} non-corpus PDFs under the corpus root",
               f"Outcomes: {result.stats['pass']} PASS / {result.stats['withheld']} WITHHELD",
               f"Runtime:  {result.stats['runtime_seconds']}s",
               "",
@@ -401,7 +493,15 @@ def render(result: Result) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Deterministic offline corpus gate.")
-    parser.add_argument("--corpus", default=str(CORPUS))
+    parser.add_argument(
+        "--corpus",
+        "--corpus-root",
+        dest="corpus",
+        default=str(CORPUS),
+        help="Corpus root the pinned manifest is resolved against "
+             "(default: this checkout's 'Bank Statements'). Lets one checkout's "
+             "gate code audit another checkout's corpus root.",
+    )
     parser.add_argument("--ocr-cache", default=str(DEFAULT_CACHE))
     parser.add_argument("--json", help="Write a machine-readable report here.")
     args = parser.parse_args()

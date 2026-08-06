@@ -34,7 +34,7 @@ jobs:
       - name: Verify the corpus checked out byte-identically
         # .gitattributes marks PDFs binary. If that ever regresses, the pinned
         # SHA-256s stop reproducing and every later step is meaningless.
-        run: python -c "import corpus_gate, sys; r = corpus_gate.Result(); corpus_gate.check_source_integrity(r, corpus_gate.corpus_pdfs(corpus_gate.CORPUS), corpus_gate.CORPUS, corpus_gate.read_csv(corpus_gate.BALANCE_CSV)); print(r.checks[0].summary); sys.exit(0 if r.ok else 1)"
+        run: python -c "import corpus_gate, sys; r = corpus_gate.Result(); corpus_gate.check_source_integrity(r, corpus_gate.CORPUS, corpus_gate.read_csv(corpus_gate.BALANCE_CSV)); print(r.checks[0].summary); sys.exit(0 if r.ok else 1)"
 
       - name: Default test suite
         run: python -m pytest -q
