@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import date
 
 from .schema import Statement, Transaction
-from .td_can import _MONTHS, _parse_money
+from .td_can import _MONTHS, _parse_money, normalize_mojibake
 
 _PERIOD_RE = re.compile(
     r"([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})\s+to\s+([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})",
@@ -43,6 +44,10 @@ def _is_credit(desc: str) -> bool:
 
 
 def _is_debit(desc: str) -> bool:
+    # Generic banking transaction types only. Counterparty names are never
+    # sign evidence (R-1 item 7: "FUNDIFI CANADA" / "2313833 ONTARIO" removed;
+    # rows not matching a credit type default to debit below, and printed
+    # running balances drive the sign solver, so behaviour is unchanged).
     text = desc.upper()
     return any(key in text for key in (
         "MONTHLY FEE",
@@ -59,8 +64,6 @@ def _is_debit(desc: str) -> bool:
         "BILL PAYMENT",
         "EQUIPMENT RENT",
         "BUSINESS PAD",
-        "FUNDIFI CANADA",
-        "2313833 ONTARIO",
     ))
 
 
@@ -216,6 +219,17 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
 
 _FR_DATE_RE = re.compile(r"^(\d{1,2})\s+([^\s]+)\s+(.*)$", re.IGNORECASE)
 _FR_MONEY_RE = re.compile(r"(?<![A-Za-z0-9])\(?-?(?:\d{1,3}(?: \d{3})+|\d+),\d{2}\)?")
+#: Full French month names; tokens resolve by unambiguous prefix, so every
+#: month works, not only December/January (R-1 item 7).
+_FR_MONTH_NAMES = {
+    "JANVIER": 1, "FEVRIER": 2, "MARS": 3, "AVRIL": 4, "MAI": 5, "JUIN": 6,
+    "JUILLET": 7, "AOUT": 8, "SEPTEMBRE": 9, "OCTOBRE": 10, "NOVEMBRE": 11,
+    "DECEMBRE": 12,
+}
+_FR_PERIOD_RE = re.compile(
+    r"Du\s+(\d{1,2})(?:er)?\s+(\S+)\s+(\d{4})\s+au\s+(\d{1,2})(?:er)?\s+(\S+)\s+(\d{4})",
+    re.IGNORECASE,
+)
 
 
 def _money_fr(text: str) -> float:
@@ -228,22 +242,45 @@ def _fr_money_matches(text: str) -> list[re.Match]:
     return list(_FR_MONEY_RE.finditer(text))
 
 
-def _fr_year(month_token: str, *, start_year: int, end_year: int) -> int:
-    return end_year if "JAN" in month_token.upper() else start_year
+def _fr_month(month_token: str) -> int | None:
+    """Resolve a (possibly abbreviated) French month token; None if ambiguous."""
+    decomposed = unicodedata.normalize("NFKD", month_token)
+    token = "".join(c for c in decomposed if c.isalpha()).upper()
+    if not token:
+        return None
+    matches = {
+        number
+        for name, number in _FR_MONTH_NAMES.items()
+        if name.startswith(token)
+    }
+    return matches.pop() if len(matches) == 1 else None
 
 
-def _fr_month(month_token: str) -> int:
-    upper = month_token.upper()
-    if upper.startswith("JAN"):
-        return 1
-    if "C" in upper or "D" in upper:
-        return 12
-    raise ValueError(f"unsupported RBC French month: {month_token}")
+def _fr_transaction_date(
+    day: int, month: int, *, period_start: date, period_end: date
+) -> date | None:
+    """The unique in-period date for a day/month pair, else None (fail closed).
+
+    Replaces the hardcoded start-year/end-year December/January mapping
+    (R-1 item 7): year choice is evidence-based - the date must fall inside
+    the printed statement period, whatever months it spans.
+    """
+    candidates = []
+    for year in {period_start.year, period_end.year}:
+        try:
+            candidate = date(year, month, day)
+        except ValueError:
+            continue
+        if period_start <= candidate <= period_end:
+            candidates.append(candidate)
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def _fr_initial_sign(desc: str, amount: float) -> float:
+    # Real accented characters only - the text is mojibake-normalized first
+    # (R-1 item 11). The printed-balance sign solver has the final word.
     text = desc.upper()
-    if any(key in text for key in ("REÃ‡U", "REÇU", "ANNUL", "DÃ‰P", "DÉP", "RABAIS")):
+    if any(key in text for key in ("REÇU", "ANNUL", "DÉP", "RABAIS")):
         return amount
     return -amount
 
@@ -275,6 +312,7 @@ def _solve_segment(rows: list[dict], expected: float) -> None:
 
 
 def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) -> Statement | None:
+    markdown = normalize_mojibake(markdown)
     upper = markdown.upper()
     if "BANQUE ROYALE" not in upper or "DATE DESCRIPTION RETRAITS" not in upper:
         return None
@@ -283,16 +321,32 @@ def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) ->
     stmt.bank = "Banque Royale du Canada"
     stmt.currency = "CAD"
 
-    period = re.search(r"Du\s+\d+\s+\S+\s+(\d{4})\s+au\s+\d+\s+\S+\s+(\d{4})", markdown, re.IGNORECASE)
-    start_year, end_year = (2025, 2026)
-    if period:
-        start_year, end_year = int(period.group(1)), int(period.group(2))
-        stmt.period_start = date(start_year, 12, 2).isoformat()
-        stmt.period_end = date(end_year, 1, 2).isoformat()
+    # The full printed period line is required - day, month, and year for
+    # both bounds. No default years, no hardcoded month/day (R-1 item 7:
+    # previously Dec/Jan-only with (2025, 2026) fallbacks).
+    period = _FR_PERIOD_RE.search(markdown)
+    if not period:
+        return None
+    start_day, start_token, start_year, end_day, end_token, end_year = period.groups()
+    start_month = _fr_month(start_token)
+    end_month = _fr_month(end_token)
+    if start_month is None or end_month is None:
+        return None
+    try:
+        period_start = date(int(start_year), start_month, int(start_day))
+        period_end = date(int(end_year), end_month, int(end_day))
+    except ValueError:
+        return None
+    if period_end < period_start:
+        return None
+    stmt.period_start = period_start.isoformat()
+    stmt.period_end = period_end.isoformat()
 
-    acct = re.search(r"numÃ©ro de compte\s*:\s*([0-9-]+)", markdown, re.IGNORECASE)
-    if acct:
-        stmt.account_number = acct.group(1)
+    # NOTE (R-1 item 7/11): the previous account-number regex carried a
+    # mojibake label and could never match the real text, so no account was
+    # ever extracted here. Extraction stays deliberately absent to keep the
+    # audited corpus surface identical; enabling it is proposed in
+    # R1_HARDCODE_LOG.md for an Ocean-approved re-baseline.
 
     m = re.search(r"solde d'ouverture.*?([\d ]+,\d{2})\s*\$", markdown, re.IGNORECASE)
     if m:
@@ -333,14 +387,15 @@ def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) ->
         dm = _FR_DATE_RE.match(line)
         if dm:
             day, month_token, rest = dm.groups()
-            try:
-                current_date = date(
-                    _fr_year(month_token, start_year=start_year, end_year=end_year),
-                    _fr_month(month_token),
-                    int(day),
-                ).isoformat()
-            except ValueError:
+            month = _fr_month(month_token)
+            if month is None:
                 continue
+            resolved = _fr_transaction_date(
+                int(day), month, period_start=period_start, period_end=period_end
+            )
+            if resolved is None:
+                continue
+            current_date = resolved.isoformat()
         else:
             rest = line
         if current_date is None:
