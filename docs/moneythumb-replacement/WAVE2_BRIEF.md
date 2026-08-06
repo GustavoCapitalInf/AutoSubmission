@@ -1,7 +1,8 @@
 # Wave 2 Execution Brief — Discovery-Ready Platform
 
 Author: Ocean (Lead Architect). Date: 2026-08-06.
-Status: **proposed — awaiting approval; nothing implemented, no agents launched.**
+Status: **APPROVED 2026-08-06 (Gustavo). In execution. See §9 post-approval
+amendments — the discovery archive arrived and changed the entry sequence.**
 Baseline: `main` at `da63ec2` (Wave 1 merged: H-2, D-1, R-1, O-1).
 All delegated agents run on Claude Opus 5 (`CLAUDE_CODE_SUBAGENT_MODEL=opus`, verified).
 
@@ -325,3 +326,94 @@ Merge:    CI-1 → R-2 → D-3 → O-3 → R-3 → R-4 → H-3 → DSC-1
   or explicitly scheduled with measured throughput data; ranked unknown-layout
   cluster report delivered.
 - PROJECT_STATUS.md updated as the wave closes.
+
+---
+
+## 9. Post-approval amendments (2026-08-06) — the archive arrived
+
+### 9.1 Measured corpus facts
+
+The discovery archive was delivered **into the tracked corpus root**
+`Bank Statements/` (not a separate directory):
+
+- **3,506 PDFs**, 3,659 files total, **0.89 GB**, organized in **69 bank-named
+  folders** — including `Unidentified/` with **965 PDFs** (27.5%).
+- Largest folders: Chase 618, Bank of America 405, Wells Fargo 243, RBC 197,
+  BMO 184, TD 79, Truist 64, PNC 62, US Bank 59, Bluevine 57, Huntington 54.
+- Folder names are human-assigned bank labels → they double as a free
+  detection-accuracy reference for DSC-2 (parser claim vs folder label).
+- Digital/scanned split unknown until DSC-2 tranche 0.
+
+**Incident handled at intake:** the archive copy deleted all 109 tracked corpus
+PDFs from the working tree (`git status` showed 109 `D`). Restored via
+`git checkout -- "Bank Statements"` — archive files untouched (no path
+collisions; the validated corpus and archive coexist in shared bank folders).
+Protection added: `.gitignore` rule `Bank Statements/**` (tracked files
+unaffected; everything untracked under the root — i.e. the archive — can no
+longer be committed accidentally; intentional corpus additions now require
+`git add -f` + Ocean-approved re-baseline).
+
+### 9.2 New task H-0 — corpus gate & suite re-scope (Agent C, FIRST — before CI-1)
+
+The gate and one test enforce "every PDF on disk under the root is pinned."
+With the archive in the root, that property is impossible and the gate is
+environmentally RED in the main checkout (clean worktrees are unaffected —
+untracked archive files do not propagate to worktrees, so agent-side gates
+stay green under both old and new semantics).
+
+- **Objective:** re-scope the offline gate from "no foreign files" to
+  "pinned-manifest integrity + foreign-file accounting", without weakening any
+  guarantee about the validated 109.
+- **Scope:**
+  1. `corpus_gate.py`: enumerate from the pinned manifest (the audit CSVs'
+     109 paths) instead of `rglob`. Every pinned path must exist and
+     hash-match (unchanged). Foreign PDFs under the root are **counted and
+     reported** (e.g. "3,506 non-corpus PDFs present — ignored (discovery
+     archive)") — never silently, never a failure. `EXPECTED_*` constants
+     unchanged.
+  2. `tests/test_balance_metrics_audit.py::test_balance_audit_inventory_and_source_hashes_are_complete`:
+     same re-scope (audited set == pinned manifest; every audited file exists
+     + hash-matches; drop the on-disk set-equality against rglob).
+  3. `tests/test_analysis.py::_artifact_markdown` fallback: resolve missing
+     artifacts against pinned-manifest paths, not a stem-rglob over the root
+     (stem-collision hazard with 3,506 foreign files).
+  4. Verify/keep the `.gitignore` protection rule; README gate section updated.
+- **Acceptance:** gate GREEN **in the main checkout with the archive present**
+  AND in a clean worktree; deliberate local corruption of one pinned value
+  still turns it red; a foreign PDF dropped next to a pinned one does NOT;
+  full suite green in both environments; no change to audit CSVs or oracle
+  logic.
+- **Risk:** LOW-MODERATE — it modifies the merge authority itself, so Ocean
+  reviews this diff line-by-line before it merges (first merge of the wave).
+
+### 9.3 Sequencing changes
+
+Merge order becomes: **H-0 → CI-1 → R-2 → D-3 → O-3 → R-3 → R-4 → H-3 → DSC-1**.
+Until H-0 merges, per-PR gate proof runs in clean worktrees (Ocean ruling,
+documented here; the environmental red in the main checkout is caused by
+untracked foreign files, not by any tree state).
+
+### 9.4 DSC amendments
+
+- DSC-1 partitions the shared root by the pinned manifest: pinned 109 =
+  dry-run truth set; **everything else under the root = the discovery set**.
+  Dry-run acceptance unchanged (must reproduce 109 / 0 dupes / expected
+  parsers / 106-3).
+- DSC-2 additionally reports parser-claim vs folder-label agreement, and
+  treats `Unidentified/` (965 docs) as its own tranche segment — it is the
+  purest sample of the unknown-bank problem (G1).
+- Archive handling rules (Gustavo, 2026-08-06): read-only source data; never
+  committed, moved, renamed, edited, deleted, or uploaded; all generated
+  manifests/telemetry/reports mask identifiers and contain no transaction-level
+  sensitive detail beyond what adjudication requires; report outputs stay in
+  gitignored directories.
+
+### 9.5 Stale remote branches — verified, NOT deleted
+
+Both contain unique, unmerged work (one commit each, Aug 4–5): prior
+"universal statement intelligence" prototypes (`analysis/universal.py`,
+`analysis/grounding.py`, an earlier `analysis/parser_registry.py`,
+`eval_unknown_banks.py`, design docs) touching protected modules. Kept as
+reference input for the P2-1 investigation (R-7). Deletion deferred to
+Gustavo's explicit call. No filename conflict with Wave 2 work (dead
+branches; Agent A's registry is built fresh on main).

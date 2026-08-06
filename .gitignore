@@ -8,7 +8,12 @@ logs.txt
 .env.local
 node_modules/
 frontend/node_modules/
-# Do NOT ignore BankStatements/ — samples are needed for golden tests
+# The tracked validated corpus under "Bank Statements/" stays tracked (needed
+# for golden tests; ignore rules never affect tracked files). Everything ELSE
+# under that root is the sensitive discovery archive and must never be
+# committed. Intentional corpus additions require `git add -f` plus an
+# Ocean-approved audit re-baseline.
+Bank Statements/**
 
 .claude/
 moneythumbResults/

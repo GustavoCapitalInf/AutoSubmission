@@ -13,7 +13,7 @@ Last verified: **2026-08-06** (all numbers below re-measured, not copied).
 
 | Fact | Value |
 |---|---|
-| Current milestone | **Wave 2 "Discovery-Ready Platform" — PROPOSED, awaiting approval** (`WAVE2_BRIEF.md`). Nothing implemented; no agents launched. |
+| Current milestone | **Wave 2 "Discovery-Ready Platform" — APPROVED 2026-08-06, IN EXECUTION** (`WAVE2_BRIEF.md` incl. §9 amendments). Discovery archive delivered: **3,506 PDFs / 0.89 GB / 69 bank folders (965 Unidentified)** inside `Bank Statements/`, untracked, protected by `.gitignore` `Bank Statements/**`. Archive copy had deleted the 109 tracked corpus PDFs from the working tree — restored intact 2026-08-06. H-0 (gate re-scope) is the first merge of the wave. |
 | Completed milestones | Phase 1 audit + architecture plan (8 docs in this directory); **Wave 0** (H-1 corpus gate, H-6 doc/fixture fixes, D-2a dev-server hardening); **Wave 1** (H-2 MoneyThumb harness, D-1 durable persistence, R-1 hardcode purge, O-1 unified preflight) — all merged to `main`, pushed |
 | Current commit | `main` = `da63ec22bd3caf20d1809a0d83b04726451ade32` ("Merge O-1: unified document preflight"), pushed to origin. Lead worktree branch `worktree-mt-lead` = `main` + planning docs (merge commit `5ac51fd`). |
 | Test count | **797 collected / 795 default-selected, 795 PASSED** (73.9 s), 2 deselected opt-in entries (`live`, `corpus`). Was 523 at Phase-1 planning time. |
@@ -21,7 +21,7 @@ Last verified: **2026-08-06** (all numbers below re-measured, not copied).
 | Remote CI | **BROKEN — infrastructure, not workflow.** `.github/workflows/corpus-gate.yml` exists and is active; the only run (31122891522) failed with "job was not acquired by Runner of type hosted" and never reached a step. Local gate is the merge authority until fixed. Fixing this is the Wave 2 entry task (CI-1). |
 | MoneyThumb parity | `PARITY_MATRIX.md` (26 capabilities, as of the pre-Wave-1 audit): 8 ✅ ahead, 6 🟡 split, 12 🔴 behind. Wave 1 improved but did not re-score: #26 duplicates (now flagged via O-1+D-1), #18/#23 (persistence exists; auth/concurrency still missing), #22 maintainability (hardcodes purged; parser platform still pending). H-2 comparison harness is operational over all 6 benchmark sets (`python -m benchmark`, offline); reports write to gitignored `benchmark_reports/` on demand and are deliberately not committed. |
 | Active worktrees | Main checkout (`main`) + permanent lead worktree `.claude/worktrees/mt-lead` (`worktree-mt-lead`). Wave 0/1 temporary worktrees and branches removed. |
-| Active branches | Local: `main`, `worktree-mt-lead`. Remote: `origin/main` (up to date with local main) plus two stale remnants — `origin/cursor/cloud-agent-1785900428099-wlfy6`, `origin/feature/universal-statement-intelligence` — safe to delete (minor housekeeping, needs owner confirmation). |
+| Active branches | Local: `main`, `worktree-mt-lead`, plus Wave 2 agent branches (see WAVE2_BRIEF §9). Remote: `origin/main` plus two stale branches — `origin/cursor/cloud-agent-1785900428099-wlfy6`, `origin/feature/universal-statement-intelligence` — **verified 2026-08-06: each holds one unique unmerged commit (prior universal-statement-intelligence prototypes touching protected modules). NOT deleted; kept as P2-1 reference pending Gustavo's call.** |
 
 ## Architecture status
 
