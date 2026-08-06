@@ -39,6 +39,7 @@ class Expectation:
     adb_ledger_valid: bool = False
     printed_adb: float | None = None
     printed_adb_label: str | None = None
+    detail_reconciles: bool | None = None    # audited detail_ledger_reconciles
     balance_status: str | None = None
     balance_root_cause: str | None = None
     adb_status: str | None = None
@@ -73,6 +74,9 @@ def load_expectations(docs_dir: Path) -> dict[str, Expectation]:
         expectation.sha256 = row.get("sha256") or None
         expectation.balance_status = row.get("status") or None
         expectation.balance_root_cause = row.get("root_cause") or None
+        detail = (row.get("detail_ledger_reconciles") or "").strip()
+        if detail in {"True", "False"}:
+            expectation.detail_reconciles = detail == "True"
         if not contradicted:
             expectation.opening = parse_money(row.get("expected_opening"))
             expectation.ending = parse_money(row.get("expected_ending"))
