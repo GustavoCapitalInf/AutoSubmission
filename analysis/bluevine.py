@@ -3,19 +3,12 @@ from __future__ import annotations
 import re
 from datetime import date, datetime
 
+from .money import LEADING_MINUS, parse_amount
 from .schema import Statement, Transaction
 
 
 def _money(value: str | None) -> float | None:
-    if not value:
-        return None
-    text = value.replace("$", "").replace(",", "").strip()
-    neg = text.startswith("-")
-    text = text.lstrip("-")
-    if not re.fullmatch(r"\d+(?:\.\d{2})", text):
-        return None
-    amount = float(text)
-    return -amount if neg else amount
+    return parse_amount(value, LEADING_MINUS)
 
 
 def _iso(mmddyy: str) -> str:

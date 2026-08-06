@@ -4,6 +4,7 @@ import re
 from datetime import date
 from html import unescape
 
+from .money import parse_digit_scrubbed
 from .schema import Statement, Transaction
 
 _ROW_RE = re.compile(r"<tr>(.*?)</tr>", re.IGNORECASE | re.DOTALL)
@@ -20,15 +21,7 @@ def _rows(markdown: str) -> list[list[str]]:
 
 
 def _money(value: str) -> float | None:
-    text = value.strip()
-    if not text:
-        return None
-    neg = text.startswith("(") or text.endswith("-")
-    cleaned = re.sub(r"[^0-9.]", "", text)
-    if not cleaned:
-        return None
-    amount = float(cleaned)
-    return -amount if neg else amount
+    return parse_digit_scrubbed(value, parens=True, trailing_minus=True)
 
 
 def _native_summary(markdown: str, stmt: Statement) -> Statement:

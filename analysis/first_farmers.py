@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import re
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
+from .money import parse_decimal_mixed_separator
 from .schema import Statement, Transaction
 
 
@@ -11,15 +12,7 @@ _MONEY = r"\d[\d,]*[\.,]\d{2}"
 
 
 def _money(value: str) -> Decimal:
-    text = value.replace("$", "").strip()
-    if "." not in text and text.count(",") == 1 and len(text.rsplit(",", 1)[1]) == 2:
-        text = text.replace(",", ".")
-    else:
-        text = text.replace(",", "")
-    try:
-        return Decimal(text)
-    except InvalidOperation as exc:
-        raise ValueError(value) from exc
+    return parse_decimal_mixed_separator(value, single_comma_only=True)
 
 
 def _iso(value: str) -> str:

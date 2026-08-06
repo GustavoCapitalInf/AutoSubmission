@@ -4,7 +4,7 @@ import re
 import unicodedata
 from datetime import date
 
-from .money import parse_money
+from .money import parse_french_amount, parse_money
 from .schema import Statement, Transaction
 from .td_can import _MONTHS, normalize_mojibake
 
@@ -235,9 +235,7 @@ _FR_PERIOD_RE = re.compile(
 
 
 def _money_fr(text: str) -> float:
-    neg = text.strip().startswith("(") and text.strip().endswith(")")
-    value = float(text.strip("()").replace(" ", "").replace(",", "."))
-    return round(-value if neg else value, 2)
+    return parse_french_amount(text, parens=True)
 
 
 def _fr_money_matches(text: str) -> list[re.Match]:

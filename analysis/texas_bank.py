@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .money import STRICT_EITHER_MINUS, parse_amount
 from .schema import Statement, Transaction
 
 
@@ -10,15 +11,7 @@ _START_TOKENS = r"(?:ACH_|ACH|RDA|CARR|POS|DBT|Payment|CRCARDPMT|PHONE|PAYMENTS|
 
 
 def _money(value: str | None) -> float | None:
-    if not value:
-        return None
-    text = value.replace("$", "").replace(",", "").strip()
-    neg = text.startswith("-") or text.endswith("-")
-    text = text.strip("-")
-    if not re.fullmatch(r"\d+\.\d{2}", text):
-        return None
-    amount = float(text)
-    return -amount if neg else amount
+    return parse_amount(value, STRICT_EITHER_MINUS)
 
 
 def _parse_mmddyy(raw: str) -> str:

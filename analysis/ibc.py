@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .money import parse_grouped_float
 from .schema import Statement, StatementDailyBalance, Transaction
 
 
@@ -16,7 +17,7 @@ _CREDIT_KIND_RE = r"ACH Deposit|Check Card Credit|Incoming Wire"
 
 
 def _money(value: str) -> float:
-    return float(value.replace(",", ""))
+    return parse_grouped_float(value)
 
 
 def _compact(value: str) -> str:

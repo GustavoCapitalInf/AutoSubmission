@@ -4,6 +4,7 @@ import re
 from datetime import date
 from html import unescape
 
+from .money import parse_digit_scrubbed
 from .schema import Statement, Transaction
 
 _ROW_RE = re.compile(r"<tr>(.*?)</tr>", re.IGNORECASE | re.DOTALL)
@@ -24,18 +25,15 @@ def _rows(table: str) -> list[list[str]]:
     return [[_clean(cell) for cell in _CELL_RE.findall(row)] for row in _ROW_RE.findall(table)]
 
 
+#: A Chase amount cell as printed: optional parenthesis/minus/dollar wrapper
+#: around a grouped decimal. Scrubbing is only allowed on tokens matching this.
+_AMOUNT_RE = re.compile(r"\(?-?\$?\s*[0-9][0-9,]*(?:\.[0-9]{2})?-?\)?")
+
+
 def _money(value: str) -> float | None:
-    text = value.strip()
-    if not text:
-        return None
-    if not re.fullmatch(r"\(?-?\$?\s*[0-9][0-9,]*(?:\.[0-9]{2})?-?\)?", text):
-        return None
-    neg = text.startswith("(") or text.startswith("-") or text.endswith("-")
-    cleaned = re.sub(r"[^0-9.]", "", text)
-    if not cleaned:
-        return None
-    amount = float(cleaned)
-    return -amount if neg else amount
+    return parse_digit_scrubbed(
+        value, parens=True, leading_minus=True, trailing_minus=True, guard=_AMOUNT_RE
+    )
 
 
 def _period(markdown: str) -> tuple[str, str] | None:

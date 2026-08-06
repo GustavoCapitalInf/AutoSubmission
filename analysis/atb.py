@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .money import LEADING_MINUS_DROPPED, parse_amount
 from .schema import Statement, Transaction
 
 _MONTHS = {
@@ -16,15 +17,7 @@ _FULL_MONTHS = {
 
 
 def _money(value: str | None) -> float | None:
-    if not value:
-        return None
-    text = value.replace("$", "").replace(",", "").strip()
-    neg = text.startswith("-")
-    text = text.replace("-", "").strip()
-    if not re.fullmatch(r"\d+(?:\.\d{2})", text):
-        return None
-    amount = float(text)
-    return -amount if neg else amount
+    return parse_amount(value, LEADING_MINUS_DROPPED)
 
 
 def _statement_date(markdown: str) -> date | None:

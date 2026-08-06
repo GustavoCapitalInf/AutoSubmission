@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .money import EITHER_MINUS_SPACED, parse_amount
 from .schema import Statement, Transaction
 
 _MONTHS = {
@@ -24,15 +25,7 @@ _MONEY_RE = r"\$?\s*[\d,]+\.\d{2}-?"
 
 
 def _money(value: str | None) -> float | None:
-    if not value:
-        return None
-    text = value.replace("$", "").replace(",", "").replace(" ", "").strip()
-    neg = text.startswith("-") or text.endswith("-")
-    text = text.strip("-")
-    if not re.fullmatch(r"\d+(?:\.\d{2})", text):
-        return None
-    amount = float(text)
-    return -amount if neg else amount
+    return parse_amount(value, EITHER_MINUS_SPACED)
 
 
 def _iso(month_day: str, year: int) -> str:

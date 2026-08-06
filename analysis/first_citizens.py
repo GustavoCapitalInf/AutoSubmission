@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .money import parse_grouped_float
 from .schema import Statement, Transaction
 
 
@@ -23,7 +24,7 @@ _CREDIT_START_RE = re.compile(
 
 
 def _money(value: str) -> float:
-    return float(value.replace(",", ""))
+    return parse_grouped_float(value)
 
 
 def _compact(value: str) -> str:

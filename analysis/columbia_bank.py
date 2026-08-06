@@ -4,8 +4,9 @@ import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
+from .money import parse_decimal_mixed_separator
 from .schema import Statement, StatementDailyBalance, Transaction
 
 
@@ -21,16 +22,7 @@ class _Row:
 
 
 def _money(value: str) -> Decimal:
-    text = value.replace("$", "").strip()
-    if "." not in text and "," in text and len(text.rsplit(",", 1)[1]) == 2:
-        whole, cents = text.rsplit(",", 1)
-        text = f"{whole.replace(',', '')}.{cents}"
-    else:
-        text = text.replace(",", "")
-    try:
-        return Decimal(text)
-    except InvalidOperation as exc:
-        raise ValueError(value) from exc
+    return parse_decimal_mixed_separator(value)
 
 
 def _section(markdown: str, start: str, stop: str) -> str:

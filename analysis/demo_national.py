@@ -3,16 +3,12 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
+from .money import STRICT_LEADING_SIGN, parse_amount
 from .schema import Statement, Transaction
 
 
 def _money(value: str | None) -> float | None:
-    if not value:
-        return None
-    text = value.replace("$", "").replace(",", "").strip()
-    if not re.fullmatch(r"-?\d+(?:\.\d{2})", text):
-        return None
-    return float(text)
+    return parse_amount(value, STRICT_LEADING_SIGN)
 
 
 def parse_demo_national_statement(markdown: str) -> Statement | None:
