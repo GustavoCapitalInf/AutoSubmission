@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import re
-from datetime import date
 
+from .date_tokens import iso_from_month_day
 from .money import parse_money
 from .schema import Statement
 from .schema import Transaction
@@ -20,11 +20,6 @@ def _compact(text: str) -> str:
 
 def _money(value: str) -> float | None:
     return parse_money(value.replace("$", ""))
-
-
-def _iso(mmdd: str, *, year: int) -> str:
-    month, day = [int(part) for part in mmdd.split("/")]
-    return date(year, month, day).isoformat()
 
 
 def _business_plus_block(markdown: str) -> str:
@@ -88,7 +83,7 @@ def _parse_activity_rows(block: str, *, year: int) -> list[Transaction]:
         if not desc:
             continue
         txns.append(Transaction(
-            date=_iso(mmdd, year=year),
+            date=iso_from_month_day(mmdd, year=year),
             description=desc,
             amount=round(amount, 2),
             direction="credit" if amount >= 0 else "debit",
@@ -131,8 +126,8 @@ def parse_first_community_statement(markdown: str) -> Statement | None:
         bank="First Community Credit Union",
         account_name="Business Plus Checking",
         account_number=acct.group(1) if acct else None,
-        period_start=_iso(summary.group("start"), year=year),
-        period_end=_iso(summary.group("end"), year=year),
+        period_start=iso_from_month_day(summary.group("start"), year=year),
+        period_end=iso_from_month_day(summary.group("end"), year=year),
         days_in_period=int(summary.group("end").split("/")[1]),
         beginning_balance=_money(summary.group("begin")),
         ending_balance=_money(summary.group("ending")),

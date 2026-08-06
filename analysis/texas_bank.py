@@ -5,6 +5,7 @@ from datetime import date
 
 from .money import STRICT_EITHER_MINUS, parse_amount
 from .schema import Statement, Transaction
+from .tables import section_between
 
 
 _START_TOKENS = r"(?:ACH_|ACH|RDA|CARR|POS|DBT|Payment|CRCARDPMT|PHONE|PAYMENTS|SERVICE)"
@@ -17,11 +18,6 @@ def _money(value: str | None) -> float | None:
 def _parse_mmddyy(raw: str) -> str:
     month, day, year = [int(part) for part in raw.split("/")]
     return date(2000 + year, month, day).isoformat()
-
-
-def _section(markdown: str, start: str, end: str) -> str:
-    m = re.search(start + r"(?P<body>.*?)" + end, markdown, re.IGNORECASE | re.DOTALL)
-    return m.group("body") if m else ""
 
 
 def _rows(section: str, sign: int) -> list[Transaction]:
@@ -92,8 +88,8 @@ def parse_texas_bank_statement(markdown: str) -> Statement | None:
     if None in {credits, debits, service_charge, beginning, ending, average}:
         return None
 
-    txns = _rows(_section(markdown, r"Deposits and Other Credits", r"Withdrawals and Other Debits"), 1)
-    txns.extend(_rows(_section(markdown, r"Withdrawals and Other Debits", r"Daily Balance Information"), -1))
+    txns = _rows(section_between(markdown, r"Deposits and Other Credits", r"Withdrawals and Other Debits"), 1)
+    txns.extend(_rows(section_between(markdown, r"Withdrawals and Other Debits", r"Daily Balance Information"), -1))
     if not txns:
         return None
     credit_sum = sum(t.amount for t in txns if t.amount > 0)

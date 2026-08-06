@@ -5,6 +5,7 @@ from datetime import date
 
 from .money import parse_grouped_float
 from .schema import Statement, StatementDailyBalance, Transaction
+from .tables import compact_whitespace
 
 
 _MONEY_RE = re.compile(r"-?\d[\d,]*\.\d{2}")
@@ -18,10 +19,6 @@ _CREDIT_KIND_RE = r"ACH Deposit|Check Card Credit|Incoming Wire"
 
 def _money(value: str) -> float:
     return parse_grouped_float(value)
-
-
-def _compact(value: str) -> str:
-    return re.sub(r"\s+", " ", value).strip()
 
 
 def _parse_period(markdown: str) -> tuple[str, str, int] | None:
@@ -134,7 +131,7 @@ def _parse_electronic_credits(markdown: str, *, year: int) -> list[Transaction]:
         txns.append(
             Transaction(
                 date=date(year, int(mmdd[:2]), int(mmdd[3:])).isoformat(),
-                description=_compact(description),
+                description=compact_whitespace(description),
                 amount=_money(raw_amount),
                 direction="credit",
             )
@@ -155,7 +152,7 @@ def _parse_electronic_debits(markdown: str, *, year: int) -> list[Transaction]:
             txns.append(
                 Transaction(
                     date=date(year, int(mmdd[:2]), int(mmdd[3:])).isoformat(),
-                    description=_compact(description),
+                    description=compact_whitespace(description),
                     amount=-_money(raw_amount),
                     direction="debit",
                 )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .date_tokens import iso_from_month_day
 from .money import PARENS_OR_LEADING_MINUS, parse_amount
 from .schema import Statement, Transaction
 
@@ -28,11 +29,6 @@ def _period(markdown: str) -> tuple[str, str] | None:
         date(int(sy), _MONTHS[sm], int(sd)).isoformat(),
         date(int(ey), _MONTHS[em], int(ed)).isoformat(),
     )
-
-
-def _iso(mmdd: str, year: int) -> str:
-    month, day = [int(part) for part in mmdd.split("/", 1)]
-    return date(year, month, day).isoformat()
 
 
 def _summary(markdown: str, stmt: Statement) -> Statement:
@@ -107,7 +103,7 @@ def _line_items(section_text: str, *, year: int, sign: int) -> list[Transaction]
         desc_parts = _description_parts(parts, amount)
         signed = round(abs(amount) * sign, 2)
         txns.append(Transaction(
-            date=_iso(date_text, year),
+            date=iso_from_month_day(date_text, year),
             description=re.sub(r"\s+", " ", " ".join(desc_parts)).strip(),
             amount=signed,
             direction="credit" if signed >= 0 else "debit",
@@ -146,7 +142,7 @@ def _checks(section_text: str, *, year: int) -> list[Transaction]:
     txns: list[Transaction] = []
     for mmdd, serial, amount in re.findall(r"(\d{2}/\d{2})\s+(\d+\*?)\s+([\d,]+\.\d{2})", section_text):
         txns.append(Transaction(
-            date=_iso(mmdd, year),
+            date=iso_from_month_day(mmdd, year),
             description=f"Check {serial}",
             amount=round(-abs(_money(amount) or 0.0), 2),
             direction="debit",

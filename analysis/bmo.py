@@ -7,6 +7,7 @@ from datetime import date
 from .dates import resolve_year
 from .money import parse_money
 from .schema import Statement, Transaction
+from .tables import compact_whitespace
 
 _ROW_RE = re.compile(
     r"(\d{1,2}/\d{1,2})\s+(.*?)\s+\$\s*(\d[\d,]*\.\d{2})\s+"
@@ -31,10 +32,6 @@ _WITHDRAWAL_KEYS = (
     "DIGITAL X-RAY",
     "MEDICATION REFILL",
 )
-
-
-def _compact(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
 
 
 def _amount(value: str) -> float:
@@ -69,7 +66,7 @@ def _statement_period(text: str) -> tuple[date, date] | None:
 
 def _account_name(markdown: str, text: str) -> str | None:
     for raw_line in markdown.splitlines():
-        line = _compact(raw_line)
+        line = compact_whitespace(raw_line)
         match = re.match(
             r"(?P<name>.+?)\s+\d+\s+\S.*?\bAccount Number:",
             line,
@@ -107,7 +104,7 @@ def parse_bmo_statement(markdown: str) -> Statement | None:
     if "TRANSACTION DETAILS" not in upper or "ACCOUNT SUMMARY" not in upper:
         return None
 
-    text = _compact(markdown)
+    text = compact_whitespace(markdown)
     period = _statement_period(text)
     if period is None:
         return None
@@ -156,7 +153,7 @@ def parse_bmo_statement(markdown: str) -> Statement | None:
     txns: list[Transaction] = []
     previous_balance = stmt.beginning_balance
     for mmdd, raw_desc, raw_amount, raw_balance in _ROW_RE.findall(block):
-        desc = _compact(raw_desc)
+        desc = compact_whitespace(raw_desc)
         if not desc:
             continue
         amount = abs(_amount(raw_amount))

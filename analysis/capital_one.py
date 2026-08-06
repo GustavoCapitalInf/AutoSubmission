@@ -2,22 +2,12 @@ from __future__ import annotations
 
 import re
 from datetime import date
-from html import unescape
 
+from .date_tokens import iso_from_month_day
 from .money import parse_digit_scrubbed
 from .schema import Statement, Transaction
+from .tables import table_rows
 
-_ROW_RE = re.compile(r"<tr>(.*?)</tr>", re.IGNORECASE | re.DOTALL)
-_CELL_RE = re.compile(r"<td[^>]*>(.*?)</td>", re.IGNORECASE | re.DOTALL)
-_TAG_RE = re.compile(r"<[^>]+>")
-
-
-def _clean(value: str) -> str:
-    return re.sub(r"\s+", " ", unescape(_TAG_RE.sub("", value))).strip()
-
-
-def _rows(markdown: str) -> list[list[str]]:
-    return [[_clean(cell) for cell in _CELL_RE.findall(row)] for row in _ROW_RE.findall(markdown)]
 
 
 def _money(value: str) -> float | None:
@@ -83,7 +73,7 @@ def _native_transactions(markdown: str, *, year: int, beginning_balance: float |
         else:
             signed = amount if _looks_like_credit(desc) else -abs(amount)
         txns.append(Transaction(
-            date=_iso(txn_date, year),
+            date=iso_from_month_day(txn_date, year),
             description=re.sub(r"\s+", " ", desc).strip(),
             amount=signed,
             direction="credit" if signed >= 0 else "debit",
@@ -121,11 +111,6 @@ def _period(markdown: str) -> tuple[str, str] | None:
     start = date(int(sy), months[sm.upper()], int(sd)).isoformat()
     end = date(int(ey), months[em.upper()], int(ed)).isoformat()
     return start, end
-
-
-def _iso(mmdd: str, year: int) -> str:
-    month, day = [int(part) for part in mmdd.split("/", 1)]
-    return date(year, month, day).isoformat()
 
 
 def _normalize_cycle_service_charge_dates(
@@ -173,7 +158,7 @@ def parse_capital_one_statement(markdown: str) -> Statement | None:
     if acct:
         stmt.account_number = acct.group(1)
 
-    rows = _rows(markdown)
+    rows = table_rows(markdown)
     prev_balance = stmt.beginning_balance
     in_detail = False
     txns: list[Transaction] = []
@@ -230,7 +215,7 @@ def parse_capital_one_statement(markdown: str) -> Statement | None:
         else:
             continue
         txns.append(Transaction(
-            date=_iso(cells[0], year),
+            date=iso_from_month_day(cells[0], year),
             description=cells[1],
             amount=amount,
             direction="credit" if amount >= 0 else "debit",

@@ -4,6 +4,7 @@ import re
 from datetime import date
 from decimal import Decimal
 
+from .date_tokens import iso_from_month_day_year
 from .money import parse_decimal_mixed_separator
 from .schema import Statement, Transaction
 
@@ -13,11 +14,6 @@ _MONEY = r"\d[\d,]*[\.,]\d{2}"
 
 def _money(value: str) -> Decimal:
     return parse_decimal_mixed_separator(value, single_comma_only=True)
-
-
-def _iso(value: str) -> str:
-    month, day, year = [int(part) for part in value.split("/")]
-    return date(2000 + year if year < 100 else year, month, day).isoformat()
 
 
 def _description(value: str) -> str:
@@ -66,8 +62,8 @@ def parse_first_farmers_statement(markdown: str) -> Statement | None:
     if not product or not opening or not period or not summary or not ending:
         return None
 
-    start = date.fromisoformat(_iso(period.group(1)))
-    end = date.fromisoformat(_iso(period.group(2)))
+    start = date.fromisoformat(iso_from_month_day_year(period.group(1)))
+    end = date.fromisoformat(iso_from_month_day_year(period.group(2)))
     opening_balance = _money(opening.group(2))
     ending_balance = _money(ending.group(2))
     credit_count = int(summary.group(1))
@@ -104,7 +100,7 @@ def parse_first_farmers_statement(markdown: str) -> Statement | None:
             return None
         transactions.append(
             Transaction(
-                date=_iso(match.group("date")),
+                date=iso_from_month_day_year(match.group("date")),
                 description=description,
                 amount=float(signed_amount),
                 direction="credit" if signed_amount > 0 else "debit",

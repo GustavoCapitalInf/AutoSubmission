@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .date_tokens import iso_from_month_day_strict
 from .money import parse_money
 from .schema import Statement, Transaction
 
@@ -32,13 +33,6 @@ def _money(value: str | None) -> float | None:
     if value.startswith("."):
         value = "0" + value
     return parse_money(value)
-
-
-def _iso(mmdd: str, year: int) -> str | None:
-    m = re.fullmatch(r"(\d{2})/(\d{2})", mmdd.strip())
-    if not m:
-        return None
-    return date(year, int(m.group(1)), int(m.group(2))).isoformat()
 
 
 def _period(markdown: str) -> tuple[str, str] | None:
@@ -96,7 +90,7 @@ def _parse_section(markdown: str, heading: str, *, year: int, sign: int) -> list
             m = re.match(r"^(\d{2}/\d{2})\s+(\d[\d,]*\.\d{2}|\.\d{2})\s+(.+?)\s*$", row)
             if not m:
                 continue
-            txn_date = _iso(m.group(1), year)
+            txn_date = iso_from_month_day_strict(m.group(1), year)
             amount = _money(m.group(2))
             if txn_date is None or amount is None:
                 continue

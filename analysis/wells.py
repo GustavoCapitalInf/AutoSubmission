@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .date_tokens import iso_from_month_day
 from .money import parse_money
 from .schema import Statement, Transaction
 
@@ -26,11 +27,6 @@ def _infer_year(markdown: str) -> int | None:
     """
     years = [int(y) for y in re.findall(r"\b(20\d{2})\b", markdown)]
     return years[0] if years else None
-
-
-def _iso(mmdd: str, *, year: int) -> str:
-    m, d = [int(p) for p in mmdd.split("/")]
-    return date(year, m, d).isoformat()
 
 
 def _amount(text: str) -> float | None:
@@ -94,7 +90,7 @@ def parse_wells_statement(markdown: str, base: Statement | None = None) -> State
             # column even for a withdrawal. Fall back to description semantics.
             continue
         txns.append(Transaction(
-            date=_iso(mmdd, year=year),
+            date=iso_from_month_day(mmdd, year=year),
             description=desc,
             amount=round(signed, 2),
             direction="credit" if signed > 0 else "debit",

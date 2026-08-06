@@ -5,6 +5,7 @@ from datetime import date
 
 from .money import parse_money
 from .schema import Statement, Transaction
+from .tables import compact_whitespace
 from .td_can import normalize_mojibake
 
 
@@ -35,10 +36,6 @@ def _extract_holder_name(markdown: str) -> str | None:
         if match:
             return re.sub(r"\s+", " ", match.group(1)).strip()
     return None
-
-
-def _compact(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
 
 
 def _money(value: str) -> float:
@@ -141,7 +138,7 @@ def _parse_date_amount_description_rows(block: str, *, sign: int) -> list[Transa
         signed = round(abs(_money(amount)) * sign, 2)
         txns.append(Transaction(
             date=_iso(txn_date),
-            description=_compact(" ".join(desc_parts)),
+            description=compact_whitespace(" ".join(desc_parts)),
             amount=signed,
             direction="credit" if signed > 0 else "debit",
         ))
@@ -155,11 +152,11 @@ def _parse_two_column_date_amount_desc(block: str, *, sign: int) -> list[Transac
         r"(.+?)(?=(?:\s+\d{1,2}/\d{1,2}/\d{4}\s+\d[\d,]*\.\d{2})|$)",
         re.DOTALL,
     )
-    for txn_date, amount, desc in pattern.findall(_compact(block)):
+    for txn_date, amount, desc in pattern.findall(compact_whitespace(block)):
         signed = round(abs(_money(amount)) * sign, 2)
         txns.append(Transaction(
             date=_iso(txn_date),
-            description=_compact(desc),
+            description=compact_whitespace(desc),
             amount=signed,
             direction="credit" if signed > 0 else "debit",
         ))
@@ -235,7 +232,7 @@ def parse_southside_scanned_statement(markdown: str) -> Statement | None:
     if "SOUTHSIDE" not in upper or "ACCOUNT SUMMARY" not in upper or "BUILDER ACCOUNT" not in upper:
         return None
 
-    text = _compact(markdown)
+    text = compact_whitespace(markdown)
     stmt = Statement(bank="Southside Bank", currency="USD")
     # Digits must directly follow the label: an occurrence corrupted by stray
     # OCR quote glyphs is skipped in favor of a clean later occurrence
@@ -296,11 +293,11 @@ def _parse_two_column_mdyy_rows(block: str, *, year: int, sign: int) -> list[Tra
         r"(\d{1,2}/\d{2})\s+(.+?)\s+(\d[\d,]*\.\d{2})(?=(?:\s+\d{1,2}/\d{2}\s)|$)",
         re.DOTALL,
     )
-    for mmdd, desc, amount in pattern.findall(_compact(block)):
+    for mmdd, desc, amount in pattern.findall(compact_whitespace(block)):
         signed = round(abs(_money(amount)) * sign, 2)
         txns.append(Transaction(
             date=_date_from_mdyy(mmdd, year=year),
-            description=_compact(desc),
+            description=compact_whitespace(desc),
             amount=signed,
             direction="credit" if signed > 0 else "debit",
         ))
@@ -323,7 +320,7 @@ def _parse_southside_line_rows(block: str, *, year: int, sign: int) -> list[Tran
         signed = round(abs(_money(amount)) * sign, 2)
         txns.append(Transaction(
             date=_date_from_mdyy(mmdd, year=year),
-            description=_compact(desc),
+            description=compact_whitespace(desc),
             amount=signed,
             direction="credit" if signed > 0 else "debit",
         ))
@@ -422,7 +419,7 @@ def parse_apex_scanned_statement(markdown: str) -> Statement | None:
         return None
 
     source = re.sub(r"(?<=\d)\.(?=\d{3}\.\d{2}\b)", ",", markdown)
-    text = _compact(source)
+    text = compact_whitespace(source)
     holder = _extract_holder_name(markdown)
     stmt = Statement(bank="Apex Bank", account_name=holder, currency="USD")
     acct = re.search(r"Account Number:\s*([*%A-Z0-9]+)", text, re.IGNORECASE)

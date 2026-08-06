@@ -3,17 +3,13 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
+from .date_tokens import iso_from_month_day
 from .money import EITHER_MINUS_DROPPED, parse_amount
 from .schema import Statement, Transaction
 
 
 def _money(value: str | None) -> float | None:
     return parse_amount(value, EITHER_MINUS_DROPPED)
-
-
-def _iso(mmdd: str, year: int) -> str:
-    month, day = [int(part) for part in mmdd.split("/", 1)]
-    return date(year, month, day).isoformat()
 
 
 def _summary(markdown: str) -> tuple[Statement, int] | None:
@@ -94,7 +90,7 @@ def _parse_dated_amount_rows(text: str, *, year: int, sign: int) -> list[Transac
             continue
         signed = round(abs(amount) * sign, 2)
         txns.append(Transaction(
-            date=_iso(m.group(1), year),
+            date=iso_from_month_day(m.group(1), year),
             description=re.sub(r"\s+", " ", m.group(2)).strip(),
             amount=signed,
             direction="credit" if signed >= 0 else "debit",
@@ -111,7 +107,7 @@ def _parse_checks(block: str, *, year: int) -> list[Transaction]:
     txns: list[Transaction] = []
     for mmdd, check_no, amount in re.findall(r"(\d{2}/\d{2})\s+(\*?\d+~?)\s+([\d,]+\.\d{2})", text):
         txns.append(Transaction(
-            date=_iso(mmdd, year),
+            date=iso_from_month_day(mmdd, year),
             description=f"Check {check_no}",
             amount=round(-abs(_money(amount) or 0.0), 2),
             direction="debit",

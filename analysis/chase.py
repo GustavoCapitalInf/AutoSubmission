@@ -2,27 +2,17 @@ from __future__ import annotations
 
 import re
 from datetime import date
-from html import unescape
 
+from .date_tokens import iso_from_month_day
 from .money import parse_digit_scrubbed
 from .schema import Statement, Transaction
+from .tables import clean_cell, table_rows, tables_after
 
-_ROW_RE = re.compile(r"<tr>(.*?)</tr>", re.IGNORECASE | re.DOTALL)
-_CELL_RE = re.compile(r"<td[^>]*>(.*?)</td>", re.IGNORECASE | re.DOTALL)
-_TAG_RE = re.compile(r"<[^>]+>")
 _IMG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE | re.DOTALL)
 _EXPORT_MONTHS = {
     "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
     "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12,
 }
-
-
-def _clean(value: str) -> str:
-    return re.sub(r"\s+", " ", unescape(_TAG_RE.sub("", value))).strip()
-
-
-def _rows(table: str) -> list[list[str]]:
-    return [[_clean(cell) for cell in _CELL_RE.findall(row)] for row in _ROW_RE.findall(table)]
 
 
 #: A Chase amount cell as printed: optional parenthesis/minus/dollar wrapper
@@ -52,11 +42,6 @@ def _period(markdown: str) -> tuple[str, str] | None:
         date(int(sy), months[sm], int(sd)).isoformat(),
         date(int(ey), months[em], int(ed)).isoformat(),
     )
-
-
-def _iso(mmdd: str, year: int) -> str:
-    month, day = [int(part) for part in mmdd.split("/", 1)]
-    return date(year, month, day).isoformat()
 
 
 def _money_required(value: str) -> float:
@@ -107,7 +92,7 @@ def _parse_chase_business_export(markdown: str) -> Statement | None:
         balance = _money_required(balance_match.group(0))
         display_rows.append(Transaction(
             date=current_date.isoformat(),
-            description=_clean(description),
+            description=clean_cell(description),
             amount=round(amount, 2),
             direction="credit" if amount > 0 else "debit",
             running_balance=round(balance, 2),
@@ -135,11 +120,8 @@ def _parse_chase_business_export(markdown: str) -> Statement | None:
 
 
 def _tables_after(markdown: str, heading: str) -> list[str]:
-    pattern = re.compile(
-        rf"(?m)^\s*{re.escape(heading)}(?: \(continued\))?\s*$.*?(<table>.*?</table>)",
-        re.IGNORECASE | re.DOTALL,
-    )
-    return [m.group(1) for m in pattern.finditer(markdown)]
+    #: Chase spells a section that breaks across pages "<heading> (continued)".
+    return tables_after(markdown, heading, continued=r"(?: \(continued\))?")
 
 
 def _native_blocks(markdown: str, heading: str) -> list[str]:
@@ -216,7 +198,7 @@ def _parse_native_section(markdown: str, heading: str, *, year: int, sign: int) 
                 continue
             signed = round(abs(amount) * sign, 2)
             txns.append(Transaction(
-                date=_iso(m.group("date"), year),
+                date=iso_from_month_day(m.group("date"), year),
                 description=desc,
                 amount=signed,
                 direction="credit" if signed >= 0 else "debit",
@@ -236,7 +218,7 @@ def _parse_native_checks(markdown: str, *, year: int) -> list[Transaction]:
             if amount is None:
                 continue
             txns.append(Transaction(
-                date=_iso(mmdd, year),
+                date=iso_from_month_day(mmdd, year),
                 description=f"Check Paid {check_no}",
                 amount=round(-abs(amount), 2),
                 direction="debit",
@@ -281,7 +263,7 @@ def _parse_native_summary(text: str, stmt: Statement) -> bool:
 def _parse_txn_table(table: str, *, year: int, sign: int) -> tuple[list[Transaction], list[tuple[str, str]]]:
     txns: list[Transaction] = []
     missing_amounts: list[tuple[str, str]] = []
-    for cells in _rows(table):
+    for cells in table_rows(table):
         if len(cells) < 3:
             continue
         if cells[0].upper() == "DATE" or cells[0].lower().startswith("total"):
@@ -292,7 +274,7 @@ def _parse_txn_table(table: str, *, year: int, sign: int) -> tuple[list[Transact
         if amount_idx is None:
             desc = " ".join(cells[1:]).strip()
             if desc:
-                missing_amounts.append((_iso(cells[0], year), desc))
+                missing_amounts.append((iso_from_month_day(cells[0], year), desc))
             continue
         amount = _money(cells[amount_idx])
         if amount is None:
@@ -300,7 +282,7 @@ def _parse_txn_table(table: str, *, year: int, sign: int) -> tuple[list[Transact
         desc = " ".join(cells[1:amount_idx]).strip()
         signed = round(abs(amount) * sign, 2)
         txns.append(Transaction(
-            date=_iso(cells[0], year),
+            date=iso_from_month_day(cells[0], year),
             description=desc,
             amount=signed,
             direction="credit" if signed >= 0 else "debit",
@@ -310,7 +292,7 @@ def _parse_txn_table(table: str, *, year: int, sign: int) -> tuple[list[Transact
 
 
 def _table_total(table: str, label: str) -> float | None:
-    for cells in _rows(table):
+    for cells in table_rows(table):
         if len(cells) < 2:
             continue
         if label.lower() not in cells[0].lower():
@@ -377,7 +359,7 @@ def parse_chase_statement(markdown: str) -> Statement | None:
     if summary_match:
         debit_total = 0.0
         debit_count = 0
-        for cells in _rows(summary_match.group(1)):
+        for cells in table_rows(summary_match.group(1)):
             if len(cells) < 3:
                 continue
             label = cells[0].lower()

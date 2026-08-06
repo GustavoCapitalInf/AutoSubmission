@@ -2,23 +2,12 @@ from __future__ import annotations
 
 import re
 from datetime import date
-from html import unescape
 
 from .money import parse_money
 from .schema import Statement, Transaction
+from .tables import table_rows, tables_after
 
-_ROW_RE = re.compile(r"<tr>(.*?)</tr>", re.IGNORECASE | re.DOTALL)
-_CELL_RE = re.compile(r"<td[^>]*>(.*?)</td>", re.IGNORECASE | re.DOTALL)
-_TAG_RE = re.compile(r"<[^>]+>")
 _IMG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE | re.DOTALL)
-
-
-def _clean(value: str) -> str:
-    return re.sub(r"\s+", " ", unescape(_TAG_RE.sub("", value))).strip()
-
-
-def _rows(table: str) -> list[list[str]]:
-    return [[_clean(cell) for cell in _CELL_RE.findall(row)] for row in _ROW_RE.findall(table)]
 
 
 def _money(value: str) -> float | None:
@@ -55,11 +44,8 @@ def _period(markdown: str) -> tuple[str, str] | None:
 
 
 def _tables_after(markdown: str, heading: str) -> list[str]:
-    pattern = re.compile(
-        rf"(?m)^\s*{re.escape(heading)}(?: - continued)?\s*$.*?(<table>.*?</table>)",
-        re.IGNORECASE | re.DOTALL,
-    )
-    return [m.group(1) for m in pattern.finditer(markdown)]
+    #: BofA spells a section that breaks across pages "<heading> - continued".
+    return tables_after(markdown, heading, continued=r"(?: - continued)?")
 
 
 def _native_lines(markdown: str, heading: str) -> list[str]:
@@ -207,7 +193,7 @@ def _parse_native_summary(text: str, stmt: Statement) -> bool:
 
 
 def _table_total(table: str, label: str) -> float | None:
-    for cells in _rows(table):
+    for cells in table_rows(table):
         if len(cells) < 2 or label.lower() not in cells[0].lower():
             continue
         for cell in reversed(cells):
@@ -223,7 +209,7 @@ def _parse_section(markdown: str, heading: str, *, total_label: str, sign: int) 
     stated_total = 0.0
 
     for table in _tables_after(markdown, heading):
-        for cells in _rows(table):
+        for cells in table_rows(table):
             if len(cells) < 3 or cells[0].lower() == "date":
                 continue
             txn_date = _parse_date(cells[0])
@@ -283,7 +269,7 @@ def parse_bofa_statement(markdown: str) -> Statement | None:
 
     summary_match = re.search(r"Account summary\s*(<table>.*?</table>)", text, re.IGNORECASE | re.DOTALL)
     if summary_match:
-        for cells in _rows(summary_match.group(1)):
+        for cells in table_rows(summary_match.group(1)):
             if len(cells) < 2:
                 continue
             label = cells[0].lower()

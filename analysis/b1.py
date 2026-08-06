@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
+from .date_tokens import iso_from_month_day
 from .money import LEADING_MINUS_PADDED, parse_amount
 from .schema import Statement, Transaction
 
@@ -29,8 +30,7 @@ def _period(markdown: str) -> tuple[str, str, int] | None:
 
 
 def _iso(mmdd: str, year: int) -> str:
-    month, day = [int(part) for part in mmdd.split("-", 1)]
-    return date(year, month, day).isoformat()
+    return iso_from_month_day(mmdd, year, separator="-")
 
 
 def _ending_totals(markdown: str) -> tuple[float, float, float] | None:

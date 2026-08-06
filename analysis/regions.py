@@ -4,12 +4,11 @@ import re
 from datetime import date
 from html import unescape
 
+from .date_tokens import iso_from_month_day_strict
 from .money import parse_money
 from .schema import Statement, Transaction
+from .tables import TAG_RE, table_rows, tables_after
 
-_ROW_RE = re.compile(r"<tr>(.*?)</tr>", re.IGNORECASE | re.DOTALL)
-_CELL_RE = re.compile(r"<td[^>]*>(.*?)</td>", re.IGNORECASE | re.DOTALL)
-_TAG_RE = re.compile(r"<[^>]+>")
 _IMG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE | re.DOTALL)
 _NATIVE_HEADINGS = (
     "DEPOSITS & CREDITS",
@@ -19,14 +18,6 @@ _NATIVE_HEADINGS = (
     "CHECKS",
     "DAILY BALANCE SUMMARY",
 )
-
-
-def _clean(value: str) -> str:
-    return re.sub(r"\s+", " ", unescape(_TAG_RE.sub("", value))).strip()
-
-
-def _rows(table: str) -> list[list[str]]:
-    return [[_clean(cell) for cell in _CELL_RE.findall(row)] for row in _ROW_RE.findall(table)]
 
 
 def _money(value: str) -> float | None:
@@ -40,7 +31,7 @@ def _money(value: str) -> float | None:
 
 def _plain_text(markdown: str) -> str:
     text = _IMG_RE.sub("", markdown)
-    text = unescape(_TAG_RE.sub(" ", text))
+    text = unescape(TAG_RE.sub(" ", text))
     return re.sub(r"[ \t]+", " ", text)
 
 
@@ -62,29 +53,18 @@ def _period(markdown: str) -> tuple[str, str] | None:
     )
 
 
-def _iso(mmdd: str, year: int) -> str | None:
-    m = re.fullmatch(r"(\d{2})/(\d{2})", mmdd.strip())
-    if not m:
-        return None
-    month, day = m.groups()
-    return date(year, int(month), int(day)).isoformat()
-
-
 def _tables_after(markdown: str, heading: str) -> list[str]:
-    pattern = re.compile(
-        rf"(?m)^\s*{re.escape(heading)}\s*$.*?(<table>.*?</table>)",
-        re.IGNORECASE | re.DOTALL,
-    )
-    return [m.group(1) for m in pattern.finditer(markdown)]
+    #: Regions repeats the bare heading on each page; no "continued" suffix.
+    return tables_after(markdown, heading)
 
 
 def _parse_section(markdown: str, heading: str, *, year: int, sign: int) -> list[Transaction]:
     txns: list[Transaction] = []
     for table in _tables_after(markdown, heading):
-        for cells in _rows(table):
+        for cells in table_rows(table):
             if len(cells) < 3:
                 continue
-            txn_date = _iso(cells[0], year)
+            txn_date = iso_from_month_day_strict(cells[0], year)
             if txn_date is None:
                 continue
             amount_idx = next((idx for idx in range(len(cells) - 1, 1, -1) if _money(cells[idx]) is not None), None)
@@ -138,7 +118,7 @@ def _parse_native_section(markdown: str, heading: str, *, year: int, sign: int) 
         m = re.match(r"^(\d{2}/\d{2})\s+(.+)\s+(\d[\d,]*\.\d{2})(?:\s+\*)?\s*$", row)
         if not m:
             continue
-        txn_date = _iso(m.group(1), year)
+        txn_date = iso_from_month_day_strict(m.group(1), year)
         amount = _money(m.group(3))
         if txn_date is None or amount is None:
             continue
@@ -158,14 +138,14 @@ def _parse_native_checks(markdown: str, *, year: int) -> list[Transaction]:
     for row in _native_rows(markdown, "CHECKS"):
         m = re.match(r"^(\d{2}/\d{2})\s+(\d{3,})\s+\*?\s*(\d[\d,]*\.\d{2})\b", row)
         if m:
-            txn_date = _iso(m.group(1), year)
+            txn_date = iso_from_month_day_strict(m.group(1), year)
             amount = _money(m.group(3))
             description = f"Check {m.group(2)}"
         else:
             m = re.match(r"^(\d{2}/\d{2})\s+(\d[\d,]*\.\d{2})\b", row)
             if not m:
                 continue
-            txn_date = _iso(m.group(1), year)
+            txn_date = iso_from_month_day_strict(m.group(1), year)
             amount = _money(m.group(2))
             description = "Check"
         if txn_date is None or amount is None:
@@ -216,7 +196,7 @@ def parse_regions_statement(markdown: str) -> Statement | None:
         return stmt
 
     fees = checks = 0.0
-    for cells in _rows(summary_match.group(1)):
+    for cells in table_rows(summary_match.group(1)):
         if len(cells) < 2:
             continue
         label = cells[0].lower()

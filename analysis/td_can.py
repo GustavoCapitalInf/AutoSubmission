@@ -6,17 +6,15 @@ layout directly instead of asking the generic extractor to infer it.
 """
 from __future__ import annotations
 
-import html
 import re
 from datetime import date
 
 from .money import parse_money, parse_money_tokens
 from .schema import Statement, Transaction
+from .tables import CELL_RE, clean_cell
 
 _TABLE_RE = re.compile(r"<table>.*?</table>", re.IGNORECASE | re.DOTALL)
 _ROW_RE = re.compile(r"<tr.*?>.*?</tr>", re.IGNORECASE | re.DOTALL)
-_CELL_RE = re.compile(r"<td[^>]*>(.*?)</td>", re.IGNORECASE | re.DOTALL)
-_TAG_RE = re.compile(r"<[^>]+>")
 _PERIOD_RE = re.compile(
     r"\b([A-Z]{3})\s*(\d{1,2})/(\d{2})\s*-\s*([A-Z]{3})\s*(\d{1,2})/(\d{2})\b",
     re.IGNORECASE,
@@ -74,17 +72,12 @@ def normalize_mojibake(text: str) -> str:
     return repaired.replace("\u00a0", " ")
 
 
-def _clean_cell(value: str) -> str:
-    value = _TAG_RE.sub("", value)
-    return re.sub(r"\s+", " ", html.unescape(value)).strip()
-
-
 def _tables(markdown: str) -> list[list[list[str]]]:
     parsed = []
     for table in _TABLE_RE.findall(markdown):
         rows = []
         for row in _ROW_RE.findall(table):
-            cells = [_clean_cell(c) for c in _CELL_RE.findall(row)]
+            cells = [clean_cell(c) for c in CELL_RE.findall(row)]
             if cells:
                 rows.append(cells)
         if rows:

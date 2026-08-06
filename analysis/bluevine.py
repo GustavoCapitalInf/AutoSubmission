@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import datetime
 
+from .date_tokens import iso_from_month_day_year
 from .money import LEADING_MINUS, parse_amount
 from .schema import Statement, Transaction
 
@@ -12,8 +13,7 @@ def _money(value: str | None) -> float | None:
 
 
 def _iso(mmddyy: str) -> str:
-    month, day, year = [int(part) for part in mmddyy.split("/")]
-    return date(2000 + year, month, day).isoformat()
+    return iso_from_month_day_year(mmddyy, century="always")
 
 
 def parse_bluevine_statement(markdown: str) -> Statement | None:
