@@ -30,6 +30,13 @@ UNMASKED — masking stays a serve-time concern in ``webapp/app.py``), so
 ``analysis/`` contract changes never require a schema migration here.
 v2 (O-1) is the first exercise of the hook: an additive ``profile_json``
 column on ``documents`` storing the preflight DocumentProfile.
+v3 (D-3) adds the ``artifact_cache`` INDEX table for the content-addressed
+artifact cache. Only the index lives in SQLite; the artifacts themselves are
+files under ``<data_dir>/artifacts/`` (see ``webapp/artifact_cache.py``), so
+the database never grows by the size of an OCR read. The index is a pure
+derived cache: unlike ``review_decisions``/``audit_log`` it is deliberately
+NOT append-only (hit counters update, stale rows are evicted), and dropping
+the whole table plus the artifact directory only costs recomputation.
 
 Content hash convention (the O-1 handshake)
 -------------------------------------------
@@ -60,7 +67,7 @@ from ocr.inspect import content_sha256
 
 __all__ = ["Storage", "content_sha256", "default_data_dir", "utc_now_iso", "SCHEMA_VERSION"]
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
@@ -70,11 +77,41 @@ def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE documents ADD COLUMN profile_json TEXT")
 
 
+_ARTIFACT_CACHE_V3 = """
+CREATE TABLE IF NOT EXISTS artifact_cache (
+    stage          TEXT    NOT NULL,
+    cache_key      TEXT    NOT NULL,
+    input_sha256   TEXT    NOT NULL,
+    settings_key   TEXT    NOT NULL,
+    format_version INTEGER NOT NULL,
+    artifact_path  TEXT    NOT NULL,
+    byte_size      INTEGER NOT NULL,
+    created_at     TEXT    NOT NULL,
+    last_hit_at    TEXT,
+    hit_count      INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (stage, cache_key)
+);
+CREATE INDEX IF NOT EXISTS idx_artifact_cache_input
+    ON artifact_cache(stage, input_sha256);
+"""
+
+
+def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
+    """v3 (D-3): the artifact-cache INDEX table.
+
+    Additive only — a new table, no existing row or column is touched.
+    ``artifact_path`` is stored RELATIVE to the data directory so a data
+    directory stays relocatable (the tests' tmp dirs are a different path
+    every run)."""
+    conn.executescript(_ARTIFACT_CACHE_V3)
+
+
 #: Forward-only migration hook: ``_MIGRATIONS[N]`` upgrades version N -> N+1.
 #: Fresh databases run the v1 script and then every migration, so there is a
 #: single creation path and the hook is exercised on every new store.
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     1: _migrate_v1_to_v2,
+    2: _migrate_v2_to_v3,
 }
 
 _SHA256_HEX = re.compile(r"^[0-9A-F]{64}$")
@@ -273,6 +310,111 @@ class Storage:
             return path.read_bytes()
         except OSError:
             return None
+
+    # ------------------------------------------------------------------
+    # artifact cache index (D-3) — payloads live on disk, never here
+    # ------------------------------------------------------------------
+
+    def artifact_root(self) -> Path:
+        """Directory holding the cached artifact payload files."""
+        return self.data_dir / "artifacts"
+
+    def cache_lookup(self, stage: str, cache_key: str) -> dict | None:
+        """The index row for a cache key, or None. Read-only: recording the
+        hit is a separate call so a lookup whose payload file turns out to be
+        missing never inflates the hit counter."""
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT stage, cache_key, input_sha256, settings_key, format_version,"
+                " artifact_path, byte_size, created_at, last_hit_at, hit_count"
+                " FROM artifact_cache WHERE stage = ? AND cache_key = ?",
+                (stage, cache_key),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def cache_record(
+        self,
+        stage: str,
+        cache_key: str,
+        *,
+        input_sha256: str,
+        settings_key: str,
+        artifact_path: str,
+        byte_size: int,
+        format_version: int,
+    ) -> None:
+        """Insert or replace the index row for a written artifact. Replace is
+        correct here: the key already pins content + settings + format, so a
+        second write of the same key is the same artifact recomputed."""
+        with closing(self._connect()) as conn, conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO artifact_cache"
+                " (stage, cache_key, input_sha256, settings_key, format_version,"
+                "  artifact_path, byte_size, created_at, last_hit_at, hit_count)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0)",
+                (
+                    stage,
+                    cache_key,
+                    input_sha256,
+                    settings_key,
+                    format_version,
+                    artifact_path,
+                    byte_size,
+                    utc_now_iso(),
+                ),
+            )
+
+    def cache_record_hit(self, stage: str, cache_key: str) -> None:
+        with closing(self._connect()) as conn, conn:
+            conn.execute(
+                "UPDATE artifact_cache SET hit_count = hit_count + 1, last_hit_at = ?"
+                " WHERE stage = ? AND cache_key = ?",
+                (utc_now_iso(), stage, cache_key),
+            )
+
+    def cache_forget(self, stage: str, cache_key: str) -> None:
+        """Drop an index row (used when its payload file has gone missing)."""
+        with closing(self._connect()) as conn, conn:
+            conn.execute(
+                "DELETE FROM artifact_cache WHERE stage = ? AND cache_key = ?",
+                (stage, cache_key),
+            )
+
+    def cache_entries(
+        self, stage: str | None = None, *, input_sha256: str | None = None
+    ) -> list[dict]:
+        clauses = []
+        params: list[object] = []
+        for column, value in (("stage", stage), ("input_sha256", input_sha256)):
+            if value is not None:
+                clauses.append(f"{column} = ?")
+                params.append(value)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                "SELECT stage, cache_key, input_sha256, settings_key, format_version,"
+                " artifact_path, byte_size, created_at, last_hit_at, hit_count"
+                f" FROM artifact_cache{where} ORDER BY stage, created_at, cache_key",
+                params,
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def cache_stats(self) -> dict[str, dict[str, int]]:
+        """Per-stage entry count, total artifact bytes and accumulated hits —
+        the one query the discovery runner needs for its cache report."""
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                "SELECT stage, COUNT(*) AS entries, COALESCE(SUM(byte_size), 0) AS bytes,"
+                " COALESCE(SUM(hit_count), 0) AS hits FROM artifact_cache GROUP BY stage"
+            ).fetchall()
+            return {
+                row["stage"]: {
+                    "entries": int(row["entries"]),
+                    "bytes": int(row["bytes"]),
+                    "hits": int(row["hits"]),
+                }
+                for row in rows
+            }
 
     # ------------------------------------------------------------------
     # documents / jobs

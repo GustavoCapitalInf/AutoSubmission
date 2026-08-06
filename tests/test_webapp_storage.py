@@ -343,13 +343,15 @@ def test_audit_rows_for_upload_review_and_export(store):
 
 def test_fresh_store_lands_on_the_current_schema_version(data_dir):
     assert Storage(data_dir).schema_version() == SCHEMA_VERSION
-    assert SCHEMA_VERSION == 2
+    # D-3 delta: was 2; v3 adds the artifact_cache index table.
+    assert SCHEMA_VERSION == 3
 
 
-def test_v1_store_migrates_forward_to_v2(data_dir):
+def test_v1_store_migrates_forward_to_the_current_schema(data_dir):
     """Open a hand-built v1 database (the exact D-1 script, version row 1,
     with a seeded pre-migration document row) and verify the forward-only
-    migration hook carries it to v2 without touching existing data."""
+    migration hook carries it all the way forward without touching existing
+    data. (D-3 delta: renamed from ...to_v2 — the walk is now v1 -> v3.)"""
     from webapp.storage import _SCHEMA_V1
 
     data_dir.mkdir(parents=True)
@@ -366,12 +368,42 @@ def test_v1_store_migrates_forward_to_v2(data_dir):
             conn.execute("SELECT profile_json FROM documents")
 
     storage = Storage(data_dir)
-    assert storage.schema_version() == 2
+    assert storage.schema_version() == SCHEMA_VERSION
     with sqlite3.connect(storage.db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute("SELECT filename, profile_json FROM documents").fetchone()
+        # v3's additive table is there too, and is empty.
+        assert conn.execute("SELECT COUNT(*) FROM artifact_cache").fetchone()[0] == 0
     assert row["filename"] == "legacy.pdf"  # pre-migration data intact
     assert row["profile_json"] is None      # additive column, NULL for old rows
+
+
+def test_v2_store_migrates_forward_to_v3(data_dir):
+    """D-3: a v2 database (D-1 script + O-1's profile column, version row 2)
+    gains only the artifact_cache table — no existing row is touched."""
+    from webapp.storage import _SCHEMA_V1, _migrate_v1_to_v2
+
+    data_dir.mkdir(parents=True)
+    with sqlite3.connect(data_dir / "webapp.db") as conn:
+        conn.executescript(_SCHEMA_V1)
+        _migrate_v1_to_v2(conn)
+        conn.execute("INSERT INTO schema_version (version, applied_at) VALUES (2, 'seed')")
+        conn.execute(
+            "INSERT INTO documents (content_sha256, filename, byte_size, page_count,"
+            " uploaded_at, profile_json) VALUES (?, 'v2.pdf', 7, 1, 'seed', '{}')",
+            (content_sha256(PDF),),
+        )
+        with pytest.raises(sqlite3.OperationalError):
+            conn.execute("SELECT * FROM artifact_cache")
+
+    storage = Storage(data_dir)
+    assert storage.schema_version() == 3
+    with sqlite3.connect(storage.db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT filename, profile_json FROM documents").fetchone()
+        assert conn.execute("SELECT COUNT(*) FROM artifact_cache").fetchone()[0] == 0
+    assert row["filename"] == "v2.pdf"   # pre-migration data intact
+    assert row["profile_json"] == "{}"   # and unmodified
 
 
 def test_document_profile_round_trip(store):
