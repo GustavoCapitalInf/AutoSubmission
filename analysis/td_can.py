@@ -403,7 +403,12 @@ def parse_td_canada_statement(markdown: str, base: Statement | None = None) -> S
             desc, debit_cell, credit_cell, date_cell = cells[:4]
             balance_cell = cells[4] if len(cells) >= 5 else ""
             if default_year is None:
-                default_year = int((stmt.period_end or "2025")[:4])
+                if not stmt.period_end:
+                    # No printed period evidence anywhere - rows cannot be
+                    # dated; skip instead of assuming a year (R-1 item 8/9
+                    # class: the previous "2025" fallback invented dates).
+                    continue
+                default_year = int(stmt.period_end[:4])
 
             if desc.upper().startswith("BALANCE FORWARD"):
                 bal = _parse_money(balance_cell)

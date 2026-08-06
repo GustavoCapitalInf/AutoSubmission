@@ -9,6 +9,9 @@ from __future__ import annotations
 
 CONFIRMED_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "ACH CAPITAL": ("ACH CAPITAL",),
+    # R-1 item 12a - pre-approved by Ocean (H-2 evidence: WMB May 25, three
+    # ledger debits totaling 18,977.11 matched by MoneyThumb, missed by us).
+    "AFC FUNDING CORP": ("AFC FUNDING CORP", "AFC FUNDING"),
     "AFFIRM": ("AFFIRM", "AFFIRMCOM", "AFFIRM COM", "AFFIRM PAY"),
     "BDC": ("BDC", "BUSINESS DEVELOPMENT BANK OF CANADA"),
     "BITTY ADVANCE": ("BITTY ADVANCE", "BITTY", "MCA SAVINGS"),
@@ -84,6 +87,12 @@ CONFIRMED_LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "GREENBOX CAPITAL": ("GREENBOX CAPITAL", "GREENBOX"),
     "HEADWAY CAPITAL": ("HEADWAY CAPITAL", "HEADWAY"),
     "IDEA FINANCIAL": ("IDEA FINANCIAL", "IDEAFINANCIAL"),
+    # R-1 item 12a - pre-approved by Ocean (H-2 evidence: WMB May 25, six
+    # QuickBooks Capital loan payments "INTUIT FINANCING QBC_PMTS" totaling
+    # 3,967.17). The alias is the two-word phrase on purpose: ordinary
+    # Intuit/QuickBooks software charges (e.g. "VSA PUR INTUIT QBOOKS
+    # ONLINE") must never match.
+    "INTUIT FINANCING": ("INTUIT FINANCING",),
     "IOU FINANCIAL": ("IOU FINANCIAL",),
     "IRUKA": ("IRUKA",),
     "J & A MARKETING": ("J AND A MARKETING", "J A MARKETING"),

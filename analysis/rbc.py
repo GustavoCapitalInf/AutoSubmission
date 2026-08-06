@@ -45,9 +45,10 @@ def _is_credit(desc: str) -> bool:
 
 def _is_debit(desc: str) -> bool:
     # Generic banking transaction types only. Counterparty names are never
-    # sign evidence (R-1 item 7: "FUNDIFI CANADA" / "2313833 ONTARIO" removed;
-    # rows not matching a credit type default to debit below, and printed
-    # running balances drive the sign solver, so behaviour is unchanged).
+    # sign evidence (R-1 item 7: the two memorized counterparty entries were
+    # removed; rows not matching a credit type default to debit below, and
+    # printed running balances drive the sign solver, so behaviour is
+    # unchanged - see R1_HARDCODE_LOG.md).
     text = desc.upper()
     return any(key in text for key in (
         "MONTHLY FEE",
