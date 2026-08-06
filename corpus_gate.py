@@ -32,6 +32,9 @@ Guarantees:
   are counted and reported ("N non-corpus PDFs present — ignored"). Never
   silently, and never a failure: they are not the validated corpus and the gate
   makes no claim about them.
+- Platform-neutral. Path-valued audit columns (`PATH_VALUED_FIELDS`) compare
+  without regard to separator, so the same corpus reproduces the same audits on
+  Windows and on a Linux runner. Every other field still compares byte for byte.
 - Read-only against the truth set. The audit CSVs are consumed, never written.
   Regenerating them is `adb_forensic_audit.py` / `balance_forensic_audit.py`,
   which is a separate, deliberate act.
@@ -67,6 +70,15 @@ WITHHELD_STATEMENTS = {
     "BMO_Statement_January_2026 Final-1-2 (1).pdf",
     "IBC April (1).pdf",
 }
+
+# Audited columns whose value is a path, compared without regard to separator.
+# `folder` (ADB audit) is written with os.sep, so the committed CSV carries
+# Windows backslashes and a Linux re-run reproduces forward slashes; `path`
+# (balance audit) is already POSIX everywhere and is listed so a future
+# regeneration on Windows cannot reintroduce the same split. Keep this list
+# minimal — see `comparable`. Note that `statement` is NOT here: a filename may
+# legitimately contain a backslash on POSIX, and that difference must fail.
+PATH_VALUED_FIELDS = frozenset({"folder", "path"})
 
 # Statements the gate cannot cover offline. Empty by design: every image-only
 # statement has a committed OCR artifact. An entry here must name the file and
@@ -168,6 +180,21 @@ def relative_key(row: dict[str, str]) -> str:
     return row["statement"] if folder in {"", "."} else f"{folder}/{row['statement']}"
 
 
+def comparable(column: str, value: str) -> str:
+    """Render one audited field for comparison, separator-agnostic if it is a path.
+
+    Only `PATH_VALUED_FIELDS` are normalised, and deliberately so. The ADB audit
+    stores `folder` with the OS-native separator, so a CSV written on Windows
+    pins `Others\\Altana` while a Linux re-run reproduces `Others/Altana` — the
+    same folder, rendered by a different os.sep, with no financial field
+    involved. A blanket replace across every column would also silently equate
+    two genuinely different values that happen to contain a backslash, which is
+    the opposite of what this gate is for: an escaped string inside a
+    description or a root_cause must still be able to fail.
+    """
+    return value.replace("\\", "/") if column in PATH_VALUED_FIELDS else value
+
+
 def compare_rows(
     fresh: list[dict[str, str]],
     committed: list[dict[str, str]],
@@ -190,7 +217,7 @@ def compare_rows(
     for name in sorted(set(fresh_by_key) & set(committed_by_key)):
         want, got = committed_by_key[name], fresh_by_key[name]
         for column in want:
-            if want[column] != got.get(column, ""):
+            if comparable(column, want[column]) != comparable(column, got.get(column, "")):
                 drifted += 1
                 if len(details) < limit:
                     details.append(
