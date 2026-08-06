@@ -11,3 +11,4 @@ frontend/node_modules/
 # Do NOT ignore BankStatements/ — samples are needed for golden tests
 
 .claude/
+moneythumbResults/
