@@ -27,6 +27,47 @@ _MONTHS = {
 }
 
 
+#: Signature sequences that only occur when UTF-8 bytes were mis-decoded as
+#: cp1252/latin-1 ("mojibake"). Written as escapes on purpose: source code
+#: never carries raw mojibake byte sequences (R-1 item 11).
+_MOJIBAKE_MARKERS = ("\u00c3", "\u00e2\u20ac", "\u00c2")
+#: Targeted fallback for mixed content where the full-text reversal fails.
+_MOJIBAKE_TABLE = {
+    "\u00e2\u20ac\u201d": "\u2014",  # em dash
+    "\u00e2\u20ac\u201c": "\u2013",  # en dash
+    "\u00e2\u20ac\u02dc": "\u2018",  # left single quote
+    "\u00e2\u20ac\u2122": "\u2019",  # right single quote
+    "\u00c3\u2021": "\u00c7",  # C-cedilla (upper)
+    "\u00c3\u2030": "\u00c9",  # E-acute (upper)
+    "\u00c3\u00a9": "\u00e9",  # e-acute
+    "\u00c3\u00a8": "\u00e8",  # e-grave
+    "\u00c3\u00aa": "\u00ea",  # e-circumflex
+    "\u00c3\u00a7": "\u00e7",  # c-cedilla
+    "\u00c3\u00a0": "\u00e0",  # a-grave
+    "\u00c3\u00b4": "\u00f4",  # o-circumflex
+    "\u00c3\u00ae": "\u00ee",  # i-circumflex
+    "\u00c2\u00a0": " ",  # doubly-encoded NBSP
+}
+
+
+def normalize_mojibake(text: str) -> str:
+    """Repair double-encoded (UTF-8 read as cp1252) text; NBSP becomes space.
+
+    R-1 item 11: parsers normalize encoding FIRST and then match real
+    characters - regexes never carry mojibake byte sequences. Clean text
+    passes through unchanged, so already-correct sources are untouched.
+    """
+    if not any(marker in text for marker in _MOJIBAKE_MARKERS):
+        return text.replace("\u00a0", " ")
+    try:
+        repaired = text.encode("cp1252", errors="strict").decode("utf-8", errors="strict")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        repaired = text
+        for wrong, right in _MOJIBAKE_TABLE.items():
+            repaired = repaired.replace(wrong, right)
+    return repaired.replace("\u00a0", " ")
+
+
 def _clean_cell(value: str) -> str:
     value = _TAG_RE.sub("", value)
     return re.sub(r"\s+", " ", html.unescape(value)).strip()
@@ -151,27 +192,41 @@ def _tx(date_value: str, description: str, amount: float, balance: float | None 
 
 
 def _credit_like(description: str) -> bool:
+    """Generic banking-language credit signals only (no merchant names)."""
     text = description.upper()
-    return any(word in text for word in ("PAY", "DEPOSIT", "CREDIT", "E-TRANSFER CR", "PRODIGY"))
+    return any(word in text for word in ("PAY", "DEPOSIT", "CREDIT", "E-TRANSFER CR"))
 
 
-def _debit_like_merchant(description: str) -> bool:
-    text = description.upper()
-    return any(word in text for word in ("DANNY", "CONVENI", "PIZZ", "PHO ", "FRESHCO", "CASH 4 YOU"))
+#: TD prints a transaction-type code as the trailing token of native ledger
+#: descriptions. Sign is determined by these structural codes (R-1 item 8 -
+#: previously merchant-name lists decided sign):
+#:   MSP  merchant services payment (settlement deposit)  -> credit
+#:   CLN  commercial loan disbursement                     -> credit
+#:   PAY  direct-deposit payment received                  -> credit
+#:   GST  government tax remittance/refund                 -> credit
+#:   BUS  business pre-authorized debit                    -> debit
+_NATIVE_CREDIT_CODES = {"MSP", "CLN", "PAY", "GST"}
+_NATIVE_DEBIT_CODES = {"BUS"}
 
 
 def _native_credit_like(description: str) -> bool:
+    """Sign from TD's own transaction codes, never from counterparty names."""
     text = description.upper()
-    return (
-        "LIGHTSPEED" in text
-        or "PRODIGY" in text
-        or "GOUV." in text
-        or "CANADA MSP" in text
-        or "CANACAP CLN" in text
-        or text.startswith("RQ ")
-        or text.startswith("E-TRANSFER ***")
-        or "TFR-FR" in text
-    )
+    if "TFR-FR" in text:          # transfer from another account
+        return True
+    if "TFR-TO" in text:          # transfer to another account
+        return False
+    if text.startswith("SEND E-TFR"):
+        return False
+    if text.startswith("E-TRANSFER"):
+        return True
+    tokens = text.split()
+    if tokens:
+        if tokens[-1] in _NATIVE_DEBIT_CODES:
+            return False
+        if tokens[-1] in _NATIVE_CREDIT_CODES:
+            return True
+    return False
 
 
 def _parse_native_td_canada(markdown: str, base: Statement | None = None) -> Statement | None:
@@ -369,7 +424,11 @@ def parse_td_canada_statement(markdown: str, base: Statement | None = None) -> S
                     shifted_amount = abs(_money_tokens(date_cell)[0])
                     if _money_tokens(debit_cell) or _money_tokens(credit_cell):
                         pending_credit = (shifted_amount, shifted_dates[0])
-                    elif _credit_like(desc) or not _debit_like_merchant(desc):
+                    elif _credit_like(desc):
+                        # Column-shifted amount with no printed column evidence:
+                        # emit only on a generic credit signal; otherwise skip
+                        # the row (fail closed) rather than guess a sign from
+                        # counterparty names (R-1 item 8).
                         transactions.append(_tx(shifted_dates[0], desc, shifted_amount))
                     dates = dates or shifted_dates
                     balance = None
@@ -391,8 +450,11 @@ def parse_td_canada_statement(markdown: str, base: Statement | None = None) -> S
                     rb = balance if i == len(debits) - 1 else None
                     transactions.append(_tx(split_dates[i], desc, -amount, rb))
             if credits:
-                sign = -1 if _debit_like_merchant(desc) else 1
-                transactions.append(_tx(dates[0], desc, sign * credits[0], balance if not debits else None))
+                # Trust the bank's printed DEPOSIT/CREDIT column. Reconciliation
+                # against the stated summary fails closed downstream if the
+                # extraction misplaced an amount (R-1 item 8 - merchant-name
+                # sign overrides removed).
+                transactions.append(_tx(dates[0], desc, credits[0], balance if not debits else None))
 
     if not transactions:
         return None
