@@ -1,0 +1,53 @@
+# Feature Parity Matrix — Us vs MoneyThumb
+
+Phase 1 audit — MoneyThumb Replacement Initiative. Author: Ocean. Date: 2026-08-06.
+Benchmark evidence: `moneythumbResults/results/` (5 usable result sets + 1 OCR stub).
+MoneyThumb is NOT ground truth; classifications below weigh mathematical defensibility,
+not visual matching.
+
+Legend: ✅ Better than MoneyThumb · 🟡 Equivalent · 🔴 Missing / materially behind.
+
+| # | Capability | Verdict | Why |
+|---|-----------|---------|-----|
+| 1 | Architecture (auditability) | ✅ | Our LLM-transcribes/Python-computes split, reconciliation-gated trust flags, and fail-closed serialization are stronger than MoneyThumb's observable behavior: MT reports the printed ending balance (985,600.00) as the headline for bmo_jan even though its own calculation (520,426.00) failed reconciliation — our pipeline nulls unreconciled balances at export. |
+| 2 | OCR (scanned documents) | 🔴 | MT processes scans asynchronously at scale (klr_may returned 202 + webhook). We run local Unlimited-OCR at ~23 s/page, 1 worker, provider-coupled postprocessing, tesseract as a webapp-only bolt-on, and no async job contract. Our cost story is better (local GPU, $0 marginal); our throughput and generality are behind. |
+| 3 | Unknown-bank support | 🔴 | MT extracted and reconciled 94 transactions from a bank it labeled "Unknown" (wmb_may) and correctly identified Dakota West Credit Union (field_trucking). Our generality rests on (a) 43 corpus-shaped parsers and (b) a Gemini fallback that PROJECT_GOAL.md wants removed from the zero-vendor-cost path. We have no generic layout-understanding layer of our own. |
+| 4 | Transaction extraction (covered banks) | 🟡 | On the 109-PDF corpus we extract complete ledgers with running balances and 106/109 fully validated. MT's payload does not even include a complete debit ledger (its CSV export is "Deprecated"). But our coverage is corpus-shaped; MT supports thousands of layouts. Equivalent where we compete; they win on breadth (see #3). |
+| 5 | Full-ledger output | ✅ | We export every posted transaction with classification evidence in JSON/CSV/XLSX. MT's JSON has only credit lists plus themed debit subsets (large/mca/transfers/repeating); the complete ledger is deprecated with no replacement. |
+| 6 | Account detection (bank identity) | 🟡 | We detect the 44 corpus banks deterministically and record bank name; MT adds FDIC registry enrichment (fdicname/address) and bank phone/URL detection — nice-to-have metadata we lack, but its core detection misfired on bmo (owner "Interest Earned", language "fr"). |
+| 7 | Account segmentation (multi-account PDFs) | 🔴 | MT splits one Chase PDF into checking + savings with independent summaries, daily balances, and thumbprints (chase_dec), and flags detected-but-empty secondary accounts with operator suggestions. Our `Statement` schema is single-account; parsers pick one account and silently drop the rest (Truist, Navy Federal). |
+| 8 | Reconciliation | ✅ | Ours: sum check (±$0.01), running-balance continuity, 4-variant summary identity, coverage bands, reversal netting, escalation, and fail-closed downstream consumption — plus independently re-derived proofs for the 3 withheld statements. MT has triple end-balance comparison and a `reconciled` flag but demonstrably lets unreconciled headline numbers through (bmo_jan). |
+| 9 | Average Daily Balance | ✅ | Ours is Decimal, reconstructed from opening + postings with bank snapshots as overrides, 12+ named validation checks, per-day source markers, and a debug trace; withheld when unprovable. MT emits `avg_balance` with no verifiable basis — its `daily_balances` list only covers activity days, so consumers cannot even recompute its ADB. |
+| 10 | Daily balances | 🟡 | We produce a complete per-calendar-day ledger with source markers when validated (better quality), but only when ADB validation passes, and only per statement. MT emits daily balances for every scorecard including multi-month packages, with OD-adjusted and "true balance" variants we lack. Equivalent overall: ours deeper, theirs broader. |
+| 11 | Revenue intelligence | 🟡 | Both split gross vs true revenue. Ours: three-state classification with a conservation identity, per-row evidence, analyst review loop — more defensible. MT: carries "true" duality through EVERY metric (true ADB, true cash flow, true negative days, true profit/expenses) and derived ratios (DTI %, DSCR, avg monthly revenue trios) that underwriters use and we do not compute. Different halves of the same capability. |
+| 12 | Lender / MCA intelligence | 🟡 | Ours: 67-lender registry, evidence-linked matches, cadence-verified recurring-debit candidates, per-funder withholding exposure, fail-closed "potential" tier. MT: named-lender attribution incl. funding-deposit detection with dates, per-month per-lender withdrawal count/total/latest amount, position counts, withhold % — richer time-series presentation. Detection quality comparable on the benchmark; their aggregation views are ahead. |
+| 13 | Package analysis (multi-statement) | 🔴 | MT merges 3 PDFs into one scorecard: 6 account-month rows, cross-month balance chaining, package revenue statistics, monthly MCA cadence, workdays (chase_jan_feb_mar). We aggregate jobs into a package payload with a days-weighted ADB — genuinely rigorous — but packages are ephemeral browser state, months are counted as `max(1, statement_count)`, and there are no month-gap, overlap, duplicate-statement, or same-account coherence checks. |
+| 14 | Cross-account transfer matching | 🔴 | MT links a transfer to its counterpart transaction in the sibling account (`Matches` on incoming/outgoing transfers). We classify transfers but never match them across accounts/statements. |
+| 15 | Explainability | ✅ | Every classification carries method/alias/rule/confidence/reason/context/source-location; ADB has a full per-day trace; reconciliation lists every issue; audit CSVs are hash-pinned. MT's explainability is thin (label-keyed stats, a mislabeled "Total Revenue" that actually equals net cash flow, string-typed everything). |
+| 16 | Fraud / tamper detection | 🔴 | MT's Thumbprint scored the tampered BMO statement 883 with human-readable reasons (decimal misalignment, editor-produced PDF, font inconsistencies) plus PDF producer forensics, typo counts, and duplicate-file detection. We detect arithmetic/structural contradictions (`possible_document_issue`, missing declared pages, conflicting summaries) — mathematically sound but blind to PDF-level forensics (metadata, producer, fonts, object history). PROJECT_GOAL.md already lists this as remaining work. |
+| 17 | Dashboard | ✅ | Ours is an interactive underwriting workspace: metric grid, evidence tables, filterable ledger, inline revenue review, package drill-down. MT's benchmark output is a JSON API (its UI wasn't benchmarked, but our dashboard already exceeds the JSON's presentational structure). Caveat: no source-document viewer wired in, and nothing persists. |
+| 18 | API | 🔴 | MT: stable public API with job tracking, webhooks for async OCR, billing units, duplicate-submission detection. Ours: 14 unversioned unauthenticated Flask routes on an in-memory store; results vanish on restart; no idempotency; scans block synchronously. Our payload content is better; the API as a product is far behind. |
+| 19 | Exports | 🟡 | We ship md/html/json/csv/xlsx per statement and package (MT's csv/log URLs are literally "Deprecated"), and our JSON is richer and typed. But our CSV/XLSX are long-format `section,field,value` sheets (JSON-in-a-cell, string-typed XLSX), the package export omits the ledger, and there is no flat transaction table an analyst can pivot. Better content, worse ergonomics. |
+| 20 | Processing speed | 🔴 | Native/deterministic statements are fast, but scanned documents cost ~23 s/page serially (1 worker), the whole webapp processes jobs one at a time, and there is no caching — identical re-uploads re-pay full OCR. MT is an async industrial pipeline. |
+| 21 | Operational cost | ✅ | ~$0 marginal for the deterministic + local-OCR path vs ~$3/statement for MoneyThumb. Gemini fallback costs pennies (flash-lite) but is slated for removal from the production path. This is the core business case and it is real. |
+| 22 | Maintainability | 🔴 | 43 hand-grown parsers, 38 `_money` clones, dispatch by ordered substring sniffing, corpus-specific hardcodes, orchestrator contamination, duplicated preflight logic. Every new bank is code, not data. MT's internals are unknown, but our own trajectory is unsustainable without a parser platform — this is a self-assessed 🔴. |
+| 23 | Scalability | 🔴 | Single-process, single-worker, in-memory everything; unbounded queue; no persistence; no horizontal story. Analysis math would scale fine; the serving layer will not. |
+| 24 | Regression / validation infrastructure | ✅ | 523 tests, hash-pinned corpus audits with independent oracles, fail-closed proofs for withheld statements. Nothing in MT's output suggests comparable discipline (headline-vs-calculated contradiction shipped). Caveat: corpus-wide checks are manually triggered (see RISK_REGISTER R-7). |
+| 25 | Underwriting ratios (DTI, DSCR, withhold %, monthly trends) | 🔴 | MT computes DTI %, DSCR, MCA withhold %, average-monthly revenue trios, months-since-last-negative, workdays. We compute withholding rate + exposure only. These are cheap derived metrics on top of data we already have. |
+| 26 | Duplicate-document detection | 🔴 | MT flags `file_previously_seen` (numInLast3Days). We mint a fresh UUID per upload; the same PDF double-counts in a package silently. Content hashing exists only in audit scripts. |
+
+## Scorecard
+
+- ✅ Better: 7 (architecture, full ledger, reconciliation, ADB, explainability, dashboard, cost, validation infra — 8 counting #24)
+- 🟡 Equivalent: 6
+- 🔴 Missing/behind: 12
+
+## Reading
+
+Our **financial core is better than MoneyThumb's** — more defensible, more explainable,
+fail-closed where MT demonstrably is not (bmo_jan headline). Our **product shell is far
+behind** — breadth (unknown banks, scans at speed), structure (multi-account, packages as
+entities, cross-account matching), derived underwriting views (true-balance duality,
+DTI/DSCR, monthly cadence), fraud forensics, and an API/persistence layer worthy of the
+word "production." The roadmap must close the shell gaps without touching the core's
+integrity guarantees.
