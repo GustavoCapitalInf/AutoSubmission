@@ -17,9 +17,15 @@ _SUMMARY_RE = re.compile(
 _AVG_RE = re.compile(r"Average ledger balance\s+\$?[\d,]+\.\d{2}\s+(-?\$?[\d,]+\.\d{2})", re.IGNORECASE)
 
 
-def _infer_year(markdown: str) -> int:
+def _infer_year(markdown: str) -> int | None:
+    """First 4-digit year printed in the document, or None.
+
+    No fabricated default: a statement whose text carries no year evidence
+    cannot be dated, and the parser fails closed instead of guessing (R-1
+    item 9 - the previous hardcoded ``2026`` fallback invented dates).
+    """
     years = [int(y) for y in re.findall(r"\b(20\d{2})\b", markdown)]
-    return years[0] if years else 2026
+    return years[0] if years else None
 
 
 def _iso(mmdd: str, *, year: int) -> str:
@@ -46,6 +52,8 @@ def parse_wells_statement(markdown: str, base: Statement | None = None) -> State
     if "WF_NATIVE_TRANSACTIONS" not in markdown or "WELLS FARGO" not in markdown.upper():
         return None
     year = _infer_year(markdown)
+    if year is None:
+        return None
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "Wells Fargo"
 

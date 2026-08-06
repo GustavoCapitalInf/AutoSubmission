@@ -9,3 +9,8 @@ logs.txt
 node_modules/
 frontend/node_modules/
 # Do NOT ignore BankStatements/ — samples are needed for golden tests
+
+.claude/
+moneythumbResults/
+benchmark_reports/
+webapp_data/

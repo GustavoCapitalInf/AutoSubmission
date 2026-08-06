@@ -34,13 +34,24 @@ For every supported statement format, the platform should:
 
 ## Current Baseline
 
-Measured against the repository corpus as of July 30, 2026:
+Measured against the repository corpus as of August 6, 2026:
 
-- 105 of 105 statement PDFs parse.
-- 103 of 105 statements have validated Average Daily Balance results.
-- 102 of 105 statements pass strict ADB and corporate-use approval.
-- 37 bank labels have at least one corporate-validated fixture.
-- 323 automated tests pass.
+- 109 of 109 statement PDFs parse (103 digital/native, 6 local-OCR scans).
+- 106 of 109 statements pass the independent Average Daily Balance audit; the
+  other 3 are withheld source contradictions, which is the intended fail-closed
+  result rather than a defect. See `docs/adb-forensic-audit.md`.
+- 106 of 109 statements pass the independent opening/ending/highest/lowest
+  balance audit across backend, API, dashboard, CSV, XLSX, and package
+  surfaces, with the same 3 withheld. See
+  `docs/balance-metrics-production-audit.md`.
+- 44 bank labels and 44 parser variants are represented in the audited corpus;
+  41 of the 44 banks have at least one fully validated statement. The 3 without
+  one (BMO, Farmers & Merchants, IBC) are represented by a single statement
+  each, and all three of those are the withheld source contradictions.
+- 533 automated tests pass in the default suite (about 50 seconds). The corpus
+  gate runs separately (`python corpus_gate.py`, or `pytest -m corpus`, about 5
+  minutes) and re-verifies all 109 statements against the committed audits,
+  offline and with no model calls.
 - Local visual OCR runs on the RX 7800 XT without a per-document vendor charge.
 - Recognized formats use deterministic parsers without a Gemini extraction call.
 
@@ -50,12 +61,22 @@ issued by those banks.
 
 ## Known Exceptions
 
-- Farmers & Merchants: the source PDF omits transaction detail required to
-  independently reconstruct the ledger.
-- BMO: the source statement contains conflicting printed totals and numerous
-  running-balance breaks.
-- Chase transaction export: parses, but it is not a complete formal statement
-  and therefore requires manual review.
+The three withheld source contradictions counted in the baseline above are:
+
+- Farmers & Merchants (`Ace_Auto_Final_Cut.pdf`): the source PDF omits
+  transaction detail required to independently reconstruct the ledger.
+- BMO (`BMO_Statement_January_2026 Final-1-2 (1).pdf`): the source statement
+  contains conflicting printed totals and numerous running-balance breaks.
+- IBC (`IBC April (1).pdf`): the printed recap and the complete detail/daily
+  table disagree by $10,000.00 on the closing balance, so no unique daily
+  ledger exists.
+
+Separately, and not counted among the three:
+
+- Chase transaction export (`Chase Business.pdf`): its balance metrics
+  reconcile and it passes both audits, but it is not a complete formal
+  statement — it carries no summary block or statement period — so the pipeline
+  still classifies it `manual_review_required`.
 
 These documents must remain review cases instead of receiving plausible but
 unproven automatic approval.

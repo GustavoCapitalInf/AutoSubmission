@@ -25,7 +25,9 @@ def _mock_processing(monkeypatch, page_count=2):
     monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
     monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: page_count)
 
-    def fake_parse(pdf_bytes, source_file="", on_page_delta=None, on_page_replace=None, force_ocr=False):
+    # O-1 delta: the worker feeds the unified ladder capability flags and a
+    # preflight profile, so worker-level fakes take **kwargs.
+    def fake_parse(pdf_bytes, source_file="", on_page_delta=None, **kwargs):
         if on_page_delta:
             on_page_delta(0, "raw stream")
         return _FakeDoc()
@@ -198,7 +200,7 @@ def test_upload_can_force_visual_ocr(monkeypatch):
     monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
     monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: 1)
 
-    def fake_parse(pdf_bytes, source_file="", on_page_delta=None, on_page_replace=None, force_ocr=False):
+    def fake_parse(pdf_bytes, source_file="", force_ocr=False, **kwargs):
         seen["force_ocr"] = force_ocr
         return _FakeDoc()
 
@@ -221,7 +223,10 @@ def test_upload_can_request_deterministic_parse_mode(monkeypatch):
     seen = {}
     monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
     monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: 1)
-    monkeypatch.setattr("webapp.worker._native_statement", lambda pdf_bytes, filename: _FakeDoc())
+    # O-1 delta: the native rung is patched at its one home in ocr.pipeline
+    # (the worker no longer owns a private ladder to patch).
+    monkeypatch.setattr("ocr.pipeline._native_statement",
+                        lambda pdf_bytes, source_file="": _FakeDoc())
 
     def fake_analyze(markdown, parse_mode="auto"):
         seen["parse_mode"] = parse_mode
@@ -446,3 +451,204 @@ def test_index_page_renders():
     resp = client.get("/")
     assert resp.status_code == 200
     assert b"Unlimited" in resp.data
+
+
+# ---------------------------------------------------------------------------
+# D-1 additions: durable persistence wiring at the endpoint level.
+# (Everything above is unchanged from the in-memory era.)
+# ---------------------------------------------------------------------------
+
+import hashlib
+import json
+
+
+def test_upload_records_content_hash_and_upload_audit(monkeypatch):
+    _mock_processing(monkeypatch)
+    client = app.test_client()
+    job_id = _upload_one(client)["jobs"][0]["id"]
+
+    job = store.get(job_id)
+    expected_sha = hashlib.sha256(b"%PDF-fake").hexdigest().upper()
+    assert job.content_sha256 == expected_sha
+
+    uploads = store.storage.audit_events("upload", job_id=job_id)
+    assert len(uploads) == 1
+
+
+def test_completed_job_releases_pdf_bytes_and_page_serves_from_disk(monkeypatch):
+    from PIL import Image as _Image
+
+    _mock_processing(monkeypatch, page_count=2)
+    monkeypatch.setattr("webapp.app.rasterize_page",
+                        lambda pdf_bytes, n, dpi=100: _Image.new("RGB", (4, 4)))
+    client = app.test_client()
+    job_id = _upload_one(client)["jobs"][0]["id"]
+
+    # RAM release on completion — the acceptance criterion itself.
+    assert store.get(job_id).status == "done"
+    assert store.get(job_id).pdf_bytes is None
+
+    # /page still works, now disk-backed via the content-hash store.
+    resp = client.get(f"/page/{job_id}/0")
+    assert resp.status_code == 200
+    assert resp.mimetype == "image/png"
+
+
+def test_durable_package_id_reproduces_the_comma_ids_payload(monkeypatch):
+    _mock_processing(monkeypatch)
+    client = app.test_client()
+    job1_id = _upload_one(client)["jobs"][0]["id"]
+    job2_id = _upload_one(client)["jobs"][0]["id"]
+
+    minted = client.post("/package", json={"ids": [job1_id, job2_id]})
+    assert minted.status_code == 200
+    package_id = minted.get_json()["package_id"]
+
+    by_ids = client.get(f"/package_analysis?ids={job1_id},{job2_id}").get_json()
+    by_package = client.get(f"/package_analysis?package_id={package_id}").get_json()
+    assert by_package == by_ids
+    # The durable id is also accepted in the ids slot.
+    by_ids_slot = client.get(f"/package_analysis?ids={package_id}").get_json()
+    assert by_ids_slot == by_ids
+
+
+def test_package_mint_rejects_unknown_job_ids():
+    resp = app.test_client().post("/package", json={"ids": ["nope"]})
+    assert resp.status_code == 404
+    assert resp.get_json()["missing"] == ["nope"]
+
+
+def test_unknown_package_id_returns_404():
+    resp = app.test_client().get("/package_analysis?package_id=not-a-package")
+    assert resp.status_code == 404
+
+
+def test_revenue_review_endpoint_writes_a_durable_decision_row():
+    job = store.create("review-durable.pdf")
+    store.set_result(job.id, "# md", "<h1>md</h1>", analysis={
+        "statement": {
+            "bank": "Test Bank",
+            "transactions": [
+                {
+                    "date": "2026-01-04",
+                    "description": "ACH DEPOSIT",
+                    "amount": 1000.0,
+                    "classification": {
+                        "source_location": "page-1-row-1",
+                        "revenue_classification": "unverified_deposit",
+                        "revenue_initial_classification": "unverified_deposit",
+                    },
+                }
+            ],
+        },
+        "metrics": {"effective_total_deposits": 1000.0},
+        "quality": {"level": "transaction_level", "corporate_use": "approved"},
+        "integrity": {"risk_level": "clear"},
+        "detection": {"known_funders": []},
+    })
+
+    resp = app.test_client().post(
+        f"/analysis/{job.id}/revenue-review",
+        json={"source_location": "page-1-row-1", "decision": "confirm",
+              "actor": "underwriter-jane"},
+    )
+    assert resp.status_code == 200
+
+    history = store.review_history(job.id)
+    assert len(history) == 1
+    assert history[0]["decision"] == "confirm"
+    assert history[0]["actor"] == "underwriter-jane"
+    assert history[0]["decided_at"]
+    prior = json.loads(history[0]["prior_state"])
+    assert prior["revenue_classification"] == "unverified_deposit"
+
+
+def test_download_writes_an_export_audit_row(monkeypatch):
+    _mock_processing(monkeypatch)
+    client = app.test_client()
+    job_id = _upload_one(client)["jobs"][0]["id"]
+
+    assert client.get(f"/download/{job_id}/json").status_code == 200
+    exports = store.storage.audit_events("export", job_id=job_id)
+    assert len(exports) == 1
+    assert json.loads(exports[0]["detail"])["format"] == "json"
+
+
+# ---------------------------------------------------------------------------
+# O-1 additions: preflight surfacing at the upload boundary.
+# ---------------------------------------------------------------------------
+
+import uuid as _uuid
+
+
+def _upload_bytes(client, data_bytes, name="s.pdf"):
+    resp = client.post(
+        "/upload",
+        data={"files": (io.BytesIO(data_bytes), name)},
+        content_type="multipart/form-data",
+    )
+    return resp.status_code, resp.get_json()
+
+
+def test_duplicate_upload_of_identical_bytes_is_flagged(monkeypatch):
+    _mock_processing(monkeypatch)
+    client = app.test_client()
+    unique = b"%PDF-" + _uuid.uuid4().hex.encode()
+
+    _, first = _upload_bytes(client, unique, "jan.pdf")
+    first_job = first["jobs"][0]
+    assert first_job["duplicate_of"] is None
+    assert first_job["content_sha256"] == hashlib.sha256(unique).hexdigest().upper()
+
+    _, again = _upload_bytes(client, unique, "jan-copy.pdf")
+    again_job = again["jobs"][0]
+    assert again_job["duplicate_of"] == first_job["id"]
+    assert again_job["content_sha256"] == first_job["content_sha256"]
+
+    # The durable indication also serves from /status after upload.
+    status = client.get(f"/status/{again_job['id']}").get_json()
+    assert status["content_sha256"] == first_job["content_sha256"]
+    assert status["duplicate_of"] == first_job["id"]
+    assert client.get(f"/status/{first_job['id']}").get_json()["duplicate_of"] is None
+
+
+def test_distinct_bytes_are_not_flagged_as_duplicates(monkeypatch):
+    _mock_processing(monkeypatch)
+    client = app.test_client()
+    _, one = _upload_bytes(client, b"%PDF-" + _uuid.uuid4().hex.encode(), "a.pdf")
+    _, two = _upload_bytes(client, b"%PDF-" + _uuid.uuid4().hex.encode(), "b.pdf")
+    assert one["jobs"][0]["duplicate_of"] is None
+    assert two["jobs"][0]["duplicate_of"] is None
+    assert one["jobs"][0]["content_sha256"] != two["jobs"][0]["content_sha256"]
+
+
+def test_encrypted_pdf_is_rejected_with_the_d2a_error_shape():
+    # Encrypted fixture generated with PyMuPDF (pypdf is not installed here —
+    # the spec's sanctioned fallback). Rejection happens at preflight, before
+    # any page counting, so no processing mocks are needed.
+    import fitz
+
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "secret")
+    encrypted = doc.tobytes(
+        encryption=fitz.PDF_ENCRYPT_AES_256, user_pw="pw", owner_pw="pw"
+    )
+
+    status_code, body = _upload_bytes(app.test_client(), encrypted, "locked.pdf")
+    assert status_code == 400
+    assert body["filename"] == "locked.pdf"
+    assert "password" in body["error"]
+
+
+def test_upload_persists_the_preflight_profile_with_the_document(monkeypatch):
+    _mock_processing(monkeypatch)
+    client = app.test_client()
+    job_id = _upload_one(client)["jobs"][0]["id"]
+
+    profile = store.storage.document_profile(job_id)
+    assert profile is not None
+    assert profile["content_sha256"] == hashlib.sha256(b"%PDF-fake").hexdigest().upper()
+    assert profile["classification"] in {"digital", "scanned", "mixed", "unknown"}
+    # Advisory fields ride along in storage; nothing in production reads them.
+    assert "likely_account_count" in profile
+    assert "layout_signals" in profile

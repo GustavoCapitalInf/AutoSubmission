@@ -1,0 +1,50 @@
+name: Corpus gate
+
+# Required before merge. Re-runs both independent forensic oracles over all 109
+# corpus statements and fails red on any drift from the committed audits.
+#
+# Deliberately offline: no OCR endpoint, no Gemini key, no Tesseract. The six
+# image-only statements are served from committed OCR artifacts, so this job
+# needs nothing but the repository and the analysis dependencies.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  corpus-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-analysis.txt
+          pip install pytest
+
+      - name: Verify the corpus checked out byte-identically
+        # .gitattributes marks PDFs binary. If that ever regresses, the pinned
+        # SHA-256s stop reproducing and every later step is meaningless.
+        run: python -c "import corpus_gate, sys; r = corpus_gate.Result(); corpus_gate.check_source_integrity(r, corpus_gate.corpus_pdfs(corpus_gate.CORPUS), corpus_gate.CORPUS, corpus_gate.read_csv(corpus_gate.BALANCE_CSV)); print(r.checks[0].summary); sys.exit(0 if r.ok else 1)"
+
+      - name: Default test suite
+        run: python -m pytest -q
+
+      - name: Corpus gate
+        run: python corpus_gate.py --json corpus-gate-report.json
+
+      - name: Upload gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-gate-report
+          path: corpus-gate-report.json

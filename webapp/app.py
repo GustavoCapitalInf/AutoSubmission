@@ -2,6 +2,8 @@ from __future__ import annotations
 import io
 import csv
 import json
+import os
+import re
 import threading
 import zipfile
 from collections import deque
@@ -10,7 +12,9 @@ from datetime import UTC, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from math import isfinite
 from flask import Flask, request, jsonify, render_template, Response, abort
+from werkzeug.exceptions import RequestEntityTooLarge
 
+from ocr.inspect import inspect_pdf
 from ocr.rasterize import pdf_page_count, rasterize_page
 from ocr.render import rendered_skeleton, render_boxed
 from analysis.revenue import (
@@ -21,8 +25,31 @@ from analysis.revenue import (
 from .jobs import JobStore
 from .worker import run_job
 
+# Upload ceilings. Every value here is enforced server-side and mirrored in the
+# dropzone caption, so what the operator is told is what the server does.
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+MAX_UPLOAD_FILES = 25
+MAX_UPLOAD_PAGES = 500
+
+# waitress worker threads. The dashboard polls /status, /live and /render for
+# every in-flight job at once, so the stock four would head-of-line block.
+SERVER_THREADS = 16
+
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+# Durable store (D-1): SQLite + on-disk PDFs under WEBAPP_DATA_DIR
+# (default `webapp_data/` at repo root). See webapp/storage.py for the
+# single-writer concurrency contract.
 store = JobStore()
+
+# Startup re-hydration: any job left queued/processing by a previous process
+# is explicitly marked `interrupted` with an explanatory error — never
+# silently lost. Completed jobs need nothing: their artifacts already serve
+# from storage. (Auto-resume is deliberately not attempted: the one-worker
+# queue holds no durable claim on partially processed OCR state, so a clean,
+# explicit interruption the analyst can see beats a half-blind retry.)
+_INTERRUPTED_ON_STARTUP: list[str] = store.mark_interrupted()
+
 _job_queue: deque[tuple[str, bytes, str, bool, str]] = deque()
 _job_queue_lock = threading.Lock()
 _job_worker_active = False
@@ -48,6 +75,78 @@ def _enqueue_job(job_id: str, pdf_bytes: bytes, filename: str, force_ocr: bool, 
             _job_worker_active = True
     if should_start:
         threading.Thread(target=_process_job_queue, daemon=True).start()
+
+
+# Every payload key that carries the account number as printed. `account` is
+# what the transaction classifier stamps onto each classification record;
+# `account_number` is the statement field and the package document column.
+_ACCOUNT_KEYS = frozenset({"account", "account_number"})
+
+
+def _mask_account(value: object) -> str | None:
+    """Last four digits only — `****1234`. Applied at the webapp boundary and
+    nowhere else: `analysis/serialization.py` keeps emitting the number as
+    printed, because the CLI and the forensic oracles reconcile against it."""
+    if value is None:
+        return None
+    text = str(value)
+    if not text.strip():
+        return None
+    digits = "".join(character for character in text if character.isdigit())
+    return "****" + digits[-4:]
+
+
+def _masked(payload: object) -> object:
+    """A masked copy of a served payload. Copies rather than mutates — the job
+    store holds the analyst's authoritative record and must not be rewritten by
+    the act of serving it."""
+    if isinstance(payload, dict):
+        return {
+            key: _mask_account(value)
+            if key in _ACCOUNT_KEYS and not isinstance(value, (dict, list))
+            else _masked(value)
+            for key, value in payload.items()
+        }
+    if isinstance(payload, list):
+        return [_masked(item) for item in payload]
+    return payload
+
+
+_FORMULA_LEAD = ("=", "+", "-", "@", "\t", "\r")
+
+
+# Money-shaped only. `float()` would also accept "-nan" and "+inf", which a
+# spreadsheet reads as the start of a formula rather than as a number.
+_NUMERIC_CELL = re.compile(r"^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$")
+
+
+def _escape_formula(value: object) -> object:
+    """Neutralize a spreadsheet formula-injection cell by prefixing an
+    apostrophe, which Excel and LibreOffice both read as "this is text".
+
+    Negative money (`-1234.56`) parses as a number in both, so it is left
+    alone — escaping it would turn every debit in the export into a string and
+    break the underwriter's arithmetic to defend against nothing."""
+    if not isinstance(value, str) or not value.startswith(_FORMULA_LEAD):
+        return value
+    if _NUMERIC_CELL.match(value):
+        return value
+    return "'" + value
+
+
+def _escaped_rows(rows: list[tuple[str, str, object]]) -> list[tuple]:
+    return [tuple(_escape_formula(cell) for cell in row) for row in rows]
+
+
+_UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _safe_download_name(name: object) -> str:
+    """Whitelist-sanitize a base name for `Content-Disposition`. The uploaded
+    filename is attacker-supplied, so quotes, CR/LF and path separators must
+    never reach the header."""
+    base = _UNSAFE_NAME.sub("_", str(name or ""))[:100]
+    return base if base.strip("._-") else "download"
 
 
 def _adb_rows(metrics: dict) -> list[tuple[str, str, object]]:
@@ -111,7 +210,7 @@ def _analysis_csv(analysis: dict) -> str:
     buf = io.StringIO(newline="")
     writer = csv.writer(buf)
     writer.writerow(["section", "field", "value"])
-    writer.writerows(_analysis_rows(analysis))
+    writer.writerows(_escaped_rows(_analysis_rows(analysis)))
     return buf.getvalue()
 
 
@@ -152,7 +251,7 @@ def _package_csv(package: dict) -> str:
     buf = io.StringIO(newline="")
     writer = csv.writer(buf)
     writer.writerow(["section", "field", "value"])
-    writer.writerows(_package_rows(package))
+    writer.writerows(_escaped_rows(_package_rows(package)))
     return buf.getvalue()
 
 
@@ -184,6 +283,7 @@ def _xlsx_sheet(rows: list[tuple[str, str, object]]) -> str:
 
 
 def _rows_xlsx(rows: list[tuple[str, str, object]]) -> bytes:
+    rows = _escaped_rows(rows)
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("[Content_Types].xml", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -920,34 +1020,97 @@ def index():
     return render_template("index.html")
 
 
+@app.errorhandler(RequestEntityTooLarge)
+def _upload_too_large(_exc):
+    """Flask aborts oversize requests before the view runs; the dashboard only
+    ever parses JSON, so the stock HTML error page would surface as an opaque
+    failure."""
+    return jsonify({
+        "error": f"upload exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB request limit",
+    }), 413
+
+
+def _checked_upload(filename: str, pdf_bytes: bytes) -> tuple[int | None, object, dict | None]:
+    """Server-side gate for a single uploaded file. Returns
+    (page_count, profile, error) with the error exclusive of the other two.
+
+    Validation order and error shape are D-2a's; O-1 adds the preflight
+    profile and rejects password-protected PDFs before any parsing —
+    processing one could only ever fail later with a worse message."""
+    if len(pdf_bytes) > MAX_UPLOAD_BYTES:
+        return None, None, {
+            "error": f"file exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit",
+            "filename": filename,
+        }
+    if not pdf_bytes.startswith(b"%PDF-"):
+        return None, None, {"error": "file is not a PDF", "filename": filename}
+    profile = inspect_pdf(pdf_bytes)
+    if profile.encrypted:
+        return None, None, {
+            "error": "PDF is password-protected; upload a decrypted copy",
+            "filename": filename,
+        }
+    try:
+        page_count = pdf_page_count(pdf_bytes)
+    except Exception:
+        return None, None, {"error": "PDF could not be read", "filename": filename}
+    if page_count > MAX_UPLOAD_PAGES:
+        return None, None, {
+            "error": f"PDF has {page_count} pages (limit {MAX_UPLOAD_PAGES})",
+            "filename": filename,
+        }
+    return page_count, profile, None
+
+
 @app.route("/upload", methods=["POST"])
 def upload():
     files = request.files.getlist("files")
     if not files:
         return jsonify({"error": "no files uploaded"}), 400
+    if len(files) > MAX_UPLOAD_FILES:
+        return jsonify({
+            "error": f"{len(files)} files uploaded (limit {MAX_UPLOAD_FILES} per batch)",
+        }), 400
     force_ocr = request.form.get("force_ocr") == "1"
     parse_mode = request.form.get("parse_mode") or "auto"
     if parse_mode not in {"auto", "deterministic"}:
         return jsonify({"error": "invalid parse_mode"}), 400
 
-    jobs = []
+    # Validate the whole batch before creating any job. A half-accepted upload
+    # would leave the dashboard aggregating an incomplete package with nothing
+    # on screen to say a statement is missing.
+    accepted: list[tuple[str, bytes, int, object]] = []
     for f in files:
         pdf_bytes = f.read()
-        job = store.create(f.filename)
-        job.pdf_bytes = pdf_bytes
-        job.force_ocr = force_ocr
-        job.parse_mode = parse_mode
-        try:
-            job.page_count = pdf_page_count(pdf_bytes)
-        except Exception:
-            job.page_count = 0
-        _enqueue_job(job.id, pdf_bytes, f.filename, force_ocr, parse_mode)
+        page_count, profile, error = _checked_upload(f.filename, pdf_bytes)
+        if error is not None:
+            return jsonify(error), 400
+        accepted.append((f.filename, pdf_bytes, page_count, profile))
+
+    jobs = []
+    for filename, pdf_bytes, page_count, profile in accepted:
+        # Records the document row (with content_sha256) and the job row, and
+        # writes the PDF bytes to the disk store.
+        job = store.create(
+            filename,
+            page_count=page_count,
+            force_ocr=force_ocr,
+            parse_mode=parse_mode,
+            pdf_bytes=pdf_bytes,
+        )
+        # O-1: persist the preflight profile with the document row and flag a
+        # re-upload of identical bytes (the earliest prior job with this hash).
+        store.storage.set_document_profile(job.id, json.dumps(profile.to_dict()))
+        duplicate_of = store.storage.duplicate_of(job.id)
+        _enqueue_job(job.id, pdf_bytes, filename, force_ocr, parse_mode)
         jobs.append({
             "id": job.id,
             "filename": job.filename,
             "page_count": job.page_count,
             "force_ocr": force_ocr,
             "parse_mode": parse_mode,
+            "content_sha256": job.content_sha256,
+            "duplicate_of": duplicate_of,
         })
     return jsonify({"jobs": jobs})
 
@@ -967,6 +1130,12 @@ def status(job_id):
         "parse_model": job.parse_model,
         "force_ocr": job.force_ocr,
         "parse_mode": job.parse_mode,
+        # O-1 additive surfacing: the document hash and, when these exact
+        # bytes were uploaded before, the earliest prior job holding them.
+        "content_sha256": job.content_sha256,
+        "duplicate_of": (
+            store.storage.duplicate_of(job_id) if job.content_sha256 else None
+        ),
     })
 
 
@@ -996,17 +1165,27 @@ def render(job_id):
         abort(404)
     pages = store.pages_live_ordered(job_id)
     page_images = None
-    if job.status == "done" and job.pdf_bytes is not None:
-        try:
-            page_images = [rasterize_page(job.pdf_bytes, i, dpi=200)
-                           for i in range(len(pages))]
-        except Exception:
-            page_images = None  # degrade to boxes-without-crops rather than 500
+    if job.status == "done":
+        # Disk-backed after completion: pdf_bytes is released from RAM when a
+        # job finishes, so completed jobs rasterize from the PDF store.
+        pdf_bytes = store.pdf_bytes(job_id)
+        if pdf_bytes is not None:
+            try:
+                page_images = [rasterize_page(pdf_bytes, i, dpi=200)
+                               for i in range(len(pages))]
+            except Exception:
+                page_images = None  # degrade to boxes-without-crops rather than 500
     return jsonify({"status": job.status, "fragment": render_boxed(pages, page_images)})
 
 
 @app.route("/markdown/<job_id>")
 def markdown(job_id):
+    """RESIDUAL EXPOSURE (accepted, Wave 0): the raw OCR text still carries the
+    account number exactly as printed, and so do /result and the md/html
+    downloads. Masking is deliberately confined to the structured payloads;
+    redacting the source view would destroy the evidence an underwriter checks
+    a disputed figure against. Closing this needs authentication, which is
+    D-2b — not redaction."""
     job = store.get(job_id)
     if job is None or job.status != "done":
         abort(404)
@@ -1019,7 +1198,7 @@ def analysis(job_id):
     if job is None or job.status != "done":
         abort(404)
     return jsonify({
-        "analysis": job.analysis,
+        "analysis": _masked(job.analysis),
         "analysis_error": job.analysis_error,
     })
 
@@ -1044,10 +1223,20 @@ def revenue_review(job_id):
         return jsonify({"error": str(exc)}), 404
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-    stored = store.replace_analysis(job_id, updated)
+    # Free-text actor until authentication exists (D-2b); recorded with the
+    # decision timestamp and the prior classification state in the same
+    # storage transaction that persists the mutated analysis.
+    actor = str(payload.get("actor") or "").strip() or "local-analyst"
+    stored = store.apply_review(
+        job_id,
+        updated,
+        source_location=source_location,
+        decision=decision,
+        actor=actor,
+    )
     if stored is None:
         abort(404)
-    return jsonify({"analysis": stored})
+    return jsonify({"analysis": _masked(stored)})
 
 
 @app.route("/package_analysis")
@@ -1055,13 +1244,45 @@ def package_analysis():
     package = _package_from_request()
     if isinstance(package, tuple):
         return package
-    return jsonify(package)
+    return jsonify(_masked(package))
+
+
+def _requested_job_ids() -> tuple[list[str] | None, tuple | None]:
+    """Resolve the request to an ordered job-id list.
+
+    Accepts the durable form (`?package_id=<id>` minted by POST /package) and
+    the original comma-separated form (`?ids=a,b,c`) unchanged. As a courtesy
+    the ids slot also accepts a durable package id in place of a job id and
+    expands it to the package's members."""
+    package_id = (request.args.get("package_id") or "").strip()
+    if package_id:
+        member_ids = store.package_member_ids(package_id)
+        if member_ids is None:
+            return None, (jsonify({"error": "unknown package id", "missing": [package_id]}), 404)
+        return member_ids, None
+    tokens = [item for item in (request.args.get("ids") or "").split(",") if item]
+    if not tokens:
+        return None, (jsonify({"error": "no job ids supplied"}), 400)
+    ids: list[str] = []
+    missing: list[str] = []
+    for token in tokens:
+        if store.get(token) is not None:
+            ids.append(token)
+            continue
+        member_ids = store.package_member_ids(token)
+        if member_ids is None:
+            missing.append(token)
+        else:
+            ids.extend(member_ids)
+    if missing:
+        return None, (jsonify({"error": "unknown job ids", "missing": missing}), 404)
+    return ids, None
 
 
 def _package_from_request():
-    ids = [item for item in (request.args.get("ids") or "").split(",") if item]
-    if not ids:
-        return jsonify({"error": "no job ids supplied"}), 400
+    ids, error = _requested_job_ids()
+    if error is not None:
+        return error
     jobs = []
     missing = []
     for job_id in ids:
@@ -1075,6 +1296,29 @@ def _package_from_request():
     return _package_analysis(jobs)
 
 
+@app.route("/package", methods=["POST"])
+def create_package():
+    """Mint a durable package id for an ordered set of completed-or-pending
+    job ids. The comma-separated ids form keeps working unchanged; the id
+    returned here can be used as `?package_id=` (or in the ids slot) and
+    reproduces the same member set after a restart."""
+    payload = request.get_json(silent=True) or {}
+    ids = payload.get("ids")
+    if isinstance(ids, str):
+        ids = [item for item in ids.split(",") if item]
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"error": "no job ids supplied"}), 400
+    ids = [str(item) for item in ids]
+    missing = [job_id for job_id in ids if store.get(job_id) is None]
+    if missing:
+        return jsonify({"error": "unknown job ids", "missing": missing}), 404
+    reference = payload.get("reference")
+    package_id = store.create_package(
+        ids, reference=str(reference) if reference else None
+    )
+    return jsonify({"package_id": package_id, "ids": ids})
+
+
 @app.route("/package_download/<fmt>")
 def package_download(fmt):
     if fmt not in ("json", "csv", "xlsx"):
@@ -1082,6 +1326,7 @@ def package_download(fmt):
     package = _package_from_request()
     if isinstance(package, tuple):
         return package
+    package = _masked(package)
     if fmt == "json":
         content = json.dumps(package, indent=2)
         mimetype = "application/json"
@@ -1094,6 +1339,10 @@ def package_download(fmt):
         content = _package_xlsx(package)
         mimetype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         suffix = "xlsx"
+    store.record_export(
+        package_id=(request.args.get("package_id") or "").strip() or None,
+        detail={"format": fmt, "ids": request.args.get("ids") or None},
+    )
     return Response(
         content,
         mimetype=mimetype,
@@ -1104,9 +1353,13 @@ def package_download(fmt):
 @app.route("/page/<job_id>/<int:n>")
 def page(job_id, n):
     job = store.get(job_id)
-    if job is None or job.pdf_bytes is None or n < 0 or n >= job.page_count:
+    if job is None or n < 0 or n >= job.page_count:
         abort(404)
-    image = rasterize_page(job.pdf_bytes, n, dpi=100)
+    # In-memory bytes while the job is in flight; the disk store afterwards.
+    pdf_bytes = store.pdf_bytes(job_id)
+    if pdf_bytes is None:
+        abort(404)
+    image = rasterize_page(pdf_bytes, n, dpi=100)
     buf = io.BytesIO()
     image.save(buf, format="PNG")
     return Response(buf.getvalue(), mimetype="image/png")
@@ -1130,22 +1383,25 @@ def download(job_id, fmt):
     if fmt == "json":
         if job.analysis is None:
             abort(404)
-        content = json.dumps(job.analysis, indent=2)
+        content = json.dumps(_masked(job.analysis), indent=2)
         mimetype = "application/json"
     elif fmt == "csv":
         if job.analysis is None:
             abort(404)
-        content = _analysis_csv(job.analysis)
+        content = _analysis_csv(_masked(job.analysis))
         mimetype = "text/csv"
     elif fmt == "xlsx":
         if job.analysis is None:
             abort(404)
-        content = _analysis_xlsx(job.analysis)
+        content = _analysis_xlsx(_masked(job.analysis))
         mimetype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     else:
+        # Raw OCR source, served verbatim: see the residual-exposure note on
+        # /markdown. Masking the analyst's source view would corrupt it.
         content = job.markdown if fmt == "md" else job.html
         mimetype = "text/markdown" if fmt == "md" else "text/html"
-    base_name = job.filename.rsplit(".", 1)[0]
+    store.record_export(job_id=job_id, detail={"format": fmt})
+    base_name = _safe_download_name(job.filename.rsplit(".", 1)[0])
     return Response(
         content,
         mimetype=mimetype,
@@ -1153,5 +1409,24 @@ def download(job_id, fmt):
     )
 
 
+def _server_config() -> tuple[str, int]:
+    """Loopback by default. The app still has no authentication (that is D-2b),
+    so exposing it beyond this machine has to be a deliberate act rather than
+    the default anyone inherits."""
+    host = os.environ.get("WEBAPP_HOST", "").strip() or "127.0.0.1"
+    port = os.environ.get("WEBAPP_PORT", "").strip() or "5000"
+    return host, int(port)
+
+
+def main() -> None:
+    """Serve through waitress. The Werkzeug development server is never used:
+    its interactive debugger is arbitrary code execution for anyone who can
+    reach the port, and it was previously enabled here with debug=True."""
+    from waitress import serve
+
+    host, port = _server_config()
+    serve(app, host=host, port=port, threads=SERVER_THREADS)
+
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    main()

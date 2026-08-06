@@ -1,0 +1,55 @@
+{
+  "description": "Committed OCR source text for the image-only corpus statements, so the corpus gate runs offline and deterministically. Keyed by the SHA-256 of the source PDF.",
+  "generator": "build_corpus_cache.py",
+  "ocr": "ocr.local_tesseract.parse_local_tesseract (dpi=200, tesseract --psm 6)",
+  "artifacts": [
+    {
+      "statement": "Chase Business.pdf",
+      "path": "Chase/Chase Business.pdf",
+      "pdf_sha256": "E5C8D422FDBE927710BBD33F879882D7D2F6F4A324FDB1F0738FFFBF423D5D72",
+      "artifact": "ocr/E5C8D422FDBE927710BBD33F879882D7D2F6F4A324FDB1F0738FFFBF423D5D72.md",
+      "artifact_sha256": "072F26E034D583ECA4AAFDC23BD0D02F896F8BEB12F71CD165CF8A079293071B",
+      "ocr_model": "local-tesseract-ocr"
+    },
+    {
+      "statement": "Builder June 2026.pdf",
+      "path": "Misc/Builder June 2026.pdf",
+      "pdf_sha256": "4C96DDA28A6728FB42C04D15A77860A0FE8A335FF1BBEC7FAE890524D1645163",
+      "artifact": "ocr/4C96DDA28A6728FB42C04D15A77860A0FE8A335FF1BBEC7FAE890524D1645163.md",
+      "artifact_sha256": "A28A6E2872BF92EC5D60733C717E1CB1F2E02E74F06FD15359B88311E1957BA6",
+      "ocr_model": "local-tesseract-ocr"
+    },
+    {
+      "statement": "Columbia May 26 complete.pdf",
+      "path": "Misc/Columbia May 26 complete.pdf",
+      "pdf_sha256": "0CBD2AD897B90137878F81EF608778735CA0DFEAB23D25793F2C6F1DF6C6127D",
+      "artifact": "ocr/0CBD2AD897B90137878F81EF608778735CA0DFEAB23D25793F2C6F1DF6C6127D.md",
+      "artifact_sha256": "44BCB603BF57CDFE8339CAD4EB8035BEF46515F5830A0E8539B6E7228D923147",
+      "ocr_model": "local-tesseract-ocr"
+    },
+    {
+      "statement": "First Farmers 2026 01-document.pdf",
+      "path": "Misc/First Farmers 2026 01-document.pdf",
+      "pdf_sha256": "58CB0DCC7460A445541C6181F461432BBF948BC31AB7F1C64459FF6ADC8F0243",
+      "artifact": "ocr/58CB0DCC7460A445541C6181F461432BBF948BC31AB7F1C64459FF6ADC8F0243.md",
+      "artifact_sha256": "C53FB08BDA7C02CBE09BBC7F699CCE4DF71438F88A73E03161F77A199506EBA5",
+      "ocr_model": "local-tesseract-ocr"
+    },
+    {
+      "statement": "KLR.May 31,2026 (1).pdf",
+      "path": "Misc/KLR.May 31,2026 (1).pdf",
+      "pdf_sha256": "A4C49ACBC03D905D3A94369311205E93D52D56CB47822D829DD542C0B39E2BCE",
+      "artifact": "ocr/A4C49ACBC03D905D3A94369311205E93D52D56CB47822D829DD542C0B39E2BCE.md",
+      "artifact_sha256": "C7E5F9EC2D4BA62E36EEC85E5065CDB489A6A72BDEE4D4B0B5E5D2EDAECCFB88",
+      "ocr_model": "local-tesseract-ocr"
+    },
+    {
+      "statement": "Regions.pdf",
+      "path": "Regions/Regions.pdf",
+      "pdf_sha256": "98D069AF2A41CC6F4A6E6B6DD94FA2E8C294E18438D817BBBB05CCE1B55E849F",
+      "artifact": "ocr/98D069AF2A41CC6F4A6E6B6DD94FA2E8C294E18438D817BBBB05CCE1B55E849F.md",
+      "artifact_sha256": "722494B9A8082E334F460BFD35226EBE4C7A513651F72801EE0999E37F6C1229",
+      "ocr_model": "local-tesseract-ocr"
+    }
+  ]
+}

@@ -112,7 +112,7 @@ requests instead of single pages.
 ## Usage
 
 ```bash
-.venv/Scripts/python.exe parse.py "BankStatements/CHASE_BANK/Chase Salomon January.pdf" --out output/chase.md
+.venv/Scripts/python.exe parse.py "Bank Statements/Chase/Chase Salomon January.pdf" --out output/chase.md
 # flags: --out FILE (else stdout), --dpi N (default 300), --model NAME (override)
 ```
 
@@ -178,7 +178,7 @@ echo 'GEMINI_API_KEY=your-key-here' > .env
 # batch-triage a whole folder into a CSV (one row per statement)
 .venv/bin/python batch.py output/ --out triage.csv     # folder of .md
 OCR_BASE_URL=http://localhost:8000/v1 OCR_API_KEY=EMPTY \
-    .venv/bin/python batch.py BankStatements/ --out triage.csv   # PDFs (OCR + analyze)
+    .venv/bin/python batch.py "Bank Statements/" --out triage.csv   # PDFs (OCR + analyze)
 ```
 
 The batch CSV carries the key underwriting figures per statement plus a
@@ -204,3 +204,95 @@ eligible-deposit denominator are defined in
 .venv/Scripts/python.exe -m pytest            # fast unit tests (network mocked)
 OCR_BASE_URL=... .venv/Scripts/python.exe -m pytest -m live   # real-endpoint smoke
 ```
+
+## MoneyThumb comparison harness
+
+Offline, re-runnable comparison of the six MoneyThumb benchmark result sets
+against our pipeline, the original statement evidence, and the audited
+expectation CSVs. MoneyThumb is never treated as automatic ground truth:
+every compared field is classified into one of eight outcomes
+(`BOTH_MATCH_EXPECTED | OUR_SYSTEM_CORRECT | MONEYTHUMB_CORRECT |
+BOTH_INCORRECT | DIFFERENT_DEFINITION | SOURCE_CONTRADICTION |
+INSUFFICIENT_EVIDENCE | UNRESOLVED`) with evidence pointers, and the rollup
+proves every MoneyThumb JSON field was either compared, skipped by a
+documented FIELD_MAPPING verdict, or recorded as a capability finding.
+
+```bash
+# One command, fully offline (no OCR endpoint, no Gemini, no network).
+# --mt-results points at the read-only moneythumbResults/ directory
+# (default: <repo>/moneythumbResults).
+python -m benchmark --mt-results "path/to/moneythumbResults"
+
+# Optional: --corpus "Bank Statements" --cache tests/corpus_cache \
+#           --out benchmark_reports --sets wmb_may klr_may
+```
+
+Outputs (written to `benchmark_reports/`, gitignored, never committed):
+per-set `<set>/report.json`, cross-set `rollup.json`, `summary.csv`, and a
+human-readable `SUMMARY.md` with an explicit "for Ocean ruling" section.
+All account numbers in every report are masked to last-4; reports never
+contain full ledgers or holder identities. The harness verifies the
+manifest's PDF SHA-256 hashes before running and stops on any mismatch.
+
+Harness unit tests (synthetic fixtures only):
+
+```bash
+python -m pytest tests/test_benchmark_harness.py -q
+```
+
+## Corpus gate — required before merge
+
+The 106-of-109 guarantee is not a claim in a document; it is re-proved on
+demand. The gate re-runs both independent forensic oracles over every corpus
+statement and fails red on any drift from the committed audits
+(`docs/adb-audit-results.csv`, `docs/balance-metrics-audit-results.csv`).
+
+```bash
+.venv/Scripts/python.exe corpus_gate.py                      # exit 1 on any drift
+.venv/Scripts/python.exe corpus_gate.py --json report.json   # machine-readable report
+.venv/Scripts/python.exe -m pytest -m corpus                 # the same gate via pytest
+```
+
+Measured runtime: **4m32s–6m19s** on a Windows dev box (Python 3.14), across the
+script and `pytest -m corpus` forms. Both oracles re-parse every statement
+independently, which is the point — they are not allowed to share a parse.
+
+**Run this before merging anything that touches parsing, reconciliation, ADB,
+balance metrics, serialization, the API, dashboard bindings, or exports.** It is
+also wired to run on every pull request
+(`.github/workflows/corpus-gate.yml`). The default `pytest` run deselects it, so
+day-to-day testing stays at about a minute.
+
+What it checks, in order — every one of them fails the run:
+
+| Check | Guarantee |
+|---|---|
+| `inventory` | All 109 corpus PDFs are present and audited. Nothing added, removed, or renamed without an audit row. |
+| `source_integrity` | Every PDF matches its pinned SHA-256, so the documents themselves have not changed. |
+| `balance_audit` | Every audited opening/ending/highest/lowest value reproduces across backend, API, dashboard binding, CSV, XLSX, and package surfaces — compared field by field, not just by status. |
+| `adb_audit` | Every audited ADB field reproduces across backend, API, and dashboard-package surfaces. |
+| `balance_outcomes` / `adb_outcomes` | Still 106 PASS and 3 WITHHELD, and the withheld set is still the same three statements. A source contradiction cannot quietly become a pass. |
+| `ocr_coverage` | All 109 statements resolved offline: 103 from native text, 6 from committed OCR artifacts. |
+| `exclusions` | Named, counted exclusions. Currently zero. |
+| `oracle_independence` | The audit scripts still import no production financial mathematics, so they remain an independent check rather than a mirror. |
+
+The gate is offline by construction: no OCR endpoint, no Gemini, no network, and
+no `tesseract` binary. The six image-only statements are served from committed
+OCR artifacts keyed by the SHA-256 of their source PDF — see
+[`tests/corpus_cache/README.md`](tests/corpus_cache/README.md). A scanned
+statement with no artifact is a failure, never a silent skip.
+
+The gate **consumes** the audit CSVs and never rewrites them. Regenerating the
+truth set is a separate, deliberate act:
+
+```bash
+.venv/Scripts/python.exe adb_forensic_audit.py "Bank Statements" --ocr-cache tests/corpus_cache
+.venv/Scripts/python.exe balance_forensic_audit.py "Bank Statements" --ocr-cache tests/corpus_cache
+```
+
+### A note on line endings
+
+`.gitattributes` marks PDFs binary. Do not remove it. With `core.autocrlf=true`
+git rewrites any PDF whose first 8000 bytes contain no NUL — which includes
+statements with ASCII85 image streams — making the corpus byte-different per
+platform and the pinned hashes unreproducible.
