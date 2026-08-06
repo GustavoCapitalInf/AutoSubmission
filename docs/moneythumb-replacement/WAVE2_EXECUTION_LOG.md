@@ -164,6 +164,12 @@ genealogy now documented in CI1_FINDINGS.md: four independent, serially
 masked causes (runner transient → missing binaries → OCR version drift →
 path separators), zero financial drift at any point.
 
+**Run 31129048067: `completed success` — FIRST FULLY GREEN REMOTE CORPUS-GATE
+RUN (6m43s, suite + gate + report artifact). CI-1 CLOSED; MASTER_PLAN P0-1 /
+gap G4 now enforced remotely as well as locally.** Remaining CI item: CI-2
+(dead push triggers) — manual-dispatch-after-merge protocol stays in force;
+Gustavo's billing-page check is the outstanding diagnostic.
+
 **D-3×O-3 integration gap confirmed as predicted** (put_ocr stores only
 {model, pages}; page_integrity dropped on hit) → **D-3b dispatched to
 Agent B**: round-trip page_integrity, bump OCR_STAGE_VERSION 1→2,
