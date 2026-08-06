@@ -289,6 +289,14 @@ also wired to run on every pull request
 (`.github/workflows/corpus-gate.yml`). The default `pytest` run deselects it, so
 day-to-day testing stays at about a minute.
 
+That workflow installs `poppler-utils` and `tesseract-ocr` on the runner before
+the suite: the gate itself needs neither, but the default suite exercises the
+real local OCR ladder (poppler page counts, two live-OCR'd scanned fixtures).
+Hosted-runner acquisition failures ("The job was not acquired by Runner of type
+hosted") are a GitHub-side transient — re-run the job and check
+[githubstatus.com](https://www.githubstatus.com); nothing in this repository
+causes or fixes them. See `docs/moneythumb-replacement/CI1_FINDINGS.md`.
+
 What it checks, in order. Every one of them fails the run except the two marked
 informational (`foreign_files`, `exclusions`), which report and never fail:
 
