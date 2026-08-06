@@ -41,8 +41,18 @@ def _mock_processing(monkeypatch, page_count=2):
     })
 
 
-def _upload_one(client):
-    data = {"files": (io.BytesIO(b"%PDF-fake"), "s.pdf")}
+# D-3 delta: every upload gets UNIQUE bytes by default. The webapp's store is
+# session-scoped, so before the artifact cache existed each test could re-upload
+# the same `%PDF-fake` and still re-run its own monkeypatched parse. With the
+# content-hash cache in place, byte-identical re-uploads are served from the
+# cache and the fakes are never called — which is the feature, not a defect.
+# Tests that assert on cache behavior opt IN by passing explicit content.
+def _fresh_pdf() -> bytes:
+    return b"%PDF-fake-" + _uuid.uuid4().hex.encode()
+
+
+def _upload_one(client, content: bytes | None = None):
+    data = {"files": (io.BytesIO(content if content is not None else _fresh_pdf()), "s.pdf")}
     resp = client.post("/upload", data=data, content_type="multipart/form-data")
     return resp.get_json()
 
@@ -211,7 +221,7 @@ def test_upload_can_force_visual_ocr(monkeypatch):
     client = app.test_client()
     resp = client.post(
         "/upload",
-        data={"force_ocr": "1", "files": (io.BytesIO(b"%PDF-fake"), "s.pdf")},
+        data={"force_ocr": "1", "files": (io.BytesIO(_fresh_pdf()), "s.pdf")},
         content_type="multipart/form-data",
     )
     body = resp.get_json()
@@ -238,7 +248,7 @@ def test_upload_can_request_deterministic_parse_mode(monkeypatch):
     client = app.test_client()
     resp = client.post(
         "/upload",
-        data={"parse_mode": "deterministic", "files": (io.BytesIO(b"%PDF-fake"), "s.pdf")},
+        data={"parse_mode": "deterministic", "files": (io.BytesIO(_fresh_pdf()), "s.pdf")},
         content_type="multipart/form-data",
     )
     body = resp.get_json()
@@ -465,10 +475,11 @@ import json
 def test_upload_records_content_hash_and_upload_audit(monkeypatch):
     _mock_processing(monkeypatch)
     client = app.test_client()
-    job_id = _upload_one(client)["jobs"][0]["id"]
+    content = _fresh_pdf()
+    job_id = _upload_one(client, content)["jobs"][0]["id"]
 
     job = store.get(job_id)
-    expected_sha = hashlib.sha256(b"%PDF-fake").hexdigest().upper()
+    expected_sha = hashlib.sha256(content).hexdigest().upper()
     assert job.content_sha256 == expected_sha
 
     uploads = store.storage.audit_events("upload", job_id=job_id)
@@ -643,11 +654,12 @@ def test_encrypted_pdf_is_rejected_with_the_d2a_error_shape():
 def test_upload_persists_the_preflight_profile_with_the_document(monkeypatch):
     _mock_processing(monkeypatch)
     client = app.test_client()
-    job_id = _upload_one(client)["jobs"][0]["id"]
+    content = _fresh_pdf()
+    job_id = _upload_one(client, content)["jobs"][0]["id"]
 
     profile = store.storage.document_profile(job_id)
     assert profile is not None
-    assert profile["content_sha256"] == hashlib.sha256(b"%PDF-fake").hexdigest().upper()
+    assert profile["content_sha256"] == hashlib.sha256(content).hexdigest().upper()
     assert profile["classification"] in {"digital", "scanned", "mixed", "unknown"}
     # Advisory fields ride along in storage; nothing in production reads them.
     assert "likely_account_count" in profile

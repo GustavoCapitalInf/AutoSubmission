@@ -20,6 +20,7 @@ import uuid
 from copy import deepcopy
 from dataclasses import dataclass, field
 
+from .artifact_cache import ArtifactCache
 from .storage import Storage, content_sha256
 
 
@@ -78,10 +79,29 @@ class JobStore:
         self._storage = storage if storage is not None else Storage()
         self._jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
+        self._cache: ArtifactCache | None = None
 
     @property
     def storage(self) -> Storage:
         return self._storage
+
+    @property
+    def cache(self) -> ArtifactCache:
+        """The D-3 artifact cache bound to this store's data directory.
+
+        Built lazily and reused: one cache per store means a JobStore pointed
+        at a tmp dir (every test) is automatically cache-isolated too."""
+        if self._cache is None:
+            self._cache = ArtifactCache(self._storage)
+        return self._cache
+
+    def record_cache_hit(self, job_id: str, stage: str, cache_key: str | None) -> None:
+        """Audit-log a served-from-cache stage. Write-only bookkeeping: it
+        records what was NOT recomputed, which is what makes a re-run's zero
+        OCR/LLM cost visible after the fact (and is H-3's hook)."""
+        self._storage.append_audit(
+            "cache_hit", job_id=job_id, detail={"stage": stage, "cache_key": cache_key}
+        )
 
     # ------------------------------------------------------------------
     # creation / retrieval
