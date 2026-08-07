@@ -196,6 +196,8 @@ def _parse_other_debits(markdown: str, *, year: int) -> list[Transaction]:
 
 DETECTION_MARKERS = (
     required("bank_name", lambda t: "First Citizens" in t or "Central Bank Operations" in t),
+    # R4-3: the name alone matches a statement that merely pays the bank.
+    required("issuer_domain", lambda t: "FIRSTCITIZENS.COM" in t.upper()),
 )
 
 detect = make_detector(DETECTION_MARKERS)

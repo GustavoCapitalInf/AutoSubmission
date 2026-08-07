@@ -30,7 +30,10 @@ def detection_text(markdown: str) -> str:
 
 
 DETECTION_MARKERS = (
-    required("bank_name", lambda t: "FIRST FARMERS" in t),
+    # R4-1: "FIRST FARMERS" is broken across lines by OCR in the committed
+    # artifact and matched only from the source filename. The issuer's
+    # tele-banking domain survives the scan and is in the statement body.
+    required("issuer_domain", lambda t: "FFBT.COM" in t),
     required("product", lambda t: "BUSINESS BASIC CHECKING ACCOUNT" in t),
     required("opening_label", lambda t: "BALANCE LAST STATEMENT" in t),
     required("period_label", lambda t: "TOTAL DAYS IN STATEMENT PERIOD" in t),

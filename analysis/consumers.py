@@ -57,6 +57,8 @@ def _primary_checking_section(markdown: str) -> str:
 
 DETECTION_MARKERS = (
     required("bank_name", lambda t: "ConsumersCU.org" in t or "Consumers Credit Union" in t),
+    # R4-3: the name alone matches a statement that merely pays the credit union.
+    required("accounts_section", lambda t: "SUMMARY OF ALL ACCOUNTS" in t.upper()),
 )
 
 detect = make_detector(DETECTION_MARKERS)

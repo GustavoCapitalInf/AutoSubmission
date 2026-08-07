@@ -50,7 +50,12 @@ def _rows(section: str, sign: int) -> list[Transaction]:
 
 
 DETECTION_MARKERS = (
-    required("bank_name", lambda t: "Texas Bank and Trust" in t or "6250TEXAS" in t),
+    # The "6250TEXAS" branch was a print-control digit run, not issuer
+    # evidence (R-1 residual; removed here because it sat in the very guard
+    # R4-3 rewrites). The bank prints its own name in the statement body.
+    required("bank_name", lambda t: "Texas Bank and Trust" in t),
+    # R4-3: the name alone matches a statement that merely pays the bank.
+    required("debits_section", lambda t: "WITHDRAWALS AND OTHER DEBITS (CONTINUED)" in t.upper()),
 )
 
 detect = make_detector(DETECTION_MARKERS)

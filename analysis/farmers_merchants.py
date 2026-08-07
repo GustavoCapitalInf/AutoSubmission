@@ -93,8 +93,15 @@ def detection_text(markdown: str) -> str:
 
 
 DETECTION_MARKERS = (
+    # The second branch used to require the account holder's trading name,
+    # which R-1's zero-customer-names rule forbids and its file-scoped grep
+    # missed (the literal is now in that guard's scan list, so it cannot come
+    # back - which is also why it is described here rather than quoted). This
+    # statement carries no issuer identification whatsoever - no bank name, no
+    # domain, no FDIC footer - so the branch is now the layout's own product
+    # and section headings. See R4_CONFORMANCE_FINDINGS.md.
     required("bank_name", lambda t: ("FARMERS" in t and "MERCHANTS BANK" in t)
-        or ("ACE AUTO GLASS" in t and "BUSINESS/COMMERCIAL" in t and "CHECKS/DEBITS" in t)),
+        or ("BUSINESS/COMMERCIAL" in t and "CHECKS/DEBITS" in t)),
     required("credits_section", lambda t: "DEPOSITS AND CREDITS" in t),
 )
 
@@ -107,7 +114,11 @@ def parse_farmers_merchants_statement(markdown: str) -> Statement | None:
         return None
 
     stmt = Statement(bank="Farmers & Merchants Bank", currency="USD")
-    name = re.search(r"\n([A-Z0-9 &.'-]+DBA ACE AUTO GLASS.*?)\n", markdown)
+    # The holder line is the one carrying a "doing business as" clause — a
+    # generic legal-entity marker. It used to name this statement's account
+    # holder outright (a second R-1 residual in this file, found by the
+    # layer-wide literal scan R-4b added). Same capture on the corpus document.
+    name = re.search(r"\n([A-Z0-9 &.'-]+ DBA .*?)\n", markdown)
     if name:
         stmt.account_name = compact_whitespace(name.group(1))
     _parse_summary(markdown, stmt)

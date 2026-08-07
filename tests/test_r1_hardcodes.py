@@ -194,6 +194,7 @@ Statement Ending 11/30/2025
 {holder} Page 1 of 3
 Member Number: 999999
 Website dakotawestcu.com
+Thank you for being a member of Dakota West Credit Union.
 Summary of Accounts
 Account Type Account Number Ending Balance Badlands Savings {savings} $50.41 Small Business Checking {checking} $4,026.32
 --- Page 2 ---
@@ -250,6 +251,7 @@ class TestCommunityPlatform:
     def test_mission_valley_parses_any_customer(self):
         md = (
             "Mission Valley Bank\n"
+            "Online Banking www.missionvalleybank.com\n"
             "BLUE HARBOR LLC Page 1 of 2\n"
             "Business Checking - XXXXXXXX7777\n"
             "Account Summary Date Description Amount\n"

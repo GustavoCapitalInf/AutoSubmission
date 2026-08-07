@@ -174,3 +174,39 @@ def test_detect_sweep_stays_affordable_for_the_discovery_run(sources):
             registration.detect(markdown)
         worst = max(worst, time.perf_counter() - start)
     assert worst < 0.25, f"slowest full-registry detect sweep was {worst * 1000:.1f} ms"
+
+
+def test_detection_is_invariant_to_the_filename_echo(documents, sources):
+    """R-4 check 4, over the real corpus: 46 registrations x 109 documents.
+
+    The OCR/native layer prefixes every document with `<!-- SOURCE: <file> -->`.
+    That is operator-supplied metadata — trivially wrong, and on the discovery
+    archive a folder-derived guess — so the RFC's detect contract admits the
+    document, not its name.
+
+    R-4b made this structural: `parser_registry.admissible_text` removes the
+    comment centrally, before any parser's own normalization. So the assertion
+    is no longer "two known parsers differ" but "stripping it changes nothing
+    for anyone" — the strip is already in force, for all 46.
+    """
+    import re
+
+    source_comment = re.compile(r"^<!--\s*SOURCE:.*?-->\s*$", re.MULTILINE | re.IGNORECASE)
+    carrying = sum(1 for markdown in sources.values() if source_comment.search(markdown))
+    assert carrying == len(sources), (
+        "this check is only meaningful if the corpus carries the comment; "
+        f"only {carrying}/{len(sources)} do"
+    )
+
+    differing: dict[str, list[str]] = {}
+    for row in documents:
+        markdown = sources[row["path"]]
+        stripped = source_comment.sub("", markdown)
+        for registration in pr.registrations():
+            if registration.detect(markdown) != registration.detect(stripped):
+                differing.setdefault(registration.id, []).append(row["path"])
+
+    assert not differing, (
+        "detection still reads the filename comment for: "
+        f"{ {k: v[:3] for k, v in differing.items()} }"
+    )

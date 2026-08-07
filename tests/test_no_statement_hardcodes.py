@@ -47,12 +47,17 @@ REMOVED_LITERALS = (
     "CANACAP CLN",            # item 8 - merchant sign list
     "LIGHTSPEED",             # item 8 - merchant sign list
     "PRODIGY",                # item 8 - merchant sign list
+    "ACE AUTO GLASS",         # R-4b - customer name used as detection evidence
 )
 
 #: Literal years (2010-2039) appearing as code constants. Century pivots
 #: ("year += 2000" / "2000 +") are date-parsing arithmetic, not memorized
 #: years; unicode escape literals ("u20ac"-style) are not years; and
 #: comments/docstrings may describe history.
+#: `classification_registry.py` names counterparties on purpose - that is what
+#: a counterparty registry is. Every other module in the layer is scanned.
+LITERAL_SCAN_EXEMPT = {"classification_registry.py"}
+
 YEAR_RE = re.compile(r"(?<![\d.])(?<!u)20[123]\d(?![\d.])")
 #: Long literal digit runs (account-number shaped) as code constants.
 ACCOUNT_RE = re.compile(r"(?<![\d.])\d{6,}(?![\d.])")
@@ -72,6 +77,28 @@ def _code_lines(path: Path):
         line = raw.split("#", 1)[0]
         if line.strip():
             yield number, line
+
+
+def test_removed_literals_stay_removed_anywhere_in_analysis():
+    """The literal scan covers EVERY analysis module, not just the seven R-1
+    touched.
+
+    R-4b found a customer name (`ACE AUTO GLASS`) sitting in
+    `analysis/farmers_merchants.py`'s detection guard — a violation of R-1's
+    zero-customer-names rule that its file-scoped scan could not see, because
+    that file was never on the list. A customer name has no business anywhere
+    in the parser layer, so the scan is now scoped to the layer rather than to
+    a list someone has to remember to extend.
+    """
+    offenders = []
+    for path in sorted(ANALYSIS_DIR.glob("*.py")):
+        if path.name in LITERAL_SCAN_EXEMPT:
+            continue
+        source = path.read_text(encoding="utf-8").upper()
+        for literal in REMOVED_LITERALS:
+            if literal.upper() in source:
+                offenders.append(f"{path.name}: {literal}")
+    assert not offenders, f"statement-specific literals in analysis/: {offenders}"
 
 
 @pytest.mark.parametrize("filename", GUARDED_FILES)

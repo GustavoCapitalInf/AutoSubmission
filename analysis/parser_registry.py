@@ -44,6 +44,7 @@ candidates, expose near-misses, and give ambiguity a threshold. Nothing else.
 """
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Literal, Protocol
@@ -58,6 +59,7 @@ __all__ = [
     "Marker",
     "Parser",
     "Registration",
+    "admissible_text",
     "by_bank_label",
     "by_id",
     "clear_registry",
@@ -133,6 +135,27 @@ def excluding(marker_id: str, test: Callable[[str], bool]) -> Marker:
     return Marker(marker_id, test, "excluding")
 
 
+#: The OCR/native-text layer prefixes every document with a comment naming the
+#: file it came from. Filenames are operator-supplied metadata — trivially
+#: wrong, and on the discovery archive folder-derived guesses — so they are not
+#: evidence about what a document *is*.
+SOURCE_COMMENT_RE = re.compile(r"^<!--\s*SOURCE:.*?-->\s*$", re.MULTILINE | re.IGNORECASE)
+
+
+def admissible_text(markdown: str) -> str:
+    """The part of `markdown` detection is allowed to look at.
+
+    Strips the source-filename comment. Applied centrally, before any parser's
+    own normalization, so filename text is structurally inadmissible for all
+    registrations rather than by each parser's good intentions — R-4 found two
+    that were reading it (R4_CONFORMANCE_FINDINGS.md R4-1, R4-2), one of which
+    recognised its own corpus document *only* by its filename.
+
+    Parsing is unaffected: `parse` still receives the whole document.
+    """
+    return SOURCE_COMMENT_RE.sub("", markdown)
+
+
 def make_detector(
     markers: Sequence[Marker], normalize: Callable[[str], str] | None = None
 ) -> Callable[[str], "Detection"]:
@@ -141,11 +164,13 @@ def make_detector(
     One implementation, used by both the parser module and its `Registration`,
     so the two can never disagree about what the parser recognises. `normalize`
     is the parser's own preprocessing — upper-casing, image-tag stripping,
-    mojibake repair — applied once per document rather than once per marker.
+    mojibake repair — applied once per document rather than once per marker,
+    and always to text the filename comment has already been removed from.
     """
 
     def detect(markdown: str) -> "Detection":
-        return score_markers(markers, normalize(markdown) if normalize else markdown)
+        text = admissible_text(markdown)
+        return score_markers(markers, normalize(text) if normalize else text)
 
     return detect
 
@@ -251,7 +276,8 @@ class Registration:
     integrity_checks: tuple[IntegrityCheck, ...] = ()
 
     def detect(self, markdown: str) -> Detection:
-        return score_markers(self.markers, self.normalize(markdown) if self.normalize else markdown)
+        text = admissible_text(markdown)
+        return score_markers(self.markers, self.normalize(text) if self.normalize else text)
 
     @property
     def sort_key(self) -> tuple[int, str]:
