@@ -582,8 +582,9 @@ opposite — the residue of direction, not of missing rows.
 
 ## T7. Proofs
 
-All four run in this worktree against the final commit `6c6c5c7`, on a clean
-tree (`git status --short` empty), `set -o pipefail`, exit codes as printed.
+All four run in this worktree against `6c6c5c7` — the last commit that touches
+code or tests — on a clean tree (`git status --short` empty), `set -o pipefail`,
+exit codes as printed. `845df94` adds this section and nothing else.
 
 ```
 $ python -m pytest -q
@@ -666,7 +667,8 @@ debit total == stated:      51 / 61   (baseline 0 / 61)
 | Commit | Contents |
 |---|---|
 | `443440e` | `analysis/td_can.py` + `tests/test_td_can_native_variants.py` |
-| `6c6c5c7` | this log section |
+| `6c6c5c7` | this log's §TD.T0–T6 |
+| `845df94` | this proofs section (§TD.T7) |
 
 ## T6. Carried findings and questions for Ocean
 
