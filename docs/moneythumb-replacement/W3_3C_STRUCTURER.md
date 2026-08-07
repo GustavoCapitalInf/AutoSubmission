@@ -153,10 +153,22 @@ model call" (there is none), and the prefix keeps the rung distinguishable from
 every parser, so coverage statistics never conflate "a parser claimed this"
 with "the generic rung structured this". **No telemetry change is required.**
 
-Discovery-side reporting (a `structured` column and a rollup line) is a
-`discovery/` change and therefore HARBOR's file — design only, per dispatch:
-the runner reads `payload["model_used"]`, which it already receives, and needs
-no new plumbing from this subsystem.
+### 5.1 Measurement hook for the discovery runner — design only
+
+`discovery/` is HARBOR's file, so this is specified rather than written. It
+needs **no new plumbing from this subsystem**: the runner already holds the
+serialized payload, and `model_used` already distinguishes the rung.
+
+| Where | Change | Why it is enough |
+|---|---|---|
+| `discovery/runner.py` `DocumentRow` | one field, `structured_by: str \| None = None` | adjudication-grade, and it is a registry-style constant, not document content |
+| `discovery/runner.py` `process()` | beside the existing `row.statement_bank = statement.get("bank")`: `row.structured_by = payload.get("model_used") if (payload or {}).get("model_used", "").startswith("generic-structurer") else None` | the payload is already in scope |
+| `discovery/report.py` `ROW_FIELDS` | add `structured_by` | keeps the CSV shape test honest |
+| `discovery/report.py` `summarize()` | `"structured": sum(1 for r in processed if r.structured_by)` plus one `_bar` line | coverage split stays explicit: `deterministic_coverage` keeps counting parser claims ONLY, and the rung is reported beside it, never inside it |
+
+The run itself is `GENERIC_STRUCTURER_ENABLED=1 python -m discovery --digital`
+once the pipeline diff lands. Until then the rung is unreachable from the
+runner, which is the intended state.
 
 ## 6. Opt-in (ruling 6)
 
