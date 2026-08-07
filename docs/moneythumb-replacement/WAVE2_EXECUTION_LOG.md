@@ -312,6 +312,10 @@ hypothesis. Gustavo's billing check no longer needed. Duplicate manual
 dispatch cancelled; manual-dispatch protocol RETIRED (falls back only if
 the anomaly recurs).
 
+**Run 31134956413 (R-4b merge `fe4e958`, event=push): `completed success`**
+— fourth consecutive green, and the first green run created by the normal
+push lifecycle. CI is fully operational end-to-end with zero open items.
+
 **DSC-1 dispatched to HARBOR** with all accumulated bindings: production
 parse_statement only; frozen-baseline verification (3,768/3,615/
 996,080,803) with loud-stop on deviation; pinned-manifest partition;
