@@ -30,6 +30,11 @@ FREE_MODELS: frozenset[str] = frozenset({
     "local-tesseract-ocr",
     "native-pdf-text",
     "deterministic-native-preflight",
+    # Ocean ruling (W3-5): the visual rung is the LOCAL Unlimited-OCR server —
+    # $0 VENDOR cost is a fact, not an unknown price. Infrastructure cost is
+    # tracked operationally (page counts + timings are in the record), never
+    # as vendor telemetry.
+    "baidu/Unlimited-OCR",
 })
 
 

@@ -4,9 +4,19 @@
     python -m discovery --profile-only            # tranche 0: intake facts only
     python -m discovery --digital                 # tranche 1: digital-native, offline
     python -m discovery --scanned                 # tranche 2: + local Tesseract
+    python -m discovery --scanned-visual          # tranche 3: + the visual rung
 
 Tranche 0 and 1 are fully offline: no OCR endpoint, no Gemini, no model client
 constructed. Tranche 2 adds the local Tesseract rung and nothing else.
+
+Tranche 3 (`--scanned-visual`, W3-5) is tranche 2 with the ladder's last rung
+enabled: the LOCAL Unlimited-OCR server on our own GPU. Still no paid vendor,
+still no Gemini — the visual rung is the same one the webapp uses, reached
+through the same production ladder. Because that rung needs a server, the mode
+PROBES it before enumerating a single document and refuses to start if it is not
+usable: a batch of thousands must not discover the endpoint is down on document
+1 and then report 3,505 identical failures. A server that dies mid-run fails
+THAT document closed and the run continues.
 
 Every run verifies the frozen archive baseline first and refuses to proceed if
 the root has moved — tranche numbers are only comparable if every tranche
@@ -18,6 +28,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from ocr.availability import probe_visual_ocr
 from telemetry import JsonlSink, NullSink, new_run_id, telemetry_disabled
 
 from .inventory import (
@@ -28,10 +39,12 @@ from .inventory import (
 )
 from .report import summarize, write_hash_map, write_report, write_rows, write_summary
 from .runner import (
+    LOCAL_OCR_MODES,
     MODE_DIGITAL,
     MODE_DRY_RUN,
     MODE_PROFILE_ONLY,
     MODE_SCANNED,
+    MODE_SCANNED_VISUAL,
     DiscoveryRunner,
 )
 
@@ -59,6 +72,7 @@ def run(
     limit: int | None = None,
     skip_baseline: bool = False,
     use_cache: bool = True,
+    visual_escalation: bool = True,
     progress=None,
 ) -> dict:
     inventory = enumerate_root(root)
@@ -97,6 +111,7 @@ def run(
     runner = DiscoveryRunner(
         root, mode=mode, run_id=run_id, sink=sink, cache=cache,
         dedup=DedupIndex.with_pinned_corpus(),
+        visual_escalation=visual_escalation,
     )
 
     selected = _select(inventory, mode)
@@ -142,6 +157,13 @@ def main(argv: list[str] | None = None) -> int:
                       help="Tranche 1: the discovery set through the offline rungs.")
     mode.add_argument("--scanned", action="store_true",
                       help="Tranche 2: as --digital plus the local Tesseract rung.")
+    mode.add_argument("--scanned-visual", action="store_true",
+                      help="Tranche 3: as --scanned plus the LOCAL visual-OCR rung "
+                           "($0 vendor). Probes the endpoint before starting.")
+    parser.add_argument("--no-visual-escalation", action="store_true",
+                        help="--scanned-visual only: use the visual rung solely to "
+                             "recover documents the offline rungs could not read at "
+                             "all; do not re-read unclaimed Tesseract output.")
     parser.add_argument("--root", default=str(DEFAULT_ROOT), help="Corpus root.")
     parser.add_argument("--out", default=str(DEFAULT_OUT), help="Report directory.")
     parser.add_argument("--limit", type=int, help="Process at most N documents.")
@@ -155,15 +177,38 @@ def main(argv: list[str] | None = None) -> int:
         MODE_DRY_RUN if args.dry_run
         else MODE_PROFILE_ONLY if args.profile_only
         else MODE_DIGITAL if args.digital
+        else MODE_SCANNED_VISUAL if args.scanned_visual
         else MODE_SCANNED
     )
-    if selected_mode == MODE_SCANNED:
+    if args.no_visual_escalation and selected_mode != MODE_SCANNED_VISUAL:
+        # Refuse rather than ignore: silently accepting it would let an operator
+        # believe a policy was applied to a mode that has no visual rung at all.
+        print("discovery: --no-visual-escalation applies to --scanned-visual only",
+              file=sys.stderr)
+        return 2
+
+    if selected_mode in LOCAL_OCR_MODES:
         import shutil
 
         if shutil.which("tesseract") is None:
-            print("discovery: --scanned needs a local tesseract binary on PATH",
+            print(f"discovery: --{selected_mode} needs a local tesseract binary on PATH",
                   file=sys.stderr)
             return 2
+
+    if selected_mode == MODE_SCANNED_VISUAL:
+        # Fail BEFORE enumerating: an unusable endpoint is an operator problem,
+        # and discovering it per-document would turn one configuration mistake
+        # into thousands of recorded failures. This costs one GET /v1/models and
+        # zero GPU time.
+        status = probe_visual_ocr()
+        if not status.usable:
+            print(f"discovery: --scanned-visual cannot start. {status.message()}",
+                  file=sys.stderr)
+            print("  start the local server (python local_ocr_server.py) or point "
+                  "OCR_BASE_URL/OCR_MODEL at it, then re-run.", file=sys.stderr)
+            return 2
+        if not args.quiet:
+            print(f"discovery: {status.message()}", file=sys.stderr)
 
     def progress(index: int, total: int, relative_path: str) -> None:
         if not args.quiet:
@@ -172,7 +217,9 @@ def main(argv: list[str] | None = None) -> int:
     summary = run(
         Path(args.root), selected_mode, Path(args.out),
         limit=args.limit, skip_baseline=args.skip_baseline,
-        use_cache=not args.no_cache, progress=progress,
+        use_cache=not args.no_cache,
+        visual_escalation=not args.no_visual_escalation,
+        progress=progress,
     )
     summary.pop("_rows", None)
     from .report import render_report

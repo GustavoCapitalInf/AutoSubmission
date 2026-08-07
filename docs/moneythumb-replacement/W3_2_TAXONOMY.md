@@ -1,0 +1,359 @@
+# W3-2 — the withheld-diagnostics taxonomy and its mapping
+
+Agent B (HARBOR), 2026-08-07. Branch `wave3-diagnostics`.
+Card: `WAVE3_BRIEF.md` §W3-2. Data contract: `H3_SCHEMA.md` (this extends the
+record per its own conventions; every invariant there still holds).
+
+---
+
+## 1. The question this answers
+
+Discovery withheld **614 claimed documents** — 17.5% of the archive, and the
+highest value-per-fix class in `DISCOVERY_COMBINED_REPORT.md` §2, because
+detection and the claim were already correct. What discovery could say about
+each was `outcome.class = withheld`, `outcome.reason = withheld_adb`. That is
+the *decision*, not the *diagnosis*: it does not say which check refused.
+
+W3-2 makes the diagnosis a query. After it, "fix the top failing check-class
+for chase variants" is a `GROUP BY`, and 614 statement-by-statement autopsies
+are not needed to find out where the 317 chase withholds actually break.
+
+Three properties are non-negotiable and everything below is shaped by them:
+
+1. **Read-only.** Diagnostics are a projection of the analysis payload the
+   telemetry collector already receives. No `analysis/` module is imported,
+   nothing is recomputed, no object is mutated. Proven by test on real
+   documents, not asserted in prose.
+2. **Sensitivity (H3_SCHEMA I1).** Check names, field names, taxonomy codes
+   and counts. Never a value, amount, date, description or filename. The two
+   richest diagnostic sources — reconciliation issues and ADB warnings — are
+   free text that quotes all of those, so they are *matched and discarded*,
+   never stored.
+3. **Nothing silently dropped.** Every vocabulary is closed and every one has
+   an explicit `unmapped` bucket, so a check that `analysis/` grows later
+   surfaces as `unmapped` in the rollup instead of vanishing. Drift guards in
+   `tests/test_diagnostics.py` fail the build the moment it happens.
+
+## 2. Where the vocabulary comes from (survey first)
+
+The brief requires the vocabulary to derive from the checks `analysis/`
+**actually performs**, not from what a diagnosis "ought" to include. The survey
+found exactly four sources in the serialized payload, and one gap.
+
+| # | Source | Payload path | Shape | Sensitivity |
+|---|---|---|---|---|
+| 1 | ADB validation suite (`analysis/adb.py::_validate`) | `metrics.adb.validations` | `{check_name: bool}` — **14** names, our constants | safe as-is |
+| 2 | Document integrity flags (`analysis/pipeline.py::assess_document_integrity`) | `integrity.flags` | list of **10** enum codes, our constants | safe as-is |
+| 3 | Reconciliation issues (`analysis/reconcile.py` ×6 + `analysis/pipeline.py` ×1) | `reconciliation.issues` | **7** f-string shapes | **quotes amounts, dates, descriptions** |
+| 4 | ADB warnings (`analysis/adb.py`) | `metrics.adb.warnings` | **19** f-string shapes | quotes amounts and dates |
+
+Sources 1 and 2 need no interpretation: the failing *names* are the taxonomy.
+Sources 3 and 4 are prose and must be classified into codes.
+
+**The gap, recorded rather than invented.** The brief lists "count mismatch" as
+an example failure. There is **no platform-level check comparing
+`stated_credit_count` / `stated_debit_count` against the captured row counts**.
+The only count comparison in the tree is parser-local
+(`analysis/community_section.py:208`) and never reaches the payload as an
+issue. A `count_mismatch` code is therefore *not* in this vocabulary: inventing
+one would mean W3-2 performing analysis rather than reporting it, and the
+standing rules put analysis changes out of scope for this card. What the
+record *does* carry is the raw material for it — `counts.transactions` and the
+presence/absence of `stated_credit_count` / `stated_debit_count` in
+`summary_fields_absent` — so if Ocean wants the check, it is a small
+`analysis/` ticket and one new row in §3.1 here.
+
+Two smaller findings from the same survey, logged for the backlog:
+
+- `analysis/pipeline.py` tests for a quality level `summary_trusted` in two
+  places (lines 218, 268) that `assess_quality` never assigns. Dead vocabulary
+  — harmless, but it means one integrity branch is unreachable.
+- `report_to_dict` nulls `statement.ending_balance` when neither the ledger nor
+  the bank's own summary supports it. So `summary_fields_absent` means "absent
+  from what the platform published", which is deliberately what a diagnostic
+  should say: it is exactly the field the next stage did not get. Called out
+  because reading it as "the bank printed no closing balance" would be wrong.
+
+## 3. The mapping
+
+Codes are namespaced `source:name`. The namespace says where the evidence came
+from, which matters when reading a rollup: an `adb:` code is a check the ADB
+engine ran, an `adb_state:` code is a condition it reported in prose, and a
+`recon:`/`integrity:` code comes from the other two sources.
+
+### 3.1 Source 1 — ADB validation checks → `adb:<check_name>`
+
+Emitted when the check is `false`. Verbatim names, no translation, so the code
+is greppable straight into `analysis/adb.py`.
+
+| Check | Class |
+|---|---|
+| `statement_period_dates_valid` | period_integrity |
+| `all_transactions_dated` | period_integrity |
+| `transactions_within_period` | period_integrity |
+| `bank_daily_balance_dates_valid` | daily_ledger_structure |
+| `daily_balance_count_equals_calendar_days` | daily_ledger_structure |
+| `daily_balances_contiguous` | daily_ledger_structure |
+| `covers_opening_day` | daily_ledger_structure |
+| `covers_closing_day` | daily_ledger_structure |
+| `final_balance_matches_statement_closing` | ledger_identity |
+| `ledger_reconciles_to_closing` | ledger_identity |
+| `opening_balance_matches_statement` | summary_field_missing |
+| `running_balances_support_daily_ledger` | balance_continuity |
+| `posting_dates_cover_source` | posting_date_coverage |
+| `agrees_with_bank_stated_average` | *advisory* |
+| anything else | `adb:unmapped` → **unmapped** |
+
+`agrees_with_bank_stated_average` is advisory because it only ever runs when
+`result.ok` is already true — it can never be the reason a document was
+withheld, and letting it choose a class would misdirect remediation.
+
+### 3.2 Source 2 — integrity flags → `integrity:<flag>`
+
+| Flag | Class |
+|---|---|
+| `summary_math_inconsistent` | summary_identity |
+| `ledger_sum_mismatch` | ledger_identity |
+| `running_balance_breaks` | balance_continuity |
+| `credit_detail_coverage_mismatch` | detail_coverage |
+| `debit_detail_coverage_mismatch` | detail_coverage |
+| `conflicting_statement_summaries` | source_contradiction |
+| `missing_declared_statement_page` | page_coverage |
+| `transaction_detail_not_corporate_reliable` | *advisory* (a consequence) |
+| `not_a_formal_statement` | *advisory* (a document class, not a failure) |
+| `parser_ambiguous` | *advisory* (a dispatch fact; `dispatch.outcome` carries it) |
+| anything else | `integrity:unmapped` → **unmapped** |
+
+### 3.3 Source 3 — reconciliation issues → `recon:<code>`
+
+Matched on the **literal prefix** of the format string `analysis/` writes, plus
+a tail fragment where the prefix alone is not decisive. First match wins. The
+issue string is then discarded.
+
+| Prefix (and tail) | Code | Class |
+|---|---|---|
+| `cannot run sum check` | `sum_check_inputs_missing` | summary_field_missing |
+| `sum check off by` | `sum_check_failed` | ledger_identity |
+| `bank-stated summary does not reconcile` | `summary_identity_failed` | summary_identity |
+| `captured $` … ` in credits (` | `credit_coverage_short` | detail_coverage |
+| `captured $` … ` in debits (` | `debit_coverage_short` | detail_coverage |
+| `escalation extraction failed` | `escalation_extraction_failed` | extraction_failure |
+| `row ` … `balance jumped to` | `running_balance_break` | balance_continuity |
+| no match | `unmapped_issue` | **unmapped** |
+
+**Why prefix-anchored, not substring.** The continuity issue interpolates a
+transaction description:
+`row 7 (2026-01-02 'ACH DEBIT …'): balance jumped to …`. A bare substring match
+would let a document whose description contains another rule's wording choose
+its own bucket. Anchoring on the prefix puts the decision in text `analysis/`
+wrote. `tests/test_diagnostics.py::test_a_reconciliation_issue_is_anchored_on_our_prefix_not_the_description`
+feeds exactly that hostile description and asserts one code comes back.
+
+### 3.4 Source 4 — ADB warnings → `adb_state:<code>`
+
+Substring anchors are sufficient here: every ADB warning interpolates only
+dates, counts and amounts — never a transaction description — so no statement
+text can reach these strings.
+
+| Anchor | Code | Class |
+|---|---|---|
+| `have no parseable date` | `undated_transactions` | period_integrity |
+| `statement period start missing` | `period_start_missing` | period_integrity |
+| `statement period end missing` | `period_end_missing` | period_integrity |
+| `statement period is inverted` | `period_inverted` | period_integrity |
+| `does not provide a valid, ordered start and end date` | `period_dates_invalid` | period_integrity |
+| `fall outside the statement period` | `out_of_period_transactions` | period_integrity |
+| `cannot determine a statement period` | `period_unresolvable` | **adb_not_computable** |
+| `no opening balance and none derivable` | `opening_balance_underivable` | **adb_not_computable** |
+| `statement prints no beginning balance` | `beginning_balance_absent` | summary_field_missing |
+| `statement prints no closing balance` | `closing_balance_absent` | summary_field_missing |
+| `bank daily balance has invalid or out-of-period date` | `daily_balance_date_invalid` | daily_ledger_structure |
+| `bank daily balance history contains duplicate date` | `daily_balance_date_duplicate` | daily_ledger_structure |
+| `daily balances for a` | `daily_balance_count_mismatch` | daily_ledger_structure |
+| `daily balance series has a gap` | `daily_balance_series_gap` | daily_ledger_structure |
+| `final reconstructed balance` | `final_balance_drift` | ledger_identity |
+| `ledger does not reconcile` | `ledger_reconcile_failed` | ledger_identity |
+| `running balances do not support` | `running_balances_unsupported` | balance_continuity |
+| `posting date(s) but the statement` | `posting_dates_incomplete` | posting_date_coverage |
+| `differs from the bank-printed` | `stated_average_disagrees` | *advisory* |
+| no match | `unmapped_warning` | **unmapped** |
+
+**The overlap with §3.1 is deliberate.** Most warnings are the prose form of a
+validation check, so mapping them costs a redundant code per document. It earns
+its keep on the two paths where `compute_average_daily_balance` returns
+**before** `_validate` runs — no resolvable period, or no derivable opening
+balance. On those, `validations` is `{}` and the warning is the only evidence
+that exists. Those two are the `adb_not_computable` class, and they would be
+invisible without this source.
+
+### 3.5 Summary-field presence
+
+`summary_fields_absent` lists, by name only, which of the 13 `Statement`
+summary fields the payload does not carry (`period_start`, `period_end`,
+`beginning_balance`, `ending_balance`, `days_in_period`,
+`stated_total_credits`, `stated_total_debits`, `stated_credit_count`,
+`stated_debit_count`, `stated_service_charge`, `stated_interest_paid`,
+`stated_average_balance`, `stated_daily_balances`). Field names only — the
+brief's "missing/malformed summary field" question. Absence does **not** decide
+a class on its own: `analysis/` already turns the absences that matter into
+checks (§3.1, §3.4), and inventing a rule here would be W3-2 doing analysis.
+
+## 4. The failure classes and their precedence
+
+The fine-grained codes are the evidence; the **primary class** is the one
+ranked bucket a document lands in, and it is what the rollup groups by.
+
+Ranked most-upstream first — the primary class is the highest-ranked class
+present:
+
+| # | Class | Means |
+|---|---|---|
+| 1 | `no_analysis_payload` | reserved: nothing to diagnose (see §5 on scope) |
+| 2 | `adb_not_computable` | the ADB engine returned before it could validate |
+| 3 | `extraction_failure` | the escalation extraction itself failed |
+| 4 | `source_contradiction` | a registration integrity check proved the document contradicts itself |
+| 5 | `period_integrity` | the period the whole average is divided by is wrong |
+| 6 | `summary_field_missing` | an input the checks need was never published |
+| 7 | `summary_identity` | the bank's own summary block fails its own identity |
+| 8 | `detail_coverage` | line items do not add up to the bank's stated totals |
+| 9 | `posting_date_coverage` | posting dates folded together; days carry the wrong balances |
+| 10 | `balance_continuity` | printed running balances contradict the reconstructed ledger |
+| 11 | `ledger_identity` | beginning + activity != ending |
+| 12 | `daily_ledger_structure` | the reconstructed day series itself is malformed |
+| 13 | `page_coverage` | pages the statement declares are not in the supplied PDF |
+| 14 | `unmapped` | a check this taxonomy has never seen |
+| 15 | `advisory_only` | evidence exists, but all of it is consequence or comparison |
+| 16 | `undiagnosed` | withheld, and the taxonomy saw nothing — itself a finding |
+
+**Why this order.** Ranking is by *cause over symptom*, because the class is
+what ranks remediation work. The clearest case is
+`detail_coverage` above `ledger_identity`: `Ace_Auto_Final_Cut.pdf` fails its
+ledger identity *because* only 11 of the bank's 26 stated checks/debits are in
+the document at all. Reporting it as `ledger_identity` would aim remediation at
+the arithmetic that noticed the problem instead of the missing detail. The same
+logic puts `source_contradiction` near the top — when the document disagrees
+with itself, every downstream check failing is expected, not informative.
+
+`advisory_only` and `undiagnosed` are separate names on purpose. `undiagnosed`
+means the platform withheld and this taxonomy explained nothing: that is a
+defect in the taxonomy or a check running somewhere it does not read, and it
+must be visible in the rollup rather than nulled.
+
+## 5. Scope: which documents get diagnosed
+
+`DIAGNOSABLE_CLASSES = ("withheld",)`. Every other outcome class gets
+`empty_diagnostics()`.
+
+- `validated` / `review` published a number. `review`'s reason is already in
+  `outcome.reason`, and diagnosing 106 healthy corpus documents would bury the
+  three that matter. This is the acceptance property "the 106 produce empty
+  diagnostics".
+- `failed` has no payload at all — there is nothing to project. Its cause is
+  `outcome.error_type`, which W3-1 is making authoritative. `no_analysis_payload`
+  is kept in the precedence list as the reserved name for that class if a later
+  card widens the scope.
+- `deferred` is a statement about the run, not the document.
+
+`counts` is `{}` when not evaluated, not a dict of zeros: H3_SCHEMA I5 — a
+validated document has no failing-check count of zero, it has no measurement.
+
+## 6. Where it hooks in — and why discovery needs no change
+
+The diagnostics are computed inside `telemetry/record.py::build_record`, from
+the `payload` argument that **all three emitters already pass**:
+
+| Emitter | Call site | Change needed |
+|---|---|---|
+| discovery runner | `discovery/runner.py::_emit` | **none** |
+| batch CLI | `batch.py` | **none** |
+| webapp worker | `webapp/worker.py` | **none** |
+
+A future discovery re-run therefore picks the diagnostics up with **zero
+`discovery/` changes** — the requirement in the card, met. Storage needs no
+migration either: SQLite stores the record as JSON in the `record` column and
+projects only the typed columns it already has (H3_SCHEMA §8.1), so v4 carries
+the new section unchanged and JSONL is unaffected.
+
+Files touched: `telemetry/diagnostics.py` (new), `telemetry/record.py`
+(one import, one `TOP_LEVEL_KEYS` entry, one record field),
+`telemetry/report.py` (the rollup), `telemetry/__init__.py` (exports),
+`tests/`, this document. Nothing else.
+
+## 7. The rollup
+
+```
+python -m telemetry.report --jsonl <run>/telemetry.jsonl --diagnostics
+python -m telemetry.report --sqlite webapp_data --run-id <id> --diagnostics
+python -m telemetry.report --jsonl <run>/telemetry.jsonl --diagnostics --json
+python -m telemetry.report --jsonl <run>/telemetry.jsonl --by diagnostic_class
+```
+
+Both backends carry the identical record (H3_SCHEMA I2), so both produce the
+identical table. Output is ASCII-only, for the same reason the coverage report
+is: a console in a legacy code page must not turn a measurement into a
+`UnicodeEncodeError`.
+
+The table is failure-class × parser × volume, plus class totals, the top codes,
+and an unmapped line that is `0 | 0 | 0` when the vocabulary is complete and
+loud when it is not. A record written before this section existed reports as
+not-diagnosed rather than crashing the rollup.
+
+## 8. Validation anchors
+
+| Anchor | Test |
+|---|---|
+| The 3 pinned withheld reproduce their documented diagnosis | `tests/test_telemetry_corpus.py::test_withheld_diagnostics_reproduce_the_documented_diagnosis` (corpus-marked) |
+| The 106 produce empty diagnostics | same test |
+| Diagnostics mutate no analysis output | `tests/test_telemetry_corpus.py::test_diagnostics_change_no_analysis_output` (default run) and `tests/test_diagnostics.py::test_diagnosis_does_not_touch_the_payload` |
+| No statement text reaches the section | `tests/test_diagnostics.py::test_no_statement_text_reaches_the_diagnostics_section` + the extended I1 test on real documents |
+| The vocabulary matches `analysis/` | four drift guards in `tests/test_diagnostics.py` |
+
+The expected diagnoses are taken from `docs/adb-withheld-second-pass.md`, which
+established them forensically from the PDF bytes — not from a run of this code:
+
+| Statement | Documented finding | Primary class |
+|---|---|---|
+| `Ace_Auto_Final_Cut.pdf` | "supplied PDF has incomplete transaction detail" (11 of 26 stated debits visible) | `detail_coverage` |
+| `BMO_Statement_January_2026 Final-1-2 (1).pdf` | "mutually contradictory financial records" (page 1 vs page 2 vs row amounts) | `source_contradiction` |
+| `IBC April (1).pdf` | the bank-stated summary fails its own identity | `summary_identity` |
+
+## 9. Drift guards
+
+`analysis/` is protected, so this module cannot be kept in sync by convention.
+Four tests read its **source text** (read-only) and fail loudly on drift:
+
+| Guard | Method |
+|---|---|
+| ADB check names | regex `checks["…"] =` in `analysis/adb.py` == `ADB_CHECKS` |
+| Integrity flags | regex `flags.append("…")` in `analysis/pipeline.py` == `INTEGRITY_FLAGS` |
+| Reconciliation issues | count of `issues.append(` in `reconcile.py` + `pipeline.py` == 7 anchors |
+| ADB warnings | count of `warnings.append(` in `adb.py` == 19 anchors |
+
+Names are asserted by identity where the source is enum-shaped; the two
+f-string sources are asserted by **call-site count**, because their text is not
+statically extractable. Either way, adding a check to `analysis/` fails the
+build with a message naming this file — and even if someone bypasses the guard,
+the new shape lands in `unmapped` at runtime and shows in the rollup.
+
+## 10. Open questions for Ocean
+
+1. **The `count_mismatch` gap (§2).** Should `analysis/` grow a
+   stated-count-vs-captured-rows check? It is a protected-module change, so it
+   is out of W3-2's scope; the payload already carries what it needs.
+2. **Scope (§5).** Diagnostics are withheld-only, which is what the card's
+   acceptance requires. If W3-4 wants the same taxonomy over the 10 `review`
+   documents (or the 53 `failed` ones), it is a one-line change to
+   `DIAGNOSABLE_CLASSES` — but "the 106 produce empty diagnostics" is then no
+   longer true, so it needs a ruling rather than a patch.
+3. **Precedence (§4).** Cause-over-symptom is a judgement call, and it is what
+   the ranking in W3-4's remediation queue will inherit. The three corpus
+   anchors agree with it; 614 documents may argue otherwise, and re-ranking is
+   cheap (one tuple) but re-baselines the rollup.
+4. **Pre-existing sensitivity-test brittleness (disclosed).** The I1 test
+   compared statement values against the *whole* serialized record, including
+   `emitted_at`. A wall-clock reading of `…:58:51.752210` reads as the amount
+   `51.75`, which is how it failed on a rerun during this card. Fixed by
+   excluding four machine-generated identifier fields
+   (`record_id`, `emitted_at`, `run_id`, `document.content_sha256`) from the
+   substring scan and pinning each of them by shape in a new test, so the scan
+   narrows without the invariant narrowing. Test-only change.

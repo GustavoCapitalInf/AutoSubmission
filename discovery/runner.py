@@ -8,18 +8,49 @@ Desjardins all have layout-specific readers that come first), which showed up
 as five phantom failures. Discovery measures coverage; measuring it through a
 different reader than production uses would make every number a fiction.
 
-Offline by construction in every mode this wave runs:
+Offline by construction in every mode except `--scanned-visual`:
 
 - `parse_mode="deterministic"` — the LLM extraction branch is unreachable, so
-  no Gemini call can occur even in principle.
+  no Gemini call can occur even in principle. TRUE IN EVERY MODE, including
+  `--scanned-visual`: the visual rung reads pixels into markdown, it does not
+  extract, and no paid vendor is reachable from any discovery mode.
 - `allow_visual_ocr=False` — `ocr.pipeline` imports `ocr.ocr_client` lazily
-  *inside* the visual rung, so in discovery mode the model client module is
+  *inside* the visual rung, so in the offline modes the model client module is
   never even imported. A test asserts exactly that.
-- Local Tesseract only in `--scanned` (tranche 2), never in tranche 0/1.
+- Local Tesseract only in `--scanned` / `--scanned-visual`, never in tranche 0/1.
 
 Documents the mode cannot read are RECORDED, never skipped: a scanned document
 in an offline tranche is `deferred_scanned`, and a document that would need the
 visual rung is `deferred_visual_ocr`.
+
+The visual rung (W3-5, `--scanned-visual`)
+------------------------------------------
+`--scanned-visual` is the SAME production ladder with its last rung enabled: it
+is `--scanned` plus the local Unlimited-OCR server (our own GPU, `$0` vendor).
+Discovery's policy around it stays offline-first, and there are exactly two ways
+a document reaches it:
+
+1. **Recovery** — the offline rungs produced nothing at all. In `--scanned`
+   that document is `deferred_visual_ocr`; here it gets the visual read.
+2. **Upgrade** — the offline read came from local Tesseract and no parser
+   claimed the text it produced (discovery class 5: a text-QUALITY failure, not
+   a layout-knowledge one). The visual rung reads the same pages again and the
+   result is adopted only if it actually claims. A NATIVE-text document that
+   goes unclaimed is a layout problem and is never escalated — spending GPU time
+   re-reading text we already have perfectly is the one thing this rung must
+   not do.
+
+Both paths call `parse_statement(force_ocr=True, allow_visual_ocr=True)`, which
+is the same rung the webapp uses, through the same D-3 cache, with the same O-3
+truncation assessment. The offline rungs are not re-run (they already ran, and
+`force_ocr` is part of the cache key), so the two reads occupy two disjoint
+cache partitions of the same bytes.
+
+The deferral taxonomy does not soften: a document the visual rung ALSO cannot
+serve stops being `deferred` and becomes an explicit terminal `failed` —
+`ocr_failed` when the rung raised (server down mid-run: that document fails
+closed, the run continues), `no_parser_matched` when it produced text nobody
+claimed. Nothing is lost silently.
 """
 from __future__ import annotations
 
@@ -39,6 +70,7 @@ from telemetry import (
     document_section,
     model_calls_for,
     score_vector,
+    source_path_for,
     source_section,
 )
 
@@ -47,7 +79,20 @@ from .inventory import DedupIndex
 MODE_PROFILE_ONLY = "profile-only"
 MODE_DIGITAL = "digital"
 MODE_SCANNED = "scanned"
+MODE_SCANNED_VISUAL = "scanned-visual"
 MODE_DRY_RUN = "dry-run"
+
+#: Modes that run the local Tesseract rung.
+LOCAL_OCR_MODES = frozenset({MODE_SCANNED, MODE_SCANNED_VISUAL})
+
+#: What the visual rung did for one document. Row-level vocabulary (the
+#: adjudication artifact); it reaches telemetry as `outcome.fallback_reason`
+#: prefixed with `visual_ocr_`, which is an enum code like every other.
+VISUAL_NOT_ATTEMPTED = "not_attempted"
+VISUAL_RECOVERED = "recovered"      # offline rungs served nothing; visual did
+VISUAL_UPGRADED = "upgraded"        # unclaimed Tesseract read replaced by a claim
+VISUAL_NO_UPGRADE = "no_upgrade"    # escalation ran, did not claim; offline kept
+VISUAL_FAILED = "failed"            # the rung raised (endpoint down/transport)
 
 #: Committed OCR artifacts exist for the six image-only PINNED statements only.
 #: They are what lets the dry run cover all 109 with zero OCR; no archive
@@ -93,6 +138,8 @@ class DocumentRow:
     account_last4: str | None = None
     cache_ocr: str = "bypass"
     cache_analysis: str = "bypass"
+    cache_visual: str = "bypass"
+    visual_rung: str = "not_attempted"
     elapsed_ms: float = 0.0
 
     def as_dict(self) -> dict:
@@ -119,6 +166,7 @@ class DiscoveryRunner:
     """Processes documents one at a time; owns no routing decisions of its own."""
 
     _last_ocr_cached = False
+    _last_visual_cached = False
 
     def __init__(
         self,
@@ -129,6 +177,7 @@ class DiscoveryRunner:
         sink=None,
         cache=None,
         dedup: DedupIndex | None = None,
+        visual_escalation: bool = True,
     ) -> None:
         self.root = root
         self.mode = mode
@@ -136,7 +185,12 @@ class DiscoveryRunner:
         self.sink = sink
         self.cache = cache
         self.dedup = dedup if dedup is not None else DedupIndex.with_pinned_corpus()
-        self.allow_local_ocr = mode == MODE_SCANNED
+        self.allow_local_ocr = mode in LOCAL_OCR_MODES
+        self.allow_visual_ocr = mode == MODE_SCANNED_VISUAL
+        # Escalation is a policy knob ON TOP of the rung: `--no-visual-escalation`
+        # recovers the documents nothing could read without spending GPU time
+        # re-reading Tesseract output.
+        self.visual_escalation = bool(visual_escalation) and self.allow_visual_ocr
         self.allow_artifacts = mode == MODE_DRY_RUN
 
     # -- resolution ---------------------------------------------------------
@@ -189,6 +243,102 @@ class DiscoveryRunner:
             "deferred_scanned" if self.allow_local_ocr else "deferred_offline_rungs"
         )
 
+    def _read_visual(self, raw: bytes, source_file: str, profile):
+        """(document, markdown, error_type). The visual rung, cached, fail-closed.
+
+        `force_ocr=True` goes straight to the visual rung: the offline rungs
+        either already ran on this document or provably cannot serve it, and
+        re-running them would only burn time. It is also what keeps this read in
+        its own D-3 partition — `force_ocr`, `allow_local_ocr` and
+        `allow_visual_ocr` are all cache-key material, as are the visual service
+        knobs (`ocr_model`, `ocr_base_url`, `ngram_size`, `window_size`,
+        `dpi`, `fallback_dpi`), so a visual artifact can never be served for an
+        offline read or across a model/endpoint change.
+
+        The endpoint can die mid-run. `ocr_page` retries and then re-raises, so
+        that exception is caught HERE and returned as an error type: this
+        document fails closed and the run continues. A failure is never cached —
+        `cached_ocr` only stores what `compute` returned.
+        """
+        from ocr.pipeline import parse_statement
+
+        def compute():
+            return parse_statement(
+                raw,
+                source_file=source_file,
+                profile=profile,
+                force_ocr=True,
+                allow_local_ocr=False,
+                allow_visual_ocr=True,
+            )
+
+        try:
+            if self.cache is None:
+                document, cached = compute(), False
+            else:
+                from webapp.artifact_cache import cached_ocr
+
+                result = cached_ocr(
+                    raw,
+                    compute=compute,
+                    cache=self.cache,
+                    source_file=source_file,
+                    content_hash=profile.content_sha256,
+                    force_ocr=True,
+                    allow_local_ocr=False,
+                    allow_visual_ocr=True,
+                )
+                document, cached = result.value, result.cached
+        except Exception as exc:
+            self._last_visual_cached = False
+            return None, None, type(exc).__name__
+        self._last_visual_cached = cached
+        if document is None:
+            return None, None, None
+        return document, document.to_markdown(), None
+
+    def _analyse(self, markdown: str, collector):
+        """(payload, error_type, cached). Deterministic mode; never raises."""
+        def analyse():
+            return report_to_dict(analyze_markdown(
+                markdown, parse_mode="deterministic", on_dispatch=collector
+            ))
+
+        try:
+            if self.cache is None:
+                return analyse(), None, False
+            from webapp.artifact_cache import cached_analysis
+
+            result = cached_analysis(
+                markdown, compute=analyse, cache=self.cache,
+                parse_mode="deterministic",
+            )
+            return result.value, None, result.cached
+        except Exception as exc:
+            return None, type(exc).__name__, False
+
+    def _needs_visual_upgrade(self, document, collector, payload) -> bool:
+        """Is this the class-5 shape — a Tesseract read nobody could claim?
+
+        Deliberately narrow, in three ways:
+
+        * **Tesseract only.** A native-text document that goes unclaimed is a
+          layout problem (discovery class 1), and re-reading perfect text with a
+          GPU cannot fix a missing parser.
+        * **A live dispatch only.** On a D-3 analysis cache hit no dispatch
+          exists this run; guessing "unclaimed" there would escalate the entire
+          archive on every re-run. A cached payload means it analysed fine.
+        * **Not for parser crashes.** A claimed document whose parser then threw
+          is a parser defect (W3-1), not an OCR one, so it is left alone.
+        """
+        if not self.visual_escalation or document is None:
+            return False
+        if source_path_for(document.model) != "local_tesseract":
+            return False
+        if collector.seen:
+            return collector.dispatch.outcome != "claimed"
+        return payload is None
+
     # -- one document -------------------------------------------------------
 
     def process(self, relative_path: str, folder_label: str) -> DocumentRow:
@@ -227,10 +377,11 @@ class DiscoveryRunner:
             row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
             return row
 
+        name = Path(relative_path).name
         with timer.time("ocr"):
-            document, markdown, note = self._read(raw, Path(relative_path).name, profile)
+            document, markdown, note = self._read(raw, name, profile)
 
-        if markdown is None:
+        if markdown is None and not self.allow_visual_ocr:
             # Recorded, never skipped: real work this tranche deliberately did
             # not do. `deferred` is its own outcome class precisely so that
             # `failed` can keep meaning "attempted and errored" — the two are
@@ -245,32 +396,66 @@ class DiscoveryRunner:
             row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
             return row
 
+        if markdown is None:
+            # RECOVERY: exactly the `deferred_visual_ocr` class of tranche 2.
+            # The mode exists to attempt these, so from here on the document can
+            # no longer be deferred — it either reads or it fails, explicitly.
+            with timer.time("visual_ocr"):
+                document, markdown, visual_error = self._read_visual(raw, name, profile)
+            timer.set_cache("visual_ocr", _disposition(self.cache, self._last_visual_cached))
+            row.cache_visual = timer.as_dict()["visual_ocr"]["cache"]
+            if markdown is None:
+                # The rung was asked and produced nothing: an exception (server
+                # down) or, only in principle, a cached negative. Either way the
+                # document is terminal, and `error_type` tells the two apart.
+                row.visual_rung = VISUAL_FAILED
+                row.outcome_class, row.outcome_reason = "failed", "ocr_failed"
+                row.error_type = visual_error
+                row.source_path = "none"
+                self._emit(row, profile, None, None, None, collector, timer,
+                           error_type=visual_error, error_reason="ocr_failed",
+                           fallback_reason=_fallback_reason(row.visual_rung))
+                row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+                return row
+            row.visual_rung = VISUAL_RECOVERED
+            note = None
+
         source = source_section(document)
         row.source_path = "committed_artifact" if note == "committed_artifact" else source["path"]
         row.source_model = source["model"]
         row.truncated_pages = source["truncation"]["truncated_page_count"]
 
-        payload, error_type = None, None
-        analysis_cached = False
         with timer.time("analysis"):
-            try:
-                def analyse():
-                    return report_to_dict(analyze_markdown(
-                        markdown, parse_mode="deterministic", on_dispatch=collector
-                    ))
+            payload, error_type, analysis_cached = self._analyse(markdown, collector)
 
-                if self.cache is None:
-                    payload = analyse()
-                else:
-                    from webapp.artifact_cache import cached_analysis
-
-                    result = cached_analysis(
-                        markdown, compute=analyse, cache=self.cache,
-                        parse_mode="deterministic",
+        if self._needs_visual_upgrade(document, collector, payload):
+            # UPGRADE (discovery class 5): Tesseract produced text and no parser
+            # could claim it. Read the pixels again with the visual rung and keep
+            # that read ONLY if it analyses — in deterministic mode a payload
+            # exists if and only if a parser claimed, so "it analysed" IS the
+            # adoption test, and it stays correct on a D-3 cache hit where no
+            # dispatch is observable.
+            with timer.time("visual_ocr"):
+                visual_doc, visual_md, visual_error = self._read_visual(raw, name, profile)
+            timer.set_cache("visual_ocr", _disposition(self.cache, self._last_visual_cached))
+            row.cache_visual = timer.as_dict()["visual_ocr"]["cache"]
+            row.visual_rung = VISUAL_FAILED if visual_error else VISUAL_NO_UPGRADE
+            if visual_md is not None:
+                visual_collector = DispatchCollector()
+                with timer.time("visual_analysis"):
+                    visual_payload, visual_error_type, visual_cached = self._analyse(
+                        visual_md, visual_collector
                     )
-                    payload, analysis_cached = result.value, result.cached
-            except Exception as exc:
-                error_type = type(exc).__name__
+                if visual_payload is not None:
+                    row.visual_rung = VISUAL_UPGRADED
+                    document, markdown, collector = visual_doc, visual_md, visual_collector
+                    payload, error_type, analysis_cached = (
+                        visual_payload, visual_error_type, visual_cached
+                    )
+                    source = source_section(document)
+                    row.source_path = source["path"]
+                    row.source_model = source["model"]
+                    row.truncated_pages = source["truncation"]["truncated_page_count"]
 
         dispatch = collector.dispatch
         if dispatch is not None:
@@ -315,6 +500,7 @@ class DiscoveryRunner:
             error_type=error_type,
             scores=(scores, registration_count),
             escalated=bool(payload.get("escalated")) if payload else False,
+            fallback_reason=_fallback_reason(row.visual_rung),
         )
         row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
         return row
@@ -324,7 +510,7 @@ class DiscoveryRunner:
     def _emit(
         self, row, profile, document, markdown, payload, collector, timer,
         *, error_type=None, error_reason=None, deferred=None, scores=None,
-        escalated=False,
+        escalated=False, fallback_reason=None,
     ) -> None:
         """One H-3 record per enumerated document. Never raises.
 
@@ -360,6 +546,7 @@ class DiscoveryRunner:
                 error_type=error_type,
                 error_reason=error_reason,
                 deferred=deferred,
+                fallback_reason=fallback_reason,
             ))
         except Exception:
             return None
@@ -367,6 +554,18 @@ class DiscoveryRunner:
 
 def _disposition(cache, cached: bool) -> str:
     return "bypass" if cache is None else ("hit" if cached else "miss")
+
+
+def _fallback_reason(visual_rung: str) -> str | None:
+    """The row's visual disposition as an H-3 enum code.
+
+    It travels in `outcome.fallback_reason` — an existing, previously unused
+    record field whose meaning is exactly this: the ladder did not stop where it
+    normally stops. No telemetry field was added for W3-5.
+    """
+    if visual_rung == VISUAL_NOT_ATTEMPTED:
+        return None
+    return f"visual_ocr_{visual_rung}"
 
 
 def _failure_reason(error_type: str | None, dispatch) -> str | None:

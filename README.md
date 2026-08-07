@@ -219,18 +219,66 @@ folder-label, ambiguity clusters, cache stats).
 .venv/Scripts/python.exe -m discovery --profile-only   # tranche 0: intake only
 .venv/Scripts/python.exe -m discovery --digital        # tranche 1: offline rungs
 .venv/Scripts/python.exe -m discovery --scanned        # tranche 2: + local Tesseract
+.venv/Scripts/python.exe -m discovery --scanned-visual # tranche 3: + the visual rung
 .venv/Scripts/python.exe -m discovery --dry-run --no-cache --limit 20
 ```
 
 It owns no routing, no parsers and no financial logic: it consumes O-1
 preflight profiles, the production intake ladder, D-3's cache, R-3's registry
-dispatch and H-3 telemetry. **Offline by construction** — `deterministic` parse
-mode makes the LLM branch unreachable and the visual-OCR rung is disabled, so
-the model client module is never even imported (asserted by test). Tranche 2
-adds only the local Tesseract binary.
+dispatch and H-3 telemetry. **Offline by construction in tranches 0–2** —
+`deterministic` parse mode makes the LLM branch unreachable and the visual-OCR
+rung is disabled, so the model client module is never even imported (asserted
+by test). Tranche 2 adds only the local Tesseract binary; tranche 3
+(`--scanned-visual`, below) adds the local visual-OCR rung and nothing else.
 
 Documents a tranche cannot read are **recorded, never skipped**: a scanned PDF
 in tranche 1 is `deferred_scanned` and appears in the report as work not done.
+
+### Tranche 3 — the visual-OCR rung (`--scanned-visual`)
+
+`--scanned-visual` is `--scanned` with the intake ladder's last rung enabled:
+the **local** `baidu/Unlimited-OCR` server on your own GPU (see *Local GPU*
+above). No paid vendor is reachable from any discovery mode, and the extraction
+LLM stays unreachable here too — the rung reads pixels into markdown, it does
+not extract. Policy stays offline-first, and a document reaches the GPU in
+exactly two situations:
+
+| | When | Outcome |
+|---|---|---|
+| **recovery** | the offline rungs produced nothing at all (`deferred_visual_ocr` in tranche 2) | the visual read becomes the text of record |
+| **upgrade** | the offline read came from local Tesseract and **no parser claimed it** | the visual read is adopted only if it claims; otherwise the Tesseract read stays of record |
+
+An unclaimed *native-text* document is never escalated: that is a layout
+problem, and re-reading perfect text with a GPU cannot invent a parser.
+`--no-visual-escalation` restricts the mode to recovery only.
+
+```bash
+python local_ocr_server.py &                          # or point OCR_BASE_URL elsewhere
+.venv/Scripts/python.exe -m discovery --scanned-visual
+.venv/Scripts/python.exe -m discovery --scanned-visual --no-visual-escalation
+OCR_BASE_URL=http://localhost:8000/v1 .venv/Scripts/python.exe -m pytest -m live
+```
+
+**Availability is checked before the run, not during it.** The mode probes
+`GET /v1/models` up front (no GPU time, no image sent) and refuses to start,
+with an actionable message and exit code 2, if the endpoint is unreachable or
+does not serve the configured `OCR_MODEL` — a batch of thousands must not
+discover that on document 1. If the server dies **mid-run**, that document
+fails closed (`failed` / `ocr_failed`, with the exception class recorded) and
+the run continues; a failed read is never cached.
+
+Each visual read goes through the D-3 artifact cache in its own partition (the
+ladder capability flags and every visual service knob — model, base URL, dpi,
+fallback dpi, ngram/window — are cache-key material), is assessed for O-3
+truncation exactly like every other rung, and is recorded by H-3 with its own
+`visual_ocr` stage timing, `source.path = "visual"`, the model id and the page
+count. Local infrastructure bills no vendor, so the cost estimate names the
+model as unpriced rather than inventing a rate.
+
+The deferral taxonomy does not soften: a document the visual rung **also**
+cannot serve stops being `deferred` and becomes an explicit terminal `failed`.
+`rows.csv` gains `visual_rung` (`recovered` / `upgraded` / `no_upgrade` /
+`failed` / `not_attempted`) and `cache_visual`, and the report ranks them.
 
 Every run first verifies the corpus root against the frozen archive baseline
 (3,768 files / 3,615 PDFs / 996,080,803 bytes) and refuses to proceed if it has
@@ -265,6 +313,8 @@ It is **on by default** on both paths. The webapp writes to the SQLite store
 .venv/Scripts/python.exe -m telemetry.report --jsonl telemetry_runs/<run_id>.jsonl
 .venv/Scripts/python.exe -m telemetry.report --sqlite webapp_data       # same report
 .venv/Scripts/python.exe -m telemetry.report --jsonl … --by parser      # breakdowns
+.venv/Scripts/python.exe -m telemetry.report --jsonl … --diagnostics    # W3-2: withheld failure-class rollup
+.venv/Scripts/python.exe -m telemetry.report --jsonl … --by diagnostic_class
 TELEMETRY_DISABLED=1 .venv/Scripts/python.exe batch.py …                # kill switch
 ```
 

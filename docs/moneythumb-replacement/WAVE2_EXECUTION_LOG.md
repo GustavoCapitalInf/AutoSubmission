@@ -1,4 +1,122 @@
-# Wave 2 Execution Log — reviews, rulings, merges
+# Wave 2/3 Execution Log — reviews, rulings, merges
+
+## 2026-08-07 — W3-5 MERGED (`2fdf148`) · W3-1 reviewed, pipeline diff APPROVED · 3a spike evidence delivered
+
+**W3-5 (SONAR): APPROVED and merged** — `--scanned-visual` as tranche 3;
+recovery (13) unconditional + upgrade (~159) gated on the visual read
+actually analysing; three cost-justified narrowings (never escalate
+unclaimed NATIVE text; never escalate on a cache hit; crashed-claims are
+W3-1's); availability probe (exit 2, model-list check, class-only errors);
+cache partitions proven with zero D-3 change; failure-never-cached;
+deferral taxonomy tightened to terminal outcomes. 1,838 tests post-merge.
+Rulings: Q1 cost line — `baidu/Unlimited-OCR` added to FREE_MODELS ($0
+VENDOR is a fact; infra cost stays operational) — **Ocean process slip
+logged: the ruling commit (`fa79b90`) was pushed before running its blast
+radius; one W3-5 test pinned the old unpriced behavior; fixed next commit
+(`f0e41a9`), red window on origin = one commit.** Q2 circuit breaker:
+deferred to backlog unless tranche 3 shows need. Q3 withheld-tesseract
+escalation: revisit after tranche-3 evidence. Q4 sequencing accepted:
+recovery-only first (13 docs), then escalation. Tranche 3 execution
+awaits: local OCR server availability (probe currently refuses —
+server down; see docs/runpod-setup.md) + Gustavo's go.
+
+**W3-1 + crash fixes (REEF): reviewed, held for one approved change.**
+Boundary design accepted (Exception-not-BaseException; ParserFailure with
+class names only; parser_exception outcome distinct from unclaimed;
+crashes never counted as unknown-layout clusters). Crash clusters
+root-caused and fixed generically (us_bank optional interest line; shaped-
+but-impossible date tokens via new iso_or_none — also closes the latent
+pnc/regions crash; one R-2 frozen-oracle divergence recorded explicitly).
+Re-measured over the 53 archive docs: **crashes 53 → 0** (16 validated +
+20 withheld / 16 withheld / 1 unclaimed — all fail-closed). **Ocean
+rulings:** the pinned pipeline.py diff APPROVED + extended to guard
+`integrity_checks` invocation (`integrity_check_exception` flag); NO
+ANALYSIS_STAGE_VERSION bump (reasoning recorded); deviations 2/4/5
+accepted. Agent implementing now; W3-1 merges only with the diff landed
+and forensic proof attached.
+
+**W3-3a spike evidence (frozen for the 3b gate):** 184 real documents
+through an experimental bank-agnostic structurer behind the REAL gate —
+**zero false validations** (5/5 published values correct field-for-field);
+gate sufficiency proven; binding constraint = completeness not recognition
+(74%→81% into the gate moved nothing through it); flat text is the wrong
+input (reading-order failures dominate refusals; word geometry = largest
+lever); honest re-scope of the coverage target: +4 points today, +10–17
+with geometry, remainder belongs to W3-2 (614 withheld) and W3-5 (159 OCR).
+Architecture proposal: structurer → same Statement → reconciliation AND
+rebuilt grounding, both required, unclaimed-branch rung, default off.
+**Prototype-branch final recommendation: tag both commits
+(archive/universal-prototype-2026-08-04|05), push tags, then delete the
+two remote refs — P2-1 was the last consumer.** All 3b decisions await
+Gustavo at the design gate.
+
+## 2026-08-07 — WAVE 3 LAUNCHED (approved by Gustavo as proposed)
+
+Environment verified (Fable 5 lead; CLAUDE_CODE_SUBAGENT_MODEL=opus). Three
+Opus 5 agents dispatched from `main@1d2f396`; W3-3c staffing decided at the
+3b gate:
+
+| Agent | Worktree / branch | Dispatched scope | Stop point |
+|---|---|---|---|
+| A — REEF | mt-reef / wave3-boundary-understanding | W3-1 exception boundary → crash-cluster generic fixes (AttributeError/US Bank ×36, ValueError/BofA ×16+TD 1) → W3-3a investigation spike | Propose-first on any pipeline.py diff; hard stop after 3a (design gate) |
+| B — HARBOR | mt-harbor / wave3-diagnostics | W3-2 withheld-diagnostics (read-only over analysis outputs; taxonomy doc W3_2_TAXONOMY.md; withheld-3 anchor test) | Stop after W3-2; W3-4 dispatched later |
+| D — SONAR | mt-sonar / wave3-visual-ocr | W3-5 visual rung into discovery ladder (cache/flags/telemetry; availability probing; no archive processing) | Stop after W3-5 |
+
+Bindings restated in every prompt: no statement-specific fixes; protected
+core; fail closed; discovery = evidence not target; agents never merge to
+main; archive read-only for diagnosis, synthetic fixtures only, no content
+in reports; measurements vs frozen discovery + 109 corpus are Ocean-run.
+Merge order intent: W3-1 → W3-2 → W3-5 → (3a report → 3b gate with
+Gustavo). Post-W3-1 merge, Ocean runs a measured discovery re-run
+(cache-cheap) to quantify crash-class conversion.
+
+---
+
+## 2026-08-07 — W3-2 REVIEWED: APPROVED; **MERGED as `f16f1fc`, pushed** (readiness-ordered ahead of W3-1 — telemetry-only, no file conflict; REEF rebases on merge)
+
+50 codes → 16 ranked classes; prefix-anchored mapping (hostile-description
+spoof tested); withheld-3 anchor reproduces the documented forensic
+diagnoses from adb-withheld-second-pass.md; zero analysis-output change
+proven byte-identical; 1,803 tests; gate GREEN 106/3. Disclosed test-only
+fix accepted (pre-existing I1 flake: a timestamp substring reading as an
+amount; scan now excludes four shape-pinned identifier fields). README
+diagnostics paragraph added by Ocean post-merge (`983afe0`).
+
+**Ocean rulings (W3-2 open questions):** (1) `count_mismatch` platform
+check = named Wave-3 ticket (protected-module change, Ocean-gated; payload
+already carries the raw material) — logged, not now. (2) Withheld-only
+scope STANDS; expansion to review/failed classes requires a ruling at
+W3-4. (3) Cause-over-symptom precedence CONFIRMED; revisit only if the
+614-scale rollup contradicts the three corpus anchors. (4) `unmapped`
+carrying literal names for enum-shaped sources CONFIRMED (our constants);
+free-text sources counts-only. Also logged from the survey: dead
+`summary_trusted` quality vocabulary in pipeline.py (unreachable branch) —
+Wave-3 hygiene ticket.
+
+**Measured re-run COMPLETE (run `…-02e90a86`, cached, ~cheap): the
+vocabulary held at scale — `unmapped 0 | 0 | 0` over all 614 withheld.**
+Failure-class × parser cross-cut (parser attribution joined by content
+hash from the original tranche runs; 614/614 attributed):
+
+| Class | Docs | Top parsers |
+|---|---|---|
+| detail_coverage | **390** (63.5%) | **chase 217**, td_canada_native 61, rbc 48, bofa 16, pnc 14 |
+| ledger_identity | 130 (21.2%) | chase 88, bofa 23, truist 8 |
+| period_integrity | 32 | wells_fargo 22, chase 5 |
+| balance_continuity | 26 | rbc 18, wells_fargo 5, chase_export 3 |
+| posting_date_coverage | 22 | bofa 15, chase 6 |
+| summary_identity / source_contradiction / adb_not_computable | 7 / 4 / 3 | scotiabank 3·ibc 2 / bmo 4 / farmers_merchants 3 |
+
+Reading: **chase variants losing transaction rows (217 docs) is the single
+largest withheld cell (35% of all withheld)**; extraction-completeness on
+chase/td_can/rbc variants is the top-value remediation block, exactly the
+evidence shape W3-2 was built to produce. bmo's 4 source_contradictions and
+the flagged docs go to the adjudication queue (possible genuine document
+defects, not code). This table is W3-4's ranked queue and 3b design-review
+input.
+
+---
+
 
 Author: Ocean. Running record; newest entries appended. Merge queue:
 H-0 → CI-1 → R-2 → D-3 → O-3 → R-3 → R-4 → H-3 → DSC-1.
