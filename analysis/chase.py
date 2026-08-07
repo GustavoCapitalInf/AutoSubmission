@@ -7,7 +7,7 @@ from .date_tokens import iso_from_month_day, period_from_long_dates
 from .money import parse_digit_scrubbed
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
-from .tables import clean_cell, table_rows, tables_after
+from .tables import clean_cell, compact_whitespace, table_rows, tables_after
 
 _IMG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE | re.DOTALL)
 _EXPORT_MONTHS = {
@@ -130,96 +130,239 @@ def _tables_after(markdown: str, heading: str) -> list[str]:
     return tables_after(markdown, heading, continued=r"(?: \(continued\))?")
 
 
+#: A section heading, as Chase's text layer prints it: the heading owns the
+#: line, optionally carrying "(continued)" and/or the column header. It is
+#: anchored this way — rather than "heading followed by any whitespace" —
+#: because ACH description furniture wraps onto continuation lines that begin
+#: with a heading word ("Fees Sec:PPD Trace#..."), and the loose form claimed
+#: the enclosing ELECTRONIC WITHDRAWALS block as the FEES section, counting
+#: every row in it twice. The same anchor keeps the CHECKING SUMMARY block —
+#: whose lines read "Fees 1 -15.00" — from being read as a detail section.
+_HEADING_TAIL = r"\s*(?:\(continued\))?\s*(?:$|DATE\b)"
+
+
 def _native_blocks(markdown: str, heading: str) -> list[str]:
     blocks = []
     for match in re.finditer(r"\*start\*[^\n]*\n(.*?)\*end\*", markdown, re.IGNORECASE | re.DOTALL):
         block = match.group(1)
-        if re.search(rf"(?im)^\s*{re.escape(heading)}(?:\s|\(|$)", block):
+        if re.search(rf"(?im)^\s*{re.escape(heading)}{_HEADING_TAIL}", block):
             blocks.append(block)
     return blocks
 
 
-_ROW_STARTERS = (
-    "Orig CO Name",
-    "Real Time Payment",
-    "Real Time Transfer",
-    "Remote Online Deposit",
-    "Payment Received",
-    "Payment Sent",
-    "Payment To",
-    "Zelle Payment",
-    "Deposit",
-    "Fee Reversal",
-    "Recurring Card Purchase",
-    "Card Purchase",
-    "ATM Withdrawal",
-    "Withdrawal",
-    "Monthly Service Fee",
-    "Service Charges",
-    "Book Transfer",
-    "Online Transfer",
-    "Online Transfer From",
-    "Online Transfer To",
-    "Online ACH Payment",
-    "Online Payment",
-    "Overdraft Fee",
+#: The money grammar of an amount cell. `(?![\d])` is load-bearing: a foreign
+#: currency row prints its conversion factor ("4967200 X 0.000668276 (Exchg
+#: Rte)") and without the boundary `0.000668276` reads as the amount `0.00`.
+_MONEY_TOKEN = r"[0-9][0-9,]*\.[0-9]{2}"
+#: A row begins where the printed statement begins one: at the MM/DD posting
+#: date in the DATE column. Card and transfer rows print a second MM/DD (the
+#: transaction date) immediately after it.
+_ROW_START_RE = re.compile(r"^(\d{2}/\d{2})(?:\s+\d{2}/\d{2})?(?:\s|$)")
+#: Lines that end a row without starting one: the section total, and the
+#: headings of whatever follows the section inside the same block.
+_ROW_STOP_RE = re.compile(
+    r"(?i)^(?:total\b|atm & debit card summary\b|daily ending balance\b)"
 )
+#: A page break inside a section prints "(continued)" on its own line. It is
+#: furniture, NOT a row boundary: a row whose description is too wide can be
+#: cut by the page break, so the lines that open a continued block belong to
+#: the row the previous block left open.
+_CONTINUED_RE = re.compile(r"(?i)^\(continued\)$")
+#: Column headers, stripped before segmentation because some exports print
+#: them inline ahead of the first row rather than on their own line.
+_COLUMN_HEADER_RE = re.compile(
+    r"(?i)^(?:date\s+description\s+amount|date\s+paid\s+amount|date\s+amount"
+    r"|check\s+no\.\s+description|instances\s+amount)\s*"
+)
+#: Some exports flatten a whole section onto ONE physical line. A new row
+#: starts only where an amount cell ends and a date column begins — the seam
+#: is "amount then date", never a bare date, so the second MM/DD printed
+#: inside a card row (preceded by words) can never split it.
+_INLINE_ROW_SPLIT_RE = re.compile(r"(?<=\.\d{2})\s+(?=\d{2}/\d{2}(?:\s|$))")
+#: The amount column is right-aligned, so the amount always terminates a
+#: physical line; and when the description is too wide the amount cell wraps
+#: onto a line of its own.
+_AMOUNT_CELL_RE = re.compile(rf"^\$?\s?({_MONEY_TOKEN})$")
+_AMOUNT_AT_LINE_END_RE = re.compile(rf"(?<![\d.,])\$?\s?({_MONEY_TOKEN})$")
+_ANY_AMOUNT_RE = re.compile(rf"(?<![\d.,])\$?\s?({_MONEY_TOKEN})(?![\d])")
 
 
-def _native_lines(block: str) -> list[str]:
-    text = re.sub(r"\s+", " ", block.replace("\n", " ")).strip()
-    text = re.sub(r"DATE DESCRIPTION AMOUNT\s+", "DATE DESCRIPTION AMOUNT\n", text, flags=re.IGNORECASE)
-    starters = "|".join(re.escape(item) for item in _ROW_STARTERS)
-    text = re.sub(
-        rf"\s+(?=(\d{{2}}/\d{{2}}\s+(?:\d{{2}}/\d{{2}}\s+)?(?:{starters})\b))",
-        "\n",
-        text,
-        flags=re.IGNORECASE,
-    )
-    text = re.sub(r"\s+(?=(?:Total|ATM & Debit Card Summary|DAILY ENDING BALANCE)\b)", "\n", text, flags=re.IGNORECASE)
-    return [line.strip() for line in text.splitlines() if line.strip()]
+def _physical_lines(block: str, heading: str):
+    """The block's printed lines, with section furniture removed and lines
+    that carry several rows broken at the amount/date seam."""
+    head_re = re.compile(rf"(?i)^{re.escape(heading)}\s*(?:\(continued\))?\s*")
+    for raw in block.splitlines():
+        line = compact_whitespace(raw)
+        if not line:
+            continue
+        if _CONTINUED_RE.match(line):
+            continue
+        line = head_re.sub("", line, count=1)
+        line = _COLUMN_HEADER_RE.sub("", line, count=1)
+        if not line:
+            continue
+        for piece in _INLINE_ROW_SPLIT_RE.split(line):
+            piece = piece.strip()
+            if piece:
+                yield piece
+
+
+def _native_rows(lines) -> list[list[str]]:
+    """Group a section's printed lines into rows.
+
+    Segmentation is structural, not lexical. Before W3 Track A this function
+    split the flattened block ahead of a closed list of 23 description
+    prefixes ("Zelle Payment", "Card Purchase", ...), which meant any row
+    Chase described some other way — a reversal, a wire, a named fee, a CHIPS
+    credit — was folded into its predecessor: the row disappeared AND the
+    predecessor took the swallowed row's amount. That single rule is why the
+    217-document `chase x detail_coverage` withheld cell existed.
+    """
+    rows: list[list[str]] = []
+    current: list[str] | None = None
+    for line in lines:
+        if _ROW_START_RE.match(line):
+            if current:
+                rows.append(current)
+            current = [line]
+        elif _ROW_STOP_RE.match(line):
+            if current:
+                rows.append(current)
+            current = None
+        elif current is not None:
+            current.append(line)
+    if current:
+        rows.append(current)
+    return rows
+
+
+def _row_amount(lines: list[str]) -> tuple[float, int, int] | None:
+    """The row's amount, and where in `lines` it was printed.
+
+    Preference order follows the printed grid: a wrapped amount cell standing
+    alone on its own line, then the token that terminates a line (the
+    right-aligned column), then any money token. The first is what
+    distinguishes a purchase-with-cash-back row — whose description carries
+    "Purchase $352.94 Cash Back $40.00" — from its actual $392.94 amount cell.
+    """
+    for index, line in enumerate(lines[1:], start=1):
+        match = _AMOUNT_CELL_RE.match(line)
+        if match:
+            return _money(match.group(1)) or 0.0, index, match.start(1)
+    for index, line in enumerate(lines):
+        match = _AMOUNT_AT_LINE_END_RE.search(line)
+        if match:
+            amount = _money(match.group(1))
+            if amount is not None:
+                return amount, index, match.start(1)
+    for index, line in enumerate(lines):
+        match = _ANY_AMOUNT_RE.search(line)
+        if match:
+            amount = _money(match.group(1))
+            if amount is not None:
+                return amount, index, match.start(1)
+    return None
+
+
+def _row_description(lines: list[str], amount_line: int, amount_start: int) -> str:
+    parts = []
+    for index, line in enumerate(lines):
+        if index == amount_line:
+            line = line[:amount_start].rstrip().rstrip("$").rstrip()
+        if line:
+            parts.append(line)
+    body = compact_whitespace(" ".join(parts))
+    return re.sub(r"^\d{2}/\d{2}(?:\s+\d{2}/\d{2})?\s*", "", body)
 
 
 def _parse_native_section(markdown: str, heading: str, *, year: int, sign: int) -> list[Transaction]:
     txns: list[Transaction] = []
+    #: The section's blocks are grouped as ONE line stream, in document order,
+    #: because a page break can cut a row in half: the block that opens after
+    #: it begins with the tail of the row the previous block left open.
+    stream: list[str] = []
     for block in _native_blocks(markdown, heading):
-        for line in _native_lines(block):
-            if line.upper().startswith(("DATE DESCRIPTION AMOUNT", "TOTAL ", heading.upper())):
-                continue
-            m = re.match(r"(?P<date>\d{2}/\d{2})\s+(?P<body>.+)", line)
-            if not m:
-                continue
-            if m.group("body").lower().startswith("date "):
-                continue
-            amounts = list(re.finditer(r"\$?\s*[0-9][0-9,]*\.[0-9]{2}", m.group("body")))
-            if not amounts:
-                continue
-            amount_match = amounts[-1]
-            amount = _money(amount_match.group(0))
-            if amount is None:
-                continue
-            desc = (m.group("body")[:amount_match.start()] + m.group("body")[amount_match.end():]).strip()
-            desc = re.sub(r"\s+", " ", desc)
-            if not desc or desc.lower().startswith("total"):
-                continue
-            signed = round(abs(amount) * sign, 2)
-            txns.append(Transaction(
-                date=iso_from_month_day(m.group("date"), year),
-                description=desc,
-                amount=signed,
-                direction="credit" if signed >= 0 else "debit",
-                running_balance=None,
-            ))
+        stream.extend(_physical_lines(block, heading))
+    for lines in _native_rows(stream):
+        found = _row_amount(lines)
+        if found is None:
+            continue
+        #: The DATE column is the POSTING date. Card and transfer rows print
+        #: the transaction date second; dating a row by that one attributes
+        #: its end-of-day balance to a day the bank does not recognise
+        #: (`posting_dates_cover_source` in analysis/adb.py).
+        posted = _ROW_START_RE.match(lines[0])
+        if posted is None:
+            continue
+        amount, amount_line, amount_start = found
+        desc = _row_description(lines, amount_line, amount_start)
+        #: A row with no description left is dropped rather than published
+        #: with an invented one. Dropping loses the amount, so the ledger
+        #: stops reconciling and the document is withheld: fail closed.
+        if not desc or desc.lower().startswith("total"):
+            continue
+        signed = round(abs(amount) * sign, 2)
+        txns.append(Transaction(
+            date=iso_from_month_day(posted.group(1), year),
+            description=desc,
+            amount=signed,
+            direction="credit" if signed >= 0 else "debit",
+            running_balance=None,
+        ))
     return txns
+
+
+#: A check row starts at the check number in the CHECK NO. column. The number
+#: is bounded at 10 digits so the long page-barcode digit run Chase prints
+#: inside some blocks cannot open a row.
+_CHECK_START_RE = re.compile(r"^\d{1,10}(?:\s|$)")
+_CHECK_INLINE_SPLIT_RE = re.compile(r"(?<=\.\d{2})\s+(?=\d{1,10}(?:\s|$))")
+#: check no. | skip/image markers | (an electronic check's description) |
+#: date paid | (a second printed date) | amount.
+_CHECK_ROW_RE = re.compile(
+    rf"^(\d{{1,10}})\s+(?:[*^]\s*)*(?:.*?\s)??"
+    rf"(\d{{2}}/\d{{2}})(?:\s+\d{{2}}/\d{{2}})?\s+\$?\s*({_MONEY_TOKEN})(?![\d])"
+)
+
+
+def _check_rows(block: str) -> list[list[str]]:
+    rows: list[list[str]] = []
+    current: list[str] | None = None
+    for raw in block.splitlines():
+        line = compact_whitespace(raw)
+        if not line:
+            continue
+        line = re.sub(r"(?i)^CHECKS PAID\s*(?:\(continued\))?\s*", "", line, count=1)
+        line = _COLUMN_HEADER_RE.sub("", line, count=1)
+        if not line:
+            continue
+        for piece in _CHECK_INLINE_SPLIT_RE.split(line):
+            piece = piece.strip()
+            if not piece:
+                continue
+            if _ROW_STOP_RE.match(piece):
+                if current:
+                    rows.append(current)
+                current = None
+            elif _CHECK_START_RE.match(piece):
+                if current:
+                    rows.append(current)
+                current = [piece]
+            elif current is not None:
+                current.append(piece)
+    if current:
+        rows.append(current)
+    return rows
 
 
 def _parse_native_checks(markdown: str, *, year: int) -> list[Transaction]:
     txns: list[Transaction] = []
     for block in _native_blocks(markdown, "CHECKS PAID"):
-        for check_no, mmdd, amount_text in re.findall(
-            r"\b(\d{3,})\s+\*?\s*\^?\s+(\d{2}/\d{2})\s+\$?\s*([0-9][0-9,]*\.[0-9]{2})",
-            block,
-        ):
+        for lines in _check_rows(block):
+            match = _CHECK_ROW_RE.match(" ".join(lines))
+            if not match:
+                continue
+            check_no, mmdd, amount_text = match.groups()
             amount = _money(amount_text)
             if amount is None:
                 continue
@@ -233,6 +376,26 @@ def _parse_native_checks(markdown: str, *, year: int) -> list[Transaction]:
     return txns
 
 
+#: A CHECKING SUMMARY amount. The Commercial Checking layout prints its debit
+#: rows with a space between the sign and the figure ("- 530,178.70"), so a
+#: pattern that demands `-?` immediately before the digits reads NONE of that
+#: statement's debit rows and leaves `stated_total_debits` unset — the summary
+#: then cannot be checked against the ledger at all.
+_SUMMARY_AMOUNT = r"-?\s*\$?\s*[0-9][0-9,]*\.[0-9]{2}"
+#: The summary rows that are debits. The last entry is the Commercial Checking
+#: layout's combined row; it cannot collide with the shorter "Other
+#: Withdrawals" or "Fees" entries because those are only matched when a count
+#: follows immediately, and here a comma does.
+_SUMMARY_DEBIT_LABELS = (
+    "Checks Paid",
+    "ATM & Debit Card Withdrawals",
+    "Electronic Withdrawals",
+    "Other Withdrawals",
+    "Fees",
+    "Other Withdrawals, Fees & Charges",
+)
+
+
 def _parse_native_summary(text: str, stmt: Statement) -> bool:
     match = re.search(r"CHECKING SUMMARY(.*?)\*end\*summary", text, re.IGNORECASE | re.DOTALL)
     if not match:
@@ -241,7 +404,7 @@ def _parse_native_summary(text: str, stmt: Statement) -> bool:
 
     beginning = re.search(r"Beginning Balance\s+(\$?[0-9][0-9,]*\.[0-9]{2})", summary, re.IGNORECASE)
     ending = re.search(r"Ending Balance(?:\s+\d+)?\s+(\$?[0-9][0-9,]*\.[0-9]{2})", summary, re.IGNORECASE)
-    deposits = re.search(r"Deposits and Additions\s+(\d+)\s+(-?\$?[0-9][0-9,]*\.[0-9]{2})", summary, re.IGNORECASE)
+    deposits = re.search(rf"Deposits and Additions\s+(\d+)\s+({_SUMMARY_AMOUNT})", summary, re.IGNORECASE)
     if beginning:
         stmt.beginning_balance = _money(beginning.group(1))
     if ending:
@@ -252,8 +415,8 @@ def _parse_native_summary(text: str, stmt: Statement) -> bool:
 
     debit_total = 0.0
     debit_count = 0
-    for label in ("Checks Paid", "ATM & Debit Card Withdrawals", "Electronic Withdrawals", "Other Withdrawals", "Fees"):
-        m = re.search(rf"{re.escape(label)}\s+(\d+)\s+(-?\$?[0-9][0-9,]*\.[0-9]{{2}})", summary, re.IGNORECASE)
+    for label in _SUMMARY_DEBIT_LABELS:
+        m = re.search(rf"{re.escape(label)}\s+(\d+)\s+({_SUMMARY_AMOUNT})", summary, re.IGNORECASE)
         if not m:
             continue
         debit_count += int(m.group(1))
@@ -425,6 +588,12 @@ def parse_chase_statement(markdown: str) -> Statement | None:
         txns.extend(_parse_native_section(text, "ATM & DEBIT CARD WITHDRAWALS", year=year, sign=-1))
         txns.extend(_parse_native_section(text, "ELECTRONIC WITHDRAWALS", year=year, sign=-1))
         txns.extend(_parse_native_section(text, "OTHER WITHDRAWALS", year=year, sign=-1))
+        #: The Commercial Checking layout prints one combined section instead
+        #: of separate OTHER WITHDRAWALS and FEES sections, and names it the
+        #: same way in CHECKING SUMMARY. Without it the summary states a debit
+        #: total whose detail is never read. The anchored heading match means
+        #: the two spellings cannot both claim the same block.
+        txns.extend(_parse_native_section(text, "OTHER WITHDRAWALS, FEES & CHARGES", year=year, sign=-1))
         txns.extend(_parse_native_section(text, "FEES", year=year, sign=-1))
 
     if not txns or stmt.beginning_balance is None or stmt.ending_balance is None:
