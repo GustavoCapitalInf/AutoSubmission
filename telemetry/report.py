@@ -3,9 +3,13 @@
     python -m telemetry.report --jsonl telemetry_runs/<run_id>.jsonl
     python -m telemetry.report --sqlite webapp_data
     python -m telemetry.report --jsonl <file> --by parser
+    python -m telemetry.report --jsonl <file> --diagnostics    # W3-2 rollup
 
 Both backends carry the identical record (H3_SCHEMA I2), so both produce the
 identical report from the same run - asserted by test.
+
+Deliberately ASCII-only: this is printed by a CLI, and a console in a legacy
+code page must not be able to turn a measurement into a UnicodeEncodeError.
 """
 from __future__ import annotations
 
@@ -154,6 +158,111 @@ def render(summary: dict, run_id: str | None = None) -> str:
     return "\n".join(lines)
 
 
+def _diagnostics(record: dict) -> dict:
+    """A record's diagnostics section, tolerant of pre-W3-2 records.
+
+    A run emitted before this section existed is not an error and must not
+    crash the rollup; it reports as not-evaluated, which is true.
+    """
+    section = record.get("diagnostics")
+    return section if isinstance(section, dict) else {"evaluated": False}
+
+
+def diagnostics_rollup(records: list[dict]) -> dict:
+    """Failure class x parser x volume over one run. Pure, so tests assert on it.
+
+    The question this answers is W3-2's: of the documents the platform refused
+    to publish, which CHECK refused, and for which parser - so remediation is
+    ranked by check-class and volume instead of done statement by statement.
+    """
+    diagnosed = [r for r in records if _diagnostics(r).get("evaluated")]
+    classes: Counter = Counter()
+    codes: Counter = Counter()
+    checks: Counter = Counter()
+    pairs: Counter = Counter()
+    parsers: Counter = Counter()
+    unmapped_names: Counter = Counter()
+    unmapped_issues = 0
+    unmapped_warnings = 0
+
+    for record in diagnosed:
+        section = _diagnostics(record)
+        parser = record["dispatch"].get("parser_id") or "(none)"
+        primary = section.get("primary_class") or "undiagnosed"
+        classes[primary] += 1
+        parsers[parser] += 1
+        pairs[(primary, parser)] += 1
+        for code in section.get("codes") or []:
+            codes[code] += 1
+        for check in section.get("adb_checks_failed") or []:
+            checks[check] += 1
+        for name in section.get("unmapped") or []:
+            unmapped_names[name] += 1
+        counts = section.get("counts") or {}
+        unmapped_issues += counts.get("unmapped_reconciliation_issues") or 0
+        unmapped_warnings += counts.get("unmapped_adb_warnings") or 0
+
+    return {
+        "total": len(records),
+        "diagnosed": len(diagnosed),
+        "classes": dict(classes),
+        "codes": dict(codes),
+        "adb_checks_failed": dict(checks),
+        "parsers": dict(parsers),
+        "class_parser": [
+            [failure_class, parser, count]
+            for (failure_class, parser), count in sorted(
+                pairs.items(), key=lambda kv: (-kv[1], kv[0][0], kv[0][1])
+            )
+        ],
+        "unmapped": {
+            "names": dict(unmapped_names),
+            "reconciliation_issues": unmapped_issues,
+            "adb_warnings": unmapped_warnings,
+        },
+    }
+
+
+def render_diagnostics(rollup: dict, run_id: str | None = None, *, top: int = 20) -> str:
+    """The W3-2 table. ASCII only."""
+    total, diagnosed = rollup["total"], rollup["diagnosed"]
+    lines = [
+        f"run {run_id or '(all)'} | withheld diagnostics",
+        f"diagnosed {diagnosed} of {total} documents",
+        "",
+        f"  {'failure class':<26}{'parser':<22}{'docs':>6}",
+    ]
+    for failure_class, parser, count in rollup["class_parser"]:
+        lines.append(f"  {failure_class:<26}{parser:<22}{count:>6}")
+    if not rollup["class_parser"]:
+        lines.append("  (none)")
+
+    lines.extend(["", "failure class totals"])
+    for key, count in sorted(rollup["classes"].items(), key=lambda kv: (-kv[1], kv[0])):
+        lines.append(_line(key, count, diagnosed))
+    if not rollup["classes"]:
+        lines.append("  (none)")
+
+    lines.extend(["", f"top codes (of {len(rollup['codes'])})"])
+    ranked = sorted(rollup["codes"].items(), key=lambda kv: (-kv[1], kv[0]))[:top]
+    for key, count in ranked:
+        lines.append(f"  {key:<52}{count:>6}")
+    if not ranked:
+        lines.append("  (none)")
+
+    unmapped = rollup["unmapped"]
+    lines.extend([
+        "",
+        "unmapped     "
+        + f"names {len(unmapped['names'])} | "
+        + f"recon issues {unmapped['reconciliation_issues']} | "
+        + f"adb warnings {unmapped['adb_warnings']}",
+    ])
+    for name, count in sorted(unmapped["names"].items(), key=lambda kv: (-kv[1], kv[0])):
+        lines.append(f"  UNMAPPED {name:<43}{count:>6}")
+    return "\n".join(lines)
+
+
 def render_breakdown(records: list[dict], field: str) -> str:
     if field == "parser":
         counts = Counter(r["dispatch"]["parser_id"] or "(none)" for r in records)
@@ -161,6 +270,10 @@ def render_breakdown(records: list[dict], field: str) -> str:
         counts = Counter(r["source"]["path"] for r in records)
     elif field == "outcome":
         counts = Counter(r["outcome"]["class"] for r in records)
+    elif field == "diagnostic_class":
+        counts = Counter(
+            _diagnostics(r).get("primary_class") or "(not diagnosed)" for r in records
+        )
     else:
         raise ValueError(f"unknown breakdown: {field}")
     total = len(records)
@@ -176,7 +289,13 @@ def main(argv: list[str] | None = None) -> int:
     source.add_argument("--jsonl", help="A JSONL telemetry file (CLI/batch runs).")
     source.add_argument("--sqlite", help="A webapp data directory (schema v4).")
     parser.add_argument("--run-id", help="Restrict to one run.")
-    parser.add_argument("--by", choices=("parser", "source_path", "outcome"))
+    parser.add_argument(
+        "--by", choices=("parser", "source_path", "outcome", "diagnostic_class")
+    )
+    parser.add_argument(
+        "--diagnostics", action="store_true",
+        help="W3-2 withheld-diagnostics rollup: failure class x parser x volume.",
+    )
     parser.add_argument("--json", action="store_true", help="Emit the summary as JSON.")
     args = parser.parse_args(argv)
 
@@ -185,11 +304,23 @@ def main(argv: list[str] | None = None) -> int:
         print("no telemetry records found", file=sys.stderr)
         return 1
 
+    run_id = args.run_id or (
+        records[0].get("run_id")
+        if len(set(r.get("run_id") for r in records)) == 1
+        else None
+    )
+    if args.diagnostics:
+        rollup = diagnostics_rollup(records)
+        if args.json:
+            print(json.dumps(rollup, indent=2, sort_keys=True))
+        else:
+            print(render_diagnostics(rollup, run_id))
+        return 0
+
     summary = summarize(records)
     if args.json:
         print(json.dumps(summary, indent=2, sort_keys=True))
     else:
-        run_id = args.run_id or (records[0].get("run_id") if len(set(r.get("run_id") for r in records)) == 1 else None)
         print(render(summary, run_id))
         if args.by:
             print()
