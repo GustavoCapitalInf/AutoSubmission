@@ -608,11 +608,13 @@ def test_the_record_carries_the_path_timings_pages_and_model_id(
     assert ocr_calls[0]["model"] == "baidu/Unlimited-OCR"
     assert ocr_calls[0]["calls"] == record["source"]["page_count"] == 1
 
-    # Local infrastructure bills no vendor; H-3's convention is to NAME an
-    # unpriced model rather than invent a rate, so `amount` stays honest.
+    # Ocean ruling (W3-5 Q1): the local Unlimited-OCR endpoint is a
+    # FREE_MODEL — $0 vendor cost is a known fact, not an unknown price.
+    # Infra cost stays operational (pages + timings above), never vendor.
     cost = record["models"]["cost"]
-    assert cost["unpriced_models"] == ["baidu/Unlimited-OCR"]
-    assert cost["complete"] is False
+    assert "baidu/Unlimited-OCR" not in cost["unpriced_models"]
+    assert cost["complete"] is True
+    assert cost["amount"] == 0.0
 
     # The H-3 sensitivity invariant is unchanged by the new rung.
     blob = json.dumps(record)
