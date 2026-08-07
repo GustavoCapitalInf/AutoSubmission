@@ -1,7 +1,12 @@
 # Wave 3 Execution Brief — Generic Capability
 
 Author: Ocean. Date: 2026-08-07.
-Status: **proposed — awaiting Gustavo's approval; nothing implemented.**
+Status: **APPROVED 2026-08-07 (Gustavo). IN EXECUTION.** Launch record in
+WAVE2_EXECUTION_LOG.md (log continues across waves). Standing additions from
+the approval: no implementation agent merges directly to main (Ocean merges
+after review); every meaningful improvement measured against the frozen
+discovery results AND the 109-statement regression corpus; W3-3 build gated
+on the design review with evidence presented to Gustavo.
 Baseline: `main` post-Wave-2 + discovery (see DISCOVERY_COMBINED_REPORT.md).
 Ordering directive (Gustavo): generic capabilities over individual statement
 fixes; the exception boundary is task 1.

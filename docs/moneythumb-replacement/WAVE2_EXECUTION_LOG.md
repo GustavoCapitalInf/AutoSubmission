@@ -1,4 +1,27 @@
-# Wave 2 Execution Log — reviews, rulings, merges
+# Wave 2/3 Execution Log — reviews, rulings, merges
+
+## 2026-08-07 — WAVE 3 LAUNCHED (approved by Gustavo as proposed)
+
+Environment verified (Fable 5 lead; CLAUDE_CODE_SUBAGENT_MODEL=opus). Three
+Opus 5 agents dispatched from `main@1d2f396`; W3-3c staffing decided at the
+3b gate:
+
+| Agent | Worktree / branch | Dispatched scope | Stop point |
+|---|---|---|---|
+| A — REEF | mt-reef / wave3-boundary-understanding | W3-1 exception boundary → crash-cluster generic fixes (AttributeError/US Bank ×36, ValueError/BofA ×16+TD 1) → W3-3a investigation spike | Propose-first on any pipeline.py diff; hard stop after 3a (design gate) |
+| B — HARBOR | mt-harbor / wave3-diagnostics | W3-2 withheld-diagnostics (read-only over analysis outputs; taxonomy doc W3_2_TAXONOMY.md; withheld-3 anchor test) | Stop after W3-2; W3-4 dispatched later |
+| D — SONAR | mt-sonar / wave3-visual-ocr | W3-5 visual rung into discovery ladder (cache/flags/telemetry; availability probing; no archive processing) | Stop after W3-5 |
+
+Bindings restated in every prompt: no statement-specific fixes; protected
+core; fail closed; discovery = evidence not target; agents never merge to
+main; archive read-only for diagnosis, synthetic fixtures only, no content
+in reports; measurements vs frozen discovery + 109 corpus are Ocean-run.
+Merge order intent: W3-1 → W3-2 → W3-5 → (3a report → 3b gate with
+Gustavo). Post-W3-1 merge, Ocean runs a measured discovery re-run
+(cache-cheap) to quantify crash-class conversion.
+
+---
+
 
 Author: Ocean. Running record; newest entries appended. Merge queue:
 H-0 → CI-1 → R-2 → D-3 → O-3 → R-3 → R-4 → H-3 → DSC-1.
