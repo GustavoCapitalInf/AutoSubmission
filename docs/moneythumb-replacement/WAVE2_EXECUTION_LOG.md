@@ -164,11 +164,224 @@ genealogy now documented in CI1_FINDINGS.md: four independent, serially
 masked causes (runner transient → missing binaries → OCR version drift →
 path separators), zero financial drift at any point.
 
+---
+
+## 2026-08-06 — R-3.0–R-3.3 landed on branch; **STOP-THE-LINE FINDING at R-3.4; Ocean rulings issued**
+
+Agent A executed R-3.0 (baseline recorder + parser_expectations.json, 1008
+tests), R-3.1 (registry machinery, +27), R-3.2 (per-parser detect, 1035),
+R-3.3 (sub-dispatch promotion — chase_export/rbc_fr/td_can_native as
+registrations, 1182 tests), every stage suite- and gate-green, pipeline.py
+untouched. Measured parity: unclaimed 0, wrong-parser 0, outscored 0,
+**ambiguous 45** — which is the finding:
+
+**Five parsers detect by bare bank-name substrings that also match
+counterparty mentions in other banks' statements** (capital_one claims 38
+foreign corpus docs; bmo 7 — including Zelle reference ids containing "BMO";
+regions 3; scotiabank 3; bank_of_america 1). capital_one was correct only by
+chain position (41st of 43). Full evidence: R3_DETECTION_FINDING.md. Agent
+correctly did not fix (detection-semantics change beyond approved mechanical
+transcription); correctly rejected ~52 supersedes edges (chain order
+re-encoded), score-lowering (forbidden), and a positional-offset rule
+(corpus-fitted constant of the R-1-purged kind).
+
+**Ocean rulings:** (1) issuer-furniture required markers APPROVED for the
+five parsers — admissible classes: issuer domains/headings/footers/service
+furniture; prohibited: customer data, offsets, corpus-fitted constants;
+per-marker detection-positive + cited detection-negative fixtures; target
+ambiguous 45→0, parity 109/109, gate byte-identical. Off-corpus semantic
+shift is INTENTIONAL: these parsers now under-claim (fail-safe) instead of
+over-claim. (2) Agent selects capital_one/scotiabank markers itself; Ocean
+reviews the completed five-parser table at the R-3.4 stop. (3) Wave-3
+backlog ticket: "BMO" 3-char substring + "BUSINESS ACCOUNT 01180" residual
+fragment (R-1 residual sweep); fix now only if inside the five parsers'
+guards. New mandatory stop after R-3.4 regardless of supersedes outcomes.
+Also noted: demo_national claims zero corpus documents (→ R-4 list);
+detect-sweep cost measured at 2.95 ms mean/doc ≈ 10 s for the full archive.
+
+**Docs-merge note:** the execution log now merges to main (`2dc45d3`) so
+agents can read rulings in-tree; docs-only merges are exempt from the
+dispatch-after-merge protocol (they cannot affect the gate), recorded here
+as an explicit Ocean ruling.
+
 **Run 31129048067: `completed success` — FIRST FULLY GREEN REMOTE CORPUS-GATE
 RUN (6m43s, suite + gate + report artifact). CI-1 CLOSED; MASTER_PLAN P0-1 /
 gap G4 now enforced remotely as well as locally.** Remaining CI item: CI-2
 (dead push triggers) — manual-dispatch-after-merge protocol stays in force;
 Gustavo's billing-page check is the outstanding diagnostic.
+
+---
+
+## 2026-08-06 — R-3.4 REVIEWED: APPROVED; **R-3.0–3.4 MERGED to main as `55626eb` (ff), pushed; run 31131672673 dispatched**
+
+Marker table verified as approved-class issuer furniture (headings, footer,
+domain, legal name); scotiabank's `01180` account fragment removed with
+regression guard; near-miss band (0, 0.5) tested per marker — a deliberate
+DSC-2 "almost matched" telemetry hook. Parity after markers: **ambiguous 0,
+unclaimed 0, wrong-parser 0, fallthrough 0** (RFC §4.3 closed by
+measurement). 1,224 tests; gate GREEN per stage; pipeline.py −160/+45 with
+zero bank knowledge (verified: the single grep hit is the pre-existing
+regions REPAIR import, narrowed — R-8 leftover as ruled). Judgment calls
+accepted: inert nested sub-dispatch calls kept (flagged), Chase-export note
+strings moved into registration data. Detect sweep re-measured: 3.04 ms/doc
+≈ 10.7 s for the full archive. New defect-class observation logged: the
+`<!-- SOURCE: filename -->` echo puts filename text into detection evidence
+— a SOURCE-invariance conformance check for all 46 registrations is added to
+R-4 scope (findings, not fixes).
+
+**Run 31131672673 (R-3 merge, `55626eb`): `completed success`** — second
+consecutive fully green remote run; the registry dispatch is remotely
+verified.
+
+---
+
+## 2026-08-06 — R-4 conformance harness DONE on branch; three defects found; **R-4b fix-phase dispatched**
+
+R-4 (commit `7f77661`, tests+docs only, pipeline.py untouched): 46/46
+detection-positive; 46×45 = 2,070 cross-product with 0 cross-claims; 46/46
+self-invalidation; filename-invariance sweep 46×109. 1,647 passed + 11
+corpus-marked; gate GREEN byte-identical. R-3.5 confirmed empty (all §7
+moves were in R-3.4). Findings, each pinned by strict xfail
+(R4_CONFORMANCE_FINDINGS.md): **R4-1 HIGH** — first_farmers detects its own
+corpus document only via the `<!-- SOURCE: filename -->` echo (gate coverage
+partially resting on a filename); **R4-2 LOW** — relay scores a
+filename-derived near-miss; **R4-3 MODERATE/HIGH-for-DSC-2** — six more
+parsers (incl. chase: 618 discovery docs, wire-boilerplate exposure) detect
+by a single bank-name marker, the R-3.4 defect class in parsers no corpus
+doc mentions. Plus R-1 residuals: farmers_merchants matches customer name
+ACE AUTO GLASS as an identity branch; altana/texas_bank digit runs.
+
+**Ocean triage (R-4b, same session):** fix R4-1 now via a body-text issuer
+marker (artifact text is the text of record); APPROVE the platform fix —
+strip SOURCE comments in parser_registry, filename text structurally
+inadmissible for all 46 — sequenced with R4-1's marker so the tree stays
+green (closes R4-2 free); fix all six R4-3 parsers now under the R-3.4
+marker standard, chase first; ADD the farmers_merchants customer-name branch
+(R-1 zero-customer-names enforcement, guard-list addition); digit-run
+residuals stay Wave-3 unless inside a guard already being rewritten; strict
+xfails convert to passing assertions with their fixes. Acceptance: parity
+109/109 · ambiguous 0 · cross-claims 0 · gate byte-identical · zero xfails
+remaining for fixed findings.
+
+---
+
+## 2026-08-06 — H-3 Phase 2 REVIEWED: APPROVED; **MERGED to main as `1eeaeff` (ff), pushed; run 31134380538 dispatched**
+
+Pipeline seam verified line-by-line: exactly the approved +18/−1 (one
+import, one optional param, guarded callback, rationale comment against
+Report.dispatch "simplification"). telemetry/ package; batch JSONL +
+webapp SQLite v4 sinks; on-by-default with TELEMETRY_DISABLED; 38 new tests
+incl. no-callback byte-identity on a real parse, sensitivity on three real
+documents, JSONL/SQLite shape equality, T12. 1,261 tests in main checkout;
+gate GREEN with the seam in play; corpus anchor: 109 claimed, deterministic
+coverage 100%, validated 100 / review 6 / withheld 3 (the gate's three by
+name), $0.0000 cost.
+
+**Ocean acceptance of the ruling-5 correction:** gate-PASS ≠
+corporate-use-validated — six documents reproduce all audited values AND
+carry integrity flags (correctly `review`). The precise anchor (withheld
+= the named 3, failed 0, validated+review = 106, coverage 1.0) asserts
+the truth; the flat "106 validated" form is REJECTED as it would fold
+review into validated and gut the class.
+
+**Run 31134380538 (H-3 merge, `1eeaeff`): `completed success`** — third
+consecutive fully green remote run.
+
+---
+
+## 2026-08-07 — R-4b REVIEWED: APPROVED; **R-4+R-4b MERGED as `fe4e958`, pushed** · **CI-2 RESOLVED** · DSC-1 dispatched
+
+R-4b: all four findings fixed (first_farmers → issuer domain FFBT.COM from
+the artifact body; SOURCE-comment strip central in the registry — filename
+text structurally inadmissible for all 46; six R4-3 issuer-furniture
+markers; ACE AUTO GLASS purged from TWO sites — the widened guard found a
+second occurrence in the account_name regex — with layer-wide
+removed-literals scan, classification_registry exempted by documented
+design). 8 strict xfails → 0, each converted in its fix commit. New
+permanent invariant: no registration identifies a bank by one marker alone
+(documented exception: td_canada, layout probe). Parity 109/109 clean;
+2,070-pair cross-product 0 cross-claims; 1,681 branch / **1,718 merged**
+tests; gate GREEN byte-identical. Wave-3 log: altana digit run;
+farmers_merchants as weakest-evidence registration (its corpus document
+carries NO issuer identification at all — verified exhaustively).
+
+**CI-2 RESOLVED AS TRANSIENT:** the fe4e958 push CREATED a run
+(31134956413, event=push) — push triggers recovered on their own,
+confirming GitHub-side event-delivery degradation over the billing
+hypothesis. Gustavo's billing check no longer needed. Duplicate manual
+dispatch cancelled; manual-dispatch protocol RETIRED (falls back only if
+the anomaly recurs).
+
+**Run 31134956413 (R-4b merge `fe4e958`, event=push): `completed success`**
+— fourth consecutive green, and the first green run created by the normal
+push lifecycle. CI is fully operational end-to-end with zero open items.
+
+**DSC-1 DELIVERED and APPROVED (commit `a8e2ca7` on wave2-proof; merge held
+for DSC-1b micro-task).** Dry-run acceptance: 109/109 enumerated+processed,
+coverage 100%, validated 100 / review 6 / withheld 3 by name, 0 unexpected
+dupes, expectations-file parity, gate GREEN, 1,741 tests. **Tranche-0
+profile of the frozen archive (first real intake numbers):** 3,506 docs —
+digital 3,297 (94.0%) / scanned 176 (5.0%) / unknown 17 / mixed 16; dedup:
+124 within-archive duplicates + 82 copies of pinned corpus docs → ~3,300
+unique; truncation 0; baseline byte-exact vs the freeze. Operational
+implications: tranche 1 covers ~94% immediately; tranche 2 is only ~176
+docs (D-4 concurrency likely unnecessary — decision data in hand). Three
+runner findings fixed in place: case-insensitive manifest partition (a
+`Scotiabank/` vs `ScotiaBank/` case-fold silently moved a pinned doc into
+the discovery set under exact matching — recorded as `case_mismatches`);
+cached rows excluded from the dispatch-coverage denominator (`--no-cache`
+for full re-dispatch); folder-label mismatches classed `label_unmatched`
+(abbreviations like BofA/Amex), never "disagree". **DSC-1b micro-task
+dispatched:** `deferred` telemetry outcome class (explicitly declared,
+never inferred) so `failed` unambiguously means attempted-and-errored
+before any real tranche runs.
+
+**DSC-1 dispatch record (original bindings):** production
+parse_statement only; frozen-baseline verification (3,768/3,615/
+996,080,803) with loud-stop on deviation; pinned-manifest partition;
+D-3 cache + H-3 telemetry consumption; tranche modes
+(--profile-only/--digital/--scanned/--dry-run); dry-run acceptance =
+109 enumerated / 0 unexpected dupes / expectations-file parser match /
+ambiguous 0 / validated 100 · review 6 · withheld 3 / coverage 1.0;
+no Gemini, no tranche-1/2 archive runs by the agent (operational phases
+remain Ocean+Gustavo-gated).
+
+**Critical DSC-1 input (from H-3's own harness mistake, disclosed):** the
+generic `parse_native_pdf_text` silently produces DIFFERENT markdown than
+the production ladder for four banks (Navy Federal, TD Canada, Wells,
+Desjardins — layout-aware readers run first). **DSC-1 MUST resolve
+documents through production `parse_statement` (OCR rungs disabled for the
+offline dry run), never the generic reader.** Recorded as a DSC-1 design
+requirement.
+
+---
+
+## 2026-08-06 — H-3 Phase 1 (schema) REVIEWED: APPROVED; Phase 2 GO
+
+H3_SCHEMA.md (`3874e1a` on wave2-proof). Survey findings accepted: (1)
+Dispatch carries claimants only — near-miss band comes from
+`detection_report()`, admissible as run-of-record because detect is
+pure/total by RFC contract; (2) score sparsity measured (~4 non-zero of 46
+per doc) settles the vector question. **Ocean rulings:** 4-line `on_dispatch`
+callback seam approved (no Report.dispatch — Dispatch.statement is the full
+financial record; rationale to live in the module docstring); non-zero
+scores best-first cap 12 + flag; cache-hit hole stays open by design
+(`dispatch.source="cached"`, coverage still computable); sensitivity
+invariant approved (no filenames, no extracted bank strings, exception class
+names only — DSC-1 keeps its own gitignored hash→path map); outcome mapping
+must reproduce the gate's 106/3 as a test; cost fields approved with
+extraction-token capture as Wave-3 backlog; storage v4 + JSONL shape
+equality + batch-no-webapp-import test; **telemetry default ON both paths**
+with one documented env kill-switch (NullSink); retention append-only, expiry
+deferred to D-7 with the trigger-conflict caveat recorded.
+
+**Dispatches:** REEF → R-4 phase (six-parser fixtures, demo_national,
+46-registration conformance harness, SOURCE-invariance check; tests-only;
+any pipeline.py need = stop-and-ask). HARBOR → **H-3 Phase 1: schema design
+only** (H3_SCHEMA.md, mandatory Ocean review before implementation; storage
+= schema v4 + JSONL for batch; Dispatch object as data source; truncation
+facts off the document object; cache_hit rows for freshness; sensitivity
+invariant: hashes/ids/counts/timings, never customer data).
 
 **D-3×O-3 integration gap confirmed as predicted** (put_ocr stores only
 {model, pages}; page_integrity dropped on hit) → **D-3b dispatched to
