@@ -198,7 +198,10 @@ CACHE_FORMAT_VERSION = 1
 #: v2 (D-3b): O-3's ``page_integrity`` joined the cached OCR artifact.
 OCR_STAGE_VERSION = 2
 #: Bump when the analysis pipeline's output changes for unchanged settings.
-ANALYSIS_STAGE_VERSION = 1
+# 1 -> 2: Track A cell 1 (chase variant completeness, merge of b70496c)
+# changed chase extraction output for unchanged settings — cached chase
+# analyses from v1 would keep serving pre-fix withheld results forever.
+ANALYSIS_STAGE_VERSION = 2
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 
