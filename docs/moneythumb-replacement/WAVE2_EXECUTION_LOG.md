@@ -1,5 +1,34 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-07 — W3-3c (REEF-1) PROOF-COMPLETE; REVIEWED: pipeline diff APPROVED with rulings; **GEOMETRY HYPOTHESIS: NOT VALIDATED (honest negative)**
+
+analysis/structurer/ subsystem (1,521 lines, 6 modules): evidence-decided
+column/sign/period inference (balance-chain scoring, never assertion),
+grounding rebuilt from the archived prototype concepts (span uniqueness,
+page-anchored values, no provenance → not publishable), refusal-not-
+exception, GENERIC_STRUCTURER_ENABLED opt-in default OFF (verified in code).
+**Measured: "published implies correct" — zero false validations anywhere;
+pinned 109 with geometry: 6 published / 5 validated / 5 fully correct /
+103 refused with named reasons; 75-doc unclaimed archive sample: 5.3%
+validated (flat 4.0%). Honest read: ≈+2.6 points, NOT 3a's +4 (the
+ledger-identity requirement removed incomplete-ledger false wins) and
+NOT the +10–17 geometry hypothesis — geometry solved reading-order as
+predicted but moved documents between refusal classes, not through the
+gate. Safety floor established; refusal queue is the tractable work:
+no-printed-period 24% · ungrounded 20% · ledger-incomplete 17% · rows-
+outside-period 16%.** Three adversarial-test defects fixed in-build
+(summary-lines-as-transactions; 264 s catastrophic regex backtracking →
+0.077 s; quadratic column decision). Strategic consequence: Track A
+(614 withheld) is now clearly the primary coverage lever; the structurer
+is the safety-floor + long-tail instrument.
+
+**Ocean rulings:** six-line pipeline diff APPROVED as pinned (opt-in
+verified); Q1 ledger_incomplete REFUSES (stands); Q2 balance-forward+1day
+inference kept ONLY with inferred-provenance marking + refuse-if-posting-
+predates guard (implement if absent); Q3 geometry wiring = HARBOR
+integration card post-merge (rung ships off); Q4 grounding coverage 1.0
+stands. Agent implementing the diff; merge on its proof.
+
 ## 2026-08-07 — Hotfix + W3-4 (HARBOR) REVIEWED: APPROVED; merged locally, push gated on the pipefail'd main-checkout corpus proof
 
 Hotfix exactly per ruling (manifest-spelling identity at the partition
