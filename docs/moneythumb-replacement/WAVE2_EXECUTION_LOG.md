@@ -336,6 +336,22 @@ dispatched:** `deferred` telemetry outcome class (explicitly declared,
 never inferred) so `failed` unambiguously means attempted-and-errored
 before any real tranche runs.
 
+---
+
+## 2026-08-07 — DSC-1b merged; **WAVE 2 BUILD CLOSED at `3d3a63f`, remotely green**
+
+DSC-1+1b merged (`0b17099`, 1,745 tests); wave branches and worktrees
+removed after ancestry verification (repo back to main + mt-lead); memory
+and PROJECT_STATUS updated. One CI-only brittleness surfaced at close: the
+no-model-client sandbox test compared full subprocess stdout to its
+sentinel; the Linux runner prepends a harmless warning line (run
+31137747002; 1,744/1,745 passed; the security property itself held). Fixed
+as an Ocean unblocking spike (`3d3a63f`, last-line comparison, run cited).
+**Run 31137938616 (push, `3d3a63f`): success — main remotely green at
+HEAD.** Outstanding decisions: Gustavo's tranche-1 go; prototype-branch
+deletion after P2-1. Wave-3 backlog seeds recorded in PROJECT_STATUS and
+the roadmap memory.
+
 **DSC-1 dispatch record (original bindings):** production
 parse_statement only; frozen-baseline verification (3,768/3,615/
 996,080,803) with loud-stop on deviation; pinned-manifest partition;
