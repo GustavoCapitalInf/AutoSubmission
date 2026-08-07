@@ -1,0 +1,201 @@
+"""Deterministic-coverage in one command, from either storage backend.
+
+    python -m telemetry.report --jsonl telemetry_runs/<run_id>.jsonl
+    python -m telemetry.report --sqlite webapp_data
+    python -m telemetry.report --jsonl <file> --by parser
+
+Both backends carry the identical record (H3_SCHEMA I2), so both produce the
+identical report from the same run - asserted by test.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from collections import Counter
+from pathlib import Path
+
+from .emit import read_jsonl
+
+
+def load_records(*, jsonl: str | None = None, sqlite: str | None = None,
+                 run_id: str | None = None) -> list[dict]:
+    if jsonl:
+        records = read_jsonl(jsonl)
+    elif sqlite:
+        # Imported lazily: the CLI path must stay free of the webapp.
+        from webapp.storage import Storage
+
+        records = Storage(Path(sqlite)).telemetry_records(run_id=run_id)
+    else:
+        raise ValueError("one of --jsonl or --sqlite is required")
+    if run_id:
+        records = [record for record in records if record.get("run_id") == run_id]
+    return records
+
+
+def summarize(records: list[dict]) -> dict:
+    """Every number the report prints. Pure, so the tests can assert on it."""
+    total = len(records)
+    dispatch = Counter(
+        (record["dispatch"]["outcome"] or "no_dispatch") for record in records
+    )
+    dispatch_source = Counter(record["dispatch"]["source"] for record in records)
+    outcome = Counter(record["outcome"]["class"] for record in records)
+    reasons = Counter(record["outcome"]["reason"] for record in records)
+    source_path = Counter(record["source"]["path"] for record in records)
+    parsers = Counter(
+        record["dispatch"]["parser_id"] for record in records
+        if record["dispatch"]["parser_id"]
+    )
+
+    assessed = sum(1 for r in records if r["source"]["truncation"]["assessed"])
+    flagged_pages = sum(r["source"]["truncation"]["truncated_page_count"] for r in records)
+    flagged_docs = sum(1 for r in records if r["source"]["truncation"]["truncated_page_count"])
+
+    cache = {}
+    for record in records:
+        for stage, entry in record["stages"].items():
+            counts = cache.setdefault(stage, Counter())
+            counts[entry["cache"]] += 1
+
+    calls = Counter()
+    unpriced: set[str] = set()
+    cost_total = 0.0
+    cost_known = False
+    for record in records:
+        for call in record["models"]["calls"]:
+            calls[call["purpose"]] += call["calls"]
+        cost = record["models"]["cost"]
+        unpriced.update(cost.get("unpriced_models") or [])
+        if cost.get("amount") is not None:
+            cost_total += cost["amount"]
+            cost_known = True
+
+    claimed = dispatch.get("claimed", 0)
+    return {
+        "total": total,
+        "deterministic_coverage": (claimed / total) if total else 0.0,
+        "dispatch": dict(dispatch),
+        "dispatch_source": dict(dispatch_source),
+        "outcome": dict(outcome),
+        "reasons": dict(reasons),
+        "source_path": dict(source_path),
+        "parsers": dict(parsers),
+        "truncation": {
+            "assessed": assessed,
+            "flagged_pages": flagged_pages,
+            "flagged_documents": flagged_docs,
+        },
+        "cache": {stage: dict(counts) for stage, counts in cache.items()},
+        "model_calls": dict(calls),
+        "cost": {
+            "amount": round(cost_total, 6) if cost_known else None,
+            "unpriced_models": sorted(unpriced),
+        },
+    }
+
+
+def _line(label: str, count: int, total: int) -> str:
+    share = f"{count / total:6.1%}" if total else "     -"
+    return f"  {label:<24}{count:>7}   {share}"
+
+
+def render(summary: dict, run_id: str | None = None) -> str:
+    total = summary["total"]
+    lines = [f"run {run_id or '(all)'} | {total} documents", ""]
+
+    claimed = summary["dispatch"].get("claimed", 0)
+    lines.append(
+        f"deterministic coverage    {claimed:>7} / {total}   "
+        f"{summary['deterministic_coverage']:.1%}"
+    )
+    for key in ("ambiguous", "unclaimed", "no_dispatch"):
+        if key in summary["dispatch"]:
+            lines.append(_line(key, summary["dispatch"][key], total))
+
+    lines.append("outcome")
+    for key in ("validated", "review", "withheld", "failed"):
+        if key in summary["outcome"]:
+            lines.append(_line(key, summary["outcome"][key], total))
+
+    lines.append("reason")
+    for key, count in sorted(summary["reasons"].items(), key=lambda kv: (-kv[1], kv[0])):
+        lines.append(_line(key, count, total))
+
+    lines.append(
+        "source path   "
+        + " | ".join(f"{key} {count}" for key, count in sorted(summary["source_path"].items()))
+    )
+    truncation = summary["truncation"]
+    lines.append(
+        f"truncation    assessed {truncation['assessed']} | "
+        f"flagged {truncation['flagged_pages']} pages across "
+        f"{truncation['flagged_documents']} documents"
+    )
+    if summary["cache"]:
+        lines.append(
+            "cache         "
+            + " | ".join(
+                f"{stage} " + " ".join(f"{k} {v}" for k, v in sorted(counts.items()))
+                for stage, counts in sorted(summary["cache"].items())
+            )
+        )
+    dispatch_source = summary["dispatch_source"]
+    lines.append(
+        "dispatch src  "
+        + " | ".join(f"{key} {count}" for key, count in sorted(dispatch_source.items()))
+    )
+    cost = summary["cost"]
+    amount = f"${cost['amount']:.4f}" if cost["amount"] is not None else "$unpriced"
+    unpriced = f"   (unpriced: {', '.join(cost['unpriced_models'])})" if cost["unpriced_models"] else ""
+    calls = " | ".join(f"{k} {v}" for k, v in sorted(summary["model_calls"].items())) or "none"
+    lines.append(f"cost          {amount}{unpriced}   calls: {calls}")
+    return "\n".join(lines)
+
+
+def render_breakdown(records: list[dict], field: str) -> str:
+    if field == "parser":
+        counts = Counter(r["dispatch"]["parser_id"] or "(none)" for r in records)
+    elif field == "source_path":
+        counts = Counter(r["source"]["path"] for r in records)
+    elif field == "outcome":
+        counts = Counter(r["outcome"]["class"] for r in records)
+    else:
+        raise ValueError(f"unknown breakdown: {field}")
+    total = len(records)
+    lines = [f"by {field}"]
+    for key, count in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
+        lines.append(_line(key, count, total))
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Telemetry coverage report.")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--jsonl", help="A JSONL telemetry file (CLI/batch runs).")
+    source.add_argument("--sqlite", help="A webapp data directory (schema v4).")
+    parser.add_argument("--run-id", help="Restrict to one run.")
+    parser.add_argument("--by", choices=("parser", "source_path", "outcome"))
+    parser.add_argument("--json", action="store_true", help="Emit the summary as JSON.")
+    args = parser.parse_args(argv)
+
+    records = load_records(jsonl=args.jsonl, sqlite=args.sqlite, run_id=args.run_id)
+    if not records:
+        print("no telemetry records found", file=sys.stderr)
+        return 1
+
+    summary = summarize(records)
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        run_id = args.run_id or (records[0].get("run_id") if len(set(r.get("run_id") for r in records)) == 1 else None)
+        print(render(summary, run_id))
+        if args.by:
+            print()
+            print(render_breakdown(records, args.by))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

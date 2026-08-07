@@ -5,8 +5,24 @@ from ocr.document import StatementMarkdown
 from ocr.inspect import DocumentProfile, inspect_pdf
 from ocr.pipeline import parse_statement
 from ocr.render import markdown_to_html
+from telemetry import (
+    DispatchCollector,
+    StageTimer,
+    build_record,
+    dispatch_section,
+    document_section,
+    model_calls_for,
+    new_run_id,
+    open_sqlite_sink,
+    score_vector,
+    source_section,
+)
 from .artifact_cache import ArtifactCache, cached_analysis, cached_ocr, cached_report
 from .jobs import JobStore
+
+#: One run id per worker process, so every job this server handled groups
+#: together in the coverage report.
+_RUN_ID = new_run_id()
 
 
 def report_to_json(report: Report) -> dict:
@@ -33,24 +49,30 @@ def _analyze_doc(
     cache: ArtifactCache | None = None,
     job_id: str | None = None,
     store: JobStore | None = None,
+    collector: DispatchCollector | None = None,
+    timer: StageTimer | None = None,
 ) -> tuple[str, str, dict | None, str | None]:
     markdown = doc.to_markdown()
-    rendered = cached_report(
-        markdown,
-        compute=lambda: markdown_to_html(markdown, title=filename),
-        cache=cache,
-        title=filename,
-    )
-    html = rendered.value
-    _note_cache(store, job_id, rendered)
-    try:
-        analyzed = cached_analysis(
+    with _timed(timer, "report"):
+        rendered = cached_report(
             markdown,
-            compute=lambda: report_to_json(analyze_markdown(markdown, parse_mode=parse_mode)),
+            compute=lambda: markdown_to_html(markdown, title=filename),
             cache=cache,
-            parse_mode=parse_mode,
+            title=filename,
         )
-        _note_cache(store, job_id, analyzed)
+    html = rendered.value
+    _note_cache(store, job_id, rendered, timer)
+    try:
+        with _timed(timer, "analysis"):
+            analyzed = cached_analysis(
+                markdown,
+                compute=lambda: report_to_json(
+                    analyze_markdown(markdown, parse_mode=parse_mode, on_dispatch=collector)
+                ),
+                cache=cache,
+                parse_mode=parse_mode,
+            )
+        _note_cache(store, job_id, analyzed, timer)
         # Copy before stamping: on a cache hit the payload came straight out
         # of the artifact store, and `parse_mode` is a serving-time annotation
         # rather than part of the cached analysis (it already partitions the
@@ -62,9 +84,83 @@ def _analyze_doc(
         return markdown, html, None, str(e)
 
 
-def _note_cache(store: JobStore | None, job_id: str | None, result) -> None:
+def _note_cache(
+    store: JobStore | None, job_id: str | None, result, timer: StageTimer | None = None
+) -> None:
+    # Two different consumers of the same fact, deliberately not merged: the
+    # audit row is the webapp's durable event history (D-3), while the
+    # telemetry disposition is per-record and must also work on the CLI path,
+    # where no audit row is ever written. Telemetry reads CacheResult.cached
+    # directly rather than re-reading the audit log (H3_SCHEMA §7).
+    if timer is not None:
+        timer.set_cache(result.stage, "hit" if result.cached else "miss")
     if store is not None and job_id is not None and result.cached:
         store.record_cache_hit(job_id, result.stage, result.cache_key)
+
+
+class _NullTimerContext:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        return None
+
+
+def _timed(timer: StageTimer | None, stage: str):
+    return timer.time(stage) if timer is not None else _NullTimerContext()
+
+
+def _emit(
+    store: JobStore,
+    job_id: str,
+    profile: DocumentProfile | None,
+    byte_size: int,
+    doc: StatementMarkdown | None,
+    markdown: str | None,
+    analysis: dict | None,
+    analysis_error: str | None,
+    collector: DispatchCollector,
+    timer: StageTimer,
+    error_type: str | None = None,
+) -> None:
+    """Write one telemetry record. Never raises — I4.
+
+    A telemetry defect must cost a measurement, not a job: this is called from
+    both the success and the failure paths of `run_job`, including from inside
+    its `except`.
+    """
+    try:
+        sink = open_sqlite_sink(getattr(store, "storage", None))
+        scores, registration_count = score_vector(markdown) if markdown else ([], 0)
+        dispatch = dispatch_section(
+            collector.dispatch,
+            scores,
+            registration_count,
+            source="live" if collector.seen else ("cached" if analysis is not None else "unavailable"),
+        )
+        sink.write(build_record(
+            run_id=_RUN_ID,
+            emitter="webapp",
+            job_id=job_id,
+            document=document_section(
+                profile.content_sha256 if profile else "", byte_size, profile
+            ),
+            source=source_section(doc),
+            dispatch=dispatch,
+            stages=timer.as_dict(),
+            model_calls=model_calls_for(doc, analysis),
+            payload=analysis,
+            escalated=bool((analysis or {}).get("escalated")),
+            error_type=error_type,
+            error_reason="analysis_error" if analysis_error and not error_type else None,
+        ))
+    except Exception:
+        return None
+
+
+def _cached_ocr_timed(timer: StageTimer | None, pdf_bytes: bytes, **kwargs):
+    with _timed(timer, "ocr"):
+        return cached_ocr(pdf_bytes, **kwargs)
 
 
 def _read_document(
@@ -81,6 +177,7 @@ def _read_document(
     on_stage,
     on_delta,
     on_replace,
+    timer: StageTimer | None = None,
 ) -> StatementMarkdown | None:
     """One intake-ladder run, served from the D-3 artifact cache when these
     exact bytes were already read under these exact settings.
@@ -91,7 +188,8 @@ def _read_document(
     (the ladder's own ``on_page_replace`` contract) so the viewer still fills
     in even though nothing was OCR'd.
     """
-    result = cached_ocr(
+    result = _cached_ocr_timed(
+        timer,
         pdf_bytes,
         compute=lambda: parse_statement(
             pdf_bytes,
@@ -111,11 +209,10 @@ def _read_document(
         allow_local_ocr=allow_local_ocr,
         allow_visual_ocr=allow_visual_ocr,
     )
-    if result.cached:
-        _note_cache(store, job_id, result)
-        if result.value is not None:
-            for index, page in enumerate(result.value.pages):
-                on_replace(index, page)
+    _note_cache(store, job_id, result, timer)
+    if result.cached and result.value is not None:
+        for index, page in enumerate(result.value.pages):
+            on_replace(index, page)
     return result.value
 
 
@@ -138,8 +235,17 @@ def run_job(
     # byte-identical content performs zero OCR and zero LLM calls.
     store.set_status(job_id, "processing")
     cache = store.cache
+    # Telemetry (H-3): write-only side-band. The collector observes the R-3
+    # Dispatch through analyze_markdown's on_dispatch seam; the timer collects
+    # per-stage wall clock and cache disposition. Neither can change a result,
+    # and _emit swallows its own failures.
+    timer = StageTimer()
+    collector = DispatchCollector()
+    profile: DocumentProfile | None = None
+    doc: StatementMarkdown | None = None
     try:
-        profile = inspect_pdf(pdf_bytes)
+        with timer.time("preflight"):
+            profile = inspect_pdf(pdf_bytes)
 
         def on_stage(rung: str) -> None:
             store.set_stage(job_id, _STAGE_NAMES[rung])
@@ -154,11 +260,14 @@ def run_job(
             return _read_document(
                 job_id, store, cache, pdf_bytes, filename, profile,
                 on_stage=on_stage, on_delta=on_delta, on_replace=on_replace,
-                **flags,
+                timer=timer, **flags,
             )
 
         def analyze(doc: StatementMarkdown) -> tuple[str, str, dict | None, str | None]:
-            return _analyze_doc(doc, filename, parse_mode, cache, job_id, store)
+            return _analyze_doc(
+                doc, filename, parse_mode, cache, job_id, store,
+                collector=collector, timer=timer,
+            )
 
         if parse_mode == "deterministic":
             # Offline rungs only (native, then tesseract); no visual OCR yet.
@@ -168,6 +277,8 @@ def run_job(
                 markdown, html, analysis, analysis_error = analyze(doc)
                 if analysis is not None or not force_ocr:
                     store.set_result(job_id, markdown, html, analysis, analysis_error, doc.model)
+                    _emit(store, job_id, profile, len(pdf_bytes), doc, markdown,
+                          analysis, analysis_error, collector, timer)
                     return
                 # Analysis failed and the operator forced OCR: escalate to the
                 # visual rung below (mode policy, not ladder routing).
@@ -185,12 +296,17 @@ def run_job(
                     "native PDF text unavailable or too sparse, and local Tesseract OCR did not produce usable statement text; turn on Force visual OCR to use the OCR service, or use Auto mode",
                     "deterministic-native-preflight",
                 )
+                _emit(store, job_id, profile, len(pdf_bytes), None, None, None,
+                      "native text unavailable", collector, timer,
+                      error_type="NoUsableNativeText")
                 return
 
             doc = read(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True)
             store.set_stage(job_id, "analyzing", doc.model)
             markdown, html, analysis, analysis_error = analyze(doc)
             store.set_result(job_id, markdown, html, analysis, analysis_error, doc.model)
+            _emit(store, job_id, profile, len(pdf_bytes), doc, markdown,
+                  analysis, analysis_error, collector, timer)
             return
 
         # Auto mode: the full ladder in one call (force_ocr jumps straight to
@@ -199,5 +315,11 @@ def run_job(
         store.set_stage(job_id, "analyzing", doc.model)
         markdown, html, analysis, analysis_error = analyze(doc)
         store.set_result(job_id, markdown, html, analysis, analysis_error, doc.model)
+        _emit(store, job_id, profile, len(pdf_bytes), doc, markdown,
+              analysis, analysis_error, collector, timer)
     except Exception as e:
         store.set_error(job_id, str(e))
+        # Class name only, never the message: exception text routinely quotes a
+        # fragment of the document (H3_SCHEMA I1).
+        _emit(store, job_id, profile, len(pdf_bytes), doc, None, None, None,
+              collector, timer, error_type=type(e).__name__)

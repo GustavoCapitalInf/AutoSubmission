@@ -13,11 +13,24 @@ Usage:
 from __future__ import annotations
 import argparse
 import csv
+import hashlib
 import sys
 import traceback
 from pathlib import Path
 
 from analysis.pipeline import analyze_markdown, Report
+from telemetry import (
+    DispatchCollector,
+    StageTimer,
+    build_record,
+    dispatch_section,
+    document_section,
+    model_calls_for,
+    new_run_id,
+    open_jsonl_sink,
+    score_vector,
+    source_section,
+)
 
 FIELDS = [
     "file", "bank", "account", "period_start", "period_end",
@@ -40,11 +53,35 @@ FIELDS = [
 
 
 def _markdown_for(path: Path) -> str:
+    return _read_source(path)[0]
+
+
+def _read_source(path: Path):
+    """(markdown, StatementMarkdown | None, DocumentProfile | None, byte_size).
+
+    The document object used to be discarded here; telemetry needs it for the
+    OCR path taken and the O-3 truncation flags, and the preflight profile for
+    the document facts. Neither changes what is analysed — `markdown` is
+    produced exactly as before.
+    """
+    raw = path.read_bytes()
     if path.suffix.lower() == ".pdf":
+        from ocr.inspect import inspect_pdf
         from ocr.pipeline import parse_statement
-        doc = parse_statement(path.read_bytes(), source_file=path.name)
-        return doc.to_markdown()
-    return path.read_text(encoding="utf-8")
+
+        profile = inspect_pdf(raw)
+        doc = parse_statement(raw, source_file=path.name)
+        return doc.to_markdown(), doc, profile, len(raw)
+    return path.read_text(encoding="utf-8"), None, None, len(raw)
+
+
+def _content_sha256(data: bytes) -> str:
+    """UPPERCASE hex, the platform-wide convention (ocr.inspect.content_sha256).
+
+    Recomputed here rather than imported so this module keeps working on
+    markdown inputs, which never go through the PDF preflight.
+    """
+    return hashlib.sha256(data).hexdigest().upper()
 
 
 def _row(path: Path, report: Report) -> dict:
@@ -118,10 +155,68 @@ def _row(path: Path, report: Report) -> dict:
     }
 
 
+def _emit(
+    sink,
+    run_id: str,
+    path: Path,
+    markdown: str | None,
+    doc,
+    profile,
+    byte_size: int,
+    collector: DispatchCollector,
+    timer: StageTimer,
+    seen_hashes: set[str],
+    *,
+    report: Report | None = None,
+    error_type: str | None = None,
+) -> None:
+    """One telemetry record per document. Never raises (H3_SCHEMA I4).
+
+    Note what is NOT recorded: `path.name`. Filenames carry customer and
+    business names, so documents are identified by content hash alone.
+    """
+    try:
+        from analysis.serialization import report_to_dict
+
+        payload = report_to_dict(report) if report is not None else None
+        content_hash = (
+            profile.content_sha256 if profile is not None
+            else _content_sha256(path.read_bytes())
+        )
+        duplicate = content_hash in seen_hashes
+        seen_hashes.add(content_hash)
+        scores, registration_count = score_vector(markdown) if markdown else ([], 0)
+        sink.write(build_record(
+            run_id=run_id,
+            emitter="batch",
+            document=document_section(
+                content_hash, byte_size, profile, duplicate_of_prior_record=duplicate
+            ),
+            source=source_section(doc),
+            dispatch=dispatch_section(
+                collector.dispatch, scores, registration_count,
+                source="live" if collector.seen else "unavailable",
+            ),
+            stages=timer.as_dict(),
+            model_calls=model_calls_for(doc, payload),
+            payload=payload,
+            escalated=bool(report.escalated) if report is not None else False,
+            error_type=error_type,
+        ))
+    except Exception:
+        return None
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Batch-analyze statements into a triage CSV.")
     ap.add_argument("path", help="A file or directory of .md and/or .pdf statements.")
     ap.add_argument("--out", metavar="FILE", help="Write CSV here (default stdout).")
+    ap.add_argument(
+        "--telemetry",
+        metavar="FILE",
+        help="H-3 telemetry JSONL (default telemetry_runs/<run_id>.jsonl; "
+             "set TELEMETRY_DISABLED=1 to turn it off).",
+    )
     args = ap.parse_args()
 
     root = Path(args.path)
@@ -133,16 +228,33 @@ def main() -> None:
         print(f"no .md/.pdf statements found under {root}", file=sys.stderr)
         sys.exit(1)
 
+    run_id = new_run_id()
+    sink = open_jsonl_sink(args.telemetry, run_id)
+    seen_hashes: set[str] = set()
+
     rows = []
     for path in files:
         print(f"analyzing {path.name} ...", file=sys.stderr, flush=True)
+        # Telemetry is write-only side-band: every failure below is swallowed
+        # by the sink, and nothing here feeds back into the analysis.
+        timer = StageTimer()
+        collector = DispatchCollector()
+        markdown = doc = profile = None
+        byte_size = 0
         try:
-            report = analyze_markdown(_markdown_for(path))
+            with timer.time("read"):
+                markdown, doc, profile, byte_size = _read_source(path)
+            with timer.time("analysis"):
+                report = analyze_markdown(markdown, on_dispatch=collector)
             rows.append(_row(path, report))
+            _emit(sink, run_id, path, markdown, doc, profile, byte_size,
+                  collector, timer, seen_hashes, report=report)
         except Exception as e:  # keep going; record the failure in its row
             traceback.print_exc()
             rows.append({**{k: "" for k in FIELDS}, "file": path.name,
                          "needs_review": "REVIEW", "error": f"{type(e).__name__}: {e}"})
+            _emit(sink, run_id, path, markdown, doc, profile, byte_size,
+                  collector, timer, seen_hashes, error_type=type(e).__name__)
 
     out = open(args.out, "w", newline="", encoding="utf-8") if args.out else sys.stdout
     w = csv.DictWriter(out, fieldnames=FIELDS)
@@ -152,6 +264,14 @@ def main() -> None:
         out.close()
         need = sum(1 for r in rows if r["needs_review"])
         print(f"\nWrote {len(rows)} rows to {args.out}  ({need} flagged for review)", file=sys.stderr)
+    sink.close()
+    written = getattr(sink, "written", 0)
+    if written:
+        print(
+            f"Telemetry: {written} records -> {sink.path}\n"
+            f"  python -m telemetry.report --jsonl {sink.path}",
+            file=sys.stderr,
+        )
 
 
 if __name__ == "__main__":

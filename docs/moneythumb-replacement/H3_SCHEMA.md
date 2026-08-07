@@ -298,12 +298,25 @@ and on cache hits.
 `withheld_adb`, `integrity_flags`, `quality_needs_review`, `parser_ambiguous`,
 `no_parser_matched`, `ocr_failed`, `invalid_pdf`, `encrypted`, `exception`.
 
-**Acceptance anchor:** run over the pinned 109-document corpus, this mapping must
-produce **106 `validated` / 3 `withheld`** — the corpus gate's own split, from a
-completely independent code path. Verified against `Others/IBC/IBC April (1).pdf`
-during design: `metrics.average_daily_balance is None`, `quality.level =
-needs_review`, `corporate_use = manual_review_required`, three integrity flags —
-`withheld` under the precedence above, as required.
+**Acceptance anchor** (`tests/test_telemetry_corpus.py`, corpus-marked). Run over
+the pinned 109, the mapping reproduces the gate's split from a completely
+independent code path — no oracle, no audit CSV, just the product's own
+serialized payload:
+
+| | Gate | Telemetry (measured) |
+|---|---|---|
+| WITHHELD | 3 | **3 `withheld`**, the same three statements |
+| PASS | 106 | **100 `validated` + 6 `review`** |
+| — | — | 0 `failed`, 109 `claimed` |
+
+**Note the refinement, which the phase-1 draft got wrong.** `validated` is not
+equal to the gate's PASS: the gate's PASS means "the audited values reproduce",
+while `validated` additionally means "approved for corporate use". Six corpus
+documents reproduce perfectly *and* carry an integrity flag (e.g. Columbia's
+`missing_declared_statement_page`), so they are `review`. The classes are a
+**finer partition** of PASS, and the test asserts exactly that: the withheld set
+is the gate's three by name, nothing failed, and `validated + review == 106`.
+Asserting a flat "106 validated" would have been asserting something untrue.
 
 ---
 
@@ -482,7 +495,50 @@ hold (I2), so the two must agree, and §11 tests that they do on identical input
 
 ---
 
-## 12. Open questions for Ocean
+## 12. Rulings (Ocean, 2026-08-06) — phase 2 as built
+
+All seven open questions were answered at the schema review; this section
+records the answers and where each landed.
+
+1. **Seam:** the 4-line callback APPROVED as proposed; the `Report.dispatch`
+   rejection reasoning is now a comment in `analysis/pipeline.py` so nobody
+   "simplifies" it back. Tests: no-callback byte-identity, and the collector
+   contract lives with the collector.
+2. **Near-miss vector:** APPROVED — every non-zero score, best-first, cap 12.
+   Source is `detection_report`, admissible because `detect` is pure and total
+   by the R-3 protocol contract, so the re-run provably reproduces the run of
+   record (which is exactly what re-calling `resolve()` could not promise).
+3. **Cache-hit hole:** ACCEPTED as a deliberate, documented degradation. No
+   `ANALYSIS_STAGE_VERSION` churn for a re-run-only diagnostic.
+4. **Sensitivity invariant:** APPROVED as specified. DSC-1 maintains its own
+   gitignored hash→path map.
+5. **Outcome anchor:** made a test (§6).
+6. **Cost:** APPROVED. Extraction-LLM token capture is Wave-3 backlog
+   (protected-file diff), logged rather than smuggled in.
+7. **Storage:** APPROVED as specified.
+8. **Default state: ON in both webapp and batch**, not null-sink-off — coverage
+   measurement is the point, and the sensitivity invariant is what makes
+   always-on safe. Kill switch: **`TELEMETRY_DISABLED=1`** (also
+   `true`/`yes`/`on`), documented in the README telemetry section.
+   **Retention:** append-only stands, no delete path this wave. The caveat
+   Ocean asked to record: the append-only trigger will ABORT any run-scoped
+   delete, so an expiry policy (D-7/Wave 3) has to arrive with a documented
+   exception — either dropping and recreating the trigger inside the migration
+   that introduces expiry, or moving expired rows by table swap. It is not a
+   configuration change.
+
+### Phase-2 implementation notes
+
+- `source.path` for the six image-only corpus statements reads `none` in the
+  offline anchor harness, because a document served from a committed OCR
+  artifact has no `StatementMarkdown`. On the real emitters (`batch.py`, the
+  worker) the ladder returns a document and the path is `local_tesseract` or
+  `visual`. That is a property of the offline harness, not of the product.
+- The coverage report is deliberately **ASCII-only**: it is printed by a CLI,
+  and a console in a legacy code page must not be able to turn a measurement
+  into a `UnicodeEncodeError` (the same trap H-0 hit in the gate).
+
+## 13. Superseded: open questions as filed at the schema review
 
 1. **Pipeline seam shape.** Approve the §5.2 callback (4 lines, `Report`
    untouched)? The alternative I rejected — a `Report.dispatch` field — would

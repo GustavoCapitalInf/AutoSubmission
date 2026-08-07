@@ -205,6 +205,42 @@ eligible-deposit denominator are defined in
 OCR_BASE_URL=... .venv/Scripts/python.exe -m pytest -m live   # real-endpoint smoke
 ```
 
+## Telemetry — what happened to each statement, and what it cost
+
+One write-only record per statement per run: content hash, intake path taken,
+parser id and detection score (including the near-miss scores of parsers that
+almost claimed it), dispatch outcome, per-stage timings and cache hit/miss,
+truncated-page flags, model calls, and an outcome class
+(`validated` / `review` / `withheld` / `failed`). It is a side-band: **no
+analysis output changes because telemetry is on**, proven by test and by the
+corpus gate.
+
+It is **on by default** on both paths. The webapp writes to the SQLite store
+(schema v4); `batch.py` writes JSON Lines to `telemetry_runs/<run_id>.jsonl`
+(gitignored) or wherever `--telemetry FILE` points.
+
+```bash
+.venv/Scripts/python.exe batch.py "Bank Statements" --out triage.csv
+.venv/Scripts/python.exe -m telemetry.report --jsonl telemetry_runs/<run_id>.jsonl
+.venv/Scripts/python.exe -m telemetry.report --sqlite webapp_data       # same report
+.venv/Scripts/python.exe -m telemetry.report --jsonl … --by parser      # breakdowns
+TELEMETRY_DISABLED=1 .venv/Scripts/python.exe batch.py …                # kill switch
+```
+
+`TELEMETRY_DISABLED=1` (also `true`/`yes`/`on`) swaps in a null sink everywhere,
+webapp included. Nothing else changes.
+
+**Records carry no customer data, by design and by test:** hashes, registry
+ids, enum codes, counts and timings only — never account numbers, amounts,
+transaction text, statement dates, the extracted bank label, or **filenames**
+(customer names live in paths). Exceptions are recorded by class name, never by
+message. That invariant is what makes always-on telemetry safe; see
+`docs/moneythumb-replacement/H3_SCHEMA.md` for the full schema and the
+sensitivity tests.
+
+Telemetry is append-only (the table carries the same UPDATE/DELETE triggers as
+the audit log). There is no expiry path yet — retention is a later decision.
+
 ## MoneyThumb comparison harness
 
 Offline, re-runnable comparison of the six MoneyThumb benchmark result sets

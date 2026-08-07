@@ -33,7 +33,7 @@ def _mock_processing(monkeypatch, page_count=2):
         return _FakeDoc()
 
     monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)
-    monkeypatch.setattr("webapp.worker.analyze_markdown", lambda markdown, parse_mode="auto": object())
+    monkeypatch.setattr("webapp.worker.analyze_markdown", lambda markdown, parse_mode="auto", **kwargs: object())
     monkeypatch.setattr("webapp.worker.report_to_json", lambda report: {
         "statement": {"bank": "Test Bank"},
         "metrics": {"average_daily_balance": 123.45},
@@ -215,7 +215,7 @@ def test_upload_can_force_visual_ocr(monkeypatch):
         return _FakeDoc()
 
     monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)
-    monkeypatch.setattr("webapp.worker.analyze_markdown", lambda markdown, parse_mode="auto": object())
+    monkeypatch.setattr("webapp.worker.analyze_markdown", lambda markdown, parse_mode="auto", **kwargs: object())
     monkeypatch.setattr("webapp.worker.report_to_json", lambda report: {"quality": {"level": "transaction_level"}})
 
     client = app.test_client()
@@ -238,7 +238,7 @@ def test_upload_can_request_deterministic_parse_mode(monkeypatch):
     monkeypatch.setattr("ocr.pipeline._native_statement",
                         lambda pdf_bytes, source_file="": _FakeDoc())
 
-    def fake_analyze(markdown, parse_mode="auto"):
+    def fake_analyze(markdown, parse_mode="auto", **kwargs):
         seen["parse_mode"] = parse_mode
         return object()
 

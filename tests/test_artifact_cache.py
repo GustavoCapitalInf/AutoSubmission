@@ -503,7 +503,7 @@ class _CallCounter:
                 source_file=source_file, model="fake-ocr", pages=list(pages)
             )
 
-        def fake_analyze(markdown, parse_mode="auto"):
+        def fake_analyze(markdown, parse_mode="auto", **kwargs):
             self.analysis += 1
             return object()
 

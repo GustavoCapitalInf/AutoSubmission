@@ -4,6 +4,7 @@ statement that fails reconciliation is re-extracted with the stronger model."""
 from __future__ import annotations
 import re
 from dataclasses import dataclass, field
+from typing import Callable
 from .config import Settings, load_settings
 from .schema import Statement
 from .dates import assign_transaction_years
@@ -285,13 +286,29 @@ def assess_document_integrity(
 
 
 def analyze_markdown(markdown: str, *, settings: Settings | None = None,
-                     parse_mode: str = "auto") -> Report:
+                     parse_mode: str = "auto",
+                     on_dispatch: Callable[[Dispatch], None] | None = None) -> Report:
     settings = settings or load_settings()
     if parse_mode not in {"auto", "deterministic"}:
         raise ValueError(f"unknown parse_mode: {parse_mode}")
 
     model_used = settings.model
     dispatch = resolve(markdown)
+    if on_dispatch is not None:
+        # H-3 telemetry seam: write-only side-band, nothing here is read back.
+        # The callback's contract is "must not raise, must not mutate", and it
+        # is discharged on the telemetry side (telemetry/collect.py) rather
+        # than by a try/except here — swallowing exceptions inside this module
+        # would be new control flow in the orchestrator to cover a defect in an
+        # observer.
+        #
+        # Deliberately a callback and NOT a `Dispatch` field on `Report`:
+        # `Dispatch.statement` is the parsed Statement — every amount and
+        # description — so hanging it off `Report` would put the full financial
+        # record one generic `asdict()` away from anything that walks a report.
+        # Telemetry projects ids and scores out of `dispatch` and stores
+        # nothing else. Do not "simplify" this into a Report field.
+        on_dispatch(dispatch)
     deterministic_stmt = dispatch.statement
     if deterministic_stmt is not None:
         stmt = apply_statement_repairs(markdown, normalize_statement(deterministic_stmt))

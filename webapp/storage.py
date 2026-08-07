@@ -67,7 +67,7 @@ from ocr.inspect import content_sha256
 
 __all__ = ["Storage", "content_sha256", "default_data_dir", "utc_now_iso", "SCHEMA_VERSION"]
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
@@ -106,12 +106,59 @@ def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
     conn.executescript(_ARTIFACT_CACHE_V3)
 
 
+_TELEMETRY_V4 = """
+CREATE TABLE IF NOT EXISTS telemetry (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    record_id         TEXT    NOT NULL UNIQUE,
+    run_id            TEXT    NOT NULL,
+    job_id            TEXT,
+    content_sha256    TEXT    NOT NULL,
+    emitted_at        TEXT    NOT NULL,
+    telemetry_version INTEGER NOT NULL,
+    emitter           TEXT    NOT NULL,
+    outcome_class     TEXT    NOT NULL,
+    dispatch_outcome  TEXT,
+    parser_id         TEXT,
+    source_path       TEXT    NOT NULL,
+    record            TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_telemetry_run     ON telemetry(run_id);
+CREATE INDEX IF NOT EXISTS idx_telemetry_sha     ON telemetry(content_sha256);
+CREATE INDEX IF NOT EXISTS idx_telemetry_outcome ON telemetry(outcome_class);
+CREATE TRIGGER IF NOT EXISTS telemetry_no_update
+BEFORE UPDATE ON telemetry
+BEGIN
+    SELECT RAISE(ABORT, 'telemetry is append-only');
+END;
+CREATE TRIGGER IF NOT EXISTS telemetry_no_delete
+BEFORE DELETE ON telemetry
+BEGIN
+    SELECT RAISE(ABORT, 'telemetry is append-only');
+END;
+"""
+
+
+def _migrate_v3_to_v4(conn: sqlite3.Connection) -> None:
+    """v4 (H-3): the per-statement telemetry table.
+
+    Additive only — a new table, no existing row or column is touched. Every
+    typed column is a PROJECTION of the canonical record JSON in ``record``,
+    indexed so the coverage query never parses JSON to group; the blob stays
+    the single definition of the shape (H3_SCHEMA I2). Append-only triggers
+    match ``audit_log``: telemetry is evidence, and evidence is not edited.
+    Retention/expiry is deliberately absent this wave — a run-scoped delete
+    would have to contend with the trigger above, so an expiry policy is a
+    D-7/Wave-3 decision that comes with a documented exception."""
+    conn.executescript(_TELEMETRY_V4)
+
+
 #: Forward-only migration hook: ``_MIGRATIONS[N]`` upgrades version N -> N+1.
 #: Fresh databases run the v1 script and then every migration, so there is a
 #: single creation path and the hook is exercised on every new store.
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     1: _migrate_v1_to_v2,
     2: _migrate_v2_to_v3,
+    3: _migrate_v3_to_v4,
 }
 
 _SHA256_HEX = re.compile(r"^[0-9A-F]{64}$")
@@ -704,6 +751,67 @@ class Storage:
     ) -> None:
         with closing(self._connect()) as conn, conn:
             self._insert_audit(conn, event_type, job_id=job_id, package_id=package_id, detail=detail)
+
+    def append_telemetry(self, record: dict) -> None:
+        """Store one H-3 telemetry record (schema v4).
+
+        The typed columns are projections of ``record``; the JSON blob is the
+        definition. ``INSERT OR IGNORE`` on the unique ``record_id`` makes a
+        re-emitted record idempotent rather than a constraint error — telemetry
+        must never be able to fail the work it describes.
+        """
+        with closing(self._connect()) as conn, conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO telemetry (
+                    record_id, run_id, job_id, content_sha256, emitted_at,
+                    telemetry_version, emitter, outcome_class, dispatch_outcome,
+                    parser_id, source_path, record
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record["record_id"],
+                    record["run_id"],
+                    record.get("job_id"),
+                    record["document"]["content_sha256"],
+                    record["emitted_at"],
+                    record["telemetry_version"],
+                    record["emitter"],
+                    record["outcome"]["class"],
+                    record["dispatch"]["outcome"],
+                    record["dispatch"]["parser_id"],
+                    record["source"]["path"],
+                    json.dumps(record, sort_keys=True, ensure_ascii=False),
+                ),
+            )
+
+    def telemetry_records(self, run_id: str | None = None) -> list[dict]:
+        """Every stored record, parsed, oldest first."""
+        where, params = ("", [])
+        if run_id is not None:
+            where, params = (" WHERE run_id = ?", [run_id])
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                f"SELECT record FROM telemetry{where} ORDER BY id", params
+            ).fetchall()
+        return [json.loads(row["record"]) for row in rows]
+
+    def telemetry_coverage(self, run_id: str | None = None) -> list[dict]:
+        """Grouped counts straight from the indexed columns — no JSON parsing."""
+        where, params = ("", [])
+        if run_id is not None:
+            where, params = (" WHERE run_id = ?", [run_id])
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT dispatch_outcome, outcome_class, COUNT(*) AS n
+                FROM telemetry{where}
+                GROUP BY dispatch_outcome, outcome_class
+                ORDER BY n DESC, outcome_class
+                """,
+                params,
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def audit_events(
         self,

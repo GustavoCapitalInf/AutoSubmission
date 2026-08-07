@@ -343,8 +343,9 @@ def test_audit_rows_for_upload_review_and_export(store):
 
 def test_fresh_store_lands_on_the_current_schema_version(data_dir):
     assert Storage(data_dir).schema_version() == SCHEMA_VERSION
-    # D-3 delta: was 2; v3 adds the artifact_cache index table.
-    assert SCHEMA_VERSION == 3
+    # D-3 delta: was 2; v3 added the artifact_cache index table.
+    # H-3 delta: v4 adds the telemetry table.
+    assert SCHEMA_VERSION == 4
 
 
 def test_v1_store_migrates_forward_to_the_current_schema(data_dir):
@@ -378,9 +379,10 @@ def test_v1_store_migrates_forward_to_the_current_schema(data_dir):
     assert row["profile_json"] is None      # additive column, NULL for old rows
 
 
-def test_v2_store_migrates_forward_to_v3(data_dir):
-    """D-3: a v2 database (D-1 script + O-1's profile column, version row 2)
-    gains only the artifact_cache table — no existing row is touched."""
+def test_v2_store_migrates_forward_to_the_current_schema(data_dir):
+    """D-3/H-3: a v2 database (D-1 script + O-1's profile column, version row 2)
+    gains only the artifact_cache and telemetry tables — no existing row is
+    touched, and every later migration is additive in the same way."""
     from webapp.storage import _SCHEMA_V1, _migrate_v1_to_v2
 
     data_dir.mkdir(parents=True)
@@ -395,13 +397,16 @@ def test_v2_store_migrates_forward_to_v3(data_dir):
         )
         with pytest.raises(sqlite3.OperationalError):
             conn.execute("SELECT * FROM artifact_cache")
+        with pytest.raises(sqlite3.OperationalError):
+            conn.execute("SELECT * FROM telemetry")
 
     storage = Storage(data_dir)
-    assert storage.schema_version() == 3
+    assert storage.schema_version() == SCHEMA_VERSION
     with sqlite3.connect(storage.db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute("SELECT filename, profile_json FROM documents").fetchone()
         assert conn.execute("SELECT COUNT(*) FROM artifact_cache").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM telemetry").fetchone()[0] == 0
     assert row["filename"] == "v2.pdf"   # pre-migration data intact
     assert row["profile_json"] == "{}"   # and unmodified
 
