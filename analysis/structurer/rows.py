@@ -408,7 +408,13 @@ def build_rows(lines: list[SourceLine], *, default_year: int | None,
                     amount, sign_source = -token.magnitude, "debit_column"
                     break
 
-        if amount is None and raw.section_sign is not None:
+        if amount is None and not chained and raw.section_sign is not None:
+            # Only where the document has no balance column to speak with. In a
+            # chained document the balances are the authority, and a row they
+            # do not explain is a row we have misread — taking the heading's
+            # word for its direction there would let a row contradict the
+            # ledger it belongs to, which is exactly the kind of internally
+            # inconsistent statement that reconciles and lies.
             magnitude = raw.tokens[-1].magnitude if len(raw.tokens) == 1 else raw.tokens[-2].magnitude
             amount, sign_source = magnitude * raw.section_sign, "section_heading"
 
