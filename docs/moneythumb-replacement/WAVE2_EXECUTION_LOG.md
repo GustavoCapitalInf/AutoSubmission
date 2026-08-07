@@ -1,5 +1,29 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-07 — **PROCESS CHANGE (Gustavo): delegated agents move to manual Claude Code sessions driven by versioned handoff files**
+
+Effective from the next dispatch (TD Canada / RBC cells; the running
+Track A push + baseline + measurement sequence is NOT disturbed): Ocean
+prepares worktree + branch, writes a self-contained handoff under
+`docs/agent-handoffs/` (Identity · Git ownership · Context with baseline
+numbers and binding rulings · Scope · Engineering requirements ·
+Validation · Stop conditions · Definition of done · Final report
+contract), commits it so instructions are versioned beside the base
+commit, and Gustavo opens an independent Claude Code session in the
+assigned worktree pointed at the handoff. Ocean remains sole reviewer
+and merge authority; agents commit only to their branch, never merge.
+
+**Parallelization design for TD/RBC under this model:** both handoffs
+get strictly disjoint ownership — REEF-TD owns analysis/td_can.py (+its
+tests), REEF-RBC owns analysis/rbc.py (+its tests, solving the
+dual-money-cell trap STRUCTURALLY inside rbc.py), and NEITHER may touch
+analysis/tables.py or chase.py: the row-grouper promotion decision is
+DEFERRED to an Ocean-supervised integration after both report. This
+removes the shared-machinery conflict that previously forced sequential
+execution — Gustavo may run the two sessions in parallel or in sequence
+at his choice. Handoffs are written after the Cell-1 measurement lands
+(they must carry the exact base commit and measured baseline numbers).
+
 ## 2026-08-07 — **RE-BASELINE CEREMONY EXECUTED (commit `b70496c`)** — REVIEWED: ACCEPTED; merge queued behind the W3-2b push chain
 
 Unmodified oracle re-run (git-diff-empty asserted); scripted verification
