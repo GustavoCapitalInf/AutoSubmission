@@ -22,6 +22,51 @@ Gustavo). Post-W3-1 merge, Ocean runs a measured discovery re-run
 
 ---
 
+## 2026-08-07 — W3-2 REVIEWED: APPROVED; **MERGED as `f16f1fc`, pushed** (readiness-ordered ahead of W3-1 — telemetry-only, no file conflict; REEF rebases on merge)
+
+50 codes → 16 ranked classes; prefix-anchored mapping (hostile-description
+spoof tested); withheld-3 anchor reproduces the documented forensic
+diagnoses from adb-withheld-second-pass.md; zero analysis-output change
+proven byte-identical; 1,803 tests; gate GREEN 106/3. Disclosed test-only
+fix accepted (pre-existing I1 flake: a timestamp substring reading as an
+amount; scan now excludes four shape-pinned identifier fields). README
+diagnostics paragraph added by Ocean post-merge (`983afe0`).
+
+**Ocean rulings (W3-2 open questions):** (1) `count_mismatch` platform
+check = named Wave-3 ticket (protected-module change, Ocean-gated; payload
+already carries the raw material) — logged, not now. (2) Withheld-only
+scope STANDS; expansion to review/failed classes requires a ruling at
+W3-4. (3) Cause-over-symptom precedence CONFIRMED; revisit only if the
+614-scale rollup contradicts the three corpus anchors. (4) `unmapped`
+carrying literal names for enum-shaped sources CONFIRMED (our constants);
+free-text sources counts-only. Also logged from the survey: dead
+`summary_trusted` quality vocabulary in pipeline.py (unreachable branch) —
+Wave-3 hygiene ticket.
+
+**Measured re-run COMPLETE (run `…-02e90a86`, cached, ~cheap): the
+vocabulary held at scale — `unmapped 0 | 0 | 0` over all 614 withheld.**
+Failure-class × parser cross-cut (parser attribution joined by content
+hash from the original tranche runs; 614/614 attributed):
+
+| Class | Docs | Top parsers |
+|---|---|---|
+| detail_coverage | **390** (63.5%) | **chase 217**, td_canada_native 61, rbc 48, bofa 16, pnc 14 |
+| ledger_identity | 130 (21.2%) | chase 88, bofa 23, truist 8 |
+| period_integrity | 32 | wells_fargo 22, chase 5 |
+| balance_continuity | 26 | rbc 18, wells_fargo 5, chase_export 3 |
+| posting_date_coverage | 22 | bofa 15, chase 6 |
+| summary_identity / source_contradiction / adb_not_computable | 7 / 4 / 3 | scotiabank 3·ibc 2 / bmo 4 / farmers_merchants 3 |
+
+Reading: **chase variants losing transaction rows (217 docs) is the single
+largest withheld cell (35% of all withheld)**; extraction-completeness on
+chase/td_can/rbc variants is the top-value remediation block, exactly the
+evidence shape W3-2 was built to produce. bmo's 4 source_contradictions and
+the flagged docs go to the adjudication queue (possible genuine document
+defects, not code). This table is W3-4's ranked queue and 3b design-review
+input.
+
+---
+
 
 Author: Ocean. Running record; newest entries appended. Merge queue:
 H-0 → CI-1 → R-2 → D-3 → O-3 → R-3 → R-4 → H-3 → DSC-1.
