@@ -1,6 +1,35 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
-## 2026-08-07 — Post-3b dispatch executed; corpus-marked proof exposed a latent case-fold defect
+## 2026-08-07 — Hotfix + W3-4 (HARBOR) REVIEWED: APPROVED; merged locally, push gated on the pipefail'd main-checkout corpus proof
+
+Hotfix exactly per ruling (manifest-spelling identity at the partition
+boundary; classify untouched; non-vacuous regression proven by stash).
+W3-4: adjudication workspace over 3,380 distinct documents → 38.0%
+variant_completeness / 27.1% generic_structurer / 246 human-queue / 54
+new_parser_candidate (Huntington) / 16 junk; **registry-name-aware label
+matcher caught the TD Bank→td_us trap (65 false misfiled → 3 genuine
+pairs); `misfiled` is proposed by NO rule — humans write it**; movement
+tool keys on hashes, deferred outside the ladder, self-comparison = zero.
+Blocking finding validated: the cached baseline (`02e90a86`) carries zero
+parser ids — `--enrich` hash-join from a live run is mandatory for
+class×parser views.
+
+**Ocean rulings (W3-4 open questions):** (1) ADD `parser_defect`
+disposition — crashes route there mechanically (post-W3-1 they are
+explicit outcomes); W3-1's ranking owns remediation. (2) Missing enrich
+becomes LOUD (error unless `--allow-unattributed`); additionally Ocean
+re-captures a self-sufficient canonical baseline with `--no-cache`
+post-merge (also bakes in W3-1's crash fixes — supersedes `02e90a86`).
+(3) Misfiled count: the registry-label matcher (24 docs / 3 pairs) is
+authoritative; the report's 21 was statement_bank-derived — reconciled in
+docs at the adjudication session. (4) `NEW_PARSER_VOLUME_FLOOR = 50`
+accepted as proposal, surfaced to Gustavo at the adjudication session as
+the one policy knob. (5) `--fail-on-regression` is an Ocean merge-protocol
+gate for improvement claims, not CI (CI has no archive). (6)
+`integrity_check_exception` classing: the agent's point is accepted — a
+crashed check means UNKNOWN, not clean; a high-ranked `check_unavailable`
+class is ruled IN as W3-2b (small HARBOR follow-up; re-baselines the
+rollup while only 3 corpus anchors exist — the cheap moment to do it).
 
 **W3-1 push landed, but the corpus-marked proof was RED (1 failure) and my
 chained command's pipe swallowed pytest's exit code, so the push went
