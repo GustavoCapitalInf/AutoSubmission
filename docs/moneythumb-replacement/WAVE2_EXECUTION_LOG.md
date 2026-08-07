@@ -1,5 +1,55 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-07 — W3-5 MERGED (`2fdf148`) · W3-1 reviewed, pipeline diff APPROVED · 3a spike evidence delivered
+
+**W3-5 (SONAR): APPROVED and merged** — `--scanned-visual` as tranche 3;
+recovery (13) unconditional + upgrade (~159) gated on the visual read
+actually analysing; three cost-justified narrowings (never escalate
+unclaimed NATIVE text; never escalate on a cache hit; crashed-claims are
+W3-1's); availability probe (exit 2, model-list check, class-only errors);
+cache partitions proven with zero D-3 change; failure-never-cached;
+deferral taxonomy tightened to terminal outcomes. 1,838 tests post-merge.
+Rulings: Q1 cost line — `baidu/Unlimited-OCR` added to FREE_MODELS ($0
+VENDOR is a fact; infra cost stays operational) — **Ocean process slip
+logged: the ruling commit (`fa79b90`) was pushed before running its blast
+radius; one W3-5 test pinned the old unpriced behavior; fixed next commit
+(`f0e41a9`), red window on origin = one commit.** Q2 circuit breaker:
+deferred to backlog unless tranche 3 shows need. Q3 withheld-tesseract
+escalation: revisit after tranche-3 evidence. Q4 sequencing accepted:
+recovery-only first (13 docs), then escalation. Tranche 3 execution
+awaits: local OCR server availability (probe currently refuses —
+server down; see docs/runpod-setup.md) + Gustavo's go.
+
+**W3-1 + crash fixes (REEF): reviewed, held for one approved change.**
+Boundary design accepted (Exception-not-BaseException; ParserFailure with
+class names only; parser_exception outcome distinct from unclaimed;
+crashes never counted as unknown-layout clusters). Crash clusters
+root-caused and fixed generically (us_bank optional interest line; shaped-
+but-impossible date tokens via new iso_or_none — also closes the latent
+pnc/regions crash; one R-2 frozen-oracle divergence recorded explicitly).
+Re-measured over the 53 archive docs: **crashes 53 → 0** (16 validated +
+20 withheld / 16 withheld / 1 unclaimed — all fail-closed). **Ocean
+rulings:** the pinned pipeline.py diff APPROVED + extended to guard
+`integrity_checks` invocation (`integrity_check_exception` flag); NO
+ANALYSIS_STAGE_VERSION bump (reasoning recorded); deviations 2/4/5
+accepted. Agent implementing now; W3-1 merges only with the diff landed
+and forensic proof attached.
+
+**W3-3a spike evidence (frozen for the 3b gate):** 184 real documents
+through an experimental bank-agnostic structurer behind the REAL gate —
+**zero false validations** (5/5 published values correct field-for-field);
+gate sufficiency proven; binding constraint = completeness not recognition
+(74%→81% into the gate moved nothing through it); flat text is the wrong
+input (reading-order failures dominate refusals; word geometry = largest
+lever); honest re-scope of the coverage target: +4 points today, +10–17
+with geometry, remainder belongs to W3-2 (614 withheld) and W3-5 (159 OCR).
+Architecture proposal: structurer → same Statement → reconciliation AND
+rebuilt grounding, both required, unclaimed-branch rung, default off.
+**Prototype-branch final recommendation: tag both commits
+(archive/universal-prototype-2026-08-04|05), push tags, then delete the
+two remote refs — P2-1 was the last consumer.** All 3b decisions await
+Gustavo at the design gate.
+
 ## 2026-08-07 — WAVE 3 LAUNCHED (approved by Gustavo as proposed)
 
 Environment verified (Fable 5 lead; CLAUDE_CODE_SUBAGENT_MODEL=opus). Three
