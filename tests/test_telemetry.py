@@ -236,9 +236,54 @@ def test_dispatch_section_never_carries_the_parsed_statement():
     section = dispatch_section(collector.dispatch, [], 46, source="live")
     assert set(section) == {
         "source", "outcome", "parser_id", "score", "candidates", "attempted",
-        "scores", "scores_floor", "scores_capped", "registration_count",
+        "exceptions", "scores", "scores_floor", "scores_capped", "registration_count",
     }
     assert "statement" not in json.dumps(section)
+
+
+# --- parser crashes (W3-1) --------------------------------------------------
+
+
+def test_dispatch_section_projects_parser_failures_by_class_name_only():
+    """The crash facts survive into telemetry; the message never does.
+
+    Before the W3-1 boundary a crash escaped `resolve`, no Dispatch existed,
+    and the record carried one anonymous `outcome.error_type` for the whole
+    document. These three fields are what make a crash cluster countable.
+    """
+    from analysis.parser_registry import Dispatch, ParserFailure
+
+    dispatch = Dispatch(
+        "parser_exception",
+        exceptions=(
+            ParserFailure("us_bank", "parse", "AttributeError"),
+            ParserFailure("bank_of_america", "detect", "ValueError"),
+        ),
+    )
+    section = dispatch_section(dispatch, [], 46, source="live")
+
+    assert section["outcome"] == "parser_exception"
+    assert section["exceptions"] == [
+        ["us_bank", "parse", "AttributeError"],
+        ["bank_of_america", "detect", "ValueError"],
+    ]
+    assert section["parser_id"] is None
+
+
+def test_a_dispatch_without_exceptions_reports_an_empty_list():
+    collector = DispatchCollector()
+    analyze_markdown(claimed_markdown(), parse_mode="deterministic", on_dispatch=collector)
+    assert dispatch_section(collector.dispatch, [], 46, source="live")["exceptions"] == []
+
+
+def test_a_crash_flag_is_classified_as_review_with_its_own_reason():
+    """`integrity_flags` would fold the crash into the anonymous bucket."""
+    payload = {
+        "metrics": {"average_daily_balance": 1000.0},
+        "quality": {"corporate_use": "manual_review_required"},
+        "integrity": {"flags": ["parser_exception"]},
+    }
+    assert classify_outcome(payload) == ("review", "parser_exception")
 
 
 # --- the near-miss vector ---------------------------------------------------

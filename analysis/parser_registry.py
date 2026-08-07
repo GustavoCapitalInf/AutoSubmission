@@ -22,6 +22,19 @@ and a wrong-parser claim that happens to reconcile corrupts a real result and
 the discovery statistics alike. `resolve` therefore refuses to guess: it
 returns `ambiguous` and the caller routes the document to review.
 
+**A crash as an outcome, not an escape (W3-1).** Discovery found 53 documents
+on which a parser raised, and the exception escaped `resolve` into whatever
+loop happened to be running — aborting the document, taking the routing facts
+with it (no `Dispatch` was ever produced, so telemetry recorded nothing about
+who crashed), and carrying an exception *message* that routinely quotes a
+fragment of the statement. Every `detect` and every `parse` call therefore runs
+behind `_guarded`: the failure becomes a `ParserFailure` (parser id, stage,
+exception CLASS NAME — never the message), the remaining registry order
+continues exactly as the fallthrough rule already specifies, and a document
+that nothing could parse *because something crashed* is reported as
+`parser_exception` rather than as the indistinguishable `unclaimed`. The seam
+is total: no code path from `resolve` through `parse` raises.
+
 Score semantics (fixed by the R-3 RFC, approved 2026-08-06):
 
 ======  ==========================================================
@@ -58,6 +71,7 @@ __all__ = [
     "Dispatch",
     "Marker",
     "Parser",
+    "ParserFailure",
     "Registration",
     "admissible_text",
     "by_bank_label",
@@ -71,6 +85,7 @@ __all__ = [
     "registrations",
     "required",
     "resolve",
+    "safe_detect",
     "score_markers",
 ]
 
@@ -362,10 +377,48 @@ def validate_registry() -> None:
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
+class ParserFailure:
+    """One registration's crash, reduced to the facts that are safe to keep.
+
+    `exception` is the exception's CLASS NAME and nothing else. An exception
+    message routinely quotes the fragment of the document that provoked it
+    ("month must be in 1..12", "invalid literal for int(): <a line of the
+    statement>"), and these facts travel into telemetry, discovery rows and
+    operator views — the same sensitivity invariant H-3 states for records
+    (H3_SCHEMA I1). The message is not stored anywhere, not even locally:
+    reproducing a crash is a debugging act performed against the document, not
+    a fact the platform carries around.
+    """
+
+    parser_id: str
+    stage: Literal["detect", "parse"]
+    exception: str
+
+
+def _guarded(stage: Literal["detect", "parse"], registration: Registration, call, failures):
+    """Run one registry callable; a crash becomes a recorded `ParserFailure`.
+
+    Returns `None` when the call raised, which both callers read as "this
+    registration produced nothing" — a crashing `detect` cannot claim, and a
+    crashing `parse` yields no statement.
+
+    `Exception`, deliberately not `BaseException`: `KeyboardInterrupt`,
+    `SystemExit` and `MemoryError` are statements about the process, not about
+    the parser, and swallowing them would make the runner unkillable and hide
+    a machine that is out of memory. They still propagate.
+    """
+    try:
+        return call()
+    except Exception as exc:
+        failures.append(ParserFailure(registration.id, stage, type(exc).__name__))
+        return None
+
+
+@dataclass(frozen=True)
 class Dispatch:
     """The result of routing one document."""
 
-    outcome: Literal["claimed", "ambiguous", "unclaimed"]
+    outcome: Literal["claimed", "ambiguous", "unclaimed", "parser_exception"]
     registration: Registration | None = None
     detection: Detection | None = None
     #: Every surviving claimant as (id, score), best first. Populated for
@@ -375,45 +428,79 @@ class Dispatch:
     #: parser that repeatedly detects and then declines is a defect signal the
     #: or-chain made invisible.
     attempted: tuple[str, ...] = ()
+    #: Registrations that raised, in the order they ran. A crash is NOT an
+    #: `attempted` entry: "detected, then declined" and "detected, then broke"
+    #: are different findings and the platform must be able to count them
+    #: apart.
+    exceptions: tuple[ParserFailure, ...] = ()
     statement: Statement | None = field(default=None, compare=False)
 
     @property
     def parser_id(self) -> str | None:
         return self.registration.id if self.registration else None
 
+    @property
+    def crashed(self) -> tuple[str, ...]:
+        """Ids of the registrations that raised, deduplicated, in order."""
+        return tuple(dict.fromkeys(failure.parser_id for failure in self.exceptions))
 
-def _surviving_claimants(markdown: str) -> list[tuple[Registration, Detection]]:
+
+def safe_detect(registration: Registration, markdown: str, failures: list | None = None) -> Detection:
+    """`registration.detect`, total by construction.
+
+    A registration whose detection crashes scores 0.0 and therefore cannot
+    claim — fail closed, never "assume it matched". The event is not lost: it
+    is appended to `failures` when the caller is collecting them.
+    """
+    detection = _guarded("detect", registration, lambda: registration.detect(markdown),
+                         failures if failures is not None else [])
+    return detection if detection is not None else Detection(0.0)
+
+
+def _surviving_claimants(markdown: str, failures: list) -> list[tuple[Registration, Detection]]:
     claimants = [
         (registration, detection)
         for registration in registrations()
-        if (detection := registration.detect(markdown)).claims
+        if (detection := safe_detect(registration, markdown, failures)).claims
     ]
     dominated = {target for registration, _ in claimants for target in registration.supersedes}
     return [(reg, det) for reg, det in claimants if reg.id not in dominated]
 
 
 def resolve(markdown: str) -> Dispatch:
-    """Route one document.
+    """Route one document. Never raises.
 
     Detection first, for every registration; then `supersedes` pruning; then
     the ambiguity decision — deliberately **before** any parse runs, so an
     ambiguous document can never be rescued by whichever parser happens to
     succeed. Only then are the survivors parsed, best score first.
+
+    Crashes (W3-1) do not interrupt any of that. A registration that raises in
+    `detect` drops out of the claimant set; a registration that raises in
+    `parse` is skipped and the next claimant is tried, which is the same
+    fallthrough the `None` return already gets. What changes is only the final
+    verdict: if no statement was produced and something raised on the way, the
+    outcome is `parser_exception` — "we do not know whether this document was
+    parseable, because our own code broke" — and not `unclaimed`, which would
+    file a defect of ours as a gap in our layout knowledge.
+
+    `ambiguous` still outranks it: two claimants is a resolvable registry fact
+    that a human acts on, and it is already routed to review.
     """
-    survivors = _surviving_claimants(markdown)
+    failures: list[ParserFailure] = []
+    survivors = _surviving_claimants(markdown, failures)
     candidates = tuple(
         sorted(((reg.id, det.score) for reg, det in survivors), key=lambda item: (-item[1], item[0]))
     )
 
-    if not survivors:
-        return Dispatch("unclaimed")
     if len(survivors) > 1:
-        return Dispatch("ambiguous", candidates=candidates)
+        return Dispatch("ambiguous", candidates=candidates, exceptions=tuple(failures))
 
     ranked = sorted(survivors, key=lambda item: (-item[1].score, item[0].id))
     attempted: list[str] = []
     for registration, detection in ranked:
-        statement = registration.parse(markdown)
+        crashes_before = len(failures)
+        statement = _guarded("parse", registration, lambda: registration.parse(markdown), failures)
         if statement is not None:
             return Dispatch(
                 "claimed",
@@ -421,23 +508,36 @@ def resolve(markdown: str) -> Dispatch:
                 detection=detection,
                 candidates=candidates,
                 attempted=tuple(attempted),
+                exceptions=tuple(failures),
                 statement=statement,
             )
-        attempted.append(registration.id)
+        if len(failures) == crashes_before:
+            # Declined, rather than broke: an `attempted` entry (§4.3).
+            attempted.append(registration.id)
 
-    # Every claimant detected the document and then declined to parse it. That
-    # is "no deterministic parser produced a statement", exactly as the
-    # or-chain reported it — but now the near-misses are recorded.
-    return Dispatch("unclaimed", candidates=candidates, attempted=tuple(attempted))
+    # Nothing produced a statement. Without a crash that is exactly what the
+    # or-chain reported — no deterministic parser matched — but now the
+    # near-misses are recorded. With a crash it is a defect of ours, and it is
+    # named as one.
+    return Dispatch(
+        "parser_exception" if failures else "unclaimed",
+        candidates=candidates,
+        attempted=tuple(attempted),
+        exceptions=tuple(failures),
+    )
 
 
 def detection_report(markdown: str) -> tuple[tuple[str, Detection], ...]:
     """Every registration's `Detection` for one document, best first.
 
-    Diagnostic only — used by the conformance tests and by discovery
-    adjudication when a document resolved unexpectedly.
+    Diagnostic only — used by the conformance tests, by telemetry's near-miss
+    vector and by discovery adjudication when a document resolved unexpectedly.
+    Guarded like `resolve`: a diagnostic sweep must not be the thing that
+    aborts a run.
     """
-    scored = [(registration.id, registration.detect(markdown)) for registration in registrations()]
+    scored = [
+        (registration.id, safe_detect(registration, markdown)) for registration in registrations()
+    ]
     return tuple(sorted(scored, key=lambda item: (-item[1].score, item[0])))
 
 

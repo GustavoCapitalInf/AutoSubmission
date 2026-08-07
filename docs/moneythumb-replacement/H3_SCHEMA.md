@@ -104,11 +104,12 @@ same fail-closed discipline the financial core already uses.
 
   "dispatch": {
     "source": "live",                        // live|cached|unavailable
-    "outcome": "claimed",                    // claimed|ambiguous|unclaimed|null
+    "outcome": "claimed",                    // claimed|ambiguous|unclaimed|parser_exception|null
     "parser_id": "columbia",
     "score": 0.75,
     "candidates": [["columbia", 0.75]],      // post-supersedes claimants
     "attempted": [],                         // detected, then parse() -> None
+    "exceptions": [],                        // W3-1: [id, "detect"|"parse", "ValueError"]
     "scores": [["columbia",0.75],["regions",0.125]],  // §4
     "scores_floor": 0.0,
     "scores_capped": false,
@@ -158,6 +159,7 @@ telemetry except the near-miss vector (§4) and the timings.
 | `source.path` | derived from `model` | `native-pdf-text*` → native; `local-tesseract-ocr` → local_tesseract; else visual. The webapp's `on_stage` rung is the same fact but is unavailable on the CLI, so `model` is the single authority both paths share |
 | `source.truncation.*` | `doc.truncated_pages`, `doc.page_integrity` (O-3) | Correct on cache hit and miss — D-3b round-trips `page_integrity` |
 | `dispatch.outcome/parser_id/score/candidates/attempted` | `analysis.parser_registry.Dispatch` (R-3 §4.1) | via the §5 seam |
+| `dispatch.exceptions` | `Dispatch.exceptions` (W3-1) | `[parser_id, stage, ExceptionClass]`; class names only, per I1 |
 | `dispatch.scores` | `detection_report(markdown)` | §4 |
 | `stages.*.ms` | `perf_counter()` in the emitters | |
 | `stages.*.cache` | `CacheResult.cached` | §7 |

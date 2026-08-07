@@ -175,6 +175,14 @@ def dispatch_section(
     record. The score vector is still populated (detect is pure), and the
     outcome class still comes from the cached payload, so the coverage rate
     stays computable — only the parser diagnostics thin out.
+
+    `exceptions` (W3-1) carries `[parser_id, stage, exception_class]` triples.
+    Before the boundary existed a parser crash escaped `resolve`, so no
+    `Dispatch` was ever built and the only surviving fact was the top-level
+    `outcome.error_type` — one class name for the whole document, with no way
+    to say WHICH parser broke. Discovery's 53 crashes were diagnosable only by
+    re-running the archive by hand. The exception CLASS NAME is the whole
+    payload here, deliberately: a message quotes the document (I1).
     """
     capped = scores[:SCORE_CAP]
     section = {
@@ -184,6 +192,7 @@ def dispatch_section(
         "score": None,
         "candidates": [],
         "attempted": [],
+        "exceptions": [],
         "scores": [[parser_id, score] for parser_id, score in capped],
         "scores_floor": 0.0,
         "scores_capped": len(scores) > SCORE_CAP,
@@ -197,6 +206,10 @@ def dispatch_section(
             score=detection.score if detection is not None else None,
             candidates=[[parser_id, score] for parser_id, score in dispatch.candidates],
             attempted=list(dispatch.attempted),
+            exceptions=[
+                [failure.parser_id, failure.stage, failure.exception]
+                for failure in getattr(dispatch, "exceptions", ())
+            ],
         )
     return section
 
@@ -284,6 +297,11 @@ def classify_outcome(
     flags = list(integrity.get("flags") or [])
     if "parser_ambiguous" in flags:
         return "review", "parser_ambiguous"
+    # A document that reached a value despite a parser crashing on it is a
+    # review case with a named cause, not an anonymous "integrity_flags" one:
+    # the crash cluster it belongs to is what ranks the underlying defect.
+    if "parser_exception" in flags:
+        return "review", "parser_exception"
     if flags:
         return "review", "integrity_flags"
     if quality.get("corporate_use") != "approved":

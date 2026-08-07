@@ -83,6 +83,9 @@ class DocumentRow:
     dispatch_outcome: str | None = None
     candidates: list[str] = field(default_factory=list)
     near_miss: list[str] = field(default_factory=list)
+    #: "<parser_id>:<stage>:<ExceptionClass>" per registration that raised.
+    #: Registry ids and exception class names only — never a message (W3-1).
+    parser_exceptions: list[str] = field(default_factory=list)
     outcome_class: str = "failed"
     outcome_reason: str = "not_processed"
     error_type: str | None = None
@@ -96,6 +99,7 @@ class DocumentRow:
         row = asdict(self)
         row["candidates"] = "; ".join(self.candidates)
         row["near_miss"] = "; ".join(self.near_miss)
+        row["parser_exceptions"] = "; ".join(self.parser_exceptions)
         return row
 
 
@@ -276,6 +280,10 @@ class DiscoveryRunner:
                 dispatch.detection.score if dispatch.detection is not None else None
             )
             row.candidates = _fmt(dispatch.candidates)
+            row.parser_exceptions = [
+                f"{failure.parser_id}:{failure.stage}:{failure.exception}"
+                for failure in dispatch.exceptions
+            ]
 
         scores, registration_count = score_vector(markdown)
         row.near_miss = _fmt([(i, s) for i, s in scores if s < 0.5][:5])
@@ -362,10 +370,21 @@ def _disposition(cache, cached: bool) -> str:
 
 
 def _failure_reason(error_type: str | None, dispatch) -> str | None:
+    """Why this document failed, in the vocabulary the report ranks by.
+
+    The `parser_exception` branch is what the W3-1 boundary bought: before it,
+    a crashing parser produced no `Dispatch` at all, so the run recorded the
+    bare exception class of whatever escaped and every crash landed in the
+    undifferentiated `exception` bucket. Now the dispatch says a parser broke,
+    the deterministic mode's own `RuntimeError` no longer disguises it as
+    "no parser matched", and the row names the failure class it belongs to.
+    """
     if error_type is None:
         return None
     if error_type == "AmbiguousParserError":
         return "parser_ambiguous"
+    if dispatch is not None and dispatch.outcome == "parser_exception":
+        return "parser_exception"
     if dispatch is not None and dispatch.outcome == "unclaimed":
         return "no_parser_matched"
     return "exception"

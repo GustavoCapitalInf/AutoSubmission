@@ -89,7 +89,16 @@ def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
     parsers = Counter(r.parser_id for r in dispatched if r.parser_id)
     folders = Counter(r.folder_label for r in rows)
 
-    unknown = [r for r in dispatched if r.dispatch_outcome != "claimed"]
+    # A crash is a defect of ours, not a layout we have never seen. Ranking the
+    # two together would put a bug at the top of the "which bank needs a
+    # parser" list and hide it at the bottom of the "which parser needs a fix"
+    # one, so `parser_exception` gets its own cluster ranking (W3-1).
+    crashed = [r for r in dispatched if r.dispatch_outcome == "parser_exception"]
+    crash_clusters = Counter(entry for r in crashed for entry in r.parser_exceptions)
+    unknown = [
+        r for r in dispatched
+        if r.dispatch_outcome not in ("claimed", "parser_exception")
+    ]
     unknown_clusters = Counter(r.folder_label for r in unknown)
 
     ambiguity_clusters = Counter(
@@ -134,6 +143,7 @@ def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
         "parsers": dict(parsers.most_common()),
         "folders": dict(folders.most_common()),
         "unknown_layout_clusters": dict(unknown_clusters.most_common()),
+        "crash_clusters": dict(crash_clusters.most_common()),
         "ambiguity_clusters": dict(ambiguity_clusters.most_common()),
         "near_miss_parsers": dict(near_miss.most_common(20)),
         "truncated_documents": sum(1 for r in rows if r.truncated_pages),
@@ -188,7 +198,7 @@ def render_report(summary: dict) -> str:
             f"  served from cache       {summary['dispatch_cached']:>7}"
             "   (no dispatch this run; --no-cache to re-dispatch)"
         )
-    for key in ("ambiguous", "unclaimed") if not profile_only else ():
+    for key in ("ambiguous", "unclaimed", "parser_exception") if not profile_only else ():
         if key in summary["dispatch"]:
             lines.append(_bar(key, summary["dispatch"][key], summary["dispatched"]))
 
@@ -226,6 +236,10 @@ def render_report(summary: dict) -> str:
         lines.append("unknown-layout clusters, ranked by volume")
         for key, count in list(summary["unknown_layout_clusters"].items())[:20]:
             lines.append(_bar(key, count, processed))
+    if summary.get("crash_clusters"):
+        lines.append("parser crashes (parser:stage:exception), ranked")
+        for key, count in list(summary["crash_clusters"].items())[:20]:
+            lines.append(_bar(key, count, processed))
     if summary["near_miss_parsers"]:
         lines.append("near-miss parsers on unclaimed documents")
         for key, count in list(summary["near_miss_parsers"].items())[:10]:
@@ -262,7 +276,8 @@ ROW_FIELDS = [
     "encrypted", "classification", "page_count", "likely_account_count",
     "dedup_status", "duplicate_of", "source_path", "source_model",
     "truncated_pages", "parser_id", "parser_score", "dispatch_outcome",
-    "candidates", "near_miss", "outcome_class", "outcome_reason", "error_type",
+    "candidates", "near_miss", "parser_exceptions",
+    "outcome_class", "outcome_reason", "error_type",
     "statement_bank", "account_last4", "cache_ocr", "cache_analysis", "elapsed_ms",
 ]
 
