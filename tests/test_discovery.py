@@ -459,3 +459,44 @@ def test_dry_run_reproduces_known_truth():
         expected = entry["variant_id"] or entry["parser_id"]
         assert rows[entry["path"]].parser_id == expected, entry["path"]
         assert rows[entry["path"]].content_sha256 == entry["sha256"]
+
+
+# ---------------------------------------------------------------------------
+# Parser crashes (W3-1): a defect of ours, ranked as one
+# ---------------------------------------------------------------------------
+
+def test_a_crashed_dispatch_is_reported_as_a_parser_exception():
+    """Before W3-1 a crash produced no Dispatch at all, so the run recorded the
+    bare class of whatever escaped and the row read "exception". Now the
+    dispatch says which parser broke and the reason names the class."""
+    from analysis.parser_registry import Dispatch, ParserFailure
+    from discovery.runner import _failure_reason
+
+    crashed = Dispatch("parser_exception",
+                       exceptions=(ParserFailure("us_bank", "parse", "AttributeError"),))
+    assert _failure_reason("RuntimeError", crashed) == "parser_exception"
+    assert _failure_reason("RuntimeError", Dispatch("unclaimed")) == "no_parser_matched"
+    assert _failure_reason(None, crashed) is None
+
+
+def test_a_crash_is_not_ranked_as_an_unknown_layout_cluster():
+    """The two rankings answer different questions — "which bank needs a
+    parser" and "which parser needs a fix". A crash in the first one hides a
+    bug at the bottom of a list of banks."""
+    crashed = DocumentRow(
+        relative_path="BankX/a.pdf", folder_label="BankX", content_sha256="A" * 64,
+        byte_size=1, dispatch_outcome="parser_exception", outcome_class="failed",
+        outcome_reason="parser_exception", error_type="RuntimeError",
+        parser_exceptions=["us_bank:parse:AttributeError"],
+    )
+    unknown = DocumentRow(
+        relative_path="BankY/b.pdf", folder_label="BankY", content_sha256="B" * 64,
+        byte_size=1, dispatch_outcome="unclaimed", outcome_class="failed",
+        outcome_reason="no_parser_matched",
+    )
+    summary = summarize([crashed, unknown], mode=MODE_DIGITAL, run_id="t")
+
+    assert summary["crash_clusters"] == {"us_bank:parse:AttributeError": 1}
+    assert summary["unknown_layout_clusters"] == {"BankY": 1}
+    assert summary["dispatch"]["parser_exception"] == 1
+    assert "parser_exception" in render_report(summary)
