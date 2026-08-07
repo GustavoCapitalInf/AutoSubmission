@@ -451,10 +451,16 @@ def safe_detect(registration: Registration, markdown: str, failures: list | None
     A registration whose detection crashes scores 0.0 and therefore cannot
     claim — fail closed, never "assume it matched". The event is not lost: it
     is appended to `failures` when the caller is collecting them.
+
+    A `detect` that returns something other than a `Detection` is the same
+    fail-closed 0.0, recorded as nothing: it did not raise, so there is no
+    exception class to name and inventing one would put a fiction in
+    telemetry. `tests/test_parser_registry_entries.py` is what catches that
+    contract breach, at the registration level where it belongs.
     """
     detection = _guarded("detect", registration, lambda: registration.detect(markdown),
                          failures if failures is not None else [])
-    return detection if detection is not None else Detection(0.0)
+    return detection if isinstance(detection, Detection) else Detection(0.0)
 
 
 def _surviving_claimants(markdown: str, failures: list) -> list[tuple[Registration, Detection]]:

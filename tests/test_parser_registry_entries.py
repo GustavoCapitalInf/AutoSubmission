@@ -141,7 +141,13 @@ def test_each_registration_detects_the_same_way_its_module_does(registration):
     }.get(registration.id, "detect")
     detect = getattr(module, module_detect)
     for document in ("", "nothing here", "Statement of account", "BANK OF AMERICA ACCOUNT SUMMARY"):
-        assert registration.detect(document) == detect(document), (
+        detection = registration.detect(document)
+        # The return TYPE is part of the contract: W3-1's seam scores anything
+        # else as 0.0 without recording a failure (it did not raise, so there
+        # is no exception class to name), which would make a broken detect look
+        # like a document nobody recognised. This is where that is caught.
+        assert isinstance(detection, pr.Detection), f"{registration.id}: detect returned {detection!r}"
+        assert detection == detect(document), (
             f"{registration.id}: registration and {module.__name__}.{module_detect} disagree"
         )
 
