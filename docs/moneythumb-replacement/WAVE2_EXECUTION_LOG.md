@@ -316,7 +316,27 @@ the anomaly recurs).
 — fourth consecutive green, and the first green run created by the normal
 push lifecycle. CI is fully operational end-to-end with zero open items.
 
-**DSC-1 dispatched to HARBOR** with all accumulated bindings: production
+**DSC-1 DELIVERED and APPROVED (commit `a8e2ca7` on wave2-proof; merge held
+for DSC-1b micro-task).** Dry-run acceptance: 109/109 enumerated+processed,
+coverage 100%, validated 100 / review 6 / withheld 3 by name, 0 unexpected
+dupes, expectations-file parity, gate GREEN, 1,741 tests. **Tranche-0
+profile of the frozen archive (first real intake numbers):** 3,506 docs —
+digital 3,297 (94.0%) / scanned 176 (5.0%) / unknown 17 / mixed 16; dedup:
+124 within-archive duplicates + 82 copies of pinned corpus docs → ~3,300
+unique; truncation 0; baseline byte-exact vs the freeze. Operational
+implications: tranche 1 covers ~94% immediately; tranche 2 is only ~176
+docs (D-4 concurrency likely unnecessary — decision data in hand). Three
+runner findings fixed in place: case-insensitive manifest partition (a
+`Scotiabank/` vs `ScotiaBank/` case-fold silently moved a pinned doc into
+the discovery set under exact matching — recorded as `case_mismatches`);
+cached rows excluded from the dispatch-coverage denominator (`--no-cache`
+for full re-dispatch); folder-label mismatches classed `label_unmatched`
+(abbreviations like BofA/Amex), never "disagree". **DSC-1b micro-task
+dispatched:** `deferred` telemetry outcome class (explicitly declared,
+never inferred) so `failed` unambiguously means attempted-and-errored
+before any real tranche runs.
+
+**DSC-1 dispatch record (original bindings):** production
 parse_statement only; frozen-baseline verification (3,768/3,615/
 996,080,803) with loud-stop on deviation; pinned-manifest partition;
 D-3 cache + H-3 telemetry consumption; tranche modes
