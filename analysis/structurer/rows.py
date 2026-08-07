@@ -373,6 +373,13 @@ def build_rows(lines: list[SourceLine], *, default_year: int | None,
     best_agreement, checked = _score_chain(raws, opening_balance)
     chained = best_agreement >= MIN_CHAIN_AGREEMENT and checked >= MIN_CHAIN_ROWS
 
+    # Which money band is debits and which is credits, decided once for the
+    # document rather than per row: the answer is a property of the layout, and
+    # recomputing it inside the loop would make row building quadratic.
+    debit_column, credit_column = (
+        columns_debit_credit(raws, columns) if len(columns) >= 3 else (None, None)
+    )
+
     rows: list[RowCandidate] = []
     previous = opening_balance
     for raw in raws:
@@ -389,19 +396,17 @@ def build_rows(lines: list[SourceLine], *, default_year: int | None,
                     amount, sign_source = delta, "balance_chain"
             previous = balance
 
-        if amount is None and columns and len(columns) >= 3:
+        if amount is None and debit_column is not None and credit_column is not None:
             # Geometry says the money on this page sits in three or more bands:
             # the classic debit / credit / balance layout, where the COLUMN is
             # the sign and no chain is needed.
-            debit_column, credit_column = columns_debit_credit(raws, columns)
-            if debit_column is not None and credit_column is not None:
-                for token, column in zip(raw.tokens, raw.columns):
-                    if column == credit_column:
-                        amount, sign_source = token.magnitude, "credit_column"
-                        break
-                    if column == debit_column:
-                        amount, sign_source = -token.magnitude, "debit_column"
-                        break
+            for token, column in zip(raw.tokens, raw.columns):
+                if column == credit_column:
+                    amount, sign_source = token.magnitude, "credit_column"
+                    break
+                if column == debit_column:
+                    amount, sign_source = -token.magnitude, "debit_column"
+                    break
 
         if amount is None and raw.section_sign is not None:
             magnitude = raw.tokens[-1].magnitude if len(raw.tokens) == 1 else raw.tokens[-2].magnitude
