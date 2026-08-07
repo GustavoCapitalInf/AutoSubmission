@@ -580,6 +580,94 @@ summary block caught it. Their diagnostics are accurate: 6 `detail_coverage`,
 4 `ledger_identity`, with the credit shortfall and debit excess equal and
 opposite — the residue of direction, not of missing rows.
 
+## T7. Proofs
+
+All four run in this worktree against the final commit `6c6c5c7`, on a clean
+tree (`git status --short` empty), `set -o pipefail`, exit codes as printed.
+
+```
+$ python -m pytest -q
+2064 passed, 18 deselected, 1 warning in 167.47s (0:02:47)
+SUITE_EXIT=0
+
+$ python -m pytest -m corpus -q
+14 passed, 2068 deselected, 1 warning in 1082.61s (0:18:02)
+CORPUS_MARKED_EXIT=0
+
+$ python corpus_gate.py
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  453.9s
+RESULT: GREEN
+GATE_EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+      tests/test_no_parser_helper_clones.py -q
+100 passed in 0.80s
+GUARDS_EXIT=0
+```
+
+Baseline for comparison, same worktree at base `0c13c21` before any change:
+`2036 passed, 18 deselected`; gate `RESULT: GREEN`, `106 PASS / 3 WITHHELD`.
+The suite grew by the 28 new fixtures and by nothing else; no existing
+assertion was edited.
+
+**Fails-before / passes-after.** Each committed fixture run through the
+pre-change parser (loaded from git) and the current one in the same process:
+
+```
+FIXED  F1 balance rose -> the uncoded row is the deposit         before=[-40.0, -10.0]  after=[40.0, -10.0]
+kept   F1 same rows, balance fell -> both withdrawals            before=[-40.0, -10.0]  after=[-40.0, -10.0]
+FIXED  F1 printed balance outranks a credit transaction code     before=[40.0, -10.0]   after=[-40.0, -10.0]
+FIXED  F1 a group spans several printed dates                    before=[-40.0, -25.0, -10.0]  after=[40.0, 25.0, -10.0]
+FIXED  F2 page carry closes the split group                      before=[-10.0, -20.0, -30.0]  after=[10.0, 20.0, -30.0]
+kept   F3 zero cheque count (the old literal) closes the ledger  before=[40.0]          after=[40.0]
+FIXED  F3 non-zero cheque count also closes the ledger           before=[40.0, -5.0]    after=[40.0]
+kept   F5 converted amount next to the DATE column               before=[-11.0]         after=[-11.0]
+FIXED  F6 overdraft-suffixed opening balance is negative         before=[-50.0]         after=[50.0]
+```
+
+The two `kept` F1/F3 lines are the contrast halves of their pairs, not weak
+tests: F1's pair is the same text with a different printed balance, and only
+the pair proves the rule fires on the grid rather than on wording. F5 is
+pinned-as-correct by ruling.
+
+**Byte-identity on the pinned corpus**, checked directly as well as through the
+gate — old and new module loaded side by side, same markdown, every field of
+the serialised statement compared:
+
+```
+IDENTICAL  TD Can/Dec_31-Jan_30_2026 (6).pdf  (115 rows)
+IDENTICAL  TD Can/Feb_27-Mar_31_2026 (2).pdf  (126 rows)
+IDENTICAL  TD Can/Jan_30-Feb_27_2026 (3).pdf  (105 rows)
+IDENTICAL  TD Can/Mar_31-Apr_30_2026.pdf      (123 rows)
+IDENTICAL  TD Can/Nov_28-Dec_31_2025 (7).pdf  (110 rows)
+IDENTICAL  TD Can/TD Bank Bank Statement.pdf   (58 rows)
+claimed by the TD Canada parser: 6; differing: 0
+```
+
+That the balance arithmetic independently reproduces the audited signs on all
+637 pinned rows is a cross-check on the solver, not only a regression result.
+
+**Cell outcome at `6c6c5c7`**, via `analyze_markdown` + `classify_outcome` +
+`diagnose`:
+
+```
+outcomes:      {'validated': 51, 'withheld': 10}
+primary_class: {None: 51, 'detail_coverage': 6, 'ledger_identity': 4}
+row count == stated counts: 61 / 61   (unchanged from baseline)
+credit total == stated:     51 / 61   (baseline 0 / 61)
+debit total == stated:      51 / 61   (baseline 0 / 61)
+```
+
+**Commits (oldest first)**
+
+| Commit | Contents |
+|---|---|
+| `443440e` | `analysis/td_can.py` + `tests/test_td_can_native_variants.py` |
+| `6c6c5c7` | this log section |
+
 ## T6. Carried findings and questions for Ocean
 
 1. **The column identity is in the PDF; the extractor discards it.** Read-only
