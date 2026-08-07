@@ -259,7 +259,12 @@ def test_the_visual_ocr_client_module_is_never_even_imported(tree: Path):
     result = subprocess.run([sys.executable, "-c", code], capture_output=True,
                             text=True, cwd=ROOT)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "False", "a model client was imported"
+    # Compare only the LAST stdout line: on the CI runner a library prints a
+    # harmless warning line to stdout before our sentinel (observed in run
+    # 31137747002), and the sentinel is the verdict, not the noise around it.
+    assert result.stdout.strip().splitlines()[-1] == "False", (
+        "a model client was imported: " + result.stdout.strip()
+    )
 
 
 # --- report -----------------------------------------------------------------
