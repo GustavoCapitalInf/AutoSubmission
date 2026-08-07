@@ -287,6 +287,41 @@ review into validated and gut the class.
 **Run 31134380538 (H-3 merge, `1eeaeff`): `completed success`** — third
 consecutive fully green remote run.
 
+---
+
+## 2026-08-07 — R-4b REVIEWED: APPROVED; **R-4+R-4b MERGED as `fe4e958`, pushed** · **CI-2 RESOLVED** · DSC-1 dispatched
+
+R-4b: all four findings fixed (first_farmers → issuer domain FFBT.COM from
+the artifact body; SOURCE-comment strip central in the registry — filename
+text structurally inadmissible for all 46; six R4-3 issuer-furniture
+markers; ACE AUTO GLASS purged from TWO sites — the widened guard found a
+second occurrence in the account_name regex — with layer-wide
+removed-literals scan, classification_registry exempted by documented
+design). 8 strict xfails → 0, each converted in its fix commit. New
+permanent invariant: no registration identifies a bank by one marker alone
+(documented exception: td_canada, layout probe). Parity 109/109 clean;
+2,070-pair cross-product 0 cross-claims; 1,681 branch / **1,718 merged**
+tests; gate GREEN byte-identical. Wave-3 log: altana digit run;
+farmers_merchants as weakest-evidence registration (its corpus document
+carries NO issuer identification at all — verified exhaustively).
+
+**CI-2 RESOLVED AS TRANSIENT:** the fe4e958 push CREATED a run
+(31134956413, event=push) — push triggers recovered on their own,
+confirming GitHub-side event-delivery degradation over the billing
+hypothesis. Gustavo's billing check no longer needed. Duplicate manual
+dispatch cancelled; manual-dispatch protocol RETIRED (falls back only if
+the anomaly recurs).
+
+**DSC-1 dispatched to HARBOR** with all accumulated bindings: production
+parse_statement only; frozen-baseline verification (3,768/3,615/
+996,080,803) with loud-stop on deviation; pinned-manifest partition;
+D-3 cache + H-3 telemetry consumption; tranche modes
+(--profile-only/--digital/--scanned/--dry-run); dry-run acceptance =
+109 enumerated / 0 unexpected dupes / expectations-file parser match /
+ambiguous 0 / validated 100 · review 6 · withheld 3 / coverage 1.0;
+no Gemini, no tranche-1/2 archive runs by the agent (operational phases
+remain Ocean+Gustavo-gated).
+
 **Critical DSC-1 input (from H-3's own harness mistake, disclosed):** the
 generic `parse_native_pdf_text` silently produces DIFFERENT markdown than
 the production ladder for four banks (Navy Federal, TD Canada, Wells,
