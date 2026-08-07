@@ -1,5 +1,31 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-07 — Post-3b dispatch executed; corpus-marked proof exposed a latent case-fold defect
+
+**W3-1 push landed, but the corpus-marked proof was RED (1 failure) and my
+chained command's pipe swallowed pytest's exit code, so the push went
+through anyway — Ocean process slip #2; all future proof chains use
+`set -o pipefail`.** The failure is NOT a W3-1 regression: latent,
+main-checkout-only — the on-disk `Scotiabank/` folder (archive-created,
+reused by the case-insensitive FS at corpus restore) vs the manifest's
+`ScotiaBank/` makes the dry run derive a disk-spelled relative_path that
+string-mismatches the pinned spelling → false pinned_corpus_duplicate
+(108/109 unique). Clean worktrees pass; CI (case-sensitive, no archive)
+unaffected. The NEW standing corpus-marked criterion caught it on its
+first main-checkout run — working as designed. **Hotfix ruled: identity
+canonicalization to manifest spelling at the partition boundary (one
+place), never case-blind classify; dispatched to HARBOR as task 0.**
+
+**Dispatches (three tracks live):** REEF-1 (mt-reef) → W3-3c build per the
+gate rulings (unclaimed-branch rung, grounding-gated promotion, geometry
+input, default-off, propose-first pipeline diff). REEF-2 NEW agent
+(mt-variants / wave3-variant-completeness) → Track A: chase×detail_coverage
+217 first, layout-family method (characterize → root-cause → capability fix
+or fail-closed-by-design → synthetic fixtures → honest cell measurement).
+HARBOR (mt-harbor) → hotfix + W3-4 adjudication/routing tooling with the
+closed disposition vocabulary and the two-run coverage-movement comparison
+keyed on content hashes.
+
 ## 2026-08-07 — **W3-3b DESIGN GATE: GUSTAVO'S RULINGS RECEIVED**
 
 1. **BOTH IN PARALLEL:** Track A variant-completeness against the 614
