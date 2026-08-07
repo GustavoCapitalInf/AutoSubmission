@@ -1,5 +1,31 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-07 — W3-1/W3-1b REVIEWED: APPROVED; MERGED (pending corpus-marked proof → push)
+
+Pipeline diff verified verbatim-as-approved (+26/−2; parser_exception +
+integrity_check_exception flags with class-names-only notes; ParserCrashError
+subclassing RuntimeError; run_integrity_checks keeps guarding policy at the
+registry seam). Ruling-2 semantics precise and correct: a raising check has
+NO finding — no false contradictions, asserted. Bonus leak closed: crash
+messages quoting statement fragments no longer reach durable job records.
+Composition with W3-2's drift guard done the right way (flags added to
+INTEGRITY_FLAGS as ADVISORY — a crash must not outrank financial checks in
+the diagnosis ranking). Merge-only commit separated from the protected
+change (agent self-corrected). Zero xfails remain. 1,892 tests; gate GREEN
+×5 byte-identical; the 53 discovery crashes re-measured → 0.
+
+**New standing merge criterion (from REEF's self-caught regression —
+a corpus-marked parity helper broke while the default suite stayed green):
+every merge proof now includes `pytest -m corpus` (the corpus-marked
+selection), not just the default suite + gate.** Applied to this merge
+first (push chained behind it).
+
+**Ocean ruling (open item 1):** parser_exception stays symmetric with
+parser_ambiguous (flag + telemetry review class; no assess_quality
+forcing). Whether either should force `manual_review_required` in the
+payload is a policy decision for the W3-4 adjudication workflow —
+deferred with that dispatch.
+
 ## 2026-08-07 — W3-5 MERGED (`2fdf148`) · W3-1 reviewed, pipeline diff APPROVED · 3a spike evidence delivered
 
 **W3-5 (SONAR): APPROVED and merged** — `--scanned-visual` as tranche 3;
