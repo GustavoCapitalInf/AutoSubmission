@@ -1,5 +1,22 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-07 — W3-2b (HARBOR) REVIEWED: APPROVED; merge queued behind the W3-3c push chain
+
+`check_unavailable` at rank 4 (above all financial classes) with the
+correctly-argued asymmetry: parser_exception stays advisory (no claim →
+nothing diagnosable — asserted), a crashed integrity check makes a
+diagnosis PARTIAL and must not present as confident. DIAGNOSTICS_VERSION
+1→2 with a mixed-vocabulary rollup warning; taxonomy doc precedence table
+now guard-tested against the code (stale table = failing test).
+`parser_defect` disposition routed mechanically; human queue emptied of
+crashes. Loud enrichment lands in BOTH the W3-4 tooling and
+`telemetry.report --diagnostics` — **Ocean confirms the scope extension:
+it immediately caught a real silent failure (the pinned-109 rollup itself
+read "(none)" from a cached run until --no-cache)**. Post-W3-3c-merge
+proofs: 2,013 passed / corpus-marked 14 / gate GREEN, exit codes explicit.
+Anchors unaffected and now asserted so. Merge order: after the W3-3c
+push chain completes.
+
 ## 2026-08-07 — W3-3c rung LANDED and merged (2,001 default tests; push gated on corpus proof) · **TRACK A CELL 1: 0 → 300 VALIDATED; FIRST-EVER RE-BASELINE APPROVED**
 
 W3-3c final commit `49eabfe` merged: approved six-line rung live (opt-in
