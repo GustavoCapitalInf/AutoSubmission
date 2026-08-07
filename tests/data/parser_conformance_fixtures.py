@@ -45,15 +45,15 @@ FIXTURES: dict[str, str] = {
     "bluevine": "Bluevine Inc.\nActivity summary\n",
     "bmo": "BMO Bank of Montreal\nAccount Summary Totals\n",
     "capital_one": "CAPITAL ONE\nAN IMPORTANT MESSAGE TO OUR CLIENTS\n",
-    "chase": "JPMorgan Chase Bank\nStatement of account\n",
+    "chase": "JPMorgan Chase Bank\nStatement of account\n*start*summary\n",
     "chase_export": "Printed from Chase for Business\nTransactions\n",
     "cibc_french": "CIBC\nDétail de vos opérations\n",
     "citizens": "citizensbank.com\nBusiness Advisor Checking\n",
     "columbia_bank": (
         "COLUMBIA BANK\nMARKETPLACE CHECKING\nDEPOSITS/ADDITIONS\nDAILY BALANCES\n"
     ),
-    "consumers": "Consumers Credit Union\nStatement of account\n",
-    "dakota_west": "dakotawestcu.com\nStatement of account\n",
+    "consumers": "Consumers Credit Union\nSummary of All Accounts\n",
+    "dakota_west": "dakotawestcu.com\nThank you for being a member of Dakota West Credit Union.\n",
     "demo_national": "SAMPLE BUSINESS BANK STATEMENT\nBank: Demo National Bank\n",
     "desjardins": (
         "CAISSE DESJARDINS\nDESJARDINS CORPORATE BUILD-UP ACCOUNT\n"
@@ -61,16 +61,16 @@ FIXTURES: dict[str, str] = {
     "farmers_merchants": (
         "FARMERS AND MERCHANTS BANK\nDEPOSITS AND CREDITS\n"
     ),
-    "first_citizens": "First Citizens\nStatement of account\n",
+    "first_citizens": "First Citizens\nfirstcitizens.com\n",
     "first_community": "firstcommunity.com\nBUSINESS PLUS CKG\n",
     "first_farmers": (
-        "FIRST FARMERS\nBUSINESS BASIC CHECKING ACCOUNT\n"
+        "WWW.FFBT.COM\nBUSINESS BASIC CHECKING ACCOUNT\n"
         "BALANCE LAST STATEMENT\nTOTAL DAYS IN STATEMENT PERIOD\n"
     ),
     "ibc": "IBC\nBiz Rite Account Recap\n",
     "linkbank": "LINKBANK.COM\nActivity in Date Order\n",
     "midflorida": "midflorida.com\nFree Business Checking\n",
-    "mission_valley": "Mission Valley Bank\nStatement of account\n",
+    "mission_valley": "Mission Valley Bank\nOnline Banking www.missionvalleybank.com\n",
     "navigant": (
         "NAVIGANTCU.ORG\nQUEST BALANCE CHECKING\nACCOUNT SUMMARY\nSTATEMENT PERIOD\n"
     ),
@@ -96,7 +96,7 @@ FIXTURES: dict[str, str] = {
         "DESCRIPTION CHEQUE/DEBIT DEPOSIT/CREDIT DATE BALANCE\n"
     ),
     "td_us": "TD Bank, N.A.\nSTATEMENT OF ACCOUNT\n",
-    "texas_bank": "Texas Bank and Trust\nStatement of account\n",
+    "texas_bank": "Texas Bank and Trust\nWITHDRAWALS AND OTHER DEBITS (CONTINUED)\n",
     "truist": "TRUIST\nAccount summary Your previous balance\n",
     "us_bank": "U.S. Bank National Association\nAccount Summary\n",
     "wells_fargo": "WELLS FARGO\nWF_NATIVE_TRANSACTIONS\n",
@@ -107,10 +107,11 @@ FIXTURES: dict[str, str] = {
 #: claimed by its own registration, by no other.
 ALTERNATE_FIXTURES: dict[str, tuple[str, ...]] = {
     "banco_popular": ("TeleBanco Comercial\nFLEXICUENTA DE NEGOCIOS\n",),
+    "farmers_merchants": ("BUSINESS/COMMERCIAL\nCHECKS/DEBITS\nDEPOSITS AND CREDITS\n",),
     "bmo": ("BANK OF MONTREAL\nAccount Summary Totals\n",),
-    "chase": ("\nCHASE\nStatement of account\n",),
-    "consumers": ("ConsumersCU.org\nStatement of account\n",),
-    "first_citizens": ("Central Bank Operations\nStatement of account\n",),
+    "chase": ("\nCHASE\nStatement of account\n*start*summary\n",),
+    "consumers": ("ConsumersCU.org\nSummary of All Accounts\n",),
+    "first_citizens": ("Central Bank Operations\nfirstcitizens.com\n",),
     "td_canada": (
         "<table>\n<tr><td>BUSINESS CHEQUING ACCOUNT - CAD</td></tr>\n</table>\n",
     ),

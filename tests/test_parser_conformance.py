@@ -49,24 +49,16 @@ NEUTRAL_HOST = (
     "COMMUNITY TRUST BANK\nStatement of Account\nBeginning Balance\nEnding Balance\n"
 )
 
-#: Parsers that claim another bank's statement when it merely names them in a
-#: transaction line. All six declare exactly one required marker, and that
-#: marker is a bank name - the same defect class R-3.4 fixed for five other
-#: parsers, in parsers no corpus document happens to mention. A FINDING, pinned
-#: exactly: see R4_CONFORMANCE_FINDINGS.md.
-COUNTERPARTY_VULNERABLE = {
-    "chase",
-    "consumers",
-    "dakota_west",
-    "first_citizens",
-    "mission_valley",
-    "texas_bank",
-}
+#: Findings R4-1, R4-2 and R4-3 are fixed (R-4b). Both sets are empty and
+#: asserted empty: a parser that starts detecting on a bare bank name, or on
+#: the filename echo, fails the pins below rather than being rediscovered by a
+#: wrong parse. See R4_CONFORMANCE_FINDINGS.md.
+COUNTERPARTY_VULNERABLE: set[str] = set()
+FILENAME_DEPENDENT_PARSERS: set[str] = set()
 
-#: Parsers whose detection is currently affected by the filename echo.
-#: A FINDING, not a fixture: see R4_CONFORMANCE_FINDINGS.md. Pinned exactly, so
-#: the set cannot grow unnoticed and cannot be quietly forgotten once fixed.
-FILENAME_DEPENDENT_PARSERS = {"first_farmers", "relay"}
+#: `td_canada` identifies itself by a table-layout probe rather than a name, so
+#: the "two required markers" invariant below does not apply to it.
+SINGLE_MARKER_BY_DESIGN = {"td_canada"}
 
 #: Registrations with no document in the pinned corpus. Their only coverage is
 #: this module, which is why it enumerates the registry.
@@ -189,8 +181,6 @@ def test_a_bank_name_in_a_transaction_line_is_not_a_claim(registration):
     Every registration's own fixture text, demoted into a transaction
     description inside another bank's statement, must not produce a claim.
     """
-    if registration.id in COUNTERPARTY_VULNERABLE:
-        pytest.xfail(f"finding R4-3: {registration.id} detects on a bare bank name")
     detection = registration.detect(_mention_of(registration.id))
     assert not detection.claims, (
         f"{registration.id} claims a statement that merely names it: {detection}"
@@ -217,15 +207,21 @@ def test_the_set_of_counterparty_vulnerable_parsers_is_exactly_the_recorded_find
     )
 
 
-def test_every_counterparty_vulnerable_parser_declares_a_single_bank_name_marker():
-    """Why they are vulnerable, asserted rather than left to prose: exactly one
-    required marker, and it is a bank name."""
-    for parser_id in COUNTERPARTY_VULNERABLE:
-        required = [m for m in pr.by_id(parser_id).markers if m.kind == "required"]
-        assert len(required) == 1, (
-            f"{parser_id} has {len(required)} required markers; the finding's "
-            "stated cause no longer holds"
-        )
+def test_no_registration_identifies_a_bank_by_one_marker_alone():
+    """The structural lesson of R4-3, kept as an invariant.
+
+    Every parser that names a bank needs a second piece of evidence, because a
+    bank's name appears in other banks' statements as a counterparty. The one
+    exception probes for a table layout rather than a name.
+    """
+    thin = {
+        registration.id: [m.id for m in registration.markers if m.kind == "required"]
+        for registration in REGISTRATIONS
+        if len([m for m in registration.markers if m.kind == "required"]) < 2
+    }
+    assert set(thin) <= SINGLE_MARKER_BY_DESIGN, (
+        f"registrations resting on a single required marker: {thin}"
+    )
 
 
 # ===========================================================================
@@ -279,16 +275,12 @@ def test_detection_is_unchanged_by_the_presence_of_a_neutral_source_comment(regi
     )
 
 
-@pytest.mark.xfail(
-    reason="finding R4-1: first_farmers detects its own corpus document only via "
-    "the filename echo - see R4_CONFORMANCE_FINDINGS.md",
-    strict=True,
-)
 def test_first_farmers_does_not_detect_on_the_filename():
-    """Minimal reproduction of finding R4-1, without the corpus.
+    """Regression test for finding R4-1, fixed in R-4b.
 
-    The bank name is absent from this body; only the file is named after the
-    bank. `first_farmers` claims it anyway.
+    The bank name is absent from this body and only the file is named after the
+    bank. Before the fix `first_farmers` claimed it — and that was how it
+    recognised its own corpus document.
     """
     body = "\n".join(
         [
@@ -301,16 +293,11 @@ def test_first_farmers_does_not_detect_on_the_filename():
     assert not pr.by_id("first_farmers").detect(document).claims
 
 
-@pytest.mark.xfail(
-    reason="finding R4-2: relay scores a filename-derived marker - see "
-    "R4_CONFORMANCE_FINDINGS.md",
-    strict=True,
-)
 def test_relay_scores_nothing_from_the_filename():
-    """Minimal reproduction of finding R4-2.
+    """Regression test for finding R4-2, fixed in R-4b.
 
-    No claim decision changes here - relay needs four markers and only one
-    fires - but the near-miss score is inflated by metadata, and that score is
+    No claim decision ever changed here - relay needs four markers and only one
+    fired - but the near-miss score was inflated by metadata, and that score is
     what DSC-2 ranks unknown-layout clusters by.
     """
     document = _with_source_comment("Some other bank statement", "Account Statement 1.pdf")

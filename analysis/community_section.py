@@ -214,10 +214,14 @@ def _parse_sectioned_statement(
 
 MISSION_VALLEY_DETECTION_MARKERS = (
     required("bank_name", lambda t: "Mission Valley Bank" in t),
+    # R4-3: the name alone matches a statement that merely pays the bank.
+    required("issuer_domain", lambda t: "MISSIONVALLEYBANK.COM" in t.upper()),
 )
 
 DAKOTA_WEST_DETECTION_MARKERS = (
     required("domain", lambda t: "dakotawestcu.com" in t.lower()),
+    # R4-3: the domain alone matches a statement that merely cites it.
+    required("issuer_footer", lambda t: "DAKOTA WEST CREDIT UNION" in t.upper()),
 )
 
 detect_mission_valley = make_detector(MISSION_VALLEY_DETECTION_MARKERS)

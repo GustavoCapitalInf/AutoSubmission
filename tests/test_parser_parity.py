@@ -182,16 +182,14 @@ def test_detection_is_invariant_to_the_filename_echo(documents, sources):
     The OCR/native layer prefixes every document with `<!-- SOURCE: <file> -->`.
     That is operator-supplied metadata — trivially wrong, and on the discovery
     archive a folder-derived guess — so the RFC's detect contract admits the
-    document, not its name. Strip the comment and every `Detection` must be
-    identical.
+    document, not its name.
 
-    Two registrations differ. They are pinned rather than patched (R-4 reports
-    parser defects, it does not fix them): see
-    `docs/moneythumb-replacement/R4_CONFORMANCE_FINDINGS.md`.
+    R-4b made this structural: `parser_registry.admissible_text` removes the
+    comment centrally, before any parser's own normalization. So the assertion
+    is no longer "two known parsers differ" but "stripping it changes nothing
+    for anyone" — the strip is already in force, for all 46.
     """
     import re
-
-    from tests.test_parser_conformance import FILENAME_DEPENDENT_PARSERS
 
     source_comment = re.compile(r"^<!--\s*SOURCE:.*?-->\s*$", re.MULTILINE | re.IGNORECASE)
     carrying = sum(1 for markdown in sources.values() if source_comment.search(markdown))
@@ -208,7 +206,7 @@ def test_detection_is_invariant_to_the_filename_echo(documents, sources):
             if registration.detect(markdown) != registration.detect(stripped):
                 differing.setdefault(registration.id, []).append(row["path"])
 
-    assert set(differing) == FILENAME_DEPENDENT_PARSERS, (
-        "the set of filename-dependent parsers changed: "
-        f"{ {k: v for k, v in differing.items()} }"
+    assert not differing, (
+        "detection still reads the filename comment for: "
+        f"{ {k: v[:3] for k, v in differing.items()} }"
     )

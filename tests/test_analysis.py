@@ -665,6 +665,7 @@ Overdraft and Returned Item Fees
 
 def test_parse_texas_bank_statement_keeps_service_charge_separate():
     md = """
+Texas Bank and Trust
 6250TEXAS NNNNNN
 SMALL BUSINESS CHECKING
 Account Number 564400 Balance on 06/01/26 9,793.64 Date From 06/01/26
@@ -678,6 +679,7 @@ Withdrawals and Other Debits
 Date Description Amount 06/01/26 POS DEB 1010 05/31/26 SHREVEPORT TRUCK LA C#8801 536.69-
 06/30/26 SERVICE CHARGE 10.00-
 Daily Balance Information
+WITHDRAWALS AND OTHER DEBITS (CONTINUED)
 """
     stmt = parse_texas_bank_statement(md)
     assert stmt is not None
@@ -880,6 +882,7 @@ def test_navy_federal_native_layout_preserves_dates_and_descriptions(
 
 def test_parse_consumers_primary_business_checking_with_wrapped_amounts():
     md = """
+Summary of All Accounts
 Statement Period:
 Mar 01, 2025 to Mar 31, 2025
 credit union
@@ -1106,6 +1109,7 @@ def test_parse_banco_popular_statement_reconciles_with_service_charge(
 
 def test_parse_mission_valley_sectioned_statement_with_checks_and_daily_balances():
     md = """
+Online Banking www.missionvalleybank.com
 Thank you for choosing Mission Valley Bank as your financial partner.
 GREEN CONVERGENCE XXXXXXXX1245 Statement Ending 01/30/2026 Page 1 of 6
 Business Checking - XXXXXXXX1245
@@ -1133,6 +1137,7 @@ Date Amount 01/04/2026 $400.00 01/05/2026 $375.00 01/06/2026 $325.00
 
 def test_parse_dakota_west_sectioned_statement_with_wrapped_debit_amount():
     md = """
+Thank you for being a member of Dakota West Credit Union.
 Website dakotawestcu.com
 Account Type Account Number Ending Balance Badlands Savings 35127372 $50.41 Small Business Checking 35127380 $4,026.32
 Small Business Checking - 35127380
@@ -1320,6 +1325,7 @@ def test_capital_one_short_cycle_charge_is_normalized_to_cycle_end(
 
 def test_parse_chase_sections_and_infers_single_missing_section_amount():
     md = """
+*start*summary
 CHASE
 JPMorgan Chase Bank, N.A.
 April 29, 2023 through May 31, 2023

@@ -46,6 +46,11 @@ EXPORT_DETECTION_MARKERS = (
 
 DETECTION_MARKERS = (
     required("bank_name", lambda t: "JPMorgan Chase Bank" in t or "\nCHASE\n" in t),
+    # R4-3: the bank name alone is wire boilerplate - it appears in ACH
+    # originator strings and remittance advice on other banks' statements, and
+    # Chase is the largest folder in the discovery archive. Chase's own PDF
+    # text layer delimits its sections with these sentinels.
+    required("section_sentinels", lambda t: "*start*summary" in t.lower()),
 )
 
 detect_export = make_detector(EXPORT_DETECTION_MARKERS, detection_text)

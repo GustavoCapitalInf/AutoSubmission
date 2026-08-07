@@ -7,6 +7,12 @@ card payment, a BMO wire, a Regions ACH originator. Chain order hid it; the
 registry did not. Each now also requires evidence the issuer prints on its own
 statements.
 
+R-4b extended the same remedy to six more parsers that R-4's synthetic
+cross-product caught (finding R4-3). The corpus contains no statement naming
+those six as a counterparty, so only a synthetic foreign statement could expose
+them; their negative fixtures carry the wire/ACH boilerplate the real world puts
+on other banks' statements.
+
 Each marker gets two tests:
 
 * **detection-positive** — a minimal document carrying the issuer furniture is
@@ -25,7 +31,18 @@ from __future__ import annotations
 
 import pytest
 
-from analysis import bmo, bofa, capital_one, regions, scotia
+from analysis import (
+    bmo,
+    bofa,
+    capital_one,
+    chase,
+    community_section,
+    consumers,
+    first_citizens,
+    regions,
+    scotia,
+    texas_bank,
+)
 
 #: (parser module, human name, positive document, negative document, the corpus
 #: document the negative reproduces).
@@ -75,14 +92,76 @@ CASES = [
         "Others/Santander/Santander_April26.pdf",
         id="scotiabank",
     ),
+    pytest.param(
+        chase,
+        "chase",
+        "JPMorgan Chase Bank\n*start*summary\n",
+        "COMMUNITY TRUST BANK\nStatement of Account\n"
+        "01/15 WIRE IN FED#0902 JPMorgan Chase Bank, N.A. /BNF/ACME LLC 4,000.00\n",
+        "R4-3: industry-wide wire boilerplate; Chase is the largest discovery folder (618 docs)",
+        id="chase",
+    ),
+    pytest.param(
+        consumers,
+        "consumers",
+        "Consumers Credit Union\nSummary of All Accounts\n",
+        "COMMUNITY TRUST BANK\nStatement of Account\n"
+        "01/15 ACH DEBIT PAYMENT TO Consumers Credit Union 250.00\n",
+        "R4-3: a loan payment to the credit union",
+        id="consumers",
+    ),
+    pytest.param(
+        community_section,
+        "dakota_west",
+        "dakotawestcu.com\nThank you for being a member of Dakota West Credit Union.\n",
+        "COMMUNITY TRUST BANK\nStatement of Account\n"
+        "01/15 ACH DEBIT PAYMENT TO dakotawestcu.com 250.00\n",
+        "R4-3: a payment citing the credit union's domain",
+        id="dakota_west",
+    ),
+    pytest.param(
+        first_citizens,
+        "first_citizens",
+        "First Citizens\nfirstcitizens.com\n",
+        "COMMUNITY TRUST BANK\nStatement of Account\n"
+        "01/15 ACH DEBIT PAYMENT TO First Citizens 250.00\n",
+        "R4-3: a card payment to the bank",
+        id="first_citizens",
+    ),
+    pytest.param(
+        community_section,
+        "mission_valley",
+        "Mission Valley Bank\nOnline Banking www.missionvalleybank.com\n",
+        "COMMUNITY TRUST BANK\nStatement of Account\n"
+        "01/15 ACH DEBIT PAYMENT TO Mission Valley Bank 250.00\n",
+        "R4-3: a payment to the bank",
+        id="mission_valley",
+    ),
+    pytest.param(
+        texas_bank,
+        "texas_bank",
+        "Texas Bank and Trust\nWITHDRAWALS AND OTHER DEBITS (CONTINUED)\n",
+        "COMMUNITY TRUST BANK\nStatement of Account\n"
+        "01/15 ACH DEBIT PAYMENT TO Texas Bank and Trust 250.00\n",
+        "R4-3: a payment to the bank",
+        id="texas_bank",
+    ),
 ]
+
+
+#: `community_section` hosts two parsers, so its detectors are named.
+DETECTORS = {"dakota_west": "detect_dakota_west", "mission_valley": "detect_mission_valley"}
+
+
+def _detect(module, name, document):
+    return getattr(module, DETECTORS.get(name, "detect"))(document)
 
 
 @pytest.mark.parametrize("module,name,positive,negative,evidence", CASES)
 def test_detection_positive_issuer_furniture_is_recognised(
     module, name, positive, negative, evidence
 ):
-    detection = module.detect(positive)
+    detection = _detect(module, name, positive)
     assert detection.claims, f"{name} no longer recognises its own statement: {detection}"
 
 
@@ -91,7 +170,7 @@ def test_detection_negative_a_counterparty_mention_is_not_a_claim(
     module, name, positive, negative, evidence
 ):
     """Reproduces the counterparty text from the cited corpus document."""
-    detection = module.detect(negative)
+    detection = _detect(module, name, negative)
     assert not detection.claims, (
         f"{name} claims a document that only mentions the bank in a transaction "
         f"line; reproduced from {evidence} (detection={detection})"
@@ -108,7 +187,7 @@ def test_a_counterparty_mention_still_scores_above_nothing(
     that distinction is what lets DSC-2 tell "almost matched" apart from "never
     heard of this bank" when it ranks unknown-layout clusters.
     """
-    detection = module.detect(negative)
+    detection = _detect(module, name, negative)
     assert 0.0 < detection.score < 0.5, f"{name}: expected a weak score, got {detection}"
 
 
@@ -124,5 +203,9 @@ def test_scotiabank_no_longer_detects_on_an_account_number_fragment():
 @pytest.mark.parametrize("module,name,positive,negative,evidence", CASES)
 def test_bare_bank_name_alone_is_never_enough(module, name, positive, negative, evidence):
     """The heart of the finding, stated per parser."""
-    for bare in ("CAPITAL ONE", "BMO", "REGIONS BANK", "BANK OF AMERICA", "SCOTIABANK"):
-        assert not module.detect(f"Some other bank's statement\n{bare}\n").claims
+    for bare in (
+        "CAPITAL ONE", "BMO", "REGIONS BANK", "BANK OF AMERICA", "SCOTIABANK",
+        "JPMorgan Chase Bank", "Consumers Credit Union", "dakotawestcu.com",
+        "First Citizens", "Mission Valley Bank", "Texas Bank and Trust",
+    ):
+        assert not _detect(module, name, f"Some other bank's statement\n{bare}\n").claims
