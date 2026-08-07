@@ -1,5 +1,31 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-07 — **OFFICIAL TRACK A CELL-1 RESULT (movement instrument, baseline `1dfaf7e9` → post `c3e557f0`)**
+
+Both runs full-set; baseline `--no-cache` (post-W3-1, pre-Track-A); post
+run cached-OCR + fresh analysis under ANALYSIS_STAGE_VERSION 2. Distinct
+documents 3,379 shared.
+
+| Metric | Before | After | Δ |
+|---|---|---|---|
+| Validated | 1,048 | **1,348** | **+300** |
+| Validated coverage % | 31.0% | **39.9%** | **+8.9 pts** |
+| Withheld | 631 | 331 | −300 |
+| Unclaimed / claim-coverage | 50.4% | 50.4% | 0 (correct: these documents were already claimed) |
+| Review / deferred / crashes | 10 / 13 / (in failed) | 10 / 13 / — | 0 |
+| Transitions | — | withheld→validated ×300, nothing else | **regressed 0, unexpected 0** |
+| Chase-specific | improved 300 / regressed 0 (all movement in the chase family) | | |
+| Classes vacated | detail_coverage 213 · ledger_identity 76 · posting_date_coverage 6 · period_integrity 5 (= 300, matching REEF-2's cell counts exactly) | | |
+
+**No false validations:** each of the 300 independently reproduces the
+bank's own printed per-section totals, stated totals, ledger identity and
+the full ADB suite (enforced by construction); the 109-gate is GREEN on
+the same code; zero regressions and zero unexpected disposition movement
+anywhere in 3,379 documents. One candidate-only document (+1 failed):
+the case-folded ScotiaBank pinned copy — the baseline ran pre-hotfix code
+that misclassified it as a pinned duplicate; the post run classifies it
+correctly. Explained, benign, reported-not-averaged by the tool.
+
 ## 2026-08-07 — **PROCESS CHANGE (Gustavo): delegated agents move to manual Claude Code sessions driven by versioned handoff files**
 
 Effective from the next dispatch (TD Canada / RBC cells; the running
