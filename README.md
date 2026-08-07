@@ -265,6 +265,8 @@ It is **on by default** on both paths. The webapp writes to the SQLite store
 .venv/Scripts/python.exe -m telemetry.report --jsonl telemetry_runs/<run_id>.jsonl
 .venv/Scripts/python.exe -m telemetry.report --sqlite webapp_data       # same report
 .venv/Scripts/python.exe -m telemetry.report --jsonl … --by parser      # breakdowns
+.venv/Scripts/python.exe -m telemetry.report --jsonl … --diagnostics    # W3-2: withheld failure-class rollup
+.venv/Scripts/python.exe -m telemetry.report --jsonl … --by diagnostic_class
 TELEMETRY_DISABLED=1 .venv/Scripts/python.exe batch.py …                # kill switch
 ```
 
