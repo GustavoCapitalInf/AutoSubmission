@@ -137,6 +137,16 @@ def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
         "ambiguity_clusters": dict(ambiguity_clusters.most_common()),
         "near_miss_parsers": dict(near_miss.most_common(20)),
         "truncated_documents": sum(1 for r in rows if r.truncated_pages),
+        # W3-5: what the visual rung did, over EVERY enumerated document. Rows
+        # whose visual read failed closed are `failed` and so already counted in
+        # `outcome`; this is the second axis — how many documents the rung was
+        # asked for, and what it bought. Empty in every offline mode.
+        "visual_rung": dict(
+            Counter(
+                r.visual_rung for r in rows
+                if getattr(r, "visual_rung", "not_attempted") != "not_attempted"
+            ).most_common()
+        ),
         "cache": cache_stats or {},
         "inventory": {
             "files": inventory.files, "pdfs": inventory.pdf_count,
@@ -212,6 +222,11 @@ def render_report(summary: dict) -> str:
         lines.append(_bar(f"dedup {key}", count, total))
     lines.append(_bar("truncation flagged", summary["truncated_documents"], total))
 
+    if summary.get("visual_rung"):
+        lines.append("visual OCR rung (local, $0 vendor)")
+        for key, count in summary["visual_rung"].items():
+            lines.append(_bar(key, count, total))
+
     if summary["folder_agreement"]:
         lines.append("parser claim vs folder label")
     for key, count in sorted(summary["folder_agreement"].items(), key=lambda kv: (-kv[1], kv[0])):
@@ -263,7 +278,8 @@ ROW_FIELDS = [
     "dedup_status", "duplicate_of", "source_path", "source_model",
     "truncated_pages", "parser_id", "parser_score", "dispatch_outcome",
     "candidates", "near_miss", "outcome_class", "outcome_reason", "error_type",
-    "statement_bank", "account_last4", "cache_ocr", "cache_analysis", "elapsed_ms",
+    "statement_bank", "account_last4", "cache_ocr", "cache_analysis",
+    "cache_visual", "visual_rung", "elapsed_ms",
 ]
 
 
