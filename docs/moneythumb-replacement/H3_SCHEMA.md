@@ -1,7 +1,9 @@
 # H-3 — Telemetry record schema and emission architecture
 
-Agent C (HARBOR), 2026-08-06. Branch `wave2-proof`, based on `main` = `55626eb`.
-**Status: PHASE 1 — design for Ocean's review. No implementation code exists.**
+Agent C (HARBOR), 2026-08-06. Branch `wave2-proof`.
+**Status: BUILT.** Phase 1 (design) reviewed and approved; phase 2 shipped as
+`1eeaeff`; the `deferred` outcome class added in DSC-1b. §12 records the
+rulings; this document remains the contract.
 
 This document is DSC-2's data contract (WAVE2_BRIEF §6 checkpoint 2). It defines
 one record shape, where every field comes from, the one pipeline seam it needs,
@@ -135,7 +137,7 @@ same fail-closed discipline the financial core already uses.
   },
 
   "outcome": {
-    "class": "validated",                    // validated|withheld|review|failed
+    "class": "validated",                    // validated|review|withheld|failed|deferred
     "reason": "approved",                    // short enum code, §6
     "escalated": false,
     "error_type": null,                      // exception class name only
@@ -289,14 +291,34 @@ and on cache hits.
 
 | Class | Condition | Meaning |
 |---|---|---|
-| `failed` | no analysis payload — exception, `analysis_error`, or `RuntimeError("no deterministic parser matched")` | nothing to underwrite |
+| `deferred` | the caller passes an explicit `deferred=<reason>` | work a tranche **chose not to do** — a scanned statement in an offline tranche. A statement about the run, not about the document (added DSC-1b) |
+| `failed` | no analysis payload — exception, `analysis_error`, or `RuntimeError("no deterministic parser matched")` | **attempted, and errored** |
 | `withheld` | payload exists and `metrics.average_daily_balance is null` | fail-closed: the platform refused to publish an authoritative value (this is exactly the corpus gate's WITHHELD) |
 | `review` | `quality.corporate_use != "approved"` or `integrity.flags` non-empty | a number exists but needs a human |
 | `validated` | everything else | `corporate_use == "approved"`, no integrity flags |
 
+`deferred` exists so that **`failed` means one thing only: attempted and
+errored.** Before it, a scanned document that tranche 1 deliberately skipped
+landed in `failed` with a distinguishing reason, which made the headline
+failure rate a function of which tranche you ran — and DSC-2 acts on "we did
+not try" and "we tried and it broke" very differently.
+
+It is reached **only** by an explicit declaration from the caller, never
+inferred from an absent payload: inference would let a genuine failure hide as
+a decision, which is the one thing this class must not permit. The reason
+vocabulary is closed (`DEFERRED_REASONS`: `deferred_scanned`,
+`deferred_visual_ocr`, `profile_only`) and an unknown reason raises, so a typo
+cannot quietly become a new bucket. Deferred documents are excluded from the
+deterministic-coverage denominator by class.
+
+No storage change was needed: `telemetry.outcome_class` is plain `TEXT` with no
+`CHECK` constraint, so the class vocabulary lives in the record, not the schema.
+
 `outcome.reason` is a short enum code, never free text: `approved`,
 `withheld_adb`, `integrity_flags`, `quality_needs_review`, `parser_ambiguous`,
-`no_parser_matched`, `ocr_failed`, `invalid_pdf`, `encrypted`, `exception`.
+`no_parser_matched`, `ocr_failed`, `invalid_pdf`, `encrypted`, `exception`,
+plus the closed deferral vocabulary `deferred_scanned`, `deferred_visual_ocr`,
+`profile_only`.
 
 **Acceptance anchor** (`tests/test_telemetry_corpus.py`, corpus-marked). Run over
 the pinned 109, the mapping reproduces the gate's split from a completely

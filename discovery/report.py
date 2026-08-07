@@ -14,8 +14,10 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
-#: Rows whose outcome is "the tranche chose not to do this work".
-DEFERRED_REASONS = frozenset({"deferred_scanned", "deferred_visual_ocr", "profile_only"})
+#: The outcome class for "the tranche chose not to do this work" (H-3).
+#: Keyed on the CLASS, not the reason: the reason vocabulary belongs to
+#: telemetry, and this stays correct when it grows.
+DEFERRED_CLASS = "deferred"
 
 
 def _normalise(label: str) -> str:
@@ -64,8 +66,8 @@ class Rollups:
 def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
               cache_stats: dict | None = None) -> dict:
     total = len(rows)
-    processed = [r for r in rows if r.outcome_reason not in DEFERRED_REASONS]
-    deferred = [r for r in rows if r.outcome_reason in DEFERRED_REASONS]
+    processed = [r for r in rows if r.outcome_class != DEFERRED_CLASS]
+    deferred = [r for r in rows if r.outcome_class == DEFERRED_CLASS]
 
     # A document served from the D-3 analysis cache never re-dispatched, so it
     # has no parser verdict this run. Counting those as "unclaimed" would be a
@@ -192,7 +194,7 @@ def render_report(summary: dict) -> str:
 
     if summary["outcome"]:
         lines.append("outcome")
-        for key in ("validated", "review", "withheld", "failed"):
+        for key in ("validated", "review", "withheld", "failed"):  # deferred is counted above
             if key in summary["outcome"]:
                 lines.append(_bar(key, summary["outcome"][key], processed))
 

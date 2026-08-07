@@ -115,7 +115,7 @@ def render(summary: dict, run_id: str | None = None) -> str:
             lines.append(_line(key, summary["dispatch"][key], total))
 
     lines.append("outcome")
-    for key in ("validated", "review", "withheld", "failed"):
+    for key in ("validated", "review", "withheld", "failed", "deferred"):
         if key in summary["outcome"]:
             lines.append(_line(key, summary["outcome"][key], total))
 

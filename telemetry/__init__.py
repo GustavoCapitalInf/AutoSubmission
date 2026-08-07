@@ -33,6 +33,7 @@ from .emit import (
     telemetry_disabled,
 )
 from .record import (
+    DEFERRED_REASONS,
     OUTCOME_CLASSES,
     SCORE_CAP,
     TELEMETRY_VERSION,
@@ -48,6 +49,7 @@ from .record import (
 )
 
 __all__ = [
+    "DEFERRED_REASONS",
     "DISABLE_ENV",
     "DispatchCollector",
     "JsonlSink",

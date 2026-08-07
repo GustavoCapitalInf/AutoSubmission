@@ -44,7 +44,14 @@ TELEMETRY_VERSION = 1
 #: pathological document, not a policy. `scores_capped` records when it bites.
 SCORE_CAP = 12
 
-OUTCOME_CLASSES = ("validated", "review", "withheld", "failed")
+OUTCOME_CLASSES = ("validated", "review", "withheld", "failed", "deferred")
+
+#: Reasons a document may be DEFERRED — recorded work that a tranche
+#: deliberately did not do. Deferral is always an explicit declaration by the
+#: caller, never inferred from an absent payload: the difference between "we
+#: did not try" and "we tried and it broke" is the whole point of the class,
+#: and inferring it would let a real failure hide as a decision.
+DEFERRED_REASONS = ("deferred_scanned", "deferred_visual_ocr", "profile_only")
 SOURCE_PATHS = ("native", "local_tesseract", "visual", "none")
 DISPATCH_SOURCES = ("live", "cached", "unavailable")
 
@@ -245,14 +252,25 @@ def classify_outcome(
     *,
     error_type: str | None = None,
     error_reason: str | None = None,
+    deferred: str | None = None,
 ) -> tuple[str, str]:
-    """(class, reason) for one analysed document. Precedence order, top down.
+    """(class, reason) for one document. Precedence order, top down.
 
+    `deferred` is work a tranche chose not to do — a scanned statement in an
+    offline tranche, say. It outranks everything because it is a statement
+    about the RUN, not about the document, and it is only ever reached by an
+    explicit `deferred=` declaration from the caller.
+
+    `failed` therefore means exactly one thing: attempted, and errored.
     `withheld` is the platform refusing to publish an authoritative value —
     the same fail-closed state the corpus gate calls WITHHELD. `review` is a
     finer partition of the gate's PASS: a number exists, but approval is
     blocked. The corpus anchor test pins both halves.
     """
+    if deferred is not None:
+        if deferred not in DEFERRED_REASONS:
+            raise ValueError(f"unknown deferral reason: {deferred!r}")
+        return "deferred", deferred
     if payload is None:
         return "failed", error_reason or ("exception" if error_type else "no_analysis")
 
@@ -286,11 +304,12 @@ def build_record(
     escalated: bool = False,
     error_type: str | None = None,
     error_reason: str | None = None,
+    deferred: str | None = None,
     fallback_reason: str | None = None,
     job_id: str | None = None,
 ) -> dict:
     outcome_class, reason = classify_outcome(
-        payload, error_type=error_type, error_reason=error_reason
+        payload, error_type=error_type, error_reason=error_reason, deferred=deferred
     )
     return {
         "telemetry_version": TELEMETRY_VERSION,

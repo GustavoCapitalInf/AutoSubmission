@@ -17,10 +17,12 @@ import pytest
 from analysis.pipeline import analyze_markdown
 from analysis.serialization import report_to_dict
 from telemetry import (
+    DEFERRED_REASONS,
     DISABLE_ENV,
     DispatchCollector,
     JsonlSink,
     NullSink,
+    OUTCOME_CLASSES,
     SCORE_CAP,
     StageTimer,
     TOP_LEVEL_KEYS,
@@ -153,6 +155,38 @@ def test_truncation_reports_indices_and_signals():
 )
 def test_outcome_classification(payload, expected):
     assert classify_outcome(payload) == expected
+
+
+def test_deferral_is_declared_never_inferred():
+    """`deferred` outranks everything, but only on an explicit declaration.
+
+    Inferring it from an absent payload would let a genuine failure hide as a
+    decision, which is the one thing this class must not do.
+    """
+    assert classify_outcome(None) == ("failed", "no_analysis")
+    assert classify_outcome(None, deferred="deferred_scanned") == (
+        "deferred", "deferred_scanned"
+    )
+    # It outranks a payload that would otherwise classify.
+    approved = {"metrics": {"average_daily_balance": 1.0},
+                "quality": {"corporate_use": "approved"}}
+    assert classify_outcome(approved, deferred="profile_only")[0] == "deferred"
+    assert "deferred" in OUTCOME_CLASSES
+
+
+def test_an_unknown_deferral_reason_is_refused():
+    """The vocabulary is closed: a typo must not become a new bucket."""
+    with pytest.raises(ValueError, match="unknown deferral reason"):
+        classify_outcome(None, deferred="because_i_said_so")
+    for reason in DEFERRED_REASONS:
+        assert classify_outcome(None, deferred=reason) == ("deferred", reason)
+
+
+def test_a_deferred_record_names_no_error():
+    record = _record(deferred="deferred_scanned")
+    assert record["outcome"]["class"] == "deferred"
+    assert record["outcome"]["reason"] == "deferred_scanned"
+    assert record["outcome"]["error_type"] is None
 
 
 def test_withheld_outranks_review():

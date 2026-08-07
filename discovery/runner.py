@@ -211,7 +211,7 @@ class DiscoveryRunner:
         row.dedup_status, row.duplicate_of = status, first_seen
 
         if self.mode == MODE_PROFILE_ONLY:
-            row.outcome_reason = "profile_only"
+            row.outcome_class, row.outcome_reason = "deferred", "profile_only"
             row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
             return row
 
@@ -227,15 +227,17 @@ class DiscoveryRunner:
             document, markdown, note = self._read(raw, Path(relative_path).name, profile)
 
         if markdown is None:
-            # Recorded, never skipped: this document is real work that this
-            # tranche deliberately did not do.
-            row.outcome_class = "failed"
+            # Recorded, never skipped: real work this tranche deliberately did
+            # not do. `deferred` is its own outcome class precisely so that
+            # `failed` can keep meaning "attempted and errored" — the two are
+            # different findings and DSC-2 acts on them differently.
+            row.outcome_class = "deferred"
             row.outcome_reason = (
                 "deferred_scanned" if note == "deferred_offline_rungs" else "deferred_visual_ocr"
             )
             row.source_path = "none"
             self._emit(row, profile, None, None, None, collector, timer,
-                       error_reason=row.outcome_reason)
+                       deferred=row.outcome_reason)
             row.elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
             return row
 
@@ -313,7 +315,8 @@ class DiscoveryRunner:
 
     def _emit(
         self, row, profile, document, markdown, payload, collector, timer,
-        *, error_type=None, error_reason=None, scores=None, escalated=False,
+        *, error_type=None, error_reason=None, deferred=None, scores=None,
+        escalated=False,
     ) -> None:
         """One H-3 record per enumerated document. Never raises.
 
@@ -348,6 +351,7 @@ class DiscoveryRunner:
                 escalated=escalated,
                 error_type=error_type,
                 error_reason=error_reason,
+                deferred=deferred,
             ))
         except Exception:
             return None

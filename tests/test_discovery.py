@@ -181,17 +181,44 @@ def test_an_invalid_pdf_is_recorded_not_crashed(tree: Path):
     assert row.valid_pdf is False
 
 
-def test_a_scanned_document_is_deferred_never_skipped(tree: Path):
-    """Tranche 1 does not OCR. The document is recorded as work not done."""
+def test_a_scanned_document_is_deferred_never_skipped(tree: Path, tmp_path: Path):
+    """Tranche 1 does not OCR. The document is recorded as work not done.
+
+    `deferred` is its own outcome class so that `failed` keeps meaning
+    "attempted and errored" — DSC-2 acts on those two findings differently.
+    """
+    from telemetry import JsonlSink, read_jsonl
+
     scanned = tree / "BankZ" / "scan.pdf"
     scanned.parent.mkdir()
     scanned.write_bytes((CORPUS / SCANNED).read_bytes())
 
-    row = _runner(tree, MODE_DIGITAL).process("BankZ/scan.pdf", "BankZ")
+    sink = JsonlSink(tmp_path / "telemetry.jsonl")
+    runner = DiscoveryRunner(tree, mode=MODE_DIGITAL, run_id="t", sink=sink,
+                             cache=None, dedup=DedupIndex())
+    row = runner.process("BankZ/scan.pdf", "BankZ")
+
+    assert row.outcome_class == "deferred"
     assert row.outcome_reason == "deferred_scanned"
     assert row.classification == "scanned"
     assert row.source_path == "none"
     assert row.parser_id is None
+
+    record = read_jsonl(tmp_path / "telemetry.jsonl")[0]
+    assert record["outcome"]["class"] == "deferred"
+    assert record["outcome"]["reason"] == "deferred_scanned"
+    assert record["outcome"]["error_type"] is None
+
+    summary = summarize([row], mode=MODE_DIGITAL, run_id="r")
+    assert summary["deferred"] == 1
+    assert summary["processed"] == 0
+    assert summary["outcome"] == {}
+
+
+def test_profile_only_rows_are_deferred_not_failed(tree: Path):
+    """Tranche 0 asked no question, so nothing there failed."""
+    row = _runner(tree, MODE_PROFILE_ONLY).process("BankX/statement.pdf", "BankX")
+    assert (row.outcome_class, row.outcome_reason) == ("deferred", "profile_only")
 
 
 def test_the_dry_run_reads_scanned_statements_from_committed_artifacts(tmp_path: Path):
@@ -278,7 +305,7 @@ def test_deferred_documents_are_outside_the_coverage_denominator():
     rows = [
         _row(dispatch_outcome="claimed", parser_id="chase", outcome_class="validated",
              outcome_reason="approved"),
-        _row(outcome_class="failed", outcome_reason="deferred_scanned"),
+        _row(outcome_class="deferred", outcome_reason="deferred_scanned"),
     ]
     summary = summarize(rows, mode=MODE_DIGITAL, run_id="r")
     assert summary["documents"] == 2
@@ -406,6 +433,10 @@ def test_dry_run_reproduces_known_truth():
     assert summary["deterministic_coverage"] == 1.0
     assert summary["dispatch"] == {"claimed": 109}
     assert summary["outcome"] == {"validated": 100, "review": 6, "withheld": 3}
+    # Nothing can defer on the pinned set: the six image-only statements are
+    # served from their committed OCR artifacts.
+    assert "deferred" not in summary["outcome"]
+    assert summary["deferred"] == 0
     assert summary["dedup"] == {"unique": 109}
     assert summary["ambiguity_clusters"] == {}
     assert summary["unknown_layout_clusters"] == {}
