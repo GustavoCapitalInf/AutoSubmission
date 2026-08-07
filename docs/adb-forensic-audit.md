@@ -50,10 +50,10 @@ The expected-value routine in `adb_forensic_audit.py` never imports or calls `an
 | Chase Mar.pdf | Chase | - | $3,074.34 | $3,074.34 | $3,074.34 | $3,074.34 | $0.00 | PASS |
 | chase may 29.pdf | Chase | - | $7,242.09 | $7,242.09 | $7,242.09 | $7,242.09 | $0.00 | PASS |
 | Chase May.pdf | Chase | - | $697.03 | $697.03 | $697.03 | $697.03 | $0.00 | PASS |
-| Chase Salomomon February 27 2026.pdf | Chase | - | $35,269.16 | $35,269.16 | $35,269.16 | $35,269.16 | $0.00 | PASS |
-| Chase Salomon Dec 2025.pdf | Chase | - | $63,478.10 | $63,478.10 | $63,478.10 | $63,478.10 | $0.00 | PASS |
+| Chase Salomomon February 27 2026.pdf | Chase | - | $35,886.13 | $35,886.13 | $35,886.13 | $35,886.13 | $0.00 | PASS |
+| Chase Salomon Dec 2025.pdf | Chase | - | $67,643.89 | $67,643.89 | $67,643.89 | $67,643.89 | $0.00 | PASS |
 | Chase Salomon January.pdf | Chase | - | $42,323.94 | $42,323.94 | $42,323.94 | $42,323.94 | $0.00 | PASS |
-| Chase Salomon March 2026.pdf | Chase | - | $31,603.35 | $31,603.35 | $31,603.35 | $31,603.35 | $0.00 | PASS |
+| Chase Salomon March 2026.pdf | Chase | - | $31,612.84 | $31,612.84 | $31,612.84 | $31,612.84 | $0.00 | PASS |
 | Account Statement 1.pdf | CIBC | - | $2,013.81 | $2,013.81 | $2,013.81 | $2,013.81 | $0.00 | PASS |
 | Citizen June 2026.pdf | Citizens Bank | $2,182.00 | $2,182.35 | $2,182.35 | $2,182.35 | $2,182.35 | $0.00 | PASS |
 | Citizens April 2026.pdf | Citizens Bank | $822.00 | $821.63 | $821.63 | $821.63 | $821.63 | $0.00 | PASS |

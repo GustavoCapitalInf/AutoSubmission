@@ -20,9 +20,9 @@ fixture that pins it.
 | Result | **300 / 300 validated**, from 0 / 300 |
 | Statement-specific constants added | none (23 description literals **removed**) |
 | Protected modules touched | none |
-| Files changed | `analysis/chase.py`, `tests/test_chase_native_variants.py` (new), this log |
-| Proof | `pytest -q` 1,915 passed / 18 deselected · `pytest -q -m corpus` 13 passed, 1 failed (the gate assertion, §2) · guard tests (R-1 hardcodes, R-2 clones) 100 passed |
-| **Merge blocker** | **§2 — the corpus gate moves 25 pinned ADB fields on 3 Chase statements. Every balance field on all 109 is byte-identical and the outcome classes do not move. Forensic proof that the new values are the correct ones is in §2. Ocean ruling required; no audit CSV touched.** |
+| Files changed | `analysis/chase.py`, `tests/test_chase_native_variants.py` (new), this log, plus the re-baselined `docs/adb-audit-results.csv` + its companion `docs/adb-forensic-audit.md` (§2.2) |
+| Truth-set movement | **24 ADB fields on 3 Chase statements, re-baselined — approved by Ocean 2026-08-07.** Ceremony, field-level verification and evidence in §2. Every balance field on all 109 byte-identical; outcome classes unmoved |
+| Proof (post-merge, post-ceremony) | `pytest -q` **2,024 passed** / 18 deselected · `pytest -q -m corpus` **green** · `python corpus_gate.py` **RESULT: GREEN** (exit 0, every module PASS) · guard tests (R-1 hardcodes, R-2 clones) 100 passed |
 
 ## 1. Cell 1 — `chase x detail_coverage`, 217 documents
 
@@ -175,9 +175,18 @@ loosened.
 
 ---
 
-## 2. Gate finding — a corpus re-baseline is required (3 pinned documents)
+## 2. Truth-set re-baseline — 3 pinned documents — **APPROVED AND EXECUTED**
 
-**This is a stop-and-ask item. No audit CSV has been touched.**
+**Approval: Ocean, 2026-08-07** (coordinator message, this session). The first
+truth-set movement in the project's history. Approved on three grounds, each
+independently checkable and recorded below: the transaction sets are identical
+before and after; the bank's own DAILY ENDING BALANCE day set — never read by
+the parser — matches exactly after and not before; and the old pins encode the
+defect `analysis/adb.py` itself names.
+
+The finding as raised is §2.1; the ceremony as executed is §2.2.
+
+### 2.1 The finding
 
 `python corpus_gate.py` goes RED on exactly three pinned statements — all
 Chase, all in the `adb_audit` module only:
@@ -251,38 +260,127 @@ passes) moves *with* the production surfaces to the same new number. The two
 agree on the corrected value as they agreed on the old one; what changed is the
 day series both are computed over.
 
-**Requested ruling.** Re-baseline these three statements' ADB rows against the
-produced values, with this section as the forensic record. The alternative —
-preserving the old dates — means knowingly dating transactions to days the bank
-publishes no balance for, and would leave the `posting_dates_cover_source`
-failures in the chase population unfixable by construction.
+The alternative — preserving the old dates — means knowingly dating
+transactions to days the bank publishes no balance for, and would leave the
+`posting_dates_cover_source` failures in the chase population unfixable by
+construction.
 
-Until Ocean rules, the branch is **not mergeable**: this is the stop-the-line
-condition, declared rather than worked around. `pytest -m corpus` fails on the
-same single assertion (`tests/test_corpus_gate.py::test_corpus_gate_is_green`);
-the other 13 corpus-marked tests pass.
+### 2.2 The ceremony, as executed
+
+Order, and the assertion discharged at each step:
+
+| # | Step | Evidence |
+|---|---|---|
+| 1 | `git merge main` **first** (main at `cba8c77`, the W3-3c structurer merge) | clean, no conflict; `git diff HEAD~1 -- analysis/chase.py tests/test_chase_native_variants.py docs/.../W3_TRACKA_LOG.md` is **empty** — the merge touched none of this branch's files. Post-merge default suite re-run: **2,024 passed, 18 deselected** |
+| 2 | Regenerate **only** the ADB CSV, by running the **unmodified** oracle | `git diff --exit-code adb_forensic_audit.py` → empty, exit 0 (asserted before the run; the file's last commit is still `515bfaa`, CI-1c). Command: `python adb_forensic_audit.py "Bank Statements" --ocr-cache tests/corpus_cache`, exit 0, `Wrote 109 rows … {'PASS': 106, 'WITHHELD': 3, 'FAIL': 0}` |
+| — | The balance CSV is **not** touched | `sha256(docs/balance-metrics-audit-results.csv)` unchanged at `dbf59901…fb10e89`; `git diff --exit-code` on it → empty, exit 0 |
+| 3 | Field-level verification, scripted | see the delta classes below; verifier exit 0 |
+| 4 | Statuses hold | `{'PASS': 106, 'WITHHELD': 3}`, `FAIL` absent; withheld set asserted equal to `Ace_Auto_Final_Cut.pdf`, `BMO_Statement_January_2026 Final-1-2 (1).pdf`, `IBC April (1).pdf` |
+| 6 | Proofs | `corpus_gate.py` → **RESULT: GREEN**, exit 0, every module PASS · `pytest -m corpus` green · default suite green · guard tests green |
+
+**Delta classes.** The verifier keys both CSVs by corpus-relative path (so an
+identically named statement in another folder can never be compared against
+this one), walks every cell, and partitions every difference into exactly one
+of three classes. It exits non-zero if the third is non-empty.
+
+| Class | Cells | Meaning |
+|---|---|---|
+| **APPROVED** | **24**, on **3** statements | the re-baselined fields, enumerated below |
+| **POSIX folder reformat** (CI-1c) | **17** | writer-side only: `folder` values written on Windows before CI-1c read `Others\Altana`; the unmodified writer emits `as_posix()`. The gate has compared path-valued fields separator-agnostically since CI-1c, so these were never drift — they are counted and reported separately, not folded into the approved total |
+| **UNEXPECTED** | **0** | anything on any other statement, or any non-path field difference outside the three. Zero |
+
+Column set identical (38), row key set identical (109/109).
+
+The line-level diff corroborates the cell-level partition independently:
+`git diff --numstat docs/adb-audit-results.csv` reports **20 changed rows** =
+3 approved + 17 POSIX, and the changed row keys are exactly the 3 Chase
+statements plus 17 rows under nested `Others/*` folders (the only rows whose
+`folder` value contained a separator).
+
+**Per-statement before → after.** Every changed field, by column name:
+
+| Field | Feb 27 2026 | Dec 2025 | March 2026 |
+|---|---|---|---|
+| `posting_days` | 22 → **19** | 27 → **22** | 24 → **22** |
+| `same_day_groups` | 18 → **19** | 21 → **20** | — |
+| `max_same_day_transactions` | 9 → **10** | — | — |
+| `no_activity_days` | 6 → **9** | 6 → **11** | 8 → **10** |
+| `daily_balance_sum` | 987,536.52 → **1,004,811.64** | 2,094,777.33 → **2,232,248.29** | 1,011,307.06 → **1,011,610.88** |
+| `independent_candidate_adb` | 35,269.16 → **35,886.13** | 63,478.10 → **67,643.89** | 31,603.35 → **31,612.84** |
+| `backend_adb` | 35,269.16 → **35,886.13** | 63,478.10 → **67,643.89** | 31,603.35 → **31,612.84** |
+| `api_adb` | 35,269.16 → **35,886.13** | 63,478.10 → **67,643.89** | 31,603.35 → **31,612.84** |
+| `dashboard_adb` | 35,269.16 → **35,886.13** | 63,478.10 → **67,643.89** | 31,603.35 → **31,612.84** |
+| **fields changed** | **9** | **8** | **7** |
+
+Nothing else moved on these rows: `opening_balance`, `closing_balance`,
+`transactions`, `calendar_days`, `evidence_basis`, `closing_drift`,
+`backend_difference`, `status`, `confidence` and every other column are
+byte-identical. The transaction **count** is unchanged on all three (89 / 98 /
+100) — the re-baseline moves the day series the ADB is computed over, not the
+ledger.
+
+The independent oracle moves *with* the three production surfaces to the same
+corrected number on every statement, and the gate's `oracle_independence` check
+still passes — `independent_candidate_adb` is computed by
+`adb_forensic_audit.py`, which imports no production financial mathematics.
+
+**Companion report.** The same unmodified script writes
+`docs/adb-forensic-audit.md` alongside the CSV. Its diff is **3 lines** — the
+same three statements, all four surfaces agreeing, `$0.00` difference, `PASS`
+— and nothing else. Reported distinctly because it was not separately
+requested; it is the same run's output and is committed with it so the two
+cannot drift apart.
 
 ---
 
-## 3. Carried findings and open questions
+## 3. Carried findings — all ruled (Ocean, 2026-08-07)
 
-1. **§2 re-baseline** — required before merge. Stop-the-line, declared.
-2. The table-path CHECKS PAID / OTHER WITHDRAWALS gap (§1.4): fix now on
-   principle, or wait for a measured document that needs it? Track A's
-   evidence-only discipline says wait; it is cheap either way.
-3. `stated_daily_balances` (§1.4): Chase prints the bank's own daily ledger and
-   the platform ignores it. Reading it would let the ADB engine validate
-   against the bank's series instead of only reconstructing one — a capability
-   gain well beyond this cell, and a separate card. Note §2 shows the printed
-   series is exactly the independent oracle that settles a posting-date
-   question, so this is worth more than it looks.
-4. **Promotion candidate for the shared utilities.** The row grouper
-   (`_physical_lines` / `_native_rows` / `_row_amount`) is written against
-   Chase's blocks but its three rules — a row starts at a date-shaped first
-   token, wrapped lines continue it, the amount is the right-aligned cell —
-   are layout facts, not bank facts. The next two cells in the queue
-   (`td_canada_native x detail_coverage` 61, `rbc x detail_coverage` 48) should
-   be characterised BEFORE deciding: if they share the shape, this belongs in
-   `analysis/tables.py` with an R-2 differential-equivalence proof; if they do
-   not, it stays here. It was deliberately NOT promoted on one parser's
-   evidence.
+1. **§2 re-baseline** — **APPROVED and executed.** Closed.
+2. **Table-path CHECKS PAID / OTHER WITHDRAWALS gap** (§1.4) — **RULED: stays
+   deliberately unfixed, evidence-gated.** Recorded here as a known gap: the
+   HTML-table path never reads those two sections. No document in any worked
+   cell uses that path (0 of 300 carry a `<table>` fragment), so fixing it
+   would be an unevidenced change to code the measurement cannot exercise. It
+   becomes live the moment a measured document needs it.
+3. **`stated_daily_balances` as a first-class oracle** (§1.4) — **RULED: a
+   strong future card, queued.** Chase publishes its own daily ledger and the
+   platform ignores it. §2 is the argument for its value: that printed series,
+   read by nothing in the parser, is exactly what settled the posting-date
+   question against a pinned truth set. Reading it would let the ADB engine
+   validate against the bank's series rather than only reconstructing one.
+4. **Promotion of the row grouper to `analysis/tables.py`** — **RULED: AGREED,
+   in that order.** Characterise `td_canada_native x detail_coverage` (61) and
+   `rbc x detail_coverage` (48) FIRST; the promotion decision follows the
+   evidence, and if it moves it moves with an R-2 differential-equivalence
+   proof. The grouper's three rules (a row starts at a date-shaped first token,
+   wrapped lines continue it, the amount is the right-aligned cell) are layout
+   facts rather than bank facts, but one parser's evidence is not enough to
+   move code that every parser would then depend on.
+
+## 4. Handoff — reconnaissance on the next two cells
+
+Diagnostics-only (no documents read, no code touched); recorded so whoever
+takes these cells starts from evidence rather than from the Chase analogy.
+
+| | `td_canada_native x detail_coverage` (61) | `rbc x detail_coverage` (48) |
+|---|---|---|
+| ledger identity fails | 61 / 61 | 48 / 48 |
+| debit coverage short | 61 / 61 | 46 / 48 |
+| credit coverage short | 59 / 61 | 35 / 48 |
+| `running_balances_support_daily_ledger` fails | **0** | **48 / 48** |
+| `integrity:running_balance_breaks` | **0** | **48 / 48** |
+| `posting_dates_cover_source` fails | 0 | 1 |
+
+**The two cells are not the same shape, and neither is exactly Chase's.**
+td_canada looks like the Chase case: coverage is short on both sides, and no
+printed running balance exists to contradict. RBC is different — every one of
+its 48 documents *also* breaks running-balance continuity, which means RBC
+prints a running-balance column. A row in that layout carries **two** money
+cells, so the grouper's "the amount is the right-aligned cell" rule is
+underdetermined there and needs a two-column variant before anything is
+promoted.
+
+That is the concrete question the promotion decision turns on, and it is why
+the ruling to characterise both cells first is the right order: had the grouper
+been promoted on Chase's evidence alone, RBC would have inherited a rule that
+reads its balance column as its amount.
