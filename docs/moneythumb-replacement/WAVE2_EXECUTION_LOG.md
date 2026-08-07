@@ -1,6 +1,33 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
-## 2026-08-07 — W3-3c (REEF-1) PROOF-COMPLETE; REVIEWED: pipeline diff APPROVED with rulings; **GEOMETRY HYPOTHESIS: NOT VALIDATED (honest negative)**
+## 2026-08-07 — W3-3c rung LANDED and merged (2,001 default tests; push gated on corpus proof) · **TRACK A CELL 1: 0 → 300 VALIDATED; FIRST-EVER RE-BASELINE APPROVED**
+
+W3-3c final commit `49eabfe` merged: approved six-line rung live (opt-in
+OFF), Q2 guards implemented — and guard 2 immediately named a real corpus
+case (one document moved refusal classes, published set unchanged: 6/5/5/0).
+REEF-1 released after merge.
+
+**Track A (REEF-2), chase cells — the wave's biggest measured win:**
+316/317 chase withheld records worked (300 distinct docs, all native-path).
+12 layout families characterized; dominant root cause: a closed 23-entry
+description whitelist silently deleting unlisted rows AND corrupting the
+predecessor's amount. Whitelist deleted; rows keyed on structure (posting-
+date column opens a physical line). Instrument: the bank's own printed
+per-section totals — no expectation files. **Before → after on the
+production path: 0 → 300 validated, nothing padded (per-section totals,
+stated totals, ledger identity, full ADB suite all independently
+reproduced).** 23 literals REMOVED, none added; guards green.
+
+**FIRST TRUTH-SET RE-BASELINE, OCEAN-APPROVED with full ceremony:** 25
+pinned ADB fields on 3 corpus Chase statements move because dual-date rows
+now carry the POSTING date. Evidence: identical transaction sets both ways;
+the bank's own DAILY ENDING BALANCE day set (an oracle the parser never
+reads) matches exactly after (19/19, 22/22, 22/22) and not before; the old
+pins encode the defect adb.py names (posting_dates_cover_source); statuses
+stay 106/3. Ceremony: unmodified oracle re-run, scripted field-level diff
+enumeration (fail on anything unexpected), per-statement documentation in
+W3_TRACKA_LOG §2 with this approval referenced. Next cells (td_canada 61,
+rbc 48) before any row-grouper promotion decision.
 
 analysis/structurer/ subsystem (1,521 lines, 6 modules): evidence-decided
 column/sign/period inference (balance-chain scoring, never assertion),
