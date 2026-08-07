@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from .date_tokens import iso_from_month_day
+from .date_tokens import iso_from_month_day_strict
 from .money import PARENS_OR_LEADING_MINUS, parse_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -101,10 +101,17 @@ def _line_items(section_text: str, *, year: int, sign: int) -> list[Transaction]
         amount = _amount_from_parts(parts)
         if amount is None:
             continue
+        # A row-date token of the right shape that is not a date (`42/13`, from
+        # an OCR misread of a numeric column) means this is not a posting row,
+        # and is skipped like a row with no readable amount. Discovery found
+        # one scanned document where building a date out of it raised.
+        txn_date = iso_from_month_day_strict(date_text, year)
+        if txn_date is None:
+            continue
         desc_parts = _description_parts(parts, amount)
         signed = round(abs(amount) * sign, 2)
         txns.append(Transaction(
-            date=iso_from_month_day(date_text, year),
+            date=txn_date,
             description=re.sub(r"\s+", " ", " ".join(desc_parts)).strip(),
             amount=signed,
             direction="credit" if signed >= 0 else "debit",
@@ -142,8 +149,13 @@ def _description_parts(parts: list[str], amount: float) -> list[str]:
 def _checks(section_text: str, *, year: int) -> list[Transaction]:
     txns: list[Transaction] = []
     for mmdd, serial, amount in re.findall(r"(\d{2}/\d{2})\s+(\d+\*?)\s+([\d,]+\.\d{2})", section_text):
+        # Same shaped-but-impossible-token rule as `_line_items`: a check row
+        # whose date column is not a date is not a check row.
+        txn_date = iso_from_month_day_strict(mmdd, year)
+        if txn_date is None:
+            continue
         txns.append(Transaction(
-            date=iso_from_month_day(mmdd, year),
+            date=txn_date,
             description=f"Check {serial}",
             amount=round(-abs(_money(amount) or 0.0), 2),
             direction="debit",

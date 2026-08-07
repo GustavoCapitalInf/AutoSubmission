@@ -106,12 +106,40 @@ def test_iso_from_month_day_matches_keyword_year_clone():
     )
 
 
+#: Tokens of the right SHAPE that no calendar can hold. The pre-R-2 clone
+#: raised on these; `iso_from_month_day_strict` deliberately no longer does
+#: (see the divergence test below), so they are asserted separately rather than
+#: as part of the frozen-oracle matrix.
+#: `02/29` is impossible in 2026 and legal in 2024 — the year the caller
+#: supplies is part of the question, which is why this is decided by the
+#: calendar and not by a wider regex.
+IMPOSSIBLE_SLASH_TOKENS = ("02/29", "02/30", "13/01", "00/01", "01/00")
+
+
 def test_iso_from_month_day_strict_matches_clone():
     assert_equivalent(
         _legacy_iso_strict,
         lambda t: dt.iso_from_month_day_strict(t, 2026),
-        SLASH_TOKENS,
+        tuple(t for t in SLASH_TOKENS if t not in IMPOSSIBLE_SLASH_TOKENS),
     )
+
+
+def test_iso_from_month_day_strict_diverges_from_the_clone_on_impossible_dates():
+    """The one deliberate behaviour change to an R-2 shared utility (W3-1).
+
+    The clone raised `ValueError` for `13/01`. Its callers ask "is this cell a
+    date row?" and skip the row on None, so a raise there is not a stricter
+    answer — it is an unhandled one, and discovery found 17 documents where it
+    escaped the parser and aborted the whole document. The frozen oracle is
+    kept for every other token, and the divergence is named here rather than
+    re-baselined into it.
+    """
+    for token in IMPOSSIBLE_SLASH_TOKENS:
+        with pytest.raises(ValueError):
+            _legacy_iso_strict(token)
+        assert dt.iso_from_month_day_strict(token, 2026) is None
+    # ...and a leap day is still a date in a leap year.
+    assert dt.iso_from_month_day_strict("02/29", 2024) == "2024-02-29"
 
 
 def test_iso_from_month_day_year_matches_always_pivot_clone():

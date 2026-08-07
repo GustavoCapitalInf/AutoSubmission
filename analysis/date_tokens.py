@@ -23,6 +23,7 @@ import re
 from datetime import date
 
 __all__ = [
+    "iso_or_none",
     "iso_from_month_day",
     "iso_from_month_day_strict",
     "iso_from_month_day_year",
@@ -30,6 +31,27 @@ __all__ = [
 ]
 
 _MONTH_DAY_RE = re.compile(r"(\d{2})/(\d{2})")
+
+
+def iso_or_none(year: int, month: int, day: int) -> str | None:
+    """The ISO date, or None when those three numbers are not one.
+
+    A row-date regex proves a token's SHAPE and nothing more. `26/13/24` and
+    `42/13` match `MM/DD/YY` and `MM/DD` perfectly and are not dates — they are
+    a column that is not the date column (a check number, an amount fragment,
+    an OCR misread). Discovery hit exactly that on 17 documents and `date()`
+    raised `ValueError` out of the parser.
+
+    Callers that already treat an unreadable token as "not a date row" want the
+    same answer here, so the guarded helpers below funnel through this one
+    place rather than each growing a `try`. Guessing what the digits were meant
+    to be is never an option: the row is dropped and reconciliation decides
+    whether what remains is publishable.
+    """
+    try:
+        return date(year, month, day).isoformat()
+    except ValueError:
+        return None
 
 
 def iso_from_month_day(token: str, year: int, *, separator: str = "/") -> str:
@@ -50,12 +72,13 @@ def iso_from_month_day_strict(token: str, year: int) -> str | None:
 
     For parsers that feed this straight from a table cell whose contents they
     have not otherwise validated, where a non-date cell is an ordinary
-    occurrence rather than a defect.
+    occurrence rather than a defect. "Not exactly MM/DD" includes a token of
+    the right shape that no calendar can hold (`42/13`) — see `iso_or_none`.
     """
     m = _MONTH_DAY_RE.fullmatch(token.strip())
     if not m:
         return None
-    return date(year, int(m.group(1)), int(m.group(2))).isoformat()
+    return iso_or_none(year, int(m.group(1)), int(m.group(2)))
 
 
 def iso_from_month_day_year(token: str, *, century: str = "short") -> str:

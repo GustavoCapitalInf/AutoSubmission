@@ -65,6 +65,13 @@ def _summary(markdown: str) -> dict[str, float | int] | None:
         return None
     customer_count = int(customer_deposits.group(1)) if customer_deposits else 0
     customer_total = _money(customer_deposits.group(2)) if customer_deposits else 0.0
+    # Interest is an OPTIONAL summary line, exactly like customer deposits: a
+    # non-interest-bearing account simply does not print one. Discovery found
+    # 36 documents whose summary omits it, and dereferencing the unmatched
+    # regex raised AttributeError out of the parser. No printed interest is
+    # zero interest — the same reading the four guarded fields above already
+    # take, and one reconciliation independently checks.
+    interest_paid = (_money(interest.group(1)) or 0.0) if interest else 0.0
     return {
         "beginning": _money(m.group(1)) or 0.0,
         "ending": _money(m.group(2)) or 0.0,
@@ -73,7 +80,7 @@ def _summary(markdown: str) -> dict[str, float | int] | None:
         "debits": abs(_money(other_withdrawals.group(2)) or 0.0),
         "credit_count": customer_count + int(other_deposits.group(1)),
         "debit_count": int(other_withdrawals.group(1)),
-        "interest": _money(interest.group(1)) or 0.0,
+        "interest": interest_paid,
     }
 
 

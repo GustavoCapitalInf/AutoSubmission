@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .date_tokens import iso_or_none
 from .money import parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -19,11 +20,19 @@ def _money(value: str) -> float | None:
 
 
 def _parse_date(value: str) -> str | None:
+    """The row's posting date, or None when that token is not a date.
+
+    Every caller already skips a row this returns None for, which is the right
+    handling for a token of the right shape that no calendar can hold: BofA
+    native text puts a column that is not the date column at the head of a row
+    often enough that discovery found 16 documents where it raised here
+    (`iso_or_none`).
+    """
     m = re.fullmatch(r"(\d{2})/(\d{2})/(\d{2})", value.strip())
     if not m:
         return None
     month, day, year = m.groups()
-    return date(2000 + int(year), int(month), int(day)).isoformat()
+    return iso_or_none(2000 + int(year), int(month), int(day))
 
 
 def _period(markdown: str) -> tuple[str, str] | None:
