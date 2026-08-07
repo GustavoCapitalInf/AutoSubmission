@@ -183,18 +183,24 @@ def test_a_backslash_difference_outside_a_path_field_still_fails():
     assert "statement" not in corpus_gate.PATH_VALUED_FIELDS
 
 
-def test_linux_side_adb_rows_reproduce_the_windows_pinned_audit():
-    """Simulate the runner: re-key the committed ADB audit with POSIX folders.
+def test_windows_side_adb_rows_reproduce_the_posix_pinned_audit():
+    """Simulate the cross-platform runner against the committed ADB audit.
 
-    Run 31128834443 went red on exactly this and nothing else — 109 rows whose
-    only difference was `folder` rendered with the other separator, zero
-    financial fields. Feeding POSIX-folder rows against the pinned CSV is that
-    run, reproduced offline.
+    Run 31128834443 went red on 109 rows whose only difference was `folder`
+    rendered with the other separator, zero financial fields. Originally the
+    CSV pinned Windows backslashes and this test fed it POSIX rows; the
+    approved re-baseline (b70496c) regenerated the CSV through CI-1c's POSIX
+    writer, so the direction flips: the CSV is POSIX-native (asserted, so the
+    separator-agnostic property stays non-vacuous) and the simulated runner
+    is the WINDOWS side, re-rendering folders with backslashes.
     """
     committed_csv = corpus_gate.read_csv(corpus_gate.ADB_CSV)
-    assert any("\\" in row["folder"] for row in committed_csv), "CSV no longer pins backslashes"
+    assert not any("\\" in row["folder"] for row in committed_csv), (
+        "CSV pins backslashes again — the re-baseline made it POSIX-native"
+    )
+    assert any("/" in row["folder"] for row in committed_csv), "no nested folders left to exercise"
 
-    as_linux = [dict(row, folder=row["folder"].replace("\\", "/")) for row in committed_csv]
+    as_linux = [dict(row, folder=row["folder"].replace("/", "\\")) for row in committed_csv]
     committed = [dict(row, statement=corpus_gate.relative_key(row)) for row in committed_csv]
     fresh = [dict(row, statement=corpus_gate.relative_key(row)) for row in as_linux]
 
