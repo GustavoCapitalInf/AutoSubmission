@@ -265,6 +265,35 @@ remaining for fixed findings.
 
 ---
 
+## 2026-08-06 — H-3 Phase 2 REVIEWED: APPROVED; **MERGED to main as `1eeaeff` (ff), pushed; run 31134380538 dispatched**
+
+Pipeline seam verified line-by-line: exactly the approved +18/−1 (one
+import, one optional param, guarded callback, rationale comment against
+Report.dispatch "simplification"). telemetry/ package; batch JSONL +
+webapp SQLite v4 sinks; on-by-default with TELEMETRY_DISABLED; 38 new tests
+incl. no-callback byte-identity on a real parse, sensitivity on three real
+documents, JSONL/SQLite shape equality, T12. 1,261 tests in main checkout;
+gate GREEN with the seam in play; corpus anchor: 109 claimed, deterministic
+coverage 100%, validated 100 / review 6 / withheld 3 (the gate's three by
+name), $0.0000 cost.
+
+**Ocean acceptance of the ruling-5 correction:** gate-PASS ≠
+corporate-use-validated — six documents reproduce all audited values AND
+carry integrity flags (correctly `review`). The precise anchor (withheld
+= the named 3, failed 0, validated+review = 106, coverage 1.0) asserts
+the truth; the flat "106 validated" form is REJECTED as it would fold
+review into validated and gut the class.
+
+**Critical DSC-1 input (from H-3's own harness mistake, disclosed):** the
+generic `parse_native_pdf_text` silently produces DIFFERENT markdown than
+the production ladder for four banks (Navy Federal, TD Canada, Wells,
+Desjardins — layout-aware readers run first). **DSC-1 MUST resolve
+documents through production `parse_statement` (OCR rungs disabled for the
+offline dry run), never the generic reader.** Recorded as a DSC-1 design
+requirement.
+
+---
+
 ## 2026-08-06 — H-3 Phase 1 (schema) REVIEWED: APPROVED; Phase 2 GO
 
 H3_SCHEMA.md (`3874e1a` on wave2-proof). Survey findings accepted: (1)
