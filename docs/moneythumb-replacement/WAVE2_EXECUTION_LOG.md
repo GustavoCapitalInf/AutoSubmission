@@ -1,5 +1,90 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-07 — Post-3b dispatch executed; corpus-marked proof exposed a latent case-fold defect
+
+**W3-1 push landed, but the corpus-marked proof was RED (1 failure) and my
+chained command's pipe swallowed pytest's exit code, so the push went
+through anyway — Ocean process slip #2; all future proof chains use
+`set -o pipefail`.** The failure is NOT a W3-1 regression: latent,
+main-checkout-only — the on-disk `Scotiabank/` folder (archive-created,
+reused by the case-insensitive FS at corpus restore) vs the manifest's
+`ScotiaBank/` makes the dry run derive a disk-spelled relative_path that
+string-mismatches the pinned spelling → false pinned_corpus_duplicate
+(108/109 unique). Clean worktrees pass; CI (case-sensitive, no archive)
+unaffected. The NEW standing corpus-marked criterion caught it on its
+first main-checkout run — working as designed. **Hotfix ruled: identity
+canonicalization to manifest spelling at the partition boundary (one
+place), never case-blind classify; dispatched to HARBOR as task 0.**
+
+**Dispatches (three tracks live):** REEF-1 (mt-reef) → W3-3c build per the
+gate rulings (unclaimed-branch rung, grounding-gated promotion, geometry
+input, default-off, propose-first pipeline diff). REEF-2 NEW agent
+(mt-variants / wave3-variant-completeness) → Track A: chase×detail_coverage
+217 first, layout-family method (characterize → root-cause → capability fix
+or fail-closed-by-design → synthetic fixtures → honest cell measurement).
+HARBOR (mt-harbor) → hotfix + W3-4 adjudication/routing tooling with the
+closed disposition vocabulary and the two-run coverage-movement comparison
+keyed on content hashes.
+
+## 2026-08-07 — **W3-3b DESIGN GATE: GUSTAVO'S RULINGS RECEIVED**
+
+1. **BOTH IN PARALLEL:** Track A variant-completeness against the 614
+   (W3-2 evidence-ranked; chase×detail_coverage 217 first; layout-family /
+   capability / check level — never per-statement) ∥ Track B W3-3c
+   geometry-aware generic structurer. Neither blocks the other absent an
+   architectural dependency Ocean identifies.
+2. **W3-3c placement:** unclaimed-branch fallback rung; NOT a band-900
+   registration; proven issuer-evidence registrations retain precedence.
+3. **Grounding scope:** any structurer value that can influence a validated
+   financial result carries source grounding/provenance verifiable by the
+   existing validation system; ungrounded candidates may exist internally
+   but are never promoted to publishable outputs; adapt prototype concepts,
+   never merge prototype architecture.
+4. **Prototype branches: tag-then-delete EXECUTED** — tags
+   archive/universal-prototype-2026-08-04 (`f14282e`) and -05 (`54a9e8d`)
+   pushed and verified (trees contain universal.py / grounding.py /
+   parser_registry.py); both branch refs deleted; origin = main + tags.
+5. **W3-4 dispatched** (on proof-green): systemic layout-family
+   adjudication/routing on the ranked queue; 614-doc measurement is the
+   baseline; coverage movement reported by failure class × parser family.
+6. **Success metric replaced with the evidence-based targets:** ~+4 points
+   demonstrated flat-input; +10–17 geometry-path hypothesis to validate; no
+   predetermined number forced. Governing acceptance unchanged: zero false
+   validations · protected core intact · fail closed · 109-gate green ·
+   corpus-marked selection in every merge proof · improvements measured
+   against the frozen 3,506-doc baseline · no customer/date/amount fixes.
+
+Dispatch plan (armed, executes when the W3-1 corpus proof/push lands
+green): REEF-1 (existing 3a agent, full context) → W3-3c per rulings;
+REEF-2 (new agent, new worktree wave3-variant-completeness) → Track A;
+HARBOR (existing agent) → W3-4.
+
+## 2026-08-07 — W3-1/W3-1b REVIEWED: APPROVED; MERGED (pending corpus-marked proof → push)
+
+Pipeline diff verified verbatim-as-approved (+26/−2; parser_exception +
+integrity_check_exception flags with class-names-only notes; ParserCrashError
+subclassing RuntimeError; run_integrity_checks keeps guarding policy at the
+registry seam). Ruling-2 semantics precise and correct: a raising check has
+NO finding — no false contradictions, asserted. Bonus leak closed: crash
+messages quoting statement fragments no longer reach durable job records.
+Composition with W3-2's drift guard done the right way (flags added to
+INTEGRITY_FLAGS as ADVISORY — a crash must not outrank financial checks in
+the diagnosis ranking). Merge-only commit separated from the protected
+change (agent self-corrected). Zero xfails remain. 1,892 tests; gate GREEN
+×5 byte-identical; the 53 discovery crashes re-measured → 0.
+
+**New standing merge criterion (from REEF's self-caught regression —
+a corpus-marked parity helper broke while the default suite stayed green):
+every merge proof now includes `pytest -m corpus` (the corpus-marked
+selection), not just the default suite + gate.** Applied to this merge
+first (push chained behind it).
+
+**Ocean ruling (open item 1):** parser_exception stays symmetric with
+parser_ambiguous (flag + telemetry review class; no assess_quality
+forcing). Whether either should force `manual_review_required` in the
+payload is a policy decision for the W3-4 adjudication workflow —
+deferred with that dispatch.
+
 ## 2026-08-07 — W3-5 MERGED (`2fdf148`) · W3-1 reviewed, pipeline diff APPROVED · 3a spike evidence delivered
 
 **W3-5 (SONAR): APPROVED and merged** — `--scanned-visual` as tranche 3;
