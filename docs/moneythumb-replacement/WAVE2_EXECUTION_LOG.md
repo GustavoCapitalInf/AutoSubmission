@@ -1,5 +1,38 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-07 — **W3-3b DESIGN GATE: GUSTAVO'S RULINGS RECEIVED**
+
+1. **BOTH IN PARALLEL:** Track A variant-completeness against the 614
+   (W3-2 evidence-ranked; chase×detail_coverage 217 first; layout-family /
+   capability / check level — never per-statement) ∥ Track B W3-3c
+   geometry-aware generic structurer. Neither blocks the other absent an
+   architectural dependency Ocean identifies.
+2. **W3-3c placement:** unclaimed-branch fallback rung; NOT a band-900
+   registration; proven issuer-evidence registrations retain precedence.
+3. **Grounding scope:** any structurer value that can influence a validated
+   financial result carries source grounding/provenance verifiable by the
+   existing validation system; ungrounded candidates may exist internally
+   but are never promoted to publishable outputs; adapt prototype concepts,
+   never merge prototype architecture.
+4. **Prototype branches: tag-then-delete EXECUTED** — tags
+   archive/universal-prototype-2026-08-04 (`f14282e`) and -05 (`54a9e8d`)
+   pushed and verified (trees contain universal.py / grounding.py /
+   parser_registry.py); both branch refs deleted; origin = main + tags.
+5. **W3-4 dispatched** (on proof-green): systemic layout-family
+   adjudication/routing on the ranked queue; 614-doc measurement is the
+   baseline; coverage movement reported by failure class × parser family.
+6. **Success metric replaced with the evidence-based targets:** ~+4 points
+   demonstrated flat-input; +10–17 geometry-path hypothesis to validate; no
+   predetermined number forced. Governing acceptance unchanged: zero false
+   validations · protected core intact · fail closed · 109-gate green ·
+   corpus-marked selection in every merge proof · improvements measured
+   against the frozen 3,506-doc baseline · no customer/date/amount fixes.
+
+Dispatch plan (armed, executes when the W3-1 corpus proof/push lands
+green): REEF-1 (existing 3a agent, full context) → W3-3c per rulings;
+REEF-2 (new agent, new worktree wave3-variant-completeness) → Track A;
+HARBOR (existing agent) → W3-4.
+
 ## 2026-08-07 — W3-1/W3-1b REVIEWED: APPROVED; MERGED (pending corpus-marked proof → push)
 
 Pipeline diff verified verbatim-as-approved (+26/−2; parser_exception +
