@@ -21,7 +21,8 @@ fixture that pins it.
 | Statement-specific constants added | none (23 description literals **removed**) |
 | Protected modules touched | none |
 | Files changed | `analysis/chase.py`, `tests/test_chase_native_variants.py` (new), this log |
-| **Merge blocker** | **§2 — the corpus gate moves 15 pinned ADB fields on 2 Chase statements. Forensic proof that the new values are the correct ones is in §2. Ocean ruling required; no audit CSV touched.** |
+| Proof | `pytest -q` 1,915 passed / 18 deselected · `pytest -q -m corpus` 13 passed, 1 failed (the gate assertion, §2) · guard tests (R-1 hardcodes, R-2 clones) 100 passed |
+| **Merge blocker** | **§2 — the corpus gate moves 25 pinned ADB fields on 3 Chase statements. Every balance field on all 109 is byte-identical and the outcome classes do not move. Forensic proof that the new values are the correct ones is in §2. Ocean ruling required; no audit CSV touched.** |
 
 ## 1. Cell 1 — `chase x detail_coverage`, 217 documents
 
@@ -174,21 +175,32 @@ loosened.
 
 ---
 
-## 2. Gate finding — a corpus re-baseline is required (2 pinned documents)
+## 2. Gate finding — a corpus re-baseline is required (3 pinned documents)
 
 **This is a stop-and-ask item. No audit CSV has been touched.**
 
-`python corpus_gate.py` goes RED on exactly two pinned statements,
-`Chase/Chase Salomon Dec 2025.pdf` and `Chase/Chase Salomon March 2026.pdf`,
-in the `adb_audit` module only. Balance outcomes, ADB outcomes (106 PASS / 3
-WITHHELD, the same three by name), OCR coverage, exclusions and oracle
-independence are all unchanged.
+`python corpus_gate.py` goes RED on exactly three pinned statements — all
+Chase, all in the `adb_audit` module only:
 
-**The drift is not a loss.** Both documents parse to the *identical* set of
-transactions before and after — same 98 and 100 rows, same amounts, same
-descriptions, and both reproduce their bank-stated credit and debit totals
-exactly. What changed is the **date** on the rows Chase prints with two dates
-(`12/15 12/13 Online Transfer …`): 9 rows in one document, 2 in the other.
+```
+[PASS] inventory / foreign_files / source_integrity
+[PASS] balance_audit: 109 statements reproduce every audited balance field ...
+[FAIL] adb_audit: ... (25 field lines across 3 statements, listed below)
+[PASS] balance_outcomes: balance: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes:     adb:     106 pass, 3 withheld, same three statements
+[PASS] ocr_coverage / exclusions / oracle_independence
+Outcomes: 106 PASS / 3 WITHHELD
+RESULT: RED
+```
+
+Every *balance* field on all 109 is byte-identical, and the outcome classes
+(106 PASS / 3 WITHHELD, the same three by name) do not move.
+
+**The drift is not a loss of detail.** All three documents parse to the
+*identical* set of transactions before and after — same 89 / 98 / 100 rows,
+same amounts, same descriptions — and all three reproduce their bank-stated
+credit and debit totals exactly, before and after. What changed is the **date**
+on the rows Chase prints with two dates (`12/15 12/13 Online Transfer …`):
 
 - Before: the transaction date (`12/13`).
 - After: the posting date (`12/15`) — the value printed in the DATE column.
@@ -197,47 +209,58 @@ The old value was an accident of the deleted whitelist splitter: it split the
 line twice, once before each date, leaving the posting date orphaned on a line
 of its own with no amount, so the row began at the *second* date.
 
-Forensic proof that the new dates are the correct ones, taken from the
-documents' own DAILY ENDING BALANCE sections:
+Forensic proof that the new dates are the correct ones, taken from each
+document's own DAILY ENDING BALANCE section — the bank's published daily
+ledger, which no part of the parser reads and which is therefore an
+independent oracle:
 
-| | Dec 2025 | March 2026 |
-|---|---|---|
-| days the bank prints a daily ending balance for | 22 | 22 |
-| activity days reconstructed BEFORE | 27 | 24 |
-| — of which the bank prints no balance for | `11/29`, `12/07`, `12/13`, `12/27`, `12/28` | `03/01`, `03/14` |
-| activity days reconstructed AFTER | **22** | **22** |
-| — of which the bank prints no balance for | none | none |
-| printed daily balances reproduced | 22 / 22 | 22 / 22 |
+| | Feb 27 2026 | Dec 2025 | March 2026 |
+|---|---|---|---|
+| days the bank prints a daily ending balance for | 19 | 22 | 22 |
+| activity days reconstructed BEFORE | 22 | 27 | 24 |
+| — days the bank prints NO balance for | `01/31`, `02/14`, `02/21` | `11/29`, `12/07`, `12/13`, `12/27`, `12/28` | `03/01`, `03/14` |
+| activity days reconstructed AFTER | **19** | **22** | **22** |
+| — days the bank prints NO balance for | none | none | none |
+| day set identical to the bank's | **yes** | **yes** | **yes** |
+| printed daily balances reproduced | 19 / 19 | 22 / 22 | 22 / 22 |
 
-After the change the reconstructed activity-day set is **exactly** the day set
+After the change each reconstructed activity-day set is **exactly** the day set
 Chase prints, and every printed daily balance is reproduced. Before the change
 the ledger invented up to five activity days the bank does not recognise — one
 of them (`11/29`) outside the statement period entirely — and the ADB was
-divided across that phantom day series. This is the condition
+divided across that phantom day series. This is precisely the condition
 `analysis/adb.py` itself names: *"posting dates have been folded together, so
 end-of-day balances are attributed to the wrong days and the ADB is not
 trustworthy"* (`posting_dates_cover_source`).
 
-Consequently the pinned expectations for these two documents encode a defect.
-The 15 drifting fields are:
+Consequently the pinned expectations for these three documents encode a defect.
+The drifting fields:
 
-| Field | Dec 2025 pinned → produced | March 2026 pinned → produced |
-|---|---|---|
-| `posting_days` | 27 → 22 | 24 → 22 |
-| `same_day_groups` | 21 → 20 | (unchanged) |
-| `no_activity_days` | 6 → 11 | 8 → 10 |
-| `daily_balance_sum` | 2,094,777.33 → 2,232,248.29 | 1,011,307.06 → 1,011,610.88 |
-| `independent_candidate_adb` / `backend_adb` / `api_adb` / `dashboard_adb` | 63,478.10 → 67,643.89 | 31,603.35 → 31,612.84 |
+| Field | Feb 27 2026 | Dec 2025 | March 2026 |
+|---|---|---|---|
+| `posting_days` | 22 → 19 | 27 → 22 | 24 → 22 |
+| `same_day_groups` | 18 → 19 | 21 → 20 | — |
+| `max_same_day_transactions` | 9 → 10 | — | — |
+| `no_activity_days` | 6 → 9 | 6 → 11 | 8 → 10 |
+| `daily_balance_sum` | 987,536.52 → 1,004,811.64 | 2,094,777.33 → 2,232,248.29 | 1,011,307.06 → 1,011,610.88 |
+| `independent_candidate_adb` / `backend_adb` / `api_adb` / `dashboard_adb` | 35,269.16 → 35,886.13 | 63,478.10 → 67,643.89 | 31,603.35 → 31,612.84 |
 
-**Requested ruling.** Re-baseline these two statements' ADB rows against the
-new values, with this section as the forensic record. The alternative —
-preserving the old dates — means knowingly dating transactions to days the
-bank does not recognise, and would leave the 20 `posting_dates_cover_source`
-failures in the chase population unfixable. Nothing else in the gate moves;
-the financial outcome classes (106/3) are byte-identical.
+Note the independent oracle (`independent_candidate_adb`, which imports no
+production financial mathematics — the gate's `oracle_independence` check still
+passes) moves *with* the production surfaces to the same new number. The two
+agree on the corrected value as they agreed on the old one; what changed is the
+day series both are computed over.
 
-Until Ocean rules, the branch is **not mergeable**: this is the
-stop-the-line condition, declared rather than worked around.
+**Requested ruling.** Re-baseline these three statements' ADB rows against the
+produced values, with this section as the forensic record. The alternative —
+preserving the old dates — means knowingly dating transactions to days the bank
+publishes no balance for, and would leave the `posting_dates_cover_source`
+failures in the chase population unfixable by construction.
+
+Until Ocean rules, the branch is **not mergeable**: this is the stop-the-line
+condition, declared rather than worked around. `pytest -m corpus` fails on the
+same single assertion (`tests/test_corpus_gate.py::test_corpus_gate_is_green`);
+the other 13 corpus-marked tests pass.
 
 ---
 
