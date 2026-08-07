@@ -284,6 +284,9 @@ carry integrity flags (correctly `review`). The precise anchor (withheld
 the truth; the flat "106 validated" form is REJECTED as it would fold
 review into validated and gut the class.
 
+**Run 31134380538 (H-3 merge, `1eeaeff`): `completed success`** — third
+consecutive fully green remote run.
+
 **Critical DSC-1 input (from H-3's own harness mistake, disclosed):** the
 generic `parse_native_pdf_text` silently produces DIFFERENT markdown than
 the production ladder for four banks (Navy Federal, TD Canada, Wells,
