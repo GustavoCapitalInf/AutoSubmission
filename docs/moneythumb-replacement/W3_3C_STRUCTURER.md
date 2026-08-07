@@ -96,6 +96,48 @@ document's shape correctly and is missing *rows*. The 3a finding stands
 confirmed with a sharper edge: **the binding constraint is completeness, and
 it is now visible and named instead of hidden inside a wrong answer.**
 
+## 4b. Measured on documents no parser claims (75 archive documents)
+
+Deterministic stratified sample across the three ranked clusters, read in
+place, read-only, aggregates only. These documents contribute **zero** coverage
+today by construction.
+
+| Cluster | n | validated (geometry) | validated (flat) | dominant refusal |
+|---|---|---|---|---|
+| known-bank variants | 25 | 0 | 0 | no printed period (10), ledger incomplete (8) |
+| Unidentified mix | 25 | **1** | 0 | ungrounded (6), no printed period (6) |
+| low-volume unknown banks | 25 | **3** | 3 | rows outside the period (10), ungrounded (9) |
+| **total** | **75** | **4 (5.3%)** | **3 (4.0%)** | — |
+
+Sign provenance across ~5,700 accepted rows: 58–78% from a direction heading,
+21–42% from the balance chain, <1% from geometry-separated debit/credit
+columns.
+
+### What this does to the targets (ruling 6: no predetermined number)
+
+3a measured **8%** of this same population reaching a publishable value. This
+build measures **5.3%** — and the difference is not a regression, it is the
+ledger-identity requirement added here (§2, last row): a statement whose rows
+do not reach its own printed closing balance is now refused rather than
+published for reconciliation to withhold later. Some of 3a's archive
+"validations" were incomplete ledgers that no audited truth existed to catch.
+
+Extrapolated honestly against the frozen 3,506-document baseline:
+
+| | measured basis | coverage delta |
+|---|---|---|
+| this build, as it stands | 5.3% of 1,741 unclaimed ≈ 92 documents | **≈ +2.6 points** |
+| 3a's flat-input estimate | 8% of 1,741, without the ledger check | +4 points |
+| the +10–17 geometry hypothesis | — | **NOT validated by this build** |
+
+Geometry did what the 3a evidence predicted — it removed reading-order failure
+as the binding constraint — but that moved documents from one refusal to
+another rather than through the gate. The hypothesis is not disproven either:
+the refusals it exposed are concrete and named (`no_printed_period` 24%,
+`ungrounded` 20%, `ledger_incomplete` 17%, `period_excludes_rows` 16%), and
+each is a tractable piece of work rather than a mystery. **What this build
+establishes is the safety floor, not the coverage ceiling.**
+
 ## 5. Placement (ruling 2) — proposed, not written
 
 A fallback on the **unclaimed branch** of `analyze_markdown`, never a
