@@ -21,15 +21,19 @@ from analysis.serialization import report_to_dict
 from corpus_artifacts import cached_markdown
 from ocr.inspect import inspect_pdf
 from telemetry import (
+    VOCABULARY,
     DispatchCollector,
     StageTimer,
     build_record,
+    diagnose,
     dispatch_section,
     document_section,
+    empty_diagnostics,
     model_calls_for,
     score_vector,
     source_section,
 )
+from telemetry.report import diagnostics_rollup, render_diagnostics
 
 ROOT = Path(__file__).resolve().parents[1]
 CORPUS = ROOT / "Bank Statements"
@@ -41,6 +45,58 @@ WITHHELD = {
     "Ace_Auto_Final_Cut.pdf",
     "BMO_Statement_January_2026 Final-1-2 (1).pdf",
     "IBC April (1).pdf",
+}
+
+#: W3-2. The diagnosis each withheld statement must produce, taken from the
+#: forensic evidence in `docs/adb-withheld-second-pass.md` — not from a run.
+#:
+#: - Ace: "the supplied PDF has incomplete transaction detail" — 11 of 26
+#:   checks/debits are visible, so the coverage check is the CAUSE and the
+#:   ledger identity that fails on top of it is the symptom.
+#: - BMO: "mutually contradictory financial records" — the two page summaries
+#:   disagree with each other and with the row amounts; the bmo registration's
+#:   integrity check proves it, which is exactly `source_contradiction`.
+#: - IBC: the bank's own summary block does not satisfy its own identity
+#:   (`summary_math_inconsistent`), which is upstream of everything the
+#:   detail then fails.
+WITHHELD_DIAGNOSIS = {
+    "Ace_Auto_Final_Cut.pdf": "detail_coverage",
+    "BMO_Statement_January_2026 Final-1-2 (1).pdf": "source_contradiction",
+    "IBC April (1).pdf": "summary_identity",
+}
+
+#: Manifest-relative paths of the same three, for the tests that resolve them
+#: directly rather than walking the manifest.
+WITHHELD_PATHS = (
+    "Misc/Ace_Auto_Final_Cut.pdf",
+    "Others/BMO/BMO_Statement_January_2026 Final-1-2 (1).pdf",
+    "Others/IBC/IBC April (1).pdf",
+)
+
+#: The check-level evidence each must carry, over and above the primary class.
+WITHHELD_REQUIRED_CODES = {
+    "Ace_Auto_Final_Cut.pdf": {
+        "recon:sum_check_failed",
+        "recon:debit_coverage_short",
+        "integrity:debit_detail_coverage_mismatch",
+        "adb:ledger_reconciles_to_closing",
+        "adb:final_balance_matches_statement_closing",
+    },
+    "BMO_Statement_January_2026 Final-1-2 (1).pdf": {
+        "integrity:conflicting_statement_summaries",
+        "integrity:missing_declared_statement_page",
+        "recon:running_balance_break",
+        "recon:credit_coverage_short",
+        "recon:debit_coverage_short",
+        "adb:running_balances_support_daily_ledger",
+        "adb:ledger_reconciles_to_closing",
+    },
+    "IBC April (1).pdf": {
+        "recon:summary_identity_failed",
+        "integrity:summary_math_inconsistent",
+        "recon:running_balance_break",
+        "adb:ledger_reconciles_to_closing",
+    },
 }
 
 
@@ -144,6 +200,105 @@ def test_telemetry_reproduces_the_gate_outcome_split():
     assert summary["outcome"]["withheld"] == 3
 
 
+@pytest.mark.corpus
+def test_withheld_diagnostics_reproduce_the_documented_diagnosis():
+    """W3-2's anchor: the 3 withheld are diagnosed, the 106 are not.
+
+    The diagnosis is the one `docs/adb-withheld-second-pass.md` established
+    forensically from the PDF bytes, so this asserts that the taxonomy reaches
+    the human conclusion from the product's own serialized payload — and that
+    it stays silent on every document the platform did publish, which is what
+    keeps "why was this withheld" from becoming noise on 106 healthy files.
+    """
+    manifest = _manifest()
+    records = [_telemetry_for(rel)[0] for rel in manifest]
+
+    diagnosed, quiet = {}, 0
+    for rel, record in zip(manifest, records):
+        section = record["diagnostics"]
+        if record["outcome"]["class"] == "withheld":
+            diagnosed[Path(rel).name] = section
+        else:
+            assert section == empty_diagnostics(), rel
+            quiet += 1
+
+    assert quiet == corpus_gate.EXPECTED_PASS == 106
+    assert set(diagnosed) == WITHHELD
+
+    for name, section in diagnosed.items():
+        assert section["evaluated"] is True
+        assert section["primary_class"] == WITHHELD_DIAGNOSIS[name], name
+        assert WITHHELD_REQUIRED_CODES[name] <= set(section["codes"]), name
+        assert section["unmapped"] == [], name
+        assert section["counts"]["unmapped_reconciliation_issues"] == 0, name
+        assert section["counts"]["unmapped_adb_warnings"] == 0, name
+        assert set(section["codes"]) <= set(VOCABULARY), name
+
+    # The rollup answers the W3-2 question in one call over the same records.
+    rollup = diagnostics_rollup(records)
+    assert rollup["total"] == 109
+    assert rollup["diagnosed"] == 3
+    assert rollup["classes"] == {
+        "source_contradiction": 1, "summary_identity": 1, "detail_coverage": 1,
+    }
+    assert rollup["unmapped"] == {
+        "names": {}, "reconciliation_issues": 0, "adb_warnings": 0,
+    }
+    assert render_diagnostics(rollup, "corpus-anchor").isascii()
+
+
+def test_diagnostics_change_no_analysis_output():
+    """Diagnostics are a read-only projection, proven on real documents.
+
+    The payload the collector diagnoses must be byte-identical afterwards —
+    the corpus gate's byte-identical authority applied to the one new thing
+    W3-2 introduced.
+    """
+    import json as _json
+
+    for rel in sorted(WITHHELD_PATHS):
+        record, payload = _telemetry_for(rel)
+        assert payload is not None
+        before = _json.dumps(payload, sort_keys=True, default=str)
+        diagnose(payload, record["outcome"]["class"])
+        assert _json.dumps(payload, sort_keys=True, default=str) == before, rel
+
+
+#: Record fields that are machine-generated identifiers, not projections of
+#: anything in the document: a uuid4, a wall-clock timestamp, the run label,
+#: and the content hash (which I1 explicitly admits). They are high-entropy
+#: digit strings, so leaving them in the substring scan below makes it
+#: coincidence-prone rather than strict — `emitted_at` "…:58:51.752210" reads
+#: as the amount 51.75. `test_the_identity_fields_are_what_they_claim_to_be`
+#: pins each of them by shape instead, so nothing goes unchecked.
+_NOT_DOCUMENT_DERIVED = ("record_id", "emitted_at", "run_id")
+
+
+def _scannable(record: dict) -> dict:
+    scrubbed = {k: v for k, v in record.items() if k not in _NOT_DOCUMENT_DERIVED}
+    scrubbed["document"] = {
+        k: v for k, v in record["document"].items() if k != "content_sha256"
+    }
+    return scrubbed
+
+
+def test_the_identity_fields_are_what_they_claim_to_be():
+    """The four fields `_scannable` removes are pinned here, by shape.
+
+    So the scrub narrows the substring scan without narrowing the invariant.
+    """
+    import re
+    import uuid
+
+    raw = (CORPUS / "Chase/Chase Mar.pdf").read_bytes()
+    record, _ = _telemetry_for("Chase/Chase Mar.pdf")
+
+    assert uuid.UUID(hex=record["record_id"])
+    assert record["run_id"] == "corpus-anchor"
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T[\d:.]+\+00:00", record["emitted_at"])
+    assert record["document"]["content_sha256"] == inspect_pdf(raw).content_sha256
+
+
 @pytest.mark.parametrize(
     "rel",
     [
@@ -159,11 +314,21 @@ def test_a_record_leaks_no_customer_data(rel: str):
     label, its account number (and every 4+ digit fragment of it), and its
     transaction amounts and descriptions must all be absent from the
     serialized record.
+
+    `IBC April (1).pdf` is in the parameter list on purpose: it is one of the
+    three withheld statements, so this runs with the W3-2 diagnostics section
+    POPULATED from reconciliation issues and ADB warnings — the two free-text
+    sources in the whole payload that quote descriptions, amounts and dates.
+    An assertion below pins that, so the sensitivity proof can never quietly
+    degrade to checking an empty section.
     """
     record, payload = _telemetry_for(rel)
-    blob = json.dumps(record, sort_keys=True)
     assert payload is not None
+    if record["outcome"]["class"] == "withheld":
+        assert record["diagnostics"]["evaluated"] is True
+        assert record["diagnostics"]["codes"]
 
+    blob = json.dumps(_scannable(record), sort_keys=True)
     statement = payload["statement"]
     filename = Path(rel).name
 
@@ -206,6 +371,11 @@ def test_a_record_carries_only_declared_keys():
     }
     assert set(record["outcome"]) == {
         "class", "reason", "escalated", "error_type", "fallback_reason"
+    }
+    assert set(record["diagnostics"]) == {
+        "evaluated", "diagnostics_version", "primary_class", "classes", "codes",
+        "adb_checks_failed", "integrity_flags", "summary_fields_absent",
+        "counts", "unmapped",
     }
 
 
