@@ -79,6 +79,10 @@ class GroundingResult:
     ungrounded_transactions: tuple[int, ...] = ()
     ungrounded_fields: tuple[str, ...] = ()
     period_grounded: bool = True
+    #: How the period was established, and whether any part of it was inferred
+    #: rather than read (W3-3b Q2). Travels with the result so a reader never
+    #: has to assume a period start was printed.
+    period_provenance: str = "none"
     notes: tuple[str, ...] = field(default_factory=tuple)
 
     @property
@@ -259,6 +263,16 @@ def ground_statement(
         notes.append(f"{len(ungrounded)} transaction(s) not found in the source text")
     if not period_grounded:
         notes.append("no printed statement period")
+    elif period is not None and period.start_inferred:
+        # Not a failure: the anchors ARE printed, and the +1 day is the
+        # meaning of a prior-close label. It is recorded because it is the one
+        # date in the statement the document does not print, and a reader
+        # deciding how much to trust the average daily balance is entitled to
+        # know which day the period was measured from and why.
+        notes.append(
+            "period start inferred as the day after a printed prior-close balance "
+            f"({period.text}); not printed as a date"
+        )
 
     ok = (
         bool(rows)
@@ -275,5 +289,6 @@ def ground_statement(
         ungrounded_transactions=ungrounded,
         ungrounded_fields=ungrounded_fields + missing_fields,
         period_grounded=period_grounded,
+        period_provenance=period.provenance if period is not None else "none",
         notes=tuple(notes),
     )

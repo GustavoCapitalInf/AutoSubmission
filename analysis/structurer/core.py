@@ -77,6 +77,10 @@ class StructureOutcome:
     chain_agreement: float = 0.0
     input_kind: str = "text"
     sign_sources: dict[str, int] = field(default_factory=dict)
+    #: How the period was established: "range", "balance_anchors", or either
+    #: with ":start_inferred_from_prior_close" appended (W3-3b Q2). "none" when
+    #: the document printed no period at all.
+    period_provenance: str = "none"
 
     @property
     def publishable(self) -> bool:
@@ -121,6 +125,7 @@ def structure_document(
         "chain_agreement": round(row_set.chain_agreement, 4),
         "input_kind": input_kind,
         "sign_sources": _sign_sources(row_set),
+        "period_provenance": period.provenance if period is not None else "none",
     }
     if not row_set.rows:
         return _outcome(row_set.reason, **common)
@@ -156,10 +161,17 @@ def structure_document(
     # one of the two is wrong — the period was mis-read, or the file holds more
     # than one statement — and both are reasons to say nothing rather than to
     # publish a ledger the ADB engine will integrate over the wrong window.
+    #
+    # A posting BEFORE an inferred start is the sharper case and gets its own
+    # reason (W3-3b Q2): the start is the only date this subsystem does not
+    # read off the page, so a row contradicting it is evidence that the
+    # inference was wrong — not evidence that the period should stretch.
     outside = [
         transaction.date for transaction in statement.transactions
         if not (period.start <= transaction.date <= period.end)
     ]
+    if outside and period.start_inferred and min(outside) < period.start:
+        return _outcome("posting_before_inferred_period_start", **common)
     if outside:
         return _outcome("period_excludes_rows", **common)
 

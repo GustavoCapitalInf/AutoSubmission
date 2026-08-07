@@ -1,13 +1,11 @@
-"""The proposed pipeline seam for the generic rung — PROPOSED, not written.
+"""The pipeline seam for the generic rung — APPROVED and landed.
 
 `analysis/pipeline.py` is a protected file and this wave's protocol is
-propose-first (W3-1b set the precedent and the idiom). The diff below is
-therefore pinned here as **strict xfails**, which convert to plain assertions in
-the commit that lands it. They are not a to-do note: they fail the suite the
-moment someone implements this differently, and they fail it today if someone
-believes it is already done.
+propose-first (W3-1b set the precedent and the idiom). The diff below was
+pinned here as strict xfails while it awaited Ocean; it was approved on
+2026-08-07 as pinned, and the xfails are now plain assertions.
 
-The proposed diff, in full:
+The diff, in full, as landed:
 
     --- a/analysis/pipeline.py
     +++ b/analysis/pipeline.py
@@ -86,7 +84,7 @@ def rung_on(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# True today, and must stay true after the diff lands
+# The guarantees that hold on both sides of the diff
 # ---------------------------------------------------------------------------
 
 def test_the_document_is_genuinely_unclaimed():
@@ -120,10 +118,9 @@ def test_a_claimed_document_never_reaches_the_rung(rung_on):
 
 
 # ---------------------------------------------------------------------------
-# The proposed diff, pinned
+# The rung itself
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason="W3-3c: pipeline rung proposed, awaiting Ocean")
 def test_the_rung_structures_an_unclaimed_document_in_deterministic_mode(rung_on):
     report = analyze_markdown(UNCLAIMED, parse_mode="deterministic")
 
@@ -132,7 +129,6 @@ def test_the_rung_structures_an_unclaimed_document_in_deterministic_mode(rung_on
     assert report.reconciliation.ok
 
 
-@pytest.mark.xfail(strict=True, reason="W3-3c: pipeline rung proposed, awaiting Ocean")
 def test_the_pipeline_accepts_word_geometry_for_the_rung(rung_on):
     """The geometry input the 3a measurement identified as the primary lever
     reaches the structurer through one optional, inert keyword."""

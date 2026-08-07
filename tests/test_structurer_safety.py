@@ -305,3 +305,66 @@ def test_the_rung_never_raises_whatever_it_is_handed(monkeypatch):
 
     monkeypatch.setattr("analysis.structurer.core.structure_document", explode)
     assert structure_unclaimed(CLEAN) is None
+
+
+# ---------------------------------------------------------------------------
+# The inferred period start (W3-3b Q2 ruling: keep, with two guards)
+# ---------------------------------------------------------------------------
+#
+# "Balance forward on Jul 31" is the 31st's CLOSING balance, so the statement
+# it opens starts Aug 1. That +1 day is the only date this subsystem does not
+# read off the page, and the ruling attaches two conditions to keeping it:
+# the provenance must say so, and a posting before the inferred start must
+# refuse the document.
+
+ANCHORED = """--- Page 1 ---
+NORTHWIND MUTUAL BANK
+Your balance forward on Jul 31, 2026 5,000.00
+Your closing balance on Aug 31, 2026 5,090.00
+Date Description Amount Balance
+08/02 ORCHARD SUPPLY CO 150.00 4,850.00
+08/05 CUSTOMER DEPOSIT ZEPHYR 900.00 5,750.00
+08/09 TOLL BRIDGE AUTHORITY 60.00 5,690.00
+08/14 QUARRY FREIGHT LLC 400.00 5,290.00
+08/21 CUSTOMER DEPOSIT MARLIN 300.00 5,590.00
+08/28 UTILITY DISTRICT 12 500.00 5,090.00
+"""
+
+
+def test_an_inferred_period_start_is_marked_as_inferred_everywhere_it_travels():
+    """Guard 1. The period is usable; what must never happen is a reader
+    assuming the start was printed when it was derived from a label."""
+    outcome = structure_document(ANCHORED)
+
+    assert outcome.statement is not None
+    assert outcome.statement.period_start == "2026-08-01"
+    assert outcome.period_provenance == "balance_anchors:start_inferred_from_prior_close"
+    assert outcome.grounding.period_provenance == outcome.period_provenance
+    assert any("inferred" in note for note in outcome.grounding.notes)
+
+
+def test_a_printed_period_start_is_not_marked_inferred():
+    """The control: an opening label that states the period's own first day is
+    read as printed, and nothing is inferred."""
+    outcome = structure_document(
+        ANCHORED.replace("Your balance forward on Jul 31, 2026",
+                         "Beginning balance on Aug 01, 2026")
+    )
+
+    assert outcome.statement is not None
+    assert outcome.statement.period_start == "2026-08-01"
+    assert outcome.period_provenance == "balance_anchors"
+    assert not any("inferred" in note for note in outcome.grounding.notes)
+
+
+def test_a_posting_before_the_inferred_start_refuses_the_document():
+    """Guard 2. A row dated on the prior-close date is evidence that the
+    inference was wrong — not a reason to stretch the period back over it,
+    which would add a day to every average built on it."""
+    outcome = structure_document(
+        ANCHORED.replace("08/02 ORCHARD SUPPLY CO 150.00 4,850.00",
+                         "07/31 ORCHARD SUPPLY CO 150.00 4,850.00")
+    )
+
+    assert outcome.statement is None
+    assert outcome.reason == "posting_before_inferred_period_start"

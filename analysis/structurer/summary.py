@@ -152,6 +152,18 @@ class Period:
     #: "range" — printed as one span. "balance_anchors" — reconstructed from the
     #: two dates the document prints beside its opening and closing balances.
     source: str = "range"
+    #: True when `start` is the day AFTER a printed prior-close date rather than
+    #: a date the document prints. The one value in this subsystem that is not
+    #: read off the page, so it is marked as such wherever it travels
+    #: (W3-3b Q2 ruling): grounding notes it, and any posting dated before it
+    #: refuses the document rather than being absorbed into the period.
+    start_inferred: bool = False
+
+    @property
+    def provenance(self) -> str:
+        if self.start_inferred:
+            return f"{self.source}:start_inferred_from_prior_close"
+        return self.source
 
 
 #: Labels whose date is the PRIOR period's close, so the period starts the day
@@ -196,19 +208,21 @@ def read_period(lines: list[SourceLine], summary: dict[str, SummaryValue] | None
     if opening is None or closing is None or not opening.anchor_date or not closing.anchor_date:
         return None
     start = opening.anchor_date
-    if opening.label in _PRIOR_CLOSE_LABELS:
+    inferred = opening.label in _PRIOR_CLOSE_LABELS
+    if inferred:
         start = (date.fromisoformat(start) + timedelta(days=1)).isoformat()
     return _validated(
         start, closing.anchor_date, opening.page, opening.line_index,
         f"{opening.label} / {closing.label}", "balance_anchors",
+        start_inferred=inferred,
     )
 
 
 def _validated(start: str | None, end: str | None, page: int, line_index: int,
-               text: str, source: str) -> Period | None:
+               text: str, source: str, *, start_inferred: bool = False) -> Period | None:
     if not start or not end or start > end:
         return None
     span = (date.fromisoformat(end) - date.fromisoformat(start)).days + 1
     if not (_MIN_PERIOD_DAYS <= span <= _MAX_PERIOD_DAYS):
         return None
-    return Period(start, end, page, line_index, text, source)
+    return Period(start, end, page, line_index, text, source, start_inferred=start_inferred)

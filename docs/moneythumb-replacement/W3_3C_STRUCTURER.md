@@ -1,8 +1,9 @@
 # W3-3c — the generic statement structurer
 
 Author: Agent A (REEF). Date: 2026-08-07.
-Status: **subsystem proof-complete; the pipeline rung is PROPOSED and pinned as
-strict xfails, awaiting Ocean.** Default off.
+Status: **complete and merged-ready. The pipeline rung is APPROVED (Ocean,
+2026-08-07) and landed exactly as pinned.** Default off until Ocean flips the
+opt-in after measured validation.
 Rulings implemented: W3-3b 1–6 (`WAVE2_EXECUTION_LOG.md`).
 Evidence it was built from: `W3_3A_INVESTIGATION.md` (frozen).
 
@@ -138,14 +139,15 @@ the refusals it exposed are concrete and named (`no_printed_period` 24%,
 each is a tractable piece of work rather than a mystery. **What this build
 establishes is the safety floor, not the coverage ceiling.**
 
-## 5. Placement (ruling 2) — proposed, not written
+## 5. Placement (ruling 2) — landed
 
 A fallback on the **unclaimed branch** of `analyze_markdown`, never a
 registration. A parser that claimed a document on proven issuer evidence keeps
 it; `ambiguous` and `parser_exception` keep their own fail-closed outcomes and
-are never rescued by structuring. The full proposed diff (six added lines, one
-import, one optional keyword, no re-indentation) is in the module docstring of
-`tests/test_structurer_pipeline.py` and pinned there by two strict xfails.
+are never rescued by structuring. The diff (six added lines plus comment, one
+import, one optional keyword, no re-indentation) is reproduced in the module
+docstring of `tests/test_structurer_pipeline.py`, where the two strict xfails
+that pinned it are now plain assertions.
 
 `model_used = "generic-structurer-deterministic"` is the measurement hook: the
 `-deterministic` suffix is what `telemetry.record.model_calls_for` reads as "no
@@ -195,19 +197,32 @@ follow-up.
 5. **Multi-account documents** are read as one ledger, and will usually fail
    the ledger-identity check and refuse. Correct, but crude — L-1 territory.
 
-## 8. Open questions for the review
+## 8. Review outcomes (Ocean, 2026-08-07)
 
-1. **Publish-vs-refuse on `ledger_incomplete`.** The subsystem refuses when its
-   ledger does not reach the printed closing balance, on the argument that a
-   partial ledger is a false statement rather than a weak one. Reconciliation
-   would have withheld those documents anyway, so no validated coverage is
-   lost — but it does mean the rung produces no artifact for an analyst to look
-   at. Confirm the refusal, or prefer publish-and-withhold?
-2. **The `+1 day` period convention** (§7.3). Keep, or refuse unless the period
-   is printed as an explicit range?
-3. **Geometry wiring.** The proposed `document_geometry` keyword is inert until
-   a caller passes it, and the callers that hold the PDF bytes are the webapp
-   worker and the discovery runner (HARBOR's file). Who wires it, and when?
-4. **Grounding strictness.** Transaction coverage is required at **1.0**. The
-   harness can report the distribution at lower thresholds if Ocean wants the
-   evidence for a different bar; production should not move without it.
+1. **`ledger_incomplete`: REFUSE stands.** Fail closed; reconciliation would
+   withhold those documents anyway. The analyst-artifact question is revisited
+   if and when the webapp ever surfaces structurer output.
+2. **The `+1 day` period convention: KEPT, with two guards**, both implemented
+   and fixtured:
+   - **provenance** — `Period.start_inferred` propagates as
+     `period_provenance = "balance_anchors:start_inferred_from_prior_close"`
+     through `StructureOutcome` and `GroundingResult`, with a grounding note
+     saying the start was not printed as a date
+     (`test_an_inferred_period_start_is_marked_as_inferred_everywhere_it_travels`,
+     and its control `test_a_printed_period_start_is_not_marked_inferred`);
+   - **a posting before the inferred start refuses the document**, under its own
+     reason `posting_before_inferred_period_start` — a row contradicting the
+     inference is evidence the inference was wrong, not a reason to stretch the
+     period back over it
+     (`test_a_posting_before_the_inferred_start_refuses_the_document`).
+
+   The second guard is not hypothetical: re-measuring the pinned 109 after it
+   landed, one document moved out of the generic `period_excludes_rows` bucket
+   (7 → 6) into `posting_before_inferred_period_start`. The published set is
+   unchanged — 6 structured, 5 validated, 5 correct, 0 wrong — so the guard
+   costs nothing and names a real case.
+3. **Geometry wiring: deferred** to a HARBOR integration card after merge. The
+   rung ships opt-in-off and `tools/measure_structurer` needs no production
+   wiring; §5.1 is that card's input.
+4. **Grounding coverage 1.0: STANDS.** Loosening requires evidence at a future
+   review, not a default.
