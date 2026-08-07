@@ -527,10 +527,16 @@ e-Transfer sent hoang td personal 2,000.00 12,581.93
     assert stmt.account_number == "01678 101-196-4"
     assert stmt.period_start == "2026-03-02"
     assert stmt.period_end == "2026-04-01"
+    # W3 Track A cell 3: the fee breakdown keeps ALL its printed text. The
+    # truncated form this used to assert was an artefact of the row splitting
+    # at `2.50` -- a printed unit price, not a money cell -- and then patching
+    # the row back together with a `<n> Crs @` regex. Rates are now excluded
+    # from the grid by the `@` marker the statement prints beside them, so the
+    # description is what the bank printed and the amount is unchanged.
     assert [t.description for t in stmt.transactions] == [
         "Cheque returned NSF",
         "Monthly fee",
-        "Regular transaction fee 13 Drs @",
+        "Regular transaction fee 13 Drs @ 2.50 2 Crs @ 2.50",
         "In branch cash deposited fee $14100 CD @5.00M",
         "ATM deposit - TW922689",
         "e-Transfer received MICHAELGIANG CA42RuUB",

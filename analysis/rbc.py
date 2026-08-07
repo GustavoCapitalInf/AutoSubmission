@@ -19,14 +19,250 @@ _MONTH_NAMES = {
 }
 _DATE_START_RE = re.compile(r"^(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b", re.IGNORECASE)
 _MONEY_RE = re.compile(r"(?<![#\w])-?\$?[\d,]+\.\d{2}(?!\w)")
+_PAGE_RE = re.compile(r"^\d+ of \d+$", re.IGNORECASE)
+#: The cents group every printed amount ends with, in either locale
+#: (`1,234.56` / `1 234,56`). Stripping it leaves the integer part, which is
+#: what tells a price from a reference number.
+_CENTS_TAIL_RE = re.compile(r"[.,]\d{2}\)?$")
+_NON_DIGIT_RE = re.compile(r"\D")
 
 
 def _date_from(day: str, mon: str, *, default_year: int) -> str:
     return date(default_year, _MONTHS[mon[:3].upper()], int(day)).isoformat()
 
 
-def _money_matches(line: str) -> list[re.Match]:
-    return list(_MONEY_RE.finditer(line))
+def _is_printed_price(token: str) -> bool:
+    """False for a money-SHAPED token that the grid does not print as money.
+
+    A printed price never carries a leading zero, so `00314.06` beside an
+    amount is a reference number the description happens to end with, not a
+    second money cell. `0.45` keeps its single leading zero and stays money.
+    """
+    body = token.strip().lstrip("(").lstrip("-").lstrip("$").strip()
+    digits = _NON_DIGIT_RE.sub("", _CENTS_TAIL_RE.sub("", body))
+    return not (len(digits) > 1 and digits[0] == "0")
+
+
+def _grid_cells(line: str, pattern: re.Pattern[str]) -> list[re.Match]:
+    """The money cells the activity grid prints on one physical line.
+
+    Three kinds of money-shaped token are printed inside a description cell
+    rather than in a money column, and each is recognised by the mark the
+    statement prints beside it, never by its value:
+
+    * the operand of `@` — the "at unit price" marker (`4 Drs @ 2.50 10.00`
+      prints a rate and then the fee);
+    * a percentage operand (`@ RBP+05.00%P.A`);
+    * a reference number, which a printed price never resembles because a
+      price carries no leading zero.
+    """
+    cells = []
+    for match in pattern.finditer(line):
+        if not _is_printed_price(match.group(0)):
+            continue
+        if line[match.end():match.end() + 1] == "%":
+            continue
+        before = line[:match.start()].rstrip()
+        if before.endswith("$"):
+            before = before[:-1].rstrip()
+        if before.endswith("@"):
+            continue
+        cells.append(match)
+    return cells
+
+
+def _read_grid_rows(entries, *, pattern, to_amount, opening_label, closing_label):
+    """Rows read off the printed grid rather than off the physical lines.
+
+    `entries` is the activity section as `(text, date, opens_a_date_group)`,
+    with the Date column already consumed by the caller. Returns the rows and
+    the balance the table's own opening row prints.
+
+    Two structural rules do all the work, and both come from the printed
+    column order `... | Cheques & Debits | Deposits & Credits | Balance`:
+
+    1. **A lone money cell is an amount; two money cells with nothing between
+       them are one row's amount and its running balance.** Balance is the
+       last column and is never printed without an amount beside it, so the
+       pairing is decided by adjacency in the grid, not by which token comes
+       last on a line. This is what makes a row carrying TWO money cells
+       readable at all, and it is deliberately blind to the values: a balance
+       smaller than its own amount is still the balance.
+    2. **A row ends at its amount cell**, so text that follows one begins the
+       next row. That reads a compressed line (several printed rows emitted on
+       one physical line) and a wrapped row (one printed row spread over
+       several physical lines) with the same rule, and it needs no whitelist
+       of description wordings.
+
+    The one line-level fact that survives: an amount printed alone on its line
+    is vertically centred between two description lines, so a following
+    description-only line continues THAT row instead of opening a new one.
+    """
+    rows: list[dict] = []
+    opening: float | None = None
+    description: list[str] = []
+    #: the row the most recent cell closed, while it can still take a balance
+    open_row: dict | None = None
+    centred_amount = False
+    # Case-insensitive matching, not `.upper()` plus an index: upper-casing can
+    # change a string's length, and these two labels are used to CUT a line.
+    opens = re.compile(re.escape(opening_label), re.IGNORECASE)
+    closes = re.compile(re.escape(closing_label), re.IGNORECASE)
+
+    for text, tx_date, opens_group in entries:
+        if opens_group:
+            # A new posting date closes whatever was pending: a description
+            # with no amount cell under it never became a row.
+            description = []
+            open_row = None
+            centred_amount = False
+        if not text:
+            continue
+        stop = closes.search(text)
+        if stop:
+            text = text[:stop.start()].strip()
+            if not text:
+                break
+        cells = _grid_cells(text, pattern)
+        if opens.match(text):
+            if cells:
+                opening = to_amount(cells[-1].group(0))
+            description, open_row, centred_amount = [], None, False
+            continue
+        if not cells:
+            if open_row is not None and centred_amount:
+                open_row["description"] = f"{open_row['description']} {text}".strip()
+            else:
+                description.append(text)
+            centred_amount = False
+            continue
+
+        cells_only = (
+            not text[:cells[0].start()].strip()
+            and not text[cells[-1].end():].strip()
+            and all(not text[a.end():b.start()].strip() for a, b in zip(cells, cells[1:]))
+        )
+        position = 0
+        for match in cells:
+            gap = text[position:match.start()].strip()
+            if gap:
+                description.append(gap)
+                open_row = None
+            value = to_amount(match.group(0))
+            if open_row is not None and open_row["balance"] is None:
+                open_row["balance"] = value
+                open_row = None
+            else:
+                row = {
+                    "date": tx_date,
+                    "description": " ".join(description).strip(),
+                    "abs_amount": abs(value),
+                    "amount": -abs(value),
+                    "balance": None,
+                }
+                description = []
+                rows.append(row)
+                open_row = row
+            position = match.end()
+        tail = text[position:].strip()
+        if tail:
+            description.append(tail)
+            open_row = None
+        centred_amount = cells_only
+
+    return rows, opening
+
+
+def _column_split_signs(amounts: list[int], delta: int) -> list[int] | None:
+    """Signs from the printed column order: the credit set is a prefix.
+
+    Inside one balance block RBC prints the Deposits & Credits column above the
+    Cheques & Debits column, so the credits are the rows before a single split
+    point. Because every amount is positive the prefix total is strictly
+    increasing, so at most ONE split reproduces the printed delta — the
+    assignment is unique whenever it exists, with nothing to choose between.
+    """
+    total = sum(amounts)
+    running = 0
+    for split in range(len(amounts) + 1):
+        if 2 * running - total == delta:
+            return [1] * split + [-1] * (len(amounts) - split)
+        if split < len(amounts):
+            running += amounts[split]
+    return None
+
+
+def _subset_signs(amounts: list[int], delta: int, *, max_rows: int = 24,
+                  max_states: int = 200_000) -> list[int] | None:
+    """Signs from the printed delta when the credits are not a prefix.
+
+    Same evidence, no ordering assumption: find a credit subset whose total is
+    `(delta + sum)/2`. Reachability is computed suffix-first so the walk can
+    take the earliest admissible row as a credit — the printed column order
+    again, used only to make the choice deterministic where several subsets
+    reproduce the same delta (which happens when equal amounts sit on both
+    sides and every candidate publishes the identical credit/debit totals).
+    Bounded in both rows and states so it is total: past the bound it refuses.
+    """
+    if len(amounts) > max_rows:
+        return None
+    total = sum(amounts)
+    wanted = delta + total
+    if wanted % 2 or wanted < 0 or wanted // 2 > total:
+        return None
+    wanted //= 2
+
+    reachable: list[set[int]] = [set() for _ in range(len(amounts) + 1)]
+    reachable[len(amounts)] = {0}
+    for index in range(len(amounts) - 1, -1, -1):
+        sums = set(reachable[index + 1])
+        for value in reachable[index + 1]:
+            if value + amounts[index] <= wanted:
+                sums.add(value + amounts[index])
+        if len(sums) > max_states:
+            return None
+        reachable[index] = sums
+    if wanted not in reachable[0]:
+        return None
+
+    signs = []
+    remaining = wanted
+    for index, amount in enumerate(amounts):
+        if amount <= remaining and (remaining - amount) in reachable[index + 1]:
+            signs.append(1)
+            remaining -= amount
+        else:
+            signs.append(-1)
+    return signs
+
+
+def _solve_from_printed_balances(rows: list[dict], opening: float | None) -> None:
+    """Assign every row's direction from the statement's own running balances.
+
+    The text layer does not carry which activity column an amount was printed
+    in, so the sign is read off the arithmetic the bank printed: across the
+    rows between two printed balances the signed amounts must reproduce the
+    delta. Rows in a block the chain cannot close keep the direction their
+    transaction type implies and the document then fails the platform's
+    coverage and ledger checks — the signs are never invented to make the
+    arithmetic work.
+    """
+    previous = opening
+    segment: list[dict] = []
+    for row in rows:
+        segment.append(row)
+        if row["balance"] is None or previous is None:
+            continue
+        amounts = [round(item["abs_amount"] * 100) for item in segment]
+        delta = round(row["balance"] * 100) - round(previous * 100)
+        signs = _column_split_signs(amounts, delta)
+        if signs is None:
+            signs = _subset_signs(amounts, delta)
+        if signs is not None:
+            for item, sign in zip(segment, signs):
+                item["amount"] = round(sign * item["abs_amount"], 2)
+        previous = row["balance"]
+        segment = []
 
 
 def _is_credit(desc: str) -> bool:
@@ -104,11 +340,10 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
 
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "Royal Bank of Canada"
-    rows: list[dict] = []
+    entries: list[tuple[str, str, bool]] = []
     default_year: int | None = None
     in_activity = False
     current_date: str | None = None
-    pending_description: list[str] = []
 
     for raw in markdown.splitlines():
         line = re.sub(r"\s+", " ", raw).strip()
@@ -118,7 +353,6 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
 
         if line.startswith("--- Page"):
             in_activity = False
-            pending_description = []
             continue
 
         pm = _PERIOD_RE.search(line)
@@ -149,15 +383,18 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
 
         if "DATE DESCRIPTION CHEQUES & DEBITS" in u:
             in_activity = True
-            pending_description = []
             continue
         if in_activity and (u.startswith("CLOSING BALANCE") or u.startswith("ACCOUNT FEES:")):
             in_activity = False
-            pending_description = []
             continue
         if not in_activity or default_year is None:
             continue
-        if u.startswith(("OPENING BALANCE", "BUSINESS ACCOUNT STATEMENT", "ACCOUNT ACTIVITY DETAILS")):
+        if u.startswith(("BUSINESS ACCOUNT STATEMENT", "ACCOUNT ACTIVITY DETAILS")):
+            continue
+        # The printed page footer is grid furniture. It is dropped BEFORE the
+        # Date column is read, because `<n> of <m>` and its French counterpart
+        # `<n> de <m>` are shaped exactly like a day plus a month token.
+        if _PAGE_RE.match(line):
             continue
 
         dm = _DATE_START_RE.match(line)
@@ -170,65 +407,41 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
             # — deriving it from rows[-1] instead silently folded whole posting
             # dates into the previous one and corrupted the daily ledger.
             current_date = _date_from(dm.group(1), dm.group(2), default_year=default_year)
-            rest = line[dm.end():].strip()
-            if _DATE_START_RE.match(rest):
-                rest = rest[_DATE_START_RE.match(rest).end():].strip()
-            pending_description = []
-        elif rows or current_date is not None:
-            fee_breakdown = re.match(r"^\d+\s+Crs\s+@\s+\d+\.\d{2}\s+([\d,]+\.\d{2})$", line, re.IGNORECASE)
-            if fee_breakdown and rows and rows[-1]["description"].upper().startswith("REGULAR TRANSACTION FEE"):
-                rows[-1]["abs_amount"] = abs(parse_money(fee_breakdown.group(1)) or rows[-1]["abs_amount"])
-                rows[-1]["amount"] = -rows[-1]["abs_amount"]
-                continue
-            rest = line
-        else:
+            line = line[dm.end():].strip()
+            repeated = _DATE_START_RE.match(line)
+            if repeated:
+                line = line[repeated.end():].strip()
+        elif current_date is None and not line.upper().startswith("OPENING BALANCE"):
             continue
+        entries.append((line, current_date, bool(dm)))
 
-        tx_date = current_date if current_date is not None else (rows[-1]["date"] if rows else None)
-        if tx_date is None:
-            continue
-
-        amounts = _money_matches(rest)
-        if not amounts:
-            if rest:
-                pending_description.append(rest)
-            continue
-        has_date = bool(dm)
-        has_balance = len(amounts) >= 2 and amounts[-1].end() == len(rest) and "TRANSACTION FEE" not in rest.upper()
-        amount_match = amounts[-2] if has_balance else amounts[-1]
-        amount = abs(parse_money(amount_match.group(0)) or 0.0)
-        running_balance = parse_money(amounts[-1].group(0)) if has_balance else None
-        desc = rest[:amount_match.start()].strip()
-        if pending_description:
-            desc = " ".join([*pending_description, desc]).strip()
-            pending_description = []
-        if not desc:
-            continue
-        if _is_credit(desc):
-            signed = amount
-        elif _is_debit(desc):
-            signed = -amount
+    rows, table_opening = _read_grid_rows(
+        entries,
+        pattern=_MONEY_RE,
+        to_amount=lambda token: parse_money(token) or 0.0,
+        opening_label="OPENING BALANCE",
+        closing_label="CLOSING BALANCE",
+    )
+    rows = [row for row in rows if row["description"] and row["date"]]
+    for row in rows:
+        # The initial reading is the row's printed transaction type, and it is
+        # only ever the fallback: the printed balance chain below overrules it
+        # wherever the chain closes. Rows in a block the chain cannot close
+        # keep this reading, which is what makes such a block fail the bank's
+        # own stated totals instead of being repaired into agreement.
+        if _is_credit(row["description"]):
+            signed = row["abs_amount"]
+        elif _is_debit(row["description"]):
+            signed = -row["abs_amount"]
         else:
-            signed = -amount
-        rows.append({
-            "date": tx_date,
-            "description": desc,
-            "abs_amount": amount,
-            "amount": round(signed, 2),
-            "balance": running_balance,
-        })
+            signed = -row["abs_amount"]
+        row["amount"] = round(signed, 2)
 
     if not rows:
         return None
-    prev_balance = stmt.beginning_balance
-    segment: list[dict] = []
-    for row in rows:
-        segment.append(row)
-        if row["balance"] is None or prev_balance is None:
-            continue
-        _solve_segment(segment, round(row["balance"] - prev_balance, 2))
-        prev_balance = row["balance"]
-        segment = []
+    if stmt.beginning_balance is None:
+        stmt.beginning_balance = table_opening
+    _solve_from_printed_balances(rows, stmt.beginning_balance)
 
     transactions = [
         Transaction(
@@ -246,6 +459,7 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
 
 _FR_DATE_RE = re.compile(r"^(\d{1,2})\s+([^\s]+)\s+(.*)$", re.IGNORECASE)
 _FR_MONEY_RE = re.compile(r"(?<![A-Za-z0-9])\(?-?(?:\d{1,3}(?: \d{3})+|\d+),\d{2}\)?")
+_FR_PAGE_RE = re.compile(r"^\d+ de \d+$", re.IGNORECASE)
 #: Full French month names; tokens resolve by unambiguous prefix, so every
 #: month works, not only December/January (R-1 item 7).
 _FR_MONTH_NAMES = {
@@ -261,10 +475,6 @@ _FR_PERIOD_RE = re.compile(
 
 def _money_fr(text: str) -> float:
     return parse_french_amount(text, parens=True)
-
-
-def _fr_money_matches(text: str) -> list[re.Match]:
-    return list(_FR_MONEY_RE.finditer(text))
 
 
 def _fr_month(month_token: str) -> int | None:
@@ -308,32 +518,6 @@ def _fr_initial_sign(desc: str, amount: float) -> float:
     if any(key in text for key in ("REÇU", "ANNUL", "DÉP", "RABAIS")):
         return amount
     return -amount
-
-
-def _solve_segment(rows: list[dict], expected: float) -> None:
-    amounts = [row["abs_amount"] for row in rows]
-    initial = [1 if row["amount"] > 0 else -1 for row in rows]
-    best: tuple[int, list[int]] | None = None
-
-    def rec(i: int, total: float, signs: list[int]) -> None:
-        nonlocal best
-        if best is not None and sum(1 for a, b in zip(signs, initial[:len(signs)]) if a != b) >= best[0]:
-            return
-        if i == len(amounts):
-            if round(total, 2) == round(expected, 2):
-                flips = sum(1 for a, b in zip(signs, initial) if a != b)
-                if best is None or flips < best[0]:
-                    best = (flips, signs[:])
-            return
-        rec(i + 1, round(total + amounts[i], 2), signs + [1])
-        rec(i + 1, round(total - amounts[i], 2), signs + [-1])
-
-    if len(rows) <= 16:
-        rec(0, 0.0, [])
-    if best is None:
-        return
-    for row, sign in zip(rows, best[1]):
-        row["amount"] = round(sign * row["abs_amount"], 2)
 
 
 def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) -> Statement | None:
@@ -386,7 +570,7 @@ def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) ->
     if m:
         stmt.ending_balance = _money_fr(m.group(1))
 
-    rows: list[dict] = []
+    entries: list[tuple[str, str, bool]] = []
     current_date: str | None = None
     in_activity = False
     for raw in markdown.splitlines():
@@ -394,6 +578,12 @@ def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) ->
         if not line:
             continue
         u = line.upper()
+        if line.startswith("--- Page"):
+            # Symmetric with the English layout: a page break leaves the
+            # activity table and the reprinted column header re-enters it, so
+            # the page's own header block never reaches the grid reader.
+            in_activity = False
+            continue
         if "DATE DESCRIPTION RETRAITS" in u:
             in_activity = True
             continue
@@ -401,12 +591,9 @@ def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) ->
             break
         if not in_activity or u.startswith(("DOCUSIGN", "RELEV", "BANQUE ROYALE", "DU ", "RBPDA", "*3", "DATE DESCRIPTION")):
             continue
-        if re.fullmatch(r"\d+ de \d+", line):
-            continue
-        if u.startswith("SOLDE D'OUVERTURE"):
-            vals = _fr_money_matches(line)
-            if vals:
-                stmt.beginning_balance = _money_fr(vals[-1].group(0))
+        # See the English loop: the page footer is dropped before the Date
+        # column is read, because `<n> de <m>` is shaped like a French date.
+        if _FR_PAGE_RE.match(line):
             continue
 
         dm = _FR_DATE_RE.match(line)
@@ -421,37 +608,28 @@ def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) ->
             if resolved is None:
                 continue
             current_date = resolved.isoformat()
-        else:
-            rest = line
-        if current_date is None:
+            line = rest.strip()
+        elif current_date is None and not u.startswith("SOLDE D'OUVERTURE"):
             continue
-        amounts = _fr_money_matches(rest)
-        if not amounts:
-            continue
-        has_balance = len(amounts) >= 2 and amounts[-1].end() == len(rest)
-        amount_match = amounts[-2] if has_balance else amounts[-1]
-        balance = _money_fr(amounts[-1].group(0)) if has_balance else None
-        abs_amount = abs(_money_fr(amount_match.group(0)))
-        desc = rest[:amount_match.start()].strip()
-        if not desc:
-            continue
-        rows.append({
-            "date": current_date,
-            "description": desc,
-            "abs_amount": abs_amount,
-            "amount": _fr_initial_sign(desc, abs_amount),
-            "balance": balance,
-        })
+        entries.append((line, current_date, bool(dm)))
 
-    prev_balance = stmt.beginning_balance
-    segment: list[dict] = []
+    # Same grid, same two structural rules: the French layout prints
+    # `Retraits ($) | Dépôts ($) | Solde ($)`, so a row carries the same two
+    # money cells and the same missing column-of-origin. It is a first-class
+    # family of this parser, not an exception to it.
+    rows, table_opening = _read_grid_rows(
+        entries,
+        pattern=_FR_MONEY_RE,
+        to_amount=_money_fr,
+        opening_label="SOLDE D'OUVERTURE",
+        closing_label="SOLDE DE CL",
+    )
+    rows = [row for row in rows if row["description"] and row["date"]]
     for row in rows:
-        segment.append(row)
-        if row["balance"] is None or prev_balance is None:
-            continue
-        _solve_segment(segment, round(row["balance"] - prev_balance, 2))
-        prev_balance = row["balance"]
-        segment = []
+        row["amount"] = _fr_initial_sign(row["description"], row["abs_amount"])
+    if table_opening is not None:
+        stmt.beginning_balance = table_opening
+    _solve_from_printed_balances(rows, stmt.beginning_balance)
 
     transactions = [
         Transaction(
