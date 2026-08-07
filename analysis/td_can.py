@@ -3,11 +3,20 @@
 TD Canada's OCR output is usually a usable HTML table, but rowspans can shift a
 date or amount into the neighboring row. This parser handles the common TD CAD
 layout directly instead of asking the generic extractor to infer it.
+
+The native-text path reads the same printed grid from a text layer that has
+collapsed its column gaps, so a row arrives as `<description> <amount> <DATE>
+[<balance>]` and the CHEQUE/DEBIT vs DEPOSIT/CREDIT distinction is not in the
+text. It is recovered from the running BALANCE the bank prints at the end of
+each date group — see `_credit_counts_from_balances` (W3 Track A, cell
+`td_canada_native x detail_coverage`).
 """
 from __future__ import annotations
 
 import re
+from collections import Counter
 from datetime import date
+from typing import NamedTuple
 
 from .money import parse_money, parse_money_tokens, strip_currency
 from .parser_registry import make_detector, required
@@ -196,6 +205,157 @@ def _native_credit_like(description: str) -> bool:
     return False
 
 
+#: The ledger ends at the cheque-enclosure line, whose leading token is the
+#: number of cheques the envelope contains. That count is statement data, so it
+#: cannot be part of the marker: matching a literal count kept the ledger open
+#: past the end of every page of every statement that encloses one.
+_CHQS_ENCLOSED_RE = re.compile(r"^\d+ CHQS? ENCLOSED\b")
+
+#: Bounds on the balance solver below. A TD date group is a handful of printed
+#: rows and the two-sided prune keeps the reachable-subtotal table small, so
+#: neither bound is reached by the printed grid; they exist so that a
+#: pathological document costs a fixed amount of work and then falls through to
+#: the transaction codes instead of running unbounded inside a parser.
+_MAX_GROUP_ROWS = 64
+_MAX_SOLVER_STATES = 100_000
+
+
+class _NativeRow(NamedTuple):
+    """One flattened native ledger row.
+
+    TD prints five columns — DESCRIPTION, CHEQUE/DEBIT, DEPOSIT/CREDIT, DATE,
+    BALANCE — and the native text layer emits each printed row as one line with
+    the column gaps collapsed to single spaces. A row therefore arrives here as
+    ``<description> <amount> <DATE> [<balance>]``: the amount survives, but
+    *which* of the two money columns it was printed in does not.
+    """
+
+    date: str
+    description: str
+    #: Absolute value in cents, so the balance arithmetic below is exact.
+    amount: int
+    #: The printed BALANCE cell, on the rows that carry one.
+    balance: float | None
+
+
+def _to_cents(value: float) -> int:
+    return int(round(value * 100))
+
+
+def _credit_counts_from_balances(amounts: list[int], delta: int) -> dict[int, int] | None:
+    """Which amounts the printed BALANCE column says were DEPOSIT/CREDIT rows.
+
+    TD prints a running balance on the last row of each date group, so between
+    two printed balances the signed amounts must equal the difference the bank
+    itself printed. Recovering the lost column is therefore arithmetic over the
+    printed grid, not an inference about what a description means.
+
+    With ``S`` the sum of the group's amounts and ``delta`` the printed change,
+    the credit rows sum to ``(delta + S) / 2``; the debit rows are the rest.
+    Returns ``{amount_in_cents: how many rows of that amount are credits}`` when
+    exactly one such split exists, and ``None`` when the printed evidence does
+    not single one out — no split, several, or more work than the bounds allow.
+
+    Rows of equal amount are counted, not identified: swapping two equal rows
+    leaves every balance and every total identical, so the arithmetic cannot
+    distinguish them and does not pretend to.
+    """
+    if not amounts or len(amounts) > _MAX_GROUP_ROWS:
+        return None
+    total = sum(amounts)
+    doubled = delta + total
+    if doubled % 2:
+        return None
+    target = doubled // 2
+    if target < 0 or target > total:
+        return None
+
+    multiplicity = Counter(amounts)
+    values = sorted(multiplicity, reverse=True)   # largest first prunes hardest
+    unplaced = total
+    #: reachable credit subtotal -> (distinct splits reaching it, capped at two
+    #: because only "exactly one" matters, one representative split)
+    reachable: dict[int, tuple[int, tuple[int, ...]]] = {0: (1, ())}
+    for value in values:
+        repeats = multiplicity[value]
+        unplaced -= value * repeats
+        nxt: dict[int, tuple[int, tuple[int, ...]]] = {}
+        for subtotal, (splits, taken_so_far) in reachable.items():
+            for taken in range(repeats + 1):
+                moved = subtotal + value * taken
+                if moved > target:
+                    break                       # every later `taken` is larger
+                if moved + unplaced < target:
+                    continue                    # the rest cannot make up the gap
+                seen = nxt.get(moved)
+                if seen is None:
+                    nxt[moved] = (splits, taken_so_far + (taken,))
+                else:
+                    nxt[moved] = (min(2, seen[0] + splits), seen[1])
+        if len(nxt) > _MAX_SOLVER_STATES:
+            return None
+        reachable = nxt
+
+    solution = reachable.get(target)
+    if solution is None or solution[0] != 1:
+        return None
+    return dict(zip(values, solution[1]))
+
+
+def _directions_from_credit_counts(
+    rows: list[_NativeRow], credit_counts: dict[int, int]
+) -> list[bool]:
+    """Spend each amount's credit count over the rows printing that amount.
+
+    Which row of an equal-amount class is the deposit is exactly what the
+    arithmetic cannot say, so the tie is broken with TD's own transaction codes
+    in printed order. It moves no total and no balance: the rows being ordered
+    carry the same amount.
+    """
+    remaining = dict(credit_counts)
+    credits = [False] * len(rows)
+    coded_first = sorted(
+        range(len(rows)),
+        key=lambda i: (not _native_credit_like(rows[i].description), i),
+    )
+    for i in coded_first:
+        if remaining.get(rows[i].amount, 0) > 0:
+            remaining[rows[i].amount] -= 1
+            credits[i] = True
+    return credits
+
+
+def _resolve_native_directions(
+    rows: list[_NativeRow],
+    groups: list[tuple[list[int], float]],
+    opening: float | None,
+) -> list[bool]:
+    """One `is credit` flag per ledger row, from the printed balance column.
+
+    `groups` are `(row indices, the balance printed at the end of the group)` in
+    document order. A group the printed grid does not determine keeps the
+    transaction-code reading: the rows are still emitted, and reconciliation
+    against the bank's own stated credit and debit totals — evidence the solver
+    never reads — remains the fail-closed gate over them.
+    """
+    credits = [_native_credit_like(row.description) for row in rows]
+    anchor = opening
+    for indices, closing in groups:
+        if anchor is not None:
+            counts = _credit_counts_from_balances(
+                [rows[i].amount for i in indices],
+                _to_cents(closing) - _to_cents(anchor),
+            )
+            if counts is not None:
+                resolved = _directions_from_credit_counts(
+                    [rows[i] for i in indices], counts
+                )
+                for i, is_credit in zip(indices, resolved):
+                    credits[i] = is_credit
+        anchor = closing
+    return credits
+
+
 def detection_text(markdown: str) -> str:
     """The text this parser recognises itself in."""
     return markdown.upper()
@@ -243,7 +403,11 @@ def _parse_native_td_canada(markdown: str, base: Statement | None = None) -> Sta
     stmt.stated_credit_count = None
     stmt.stated_debit_count = None
     stmt.stated_average_balance = None
-    transactions: list[Transaction] = []
+    rows: list[_NativeRow] = []
+    #: (row indices, the balance printed at the end of those rows).
+    groups: list[tuple[list[int], float]] = []
+    pending: list[int] = []
+    ending_balance: float | None = None
     in_ledger = False
     default_year: int | None = None
 
@@ -279,7 +443,7 @@ def _parse_native_td_canada(markdown: str, base: Statement | None = None) -> Sta
         if upper.startswith("DESCRIPTION CHEQUE/DEBIT DEPOSIT/CREDIT DATE BALANCE"):
             in_ledger = True
             continue
-        if in_ledger and upper.startswith("0 CHQS ENCLOSED"):
+        if in_ledger and _CHQS_ENCLOSED_RE.match(upper):
             in_ledger = False
             continue
         if not in_ledger or default_year is None:
@@ -293,8 +457,16 @@ def _parse_native_td_canada(markdown: str, base: Statement | None = None) -> Sta
         tx_date = _native_date_to_iso(tokens[date_index], default_year=default_year)
         balance = parse_money(tokens[date_index + 1]) if date_index + 1 < len(tokens) else None
         if upper.startswith("BALANCE FORWARD"):
-            if stmt.beginning_balance is None and balance is not None:
+            if balance is None:
+                continue
+            if stmt.beginning_balance is None:
                 stmt.beginning_balance = balance
+            elif pending:
+                # A page break can split a date group before its balance is
+                # printed. The next page reprints the carried balance, which
+                # closes the group the previous page ended inside.
+                groups.append((pending, balance))
+                pending = []
             continue
 
         amount_index = None
@@ -310,14 +482,22 @@ def _parse_native_td_canada(markdown: str, base: Statement | None = None) -> Sta
         desc = " ".join(tokens[:amount_index])
         if not desc:
             continue
-        signed = amount if _native_credit_like(desc) else -amount
-        transactions.append(_tx(tx_date, desc, signed))
+        rows.append(_NativeRow(tx_date, desc, _to_cents(amount), balance))
+        pending.append(len(rows) - 1)
         if balance is not None:
-            stmt.ending_balance = balance
+            groups.append((pending, balance))
+            pending = []
+            ending_balance = balance
 
-    if not transactions:
+    if not rows:
         return None
-    stmt.transactions = transactions
+    credits = _resolve_native_directions(rows, groups, stmt.beginning_balance)
+    stmt.transactions = [
+        _tx(row.date, row.description,
+            row.amount / 100 if is_credit else -row.amount / 100)
+        for row, is_credit in zip(rows, credits)
+    ]
+    stmt.ending_balance = ending_balance
     return stmt
 
 
