@@ -82,6 +82,17 @@ def enumerate_root(root: Path) -> Inventory:
     case-insensitively (possible on Linux, where they are genuinely different
     files) that is recorded in `case_collisions` and reported as a deviation
     rather than guessed at.
+
+    **`pinned` carries the MANIFEST spelling, not the on-disk one.** Once the
+    fold-matcher has decided that a disk path IS a pinned document, the
+    manifest spelling is that document's identity for everything downstream —
+    dedup, rows, the telemetry hash map. Canonicalising here, at the one
+    boundary that makes the decision, is what keeps every consumer from having
+    to be case-aware: `DedupIndex.pinned` is keyed by manifest spelling, so a
+    disk-spelled identity string-compares unequal against its own pinned entry
+    and the document reports as a `pinned_corpus_duplicate` of itself. The
+    partition below still subtracts the ON-DISK spelling, because that is what
+    `rglob` produced and what must not leak into the discovery set.
     """
     manifest = pinned_manifest()
     by_fold: dict[str, str] = {}
@@ -107,7 +118,8 @@ def enumerate_root(root: Path) -> Inventory:
         else:
             by_fold[folded] = relative
 
-    pinned: list[str] = []
+    pinned: list[str] = []          # canonical identity: the manifest spelling
+    on_disk: set[str] = set()       # what rglob produced, for the partition
     missing: list[str] = []
     mismatches: list[tuple[str, str]] = []
     for wanted in manifest:
@@ -115,18 +127,18 @@ def enumerate_root(root: Path) -> Inventory:
         if actual is None:
             missing.append(wanted)
             continue
-        pinned.append(actual)
+        pinned.append(wanted)
+        on_disk.add(actual)
         if actual != wanted:
             mismatches.append((wanted, actual))
 
-    claimed = set(pinned)
     return Inventory(
         root=root,
         files=files,
         pdfs=tuple(pdfs),
         total_bytes=total_bytes,
-        pinned=tuple(sorted(claimed)),
-        discovery=tuple(sorted(set(pdfs) - claimed)),
+        pinned=tuple(sorted(set(pinned))),
+        discovery=tuple(sorted(set(pdfs) - on_disk)),
         missing_pinned=tuple(sorted(missing)),
         case_mismatches=tuple(sorted(mismatches)),
         case_collisions=tuple(sorted(collisions)),

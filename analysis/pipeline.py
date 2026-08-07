@@ -29,6 +29,7 @@ from .parser_registry import (
     run_integrity_checks,
 )
 from . import parser_registry_entries as _parser_registry_entries  # noqa: F401  - populates the registry
+from .structurer import STRUCTURER_MODEL, structure_unclaimed
 from .bank_repairs import (
     repair_b1_beginning_balance,
     repair_capital_one_running_amount,
@@ -308,6 +309,7 @@ def assess_document_integrity(
 
 def analyze_markdown(markdown: str, *, settings: Settings | None = None,
                      parse_mode: str = "auto",
+                     document_geometry: object | None = None,
                      on_dispatch: Callable[[Dispatch], None] | None = None) -> Report:
     settings = settings or load_settings()
     if parse_mode not in {"auto", "deterministic"}:
@@ -331,10 +333,30 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         # nothing else. Do not "simplify" this into a Report field.
         on_dispatch(dispatch)
     deterministic_stmt = dispatch.statement
+    # W3-3c: the generic structurer is a fallback on the UNCLAIMED branch. It
+    # never competes with a claiming parser, and it is deliberately not reached
+    # for `ambiguous` or `parser_exception`, which have their own fail-closed
+    # outcomes: structuring either would bury a finding a human must see under
+    # a plausible-looking answer. Off unless GENERIC_STRUCTURER_ENABLED is set,
+    # and it returns None rather than raising, so this line cannot change any
+    # existing behaviour until the opt-in is flipped.
+    structured_stmt = (
+        structure_unclaimed(markdown, geometry=document_geometry)
+        if deterministic_stmt is None and dispatch.outcome == "unclaimed"
+        else None
+    )
     if deterministic_stmt is not None:
         stmt = apply_statement_repairs(markdown, normalize_statement(deterministic_stmt))
         bank_label = (stmt.bank or "bank").lower().replace(" ", "-")
         model_used = f"{bank_label}-deterministic"
+    elif structured_stmt is not None:
+        # No `apply_statement_repairs`: its repairs are bank-specific and this
+        # branch is where no bank was identified. The one correction the
+        # structurer needs (assign_transaction_years) already ran inside the
+        # subsystem, BEFORE grounding, so the date grounding accepted is the
+        # date that ships.
+        stmt = normalize_statement(structured_stmt)
+        model_used = STRUCTURER_MODEL
     else:
         if dispatch.outcome == "ambiguous" and parse_mode == "deterministic":
             raise AmbiguousParserError(dispatch.candidates)

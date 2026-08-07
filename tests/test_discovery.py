@@ -109,10 +109,52 @@ def test_a_case_different_pinned_path_is_still_pinned(tree: Path):
     on_disk.write_bytes((CORPUS / wanted).read_bytes())
 
     inventory = enumerate_root(tree)
-    assert inventory.pinned == ("scotiabank/scotiabank -2.pdf",)
+    # The MANIFEST spelling is the document's identity from here on; the
+    # on-disk spelling is an observation, recorded and not propagated.
+    assert inventory.pinned == (wanted,)
+    # Neither spelling leaks into the discovery set: the partition subtracts
+    # what rglob produced, while the identity reported is the manifest's.
     assert "scotiabank/scotiabank -2.pdf" not in inventory.discovery
+    assert wanted not in inventory.discovery
     assert inventory.case_mismatches == ((wanted, "scotiabank/scotiabank -2.pdf"),)
     assert wanted not in inventory.missing_pinned
+
+
+def test_a_case_folded_pinned_document_is_unique_not_a_duplicate_of_itself(tree: Path):
+    """The main-checkout dry-run failure, as a regression test.
+
+    On a case-insensitive filesystem the archive created `Scotiabank/` before
+    git checked out the tracked `ScotiaBank/`, and Windows kept the first
+    spelling. The runner derived the document's identity from the DISK
+    spelling while `DedupIndex.pinned` is keyed by the MANIFEST spelling, so
+    the two string-compared unequal and a pinned statement reported as a
+    `pinned_corpus_duplicate` **of itself** — `dedup {'unique': 108,
+    'pinned_corpus_duplicate': 1}`. Every clean worktree passed, because git
+    casing and no archive means disk == manifest, which is why it only ever
+    reproduced in the main checkout.
+
+    Fixed by canonicalising identity at the one boundary that decides it
+    (`enumerate_root`), not by making `classify` case-insensitive: on Linux
+    two case-different paths are genuinely different files, and that must stay
+    a reported deviation rather than become a silent match.
+    """
+    wanted = "ScotiaBank/Scotiabank -2.pdf"
+    on_disk = tree / "scotiabank" / "scotiabank -2.pdf"
+    on_disk.parent.mkdir(parents=True, exist_ok=True)
+    on_disk.write_bytes((CORPUS / wanted).read_bytes())
+
+    inventory = enumerate_root(tree)
+    assert inventory.pinned == (wanted,)
+    assert inventory.case_mismatches == ((wanted, "scotiabank/scotiabank -2.pdf"),)
+
+    runner = _runner(tree, dedup=DedupIndex.with_pinned_corpus())
+    row = runner.process(wanted, inventory.folder_label(wanted))
+
+    assert row.dedup_status == "unique"
+    assert row.duplicate_of is None
+    assert row.relative_path == wanted
+    assert row.folder_label == "ScotiaBank"
+    assert row.content_sha256 == pinned_hashes()[wanted]
 
 
 def test_baseline_deviations_name_every_difference(tree: Path):
