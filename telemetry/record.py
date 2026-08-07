@@ -25,6 +25,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from .diagnostics import diagnose
 from .prices import estimate
 
 
@@ -60,6 +61,7 @@ DISPATCH_SOURCES = ("live", "cached", "unavailable")
 TOP_LEVEL_KEYS = frozenset({
     "telemetry_version", "record_id", "run_id", "emitted_at", "emitter",
     "job_id", "document", "source", "dispatch", "stages", "models", "outcome",
+    "diagnostics",
 })
 
 
@@ -330,4 +332,10 @@ def build_record(
             "error_type": error_type,
             "fallback_reason": fallback_reason,
         },
+        # W3-2. Computed here, from the payload every emitter already passes,
+        # so batch, the webapp worker and the discovery runner all pick the
+        # diagnostics up with no change of their own. A read-only projection:
+        # `diagnose` does not mutate `payload` and never stores a string that
+        # came out of a statement (see telemetry/diagnostics.py).
+        "diagnostics": diagnose(payload, outcome_class),
     }

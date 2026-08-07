@@ -22,6 +22,16 @@ Three properties hold everywhere in this package:
 from __future__ import annotations
 
 from .collect import DispatchCollector, StageTimer, score_vector
+from .diagnostics import (
+    ADVISORY_CODES,
+    CLASS_OF,
+    CLASS_PRECEDENCE,
+    DIAGNOSABLE_CLASSES,
+    DIAGNOSTICS_VERSION,
+    VOCABULARY,
+    diagnose,
+    empty_diagnostics,
+)
 from .emit import (
     DISABLE_ENV,
     JsonlSink,
@@ -49,7 +59,12 @@ from .record import (
 )
 
 __all__ = [
+    "ADVISORY_CODES",
+    "CLASS_OF",
+    "CLASS_PRECEDENCE",
     "DEFERRED_REASONS",
+    "DIAGNOSABLE_CLASSES",
+    "DIAGNOSTICS_VERSION",
     "DISABLE_ENV",
     "DispatchCollector",
     "JsonlSink",
@@ -60,9 +75,12 @@ __all__ = [
     "StageTimer",
     "TELEMETRY_VERSION",
     "TOP_LEVEL_KEYS",
+    "VOCABULARY",
     "build_record",
     "classify_outcome",
+    "diagnose",
     "dispatch_section",
+    "empty_diagnostics",
     "document_section",
     "model_calls_for",
     "new_run_id",
