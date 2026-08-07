@@ -187,3 +187,72 @@ def test_pipeline_names_no_bank(tmp_path):
     assert not offenders, f"analysis/pipeline.py still names banks: {offenders}"
     assert "_deterministic_statement" not in source
     assert not re.search(r"parse_\w+_statement", source), "pipeline still imports parser functions"
+
+
+# ---------------------------------------------------------------------------
+# Crash surfacing (W3-1b) — PROPOSED, awaiting Ocean's ruling on the diff
+# ---------------------------------------------------------------------------
+#
+# The W3-1 boundary stops a parser crash escaping `resolve()`. What it cannot
+# do from inside the registry is tell the pipeline to route the document to a
+# human, and on the `auto` path that matters: before the boundary a crash meant
+# the webapp and batch showed an analysis error and no numbers, and after it
+# the document falls through to LLM extraction like any unclaimed one — a
+# result with no trace of the fact that a parser we DO have for this bank broke
+# on it. That is a loss of fail-closed visibility, and closing it needs three
+# lines in `analysis/pipeline.py`, which the W3-1 dispatch requires be proposed
+# to Ocean before being written.
+#
+# The gap is pinned here in the R-4 idiom: strict xfails that convert to
+# passing assertions in the commit that lands the approved diff. They are not
+# a to-do note; they fail the suite the moment someone implements this
+# differently, and they fail it today if someone believes it is already done.
+#
+# The proposed diff (analysis/pipeline.py, in assess_document_integrity, next
+# to the existing parser_ambiguous block):
+#
+#     if dispatch is not None and dispatch.outcome == "parser_exception":
+#         flags.append("parser_exception")
+#         notes.append(
+#             "a deterministic parser raised on this document ("
+#             + ", ".join(dispatch.crashed)
+#             + "); routed to review rather than reported as unrecognised"
+#         )
+#
+# ...plus, in analyze_markdown's deterministic branch, raising an error that
+# says a parser crashed instead of "no deterministic parser matched", which is
+# a different and misleading finding.
+
+
+@pytest.mark.xfail(strict=True, reason="W3-1b: pipeline surfacing diff proposed, awaiting Ocean")
+def test_a_parser_exception_is_flagged_for_review():
+    dispatch = pr.Dispatch(
+        "parser_exception",
+        exceptions=(pr.ParserFailure("us_bank", "parse", "AttributeError"),),
+    )
+    stmt = statement("Bank Of Nowhere")
+    recon = recon_for(stmt)
+    quality = assess_quality(stmt, recon, dispatch=dispatch)
+    integrity = assess_document_integrity(stmt, recon, quality, markdown="x", dispatch=dispatch)
+    assert "parser_exception" in integrity.flags
+    assert any("us_bank" in note for note in integrity.notes)
+
+
+@pytest.mark.xfail(strict=True, reason="W3-1b: pipeline surfacing diff proposed, awaiting Ocean")
+def test_deterministic_mode_says_a_parser_crashed_rather_than_that_none_matched():
+    from analysis.pipeline import analyze_markdown
+
+    def explode(markdown: str):
+        raise AttributeError("'NoneType' object has no attribute 'group'")
+
+    registration = pr.register(pr.Registration(
+        id="_synthetic_crash_probe_pipeline",
+        bank="Synthetic Crash Probe Pipeline",
+        markers=(pr.required("probe", lambda t: "SYNTHETIC CRASH PROBE DOCUMENT" in t),),
+        parse=explode,
+    ))
+    try:
+        with pytest.raises(RuntimeError, match="crash"):
+            analyze_markdown("SYNTHETIC CRASH PROBE DOCUMENT", parse_mode="deterministic")
+    finally:
+        pr._REGISTRY.pop(registration.id, None)
