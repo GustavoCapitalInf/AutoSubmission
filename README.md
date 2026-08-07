@@ -205,6 +205,47 @@ eligible-deposit denominator are defined in
 OCR_BASE_URL=... .venv/Scripts/python.exe -m pytest -m live   # real-endpoint smoke
 ```
 
+## Discovery runner — intake and outcome over an arbitrary corpus
+
+`python -m discovery` points the merged platform at a directory of unknown
+PDFs and reports what happened: intake profile, dedup, which parser claimed
+each document and with what score, which parsers *almost* claimed it, the
+outcome class, and the failure taxonomy — plus rollups (deterministic
+coverage, bank/layout clusters, ranked unknown-layout groups, parser-claim vs
+folder-label, ambiguity clusters, cache stats).
+
+```bash
+.venv/Scripts/python.exe -m discovery --dry-run        # the pinned 109. The gate.
+.venv/Scripts/python.exe -m discovery --profile-only   # tranche 0: intake only
+.venv/Scripts/python.exe -m discovery --digital        # tranche 1: offline rungs
+.venv/Scripts/python.exe -m discovery --scanned        # tranche 2: + local Tesseract
+.venv/Scripts/python.exe -m discovery --dry-run --no-cache --limit 20
+```
+
+It owns no routing, no parsers and no financial logic: it consumes O-1
+preflight profiles, the production intake ladder, D-3's cache, R-3's registry
+dispatch and H-3 telemetry. **Offline by construction** — `deterministic` parse
+mode makes the LLM branch unreachable and the visual-OCR rung is disabled, so
+the model client module is never even imported (asserted by test). Tranche 2
+adds only the local Tesseract binary.
+
+Documents a tranche cannot read are **recorded, never skipped**: a scanned PDF
+in tranche 1 is `deferred_scanned` and appears in the report as work not done.
+
+Every run first verifies the corpus root against the frozen archive baseline
+(3,768 files / 3,615 PDFs / 996,080,803 bytes) and refuses to proceed if it has
+moved — tranche numbers are only comparable if every tranche measured the same
+corpus. `--dry-run` checks the pinned 109 instead, so it works in a clean
+checkout. `--skip-baseline` is for scoped runs whose numbers are not
+tranche-comparable.
+
+Output goes to the gitignored `discovery_reports/<run_id>/`: `report.txt`,
+`summary.json`, `rows.csv`, `hash_map.csv`, and `telemetry.jsonl`. Two
+artifacts, two audiences — the telemetry records carry hashes and codes only
+(the H-3 invariant), while the report carries relative paths and folder labels
+for human adjudication, with account identifiers masked to last-4 and no
+transaction-level detail anywhere.
+
 ## Telemetry — what happened to each statement, and what it cost
 
 One write-only record per statement per run: content hash, intake path taken,
