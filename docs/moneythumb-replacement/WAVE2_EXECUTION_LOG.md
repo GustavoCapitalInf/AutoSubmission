@@ -22,6 +22,33 @@ Gustavo). Post-W3-1 merge, Ocean runs a measured discovery re-run
 
 ---
 
+## 2026-08-07 — W3-2 REVIEWED: APPROVED; **MERGED as `f16f1fc`, pushed** (readiness-ordered ahead of W3-1 — telemetry-only, no file conflict; REEF rebases on merge)
+
+50 codes → 16 ranked classes; prefix-anchored mapping (hostile-description
+spoof tested); withheld-3 anchor reproduces the documented forensic
+diagnoses from adb-withheld-second-pass.md; zero analysis-output change
+proven byte-identical; 1,803 tests; gate GREEN 106/3. Disclosed test-only
+fix accepted (pre-existing I1 flake: a timestamp substring reading as an
+amount; scan now excludes four shape-pinned identifier fields). README
+diagnostics paragraph added by Ocean post-merge (`983afe0`).
+
+**Ocean rulings (W3-2 open questions):** (1) `count_mismatch` platform
+check = named Wave-3 ticket (protected-module change, Ocean-gated; payload
+already carries the raw material) — logged, not now. (2) Withheld-only
+scope STANDS; expansion to review/failed classes requires a ruling at
+W3-4. (3) Cause-over-symptom precedence CONFIRMED; revisit only if the
+614-scale rollup contradicts the three corpus anchors. (4) `unmapped`
+carrying literal names for enum-shaped sources CONFIRMED (our constants);
+free-text sources counts-only. Also logged from the survey: dead
+`summary_trusted` quality vocabulary in pipeline.py (unreachable branch) —
+Wave-3 hygiene ticket.
+
+**Measured re-run launched** (cached, full set) to produce the 614-scale
+failure-class × parser ranking — W3-4's input and the vocabulary's
+at-scale completeness test (`unmapped` line is the signal).
+
+---
+
 
 Author: Ocean. Running record; newest entries appended. Merge queue:
 H-0 → CI-1 → R-2 → D-3 → O-3 → R-3 → R-4 → H-3 → DSC-1.
