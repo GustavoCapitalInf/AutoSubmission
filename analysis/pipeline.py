@@ -19,7 +19,15 @@ from .transaction_classifier import (
 from .bofa import repair_bofa_summary
 from .regions import repair_regions_summary
 from .first_community import repair_first_community_posted_activity
-from .parser_registry import AmbiguousParserError, Dispatch, Registration, by_bank_label, resolve
+from .parser_registry import (
+    AmbiguousParserError,
+    Dispatch,
+    ParserCrashError,
+    Registration,
+    by_bank_label,
+    resolve,
+    run_integrity_checks,
+)
 from . import parser_registry_entries as _parser_registry_entries  # noqa: F401  - populates the registry
 from .bank_repairs import (
     repair_b1_beginning_balance,
@@ -231,10 +239,23 @@ def assess_document_integrity(
             + ", ".join(name for name, _score in dispatch.candidates)
             + "); routed to review rather than resolved by guesswork"
         )
+    if dispatch is not None and dispatch.outcome == "parser_exception":
+        flags.append("parser_exception")
+        notes.append(
+            "a deterministic parser raised on this document ("
+            + ", ".join(dispatch.crashed)
+            + "); routed to review rather than reported as unrecognised"
+        )
     contradictions: list[str] = []
     if markdown and registration is not None:
-        for check in registration.integrity_checks:
-            contradictions.extend(check(markdown, stmt))
+        contradictions, check_failures = run_integrity_checks(registration, markdown, stmt)
+        for failure in check_failures:
+            flags.append("integrity_check_exception")
+            notes.append(
+                f"a registered document-integrity check raised ({failure.parser_id}: "
+                f"{failure.exception}); its finding is unavailable, so the document is "
+                "routed to review rather than reported as clear"
+            )
     if contradictions:
         flags.append("conflicting_statement_summaries")
         notes.extend(contradictions)
@@ -317,6 +338,10 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
     else:
         if dispatch.outcome == "ambiguous" and parse_mode == "deterministic":
             raise AmbiguousParserError(dispatch.candidates)
+        if dispatch.outcome == "parser_exception" and parse_mode == "deterministic":
+            # Not "no parser matched": that would file our own defect as a gap
+            # in our layout knowledge, in the one report a human reads.
+            raise ParserCrashError(dispatch.exceptions)
         if parse_mode == "deterministic":
             raise RuntimeError("no deterministic parser matched this statement")
         stmt = normalize_statement(extract_statement(markdown, settings=settings, model=model_used))

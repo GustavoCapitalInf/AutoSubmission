@@ -304,6 +304,8 @@ def classify_outcome(
     # the crash cluster it belongs to is what ranks the underlying defect.
     if "parser_exception" in flags:
         return "review", "parser_exception"
+    if "integrity_check_exception" in flags:
+        return "review", "integrity_check_exception"
     if flags:
         return "review", "integrity_flags"
     if quality.get("corporate_use") != "approved":

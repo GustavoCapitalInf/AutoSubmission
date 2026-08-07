@@ -84,6 +84,11 @@ INTEGRITY_FLAGS: frozenset[str] = frozenset({
     "transaction_detail_not_corporate_reliable",
     "not_a_formal_statement",
     "parser_ambiguous",
+    # W3-1. Both say something about OUR code rather than about the statement's
+    # arithmetic — a parser raised, or a registered integrity check did — and
+    # both are advisory below for that reason.
+    "parser_exception",
+    "integrity_check_exception",
     "conflicting_statement_summaries",
     "missing_declared_statement_page",
 })
@@ -282,6 +287,13 @@ ADVISORY_CODES: frozenset[str] = frozenset({
     "integrity:transaction_detail_not_corporate_reliable",
     "integrity:not_a_formal_statement",
     "integrity:parser_ambiguous",
+    # W3-1: routing and defect facts, not reasons the numbers failed. A
+    # withheld document that also carries one of these was withheld by a check
+    # in the classed vocabulary above; letting a crash decide the primary class
+    # would put "a parser broke" at the top of a list that exists to rank
+    # WHICH FINANCIAL CHECK failed.
+    "integrity:parser_exception",
+    "integrity:integrity_check_exception",
 })
 
 #: Every code this module can ever emit.

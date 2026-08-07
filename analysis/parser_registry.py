@@ -71,6 +71,7 @@ __all__ = [
     "Dispatch",
     "Marker",
     "Parser",
+    "ParserCrashError",
     "ParserFailure",
     "Registration",
     "admissible_text",
@@ -85,6 +86,7 @@ __all__ = [
     "registrations",
     "required",
     "resolve",
+    "run_integrity_checks",
     "safe_detect",
     "score_markers",
 ]
@@ -95,6 +97,11 @@ __all__ = [
 CLAIM_THRESHOLD = 0.5
 
 MarkerKind = Literal["required", "corroborating", "exclusive", "excluding"]
+
+#: Where a registration's own code can run, and therefore where it can break.
+#: `integrity_check` is the one such site outside `resolve`: the orchestrator
+#: invokes registry-supplied checks after a claim (R-3 §7.2).
+FailureStage = Literal["detect", "parse", "integrity_check"]
 
 
 class AmbiguousParserError(RuntimeError):
@@ -109,6 +116,32 @@ class AmbiguousParserError(RuntimeError):
         self.candidates = tuple(candidates)
         listed = ", ".join(f"{name} ({score:.2f})" for name, score in self.candidates)
         super().__init__(f"ambiguous statement: {listed}")
+
+
+class ParserCrashError(RuntimeError):
+    """Every parser that could have claimed this document raised (W3-1).
+
+    Raised only on the deterministic path, in place of the generic "no
+    deterministic parser matched this statement" — which is a different and
+    misleading finding. "No parser matched" ranks a bank for future layout
+    work; this says our own code broke on a document we already claim to know,
+    and the two must never be confused in a triage queue.
+
+    Subclasses `RuntimeError` so every existing caller that already handles the
+    deterministic refusal keeps working unchanged.
+
+    The message carries registry ids and exception class names only. A parser's
+    own exception message routinely quotes the fragment of the statement that
+    provoked it, and this string reaches logs, job records and operator views.
+    """
+
+    def __init__(self, failures: Sequence["ParserFailure"]) -> None:
+        self.failures = tuple(failures)
+        listed = ", ".join(
+            f"{failure.parser_id} ({failure.stage}: {failure.exception})"
+            for failure in self.failures
+        ) or "unknown parser"
+        super().__init__(f"deterministic parser crashed: {listed}")
 
 
 # ---------------------------------------------------------------------------
@@ -391,11 +424,11 @@ class ParserFailure:
     """
 
     parser_id: str
-    stage: Literal["detect", "parse"]
+    stage: FailureStage
     exception: str
 
 
-def _guarded(stage: Literal["detect", "parse"], registration: Registration, call, failures):
+def _guarded(stage: FailureStage, registration: Registration, call, failures):
     """Run one registry callable; a crash becomes a recorded `ParserFailure`.
 
     Returns `None` when the call raised, which both callers read as "this
@@ -463,7 +496,13 @@ def safe_detect(registration: Registration, markdown: str, failures: list | None
     return detection if isinstance(detection, Detection) else Detection(0.0)
 
 
-def _surviving_claimants(markdown: str, failures: list) -> list[tuple[Registration, Detection]]:
+def _surviving_claimants(
+    markdown: str, failures: list | None = None
+) -> list[tuple[Registration, Detection]]:
+    """Claimants after `supersedes` pruning. `failures` is optional so that the
+    diagnostic callers (the corpus parity tests) keep their pre-W3-1 signature:
+    they ask what claimed a document, not what broke doing it."""
+    failures = failures if failures is not None else []
     claimants = [
         (registration, detection)
         for registration in registrations()
@@ -531,6 +570,30 @@ def resolve(markdown: str) -> Dispatch:
         attempted=tuple(attempted),
         exceptions=tuple(failures),
     )
+
+
+def run_integrity_checks(
+    registration: Registration, markdown: str, statement: Statement
+) -> tuple[list[str], tuple[ParserFailure, ...]]:
+    """Every check this registration declares, guarded exactly like `parse`.
+
+    `integrity_checks` are registry-supplied callables that the orchestrator
+    invokes, so they are the one remaining place where parser-owned code runs
+    outside the `resolve` seam and could raise into the pipeline. The guarding
+    policy lives here, next to the seam it belongs to, rather than as a second
+    `try` written into the orchestrator.
+
+    A check that raises contributes no findings — its answer is simply unknown,
+    which is a fact the caller must surface rather than read as "nothing to
+    report". Returns `(contradiction notes, failures)`.
+    """
+    notes: list[str] = []
+    failures: list[ParserFailure] = []
+    for check in registration.integrity_checks:
+        found = _guarded("integrity_check", registration, lambda c=check: c(markdown, statement), failures)
+        if found:
+            notes.extend(found)
+    return notes, tuple(failures)
 
 
 def detection_report(markdown: str) -> tuple[tuple[str, Detection], ...]:

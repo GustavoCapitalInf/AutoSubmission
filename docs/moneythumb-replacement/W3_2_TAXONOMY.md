@@ -122,7 +122,17 @@ withheld, and letting it choose a class would misdirect remediation.
 | `transaction_detail_not_corporate_reliable` | *advisory* (a consequence) |
 | `not_a_formal_statement` | *advisory* (a document class, not a failure) |
 | `parser_ambiguous` | *advisory* (a dispatch fact; `dispatch.outcome` carries it) |
+| `parser_exception` | *advisory* (W3-1: a parser raised; `dispatch.exceptions` carries who and what) |
+| `integrity_check_exception` | *advisory* (W3-1: a registered integrity check raised, so its finding is unknown) |
 | anything else | `integrity:unmapped` → **unmapped** |
+
+The two W3-1 flags are advisory for the same reason `parser_ambiguous` is:
+they describe **our** code, not the statement's arithmetic. A withheld document
+carrying one of them was withheld by a check in the classed vocabulary above,
+and letting a crash decide the primary class would put "a parser broke" at the
+top of a ranking that exists to say *which financial check* failed. They stay
+in `codes` — the crash is real evidence, and `dispatch.exceptions` plus the
+discovery crash-cluster ranking are where it is acted on.
 
 ### 3.3 Source 3 — reconciliation issues → `recon:<code>`
 

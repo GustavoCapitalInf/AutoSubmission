@@ -189,42 +189,32 @@ def test_pipeline_names_no_bank(tmp_path):
     assert not re.search(r"parse_\w+_statement", source), "pipeline still imports parser functions"
 
 
-# ---------------------------------------------------------------------------
-# Crash surfacing (W3-1b) — PROPOSED, awaiting Ocean's ruling on the diff
-# ---------------------------------------------------------------------------
-#
-# The W3-1 boundary stops a parser crash escaping `resolve()`. What it cannot
-# do from inside the registry is tell the pipeline to route the document to a
-# human, and on the `auto` path that matters: before the boundary a crash meant
-# the webapp and batch showed an analysis error and no numbers, and after it
-# the document falls through to LLM extraction like any unclaimed one — a
-# result with no trace of the fact that a parser we DO have for this bank broke
-# on it. That is a loss of fail-closed visibility, and closing it needs three
-# lines in `analysis/pipeline.py`, which the W3-1 dispatch requires be proposed
-# to Ocean before being written.
-#
-# The gap is pinned here in the R-4 idiom: strict xfails that convert to
-# passing assertions in the commit that lands the approved diff. They are not
-# a to-do note; they fail the suite the moment someone implements this
-# differently, and they fail it today if someone believes it is already done.
-#
-# The proposed diff (analysis/pipeline.py, in assess_document_integrity, next
-# to the existing parser_ambiguous block):
-#
-#     if dispatch is not None and dispatch.outcome == "parser_exception":
-#         flags.append("parser_exception")
-#         notes.append(
-#             "a deterministic parser raised on this document ("
-#             + ", ".join(dispatch.crashed)
-#             + "); routed to review rather than reported as unrecognised"
-#         )
-#
-# ...plus, in analyze_markdown's deterministic branch, raising an error that
-# says a parser crashed instead of "no deterministic parser matched", which is
-# a different and misleading finding.
 
 
-@pytest.mark.xfail(strict=True, reason="W3-1b: pipeline surfacing diff proposed, awaiting Ocean")
+# ---------------------------------------------------------------------------
+# Crash surfacing (W3-1b) — Ocean-approved pipeline diff, 2026-08-07
+# ---------------------------------------------------------------------------
+#
+# The W3-1 registry boundary stops a parser crash escaping `resolve()`. What it
+# cannot do from inside the registry is tell the pipeline to route the document
+# to a human, and on the `auto` path that mattered: before the boundary a crash
+# surfaced as "no analysis, here is the error", and after it the document fell
+# through to LLM extraction with nothing recording that a parser we DO have for
+# this bank broke on it. A worker-side check could not close that — the D-3
+# cache stores the analysis payload, so the fact has to be IN the payload.
+#
+# Two of the tests below were the strict xfails that pinned the proposal while
+# it awaited Ocean; they are now plain assertions, joined by three more that
+# cover the extension Ocean approved with it. Two surfaces, three states:
+#
+#   parser_exception          — nothing produced a statement because something
+#                               raised (auto: flag + review; deterministic:
+#                               ParserCrashError, not "no parser matched")
+#   integrity_check_exception — a registration's own integrity check raised
+#                               after a successful claim; its finding is
+#                               UNKNOWN, which is not the same as "clear"
+
+
 def test_a_parser_exception_is_flagged_for_review():
     dispatch = pr.Dispatch(
         "parser_exception",
@@ -234,16 +224,33 @@ def test_a_parser_exception_is_flagged_for_review():
     recon = recon_for(stmt)
     quality = assess_quality(stmt, recon, dispatch=dispatch)
     integrity = assess_document_integrity(stmt, recon, quality, markdown="x", dispatch=dispatch)
+
     assert "parser_exception" in integrity.flags
     assert any("us_bank" in note for note in integrity.notes)
+    assert integrity.risk_level == "review"
 
 
-@pytest.mark.xfail(strict=True, reason="W3-1b: pipeline surfacing diff proposed, awaiting Ocean")
+def test_the_crash_note_names_the_parser_and_never_the_exception_message():
+    """The flag exists to be actionable; it must not become a leak."""
+    dispatch = pr.Dispatch(
+        "parser_exception",
+        exceptions=(pr.ParserFailure("bank_of_america", "parse", "ValueError"),),
+    )
+    stmt = statement("Bank Of Nowhere")
+    recon = recon_for(stmt)
+    quality = assess_quality(stmt, recon, dispatch=dispatch)
+    integrity = assess_document_integrity(stmt, recon, quality, markdown="x", dispatch=dispatch)
+
+    note = next(note for note in integrity.notes if "bank_of_america" in note)
+    assert "month must be in" not in note
+    assert set(dispatch.crashed) == {"bank_of_america"}
+
+
 def test_deterministic_mode_says_a_parser_crashed_rather_than_that_none_matched():
     from analysis.pipeline import analyze_markdown
 
     def explode(markdown: str):
-        raise AttributeError("'NoneType' object has no attribute 'group'")
+        raise AttributeError(f"'NoneType' object has no attribute 'group': {markdown}")
 
     registration = pr.register(pr.Registration(
         id="_synthetic_crash_probe_pipeline",
@@ -251,8 +258,72 @@ def test_deterministic_mode_says_a_parser_crashed_rather_than_that_none_matched(
         markers=(pr.required("probe", lambda t: "SYNTHETIC CRASH PROBE DOCUMENT" in t),),
         parse=explode,
     ))
+    document = "SYNTHETIC CRASH PROBE DOCUMENT ACME PLUMBING LLC"
     try:
-        with pytest.raises(RuntimeError, match="crash"):
-            analyze_markdown("SYNTHETIC CRASH PROBE DOCUMENT", parse_mode="deterministic")
+        with pytest.raises(pr.ParserCrashError) as raised:
+            analyze_markdown(document, parse_mode="deterministic")
     finally:
         pr._REGISTRY.pop(registration.id, None)
+
+    message = str(raised.value)
+    assert "_synthetic_crash_probe_pipeline" in message and "AttributeError" in message
+    assert "no deterministic parser matched" not in message
+    assert "ACME PLUMBING" not in message, "the parser's own message must not travel"
+    # Existing callers catch the deterministic refusal as RuntimeError.
+    assert isinstance(raised.value, RuntimeError)
+
+
+def test_a_crashing_integrity_check_becomes_a_flag_and_the_analysis_completes():
+    """The one place registry-supplied code runs outside the resolve seam.
+
+    An integrity check that raises has no finding — which is emphatically not
+    the same as having nothing to report, so the document says so and goes to
+    review instead of being reported as clear.
+    """
+    def explode(markdown: str, stmt: Statement) -> list[str]:
+        raise ZeroDivisionError("division by zero while comparing summaries")
+
+    registration = pr.Registration(
+        id="_synthetic_check_probe",
+        bank="Synthetic Check Probe",
+        markers=(pr.required("probe", lambda t: "PROBE" in t),),
+        parse=lambda md: None,
+        integrity_checks=(explode,),
+    )
+    dispatch = pr.Dispatch("claimed", registration=registration, detection=pr.Detection(0.5))
+    stmt = statement("Synthetic Check Probe")
+    recon = recon_for(stmt)
+    quality = assess_quality(stmt, recon, dispatch=dispatch)
+
+    integrity = assess_document_integrity(stmt, recon, quality, markdown="PROBE", dispatch=dispatch)
+
+    assert "integrity_check_exception" in integrity.flags
+    note = next(note for note in integrity.notes if "_synthetic_check_probe" in note)
+    assert "ZeroDivisionError" in note
+    assert "division by zero" not in note
+    # A check that could not run is not a contradiction it found.
+    assert "conflicting_statement_summaries" not in integrity.flags
+    assert integrity.possible_document_issue is False
+
+
+def test_a_healthy_integrity_check_still_reports_its_contradictions():
+    def contradicts(markdown: str, stmt: Statement) -> list[str]:
+        return ["the printed summary contradicts the second summary block"]
+
+    registration = pr.Registration(
+        id="_synthetic_check_probe_ok",
+        bank="Synthetic Check Probe Ok",
+        markers=(pr.required("probe", lambda t: "PROBE" in t),),
+        parse=lambda md: None,
+        integrity_checks=(contradicts,),
+    )
+    dispatch = pr.Dispatch("claimed", registration=registration, detection=pr.Detection(0.5))
+    stmt = statement("Synthetic Check Probe Ok")
+    recon = recon_for(stmt)
+    quality = assess_quality(stmt, recon, dispatch=dispatch)
+
+    integrity = assess_document_integrity(stmt, recon, quality, markdown="PROBE", dispatch=dispatch)
+
+    assert "conflicting_statement_summaries" in integrity.flags
+    assert "integrity_check_exception" not in integrity.flags
+    assert integrity.possible_document_issue is True
