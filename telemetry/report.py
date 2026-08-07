@@ -19,6 +19,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from .diagnostics import UNATTRIBUTED
 from .emit import read_jsonl
 
 
@@ -168,7 +169,19 @@ def _diagnostics(record: dict) -> dict:
     return section if isinstance(section, dict) else {"evaluated": False}
 
 
-def diagnostics_rollup(records: list[dict]) -> dict:
+class UnattributedParsers(RuntimeError):
+    """A failure-class x parser rollup was asked for over a run with no parsers.
+
+    Raised rather than degraded (W3-2b, Ocean ruling 2), for the same reason
+    `discovery.adjudication` raises: on a D-3 analysis cache hit
+    `analyze_markdown` never ran, so the record carries the diagnosis and no
+    `parser_id` (H3_SCHEMA 5.4). The rollup then prints a complete-LOOKING
+    table in which every parser column reads `(none)`, and nothing in the
+    output says the question was not answered.
+    """
+
+
+def diagnostics_rollup(records: list[dict], *, allow_unattributed: bool = False) -> dict:
     """Failure class x parser x volume over one run. Pure, so tests assert on it.
 
     The question this answers is W3-2's: of the documents the platform refused
@@ -176,6 +189,20 @@ def diagnostics_rollup(records: list[dict]) -> dict:
     ranked by check-class and volume instead of done statement by statement.
     """
     diagnosed = [r for r in records if _diagnostics(r).get("evaluated")]
+    unattributed = [r for r in diagnosed if not r["dispatch"].get("parser_id")]
+    if unattributed and not allow_unattributed:
+        raise UnattributedParsers(
+            f"{len(unattributed)} of {len(diagnosed)} diagnosed documents carry "
+            "no parser_id, so a failure-class x parser rollup cannot be built.\n"
+            "This is the H3_SCHEMA 5.4 cache-hit hole: a run served from the "
+            "analysis cache never re-dispatched, so it has the diagnoses and "
+            "not the claims.\n"
+            "  re-run discovery with --no-cache   the run then carries its own "
+            "parser attribution\n"
+            "  --allow-unattributed               build the rollup anyway; the "
+            "affected rows are labelled '(parser unknown)' explicitly"
+        )
+    versions: Counter = Counter()
     classes: Counter = Counter()
     codes: Counter = Counter()
     checks: Counter = Counter()
@@ -187,7 +214,8 @@ def diagnostics_rollup(records: list[dict]) -> dict:
 
     for record in diagnosed:
         section = _diagnostics(record)
-        parser = record["dispatch"].get("parser_id") or "(none)"
+        versions[section.get("diagnostics_version")] += 1
+        parser = record["dispatch"].get("parser_id") or UNATTRIBUTED
         primary = section.get("primary_class") or "undiagnosed"
         classes[primary] += 1
         parsers[parser] += 1
@@ -205,6 +233,15 @@ def diagnostics_rollup(records: list[dict]) -> dict:
     return {
         "total": len(records),
         "diagnosed": len(diagnosed),
+        # More than one entry means the rollup spans a vocabulary change, so
+        # the class column is not comparing like with like. Surfaced, never
+        # reconciled silently.
+        "unattributed_documents": len(unattributed),
+        "diagnostics_versions": {
+            str(version): count for version, count in sorted(
+                versions.items(), key=lambda kv: (kv[0] is None, kv[0])
+            )
+        },
         "classes": dict(classes),
         "codes": dict(codes),
         "adb_checks_failed": dict(checks),
@@ -229,9 +266,18 @@ def render_diagnostics(rollup: dict, run_id: str | None = None, *, top: int = 20
     lines = [
         f"run {run_id or '(all)'} | withheld diagnostics",
         f"diagnosed {diagnosed} of {total} documents",
+    ]
+    versions = rollup.get("diagnostics_versions") or {}
+    if len(versions) > 1:
+        lines.append(
+            "  WARNING mixed taxonomy versions: "
+            + " | ".join(f"v{key} {count}" for key, count in versions.items())
+            + " - class counts span a vocabulary change and are NOT comparable"
+        )
+    lines.extend([
         "",
         f"  {'failure class':<26}{'parser':<22}{'docs':>6}",
-    ]
+    ])
     for failure_class, parser, count in rollup["class_parser"]:
         lines.append(f"  {failure_class:<26}{parser:<22}{count:>6}")
     if not rollup["class_parser"]:
@@ -249,6 +295,15 @@ def render_diagnostics(rollup: dict, run_id: str | None = None, *, top: int = 20
         lines.append(f"  {key:<52}{count:>6}")
     if not ranked:
         lines.append("  (none)")
+
+    if rollup.get("unattributed_documents"):
+        lines.extend([
+            "",
+            f"WARNING --allow-unattributed: {rollup['unattributed_documents']} "
+            f"diagnosed documents have no parser and are grouped under "
+            f"'{UNATTRIBUTED}';",
+            "         those rows answer no class x parser question.",
+        ])
 
     unmapped = rollup["unmapped"]
     lines.extend([
@@ -296,6 +351,11 @@ def main(argv: list[str] | None = None) -> int:
         "--diagnostics", action="store_true",
         help="W3-2 withheld-diagnostics rollup: failure class x parser x volume.",
     )
+    parser.add_argument(
+        "--allow-unattributed", action="store_true",
+        help="Build the diagnostics rollup even when some diagnosed documents "
+             "have no parser; those rows are labelled '(parser unknown)'.",
+    )
     parser.add_argument("--json", action="store_true", help="Emit the summary as JSON.")
     args = parser.parse_args(argv)
 
@@ -310,7 +370,13 @@ def main(argv: list[str] | None = None) -> int:
         else None
     )
     if args.diagnostics:
-        rollup = diagnostics_rollup(records)
+        try:
+            rollup = diagnostics_rollup(
+                records, allow_unattributed=args.allow_unattributed
+            )
+        except UnattributedParsers as error:
+            print(f"telemetry.report: {error}", file=sys.stderr)
+            return 2
         if args.json:
             print(json.dumps(rollup, indent=2, sort_keys=True))
         else:

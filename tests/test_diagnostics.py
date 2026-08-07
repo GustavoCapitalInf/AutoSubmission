@@ -24,11 +24,16 @@ from telemetry.diagnostics import (
     INTEGRITY_FLAGS,
     RECON_ISSUE_ANCHORS,
     SUMMARY_FIELDS,
+    UNATTRIBUTED,
     VOCABULARY,
     diagnose,
     empty_diagnostics,
 )
-from telemetry.report import diagnostics_rollup, render_diagnostics
+from telemetry.report import (
+    UnattributedParsers,
+    diagnostics_rollup,
+    render_diagnostics,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -213,6 +218,62 @@ def test_a_withheld_document_the_taxonomy_cannot_explain_says_so():
     assert result["primary_class"] == "undiagnosed"
 
 
+def test_a_crashed_integrity_check_makes_the_diagnosis_incomplete():
+    """W3-2b. A registered integrity check that RAISED means its finding is
+    UNKNOWN, not clean - so the diagnosis outranks every financial class.
+
+    Concretely: the check that crashed is typically the one that would have
+    produced `source_contradiction`. Reporting `ledger_identity` because the
+    contradiction check never got to run would present an incomplete diagnosis
+    as a confident one.
+    """
+    payload = _payload(
+        reconciliation={"issues": ["sum check off by +1.00: ..."], "continuity_breaks": 0},
+        integrity={"flags": ["ledger_sum_mismatch", "integrity_check_exception"]},
+    )
+    result = diagnose(payload, "withheld")
+    assert result["primary_class"] == "check_unavailable"
+    assert result["classes"] == ["check_unavailable", "ledger_identity"]
+    assert "integrity:integrity_check_exception" in result["codes"]
+
+
+def test_check_unavailable_outranks_every_financial_class():
+    financial = (
+        "source_contradiction", "period_integrity", "summary_field_missing",
+        "summary_identity", "detail_coverage", "posting_date_coverage",
+        "balance_continuity", "ledger_identity", "daily_ledger_structure",
+        "page_coverage",
+    )
+    rank = CLASS_PRECEDENCE.index("check_unavailable")
+    for name in financial:
+        assert rank < CLASS_PRECEDENCE.index(name), name
+
+
+def test_a_parser_crash_leaves_no_diagnosis_to_be_incomplete():
+    """The distinction W3-2b turns on, asserted directly.
+
+    A crashed integrity check happens INSIDE a diagnosis and makes it partial.
+    A crashed parser happens BEFORE any claim, so the document produces no
+    diagnosis at all - it lands in `failed`, which is not diagnosable. The flag
+    stays advisory so a crash can never outrank the financial check that
+    actually withheld a document that did reach the checks.
+    """
+    assert "integrity:parser_exception" in ADVISORY_CODES
+    assert "integrity:integrity_check_exception" not in ADVISORY_CODES
+
+    # A parser that crashed outright: no payload, so nothing is diagnosed.
+    assert diagnose(None, "failed") == empty_diagnostics()
+
+    # And on a document that DID reach the checks, the crash flag is evidence
+    # but never the class.
+    payload = _payload(
+        integrity={"flags": ["parser_exception", "ledger_sum_mismatch"]},
+    )
+    result = diagnose(payload, "withheld")
+    assert "integrity:parser_exception" in result["codes"]
+    assert result["primary_class"] == "ledger_identity"
+
+
 def test_advisory_only_evidence_gets_its_own_class():
     payload = _payload(integrity={"flags": ["transaction_detail_not_corporate_reliable"]})
     assert diagnose(payload, "withheld")["primary_class"] == "advisory_only"
@@ -275,6 +336,25 @@ def test_every_code_is_either_classed_or_declared_advisory():
 
 def test_the_class_precedence_list_has_no_duplicates():
     assert len(set(CLASS_PRECEDENCE)) == len(CLASS_PRECEDENCE)
+
+
+def test_the_precedence_table_in_the_taxonomy_doc_matches_the_code():
+    """Doc/code guard, added in W3-2b.
+
+    Inserting `check_unavailable` at rank 4 left every row below it numbered
+    one too low. The ranking is what W3-4's remediation queue inherits, so a
+    stale table is a wrong instruction, not a typo.
+    """
+    import re
+
+    doc = (ROOT / "docs" / "moneythumb-replacement" / "W3_2_TAXONOMY.md")
+    rows = re.findall(
+        r"^\| (\d+) \| `([a-z_]+)` \|", doc.read_text(encoding="utf-8"), re.MULTILINE
+    )
+    table = [(int(rank), name) for rank, name in rows if name in set(CLASS_PRECEDENCE)]
+    assert table == [
+        (index + 1, name) for index, name in enumerate(CLASS_PRECEDENCE)
+    ], "W3_2_TAXONOMY.md section 4 no longer matches CLASS_PRECEDENCE"
 
 
 def test_adb_check_names_match_the_analysis_source():
@@ -462,6 +542,50 @@ def test_the_rollup_is_failure_class_by_parser_by_volume():
     assert rendered.isascii()
 
 
+def test_an_unattributed_rollup_errors_rather_than_printing_a_none_column():
+    """W3-2b ruling 2, applied to the W3-2 rollup as well as the W3-4 tooling.
+
+    Both are class x parser views and both had the same footgun: a cache-served
+    run printed a complete-LOOKING table whose every parser column read
+    `(none)`. Measured on the pinned 109 served from the D-3 cache, that is
+    exactly what happened.
+    """
+    records = [
+        _record(_payload(integrity={"flags": ["summary_math_inconsistent"]}), None)
+        for _ in range(3)
+    ]
+    with pytest.raises(UnattributedParsers) as caught:
+        diagnostics_rollup(records)
+    message = str(caught.value)
+    assert "3 of 3" in message
+    assert "--no-cache" in message
+    assert "--allow-unattributed" in message
+
+    rollup = diagnostics_rollup(records, allow_unattributed=True)
+    assert rollup["unattributed_documents"] == 3
+    assert rollup["class_parser"] == [["summary_identity", UNATTRIBUTED, 3]]
+    rendered = render_diagnostics(rollup)
+    assert "WARNING --allow-unattributed" in rendered
+    assert rendered.isascii()
+
+
+def test_an_attributed_rollup_needs_no_flag():
+    records = [_record(_payload(integrity={"flags": ["summary_math_inconsistent"]}))]
+    rollup = diagnostics_rollup(records)
+    assert rollup["unattributed_documents"] == 0
+    assert "WARNING --allow-unattributed" not in render_diagnostics(rollup)
+
+
+def test_a_mixed_vocabulary_rollup_says_so():
+    """The re-baseline must be visible, not reconciled silently."""
+    old = _record(_payload(integrity={"flags": ["summary_math_inconsistent"]}))
+    old["diagnostics"]["diagnostics_version"] = 1
+    new = _record(_payload(integrity={"flags": ["summary_math_inconsistent"]}))
+    rollup = diagnostics_rollup([old, new])
+    assert rollup["diagnostics_versions"] == {"1": 1, "2": 1}
+    assert "WARNING mixed taxonomy versions" in render_diagnostics(rollup)
+
+
 def test_the_rollup_survives_a_record_written_before_diagnostics_existed():
     record = _record(_payload())
     record.pop("diagnostics")
@@ -469,6 +593,7 @@ def test_the_rollup_survives_a_record_written_before_diagnostics_existed():
     assert rollup == {
         "total": 1, "diagnosed": 0, "classes": {}, "codes": {},
         "adb_checks_failed": {}, "parsers": {}, "class_parser": [],
+        "diagnostics_versions": {}, "unattributed_documents": 0,
         "unmapped": {"names": {}, "reconciliation_issues": 0, "adb_warnings": 0},
     }
     assert render_diagnostics(rollup).isascii()

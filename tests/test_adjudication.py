@@ -16,6 +16,8 @@ from discovery.adjudication import (
     MIN_CLUSTER,
     NEW_PARSER_VOLUME_FLOOR,
     RULES,
+    UNATTRIBUTED,
+    UnattributedParsers,
     build_clusters,
     render,
     workspace,
@@ -331,16 +333,96 @@ def test_an_unreadable_document_is_junk_not_a_layout_problem(tmp_path: Path):
     assert not [c for c in build_clusters(run) if c.kind == "unclaimed_bank_folder"]
 
 
-def test_a_parser_crash_is_a_defect_for_a_human_not_a_layout_family(tmp_path: Path):
+def test_a_parser_crash_is_a_code_defect_not_a_layout_family(tmp_path: Path):
+    """W3-2b: routed mechanically to `parser_defect`, OUT of the human queue.
+
+    It was `needs_human_review` in W3-4, which made the queue look like it held
+    a taste question when it held a bug. W3-1's exception ranking owns the fix;
+    this card only accounts for the documents.
+    """
     run = load_run(_write_run(tmp_path / "r", [
         _record("A" * 64, dispatch_outcome="parser_exception",
                 exceptions=[["us_bank", "parse", "AttributeError"]],
                 outcome_class="failed"),
     ]))
-    cluster = next(c for c in build_clusters(run) if c.kind == "parser_crash")
+    clusters = build_clusters(run)
+    cluster = next(c for c in clusters if c.kind == "parser_crash")
     assert cluster.key == "us_bank:AttributeError"
-    assert cluster.disposition == "needs_human_review"
+    assert cluster.disposition == "parser_defect"
     assert cluster.rule == "R8_parser_defect"
+    assert "W3-1" in cluster.because
+    assert not [c for c in clusters if c.disposition == "needs_human_review"]
+
+
+def test_an_unattributed_class_by_parser_view_errors_rather_than_degrades(tmp_path: Path):
+    """W3-2b ruling 2. The failure this prevents is silent.
+
+    A cache-served run produces a complete-LOOKING table in which every row
+    reads `(parser unknown)`, and nothing about the output says the question
+    was not answered. That is exactly the shape of the archive's W3-2 baseline.
+    """
+    run = load_run(_write_run(tmp_path / "r", [
+        _withheld(f"{i:064d}", "detail_coverage", None,
+                  dispatch_outcome=None, dispatch_source="unavailable")
+        for i in range(6)
+    ]))
+    with pytest.raises(UnattributedParsers) as caught:
+        build_clusters(run)
+    message = str(caught.value)
+    assert "6 of 6" in message
+    assert "--enrich" in message
+    assert "--allow-unattributed" in message
+
+
+def test_allow_unattributed_labels_the_rows_explicitly(tmp_path: Path):
+    run = load_run(_write_run(tmp_path / "r", [
+        _withheld(f"{i:064d}", "detail_coverage", None,
+                  dispatch_outcome=None, dispatch_source="unavailable")
+        for i in range(6)
+    ]))
+    space = workspace(run, allow_unattributed=True)
+    cell = next(c for c in space["clusters"] if c["kind"] == "withheld_check_cell")
+    assert cell["key"] == f"detail_coverage x {UNATTRIBUTED}"
+    assert space["unattributed_documents"] == 6
+    rendered = render(space)
+    assert "WARNING --allow-unattributed" in rendered
+    assert UNATTRIBUTED in rendered
+
+
+def test_enrichment_satisfies_the_gate_without_the_escape_hatch(tmp_path: Path):
+    """The intended remedy: recover the parsers, do not silence the check."""
+    live = _write_run(tmp_path / "live", [
+        _record(f"{i:064d}", parser_id="chase") for i in range(6)])
+    cached = _write_run(tmp_path / "cached", [
+        _withheld(f"{i:064d}", "detail_coverage", None,
+                  dispatch_outcome=None, dispatch_source="unavailable")
+        for i in range(6)])
+    cell = next(
+        c for c in build_clusters(load_run(cached, enrich_parsers_from=[live]))
+        if c.kind == "withheld_check_cell"
+    )
+    assert cell.key == "detail_coverage x chase"
+
+
+def test_a_fully_attributed_run_needs_no_flag(tmp_path: Path):
+    run = load_run(_write_run(tmp_path / "r", [
+        _withheld(f"{i:064d}", "detail_coverage", "chase") for i in range(6)]))
+    space = workspace(run)
+    assert space["unattributed_documents"] == 0
+    assert "WARNING --allow-unattributed" not in render(space)
+
+
+def test_the_cli_exits_non_zero_on_unattributed_parsers(tmp_path: Path, capsys):
+    from discovery.adjudication import main
+
+    run = _write_run(tmp_path / "r", [
+        _withheld(f"{i:064d}", "detail_coverage", None,
+                  dispatch_outcome=None, dispatch_source="unavailable")
+        for i in range(6)])
+    assert main([str(run)]) == 2
+    assert "--enrich" in capsys.readouterr().err
+    assert main([str(run), "--allow-unattributed"]) == 0
+    assert UNATTRIBUTED in capsys.readouterr().out
 
 
 def test_a_label_disagreement_is_a_question_not_a_verdict(tmp_path: Path):

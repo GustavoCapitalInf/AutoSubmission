@@ -36,7 +36,21 @@ from __future__ import annotations
 
 #: Bumped when a code is added, removed or re-classed. Travels in every record
 #: so a rollup over mixed runs can tell which vocabulary produced a row.
-DIAGNOSTICS_VERSION = 1
+#:
+#: 1 - W3-2, as shipped.
+#: 2 - W3-2b: `integrity:integrity_check_exception` re-classed from advisory to
+#:     the new `check_unavailable` class. A record emitted at version 1 that
+#:     carries that code would rank one class lower than the same document
+#:     ranks now, so a rollup spanning both versions is comparing two
+#:     vocabularies - which is what this field exists to make visible.
+DIAGNOSTICS_VERSION = 2
+
+#: The explicit label for a document whose claiming parser could not be
+#: established. Defined here, in the lower layer, because both the telemetry
+#: rollup and the W3-4 adjudication tooling group by parser and must agree on
+#: what "we do not know" looks like. Only ever reachable behind an explicit
+#: `--allow-unattributed`, so it always means "you were told".
+UNATTRIBUTED = "(parser unknown)"
 
 #: The outcome classes this module diagnoses. `withheld` is the fail-closed
 #: refusal W3-2 exists to explain; `validated` and `review` published a number,
@@ -85,8 +99,11 @@ INTEGRITY_FLAGS: frozenset[str] = frozenset({
     "not_a_formal_statement",
     "parser_ambiguous",
     # W3-1. Both say something about OUR code rather than about the statement's
-    # arithmetic — a parser raised, or a registered integrity check did — and
-    # both are advisory below for that reason.
+    # arithmetic — a parser raised, or a registered integrity check did. They
+    # are NOT treated alike: W3-2b classes `integrity_check_exception` as
+    # `check_unavailable` (a diagnosis made incomplete) while
+    # `parser_exception` stays advisory (a crash before any claim, so there is
+    # no diagnosis to be incomplete). See CLASS_OF and ADVISORY_CODES.
     "parser_exception",
     "integrity_check_exception",
     "conflicting_statement_summaries",
@@ -197,6 +214,7 @@ CLASS_PRECEDENCE: tuple[str, ...] = (
     "no_analysis_payload",
     "adb_not_computable",
     "extraction_failure",
+    "check_unavailable",
     "source_contradiction",
     "period_integrity",
     "summary_field_missing",
@@ -217,6 +235,14 @@ CLASS_OF: dict[str, str] = {
     "adb_state:period_unresolvable": "adb_not_computable",
     "adb_state:opening_balance_underivable": "adb_not_computable",
     "recon:escalation_extraction_failed": "extraction_failure",
+    # W3-2b. A registered integrity check RAISED, so its finding is UNKNOWN -
+    # not clean. It ranks above every financial class deliberately: the check
+    # that crashed is typically the one that would have produced
+    # `source_contradiction`, so its absence proves nothing, and an incomplete
+    # diagnosis must never present as a confident lower class. Compare
+    # `integrity:parser_exception`, which stays advisory - a parser that
+    # crashed produced no claim, so there is no diagnosis to be incomplete.
+    "integrity:integrity_check_exception": "check_unavailable",
     # the document contradicts itself, proven by a registration integrity check
     "integrity:conflicting_statement_summaries": "source_contradiction",
     # the period the whole calculation is divided by
@@ -287,13 +313,19 @@ ADVISORY_CODES: frozenset[str] = frozenset({
     "integrity:transaction_detail_not_corporate_reliable",
     "integrity:not_a_formal_statement",
     "integrity:parser_ambiguous",
-    # W3-1: routing and defect facts, not reasons the numbers failed. A
-    # withheld document that also carries one of these was withheld by a check
-    # in the classed vocabulary above; letting a crash decide the primary class
-    # would put "a parser broke" at the top of a list that exists to rank
-    # WHICH FINANCIAL CHECK failed.
+    # W3-1: a parser raised. Routing and defect fact, not a reason the numbers
+    # failed - and, unlike a crashed integrity check, it leaves NO diagnosis
+    # incomplete: a parser that crashed produced no claim, so the document
+    # never reached the checks at all. A withheld document carrying this was
+    # withheld by a check in the classed vocabulary above, and letting a crash
+    # decide the primary class would put "a parser broke" at the top of a list
+    # that exists to rank WHICH FINANCIAL CHECK failed. W3-1's exception
+    # ranking is where it is acted on.
+    #
+    # `integrity:integrity_check_exception` was advisory here until W3-2b and
+    # is now classed `check_unavailable` - see CLASS_OF for why the two crash
+    # flags are treated differently.
     "integrity:parser_exception",
-    "integrity:integrity_check_exception",
 })
 
 #: Every code this module can ever emit.

@@ -17,9 +17,12 @@ sample. Remediation aimed at a card is remediation aimed at a layout family.
 from __future__ import annotations
 
 import json
+import sys
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+from telemetry.diagnostics import UNATTRIBUTED
 
 from .evidence import (
     Document,
@@ -41,8 +44,25 @@ DISPOSITIONS = (
     "new_parser_candidate",
     "misfiled",
     "junk_unusable",
+    # W3-2b (Ocean ruling 1). A parser crash is a code defect, not a layout
+    # family and not an adjudication question - routing it to
+    # `needs_human_review` made the human queue look like it contained a
+    # taste question when it contained a bug. Remediation is owned by W3-1's
+    # exception ranking; this disposition exists so the workspace can say so
+    # and get it out of the queue.
+    "parser_defect",
     "needs_human_review",
 )
+
+
+class UnattributedParsers(RuntimeError):
+    """A class x parser view was asked for over a run that has no parsers.
+
+    Raised rather than degraded (Ocean ruling 2). The failure it prevents is
+    silent: a cache-served run produces a complete-looking table in which every
+    row reads `(parser unknown)`, and nothing about the output says the
+    question was not answered.
+    """
 
 #: Volume at or above which an unclaimed cluster for an UNREGISTERED bank is
 #: proposed as a new-parser candidate. A policy threshold, not a
@@ -110,10 +130,13 @@ RULES: dict[str, Rule] = {
         Rule("R7_unusable_document", "junk_unusable",
              "not a readable PDF, or encrypted: honest rejection, no layout "
              "work can help"),
-        Rule("R8_parser_defect", "needs_human_review",
-             "a parser raised. This is our defect, not a layout family, and "
-             "W3-1's crash-cluster ranking owns it - the disposition "
-             "vocabulary has no member for a code defect (open question 1)"),
+        Rule("R8_parser_defect", "parser_defect",
+             "a parser raised. This is our defect, not a layout family and not "
+             "an adjudication question, so it is routed mechanically and out "
+             "of the human queue. REMEDIATION IS OWNED BY W3-1's exception "
+             "ranking, which groups the same crashes by parser and exception "
+             "class; this card exists so the workspace accounts for the "
+             "documents, not so anyone fixes them from here"),
         Rule("R9_advisory_flag", "needs_human_review",
              "an advisory integrity signal fired; whether it should force "
              "review is a policy question Ocean already queued, not evidence"),
@@ -190,8 +213,13 @@ def build_clusters(
     *,
     volume_floor: int = NEW_PARSER_VOLUME_FLOOR,
     min_cluster: int = MIN_CLUSTER,
+    allow_unattributed: bool = False,
 ) -> list[Cluster]:
-    """Every cluster in a run, routed. Ranked by volume within each kind."""
+    """Every cluster in a run, routed. Ranked by volume within each kind.
+
+    Raises `UnattributedParsers` if any diagnosed document has no parser and
+    `allow_unattributed` is not set - see that exception for why.
+    """
     tokens = registered_bank_tokens()
     documents = list(run.values())
     clusters: list[Cluster] = []
@@ -207,12 +235,23 @@ def build_clusters(
     usable = [d for d in documents if d.valid_pdf and not d.encrypted]
 
     # --- W3-2's ranked queue: failure class x parser ------------------------
+    diagnosed = [d for d in usable if d.primary_class is not None]
+    unattributed = [d for d in diagnosed if not d.parser_id]
+    if unattributed and not allow_unattributed:
+        raise UnattributedParsers(
+            f"{len(unattributed)} of {len(diagnosed)} diagnosed documents carry "
+            "no parser_id, so a failure-class x parser view cannot be built.\n"
+            "This is the H3_SCHEMA 5.4 cache-hit hole: a run served from the "
+            "analysis cache never re-dispatched, so it has the diagnoses and "
+            "not the claims.\n"
+            "  --enrich <run_dir>        recover parser identity by content "
+            "hash from a run that dispatched these documents live\n"
+            "  --allow-unattributed      build the view anyway; the affected "
+            "rows are labelled '(parser unknown)' explicitly"
+        )
     cells: dict[tuple[str, str], list[Document]] = defaultdict(list)
-    for document in usable:
-        primary = document.primary_class
-        if primary is None:
-            continue
-        cells[(primary, document.parser_id or "(parser unknown)")].append(document)
+    for document in diagnosed:
+        cells[(document.primary_class, document.parser_id or UNATTRIBUTED)].append(document)
     for (failure_class, parser), group in sorted(
         cells.items(), key=lambda item: (-len(item[1]), item[0])
     ):
@@ -331,6 +370,10 @@ def build_clusters(
 
 def workspace(run: Run, **kwargs) -> dict:
     clusters = build_clusters(run, **kwargs)
+    unattributed = sum(
+        cluster.documents for cluster in clusters
+        if cluster.kind == "withheld_check_cell" and cluster.evidence.get("parser") == UNATTRIBUTED
+    )
     by_disposition = Counter(cluster.disposition for cluster in clusters)
     documents_by_disposition: Counter = Counter()
     for cluster in clusters:
@@ -342,6 +385,7 @@ def workspace(run: Run, **kwargs) -> dict:
         "duplicate_records_collapsed": max(0, run.records - len(run)),
         "folder_labels_available": run.folder_labels_available,
         "parser_enrichment_runs": list(run.enrichment_runs),
+        "unattributed_documents": unattributed,
         "dispositions": dict(by_disposition),
         "documents_by_disposition": dict(documents_by_disposition.most_common()),
         "clusters": [cluster.as_dict() for cluster in clusters],
@@ -365,6 +409,12 @@ def render(space: dict, *, top: int = 40) -> str:
         lines.append(
             "  NOTE parser identity joined by content hash from: "
             + ", ".join(space["parser_enrichment_runs"])
+        )
+    if space.get("unattributed_documents"):
+        lines.append(
+            f"  WARNING --allow-unattributed: {space['unattributed_documents']} "
+            "diagnosed documents have no parser and are grouped under "
+            f"'{UNATTRIBUTED}'; those rows answer no class x parser question"
         )
     lines.extend(["", "documents by disposition"])
     total = space["documents"]
@@ -444,6 +494,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Recover parser identity by content hash from another run "
              "(needed when the run of record was served from the analysis "
              "cache and carries no parser_id).")
+    parser.add_argument(
+        "--allow-unattributed", action="store_true",
+        help="Build the class x parser view even when some diagnosed documents "
+             "have no parser; those rows are labelled '(parser unknown)'.")
     parser.add_argument("--volume-floor", type=int, default=NEW_PARSER_VOLUME_FLOOR)
     parser.add_argument("--min-cluster", type=int, default=MIN_CLUSTER)
     parser.add_argument("--write", action="store_true",
@@ -453,7 +507,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     run = load_run(args.run, enrich_parsers_from=args.enrich)
-    space = workspace(run, volume_floor=args.volume_floor, min_cluster=args.min_cluster)
+    try:
+        space = workspace(
+            run,
+            volume_floor=args.volume_floor,
+            min_cluster=args.min_cluster,
+            allow_unattributed=args.allow_unattributed,
+        )
+    except UnattributedParsers as error:
+        print(f"discovery.adjudication: {error}", file=sys.stderr)
+        return 2
     if args.json:
         print(json.dumps(space, indent=2, sort_keys=True))
     else:

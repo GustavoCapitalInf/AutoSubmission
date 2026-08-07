@@ -228,6 +228,12 @@ def test_withheld_diagnostics_reproduce_the_documented_diagnosis():
     for name, section in diagnosed.items():
         assert section["evaluated"] is True
         assert section["primary_class"] == WITHHELD_DIAGNOSIS[name], name
+        # W3-2b re-baselined the class ranking by inserting `check_unavailable`
+        # above the financial classes. The pinned three are unaffected, and
+        # this says so rather than leaving it to be inferred: none of them had
+        # an integrity check crash, so none of their diagnoses is incomplete.
+        assert "check_unavailable" not in section["classes"], name
+        assert "integrity:integrity_check_exception" not in section["codes"], name
         assert WITHHELD_REQUIRED_CODES[name] <= set(section["codes"]), name
         assert section["unmapped"] == [], name
         assert section["counts"]["unmapped_reconciliation_issues"] == 0, name

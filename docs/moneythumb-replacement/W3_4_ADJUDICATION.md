@@ -92,7 +92,39 @@ first working version produced zero of both.
 `--no-cache` so it is self-sufficient, or H3_SCHEMA §5.4's declared hole should
 be closed by persisting the dispatch projection into the cached artifact
 (which costs an `ANALYSIS_STAGE_VERSION` bump — the tradeoff H-3 declined for a
-re-run-only benefit that is no longer re-run-only). Open question 2.
+re-run-only benefit that is no longer re-run-only). *Ruled: a canonical
+`--no-cache` baseline is being re-captured.*
+
+### 2.2 Loud, never silent (W3-2b, ruling 2)
+
+Asking for a failure-class × parser view over a run with unattributed
+documents now **raises** `UnattributedParsers` (CLI exit 2) with a message
+naming both remedies:
+
+```
+N of M diagnosed documents carry no parser_id, so a failure-class x parser
+view cannot be built.
+This is the H3_SCHEMA 5.4 cache-hit hole: a run served from the analysis cache
+never re-dispatched, so it has the diagnoses and not the claims.
+  --enrich <run_dir>        recover parser identity by content hash from a run
+                            that dispatched these documents live
+  --allow-unattributed      build the view anyway; the affected rows are
+                            labelled '(parser unknown)' explicitly
+```
+
+The failure this prevents is silent: a cache-served run produced a
+complete-*looking* table in which every row read `(parser unknown)`, with
+nothing in the output saying the question had not been answered. That is
+exactly the shape of the archive's W3-2 baseline, so the footgun was loaded.
+
+`--allow-unattributed` is the deliberate escape hatch. It labels the affected
+rows `(parser unknown)` and adds a `WARNING --allow-unattributed: N diagnosed
+documents … answer no class x parser question` line to the header, so the
+degradation is stated in the artifact rather than inferred from it.
+
+The gate is **any** unattributed diagnosed document, not a fraction over a
+threshold: a threshold would be a magic number, and the honest signal is "this
+view is not complete", which is true at one document.
 
 ## 3. Cluster kinds
 
@@ -116,8 +148,15 @@ Closed vocabulary, exactly as dispatched:
 
 ```
 variant_completeness | generic_structurer | new_parser_candidate
-| misfiled | junk_unusable | needs_human_review
+| misfiled | junk_unusable | parser_defect | needs_human_review
 ```
+
+`parser_defect` was added in **W3-2b** (Ocean ruling 1). Parser crashes were
+routed to `needs_human_review`, which made the human queue look like it
+contained a taste question when it contained a bug. They now route
+mechanically, out of the queue, with the card stating that **W3-1's exception
+ranking owns the remediation** — the card exists to account for the documents,
+not so anyone fixes them from here.
 
 A rule is only allowed to exist if **the evidence alone decides it**.
 
@@ -130,7 +169,7 @@ A rule is only allowed to exist if **the evidence alone decides it**.
 | `R5_unlabelled_mix` | `generic_structurer` | a human could not even sort these into a bank folder, so only a layout-agnostic mechanism applies |
 | `R7_unusable_document` | `junk_unusable` | not a readable PDF, or encrypted |
 | `R6_label_disagreement` | `needs_human_review` | see §4.2 |
-| `R8_parser_defect` | `needs_human_review` | our defect, not a layout family |
+| `R8_parser_defect` | `parser_defect` | our defect, not a layout family and not an adjudication question; W3-1's ranking owns the fix |
 | `R9_advisory_flag` | `needs_human_review` | a policy question Ocean already queued |
 | `R10_unlabelled_folder_claims` | `needs_human_review` | no label to check the claim against |
 
@@ -276,23 +315,23 @@ unlabelled folders trustworthy?").
   away, differing document sets are reported not intersected, and the
   `--fail-on-regression` exit code.
 
-## 9. Open questions for Ocean
+## 9. Rulings received (W3-2b) and open questions
 
-1. **The vocabulary has no member for a code defect.** `parser_crash` clusters
-   are routed to `needs_human_review`, which is honest but mushy — they are
-   already owned by W3-1's crash-cluster ranking and are not an adjudication
-   question at all. Either add `parser_defect` to the vocabulary, or rule that
-   crash clusters should not appear in the workspace.
-2. **The baseline is not self-sufficient** (§2.1). Recommend re-capturing it
-   with `--no-cache`, or closing H3_SCHEMA §5.4's declared cache-hit hole. Until
-   then every `class × parser` view needs `--enrich`, which works but is a
-   footgun for anyone who forgets it — the numbers silently degrade to
-   `(parser unknown)` rather than erroring.
-3. **"21 misfiled" is not reproducible from telemetry** (§4.2). The
+**Ruling 1 — CLOSED.** `parser_defect` added to the vocabulary; `R8` routes
+crash clusters to it mechanically, out of the human queue, with W3-1's
+exception ranking named as the owner of remediation (§4).
+
+**Ruling 2 — CLOSED.** Silent degradation removed: an unattributed
+class × parser view raises and names both remedies (§2.2). A canonical
+`--no-cache` baseline is being re-captured, which removes the underlying cause.
+
+Still open:
+
+1. **"21 misfiled" is not reproducible from telemetry** (§4.2). The
    registry-label matcher gets 24 in 3 pairs. Worth reconciling before the
    adjudication session.
-4. **`NEW_PARSER_VOLUME_FLOOR = 50`** is my proposal, calibrated so Huntington
+2. **`NEW_PARSER_VOLUME_FLOOR = 50`** is my proposal, calibrated so Huntington
    (54) clears it and Mercury (31) does not. It is the one number in W3-4 that
    is a judgement rather than a measurement.
-5. **Should `--fail-on-regression` become a CI gate** once a post-W3-3c run
+3. **Should `--fail-on-regression` become a CI gate** once a post-W3-3c run
    exists? The machinery is there; making it authoritative is a policy call.

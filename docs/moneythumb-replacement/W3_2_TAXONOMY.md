@@ -123,16 +123,28 @@ withheld, and letting it choose a class would misdirect remediation.
 | `not_a_formal_statement` | *advisory* (a document class, not a failure) |
 | `parser_ambiguous` | *advisory* (a dispatch fact; `dispatch.outcome` carries it) |
 | `parser_exception` | *advisory* (W3-1: a parser raised; `dispatch.exceptions` carries who and what) |
-| `integrity_check_exception` | *advisory* (W3-1: a registered integrity check raised, so its finding is unknown) |
+| `integrity_check_exception` | **`check_unavailable`** (W3-2b) |
 | anything else | `integrity:unmapped` → **unmapped** |
 
-The two W3-1 flags are advisory for the same reason `parser_ambiguous` is:
-they describe **our** code, not the statement's arithmetic. A withheld document
-carrying one of them was withheld by a check in the classed vocabulary above,
-and letting a crash decide the primary class would put "a parser broke" at the
-top of a ranking that exists to say *which financial check* failed. They stay
-in `codes` — the crash is real evidence, and `dispatch.exceptions` plus the
-discovery crash-cluster ranking are where it is acted on.
+**The two W3-1 crash flags are treated differently, and the difference is the
+point** (W3-2b, Ocean ruling).
+
+`parser_exception` stays advisory for the same reason `parser_ambiguous` is: it
+describes **our** code, not the statement's arithmetic, and — critically — it
+leaves no diagnosis incomplete. A parser that crashed produced no claim, so the
+document never reached the checks at all; it lands in `failed`, which is not
+diagnosable (§5). Where the flag appears on a document that *did* reach the
+checks, that document was withheld by a check in the classed vocabulary, and
+letting a crash outrank it would put "a parser broke" at the top of a ranking
+that exists to say *which financial check* failed. It stays in `codes`, and
+`dispatch.exceptions` plus W3-1's crash-cluster ranking are where it is acted on.
+
+`integrity_check_exception` is different in kind. A registered integrity check
+**raised**, so its finding is **unknown, not clean** — and the check that
+crashed is typically the one that would have produced
+`source_contradiction`. Its absence therefore proves nothing, and reporting the
+next class down would present an incomplete diagnosis as a confident one. It is
+classed `check_unavailable` and ranked above every financial class.
 
 ### 3.3 Source 3 — reconciliation issues → `recon:<code>`
 
@@ -221,19 +233,20 @@ present:
 | 1 | `no_analysis_payload` | reserved: nothing to diagnose (see §5 on scope) |
 | 2 | `adb_not_computable` | the ADB engine returned before it could validate |
 | 3 | `extraction_failure` | the escalation extraction itself failed |
-| 4 | `source_contradiction` | a registration integrity check proved the document contradicts itself |
-| 5 | `period_integrity` | the period the whole average is divided by is wrong |
-| 6 | `summary_field_missing` | an input the checks need was never published |
-| 7 | `summary_identity` | the bank's own summary block fails its own identity |
-| 8 | `detail_coverage` | line items do not add up to the bank's stated totals |
-| 9 | `posting_date_coverage` | posting dates folded together; days carry the wrong balances |
-| 10 | `balance_continuity` | printed running balances contradict the reconstructed ledger |
-| 11 | `ledger_identity` | beginning + activity != ending |
-| 12 | `daily_ledger_structure` | the reconstructed day series itself is malformed |
-| 13 | `page_coverage` | pages the statement declares are not in the supplied PDF |
-| 14 | `unmapped` | a check this taxonomy has never seen |
-| 15 | `advisory_only` | evidence exists, but all of it is consequence or comparison |
-| 16 | `undiagnosed` | withheld, and the taxonomy saw nothing — itself a finding |
+| 4 | `check_unavailable` | a registered integrity check raised: this diagnosis is INCOMPLETE, and must not present as a confident lower class |
+| 5 | `source_contradiction` | a registration integrity check proved the document contradicts itself |
+| 6 | `period_integrity` | the period the whole average is divided by is wrong |
+| 7 | `summary_field_missing` | an input the checks need was never published |
+| 8 | `summary_identity` | the bank's own summary block fails its own identity |
+| 9 | `detail_coverage` | line items do not add up to the bank's stated totals |
+| 10 | `posting_date_coverage` | posting dates folded together; days carry the wrong balances |
+| 11 | `balance_continuity` | printed running balances contradict the reconstructed ledger |
+| 12 | `ledger_identity` | beginning + activity != ending |
+| 13 | `daily_ledger_structure` | the reconstructed day series itself is malformed |
+| 14 | `page_coverage` | pages the statement declares are not in the supplied PDF |
+| 15 | `unmapped` | a check this taxonomy has never seen |
+| 16 | `advisory_only` | evidence exists, but all of it is consequence or comparison |
+| 17 | `undiagnosed` | withheld, and the taxonomy saw nothing — itself a finding |
 
 **Why this order.** Ranking is by *cause over symptom*, because the class is
 what ranks remediation work. The clearest case is
@@ -367,3 +380,47 @@ the new shape lands in `unmapped` at runtime and shows in the rollup.
    (`record_id`, `emitted_at`, `run_id`, `document.content_sha256`) from the
    substring scan and pinning each of them by shape in a new test, so the scan
    narrows without the invariant narrowing. Test-only change.
+
+---
+
+## 11. Changelog — the taxonomy vocabulary
+
+`DIAGNOSTICS_VERSION` travels in every record precisely so a rollup spanning a
+vocabulary change can say so. `telemetry.report --diagnostics` prints a
+`WARNING mixed taxonomy versions` line whenever it sees more than one, because
+class counts either side of a re-classing are not comparing like with like.
+
+### v1 — W3-2, as shipped
+
+The four-source vocabulary and the 16-class ranking.
+
+### v2 — W3-2b (Ocean ruling, 2026-08-07): `check_unavailable`
+
+`integrity:integrity_check_exception` moved from `ADVISORY_CODES` to the new
+class **`check_unavailable`**, ranked 4th — above every financial class.
+
+**Why.** W3-1 added two crash flags and both were classed advisory on the
+argument that they describe our code rather than the statement's arithmetic.
+That argument holds for `parser_exception` and fails for
+`integrity_check_exception`: a crashed integrity check happens *inside* a
+diagnosis and makes it **partial**, and the check that crashed is typically the
+one that would have produced `source_contradiction`. Its absence proves
+nothing, so ranking the document by the next class down presents an incomplete
+diagnosis as a confident one.
+
+`parser_exception` stays advisory, and the distinction is asserted
+(`test_a_parser_crash_leaves_no_diagnosis_to_be_incomplete`): a parser that
+crashed produced no claim, so the document never reached the checks and has no
+diagnosis to be incomplete — it lands in `failed`, which is not diagnosable.
+
+**Blast radius.** Re-baselines the rollup: any document carrying
+`integrity_check_exception` ranks one class higher than it did at v1. The
+pinned three corpus withheld are **unaffected** — none had an integrity check
+crash — and the corpus anchor now asserts that explicitly rather than leaving
+it to be inferred.
+
+**Doc/code guard.** The §4 precedence table is asserted equal to
+`CLASS_PRECEDENCE`, order and numbering included
+(`test_the_precedence_table_in_the_taxonomy_doc_matches_the_code`), so the two
+cannot drift again — the renumbering this change required was done from the
+code, not by hand.
