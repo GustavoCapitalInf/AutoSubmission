@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import date
+from typing import NamedTuple
 
 from .date_tokens import iso_or_none
 from .money import parse_money
@@ -58,112 +59,282 @@ def _tables_after(markdown: str, heading: str) -> list[str]:
     return tables_after(markdown, heading, continued=r"(?: - continued)?")
 
 
-def _native_lines(markdown: str, heading: str) -> list[str]:
-    pattern = rf"{re.escape(heading)}(?: - continued)?\s+Date\s+Description\s+Amount\s+(.*?)(?=(?:Deposits and other credits|Withdrawals and other debits|Checks\s*$|Service fees|Daily ledger balances|Total {re.escape(heading)}|continued on the next page|Page \d+ of|\Z))"
-    chunks: list[str] = []
-    chunks.extend(m.group(1) for m in re.finditer(pattern, markdown, re.IGNORECASE | re.DOTALL))
-    lines: list[str] = []
-    for chunk in chunks:
-        text = re.sub(r"\s+", " ", chunk).strip()
-        text = re.sub(r"\s+(?=\d{2}/\d{2}/\d{2}\s)", "\n", text)
-        for line in text.splitlines():
-            line = line.strip()
-            if line and not line.lower().startswith(("continued on", "page ")):
-                lines.append(line)
-    return lines
+# ---------------------------------------------------------------------------
+# The printed native grid
+#
+# BofA's native statements are a two-column grid — `Date Description Amount`,
+# the Amount column right-aligned and printed last — inside named sections that
+# each publish their own total. Two section vocabularies exist: the business
+# one ("Deposits and other credits" / "Withdrawals and other debits") and the
+# consumer one ("Deposits and other additions" / "ATM and debit card
+# subtractions" / "Other subtractions"). Both print Checks and Service fees the
+# same way.
+#
+# The reader below is a state machine over the PHYSICAL lines the text layer
+# emits, because that is the structure the bank printed. Its three rules:
+#
+#   * a section is entered by a line the heading OWNS (the heading, optionally
+#     " - continued", optionally the column header, then either nothing or the
+#     first row) and is left at the printed section total, a page break, or the
+#     next heading. A summary line is heading words followed by an amount, and
+#     never opens a section;
+#   * a row begins at a physical line whose FIRST token is the MM/DD/YY posting
+#     date. A date-shaped token anywhere else on the line is description text —
+#     wire details print `PMT DET:… 26/02/03 …` and adjustment rows print
+#     `Temporary Credit Adjustment on 03/31/26`, and neither starts a row;
+#   * a row ends at its amount cell: the money token that terminates a physical
+#     line. Until then the following lines continue it, which is how a wrapped
+#     description whose amount wraps onto its own line is read as one row.
+#
+# Nothing here keys on what a row *says*. A description that begins with the
+# word "Total" (a counterparty name) is a row like any other; section furniture
+# is recognised by not being date-headed.
+# ---------------------------------------------------------------------------
+
+_CREDIT, _DEBIT = 1, -1
 
 
-def _parse_native_section(markdown: str, heading: str, *, sign: int) -> list[Transaction]:
-    txns: list[Transaction] = []
-    for line in _native_lines(markdown, heading):
-        m = re.match(r"(?P<date>\d{2}/\d{2}/\d{2})\s+(?P<body>.+)", line)
+class _Section(NamedTuple):
+    """One printed detail section: its heading, its printed total, its side."""
+
+    heading: str
+    total: str
+    sign: int
+    checks: bool = False
+
+
+#: In printed order — which is also the order rows are published in. Headings
+#: are matched anchored at the start of a line, so no entry can claim another's.
+_SECTIONS = (
+    _Section("Deposits and other credits", "Total deposits and other credits", _CREDIT),
+    _Section("Deposits and other additions", "Total deposits and other additions", _CREDIT),
+    _Section("Withdrawals and other debits", "Total withdrawals and other debits", _DEBIT),
+    _Section("ATM and debit card subtractions", "Total ATM and debit card subtractions", _DEBIT),
+    _Section("Other subtractions", "Total other subtractions", _DEBIT),
+    _Section("Checks", "Total checks", _DEBIT, checks=True),
+    _Section("Service fees", "Total service fees", _DEBIT),
+)
+
+#: Printed blocks that are not detail sections. They close whatever section is
+#: open so a balance series or an image index can never be read as activity.
+_CLOSING_HEADINGS = (
+    "Withdrawals and other subtractions",
+    "Daily ledger balances",
+    "Check images",
+    "Account summary",
+)
+
+_MONEY_CELL = r"-?\$?\s*[0-9][0-9,]*\.[0-9]{2}"
+_ROW_HEAD = re.compile(r"^(\d{2}/\d{2}/\d{2})(?:\s+(.*))?$")
+_AMOUNT_CELL = re.compile(rf"({_MONEY_CELL})\s*$")
+_LEADING_MONEY = re.compile(rf"^\s*{_MONEY_CELL}")
+#: The Amount column wrapping onto a line of its own.
+_BARE_CELL = re.compile(_MONEY_CELL)
+_COLUMN_HEADER = re.compile(
+    r"^\s*Date\s+(?:Transaction\s+)?[Dd]escription\s+Amount\b", re.IGNORECASE
+)
+_PAGE_BREAK = re.compile(r"^\s*---\s*Page\b", re.IGNORECASE)
+_PAGE_FOOTER = re.compile(r"^\s*(?:continued on the next page|Page \d+ of \d+)", re.IGNORECASE)
+_SECTION_FURNITURE = re.compile(r"^\s*(?:Total|Subtotal)\b", re.IGNORECASE)
+_SUBTOTAL = re.compile(r"(?:^|\s)Subtotal\b", re.IGNORECASE)
+
+
+def _before_subtotal(text: str) -> str:
+    m = _SUBTOTAL.search(text)
+    return text if m is None else text[: m.start()]
+#: `<date> [<check number>[*]] <amount>` — the check number is what the bank
+#: printed for it, and BofA does not always print one.
+_CHECK_ROW = re.compile(
+    rf"(\d{{2}}/\d{{2}}/\d{{2}})\s+(?:(\d{{1,10}}\*?)\s+)?({_MONEY_CELL})"
+)
+
+
+def _heading_at(line: str) -> tuple[_Section | None, str]:
+    """The section this line opens, and whatever follows the column header.
+
+    A heading owns its line: `Checks -7,500.00` is the account summary's checks
+    line, not the Checks section, and is rejected because an amount follows the
+    words rather than a column header or a row.
+    """
+    for section in _SECTIONS:
+        m = re.match(rf"\s*{re.escape(section.heading)}(?:\s+-\s+continued)?\b", line, re.IGNORECASE)
         if not m:
             continue
-        body = re.split(r"\s+(?:Subtotal for|Total withdrawals and other debits|Total deposits and other credits)\b", m.group("body"), maxsplit=1, flags=re.IGNORECASE)[0]
-        amounts = list(re.finditer(r"-?\$?\s*[0-9][0-9,]*\.[0-9]{2}", body))
-        if not amounts:
-            continue
-        amount_match = amounts[-1]
-        amount = _money(amount_match.group(0))
-        txn_date = _parse_date(m.group("date"))
-        if amount is None or txn_date is None:
-            continue
-        desc = (body[:amount_match.start()] + body[amount_match.end():]).strip()
-        desc = re.sub(r"\s+", " ", desc)
-        if not desc or desc.lower().startswith("total"):
-            continue
-        signed = round(abs(amount) * sign, 2)
-        txns.append(Transaction(
-            date=txn_date,
+        rest = line[m.end():]
+        if _LEADING_MONEY.match(rest):
+            return None, ""
+        header = _COLUMN_HEADER.match(rest)
+        if header:
+            rest = rest[header.end():]
+        return section, rest.strip()
+    return None, ""
+
+
+def _closes_section(line: str) -> bool:
+    return any(
+        re.match(rf"\s*{re.escape(h)}\b", line, re.IGNORECASE) and not _LEADING_MONEY.match(
+            line[re.match(rf"\s*{re.escape(h)}\b", line, re.IGNORECASE).end():])
+        for h in _CLOSING_HEADINGS
+    )
+
+
+class _RowStream:
+    """Accumulates one section's physical lines into rows."""
+
+    def __init__(self) -> None:
+        self.section: _Section | None = None
+        self._date: str | None = None
+        self._parts: list[str] = []
+        self._out: dict[str, list[Transaction]] = {}
+
+    def _emit(self) -> None:
+        """Publish the pending row if the grid gave it an amount cell."""
+        date, parts = self._date, self._parts
+        self._date, self._parts = None, []
+        if date is None or not parts:
+            return
+        text = " ".join(parts)
+        cell = _AMOUNT_CELL.search(text)
+        if cell is None:
+            return                                  # no amount cell: fail closed
+        amount = _money(cell.group(1))
+        iso = _parse_date(date)
+        if amount is None or iso is None:
+            return
+        desc = re.sub(r"\s+", " ", text[:cell.start()]).strip()
+        if not desc:
+            return
+        assert self.section is not None
+        signed = round(abs(amount) * self.section.sign, 2)
+        self._out.setdefault(self.section.heading, []).append(Transaction(
+            date=iso,
             description=desc,
+            # The section the bank printed the row in decides its direction; a
+            # waived fee of `-0.00` is still an outflow row.
             amount=signed,
-            direction="credit" if signed >= 0 else "debit",
+            direction="credit" if self.section.sign > 0 else "debit",
             running_balance=None,
         ))
-    return txns
+
+    def _closed(self) -> bool:
+        """A row is closed by its amount cell — the right-aligned last column."""
+        return bool(self._parts) and _AMOUNT_CELL.search(" ".join(self._parts)) is not None
+
+    def close_row(self) -> None:
+        self._emit()
+
+    def close_section(self) -> None:
+        self._emit()
+        self.section = None
+
+    def feed(self, text: str, lookahead: str | None = None) -> None:
+        if self.section is None or not text.strip():
+            return
+        if self.section.checks:
+            self._checks(text)
+            return
+        head = _ROW_HEAD.match(text.strip())
+        if head:
+            self._emit()
+            self._date, self._parts = head.group(1), [head.group(2) or ""]
+        elif self._date is None or _SECTION_FURNITURE.match(text):
+            self._emit()
+            return
+        else:
+            self._parts.append(text.strip())
+        # A cell printed alone on its own line is the Amount column wrapping,
+        # and it outranks a money-shaped token that merely ends the description
+        # line (`… PRODUCT(S): 101.40 S&H: 9.62 MI TAX: 6.66`). So a row that
+        # looks complete stays open while the next printed line is that cell.
+        if self._closed() and not (lookahead and _BARE_CELL.fullmatch(lookahead.strip())):
+            self._emit()
+
+    def _checks(self, text: str) -> None:
+        for raw_date, number, raw_amount in _CHECK_ROW.findall(text):
+            amount = _money(raw_amount)
+            iso = _parse_date(raw_date)
+            if amount is None or iso is None:
+                continue
+            assert self.section is not None
+            self._out.setdefault(self.section.heading, []).append(Transaction(
+                date=iso,
+                description=f"Check {number}" if number else "Check",
+                amount=round(-abs(amount), 2),
+                direction="debit",
+                running_balance=None,
+            ))
+
+    def transactions(self, only: frozenset[str] | None = None) -> list[Transaction]:
+        """Rows in printed section order: credits, debits, checks, fees."""
+        out: list[Transaction] = []
+        for section in _SECTIONS:
+            if only is None or section.heading in only:
+                out.extend(self._out.get(section.heading, ()))
+        return out
 
 
-def _parse_native_checks(markdown: str) -> list[Transaction]:
-    m = re.search(
-        r"\bChecks\s+Date Check # Amount Date Check # Amount\s+(.*?)\s+Total checks\s+-?\$?[0-9][0-9,]*\.[0-9]{2}",
-        markdown,
-        re.IGNORECASE | re.DOTALL,
-    )
-    if not m:
-        return []
-    txns: list[Transaction] = []
-    text = re.sub(r"\s+", " ", m.group(1))
-    for txn_date, check_no, amount_text in re.findall(
-        r"(\d{2}/\d{2}/\d{2})\s+(\d+\*?)\s+(-?[0-9][0-9,]*\.[0-9]{2})",
-        text,
-    ):
-        amount = _money(amount_text)
-        iso_date = _parse_date(txn_date)
-        if amount is None or iso_date is None:
-            continue
-        txns.append(Transaction(
-            date=iso_date,
-            description=f"Check {check_no}",
-            amount=round(-abs(amount), 2),
-            direction="debit",
-            running_balance=None,
-        ))
-    return txns
+#: The two sections the HTML-table path has never read; it keeps reading them
+#: through the native reader, exactly as it always has.
+_TABLE_PATH_EXTRAS = frozenset({"Checks", "Service fees"})
 
 
-def _parse_native_service_fees(markdown: str) -> list[Transaction]:
-    m = re.search(
-        r"\bService fees\b.*?Date Transaction description Amount\s+(.*?)\s+Total service fees\s+-?\$?[0-9][0-9,]*\.[0-9]{2}",
-        markdown,
-        re.IGNORECASE | re.DOTALL,
-    )
-    if not m:
-        return []
-    text = re.sub(r"\s+", " ", m.group(1)).strip()
-    text = re.sub(r"\s+(?=\d{2}/\d{2}/\d{2}\s)", "\n", text)
-    txns: list[Transaction] = []
-    for line in text.splitlines():
-        row = re.match(r"(?P<date>\d{2}/\d{2}/\d{2})\s+(?P<body>.+)", line.strip())
-        if not row:
+def _consume(stream: _RowStream, line: str, lookahead: str | None = None) -> None:
+    """Route one physical line into the row stream.
+
+    A single printed line can carry a section heading, its column header, a
+    row, that row's card-account subtotal and the section's own total, in that
+    order — BofA glues them together whenever the page break falls there. So
+    the line is walked rather than classified once.
+    """
+    while line.strip():
+        section, rest = _heading_at(line)
+        if section is not None:
+            stream.close_section()
+            stream.section = section
+            line = rest if rest and (section.checks or _ROW_HEAD.match(rest)) else ""
             continue
-        amounts = list(re.finditer(r"-?\$?\s*[0-9][0-9,]*\.[0-9]{2}", row.group("body")))
-        if not amounts:
+        if stream.section is None:
+            return
+        total = re.search(re.escape(stream.section.total), line, re.IGNORECASE)
+        if total is not None:
+            # The printed section total ends the section wherever it is printed.
+            stream.feed(_before_subtotal(line[: total.start()]))
+            stream.close_section()
+            line = line[total.end():]
+            figure = _LEADING_MONEY.match(line)
+            line = line[figure.end():] if figure else line
             continue
-        amount_match = amounts[-1]
-        amount = _money(amount_match.group(0))
-        txn_date = _parse_date(row.group("date"))
-        if amount is None or txn_date is None:
+        subtotal = _SUBTOTAL.search(line)
+        if subtotal is not None:
+            # A card-account subtotal is the bank's own label for a figure that
+            # is not a row, and it is printed inline after the row it follows.
+            stream.feed(line[: subtotal.start()])
+            stream.close_row()
+            return
+        if _closes_section(line):
+            stream.close_section()
+            return
+        stream.feed(line, lookahead)
+        return
+
+
+def _parse_native_sections(text: str, only: frozenset[str] | None = None) -> list[Transaction]:
+    stream = _RowStream()
+    lines = text.splitlines()
+    for index, raw in enumerate(lines):
+        line = raw.rstrip()
+        if not line.strip():
+            stream.close_row()
             continue
-        desc = (row.group("body")[:amount_match.start()] + row.group("body")[amount_match.end():]).strip()
-        desc = re.sub(r"\s+", " ", desc)
-        txns.append(Transaction(
-            date=txn_date,
-            description=desc,
-            amount=round(-abs(amount), 2),
-            direction="debit",
-            running_balance=None,
-        ))
-    return txns
+        if _PAGE_BREAK.match(line):
+            stream.close_section()
+            continue
+        if _PAGE_FOOTER.match(line):
+            stream.close_row()
+            continue
+        _consume(stream, line, lines[index + 1] if index + 1 < len(lines) else None)
+    stream.close_section()
+    return stream.transactions(only)
 
 
 def _native_money_after(text: str, label: str, *, absolute: bool = True) -> float | None:
@@ -176,15 +347,36 @@ def _native_money_after(text: str, label: str, *, absolute: bool = True) -> floa
     return abs(amount) if absolute else amount
 
 
+def _summary_outflows(text: str) -> list[float]:
+    """Every outflow line the account summary prints, in either vocabulary.
+
+    The business summary prints one `Withdrawals and other debits` line; the
+    consumer summary splits the same total across `ATM and debit card
+    subtractions` and `Other subtractions`. Checks and Service fees are printed
+    as their own lines by both, and the stated debit total is their sum.
+    """
+    found = [
+        _native_money_after(text, re.escape(label))
+        for label in (
+            "Withdrawals and other debits",
+            "ATM and debit card subtractions",
+            "Other subtractions",
+        )
+    ]
+    return [value for value in found if value is not None]
+
+
 def _parse_native_summary(text: str, stmt: Statement) -> bool:
     stmt.beginning_balance = _native_money_after(text, r"Beginning balance on [^\n$]+", absolute=False)
     stmt.ending_balance = _native_money_after(text, r"Ending balance on [^\n$]+", absolute=False)
     stmt.stated_total_credits = _native_money_after(text, r"Deposits and other credits")
-    withdrawals = _native_money_after(text, r"Withdrawals and other debits")
+    if stmt.stated_total_credits is None:
+        stmt.stated_total_credits = _native_money_after(text, r"Deposits and other additions")
+    outflows = _summary_outflows(text)
     checks = _native_money_after(text, r"Checks")
     service = _native_money_after(text, r"Service fees")
-    if withdrawals is not None:
-        stmt.stated_total_debits = round(withdrawals + (checks or 0.0) + (service or 0.0), 2)
+    if outflows:
+        stmt.stated_total_debits = round(sum(outflows) + (checks or 0.0) + (service or 0.0), 2)
     if service is not None:
         stmt.stated_service_charge = service
     avg = _native_money_after(text, r"Average ledger balance:")
@@ -331,11 +523,7 @@ def parse_bofa_statement(markdown: str) -> Statement | None:
     txns = []
     txns.extend(_parse_section(text, "Deposits and other credits", total_label="Total deposits and other credits", sign=1))
     txns.extend(_parse_section(text, "Withdrawals and other debits", total_label="Total withdrawals and other debits", sign=-1))
-    if not txns:
-        txns.extend(_parse_native_section(text, "Deposits and other credits", sign=1))
-        txns.extend(_parse_native_section(text, "Withdrawals and other debits", sign=-1))
-    txns.extend(_parse_native_checks(text))
-    txns.extend(_parse_native_service_fees(text))
+    txns.extend(_parse_native_sections(text, _TABLE_PATH_EXTRAS if txns else None))
     if not txns or stmt.beginning_balance is None or stmt.ending_balance is None:
         return None
     stmt.transactions = txns
@@ -370,7 +558,16 @@ def repair_bofa_summary(markdown: str, stmt: Statement) -> Statement:
     beginning = money_after(r"Beginning balance on [A-Z][a-z]+ \d{1,2}, \d{4}", absolute=False)
     ending = money_after(r"Ending balance on [A-Z][a-z]+ \d{1,2}, \d{4}", absolute=False)
     credits = money_after(r"Deposits and other credits")
-    withdrawals = money_after(r"Withdrawals and other debits")
+    if credits is None:
+        credits = money_after(r"Deposits and other additions")
+    outflows = [
+        value for value in (
+            money_after(r"Withdrawals and other debits"),
+            money_after(r"ATM and debit card subtractions"),
+            money_after(r"Other subtractions"),
+        ) if value is not None
+    ]
+    withdrawals = round(sum(outflows), 2) if outflows else None
     checks = money_after(r"Checks")
     service = money_after(r"Service fees")
     avg = money_after(r"Average ledger balance:")
