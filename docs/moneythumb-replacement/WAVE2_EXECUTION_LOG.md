@@ -1,5 +1,61 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-08 — TD+RBC REVIEWED/MERGED/PUSHED (`e614fcc`); **OFFICIAL COMBINED TRACK A MOVEMENT** · four delegated rulings · next dispatches
+
+**Worker submissions (manual sessions) both APPROVED:** scope-perfect,
+truth-set untouched, pinned statements field-identical, no ceremony needed
+(verified, not trusted). Merged with union-resolved log conflict; composed
+ANALYSIS_STAGE_VERSION 2→3; 2,093 default tests; detached corpus proof
+14/14 (background-bash chains were killed twice — proof re-run via the
+detached-process pattern, push only after green).
+
+**Authoritative movement (instrument, `c3e557f0` → `7a98b6cd`, 3,380
+shared):** improved **114** / regressed **0** / unchanged 3,266; validated
+1,348 → **1,462**; withheld 331 → **217**; transitions withheld→validated
+only; by family **rbc +58, td_canada_native +56** — confirming both worker
+reports exactly at unique-document level; classes vacated: detail_coverage
+91 · balance_continuity 18 · ledger_identity 5. **Cumulative Track A
+(baseline `1dfaf7e9` → now): validated 1,048 → 1,462 = +414 (+39.5%);
+validated coverage 31.0% → 43.3%; zero regressions across all three
+cells.**
+
+**Delegated rulings:**
+1. **Balance-based sign recovery: NOT promoted.** TD's subset-split solver
+   and RBC's chain walk solve DIFFERENT problems over different structures
+   (one-cell direction recovery vs multi-cell column assignment); a shared
+   primitive now would abstract over two examples. Rule of three: revisit
+   when a third parser needs it; requirement recorded (differential proof
+   across all consumers + preserved per-parser fail-closed).
+2. **Row-grouper promotion: APPROVED** with RBC's generalized amount rule
+   ("a lone money cell is an amount; adjacent money cells are (amount,
+   balance) in printed column order" — degrades to Chase's rule where no
+   balance column exists) + the two carried rules. Dedicated card;
+   R-2-standard differential-equivalence proofs across chase/td_can/rbc;
+   corpus byte-identical.
+3. **Stated-count integrity check: ESCALATED to the active safety
+   backlog** as a platform capability (stated per-direction counts vs
+   captured rows). Evidence: RBC found 6 previously-validated documents
+   with wrong per-direction counts passing existing validation, +2 with
+   large wrong credit totals. Touches the validation core → protected-
+   module propose/review process; Gustavo sign-off will be requested at
+   the concrete-diff stage (it changes what "validated" asserts — only by
+   tightening).
+4. **Geometry follow-ups: DEFERRED, kept explicit** — TD 24 groups/18 docs
+   (10 withheld) + RBC F11 6 docs = 16 documents needing word geometry.
+   Vehicle: the structurer-integration HARBOR card (geometry wiring),
+   where these 16 become the first targeted use case. No arithmetic-gate
+   weakening.
+
+**Remaining withheld (217), top cells:** bofa detail_coverage 30 +
+ledger_identity 25 + posting_date_coverage 15 (=70, the dominant family);
+wells period_integrity 22 + detail 13 + balance 5; us_bank
+summary_identity 20; truist 20; pnc 16.
+
+**Next dispatches (Ocean-launched, handoffs versioned):** Agent P —
+grouper promotion (tables.py + chase/td_can/rbc refactor, differential
+proofs); Agent Q — the bank_of_america family (70 docs, all three
+classes, bofa.py only). Disjoint ownership; parallel.
+
 ## 2026-08-07 — **OFFICIAL TRACK A CELL-1 RESULT (movement instrument, baseline `1dfaf7e9` → post `c3e557f0`)**
 
 Both runs full-set; baseline `--no-cache` (post-W3-1, pre-Track-A); post
