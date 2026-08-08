@@ -201,7 +201,12 @@ OCR_STAGE_VERSION = 2
 # 1 -> 2: Track A cell 1 (chase variant completeness, merge of b70496c)
 # changed chase extraction output for unchanged settings — cached chase
 # analyses from v1 would keep serving pre-fix withheld results forever.
-ANALYSIS_STAGE_VERSION = 2
+# 2 -> 3: Track A cells 2+3 (TD Canada direction recovery, RBC grid reader
+# + balance-chain sign solving; merges of 2dea5ba and 488580f) change
+# analysis output for unchanged settings. One composed bump after both
+# merges — no pre-TD/RBC artifact can survive into the post-merge
+# measurement.
+ANALYSIS_STAGE_VERSION = 3
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 
