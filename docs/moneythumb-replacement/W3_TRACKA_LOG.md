@@ -1123,7 +1123,7 @@ account fragment; every rule is anchored on the printed grid.
 |---|---|---|---|---|---|---|
 | B-F1 | **description-embedded date** | a date-shaped token printed inside a row's description — a wire's `PMT DET:… 26/01/03 …`, an adjustment's `… on 01/28/26` | rows were segmented at any date-shaped token, so one printed row became two unusable fragments | FIX — a row begins at a physical line whose FIRST token is the posting date; a date anywhere else on the line is description text | `test_f1_*` | a row is lost on **31** cell documents and on 38 already-validated ones (5 of which lose the posting date rather than the row — §B6) |
 | B-F2 | **wrapped amount cell** | the Amount column wraps onto a line of its own below a long description | flattening rejoined it, and the "last money token" rule then had to compete with money printed inside the description | FIX — a row ends at its amount cell: the money token that terminates a physical line | `test_f2_*` | present on **38** cell documents and 138 already-validated ones |
-| B-F3 | **money printed inside the description** | `… PMT INFO: PRODUCT(S): 101.40 S&H: 9.62 MI TAX: 6.66` on the description line, the real Amount cell on the next | any line-terminal rule reads the tax | FIX — a cell printed ALONE on its own line outranks a token that merely ends a description line (the same preference order Chase's F1/F6 pair settled) | `test_f2_a_bare_amount_cell_outranks_*` | **2** documents, both already validated |
+| B-F3 | **money printed inside the description** | `… PMT INFO: PRODUCT(S): 101.40 S&H: 9.62 MI TAX: 6.66` on the description line, the real Amount cell on the next | *(a hazard created by this restructuring, not a pre-existing defect — the naive form of B-F2's rule closes the row on the tax figure. Caught by the 289-document regression differential before commit, as RBC's F9/F10 were)* | FIX — a cell printed ALONE on its own line outranks a token that merely ends a description line: the same preference order Chase's F1/F6 pair settled | `test_f2_a_bare_amount_cell_outranks_*` | **2** documents, both already validated |
 | B-F4 | **inline section total / card subtotal** | `… -263.62 Subtotal for card account # XXXX … -$263.62 Total withdrawals and other debits -$133,503.06` — all on the last row's physical line, which on a page break is also the heading line | the printed figures were read as the row's amount | FIX — the bank's own `Subtotal`/`Total <section>` labels end the row and the section wherever they are printed; a line is walked rather than classified once | `test_f3_*` | a subtotal is glued to a row's line on **39** cell documents, a section total on **52**, and on **1** the section total lands on the continued-heading line as well |
 | B-F5 | **counterparty named "Total"** | `05/13/26 Total Quality Lo DES:PAYMENTS …`, `03/02/26 TOTALWINE 1147 …` | a row whose description began with "total" was discarded — a wording rule standing in for a structural one | FIX — the rule is deleted; a total line is recognised by not being date-headed | `test_f4_*` (parametrised) | **3** documents |
 | B-F6 | **single-column `Checks` table, and a cheque with no printed number** | one `Date Check # Amount` header group instead of two; a row printed as `05/11/26 -300.00` | the reader required the doubled header and required a check number | FIX — check rows are `<date> [<number>[*]] <amount>`; the number is what the bank printed, and BofA does not always print one | `test_f5_*` | **19** single-column tables, **2** unnumbered cheques |
@@ -1289,3 +1289,94 @@ claimed by the BofA parser: 8; financially differing: 0
 5. **`ANALYSIS_STAGE_VERSION` must be bumped at merge** (`webapp/` protected
    here). This change alters analysis output for unchanged settings on 294 of
    the 359 archive `bank_of_america` documents.
+
+## B8. Proofs
+
+All four run in this worktree against `1eeb123` — the tip after the last commit
+that touches code or tests (`dc61540`) — on a clean tree (`git status --short`
+empty), `set -o pipefail`, exit codes as printed.
+
+```
+$ git rev-parse --short HEAD
+1eeb123
+$ git status --short
+(empty)
+
+$ python -m pytest -q
+2117 passed, 18 deselected, 1 warning in 144.93s (0:02:24)
+SUITE_EXIT=0
+
+$ python -m pytest -m corpus -q
+14 passed, 2121 deselected, 1 warning in 1018.84s (0:16:58)
+CORPUS_MARKED_EXIT=0
+
+$ python corpus_gate.py
+[PASS] oracle_independence: 4 audit modules import no production financial mathematics
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  350.1s
+RESULT: GREEN
+GATE_EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+      tests/test_no_parser_helper_clones.py -q
+100 passed in 0.80s
+GUARDS_EXIT=0
+```
+
+The suite grew from **2,093** to **2,117** — the 24 new fixtures and nothing
+else. `git diff e614fcc..HEAD --name-only -- tests/` lists exactly one file,
+`tests/test_bofa_variants.py`, so **no existing assertion was edited**.
+
+**Fails-before / passes-after.** Every committed fixture captured as the suite
+runs and replayed through the pre-change module loaded from git, in the same
+process:
+
+```
+FIXED  f1_a_wire_detail_date_does_not_open_a_row              before=None  after=[10300.0]
+FIXED  f1_an_adjustment_row_carries_its_own_reference_date    before=None  after=[14.7]
+kept   f1_negative_a_date_that_does_start_a_line...           before=[10.0, 20.0]  after=[10.0, 20.0]
+kept   f1_negative_an_uncalendarable_row_date_is_dropped      before=None  after=None
+kept   f2_a_bare_amount_line_completes_the_row_above_it       before=[-500.0]  after=[-500.0]
+kept   f2_a_bare_amount_cell_outranks_a_money_token...        before=[-117.68]  after=[-117.68]
+kept   f2_negative_a_completed_row_is_not_extended...         before=[-50.0, -10.0]  after=[-50.0, -10.0]
+kept   f3_a_section_total_printed_after_the_last_row...       before=[-263.62]  after=[-263.62]
+kept   f3_a_card_subtotal_is_never_a_row                      before=[-10.0, -20.0]  after=[-10.0, -20.0]
+FIXED  f4_a_counterparty_named_total[Total Quality Lo...]     before=None  after=[-24.33]
+FIXED  f4_a_counterparty_named_total[TOTALWINE 1147...]       before=None  after=[-24.33]
+kept   f4_negative_the_printed_section_total_is_never_a_row   before=[10.0]  after=[10.0]
+FIXED  f5_a_single_column_checks_table_is_read                before=None  after=[-750.0]
+FIXED  f5_a_check_the_bank_printed_no_number_for...           before=[-200.0]  after=[-300.0, -200.0]
+kept   f5_a_gap_marked_check_number_keeps_its_marker          before=[-68.79]  after=[-68.79]
+kept   f5_negative_the_account_summary_checks_line...         before=[10.0]  after=[10.0]
+FIXED  f6_the_consumer_layout_is_read_on_both_sides           before=None  after=[500.0, -30.0, -70.0]
+FIXED  f7_a_scanned_column_header_does_not_hide_the_section   before=None  after=[-55.4]
+kept   f8_a_section_continues_across_a_page_break             before=[10.0, 20.0]  after=[10.0, 20.0]
+kept   f8_negative_the_daily_ledger_series_is_never_activity  before=[10.0]  after=[10.0]
+kept   f8_negative_the_page_header_line_never_joins_a_desc    before=[-500.0]  after=[-500.0]
+kept   a_waived_fee_of_zero_is_still_an_outflow_row           before=[-0.0]  after=[-0.0]
+FIXED  every_section_together_reconciles_against_the_summary  before=[-200.0, -300.0, -25.0]
+                                                              after=[900.0, 100.0, -200.0, -300.0, -100.0, -300.0, -25.0]
+
+fixtures: 23 (24 tests, one parametrised) · behaviour changed: 9 · unchanged: 14
+```
+
+The 14 `kept` lines are not weak tests and are reported as what they are:
+**constraints**, not demonstrations. Each pins a rule the new reader had to be
+built around — a minimal synthetic document is often one the old flattening
+happened to read correctly, and the point of the fixture is that the new rule
+still does. Two are explicit about it: `a_waived_fee_of_zero…` compares
+`direction`, which the amount list above cannot show (`debit` before, `debit`
+after — the *new* reader would have said `credit` without the section-side
+rule), and `f2_a_bare_amount_cell_outranks…` guards the hazard §B4's B-F3 row
+names, which the naive form of this restructuring introduced and the
+289-document differential caught before commit.
+
+**Commits (oldest first)**
+
+| Commit | Contents |
+|---|---|
+| `dc61540` | `analysis/bofa.py` + `tests/test_bofa_variants.py` |
+| `1eeb123` | this log's §BOFA B0–B7 |
+| (this one) | §B8, and the B-F3 root-cause line corrected to name it as a hazard of this restructuring rather than a pre-existing defect |
