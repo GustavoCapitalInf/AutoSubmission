@@ -3,10 +3,12 @@ from __future__ import annotations
 import re
 import unicodedata
 from datetime import date
+from itertools import takewhile
 
 from .money import parse_french_amount, parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
+from .tables import group_rows
 from .td_can import _MONTHS, normalize_mojibake
 
 _PERIOD_RE = re.compile(
@@ -97,7 +99,13 @@ def _read_grid_rows(entries, *, pattern, to_amount, opening_label, closing_label
     The one line-level fact that survives: an amount printed alone on its line
     is vertically centred between two description lines, so a following
     description-only line continues THAT row instead of opening a new one.
+
+    Rule 1 — where a row starts — is `tables.group_rows` (W3 §GROUPER): a
+    printed posting date opens a row here, and so does the table's own opening
+    balance row, which prints no date. The entries a page footer or a header
+    block would contribute never reach this function; the caller drops them.
     """
+    entries = list(entries)
     rows: list[dict] = []
     opening: float | None = None
     description: list[str] = []
@@ -109,66 +117,82 @@ def _read_grid_rows(entries, *, pattern, to_amount, opening_label, closing_label
     opens = re.compile(re.escape(opening_label), re.IGNORECASE)
     closes = re.compile(re.escape(closing_label), re.IGNORECASE)
 
-    for text, tx_date, opens_group in entries:
-        if opens_group:
-            # A new posting date closes whatever was pending: a description
-            # with no amount cell under it never became a row.
-            description = []
-            open_row = None
-            centred_amount = False
-        if not text:
-            continue
-        stop = closes.search(text)
-        if stop:
-            text = text[:stop.start()].strip()
-            if not text:
-                break
-        cells = _grid_cells(text, pattern)
-        if opens.match(text):
-            if cells:
-                opening = to_amount(cells[-1].group(0))
-            description, open_row, centred_amount = [], None, False
-            continue
-        if not cells:
-            if open_row is not None and centred_amount:
-                open_row["description"] = f"{open_row['description']} {text}".strip()
-            else:
-                description.append(text)
-            centred_amount = False
-            continue
+    def starts_row(entry) -> bool:
+        text, _, opens_group = entry
+        return bool(opens_group) or bool(opens.match(text))
 
-        cells_only = (
-            not text[:cells[0].start()].strip()
-            and not text[cells[-1].end():].strip()
-            and all(not text[a.end():b.start()].strip() for a, b in zip(cells, cells[1:]))
-        )
-        position = 0
-        for match in cells:
-            gap = text[position:match.start()].strip()
-            if gap:
-                description.append(gap)
+    groups = group_rows(entries, starts_row=starts_row)
+    #: Whatever the table prints above its first row start already stands
+    #: inside that row: unlike a section heading in a Chase block, there is no
+    #: furniture here for the caller to have left behind.
+    head = list(takewhile(lambda entry: not starts_row(entry), entries))
+    if head:
+        groups.insert(0, head)
+
+    stopped = False
+    for group in groups:
+        # A new posting date closes whatever was pending: a description
+        # with no amount cell under it never became a row.
+        description = []
+        open_row = None
+        centred_amount = False
+        for text, tx_date, _ in group:
+            if not text:
+                continue
+            stop = closes.search(text)
+            if stop:
+                text = text[:stop.start()].strip()
+                if not text:
+                    stopped = True
+                    break
+            cells = _grid_cells(text, pattern)
+            if opens.match(text):
+                if cells:
+                    opening = to_amount(cells[-1].group(0))
+                description, open_row, centred_amount = [], None, False
+                continue
+            if not cells:
+                if open_row is not None and centred_amount:
+                    open_row["description"] = f"{open_row['description']} {text}".strip()
+                else:
+                    description.append(text)
+                centred_amount = False
+                continue
+
+            cells_only = (
+                not text[:cells[0].start()].strip()
+                and not text[cells[-1].end():].strip()
+                and all(not text[a.end():b.start()].strip() for a, b in zip(cells, cells[1:]))
+            )
+            position = 0
+            for match in cells:
+                gap = text[position:match.start()].strip()
+                if gap:
+                    description.append(gap)
+                    open_row = None
+                value = to_amount(match.group(0))
+                if open_row is not None and open_row["balance"] is None:
+                    open_row["balance"] = value
+                    open_row = None
+                else:
+                    row = {
+                        "date": tx_date,
+                        "description": " ".join(description).strip(),
+                        "abs_amount": abs(value),
+                        "amount": -abs(value),
+                        "balance": None,
+                    }
+                    description = []
+                    rows.append(row)
+                    open_row = row
+                position = match.end()
+            tail = text[position:].strip()
+            if tail:
+                description.append(tail)
                 open_row = None
-            value = to_amount(match.group(0))
-            if open_row is not None and open_row["balance"] is None:
-                open_row["balance"] = value
-                open_row = None
-            else:
-                row = {
-                    "date": tx_date,
-                    "description": " ".join(description).strip(),
-                    "abs_amount": abs(value),
-                    "amount": -abs(value),
-                    "balance": None,
-                }
-                description = []
-                rows.append(row)
-                open_row = row
-            position = match.end()
-        tail = text[position:].strip()
-        if tail:
-            description.append(tail)
-            open_row = None
-        centred_amount = cells_only
+            centred_amount = cells_only
+        if stopped:
+            break
 
     return rows, opening
 
