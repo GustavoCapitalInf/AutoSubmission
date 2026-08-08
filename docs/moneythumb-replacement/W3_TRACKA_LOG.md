@@ -699,3 +699,296 @@ debit total == stated:      51 / 61   (baseline 0 / 61)
    ledger_identity` documents move withheld → validated. Same parser, same root
    cause, no separate work; flagged because Ocean's archive-wide measurement
    will show **+56** TD documents, not +51.
+## 5. Cell 3 — `rbc x detail_coverage`, 48 records / 46 documents
+
+REEF-RBC, 2026-08-07. Branch `wave3-rbc-completeness`, base `d775bbe`
+(worktree tip `0c13c21`, which adds only the two handoff files and the
+execution log on top of it). Brief: `docs/agent-handoffs/REEF-RBC.md`.
+
+Same method as §1 — characterise families, root-cause, capability-level fix or
+fail-closed-by-design, prove with synthetic fixtures both directions, measure
+the cell honestly. Different shape: §4's reconnaissance was right, and the trap
+it named is the whole cell.
+
+### 5.0 Summary
+
+| | |
+|---|---|
+| Cell worked | `rbc x detail_coverage` — 48 records, 46 distinct documents |
+| Result | **42 of 48 records / 40 of 46 documents validate**, from 0 |
+| Side cluster `rbc x balance_continuity` (18) | **18 / 18 validate**, from 0 |
+| Already-validated rbc documents (89) | **89 / 89 still validate** — zero regressions |
+| Layout families characterised | 11, all closed at the capability level: 10 fixed, 1 ruled FAIL CLOSED with its volume |
+| Statement-specific constants added | none (two description-keyed rules **removed**) |
+| Protected modules touched | none. `analysis/tables.py`, `analysis/money.py`, `analysis/date_tokens.py`, `analysis/chase.py`, `analysis/td_can.py` unchanged; `_MONTHS` and `normalize_mojibake` consumed unchanged |
+| Truth-set movement | **none.** All five pinned RBC statements (4 English + 1 French) parse byte-identically; `corpus_gate.py` GREEN, 106 PASS / 3 WITHHELD, same three by name. **No re-baseline requested or performed** |
+| Files changed | `analysis/rbc.py`, `tests/test_rbc_variants.py` (new), `tests/test_analysis.py` (one fixture description), this log |
+
+### 5.1 The cell reproduced independently
+
+Joining the frozen `c3e557f0` run's telemetry diagnostics to its parser
+attribution reproduces Ocean's table exactly: `parser_id == "rbc"` gives 156
+records — 90 validated, 66 withheld — and the withheld split by primary class
+is **`detail_coverage` 48** and **`balance_continuity` 18**. The 48 records are
+46 distinct content hashes (two exact duplicates inside the cell), every one in
+the `RBC/` folder, every one resolved through the **native** rung. The failing
+checks are uniform and match §4's reconnaissance:
+
+| Evidence | Records |
+|---|---|
+| `adb:final_balance_matches_statement_closing`, `adb:ledger_reconciles_to_closing`, `adb:running_balances_support_daily_ledger` | 48 / 48 |
+| `integrity:ledger_sum_mismatch`, `integrity:running_balance_breaks`, `recon:running_balance_break`, `recon:sum_check_failed` | 48 / 48 |
+| `integrity:debit_detail_coverage_mismatch` | 46 |
+| `integrity:credit_detail_coverage_mismatch` | 35 |
+| `adb:posting_dates_cover_source` | 1 |
+
+### 5.2 The measurement instrument (used before any code changed)
+
+RBC prints, in Account Summary, a **count and a total for each direction**:
+
+```
+Total deposits & credits (109) + 43,062.10
+Total cheques & debits  (223) - 44,655.90
+```
+
+plus an opening and a closing balance, plus an intermittent running-balance
+column. Completeness, sign assignment and the ledger identity are therefore all
+checkable **against the document itself** — no expectation file, no audited
+truth set. That instrument is stronger than Chase's per-section totals because
+it pins the row COUNT on each side as well as the money.
+
+Its trustworthiness is not assumed: over the 89 rbc documents discovery had
+already validated, the instrument agrees on **89 / 89** for row count and gross
+money — so a document that fails it is failing the bank's own arithmetic.
+
+Baseline over the cell, before any change (46 documents):
+
+| | documents |
+|---|---|
+| row count equals `credit_count + debit_count` | 40 / 46 |
+| gross money equals `stated credits + stated debits` | 16 / 46 |
+| credit total reproduced | 10 / 46 |
+| debit total reproduced | **0 / 46** |
+| ledger identity holds | 0 / 46 |
+| printed balance chain unbroken | 0 / 46 |
+
+The decisive partition: **16 documents captured every row and every amount
+correctly and got only the SIGNS wrong** (row count and gross money both exact,
+per-direction totals both wrong). That is the dual-money-cell problem in its
+purest form and it is not a coverage problem at all — the platform reported it
+as `detail_coverage` because a mis-signed row moves money from one stated total
+to the other, which reads exactly like a missing row.
+
+### 5.3 The dual money cell, solved structurally
+
+RBC's activity table prints **three** money columns:
+
+```
+Date | Description | Cheques & Debits ($) | Deposits & Credits ($) | Balance ($)
+```
+
+The native text layer collapses every run of whitespace before any parser sees
+it (verified: 22,278 money-shaped tokens across the 153 rbc activity sections,
+zero column padding preserved), so **the column an amount was printed in is not
+in the text**. Two distinct questions follow, and both are answered from the
+statement's own printed evidence rather than from token order or wording:
+
+**(1) Which cell is the amount and which is the running balance.**
+The Balance column is printed last and is never printed without an amount
+beside it. So: *two money cells with no text between them are one row's amount
+and its running balance; a lone money cell is an amount.* The rule is decided
+by adjacency in the grid, and it is deliberately blind to the values — a
+balance smaller than its own amount is still the balance (`test_f1_*`). This is
+what the old rule got wrong: it took "the last money token, if the line has two
+and ends with one", which is the same thing on a simple row and wrong on every
+row that carries three cells, a printed rate, or a printed reference number.
+
+**(2) Which activity column the amount stood in — the sign.**
+The printed running balance closes the arithmetic: over the rows between two
+printed balances the signed amounts must reproduce the delta. Two solvers, same
+evidence:
+
+* `_column_split_signs` — inside one balance block RBC prints the deposits
+  column above the withdrawals column, so the credit set is a **prefix**. The
+  prefix total is strictly increasing, so at most one split reproduces the
+  delta: **the assignment is unique whenever it exists, with nothing to choose
+  between.** Measured: **4,513 of 4,570 segments** across the whole rbc
+  population solve here.
+* `_subset_signs` — the same delta with no ordering assumption: a bounded
+  subset-sum (max 24 rows, max 200,000 states, refuses past either). Used on
+  the remainder.
+
+Where several assignments reproduce the same delta — which happens only when
+equal amounts sit on both sides, and where **every candidate publishes the
+identical credit and debit totals** — the printed column order breaks the tie
+deterministically. This is disclosed rather than hidden: it moves a
+*direction label* between two rows of the same amount and cannot move a
+financial result. It is observable on exactly two of the 153 documents (§5.6).
+
+Where the chain cannot close, **the signs are not invented**. Those rows keep
+the direction their transaction type implies and the document then fails the
+bank's own stated totals and the ledger identity — which is what keeps the
+remaining six documents (§5.4 F11) withheld instead of repaired into agreement.
+
+**No geometry was needed, and none was used.** Stop condition 4 does not fire:
+the printed balance column plus the printed stated counts and totals carry
+enough evidence to decide the column assignment for 147 of the 153 documents.
+The six that remain are not short of column information — their text layer does
+not carry the rows in grid order at all (§5.4 F11).
+
+### 5.4 The families
+
+Named by structure. Nothing below names a customer, an amount, a date or an
+account fragment; every rule is anchored on the printed grid.
+
+| # | Family | Structural signature | Root cause | Ruling | Fixture |
+|---|---|---|---|---|---|
+| F1 | **dual money cell** | a row prints an amount cell and a running-balance cell | cells were classified by position in the flattened line (`>= 2 tokens and the last one ends the line`), with a **description-keyed exception** — rows whose text contained `TRANSACTION FEE` were denied a balance, so on those rows the balance became the amount | FIX — the grid decides: adjacent cells are (amount, balance), a lone cell is an amount. The wording exception is deleted | `test_f1_*` |
+| F2 | **column of origin (the sign)** | the amount's column is absent from the text | the sign came from a description vocabulary and was repaired only for segments of at most 16 rows, and only toward whichever assignment was closest to the vocabulary's guess — so long blocks were never solved and short ones could be solved wrongly | FIX — `_solve_from_printed_balances`: column-order split, bounded subset-sum fallback, no repair when the chain cannot close | `test_f2_*` |
+| F3 | **compressed line** | several printed rows emitted on ONE physical line (`... 10,000.00 32,118.42 Misc Payment ... 783.48 ...`) | only the last two money tokens of a line were ever considered; everything earlier was lost or folded into a description | FIX — a row ends at its amount cell, so text after one begins the next row. No wording whitelist, unlike the Chase F2 defect | `test_f3_*` |
+| F4 | **wrapped row** | one printed row spread over several physical lines | description accumulation existed but a line carrying no money cell after an amount was dropped | FIX — same rule; a description-only line continues the pending row | `test_f4_*` |
+| F5 | **vertically centred amount cell** | the amount is printed alone on its line, BETWEEN two description lines | the line after the amount opened a new row and took the rest of the previous row's description with it | FIX — a bare-amount line does not close the description | `test_f5_*` |
+| F6 | **printed rate operand** | `Regular transaction fee 17 Drs @ 2.50 42.50`, `Overdraft interest @ RBP+05.00%P.A 0.04 4,820.18`, `Handling fee 2 @ $ 5.00 10.00` | the money pattern had no `@`/`%` boundary, so a printed unit price matched as a cell and became the amount; the resulting damage was patched by a `^\d+ Crs @ ...$` regex gated on the words `REGULAR TRANSACTION FEE` | FIX — the operand of the statement's own `@` marker, and a `%`-suffixed operand, are not grid cells. The description-keyed patch is deleted. 170 lines, 89 documents | `test_f6_*` |
+| F7 | **printed reference number** | `Water Bill Payment ... 00314.06 1,432.28 -28,340.36` | a zero-padded reference number in the description matched the money pattern, so the real amount was read as a balance and the reference as the amount | FIX — a printed price carries no leading zero. Measured over all 22,278 activity money tokens: every leading-zero token is either an `@` rate or a reference number, and `0.45` (single leading zero) is unaffected. 20 tokens, 6 documents | `test_f7_*` |
+| F8 | **closing-balance cell inside a row line** | `31 Mar Online Transfer ... 4,000.00 4.40 Closing balance 4.40` | the table end was recognised only at the start of a line, so the closing cell was read as another transaction | FIX — the printed label ends the table wherever it is printed | `test_f8_a_closing_balance_cell_*` |
+| F9 | **page footer shaped like a date** | `1 of 16` / `1 de 7` inside the activity section | *(hazard created by this restructuring, caught by the corpus-marked proof before any commit)* the French footer `1 de 7` parses as day `1` + month token `de`, and `de` resolves unambiguously to `DECEMBRE` — moving whole posting-date groups | FIX — the footer is dropped BEFORE the Date column is read, in both language paths | `test_f8_a_page_number_*` |
+| F10 | **French page break** | the French layout reprints its column header on every page, but the French path never left the activity section | *(same hazard)* with F4 in place, the page's own header block (`--- Page n ---`, the Docusign line, the section title) accumulated into the next row's description | FIX — symmetric with the English path: a page break leaves the table and the reprinted column header re-enters it | the pinned French statement, byte-identical; `test_french_*` |
+| F11 | **reflowed text layer** | money cells and description fragments emitted out of grid order: a balance opens a physical line, an amount is printed between the description lines of a DIFFERENT row, and in places cells are absent from the text stream altogether | the PDF's text objects are not emitted in grid order, so the row/column structure is not recoverable from the text layer at all | **FAIL CLOSED — 6 documents (6 of 48 records).** They stay withheld with accurate `detail_coverage` diagnostics. The grid reader recovers most rows but the printed balance chain does not close and the bank's stated counts and totals are not reproduced, so nothing is published | none: this family is defined by the ABSENCE of the structure the fixtures pin |
+
+Negative fixtures — each constrains the new rules rather than demonstrating a
+defect, and each is asserted:
+
+- a digit run inside a description never opens a row
+  (`test_negative_a_digit_run_in_a_description_never_opens_a_row`);
+- the `Opening balance` row is never a transaction, and it still supplies the
+  chain's first balance;
+- a third adjacent money cell does not become a second balance — the reader
+  refuses to name a row it cannot see and the document then fails the bank's
+  stated totals;
+- a single leading zero (`0.45`) is still money;
+- a page footer never becomes a row and never breaks the row around it;
+- the printed rate operands stay in the description on all three printed forms.
+
+**The mandatory adversarial fixture** the brief requires is
+`test_f1_the_naive_last_money_token_rule_is_what_this_fixture_refutes`: a
+document on which the naive "the amount is the right-aligned / last money
+token" rule — the rule the Chase row grouper would have brought with it —
+produces an arithmetically impossible ledger, and which the grid rule extracts
+correctly and reconciles. It names the naive read explicitly and asserts the
+parser does not produce it.
+
+### 5.5 Result over the cell
+
+Same production ladder discovery used (`ocr.pipeline.parse_statement`, native
+rung, no OCR, no model calls, `$0.00`), then `analyze_markdown` in
+deterministic mode, classified with `telemetry.record.classify_outcome` and
+diagnosed with `telemetry.diagnostics.diagnose`:
+
+| Cell | records | documents | before | after |
+|---|---|---|---|---|
+| `rbc x detail_coverage` | 48 | 46 | 0 validated / 46 withheld | **40 validated / 6 withheld** |
+| `rbc x balance_continuity` (side cluster, measured as asked) | 18 | 18 | 0 validated / 18 withheld | **18 validated / 0 withheld** |
+| already-validated rbc | 90 | 89 | 89 validated | **89 validated** |
+
+Record-level, which is how the 614 are counted: **42 of the 48 cell records
+validate**; the 6 that remain are the F11 documents. Adding the side cluster,
+**60 of the 66 withheld rbc records** move to validated.
+
+Against the in-document instrument, after the change:
+
+| | detail_coverage (46) | balance_continuity (18) | already validated (89) |
+|---|---|---|---|
+| row count equals stated counts | 41 | 18 | 89 |
+| gross money equals stated totals | 40 | 18 | 89 |
+| credit count AND total reproduced | 40 | 18 | 89 |
+| debit count AND total reproduced | 40 | 18 | 89 |
+| ledger identity holds | 40 | 18 | 89 |
+| printed balance chain unbroken | 40 | 18 | 89 |
+
+**Nothing was padded to get there.** Every document that now validates
+reproduces, independently: the bank's printed credit COUNT and total, its debit
+COUNT and total, the ledger identity, the printed running-balance chain at
+every printed balance, and the full ADB validation suite. The fail-closed gate
+is unchanged; these documents pass it on their own arithmetic.
+
+The already-validated set is worth its own line. 89 / 89 still validate, and
+**8 of them improved**: six had a credit/debit COUNT that disagreed with the
+bank's own summary (zero-amount and equal-amount rows on the wrong side) and
+two had a credit TOTAL that was wrong by tens of thousands while still passing
+ADB. All eight now reproduce the printed counts and totals exactly. That is a
+correctness gain the outcome class could not have shown.
+
+### 5.6 What did NOT change, deliberately, and what is disclosed
+
+- **No shared utility was touched.** `analysis/tables.py`, `analysis/money.py`
+  and `analysis/date_tokens.py` are unmodified; `parse_money`,
+  `parse_french_amount` and td_can's `_MONTHS` / `normalize_mojibake` are
+  consumed exactly as they were. The R-2 clone guard and the private-import
+  allowlist are unchanged and green.
+- **The Chase row grouper was not reused and not promoted.** Deferred to Ocean
+  as ruled. §5.7 records what this cell contributes to that decision.
+- **The description vocabularies (`_is_credit` / `_is_debit`) stay as R-1 left
+  them.** They are now only the initial reading, and only survive on rows in a
+  block the printed chain cannot close. No entry was added; none was removed.
+  Removing them is a separate change with its own evidence burden.
+- **Two documents' direction labels are a disclosed tie-break.** On two
+  statements (the same statement under two hashes) a block contains two rows of
+  the identical amount, one on each side. Every assignment consistent with the
+  printed delta publishes the identical credit count, credit total, debit count,
+  debit total, ledger identity and balance chain, so no financial value can move;
+  what moves is which of the two descriptions carries `credit`. The choice is
+  now made by the printed column order — deposits above withdrawals — instead of
+  by a memorised description list, which is a better-grounded rule but still a
+  choice, and it is pinned by
+  `test_f2_equal_amounts_on_both_sides_resolve_to_the_printed_column_order`.
+  Downstream transaction classification reads `direction`, so this is named
+  rather than buried.
+- **Descriptions moved on 35 documents**, all toward the printed text: rate
+  operands are no longer amputated from a fee description, reference numbers
+  stay in the description they were printed in, and wrapped descriptions are
+  now complete. One synthetic fixture in `tests/test_analysis.py` asserted the
+  truncated form and was updated with its reason; **no audited value moved** —
+  the fixture is not part of the truth set, and every pinned corpus statement is
+  byte-identical.
+- **The F11 volume is stated, not hidden**: 6 documents, 6 records, 12.5% of the
+  cell. They need the PDF's word boxes to read at all; that input belongs to the
+  structurer subsystem and wiring it into a parser is an architecture decision,
+  so it is reported to Ocean rather than attempted here (§5.7).
+
+### 5.7 Carried findings for Ocean
+
+1. **Row-grouper promotion (§3 item 4) — this cell's contribution.** The Chase
+   grouper's third rule ("the amount is the right-aligned cell") is
+   **not** promotable as written: it is underdetermined wherever a layout prints
+   a running-balance column, and RBC is that layout on every one of its 153
+   documents. The promotable form is the one this cell proves: *a lone money
+   cell is an amount; adjacent money cells are (amount, balance) in printed
+   column order.* That degrades exactly to Chase's rule on a layout with no
+   balance column. The other two rules (a row starts at a date-shaped first
+   token; wrapped lines continue it) carried over unchanged and needed no RBC
+   variant. Two further pieces look layout-general rather than bank-specific and
+   would need their own differential proof before moving: the `@`/`%` rate
+   exclusion (F6) and the leading-zero reference-number rule (F7).
+2. **The printed-balance sign solver looks reusable and is deliberately not
+   moved.** `_solve_from_printed_balances` answers "which column was this
+   amount printed in" for ANY two-column-plus-balance layout — td_canada_native
+   prints the same shape. It lives in `analysis/rbc.py` because promoting it is
+   a shared-utility change (stop condition 1).
+3. **F11 needs geometry (stop condition 4, reported not acted on).** Six
+   documents' text layers emit cells out of grid order. Evidence: balances open
+   physical lines, amounts are printed between the description lines of a
+   different row, and some cells are missing from the text stream entirely —
+   one document's stated 129 rows yield at most 118 recoverable cells. No
+   text-layer rule can reorder what the text layer has already reordered. The
+   input needed is the PDF word boxes W3-3c already produces for the structurer.
+   **Architecture decision, not taken here.**
+4. **`stated_credit_count` / `stated_debit_count` are extracted but never
+   checked by the platform.** W3-2 §2 recorded that there is no platform-level
+   count check. This cell is the strongest argument for one: 6 of the 89
+   already-validated rbc documents had a *wrong* per-direction count while
+   passing every existing check, and the printed count is exactly what caught
+   it. Adding the check is a protected-module change (`analysis/pipeline.py` or
+   `analysis/reconcile.py`) and is out of this cell's scope.
+5. **`ANALYSIS_STAGE_VERSION` must be bumped at merge.** This change alters
+   analysis output for unchanged settings on 72 of 153 rbc documents. The bump
+   is Ocean's at merge; `webapp/` was not touched.
