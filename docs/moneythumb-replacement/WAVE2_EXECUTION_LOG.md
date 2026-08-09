@@ -1,5 +1,44 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-09 — WELLS + TRIO merged/pushed (`46fb5e3`); movement +89/0; **TRACK A CELL PHASE EFFECTIVELY COMPLETE**
+
+Both approved: WELLS 36/40 (summary block read as label-owned rows; WF_TX
+right-split; multi-account primary publishing; W-F7 ocr-geometry cluster
+of 4 correctly RAISED not attempted) and TRIO all three cells (us_bank
+20/20 — closed 3-category vocabulary opened to the bank's 6; truist 20/20
+— currency-symbol-as-cell at the checks terminator; pnc 13/17 — sections
+vs boundaries separated; 3 geometry-family + 1 scanned residual). Zero
+regressions; 12+4 pinned statements financially identical; no ceremonies.
+Composed bump v5. **Ocean slip disclosed and repaired (`46fb5e3`): the
+TRIO merge commit briefly carried embedded log conflict markers (resolver
+asserted on look-alike lines; shell chain continued) — hunk-aware union
+applied, both sections verified, code tree unaffected throughout.**
+
+**Official movement (`70123cf2` → `52b4b2b2`):** improved **89** /
+regressed **0**; validated 1,533 → **1,622**; withheld 147 → **58**;
+wells 36 · truist 20 · us_bank 20 · pnc 13, each exactly the worker
+preview.
+
+**CUMULATIVE TRACK A (canonical `1dfaf7e9` → `52b4b2b2`):** validated
+1,048 → **1,622** (**+574, +55% relative**); validated coverage 31.0% →
+**48.0%**; withheld 650 → **58** (−91%); **zero regressions across seven
+parser cells + one shared-utility refactor + ~15 measured runs.**
+
+**The remaining 58 are dominated by honest residuals:** geometry class 19
+(TD 10 underdetermined-split, RBC F11 6, PNC 3) + wells W-F7 4 + scanned 1
+· probable genuine document defects (bmo source_contradiction 4, ibc 2,
+farmers adb_not_computable 3) · small cells ≤3 docs each (citizens,
+regions, scotiabank, td_us, atb, capital_one, relay, chase_export,
+chase). No cell ≥7 remains. Marginal-value ranking now favors the other
+pools: unclaimed known-bank layouts (W3-4 dispositions: BMO 164, Chase
+176, TD 44, CIBC 40…), the 16-doc unregistered US Bank layout, the
+structurer/geometry card (19 residuals as first targets), and the
+safety-backlog checks (stated-count — now with witnesses from RBC, BofA
+and decisively PNC; the daily-ledger oracle — BofA/US Bank populations).
+**Next-phase selection is a strategic step: recommendation goes to
+Gustavo before dispatching the unclaimed-layout class; the stated-count
+concrete-diff proposal is prepared for his sign-off in parallel.**
+
 ## 2026-08-09 — GROUPER + BOFA merged/pushed (`5443cfa`); official movement +71/0; next round dispatched
 
 **GROUPER (approved):** `group_rows` promoted with parser-supplied
