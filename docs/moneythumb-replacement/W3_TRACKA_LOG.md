@@ -1515,3 +1515,464 @@ names, which the naive form of this restructuring introduced and the
 | `dc61540` | `analysis/bofa.py` + `tests/test_bofa_variants.py` |
 | `1eeb123` | this log's §BOFA B0–B7 |
 | (this one) | §B8, and the B-F3 root-cause line corrected to name it as a hazard of this restructuring rather than a pre-existing defect |
+
+---
+
+# §WELLS — Cell 5: `wells_fargo × {period_integrity, detail_coverage, balance_continuity}`, 40 documents
+
+REEF-WELLS, 2026-08-08. Branch `wave3-wells-completeness`, base `b839bfa`
+(`5443cfa` plus the two handoff files). Brief:
+`docs/agent-handoffs/REEF-WELLS.md`.
+
+Same method and idiom as §1/§TD/§5/§BOFA: reproduce the cell independently,
+build the in-document instrument BEFORE changing code, characterise layout
+families structurally, fix at the capability level or fail closed with the
+volume stated, prove both directions with synthetic fixtures, measure honestly.
+
+The recurring lesson holds a fifth time. `period_integrity` names 22 of the 40
+and it is a **symptom**: not one of those documents has a period problem. Every
+one prints its period exactly where the others do, and the parser read none of
+it because a single flattened regex demanded that the four cells of the
+activity summary be adjacent in the text — and they are not.
+
+## W0. Summary
+
+| | |
+|---|---|
+| Cell worked | `wells_fargo × period_integrity` (22), `× detail_coverage` (13), `× balance_continuity` (5) — **40 records, 40 distinct content hashes**, no duplicates inside the cell |
+| Result over the cell | **36 / 40 validated**, from 0 / 40. **4 fail closed by design** (§W4 W-F7 — the amount column is not in the text layer; `ocr/` is protected for this agent) |
+| Movement outside the cell | none. The 1 `wells_fargo × posting_date_coverage` record parses **field-identically** and stays withheld |
+| Already-validated `wells_fargo` documents (192 records / 180 hashes) | **192 / 192 still validate**, and every one is **field-identical** — same period, same balances, same stated totals, same rows, same amounts, same directions, same running balances, same descriptions. Zero regressions and zero description movement |
+| Layout families characterised | 7 — six fixed, one ruled FAIL CLOSED with its volume |
+| Statement-specific constants added | **none.** Two dead constructs **removed**: `_is_credit`, an unused description vocabulary that named a counterparty, and `_PERIOD_RE`, an unused regex |
+| Protected modules touched | none. `analysis/tables.py`, `money.py`, `date_tokens.py`, every other parser, pipeline/registry, `ocr/`, `webapp/`, `discovery/`, `telemetry/`, corpus assets and both audit CSVs are unmodified. `parse_money` and `iso_from_month_day` are consumed exactly as they were |
+| Truth-set movement | **none.** All 4 pinned corpus Wells Fargo statements parse field-identically; `corpus_gate.py` **GREEN**, 106 PASS / 3 WITHHELD, same three by name. **No re-baseline requested or performed** |
+| Files changed | `analysis/wells.py`, `tests/test_wells_variants.py` (new, 25 fixtures), this log |
+| Cache implication | analysis output changes for unchanged settings on **40 of the 233** archive `wells_fargo` documents → `ANALYSIS_STAGE_VERSION` must be bumped at merge. **Ocean's, not done here** (`webapp/` is protected for this agent) |
+
+## W1. The cell reproduced independently
+
+Joining the frozen baseline run `70123cf2`'s telemetry diagnostics to its
+`rows.csv` parser attribution by content hash reproduces the assigned cell
+exactly: `parser_id == "wells_fargo"` gives **233 records — 192 validated, 41
+withheld**, and the withheld split by primary class is **`period_integrity` 22
+· `detail_coverage` 13 · `balance_continuity` 5 · `posting_date_coverage` 1**.
+The first three are the assigned cell: 40 records, 40 distinct hashes. Every
+one of the 233 is in the `Wells Fargo/` folder and every one resolves through
+the native `native-pdf-text+wells` rung; none is scanned, and none carries an
+HTML `<table>` fragment.
+
+(The brief quotes the run as validated 1,533 / withheld 147; the run's own
+`report.txt` and `rows.csv` both say **1,577 / 148**. The discrepancy is in the
+brief, not in the data — the derivation above is from the run itself, and the
+per-cell counts it quotes, 22 / 13 / 5, match exactly.)
+
+The failing checks are uniform within each class, and the shape of the two
+groups is the finding:
+
+| Evidence | period_integrity (22) | detail_coverage (13) | balance_continuity (5) |
+|---|---|---|---|
+| `adb:statement_period_dates_valid` | 22 | — | — |
+| `adb:opening_balance_matches_statement` | 22 | — | — |
+| `adb_state:period_start_missing` / `period_end_missing` / `period_dates_invalid` | 22 | — | — |
+| `adb_state:beginning_balance_absent` / `closing_balance_absent` | 22 | — | — |
+| `recon:sum_check_inputs_missing` | 22 | — | — |
+| `adb:final_balance_matches_statement_closing` | 22 | 13 | 5 |
+| `adb:ledger_reconciles_to_closing`, `integrity:ledger_sum_mismatch` | — | 13 | 5 |
+| `integrity:running_balance_breaks` | 2 | 13 | 5 |
+| `integrity:credit_detail_coverage_mismatch` | — | 12 | — |
+| `integrity:debit_detail_coverage_mismatch` | — | 10 | — |
+
+On all 22 `period_integrity` documents, **every one of the 13 summary fields is
+absent** — period start and end, beginning and ending balance, both stated
+totals, both stated counts, days in period. That is not a period defect. It is
+one block that was not read at all, and the class is simply the highest-ranked
+consequence.
+
+## W2. The measurement instrument (used before any code changed)
+
+Wells Fargo prints three independent self-checks, all on the document:
+
+* the **Statement period activity summary** — beginning balance, one credit
+  total, one debit total and an ending balance, per account;
+* a **`Totals $C $D`** line at the foot of each account's transaction history,
+  which is that account's captured credit and debit totals as the bank
+  computes them — printed, and read by no part of the parser;
+* the **Ending daily balance** column, printed on the last row of each posting
+  day, which the parser does carry as `running_balance`.
+
+The instrument's own trustworthiness is checked first rather than assumed: over
+the 192 `wells_fargo` documents discovery had already validated, the printed
+summary closes arithmetically (beginning + credits − debits = ending) on
+**192 / 192**, and the rows reproduce both the stated totals and the printed
+`Totals` line on **192 / 192**. A document that fails it is failing the bank's
+own arithmetic.
+
+Baseline over the cell, before any change — the parser's published statement
+measured against the statement's own printed figures:
+
+| Instrument | period_integrity (22) | detail_coverage (13) | balance_continuity (5) |
+|---|---|---|---|
+| period read | 0 | 13 | 5 |
+| beginning + ending balance read | 0 | 13 | 5 |
+| stated credit + debit totals read | 0 | 13 | 5 |
+| the printed summary closes | 0 | 13 | 5 |
+| rows reproduce the stated credit total | 0 | 0 | 4 |
+| rows reproduce the stated debit total | 0 | 3 | 0 |
+| rows reproduce the printed `Totals` line | **18** | 0 | 0 |
+| ledger identity holds | 0 | 0 | 0 |
+
+**Two disjoint findings, and neither is what the class names.**
+
+1. On `period_integrity` the rows were already right — 18 of 22 reproduce the
+   bank's own printed `Totals` line before any change. Nothing was missing from
+   the ledger; the *summary block* was unread.
+2. On `detail_coverage` and `balance_continuity` the summary was read
+   perfectly and the **rows** were wrong — and the direction of the error is
+   the tell. Captured gross money (credits + debits) is **above** the stated
+   gross on **16 of the 18** and below it on 2. The platform was reading *more*
+   money than the account printed, which no coverage defect can produce: a
+   coverage defect can only lose rows. `detail_coverage` was, on 14 of these
+   18 documents, exactly the wrong diagnosis of the wrong sign.
+
+## W3. The two things that were wrong
+
+**(1) A statement can carry more than one account, and every account's rows
+were being read against one account's summary.** Wells prints each account as a
+section that opens with its own `Account number:` line, exactly one of which
+carries the bank's `(primary account)` marker; the section holds that account's
+activity summary, its transaction history and its own `Totals` line. Over the
+233 documents this structure is exact: the account line precedes its summary
+heading 1:1 on **233 / 233**, the first section is the primary-marked one on
+**233 / 233**, and **zero** transaction rows are printed before the first
+account line. The parser took the first `Account number:`, the first summary
+block and **every** `WF_TX` row in the document, so on a two-account statement
+it published the union of two ledgers against one of them. 17 documents print
+two accounts: 14 in the cell, 3 already validated (whose second account has no
+activity, which is why they passed).
+
+**(2) The activity summary was read as a sentence, not as the printed
+label/value block it is.** The block prints four labelled rows —
+`Beginning balance on M/D`, `Deposits/<direction>`, `Withdrawals/<direction>`,
+`Ending balance on M/D`. `ocr/native_text.py` emits one PyMuPDF *block* per
+line in (y, x) order, so the page furniture printed in the same vertical band —
+the account-terms line, the two routing-number lines, the account holder's name
+— lands **between** those rows. The old regex required the four cells to be
+adjacent in one run of text, required the business spelling
+(`Deposits/Credits`), required the word `Ending`, and required a printed minus
+in front of the withdrawals figure. Any one of those four assumptions failing
+lost the entire block, and with it the period, both balances and both stated
+totals.
+
+The structural correction is one sentence: **each label owns its own printed
+row and claims the amount cell printed on it** — and the period is printed
+*inside the labels*, not in the cells, so a statement whose amount column is
+unreadable still dates itself.
+
+## W4. The families
+
+Named by structure. Nothing below names a customer, an amount, a date or an
+account fragment; every rule is anchored on the printed grid.
+
+| # | Family | Structural signature | Root cause | Ruling | Fixture | Volume (cell / already-validated) |
+|---|---|---|---|---|---|---|
+| W-F1 | **consumer summary vocabulary** | the activity rows are labelled `Deposits/Additions` and `Withdrawals/Subtractions` instead of `Deposits/Credits` / `Withdrawals/Debits` | the summary regex spelled out one vocabulary, so the consumer layout matched nothing | FIX — a row's direction is its label's FIRST word, the word that names the printed column; the second word is data (`Deposits/\S+`), not vocabulary to enumerate | `test_f1_*` | **13 / 0** |
+| W-F2 | **closed-account balance label** | an account closed in the period prints `Closing balance on M/D` where an open one prints `Ending balance on M/D` | the regex required the word `Ending` | FIX — both printed forms are the period-end balance row | `test_f2_*` | **1 / 1** |
+| W-F3 | **page furniture between the summary rows** | the four labelled rows are separated by the account-terms line, the routing-number lines and the account holder's name | the block was read as one run of text in which the four cells had to be adjacent | FIX — a label owns its own row; nothing is assumed about adjacency | `test_f3_*` | **6 / 0** |
+| W-F4 | **unsigned withdrawal cell** | `Withdrawals/Debits 257,049.31` — the minus glyph is not in the text layer | the regex required `-` before the figure | FIX — the direction of an activity row is its label's, so its cell is read as a magnitude. A *balance* keeps whatever sign the bank printed | `test_f4_*` (four printed sign forms) | **1 / 0** |
+| W-F5 | **the record's delimiter inside a description** | an ACH row quotes EDI reference text whose interchange trailer contains the pipe character — the same character the `WF_TX` record uses to separate its own fields | the record was split left to right with a fixed field count, so a description containing the delimiter shifted every field after it: the amount vanished and reference text was read as a money cell | FIX — only the description can carry the delimiter and exactly three grid cells follow it, so the tail is taken from the right. The fixture reproduces the old read as a **$1,500,022,281** row | `test_f5_*` | **4 documents / 8 rows / 0** |
+| W-F6 | **multi-account statement** | two `Account number:` sections, one marked `(primary account)`, each with its own summary, history and `Totals` | the parser read the first summary and every row in the document | FIX — the published ledger is the marked account's section. `Statement` is single-account (MASTER_PLAN L-1); the union is arithmetic over two ledgers. See §W7.1 | `test_f6_*` (incl. moving the marker to the second section) | **14 / 3** |
+| W-F7 | **the amount column is not in the text layer** | rows whose money cell landed in neither printed column or in both, and printed rows merged into one record — the extractor's line binning and column bands do not hold on this layout | the geometry is recovered in `ocr/native_text.py::_wells_rows`, which is protected for this agent | **FAIL CLOSED — 4 documents (10% of the cell).** They keep accurate diagnostics (3 `detail_coverage`, 1 `summary_field_missing`). A row the grid does not place is dropped rather than assigned a direction | `test_a_row_whose_amount_is_in_neither_money_column_is_dropped`, `..._in_both_money_columns_is_dropped`, `test_a_summary_cell_printed_before_its_label_is_not_claimed_by_it` | **4 / 0** |
+
+Negative fixtures — each constrains a new rule rather than demonstrating a
+defect, and each is asserted:
+
+- a routing number is not an amount cell (a digit run with no cents is not
+  money), and the balance row it stands next to yields **no value** rather than
+  the routing number;
+- a printed negative balance keeps its sign, while a withdrawals row is a
+  magnitude either way;
+- the ledger's own `Deposits/ Credits` column header is not a summary row —
+  it is below the `Transaction history` heading that closes the block;
+- a heading owns its line: a sentence containing the words
+  "Transaction history" or "Overdraft Protection" does not close the block;
+- the `Ending daily balance` column is never read as a summary row;
+- a single-account statement is unaffected by the section rule;
+- an ordinary two-cell transaction record is unaffected by the right-split;
+- a period that crosses New Year still dates its opening day to the prior year;
+- a statement with no ledger publishes nothing, and (pinned in
+  `test_r1_hardcodes.py`, unchanged) one with no year evidence is not parsed.
+
+### W4.1 What did NOT change, deliberately
+
+- **`ocr/native_text.py` was not touched**, and this is the cell's stop
+  condition (§W7.2). The four W-F7 documents need the PDF's word geometry read
+  differently; that is a protected module and an architecture decision.
+- **No shared utility was touched**, and no shared utility's behaviour changed,
+  so no R-2 differential-equivalence proof is owed. Stop condition 1 never
+  fired: everything this cell needed is a Wells Fargo layout fact.
+- **`group_rows` was not consumed.** Wells Fargo is the one bank in Track A
+  whose rows do not need grouping: `ocr/native_text.py` already emits one
+  delimited record per printed row from the page's word geometry, so rules 1
+  and 2 of the promoted primitive have nothing to do here. What Wells
+  contributes to the promotion question is §W7.3.
+- **`_infer_year` is unchanged.** Its rule — the first four-digit year printed
+  in the document — was checked against the printed statement-date line
+  (`<Month> D, YYYY  Page N of M`) on all 233 documents and agrees on
+  **233 / 233**. There is no evidence for changing it, and R-1's rule is that
+  period evidence, not a better guess, is what may date a statement.
+- **The `Totals` line is read by the instrument and not by the parser.** It is
+  a printed, independently computed credit and debit total that nothing in the
+  platform consumes; using it would be a second source for fields the summary
+  already publishes. It is the strongest oracle in this layout and §W7.4 queues
+  it rather than spending it here.
+- **`stated_average_balance` extraction is unchanged**, beyond being scoped to
+  the published account's section like everything else.
+
+## W5. Result over the cell
+
+Same production ladder discovery uses (`ocr.pipeline.parse_statement`, native
+rung, no OCR, no model calls, `$0.00`), then `analyze_markdown` in
+deterministic mode, classified with `telemetry.record.classify_outcome` and
+diagnosed with `telemetry.diagnostics.diagnose`.
+
+| Cell | records | documents | before | after |
+|---|---|---|---|---|
+| `wells_fargo × period_integrity` | 22 | 22 | 0 validated / 22 withheld | **18 / 4** |
+| `wells_fargo × detail_coverage` | 13 | 13 | 0 / 13 | **13 / 0** |
+| `wells_fargo × balance_continuity` | 5 | 5 | 0 / 5 | **5 / 0** |
+| **total** | **40** | **40** | **0 / 40** | **36 / 4** |
+| `wells_fargo × posting_date_coverage` (outside the cell) | 1 | 1 | 0 / 1 | 0 / 1 — field-identical, untouched |
+| already-validated `wells_fargo` | 192 | 180 | 192 validated | **192 validated, all field-identical** |
+
+Against the in-document instrument, after the change:
+
+| Instrument | period_integrity (22) | detail_coverage (13) | balance_continuity (5) | already validated (192) |
+|---|---|---|---|---|
+| period read | **22** (was 0) | 13 | 5 | 192 |
+| beginning + ending balance read | **21** (was 0) | 13 | 5 | 192 |
+| stated credit + debit totals read | **21** (was 0) | 13 | 5 | 192 |
+| the printed summary closes | **21** (was 0) | 13 | 5 | 192 |
+| rows reproduce the stated credit total | **19** (was 0) | **13** (was 0) | **5** (was 4) | 192 |
+| rows reproduce the stated debit total | **18** (was 0) | **13** (was 3) | **5** (was 0) | 192 |
+| rows reproduce the printed `Totals` line | **18** (was 18) | **13** (was 0) | **5** (was 0) | 192 |
+| ledger identity holds | **18** (was 0) | **13** (was 0) | **5** (was 0) | 192 |
+
+**Nothing was padded to get there.** Every document that now validates does so
+because the rows extracted reproduce, independently: the bank's stated credit
+and debit totals for the published account, the `Totals` line that account's
+transaction history prints, the ledger identity, and the full ADB validation
+suite. The fail-closed gate is unchanged; these documents pass it on their own
+arithmetic.
+
+**The 4 that remain withheld are the honest residual** and they are one family
+(W-F7), all from a single source layout. On them the native extractor's line
+binning merges printed rows and its column bands miss the amount cell
+altogether: one document's rows carry a credit and a debit cell at once, three
+lose rows entirely, and one has its summary's value column emitted **ahead** of
+its label column, so three of that block's four cells are not attributable to a
+label at all. Their diagnostics are accurate — 3 `detail_coverage`, 1
+`summary_field_missing` — and their period is now read correctly on all four,
+because the period is printed in the labels.
+
+## W6. The already-validated population — zero regressions, zero movement
+
+The 192 already-validated `wells_fargo` records (180 distinct hashes) were
+re-run through the same ladder, and the old and new modules were also loaded
+side by side in one process over the identical markdown, comparing every field
+of the serialised statement.
+
+| | |
+|---|---|
+| still validated | **192 / 192** |
+| **field-identical**, descriptions included | **192 / 192** |
+| financially different | **0** |
+| descriptions moved | **0** |
+
+Unlike §5 and §BOFA, this cell moves nothing on the already-validated
+population at all. That is a property of what changed: the summary rules only
+*add* readings where the old regex found none (it never mis-read a block it
+matched — it matched or it did not), and the section rule only bites where a
+second account is printed, which on the three already-validated multi-account
+documents contributes no rows.
+
+**Pinned corpus, checked directly as well as through the gate** — old and new
+module loaded side by side, same markdown, every field of the serialised
+statement compared:
+
+```
+IDENTICAL    WellsFargo/02-28-26 WellsFargo.pdf   (196 rows)
+IDENTICAL    WellsFargo/03-31-26 WellsFargo.pdf   (261 rows)
+IDENTICAL    WellsFargo/04-30-26 WellsFargo 1.pdf (220 rows)
+IDENTICAL    WellsFargo/113025 WellsFargo.pdf      (28 rows)
+claimed by the Wells Fargo parser: 4; differing: 0
+```
+
+## W7. Carried findings and questions for Ocean
+
+1. **Multi-account statements are published as their primary account, and that
+   is a ruling, not a detail.** 17 archive `wells_fargo` documents print two
+   accounts. `Statement` is single-account (MASTER_PLAN L-1, G5), and the
+   parser already published the primary account's number, period and balances —
+   what it also did was append the other account's rows to that ledger. This
+   cell scopes the ledger to the section the bank marks `(primary account)`.
+   The consequence is stated plainly: **the second account's transactions are
+   not published.** They were not publishable before either — they were
+   corrupting the primary account's arithmetic — but "we read one account and
+   there was another" is a different statement from "we read the statement",
+   and the platform currently has no surface on which to say it. The L-1
+   multi-account schema is the real fix; until it lands, an advisory at the
+   parser boundary (the shape `likely_account_count` already has at intake)
+   would let the difference be seen. **Raised for a ruling.**
+2. **W-F7 needs the PDF's word geometry re-read (stop condition, reported not
+   acted on).** Four documents from one source layout defeat
+   `ocr/native_text.py::_wells_rows`. The evidence is specific and read-only:
+   its line binning is a fixed `round(y0 / 3.0) * 3.0` bucket, so two printed
+   rows whose baselines fall in one bucket merge into a single record carrying
+   a credit cell and a debit cell at once; and its column bands are fixed x
+   ranges (`395–452` credit, `452–520` debit, `>=520` balance), so a layout
+   printed at another scale drops its amount cells outside every band and the
+   record arrives with both money fields empty. Both are the same class of
+   defect: geometry read as constants rather than as the page's own column
+   positions. `ocr/` is protected for this agent — **raised, not attempted**,
+   and recommended as the next Wells card. The text-layer reader should stay
+   either way: it is what makes the result self-checking against the printed
+   `Totals` line.
+3. **Row-grouper promotion (§3 item 4) — this cell's contribution is a
+   boundary, not a rule.** Wells Fargo is the one Track A bank whose rows never
+   need grouping, because its native extractor already emits one record per
+   printed row from the page's word geometry. What that shows is that the
+   promoted primitive's domain is *text-layer* layouts, and that where geometry
+   is available the row-start and continuation rules are not needed at all.
+   Nothing here argues for or against moving rule 3.
+4. **The printed `Totals` line is an unread oracle, and it is the same card as
+   §3 item 3 and §B7.2.** Every Wells account prints its own captured credit and
+   debit totals at the foot of its transaction history. Nothing in the platform
+   reads them. They are what this cell's instrument used to prove the residual
+   honest, and — unlike the activity summary — they are printed *per account
+   section*, which makes them the natural check for the multi-account question
+   in item 1. Reading them into `stated_*` would be a parser change; checking
+   them is a protected-module change (§5.7 item 4's count check is the same
+   shape). Queued, not taken.
+5. **`ANALYSIS_STAGE_VERSION` must be bumped at merge** (`webapp/` protected
+   here). This change alters analysis output for unchanged settings on **40 of
+   the 233** archive `wells_fargo` documents and on none of the other 193.
+
+## W8. Proofs
+
+All five run in this worktree against `07c21fb` — the only commit that touches
+code or tests — on a clean tree (`git status --short` empty),
+`set -o pipefail`, exit codes as printed.
+
+```
+$ python -m pytest -q
+2290 passed, 18 deselected, 1 warning in 173.59s (0:02:53)
+SUITE_EXIT=0
+
+$ python -m pytest -q --ignore=tests/test_wells_variants.py
+2265 passed, 18 deselected, 1 warning in 155.42s (0:02:35)
+BASELINE_COUNT_EXIT=0
+
+$ python -m pytest -m corpus -q
+14 passed, 2294 deselected, 1 warning in 1130.72s (0:18:50)
+CORPUS_MARKED_EXIT=0
+
+$ python corpus_gate.py
+[PASS] oracle_independence: 4 audit modules import no production financial mathematics
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  393.5s
+RESULT: GREEN
+GATE_EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+      tests/test_no_parser_helper_clones.py -q
+100 passed in 0.81s
+GUARDS_EXIT=0
+```
+
+The suite grew from **2,265** to **2,290** — the 25 new fixtures and nothing
+else. `git diff b839bfa..HEAD --name-only -- tests/` lists exactly one file,
+`tests/test_wells_variants.py`, so **no existing assertion was edited**.
+
+**Fails-before / passes-after.** Every committed fixture document captured as
+the suite runs and replayed through the pre-change module loaded from git, in
+the same process. `summary` is
+`(beginning, ending, stated_credits, stated_debits)`.
+
+```
+FIXED  f1_a_consumer_summary_is_read
+         before  period=[null,null]  summary=[null,null,null,null]
+         after   period=[2026-03-01,2026-03-31]  summary=[1000.0,1300.0,500.0,200.0]
+kept   f1_the_business_vocabulary_is_unchanged
+FIXED  f2_a_closed_account_prints_closing_balance             before period=[null,null]
+FIXED  f3_a_summary_split_across_lines_by_furniture_is_read   before period=[null,null]
+FIXED  f3_negative_a_routing_number_is_not_an_amount_cell     before period=[null,null]
+         after   beginning=null - the routing number is not a money cell
+kept   f4_a_withdrawal_row_is_a_magnitude[-  200.00]
+kept   f4_a_withdrawal_row_is_a_magnitude[- 200.00]
+FIXED  f4_a_withdrawal_row_is_a_magnitude[200.00]             before summary=[null,null,null,null]
+FIXED  f4_a_withdrawal_row_is_a_magnitude[-200.00]            before summary=[null,null,null,null]
+kept   f4_negative_a_printed_negative_balance_keeps_its_sign
+FIXED  f5_an_edi_description_does_not_shift_the_amount_columns
+         before  amounts=[1500022281.0]       after  amounts=[-590.93]
+kept   f5_negative_an_ordinary_row_is_unaffected
+FIXED  f6_only_the_primary_account_ledger_is_published
+         before  amounts=[500.0,-200.0,-20.0]  after  amounts=[500.0,-200.0]
+FIXED  f6_the_summary_published_is_the_primary_accounts        same movement
+FIXED  f6_the_second_accounts_ledger_reconciles_when_it_is_the_primary
+         before  account=1111111111  amounts=[500.0,-200.0,-20.0]
+         after   account=2222222222  amounts=[-20.0]  summary=[50.0,30.0,0.0,20.0]
+kept   f6_negative_a_single_account_statement_is_unaffected
+kept   a_row_whose_amount_is_in_neither_money_column_is_dropped
+FIXED  a_row_whose_amount_is_in_both_money_columns_is_dropped
+         before  amounts=[500.0,8175.0]        after  amounts=[500.0]
+FIXED  a_summary_cell_printed_before_its_label_is_not_claimed_by_it
+         before  period=[null,null]
+         after   period=[2026-06-01,2026-06-30]  summary=[null,1450000.05,null,44275.81]
+kept   a_statement_with_no_ledger_publishes_nothing            before=null  after=null
+kept   negative_the_transaction_history_column_header_is_not_a_summary_row
+FIXED  negative_a_heading_word_inside_prose_does_not_close_the_block
+         before  period=[null,null] - the old regex could not reach past the prose
+kept   negative_the_ledgers_ending_daily_balance_column_is_never_a_summary_row
+kept   a_period_that_crosses_new_year_dates_its_opening_to_the_prior_year
+kept   the_summary_rows_are_read_even_when_the_ledger_is_printed_first
+
+fixtures replayed: 25 | behaviour changed: 13 | unchanged: 12
+```
+
+The 12 `kept` lines are reported as what they are: **constraints**, not
+demonstrations. Each pins a rule the new reader had to be built around — a
+minimal synthetic document is often one the old regex happened to match, and
+the point of the fixture is that the new rule still reads it the same way.
+Three are explicit about it: the two signed forms of `f4` are the contrast
+halves of the unsigned pair, and only the four together prove the rule is the
+label's rather than the glyph's; `a_row_whose_amount_is_in_neither_money_column`
+pins a fail-closed rule the old code also had, which the restructuring had to
+preserve rather than widen; and
+`negative_the_transaction_history_column_header_is_not_a_summary_row` guards
+the hazard the label reader introduces — `Deposits/ Credits` is also the
+ledger's printed column header, and the block boundary is what keeps it out.
+
+**Archive differential**, old and new module loaded side by side over all 233
+`wells_fargo` archive documents, every field of the serialised statement
+compared (read-only; the rendered markdown is cached in local scratch, never
+committed, and only aggregate counts are reported):
+
+```
+period_integrity      n= 22  moved 22   (period_start 22, period_end 22, beginning 21,
+                                         ending 22, stated_credits 21, stated_debits 22)
+detail_coverage       n= 13  moved 13   (no summary field moved; the row set is scoped
+                                         to the published account and the EDI rows read)
+balance_continuity    n=  5  moved  5   (same)
+posting_date_coverage n=  1  identical
+already validated     n=192  identical 192  (0 financial, 0 description)
+```
+
+**Commits (oldest first)**
+
+| Commit | Contents |
+|---|---|
+| `07c21fb` | `analysis/wells.py` + `tests/test_wells_variants.py` |
+| (this one) | this log's §WELLS |
