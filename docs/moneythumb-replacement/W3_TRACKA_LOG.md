@@ -1975,4 +1975,4 @@ already validated     n=192  identical 192  (0 financial, 0 description)
 | Commit | Contents |
 |---|---|
 | `07c21fb` | `analysis/wells.py` + `tests/test_wells_variants.py` |
-| (this one) | this log's §WELLS |
+| `71d1e03` | this log's §WELLS |
