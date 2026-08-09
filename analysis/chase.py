@@ -7,7 +7,7 @@ from .date_tokens import iso_from_month_day, period_from_long_dates
 from .money import parse_digit_scrubbed
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
-from .tables import clean_cell, compact_whitespace, table_rows, tables_after
+from .tables import clean_cell, compact_whitespace, group_rows, table_rows, tables_after
 
 _IMG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE | re.DOTALL)
 _EXPORT_MONTHS = {
@@ -217,23 +217,13 @@ def _native_rows(lines) -> list[list[str]]:
     credit — was folded into its predecessor: the row disappeared AND the
     predecessor took the swallowed row's amount. That single rule is why the
     217-document `chase x detail_coverage` withheld cell existed.
+
+    The rule that replaced it is not Chase's alone — td_can and rbc reached
+    the same one — so it lives in `tables.group_rows` (W3 §GROUPER). What
+    stays here is the part that IS Chase's: the DATE column's grammar and the
+    vocabulary of the lines that end a section.
     """
-    rows: list[list[str]] = []
-    current: list[str] | None = None
-    for line in lines:
-        if _ROW_START_RE.match(line):
-            if current:
-                rows.append(current)
-            current = [line]
-        elif _ROW_STOP_RE.match(line):
-            if current:
-                rows.append(current)
-            current = None
-        elif current is not None:
-            current.append(line)
-    if current:
-        rows.append(current)
-    return rows
+    return group_rows(lines, starts_row=_ROW_START_RE.match, ends_row=_ROW_STOP_RE.match)
 
 
 def _row_amount(lines: list[str]) -> tuple[float, int, int] | None:
@@ -325,9 +315,10 @@ _CHECK_ROW_RE = re.compile(
 )
 
 
-def _check_rows(block: str) -> list[list[str]]:
-    rows: list[list[str]] = []
-    current: list[str] | None = None
+def _check_pieces(block: str):
+    """The CHECKS PAID block's printed lines, with section furniture removed
+    and lines carrying several check rows broken at the amount/number seam.
+    The CHECKS PAID counterpart of `_physical_lines`."""
     for raw in block.splitlines():
         line = compact_whitespace(raw)
         if not line:
@@ -338,21 +329,21 @@ def _check_rows(block: str) -> list[list[str]]:
             continue
         for piece in _CHECK_INLINE_SPLIT_RE.split(line):
             piece = piece.strip()
-            if not piece:
-                continue
-            if _ROW_STOP_RE.match(piece):
-                if current:
-                    rows.append(current)
-                current = None
-            elif _CHECK_START_RE.match(piece):
-                if current:
-                    rows.append(current)
-                current = [piece]
-            elif current is not None:
-                current.append(piece)
-    if current:
-        rows.append(current)
-    return rows
+            if piece:
+                yield piece
+
+
+def _check_rows(block: str) -> list[list[str]]:
+    """The same grouping rule as `_native_rows`, over the CHECK NO. column.
+
+    A check row opens at its printed check number rather than at a date — F8's
+    electronic checks print an ACH description between the number and the
+    date — which is exactly the substitution `tables.group_rows` takes as an
+    argument.
+    """
+    return group_rows(
+        _check_pieces(block), starts_row=_CHECK_START_RE.match, ends_row=_ROW_STOP_RE.match
+    )
 
 
 def _parse_native_checks(markdown: str, *, year: int) -> list[Transaction]:

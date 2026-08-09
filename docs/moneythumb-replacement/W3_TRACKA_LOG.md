@@ -992,3 +992,141 @@ correctness gain the outcome class could not have shown.
 5. **`ANALYSIS_STAGE_VERSION` must be bumped at merge.** This change alters
    analysis output for unchanged settings on 72 of 153 rbc documents. The bump
    is Ocean's at merge; `webapp/` was not touched.
+
+---
+
+# §GROUPER — the row grouper promoted to `analysis/tables.py`
+
+REEF-GROUPER, 2026-08-08. Branch `wave3-grouper-promotion`, base `8ce6abc`.
+Brief: `docs/agent-handoffs/REEF-GROUPER.md` (Ocean ruling 2 of 2026-08-08,
+executing carried finding §3 item 4 now that both remaining cells are
+characterised). **Pure refactor under the R-2 differential-equivalence
+standard: no capability changed, no document's output moved.**
+
+## G0. Summary
+
+| | |
+|---|---|
+| Primitive | `analysis/tables.py::group_rows(items, *, starts_row, ends_row=None)` |
+| Consumers | `chase.py` (2 call sites), `td_can.py` (1), `rbc.py` (1, serving both the English and French layouts) |
+| Behaviour change | **none.** Differential oracles per parser + 457 archive documents byte-identical + corpus gate GREEN |
+| Statement-specific constants | none added, none removed |
+| Protected modules touched | none. `money.py`, `date_tokens.py`, every other parser, pipeline/registry, `ocr/`, `webapp/`, `discovery/`, `telemetry/`, corpus assets and audit CSVs all unmodified |
+| Sign/direction solvers | untouched, as ruled — `td_can._credit_counts_from_balances` / `_resolve_native_directions` and `rbc._column_split_signs` / `_subset_signs` / `_solve_from_printed_balances` stay parser-local |
+| `ANALYSIS_STAGE_VERSION` | **no bump owed** — output is byte-identical on every document measured (§G5) |
+| Files changed | `analysis/tables.py`, `analysis/chase.py`, `analysis/td_can.py`, `analysis/rbc.py`, `tests/test_row_grouping.py` (new), this log |
+
+## G1. What was promoted, and what deliberately was not
+
+Ocean's approved rule set had three rules. **Two of them are one rule in three
+parsers and moved; the third is three different rules and stayed.**
+
+| Rule | Status | Why |
+|---|---|---|
+| 1. a row starts where the printed grid starts one | **PROMOTED** — `starts_row` | The same control flow in all three parsers. Only the *predicate* differs, and it is bank knowledge: Chase's leading `MM/DD`, RBC's leading `DD Mon`, TD Canada's `MonDD` **inside** the line, Chase's CHECK NO. column. It is passed in, exactly as `tables.py` already passes headings and "continued" spellings |
+| 2. wrapped lines continue the row | **PROMOTED** — the `elif current is not None` arm | Same code in Chase and RBC. It is a no-op on TD Canada, whose native text layer emits each printed row as one physical line; that is stated at TD's call site rather than hidden |
+| 3. a lone money cell is an amount; adjacent money cells are (amount, balance) in printed column order | **NOT promoted — reported instead** | §G2 |
+
+A terminator predicate (`ends_row`) is part of the primitive because Chase
+needs one — the printed section total and the headings that follow a section
+inside the same block end a row without starting another. TD Canada and RBC
+close their sections in the caller and pass nothing.
+
+## G2. Why rule 3 did not move (finding for Ocean)
+
+§5.7 item 1 identified that Chase's "the amount is the right-aligned cell" is
+underdetermined where a balance column is printed, and proposed the adjacency
+form as the promotable one. Working all three implementations together shows
+the adjacency form is **also** not one rule:
+
+| Layout | Printed columns | How the amount is found | Would the adjacency rule reproduce it? |
+|---|---|---|---|
+| Chase native | `DATE / DESCRIPTION / AMOUNT` — no balance column | preference order over candidates: a wrapped amount cell alone on its line, else the token terminating a line, else any money token | no — F6's cash-back row prints money **inside** the description, so "the first money cell is the amount" reads the description's figure |
+| RBC | `... / Cheques & Debits / Deposits & Credits / Balance` | a state machine over the section's cells: a row ends at its amount cell, and the next cell is that row's balance if nothing stands between them — and it spans physical lines (F5's centred cell) | this IS the rule |
+| TD Canada native | `DESCRIPTION / CHEQUE-DEBIT / DEPOSIT-CREDIT / DATE / BALANCE` | the money cell adjacent to the **DATE column**, scanning leftward; the balance is the cell on the date's other side | no — the amount and its balance are not adjacent (the Date column stands between them), and T-F5's converted-amount row prints a second money cell earlier in the description |
+
+So a shared rule-3 function would need an anchor-selection strategy and a
+separator, per parser — a three-way switch with no shared body, which is the
+opposite of what R-2's shared utilities are for. Both wrong readings above are
+already pinned as fixtures in the existing family suites, so this is measured,
+not argued. **Rule 3 stays parser-local and is documented as such in
+`group_rows`'s docstring. Ocean may rule otherwise; nothing here forecloses
+it.** The two adjacent candidates §5.7 named — the at-rate / percentage
+operand exclusion and the leading-zero reference-number rule — were likewise
+not moved: they are money-token grammar, not row grouping, and belong to a
+`money.py` question with its own differential burden.
+
+## G3. The refactor, per parser
+
+- **`chase.py`** — `_native_rows` becomes the primitive applied to Chase's own
+  two predicates. `_check_rows` splits into `_check_pieces` (the CHECKS PAID
+  counterpart of `_physical_lines`: furniture stripped, multi-check lines
+  broken at the amount/number seam) and the same primitive over the CHECK NO.
+  column. The legacy check loop tested the terminator **before** the row start
+  and the primitive tests the row start first; the two orders can differ only
+  on a line both predicates match, and both row-start rules are anchored on a
+  leading digit while every terminator alternative is anchored on a letter.
+  That is asserted structurally and over the whole adversarial matrix
+  (`test_the_chase_row_predicates_cannot_both_match_one_line`).
+- **`td_can.py`** — `_parse_native_td_canada` was one pass that interleaved
+  statement-field extraction with row reading. It is now two: the first pass
+  is unchanged and additionally collects the printed ledger lines **with the
+  statement year in force where each was printed** (TD can print the period
+  line after part of the ledger, and the old guard dropped ledger lines seen
+  before it — that behaviour is preserved exactly by carrying the year per
+  line rather than reading it once at the end). `_native_date_index` names the
+  row-start rule. Rule 2 never fires here, and the call site says so.
+- **`rbc.py`** — `_read_grid_rows` keeps its cell machine verbatim; what
+  changed is that the "a new posting date closes whatever was pending" reset
+  is now the group boundary the primitive computes. Its `starts_row` is "a
+  printed posting date, or the table's own opening-balance row", the latter
+  because that row prints no date and still opens the table. One asymmetry is
+  explicit: the primitive drops items printed above the first row start
+  (Chase's section furniture), and RBC has none to drop, so the entries above
+  its first row start are restored as the leading group. Without that, the
+  French layout's opening-balance row would have stopped supplying the balance
+  chain's first anchor — a real divergence, caught by
+  `test_rbc_grid_reader_matches_the_oracle_on_raw_entry_streams` before it
+  could reach a document.
+
+## G4. The differential proof
+
+`tests/test_row_grouping.py`, in the R-2 idiom (`test_shared_parser_utils.py`):
+each parser's pre-promotion implementation is reproduced **verbatim** as a
+frozen oracle, spliced back into the live parser, and the two readings of the
+same input are asserted identical.
+
+| Oracle | Compared over | Result |
+|---|---|---|
+| `chase._native_rows` | 728 adversarial line streams: 26 printed line shapes drawn from families F1–F12 and their negatives, alone and in every ordered pair, the whole matrix forwards and reversed, plus every real stream `_physical_lines` produces from the 19 family documents across all 7 section headings | identical on 728 / 728 |
+| `chase._check_rows` | every CHECKS PAID block in the matrix plus 6 hand-built ones (F7 short / long / dual-dated, F8 described check, F9 multi-check line, the page-barcode negative, an empty block, a totals-only block) | identical |
+| `chase.parse_chase_statement` | 19 whole family documents (F1–F12, the 5 parametrised F2 prefixes, 3 rebuilt negatives), full `Statement` JSON | identical |
+| `rbc.parse_rbc_statement` | 26 whole documents — F1 dual money cell, F3 compressed line, F4 wrapped row, F5 centred cell, F6 rate operands (all three printed forms), F7 reference number, F8 closing-balance cell, F9 repeated date, the page-footer and third-adjacent-cell negatives, 4 French documents, and 4 documents built specifically to exercise the row boundary itself | identical |
+| `rbc._read_grid_rows` | 8 raw entry streams including ones the callers cannot currently produce (a stream opening with an entry that belongs to no posting date) | identical |
+| `td_can._parse_native_td_canada` | 35 whole documents — T-F1 (5 shapes incl. identical rows whose direction flips with the printed balance alone), T-F2 page carry, T-F3 over four enclosed-cheque counts with a row-shaped probe below the terminator, T-F4 underdetermined group, T-F5 converted amount, T-F6 overdraft suffix, a mid-ledger CHQS description, a dateless continuation line, a ledger with no printed period — each with and without a stated summary, and each again with a carried `base` statement | identical |
+
+**The proof is not vacuous, and that is asserted two ways.**
+`test_the_frozen_oracles_are_not_silently_passing_on_nothing` requires each
+matrix to contain at least 15 documents that really parse. And each oracle was
+run against a deliberately *wrong* implementation as a negative control before
+the real refactor: a grouper that keeps leading orphans differs on **567 of
+728** Chase streams; an RBC reader with the posting-date reset removed differs
+on 2 of 26 documents and 2 of 8 entry streams; the orphan-dropping RBC variant
+— the exact mistake §G3 describes — differs on 1 of 8 entry streams; a TD
+reader that folds continuation lines into the row differs on **28 of 35**
+documents. The harness detects the mistakes it exists to detect.
+
+## G5. Proofs
+
+| | |
+|---|---|
+| default suite | **2,241 passed**, 18 deselected, exit 0 (2,093 before; the 148 added are this module) |
+| family suites unchanged and green | `test_chase_native_variants.py`, `test_td_can_native_variants.py`, `test_rbc_variants.py` — not one fixture edited |
+| R-2 / R-1 guards | green inside the default suite: no cloned bodies in `analysis/`, no new private cross-module import, shared utilities still import no parser |
+| corpus-marked | `set -o pipefail; python -m pytest -m corpus -q` — **14 passed**, 2,245 deselected, exit 0 |
+| corpus gate | `python corpus_gate.py` — **RESULT: GREEN**, exit 0, 106 PASS / 3 WITHHELD, the same three by name |
+| archive spot-verification | 457 archive documents rendered once through the production native rung and analysed under both revisions: chase 171 + chase_export 3 + relay 4, rbc 160 + rbc_french 1, td_canada_native 86, td_us 32 — **0 payload hashes moved** |
+
+The archive verification is read-only: the PDFs are read, the rendered markdown
+is cached in local scratch and never committed, and only aggregate counts are
+reported here.

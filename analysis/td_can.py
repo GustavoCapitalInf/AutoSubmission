@@ -21,7 +21,7 @@ from typing import NamedTuple
 from .money import parse_money, parse_money_tokens, strip_currency
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
-from .tables import CELL_RE, clean_cell
+from .tables import CELL_RE, clean_cell, group_rows
 
 _TABLE_RE = re.compile(r"<table>.*?</table>", re.IGNORECASE | re.DOTALL)
 _ROW_RE = re.compile(r"<tr.*?>.*?</tr>", re.IGNORECASE | re.DOTALL)
@@ -151,6 +151,18 @@ def _native_date_to_iso(value: str, *, default_year: int) -> str:
     if not m:
         raise ValueError(value)
     return date(default_year, _MONTHS[m.group(1).upper()], int(m.group(2))).isoformat()
+
+
+def _native_date_index(line: str) -> int | None:
+    """Where TD prints the DATE column inside a flattened ledger line.
+
+    TD's Date column stands between the two money columns and the BALANCE
+    column, so — unlike Chase's or RBC's — the date token that opens a printed
+    row does not open its physical line. That is the whole of what this
+    parser hands `tables.group_rows` as its row-start rule (W3 §GROUPER).
+    """
+    tokens = line.split()
+    return next((i for i, token in enumerate(tokens) if _native_date_token(token)), None)
 
 
 def _looks_like_money(value: str | None) -> bool:
@@ -410,6 +422,10 @@ def _parse_native_td_canada(markdown: str, base: Statement | None = None) -> Sta
     ending_balance: float | None = None
     in_ledger = False
     default_year: int | None = None
+    #: The printed ledger lines, each with the statement year in force where it
+    #: was printed — the ledger opens at the column header and the period line
+    #: that dates it can be printed after some of it.
+    ledger: list[tuple[str, int]] = []
 
     for raw in markdown.splitlines():
         line = re.sub(r"\s+", " ", raw).strip()
@@ -448,13 +464,25 @@ def _parse_native_td_canada(markdown: str, base: Statement | None = None) -> Sta
             continue
         if not in_ledger or default_year is None:
             continue
+        ledger.append((line, default_year))
 
+    #: TD's native text layer emits each printed row as ONE physical line (the
+    #: row is a single PyMuPDF block whose spans are joined with spaces), so
+    #: rule 2 of the shared grouper — wrapped lines continue the row — never
+    #: fires on this layout: a ledger line carrying no DATE column is section
+    #: furniture, and it is read as part of no row, exactly as before.
+    def opens_a_row(entry: tuple[str, int]) -> bool:
+        return _native_date_index(entry[0]) is not None
+
+    for grouped in group_rows(ledger, starts_row=opens_a_row):
+        line, year = grouped[0]
+        upper = line.upper()
         tokens = line.split()
-        date_index = next((i for i, token in enumerate(tokens) if _native_date_token(token)), None)
-        if date_index is None:
+        date_index = _native_date_index(line)
+        if date_index is None:              # `opens_a_row` already said it is not
             continue
 
-        tx_date = _native_date_to_iso(tokens[date_index], default_year=default_year)
+        tx_date = _native_date_to_iso(tokens[date_index], default_year=year)
         balance = parse_money(tokens[date_index + 1]) if date_index + 1 < len(tokens) else None
         if upper.startswith("BALANCE FORWARD"):
             if balance is None:
