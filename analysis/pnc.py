@@ -8,11 +8,23 @@ from .money import parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
+#: The Activity Detail sections that print the `Date posted / Amount /
+#: Transaction description / Reference number` column group, and the direction
+#: each one is printed under in the `Deposits and Other Additions` /
+#: `Checks and Other Deductions` pair of subtotal tables.
+#:
+#: PNC prints its own index of this list: a `Description Items Amount` table
+#: giving the item count and total of every section it itemizes. This dict must
+#: cover it, because the list is doing two jobs at once — it is also the list of
+#: SECTION BOUNDARIES, so a section missing from it is not merely unread: it is
+#: swallowed by the section printed above it, taking that section's sign and
+#: gluing its own heading and column header onto the last description.
 _SECTION_SIGNS = {
     "Deposits": 1,
     "ATM Deposits and Additions": 1,
     "ACH Additions": 1,
     "Other Additions": 1,
+    "Fee Refunds": 1,
     "Debit Card Purchases": -1,
     "POS Purchases": -1,
     "ATM/Misc. Debit Card Transactions": -1,
@@ -20,10 +32,38 @@ _SECTION_SIGNS = {
     "Service Charges and Fees": -1,
     "Other Deductions": -1,
 }
+#: Cheques are itemized in their own section under a different column group
+#: (`Date posted / Check number / Amount / Reference number`), so the heading is
+#: a section boundary like the others but its rows are read by `_parse_checks`.
+_CHECKS_HEADING = "Checks and Substitute Checks"
+#: `04/21 1100 * 50.28` — date, check number, optional sequence-gap marker,
+#: amount. Several column groups are printed per physical line. The Reference
+#: number that follows carries no decimal point, so it cannot be read as money.
+_CHECK_ROW_RE = re.compile(r"(\d{2}/\d{2})\s+(\d+)\s*(\*?)\s+(\d[\d,]*\.\d{2}|\.\d{2})")
+#: A Balance Summary figure. PNC drops the leading zero on a sub-dollar amount,
+#: so a balance of eighty-seven cents is printed `.87` — and a `\b` before the
+#: point does not match after a space, which is how the old pattern skipped such
+#: a figure and then read the NEXT one (the average ledger balance) as the
+#: closing balance. The boundary here is "not preceded by a digit, comma or
+#: point", which is a statement about the grid rather than about word
+#: characters.
+_SUMMARY_MONEY_RE = re.compile(r"(?<![\d.,])(?:\d[\d,]*)?\.\d{2}-?")
+#: A heading owns its line — except that PNC prints the cheque section's
+#: gap-marker footnote on the same line as its heading, so that suffix is
+#: furniture rather than a different heading.
+_HEADING_SUFFIX = (r"(?:\s+-\s+continued|\s+continued on next page)?"
+                   r"(?:\s*\*\s*Gap in check sequence)?\s*$")
+#: The two umbrella headings the Activity Detail prints over the sections of
+#: each direction. They itemize nothing themselves, but they own their line and
+#: they close whatever section stands above them.
+_GROUP_HEADINGS = ("Deposits and Other Additions", "Checks and Other Deductions")
 _SECTION_BOUNDARY = re.compile(
     r"(?im)^\s*(?:"
-    + "|".join(re.escape(name) for name in sorted(_SECTION_SIGNS, key=len, reverse=True))
-    + r")(?:\s+-\s+continued)?\s*$|^\s*Detail of Services Used\b|^\s*Daily Balance\b|^\s*--- Page\b"
+    + "|".join(re.escape(name) for name in
+               sorted([*_SECTION_SIGNS, _CHECKS_HEADING, *_GROUP_HEADINGS],
+                      key=len, reverse=True))
+    + r")" + _HEADING_SUFFIX
+    + r"|^\s*Detail of Services Used\b|^\s*Daily Balance\b|^\s*--- Page\b"
 )
 
 
@@ -51,7 +91,7 @@ def _summary_amounts(text: str) -> tuple[float, float, float, float] | None:
     summary = re.search(r"Balance Summary(?P<body>.*?)(?:Overdraft and Returned Item Fee Summary|Activity Detail)", text, re.DOTALL | re.IGNORECASE)
     if not summary:
         return None
-    amounts = re.findall(r"\b\d[\d,]*\.\d{2}-?|\b\.\d{2}-?", summary.group("body"))
+    amounts = _SUMMARY_MONEY_RE.findall(summary.group("body"))
     if len(amounts) < 4:
         return None
     values = [_money(amount) for amount in amounts[:4]]
@@ -72,7 +112,7 @@ def _section_chunks(markdown: str, heading: str) -> list[str]:
     if not activity:
         return []
     body = activity.group("body")
-    start_re = re.compile(rf"(?im)^\s*{re.escape(heading)}(?:\s+-\s+continued)?\s*$")
+    start_re = re.compile(rf"(?im)^\s*{re.escape(heading)}" + _HEADING_SUFFIX)
     chunks: list[str] = []
     for match in start_re.finditer(body):
         start = match.end()
@@ -101,6 +141,30 @@ def _parse_section(markdown: str, heading: str, *, year: int, sign: int) -> list
                 description=re.sub(r"\s+", " ", m.group(3)).strip(),
                 amount=signed,
                 direction="credit" if signed >= 0 else "debit",
+                running_balance=None,
+            ))
+    return txns
+
+
+def _parse_checks(markdown: str, *, year: int) -> list[Transaction]:
+    """The `Checks and Substitute Checks` section, which prints its own column
+    group: `Date posted | Check number | Amount | Reference number`."""
+    txns: list[Transaction] = []
+    for chunk in _section_chunks(markdown, _CHECKS_HEADING):
+        chunk = re.sub(
+            r"(?im)^\s*(?:Date posted|Date|Check number|Check|Amount|Transaction|Reference|number|posted)\s*$",
+            " ", chunk)
+        chunk = re.sub(r"\s+", " ", chunk).strip()
+        for mmdd, number, marker, amount in _CHECK_ROW_RE.findall(chunk):
+            txn_date = iso_from_month_day_strict(mmdd, year)
+            value = _money(amount)
+            if txn_date is None or value is None:
+                continue
+            txns.append(Transaction(
+                date=txn_date,
+                description=f"Check {number}{marker}",
+                amount=round(-abs(value), 2),
+                direction="debit",
                 running_balance=None,
             ))
     return txns
@@ -142,6 +206,7 @@ def parse_pnc_statement(markdown: str) -> Statement | None:
     txns: list[Transaction] = []
     for heading, sign in _SECTION_SIGNS.items():
         txns.extend(_parse_section(markdown, heading, year=year, sign=sign))
+    txns.extend(_parse_checks(markdown, year=year))
     if not txns:
         return None
     stmt.transactions = txns
