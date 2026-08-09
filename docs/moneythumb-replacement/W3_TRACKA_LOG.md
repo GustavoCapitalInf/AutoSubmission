@@ -1518,6 +1518,7 @@ names, which the naive form of this restructuring introduced and the
 
 ---
 
+<<<<<<< HEAD
 # §WELLS — Cell 5: `wells_fargo × {period_integrity, detail_coverage, balance_continuity}`, 40 documents
 
 REEF-WELLS, 2026-08-08. Branch `wave3-wells-completeness`, base `b839bfa`
@@ -1670,10 +1671,156 @@ row and claims the amount cell printed on it** — and the period is printed
 unreadable still dates itself.
 
 ## W4. The families
+=======
+# §TRIO — Cells 6–8: `us_bank`, `truist`, `pnc`
+
+REEF-TRIO, 2026-08-08. Branch `wave3-trio-completeness`, base `5443cfa`
+(worktree tip `b839bfa`, which adds only the two handoff files). Brief:
+`docs/agent-handoffs/REEF-TRIO.md`. Three cells worked in strict sequence,
+each fully proven before the next.
+
+Same method and idiom as §1/§TD/§5/§BOFA: reproduce the cell independently from
+the frozen baseline, build the in-document instrument and check the instrument
+itself against the parser's already-validated population BEFORE changing code,
+characterise layout families structurally, fix at the capability level or fail
+closed with the volume stated, prove both directions with synthetic fixtures,
+measure honestly.
+
+## TRIO-0. The three cells, derived from the baseline
+
+Joining run `70123cf2`'s telemetry diagnostics to its `rows.csv` parser
+attribution by content hash. The run itself: 3,506 records / 3,380 distinct
+documents — validated 1,533 / review 10 / withheld 147 / deferred 13 / failed
+1,677 at distinct-document level (1,577 / 10 / 148 / 13 / 1,758 at record level).
+
+| Cell | brief | measured | note |
+|---|---|---|---|
+| `us_bank × summary_identity` | 20 | **20 records, 20 distinct hashes** | agrees |
+| `us_bank × ledger_identity` | 2 | **0** | the brief's "+ ledger_identity 2" is not in this baseline: `us_bank` has 40 records — 20 validated, 20 withheld — and **all 20 withheld are `summary_identity`**. Reported rather than reconciled away |
+| `truist × detail_coverage` | 12 | **12** | agrees |
+| `truist × ledger_identity` | 8 | **8** | agrees |
+| `pnc × detail_coverage` | 14 | **14** | agrees |
+| `pnc × ledger_identity` | 2 | **2** | agrees |
+| `pnc × summary_identity` | — | **1** | outside the brief's cell; `pnc` has 17 withheld records, not 16 |
+
+## TRIO-1. Cell 6 — `us_bank × summary_identity`, 20 documents
+
+### 1.0 Summary
+
+| | |
+|---|---|
+| Cell worked | `us_bank × summary_identity` — **20 records, 20 distinct hashes**, all digital, all native-text, all in the `US Bank/` folder |
+| Result over the cell | **20 / 20 validated**, from 0 / 20. No residual |
+| Already-validated `us_bank` documents (20) | **20 / 20 still validate, and all 20 are field-identical** — not merely still-passing |
+| Layout families characterised | 8, all closed at the capability level |
+| Statement-specific constants added | **none** |
+| Protected modules touched | none. `analysis/tables.py`, `money.py`, `parser_registry.py`, `schema.py` and every other parser are unmodified; `compact_whitespace`, `group_rows` and `parse_amount` are consumed exactly as they were |
+| Truth-set movement | **none.** Both pinned corpus U.S. Bank statements parse **byte-identically**, every field and every row. **No re-baseline requested or performed** |
+| Files changed | `analysis/us_bank.py`, `tests/test_us_bank_variants.py` (new, 21 fixtures), this log |
+| Cache implication | analysis output changes for unchanged settings on 20 of 40 `us_bank` documents → `ANALYSIS_STAGE_VERSION` must be bumped at merge. **Ocean's, not done here** (`webapp/` is protected for this agent) |
+
+### 1.1 The cell reproduced independently
+
+`parser_id == "us_bank"` gives **40 records — 20 validated, 20 withheld** — and
+the withheld are **20/20 `summary_identity`**, 20 distinct hashes, no duplicates
+inside the cell. The failing checks are uniform:
+
+| Evidence | Documents |
+|---|---|
+| `integrity:summary_math_inconsistent`, `recon:summary_identity_failed` | 20 / 20 |
+| `adb:final_balance_matches_statement_closing`, `adb:ledger_reconciles_to_closing` | 20 / 20 |
+| `integrity:ledger_sum_mismatch`, `recon:sum_check_failed` | 20 / 20 |
+| `adb_state:final_balance_drift`, `adb_state:ledger_reconcile_failed` | 20 / 20 |
+| `adb:posting_dates_cover_source`, `adb_state:posting_dates_incomplete` | 12 |
+
+**The class name is accurate and, as in every previous cell, one level above the
+cause.** `summary_identity` says the bank's own summary block fails its own
+identity — but the bank's block closes perfectly (§1.2); what fails its identity
+is *our reading of it*. The handoff's suspicion — "suspect summary-extraction
+capability, not the ledger" — is exactly right, and §1.3 is why.
+
+### 1.2 The measurement instrument (used before any code changed)
+
+U.S. Bank prints an Account Summary that is a complete, self-checking index of
+the ledger:
+
+```
+Number of Days in Statement Period 31
+Beginning Balance on Mar 2 $ 14,948.95 Other Deposits 37 100,753.73 Card Deposits 2 18,900.00
+   Card Withdrawals 5 39.14- Other Withdrawals 107 63,875.76- Checks Paid 21 41,761.15-
+Ending Balance on  Mar 31, 2026 $ 28,926.63
+```
+
+(printed as two physical lines; wrapped here.) Every category carries **a count
+and a signed amount** — outflows print the bank's trailing minus — each category
+is itemized in a detail section that ends with its own printed
+`Total <category>`, and beginning + every category = ending. So completeness,
+direction and the ledger identity are all checkable **against the document
+itself** — no expectation file, no audited truth set.
+
+**The instrument's own trustworthiness is checked first, not assumed:** the
+printed summary closes arithmetically on **40 / 40** documents (20 withheld +
+20 already-validated) and on both pinned corpus statements. A document that
+fails it is failing the bank's own figures.
+
+There is a second, stronger instrument the parser does not touch at all: a
+`Balance Summary` block printing an **end-of-day balance for every day the
+account moved** ("Balances only appear for days reflecting change"). Nothing in
+`analysis/us_bank.py` reads it, which makes it an independent oracle of rows,
+amounts, signs *and* posting dates — the role Chase's DAILY ENDING BALANCE
+series played in §2 and BofA's `Daily ledger balances` in §B2. 36 of the 40
+documents print one.
+
+Baseline over the cell, before any change:
+
+| Instrument | withheld (20) | already validated (20) |
+|---|---|---|
+| printed summary closes | 20 / 20 | 20 / 20 |
+| parser claims the document | 20 / 20 | 20 / 20 |
+| `stated_total_credits` = the summary's printed credit categories | 12 / 20 | 20 / 20 |
+| `stated_total_debits` = the summary's printed debit categories | **0 / 20** | 20 / 20 |
+| captured credit rows reproduce the printed credit total | 12 / 20 | 20 / 20 |
+| captured debit rows reproduce the printed debit total | **0 / 20** | 20 / 20 |
+| captured row counts equal the printed per-direction counts | 12 / 20 credit, **0 / 20** debit | 20 / 20 |
+| ledger identity holds | **0 / 20** | 20 / 20 |
+| the printed `Balance Summary` series reproduced exactly | **0 / 20** | 16 / 16 (4 print none) |
+
+Every deviation is in the same direction — **captured < printed** on both the
+stated totals and the rows — so the platform was losing whole categories and
+never inventing any.
+
+### 1.3 The root cause: a closed vocabulary that dropped both halves at once
+
+The parser knew **three** summary categories (`Customer Deposits`,
+`Other Deposits`, `Other Withdrawals`) and read **three** detail sections, one
+per category. U.S. Bank prints **six**, and a statement prints exactly the ones
+it has activity in. The three the parser did not know are `Card Deposits`,
+`Card Withdrawals` and `Checks Paid` (itemized under the printed heading
+`Checks Presented Conventionally`).
+
+That partition is the cell, exactly: **the 20 withheld documents are precisely
+the `us_bank` documents that print a category outside the three, and the 20
+already-validated ones are precisely those that do not.** Measured across the
+population — `Card Deposits` 8, `Card Withdrawals` 16, `Checks Paid` 14, every
+occurrence inside the withheld 20 and none in the validated 20.
+
+**Why the diagnosis was `summary_identity` and not a coverage class.** An
+unknown category was dropped from the stated totals *and* from the ledger *at
+the same time*, so the two stayed consistent with each other while both drifted
+from the bank. `stated_total_debits` was `Other Withdrawals` alone; the ledger
+was `Other Withdrawals` alone; the parser's own publish gate — captured totals
+must equal stated totals — therefore passed. What could not pass was the bank's
+own identity: beginning + our credits − our debits missed the printed ending
+balance by exactly the categories we never read. The platform reported the
+symptom it could see.
+
+### 1.4 The families
+>>>>>>> wave3-trio-completeness
 
 Named by structure. Nothing below names a customer, an amount, a date or an
 account fragment; every rule is anchored on the printed grid.
 
+<<<<<<< HEAD
 | # | Family | Structural signature | Root cause | Ruling | Fixture | Volume (cell / already-validated) |
 |---|---|---|---|---|---|---|
 | W-F1 | **consumer summary vocabulary** | the activity rows are labelled `Deposits/Additions` and `Withdrawals/Subtractions` instead of `Deposits/Credits` / `Withdrawals/Debits` | the summary regex spelled out one vocabulary, so the consumer layout matched nothing | FIX — a row's direction is its label's FIRST word, the word that names the printed column; the second word is data (`Deposits/\S+`), not vocabulary to enumerate | `test_f1_*` | **13 / 0** |
@@ -1683,10 +1830,23 @@ account fragment; every rule is anchored on the printed grid.
 | W-F5 | **the record's delimiter inside a description** | an ACH row quotes EDI reference text whose interchange trailer contains the pipe character — the same character the `WF_TX` record uses to separate its own fields | the record was split left to right with a fixed field count, so a description containing the delimiter shifted every field after it: the amount vanished and reference text was read as a money cell | FIX — only the description can carry the delimiter and exactly three grid cells follow it, so the tail is taken from the right. The fixture reproduces the old read as a **$1,500,022,281** row | `test_f5_*` | **4 documents / 8 rows / 0** |
 | W-F6 | **multi-account statement** | two `Account number:` sections, one marked `(primary account)`, each with its own summary, history and `Totals` | the parser read the first summary and every row in the document | FIX — the published ledger is the marked account's section. `Statement` is single-account (MASTER_PLAN L-1); the union is arithmetic over two ledgers. See §W7.1 | `test_f6_*` (incl. moving the marker to the second section) | **14 / 3** |
 | W-F7 | **the amount column is not in the text layer** | rows whose money cell landed in neither printed column or in both, and printed rows merged into one record — the extractor's line binning and column bands do not hold on this layout | the geometry is recovered in `ocr/native_text.py::_wells_rows`, which is protected for this agent | **FAIL CLOSED — 4 documents (10% of the cell).** They keep accurate diagnostics (3 `detail_coverage`, 1 `summary_field_missing`). A row the grid does not place is dropped rather than assigned a direction | `test_a_row_whose_amount_is_in_neither_money_column_is_dropped`, `..._in_both_money_columns_is_dropped`, `test_a_summary_cell_printed_before_its_label_is_not_claimed_by_it` | **4 / 0** |
+=======
+| # | Family | Structural signature | Root cause | Ruling | Fixture | Volume |
+|---|---|---|---|---|---|---|
+| U-F1 | **unlisted summary category** | the Account Summary prints a `<category> <# items> <amount>` line outside the parser's three | a closed vocabulary in two places at once — the summary reader and the section list | FIX — read every category the grid prints; each indexes the detail section printed under the bank's own heading for it. **And refuse when our reading of the summary fails the summary's own identity**, which is what turns the old silent drop into a fail-closed refusal | `test_f1_*` | **20 / 20** cell documents |
+| U-F2 | **card sub-block furniture** | a card section prints one block per card: `Card Number: xxxx-…`, a reprinted column header, the rows, then `Card <n>  Deposit/Withdrawals Subtotal $ x` | the section had never been read at all; reading it naively makes the bank's own subtotal a row and glues the sub-block heading to the row above | FIX — furniture closes the row above it and opens nothing | `test_f2_*` | 24 sub-blocks across 18 documents |
+| U-F3 | **the checks grid** | `Checks Presented Conventionally` prints `Check Date Ref Number Amount` in up to **four** column groups on one physical line, carries `*` gap markers, and closes with a differently-worded total naming no section (`Conventional Checks Paid (n) $ x-`) plus a `* Gap in check sequence` footnote | the section was unknown, and its shape is not the described-row shape either | FIX — a row ends at its Amount cell, so text after one begins the next row; the row's own printed number is its description (`Check 1004*`), and the two footer lines are section terminators | `test_f3_*` | **14** documents |
+| U-F4 | **money printed after the Amount cell** | a foreign-currency purchase prints `Exchg Amt: $54.63 Orig Curr:936.38` and `Currency Type: …` on continuation lines BELOW the Amount cell | *(a hazard of this restructuring, not a pre-existing defect — the section was previously unread. The naive "last money token" rule reads the original-currency figure, and so does a naive "last line-terminating token" rule)* | FIX — the Amount cell is the money cell that TERMINATES a printed line, and the FIRST such cell in the row, because everything after it is the description continuing | `test_f4_*` | **2** documents, 8 rows; caught by the printed section total before commit |
+| U-F5 | **compressed line** | several printed rows on one physical line, in the numbered sections (`Feb 3 8353743994 15,532.63 Feb 6 9253307465 14,000.00`) and in the described ones | none — the pre-change flatten-and-split-at-every-date rule handled it | NO CHANGE in outcome; the rule is now the narrower amount→date seam, and it is pinned so the restructuring cannot regress it | `test_f5_*` | present on 19 documents |
+| U-F6 | **a heading owns its line** | the Account Summary prints EVERY section's name on one line (`… Other Withdrawals 107 63,875.76- …`) | none — pinned. Had a section been opened by a line merely containing its heading, the summary's own figures would have been read as ledger rows | NO CHANGE; pinned as a negative, because the new section walk is line-based and this is the constraint it had to be built around | `test_f6_*` | every document |
+| U-F7 | **page break inside a section** | `--- Page n ---`, then the reprinted letterhead and account header, then `<heading> (continued)` and a reprinted column header | the old chunker stopped at `--- Page` and re-entered on the next heading match; the new walk must do the same or the letterhead joins a row still waiting for its amount cell | FIX — a page break leaves the section, the `(continued)` heading re-enters it | `test_f7_*` | 60 continuations across 20 documents |
+| U-F8 | **the printed sign** | outflow figures print their minus AFTER the digits — in the summary (`63,875.76-`), in the rows, and on an overdrawn balance (`8,288.08-`) | none — direction was previously implied by which of three hard-coded sections a row came from | FIX in kind, not in outcome: direction is now the sign the summary prints for that category, so a category's direction is a grid fact rather than a memorised name | `test_f8_*` | 34 of 40 documents print at least one negative balance |
+>>>>>>> wave3-trio-completeness
 
 Negative fixtures — each constrains a new rule rather than demonstrating a
 defect, and each is asserted:
 
+<<<<<<< HEAD
 - a routing number is not an amount cell (a digit run with no cents is not
   money), and the balance row it stands next to yields **no value** rather than
   the routing number;
@@ -1883,11 +2043,610 @@ Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
 Ignored:  0 non-corpus PDFs under the corpus root
 Outcomes: 106 PASS / 3 WITHHELD
 Runtime:  393.5s
+=======
+- a printed category the parser cannot read makes the summary miss its own
+  identity, and the parser **refuses** rather than publishing a partial summary;
+- a section whose rows do not reproduce its printed total fails closed;
+- the per-card subtotal is never a row, and the checks section's total and gap
+  footnote are never rows;
+- the printed `Total <section>` line is never a row;
+- a date printed mid-description (`Invoice dated Feb 27 and Mar 1`) never opens
+  a row — the seam is an Amount cell followed by the next row's Date cell;
+- the `Balance Summary` series is never read as activity;
+- a wrapped Amount cell alone on its line, with the bank's trace lines printed
+  below it, is still the amount.
+
+### 1.5 What did NOT change, deliberately
+
+- **No shared utility was touched**, and no shared utility's behaviour changed,
+  so no R-2 differential-equivalence proof is owed. `group_rows` is consumed
+  exactly as §GROUPER promoted it, with U.S. Bank's own predicates: a row starts
+  at a physical line whose first cell is the Date column (optionally preceded by
+  the row's number column), and the furniture predicate is `ends_row`. Rule 3 —
+  which money cell is the amount — stays parser-local as §G2 ruled; U.S. Bank's
+  answer (§U-F4) is a fourth distinct one.
+- **The detection markers are unchanged**, so the set of documents reaching this
+  parser is unchanged. Verified over the whole `US Bank/` folder: the 19
+  documents no parser claimed in the baseline are refused by both the old and
+  the new reader, so this change creates no new claim and loses none.
+- **`stated_daily_balances` stays empty.** U.S. Bank publishes a daily series and
+  the parser still does not read it; it is used here as an outside check only.
+  Reading it as a first-class oracle is carried finding §3.3 / §B7.2, not this
+  cell's work.
+- **`account_name` stays the memorised product string.** It is wrong on 38 of the
+  40 documents (which print `U.S. BANK SILVER - BUSINESS CHECKING` or
+  `… GOLD - …`), but it is a pre-existing literal of a class roughly twenty other
+  parsers share, it is not an audited field, and it is not on this cell's
+  evidence path. Raised in §1.8, not touched.
+- **There is no HTML-table path in this parser**; every `us_bank` document in the
+  archive resolves through the native rung, so §1.4's ruling has no table-path
+  counterpart.
+
+### 1.6 Result over the cell
+
+Same production ladder discovery uses (`ocr.pipeline.parse_statement`, native
+rung, no OCR, no model calls, `$0.00`), then `analyze_markdown` in deterministic
+mode, classified with `telemetry.record.classify_outcome` and diagnosed with
+`telemetry.diagnostics.diagnose`.
+
+| Instrument | before | after |
+|---|---|---|
+| stated credit total = the summary's printed credit categories | 12 / 20 | **20 / 20** |
+| stated debit total = the summary's printed debit categories | 0 / 20 | **20 / 20** |
+| captured rows reproduce both printed totals | 0 / 20 | **20 / 20** |
+| captured row counts equal both printed counts | 0 / 20 | **20 / 20** |
+| ledger identity holds | 0 / 20 | **20 / 20** |
+| the printed `Balance Summary` series reproduced exactly, no day invented | **0 / 20** | **20 / 20** |
+
+| Cell | records | documents | before | after |
+|---|---|---|---|---|
+| `us_bank × summary_identity` | 20 | 20 | 0 validated / 20 withheld | **20 / 0** |
+| already-validated `us_bank` | 20 | 20 | 20 validated | **20 validated, all field-identical** |
+
+**Nothing was padded to get there.** Every document that now validates does so
+because the rows extracted reproduce, independently: the bank's printed total for
+every detail section, the bank's printed per-direction counts, its stated totals,
+the ledger identity, the bank's own end-of-day balance for every day it publishes
+one, and the full ADB validation suite. The fail-closed gate is unchanged and was
+tightened, not loosened — the parser now refuses three conditions it previously
+published through (§1.4 U-F1 and its negatives).
+
+The `Balance Summary` line deserves its own sentence. On all 20 documents the
+reconstructed activity-day set is **exactly** the day set U.S. Bank prints a
+balance for, and **every** printed balance is reproduced — from a block no part
+of the parser reads. Before the change, none of the 20 reproduced it.
+
+### 1.7 The already-validated population — zero regressions, zero drift
+
+Old and new modules loaded side by side in one process over identical markdown,
+comparing every field of the serialised `Statement` including descriptions:
+
+```
+20 / 20 already-validated us_bank documents : IDENTICAL (every field, every row)
+ 2 /  2 pinned corpus us_bank statements    : IDENTICAL (every field, every row)
+19 / 19 unclaimed US Bank/ folder documents : refused by both readers
+```
+
+Unlike §5 and §BOFA, **no description moved at all**: the grouping the new reader
+computes is the same grouping the old flatten-and-split produced on every
+document both readers claim, which is itself a check on the restructuring.
+
+### 1.8 Carried findings for Ocean
+
+1. **The brief's `us_bank × ledger_identity` cell does not exist in baseline
+   `70123cf2`** (§TRIO-0). All 20 `us_bank` withheld records are
+   `summary_identity`. Reported rather than silently absorbed; the cell as worked
+   is 20 documents, not 22, and all 20 moved.
+2. **16 `US Bank/` documents print no Account Summary grid at all** and are
+   unclaimed (`failed` / `no_parser_matched`) rather than withheld — a different
+   U.S. Bank layout the parser has never been taught. Out of this cell's scope
+   (the cell is defined by having been withheld), but it is the whole remaining
+   `us_bank` population and a well-defined next card.
+3. **`Balance Summary` as a first-class oracle (§3 item 3, §B7.2) — U.S. Bank is
+   a fourth witness and the cleanest one yet.** It prints an end-of-day balance
+   for every day of change on 36 of 40 documents, and it settled every question
+   this cell raised. Reading it into `stated_daily_balances` is a parser change;
+   *checking* it is a protected-module change.
+4. **`stated_credit_count` / `stated_debit_count` are still extracted and never
+   checked** (§5.7 item 4, §B7.3). U.S. Bank prints a count for every summary
+   category, so this is a third population where the check would be free — and
+   here it would have caught the defect on its own, since the withheld documents'
+   debit counts were short by the whole missing category.
+5. **`account_name` is a memorised product string** (§1.5). Wrong on 38 of 40
+   documents, not audited, shared with roughly twenty other parsers. It is an
+   R-1-class literal and a small self-contained card; deliberately not taken here
+   because it is off this cell's evidence path and would move (non-financial)
+   output on pinned statements.
+6. **`ANALYSIS_STAGE_VERSION` must be bumped at merge** (`webapp/` protected
+   here). This change alters analysis output for unchanged settings on 20 of the
+   40 archive `us_bank` documents.
+
+## TRIO-2. Cell 7 — `truist × {detail_coverage 12, ledger_identity 8}`, 20 documents
+
+### 2.0 Summary
+
+| | |
+|---|---|
+| Cell worked | `truist × detail_coverage` (12) + `× ledger_identity` (8) — **20 records, 20 distinct hashes**, all digital, all native-text, all in the `Truist/` folder, all single-account |
+| Result over the cell | **20 / 20 validated**, from 0 / 20. No residual |
+| Already-validated `truist` documents (28) | **28 / 28 still validate, and all 28 are field-identical** |
+| Layout families characterised | 5, all closed at the capability level |
+| Statement-specific constants added | **none** |
+| Protected modules touched | none. `analysis/money.py`, `date_tokens.py`, `tables.py`, `parser_registry.py`, `schema.py` and every other parser are unmodified; `parse_amount` and `iso_from_month_day` are consumed exactly as they were |
+| Truth-set movement | **none.** All 5 pinned corpus Truist statements parse **byte-identically**, every field and every row. **No re-baseline requested or performed** |
+| Files changed | `analysis/truist.py`, `tests/test_truist_variants.py` (new, 13 fixtures), this log |
+| Cache implication | analysis output changes for unchanged settings on 20 of 48 `truist` documents → `ANALYSIS_STAGE_VERSION` must be bumped at merge. **Ocean's, not done here** |
+
+### 2.1 The cell reproduced independently
+
+`parser_id == "truist"` gives **48 records — 28 validated, 20 withheld** — and
+the withheld split by primary class is **`detail_coverage` 12 · `ledger_identity`
+8**, 20 distinct hashes, no duplicates inside the cell. The failing checks are
+uniform, and the two classes are one population:
+
+| Evidence | Documents |
+|---|---|
+| `adb:final_balance_matches_statement_closing`, `adb:ledger_reconciles_to_closing` | 20 / 20 |
+| `adb_state:final_balance_drift`, `adb_state:ledger_reconcile_failed` | 20 / 20 |
+| `integrity:ledger_sum_mismatch`, `recon:sum_check_failed` | 20 / 20 |
+| `integrity:transaction_detail_not_corporate_reliable` | 20 / 20 |
+| `integrity:debit_detail_coverage_mismatch`, `recon:debit_coverage_short` | 12 |
+
+The only thing separating the 12 from the 8 is whether the coverage flag fired
+as well as the ledger one — the same population, the same cause.
+
+### 2.2 The measurement instrument (used before any code changed)
+
+Truist prints its own Account summary as a closed identity:
+
+```
+Account summary Your previous balance as of 01/30/2026 $2,844.74 Checks - 662.35
+Other withdrawals, debits and service charges - 35,411.68
+Deposits, credits and interest + 36,799.28 Your new balance as of 02/27/2026 = $3,569.99
+```
+
+and each of the three detail sections closes with its own printed
+`Total <section> = $x`. Both are the document checking itself — no expectation
+file, no audited truth set.
+
+**The instrument's own trustworthiness is checked first:** the printed Account
+summary closes arithmetically on **48 / 48** documents, and on the
+already-validated single-account population every ledger figure reproduces it
+**24 / 24**. (The instrument is scoped to the FIRST printed account block,
+because that is the one the platform publishes; the four already-validated
+multi-account statements are outside its scope and are covered instead by the
+byte-identity differential in §2.6. All 20 cell documents are single-account.)
+
+Baseline over the cell, before any change:
+
+| Instrument | withheld (20) | already validated, single-account (24) |
+|---|---|---|
+| printed Account summary closes | 20 / 20 | 24 / 24 |
+| the printed `Total checks` equals the summary's `Checks` figure | 20 / 20 | 9 / 9 of those that print a table (15 print none) |
+| parser claims the document | 20 / 20 | 24 / 24 |
+| `stated_total_debits` = summary `Checks` + `Other withdrawals` | 20 / 20 | 24 / 24 |
+| captured credit rows reproduce the printed deposits total | 20 / 20 | 24 / 24 |
+| captured cheque rows reproduce the printed `Total checks` | **0 / 20** | 24 / 24 |
+| captured debit rows reproduce the printed debits | **0 / 20** | 24 / 24 |
+| ledger identity holds | **0 / 20** | 24 / 24 |
+
+The shape of the failure is unusually sharp: **the deposits side is perfect and
+the debit side is short by exactly the printed `Total checks`, on every document
+in the cell.**
+
+### 2.3 The root cause: one printed-grid fact the reader did not admit
+
+Truist emits its currency symbol as its own grid cell, so the flattened text
+carries `Total checks` in two spellings:
+
+| spelling | documents |
+|---|---|
+| `Total checks = $662.35` (symbol against the figure) | 28 already-validated, 0 cell |
+| `Total checks = $ 662.35` (symbol apart from the figure) | **20 cell documents, 0 already-validated** |
+
+That partition is the cell, exactly. The Checks-section pattern was
+`Total checks\s*=\s*\$?([\d,]+\.\d{2})` — the `\$?` had to be followed
+immediately by a digit — so on the spaced spelling the section had **no
+terminator**, was never matched, and **every cheque in it was dropped from the
+ledger**. The stated totals were unaffected because they come from the Account
+summary, which is read by a different pattern; so the ledger came out short by
+precisely the cheques, on both sides of the `detail_coverage` /
+`ledger_identity` split.
+
+Two further printed forms travel with the same layout and had to be admitted
+before the section could be read correctly once it was found (§2.4 T-F2/T-F3).
+
+### 2.4 The families
+
+Named by structure. Nothing below names a customer, an amount, a date or an
+account fragment; every rule is anchored on the printed grid.
+
+| # | Family | Structural signature | Root cause | Ruling | Fixture | Volume |
+|---|---|---|---|---|---|---|
+| T-F1 | **currency symbol printed as its own cell** | `= $ 662.35` instead of `= $662.35`, in the printed section total and in the two summary balances | every money pattern in the module required the symbol to abut its figure; the `Total checks` pattern is also the Checks section's terminator, so the whole section vanished | FIX — the gap is a printed-grid fact carrying no meaning: one `_DOLLAR` fragment admits it everywhere this module reads money | `test_f1_*` (both spellings parametrised, and asserted to produce the identical statement) | **20 / 20** cell documents |
+| T-F2 | **detached skip marker** | `02/23 * 975172 114.55` — the sequence-gap marker printed apart from the check number | the row pattern was `(\*?\d+~?)`, so a marker with a space after it matched nothing and the row was lost | FIX — the marker is its own optional cell and belongs to the number beside it; the description is still the number the bank printed (`Check *975172`) | `test_f2_*` (attached form pinned as the contrast half) | **9** rows across 9 documents |
+| T-F3 | **cheque with no printed number** | `04/21 10.00`, and `05/18 * 300.00` — the CHECK # cell is empty, with or without a skip marker beside it | the row pattern required a number, so the row was lost and the section total then refused the document | FIX — a cheque row is `DATE [marker] [number] AMOUNT`; the Amount cell is the only one always printed. `Check` with no number, exactly as `analysis/bofa.py` B-F6 ruled | `test_f3_*` | **5** rows across **3** documents — the residual left standing after T-F1 and T-F2 alone |
+| T-F4 | **one column group instead of three** | the Checks header prints `DATE CHECK # AMOUNT($)` once where the statement has few cheques, three times where it has many | the pattern matched a single group only, which happened to be a prefix of the tripled header — so this was never the blocker, but the new pattern must not lose the tripled form | FIX in kind, not in outcome: the header is one-or-more column groups. Pinned in both forms | `test_f4_*` | 1 group on all 20 cell documents, 3 on all 13 already-validated tables — a clean partition, and one more sign the two populations are two printed variants of the same table |
+| T-F5 | **the printed total is the gate** | `Total checks = $x` under the table | the cheque check was `stated_total_debits - other_total` — the residue of two other figures — and it only ran `if checks`, so a section that produced no rows at all passed silently. That is what let all 20 documents publish a ledger missing every cheque | FIX — where the Checks table is printed, its rows must reproduce the total the bank printed under it | `test_f5_*` | every document with a Checks table |
+
+Negative fixtures — each constrains a new rule rather than demonstrating a
+defect, and each is asserted:
+
+- the `* indicates a skip in sequential check numbers above this item` footnote
+  is never a row;
+- a Checks table whose rows do not reproduce its printed total publishes nothing;
+- a statement that prints `Checks - 0.00` and no table is unaffected;
+- the attached skip marker and the tripled column header still read exactly as
+  before.
+
+### 2.5 What did NOT change, deliberately
+
+- **No shared utility was touched**, and no shared utility's behaviour changed,
+  so no R-2 differential-equivalence proof is owed. In particular `parse_money`
+  already tolerates the spacing; the rigidity was in this module's own patterns,
+  which is why the fix belongs here.
+- **The description sections' row reader is unchanged.** It reproduces the
+  printed deposits and other-withdrawals totals on 44 of 44 single-account
+  documents, before and after; nothing in the evidence asks for it.
+- **Multi-account statements still publish only the first printed account.**
+  Four already-validated `truist` documents carry two accounts; they are
+  unchanged byte for byte. Reading the rest is the L-1 single-account-schema gap,
+  not this cell's work (§2.7).
+- **The detection markers are unchanged**, so the set of documents reaching this
+  parser is unchanged. Verified over the whole `Truist/` folder: the 16 documents
+  no parser claimed in the baseline are refused by both the old and the new
+  reader.
+- **`account_name` stays `"Checking"`**, as before.
+
+### 2.6 Result over the cell, and zero regressions
+
+Same production ladder discovery uses, then `analyze_markdown` in deterministic
+mode, classified with `telemetry.record.classify_outcome` and diagnosed with
+`telemetry.diagnostics.diagnose`:
+
+| Instrument | before | after |
+|---|---|---|
+| captured cheque rows reproduce the printed `Total checks` | 0 / 20 | **20 / 20** |
+| captured debit rows reproduce the printed debits | 0 / 20 | **20 / 20** |
+| captured credit rows reproduce the printed deposits | 20 / 20 | 20 / 20 |
+| ledger identity holds | 0 / 20 | **20 / 20** |
+
+| Cell | records | documents | before | after |
+|---|---|---|---|---|
+| `truist × detail_coverage` | 12 | 12 | 0 validated / 12 withheld | **12 / 0** |
+| `truist × ledger_identity` | 8 | 8 | 0 / 8 | **8 / 0** |
+| **total** | **20** | **20** | **0 / 20** | **20 / 0** |
+
+**Nothing was padded to get there.** Every document that now validates does so
+because the rows extracted reproduce, independently: the bank's printed total for
+each of the three detail sections, the bank's own Account summary identity, the
+ledger identity, and the full ADB validation suite. The gate was **tightened**,
+not loosened: the cheque check now runs against a printed figure and runs
+unconditionally where the table exists.
+
+Old and new modules loaded side by side in one process over identical markdown,
+comparing every field of the serialised `Statement` including descriptions:
+
+```
+28 / 28 already-validated truist documents : IDENTICAL (every field, every row)
+ 5 /  5 pinned corpus Truist statements    : IDENTICAL (every field, every row)
+16 / 16 unclaimed Truist/ folder documents : refused by both readers
+```
+
+### 2.7 Carried findings for Ocean
+
+1. **Multi-account Truist statements publish one account of several.** Four
+   already-validated documents print two `Account summary` blocks and the
+   platform reads the first. Nothing regressed here and nothing was attempted;
+   it is the L-1 single-account-schema gap, and Truist is a concrete population
+   for it.
+2. **The currency-gap rigidity is a shape, not a Truist fact.** `_DOLLAR` here is
+   a two-character regex fragment, but the defect class — a printed symbol
+   admitted in only one of its emitted spellings, in a pattern that also serves
+   as a section terminator — is worth a sweep across the other parsers. It cost
+   20 documents here and it fails silently by construction: the section simply
+   is not found.
+3. **`stated_credit_count` / `stated_debit_count` are not printed by Truist**, so
+   the count check queued in §5.7 item 4 has no input on this bank. Recorded so
+   the check's coverage is not assumed universal.
+4. **`ANALYSIS_STAGE_VERSION` must be bumped at merge** (`webapp/` protected
+   here). This change alters analysis output for unchanged settings on 20 of the
+   48 archive `truist` documents.
+
+## TRIO-3. Cell 8 — `pnc × {detail_coverage 14, ledger_identity 2}`, 16 documents
+
+### 3.0 Summary
+
+| | |
+|---|---|
+| Cell worked | `pnc × detail_coverage` (14) + `× ledger_identity` (2) — **16 records, 16 distinct hashes**. The parser's whole withheld population is 17 records; the 17th is `pnc × summary_identity` (1), outside the brief's cell, and it is reported and measured with the rest |
+| Result over the cell | **12 / 16 validated**, from 0 / 16; **4 fail closed with their volume stated** (§3.5). Counting the adjacent `summary_identity` record, **13 of the parser's 17 withheld records** move |
+| Already-validated `pnc` documents (28) | **28 / 28 still validate, and all 28 are financially identical field for field**; descriptions move toward the printed text on 28 (§3.6) |
+| Layout families characterised | 6 — four fixed, two ruled FAIL CLOSED with their volume |
+| Statement-specific constants added | **none** |
+| Protected modules touched | none. `analysis/money.py`, `date_tokens.py`, `tables.py`, `parser_registry.py`, `schema.py` and every other parser are unmodified; `parse_money` and `iso_from_month_day_strict` are consumed exactly as they were |
+| Truth-set movement | **none.** All 5 pinned corpus PNC statements are financially identical field for field (one description each drops printed furniture). **No re-baseline requested or performed** |
+| Files changed | `analysis/pnc.py`, `tests/test_pnc_variants.py` (new, 12 fixtures), this log |
+| Cache implication | analysis output changes for unchanged settings on 44 of 45 `pnc` documents → `ANALYSIS_STAGE_VERSION` must be bumped at merge. **Ocean's, not done here** |
+
+### 3.1 The cell reproduced independently
+
+`parser_id == "pnc"` gives **45 records — 28 validated, 17 withheld** — and the
+withheld split by primary class is **`detail_coverage` 14 · `ledger_identity` 2 ·
+`summary_identity` 1**, 17 distinct hashes, no duplicates. 16 resolve through the
+native rung and 1 through local Tesseract. The failing checks:
+
+| Evidence | Documents |
+|---|---|
+| `adb:final_balance_matches_statement_closing`, `adb:ledger_reconciles_to_closing` | 17 / 17 |
+| `adb_state:final_balance_drift`, `adb_state:ledger_reconcile_failed`, `recon:sum_check_failed` | 17 / 17 |
+| `integrity:ledger_sum_mismatch`, `integrity:transaction_detail_not_corporate_reliable` | 16 |
+| `integrity:debit_detail_coverage_mismatch`, `recon:debit_coverage_short` | 15 |
+| `integrity:credit_detail_coverage_mismatch`, `recon:credit_coverage_short` | 3 |
+| `adb:posting_dates_cover_source` | 2 |
+
+### 3.2 The measurement instrument (used before any code changed)
+
+PNC prints two independent self-checks, and the second is unusually strong:
+
+1. the **Balance Summary** — beginning + deposits and other additions − checks and
+   other deductions = ending;
+2. above the Activity Detail, a **`Description Items Amount` table** giving the
+   **item count and total of every section the statement itemizes**, closing with
+   a `Total` for each direction:
+
+```
+Description Items Amount Deposits 6 105,150.00 ATM Deposits and Additions 6 2,158.25 Fee Refunds 1 6.00
+Description Items Amount Debit Card Purchases 355 289,547.07 POS Purchases 34 5,309.44
+   ATM/Misc. Debit Card Transactions 32 10,605.35 ACH Deductions 5 3,021.00
+   Service Charges and Fees 17 482.25   Total 13 107,314.25   Total 443 308,965.11
+```
+
+That table is **the bank's own index of its ledger**: it names every section,
+counts its rows and totals its money. Completeness is therefore checkable
+section by section against the document itself, with no expectation file and no
+audited truth set.
+
+**The instrument's own trustworthiness is checked first:** its subtotals
+reproduce the Balance Summary on **45 / 45** documents, and over the 28 the
+platform had already validated the captured ledger reproduces the printed
+credits, the printed debits AND the printed item count **28 / 28**.
+
+Baseline over the cell, before any change:
+
+| Instrument | withheld (17) | already validated (28) |
+|---|---|---|
+| printed Balance Summary closes | 17 / 17 | 28 / 28 |
+| the printed subtotals reproduce the Balance Summary | 17 / 17 | 28 / 28 |
+| the statement prints a section the parser does not read | **17 / 17** | 3 / 28 |
+| parser claims the document | 17 / 17 | 28 / 28 |
+| captured credit rows reproduce the printed credits | 13 / 17 | 28 / 28 |
+| captured debit rows reproduce the printed debits | **1 / 17** | 28 / 28 |
+| captured row count equals the printed item count | **0 / 17** | 28 / 28 |
+| ledger identity holds | **0 / 17** | 28 / 28 |
+
+**A note on building the instrument honestly.** The instrument's first draft
+inherited the parser's own money pattern and therefore its P-F4 defect, and it
+reported one document's Balance Summary as not closing. The bank's figures do
+close; both readings of them were wrong. The instrument was corrected to read the
+printed grid before any of the numbers above were taken, which is the whole point
+of building it from the document rather than from the code.
+
+### 3.3 The root cause: a section list doing two jobs
+
+The parser knew ten sections. PNC prints twelve, and the two it did not know are
+`Checks and Substitute Checks` (13 cell documents) and `Fee Refunds` (5 cell
+documents, 3 already-validated).
+
+**The same list is also the list of section BOUNDARIES**, so an unknown section
+is not merely unread — it is **swallowed by the section printed above it**:
+
+* its rows take that section's **direction**, not the one they were printed
+  under;
+* its own heading and column header are glued onto the **last description** of
+  the section above;
+* and that section's captured count and total then disagree with the bank's
+  printed pair for it, which is what the instrument sees.
+
+`Fee Refunds` is always printed inside the `Deposits and Other Additions` group
+in this archive, so the section that swallowed it was always a credit section
+and no observed amount changed sign; the damage that IS observed is the wrong
+section attribution and the polluted description. The sign hazard is latent
+rather than measured, and it is pinned directly as a rule
+(`test_f1_a_swallowed_section_would_take_the_wrong_direction`) with that
+disclosure in the fixture itself.
+
+`Checks and Substitute Checks` is worse: it prints a **different column group**
+from every other section, so even once its heading is a boundary its rows need a
+reader of their own.
+
+### 3.4 The families
+
+Named by structure. Nothing below names a customer, an amount, a date or an
+account fragment; every rule is anchored on the printed grid.
+
+| # | Family | Structural signature | Root cause | Ruling | Fixture | Volume |
+|---|---|---|---|---|---|---|
+| P-F1 | **a printed section outside the vocabulary** | the subtotal table names a section the parser's list does not have (`Fee Refunds`) | the list is both the section list and the boundary list, so the section is unread AND swallowed by the one above it | FIX — the vocabulary covers every section the bank's own subtotal table names; a row's direction is the section it was printed in | `test_f1_*` | **5** cell documents, 3 already-validated |
+| P-F2 | **the cheque section's own column group** | `Checks and Substitute Checks` prints `Date posted \| Check number \| Amount \| Reference number`, several column groups per physical line, with `*` sequence-gap markers | the section was unknown, and its shape is not the `Date posted \| Amount \| Transaction description \| Reference number` shape every other section uses | FIX — a cheque row is date, number, optional marker, amount; the Reference number that follows carries no decimal point, so it can never be read as money. The printed number is the description | `test_f2_*` | **13** cell documents |
+| P-F3 | **furniture that owns a line** | the two umbrella headings (`Deposits and Other Additions`, `Checks and Other Deductions`), the `<section> continued on next page` trailers, and the cheque section's `* Gap in check sequence` footnote — which PNC prints **on the heading line itself** | none of the three closed a section, so each was appended to the description of the row above it; and the footnote made the cheque heading unrecognisable as a heading | FIX — each is furniture: it owns its line, closes the section above it and opens nothing. The gap footnote is a suffix of its heading, not a different heading | `test_f3_*` | the umbrella headings on every document; the gap footnote on **8** cell documents |
+| P-F4 | **a sub-dollar figure printed without its leading zero** | a Balance Summary balance of eighty-seven cents prints `.87` | the money pattern's `\b` does not match after a space, so the figure was skipped and the NEXT one — the average ledger balance printed below it — was read as the closing balance | FIX — the boundary is "not preceded by a digit, comma or point", which is a statement about the grid rather than about word characters | `test_f4_*` | **1** document — the `summary_identity` record, whose diagnosis was therefore about our arithmetic, not the bank's |
+| P-F5 | **column-major text layer** | the Date column is emitted as its own block, away from the rows: `04 04 04` on one line, `/08 /10 /10` on the next, and the amounts, descriptions and reference numbers elsewhere again | the PDF's text objects are not emitted in grid order, so no row carries its own date | **FAIL CLOSED — 3 documents (3 of 16).** They stay withheld with accurate `detail_coverage` diagnostics. This is RBC's F11 exactly: no text-layer rule can reorder what the text layer has already reordered, and the input needed is the PDF word boxes | none: this family is defined by the ABSENCE of the structure the fixtures pin | **3** cell documents |
+| P-F6 | **an OCR-lost cheque row** | the cell's one scanned document prints the cheque section's heading and column header, and local Tesseract recovered no row beneath them | none in the parser — the row is not in the text at all | **FAIL CLOSED — 1 document.** Its printed subtotal says one cheque of a thousand dollars and the ledger is short by exactly that; nothing is invented to close it | none: same reason as P-F5 | **1** cell document |
+
+Negative fixtures — each constrains a new rule rather than demonstrating a
+defect, and each is asserted:
+
+- a row whose description contains a section's words never opens that section —
+  a heading owns its line;
+- a cheque row's Reference number is never read as its amount;
+- the `<section> continued on next page` trailer is furniture, and the section
+  re-enters at its `- continued` heading after the page break;
+- a whole-dollar Balance Summary reads exactly as it did before the P-F4 change.
+
+### 3.5 What did NOT change, deliberately
+
+- **No parser-level publish gate was added.** `us_bank` and `truist` gained one
+  in cells 6 and 7 because on those parsers a refusal costs nothing: every
+  document that would trip the gate now validates instead. On PNC a printed-total
+  gate would fire on the four P-F5/P-F6 documents and turn them from **withheld**
+  into **unclaimed** — a *different* outcome class, and one Ocean's movement
+  instrument would read as a transition other than withheld→validated. The
+  platform's own ADB and reconciliation gate is already withholding them
+  correctly and with an accurate diagnosis, so the refusal it would add is one
+  the system already performs. Recorded as a deliberate asymmetry rather than an
+  oversight; if Ocean wants parser-level symmetry, the transition it produces
+  should be an explicit ruling.
+- **No shared utility was touched**, and no shared utility's behaviour changed,
+  so no R-2 differential-equivalence proof is owed.
+- **The `Daily Balance` block is still not read.** PNC prints a full daily ledger
+  series and it would be the natural independent oracle here — but on these
+  documents the text layer emits it column-major (the same defect as P-F5), so it
+  is not usable as an oracle without geometry. Recorded in §3.7; the section
+  subtotals did the work instead, and they are stronger anyway because they carry
+  item COUNTS.
+- **The detection markers are unchanged**, so the set of documents reaching this
+  parser is unchanged. Verified over the whole `PNC Bank/` folder: the 17
+  documents no parser claimed in the baseline are refused by both the old and the
+  new reader.
+- **`account_name` stays `"Business Checking"`**, as before.
+
+### 3.6 Result over the cell, and zero regressions
+
+Same production ladder discovery uses (native rung, plus the cached local
+Tesseract read for the one scanned document; no visual rung, no model calls,
+`$0.00`), then `analyze_markdown` in deterministic mode, classified with
+`telemetry.record.classify_outcome` and diagnosed with
+`telemetry.diagnostics.diagnose`.
+
+| Instrument | before (17) | after (17) |
+|---|---|---|
+| captured credit rows reproduce the printed credits | 13 | **14** |
+| captured debit rows reproduce the printed debits | 1 | **13** |
+| captured row count equals the printed item count | 0 | **13** |
+| ledger identity holds | 0 | **13** |
+
+| Cell | records | documents | before | after |
+|---|---|---|---|---|
+| `pnc × detail_coverage` | 14 | 14 | 0 validated / 14 withheld | **10 / 4** |
+| `pnc × ledger_identity` | 2 | 2 | 0 / 2 | **2 / 0** |
+| **the brief's cell** | **16** | **16** | **0 / 16** | **12 / 4** |
+| `pnc × summary_identity` (adjacent, outside the assigned cell) | 1 | 1 | 0 / 1 | **1 / 0** |
+| already-validated `pnc` | 28 | 28 | 28 validated | **28 validated** |
+
+**Nothing was padded to get there.** Every document that now validates does so
+because the rows extracted reproduce, independently: the bank's printed item
+COUNT and total for every section it itemizes, the Balance Summary identity, the
+ledger identity, and the full ADB validation suite. The fail-closed gate is
+unchanged, and the four documents that stay withheld are the honest residual —
+three whose text layer does not carry rows at all, and one whose cheque row OCR
+did not recover.
+
+**The already-validated population.** Old and new modules loaded side by side in
+one process over identical markdown:
+
+```
+28 / 28 already-validated pnc documents : financially identical (every row's date, amount and direction)
+ 5 /  5 pinned corpus PNC statements    : financially identical (every audited field)
+17 / 17 unclaimed PNC Bank/ folder docs : refused by both readers
+```
+
+**Descriptions moved on 28 already-validated documents and on all 5 pinned ones,
+in one direction only: furniture came off.** The change is a single class — a
+printed umbrella heading, a `continued on next page` trailer or a swallowed
+section's heading and column header had been appended to the description of the
+row above it, and is now recognised as the furniture it is (`… Amazon.Com Servi
+Fcs003587716422 Checks and Other Deductions` → `… Amazon.Com Servi
+Fcs003587716422`). No audited field is a description — neither audit CSV has a
+description column — and every pinned statement is financially identical, so no
+truth-set movement arises. It is reported here rather than buried because
+downstream transaction classification reads descriptions.
+
+### 3.7 Carried findings for Ocean
+
+1. **P-F5 needs geometry (stop condition 4, reported not acted on).** Three
+   documents emit the Date column as its own block, away from the rows it dates.
+   This is RBC F11 in a second bank, and it takes the deferred geometry follow-up
+   from 16 documents to **19**. Vehicle: the structurer-integration HARBOR card,
+   as ruled on 2026-08-08.
+2. **PNC's `Daily Balance` series is printed on every statement and is unusable
+   as an oracle for exactly the same reason.** It is emitted column-major on the
+   documents that would most benefit from it. Recorded so the
+   `stated_daily_balances` card (§3 item 3, §B7.2, §1.8) is not assumed to be
+   uniformly cheap: on PNC it is a geometry problem, not a parsing one.
+3. **PNC prints an item COUNT per section, and the platform still does not check
+   counts** (§5.7 item 4, §B7.3, §1.8 item 4). This is the fourth population, and
+   the strongest argument yet: the count is what caught the swallowed-section
+   defect here, ahead of any money check, because a swallowed section keeps the
+   money in the right direction while moving the rows.
+4. **The parser-level-gate asymmetry in §3.5 is a decision, not an omission**, and
+   it turns on a question only Ocean can answer: is withheld→unclaimed an
+   acceptable transition when the parser can prove its own reading is incomplete?
+5. **`ANALYSIS_STAGE_VERSION` must be bumped at merge** (`webapp/` protected
+   here). This change alters analysis output for unchanged settings on 44 of the
+   45 archive `pnc` documents (13 financially, the rest by description).
+
+## TRIO-4. Proofs
+
+Each cell was fully proven before the next was started, on a clean tree, with
+`set -o pipefail` and the exit codes as printed.
+
+### 4.1 Cell 6 — `us_bank`, at `67689ad`
+
+```
+$ python -m pytest -q
+2286 passed, 18 deselected, 1 warning in 128.00s (0:02:07)
+SUITE_EXIT=0
+
+$ python -m pytest -m corpus -q
+14 passed, 2290 deselected, 1 warning in 1115.91s (0:18:35)
+CORPUS_MARKED_EXIT=0
+
+$ python corpus_gate.py
+[PASS] inventory / foreign_files / source_integrity
+[PASS] balance_audit / adb_audit
+[PASS] balance_outcomes / adb_outcomes
+[PASS] ocr_coverage / exclusions / oracle_independence
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  445.5s
+RESULT: GREEN
+```
+
+(That gate invocation was launched through a detached wrapper that did not echo
+its exit code; the run printed `RESULT: GREEN` with every module PASS. The two
+later gate runs, including the one over all three parsers together, capture
+`GATE_EXIT=0` explicitly. Reported as it happened rather than tidied.)
+
+```
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+      tests/test_no_parser_helper_clones.py -q
+100 passed in 0.98s
+GUARDS_EXIT=0
+```
+
+### 4.2 Cell 7 — `truist`, at `cf3181e`
+
+```
+$ python -m pytest -q
+2299 passed, 18 deselected, 1 warning in 157.52s (0:02:37)
+SUITE_EXIT=0
+
+$ python -m pytest -m corpus -q
+14 passed, 2303 deselected, 1 warning in 1012.96s (0:16:52)
+CORPUS_MARKED_EXIT=0
+
+$ python corpus_gate.py
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  423.5s
+>>>>>>> wave3-trio-completeness
 RESULT: GREEN
 GATE_EXIT=0
 
 $ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
       tests/test_no_parser_helper_clones.py -q
+<<<<<<< HEAD
 100 passed in 0.81s
 GUARDS_EXIT=0
 ```
@@ -1976,3 +2735,175 @@ already validated     n=192  identical 192  (0 financial, 0 description)
 |---|---|
 | `07c21fb` | `analysis/wells.py` + `tests/test_wells_variants.py` |
 | `71d1e03` | this log's §WELLS |
+=======
+100 passed in 0.82s
+GUARDS_EXIT=0
+```
+
+### 4.3 Cell 8 — `pnc`, at `306f2ac` (all three parsers together)
+
+```
+$ python -m pytest -q
+2311 passed, 18 deselected, 1 warning in 100.36s (0:01:40)
+SUITE_EXIT=0
+
+$ python -m pytest -m corpus -q
+14 passed, 2315 deselected, 1 warning in 811.29s (0:13:31)
+CORPUS_MARKED_EXIT=0
+
+$ python corpus_gate.py
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  361.4s
+RESULT: GREEN
+GATE_EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+      tests/test_no_parser_helper_clones.py -q
+100 passed in 0.78s
+GUARDS_EXIT=0
+```
+
+### 4.4 The suite grew by the fixtures and by nothing else
+
+Baseline at `b839bfa`: **2,265** default tests. Final: **2,311** — the 46 new
+fixtures (21 us_bank + 13 truist + 12 pnc) and nothing else.
+`git diff b839bfa..HEAD --name-only -- tests/` lists exactly the three new files,
+so **no existing assertion was edited**, and
+`git diff b839bfa..HEAD --name-only` lists exactly seven paths: the three
+parsers, the three new test files and this log.
+
+### 4.5 Combined result over the three parsers
+
+Measured on the final tree over every `us_bank`, `truist` and `pnc` document in
+the baseline run, through the same production ladder discovery uses
+(`ocr.pipeline.parse_statement`, native rung plus the cached local-Tesseract read
+for the one scanned PNC document, no visual rung, no model calls, `$0.00`), then
+`analyze_markdown` in deterministic mode, classified with
+`telemetry.record.classify_outcome`:
+
+| Parser | already validated | withheld → validated | still withheld |
+|---|---|---|---|
+| `us_bank` | 20 → **20** | **20** | 0 |
+| `truist` | 28 → **28** | **20** | 0 |
+| `pnc` | 28 → **28** | **13** | 4 |
+| **total** | **76 → 76** | **53** | **4** |
+
+**withheld → validated 53 · regressed 0 · transitions in any other direction 0.**
+
+The four that remain are the honest residual and each is named with its cause in
+§3.4: three PNC documents whose text layer emits the Date column away from the
+rows it dates (geometry, RBC F11's family in a second bank), and one scanned PNC
+document whose single cheque row local OCR did not recover.
+
+### 4.6 Fails-before / passes-after
+
+Every committed fixture document captured as its suite runs and replayed through
+the pre-change module loaded from git, in the same process.
+
+**`us_bank`** (14 distinct fixture documents · behaviour changed 8 · unchanged 6):
+
+```
+FIXED  test_f1_a_summary_category_outside_the_old_list_is_read    before=[500.0, -80.0]  after=[500.0, -70.0, -50.0, -80.0]
+FIXED  test_f1_every_printed_credit_category[Card Deposits]       before=[500.0, -80.0]  after=[500.0, 400.0, -80.0]
+FIXED  test_f1_every_printed_credit_category[Customer Deposits]   before=[400.0, 500.0, -80.0]  after=[500.0, 400.0, -80.0]
+FIXED  test_f1_negative_an_unreadable_printed_category_fails_clos before=[500.0, -80.0]  after=None
+kept   test_f1_negative_a_section_that_does_not_reproduce_its_pri before=None  after=None
+FIXED  test_f2_a_card_section_split_over_several_card_sub_blocks_ before=[500.0, -80.0]  after=[500.0, -70.0, -50.0, -80.0]
+FIXED  test_f3_several_check_column_groups_on_one_printed_line_ar before=[500.0, -80.0]  after=[500.0, -80.0, -100.0, -200.0, -300.0]
+FIXED  test_f4_an_original_currency_figure_below_the_amount_cell_ before=[500.0, -80.0]  after=[500.0, -54.63, -80.0]
+kept   test_f4_negative_a_wrapped_amount_cell_alone_on_its_line_i before=[500.0, -80.0]  after=[500.0, -80.0]
+kept   test_f5_two_printed_rows_on_one_physical_line_are_two_rows before=[500.0, -6000.0, -11000.0]  after=[500.0, -6000.0, -11000.0]
+FIXED  test_f5_negative_a_date_inside_a_description_does_not_open before=None  after=[500.0, -250.0]
+kept   test_f7_a_section_continues_across_a_page_break_and_the_le before=[500.0, -100.0, -200.0]  after=[500.0, -100.0, -200.0]
+kept   test_f7_negative_the_balance_summary_series_is_never_activ before=[500.0, -80.0]  after=[500.0, -80.0]
+kept   test_f8_an_overdrawn_balance_prints_its_minus_after_the_fi before=[500.0, -1700.0]  after=[500.0, -1700.0]
+```
+
+**`truist`** (10 distinct fixture documents · behaviour changed 6 · unchanged 4):
+
+```
+FIXED  test_f1_the_checks_table_is_read[symbol apart from figure] before=[-200.0, 500.0]  after=[-100.0, -200.0, -200.0, 500.0]
+kept   test_f1_the_checks_table_is_read[symbol against figure]    before=[-100.0, -200.0, -200.0, 500.0]  after=[-100.0, -200.0, -200.0, 500.0]
+FIXED  test_f2_a_detached_skip_marker_still_belongs_to_its_check_ before=[-200.0, 500.0]  after=[-100.0, -200.0, -200.0, 500.0]
+kept   test_f2_an_attached_skip_marker_is_unchanged               before=[-100.0, -200.0, -200.0, 500.0]  after=[-100.0, -200.0, -200.0, 500.0]
+FIXED  test_f2_negative_the_skip_footnote_is_never_a_row          before=[-200.0, 500.0]  after=[-300.0, -200.0, 500.0]
+FIXED  test_f3_a_cheque_with_no_printed_number_is_still_a_cheque  before=[-200.0, 500.0]  after=[-100.0, -200.0, -200.0, 500.0]
+FIXED  test_f3_a_skip_marker_with_no_number_beside_it             before=[-200.0, 500.0]  after=[-100.0, -200.0, -200.0, 500.0]
+kept   test_f4_a_three_column_checks_header_is_read               before=[-100.0, -150.0, -50.0, -200.0, 500.0]  after=(same)
+FIXED  test_f5_negative_checks_that_do_not_reproduce_the_printed_ before=[-200.0, 500.0]  after=None
+kept   test_f5_negative_a_statement_with_no_checks_table_is_unaff before=[-200.0, 500.0]  after=[-200.0, 500.0]
+```
+
+**`pnc`** (7 distinct fixture documents · behaviour changed 7 · unchanged 0).
+Amounts alone do not show two of PNC's families, so the shape compared here is
+`(amounts, directions, ending balance, descriptions)`:
+
+```
+FIXED  test_f1_a_printed_section_outside_the_old_vocabulary_is_read
+       before desc=['ATM Deposit A Branch 000000001 Fee Refunds', 'A Fee Reimbursement 000000002 Checks and Other Deductions', ...]
+       after  desc=['ATM Deposit A Branch 000000001', 'A Fee Reimbursement 000000002', ...]
+FIXED  test_f1_a_swallowed_section_would_take_the_wrong_direction
+       before=([-300.0, -100.0], ['debit', 'debit'])   after=([100.0, -300.0], ['credit', 'debit'])
+FIXED  test_f2_several_cheque_column_groups_on_one_printed_line_are_separate_rows
+       before=([500.0])  after=([500.0, -50.0, -250.0, -300.0], desc ['Deposit …', 'Check 1100*', 'Check 1101', 'Check 1102'])
+FIXED  test_f3_the_gap_footnote_printed_on_the_heading_line_does_not_hide_the_section
+       before=([500.0])  after=([500.0, -600.0])
+FIXED  test_f3_negative_a_heading_still_owns_its_line
+       before desc=['… 000000001 Checks and Other Deductions', …]   after desc=['… 000000001', …]
+FIXED  test_f3_the_continued_on_next_page_trailer_is_furniture_not_description
+       before desc=['Deposit 000000001 Deposits continued on next page', …]  after desc=['Deposit 000000001', …]
+FIXED  test_f4_a_closing_balance_of_less_than_a_dollar_is_read_as_the_closing_balance
+       before ending=900.0   after ending=0.87
+```
+
+The `kept` lines are reported as what they are: **constraints**, not
+demonstrations. Each pins a rule the new reader had to be built around — a
+minimal synthetic document is often one the old reader happened to read
+correctly, and the point of the fixture is that the new rule still does. Two are
+explicit contrast halves of a pair (`us_bank` F4's wrapped amount cell against
+its foreign-currency twin; `truist` F1's two spellings of the same total, which
+are additionally asserted to produce the identical statement).
+
+### 4.7 Commits (oldest first)
+
+| Commit | Contents |
+|---|---|
+| `67689ad` | `analysis/us_bank.py` + `tests/test_us_bank_variants.py` |
+| `0f559c5` | this log's §TRIO-0 and §TRIO-1 |
+| `cf3181e` | `analysis/truist.py` + `tests/test_truist_variants.py` |
+| `403e95e` | this log's §TRIO-2 |
+| `306f2ac` | `analysis/pnc.py` + `tests/test_pnc_variants.py` |
+| `007d255` | this log's §TRIO-3 |
+| (this one) | §TRIO-4, the proofs |
+
+## TRIO-5. Carried findings across the three cells
+
+Per-cell findings are in §1.8, §2.7 and §3.7. Four are worth stating once, across
+all three:
+
+1. **`stated_credit_count` / `stated_debit_count` — the count check (§5.7 item 4,
+   §B7.3) now has three more witnesses and one decisive one.** U.S. Bank prints a
+   count per summary category and PNC prints an item count per section; Truist
+   prints neither. PNC is the decisive case: a *swallowed* section keeps its money
+   on the correct side while moving the rows, so the money checks see nothing and
+   only the count notices. Every cell in Track A that has looked has found the
+   same gap.
+2. **The geometry queue grows to 19 documents.** The three PNC P-F5 documents are
+   RBC F11 in a second bank — the Date column emitted as its own block, away from
+   the rows it dates. Same vehicle (the structurer-integration HARBOR card), same
+   ruling, three more documents.
+3. **A daily-balance oracle is not uniformly cheap.** U.S. Bank's `Balance
+   Summary` is the cleanest such series Track A has met and it settled every
+   question cell 6 raised; PNC's `Daily Balance` is printed on every statement and
+   is *unusable* without geometry, because it is emitted column-major. The
+   `stated_daily_balances` card (§3 item 3, §B7.2) should be scoped per bank
+   rather than as one sweep.
+4. **Silent-rigidity defects keep costing whole cells.** Cell 6 was a closed
+   category list; cell 7 was a currency symbol admitted in only one of its two
+   printed spellings; cell 8 was a section list that was also, unnoticed, the
+   boundary list. None of the three announced itself: each simply produced a
+   smaller ledger. A sweep for the *shape* — a pattern that is both a matcher and
+   a terminator, or a closed vocabulary of the bank's own words — across the
+   remaining parsers looks like high-value, low-risk work.
+>>>>>>> wave3-trio-completeness

@@ -13,14 +13,25 @@ def _money(value: str | None) -> float | None:
     return parse_amount(value, EITHER_MINUS_DROPPED)
 
 
+#: Truist prints its currency symbol as its own cell, so the text layer emits it
+#: either against the figure (`= $662.35`) or apart from it (`= $ 662.35`). The
+#: gap is a printed-grid fact and carries no meaning, so every money pattern in
+#: this module admits it. It is not cosmetic: the `Total checks` terminator is
+#: what bounds the Checks section, and requiring the tight spelling dropped the
+#: whole section — and with it every cheque — on 20 archive documents.
+_DOLLAR = r"\$?\s*"
+
+
 def _summary(markdown: str) -> tuple[Statement, int] | None:
     m = re.search(
         r"(?:TRUIST\s+)?[A-Z0-9 ]+CHECKING[^\n]*?\s+(\d{4,})\s+"
-        r"Account summary Your previous balance as of (\d{2})/(\d{2})/(\d{4})\s+\$?(-?[\d,]+\.\d{2})\s+"
+        r"Account summary Your previous balance as of (\d{2})/(\d{2})/(\d{4})\s+"
+        + _DOLLAR + r"(-?[\d,]+\.\d{2})\s+"
         r"Checks\s+-\s+([\d,]+\.\d{2})\s+"
         r"Other withdrawals, debits and service charges\s+-\s+([\d,]+\.\d{2})\s+"
         r"Deposits, credits and interest\s+\+\s+([\d,]+\.\d{2})\s+"
-        r"Your new balance as of (\d{2})/(\d{2})/(\d{4})\s+=\s+\$?(-?[\d,]+\.\d{2})",
+        r"Your new balance as of (\d{2})/(\d{2})/(\d{4})\s+=\s+" + _DOLLAR
+        + r"(-?[\d,]+\.\d{2})",
         markdown,
         re.IGNORECASE | re.DOTALL,
     )
@@ -59,7 +70,8 @@ def _first_account_block(markdown: str) -> str:
 
 def _section(block: str, heading: str, total_label: str) -> tuple[str, float | None]:
     pattern = re.compile(
-        rf"{re.escape(heading)}\s+DATE .*? AMOUNT\(\$\)\s+(.*?)\s+{re.escape(total_label)}\s*=\s*\$?([\d,]+\.\d{{2}})",
+        rf"{re.escape(heading)}\s+DATE .*? AMOUNT\(\$\)\s+(.*?)\s+"
+        rf"{re.escape(total_label)}\s*=\s*{_DOLLAR}([\d,]+\.\d{{2}})",
         re.IGNORECASE | re.DOTALL,
     )
     m = pattern.search(block)
@@ -100,21 +112,39 @@ def _parse_dated_amount_rows(text: str, *, year: int, sign: int) -> list[Transac
     return txns
 
 
-def _parse_checks(block: str, *, year: int) -> list[Transaction]:
-    m = re.search(r"Checks\s+DATE CHECK # AMOUNT\(\$\)(.*?)Total checks\s*=\s*\$?([\d,]+\.\d{2})", block, re.IGNORECASE | re.DOTALL)
+#: A cheque row is `DATE [skip marker] [CHECK #] AMOUNT($)`. Both middle cells
+#: are printed only when the bank has one to print: the skip marker stands apart
+#: from the number in the single-column table, and a cheque the bank prints no
+#: number for carries neither. The Amount cell is the money-shaped token, and it
+#: is the only cell of the four that is always printed.
+_CHECK_ROW_RE = re.compile(r"(\d{2}/\d{2})\s+(\*\s*)?(\d+~?\s+)?([\d,]+\.\d{2})")
+#: The Checks table prints one or more `DATE CHECK # AMOUNT($)` column groups on
+#: its header line — three where the statement has many cheques, one where it has
+#: few — and closes with its own printed total.
+_CHECKS_SECTION_RE = re.compile(
+    r"Checks\s+(?:DATE CHECK # AMOUNT\(\$\)\s*)+(.*?)Total checks\s*=\s*"
+    + _DOLLAR + r"([\d,]+\.\d{2})",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _parse_checks(block: str, *, year: int) -> tuple[list[Transaction], float | None]:
+    """The Checks table's rows and the total the bank printed under them."""
+    m = _CHECKS_SECTION_RE.search(block)
     if not m:
-        return []
+        return [], None
     text = re.sub(r"\* indicates.*", " ", m.group(1), flags=re.IGNORECASE | re.DOTALL)
     txns: list[Transaction] = []
-    for mmdd, check_no, amount in re.findall(r"(\d{2}/\d{2})\s+(\*?\d+~?)\s+([\d,]+\.\d{2})", text):
+    for mmdd, marker, check_no, amount in _CHECK_ROW_RE.findall(text):
+        printed_number = ("*" if marker else "") + check_no.strip()
         txns.append(Transaction(
             date=iso_from_month_day(mmdd, year),
-            description=f"Check {check_no}",
+            description=f"Check {printed_number}" if printed_number else "Check",
             amount=round(-abs(_money(amount) or 0.0), 2),
             direction="debit",
             running_balance=None,
         ))
-    return txns
+    return txns, abs(_money(m.group(2)) or 0.0)
 
 
 DETECTION_MARKERS = (
@@ -134,7 +164,7 @@ def parse_truist_statement(markdown: str) -> Statement | None:
         return None
     stmt, year = parsed_summary
 
-    checks = _parse_checks(block, year=year)
+    checks, printed_check_total = _parse_checks(block, year=year)
     other_text, other_total = _section(
         block,
         "Other withdrawals, debits and service charges",
@@ -154,7 +184,13 @@ def parse_truist_statement(markdown: str) -> Statement | None:
         return None
     if abs(sum(t.amount for t in credits) - credit_total) > 0.02:
         return None
-    if checks and stmt.stated_total_debits is not None:
+    # The Checks table prints its own total, so the cheques are checkable against
+    # the bank rather than against the residue of two other figures. Where the
+    # table is printed at all, its rows must reproduce it.
+    if printed_check_total is not None:
+        if abs(sum(abs(t.amount) for t in checks) - printed_check_total) > 0.02:
+            return None
+    elif checks and stmt.stated_total_debits is not None:
         check_total = sum(abs(t.amount) for t in checks)
         expected_checks = round(stmt.stated_total_debits - other_total, 2)
         if abs(check_total - expected_checks) > 0.02:
