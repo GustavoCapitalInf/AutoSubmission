@@ -1515,3 +1515,283 @@ names, which the naive form of this restructuring introduced and the
 | `dc61540` | `analysis/bofa.py` + `tests/test_bofa_variants.py` |
 | `1eeb123` | this log's §BOFA B0–B7 |
 | (this one) | §B8, and the B-F3 root-cause line corrected to name it as a hazard of this restructuring rather than a pre-existing defect |
+
+---
+
+# §TRIO — Cells 6–8: `us_bank`, `truist`, `pnc`
+
+REEF-TRIO, 2026-08-08. Branch `wave3-trio-completeness`, base `5443cfa`
+(worktree tip `b839bfa`, which adds only the two handoff files). Brief:
+`docs/agent-handoffs/REEF-TRIO.md`. Three cells worked in strict sequence,
+each fully proven before the next.
+
+Same method and idiom as §1/§TD/§5/§BOFA: reproduce the cell independently from
+the frozen baseline, build the in-document instrument and check the instrument
+itself against the parser's already-validated population BEFORE changing code,
+characterise layout families structurally, fix at the capability level or fail
+closed with the volume stated, prove both directions with synthetic fixtures,
+measure honestly.
+
+## TRIO-0. The three cells, derived from the baseline
+
+Joining run `70123cf2`'s telemetry diagnostics to its `rows.csv` parser
+attribution by content hash. The run itself: 3,506 records / 3,380 distinct
+documents — validated 1,533 / review 10 / withheld 147 / deferred 13 / failed
+1,677 at distinct-document level (1,577 / 10 / 148 / 13 / 1,758 at record level).
+
+| Cell | brief | measured | note |
+|---|---|---|---|
+| `us_bank × summary_identity` | 20 | **20 records, 20 distinct hashes** | agrees |
+| `us_bank × ledger_identity` | 2 | **0** | the brief's "+ ledger_identity 2" is not in this baseline: `us_bank` has 40 records — 20 validated, 20 withheld — and **all 20 withheld are `summary_identity`**. Reported rather than reconciled away |
+| `truist × detail_coverage` | 12 | **12** | agrees |
+| `truist × ledger_identity` | 8 | **8** | agrees |
+| `pnc × detail_coverage` | 14 | **14** | agrees |
+| `pnc × ledger_identity` | 2 | **2** | agrees |
+| `pnc × summary_identity` | — | **1** | outside the brief's cell; `pnc` has 17 withheld records, not 16 |
+
+## TRIO-1. Cell 6 — `us_bank × summary_identity`, 20 documents
+
+### 1.0 Summary
+
+| | |
+|---|---|
+| Cell worked | `us_bank × summary_identity` — **20 records, 20 distinct hashes**, all digital, all native-text, all in the `US Bank/` folder |
+| Result over the cell | **20 / 20 validated**, from 0 / 20. No residual |
+| Already-validated `us_bank` documents (20) | **20 / 20 still validate, and all 20 are field-identical** — not merely still-passing |
+| Layout families characterised | 8, all closed at the capability level |
+| Statement-specific constants added | **none** |
+| Protected modules touched | none. `analysis/tables.py`, `money.py`, `parser_registry.py`, `schema.py` and every other parser are unmodified; `compact_whitespace`, `group_rows` and `parse_amount` are consumed exactly as they were |
+| Truth-set movement | **none.** Both pinned corpus U.S. Bank statements parse **byte-identically**, every field and every row. **No re-baseline requested or performed** |
+| Files changed | `analysis/us_bank.py`, `tests/test_us_bank_variants.py` (new, 21 fixtures), this log |
+| Cache implication | analysis output changes for unchanged settings on 20 of 40 `us_bank` documents → `ANALYSIS_STAGE_VERSION` must be bumped at merge. **Ocean's, not done here** (`webapp/` is protected for this agent) |
+
+### 1.1 The cell reproduced independently
+
+`parser_id == "us_bank"` gives **40 records — 20 validated, 20 withheld** — and
+the withheld are **20/20 `summary_identity`**, 20 distinct hashes, no duplicates
+inside the cell. The failing checks are uniform:
+
+| Evidence | Documents |
+|---|---|
+| `integrity:summary_math_inconsistent`, `recon:summary_identity_failed` | 20 / 20 |
+| `adb:final_balance_matches_statement_closing`, `adb:ledger_reconciles_to_closing` | 20 / 20 |
+| `integrity:ledger_sum_mismatch`, `recon:sum_check_failed` | 20 / 20 |
+| `adb_state:final_balance_drift`, `adb_state:ledger_reconcile_failed` | 20 / 20 |
+| `adb:posting_dates_cover_source`, `adb_state:posting_dates_incomplete` | 12 |
+
+**The class name is accurate and, as in every previous cell, one level above the
+cause.** `summary_identity` says the bank's own summary block fails its own
+identity — but the bank's block closes perfectly (§1.2); what fails its identity
+is *our reading of it*. The handoff's suspicion — "suspect summary-extraction
+capability, not the ledger" — is exactly right, and §1.3 is why.
+
+### 1.2 The measurement instrument (used before any code changed)
+
+U.S. Bank prints an Account Summary that is a complete, self-checking index of
+the ledger:
+
+```
+Number of Days in Statement Period 31
+Beginning Balance on Mar 2 $ 14,948.95 Other Deposits 37 100,753.73 Card Deposits 2 18,900.00
+   Card Withdrawals 5 39.14- Other Withdrawals 107 63,875.76- Checks Paid 21 41,761.15-
+Ending Balance on  Mar 31, 2026 $ 28,926.63
+```
+
+(printed as two physical lines; wrapped here.) Every category carries **a count
+and a signed amount** — outflows print the bank's trailing minus — each category
+is itemized in a detail section that ends with its own printed
+`Total <category>`, and beginning + every category = ending. So completeness,
+direction and the ledger identity are all checkable **against the document
+itself** — no expectation file, no audited truth set.
+
+**The instrument's own trustworthiness is checked first, not assumed:** the
+printed summary closes arithmetically on **40 / 40** documents (20 withheld +
+20 already-validated) and on both pinned corpus statements. A document that
+fails it is failing the bank's own figures.
+
+There is a second, stronger instrument the parser does not touch at all: a
+`Balance Summary` block printing an **end-of-day balance for every day the
+account moved** ("Balances only appear for days reflecting change"). Nothing in
+`analysis/us_bank.py` reads it, which makes it an independent oracle of rows,
+amounts, signs *and* posting dates — the role Chase's DAILY ENDING BALANCE
+series played in §2 and BofA's `Daily ledger balances` in §B2. 36 of the 40
+documents print one.
+
+Baseline over the cell, before any change:
+
+| Instrument | withheld (20) | already validated (20) |
+|---|---|---|
+| printed summary closes | 20 / 20 | 20 / 20 |
+| parser claims the document | 20 / 20 | 20 / 20 |
+| `stated_total_credits` = the summary's printed credit categories | 12 / 20 | 20 / 20 |
+| `stated_total_debits` = the summary's printed debit categories | **0 / 20** | 20 / 20 |
+| captured credit rows reproduce the printed credit total | 12 / 20 | 20 / 20 |
+| captured debit rows reproduce the printed debit total | **0 / 20** | 20 / 20 |
+| captured row counts equal the printed per-direction counts | 12 / 20 credit, **0 / 20** debit | 20 / 20 |
+| ledger identity holds | **0 / 20** | 20 / 20 |
+| the printed `Balance Summary` series reproduced exactly | **0 / 20** | 16 / 16 (4 print none) |
+
+Every deviation is in the same direction — **captured < printed** on both the
+stated totals and the rows — so the platform was losing whole categories and
+never inventing any.
+
+### 1.3 The root cause: a closed vocabulary that dropped both halves at once
+
+The parser knew **three** summary categories (`Customer Deposits`,
+`Other Deposits`, `Other Withdrawals`) and read **three** detail sections, one
+per category. U.S. Bank prints **six**, and a statement prints exactly the ones
+it has activity in. The three the parser did not know are `Card Deposits`,
+`Card Withdrawals` and `Checks Paid` (itemized under the printed heading
+`Checks Presented Conventionally`).
+
+That partition is the cell, exactly: **the 20 withheld documents are precisely
+the `us_bank` documents that print a category outside the three, and the 20
+already-validated ones are precisely those that do not.** Measured across the
+population — `Card Deposits` 8, `Card Withdrawals` 16, `Checks Paid` 14, every
+occurrence inside the withheld 20 and none in the validated 20.
+
+**Why the diagnosis was `summary_identity` and not a coverage class.** An
+unknown category was dropped from the stated totals *and* from the ledger *at
+the same time*, so the two stayed consistent with each other while both drifted
+from the bank. `stated_total_debits` was `Other Withdrawals` alone; the ledger
+was `Other Withdrawals` alone; the parser's own publish gate — captured totals
+must equal stated totals — therefore passed. What could not pass was the bank's
+own identity: beginning + our credits − our debits missed the printed ending
+balance by exactly the categories we never read. The platform reported the
+symptom it could see.
+
+### 1.4 The families
+
+Named by structure. Nothing below names a customer, an amount, a date or an
+account fragment; every rule is anchored on the printed grid.
+
+| # | Family | Structural signature | Root cause | Ruling | Fixture | Volume |
+|---|---|---|---|---|---|---|
+| U-F1 | **unlisted summary category** | the Account Summary prints a `<category> <# items> <amount>` line outside the parser's three | a closed vocabulary in two places at once — the summary reader and the section list | FIX — read every category the grid prints; each indexes the detail section printed under the bank's own heading for it. **And refuse when our reading of the summary fails the summary's own identity**, which is what turns the old silent drop into a fail-closed refusal | `test_f1_*` | **20 / 20** cell documents |
+| U-F2 | **card sub-block furniture** | a card section prints one block per card: `Card Number: xxxx-…`, a reprinted column header, the rows, then `Card <n>  Deposit/Withdrawals Subtotal $ x` | the section had never been read at all; reading it naively makes the bank's own subtotal a row and glues the sub-block heading to the row above | FIX — furniture closes the row above it and opens nothing | `test_f2_*` | 24 sub-blocks across 18 documents |
+| U-F3 | **the checks grid** | `Checks Presented Conventionally` prints `Check Date Ref Number Amount` in up to **four** column groups on one physical line, carries `*` gap markers, and closes with a differently-worded total naming no section (`Conventional Checks Paid (n) $ x-`) plus a `* Gap in check sequence` footnote | the section was unknown, and its shape is not the described-row shape either | FIX — a row ends at its Amount cell, so text after one begins the next row; the row's own printed number is its description (`Check 1004*`), and the two footer lines are section terminators | `test_f3_*` | **14** documents |
+| U-F4 | **money printed after the Amount cell** | a foreign-currency purchase prints `Exchg Amt: $54.63 Orig Curr:936.38` and `Currency Type: …` on continuation lines BELOW the Amount cell | *(a hazard of this restructuring, not a pre-existing defect — the section was previously unread. The naive "last money token" rule reads the original-currency figure, and so does a naive "last line-terminating token" rule)* | FIX — the Amount cell is the money cell that TERMINATES a printed line, and the FIRST such cell in the row, because everything after it is the description continuing | `test_f4_*` | **2** documents, 8 rows; caught by the printed section total before commit |
+| U-F5 | **compressed line** | several printed rows on one physical line, in the numbered sections (`Feb 3 8353743994 15,532.63 Feb 6 9253307465 14,000.00`) and in the described ones | none — the pre-change flatten-and-split-at-every-date rule handled it | NO CHANGE in outcome; the rule is now the narrower amount→date seam, and it is pinned so the restructuring cannot regress it | `test_f5_*` | present on 19 documents |
+| U-F6 | **a heading owns its line** | the Account Summary prints EVERY section's name on one line (`… Other Withdrawals 107 63,875.76- …`) | none — pinned. Had a section been opened by a line merely containing its heading, the summary's own figures would have been read as ledger rows | NO CHANGE; pinned as a negative, because the new section walk is line-based and this is the constraint it had to be built around | `test_f6_*` | every document |
+| U-F7 | **page break inside a section** | `--- Page n ---`, then the reprinted letterhead and account header, then `<heading> (continued)` and a reprinted column header | the old chunker stopped at `--- Page` and re-entered on the next heading match; the new walk must do the same or the letterhead joins a row still waiting for its amount cell | FIX — a page break leaves the section, the `(continued)` heading re-enters it | `test_f7_*` | 60 continuations across 20 documents |
+| U-F8 | **the printed sign** | outflow figures print their minus AFTER the digits — in the summary (`63,875.76-`), in the rows, and on an overdrawn balance (`8,288.08-`) | none — direction was previously implied by which of three hard-coded sections a row came from | FIX in kind, not in outcome: direction is now the sign the summary prints for that category, so a category's direction is a grid fact rather than a memorised name | `test_f8_*` | 34 of 40 documents print at least one negative balance |
+
+Negative fixtures — each constrains a new rule rather than demonstrating a
+defect, and each is asserted:
+
+- a printed category the parser cannot read makes the summary miss its own
+  identity, and the parser **refuses** rather than publishing a partial summary;
+- a section whose rows do not reproduce its printed total fails closed;
+- the per-card subtotal is never a row, and the checks section's total and gap
+  footnote are never rows;
+- the printed `Total <section>` line is never a row;
+- a date printed mid-description (`Invoice dated Feb 27 and Mar 1`) never opens
+  a row — the seam is an Amount cell followed by the next row's Date cell;
+- the `Balance Summary` series is never read as activity;
+- a wrapped Amount cell alone on its line, with the bank's trace lines printed
+  below it, is still the amount.
+
+### 1.5 What did NOT change, deliberately
+
+- **No shared utility was touched**, and no shared utility's behaviour changed,
+  so no R-2 differential-equivalence proof is owed. `group_rows` is consumed
+  exactly as §GROUPER promoted it, with U.S. Bank's own predicates: a row starts
+  at a physical line whose first cell is the Date column (optionally preceded by
+  the row's number column), and the furniture predicate is `ends_row`. Rule 3 —
+  which money cell is the amount — stays parser-local as §G2 ruled; U.S. Bank's
+  answer (§U-F4) is a fourth distinct one.
+- **The detection markers are unchanged**, so the set of documents reaching this
+  parser is unchanged. Verified over the whole `US Bank/` folder: the 19
+  documents no parser claimed in the baseline are refused by both the old and
+  the new reader, so this change creates no new claim and loses none.
+- **`stated_daily_balances` stays empty.** U.S. Bank publishes a daily series and
+  the parser still does not read it; it is used here as an outside check only.
+  Reading it as a first-class oracle is carried finding §3.3 / §B7.2, not this
+  cell's work.
+- **`account_name` stays the memorised product string.** It is wrong on 38 of the
+  40 documents (which print `U.S. BANK SILVER - BUSINESS CHECKING` or
+  `… GOLD - …`), but it is a pre-existing literal of a class roughly twenty other
+  parsers share, it is not an audited field, and it is not on this cell's
+  evidence path. Raised in §1.8, not touched.
+- **There is no HTML-table path in this parser**; every `us_bank` document in the
+  archive resolves through the native rung, so §1.4's ruling has no table-path
+  counterpart.
+
+### 1.6 Result over the cell
+
+Same production ladder discovery uses (`ocr.pipeline.parse_statement`, native
+rung, no OCR, no model calls, `$0.00`), then `analyze_markdown` in deterministic
+mode, classified with `telemetry.record.classify_outcome` and diagnosed with
+`telemetry.diagnostics.diagnose`.
+
+| Instrument | before | after |
+|---|---|---|
+| stated credit total = the summary's printed credit categories | 12 / 20 | **20 / 20** |
+| stated debit total = the summary's printed debit categories | 0 / 20 | **20 / 20** |
+| captured rows reproduce both printed totals | 0 / 20 | **20 / 20** |
+| captured row counts equal both printed counts | 0 / 20 | **20 / 20** |
+| ledger identity holds | 0 / 20 | **20 / 20** |
+| the printed `Balance Summary` series reproduced exactly, no day invented | **0 / 20** | **20 / 20** |
+
+| Cell | records | documents | before | after |
+|---|---|---|---|---|
+| `us_bank × summary_identity` | 20 | 20 | 0 validated / 20 withheld | **20 / 0** |
+| already-validated `us_bank` | 20 | 20 | 20 validated | **20 validated, all field-identical** |
+
+**Nothing was padded to get there.** Every document that now validates does so
+because the rows extracted reproduce, independently: the bank's printed total for
+every detail section, the bank's printed per-direction counts, its stated totals,
+the ledger identity, the bank's own end-of-day balance for every day it publishes
+one, and the full ADB validation suite. The fail-closed gate is unchanged and was
+tightened, not loosened — the parser now refuses three conditions it previously
+published through (§1.4 U-F1 and its negatives).
+
+The `Balance Summary` line deserves its own sentence. On all 20 documents the
+reconstructed activity-day set is **exactly** the day set U.S. Bank prints a
+balance for, and **every** printed balance is reproduced — from a block no part
+of the parser reads. Before the change, none of the 20 reproduced it.
+
+### 1.7 The already-validated population — zero regressions, zero drift
+
+Old and new modules loaded side by side in one process over identical markdown,
+comparing every field of the serialised `Statement` including descriptions:
+
+```
+20 / 20 already-validated us_bank documents : IDENTICAL (every field, every row)
+ 2 /  2 pinned corpus us_bank statements    : IDENTICAL (every field, every row)
+19 / 19 unclaimed US Bank/ folder documents : refused by both readers
+```
+
+Unlike §5 and §BOFA, **no description moved at all**: the grouping the new reader
+computes is the same grouping the old flatten-and-split produced on every
+document both readers claim, which is itself a check on the restructuring.
+
+### 1.8 Carried findings for Ocean
+
+1. **The brief's `us_bank × ledger_identity` cell does not exist in baseline
+   `70123cf2`** (§TRIO-0). All 20 `us_bank` withheld records are
+   `summary_identity`. Reported rather than silently absorbed; the cell as worked
+   is 20 documents, not 22, and all 20 moved.
+2. **16 `US Bank/` documents print no Account Summary grid at all** and are
+   unclaimed (`failed` / `no_parser_matched`) rather than withheld — a different
+   U.S. Bank layout the parser has never been taught. Out of this cell's scope
+   (the cell is defined by having been withheld), but it is the whole remaining
+   `us_bank` population and a well-defined next card.
+3. **`Balance Summary` as a first-class oracle (§3 item 3, §B7.2) — U.S. Bank is
+   a fourth witness and the cleanest one yet.** It prints an end-of-day balance
+   for every day of change on 36 of 40 documents, and it settled every question
+   this cell raised. Reading it into `stated_daily_balances` is a parser change;
+   *checking* it is a protected-module change.
+4. **`stated_credit_count` / `stated_debit_count` are still extracted and never
+   checked** (§5.7 item 4, §B7.3). U.S. Bank prints a count for every summary
+   category, so this is a third population where the check would be free — and
+   here it would have caught the defect on its own, since the withheld documents'
+   debit counts were short by the whole missing category.
+5. **`account_name` is a memorised product string** (§1.5). Wrong on 38 of 40
+   documents, not audited, shared with roughly twenty other parsers. It is an
+   R-1-class literal and a small self-contained card; deliberately not taken here
+   because it is off this cell's evidence path and would move (non-financial)
+   output on pinned statements.
+6. **`ANALYSIS_STAGE_VERSION` must be bumped at merge** (`webapp/` protected
+   here). This change alters analysis output for unchanged settings on 20 of the
+   40 archive `us_bank` documents.
