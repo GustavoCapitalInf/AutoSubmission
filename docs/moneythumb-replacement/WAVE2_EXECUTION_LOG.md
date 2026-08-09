@@ -1,5 +1,38 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-09 — GROUPER + BOFA merged/pushed (`5443cfa`); official movement +71/0; next round dispatched
+
+**GROUPER (approved):** `group_rows` promoted with parser-supplied
+predicates; the agent's evidence-backed REFUSAL to unify rule 3 is
+accepted — Chase/TD/BofA-class layouts legitimately keep distinct amount
+rules, each pinned by fixtures (Ocean's original ruling-2 wording stands
+corrected). 728-stream + 457-archive-document differential proof, 0
+payloads moved, no bump owed. **BOFA (approved):** family closed 70/70,
+no residual — one parser defect (grid flattened before reading) behind
+all three diagnosis classes; 289/289 preserved, 5 corrected via the
+bank's printed daily ledger; v4 bump applied for it.
+
+**Official movement (`7a98b6cd` → `70123cf2`):** improved **71** /
+regressed **0**; validated 1,462 → **1,533**; withheld 217 → **147**;
+transitions withheld→validated 70 + failed→validated 1 (a consumer-
+layout doc, anticipated in the worker's Q5); all movement in the bofa
+family; grouper: zero movement as proven. **Cumulative Track A:
+validated 1,048 → 1,533 (+485, +46% relative); validated coverage
+31.0% → 45.4%; withheld 650 → 147; zero regressions across four cells
+and one shared-utility refactor.**
+
+**Carried findings queued:** the printed Daily-ledger-balances series as
+a first-class oracle (BofA Q3 — "strongest card in the deck"; joins the
+stated-count check in the safety-backlog design, both protected-module
+process); BofA prints stated per-direction counts too (second free
+population); grouper's noted-not-acted ideas (physical-line-stream
+primitive; sign-solver reuse) logged under rule-of-three.
+
+**Next dispatches:** REEF-WELLS (wells_fargo family: period_integrity 22
++ detail_coverage 13 + balance_continuity 5 = 40 docs) and REEF-TRIO
+(us_bank summary_identity 20 + ledger 2 → truist 20 → pnc 16, sequential
+cells, disjoint parser files). Handoffs versioned; Ocean-launched.
+
 ## 2026-08-08 — TD+RBC REVIEWED/MERGED/PUSHED (`e614fcc`); **OFFICIAL COMBINED TRACK A MOVEMENT** · four delegated rulings · next dispatches
 
 **Worker submissions (manual sessions) both APPROVED:** scope-perfect,
