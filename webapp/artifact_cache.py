@@ -206,7 +206,11 @@ OCR_STAGE_VERSION = 2
 # analysis output for unchanged settings. One composed bump after both
 # merges — no pre-TD/RBC artifact can survive into the post-merge
 # measurement.
-ANALYSIS_STAGE_VERSION = 3
+# 3 -> 4: Track A cell 4 (bofa grid reader, merge of f7f6143) changes
+# analysis output for unchanged settings on ~294 archive documents.
+# (The GROUPER promotion merged alongside is proven byte-identical and
+# owes no bump on its own.)
+ANALYSIS_STAGE_VERSION = 4
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 
