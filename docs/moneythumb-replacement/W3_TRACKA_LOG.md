@@ -1130,3 +1130,388 @@ documents. The harness detects the mistakes it exists to detect.
 The archive verification is read-only: the PDFs are read, the rendered markdown
 is cached in local scratch and never committed, and only aggregate counts are
 reported here.
+# §BOFA — Cell 4: `bank_of_america × {detail_coverage, ledger_identity, posting_date_coverage}`, 70 documents
+
+REEF-BOFA, 2026-08-08. Branch `wave3-bofa-completeness`, base `e614fcc`
+(worktree tip `8ce6abc`, which adds only the two handoff files). Brief:
+`docs/agent-handoffs/REEF-BOFA.md`.
+
+Same method and idiom as §1/§TD/§5: reproduce the cell independently, build the
+in-document instrument BEFORE changing code, characterise layout families
+structurally, fix at the capability level or fail closed with the volume
+stated, prove both directions with synthetic fixtures, measure honestly.
+
+## B0. Summary
+
+| | |
+|---|---|
+| Cell worked | `bank_of_america × detail_coverage` (30), `× ledger_identity` (25), `× posting_date_coverage` (15) — **70 records, 70 distinct content hashes**, the whole `bank_of_america` withheld population |
+| Result over the cell | **70 / 70 validated**, from 0 / 70. No residual |
+| Already-validated `bank_of_america` documents (291 records / 289 hashes) | **289 / 289 still validate** — zero regressions, and 5 corrected (§B6) |
+| Layout families characterised | 8, all closed at the capability level |
+| Statement-specific constants added | **none**; one wording-keyed rule **removed** (a description beginning "Total" was discarded) |
+| Protected modules touched | none. `analysis/tables.py`, `money.py`, `date_tokens.py` and every other parser are unmodified; `parse_money`, `iso_or_none`, `table_rows`, `tables_after` are consumed exactly as they were |
+| Truth-set movement | **none.** All 8 pinned corpus BofA statements are financially identical field for field; `corpus_gate.py` GREEN, 106 PASS / 3 WITHHELD, same three by name. **No re-baseline requested or performed** |
+| Files changed | `analysis/bofa.py`, `tests/test_bofa_variants.py` (new, 24 fixtures), this log |
+| Cache implication | analysis output changes for unchanged settings → `ANALYSIS_STAGE_VERSION` must be bumped at merge. **Ocean's, not done here** (`webapp/` is protected for this agent) |
+
+## B1. The cell reproduced independently
+
+Joining the frozen baseline run `7a98b6cd`'s telemetry diagnostics to its
+`rows.csv` parser attribution by content hash reproduces Ocean's table exactly:
+`parser_id == "bank_of_america"` gives **361 records — 291 validated, 70
+withheld** — and the withheld split by primary class is **`detail_coverage`
+30 · `ledger_identity` 25 · `posting_date_coverage` 15**. 70 records, 70
+distinct hashes, no duplicates inside the cell. Every one is in the
+`Bank of America/` folder; 69 resolve through the native rung, 1 through local
+Tesseract.
+
+The failing checks are uniform, and the shape of the failure is the finding:
+
+| Evidence | Documents |
+|---|---|
+| `adb:final_balance_matches_statement_closing`, `adb:ledger_reconciles_to_closing` | 70 / 70 |
+| `integrity:ledger_sum_mismatch`, `recon:sum_check_failed` | 70 / 70 |
+| `integrity:transaction_detail_not_corporate_reliable` | 55 |
+| `integrity:credit_detail_coverage_mismatch` | 18 |
+| `integrity:debit_detail_coverage_mismatch` | 12 |
+| `adb:posting_dates_cover_source` | 16 |
+
+Only 30 of the 70 carry a coverage flag at all, yet all 70 fail the ledger
+identity — so "detail_coverage" names a third of the cell and the class labels
+are, as in §TD and §5, one level above the cause.
+
+## B2. The measurement instrument (used before any code changed)
+
+BofA is unusually generous with self-checks, and all of them are printed on the
+document:
+
+* an **account summary** giving beginning balance, one credit total, one to
+  three outflow totals, checks, service fees and ending balance;
+* a **printed total per detail section** (`Total deposits and other credits`,
+  `Total withdrawals and other debits`, `Total checks` + `Total # of checks`,
+  `Total service fees`, and the consumer layout's own three);
+* on most business statements, a full **`Daily ledger balances`** series —
+  every day of the period with its end-of-day balance. **No part of the parser
+  reads it**, which makes it an independent oracle of exactly the kind §2 used
+  to settle the Chase posting-date question.
+
+The instrument's own trustworthiness is checked first: the printed account
+summary closes arithmetically (beginning + credits − outflows − checks − fees =
+ending) on **70 / 70** cell documents, so a document that fails it is failing
+the bank's own figures rather than ours.
+
+Baseline over the 70, before any change:
+
+| Instrument | Result |
+|---|---|
+| printed account summary closes | 70 / 70 |
+| every printed **section** total reproduced | **0 / 70** |
+| — `Total deposits and other credits` reproduced | 26 / 55 |
+| — `Total withdrawals and other debits` reproduced | 49 / 55 |
+| — `Total checks` reproduced | 7 / 28 |
+| — `Total service fees` reproduced | 62 / 62 |
+| — the consumer layout's three section totals | 0 / 15, 0 / 14, 0 / 15 |
+| stated credit total reproduced | 26 / 70 |
+| stated debit total reproduced | 28 / 70 |
+| ledger identity holds | **0 / 70** |
+| printed `Daily ledger balances` series reproduced exactly | **0 / 55** |
+
+Every deviation is in the same direction — **captured < printed**, never above.
+The platform was losing rows and never inventing them, which is why the cell
+landed on coverage and reconciliation classes rather than on a contradiction.
+
+## B3. The two things that were wrong
+
+**(1) The grid was flattened before it was read.** BofA's detail sections are a
+`Date Description Amount` grid: the Amount column is right-aligned and printed
+last, and a row begins at a physical line headed by the MM/DD/YY posting date.
+The reader collapsed each section to one string (`\s+` → `" "`) and then
+re-segmented it at *every* date-shaped token. Two printed forms defeat that
+immediately, and between them they account for every deposit-side loss in the
+cell:
+
+* a wire prints its own reference date inside the description —
+  `… PMT DET:BOH OF 26/01/03 /CATPURP/CTRC` — in `YY/MM/DD` order, so the split
+  produced one fragment with no amount and one whose leading token is not a
+  calendar date (this is the same token class that crashed 16 documents in
+  W3-1, now fixed but still costing the row);
+* an adjustment row prints one — `Temporary Credit Adjustment on 01/28/26 14.70`
+  — so the row was split into a fragment with no amount and a fragment with no
+  description, and both were discarded.
+
+**(2) Two whole layouts had never been taught.** The consumer statement prints
+a different section vocabulary (`Deposits and other additions`, `ATM and debit
+card subtractions`, `Other subtractions`) and the parser knew only the business
+one, so on those 15 documents it read nothing but the fee rows — which is
+precisely why they diagnosed as `posting_date_coverage`: the only posting dates
+the ledger had were fee days. A statement with a single cheque prints one
+`Date Check # Amount` column group rather than two, and the check reader
+demanded the doubled header.
+
+## B4. The families
+
+Named by structure. Nothing below names a customer, an amount, a date or an
+account fragment; every rule is anchored on the printed grid.
+
+| # | Family | Structural signature | Root cause | Ruling | Fixture | Volume |
+|---|---|---|---|---|---|---|
+| B-F1 | **description-embedded date** | a date-shaped token printed inside a row's description — a wire's `PMT DET:… 26/01/03 …`, an adjustment's `… on 01/28/26` | rows were segmented at any date-shaped token, so one printed row became two unusable fragments | FIX — a row begins at a physical line whose FIRST token is the posting date; a date anywhere else on the line is description text | `test_f1_*` | a row is lost on **31** cell documents and on 38 already-validated ones (5 of which lose the posting date rather than the row — §B6) |
+| B-F2 | **wrapped amount cell** | the Amount column wraps onto a line of its own below a long description | flattening rejoined it, and the "last money token" rule then had to compete with money printed inside the description | FIX — a row ends at its amount cell: the money token that terminates a physical line | `test_f2_*` | present on **38** cell documents and 138 already-validated ones |
+| B-F3 | **money printed inside the description** | `… PMT INFO: PRODUCT(S): 101.40 S&H: 9.62 MI TAX: 6.66` on the description line, the real Amount cell on the next | *(a hazard created by this restructuring, not a pre-existing defect — the naive form of B-F2's rule closes the row on the tax figure. Caught by the 289-document regression differential before commit, as RBC's F9/F10 were)* | FIX — a cell printed ALONE on its own line outranks a token that merely ends a description line: the same preference order Chase's F1/F6 pair settled | `test_f2_a_bare_amount_cell_outranks_*` | **2** documents, both already validated |
+| B-F4 | **inline section total / card subtotal** | `… -263.62 Subtotal for card account # XXXX … -$263.62 Total withdrawals and other debits -$133,503.06` — all on the last row's physical line, which on a page break is also the heading line | the printed figures were read as the row's amount | FIX — the bank's own `Subtotal`/`Total <section>` labels end the row and the section wherever they are printed; a line is walked rather than classified once | `test_f3_*` | a subtotal is glued to a row's line on **39** cell documents, a section total on **52**, and on **1** the section total lands on the continued-heading line as well |
+| B-F5 | **counterparty named "Total"** | `05/13/26 Total Quality Lo DES:PAYMENTS …`, `03/02/26 TOTALWINE 1147 …` | a row whose description began with "total" was discarded — a wording rule standing in for a structural one | FIX — the rule is deleted; a total line is recognised by not being date-headed | `test_f4_*` (parametrised) | **3** documents |
+| B-F6 | **single-column `Checks` table, and a cheque with no printed number** | one `Date Check # Amount` header group instead of two; a row printed as `05/11/26 -300.00` | the reader required the doubled header and required a check number | FIX — check rows are `<date> [<number>[*]] <amount>`; the number is what the bank printed, and BofA does not always print one | `test_f5_*` | **19** single-column tables, **2** unnumbered cheques |
+| B-F7 | **consumer section vocabulary** | `Deposits and other additions` / `ATM and debit card subtractions` / `Other subtractions`, under a `Withdrawals and other subtractions` umbrella, with no `# of` counts and no daily series | the layout was unknown, so only Checks and Service fees were read and the stated debit total was never assembled | FIX — the three sections join the printed-section table; the summary's debit total is the sum of every outflow line the summary prints | `test_f6_*` | **15 documents** — the whole `posting_date_coverage` class |
+| B-F8 | **OCR-degraded column header** | local Tesseract renders `Date Description Amount` as `Date __Description 2.0.2.2 AMO` | the section opener required the exact three column words | FIX — a section is entered by the line its heading owns; the column header is furniture that is stripped when recognisable and skipped when not, because it is never date-headed | `test_f7_*` | 1 document (the cell's only scanned one) |
+
+Negative fixtures — each constrains a new rule rather than demonstrating a
+defect, and each is asserted:
+
+- a date that really does start a line still starts a row, and an
+  uncalendarable one (`26/13/24`) is dropped rather than guessed;
+- a completed row is not extended by the next line, so a `Card account # XXXX …`
+  sub-heading never joins a description and never becomes a row;
+- the printed section total is never a row;
+- the account summary's `Checks -7,500.00` line never opens the Checks section
+  — a heading owns its line, a summary line is heading words plus an amount;
+- the `Daily ledger balances` series is never read as activity;
+- a page footer and the reprinted account header never join a row that is
+  waiting for its amount cell.
+
+### B4.1 What did NOT change, deliberately
+
+- **The HTML-table path** (`_parse_section` / `_table_total`) is untouched.
+  Zero of the 359 archive `bank_of_america` documents and zero of the 8 pinned
+  ones carry a `<table>` fragment, so changing it would be unevidenced — the
+  same ruling §1.4 made for Chase and §T4.1 for TD. Its historical behaviour of
+  also reading Checks and Service fees through the native reader is preserved
+  exactly (`_TABLE_PATH_EXTRAS`).
+- **No shared utility was touched**, and no shared utility's behaviour changed,
+  so no R-2 differential-equivalence proof is owed. Stop condition 1 never
+  fired: everything this cell needed is a BofA layout fact.
+- **The row grouper was not promoted and not imported.** §5.7's promotable form
+  ("a lone money cell is an amount; adjacent money cells are (amount, balance)")
+  is not what BofA needs — BofA prints no running-balance column, so its rows
+  carry exactly one grid cell and the open question is *which line* the cell is
+  on, not which of two it is. What BofA contributes to the promotion decision is
+  §B7.1.
+- **`running_balance` stays `None`.** BofA publishes a daily series, not a
+  per-row balance; reading that series as a first-class oracle is carried
+  finding §3.3, not this cell's work. It is used here as an outside check only.
+- **The description vocabulary was not extended.** One wording-keyed rule was
+  removed and none was added.
+
+## B5. Result over the cell
+
+Same production ladder discovery uses (`ocr.pipeline.parse_statement`, native
+rung + the cached local-Tesseract read for the one scanned document, no visual
+rung, no model calls, `$0.00`), then `analyze_markdown` in deterministic mode,
+classified with `telemetry.record.classify_outcome` and diagnosed with
+`telemetry.diagnostics.diagnose`.
+
+| Instrument | before | after |
+|---|---|---|
+| every printed section total reproduced | 0 / 70 | **70 / 70** |
+| stated credit total reproduced | 26 / 70 | **70 / 70** |
+| stated debit total reproduced | 28 / 70 | **70 / 70** |
+| ledger identity holds | 0 / 70 | **70 / 70** |
+| printed `Daily ledger balances` series reproduced exactly, no day invented | 0 / 55 | **54 / 55** |
+
+| Cell | records | documents | before | after |
+|---|---|---|---|---|
+| `bank_of_america × detail_coverage` | 30 | 30 | 0 validated / 30 withheld | **30 / 0** |
+| `bank_of_america × ledger_identity` | 25 | 25 | 0 / 25 | **25 / 0** |
+| `bank_of_america × posting_date_coverage` | 15 | 15 | 0 / 15 | **15 / 0** |
+| **total** | **70** | **70** | **0 / 70** | **70 / 0** |
+
+**Nothing was padded to get there.** Every document that now validates does so
+because the rows extracted reproduce, independently: the bank's printed total
+for every detail section, the bank's stated credit and debit totals, the ledger
+identity, the printed daily-balance series where one exists, and the full ADB
+validation suite. The fail-closed gate is unchanged; these documents pass it on
+their own arithmetic.
+
+The one document whose daily series is not reproduced is the cell's scanned
+one: local OCR recovered a single line of its `Daily ledger balances` block, so
+the oracle has nothing to compare against rather than disagreeing. It validates
+on the printed section totals, the stated totals and the ledger identity.
+
+## B6. The already-validated population — zero regressions, five corrections
+
+The 291 already-validated `bank_of_america` records (289 distinct hashes) were
+re-run through the same ladder, and the old and new modules were also loaded
+side by side in one process over the identical markdown, comparing every field
+of the serialised statement.
+
+| | |
+|---|---|
+| still validated | **289 / 289** |
+| every printed section total reproduced (after) | **289 / 289** |
+| field-identical, including descriptions | 65 |
+| identical except descriptions | 219 |
+| **financially different** | **5** |
+| printed daily series reproduced exactly | **280 → 285** (5 improved, **0 regressed**) |
+
+**The five financial differences are one class, and the bank's own daily ledger
+settles them.** Each is a single row of the form
+`01/05/26 LEASEDIRECT … PMT INFO:INV# … DUE 01/01/26 REC# … -5,030.28`: the old
+splitter cut at the printed *due* date, so the row was dated `01/01` — a day the
+bank publishes no balance for — and its description became the fragment after
+the cut. The new reader dates it by the DATE column. Before the change those
+five documents reproduced 0 of their printed daily balances from the affected
+day onward; after it, all five reproduce the bank's entire printed series
+exactly and invent no activity day. This is the same condition `analysis/adb.py`
+names in `posting_dates_cover_source`, caught here on documents that were
+passing every existing check.
+
+**Descriptions moved on 224 documents, all toward the printed text.** The
+change is a single class: a `Card account # XXXX XXXX XXXX NNNN` sub-heading is
+printed on its own line inside the withdrawals section, and flattening appended
+it to the description of the row above. It is now recognised as the sub-heading
+it is. No audited field is a description — neither audit CSV has a description
+column — and all 8 pinned statements are financially identical, so no truth-set
+movement arises. It is reported here rather than buried because downstream
+transaction classification reads descriptions.
+
+**Pinned corpus, checked directly as well as through the gate** — old and new
+module loaded side by side, same markdown, every field of the serialised
+statement compared:
+
+```
+BofA/Bofa 2026-02-27.pdf              financially identical (1 description)
+BofA/BofA 2026-05-29.pdf              financially identical (1 description)
+BofA/BofA Statement.pdf               financially identical (1 description)
+BofA/BofA.pdf                         financially identical (1 description)
+BofA/eStmt_2026-01-30 (3) (1).pdf     financially identical (1 description)
+BofA/eStmt_2026-02-27 (3) (1).pdf     financially identical (1 description)
+BofA/eStmt_2026-03-31 (3) (1).pdf     financially identical (1 description)
+BofA/eStmt_2026-04-30 (1).pdf         financially identical (1 description)
+claimed by the BofA parser: 8; financially differing: 0
+```
+
+## B7. Carried findings and questions for Ocean
+
+1. **Row-grouper promotion (§3 item 4) — this cell's contribution.** BofA is the
+   third witness and it splits the difference. Chase's first two rules carry
+   over verbatim and are what closed this cell: *a row starts at a date-shaped
+   FIRST token on a physical line* and *wrapped lines continue it*. The third
+   rule needs BofA's refinement as well as RBC's: on a layout with no balance
+   column the amount is still not simply "the last money token", because
+   descriptions print money (`MI TAX: 6.66`) and the bank prints subtotals
+   inline. The promotable form after three cells is: *the amount is the cell
+   that terminates a physical line, a cell printed alone on its own line
+   outranks one that merely ends a description line, and where a balance column
+   exists adjacent cells are (amount, balance) in printed column order.* Two
+   further pieces look layout-general: the "a printed `Total`/`Subtotal` label
+   is furniture wherever it appears" rule (B-F4, RBC F8) and "a heading owns its
+   line" (B-F5 negative, Chase F5). Each would need its own differential proof.
+2. **`Daily ledger balances` as a first-class oracle (§3 item 3) — BofA is the
+   strongest case yet.** BofA prints the full series on 55 of the 70 cell
+   documents and on the large majority of the validated ones, and reading it
+   would have caught the five §B6 defects automatically. It settled them here
+   only because this cell went looking. Reading it into `stated_daily_balances`
+   is a parser change; *checking* it is a protected-module change. Recommended
+   as the next BofA card, and it is the same card §3.3 already queues for Chase.
+3. **`stated_credit_count` / `stated_debit_count` are still extracted and never
+   checked** (§5.7 item 4). BofA prints `# of deposits/credits` and
+   `# of withdrawals/debits` on every business statement, so it is a second
+   population where the check would be free. Out of this cell's scope.
+4. **The consumer layout exists elsewhere in the archive.** All 15 consumer-form
+   documents were inside this cell, and all 15 now validate; no already-claimed
+   document uses that vocabulary. Worth re-checking after the next full run in
+   case any consumer statement is currently unclaimed rather than withheld.
+5. **`ANALYSIS_STAGE_VERSION` must be bumped at merge** (`webapp/` protected
+   here). This change alters analysis output for unchanged settings on 294 of
+   the 359 archive `bank_of_america` documents.
+
+## B8. Proofs
+
+All four run in this worktree against `1eeb123` — the tip after the last commit
+that touches code or tests (`dc61540`) — on a clean tree (`git status --short`
+empty), `set -o pipefail`, exit codes as printed.
+
+```
+$ git rev-parse --short HEAD
+1eeb123
+$ git status --short
+(empty)
+
+$ python -m pytest -q
+2117 passed, 18 deselected, 1 warning in 144.93s (0:02:24)
+SUITE_EXIT=0
+
+$ python -m pytest -m corpus -q
+14 passed, 2121 deselected, 1 warning in 1018.84s (0:16:58)
+CORPUS_MARKED_EXIT=0
+
+$ python corpus_gate.py
+[PASS] oracle_independence: 4 audit modules import no production financial mathematics
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  350.1s
+RESULT: GREEN
+GATE_EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+      tests/test_no_parser_helper_clones.py -q
+100 passed in 0.80s
+GUARDS_EXIT=0
+```
+
+The suite grew from **2,093** to **2,117** — the 24 new fixtures and nothing
+else. `git diff e614fcc..HEAD --name-only -- tests/` lists exactly one file,
+`tests/test_bofa_variants.py`, so **no existing assertion was edited**.
+
+**Fails-before / passes-after.** Every committed fixture captured as the suite
+runs and replayed through the pre-change module loaded from git, in the same
+process:
+
+```
+FIXED  f1_a_wire_detail_date_does_not_open_a_row              before=None  after=[10300.0]
+FIXED  f1_an_adjustment_row_carries_its_own_reference_date    before=None  after=[14.7]
+kept   f1_negative_a_date_that_does_start_a_line...           before=[10.0, 20.0]  after=[10.0, 20.0]
+kept   f1_negative_an_uncalendarable_row_date_is_dropped      before=None  after=None
+kept   f2_a_bare_amount_line_completes_the_row_above_it       before=[-500.0]  after=[-500.0]
+kept   f2_a_bare_amount_cell_outranks_a_money_token...        before=[-117.68]  after=[-117.68]
+kept   f2_negative_a_completed_row_is_not_extended...         before=[-50.0, -10.0]  after=[-50.0, -10.0]
+kept   f3_a_section_total_printed_after_the_last_row...       before=[-263.62]  after=[-263.62]
+kept   f3_a_card_subtotal_is_never_a_row                      before=[-10.0, -20.0]  after=[-10.0, -20.0]
+FIXED  f4_a_counterparty_named_total[Total Quality Lo...]     before=None  after=[-24.33]
+FIXED  f4_a_counterparty_named_total[TOTALWINE 1147...]       before=None  after=[-24.33]
+kept   f4_negative_the_printed_section_total_is_never_a_row   before=[10.0]  after=[10.0]
+FIXED  f5_a_single_column_checks_table_is_read                before=None  after=[-750.0]
+FIXED  f5_a_check_the_bank_printed_no_number_for...           before=[-200.0]  after=[-300.0, -200.0]
+kept   f5_a_gap_marked_check_number_keeps_its_marker          before=[-68.79]  after=[-68.79]
+kept   f5_negative_the_account_summary_checks_line...         before=[10.0]  after=[10.0]
+FIXED  f6_the_consumer_layout_is_read_on_both_sides           before=None  after=[500.0, -30.0, -70.0]
+FIXED  f7_a_scanned_column_header_does_not_hide_the_section   before=None  after=[-55.4]
+kept   f8_a_section_continues_across_a_page_break             before=[10.0, 20.0]  after=[10.0, 20.0]
+kept   f8_negative_the_daily_ledger_series_is_never_activity  before=[10.0]  after=[10.0]
+kept   f8_negative_the_page_header_line_never_joins_a_desc    before=[-500.0]  after=[-500.0]
+kept   a_waived_fee_of_zero_is_still_an_outflow_row           before=[-0.0]  after=[-0.0]
+FIXED  every_section_together_reconciles_against_the_summary  before=[-200.0, -300.0, -25.0]
+                                                              after=[900.0, 100.0, -200.0, -300.0, -100.0, -300.0, -25.0]
+
+fixtures: 23 (24 tests, one parametrised) · behaviour changed: 9 · unchanged: 14
+```
+
+The 14 `kept` lines are not weak tests and are reported as what they are:
+**constraints**, not demonstrations. Each pins a rule the new reader had to be
+built around — a minimal synthetic document is often one the old flattening
+happened to read correctly, and the point of the fixture is that the new rule
+still does. Two are explicit about it: `a_waived_fee_of_zero…` compares
+`direction`, which the amount list above cannot show (`debit` before, `debit`
+after — the *new* reader would have said `credit` without the section-side
+rule), and `f2_a_bare_amount_cell_outranks…` guards the hazard §B4's B-F3 row
+names, which the naive form of this restructuring introduced and the
+289-document differential caught before commit.
+
+**Commits (oldest first)**
+
+| Commit | Contents |
+|---|---|
+| `dc61540` | `analysis/bofa.py` + `tests/test_bofa_variants.py` |
+| `1eeb123` | this log's §BOFA B0–B7 |
+| (this one) | §B8, and the B-F3 root-cause line corrected to name it as a hazard of this restructuring rather than a pre-existing defect |
