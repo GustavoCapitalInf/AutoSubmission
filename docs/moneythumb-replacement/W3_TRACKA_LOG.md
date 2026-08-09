@@ -1795,3 +1795,195 @@ document both readers claim, which is itself a check on the restructuring.
 6. **`ANALYSIS_STAGE_VERSION` must be bumped at merge** (`webapp/` protected
    here). This change alters analysis output for unchanged settings on 20 of the
    40 archive `us_bank` documents.
+
+## TRIO-2. Cell 7 — `truist × {detail_coverage 12, ledger_identity 8}`, 20 documents
+
+### 2.0 Summary
+
+| | |
+|---|---|
+| Cell worked | `truist × detail_coverage` (12) + `× ledger_identity` (8) — **20 records, 20 distinct hashes**, all digital, all native-text, all in the `Truist/` folder, all single-account |
+| Result over the cell | **20 / 20 validated**, from 0 / 20. No residual |
+| Already-validated `truist` documents (28) | **28 / 28 still validate, and all 28 are field-identical** |
+| Layout families characterised | 5, all closed at the capability level |
+| Statement-specific constants added | **none** |
+| Protected modules touched | none. `analysis/money.py`, `date_tokens.py`, `tables.py`, `parser_registry.py`, `schema.py` and every other parser are unmodified; `parse_amount` and `iso_from_month_day` are consumed exactly as they were |
+| Truth-set movement | **none.** All 5 pinned corpus Truist statements parse **byte-identically**, every field and every row. **No re-baseline requested or performed** |
+| Files changed | `analysis/truist.py`, `tests/test_truist_variants.py` (new, 13 fixtures), this log |
+| Cache implication | analysis output changes for unchanged settings on 20 of 48 `truist` documents → `ANALYSIS_STAGE_VERSION` must be bumped at merge. **Ocean's, not done here** |
+
+### 2.1 The cell reproduced independently
+
+`parser_id == "truist"` gives **48 records — 28 validated, 20 withheld** — and
+the withheld split by primary class is **`detail_coverage` 12 · `ledger_identity`
+8**, 20 distinct hashes, no duplicates inside the cell. The failing checks are
+uniform, and the two classes are one population:
+
+| Evidence | Documents |
+|---|---|
+| `adb:final_balance_matches_statement_closing`, `adb:ledger_reconciles_to_closing` | 20 / 20 |
+| `adb_state:final_balance_drift`, `adb_state:ledger_reconcile_failed` | 20 / 20 |
+| `integrity:ledger_sum_mismatch`, `recon:sum_check_failed` | 20 / 20 |
+| `integrity:transaction_detail_not_corporate_reliable` | 20 / 20 |
+| `integrity:debit_detail_coverage_mismatch`, `recon:debit_coverage_short` | 12 |
+
+The only thing separating the 12 from the 8 is whether the coverage flag fired
+as well as the ledger one — the same population, the same cause.
+
+### 2.2 The measurement instrument (used before any code changed)
+
+Truist prints its own Account summary as a closed identity:
+
+```
+Account summary Your previous balance as of 01/30/2026 $2,844.74 Checks - 662.35
+Other withdrawals, debits and service charges - 35,411.68
+Deposits, credits and interest + 36,799.28 Your new balance as of 02/27/2026 = $3,569.99
+```
+
+and each of the three detail sections closes with its own printed
+`Total <section> = $x`. Both are the document checking itself — no expectation
+file, no audited truth set.
+
+**The instrument's own trustworthiness is checked first:** the printed Account
+summary closes arithmetically on **48 / 48** documents, and on the
+already-validated single-account population every ledger figure reproduces it
+**24 / 24**. (The instrument is scoped to the FIRST printed account block,
+because that is the one the platform publishes; the four already-validated
+multi-account statements are outside its scope and are covered instead by the
+byte-identity differential in §2.6. All 20 cell documents are single-account.)
+
+Baseline over the cell, before any change:
+
+| Instrument | withheld (20) | already validated, single-account (24) |
+|---|---|---|
+| printed Account summary closes | 20 / 20 | 24 / 24 |
+| the printed `Total checks` equals the summary's `Checks` figure | 20 / 20 | 9 / 9 of those that print a table (15 print none) |
+| parser claims the document | 20 / 20 | 24 / 24 |
+| `stated_total_debits` = summary `Checks` + `Other withdrawals` | 20 / 20 | 24 / 24 |
+| captured credit rows reproduce the printed deposits total | 20 / 20 | 24 / 24 |
+| captured cheque rows reproduce the printed `Total checks` | **0 / 20** | 24 / 24 |
+| captured debit rows reproduce the printed debits | **0 / 20** | 24 / 24 |
+| ledger identity holds | **0 / 20** | 24 / 24 |
+
+The shape of the failure is unusually sharp: **the deposits side is perfect and
+the debit side is short by exactly the printed `Total checks`, on every document
+in the cell.**
+
+### 2.3 The root cause: one printed-grid fact the reader did not admit
+
+Truist emits its currency symbol as its own grid cell, so the flattened text
+carries `Total checks` in two spellings:
+
+| spelling | documents |
+|---|---|
+| `Total checks = $662.35` (symbol against the figure) | 28 already-validated, 0 cell |
+| `Total checks = $ 662.35` (symbol apart from the figure) | **20 cell documents, 0 already-validated** |
+
+That partition is the cell, exactly. The Checks-section pattern was
+`Total checks\s*=\s*\$?([\d,]+\.\d{2})` — the `\$?` had to be followed
+immediately by a digit — so on the spaced spelling the section had **no
+terminator**, was never matched, and **every cheque in it was dropped from the
+ledger**. The stated totals were unaffected because they come from the Account
+summary, which is read by a different pattern; so the ledger came out short by
+precisely the cheques, on both sides of the `detail_coverage` /
+`ledger_identity` split.
+
+Two further printed forms travel with the same layout and had to be admitted
+before the section could be read correctly once it was found (§2.4 T-F2/T-F3).
+
+### 2.4 The families
+
+Named by structure. Nothing below names a customer, an amount, a date or an
+account fragment; every rule is anchored on the printed grid.
+
+| # | Family | Structural signature | Root cause | Ruling | Fixture | Volume |
+|---|---|---|---|---|---|---|
+| T-F1 | **currency symbol printed as its own cell** | `= $ 662.35` instead of `= $662.35`, in the printed section total and in the two summary balances | every money pattern in the module required the symbol to abut its figure; the `Total checks` pattern is also the Checks section's terminator, so the whole section vanished | FIX — the gap is a printed-grid fact carrying no meaning: one `_DOLLAR` fragment admits it everywhere this module reads money | `test_f1_*` (both spellings parametrised, and asserted to produce the identical statement) | **20 / 20** cell documents |
+| T-F2 | **detached skip marker** | `02/23 * 975172 114.55` — the sequence-gap marker printed apart from the check number | the row pattern was `(\*?\d+~?)`, so a marker with a space after it matched nothing and the row was lost | FIX — the marker is its own optional cell and belongs to the number beside it; the description is still the number the bank printed (`Check *975172`) | `test_f2_*` (attached form pinned as the contrast half) | **9** rows across 9 documents |
+| T-F3 | **cheque with no printed number** | `04/21 10.00`, and `05/18 * 300.00` — the CHECK # cell is empty, with or without a skip marker beside it | the row pattern required a number, so the row was lost and the section total then refused the document | FIX — a cheque row is `DATE [marker] [number] AMOUNT`; the Amount cell is the only one always printed. `Check` with no number, exactly as `analysis/bofa.py` B-F6 ruled | `test_f3_*` | **5** rows across **3** documents — the residual left standing after T-F1 and T-F2 alone |
+| T-F4 | **one column group instead of three** | the Checks header prints `DATE CHECK # AMOUNT($)` once where the statement has few cheques, three times where it has many | the pattern matched a single group only, which happened to be a prefix of the tripled header — so this was never the blocker, but the new pattern must not lose the tripled form | FIX in kind, not in outcome: the header is one-or-more column groups. Pinned in both forms | `test_f4_*` | 1 group on all 20 cell documents, 3 on all 13 already-validated tables — a clean partition, and one more sign the two populations are two printed variants of the same table |
+| T-F5 | **the printed total is the gate** | `Total checks = $x` under the table | the cheque check was `stated_total_debits - other_total` — the residue of two other figures — and it only ran `if checks`, so a section that produced no rows at all passed silently. That is what let all 20 documents publish a ledger missing every cheque | FIX — where the Checks table is printed, its rows must reproduce the total the bank printed under it | `test_f5_*` | every document with a Checks table |
+
+Negative fixtures — each constrains a new rule rather than demonstrating a
+defect, and each is asserted:
+
+- the `* indicates a skip in sequential check numbers above this item` footnote
+  is never a row;
+- a Checks table whose rows do not reproduce its printed total publishes nothing;
+- a statement that prints `Checks - 0.00` and no table is unaffected;
+- the attached skip marker and the tripled column header still read exactly as
+  before.
+
+### 2.5 What did NOT change, deliberately
+
+- **No shared utility was touched**, and no shared utility's behaviour changed,
+  so no R-2 differential-equivalence proof is owed. In particular `parse_money`
+  already tolerates the spacing; the rigidity was in this module's own patterns,
+  which is why the fix belongs here.
+- **The description sections' row reader is unchanged.** It reproduces the
+  printed deposits and other-withdrawals totals on 44 of 44 single-account
+  documents, before and after; nothing in the evidence asks for it.
+- **Multi-account statements still publish only the first printed account.**
+  Four already-validated `truist` documents carry two accounts; they are
+  unchanged byte for byte. Reading the rest is the L-1 single-account-schema gap,
+  not this cell's work (§2.7).
+- **The detection markers are unchanged**, so the set of documents reaching this
+  parser is unchanged. Verified over the whole `Truist/` folder: the 16 documents
+  no parser claimed in the baseline are refused by both the old and the new
+  reader.
+- **`account_name` stays `"Checking"`**, as before.
+
+### 2.6 Result over the cell, and zero regressions
+
+Same production ladder discovery uses, then `analyze_markdown` in deterministic
+mode, classified with `telemetry.record.classify_outcome` and diagnosed with
+`telemetry.diagnostics.diagnose`:
+
+| Instrument | before | after |
+|---|---|---|
+| captured cheque rows reproduce the printed `Total checks` | 0 / 20 | **20 / 20** |
+| captured debit rows reproduce the printed debits | 0 / 20 | **20 / 20** |
+| captured credit rows reproduce the printed deposits | 20 / 20 | 20 / 20 |
+| ledger identity holds | 0 / 20 | **20 / 20** |
+
+| Cell | records | documents | before | after |
+|---|---|---|---|---|
+| `truist × detail_coverage` | 12 | 12 | 0 validated / 12 withheld | **12 / 0** |
+| `truist × ledger_identity` | 8 | 8 | 0 / 8 | **8 / 0** |
+| **total** | **20** | **20** | **0 / 20** | **20 / 0** |
+
+**Nothing was padded to get there.** Every document that now validates does so
+because the rows extracted reproduce, independently: the bank's printed total for
+each of the three detail sections, the bank's own Account summary identity, the
+ledger identity, and the full ADB validation suite. The gate was **tightened**,
+not loosened: the cheque check now runs against a printed figure and runs
+unconditionally where the table exists.
+
+Old and new modules loaded side by side in one process over identical markdown,
+comparing every field of the serialised `Statement` including descriptions:
+
+```
+28 / 28 already-validated truist documents : IDENTICAL (every field, every row)
+ 5 /  5 pinned corpus Truist statements    : IDENTICAL (every field, every row)
+16 / 16 unclaimed Truist/ folder documents : refused by both readers
+```
+
+### 2.7 Carried findings for Ocean
+
+1. **Multi-account Truist statements publish one account of several.** Four
+   already-validated documents print two `Account summary` blocks and the
+   platform reads the first. Nothing regressed here and nothing was attempted;
+   it is the L-1 single-account-schema gap, and Truist is a concrete population
+   for it.
+2. **The currency-gap rigidity is a shape, not a Truist fact.** `_DOLLAR` here is
+   a two-character regex fragment, but the defect class — a printed symbol
+   admitted in only one of its emitted spellings, in a pattern that also serves
+   as a section terminator — is worth a sweep across the other parsers. It cost
+   20 documents here and it fails silently by construction: the section simply
+   is not found.
+3. **`stated_credit_count` / `stated_debit_count` are not printed by Truist**, so
+   the count check queued in §5.7 item 4 has no input on this bank. Recorded so
+   the check's coverage is not assumed universal.
+4. **`ANALYSIS_STAGE_VERSION` must be bumped at merge** (`webapp/` protected
+   here). This change alters analysis output for unchanged settings on 20 of the
+   48 archive `truist` documents.
