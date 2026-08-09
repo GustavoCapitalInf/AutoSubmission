@@ -1518,7 +1518,6 @@ names, which the naive form of this restructuring introduced and the
 
 ---
 
-<<<<<<< HEAD
 # §WELLS — Cell 5: `wells_fargo × {period_integrity, detail_coverage, balance_continuity}`, 40 documents
 
 REEF-WELLS, 2026-08-08. Branch `wave3-wells-completeness`, base `b839bfa`
@@ -1671,7 +1670,6 @@ row and claims the amount cell printed on it** — and the period is printed
 unreadable still dates itself.
 
 ## W4. The families
-=======
 # §TRIO — Cells 6–8: `us_bank`, `truist`, `pnc`
 
 REEF-TRIO, 2026-08-08. Branch `wave3-trio-completeness`, base `5443cfa`
@@ -1815,12 +1813,10 @@ balance by exactly the categories we never read. The platform reported the
 symptom it could see.
 
 ### 1.4 The families
->>>>>>> wave3-trio-completeness
 
 Named by structure. Nothing below names a customer, an amount, a date or an
 account fragment; every rule is anchored on the printed grid.
 
-<<<<<<< HEAD
 | # | Family | Structural signature | Root cause | Ruling | Fixture | Volume (cell / already-validated) |
 |---|---|---|---|---|---|---|
 | W-F1 | **consumer summary vocabulary** | the activity rows are labelled `Deposits/Additions` and `Withdrawals/Subtractions` instead of `Deposits/Credits` / `Withdrawals/Debits` | the summary regex spelled out one vocabulary, so the consumer layout matched nothing | FIX — a row's direction is its label's FIRST word, the word that names the printed column; the second word is data (`Deposits/\S+`), not vocabulary to enumerate | `test_f1_*` | **13 / 0** |
@@ -1830,7 +1826,6 @@ account fragment; every rule is anchored on the printed grid.
 | W-F5 | **the record's delimiter inside a description** | an ACH row quotes EDI reference text whose interchange trailer contains the pipe character — the same character the `WF_TX` record uses to separate its own fields | the record was split left to right with a fixed field count, so a description containing the delimiter shifted every field after it: the amount vanished and reference text was read as a money cell | FIX — only the description can carry the delimiter and exactly three grid cells follow it, so the tail is taken from the right. The fixture reproduces the old read as a **$1,500,022,281** row | `test_f5_*` | **4 documents / 8 rows / 0** |
 | W-F6 | **multi-account statement** | two `Account number:` sections, one marked `(primary account)`, each with its own summary, history and `Totals` | the parser read the first summary and every row in the document | FIX — the published ledger is the marked account's section. `Statement` is single-account (MASTER_PLAN L-1); the union is arithmetic over two ledgers. See §W7.1 | `test_f6_*` (incl. moving the marker to the second section) | **14 / 3** |
 | W-F7 | **the amount column is not in the text layer** | rows whose money cell landed in neither printed column or in both, and printed rows merged into one record — the extractor's line binning and column bands do not hold on this layout | the geometry is recovered in `ocr/native_text.py::_wells_rows`, which is protected for this agent | **FAIL CLOSED — 4 documents (10% of the cell).** They keep accurate diagnostics (3 `detail_coverage`, 1 `summary_field_missing`). A row the grid does not place is dropped rather than assigned a direction | `test_a_row_whose_amount_is_in_neither_money_column_is_dropped`, `..._in_both_money_columns_is_dropped`, `test_a_summary_cell_printed_before_its_label_is_not_claimed_by_it` | **4 / 0** |
-=======
 | # | Family | Structural signature | Root cause | Ruling | Fixture | Volume |
 |---|---|---|---|---|---|---|
 | U-F1 | **unlisted summary category** | the Account Summary prints a `<category> <# items> <amount>` line outside the parser's three | a closed vocabulary in two places at once — the summary reader and the section list | FIX — read every category the grid prints; each indexes the detail section printed under the bank's own heading for it. **And refuse when our reading of the summary fails the summary's own identity**, which is what turns the old silent drop into a fail-closed refusal | `test_f1_*` | **20 / 20** cell documents |
@@ -1841,12 +1836,10 @@ account fragment; every rule is anchored on the printed grid.
 | U-F6 | **a heading owns its line** | the Account Summary prints EVERY section's name on one line (`… Other Withdrawals 107 63,875.76- …`) | none — pinned. Had a section been opened by a line merely containing its heading, the summary's own figures would have been read as ledger rows | NO CHANGE; pinned as a negative, because the new section walk is line-based and this is the constraint it had to be built around | `test_f6_*` | every document |
 | U-F7 | **page break inside a section** | `--- Page n ---`, then the reprinted letterhead and account header, then `<heading> (continued)` and a reprinted column header | the old chunker stopped at `--- Page` and re-entered on the next heading match; the new walk must do the same or the letterhead joins a row still waiting for its amount cell | FIX — a page break leaves the section, the `(continued)` heading re-enters it | `test_f7_*` | 60 continuations across 20 documents |
 | U-F8 | **the printed sign** | outflow figures print their minus AFTER the digits — in the summary (`63,875.76-`), in the rows, and on an overdrawn balance (`8,288.08-`) | none — direction was previously implied by which of three hard-coded sections a row came from | FIX in kind, not in outcome: direction is now the sign the summary prints for that category, so a category's direction is a grid fact rather than a memorised name | `test_f8_*` | 34 of 40 documents print at least one negative balance |
->>>>>>> wave3-trio-completeness
 
 Negative fixtures — each constrains a new rule rather than demonstrating a
 defect, and each is asserted:
 
-<<<<<<< HEAD
 - a routing number is not an amount cell (a digit run with no cents is not
   money), and the balance row it stands next to yields **no value** rather than
   the routing number;
@@ -2043,7 +2036,6 @@ Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
 Ignored:  0 non-corpus PDFs under the corpus root
 Outcomes: 106 PASS / 3 WITHHELD
 Runtime:  393.5s
-=======
 - a printed category the parser cannot read makes the summary miss its own
   identity, and the parser **refuses** rather than publishing a partial summary;
 - a section whose rows do not reproduce its printed total fails closed;
@@ -2640,13 +2632,11 @@ $ python corpus_gate.py
 Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
 Outcomes: 106 PASS / 3 WITHHELD
 Runtime:  423.5s
->>>>>>> wave3-trio-completeness
 RESULT: GREEN
 GATE_EXIT=0
 
 $ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
       tests/test_no_parser_helper_clones.py -q
-<<<<<<< HEAD
 100 passed in 0.81s
 GUARDS_EXIT=0
 ```
@@ -2735,7 +2725,6 @@ already validated     n=192  identical 192  (0 financial, 0 description)
 |---|---|
 | `07c21fb` | `analysis/wells.py` + `tests/test_wells_variants.py` |
 | `71d1e03` | this log's §WELLS |
-=======
 100 passed in 0.82s
 GUARDS_EXIT=0
 ```
@@ -2906,4 +2895,3 @@ all three:
    smaller ledger. A sweep for the *shape* — a pattern that is both a matcher and
    a terminator, or a closed vocabulary of the bank's own words — across the
    remaining parsers looks like high-value, low-risk work.
->>>>>>> wave3-trio-completeness
