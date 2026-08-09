@@ -1987,3 +1987,236 @@ comparing every field of the serialised `Statement` including descriptions:
 4. **`ANALYSIS_STAGE_VERSION` must be bumped at merge** (`webapp/` protected
    here). This change alters analysis output for unchanged settings on 20 of the
    48 archive `truist` documents.
+
+## TRIO-3. Cell 8 — `pnc × {detail_coverage 14, ledger_identity 2}`, 16 documents
+
+### 3.0 Summary
+
+| | |
+|---|---|
+| Cell worked | `pnc × detail_coverage` (14) + `× ledger_identity` (2) — **16 records, 16 distinct hashes**. The parser's whole withheld population is 17 records; the 17th is `pnc × summary_identity` (1), outside the brief's cell, and it is reported and measured with the rest |
+| Result over the cell | **12 / 16 validated**, from 0 / 16; **4 fail closed with their volume stated** (§3.5). Counting the adjacent `summary_identity` record, **13 of the parser's 17 withheld records** move |
+| Already-validated `pnc` documents (28) | **28 / 28 still validate, and all 28 are financially identical field for field**; descriptions move toward the printed text on 28 (§3.6) |
+| Layout families characterised | 6 — four fixed, two ruled FAIL CLOSED with their volume |
+| Statement-specific constants added | **none** |
+| Protected modules touched | none. `analysis/money.py`, `date_tokens.py`, `tables.py`, `parser_registry.py`, `schema.py` and every other parser are unmodified; `parse_money` and `iso_from_month_day_strict` are consumed exactly as they were |
+| Truth-set movement | **none.** All 5 pinned corpus PNC statements are financially identical field for field (one description each drops printed furniture). **No re-baseline requested or performed** |
+| Files changed | `analysis/pnc.py`, `tests/test_pnc_variants.py` (new, 12 fixtures), this log |
+| Cache implication | analysis output changes for unchanged settings on 44 of 45 `pnc` documents → `ANALYSIS_STAGE_VERSION` must be bumped at merge. **Ocean's, not done here** |
+
+### 3.1 The cell reproduced independently
+
+`parser_id == "pnc"` gives **45 records — 28 validated, 17 withheld** — and the
+withheld split by primary class is **`detail_coverage` 14 · `ledger_identity` 2 ·
+`summary_identity` 1**, 17 distinct hashes, no duplicates. 16 resolve through the
+native rung and 1 through local Tesseract. The failing checks:
+
+| Evidence | Documents |
+|---|---|
+| `adb:final_balance_matches_statement_closing`, `adb:ledger_reconciles_to_closing` | 17 / 17 |
+| `adb_state:final_balance_drift`, `adb_state:ledger_reconcile_failed`, `recon:sum_check_failed` | 17 / 17 |
+| `integrity:ledger_sum_mismatch`, `integrity:transaction_detail_not_corporate_reliable` | 16 |
+| `integrity:debit_detail_coverage_mismatch`, `recon:debit_coverage_short` | 15 |
+| `integrity:credit_detail_coverage_mismatch`, `recon:credit_coverage_short` | 3 |
+| `adb:posting_dates_cover_source` | 2 |
+
+### 3.2 The measurement instrument (used before any code changed)
+
+PNC prints two independent self-checks, and the second is unusually strong:
+
+1. the **Balance Summary** — beginning + deposits and other additions − checks and
+   other deductions = ending;
+2. above the Activity Detail, a **`Description Items Amount` table** giving the
+   **item count and total of every section the statement itemizes**, closing with
+   a `Total` for each direction:
+
+```
+Description Items Amount Deposits 6 105,150.00 ATM Deposits and Additions 6 2,158.25 Fee Refunds 1 6.00
+Description Items Amount Debit Card Purchases 355 289,547.07 POS Purchases 34 5,309.44
+   ATM/Misc. Debit Card Transactions 32 10,605.35 ACH Deductions 5 3,021.00
+   Service Charges and Fees 17 482.25   Total 13 107,314.25   Total 443 308,965.11
+```
+
+That table is **the bank's own index of its ledger**: it names every section,
+counts its rows and totals its money. Completeness is therefore checkable
+section by section against the document itself, with no expectation file and no
+audited truth set.
+
+**The instrument's own trustworthiness is checked first:** its subtotals
+reproduce the Balance Summary on **45 / 45** documents, and over the 28 the
+platform had already validated the captured ledger reproduces the printed
+credits, the printed debits AND the printed item count **28 / 28**.
+
+Baseline over the cell, before any change:
+
+| Instrument | withheld (17) | already validated (28) |
+|---|---|---|
+| printed Balance Summary closes | 17 / 17 | 28 / 28 |
+| the printed subtotals reproduce the Balance Summary | 17 / 17 | 28 / 28 |
+| the statement prints a section the parser does not read | **17 / 17** | 3 / 28 |
+| parser claims the document | 17 / 17 | 28 / 28 |
+| captured credit rows reproduce the printed credits | 13 / 17 | 28 / 28 |
+| captured debit rows reproduce the printed debits | **1 / 17** | 28 / 28 |
+| captured row count equals the printed item count | **0 / 17** | 28 / 28 |
+| ledger identity holds | **0 / 17** | 28 / 28 |
+
+**A note on building the instrument honestly.** The instrument's first draft
+inherited the parser's own money pattern and therefore its P-F4 defect, and it
+reported one document's Balance Summary as not closing. The bank's figures do
+close; both readings of them were wrong. The instrument was corrected to read the
+printed grid before any of the numbers above were taken, which is the whole point
+of building it from the document rather than from the code.
+
+### 3.3 The root cause: a section list doing two jobs
+
+The parser knew ten sections. PNC prints twelve, and the two it did not know are
+`Checks and Substitute Checks` (13 cell documents) and `Fee Refunds` (5 cell
+documents, 3 already-validated).
+
+**The same list is also the list of section BOUNDARIES**, so an unknown section
+is not merely unread — it is **swallowed by the section printed above it**:
+
+* its rows take that section's **direction**, not the one they were printed
+  under;
+* its own heading and column header are glued onto the **last description** of
+  the section above;
+* and that section's captured count and total then disagree with the bank's
+  printed pair for it, which is what the instrument sees.
+
+`Fee Refunds` is always printed inside the `Deposits and Other Additions` group
+in this archive, so the section that swallowed it was always a credit section
+and no observed amount changed sign; the damage that IS observed is the wrong
+section attribution and the polluted description. The sign hazard is latent
+rather than measured, and it is pinned directly as a rule
+(`test_f1_a_swallowed_section_would_take_the_wrong_direction`) with that
+disclosure in the fixture itself.
+
+`Checks and Substitute Checks` is worse: it prints a **different column group**
+from every other section, so even once its heading is a boundary its rows need a
+reader of their own.
+
+### 3.4 The families
+
+Named by structure. Nothing below names a customer, an amount, a date or an
+account fragment; every rule is anchored on the printed grid.
+
+| # | Family | Structural signature | Root cause | Ruling | Fixture | Volume |
+|---|---|---|---|---|---|---|
+| P-F1 | **a printed section outside the vocabulary** | the subtotal table names a section the parser's list does not have (`Fee Refunds`) | the list is both the section list and the boundary list, so the section is unread AND swallowed by the one above it | FIX — the vocabulary covers every section the bank's own subtotal table names; a row's direction is the section it was printed in | `test_f1_*` | **5** cell documents, 3 already-validated |
+| P-F2 | **the cheque section's own column group** | `Checks and Substitute Checks` prints `Date posted \| Check number \| Amount \| Reference number`, several column groups per physical line, with `*` sequence-gap markers | the section was unknown, and its shape is not the `Date posted \| Amount \| Transaction description \| Reference number` shape every other section uses | FIX — a cheque row is date, number, optional marker, amount; the Reference number that follows carries no decimal point, so it can never be read as money. The printed number is the description | `test_f2_*` | **13** cell documents |
+| P-F3 | **furniture that owns a line** | the two umbrella headings (`Deposits and Other Additions`, `Checks and Other Deductions`), the `<section> continued on next page` trailers, and the cheque section's `* Gap in check sequence` footnote — which PNC prints **on the heading line itself** | none of the three closed a section, so each was appended to the description of the row above it; and the footnote made the cheque heading unrecognisable as a heading | FIX — each is furniture: it owns its line, closes the section above it and opens nothing. The gap footnote is a suffix of its heading, not a different heading | `test_f3_*` | the umbrella headings on every document; the gap footnote on **8** cell documents |
+| P-F4 | **a sub-dollar figure printed without its leading zero** | a Balance Summary balance of eighty-seven cents prints `.87` | the money pattern's `\b` does not match after a space, so the figure was skipped and the NEXT one — the average ledger balance printed below it — was read as the closing balance | FIX — the boundary is "not preceded by a digit, comma or point", which is a statement about the grid rather than about word characters | `test_f4_*` | **1** document — the `summary_identity` record, whose diagnosis was therefore about our arithmetic, not the bank's |
+| P-F5 | **column-major text layer** | the Date column is emitted as its own block, away from the rows: `04 04 04` on one line, `/08 /10 /10` on the next, and the amounts, descriptions and reference numbers elsewhere again | the PDF's text objects are not emitted in grid order, so no row carries its own date | **FAIL CLOSED — 3 documents (3 of 16).** They stay withheld with accurate `detail_coverage` diagnostics. This is RBC's F11 exactly: no text-layer rule can reorder what the text layer has already reordered, and the input needed is the PDF word boxes | none: this family is defined by the ABSENCE of the structure the fixtures pin | **3** cell documents |
+| P-F6 | **an OCR-lost cheque row** | the cell's one scanned document prints the cheque section's heading and column header, and local Tesseract recovered no row beneath them | none in the parser — the row is not in the text at all | **FAIL CLOSED — 1 document.** Its printed subtotal says one cheque of a thousand dollars and the ledger is short by exactly that; nothing is invented to close it | none: same reason as P-F5 | **1** cell document |
+
+Negative fixtures — each constrains a new rule rather than demonstrating a
+defect, and each is asserted:
+
+- a row whose description contains a section's words never opens that section —
+  a heading owns its line;
+- a cheque row's Reference number is never read as its amount;
+- the `<section> continued on next page` trailer is furniture, and the section
+  re-enters at its `- continued` heading after the page break;
+- a whole-dollar Balance Summary reads exactly as it did before the P-F4 change.
+
+### 3.5 What did NOT change, deliberately
+
+- **No parser-level publish gate was added.** `us_bank` and `truist` gained one
+  in cells 6 and 7 because on those parsers a refusal costs nothing: every
+  document that would trip the gate now validates instead. On PNC a printed-total
+  gate would fire on the four P-F5/P-F6 documents and turn them from **withheld**
+  into **unclaimed** — a *different* outcome class, and one Ocean's movement
+  instrument would read as a transition other than withheld→validated. The
+  platform's own ADB and reconciliation gate is already withholding them
+  correctly and with an accurate diagnosis, so the refusal it would add is one
+  the system already performs. Recorded as a deliberate asymmetry rather than an
+  oversight; if Ocean wants parser-level symmetry, the transition it produces
+  should be an explicit ruling.
+- **No shared utility was touched**, and no shared utility's behaviour changed,
+  so no R-2 differential-equivalence proof is owed.
+- **The `Daily Balance` block is still not read.** PNC prints a full daily ledger
+  series and it would be the natural independent oracle here — but on these
+  documents the text layer emits it column-major (the same defect as P-F5), so it
+  is not usable as an oracle without geometry. Recorded in §3.7; the section
+  subtotals did the work instead, and they are stronger anyway because they carry
+  item COUNTS.
+- **The detection markers are unchanged**, so the set of documents reaching this
+  parser is unchanged. Verified over the whole `PNC Bank/` folder: the 17
+  documents no parser claimed in the baseline are refused by both the old and the
+  new reader.
+- **`account_name` stays `"Business Checking"`**, as before.
+
+### 3.6 Result over the cell, and zero regressions
+
+Same production ladder discovery uses (native rung, plus the cached local
+Tesseract read for the one scanned document; no visual rung, no model calls,
+`$0.00`), then `analyze_markdown` in deterministic mode, classified with
+`telemetry.record.classify_outcome` and diagnosed with
+`telemetry.diagnostics.diagnose`.
+
+| Instrument | before (17) | after (17) |
+|---|---|---|
+| captured credit rows reproduce the printed credits | 13 | **14** |
+| captured debit rows reproduce the printed debits | 1 | **13** |
+| captured row count equals the printed item count | 0 | **13** |
+| ledger identity holds | 0 | **13** |
+
+| Cell | records | documents | before | after |
+|---|---|---|---|---|
+| `pnc × detail_coverage` | 14 | 14 | 0 validated / 14 withheld | **10 / 4** |
+| `pnc × ledger_identity` | 2 | 2 | 0 / 2 | **2 / 0** |
+| **the brief's cell** | **16** | **16** | **0 / 16** | **12 / 4** |
+| `pnc × summary_identity` (adjacent, outside the assigned cell) | 1 | 1 | 0 / 1 | **1 / 0** |
+| already-validated `pnc` | 28 | 28 | 28 validated | **28 validated** |
+
+**Nothing was padded to get there.** Every document that now validates does so
+because the rows extracted reproduce, independently: the bank's printed item
+COUNT and total for every section it itemizes, the Balance Summary identity, the
+ledger identity, and the full ADB validation suite. The fail-closed gate is
+unchanged, and the four documents that stay withheld are the honest residual —
+three whose text layer does not carry rows at all, and one whose cheque row OCR
+did not recover.
+
+**The already-validated population.** Old and new modules loaded side by side in
+one process over identical markdown:
+
+```
+28 / 28 already-validated pnc documents : financially identical (every row's date, amount and direction)
+ 5 /  5 pinned corpus PNC statements    : financially identical (every audited field)
+17 / 17 unclaimed PNC Bank/ folder docs : refused by both readers
+```
+
+**Descriptions moved on 28 already-validated documents and on all 5 pinned ones,
+in one direction only: furniture came off.** The change is a single class — a
+printed umbrella heading, a `continued on next page` trailer or a swallowed
+section's heading and column header had been appended to the description of the
+row above it, and is now recognised as the furniture it is (`… Amazon.Com Servi
+Fcs003587716422 Checks and Other Deductions` → `… Amazon.Com Servi
+Fcs003587716422`). No audited field is a description — neither audit CSV has a
+description column — and every pinned statement is financially identical, so no
+truth-set movement arises. It is reported here rather than buried because
+downstream transaction classification reads descriptions.
+
+### 3.7 Carried findings for Ocean
+
+1. **P-F5 needs geometry (stop condition 4, reported not acted on).** Three
+   documents emit the Date column as its own block, away from the rows it dates.
+   This is RBC F11 in a second bank, and it takes the deferred geometry follow-up
+   from 16 documents to **19**. Vehicle: the structurer-integration HARBOR card,
+   as ruled on 2026-08-08.
+2. **PNC's `Daily Balance` series is printed on every statement and is unusable
+   as an oracle for exactly the same reason.** It is emitted column-major on the
+   documents that would most benefit from it. Recorded so the
+   `stated_daily_balances` card (§3 item 3, §B7.2, §1.8) is not assumed to be
+   uniformly cheap: on PNC it is a geometry problem, not a parsing one.
+3. **PNC prints an item COUNT per section, and the platform still does not check
+   counts** (§5.7 item 4, §B7.3, §1.8 item 4). This is the fourth population, and
+   the strongest argument yet: the count is what caught the swallowed-section
+   defect here, ahead of any money check, because a swallowed section keeps the
+   money in the right direction while moving the rows.
+4. **The parser-level-gate asymmetry in §3.5 is a decision, not an omission**, and
+   it turns on a question only Ocean can answer: is withheld→unclaimed an
+   acceptable transition when the parser can prove its own reading is incomplete?
+5. **`ANALYSIS_STAGE_VERSION` must be bumped at merge** (`webapp/` protected
+   here). This change alters analysis output for unchanged settings on 44 of the
+   45 archive `pnc` documents (13 financially, the rest by description).
