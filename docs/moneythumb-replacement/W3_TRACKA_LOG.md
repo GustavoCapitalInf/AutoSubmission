@@ -2220,3 +2220,233 @@ downstream transaction classification reads descriptions.
 5. **`ANALYSIS_STAGE_VERSION` must be bumped at merge** (`webapp/` protected
    here). This change alters analysis output for unchanged settings on 44 of the
    45 archive `pnc` documents (13 financially, the rest by description).
+
+## TRIO-4. Proofs
+
+Each cell was fully proven before the next was started, on a clean tree, with
+`set -o pipefail` and the exit codes as printed.
+
+### 4.1 Cell 6 — `us_bank`, at `67689ad`
+
+```
+$ python -m pytest -q
+2286 passed, 18 deselected, 1 warning in 128.00s (0:02:07)
+SUITE_EXIT=0
+
+$ python -m pytest -m corpus -q
+14 passed, 2290 deselected, 1 warning in 1115.91s (0:18:35)
+CORPUS_MARKED_EXIT=0
+
+$ python corpus_gate.py
+[PASS] inventory / foreign_files / source_integrity
+[PASS] balance_audit / adb_audit
+[PASS] balance_outcomes / adb_outcomes
+[PASS] ocr_coverage / exclusions / oracle_independence
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  445.5s
+RESULT: GREEN
+```
+
+(That gate invocation was launched through a detached wrapper that did not echo
+its exit code; the run printed `RESULT: GREEN` with every module PASS. The two
+later gate runs, including the one over all three parsers together, capture
+`GATE_EXIT=0` explicitly. Reported as it happened rather than tidied.)
+
+```
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+      tests/test_no_parser_helper_clones.py -q
+100 passed in 0.98s
+GUARDS_EXIT=0
+```
+
+### 4.2 Cell 7 — `truist`, at `cf3181e`
+
+```
+$ python -m pytest -q
+2299 passed, 18 deselected, 1 warning in 157.52s (0:02:37)
+SUITE_EXIT=0
+
+$ python -m pytest -m corpus -q
+14 passed, 2303 deselected, 1 warning in 1012.96s (0:16:52)
+CORPUS_MARKED_EXIT=0
+
+$ python corpus_gate.py
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  423.5s
+RESULT: GREEN
+GATE_EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+      tests/test_no_parser_helper_clones.py -q
+100 passed in 0.82s
+GUARDS_EXIT=0
+```
+
+### 4.3 Cell 8 — `pnc`, at `306f2ac` (all three parsers together)
+
+```
+$ python -m pytest -q
+2311 passed, 18 deselected, 1 warning in 100.36s (0:01:40)
+SUITE_EXIT=0
+
+$ python -m pytest -m corpus -q
+14 passed, 2315 deselected, 1 warning in 811.29s (0:13:31)
+CORPUS_MARKED_EXIT=0
+
+$ python corpus_gate.py
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  361.4s
+RESULT: GREEN
+GATE_EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+      tests/test_no_parser_helper_clones.py -q
+100 passed in 0.78s
+GUARDS_EXIT=0
+```
+
+### 4.4 The suite grew by the fixtures and by nothing else
+
+Baseline at `b839bfa`: **2,265** default tests. Final: **2,311** — the 46 new
+fixtures (21 us_bank + 13 truist + 12 pnc) and nothing else.
+`git diff b839bfa..HEAD --name-only -- tests/` lists exactly the three new files,
+so **no existing assertion was edited**, and
+`git diff b839bfa..HEAD --name-only` lists exactly seven paths: the three
+parsers, the three new test files and this log.
+
+### 4.5 Combined result over the three parsers
+
+Measured on the final tree over every `us_bank`, `truist` and `pnc` document in
+the baseline run, through the same production ladder discovery uses
+(`ocr.pipeline.parse_statement`, native rung plus the cached local-Tesseract read
+for the one scanned PNC document, no visual rung, no model calls, `$0.00`), then
+`analyze_markdown` in deterministic mode, classified with
+`telemetry.record.classify_outcome`:
+
+| Parser | already validated | withheld → validated | still withheld |
+|---|---|---|---|
+| `us_bank` | 20 → **20** | **20** | 0 |
+| `truist` | 28 → **28** | **20** | 0 |
+| `pnc` | 28 → **28** | **13** | 4 |
+| **total** | **76 → 76** | **53** | **4** |
+
+**withheld → validated 53 · regressed 0 · transitions in any other direction 0.**
+
+The four that remain are the honest residual and each is named with its cause in
+§3.4: three PNC documents whose text layer emits the Date column away from the
+rows it dates (geometry, RBC F11's family in a second bank), and one scanned PNC
+document whose single cheque row local OCR did not recover.
+
+### 4.6 Fails-before / passes-after
+
+Every committed fixture document captured as its suite runs and replayed through
+the pre-change module loaded from git, in the same process.
+
+**`us_bank`** (14 distinct fixture documents · behaviour changed 8 · unchanged 6):
+
+```
+FIXED  test_f1_a_summary_category_outside_the_old_list_is_read    before=[500.0, -80.0]  after=[500.0, -70.0, -50.0, -80.0]
+FIXED  test_f1_every_printed_credit_category[Card Deposits]       before=[500.0, -80.0]  after=[500.0, 400.0, -80.0]
+FIXED  test_f1_every_printed_credit_category[Customer Deposits]   before=[400.0, 500.0, -80.0]  after=[500.0, 400.0, -80.0]
+FIXED  test_f1_negative_an_unreadable_printed_category_fails_clos before=[500.0, -80.0]  after=None
+kept   test_f1_negative_a_section_that_does_not_reproduce_its_pri before=None  after=None
+FIXED  test_f2_a_card_section_split_over_several_card_sub_blocks_ before=[500.0, -80.0]  after=[500.0, -70.0, -50.0, -80.0]
+FIXED  test_f3_several_check_column_groups_on_one_printed_line_ar before=[500.0, -80.0]  after=[500.0, -80.0, -100.0, -200.0, -300.0]
+FIXED  test_f4_an_original_currency_figure_below_the_amount_cell_ before=[500.0, -80.0]  after=[500.0, -54.63, -80.0]
+kept   test_f4_negative_a_wrapped_amount_cell_alone_on_its_line_i before=[500.0, -80.0]  after=[500.0, -80.0]
+kept   test_f5_two_printed_rows_on_one_physical_line_are_two_rows before=[500.0, -6000.0, -11000.0]  after=[500.0, -6000.0, -11000.0]
+FIXED  test_f5_negative_a_date_inside_a_description_does_not_open before=None  after=[500.0, -250.0]
+kept   test_f7_a_section_continues_across_a_page_break_and_the_le before=[500.0, -100.0, -200.0]  after=[500.0, -100.0, -200.0]
+kept   test_f7_negative_the_balance_summary_series_is_never_activ before=[500.0, -80.0]  after=[500.0, -80.0]
+kept   test_f8_an_overdrawn_balance_prints_its_minus_after_the_fi before=[500.0, -1700.0]  after=[500.0, -1700.0]
+```
+
+**`truist`** (10 distinct fixture documents · behaviour changed 6 · unchanged 4):
+
+```
+FIXED  test_f1_the_checks_table_is_read[symbol apart from figure] before=[-200.0, 500.0]  after=[-100.0, -200.0, -200.0, 500.0]
+kept   test_f1_the_checks_table_is_read[symbol against figure]    before=[-100.0, -200.0, -200.0, 500.0]  after=[-100.0, -200.0, -200.0, 500.0]
+FIXED  test_f2_a_detached_skip_marker_still_belongs_to_its_check_ before=[-200.0, 500.0]  after=[-100.0, -200.0, -200.0, 500.0]
+kept   test_f2_an_attached_skip_marker_is_unchanged               before=[-100.0, -200.0, -200.0, 500.0]  after=[-100.0, -200.0, -200.0, 500.0]
+FIXED  test_f2_negative_the_skip_footnote_is_never_a_row          before=[-200.0, 500.0]  after=[-300.0, -200.0, 500.0]
+FIXED  test_f3_a_cheque_with_no_printed_number_is_still_a_cheque  before=[-200.0, 500.0]  after=[-100.0, -200.0, -200.0, 500.0]
+FIXED  test_f3_a_skip_marker_with_no_number_beside_it             before=[-200.0, 500.0]  after=[-100.0, -200.0, -200.0, 500.0]
+kept   test_f4_a_three_column_checks_header_is_read               before=[-100.0, -150.0, -50.0, -200.0, 500.0]  after=(same)
+FIXED  test_f5_negative_checks_that_do_not_reproduce_the_printed_ before=[-200.0, 500.0]  after=None
+kept   test_f5_negative_a_statement_with_no_checks_table_is_unaff before=[-200.0, 500.0]  after=[-200.0, 500.0]
+```
+
+**`pnc`** (7 distinct fixture documents · behaviour changed 7 · unchanged 0).
+Amounts alone do not show two of PNC's families, so the shape compared here is
+`(amounts, directions, ending balance, descriptions)`:
+
+```
+FIXED  test_f1_a_printed_section_outside_the_old_vocabulary_is_read
+       before desc=['ATM Deposit A Branch 000000001 Fee Refunds', 'A Fee Reimbursement 000000002 Checks and Other Deductions', ...]
+       after  desc=['ATM Deposit A Branch 000000001', 'A Fee Reimbursement 000000002', ...]
+FIXED  test_f1_a_swallowed_section_would_take_the_wrong_direction
+       before=([-300.0, -100.0], ['debit', 'debit'])   after=([100.0, -300.0], ['credit', 'debit'])
+FIXED  test_f2_several_cheque_column_groups_on_one_printed_line_are_separate_rows
+       before=([500.0])  after=([500.0, -50.0, -250.0, -300.0], desc ['Deposit …', 'Check 1100*', 'Check 1101', 'Check 1102'])
+FIXED  test_f3_the_gap_footnote_printed_on_the_heading_line_does_not_hide_the_section
+       before=([500.0])  after=([500.0, -600.0])
+FIXED  test_f3_negative_a_heading_still_owns_its_line
+       before desc=['… 000000001 Checks and Other Deductions', …]   after desc=['… 000000001', …]
+FIXED  test_f3_the_continued_on_next_page_trailer_is_furniture_not_description
+       before desc=['Deposit 000000001 Deposits continued on next page', …]  after desc=['Deposit 000000001', …]
+FIXED  test_f4_a_closing_balance_of_less_than_a_dollar_is_read_as_the_closing_balance
+       before ending=900.0   after ending=0.87
+```
+
+The `kept` lines are reported as what they are: **constraints**, not
+demonstrations. Each pins a rule the new reader had to be built around — a
+minimal synthetic document is often one the old reader happened to read
+correctly, and the point of the fixture is that the new rule still does. Two are
+explicit contrast halves of a pair (`us_bank` F4's wrapped amount cell against
+its foreign-currency twin; `truist` F1's two spellings of the same total, which
+are additionally asserted to produce the identical statement).
+
+### 4.7 Commits (oldest first)
+
+| Commit | Contents |
+|---|---|
+| `67689ad` | `analysis/us_bank.py` + `tests/test_us_bank_variants.py` |
+| `0f559c5` | this log's §TRIO-0 and §TRIO-1 |
+| `cf3181e` | `analysis/truist.py` + `tests/test_truist_variants.py` |
+| `403e95e` | this log's §TRIO-2 |
+| `306f2ac` | `analysis/pnc.py` + `tests/test_pnc_variants.py` |
+| `007d255` | this log's §TRIO-3 |
+| (this one) | §TRIO-4, the proofs |
+
+## TRIO-5. Carried findings across the three cells
+
+Per-cell findings are in §1.8, §2.7 and §3.7. Four are worth stating once, across
+all three:
+
+1. **`stated_credit_count` / `stated_debit_count` — the count check (§5.7 item 4,
+   §B7.3) now has three more witnesses and one decisive one.** U.S. Bank prints a
+   count per summary category and PNC prints an item count per section; Truist
+   prints neither. PNC is the decisive case: a *swallowed* section keeps its money
+   on the correct side while moving the rows, so the money checks see nothing and
+   only the count notices. Every cell in Track A that has looked has found the
+   same gap.
+2. **The geometry queue grows to 19 documents.** The three PNC P-F5 documents are
+   RBC F11 in a second bank — the Date column emitted as its own block, away from
+   the rows it dates. Same vehicle (the structurer-integration HARBOR card), same
+   ruling, three more documents.
+3. **A daily-balance oracle is not uniformly cheap.** U.S. Bank's `Balance
+   Summary` is the cleanest such series Track A has met and it settled every
+   question cell 6 raised; PNC's `Daily Balance` is printed on every statement and
+   is *unusable* without geometry, because it is emitted column-major. The
+   `stated_daily_balances` card (§3 item 3, §B7.2) should be scoped per bank
+   rather than as one sweep.
+4. **Silent-rigidity defects keep costing whole cells.** Cell 6 was a closed
+   category list; cell 7 was a currency symbol admitted in only one of its two
+   printed spellings; cell 8 was a section list that was also, unnoticed, the
+   boundary list. None of the three announced itself: each simply produced a
+   smaller ledger. A sweep for the *shape* — a pattern that is both a matcher and
+   a terminator, or a closed vocabulary of the bank's own words — across the
+   remaining parsers looks like high-value, low-risk work.
