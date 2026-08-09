@@ -210,7 +210,11 @@ OCR_STAGE_VERSION = 2
 # analysis output for unchanged settings on ~294 archive documents.
 # (The GROUPER promotion merged alongside is proven byte-identical and
 # owes no bump on its own.)
-ANALYSIS_STAGE_VERSION = 4
+# 4 -> 5: Track A cells 5-8 (wells label-owned summary + multi-account
+# primary; us_bank/truist/pnc vocabulary and grid fixes; merges of
+# 2607da3 and 306f2ac) change analysis output for unchanged settings.
+# One composed bump before the round's measurement.
+ANALYSIS_STAGE_VERSION = 5
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 
