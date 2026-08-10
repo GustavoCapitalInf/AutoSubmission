@@ -356,6 +356,92 @@ def test_document_integrity_high_for_bank_summary_math_contradiction():
     assert integrity.possible_document_issue is True
 
 
+def _reconciled_statement_for_page_declarations() -> tuple[Statement, object, Quality]:
+    """A document with nothing wrong with it, so the only flag that can appear
+    is the page-declaration one under test."""
+    stmt = Statement(
+        bank="Test Bank",
+        beginning_balance=100.0,
+        ending_balance=150.0,
+        stated_total_credits=75.0,
+        stated_total_debits=25.0,
+        transactions=[_txn("2026-01-01", 75.0), _txn("2026-01-02", -25.0)],
+    )
+    quality = Quality(
+        level="transaction_level",
+        transaction_detail_reliable=True,
+        summary_totals_reliable=True,
+        corporate_use="approved",
+    )
+    return stmt, reconcile(stmt), quality
+
+
+def test_continuation_footer_above_a_page_number_is_not_a_page_declaration():
+    """`CONTINUED ON NEXT PAGE` + `2 of 20` is one sentence's last word and the
+    next line's first token, not a declaration of 20 bank pages (W3 §M6.1)."""
+    stmt, recon, quality = _reconciled_statement_for_page_declarations()
+    markdown = (
+        "Statement Summary\n"
+        "CONTINUED ON NEXT PAGE\n"
+        "2 of 20\n"
+        "Monthly Activity Details\n"
+    )
+    integrity = assess_document_integrity(stmt, recon, quality, markdown=markdown)
+    assert "missing_declared_statement_page" not in integrity.flags
+    assert integrity.flags == []
+
+
+def test_a_printed_page_declaration_still_flags_absent_pages():
+    """The restriction removes the continuation footer and nothing else: a real
+    `Page N of M` label with pages missing must still flag."""
+    stmt, recon, quality = _reconciled_statement_for_page_declarations()
+    markdown = "Page 2 of 20\nMonthly Activity Details\n"
+    integrity = assess_document_integrity(stmt, recon, quality, markdown=markdown)
+    assert integrity.flags == ["missing_declared_statement_page"]
+    assert any("1, 3, 4" in note for note in integrity.notes)
+
+
+def test_a_page_declaration_still_flags_when_a_continuation_footer_is_also_present():
+    """Both shapes on one document: the footer is ignored, the declaration is
+    still read, so a genuinely short PDF cannot hide behind the footer."""
+    stmt, recon, quality = _reconciled_statement_for_page_declarations()
+    markdown = (
+        "Page 1 of 3\n"
+        "CONTINUED ON NEXT PAGE\n"
+        "2 of 3\n"
+        "Page 2 of 3\n"
+    )
+    integrity = assess_document_integrity(stmt, recon, quality, markdown=markdown)
+    assert integrity.flags == ["missing_declared_statement_page"]
+    assert any("3 are absent" in note for note in integrity.notes)
+
+
+def test_the_page_declaration_restriction_can_only_remove_matches():
+    """The property the protected-module change rests on, asserted directly:
+    every page declaration the restricted pattern finds was also found by the
+    pattern it replaced, so the flag can only ever be withdrawn."""
+    import re
+
+    from analysis import pipeline
+
+    before = re.compile(r"\bPage\s*:?\s*(\d+)\s+of\s+(\d+)\b", re.IGNORECASE)
+    after = re.compile(r"(?<!NEXT )\bPage\s*:?\s*(\d+)\s+of\s+(\d+)\b", re.IGNORECASE)
+    source = Path(pipeline.__file__).read_text(encoding="utf-8")
+    assert after.pattern in source, "the shipped pattern is the one asserted here"
+
+    samples = [
+        "Page 1 of 4",
+        "page: 2 of 4",
+        "PAGE 3 OF 4",
+        "CONTINUED ON NEXT PAGE\n2 of 20",
+        "continued on next page 7 of 9",
+        "Statement Page 2 of 2 CONTINUED ON NEXT PAGE\n3 of 2",
+        "no page declaration here at all",
+    ]
+    for sample in samples:
+        assert set(after.findall(sample)) <= set(before.findall(sample))
+
+
 def test_parse_atb_native_text_transactions_from_running_balance():
     md = """
 Deposit Account Statement
