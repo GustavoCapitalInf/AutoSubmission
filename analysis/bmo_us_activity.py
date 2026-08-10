@@ -203,12 +203,16 @@ def parse_bmo_us_activity_statement(markdown: str) -> Statement | None:
         # The grid prints a row's money cells on the row's own line; the lines
         # under it carry the record number, the card number and the merchant
         # location, which stand in the Description column and print no money.
-        cells = _MONEY.findall(head)
+        # Matches, not strings: where the amount cell stands has to come from
+        # the match, since the same characters can occur again inside the
+        # balance printed beside it.
+        cells = list(_MONEY.finditer(head))
         if not cells:
             continue
-        amount = _amount(cells[-2] if len(cells) >= 2 else cells[-1])
-        balance = _amount(cells[-1]) if len(cells) >= 2 else None
-        description = compact_whitespace(head[match.end(): head.find(cells[-2] if len(cells) >= 2 else cells[-1])])
+        first = cells[-2] if len(cells) >= 2 else cells[-1]
+        amount = _amount(first.group(0))
+        balance = _amount(cells[-1].group(0)) if len(cells) >= 2 else None
+        description = compact_whitespace(head[match.end(): first.start()])
         if not description:
             continue
         day = int(match.group(2))
