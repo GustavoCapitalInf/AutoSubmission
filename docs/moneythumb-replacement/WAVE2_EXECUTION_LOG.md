@@ -1,5 +1,33 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-10 — **STATED-COUNT CHECK: GUSTAVO ARCHITECTURAL SIGN-OFF** (D1/D2/D4 approved; D5 ruled)
+
+Binding rulings: computed as structured data, never reconciliation
+issues; the expected side is INDEPENDENT printed evidence (a parser can
+never satisfy it by reading back its own derived count); **flag, never
+withhold**; two-phase MANDATORY — phase 1 observe-only with zero
+output/status change, measured from cached artifacts, producing
+parser × count-semantics × outcome statistics and identifying
+false-positive/incomparable classes BEFORE any enforcement; **closed
+result vocabulary: match / mismatch / not_printed /
+semantics_incomparable / check_unavailable** — mismatch never forced
+where printed-count semantics aren't comparable (cheques folded into
+debit categories; category subtotals; zero-amount rows directed by
+printed column not sign; section-level counts the schema can't hold).
+D5: phase 1 triggers NO re-baseline; a pinned-PASS disagreement is
+adjudicated against printed-bank evidence first; phase 2 moving any
+pinned expected result requires the formal ceremony — no silent corpus
+movement. Phase-1 acceptance-evidence list recorded in Gustavo's ruling
+(coverage, per-parser rates, would-be-flagged populations, RBC/BofA
+witness reproduction, PNC section-level disclosure, direction-not-sign
+proof, zero-change proof). **Ocean structural note: phase 1 is
+implementable entirely as measurement tooling over the D-3 cached
+payloads (stated counts + per-direction rows both present) — protected
+modules stay read-only until phase 2; the pinned reconcile diff is
+phase-2 material, updated to the closed vocabulary. Dispatched:
+COUNTS-P1 (mt-counts).** Phase-1 measurement goes to Gustavo before any
+flag-emitting behavior.
+
 ## 2026-08-10 — PLATFORM-PROPOSALS delivered and merged (`854fc01`); Ocean rulings on Design B; Proposal A presented to Gustavo
 
 **Proposal A (stated-count check)** endorsed by Ocean and sent to Gustavo
