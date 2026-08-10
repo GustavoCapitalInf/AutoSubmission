@@ -1,5 +1,36 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-10 — PLATFORM-PROPOSALS delivered and merged (`854fc01`); Ocean rulings on Design B; Proposal A presented to Gustavo
+
+**Proposal A (stated-count check)** endorsed by Ocean and sent to Gustavo
+for architectural sign-off with the agent's recommendations: compute in
+reconcile.py as fields WITHOUT issues.append (placement IS consequence —
+issues cascade to withheld mechanically), surface as integrity flags →
+review; count by Transaction.direction never by sign (metrics.py counts a
+zero-amount row as deposit — the RBC witness class); two phases
+(observe-only, cache-measured, zero vendor cost → then flag-emitting).
+Corrections accepted: the PNC witness is per-SECTION counts (weaker for
+this check than claimed); the flags' `review` class is currently NOT
+diagnosable (W3-2 DIAGNOSABLE_CLASSES) — **Ocean rules the coupled W3-2
+side: DIAGNOSABLE_CLASSES extends to review WHEN phase 2 lands, not
+before.** Decision D5 (a corpus PASS doc failing phase 1 = re-baseline
+territory) is explicitly Gustavo's.
+
+**Design B (geometry) — Ocean rulings:** G1/G2 re-partition ACCEPTED
+(G1 column-identity-lost 14 docs = ocr/native_text constant-band defects;
+G2 grid-order-destroyed 9 docs = the only true geometry-architecture
+class); W-F7-first sequencing accepted (defect-class fix, better oracle,
+buys the page-derived-column primitive); **geometry never reaches
+detection — ruled binding now** (keeps additivity provable);
+DocumentGeometry gains a unit/scale field when the first OCR-path
+geometry wires; the volume honesty stands — 23 docs max, geometry stays
+below family-class work in priority; S1 scheduled as a small card, S3/S4
+deferred. **New platform-defect card (pre-measurement blocker): the
+structurer opt-in env and geometry availability are absent from
+analysis_settings_key — any structurer measurement on a warm cache would
+report pre-opt-in answers. Must fix before the first structurer
+measurement run.**
+
 ## 2026-08-10 — **NEW PHASE APPROVED (Gustavo): unclaimed layouts of known banks.** Track A accepted as complete; checkpoint 1,048→1,622 / 31.0%→48.0% / 650→58 / zero regressions.
 
 Phase rules recorded: characterize before code; classify root cause per
