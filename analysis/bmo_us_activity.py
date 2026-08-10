@@ -29,6 +29,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .dates import resolve_year
 from .money import parse_grouped_float
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -69,8 +70,11 @@ _ROW_DATE = re.compile(
     r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2})\b",
     re.IGNORECASE,
 )
-_LEDGER_OPENS = re.compile(r"^BEGINNING BALANCE\b", re.IGNORECASE)
-_LEDGER_CLOSES = re.compile(r"^ENDING BALANCE\b", re.IGNORECASE)
+#: The grid's own opening and closing rows. `BEGINNING BALANCE AS OF <date>` is
+#: the SUMMARY's column label, not the ledger's first row, and the two are told
+#: apart by the label rather than by where they happen to fall in the document.
+_LEDGER_OPENS = re.compile(r"^BEGINNING BALANCE(?!\s+AS OF)", re.IGNORECASE)
+_LEDGER_CLOSES = re.compile(r"^ENDING BALANCE(?!\s+AS OF)", re.IGNORECASE)
 
 
 def detection_text(markdown: str) -> str:
@@ -207,9 +211,12 @@ def parse_bmo_us_activity_statement(markdown: str) -> Statement | None:
         description = compact_whitespace(head[match.end(): head.find(cells[-2] if len(cells) >= 2 else cells[-1])])
         if not description:
             continue
-        year = period_end.year if month <= period_end.month else period_start.year
+        day = int(match.group(2))
+        year = resolve_year(month, day, period_start, period_end)
+        if year is None:
+            continue
         try:
-            posted = date(year, month, int(match.group(2)))
+            posted = date(year, month, day)
         except ValueError:
             continue
         if not (period_start <= posted <= period_end):
