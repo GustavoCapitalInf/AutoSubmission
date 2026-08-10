@@ -35,6 +35,9 @@ EXPECTED_ORDER = [
     "bank_of_america",
     "bluevine",
     "bmo",
+    "bmo_ca_business",
+    "bmo_ca_business_french",
+    "bmo_us_activity",
     "capital_one",
     "chase",
     "cibc_french",
@@ -109,8 +112,9 @@ def test_every_parse_entry_point_in_analysis_is_registered():
 
 
 def test_registration_count_matches_the_documented_decision_points():
-    """43 registry entry points plus the three promoted sub-dispatches."""
-    assert len(pr.registrations()) == 46
+    """43 registry entry points, the three promoted sub-dispatches, and the
+    three BMO layouts opened by the unclaimed-layout phase (W3 §BMO-LAYOUTS)."""
+    assert len(pr.registrations()) == 49
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():
@@ -119,6 +123,9 @@ def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():
     # Bank labels may repeat (a layout variant of the same bank); the lookup
     # resolves deterministically by (band, id), so pin what it resolves to.
     assert pr.by_bank_label("TD Canada Trust").id == "td_canada_native"
+    # Four registrations now carry the BMO label. The lookup is used only for
+    # documents no parser claimed, and it must keep resolving to the same one.
+    assert pr.by_bank_label("BMO").id == "bmo"
     assert pr.by_bank_label("Chase Transaction Export").id == "chase_export"
     assert pr.by_bank_label("Chase").id == "chase"
 

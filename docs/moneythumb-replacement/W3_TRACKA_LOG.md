@@ -2895,3 +2895,513 @@ all three:
    smaller ledger. A sweep for the *shape* — a pattern that is both a matcher and
    a terminator, or a closed vocabulary of the bank's own words — across the
    remaining parsers looks like high-value, low-risk work.
+
+---
+
+# §BMO-LAYOUTS — Cell 9, and the first cell of a new work class: `BMO × no_parser_matched`, 164 documents
+
+REEF-BMO-LAYOUTS, 2026-08-10. Branch `wave3-bmo-layouts`, base `bb7d644` (main
+`181e131` plus the two handoff files). Brief:
+`docs/agent-handoffs/REEF-BMO-LAYOUTS.md`.
+
+The new class is **unclaimed layouts of known banks**. Every Track A cell so far
+worked documents a parser already claimed and failed to validate. This one works
+documents no registration claimed at all, so the first question is not "what did
+the extractor get wrong" but "how many different printed documents are in this
+folder, and which of them is our platform even the right shape for". The method
+is otherwise §BOFA's, in the same order: reproduce the cell independently,
+characterise the layout families structurally BEFORE changing code, build the
+in-document instrument and validate the instrument, fix at the capability level
+or fail closed with the volume stated, prove both directions with synthetic
+fixtures, measure honestly.
+
+## M0. Summary
+
+| | |
+|---|---|
+| Cell worked | `folder_label == "BMO"` × `outcome_class == failed` (`no_parser_matched`) in run `52b4b2b2`: **179 records, 164 distinct content hashes** (15 duplicate records). |
+| Families found | **6.** Three are BMO statement layouts (160 documents); three are not this platform's problem (4 documents). Table in §M3. |
+| Result over the cell | **154 / 164 newly CLAIMED; 128 / 164 newly VALIDATED**, from 0 and 0. 23 claimed-and-blocked, 3 claimed-and-withheld, 10 fail-closed. Nothing was ambiguous and nothing crashed. |
+| The honest headline | The validated number is **128, not 154**. 23 of the 26 claimed-but-not-validated documents reconcile perfectly and are held by a false positive in a protected module (§M6.1) — a finding, not a success. |
+| Registrations added | 3: `bmo_ca_business`, `bmo_ca_business_french`, `bmo_us_activity`. Registry 46 → 49. |
+| Existing `bmo` registration | Unchanged. `analysis/bmo.py` is not modified. Its four archive documents are still claimed by it alone, still withheld, still `source_contradiction`, same transaction counts (§M5.3). |
+| Statement-specific constants added | **none.** Every marker is R-4b issuer furniture; every extraction rule is anchored on the printed grid. |
+| Protected modules touched | none. No shared utility, no registry machinery, no pipeline, no other parser, no `ocr/`, no truth-set movement. |
+| Files changed | `analysis/bmo_ca_business.py` (new), `analysis/bmo_us_activity.py` (new), `analysis/parser_registry_entries.py` (3 entries + 3 overrides), `tests/test_bmo_layouts.py` (new, 38 fixtures), `tests/data/parser_conformance_fixtures.py` (+3), the two registry-count pins, and this log. Seven files, four of them new. |
+| Cache implication | New parsers change deterministic output for these documents, so `ANALYSIS_STAGE_VERSION` must be bumped at merge. **Ocean's, not done here.** |
+
+## M1. The cell reproduced independently
+
+Reading run `52b4b2b2`'s `rows.csv` directly, and counting distinct
+`content_sha256` as well as records:
+
+| | records | distinct documents |
+|---|---|---|
+| whole run | 3,506 | 3,380 |
+| validated | 1,666 | **1,622** |
+| withheld | 59 | **58** |
+| review / deferred | 10 / 13 | 10 / 13 |
+| failed | 1,758 | 1,677 |
+
+The distinct-document column reproduces the brief's `1,622 / 58` exactly, which
+fixes the denominator: **every count in this section is distinct documents
+unless it says records.**
+
+The `BMO/` folder holds 184 records / 169 distinct documents:
+
+| BMO folder | records | documents | note |
+|---|---|---|---|
+| `failed` / `no_parser_matched` | 179 | **164** | the cell |
+| `withheld` | 4 | 4 | claimed by `bmo`, all `source_contradiction` |
+| `deferred` | 1 | 1 | a voided-cheque image, deferred by the tranche |
+
+The brief expected ≈176–178; the measured cell is **179 records / 164 distinct
+documents**. 164 is also the figure `PROJECT_STATUS.md` carries ("BMO 164"), so
+the brief's range was counting records and excluding the scanned one.
+
+**One correction to the brief, reported rather than reconciled away.** The brief
+states that BMO's validated base is "only ~4 archive docs". Measured: the `bmo`
+registration claims exactly 4 documents in the entire run, **all four withheld**
+with `source_contradiction`. BMO's validated base in run `52b4b2b2` is **zero**.
+The four are one customer's four consecutive monthly statements, one of which is
+the pinned corpus document; they are a genuinely self-contradictory set and
+their withholding is correct. This does not change the cell, but it means the
+"before" for every BMO figure in this section is 0, and it means
+`analysis/bmo.py` has no validated document anywhere to regress.
+
+Every one of the 164 carries `near_miss` evidence naming `bmo` at `0.166667` —
+one of the pre-existing registration's markers (the bank name) firing and
+`ACCOUNT SUMMARY TOTALS` not. That is the shape of the whole cell: BMO's name is
+everywhere, and BMO's `ACCOUNT SUMMARY TOTALS` heading is on **0 of 164**.
+
+## M2. The measurement instrument (built and validated before any code changed)
+
+The 164 documents were rendered read-only through the production ladder
+(`ocr.pipeline.parse_statement`, native rung, `allow_local_ocr=False`,
+`allow_visual_ocr=False` — no OCR, no model calls, `$0.00`), cached in local
+scratch and never committed. Only aggregates are reported here; no customer,
+amount or date from the archive appears in this document or in any fixture.
+
+Grouping by structural signature over that text gave the families in §M3. For
+each of the three statement families, the instrument is what the document
+asserts about itself, and it was validated on the archive text **before** a line
+of parser code existed:
+
+**Family A / C** — the `Summary of account` row prints
+`opening | total debited | total credited | closing`. On the 127 documents whose
+text layer is clean the identity `opening − debited + credited = closing` holds
+**127 / 127**; the ledger's own `Closing totals` row re-prints the same two
+totals and agrees with the summary row **127 / 127**; `Number of items
+processed` parses **127 / 127**. Three independent printings, mutually
+consistent on every document — that is what made it safe to build on.
+
+**Family B** — the summary row prints
+`BEGINNING BALANCE | NUMBER OF DEPOSITS | DEPOSIT AMOUNT | NUMBER OF WITHDRAWALS | WITHDRAWAL AMOUNT | SERVICE CHARGES | ENDING BALANCE`.
+`begin + deposits − withdrawals − charges = end` holds **23 / 23**.
+
+The baseline against that instrument is zero on every line by construction:
+nothing claimed these documents, so no ledger existed to compare.
+
+## M3. The families — the deliverable, and what drove everything
+
+Named by structure. Nothing below names a customer, a bank product, an amount or
+a date; every rule is anchored on the printed grid.
+
+| # | Family | Structural signature | Root cause | Ruling | Volume |
+|---|---|---|---|---|---|
+| **A** | BMO Canada `Business Banking statement` | `bmo.com` · `Business Banking statement` · `Summary of account` (one row: opening / debited / credited / closing) · ledger columns `Amounts debited from your account ($)` / `Amounts credited to your account ($)` / `Balance ($)` · `Closing totals` · `Number of items processed` | **both** — never claimed (no `ACCOUNT SUMMARY TOTALS`), and the four-column grid is not the grid `analysis/bmo.py` reads | new registration `bmo_ca_business` | **133** (127 clean + 6 → E3) |
+| **C** | the same statement, French edition | `bmo.com` · `Relevé de services bancaires aux entreprises` · `Sommaire de votre compte` · `Montants déduits` / `Montants ajoutés` · `Totaux à la fermeture` · FR-CA money `7 227,65` · French Date column `1er mai`, `02 Avr` | **both** — same grid, different printed vocabulary and a different number grammar | new registration `bmo_ca_business_french` (precedent: `rbc_french`) | **4** |
+| **B** | BMO Bank N.A. (US) `Monthly Activity Details` | `BMO BANK N.A.` · `bmo.com/contact` · `Account Summary - … #…` with `BEGINNING BALANCE AS OF` · grid `Date · Transaction description · Withdrawal · Deposit · Balance` · bracketed withdrawals `($300.00)` · `ENDING BALANCE` terminator | **both** — a different institution's statement format entirely | new registration `bmo_us_activity` | **23** |
+| **E3** | family A with a **degraded text layer** | the same furniture, but the glyph stream is corrupt: `Closing tobls`, `De.posit`, `S0,000.00` for `50,000.00`, `010` for `0.10` | **unusable input** — the money tokens themselves are wrong, so no arithmetic could be trusted | **FAIL CLOSED BY DESIGN**: detected, then declined at parse. Reported as `unclaimed` with `attempted=['bmo_ca_business']` — "detected, then declined", which is the honest signal | **6** |
+| **E1/E2** | no readable text layer | one scanned deposit notice with an empty native text layer; one PDF whose embedded font has no usable encoding, so the text layer decodes to mojibake | **unusable input** (E1 is also **scanned — the OCR path, and out of scope**) | **FAIL CLOSED BY DESIGN**, volumes stated | **2** |
+| **D** | not this statement class | a payroll stub; a BMO online-banking `Detail Report - by Processing Date` — a transaction export with no summary, no period balances and no running balance | **not a bank statement** (the export is the BMO analogue of `chase_export`) | **NO CHANGE.** One document does not justify a registration, and building one would be corpus-fitting. Volume reported; see §M6.4 | **2** |
+
+The single fact that ruled family A/C's "detection" half: **`ACCOUNT SUMMARY
+TOTALS` appears on 0 of the 164**, and `analysis/bmo.py` requires it. The
+extraction half is equally clear: the flattened text of an A row carries
+`<date> <description> <amount> <balance>` — one money cell, not two — so a
+parser built for a `Withdrawal | Deposit | Balance` grid could not have read it
+even if it had claimed it.
+
+### M3.1 The rules the families produced
+
+* **Direction from the printed Balance column (A/C).** Which of the two money
+  columns a cell stood in is destroyed by flattening and recoverable from the
+  grid: the balance printed on the row is the balance *after* the row, so the
+  movement between consecutive printed balances orients the row. The magnitude
+  published is still the one BMO printed, so a row this rule reads wrongly
+  produces a **continuity break** the fail-closed gate sees — it does not
+  produce a ledger that balances with itself. `test_f9` is the adversarial
+  fixture that pins exactly that.
+* **Direction is printed, not inferred (B).** This layout brackets a withdrawal.
+  No vocabulary, no arithmetic; the day-end balances check it.
+* **`Closing totals` / `Totaux à la fermeture` ends the grid** (`group_rows`
+  rule 3). It is a printed section total, and reading it as a row doubles the
+  ledger.
+* **The last two money cells are the row's amount and balance.** BMO prints unit
+  prices and exchange-rate operands *inside* the Description column
+  (`13 ITMS AT 1.25`, `AT1.3285 HC $0.00,`); they stand to the left of the money
+  columns and are therefore never among the last two cells.
+* **Inter-word spacing is a property of the text layer, not of the statement.**
+  Some PDFs render the same furniture as `Forthe period ending April30, 2026`.
+  Every space in the furniture patterns is optional; **no money or date token is
+  relaxed** — only the gaps between words — and the ledger identity still has to
+  close. This recovered one document; it is a structural rule, not a fix for it.
+* **The period starts where the opening-balance row is dated.** It is the only
+  start the A/C statement prints, and it can fall in the previous calendar year.
+
+Negative fixtures — each constrains a new rule rather than demonstrating a
+defect:
+
+* the pre-existing `bmo` layout is claimed by none of the three new
+  registrations, and none of the three new layouts is claimed by `bmo`;
+* the French edition is not claimed by the English registration, and vice versa;
+* the Canadian and US layouts do not claim each other;
+* `bmo.com` and `bmo.com/contact` appearing in a *transaction line* on another
+  bank's statement is not a claim — the single-marker invariant, stated per
+  registration;
+* a header with no ledger is not parsed, at the parser level as well as through
+  the registry's self-invalidation check;
+* all four BMO layouts resolve to exactly one claimant each, with
+  `len(candidates) == 1` — the ambiguity protection exercised rather than
+  assumed.
+
+### M3.2 What did NOT change, deliberately
+
+* **`analysis/bmo.py` is untouched.** Its `_WITHDRAWAL_KEYS` description
+  vocabulary is exactly the construct §TD/§5/§BOFA deleted elsewhere, and the
+  new parsers need no equivalent — but it is reached only when contradictory
+  printed balances make direction uninferable, which is precisely the state of
+  the one pinned corpus document, and that document's withheld diagnosis is a
+  correctness property. Removing it is a change to a withheld document's
+  behaviour with no validated document to prove it against. Carried to Ocean as
+  §M6.3 rather than done here.
+* **No shared utility's behaviour changed**, so no R-2 differential-equivalence
+  proof is owed. `group_rows` is consumed with caller-supplied predicates, as
+  designed; `parse_french_amount`, `parse_grouped_float`, `compact_whitespace`
+  and `normalize_mojibake` are consumed unmodified.
+* **No `supersedes` edge and no band change.** All three registrations sit at
+  band 100. Precedence would be the wrong tool: the layouts are disjoint, and
+  §M5.3 proves it rather than asserting it.
+* **The HTML-table path is untouched** — no document in this cell uses it.
+* **Description continuation lines in family B are not folded into the
+  description.** `RECORD NO. …`, the card number and the merchant location print
+  under the row and are real description text, but so is the repeated page
+  furniture between them, and separating the two would need a list of BMO's
+  furniture wordings. Left as a carried finding (§M6.5) rather than guessed at.
+
+## M4. The two defects the family measurement caught in this cell's own code
+
+Reported as they happened rather than tidied:
+
+1. **The description ended at the last place the amount's text occurred.**
+   `INTERAC e-Transfer Sent 200.00 1,200.00` prints the amount `200.00`, and
+   those same characters occur again *inside* the balance beside it, so three
+   characters of the money columns leaked into every such description. Money
+   cells are now carried as match objects and sliced by position. `test_f5`.
+2. **The item-count line prints one number, not two, when a money column carried
+   nothing all period** — and the dotted leader that would have held the second
+   runs to the end of the line. "The first two digit runs" split `23` into 2 and
+   3, and on one document reached forward into the following `Number of cheques
+   or related items enclosed…` line. The line's numbers are now read and paired
+   with the columns that carry a total. `test_f4`. This one is the reason the
+   instrument is worth running twice: the money was already exact when the
+   counts were wrong.
+
+## M5. Result over the cell
+
+### M5.1 The instrument, before → after
+
+| Family A — 127 claimed of 133 | before | after |
+|---|---|---|
+| summary row closes (`opening − debited + credited = closing`) | 0 / 127 | **127 / 127** |
+| captured debits reproduce the printed debited total | 0 / 127 | **127 / 127** |
+| captured credits reproduce the printed credited total | 0 / 127 | **127 / 127** |
+| captured debit rows equal the printed item count | 0 / 127 | **127 / 127** |
+| captured credit rows equal the printed item count | 0 / 127 | **127 / 127** |
+| every printed running balance follows from the row above | 0 / 127 | **127 / 127** |
+
+| Family C — 4 of 4 | before | after |
+|---|---|---|
+| all six of the above | 0 / 4 | **4 / 4** |
+
+| Family B — 23 of 23 | before | after |
+|---|---|---|
+| summary row closes (`begin + deposits − withdrawals − charges = end`) | 0 / 23 | **23 / 23** |
+| captured withdrawals reproduce the printed withdrawal total | 0 / 23 | **23 / 23** |
+| captured deposits reproduce the printed deposit total | 0 / 23 | **23 / 23** |
+| captured withdrawal rows equal the printed count | 0 / 23 | 19 / 23 |
+| captured deposit rows equal the printed count | 0 / 23 | 22 / 23 |
+
+The two count lines are the honest residual of family B and are reported as
+such: the money reproduces exactly on all 23, and BMO's item counter and the
+ledger's row count differ by one or two on five of them. One cause is visible —
+a printed `$0.00` row (`NON-BMO ATM INQUIRY`) is a ledger row BMO does not count
+as an item; the rest is not yet characterised. Nothing in validation reads these
+counts, and the count that is published is the bank's printed one.
+
+### M5.2 The cell, before → after
+
+| Family | documents | claimed before → after | validated before → after | remainder |
+|---|---|---|---|---|
+| A — BMO Canada Business Banking (EN) | 133 | 0 → **127** | 0 → **124** | 3 withheld · 6 fail-closed |
+| C — BMO Canada Business Banking (FR) | 4 | 0 → **4** | 0 → **4** | — |
+| B — BMO Bank N.A. Monthly Activity | 23 | 0 → **23** | 0 → **0** | 23 blocked in `review` |
+| D — not this statement class | 2 | 0 → 0 | 0 → 0 | 2 unclaimed by design |
+| E1/E2 — no readable text layer | 2 | 0 → 0 | 0 → 0 | 2 unclaimed |
+| **total (documents)** | **164** | **0 → 154** | **0 → 128** | 26 claimed-not-validated · 10 fail-closed |
+| **total (records)** | **179** | — | **0 → 140** | 26 review · 3 withheld · 10 failed |
+
+Ambiguous dispatches: **0.** Parser exceptions: **0.**
+
+**Nothing was padded to get there.** Every document that now validates does so
+because the rows extracted reproduce, independently: the `Summary of account`
+identity BMO prints, the `Closing totals` row BMO prints a second time, the item
+counts BMO prints, and every printed running balance in the Balance column —
+or, for family B, the summary row's two totals, two counts and service charge.
+The fail-closed gate is unchanged; these documents pass it on their own
+arithmetic.
+
+**Claimed but not validated — 26 documents, both causes named:**
+
+| n | class | diagnosis | cause |
+|---|---|---|---|
+| 23 | `review` / `integrity_flags` | `missing_declared_statement_page` | a false positive in `analysis/pipeline.py` — §M6.1. Every one of the 23 reconciles perfectly: `recon.ok`, coverage 1.000 / 1.000, zero continuity breaks, `sum_delta 0.00` |
+| 3 | `withheld` / `withheld_adb` | `posting_date_coverage` | a false positive in `analysis/dates.py::source_posting_dates` — §M6.2 |
+
+**Fail-closed — 10 documents, by design:** 6 with a corrupt text layer (detected,
+declined, `attempted=['bmo_ca_business']`), 1 scanned with no native text, 1 with
+an undecodable font encoding, 2 that are not this statement class.
+
+### M5.3 Regressions — zero, and the evidence
+
+* **The four documents the `bmo` registration claims today**: still
+  `outcome=claimed`, `parser=bmo`, `candidates=(('bmo', 0.5),)` — a single
+  claimant, so nothing became ambiguous — still `withheld` with
+  `primary_class=source_contradiction`, and the same transaction counts
+  (57 / 55 / 41 / 57). The three new registrations do not appear in their top
+  four detections at all.
+* **The pinned corpus**: `python -m pytest -m corpus -q` and `python
+  corpus_gate.py` both green, 106 PASS / 3 WITHHELD, same three by name —
+  including `BMO_Statement_January_2026 Final-1-2 (1).pdf` with its
+  `source_contradiction` diagnosis intact (§M7).
+* **Cross-bank**: a read-only stratified sample of the frozen archive — up to 12
+  digital documents from each of the 64 non-BMO folders, validated ones first,
+  **more than 400 documents** — produced **zero claims** by any of the three new
+  registrations. The highest score any of them reached outside `BMO/` was
+  **0.1**, one required marker of four, a fifth of the way to the threshold.
+* **The conformance cross-product**: 49 × 48 fixture pairs, **zero cross-claims**;
+  the single-marker invariant holds for all three new registrations (four
+  required markers each); SOURCE-comment invariance holds; both
+  `COUNTERPARTY_VULNERABLE` and `FILENAME_DEPENDENT_PARSERS` remain empty.
+* **The suite**: 2,336 → **2,410**, and by nothing else. The growth is the 38
+  fixtures in `tests/test_bmo_layouts.py` plus 36 tests the conformance and
+  registry modules generate by *enumerating* the registry, which is what those
+  modules are for. No existing assertion was edited: the only changes to
+  existing test files are the two registration-count pins, the dispatch-order
+  list, one added `by_bank_label` pin and three conformance fixtures — the R-4
+  idiom for adding a registration.
+
+## M6. Carried findings and questions for Ocean
+
+### M6.1 `missing_declared_statement_page` reads BMO's page footer as a page declaration — 23 documents, one line, zero regression risk
+
+`analysis/pipeline.py` finds declared pages with
+`re.findall(r"\bPage\s*:?\s*(\d+)\s+of\s+(\d+)\b", markdown, re.IGNORECASE)`.
+BMO Bank N.A. prints `CONTINUED ON NEXT PAGE` immediately above its page number,
+so the flattened text reads `…NEXT PAGE` / `2 of 20` — and the heuristic reads
+the last word of one sentence plus the first line of the next as "Page 2 of 20".
+It therefore declares a 20-page statement, finds pages 2–18 (the pages that carry
+that footer) and reports pages 1, 19 and 20 "absent from the supplied PDF". All
+20 pages are present.
+
+Measured, not asserted: with the pattern changed to `(?<!NEXT )\bPage…`,
+monkey-patched **in a scratch script only**, all 23 documents move from
+`review / integrity_flags` to `validated / approved`. As shipped: 23 review, 0
+validated.
+
+`analysis/pipeline.py` is protected and this cell did not touch it. The proposed
+change is a negative lookbehind, which can only *remove* matches and therefore
+can only *remove* the flag: it cannot turn a validated document into a flagged
+one. **Requested: a ruling, and a gate run to confirm no pinned document
+currently depends on the flag.** This is the difference between the cell's
+headline being 128 and 151.
+
+### M6.2 `source_posting_dates` counts a printed section total as a posting date — 3 documents
+
+`analysis/dates.py::_NOT_A_POSTING_ROW` excludes `total(s)? for` but not a bare
+`totals`, so `Apr 30 Closing totals 8,051.66 2,245.03` is counted as a posting on
+Apr 30. On three documents the closing-totals date carries no actual posting, so
+`posting_dates_cover_source` fails and ADB is correctly refused — for the wrong
+reason. `analysis/dates.py` is a shared utility and this cell did not touch it.
+The structural generalisation is `total(s)?\b` rather than a BMO wording; that
+is a shared-utility change and therefore Ocean's, with a differential-equivalence
+proof owed. Volume: 3 documents in this cell, and the class ("a printed section
+total dated in the Date column") will recur in every ledger layout that prints
+one.
+
+### M6.3 `analysis/bmo.py`'s `_WITHDRAWAL_KEYS` is the last description vocabulary in the BMO family
+
+14 description literals, reached only when contradictory printed balances make
+direction uninferable — i.e. only on the four self-contradictory documents,
+which stay withheld either way. The three new parsers demonstrate that the same
+job is done by the printed Balance column with no vocabulary at all. Removing it
+changes a withheld document's transactions with no validated document to prove
+the change against, so it is proposed rather than done. Ruling requested.
+
+### M6.4 BMO prints an online-banking transaction export, exactly as Chase does
+
+`Detail Report - by Processing Date` — per-account sections, `Date · Transaction
+Description · Cust Ref · Bank Ref · Debit · Credit`, no summary, no period
+balances, no running balance. One document in this cell. It is the same document
+class as `chase_export`, and the registry already models it
+(`formal_statement=False` plus the two informal notes). Not built: one document
+cannot evidence a registration, and the R-3 standard would have it fitted to a
+corpus of one. Queued as a card for whenever the volume justifies it.
+
+### M6.5 Family B's merchant detail lines are available and are not being used
+
+`RECORD NO. …`, the card number and the merchant/location line print under each
+row in the Description column and carry the counterparty name — which is what
+downstream classification actually reads. They are currently dropped, because
+the same continuation region also carries the repeated page header and footer,
+and separating the two structurally needs something better than a list of BMO's
+furniture wordings. `POS PURCHASE` is a truthful but weak description. This is a
+description-quality card, not a correctness one; flagged because §BOFA
+established that description movement is reported, not buried.
+
+### M6.6 The count check gains a ninth witness, and family B is its first partial failure
+
+Both BMO layouts print item counts. On the 131 Canadian documents the counts and
+the ledger rows agree 131 / 131 — after the defect in §M4 item 2 was fixed, and
+the counts are what caught it. On the 23 US documents they disagree by one or two
+on five. Every Track A cell that has looked has found this check earns its place;
+this is the first cell where it disagrees on documents whose money is exact.
+
+### M6.7 The new work class is bounded by the platform, not by layout knowledge
+
+Of the 164 documents in this cell, layout knowledge was the binding constraint on
+128. For 26 more the layout is fully read and the block is elsewhere in the
+platform (§M6.1, §M6.2); for 10 the input itself is unusable. If the
+unclaimed-layout class behaves like this generally, the next cells' yield will
+depend at least as much on clearing platform-level false positives as on writing
+parsers.
+
+### M6.8 The three new registrations claim no pinned corpus document
+
+Their only coverage is `tests/test_bmo_layouts.py` and the R-4 conformance
+fixtures — the same status `demo_national` has, and stated here rather than
+discovered later. `tests/data/parser_expectations.json` and
+`tools/record_parser_expectations.py::PIPELINE_ENTRY_POINTS` are the pre-R-3
+or-chain baseline, deliberately **not** extended: that file records what the
+chain did on the pinned 109, and adding parsers that claim none of them would
+make it a record of something else. Its tests pass unchanged, and the divergence
+from the registry (49 vs 46 ids) is now three, not zero — noted so it is a
+decision rather than a drift.
+
+### M6.9 The registration count is documented in four historical places
+
+`tests/test_parser_conformance.py` says "update this count and the docs
+together", and this is the first cell to add a registration. The count moved
+46 → 49 in both pinned tests and is stated here. `R4_CONFORMANCE_FINDINGS.md`
+(`46 × 45`, "all 46 registrations"), `R3_DETECTION_FINDING.md`, `H3_SCHEMA.md`
+and `WAVE2_EXECUTION_LOG.md` still say 46. They are records of what was true when
+they were written and this cell's scope does not include them; flagged so the
+decision — annotate or leave as history — is made rather than defaulted.
+
+### M6.10 `ANALYSIS_STAGE_VERSION`
+
+Must be bumped at merge — `webapp/` is protected and this is Ocean's, not done
+here.
+
+## M7. Proofs
+
+Run on a clean tree at `a990e95`, the last commit touching code or tests.
+
+```
+$ git status --short
+$ git rev-parse --short HEAD
+a990e95
+
+$ set -o pipefail; python -m pytest -q
+2410 passed, 18 deselected, 1 warning in 150.24s (0:02:30)
+SUITE_EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+      tests/test_no_parser_helper_clones.py -q
+100 passed in 0.97s
+GUARDS_EXIT=0
+
+$ python -m pytest tests/test_parser_conformance.py tests/test_parser_registry_entries.py \
+      tests/test_parser_parity.py tests/test_parser_detection_markers.py \
+      tests/test_bmo_layouts.py -q
+698 passed, 9 deselected in 1.20s
+R34_EXIT=0
+
+$ set -o pipefail; python -m pytest -m corpus -q
+14 passed, 2414 deselected, 1 warning in 940.66s (0:15:40)
+CORPUS_MARKED_EXIT=0
+
+$ python corpus_gate.py
+Corpus gate
+
+[PASS] inventory: 109 pinned corpus PDFs, all on disk and audited by both oracles
+[PASS] foreign_files: no non-corpus PDFs under the corpus root
+[PASS] source_integrity: 109/109 pinned source PDFs match their pinned SHA-256
+[PASS] balance_audit: 109 statements reproduce every audited balance field across backend, API, dashboard, CSV, XLSX, and package surfaces
+[PASS] adb_audit: 109 statements reproduce every audited ADB field across backend, API, and dashboard-package surfaces
+[PASS] balance_outcomes: balance: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes: adb: 106 pass, 3 withheld, same three statements
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR = 109 statements resolved offline; no live OCR, no model calls
+[PASS] exclusions: 0 named exclusions
+[PASS] oracle_independence: 4 audit modules import no production financial mathematics
+
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  297.8s
+
+RESULT: GREEN
+GATE_EXIT=0
+```
+
+The three WITHHELD are the same three statements by name, including
+`BMO_Statement_January_2026 Final-1-2 (1).pdf`, whose `source_contradiction`
+diagnosis is re-asserted by
+`tests/test_telemetry_corpus.py::test_withheld_diagnostics_reproduce_the_documented_diagnosis`
+inside the corpus-marked suite above. No re-baseline was requested or performed;
+neither audit CSV was regenerated.
+
+**The suite grew by the new fixtures and by nothing else.** Base `bb7d644`:
+2,336 passed. Head `a990e95`: 2,410. `tests/test_bmo_layouts.py` collects 38;
+the remaining 36 are generated by `tests/test_parser_conformance.py` and
+`tests/test_parser_registry_entries.py` *enumerating* the registry, which is
+what those two modules exist to do.
+
+```
+$ git diff bb7d644..HEAD --stat
+ analysis/bmo_ca_business.py               | 510 ++++++++++++++++
+ analysis/bmo_us_activity.py               | 263 +++++++++
+ analysis/parser_registry_entries.py       |  16 +
+ tests/data/parser_conformance_fixtures.py |  13 +
+ tests/test_bmo_layouts.py                 | 623 ++++++++++++++++++++
+ tests/test_parser_conformance.py          |   9 +-
+ tests/test_parser_registry_entries.py     |  11 +-
+ 7 files changed, 1439 insertions(+), 6 deletions(-)
+```
+
+The six deletions are the two registration-count pins being re-worded. No
+existing assertion changed meaning; the additions to existing test files are the
+dispatch-order list (3 ids), the conformance fixtures (3), and one new
+`by_bank_label("BMO")` pin that did not previously exist because the label was
+not previously shared.
+
+## M8. Commits
+
+| Commit | Contents |
+|---|---|
+| `d25c1da` | `analysis/bmo_ca_business.py`, `analysis/bmo_us_activity.py`, 3 registry entries + 3 overrides, `tests/test_bmo_layouts.py`, conformance fixtures and the two count pins |
+| `be15877` | the two defects of §M4, and their fixtures |
+| `b7b734d` | `bmo_us_activity`: the ledger's bounds named by label rather than position, and `resolve_year` consumed instead of a second local copy |
+| `a990e95` | `bmo_us_activity`: the §M4 item-1 defect class closed in its twin |
+| (this one) | §BMO-LAYOUTS M0–M8 |

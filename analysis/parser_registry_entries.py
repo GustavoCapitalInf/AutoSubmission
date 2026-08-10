@@ -28,6 +28,8 @@ from . import (
     banco_popular,
     bluevine,
     bmo,
+    bmo_ca_business,
+    bmo_us_activity,
     bofa,
     capital_one,
     chase,
@@ -81,6 +83,9 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("bank_of_america", "Bank of America", bofa, "DETECTION_MARKERS", "detection_text", "parse_bofa_statement"),
     ("bluevine", "Bluevine", bluevine, "DETECTION_MARKERS", None, "parse_bluevine_statement"),
     ("bmo", "BMO", bmo, "DETECTION_MARKERS", "detection_text", "parse_bmo_statement"),
+    ("bmo_ca_business", "BMO", bmo_ca_business, "DETECTION_MARKERS", "detection_text", "parse_bmo_ca_business_statement"),
+    ("bmo_ca_business_french", "BMO", bmo_ca_business, "FRENCH_DETECTION_MARKERS", "detection_text", "parse_bmo_ca_business_french_statement"),
+    ("bmo_us_activity", "BMO", bmo_us_activity, "DETECTION_MARKERS", "detection_text", "parse_bmo_us_activity_statement"),
     ("capital_one", "Capital One", capital_one, "DETECTION_MARKERS", None, "parse_capital_one_statement"),
     ("chase", "Chase", chase, "DETECTION_MARKERS", "detection_text", "parse_chase_statement"),
     ("chase_export", "Chase Transaction Export", chase, "EXPORT_DETECTION_MARKERS", "detection_text", "parse_chase_export_statement"),
@@ -145,6 +150,17 @@ _OVERRIDES: dict[str, dict] = {
     # BMO prints a second summary block; where the two disagree the document
     # contradicts itself. Registered here so the orchestrator never names BMO.
     "bmo": {"integrity_checks": (bmo.summary_contradictions,)},
+    # The other two BMO layouts each print one of their figures twice as well,
+    # and each check reads only its own layout's second printing.
+    "bmo_ca_business": {
+        "integrity_checks": (bmo_ca_business.closing_totals_contradictions,)
+    },
+    "bmo_ca_business_french": {
+        "integrity_checks": (bmo_ca_business.closing_totals_contradictions,)
+    },
+    "bmo_us_activity": {
+        "integrity_checks": (bmo_us_activity.summary_row_contradictions,)
+    },
     "td_canada_native": {"band": 10, "supersedes": frozenset({"td_canada"})},
 }
 

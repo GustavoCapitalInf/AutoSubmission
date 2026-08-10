@@ -44,6 +44,19 @@ FIXTURES: dict[str, str] = {
     "bank_of_america": "BANK OF AMERICA\nACCOUNT SUMMARY\nbankofamerica.com\n",
     "bluevine": "Bluevine Inc.\nActivity summary\n",
     "bmo": "BMO Bank of Montreal\nAccount Summary Totals\n",
+    "bmo_ca_business": (
+        "www.bmo.com\nBusiness Banking statement\nSummary of account\n"
+        "Amounts debited from your account ($) Amounts credited to your account ($)\n"
+    ),
+    "bmo_ca_business_french": (
+        "www.bmo.com\nRelevé de services bancaires aux entreprises\n"
+        "Sommaire de votre compte\n"
+        "Montants déduits de votre compte ($) Montants ajoutés à votre compte ($)\n"
+    ),
+    "bmo_us_activity": (
+        "BMO BANK N.A. MEMBER FDIC\nbmo.com/contact\n"
+        "Account Summary\nBEGINNING BALANCE AS OF\nMonthly Activity Details\n"
+    ),
     "capital_one": "CAPITAL ONE\nAN IMPORTANT MESSAGE TO OUR CLIENTS\n",
     "chase": "JPMorgan Chase Bank\nStatement of account\n*start*summary\n",
     "chase_export": "Printed from Chase for Business\nTransactions\n",
