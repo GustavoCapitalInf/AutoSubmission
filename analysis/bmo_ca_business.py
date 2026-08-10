@@ -140,9 +140,7 @@ EN = _Edition(
     period_end=_PERIOD_END_EN,
     opening_label=re.compile(r"^Opening\s*balance\b", re.IGNORECASE),
     closing_label=re.compile(r"^Closing\s*totals\b", re.IGNORECASE),
-    items_label=re.compile(
-        r"Number\s*of\s*items\s*processed[\s.]*(\d+)[\s.]*(\d+)", re.IGNORECASE
-    ),
+    items_label=re.compile(r"^Number\s*of\s*items\s*processed", re.IGNORECASE),
     ledger_heading=re.compile(r"Transaction details", re.IGNORECASE),
     money_re=_MONEY_EN,
     date_re=_DATE_EN,
@@ -160,9 +158,7 @@ FR = _Edition(
     ),
     # The glyph between `art` and `cles` is not always a clean `i` in the text
     # layer, so the label is matched around it rather than through it.
-    items_label=re.compile(
-        r"Nombre\s*d.\s*art.cles\s*trait.s[\s.]*(\d+)[\s.]*(\d+)", re.IGNORECASE
-    ),
+    items_label=re.compile(r"^Nombre\s*d.\s*art.cles\s*trait.s", re.IGNORECASE),
     ledger_heading=re.compile(r"D.tails des transactions", re.IGNORECASE),
     money_re=_MONEY_FR,
     date_re=_DATE_FR,
@@ -223,15 +219,19 @@ detect_french = make_detector(FRENCH_DETECTION_MARKERS, detection_text)
 # Reading the printed grid
 # ---------------------------------------------------------------------------
 
-def _cells(line: str, edition: _Edition) -> list[str]:
+def _cells(line: str, edition: _Edition) -> list[re.Match]:
     """The money cells one physical line prints, in printed order.
 
     A description can contain a money-shaped token — a unit price (`13 ITMS AT
     1.25`), an exchange rate operand (`AT1.3285 HC $0.00, 5.00`). Those stand to
     the LEFT of the grid's money columns and are therefore never among the last
     two cells on the line, which is the only property this parser relies on.
+
+    Matches, not strings: the amount `200.00` also occurs INSIDE the balance
+    `1,200.00` printed beside it, so where a cell stands has to come from the
+    match rather than from searching the line for its text again.
     """
-    return edition.money_re.findall(line)
+    return list(edition.money_re.finditer(line))
 
 
 def _summary_row(text: str, edition: _Edition) -> tuple[str, str, list[float]] | None:
@@ -252,12 +252,12 @@ def _summary_row(text: str, edition: _Edition) -> tuple[str, str, list[float]] |
         if len(cells) != 4:
             continue
         try:
-            amounts = [edition.to_amount(cell) for cell in cells]
+            amounts = [edition.to_amount(cell.group(0)) for cell in cells]
         except ValueError:
             continue
         # The account number is whatever the row prints between the `#` and its
         # first money column.
-        number = compact_whitespace(rest[: rest.find(cells[0])])
+        number = compact_whitespace(rest[: cells[0].start()])
         return match.group("label").strip(), number, amounts
     return None
 
@@ -357,10 +357,22 @@ def _parse(markdown: str, edition: _Edition) -> Statement | None:
     stmt.stated_total_debits = debited
     stmt.stated_total_credits = credited
 
-    counts = edition.items_label.search(text)
-    if counts:
-        stmt.stated_debit_count = int(counts.group(1))
-        stmt.stated_credit_count = int(counts.group(2))
+    # The item counts print under the two money columns, and a column with
+    # nothing in it prints no count: a statement with no credits prints ONE
+    # number on this line, not two. Reading the line's numbers and pairing them
+    # with the totals the columns carry is what tells the two cases apart —
+    # taking "the first two digit runs" splits a two-digit count in half.
+    for raw in text.splitlines():
+        line = compact_whitespace(raw)
+        if not edition.items_label.match(line):
+            continue
+        printed = [int(token) for token in re.findall(r"\d+", line)]
+        if len(printed) == 2:
+            stmt.stated_debit_count, stmt.stated_credit_count = printed
+        elif len(printed) == 1 and bool(debited) != bool(credited):
+            stmt.stated_debit_count = printed[0] if debited else 0
+            stmt.stated_credit_count = 0 if debited else printed[0]
+        break
 
     lines = _ledger_lines(text, edition)
     if not lines:
@@ -416,11 +428,11 @@ def _parse(markdown: str, edition: _Edition) -> Statement | None:
         if len(cells) < 2:
             continue
         try:
-            amount = edition.to_amount(cells[-2])
-            balance = edition.to_amount(cells[-1])
+            amount = edition.to_amount(cells[-2].group(0))
+            balance = edition.to_amount(cells[-1].group(0))
         except ValueError:
             continue
-        description = compact_whitespace(body[: body.rfind(cells[-2])])
+        description = compact_whitespace(body[: cells[-2].start()])
         if not description:
             continue
         month, day = parts
@@ -479,8 +491,8 @@ def closing_totals_contradictions(markdown: str, stmt: Statement) -> list[str]:
         if len(cells) < 2:
             continue
         try:
-            debited = edition.to_amount(cells[-2])
-            credited = edition.to_amount(cells[-1])
+            debited = edition.to_amount(cells[-2].group(0))
+            credited = edition.to_amount(cells[-1].group(0))
         except ValueError:
             continue
         if (

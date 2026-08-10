@@ -154,6 +154,27 @@ def test_f4_number_of_items_processed_is_the_printed_row_count():
     assert stmt.stated_credit_count == 1
 
 
+def test_f4_a_column_with_nothing_in_it_prints_no_count():
+    """A statement with no credits prints ONE number on the item-count line —
+    and the leader that would have carried the second one runs to the end of
+    the line. `the first two digit runs` splits `23` into 2 and 3; reading the
+    line's numbers and pairing them with the columns' totals does not.
+    """
+    document = ca_statement(
+        opening="1,000.00", debited="300.00", credited="0.00", closing="700.00",
+        rows=("Apr 02 Debit Card Purchase, SAMPLE MERCHANT 100.00 900.00",
+              "Apr 03 INTERAC e-Transfer Sent 200.00 700.00"),
+        debit_count=23, credit_count=0,
+    ).replace(
+        "Number of items processed 23 .................................. 0 ..........",
+        "Number of items processed 23 ..................................\n"
+        "Number of cheques or related items enclosed in your statement 9 ....",
+    )
+    stmt = bmo_ca_business.parse_bmo_ca_business_statement(document)
+    assert stmt.stated_debit_count == 23
+    assert stmt.stated_credit_count == 0
+
+
 def test_f5_a_money_shaped_token_inside_a_description_is_not_the_amount():
     """BMO prints unit prices and exchange-rate operands inside the Description
     column (`13 ITMS AT 1.25`, `AT1.3285 HC $0.00,`). They stand to the left of
@@ -170,6 +191,20 @@ def test_f5_a_money_shaped_token_inside_a_description_is_not_the_amount():
     ))
     assert amounts(stmt) == [-16.25, -15.00]
     assert stmt.transactions[0].description.endswith("13 ITMS AT 1.25")
+
+
+def test_f5_the_description_ends_where_the_amount_cell_begins():
+    """`INTERAC e-Transfer Sent 200.00 1,200.00` prints the amount `200.00`,
+    and those same six characters occur again INSIDE the balance beside it.
+    Where the description ends is therefore the amount cell's position in the
+    row, not the last place its text can be found on the line.
+    """
+    stmt = bmo_ca_business.parse_bmo_ca_business_statement(ca_statement())
+    assert [txn.description for txn in stmt.transactions] == [
+        "Debit Card Purchase, SAMPLE MERCHANT",
+        "Direct Deposit, SAMPLE PAYER",
+        "INTERAC e-Transfer Sent",
+    ]
 
 
 def test_f6_the_account_number_is_not_read_as_a_money_column():
