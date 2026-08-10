@@ -217,7 +217,10 @@ OCR_STAGE_VERSION = 2
 # 5 -> 6: phase cell 1 (BMO layout registrations, merge of a990e95)
 # adds claiming parsers for ~154 archive documents — their analyses
 # change from no-parser to full extraction for unchanged settings.
-ANALYSIS_STAGE_VERSION = 6
+# 6 -> 7: FIXUPS-1 (merge of acd0b07) — page-declaration restriction,
+# totals posting-date exclusion, first_community count alignment change
+# analysis output for 23+3+3 archive documents for unchanged settings.
+ANALYSIS_STAGE_VERSION = 7
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 
