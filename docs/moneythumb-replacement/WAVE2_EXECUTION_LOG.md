@@ -1,5 +1,33 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-10 — COUNTS-P1 merged (`2391` tests, zero production change enforced by test) · **D5 FORENSIC ADJUDICATION COMPLETE: verdict `semantics_difference`, pinned PASS stands, NO truth-set action**
+
+Forensic memo (read-only, from PDF bytes, doc `Misc/7429_Statement_
+October_2025` sha `08B2A61B…`): the bank is self-consistent on every
+axis — 202 stated = 202 printed debit-column rows (credits 76 = 76),
+column sums exact to the cent, running balance walks opening→closing
+across all 278 rows, and the bank's own `Total Returned Item Fees
+$192.50 ÷ $27.50 = 7` independently certifies the seven disputed rows
+(balance-neutral failed-EFT attempts, each followed by its fee row).
+Parser raw extraction complete (278/278). **The mismatch is a
+platform-side scope asymmetry inside first_community: the posted-
+activity repair drops the 7 balance-neutral rows and rewrites
+stated_total_debits (125,388.11 → 101,348.37) but leaves
+stated_debit_count at the bank's whole-direction 202.** Not
+extraction_gap; not document_self_inconsistent; printed evidence
+supports no expected-result movement.
+
+**Ocean's completion of the Phase-2 package:** recommend (a) a small
+first_community parser card aligning the count rewrite with the total
+rewrite (expected-side scope alignment from printed balance-neutrality
+evidence — NOT reading back a derived count, so the independence rule
+holds), which resolves the sole pinned-PASS mismatch to a legitimate
+`match`; with that landed, **Phase 2 moves zero pinned expected
+results and needs no ceremony**; (b) Phase 2 then ships narrowed per
+COUNTS-P1's recommendation (semantics-table-gated flags; capital_one/
+texas_bank/bofa/altana platform-incomparable with parser cards).
+Awaiting Gustavo's Phase-2 go.
+
 ## 2026-08-10 — **STATED-COUNT CHECK: GUSTAVO ARCHITECTURAL SIGN-OFF** (D1/D2/D4 approved; D5 ruled)
 
 Binding rulings: computed as structured data, never reconciliation
