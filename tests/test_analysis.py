@@ -356,6 +356,92 @@ def test_document_integrity_high_for_bank_summary_math_contradiction():
     assert integrity.possible_document_issue is True
 
 
+def _reconciled_statement_for_page_declarations() -> tuple[Statement, object, Quality]:
+    """A document with nothing wrong with it, so the only flag that can appear
+    is the page-declaration one under test."""
+    stmt = Statement(
+        bank="Test Bank",
+        beginning_balance=100.0,
+        ending_balance=150.0,
+        stated_total_credits=75.0,
+        stated_total_debits=25.0,
+        transactions=[_txn("2026-01-01", 75.0), _txn("2026-01-02", -25.0)],
+    )
+    quality = Quality(
+        level="transaction_level",
+        transaction_detail_reliable=True,
+        summary_totals_reliable=True,
+        corporate_use="approved",
+    )
+    return stmt, reconcile(stmt), quality
+
+
+def test_continuation_footer_above_a_page_number_is_not_a_page_declaration():
+    """`CONTINUED ON NEXT PAGE` + `2 of 20` is one sentence's last word and the
+    next line's first token, not a declaration of 20 bank pages (W3 §M6.1)."""
+    stmt, recon, quality = _reconciled_statement_for_page_declarations()
+    markdown = (
+        "Statement Summary\n"
+        "CONTINUED ON NEXT PAGE\n"
+        "2 of 20\n"
+        "Monthly Activity Details\n"
+    )
+    integrity = assess_document_integrity(stmt, recon, quality, markdown=markdown)
+    assert "missing_declared_statement_page" not in integrity.flags
+    assert integrity.flags == []
+
+
+def test_a_printed_page_declaration_still_flags_absent_pages():
+    """The restriction removes the continuation footer and nothing else: a real
+    `Page N of M` label with pages missing must still flag."""
+    stmt, recon, quality = _reconciled_statement_for_page_declarations()
+    markdown = "Page 2 of 20\nMonthly Activity Details\n"
+    integrity = assess_document_integrity(stmt, recon, quality, markdown=markdown)
+    assert integrity.flags == ["missing_declared_statement_page"]
+    assert any("1, 3, 4" in note for note in integrity.notes)
+
+
+def test_a_page_declaration_still_flags_when_a_continuation_footer_is_also_present():
+    """Both shapes on one document: the footer is ignored, the declaration is
+    still read, so a genuinely short PDF cannot hide behind the footer."""
+    stmt, recon, quality = _reconciled_statement_for_page_declarations()
+    markdown = (
+        "Page 1 of 3\n"
+        "CONTINUED ON NEXT PAGE\n"
+        "2 of 3\n"
+        "Page 2 of 3\n"
+    )
+    integrity = assess_document_integrity(stmt, recon, quality, markdown=markdown)
+    assert integrity.flags == ["missing_declared_statement_page"]
+    assert any("3 are absent" in note for note in integrity.notes)
+
+
+def test_the_page_declaration_restriction_can_only_remove_matches():
+    """The property the protected-module change rests on, asserted directly:
+    every page declaration the restricted pattern finds was also found by the
+    pattern it replaced, so the flag can only ever be withdrawn."""
+    import re
+
+    from analysis import pipeline
+
+    before = re.compile(r"\bPage\s*:?\s*(\d+)\s+of\s+(\d+)\b", re.IGNORECASE)
+    after = re.compile(r"(?<!NEXT )\bPage\s*:?\s*(\d+)\s+of\s+(\d+)\b", re.IGNORECASE)
+    source = Path(pipeline.__file__).read_text(encoding="utf-8")
+    assert after.pattern in source, "the shipped pattern is the one asserted here"
+
+    samples = [
+        "Page 1 of 4",
+        "page: 2 of 4",
+        "PAGE 3 OF 4",
+        "CONTINUED ON NEXT PAGE\n2 of 20",
+        "continued on next page 7 of 9",
+        "Statement Page 2 of 2 CONTINUED ON NEXT PAGE\n3 of 2",
+        "no page declaration here at all",
+    ]
+    for sample in samples:
+        assert set(after.findall(sample)) <= set(before.findall(sample))
+
+
 def test_parse_atb_native_text_transactions_from_running_balance():
     md = """
 Deposit Account Statement
@@ -1997,6 +2083,107 @@ Accumulated Fees $16.20 $16.20 will be charged to the account on 10/31/2025.
     repaired = repair_first_community_posted_activity(normalize_statement(stmt))
     assert [t.amount for t in repaired.transactions] == [5875.34, -27.5, 14208.0, -18700.0, -16.2]
     assert reconcile(repaired).ok
+    # The printed claim is `4 Debits This Period $32,951.70`; one balance-neutral
+    # EFT is dropped, so both halves narrow together.
+    assert repaired.stated_debit_count == 3
+    assert repaired.stated_total_debits == 18743.70
+    assert repaired.stated_credit_count == 2
+
+
+def test_repair_first_community_narrows_the_debit_count_with_the_debit_total():
+    """The count-scope alignment (D5 `semantics_difference`): the repair drops N
+    printed balance-neutral rows, so the bank's whole-direction debit COUNT has
+    to narrow by the same N that its debit TOTAL narrows by.
+
+    The shape is the pinned corpus document's (`7429_Statement_October_2025`):
+    `202 Debits This Period`, seven balance-neutral failed EFTs dropped, 195
+    debit rows left. Scaled here to the same arithmetic on a fixture.
+    """
+    txns = [_txn("2025-10-01", 100.0, "DIRECT DEPOSIT", bal=200.0)]
+    # seven balance-neutral failed EFT attempts, then one real posted debit
+    for i in range(7):
+        txns.append(_txn(f"2025-10-0{i + 2}", -10.0, "EFT - FAILED ATTEMPT", bal=200.0))
+    txns.append(_txn("2025-10-09", -50.0, "POS - PURCHASE", bal=150.0))
+
+    stmt = Statement(
+        bank="First Community",
+        beginning_balance=100.0,
+        ending_balance=150.0,
+        stated_total_credits=100.0,
+        stated_total_debits=120.0,
+        stated_credit_count=1,
+        stated_debit_count=202,
+        transactions=txns,
+    )
+    repaired = repair_first_community_posted_activity(stmt)
+
+    assert len(stmt.transactions) - len(repaired.transactions) == 7
+    assert repaired.stated_debit_count == 195, "202 printed debits minus the 7 dropped rows"
+    assert repaired.stated_total_debits == 50.0, "the paired total rewrite is unchanged"
+    assert repaired.stated_credit_count == 1, "the credit direction is untouched"
+    assert reconcile(repaired).ok
+
+
+def test_repair_first_community_leaves_counts_alone_when_nothing_is_dropped():
+    """A First Community document with no balance-neutral failed EFT keeps the
+    bank's printed counts and totals exactly as printed."""
+    stmt = Statement(
+        bank="First Community",
+        beginning_balance=100.0,
+        ending_balance=150.0,
+        stated_total_credits=100.0,
+        stated_total_debits=50.0,
+        stated_credit_count=1,
+        stated_debit_count=1,
+        transactions=[
+            _txn("2025-10-01", 100.0, "DIRECT DEPOSIT", bal=200.0),
+            _txn("2025-10-02", -50.0, "POS - PURCHASE", bal=150.0),
+        ],
+    )
+    repaired = repair_first_community_posted_activity(stmt)
+    assert repaired is stmt
+    assert repaired.stated_debit_count == 1
+    assert repaired.stated_total_debits == 50.0
+
+
+def test_repair_first_community_never_rewrites_the_count_without_the_total():
+    """The guard: the two halves of `N Debits This Period $X` move as a pair.
+
+    A count with no total beside it is not narrowed on its own — a rewritten
+    count paired with an as-printed total would describe two different sets of
+    rows, which is the very inconsistency this fix exists to remove.
+    """
+    def _statement(**summary) -> Statement:
+        return Statement(
+            bank="First Community",
+            beginning_balance=100.0,
+            ending_balance=150.0,
+            transactions=[
+                _txn("2025-10-01", 100.0, "DIRECT DEPOSIT", bal=200.0),
+                _txn("2025-10-02", -200.0, "EFT - FAILED ATTEMPT", bal=200.0),
+                _txn("2025-10-03", -50.0, "POS - PURCHASE", bal=150.0),
+            ],
+            **summary,
+        )
+
+    # count printed, total absent -> the count is NOT narrowed
+    count_only = repair_first_community_posted_activity(_statement(stated_debit_count=4))
+    assert len(count_only.transactions) == 2, "the row drop itself still happens"
+    assert count_only.stated_debit_count == 4
+    assert count_only.stated_total_debits is None
+
+    # total printed, count absent -> the total is narrowed, and no count is
+    # invented for a document that never printed one
+    total_only = repair_first_community_posted_activity(_statement(stated_total_debits=250.0))
+    assert total_only.stated_total_debits == 50.0
+    assert total_only.stated_debit_count is None
+
+    # both printed -> both narrow, by the same one dropped row
+    both = repair_first_community_posted_activity(
+        _statement(stated_total_debits=250.0, stated_debit_count=4)
+    )
+    assert both.stated_total_debits == 50.0
+    assert both.stated_debit_count == 3
 
 
 def test_analysis_marks_incomplete_detail_as_manual_review(monkeypatch):

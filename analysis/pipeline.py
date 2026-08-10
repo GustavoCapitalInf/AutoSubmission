@@ -260,10 +260,21 @@ def assess_document_integrity(
     if contradictions:
         flags.append("conflicting_statement_summaries")
         notes.extend(contradictions)
+    # `CONTINUED ON NEXT PAGE` is a continuation footer, not a page
+    # declaration. Banks print it immediately above the page number, and PDF
+    # flattening joins the two lines, so "…NEXT PAGE" + "2 of 20" reads as
+    # "Page 2 of 20" to a pattern that only looks for the word.
+    #
+    # RESTRICTION-ONLY PROPERTY, and the reason this hunk is safe: a negative
+    # lookbehind can only REMOVE matches from the set the pattern found
+    # before, never add one. `declared_pages` can therefore only shrink, so
+    # `missing_declared_statement_page` can only be withdrawn from a document
+    # that carried it — this change cannot raise the flag on any document that
+    # did not already have it, and cannot move a validated document to review.
     declared_pages = [
         (int(current), int(total))
         for current, total in re.findall(
-            r"\bPage\s*:?\s*(\d+)\s+of\s+(\d+)\b",
+            r"(?<!NEXT )\bPage\s*:?\s*(\d+)\s+of\s+(\d+)\b",
             markdown,
             re.IGNORECASE,
         )

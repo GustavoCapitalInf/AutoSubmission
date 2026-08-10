@@ -585,6 +585,59 @@ def test_source_posting_dates_ignores_headers_grids_and_footers():
     assert source_posting_dates(md, start, end) == {date(2026, 2, 2)}
 
 
+def test_source_posting_dates_ignores_a_printed_section_total_row():
+    """A section total the bank dates in the Date column is not a posting.
+
+    BMO's Canadian business layout closes its ledger with
+    `<date> Closing totals <debited> <credited>`; read as a posting it invents
+    an activity day the document never had (W3_TRACKA_LOG §BMO-LAYOUTS §M6.2).
+    """
+    from analysis.dates import source_posting_dates
+
+    start, end = date(2026, 4, 1), date(2026, 4, 30)
+    md = "\n".join([
+        "Apr 02 Payroll deposit 1,200.00 3,400.00",   # a real posting row
+        "Apr 30 Closing totals 8,051.66 2,245.03",    # the printed section total
+    ])
+    assert source_posting_dates(md, start, end) == {date(2026, 4, 2)}
+
+
+def test_source_posting_dates_ignores_bare_and_labelled_total_rows_alike():
+    """The shapes the exclusion has to cover, including the two it already did
+    (`Total for` / `Totals for`), so the generalisation cannot silently drop
+    them."""
+    from analysis.dates import source_posting_dates
+
+    start, end = date(2026, 4, 1), date(2026, 4, 30)
+    for row in [
+        "Apr 30 Closing totals 8,051.66 2,245.03",
+        "Apr 30 Totals 8,051.66 2,245.03",
+        "Apr 30 Total 8,051.66",
+        "Apr 30 Closing totals",
+        "Apr 30 Totals: $8,051.66",
+        "Apr 30 Total for this period 8,051.66",
+        "Apr 30 Totals for April 8,051.66",
+    ]:
+        assert source_posting_dates(row, start, end) == set(), row
+
+
+def test_source_posting_dates_keeps_a_posting_whose_description_contains_totals():
+    """The negative fixture the shared-utility standard requires: `total` /
+    `totals` INSIDE a description is a merchant, not a section total, and the
+    row keeps its posting date."""
+    from analysis.dates import source_posting_dates
+
+    start, end = date(2026, 4, 1), date(2026, 4, 30)
+    md = "\n".join([
+        "Apr 03 POS PURCHASE TOTAL WINE & MORE 45.00 1,200.00",
+        "Apr 04 ACH DEBIT TOTALS INC PAYROLL 300.00 900.00",
+        "Apr 05 CHECK 1042 TOTAL LANDSCAPING SERVICES 75.00 825.00",
+    ])
+    assert source_posting_dates(md, start, end) == {
+        date(2026, 4, 3), date(2026, 4, 4), date(2026, 4, 5),
+    }
+
+
 def test_source_posting_dates_accepts_a_bare_date_line_followed_by_amounts():
     # Navy Federal prints the date on its own line above the description/amounts.
     from analysis.dates import source_posting_dates

@@ -168,10 +168,35 @@ def _row_date(line: str, period_start: date, period_end: date) -> date | None:
 # Lines that begin with a date but are NOT a posting row. Without these the
 # guard misfires on almost every bank: statement-period headers, daily-balance
 # summary grids and balance-label lines all start with a date.
+#
+# `total(s)? for` is the labelled form ("Total for this period"). The general
+# section-total shape lives in `_SUMMARY_TOTAL_ROW` below.
 _NOT_A_POSTING_ROW = re.compile(
     r"\b(through|statement period|beginning balance|opening balance|ending balance"
     r"|closing balance|previous balance|balance forward|average (daily |ledger |collected )?balance"
     r"|daily balance|total(s)? for|page\s*:?\s*\d+)\b",
+    re.I,
+)
+
+# A printed section total that a bank dates in the Date column -- "Apr 30
+# Closing totals 8,051.66 2,245.03" -- is a summary row, not a posting. Read as
+# a posting it invents an activity day the statement never had, and the parser
+# (correctly) produces no transaction for it, so `posting_dates_cover_source`
+# fails for a reason that is not true of the document.
+#
+# Structure-keyed, not a bank wording: what makes this a total row is that the
+# label ENDS in "total"/"totals" immediately before the money columns (or the
+# end of the line) -- that is where a section total is printed, and it is not
+# where a merchant name lands. A description that merely CONTAINS the word
+# ("POS PURCHASE TOTAL WINE & MORE 45.00 1,200.00") keeps its posting date,
+# because there the word is followed by more description rather than by money.
+#
+# Direction of effect: this can only REMOVE dates from `source_posting_dates`.
+# `posting_dates_cover_source` is `source_dates - parsed_dates`, so a smaller
+# source set can only shrink the missing set -- the check can go from failing
+# to passing on a document, never from passing to failing.
+_SUMMARY_TOTAL_ROW = re.compile(
+    r"\btotals?\b[\s:.\-]*(?:\$?\(?-?\d[\d,]*\.\d{2}|$)",
     re.I,
 )
 _MONEY_RE = re.compile(r"\d[\d,]*\.\d{2}")
@@ -197,6 +222,8 @@ _DAILY_BALANCE_SECTION_END = re.compile(
 def _is_posting_row(line: str) -> bool:
     if _NOT_A_POSTING_ROW.search(line):
         return False
+    if _SUMMARY_TOTAL_ROW.search(line):
+        return False
     return len(_DATE_TOKEN_RE.findall(line)) <= 1
 
 
@@ -209,8 +236,9 @@ def source_posting_dates(markdown: str, period_start: date, period_end: date) ->
     corrupts the daily ledger and therefore Average Daily Balance.
 
     Only leading date tokens on lines that look like a posting row count; period
-    headers, balance-summary grids and balance labels are excluded, because
-    treating those as posting dates would flag almost every clean statement.
+    headers, balance-summary grids, balance labels and printed section totals
+    are excluded, because treating those as posting dates would flag almost
+    every clean statement.
 
     This is a heuristic over text whose column structure the PDF flattening has
     already destroyed, so it is tuned to be quiet rather than exhaustive: across
