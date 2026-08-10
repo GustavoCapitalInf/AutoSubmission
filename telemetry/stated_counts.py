@@ -1133,7 +1133,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--run", required=True, help="A discovery run directory (contains rows.csv).")
     parser.add_argument("--data-dir", required=True, help="The webapp data directory holding the D-3 artifact cache.")
-    parser.add_argument("--corpus-audit", help="docs/adb-audit-results.csv — pins the 109.")
+    parser.add_argument("--corpus-audit", help="docs/adb-audit-results.csv - pins the 109.")
     parser.add_argument("--corpus-root", default="Bank Statements", help="Corpus root for --corpus-audit.")
     parser.add_argument("--all-rows", action="store_true", help="Do not collapse duplicate documents.")
     parser.add_argument("--json", action="store_true", help="Emit the rollup as JSON.")
