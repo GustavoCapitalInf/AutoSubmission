@@ -424,3 +424,45 @@ it to be inferred.
 (`test_the_precedence_table_in_the_taxonomy_doc_matches_the_code`), so the two
 cannot drift again — the renumbering this change required was done from the
 code, not by hand.
+
+---
+
+## 12. Observer-side vocabulary: the stated-count check (COUNTS-P1, phase 1)
+
+**No class changes, no code changes, no new taxonomy codes.** This section
+exists because a second closed vocabulary now lives one layer out from this
+one, in `telemetry/stated_counts.py`, and two of its values reuse words that
+already mean something here. Recording the distinction is cheaper than
+discovering it in a rollup.
+
+The stated-count observer (Gustavo's 2026-08-10 sign-off; measurement in
+`COUNTS_P1_MEASUREMENT.md`) classifies each document **per direction** as
+exactly one of `match`, `mismatch`, `not_printed`, `semantics_incomparable`,
+`check_unavailable`. It is a **phase-1 measuring instrument over cached
+payloads**: it emits no flag, produces no code in the `integrity:` namespace,
+never reaches `diagnose`, and is not imported by `analysis/`, `ocr/`, `webapp/`
+or `discovery/`. Nothing in §3, §4 or §7 above changes.
+
+Two names, two layers:
+
+- **`check_unavailable`** here (§4, rank 4) is a *diagnostic class*: a
+  document's diagnosis is incomplete because an integrity check crashed inside
+  it. **`check_unavailable`** in the observer is a *count-check outcome*: there
+  was no cached payload, no rows, aggregate-backed rows, or a row with no
+  `direction`, so the comparison could not run. They are never mixed — the
+  observer's values never enter `CLASS_OF`, `CLASS_PRECEDENCE` or
+  `DIAGNOSTICS_VERSION`.
+- **`semantics_incomparable`** has no counterpart here at all. It is the
+  sign-off's forced-mismatch prohibition made into a value: where a bank's
+  printed count denotes a different set of rows than `Transaction.direction`
+  does (cheques folded into a printed debit figure, category subtotals,
+  multi-category sums, label-scoped subsets), the observer declines to compare
+  rather than manufacturing a defect. The per-bank table and its arguments are
+  `telemetry/stated_counts.SEMANTICS`.
+
+**When phase 2 lands** it adds `integrity:credit_count_mismatch` and
+`integrity:debit_count_mismatch` to §3.2, both classed `detail_coverage`
+(rank 9), with `DIAGNOSTICS_VERSION` 2 → 3 — and it is the merge that makes
+Ocean's ruling on §10 open question 2 due, since a count mismatch produces
+`review` and `DIAGNOSABLE_CLASSES` is `withheld`-only today. None of that is
+phase 1. This section will be replaced by real §3/§4 rows at that merge.
