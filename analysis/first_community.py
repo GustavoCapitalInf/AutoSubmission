@@ -190,7 +190,23 @@ def repair_first_community_posted_activity(stmt: Statement) -> Statement:
     if not removed_debits:
         return stmt
 
+    removed_rows = len(stmt.transactions) - len(kept)
+
+    # `N Debits This Period $X` is ONE printed claim with two halves: a count and
+    # a sum over the same set of rows. This repair narrows that set by the N
+    # printed balance-neutral rows, so both halves have to narrow with it —
+    # rewriting the sum alone leaves the count describing a set of rows the
+    # statement no longer reports, which is the `semantics_difference` D5
+    # adjudicated. This is expected-side scope alignment from printed
+    # balance-neutrality evidence, not a derivation from what we captured: the
+    # independence rule holds because nothing derived is read back.
+    #
+    # The two halves move as a pair or not at all — the count is never rewritten
+    # without the total, and when both printed halves are present neither is
+    # rewritten without the other. An absent half carries no claim to narrow.
     updates = {"transactions": kept}
     if stmt.stated_total_debits is not None:
         updates["stated_total_debits"] = round(stmt.stated_total_debits - removed_debits, 2)
+        if stmt.stated_debit_count is not None:
+            updates["stated_debit_count"] = stmt.stated_debit_count - removed_rows
     return stmt.model_copy(update=updates)
