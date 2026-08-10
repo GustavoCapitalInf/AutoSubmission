@@ -1,5 +1,25 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-10 — **PHASE CELL 1 (BMO) OFFICIAL: improved 154 / regressed 0 — first claim-coverage movement of the phase (50.4% → 55.0%)**
+
+BMO merged (`b7108dd` incl. FIXUPS-1 handoff), v6 bump, 2,465 default /
+14 corpus-marked / gate GREEN, pushed, CI green. Instrument
+(`52b4b2b2` → `04e24c20`): failed→validated **128** (bmo_ca_business 127
+− 3 totals-withheld + french 4... per-family: ca_business 127 improved,
+us_activity 23, french 4), failed→review 23 (family B — page-declaration
+false positive, FIXUPS-1 fix 1), failed→withheld 3 (bare-totals posting
+dates, FIXUPS-1 fix 2 — now claimed AND diagnosable), regressions 0.
+Totals: validated 1,750 (51.8%) · review 33 · withheld 61 · failed 1,523.
+The worker's characterization (3 real layout families + honestly-classed
+unusable/not-statement tails; `ACCOUNT SUMMARY TOTALS` on 0 of 164 —
+the old detection was total) and its correction (BMO's validated base
+was ZERO, not ~4) stand in §BMO-LAYOUTS. Hygiene queued: stale "46
+registrations" doc mentions; _WITHDRAWAL_KEYS dead code.
+
+**Dispatched: FIXUPS-1 (mt-fixups — the three evidence-backed platform
+fixes) ∥ REEF-CHASE-LAYOUTS (mt-chase — phase cell 2, ~176 docs, BMO
+standard, overlap-aware with FIXUPS).**
+
 ## 2026-08-10 — COUNTS-P1 merged (`2391` tests, zero production change enforced by test) · **D5 FORENSIC ADJUDICATION COMPLETE: verdict `semantics_difference`, pinned PASS stands, NO truth-set action**
 
 Forensic memo (read-only, from PDF bytes, doc `Misc/7429_Statement_
