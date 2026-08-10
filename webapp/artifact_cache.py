@@ -214,7 +214,10 @@ OCR_STAGE_VERSION = 2
 # primary; us_bank/truist/pnc vocabulary and grid fixes; merges of
 # 2607da3 and 306f2ac) change analysis output for unchanged settings.
 # One composed bump before the round's measurement.
-ANALYSIS_STAGE_VERSION = 5
+# 5 -> 6: phase cell 1 (BMO layout registrations, merge of a990e95)
+# adds claiming parsers for ~154 archive documents — their analyses
+# change from no-parser to full extraction for unchanged settings.
+ANALYSIS_STAGE_VERSION = 6
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 
