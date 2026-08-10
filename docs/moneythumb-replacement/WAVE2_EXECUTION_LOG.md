@@ -1,5 +1,25 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-10 — **NEW PHASE APPROVED (Gustavo): unclaimed layouts of known banks.** Track A accepted as complete; checkpoint 1,048→1,622 / 31.0%→48.0% / 650→58 / zero regressions.
+
+Phase rules recorded: characterize before code; classify root cause per
+family (detection / extraction / both / unusable); structural capability
+extension over layout-specific literals; no statement fixes; ambiguity
+protections and fail-closed validation untouched; claimed-but-unreliable
+is NOT success — validated analysis is the outcome; stage-version
+invalidation whenever unchanged inputs can change analysis; every family
+measured vs the canonical baseline via the movement instrument; do not
+weaken reconciliation/grounding to recover geometry residuals.
+
+Housekeeping: all ten Track A/W3 branches verified merged and deleted;
+worktrees removed (two OneDrive-locked dirs pending). **Dispatched
+(handoffs at `bb7d644`): REEF-BMO-LAYOUTS (mt-bmo — the ~176-doc BMO
+family, phase cell 1) ∥ PLATFORM-PROPOSALS (mt-proposals, design-only —
+A: stated-count check proposal for Gustavo sign-off; B: geometry/
+structurer integration design).** After BMO: evidence-ranked Chase → TD →
+CIBC → unregistered US Bank → tail; first BMO characterization + measured
+result goes to Gustavo when the cell completes.
+
 ## 2026-08-09 — WELLS + TRIO merged/pushed (`46fb5e3`); movement +89/0; **TRACK A CELL PHASE EFFECTIVELY COMPLETE**
 
 Both approved: WELLS 36/40 (summary block read as label-owned rows; WF_TX
