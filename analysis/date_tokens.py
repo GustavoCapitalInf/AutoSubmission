@@ -122,7 +122,17 @@ def period_from_long_dates(markdown: str) -> tuple[str, str] | None:
     if not m:
         return None
     sm, sd, sy, em, ed, ey = m.groups()
+    # The pattern's `([A-Z][a-z]+)` matches any capitalized word, so a phrase
+    # shaped like a long period but headed by something else ("Jan 5, 2026
+    # through Feb 4, 2026", "Balance 5, 2026 through February 4, 2026") reaches
+    # here. That is a NON-MATCH, not an error: the contract above says callers
+    # treat None as "try another period format", and a KeyError escaping into
+    # them is a crash (ParserCrashError in deterministic mode, and in the
+    # webapp's auto mode a silent fall-through to LLM extraction).
+    start_month, end_month = _MONTH_NAMES.get(sm), _MONTH_NAMES.get(em)
+    if start_month is None or end_month is None:
+        return None
     return (
-        date(int(sy), _MONTH_NAMES[sm], int(sd)).isoformat(),
-        date(int(ey), _MONTH_NAMES[em], int(ed)).isoformat(),
+        date(int(sy), start_month, int(sd)).isoformat(),
+        date(int(ey), end_month, int(ed)).isoformat(),
     )
