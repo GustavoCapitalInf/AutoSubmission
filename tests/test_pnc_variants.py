@@ -364,21 +364,55 @@ def test_f5_the_average_ledger_balance_is_read_whole_too():
 def test_f5_negative_a_figure_that_cannot_be_read_whole_is_not_read_at_all():
     """The boundary guard, stated directly. `1 0000.00` is not a grouping this
     parser knows, and the reading it would otherwise fall back on is the
-    `0000.00` tail — a truncation, and one that publishes as a plausible
-    `0.00` opening balance. Refusing the fragment leaves this summary short of
-    its four columns, so the document fails closed instead."""
+    `0000.00` tail — a truncation that publishes as a plausible `0.00` opening
+    balance. Refusing the fragment leaves the grid a column short, so the
+    document fails closed instead.
+
+    The body here carries SPARE figures — the average ledger pair below the
+    grid — which is what makes this the real test. Refusing a figure only
+    fails closed if the reader is bounded to the grid's own row; an unbounded
+    reader walks past the hole and takes the next four figures it can find,
+    turning a loud refusal into a quiet, wrong approval."""
+    doc = document(beginning="1 0000.00", ending="1,200.00", activity=ACTIVITY)
+    assert parse_pnc_statement(doc) is None
+
+
+def test_f5_negative_the_reader_never_walks_past_the_grid_to_find_four_figures():
+    """The same construction, said as the property rather than the symptom: the
+    figures printed BELOW the grid must never be able to stand in for it."""
+    doc = document(beginning="1 0000.00", credits="500.00", debits="300.00",
+                   ending="1,200.00", activity=ACTIVITY)
+    stmt = parse_pnc_statement(doc)
+    assert stmt is None, (
+        "the average ledger pair was read as summary columns: "
+        f"{stmt and (stmt.beginning_balance, stmt.ending_balance)}"
+    )
+
+
+def test_f5_negative_an_item_count_beside_an_amount_is_out_of_reach():
+    """PNC prints a `Description Items Amount` index and a `Daily Balance`
+    ladder inside the block this parser is handed, and both put a bare integer
+    immediately left of a figure — `Debit Card Purchases 7 202.05`, `02/11
+    953.78`. Read as money that is 7,202.05 and 11,953.78. They are below the
+    grid row, so the summary reader never reaches them; this pins that."""
     doc = (
         "Business Checking\nPNC Bank\n"
         "For the Period 04/01/2026 to 04/30/2026\n"
         "Primary Account Number: XX-XXXX-0000\n"
         "Balance Summary\nBeginning\n"
-        "Ending balance 1 0000.00 500.00 300.00 1,200.00\n"
+        "Ending balance 1,000.00 500.00 300.00 1,200.00\n"
         "Deposits and other additions\nChecks and other\nbalance\ndeductions\n"
+        "Average ledger\nAverage collected\nbalance 900.00 900.00\nbalance\n"
+        "Description Items Amount Debit Card Purchases 7 202.05\n"
+        "Date Ledger balance 02/10 1,195.48 02/11 953.78 02/12 840.03\n"
         "Activity Detail\n"
         f"{ACTIVITY}"
         "Daily Balance\nDate Ledger balance\n04/30 1,200.00\n"
     )
-    assert parse_pnc_statement(doc) is None
+    stmt = parse_pnc_statement(doc)
+    assert stmt is not None
+    assert summary_of(stmt) == (1000.00, 500.00, 300.00, 1200.00)
+    assert stmt.stated_average_balance == 900.00
 
 
 def test_f5_negative_the_space_between_two_columns_is_still_a_column_gap():

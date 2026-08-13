@@ -68,12 +68,20 @@ _THOUSANDS_SPACE = "\u0020\u00a0\u202f"
 #: all four columns truncate together, so every printed identity still closes
 #: and the statement publishes approved with each figure wrong by the same
 #: thousand. The guard makes the fragment unmatchable, so a figure this parser
-#: cannot read whole is not read at all and the document fails closed.
+#: cannot read whole is not read as a smaller one. What turns that refusal into
+#: a REFUSAL rather than a shift is `_grid_row`: the summary is read from the
+#: grid's own row, so a missing figure leaves that row a column short instead
+#: of moving the reader on to the next four figures printed below it.
 _SUMMARY_MONEY_RE = re.compile(
     rf"(?<![\d.,])"
     rf"(?:(?<=\.\d\d[{_THOUSANDS_SPACE}])|(?<![\d][{_THOUSANDS_SPACE}]))"
     rf"(?:\d[\d,]*(?:[{_THOUSANDS_SPACE}]\d{{3}})*)?\.\d{{2}}-?"
 )
+
+#: Any printed figure, INCLUDING the truncated fragments the pattern above
+#: refuses. Used only to count figures on a line — to find the grid's row —
+#: and never to read a value, so its tolerance costs nothing.
+_ANY_FIGURE_RE = re.compile(r"(?<![\d.,])(?:\d[\d,]*)?\.\d{2}-?")
 
 #: The same printed figure where a label rather than a column position finds it,
 #: so the two readings of the Balance Summary block cannot disagree about what a
@@ -124,11 +132,45 @@ def _period(markdown: str) -> tuple[str, str] | None:
     )
 
 
+def _grid_row(body: str) -> str | None:
+    """The Balance Summary's four-column row, which is one printed line.
+
+    The block between the `Balance Summary` heading and whichever of the
+    Overdraft summary or the Activity Detail is printed next is, on many
+    statements, far more than the grid: the `Description Items Amount` index
+    table and the entire `Daily Balance` ladder are inside it. Scanning all of
+    that for figures and taking the first four worked only because the grid is
+    printed first — and it left the reader standing over a region of numbers
+    that are not summary columns at all, where an item count beside an amount
+    (`Debit Card Purchases 7 202.05`) or a date beside a ledger balance
+    (`02/11 953.78`) reads as one figure.
+
+    So the grid is bounded to the line that prints it. On every one of the 54
+    Balance Summary blocks in the archive the four columns are the first four
+    figures of a single physical line, and nothing below that line is read.
+
+    The row is LOCATED by a permissive figure count and READ with
+    `_SUMMARY_MONEY_RE`. That split is the whole point: a figure the strict
+    pattern refuses still counts towards finding the row, so the row is found
+    and comes up a column short and the statement fails closed. Locating by the
+    strict count instead would skip the grid and settle on the next line with
+    four figures in it — a `Daily Balance` ladder read as a summary, which is a
+    silent approval standing exactly where the refusal belongs.
+    """
+    for line in body.splitlines():
+        if len(_ANY_FIGURE_RE.findall(line)) >= 4:
+            return line
+    return None
+
+
 def _summary_amounts(text: str) -> tuple[float, float, float, float] | None:
     summary = re.search(r"Balance Summary(?P<body>.*?)(?:Overdraft and Returned Item Fee Summary|Activity Detail)", text, re.DOTALL | re.IGNORECASE)
     if not summary:
         return None
-    amounts = _SUMMARY_MONEY_RE.findall(summary.group("body"))
+    row = _grid_row(summary.group("body"))
+    if row is None:
+        return None
+    amounts = _SUMMARY_MONEY_RE.findall(row)
     if len(amounts) < 4:
         return None
     values = [_money(amount) for amount in amounts[:4]]
