@@ -4158,3 +4158,275 @@ fixture.
 | `39efc0f` | `chase`: the §C6.1 sign fix, its five fixtures, and §CHASE-LAYOUTS C0–C6 |
 | `30930cd` | §CHASE-LAYOUTS rewritten around the landed fix, plus C7–C8 |
 | (this one) | `square_checking`: the two revisions from Ocean's adversarial review — the money-bearing-footer defect closed with two structural bounds, and the R4-3 negative rebuilt to 3-of-4 markers |
+
+# §MONEYFIX-1 — four fuzzer-evidenced parser-local grammar cards (rbc, truist ×2, capital_one)
+
+MONEYFIX-1, 2026-08-13. Branch `wave3-moneyfix-1`, base `ed56f80` (current
+main). Brief: `docs/agent-handoffs/MONEYFIX-1.md`, plus card T2 added
+mid-flight by Ocean. Baseline: run `6893a75b`.
+
+Every card here was found by a fuzzer, not by a failing document: each is a
+grammar the parser refuses (or accepts) that its own printed grid says it
+should accept (or refuse). Three of the four are therefore invisible in the
+archive today — which is the point. The reproducers are
+`repro_moneyfmt.py` (F-MONEYFMT findings 1, 4, 5) and `repro.py` case P1-D
+(F-STRUCTURE #4); both were run against main before any code changed, and all
+four defects reproduced.
+
+## MF0. Summary
+
+| | |
+|---|---|
+| Cards | 4. **R** rbc summary totals · **T** truist summary activity rows · **T2** truist checks furniture · **C** capital_one unguarded scrub. |
+| Files changed | `analysis/rbc.py`, `analysis/truist.py`, `analysis/capital_one.py`, `tests/test_rbc_variants.py`, `tests/test_truist_variants.py`, `tests/test_capital_one_variants.py` (new), this log. Nothing else. |
+| Protected modules touched | **none.** `analysis/money.py` untouched; `analysis/chase.py` untouched; no pipeline, reconcile, count_semantics, registry or `ocr/`. |
+| Statement-specific constants added | **none.** Every rule is the module's own printed grid; card T2 blocklists no phrase. |
+| Per-parser sweeps | 233 documents (rbc 154, truist 51, capital_one 28 — each parser's entire claimed population in `6893a75b` plus its class-1 declines). **233 / 233 byte-identical, 0 movers.** |
+| Outcome classes | unchanged on every one of the 233. |
+| Pinned corpus | `corpus_gate.py` GREEN, corpus-marked suite green, no audited field moved. **No truth-set movement; no ceremony needed.** |
+| Coverage gain | **zero, and expected.** All four cards fix grammars the archive does not currently exercise; the value is the silent-loss and phantom-row classes they close, not documents recovered. |
+| Cache implication | `ANALYSIS_STAGE_VERSION` bump is **Ocean's at merge** (output is byte-identical on the archive, but the parse grammar changed). |
+
+## MF1. Card R — rbc: the total rows refused the symbol their balance rows took
+
+`Account Summary for this Period` prints four rows in one grid. The two
+balance rows (`rbc.py:393,396`) admitted `-?\$?[\d,]+\.\d{2}|\$-?[\d,]+\.\d{2}`;
+the two total rows (`:399,403`) admitted only `[\d,]+\.\d{2}`.
+
+Whether the currency symbol is printed is a property of the STATEMENT, not of
+the row. So on a statement that prints `$` on its totals, four fields went
+None at once — `stated_total_credits`, `stated_total_debits`,
+`stated_credit_count`, `stated_debit_count` (the counts are captured by the
+same match). That leaves `reconcile.summary_ok` None, which SKIPS the summary
+identity check rather than failing it, and the document ships **approved with
+`summary_totals_reliable=True` and zero issues**. Silent, and worse than a
+withhold: the platform asserts the totals are reliable while holding none.
+
+Reproduced on main (F-MONEYFMT finding 1):
+
+```
+control  (no '$'): credits=1000.0 debits=300.0 ccount=1 dcount=1 summary_ok=True  use=approved
+repro    (with $): credits=None   debits=None  ccount=None dcount=None summary_ok=None  use=approved  summary_reliable=True
+```
+
+**Fix.** The block's money syntax is now one named constant, `_SUMMARY_MONEY`,
+used by all four rows. Reuse, not new grammar: the constant is the balance
+rows' existing alternation, moved up and shared. The direction cell is still
+consumed OUTSIDE the figure (`\((\d+)\)\s*-?\s*` then the money group), so a
+debit total remains a magnitude — pinned four ways (`- $300.00`, `-$300.00`,
+`- 300.00`, `-300.00` all give +300.00).
+
+**Fixtures** (`tests/test_rbc_variants.py`, 6 tests / 9 cases): the pre-fix
+grammar quoted verbatim and asserted to refuse the `$`-bearing total lines
+in-process, while the balance-row pattern accepts them; the `$` and `$`-less
+documents proved model-identical; the counts proved to survive; a deliberate
+8,999.00 mismatch on a `$`-bearing total proved **CAUGHT** (`summary_ok False`,
+issues non-empty) — the oracle is live again; and the `$`-less statement
+proved untouched.
+
+## MF2. Card T — truist: `_DOLLAR` applied where its docstring says it is
+
+`_DOLLAR` (`truist.py:22`) is the module's gap-tolerant currency-symbol
+pattern; its docstring states every money pattern in the module admits it,
+because Truist prints the symbol as its own cell (`= $662.35` / `= $ 662.35`).
+The Account summary's three activity rows (`:31-33`) did not use it.
+
+Those three rows sit in the SAME printed grid as the two balance rows beside
+them, which do use it — so a statement that spells one `$ 662.35` spells them
+all that way. And `_summary()` is the parser's entry gate: unlike the W3 F1
+defect one function away, which lost a section, this returned None for the
+**whole document**. The 2026-08-07 W3 F1 fix repaired the identical defect in
+`_CHECKS_SECTION_RE`; this is the same fix, one function up.
+
+**Fix.** `+ _DOLLAR +` on the three rows. Nothing else.
+
+**Fixtures** (5 tests / 7 cases): pre-fix grammar quoted verbatim and asserted
+to refuse the spelled document in-process; all three spellings (`300.00`,
+`$300.00`, `$ 300.00`) proved to parse; the symbol-bearing document proved
+model-identical to the symbol-less one; and a row printing the symbol with no
+figure proved to still withhold — `_DOLLAR` admits the symbol, not the absence
+of the amount.
+
+### MF2b. The 3 truist class-1 declines: checked, and NOT this card
+
+The brief asked whether card T recovers them (manifest `class1_truist_3.csv`).
+It does not, and the reason is worth recording because it is a different card:
+
+| document | why it declines |
+|---|---|
+| `2C3766D86270` `Truist/09daf1ae_February_ 2026 (1).pdf` | product, not grammar |
+| `AD9997D34B3E` `Truist/09daf1ae_April_ 2026 (3).pdf` | product, not grammar |
+| `C65EC1947F8F` `Truist/09daf1ae_May_ 2026 (1).pdf` | product, not grammar |
+
+All three are the same account, and all three print
+**`TRUIST SIMPLE BUSINESS SAVINGS 1110026364950`**. `_summary()`'s account-line
+anchor requires `...CHECKING...`, so a savings statement can never match it.
+Measured stage by stage, every one of the five money rows in all three
+documents matches the CURRENT pattern — including the three activity rows,
+which print no symbol at all (`Checks - 0.00`). The blocker is the product
+anchor alone.
+
+Admitting SAVINGS is grammar widening into a product this parser has never
+claimed, with no attested evidence that the rest of the layout is identical —
+out of scope for this brief. **Carried to Ocean as a candidate card** (3
+documents, one account, one folder).
+
+## MF3. Card T2 — truist: a note ABOUT the Checks table is not a row of it
+
+The Checks table has three columns — DATE, CHECK #, AMOUNT($) — and prints no
+words in any of them. The sequence-gap note prints a date, a cheque number and
+an amount in exactly that order:
+
+```
+Gap in check sequence 02/28 1099 0.00
+```
+
+so `_CHECK_ROW_RE` matched it wherever it was printed, and it was published as
+`Check 1099` for **-0.00** at approved/clear. Truist has no count oracle
+(`count_semantics` UNSURVEYED, correctly), so nothing downstream saw the
+phantom row.
+
+**Characterisation before the fix.** Over the whole truist population, 33
+documents print a Checks table, 532 rows in total:
+
+| observation | value |
+|---|---|
+| genuine cheques printed for `0.00` | **0** |
+| text ever standing between two matched rows | only a numbers-only `~` cross-reference cell (`05/26 1645~`, 5 occurrences) or a page break |
+| how a page break is closed | the bank **REPRINTS** the column header `DATE CHECK # AMOUNT($)` (2 documents) |
+
+**Fix.** `_parse_checks` walks the section with `finditer` and asks
+`_is_row_boundary(gap)` of the text since the previous row: a row may follow
+only cells (no letters at all) or a reprinted column header. No phrase is
+blocklisted — the discriminator is the printed grid. `_CHECK_HEADER` is
+factored out and reused by both `_CHECKS_SECTION_RE` and the new
+`_CHECKS_RESUMED_RE`, so the header is written once.
+
+**Why skipping is safe rather than fail-closed-on-the-section.** The table
+prints its own total and the parser already gates on it. Dropping a row that
+WAS a posting cannot ship a short ledger — it breaks that identity and
+withholds the document. A fixture pins that half explicitly.
+
+**Fixtures** (7 tests / 9 cases): the pre-fix `findall` asserted in-process to
+return the phantom `("02/28","1099","0.00")` third row; the note proved absent
+from the published ledger and the document proved model-identical to the
+note-free one; three differently-worded notes proved refused (no blocklist);
+rows resuming after a page break proved still read; the `~` cross-reference
+cell proved unaffected; and a note that swallows a genuine cheque proved to
+withhold the document.
+
+## MF4. Card C — capital_one: the digit scrub is guarded, and signed
+
+`capital_one.py:15` called
+`parse_digit_scrubbed(value, parens=True, trailing_minus=True)` — no `guard=`,
+no `leading_minus=True`. `parse_digit_scrubbed` keeps only digits and dots, so
+without a guard it does not READ a cell, it RENDERS any text as a number.
+`money.py:132-135` documents the guard as existing for precisely this
+("silently mis-reading a reference number as an amount is the failure mode
+this guard exists to prevent"), and `chase.py:25-27` already passes one.
+
+Both readers in the module are exposed: the two-cell Account-summary reader
+computes `_money(raw)` on the second cell of ANY two-cell row *before* it looks
+at the label, and the detail reader takes columns 2-4 of any row whose first
+cell is a date. Reproduced on main (F-MONEYFMT finding 5):
+
+```
+'Page 3 of 8'            capital_one -> 38.0       chase -> None
+'REF#000000012345'       capital_one -> 12345.0    chase -> None
+'1,234.56 (see page 3)'  capital_one -> 1234.563   chase -> None
+'-$1,234.56'             capital_one -> 1234.56    chase -> -1234.56
+```
+
+**Fix.** The call `chase.py` already makes, with capital_one's own
+`_AMOUNT_RE`.
+
+**Evidence the guard is safe.** Instrumented `_money` and replayed the parser
+over its whole claimed population plus its class-1 declines — 28 documents,
+**5,238 distinct cells, 6,644 occurrences**. The guard refuses **0** of them.
+The archive prints exactly three shapes: `1,234.56` (1,975 distinct),
+`$1,234.56` (3,171) and `($1,234.56)` (92). No cell carries a minus sign, so
+`leading_minus=True` changes nothing on the archive and everything on a
+statement that prints one.
+
+**Fixtures** (`tests/test_capital_one_variants.py`, new, 6 tests / 15 cases):
+the pre-fix call quoted verbatim as `pre_fix_money()`, so every hostile cell
+asserts BOTH the number it used to invent and the `None` it now returns; the
+leading minus honoured; parens and trailing minus proved undisturbed; and all
+three printed shapes plus `$0.00`, a millions figure and a bare integer proved
+to read exactly as before.
+
+## MF5. Proofs
+
+All on the final tree (`dc54e4b`), exit codes verbatim.
+
+| proof | result |
+|---|---|
+| `python -m pytest -q` | **2,603 passed**, 18 deselected, 1 warning, 529.44s — exit `0` |
+| `python -m pytest -q -m corpus` | *(see below)* |
+| `python corpus_gate.py` | *(see below)* |
+| guards + conformance (10 modules incl. `test_no_parser_helper_clones`, `test_r1_hardcodes`, `test_no_statement_hardcodes`, `test_parser_conformance`, `test_parser_registry_entries`, `test_stated_counts`, `test_count_semantics`, `test_parser_crash_shapes`) | **923 passed**, 21.54s — exit `0` |
+| the three per-parser sweeps | **233 / 233 byte-identical, 0 movers** — exit `0` |
+| F-MONEYFMT + F-STRUCTURE reproducers, re-pointed at the branch | all four cards **FIXED** — exit `0` |
+
+### MF5b. The sweep
+
+Method: for each document, pull its cached OCR markdown from the run-`6893a75b`
+artifact cache (read-only), run `analyze_markdown(md,
+parse_mode="deterministic")` exactly as `discovery/runner.py` does, serialize
+the full report with `report_to_dict`, and classify with
+`telemetry.classify_outcome`. Byte-identical means the serialized report is
+equal field for field. Populations are each parser's ENTIRE claimed set in
+`6893a75b` (`dispatch_outcome == claimed`), plus the class-1
+attempted-declined manifest for the same parser so that a fix which RECOVERS a
+decline is visible in the same run.
+
+| parser | claimed | class-1 declines | total | byte-identical | movers |
+|---|---|---|---|---|---|
+| rbc | 153 | 1 | 154 | **154** | 0 |
+| truist | 48 | 3 | 51 | **51** | 0 |
+| capital_one | 12 | 16 | 28 | **28** | 0 |
+| | | | **233** | **233** | **0** |
+
+Outcome-class transitions: none. Every document holds its
+`6893a75b` class — rbc 147 validated / 6 withheld_adb / 1 declined, truist 48
+validated / 3 declined, capital_one 10 validated / 2 withheld_adb / 16
+declined.
+
+**Zero movers is the expected result and not a weak one.** Cards R, T and T2
+change what the parser does with printed forms the archive does not currently
+contain (a `$` on an RBC total row, a `$` on a Truist summary activity row, a
+sequence-gap note). Card C tightens a reader that was never fed a hostile cell
+by these 28 documents. The sweep's job here is to prove the blast radius is
+nil, and it does — including on the 2 page-break documents that card T2's rule
+could plausibly have broken (`4A7298C2DDE5`, `E5B8245E0863`), both
+byte-identical.
+
+## MF6. Risks and carried questions
+
+1. **Card T2 fails closed on unseen page furniture.** The rule admits a
+   post-break row only when the reprinted `DATE CHECK # AMOUNT($)` header ends
+   the gap. That is how both archive page breaks are printed. A Truist layout
+   that resumes its Checks table some other way would drop the first row after
+   the break, break the printed total, and **withhold** the document — never
+   publish a short ledger. Deliberate, and stated here so the direction is on
+   the record.
+2. **Card R and an unattested `$-` total.** `_SUMMARY_MONEY` admits
+   `$-1,234.56` because the balance rows do. On a totals row that spelling
+   would now yield a negative stated total where pre-fix it yielded None.
+   Unattested in the archive; and the negative is CAUGHT by the summary
+   identity rather than skipped, so it is still strictly better than the
+   silent None. Flagged rather than special-cased, because special-casing it
+   would be new grammar.
+3. **The 3 truist SAVINGS declines** (§MF2b) — a candidate card, not this one.
+4. **`ANALYSIS_STAGE_VERSION`** must be bumped at merge. Ocean's, not done
+   here. Archive output is byte-identical, but the parse grammar changed and
+   cached analyses would otherwise outlive it.
+
+## MF7. Commits
+
+| Commit | Contents |
+|---|---|
+| `024a74f` | **card R** — `analysis/rbc.py` `_SUMMARY_MONEY` shared by all four Account-Summary rows, + 6 fixtures |
+| `178943a` | **card C** — `analysis/capital_one.py` `_AMOUNT_RE` guard and `leading_minus=True`, + `tests/test_capital_one_variants.py` (new) |
+| `4ca5f3d` | **card T** — `analysis/truist.py` `_DOLLAR` on the three summary activity rows, + 5 fixtures |
+| `dc54e4b` | **card T2** — `analysis/truist.py` `_is_row_boundary`, + 7 fixtures |
