@@ -57,6 +57,7 @@ from . import (
     scanned_small_bank,
     scotia,
     secu,
+    square_checking,
     td_can,
     td_us,
     texas_bank,
@@ -115,6 +116,7 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("scotiabank", "Scotiabank", scotia, "DETECTION_MARKERS", "detection_text", "parse_scotiabank_statement"),
     ("secu", "SECU Maryland", secu, "DETECTION_MARKERS", None, "parse_secu_statement"),
     ("southside_scanned", "Southside Bank", scanned_small_bank, "SOUTHSIDE_DETECTION_MARKERS", "detection_text", "parse_southside_scanned_statement"),
+    ("square_checking", "Square", square_checking, "DETECTION_MARKERS", "detection_text", "parse_square_checking_statement"),
     ("td_canada", "TD Canada Trust", td_can, "DETECTION_MARKERS", None, "parse_td_canada_statement"),
     ("td_canada_native", "TD Canada Trust", td_can, "NATIVE_DETECTION_MARKERS", "detection_text", "parse_native_td_canada_statement"),
     ("td_us", "TD Bank", td_us, "DETECTION_MARKERS", None, "parse_td_us_statement"),
@@ -162,6 +164,11 @@ _OVERRIDES: dict[str, dict] = {
         "integrity_checks": (bmo_us_activity.summary_row_contradictions,)
     },
     "td_canada_native": {"band": 10, "supersedes": frozenset({"td_canada"})},
+    # Square prints its activity count beside the two balances of the same
+    # summary row, so a ledger that does not match it contradicts the document.
+    "square_checking": {
+        "integrity_checks": (square_checking.activity_count_contradictions,)
+    },
 }
 
 _loaded = False

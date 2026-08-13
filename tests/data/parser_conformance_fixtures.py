@@ -100,6 +100,11 @@ FIXTURES: dict[str, str] = {
     "scotiabank": "SCOTIABANK\nThe Bank of Nova Scotia\n",
     "secu": "secumd.org\nFree Business Checking\n",
     "southside_scanned": "SOUTHSIDE\nACCOUNT SUMMARY\nBUILDER ACCOUNT\n",
+    "square_checking": (
+        "Square Checking Routing number:\nsquareup.com/help\n"
+        "Block Inc. Broadway, Suite Oakland, CA\n"
+        "Date Details Activity type Balance Amount\n"
+    ),
     "td_canada": (
         "Accounts issued by: THE TORONTO-DOMINION BANK\n"
         "<table>\n<tr><td>Branch No.</td><td>Account No.</td></tr>\n</table>\n"

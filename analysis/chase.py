@@ -393,8 +393,13 @@ def _parse_native_summary(text: str, stmt: Statement) -> bool:
         return False
     summary = re.sub(r"\s+", " ", match.group(1)).strip()
 
-    beginning = re.search(r"Beginning Balance\s+(\$?[0-9][0-9,]*\.[0-9]{2})", summary, re.IGNORECASE)
-    ending = re.search(r"Ending Balance(?:\s+\d+)?\s+(\$?[0-9][0-9,]*\.[0-9]{2})", summary, re.IGNORECASE)
+    # An overdrawn balance is printed with the sign outside the currency
+    # symbol, exactly as every other row of this summary prints a debit. These
+    # two rows carried their own unsigned copy of the money pattern and so
+    # could not read one; they now use the module's sign-aware `_SUMMARY_AMOUNT`
+    # like the rest of the block. (W3 §CHASE-LAYOUTS C6.1.)
+    beginning = re.search(rf"Beginning Balance\s+({_SUMMARY_AMOUNT})", summary, re.IGNORECASE)
+    ending = re.search(rf"Ending Balance(?:\s+\d+)?\s+({_SUMMARY_AMOUNT})", summary, re.IGNORECASE)
     deposits = re.search(rf"Deposits and Additions\s+(\d+)\s+({_SUMMARY_AMOUNT})", summary, re.IGNORECASE)
     if beginning:
         stmt.beginning_balance = _money(beginning.group(1))
