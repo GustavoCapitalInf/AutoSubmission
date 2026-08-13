@@ -101,6 +101,18 @@ def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
     ]
     unknown_clusters = Counter(r.folder_label for r in unknown)
 
+    # "A parser claimed this and then declined it" is a different work item from
+    # "no parser has ever seen this layout", and it is the cheaper one: the
+    # parser already exists and already detects. Ranking the declining PARSER
+    # (not the folder) is what makes it actionable — the unknown-layout ranking
+    # above answers "which bank needs a parser", this one answers "which parser
+    # needs widening". A row can name several: every claimant that declined
+    # before the document ran out of claimants is counted once.
+    declined_clusters = Counter(
+        entry for r in dispatched if r.outcome_reason == "parser_declined"
+        for entry in r.attempted
+    )
+
     ambiguity_clusters = Counter(
         " + ".join(sorted(entry.split(":")[0] for entry in r.candidates))
         for r in dispatched if r.dispatch_outcome == "ambiguous"
@@ -143,6 +155,7 @@ def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
         "parsers": dict(parsers.most_common()),
         "folders": dict(folders.most_common()),
         "unknown_layout_clusters": dict(unknown_clusters.most_common()),
+        "declined_clusters": dict(declined_clusters.most_common()),
         "crash_clusters": dict(crash_clusters.most_common()),
         "ambiguity_clusters": dict(ambiguity_clusters.most_common()),
         "near_miss_parsers": dict(near_miss.most_common(20)),
@@ -251,6 +264,10 @@ def render_report(summary: dict) -> str:
         lines.append("unknown-layout clusters, ranked by volume")
         for key, count in list(summary["unknown_layout_clusters"].items())[:20]:
             lines.append(_bar(key, count, processed))
+    if summary.get("declined_clusters"):
+        lines.append("claimed then declined (parser_declined), ranked by parser")
+        for key, count in list(summary["declined_clusters"].items())[:20]:
+            lines.append(_bar(key, count, processed))
     if summary.get("crash_clusters"):
         lines.append("parser crashes (parser:stage:exception), ranked")
         for key, count in list(summary["crash_clusters"].items())[:20]:
@@ -291,7 +308,7 @@ ROW_FIELDS = [
     "encrypted", "classification", "page_count", "likely_account_count",
     "dedup_status", "duplicate_of", "source_path", "source_model",
     "truncated_pages", "parser_id", "parser_score", "dispatch_outcome",
-    "candidates", "near_miss", "parser_exceptions",
+    "candidates", "attempted", "near_miss", "parser_exceptions",
     "outcome_class", "outcome_reason", "error_type",
     "statement_bank", "account_last4", "cache_ocr", "cache_analysis",
     "cache_visual", "visual_rung", "elapsed_ms",
