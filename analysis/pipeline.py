@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable
 from .config import Settings, load_settings
+from .count_semantics import counts_comparable
 from .schema import Statement
 from .dates import assign_transaction_years
 from .extract import extract_statement
@@ -233,6 +234,36 @@ def assess_document_integrity(
     if registration is not None and not registration.formal_statement:
         flags.append("not_a_formal_statement")
         notes.append(registration.informal_integrity_note)
+    # The bank printed a per-direction COUNT and we captured rows; did they
+    # agree? Computed in reconcile (no issue appended, so `recon.ok` and the
+    # ADB are untouched) and made a consequence here, where it is a flag and
+    # never a refusal. Three gates, all required:
+    #
+    #   `formal`        — a count on a document class that is not a bank
+    #                     statement is not a finding.
+    #   `counts_comparable` — the printed figure must denote the same set of
+    #                     rows `direction` does. A parser absent from
+    #                     `analysis/count_semantics.py` is UNSURVEYED, which is
+    #                     not comparable, so a NEW registration emits nothing
+    #                     until its printed summary has been read. That default
+    #                     is structural: this check can only get quieter when
+    #                     the registry grows.
+    #   `is False`      — load-bearing, not style: `None` is not-applicable
+    #                     (no printed count, or aggregate-backed rows), and
+    #                     `not None` would flag every document that never ran
+    #                     the check.
+    #
+    # Keyed on the CLAIMING parser only: `_registration_for` also resolves by
+    # bank label for LLM extractions, and a semantics entry is evidence about
+    # what one parser's reader produced, not about the bank's paper.
+    formal = registration is None or registration.formal_statement
+    claiming = dispatch.parser_id if dispatch is not None and dispatch.outcome == "claimed" else None
+    if formal and counts_comparable(claiming, "credit") and recon.stated_credit_count_matches is False:
+        flags.append("credit_count_mismatch")
+        notes.append("captured credit rows do not match the bank-stated credit count")
+    if formal and counts_comparable(claiming, "debit") and recon.stated_debit_count_matches is False:
+        flags.append("debit_count_mismatch")
+        notes.append("captured debit rows do not match the bank-stated debit count")
     if dispatch is not None and dispatch.outcome == "ambiguous":
         flags.append("parser_ambiguous")
         notes.append(
