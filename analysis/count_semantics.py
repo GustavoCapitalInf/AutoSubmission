@@ -172,7 +172,34 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
     },
     "first_community": {
         "credit": _whole("a credit count in the printed summary line", "analysis/first_community.py:150-151"),
-        "debit": _whole("a debit count in the printed summary line", "analysis/first_community.py:150-151"),
+        "debit": CountSemantics(
+            comparable=True,
+            scope="whole_direction",
+            reason=(
+                "prints 'N Debits This Period $X' — one printed figure per "
+                "direction (analysis/first_community.py:151). DISCLOSURE, in "
+                "the idiom of the bank_of_america entry: the expected side "
+                "actually compared here is POST-REPAIR, not the raw printed "
+                "read. `repair_first_community_posted_activity` drops the "
+                "bank's balance-neutral failed-EFT attempt rows from the "
+                "posted activity and, when it does, narrows the printed debit "
+                "COUNT and the printed debit TOTAL together "
+                "(analysis/first_community.py:209-211, applied at "
+                "analysis/pipeline.py:78). The two halves move as a pair or "
+                "not at all, and an absent half is never narrowed from the "
+                "other. That pairing is what makes this direction comparable: "
+                "rewriting the total alone left the count describing a set of "
+                "rows the statement no longer reports, which is exactly the "
+                "`semantics_difference` D5 adjudicated on the one pinned-PASS "
+                "document (`08B2A61B…`), and it is why that document reads "
+                "`match` since FIXUPS-1 `acd0b07`. Independence holds: the "
+                "repair narrows the expected side from PRINTED "
+                "balance-neutrality evidence, never from what we captured, so "
+                "nothing derived is read back. If that repair is ever changed "
+                "to rewrite one half without the other, this entry stops "
+                "being true and must go back to incomparable."
+            ),
+        ),
     },
     "first_farmers": {
         "credit": _whole("a printed credit count", "analysis/first_farmers.py:152-153"),

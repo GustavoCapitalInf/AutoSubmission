@@ -143,6 +143,59 @@ def test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental():
     # The three phase-2 promotions, each earned by a measured counterfactual.
     assert {"chase:debit", "us_bank:credit", "us_bank:debit",
             "wilson_muir:credit", "wilson_muir:debit"} <= comparable
+    # ... and the comparable set is pinned by EQUALITY too, not just by the
+    # subset above: a brand-new comparable entry is a new population that can
+    # be flagged, so it must be a deliberate edit here and not something a
+    # table change can slip past a subset check.
+    assert comparable == {
+        "apex_scanned:credit",
+        "apex_scanned:debit",
+        "atb:credit",
+        "atb:debit",
+        "bank_of_america:credit",
+        "capital_one:credit",
+        "chase:credit",
+        "chase:debit",
+        "chase_export:credit",
+        "dakota_west:credit",
+        "dakota_west:debit",
+        "demo_national:credit",
+        "demo_national:debit",
+        "farmers_merchants:credit",
+        "farmers_merchants:debit",
+        "first_community:credit",
+        "first_community:debit",
+        "first_farmers:credit",
+        "first_farmers:debit",
+        "ibc:credit",
+        "ibc:debit",
+        "linkbank:credit",
+        "linkbank:debit",
+        "midflorida:credit",
+        "midflorida:debit",
+        "mission_valley:credit",
+        "mission_valley:debit",
+        "rbc:credit",
+        "rbc:debit",
+        "rbc_french:credit",
+        "rbc_french:debit",
+        "scotiabank:credit",
+        "scotiabank:debit",
+        "southside_scanned:credit",
+        "southside_scanned:debit",
+        "td_canada:credit",
+        "td_canada:debit",
+        "td_canada_native:credit",
+        "td_canada_native:debit",
+        "texas_bank:credit",
+        "us_bank:credit",
+        "us_bank:debit",
+        "wilson_muir:credit",
+        "wilson_muir:debit",
+    }
+    # Both halves cover the table exactly, so an entry cannot be dropped from
+    # one set without appearing in the other.
+    assert len(comparable) + len(incomparable) == 2 * len(SEMANTICS)
 
 
 def test_a_promoted_entry_records_the_evidence_that_promoted_it():
