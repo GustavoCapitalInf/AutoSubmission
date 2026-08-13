@@ -11,8 +11,27 @@ from .tables import table_rows
 
 
 
+#: A Capital One amount cell as printed: optional parenthesis/minus/dollar
+#: wrapper around a grouped decimal. `parse_digit_scrubbed` keeps only digits
+#: and dots, so without a guard it does not READ a cell, it renders any text
+#: as a number — `Page 3 of 8` scrubbed to 38.0 and `REF#000000012345` to
+#: 12345.0, both of which the two-cell summary reader and the detail reader
+#: pass through. `money.py` documents the guard as existing for exactly this
+#: (`AmountFormat.pattern`: "silently mis-reading a reference number as an
+#: amount is the failure mode this guard exists to prevent").
+#:
+#: Measured against every cell this parser passes to `_money` over its whole
+#: claimed population plus its class-1 declines (28 documents, 5,238 distinct
+#: cells): 0 refused. The printed shapes are `1,234.56`, `$1,234.56` and
+#: `($1,234.56)`; the sign markers are admitted because the call below honours
+#: them, not because the archive prints them.
+_AMOUNT_RE = re.compile(r"\(?-?\$?\s*[0-9][0-9,]*(?:\.[0-9]{2})?-?\)?")
+
+
 def _money(value: str) -> float | None:
-    return parse_digit_scrubbed(value, parens=True, trailing_minus=True)
+    return parse_digit_scrubbed(
+        value, parens=True, leading_minus=True, trailing_minus=True, guard=_AMOUNT_RE
+    )
 
 
 def _native_summary(markdown: str, stmt: Statement) -> Statement:
