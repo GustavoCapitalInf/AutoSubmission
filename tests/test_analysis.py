@@ -1694,7 +1694,15 @@ Total # of checks 10
 """
     stmt = repair_bofa_summary(md, Statement(bank="Bank of America"))
     assert stmt.stated_total_debits == 41237.65
-    assert stmt.stated_debit_count == 164
+    # The MONEY folds — cheques and fees are printed as their own summary lines
+    # and their money is outside `Withdrawals and other debits`. The COUNT does
+    # not: `# of withdrawals/debits` already counts every row in the debit
+    # column, cheques included, so the raw printed 154 is stored and the
+    # printed `Total # of checks 10` is not added to it. This assertion read
+    # 164 until BOFA-COUNTS; the mapping was measured wrong on all 107 archive
+    # documents that print a cheque count (`analysis/bofa.py`,
+    # `_SUMMARY_COUNT_SCOPE`).
+    assert stmt.stated_debit_count == 154
     assert reconcile(stmt).summary_ok is True
 
 

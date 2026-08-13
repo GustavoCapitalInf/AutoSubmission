@@ -366,6 +366,44 @@ def _summary_outflows(text: str) -> list[float]:
     return [value for value in found if value is not None]
 
 
+# ---------------------------------------------------------------------------
+# `_SUMMARY_COUNT_SCOPE` — what `# of withdrawals/debits: N` counts
+#
+# ONE documented scope, shared by all three summary readers in this module
+# (`_parse_native_summary`, the HTML-table branch of `parse_bofa_statement`,
+# and `repair_bofa_summary`). They used to disagree: two stored the printed
+# figure and the repair stored `debit_count + (check_count or 0)`, so the same
+# field meant two different things across one bank's population.
+#
+# WHAT THE BANK PRINTS. The account summary is two printed columns that the
+# text layer flattens into one interleaved run of lines. The left column is
+# money — `Deposits and other credits`, `Withdrawals and other debits`,
+# `Checks`, `Service fees` — and the right column is a STATISTICS BOX whose
+# items are `# of deposits/credits`, `# of withdrawals/debits`,
+# `# of items-previous cycle`, `# of days in cycle`, `Average ledger balance`.
+# The two columns are independent lists, which is why `# of days in cycle`
+# lands next to `Service fees`: the count lines are NOT paired one-to-one with
+# the money lines above them, and no printed figure scopes
+# `# of withdrawals/debits` to the `Withdrawals and other debits` money line.
+#
+# THE SCOPE, MEASURED. Over every archive document that prints the figure
+# (344 of 360), the raw printed count equals the rows in the debit column
+# exactly — 344 of 344 — and the cheques are inside it: on the 107 documents
+# that also print `Total # of checks M`, that M is exactly the number of Check
+# rows, and the printed debit count still reproduces the whole debit column
+# WITHOUT adding M (`raw + M` matched 0 of 107). The credit sibling in the
+# same printed box is the control and is also 344 of 344.
+#
+# The asymmetry worth naming, because it is what made `+ check_count` look
+# right: the cheque MONEY genuinely is outside `Withdrawals and other debits`
+# (the summary prints `Checks` as its own line, equal to the section's own
+# `Total checks` figure on 107 of 107, and `stated_total_debits` therefore
+# does sum the lines). The cheque COUNT is not outside — it is already folded
+# into the printed statistic. Money scope and count scope differ, and reading
+# one off the other is the defect this note exists to prevent.
+# ---------------------------------------------------------------------------
+
+
 def _parse_native_summary(text: str, stmt: Statement) -> bool:
     stmt.beginning_balance = _native_money_after(text, r"Beginning balance on [^\n$]+", absolute=False)
     stmt.ending_balance = _native_money_after(text, r"Ending balance on [^\n$]+", absolute=False)
@@ -388,6 +426,9 @@ def _parse_native_summary(text: str, stmt: Statement) -> bool:
     credit_count = re.search(r"# of deposits/credits:\s*(\d+)", text, re.IGNORECASE)
     if credit_count:
         stmt.stated_credit_count = int(credit_count.group(1))
+    # THE PRINTED SCOPE (see the note above `_SUMMARY_COUNT_SCOPE`): the figure
+    # is stored raw, because it already counts every row in the debit column —
+    # cheques and service fees included.
     debit_count = re.search(r"# of withdrawals/debits:\s*(\d+)", text, re.IGNORECASE)
     if debit_count:
         stmt.stated_debit_count = int(debit_count.group(1))
@@ -511,6 +552,12 @@ def parse_bofa_statement(markdown: str) -> Statement | None:
             count = re.search(r"# of deposits/credits:\s*(\d+)", extra, re.IGNORECASE)
             if count:
                 stmt.stated_credit_count = int(count.group(1))
+            # Same printed line as the native reader's, reached through a
+            # table cell instead of a physical line, so the same scope applies
+            # (`_SUMMARY_COUNT_SCOPE`): stored raw. Recorded honestly — NO
+            # archive document takes this branch (0 of 360 render the account
+            # summary as an HTML table), so the scope here is inherited from
+            # the identical printed figure rather than measured on this path.
             count = re.search(r"# of withdrawals/debits:\s*(\d+)", extra, re.IGNORECASE)
             if count:
                 stmt.stated_debit_count = int(count.group(1))
@@ -573,7 +620,13 @@ def repair_bofa_summary(markdown: str, stmt: Statement) -> Statement:
     avg = money_after(r"Average ledger balance:")
     credit_count = int_after(r"# of deposits/credits:")
     debit_count = int_after(r"# of withdrawals/debits:")
-    check_count = int_after(r"Total # of checks")
+    # `Total # of checks` is deliberately NOT read any more. It used to be
+    # added to the printed debit count here, which double-counted the cheques
+    # the printed statistic already includes (`_SUMMARY_COUNT_SCOPE`): the
+    # mapping fired on the 107 archive documents that print it and was wrong
+    # on all 107, while the two other readers stored the raw figure — one
+    # field, two meanings. The cheque money is still summed into
+    # `stated_total_debits` below, because the money scope really is separate.
 
     if beginning is not None:
         updates["beginning_balance"] = beginning
@@ -586,7 +639,7 @@ def repair_bofa_summary(markdown: str, stmt: Statement) -> Statement:
     if credit_count is not None:
         updates["stated_credit_count"] = credit_count
     if debit_count is not None:
-        updates["stated_debit_count"] = debit_count + (check_count or 0)
+        updates["stated_debit_count"] = debit_count
     if avg is not None:
         updates["stated_average_balance"] = avg
     if service is not None:
