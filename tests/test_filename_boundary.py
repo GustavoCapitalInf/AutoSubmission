@@ -77,6 +77,12 @@ HOSTILE_FILENAMES = {
     "wide_through_long": "January 1, 2026 through December 31, 2026.pdf",
     "wide_for_period": "For the Period 01/01/2026 to 12/31/2026.pdf",
     "wide_period_ending": "For the period ending December 31, 2026.pdf",
+    # page labels — the `assess_document_integrity` page-declaration vector
+    "page_label_single": "Page 1 of 9.pdf",
+    "page_label_full_set": "Page 1 of 4 Page 2 of 4 Page 3 of 4 Page 4 of 4.pdf",
+    # another bank's name — the `apply_statement_repairs` substring-gate vector
+    "bofa_repair_gate": "BANK OF AMERICA statement.pdf",
+    "regions_repair_gate": "REGIONS BANK statement.pdf",
     # everything at once
     "kitchen_sink": (
         "January 1, 2020 through January 31, 2020 "
@@ -269,6 +275,77 @@ def test_the_boundary_is_idempotent_at_the_parse_seam(parser_id):
     right = json.dumps(report_to_dict(analyze_markdown(pre_stripped, parse_mode="deterministic")),
                        sort_keys=True, default=str)
     assert left == right
+
+
+# ---------------------------------------------------------------------------
+# The two non-parser consumers of the raw markdown (SC-FILENAME survey)
+# ---------------------------------------------------------------------------
+#
+# The boundary is at STAGE ENTRY, not at the parser call site, because `parse`
+# is not the only consumer of the document text. `analyze_markdown` also hands
+# the same string to `apply_statement_repairs` (whose BofA and Regions repairs
+# are gated on a substring of it) and to `assess_document_integrity` (whose
+# page-declaration set is a regex over it). Both are covered by the one rebind;
+# these tests are what proves it, per consumer, rather than by inspection.
+
+
+@pytest.mark.parametrize("parser_id", sorted(FIXTURES))
+def test_a_filename_naming_another_bank_cannot_fire_that_banks_repair(parser_id):
+    """`repair_bofa_summary` / `repair_regions_summary` gate on a substring of
+    the markdown. A filename satisfying that gate could overwrite another bank's
+    published balances, on every path including LLM extractions.
+    """
+    body = FIXTURES[parser_id]
+    for token, filename in (("BANK OF AMERICA", HOSTILE_FILENAMES["bofa_repair_gate"]),
+                            ("REGIONS", HOSTILE_FILENAMES["regions_repair_gate"])):
+        raw = _markdown(body, filename)
+        # The gate is genuinely satisfiable from the filename alone...
+        assert token in raw.upper(), "fixture no longer exercises the gate"
+        assert token not in body.upper(), "fixture body must not contain the token"
+        # ...and the boundary is what stops it reaching the repair stage.
+        assert token not in admissible_text(raw).upper()
+        assert _published(body, filename) == _published(body, CONTROL_NAME), (
+            f"{parser_id}: a filename containing {token!r} changed the published analysis"
+        )
+
+
+def test_a_page_label_filename_cannot_fabricate_a_page_declaration():
+    """`missing_declared_statement_page` is a fraud-relevant flag. A filename
+    spelling "Page 1 of 9" must not invent a declaration the document never
+    printed — that would raise the flag on a clean statement.
+    """
+    for parser_id in ("chase", "square_checking", "bmo_ca_business"):
+        body = FIXTURES[parser_id]
+        control = analyze_markdown(_markdown(body, CONTROL_NAME), parse_mode="deterministic")
+        assert "missing_declared_statement_page" not in control.integrity.flags, (
+            f"{parser_id} fixture must start clean for this test to mean anything"
+        )
+        renamed = analyze_markdown(
+            _markdown(body, HOSTILE_FILENAMES["page_label_single"]), parse_mode="deterministic"
+        )
+        assert "missing_declared_statement_page" not in renamed.integrity.flags, (
+            f"{parser_id}: a page-label filename fabricated a page declaration"
+        )
+        assert renamed.integrity.risk_level == control.integrity.risk_level
+
+
+def test_a_page_label_filename_cannot_suppress_the_missing_page_flag():
+    """The dangerous direction: the wells fixture prints "Page 1 of 4" and is
+    missing pages 2-4, so it carries the flag. A filename supplying the absent
+    labels would complete the set and clear a fraud-risk signal by rename.
+    """
+    body = FIXTURES["wells_fargo"]
+    control = analyze_markdown(_markdown(body, CONTROL_NAME), parse_mode="deterministic")
+    assert "missing_declared_statement_page" in control.integrity.flags, (
+        "the wells fixture must carry the flag for this test to mean anything"
+    )
+    renamed = analyze_markdown(
+        _markdown(body, HOSTILE_FILENAMES["page_label_full_set"]), parse_mode="deterministic"
+    )
+    assert "missing_declared_statement_page" in renamed.integrity.flags, (
+        "a page-label filename suppressed the missing-page flag"
+    )
+    assert renamed.integrity.risk_level == control.integrity.risk_level == "review"
 
 
 def test_admissible_text_is_idempotent():
