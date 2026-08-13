@@ -4185,7 +4185,7 @@ one wrongly.
 | Populations swept | `PNC Bank` **62 distinct documents** (superset of the 45 `pnc` claimed) and `BMO` **169 distinct documents** (superset of the 127 `bmo_ca_business` claimed). |
 | Movers | **zero.** Both sweeps byte-identical, before and after, over every audited field and every transaction. |
 | Pinned corpus | 5 PNC + 1 BMO statements are in the gate's 109. Gate GREEN, no audited-field movement. |
-| Files changed | `analysis/pnc.py`, `tests/test_pnc_variants.py` (+11 fixtures), this log. **`analysis/bmo_ca_business.py` deliberately untouched.** |
+| Files changed | `analysis/pnc.py`, `tests/test_pnc_variants.py` (+13 fixtures), this log. **`analysis/bmo_ca_business.py` deliberately untouched.** |
 | Statement-specific constants added | **none.** No furniture-text blocklist. No grammar beyond what `analysis/money.py` already surveys. |
 | Cache implication | `ANALYSIS_STAGE_VERSION` bump at merge — Ocean's, not done here. Output changes only for documents that do not exist in the archive today, but the stage version guards the cache regardless. |
 
@@ -4241,17 +4241,32 @@ thousand, `beginning + activity == ending` still holds, and the statement
 publishes approved/clear. Measured in the reproducer: beginning `1000.00 →
 0.00`, ending `1200.00 → 200.00`, ADB `1243.33 → 243.33`, no flag.
 
-**What the archive prints — measured before choosing the rule.** 53 of the 62
-`PNC Bank` documents have a Balance Summary body. **27 of them contain a
+**What the archive prints — measured before choosing the rule.** 54 of the 62
+`PNC Bank` documents have a Balance Summary block. **27 of them contain a
 `<digit><space><3 digits>.<dd>` sequence** — which is exactly the shape a
-space-thousands reading would consume. In every one of the 27, the leading
-digit is the **cents tail of a completed figure** and the space is a column
-gap:
+space-thousands reading would consume. **In 10 of the 27** the leading digit is
+the **cents tail of a completed figure** and the space is a column gap:
 
 ```
 balance 541.22 541.22            <- average ledger / average collected
 Ending balance 232.79 10,321.82 8,358.20 2,196.41
 ```
+
+**In the other 17 it is not**, and an earlier revision of this section claimed
+otherwise — "in every one of the 27" — which was false and is corrected here.
+In those 17 the token to the left is a bare item count or a date, printed in
+the `Description Items Amount` index and the `Daily Balance` ladder that the
+block capture happens to include:
+
+```
+Description Items Amount Debit Card Purchases 7 202.05    <- count 7, amount 202.05
+Date Ledger balance 02/10 1,195.48 02/11 953.78           <- date 02/11, balance 953.78
+Interest Earned this period 0.00% 29 165.59               <- rate, then 165.59
+```
+
+Read with a space-grouping integer part those fuse into **fabricated figures of
+entirely plausible magnitude** — 7,202.05 and 11,953.78. §S2b is what removes
+them.
 
 So the naive rule ("a space between digit groups is a thousands separator")
 would have glued real columns together, and the naive fail-closed rule ("refuse
@@ -4283,14 +4298,60 @@ not spaces and SEARCHES rather than anchors, and would otherwise read
 figure grammar: same block, same printed format, and a document whose columns
 are read whole must not publish a truncated average beside them.
 
-**Effect on the 53 real bodies.** For 22 of them the pattern now returns a
-different *list* of figures — every difference is at index 6 or later, in the
-`Description Items Amount` index table and the `Daily Balance` grid that the
-non-greedy body capture happens to include. `_summary_amounts` consumes
-`amounts[:4]`. **No document's first four figures move**, and the end-to-end
-sweep is byte-identical. Recorded because it is real: the boundary guard
-suppresses figures that follow a bare digit run (`04/01 30,226.60`, `ACH
-Additions 31 46,670.49`) in the part of the body no reading depends on.
+**Effect on the 54 real blocks.** For 23 of them the pattern returns a different
+*list* of figures than the old one: **6 suppression only, 4 glue only, 13
+both**, and **77 fabricated tokens** in total. Every difference sits at index 6
+or later, past the four `_summary_amounts` consumes, so no document's reading
+moves and the sweep is byte-identical. But "inert today" is not "correct", and
+a reader standing over a region where a date fuses with a ledger balance is one
+layout change away from taking one. That is what §S2b bounds away.
+
+## S2b. Card P1, second finding: the reader was standing in the wrong region
+
+Adversarial review (Ocean, 2026-08-13) returned two defects in the first commit
+of this card. Both were real, both reproduced exactly, and both are the same
+root cause — the region scanned, not the figure pattern.
+
+1. **The glue above.** 77 fabricated tokens across 17 blocks, disclosed by the
+   first revision of this section only in its suppression half.
+2. **The fail-closed claim was false by construction.** `_SUMMARY_MONEY_RE`'s
+   comment said a figure that cannot be read whole leaves the document failing
+   closed. With a spare figure in the block it did not — it SHIFTED the window.
+   On the reviewer's construction (`1 0000.00` in the grid, average pair
+   below) the shipped reader returned `['500.00', '300.00', '1,200.00',
+   '900.00']`: the average ledger pair read as summary columns, a silent
+   approval standing exactly where the refusal belonged. Zero archive
+   incidence, but the comment asserted a property the code did not have. The
+   negative fixture passed only because its body happened to print exactly
+   four figures — a fixture that agreed with the claim instead of testing it.
+
+**The fix, which is §S6.5 of the first revision, now taken.** The summary is
+read from the line that prints the grid, and nothing below it is read. On all
+54 blocks the four columns are the first four figures of a single physical
+line.
+
+The row is **located** by a permissive figure count (`_ANY_FIGURE_RE` — the old
+pattern, which still matches the fragments the strict one refuses) and **read**
+with `_SUMMARY_MONEY_RE`. That split is what makes the fail-closed property
+true: a refused figure still counts towards finding the row, so the row is
+found a column short and the statement fails closed. Locating by the strict
+count instead would skip the grid and settle on the next line carrying four
+figures — the `Daily Balance` ladder read as a summary, which is the shift
+again, worse.
+
+Measured over the 54 blocks, after:
+
+| | |
+|---|---:|
+| blocks where the permissive and strict locators pick the same line | **54 / 54** |
+| blocks whose four read figures move | **0** |
+| lines below the grid row, now never scanned | **722** |
+| figures in that region, now out of reach | **581** |
+| glued tokens inside the region still read | **0** |
+| PNC sweep vs base | **byte-identical, 62 / 62** |
+
+The reviewer's construction now returns `None`. Both the glue region and the
+shift are gone, and the claim in the code is one the code has.
 
 ## S3. Card P2 — `pnc`: a dated row that moves no money published as a posting
 
@@ -4450,7 +4511,7 @@ All from the worktree at HEAD, `set -o pipefail`, exit codes verbatim.
 ```
 $ git rev-parse --abbrev-ref HEAD ; git rev-parse --short HEAD
 wave3-structfix-1
-367baa0                                            (this log is the commit after)
+b7cce95                                            (this log is the commit after)
 
 $ git status --short
 (clean)
@@ -4467,32 +4528,33 @@ $ python sf_repro_worktree.py                      # same reproducer, this branc
    P1-B  MUTANT: unchanged — Card B not shipped (§S4)
 
 $ python -m pytest tests/test_pnc_variants.py -q   # against base_tree (cc3ab29)
-7 failed, 16 passed                                PREFIX_EXIT=1
-   the 7 are the new fixtures that pin the two defects;
-   the other 4 new ones are controls and pass in both directions
+8 failed, 17 passed                                PREFIX_EXIT=1
+   the 8 are the new fixtures that pin the defects, including both
+   constructions of the window shift; the other 5 new ones are controls
+   and pass in both directions
 
 $ python -m pytest tests/test_pnc_variants.py -q   # this branch
-23 passed                                          EXIT=0
+25 passed                                          EXIT=0
 
 $ python -m pytest -q
-2573 passed, 18 deselected, 1 warning in 259.65s   SUITE_EXIT=0
+2575 passed, 18 deselected, 1 warning in 162.31s   SUITE_EXIT=0
 
 $ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
       tests/test_no_parser_helper_clones.py -q
-100 passed in 1.28s                                GUARDS_EXIT=0
+100 passed in 1.12s                                GUARDS_EXIT=0
 
 $ python -m pytest tests/test_parser_conformance.py tests/test_parser_registry_entries.py \
       tests/test_parser_parity.py tests/test_parser_detection_markers.py \
       tests/test_pnc_variants.py tests/test_bmo_layouts.py -q
-733 passed, 9 deselected in 2.20s                  CONFORMANCE_EXIT=0
+735 passed, 9 deselected in 2.14s                  CONFORMANCE_EXIT=0
 
 $ python -m pytest -m corpus -q
 14 passed, 2577 deselected, 1 warning in 2333.07s  CORPUS_MARKED_EXIT=0
 
-$ python corpus_gate.py
+$ python corpus_gate.py                            # re-run after §S2b
 Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
 Outcomes: 106 PASS / 3 WITHHELD
-Runtime:  753.7s
+Runtime:  457.3s
 RESULT: GREEN                                      GATE_EXIT=0
 
 $ python sf_sweep.py "PNC Bank" …   (base_tree vs branch)
@@ -4525,17 +4587,14 @@ precedent; only aggregate counts and named movers are reported.
 4. **`_posts` was applied to `_parse_checks` as well as `_parse_section`.** The
    card names `:131`. The cheque reader has the identical hole and zero real
    rows are affected; disclosed rather than assumed.
-5. **What refusing a fragment does when the body has spare figures.**
-   `_summary_amounts` takes the first four figures of a loose scan over a body
-   that, on many real documents, runs well past the Balance Summary grid. So a
-   figure the guard refuses is not always a `None` — on a body with more than
-   four figures the four taken simply shift along. That is still strictly
-   better than what it replaces: the shifted four do not cohere, so
-   reconciliation sees it, whereas the truncated four cohered perfectly and
-   nothing saw it. Fail-loud replacing fail-silent, not fail-closed replacing
-   fail-silent, and worth saying plainly. Tightening the body capture to end at
-   the Balance Summary grid would make it fail-closed properly; that is a
-   separate change and is not made here.
+5. ~~**What refusing a fragment does when the body has spare figures.**~~
+   **RESOLVED in this branch — see §S2b.** The first revision of this section
+   recorded, as an accepted residual, that a refused figure shifts the window
+   rather than failing closed, and proposed bounding the capture to the grid as
+   a separate change. Adversarial review declined to accept it as a residual —
+   correctly, since the same construction also exposed the 77 fabricated
+   tokens — and the bound is now taken. `_summary_amounts` reads the grid's own
+   row; a refused figure leaves a hole, not a shift.
 6. **`ANALYSIS_STAGE_VERSION` bump** is required at merge and is not done here.
 7. The 17 unclaimed `PNC Bank` documents and the 11 unclaimed `BMO` documents
    are untouched by this branch and remain `no_parser_matched`. They are
@@ -4546,5 +4605,6 @@ precedent; only aggregate counts and named movers are reported.
 ```
 1cf9a1c  fix(pnc): a space-grouped thousands figure is one figure, not its tail
 367baa0  fix(pnc): a dated row that moves no money is not a posting
+b7cce95  fix(pnc): the Balance Summary is read from the grid's row, not the block
 <LOG>    log: §STRUCTFIX-1
 ```
