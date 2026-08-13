@@ -4167,11 +4167,14 @@ mid-flight by Ocean. Baseline: run `6893a75b`.
 
 Every card here was found by a fuzzer, not by a failing document: each is a
 grammar the parser refuses (or accepts) that its own printed grid says it
-should accept (or refuse). Three of the four are therefore invisible in the
-archive today — which is the point. The reproducers are
-`repro_moneyfmt.py` (F-MONEYFMT findings 1, 4, 5) and `repro.py` case P1-D
-(F-STRUCTURE #4); both were run against main before any code changed, and all
-four defects reproduced.
+should accept (or refuse). **All four are therefore LATENT — none is visible
+in the archive today**, which is the point of the wave and also the reason the
+sweeps move nothing. Read every "would have shipped X" below in that mood: it
+is what the code does to the printed form, not a claim that the archive
+contains it. The reproducers are `repro_moneyfmt.py` (F-MONEYFMT findings 1,
+4, 5) and `repro.py` case P1-D (F-STRUCTURE #4); both were run against main
+before any code changed, and all four defects reproduced on synthetic
+documents.
 
 ## MF0. Summary
 
@@ -4274,17 +4277,32 @@ documents, one account, one folder).
 ## MF3. Card T2 — truist: a note ABOUT the Checks table is not a row of it
 
 The Checks table has three columns — DATE, CHECK #, AMOUNT($) — and prints no
-words in any of them. The sequence-gap note prints a date, a cheque number and
+words in any of them. A sequence-gap note prints a date, a cheque number and
 an amount in exactly that order:
 
 ```
 Gap in check sequence 02/28 1099 0.00
 ```
 
-so `_CHECK_ROW_RE` matched it wherever it was printed, and it was published as
-`Check 1099` for **-0.00** at approved/clear. Truist has no count oracle
-(`count_semantics` UNSURVEYED, correctly), so nothing downstream saw the
-phantom row.
+`_CHECK_ROW_RE` matches that wherever it is printed, so the parser *would*
+publish it as `Check 1099` for **-0.00** at approved/clear — and Truist has no
+count oracle (`count_semantics` UNSURVEYED, correctly), so nothing downstream
+*would* see the phantom row.
+
+**The defect class is LATENT for truist, and the record must say so.** An
+earlier draft of this section wrote that sentence in the past tense, which
+overclaimed: the phrase appears in **0 of the 60 truist documents** in the
+archive, and no truist document has ever published such a row. The defect is
+demonstrated only on the F-STRUCTURE fuzzer's synthetic reproducer (`repro.py`
+case P1-D). What IS attested in the wild is the same footnote on OTHER
+issuers — §TRIO P-F3 records `* Gap in check sequence` printed on **8 pnc**
+cell documents, and U-F3 records it on the **us_bank** checks grid (14
+documents). That is why the shape is credible for a Truist layout the archive
+has not yet shown; it is not evidence that it has already happened here.
+
+Card T2 therefore closes the class **prophylactically**. It recovers no
+document, repairs no published figure, and moves nothing — §MF5b's zero movers
+is this same fact measured from the other side.
 
 **Characterisation before the fix.** Over the whole truist population, 33
 documents print a Checks table, 532 rows in total:
@@ -4306,6 +4324,14 @@ factored out and reused by both `_CHECKS_SECTION_RE` and the new
 prints its own total and the parser already gates on it. Dropping a row that
 WAS a posting cannot ship a short ledger — it breaks that identity and
 withholds the document. A fixture pins that half explicitly.
+
+**Residual, from Ocean's adversarial review.** `_is_row_boundary` is a
+heuristic, not an invariant: a letter-free money-bearing note, or one that
+forges the reprinted `DATE CHECK # AMOUNT($)` header, is still admitted and
+could still contribute a `0.00` phantom. Both are synthetic-only — neither
+appears in the archive — and the asymmetry holds regardless: any variant that
+instead DROPS a genuine row fails closed on the printed total. The rule
+narrows the class; it does not eliminate it.
 
 **Fixtures** (7 tests / 9 cases): the pre-fix `findall` asserted in-process to
 return the phantom `("02/28","1099","0.00")` third row; the note proved absent
