@@ -274,3 +274,118 @@ def test_t_the_symbol_bearing_document_is_the_symbol_less_one():
 def test_t_negative_a_row_carrying_no_figure_still_withholds_the_document():
     """`_DOLLAR` admits the symbol, not the absence of the amount."""
     assert parse_truist_statement(summary_document("$", "200.00", "500.00")) is None
+
+
+# --------------------------------------------------------------------------
+# MONEYFIX-1 card T2 — a note ABOUT the Checks table is not a row of it
+#
+# The Checks table has three columns and prints no words in any of them. The
+# sequence-gap note prints a date, a cheque number and an amount in that
+# order — `Gap in check sequence 02/28 1099 0.00` — so the row pattern matched
+# it wherever it appeared and it was published as `Check 1099` for -0.00, at
+# approved/clear. Truist has no count oracle (`count_semantics` UNSURVEYED,
+# correctly), so nothing downstream saw the phantom row. (F-STRUCTURE #4.)
+#
+# The discriminator is the printed grid, not the words: a row may follow only
+# cells, or a page break, which the bank closes by REPRINTING the column
+# header. Measured over the whole truist population (33 documents printing a
+# Checks table, 532 rows), the only text ever standing between two rows is a
+# numbers-only `~` cross-reference cell or that reprinted header — and no
+# genuine cheque is printed for 0.00.
+# --------------------------------------------------------------------------
+
+GAP_NOTE = "Gap in check sequence 02/28 1099 0.00 "
+
+
+def gap_document(note: str = GAP_NOTE) -> str:
+    return document(checks_section=(
+        f"Checks {CHECK_HEADER_1} 02/24 1001 100.00 02/23 1002 200.00 "
+        f"{note}Total checks = $300.00\n"))
+
+
+def test_t2_pre_fix_the_row_pattern_matched_the_note_and_booked_it():
+    """The defect, in process: the pattern alone cannot tell the two apart."""
+    from analysis.truist import _CHECK_ROW_RE
+
+    found = _CHECK_ROW_RE.findall(
+        "02/24 1001 100.00 02/23 1002 200.00 " + GAP_NOTE)
+    assert [(m[0], m[2].strip(), m[3]) for m in found] == [
+        ("02/24", "1001", "100.00"),
+        ("02/23", "1002", "200.00"),
+        ("02/28", "1099", "0.00"),   # <- the phantom cheque, pre-fix
+    ]
+
+
+def test_t2_the_sequence_gap_note_is_not_published_as_a_cheque():
+    stmt = parse_truist_statement(gap_document())
+    assert stmt is not None
+    assert descriptions(stmt) == [
+        "Check 1001", "Check 1002", "A COUNTERPARTY PAYMENT", "A COUNTERPARTY DEPOSIT",
+    ]
+    assert 0.0 not in amounts(stmt)
+
+
+def test_t2_the_note_changes_nothing_else_about_the_document():
+    with_note = parse_truist_statement(gap_document())
+    without = parse_truist_statement(gap_document(note=""))
+    assert with_note is not None and without is not None
+    assert with_note.model_dump() == without.model_dump()
+
+
+@pytest.mark.parametrize("note", [
+    "Gap in check sequence 02/28 1099 0.00 ",
+    "Missing check numbers 02/28 1099 25.00 ",
+    "See reverse for check images 02/28 1099 25.00 ",
+], ids=["zero-amount gap note", "note carrying a real-looking figure",
+        "an unrelated printed note"])
+def test_t2_any_note_carrying_a_row_shaped_figure_is_refused(note):
+    """The rule is the grid, not the wording: no blocklist of phrases.
+
+    The second and third notes carry 25.00, so booking them would ALSO break
+    the printed total and withhold the document — which is the fail-closed
+    half of the same rule.
+    """
+    stmt = parse_truist_statement(gap_document(note=note))
+    if stmt is None:
+        return
+    assert "Check 1099" not in descriptions(stmt)
+
+
+def test_t2_negative_rows_resuming_after_a_page_break_are_still_rows():
+    """The one interruption the table really prints. The bank closes a page
+    break by reprinting the column header, and the cheques after it are
+    cheques — dropping them would break the printed total and withhold two
+    archive documents that validate today."""
+    doc = document(checks_section=(
+        f"Checks {CHECK_HEADER_1} 02/24 1001 100.00 "
+        "continued\nPAGE  1  OF  8 0185530\n\n--- Page 2 ---\n\n"
+        f"{ACCOUNT_LINE} (continued) {CHECK_HEADER_3} "
+        "02/23 1002 200.00 "
+        "Total checks = $300.00\n"))
+    stmt = parse_truist_statement(doc)
+    assert stmt is not None
+    assert descriptions(stmt)[:2] == ["Check 1001", "Check 1002"]
+    assert amounts(stmt) == [-100.00, -200.00, -200.00, 500.00]
+
+
+def test_t2_negative_the_numbers_only_cross_reference_cell_is_unaffected():
+    """`05/26 1645~` prints no amount: it is a pointer into the other section.
+    It carries no words, so the rule never looks at it, and the cheque printed
+    after it is still read."""
+    doc = document(checks_section=(
+        f"Checks {CHECK_HEADER_1} 02/24 1001 100.00 02/26 1645~ 02/23 1002 200.00 "
+        "Total checks = $300.00\n"))
+    stmt = parse_truist_statement(doc)
+    assert stmt is not None
+    assert descriptions(stmt)[:2] == ["Check 1001", "Check 1002"]
+
+
+def test_t2_negative_a_note_that_swallows_a_real_cheque_withholds_the_document():
+    """The safety argument for skipping rather than fabricating: the table's
+    own printed total is the oracle. A note that swallowed a genuine cheque
+    cannot reproduce it, so the document is withheld, never shipped short."""
+    doc = document(checks_section=(
+        f"Checks {CHECK_HEADER_1} 02/24 1001 100.00 "
+        "Gap in check sequence 02/23 1002 200.00 "
+        "Total checks = $300.00\n"))
+    assert parse_truist_statement(doc) is None
