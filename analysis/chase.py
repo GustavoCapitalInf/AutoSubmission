@@ -592,7 +592,24 @@ def parse_chase_statement(markdown: str) -> Statement | None:
         txns.extend(_parse_native_section(text, "OTHER WITHDRAWALS, FEES & CHARGES", year=year, sign=-1))
         txns.extend(_parse_native_section(text, "FEES", year=year, sign=-1))
 
-    if not txns or stmt.beginning_balance is None or stmt.ending_balance is None:
+    if stmt.beginning_balance is None or stmt.ending_balance is None:
+        return None
+    # A period in which nothing happened is still a statement, and Chase prints
+    # one: an opening balance, a closing balance equal to it, and its own
+    # instance count of 0 against every section, with no detail section at all.
+    # An empty ledger is admissible ONLY on that evidence — the bank itself
+    # stating no instances and no movement, and the two balances agreeing.
+    # An empty ledger on any other document is this reader failing to read a
+    # section that is there, so it keeps refusing: the emptiness is never taken
+    # as its own proof that the period was empty.
+    # (W3 §CHASE-CLOSURE, from §CHASE-LAYOUTS C6.2.)
+    if not txns and not (
+        not stmt.stated_credit_count
+        and not stmt.stated_debit_count
+        and not stmt.stated_total_credits
+        and not stmt.stated_total_debits
+        and stmt.beginning_balance == stmt.ending_balance
+    ):
         return None
     stmt.transactions = txns
     return stmt
