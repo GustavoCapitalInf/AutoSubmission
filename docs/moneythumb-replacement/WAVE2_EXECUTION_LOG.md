@@ -1,5 +1,54 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-13 — **FIXUPS-1 OFFICIAL: improved 26 / regressed 0** · CI record corrected: remote red 08-07→08-12 was ONE Linux-only test the whole streak; fixed `8c01930`, remote GREEN again
+
+FIXUPS-1 merged `28e04ba` (fix 1: pipeline page-declaration lookbehind
+`267f12e`; fix 2: dates bare-totals `8ec039e`; fix 3: first_community
+debit-count scope alignment `acd0b07` — D5 recommendation (a), resolving the
+sole pinned-PASS stated-count mismatch to a legitimate `match`), v7 bump
+`718c188`. **Post-merge instrument (`04e24c20` → `ca2ba0eb`, distinct
+documents, shared 3,380, `--fail-on-regression` exit 0): improved 26 /
+regressed 0 — exactly the two predicted transition classes and nothing
+else:** review→validated 23 (bmo_us_activity — cell 1's family B,
+page-declaration false positive) + withheld→validated 3 (bmo_ca_business —
+`posting_date_coverage` leavers, bare-totals fix). Totals: validated 1,750 →
+**1,776 (52.5%)** · review 33 → **10** · withheld 61 → **58** · failed 1,523
+unchanged · deferred 13 · claim coverage steady 55.0% (as designed —
+FIXUPS-1 fixed validation, not detection). Post-merge dry run `6d9cce78`:
+canonical 100/6/3 reproduced on the pinned 109.
+
+**CI record corrected (Ocean):** every remote push run 2026-08-07 18:56Z →
+2026-08-10 18:06Z was RED (12+ runs, `0c13c21c` … `718c188`) — the "CI
+green" claims in the 08-08→08-10 entries were wrong for remote CI (local
+proofs were green; remote conclusions were not read). Single cause across
+the entire streak, verified on first/middle/last runs:
+`tests/test_discovery.py::test_a_case_folded_pinned_document_is_unique_not_a_duplicate_of_itself`
+FileNotFoundError, Linux-only — introduced with the 08-07 case-fold hotfix
+`c002536`: the runner opened a case-folded pinned path by its manifest
+spelling, forgiven on case-insensitive Windows, nonexistent on Linux. Every
+red run was `1 failed / all else passed`; zero financial drift; the gate
+step never reached on those runs' failures beyond the suite. **Fixed
+2026-08-12 `8c01930`** (Gustavo-launched session): `Inventory.disk_spelling()`
+carries the on-disk spelling for I/O; identity, dedup keys and reports keep
+the manifest spelling; the regression test now drives the runner exactly as
+the CLI does while still reproducing the original duplicate-of-itself
+defect. Suite 2,475 / gate GREEN 106/3 / remote run `31662641324` GREEN
+end-to-end. Windows discovery results unaffected (I/O-spelling-only change),
+so `ca2ba0eb` remains the canonical post-FIXUPS-1 baseline.
+
+**Standing-criteria addition (Ocean):** a merge is not "CI green" until the
+remote run's *conclusion* has been read and its run id recorded in the
+entry; dispatching (or assuming) a run is not evidence.
+
+**State:** REEF-CHASE-LAYOUTS (phase cell 2) dispatched 08-10, no agent
+commits yet — branch advanced to current main and handoff baseline refreshed
+to `ca2ba0eb` (FIXUPS-1 overlap clause retired; single-number measurement).
+Housekeeping: merged branches `wave3-bmo-layouts`, `wave3-fixups-1`,
+`wave3-stated-counts-p1`, `wave3-platform-proposals` + worktrees removed.
+Awaiting Gustavo: Chase cell session launch; Phase-2 stated-count go
+(package complete per 08-10 D5 entry — fix 3 above landed its parser-card
+prerequisite).
+
 ## 2026-08-10 — **PHASE CELL 1 (BMO) OFFICIAL: improved 154 / regressed 0 — first claim-coverage movement of the phase (50.4% → 55.0%)**
 
 BMO merged (`b7108dd` incl. FIXUPS-1 handoff), v6 bump, 2,465 default /
