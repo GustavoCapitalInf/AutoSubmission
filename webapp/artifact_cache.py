@@ -220,7 +220,13 @@ OCR_STAGE_VERSION = 2
 # 6 -> 7: FIXUPS-1 (merge of acd0b07) — page-declaration restriction,
 # totals posting-date exclusion, first_community count alignment change
 # analysis output for 23+3+3 archive documents for unchanged settings.
-ANALYSIS_STAGE_VERSION = 7
+# 7 -> 8: composed — COUNTS-P2 (merge of 67010d9: four ReconResult count
+# fields on every payload; integrity flags on ~23 already-withheld
+# documents) + phase cell 2 (merge of ae90180: chase overdrawn-sign fix
+# changes ~108 archive documents from no-parse to full extraction;
+# square_checking claims 11). Both change analysis output for unchanged
+# settings; one composed bump before the round's measurement.
+ANALYSIS_STAGE_VERSION = 8
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 
