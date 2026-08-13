@@ -65,6 +65,7 @@ EXPECTED_ORDER = [
     "scotiabank",
     "secu",
     "southside_scanned",
+    "square_checking",
     "td_canada",
     "td_us",
     "texas_bank",
@@ -112,9 +113,10 @@ def test_every_parse_entry_point_in_analysis_is_registered():
 
 
 def test_registration_count_matches_the_documented_decision_points():
-    """43 registry entry points, the three promoted sub-dispatches, and the
-    three BMO layouts opened by the unclaimed-layout phase (W3 §BMO-LAYOUTS)."""
-    assert len(pr.registrations()) == 49
+    """43 registry entry points, the three promoted sub-dispatches, the three
+    BMO layouts (W3 §BMO-LAYOUTS) and the Square Checking layout
+    (W3 §CHASE-LAYOUTS), both opened by the unclaimed-layout phase."""
+    assert len(pr.registrations()) == 50
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():
