@@ -404,3 +404,90 @@ def test_f5_negative_a_bare_sub_dollar_figure_after_another_figure_still_reads()
     stmt = parse_pnc_statement(doc)
     assert stmt is not None
     assert summary_of(stmt) == (1000.00, 0.87, 300.00, 700.87)
+
+
+# --------------------------------------------------------------------------
+# P-F6  a dated row that moves no money is not a posting
+# --------------------------------------------------------------------------
+# PNC prints genuine sub-dollar amounts with the leading zero dropped, so the
+# row grammar has to accept `.dd` — and a dated informational line carrying
+# `.00` then satisfies that grammar exactly as a posting does. Such a row is
+# invisible to every identity the fail-closed gate applies: it adds zero to the
+# ledger sum and zero to the section total, so `beginning + activity == ending`
+# still holds with it in the ledger, and PNC discloses no per-direction count
+# oracle (`analysis/count_semantics.py` SECTION_LEVEL_ORACLES) that could see
+# the extra row. It is refused on the structure of the row — a posting moves
+# money — and not on the words the line happens to use.
+
+def test_f6_a_dated_zero_amount_line_is_not_published_as_a_transaction():
+    doc = document(activity=(
+        "Deposits and Other Additions\n"
+        "Deposits\n"
+        f"{DESCRIBED_HEADER}"
+        "04/02 500.00 Deposit 000000001\n"
+        "Checks and Other Deductions\n"
+        "Other Deductions\n"
+        f"{DESCRIBED_HEADER}"
+        "04/30 300.00 A Monthly Service Charge 000000003\n"
+        "04/30 .00 Overdraft fees assessed this statement period\n"
+    ))
+    stmt = parse_pnc_statement(doc)
+    assert stmt is not None
+    assert amounts(stmt) == [500.00, -300.00]
+    assert all("Overdraft fees assessed" not in d for d in descriptions(stmt))
+
+
+def test_f6_a_genuine_sub_dollar_posting_still_parses():
+    """54 rows in the archive are printed this way — `02/02 .82 ACH Credit
+    Acctverify ...`. The refusal above must not reach them."""
+    doc = document(
+        credits=".82", debits="300.00", ending="700.82",
+        activity=(
+            "Deposits and Other Additions\n"
+            "ACH Additions\n"
+            f"{DESCRIBED_HEADER}"
+            "04/02 .82 ACH Credit Acctverify A Counterparty 00026033010231130\n"
+            "Checks and Other Deductions\n"
+            "Service Charges and Fees\n"
+            f"{DESCRIBED_HEADER}"
+            "04/30 300.00 A Monthly Service Charge 000000003\n"
+        ),
+    )
+    stmt = parse_pnc_statement(doc)
+    assert stmt is not None
+    assert amounts(stmt) == [0.82, -300.00]
+    assert descriptions(stmt)[0].startswith("ACH Credit Acctverify")
+
+
+def test_f6_the_printed_overdraft_fee_summary_is_handled_as_it_was():
+    """`Total Overdraft Fees .00 .00` is printed outside the Balance Summary
+    body and carries no date, so it was never a row and still is not. The
+    document around it reads exactly as before."""
+    stmt = parse_pnc_statement(FEE_REFUNDS_DOC)
+    assert stmt is not None
+    assert "Total Overdraft Fees .00 .00" in FEE_REFUNDS_DOC
+    assert amounts(stmt) == [400.00, 100.00, -300.00]
+    assert summary_of(stmt) == (1000.00, 500.00, 300.00, 1200.00)
+
+
+def test_f6_a_zero_amount_cheque_is_not_published_either():
+    """The cheque section prints its own column group but has the same hole:
+    `.00` is a readable amount there too, and a cheque that moves no money is
+    not a cheque."""
+    doc = document(
+        debits="600.00", ending="900.00",
+        activity=(
+            "Deposits and Other Additions\n"
+            "Deposits\n"
+            f"{DESCRIBED_HEADER}"
+            "04/02 500.00 Deposit 000000001\n"
+            "Checks and Other Deductions\n"
+            "Checks and Substitute Checks\n"
+            f"{CHECK_HEADER}"
+            "04/04 1100 600.00 018785793 04/28 1099 * .00 018074965\n"
+        ),
+    )
+    stmt = parse_pnc_statement(doc)
+    assert stmt is not None
+    assert amounts(stmt) == [500.00, -600.00]
+    assert descriptions(stmt)[1:] == ["Check 1100"]

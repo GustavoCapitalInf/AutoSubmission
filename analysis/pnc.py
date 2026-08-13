@@ -165,6 +165,34 @@ def _section_chunks(markdown: str, heading: str) -> list[str]:
     return chunks
 
 
+def _posts(amount: float) -> bool:
+    """Whether an Activity Detail row is a POSTING rather than furniture.
+
+    A posting is a movement of money, and the Activity Detail also carries
+    dated lines that state a fact about the period instead of moving anything —
+    an overdraft-fee notice, a period marker. Those print in the same column
+    group as a posting and the row grammar cannot tell them apart: PNC prints
+    genuine sub-dollar amounts with the leading zero dropped (`02/02 .82 ACH
+    Credit ...` — 54 such postings in the archive), so `.dd` has to stay
+    readable, and a `.00` line then satisfies the row pattern exactly as a
+    posting does.
+
+    What separates them is the figure itself: a row that moves nothing is not a
+    posting. That is also the only reading a downstream check could ever
+    recover, because such a row is invisible to every identity the fail-closed
+    gate applies — it adds zero to both the ledger sum and the section total,
+    so a fabricated one leaves beginning + activity == ending intact. PNC
+    discloses no per-direction count oracle (`analysis/count_semantics.py`
+    SECTION_LEVEL_ORACLES), so the row count cannot catch it either. The
+    refusal has to happen here or nowhere.
+
+    Structural, not a vocabulary: nothing here reads the description, so a
+    furniture wording this parser has never seen is refused on the same
+    grounds, and a real posting is never refused for how it is worded.
+    """
+    return amount != 0
+
+
 def _parse_section(markdown: str, heading: str, *, year: int, sign: int) -> list[Transaction]:
     txns: list[Transaction] = []
     for chunk in _section_chunks(markdown, heading):
@@ -177,7 +205,7 @@ def _parse_section(markdown: str, heading: str, *, year: int, sign: int) -> list
                 continue
             txn_date = iso_from_month_day_strict(m.group(1), year)
             amount = _money(m.group(2))
-            if txn_date is None or amount is None:
+            if txn_date is None or amount is None or not _posts(amount):
                 continue
             signed = round(abs(amount) * sign, 2)
             txns.append(Transaction(
@@ -202,7 +230,7 @@ def _parse_checks(markdown: str, *, year: int) -> list[Transaction]:
         for mmdd, number, marker, amount in _CHECK_ROW_RE.findall(chunk):
             txn_date = iso_from_month_day_strict(mmdd, year)
             value = _money(amount)
-            if txn_date is None or value is None:
+            if txn_date is None or value is None or not _posts(value):
                 continue
             txns.append(Transaction(
                 date=txn_date,
