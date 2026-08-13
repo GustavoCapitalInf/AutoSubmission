@@ -4171,22 +4171,22 @@ The wave's only wrong-data-while-trusted card: `bank_of_america` stored two
 different meanings of `stated_debit_count` across 360 documents that all
 publish a number.
 
-## B0. Summary
+## BC0. Summary
 
 | | |
 |---|---|
 | The defect | Three summary readers, two meanings. The native reader (`_parse_native_summary`) and the HTML-table reader stored the printed `# of withdrawals/debits`; the repair path stored `debit_count + (check_count or 0)`. `apply_statement_repairs` runs the repair LAST on every deterministic parse (`analysis/pipeline.py:391`), so the repair's meaning is the one that shipped — on the 107 documents whose layout prints `Total # of checks`. |
-| Characterised before code | Yes, from the archive's own documents (§B2). The measurement instrument reads the D-3 cache `mode=ro` and re-derives nothing: zero OCR, zero model calls, `$0.00`. |
+| Characterised before code | Yes, from the archive's own documents (§BC2). The measurement instrument reads the D-3 cache `mode=ro` and re-derives nothing: zero OCR, zero model calls, `$0.00`. |
 | The scope, decided | `# of withdrawals/debits` is a WHOLE-DIRECTION count that already includes the cheque block. Raw reproduces the captured debit rows on **344 of 344** documents that print it; `raw + Total # of checks` on **0 of 107**. |
 | The fix | One line of behaviour (`analysis/bofa.py:642`, the repair stores the raw figure) plus `_SUMMARY_COUNT_SCOPE`, the note all three readers now point at. |
 | `count_semantics` | `bank_of_america:debit` flipped **incomparable → comparable**, `scope="whole_direction"`, on a fresh counterfactual of **344 match / 0 mismatch** measured at this tree through the real production path. |
 | Outcome movement | **Zero.** 360 of 360 documents `validated/approved → validated/approved`. Zero count flags raised. |
-| Field movement | Exactly **three fields on exactly 107 documents**, every one a restatement of the same correction (§B4). Zero unlicensed movement across the full payload. |
-| Corpus gate | GREEN, 106 PASS / 3 WITHHELD, byte-identical (§B6). |
-| Files changed | `analysis/bofa.py`, `analysis/count_semantics.py` (the two `bank_of_america` entries), `tests/test_bofa_variants.py` (+7 fixtures, family F9), `tests/test_count_semantics.py` (the pinned-set edit + one provenance test), `tests/test_analysis.py` (ONE assertion — the declared scope deviation, §B7.1), and this log. |
+| Field movement | Exactly **three fields on exactly 107 documents**, every one a restatement of the same correction (§BC4). Zero unlicensed movement across the full payload. |
+| Corpus gate | GREEN, 106 PASS / 3 WITHHELD, byte-identical (§BC6). |
+| Files changed | `analysis/bofa.py`, `analysis/count_semantics.py` (the two `bank_of_america` entries), `tests/test_bofa_variants.py` (+7 fixtures, family F9), `tests/test_count_semantics.py` (the pinned-set edit + one provenance test), `tests/test_analysis.py` (ONE assertion — the declared scope deviation, §BC7.1), and this log. |
 | Cache implication | `ANALYSIS_STAGE_VERSION` must be bumped at merge. **Ocean's, not done here.** |
 
-## B1. What the bank actually prints
+## BC1. What the bank actually prints
 
 The account summary is TWO printed columns that the text layer flattens into
 one interleaved run of lines. Verbatim from `D8FB3C2A…` (the first BofA
@@ -4226,7 +4226,7 @@ Total checks -$1,020.00
 Total # of checks 4
 ```
 
-## B2. The characterization, per layout
+## BC2. The characterization, per layout
 
 Measured over all **360 distinct claimed BofA documents** (362 rows, 2
 duplicate hashes). "captured" is the payload's `direction == "debit"` row
@@ -4258,7 +4258,7 @@ Four things that table settles.
    code comment and in the semantics entry, because it is the one part of the
    claim that rests on argument rather than on counting.
 
-### B2.1 Why the mapping looked right — the asymmetry, stated
+### BC2.1 Why the mapping looked right — the asymmetry, stated
 
 The cheque MONEY genuinely is outside `Withdrawals and other debits`: the
 summary prints `Checks` as its own line, and that line equals the Checks
@@ -4270,7 +4270,7 @@ defect was reading one off the other. That sentence is now in
 `_SUMMARY_COUNT_SCOPE` and in a fixture
 (`test_f9_the_cheque_money_still_sits_outside_the_withdrawals_total`).
 
-### B2.2 What this says about COUNTS-P1 §3.1
+### BC2.2 What this says about COUNTS-P1 §3.1
 
 Phase 1 measured "raw ⇒ 237 match / 107 mismatch; `+ check_count` ⇒ 153 / 191"
 and concluded neither form was safe. The 237/107 split is reproduced here
@@ -4284,7 +4284,7 @@ those 107. Phase 1's caution was right and its diagnosis was right (the three
 readers disagree); the specific number that made the mapping look "WRONG on
 more than half" was measuring the defect, not the mapping.
 
-### B2.3 The printed-only test that is NOT available, disclosed
+### BC2.3 The printed-only test that is NOT available, disclosed
 
 The cleanest printed-evidence proof of scope would be a **cheques-only**
 statement: printed outflow money consisting of the `Checks` line alone, where
@@ -4292,12 +4292,12 @@ statement: printed outflow money consisting of the `Checks` line alone, where
 two printed integers with no row anywhere in the argument. **The archive
 contains zero such documents** (`N - M` ranges from 24 to 435 over the 107).
 The necessary condition `N >= M` holds on 107 of 107, which is consistent with
-inclusion and does not prove it alone. So the scope claim rests on §B2 items
+inclusion and does not prove it alone. So the scope claim rests on §BC2 items
 1-3 — a 344-of-344 agreement with a 344-of-344 control — not on a single
 decisive printed identity. Recorded because the falsifier in the semantics
 entry is what carries the residual risk.
 
-## B3. The change
+## BC3. The change
 
 `analysis/bofa.py`:
 
@@ -4316,7 +4316,7 @@ entry is what carries the residual risk.
 money-vs-count asymmetry, the scope of the evidence (all 344 are layout A) and
 an explicit FALSIFIER. The credit entry's `file:line` provenance is refreshed.
 
-## B4. Result over the population — the 360-document field sweep
+## BC4. Result over the population — the 360-document field sweep
 
 BEFORE is the cached payload the baseline run produced at base `49b20c9`;
 AFTER is the same markdown re-analysed by this worktree. Every leaf JSON path
@@ -4359,7 +4359,7 @@ on the three fields that did move:
   from the one the card named, and it is a direct restatement of the same
   correction, not an independent movement.
 
-## B5. The fresh counterfactual, at this tree
+## BC5. The fresh counterfactual, at this tree
 
 Every claimed BofA document re-run through the real production path —
 `resolve` → `apply_statement_repairs` → `reconcile` → `counts_comparable` →
@@ -4382,9 +4382,101 @@ mismatch to explain individually, and the flip manufactures no
 validated→review mover. The 16 `not_printed` are layout B, which prints no
 count: `not_printed` is a fact about those documents and stays one.
 
-## B7. Carried findings and questions for Ocean
+## BC6. Proofs
 
-### B7.1 Scope deviation, declared
+Run in this worktree at `786814c` (the last code commit), clean tree,
+`set -o pipefail`, exit codes as printed.
+
+```
+$ git rev-parse HEAD
+786814c                                        (code complete; only this log followed)
+
+$ git status --short
+(empty)
+
+$ python -m pytest tests/test_bofa_variants.py tests/test_count_semantics.py -q
+68 passed, 1 warning in 22.93s
+EXIT=0
+
+$ python -m pytest tests/test_analysis.py tests/test_bofa_variants.py -q
+136 passed, 1 warning in 89.12s
+EXIT=0
+
+$ python -m pytest -q
+2569 passed, 18 deselected, 1 warning in 791.67s
+EXIT=0
+
+$ set -o pipefail; python -m pytest -m corpus -q
+14 passed, 2573 deselected, 1 warning in 2445.63s (0:40:45)
+EXIT=0
+
+$ set -o pipefail; python corpus_gate.py
+Corpus gate
+
+[PASS] inventory: 109 pinned corpus PDFs, all on disk and audited by both oracles
+[PASS] foreign_files: no non-corpus PDFs under the corpus root
+[PASS] source_integrity: 109/109 pinned source PDFs match their pinned SHA-256
+[PASS] balance_audit: 109 statements reproduce every audited balance field across backend, API, dashboard, CSV, XLSX, and package surfaces
+[PASS] adb_audit: 109 statements reproduce every audited ADB field across backend, API, and dashboard-package surfaces
+[PASS] balance_outcomes: balance: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes: adb: 106 pass, 3 withheld, same three statements
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR = 109 statements resolved offline; no live OCR, no model calls
+         served from committed OCR artifact: Chase/Chase Business.pdf
+         served from committed OCR artifact: Misc/Builder June 2026.pdf
+         served from committed OCR artifact: Misc/Columbia May 26 complete.pdf
+         served from committed OCR artifact: Misc/First Farmers 2026 01-document.pdf
+         served from committed OCR artifact: Misc/KLR.May 31,2026 (1).pdf
+         served from committed OCR artifact: Regions/Regions.pdf
+[PASS] exclusions: 0 named exclusions
+[PASS] oracle_independence: 4 audit modules import no production financial mathematics
+
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  849.5s
+
+RESULT: GREEN
+EXIT=0
+```
+
+**The gate is byte-identical to the baseline in `COUNTS_P1_MEASUREMENT.md`
+§8.4** — same ten checks, same `106 PASS / 3 WITHHELD`, same three withheld
+statements, same offline coverage. That is the card's requirement 5 discharged:
+the audit CSVs carry `transactions` as one total and no per-direction count
+column, so a per-direction count correction has nothing in them to move, and
+the gate proves it rather than the argument asserting it.
+
+The default suite was 2,391 tests at the phase-1 baseline and is 2,569 here;
+this card adds 8 (7 F9 fixtures + the BofA falsifier test) and changes one
+existing assertion (§BC7.1). The corpus-marked suite runs the same 14 tests as
+the phase-1 baseline; its wall time is longer (2,446s vs 1,210s) because
+several agents' corpus suites shared the machine, not because it did more
+work — its process held ~96% CPU throughout.
+
+### BC6.1 The measurement instrument, and what it was allowed to touch
+
+Everything in §BC2, §BC4 and §BC5 was measured by scratch scripts outside the
+repo, reading:
+
+* `discovery_reports/2026-08-13T163911.518386-0000-6893a75b/rows.csv` — the
+  BofA population and its baseline outcomes;
+* the D-3 artifact cache at `webapp_data/`, opened
+  `sqlite3.connect(..., "mode=ro", uri=True)` exactly as
+  `telemetry/stated_counts.py` does, and read through the stored artifact
+  JSON directly rather than through `webapp.storage.Storage` (constructing one
+  runs `_ensure_schema`, which writes);
+* the OCR-stage artifacts, from which the analysed markdown was reconstructed
+  byte-exactly — proven, not assumed: the reconstruction hashes to an
+  `input_sha256` that exists in the `analysis` stage of the cache
+  (`source_file` is the PDF basename).
+
+**Zero OCR, zero model calls, `$0.00`, no write of any kind to the archive or
+the cache.** `analyze_markdown` was called directly in §BC4, never through
+`cached_analysis`, so no artifact was stored.
+
+## BC7. Carried findings and questions for Ocean
+
+### BC7.1 Scope deviation, declared
 
 The brief's Allowed list names `tests/test_bofa_variants.py` and
 `tests/test_count_semantics.py`. One assertion in
@@ -4398,17 +4490,17 @@ comment, nothing else in that file.** The test's name and its
 `stated_total_debits == 41237.65` assertion are unchanged — the MONEY still
 folds; only the COUNT stopped folding.
 
-### B7.2 The COUNTS-P1 measurement document is now partly stale
+### BC7.2 The COUNTS-P1 measurement document is now partly stale
 
 `COUNTS_P1_MEASUREMENT.md` §3.1, and its §7.2 line ("bank_of_america: 6 pinned
 PASS docs — 4 would-be mismatch raw; all 6 would-be mismatch under the
 `+check_count` mapping"), describe the pre-fix state and rest on the conflated
-"raw" of §B2.2. Not edited here — it is a signed-off phase-1 record and not in
-this card's Allowed list. **Recommend Ocean append a pointer to §B2.2** rather
+"raw" of §BC2.2. Not edited here — it is a signed-off phase-1 record and not in
+this card's Allowed list. **Recommend Ocean append a pointer to §BC2.2** rather
 than rewrite it, so the phase-1 conclusion stays readable as what was known
 then.
 
-### B7.3 `telemetry/stated_counts.py` carries a now-dead counterfactual
+### BC7.3 `telemetry/stated_counts.py` carries a now-dead counterfactual
 
 `_advisory` (`:469-481`) computes `debit_would_be_with_check_mapping` for
 `bank_of_america` only. With the direction comparable, the advisory block
@@ -4417,7 +4509,7 @@ branch is unreachable for its only parser. Harmless and untouched —
 `telemetry/` is not in this card's Allowed list — but it is dead code a future
 reader will wonder about.
 
-### B7.4 The service-fee rows are inside the printed figure too
+### BC7.4 The service-fee rows are inside the printed figure too
 
 BofA prints `Service fees` as its own summary line with **no count**, exactly
 the `capital_one` / `texas_bank` shape of `COUNTS_P1_MEASUREMENT.md` §3.2 —
@@ -4427,9 +4519,18 @@ debit count" is a fact about those two banks' summaries, not a general rule
 about summaries that print an uncounted fee line. Worth knowing before anyone
 generalises the §3.2 mapping.
 
-### B7.5 Layout B is 16 documents with no count oracle at all
+### BC7.5 Layout B is 16 documents with no count oracle at all
 
 The consumer-vocabulary statements print no `# of withdrawals/debits` and no
 `# of deposits/credits`. They are `validated` on the money and invisible to
 this check by construction. Not a defect; a coverage gap worth a line in the
 next counts measurement.
+
+## BC8. Commits
+
+| Commit | Contents |
+|---|---|
+| `25a5bda` | `analysis/bofa.py`: `_SUMMARY_COUNT_SCOPE`, the repair stores the raw printed figure, both other readers documented; the one `tests/test_analysis.py` assertion |
+| `786814c` | `analysis/count_semantics.py`: `bank_of_america:debit` promoted with provenance + falsifier; the pinned-set edit and its provenance test; 7 F9 fixtures |
+| `2f2ad0b` | §BOFA-COUNTS BC0-BC5, BC7 |
+| (this one) | §BOFA-COUNTS BC6 (the verbatim proofs) and BC8; subsection prefixes renamed B→BC so they do not collide with §BOFA's |
