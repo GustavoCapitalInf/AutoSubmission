@@ -120,7 +120,10 @@ def run(
 
     rows = []
     for index, relative_path in enumerate(selected, 1):
-        rows.append(runner.process(relative_path, inventory.folder_label(relative_path)))
+        rows.append(runner.process(
+            relative_path, inventory.folder_label(relative_path),
+            disk_relative_path=inventory.disk_spelling(relative_path),
+        ))
         if progress is not None:
             progress(index, len(selected), relative_path)
 

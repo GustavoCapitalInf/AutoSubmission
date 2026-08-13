@@ -136,7 +136,10 @@ def test_a_case_folded_pinned_document_is_unique_not_a_duplicate_of_itself(tree:
     Fixed by canonicalising identity at the one boundary that decides it
     (`enumerate_root`), not by making `classify` case-insensitive: on Linux
     two case-different paths are genuinely different files, and that must stay
-    a reported deviation rather than become a silent match.
+    a reported deviation rather than become a silent match. The complement
+    (found on Linux, where the manifest spelling does not open the case-folded
+    file at all): identity is the manifest spelling, but the READ goes through
+    `Inventory.disk_spelling`, exactly as the CLI drives the runner.
     """
     wanted = "ScotiaBank/Scotiabank -2.pdf"
     on_disk = tree / "scotiabank" / "scotiabank -2.pdf"
@@ -146,9 +149,13 @@ def test_a_case_folded_pinned_document_is_unique_not_a_duplicate_of_itself(tree:
     inventory = enumerate_root(tree)
     assert inventory.pinned == (wanted,)
     assert inventory.case_mismatches == ((wanted, "scotiabank/scotiabank -2.pdf"),)
+    assert inventory.disk_spelling(wanted) == "scotiabank/scotiabank -2.pdf"
 
     runner = _runner(tree, dedup=DedupIndex.with_pinned_corpus())
-    row = runner.process(wanted, inventory.folder_label(wanted))
+    row = runner.process(
+        wanted, inventory.folder_label(wanted),
+        disk_relative_path=inventory.disk_spelling(wanted),
+    )
 
     assert row.dedup_status == "unique"
     assert row.duplicate_of is None

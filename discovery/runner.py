@@ -341,9 +341,16 @@ class DiscoveryRunner:
 
     # -- one document -------------------------------------------------------
 
-    def process(self, relative_path: str, folder_label: str) -> DocumentRow:
+    def process(
+        self, relative_path: str, folder_label: str,
+        *, disk_relative_path: str | None = None,
+    ) -> DocumentRow:
+        # relative_path is the document's IDENTITY (manifest spelling, from
+        # enumerate_root); disk_relative_path is where the bytes actually live
+        # when a case-insensitive filesystem kept a different casing
+        # (Inventory.disk_spelling). Only the read uses the disk spelling.
         started = time.perf_counter()
-        path = self.root / relative_path
+        path = self.root / (disk_relative_path or relative_path)
         raw = path.read_bytes()
         timer, collector = StageTimer(), DispatchCollector()
 

@@ -51,6 +51,21 @@ class Inventory:
         head, _, tail = relative_path.partition("/")
         return head if tail else "(root)"
 
+    def disk_spelling(self, relative_path: str) -> str:
+        """The on-disk spelling behind a canonical (manifest-spelled) identity.
+
+        Identical to the identity except for the documents in
+        `case_mismatches`, where the filesystem kept a different casing than
+        the manifest. File I/O must go through this spelling: a
+        case-insensitive filesystem forgives opening the manifest spelling,
+        but on Linux the case-folded path is the only one that exists.
+        Identity, dedup keys, and reports keep the manifest spelling.
+        """
+        for wanted, actual in self.case_mismatches:
+            if wanted == relative_path:
+                return actual
+        return relative_path
+
 
 def pinned_manifest() -> list[str]:
     """The 109 pinned corpus paths — the same source the gate enumerates."""
