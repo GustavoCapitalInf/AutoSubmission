@@ -19,6 +19,13 @@ def _money(value: str | None) -> float | None:
 #: this module admits it. It is not cosmetic: the `Total checks` terminator is
 #: what bounds the Checks section, and requiring the tight spelling dropped the
 #: whole section — and with it every cheque — on 20 archive documents.
+#:
+#: The Account summary's three activity rows are read with it for the same
+#: reason and no other: they are printed in the same grid as the two balance
+#: rows beside them, so a statement that spells one `$ 662.35` spells them all
+#: that way. Omitting it there did not lose a field, it lost the DOCUMENT — the
+#: summary is the parser's entry gate, so a single un-admitted symbol returned
+#: None for the whole statement.
 _DOLLAR = r"\$?\s*"
 
 
@@ -27,9 +34,9 @@ def _summary(markdown: str) -> tuple[Statement, int] | None:
         r"(?:TRUIST\s+)?[A-Z0-9 ]+CHECKING[^\n]*?\s+(\d{4,})\s+"
         r"Account summary Your previous balance as of (\d{2})/(\d{2})/(\d{4})\s+"
         + _DOLLAR + r"(-?[\d,]+\.\d{2})\s+"
-        r"Checks\s+-\s+([\d,]+\.\d{2})\s+"
-        r"Other withdrawals, debits and service charges\s+-\s+([\d,]+\.\d{2})\s+"
-        r"Deposits, credits and interest\s+\+\s+([\d,]+\.\d{2})\s+"
+        r"Checks\s+-\s+" + _DOLLAR + r"([\d,]+\.\d{2})\s+"
+        r"Other withdrawals, debits and service charges\s+-\s+" + _DOLLAR + r"([\d,]+\.\d{2})\s+"
+        r"Deposits, credits and interest\s+\+\s+" + _DOLLAR + r"([\d,]+\.\d{2})\s+"
         r"Your new balance as of (\d{2})/(\d{2})/(\d{4})\s+=\s+" + _DOLLAR
         + r"(-?[\d,]+\.\d{2})",
         markdown,
