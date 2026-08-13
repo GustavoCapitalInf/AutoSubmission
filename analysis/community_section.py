@@ -77,9 +77,14 @@ def _summary(block: str):
 #: structurally, because "Summary" is not a direction noun, rather than by
 #: being named in a stop list. The lookbehind keeps the noun from matching
 #: inside a longer word.
+#:
+#: A section reprinted after a page break repeats its name with `(continued)`,
+#: and the whitespace around it is whatever the page break left behind, so the
+#: reprint marker is separated by `\s+` like the grid header itself rather than
+#: by a literal space.
 _SECTION_RE = re.compile(
     r"(?<![A-Za-z])(?:[A-Za-z]+ )?(Credits|Debits|Deposits)"
-    r"(?: \(continued\))?\s+Date Description Amount",
+    r"(?:\s+\(continued\))?\s+Date Description Amount",
     re.IGNORECASE,
 )
 

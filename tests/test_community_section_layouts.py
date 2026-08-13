@@ -141,6 +141,26 @@ def test_a_continued_section_reprint_keeps_its_direction():
     assert reconcile(stmt).ok
 
 
+def test_a_reprint_marker_survives_the_page_break_that_produced_it():
+    """`(continued)` exists *because* of a page break, so the whitespace
+    around it is whatever the break left behind - including a newline."""
+    md = _mv(
+        "Business Analyzed Checking - XXXXXXXX1234\n"
+        "Account Summary Date Description Amount 01/01/2026 Beginning Statement Balance $100.00"
+        " 2 Credit(s) This Period $90.00 1 Debit(s) This Period $40.00"
+        " 01/30/2026 Ending Statement Balance $150.00\n"
+        "Electronic Credits Date Description Amount 01/02/2026 INCOMING ACH $50.00\n"
+        "--- Page 2 ---\n"
+        "Business Analyzed Checking - XXXXXXXX1234 (continued)\n"
+        "Electronic Credits\n(continued)\nDate Description Amount 01/03/2026 INCOMING ACH $40.00\n"
+        "Other Debits Date Description Amount 01/04/2026 SERVICE CHARGE $40.00\n"
+    )
+    stmt = parse_mission_valley_statement(md)
+    assert stmt is not None
+    assert [t.amount for t in stmt.transactions] == [50.0, 40.0, -40.0]
+    assert reconcile(stmt).ok
+
+
 def test_an_overdrawn_period_prints_its_balances_with_a_sign():
     """§C6.1's defect class in this parser.
 
