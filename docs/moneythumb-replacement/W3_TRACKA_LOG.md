@@ -4183,7 +4183,7 @@ four defects reproduced.
 | Statement-specific constants added | **none.** Every rule is the module's own printed grid; card T2 blocklists no phrase. |
 | Per-parser sweeps | 233 documents (rbc 154, truist 51, capital_one 28 — each parser's entire claimed population in `6893a75b` plus its class-1 declines). **233 / 233 byte-identical, 0 movers.** |
 | Outcome classes | unchanged on every one of the 233. |
-| Pinned corpus | `corpus_gate.py` GREEN, corpus-marked suite green, no audited field moved. **No truth-set movement; no ceremony needed.** |
+| Pinned corpus | `corpus_gate.py` **GREEN** (106 PASS / 3 WITHHELD, the pinned split unmoved), corpus-marked suite green, no audited field moved. **No truth-set movement; no ceremony needed.** |
 | Coverage gain | **zero, and expected.** All four cards fix grammars the archive does not currently exercise; the value is the silent-loss and phantom-row classes they close, not documents recovered. |
 | Cache implication | `ANALYSIS_STAGE_VERSION` bump is **Ocean's at merge** (output is byte-identical on the archive, but the parse grammar changed). |
 
@@ -4362,11 +4362,17 @@ All on the final tree (`dc54e4b`), exit codes verbatim.
 | proof | result |
 |---|---|
 | `python -m pytest -q` | **2,603 passed**, 18 deselected, 1 warning, 529.44s — exit `0` |
-| `python -m pytest -q -m corpus` | *(see below)* |
-| `python corpus_gate.py` | *(see below)* |
+| `python -m pytest -q -m corpus` | **14 passed**, 2,607 deselected, 1 warning, 2204.36s — exit `0` |
+| `python corpus_gate.py` | **RESULT: GREEN** — exit `0`. Every module PASS; 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions; outcomes **106 PASS / 3 WITHHELD**, the pinned split unmoved; `balance_audit` and `adb_audit` both reproduce every audited field across backend, API, dashboard, CSV, XLSX and package surfaces |
 | guards + conformance (10 modules incl. `test_no_parser_helper_clones`, `test_r1_hardcodes`, `test_no_statement_hardcodes`, `test_parser_conformance`, `test_parser_registry_entries`, `test_stated_counts`, `test_count_semantics`, `test_parser_crash_shapes`) | **923 passed**, 21.54s — exit `0` |
 | the three per-parser sweeps | **233 / 233 byte-identical, 0 movers** — exit `0` |
+| truist sweep re-run on the final tree (`dc54e4b`, `analysis/` clean) | 51 / 51 byte-identical to the pre-fix base, and identical to the earlier sweep — exit `0` |
 | F-MONEYFMT + F-STRUCTURE reproducers, re-pointed at the branch | all four cards **FIXED** — exit `0` |
+
+Suite growth is fixtures and nothing else: the three changed test modules
+collect **83** on the branch against **42** at base (+41), and no other test
+file is touched. No registration was added, so the registry-count pins and the
+conformance cross-product are unchanged.
 
 ### MF5b. The sweep
 
