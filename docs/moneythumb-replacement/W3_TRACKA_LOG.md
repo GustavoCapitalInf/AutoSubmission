@@ -4548,8 +4548,8 @@ $ python -m pytest tests/test_parser_conformance.py tests/test_parser_registry_e
       tests/test_pnc_variants.py tests/test_bmo_layouts.py -q
 735 passed, 9 deselected in 2.14s                  CONFORMANCE_EXIT=0
 
-$ python -m pytest -m corpus -q
-14 passed, 2577 deselected, 1 warning in 2333.07s  CORPUS_MARKED_EXIT=0
+$ python -m pytest -m corpus -q                    # re-run after §S2b
+14 passed, 2579 deselected, 1 warning in 1127.88s  CORPUS_MARKED_EXIT=0
 
 $ python corpus_gate.py                            # re-run after §S2b
 Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
