@@ -33,6 +33,7 @@ from . import (
     bofa,
     capital_one,
     chase,
+    chase_savings,
     cibc,
     citizens,
     columbia_bank,
@@ -90,6 +91,7 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("capital_one", "Capital One", capital_one, "DETECTION_MARKERS", None, "parse_capital_one_statement"),
     ("chase", "Chase", chase, "DETECTION_MARKERS", "detection_text", "parse_chase_statement"),
     ("chase_export", "Chase Transaction Export", chase, "EXPORT_DETECTION_MARKERS", "detection_text", "parse_chase_export_statement"),
+    ("chase_savings", "Chase Savings", chase_savings, "DETECTION_MARKERS", "detection_text", "parse_chase_savings_statement"),
     ("cibc_french", "CIBC", cibc, "DETECTION_MARKERS", None, "parse_cibc_french_statement"),
     ("citizens", "Citizens Bank", citizens, "DETECTION_MARKERS", None, "parse_citizens_statement"),
     ("columbia_bank", "Columbia Bank", columbia_bank, "DETECTION_MARKERS", "detection_text", "parse_columbia_bank_statement"),
@@ -148,6 +150,16 @@ _OVERRIDES: dict[str, dict] = {
             "document is a Chase online transaction export, not a complete bank statement"
         ),
     },
+    # Chase's savings product is a narrower document class of the same
+    # institution, printed behind the same sentinels: `chase` detects every one
+    # of these documents on its own two markers and then declines at parse,
+    # because it hard-requires CHECKING SUMMARY. Without this edge the two
+    # claims would resolve `ambiguous` and the document would go to review.
+    # The edge is safe in the strong sense rather than the observed one:
+    # `chase_savings` carries an EXCLUDING marker on CHECKING SUMMARY, so it
+    # cannot claim — and therefore cannot shadow `chase` on — any document
+    # printing the checking product.
+    "chase_savings": {"band": 10, "supersedes": frozenset({"chase"})},
     "rbc_french": {"band": 10, "supersedes": frozenset({"rbc"})},
     # BMO prints a second summary block; where the two disagree the document
     # contradicts itself. Registered here so the orchestrator never names BMO.

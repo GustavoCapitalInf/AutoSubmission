@@ -23,6 +23,7 @@ ANALYSIS_DIR = Path(__file__).resolve().parent.parent / "analysis"
 EXPECTED_ORDER = [
     # band 10 — narrower document classes that supersede their general form
     "chase_export",
+    "chase_savings",
     "rbc_french",
     "td_canada_native",
     # band 100 — everything else, alphabetically
@@ -114,9 +115,10 @@ def test_every_parse_entry_point_in_analysis_is_registered():
 
 def test_registration_count_matches_the_documented_decision_points():
     """43 registry entry points, the three promoted sub-dispatches, the three
-    BMO layouts (W3 §BMO-LAYOUTS) and the Square Checking layout
-    (W3 §CHASE-LAYOUTS), both opened by the unclaimed-layout phase."""
-    assert len(pr.registrations()) == 50
+    BMO layouts (W3 §BMO-LAYOUTS), the Square Checking layout
+    (W3 §CHASE-LAYOUTS) and the Chase savings product (W3 §CHASE-CLOSURE) —
+    the last three opened by the unclaimed-layout phase."""
+    assert len(pr.registrations()) == 51
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():
@@ -188,6 +190,12 @@ def test_only_the_promoted_sub_dispatches_supersede_anything():
     superseding = {reg.id: sorted(reg.supersedes) for reg in pr.registrations() if reg.supersedes}
     assert superseding == {
         "chase_export": ["chase"],
+        # W3 §CHASE-CLOSURE: `chase` detects every Chase savings statement on
+        # its own two markers and declines all of them at parse. The evidence
+        # for this edge is the 10 savings documents of the
+        # `Chase x failed x chase:0.5` cell in discovery run `6893a75b`, named
+        # in the commit message; there is no such document in the pinned corpus.
+        "chase_savings": ["chase"],
         "rbc_french": ["rbc"],
         "td_canada_native": ["td_canada"],
     }, (
