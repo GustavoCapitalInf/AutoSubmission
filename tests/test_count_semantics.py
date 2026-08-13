@@ -47,8 +47,9 @@ COMPARABLE = "rbc"
 #: A surveyed parser the table declares incomparable in both directions.
 INCOMPARABLE = "altana"
 #: A real registration that populates a printed count and is NOT in the table.
-#: The live witness for the unsurveyed-default property: 154 documents of it
-#: exist in the archive and the check says nothing about any of them.
+#: The live witness for the unsurveyed-default property: it landed after the
+#: table was written, it prints counts on 127 archive documents (154 across
+#: the BMO family), and the check says nothing about any of them.
 UNSURVEYED_REGISTRATION = "bmo_ca_business"
 
 COUNT_FLAGS = ("credit_count_mismatch", "debit_count_mismatch")
