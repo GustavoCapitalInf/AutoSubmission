@@ -43,7 +43,12 @@ from __future__ import annotations
 #:     carries that code would rank one class lower than the same document
 #:     ranks now, so a rollup spanning both versions is comparing two
 #:     vocabularies - which is what this field exists to make visible.
-DIAGNOSTICS_VERSION = 2
+#: 3 - COUNTS-P2: `integrity:credit_count_mismatch` and
+#:     `integrity:debit_count_mismatch` added, both `detail_coverage`; and
+#:     `DIAGNOSABLE_CLASSES` extended to `review`, so a rollup at version 3
+#:     diagnoses a population version 2 left empty by construction. Two runs
+#:     across this boundary are NOT comparable on either axis.
+DIAGNOSTICS_VERSION = 3
 
 #: The explicit label for a document whose claiming parser could not be
 #: established. Defined here, in the lower layer, because both the telemetry
@@ -53,9 +58,20 @@ DIAGNOSTICS_VERSION = 2
 UNATTRIBUTED = "(parser unknown)"
 
 #: The outcome classes this module diagnoses. `withheld` is the fail-closed
-#: refusal W3-2 exists to explain; `validated` and `review` published a number,
-#: so their diagnostics are empty by construction (the 106-corpus anchor).
-DIAGNOSABLE_CLASSES = ("withheld",)
+#: refusal W3-2 exists to explain; `validated` published a number and needs no
+#: autopsy.
+#:
+#: `review` was in the second group until COUNTS-P2 and is now diagnosed, per
+#: the standing Ocean ruling of 2026-08-10 ("DIAGNOSABLE_CLASSES extends to
+#: review WHEN phase 2 lands, not before"). The reason is that phase 2 makes
+#: `review` a class this taxonomy has something to say about: a count mismatch
+#: publishes its number and lands the document in `review`, so a
+#: `withheld`-only scope would have made the new codes invisible in the only
+#: rollup that reads them (W3-2 open question 2). The acceptance property this
+#: changes is named rather than dropped: it was "the 106 produce empty
+#: diagnostics" and it is now "every VALIDATED document produces empty
+#: diagnostics" - see `tests/test_telemetry_corpus.py`.
+DIAGNOSABLE_CLASSES = ("withheld", "review")
 
 
 # --------------------------------------------------------------------------
@@ -108,6 +124,12 @@ INTEGRITY_FLAGS: frozenset[str] = frozenset({
     "integrity_check_exception",
     "conflicting_statement_summaries",
     "missing_declared_statement_page",
+    # COUNTS-P2. The captured rows did not reproduce the bank's own printed
+    # per-direction COUNT, on a bank whose printed figure is known to denote
+    # the same set of rows (`analysis/count_semantics.py`). Classed with the
+    # money coverage flags: same cause, same remediation, same owner.
+    "credit_count_mismatch",
+    "debit_count_mismatch",
 })
 
 # --------------------------------------------------------------------------
@@ -268,6 +290,15 @@ CLASS_OF: dict[str, str] = {
     "recon:debit_coverage_short": "detail_coverage",
     "integrity:credit_detail_coverage_mismatch": "detail_coverage",
     "integrity:debit_detail_coverage_mismatch": "detail_coverage",
+    # COUNTS-P2. A count mismatch has the same cause as a money-coverage
+    # mismatch (the captured detail does not reproduce the bank's stated
+    # detail), the same remediation (find the rows the reader lost or
+    # mis-sided) and the same owner (that bank's parser cell), so it shares
+    # their class rather than splitting one remediation queue in two. It is
+    # NOT ranked higher for being the more sensitive instrument: precedence
+    # ranks causes, not sensitivities.
+    "integrity:credit_count_mismatch": "detail_coverage",
+    "integrity:debit_count_mismatch": "detail_coverage",
     # posting dates were folded together, so days carry the wrong balances
     "adb:posting_dates_cover_source": "posting_date_coverage",
     "adb_state:posting_dates_incomplete": "posting_date_coverage",

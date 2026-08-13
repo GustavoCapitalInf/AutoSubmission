@@ -69,8 +69,13 @@ def payload(
 
 #: A parser whose semantics are surveyed and comparable in both directions.
 COMPARABLE = "rbc"
-#: A parser the table declares incomparable in both directions.
-INCOMPARABLE = "us_bank"
+#: A parser the table declares incomparable in both directions. Was `us_bank`
+#: until COUNTS-P2 promoted it to comparable on the phase-1 counterfactual
+#: (40/40 in both directions, re-proven against the current archive); `altana`
+#: is the remaining both-directions incomparable, and its argument is the
+#: sharper one anyway — the printed figure is gated equal to LABEL-MATCHED
+#: rows, so it can never be the count of rows in a direction.
+INCOMPARABLE = "altana"
 
 
 # --- the closed vocabulary, one test per value ------------------------------

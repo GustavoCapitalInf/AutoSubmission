@@ -38,6 +38,16 @@ class ReconResult:
     gross_debit_total: float | None = None
     settled_credit_detail: float | None = None
     settled_debit_detail: float | None = None
+    # Count coverage: did the captured rows reproduce the bank's own printed
+    # per-direction COUNTS? Keyed on Transaction.direction (the column the bank
+    # printed the row in), NOT on the sign of the amount: a zero-amount row has
+    # a column and no money, and that is exactly the class no amount-based
+    # check can see. None = the bank printed no count, or this statement is
+    # aggregate-backed — not applicable, never a zero.
+    stated_credit_count_matches: bool | None = None
+    stated_debit_count_matches: bool | None = None
+    captured_credit_count: int | None = None
+    captured_debit_count: int | None = None
 
 
 def _debit_coverage_target(
@@ -225,6 +235,27 @@ def reconcile(stmt: Statement) -> ReconResult:
                 f"or incomplete; do not use it for daily-balance reconstruction"
             )
 
+    # Deliberately appends NO issue: `ok` gates the ADB (pipeline.py:399 ->
+    # metrics.py:313), so an issue here would withhold the document. The
+    # consequence of a count mismatch is decided in
+    # pipeline.assess_document_integrity, one layer up, where it can be a flag.
+    credit_count_matches = debit_count_matches = None
+    captured_credit_count = captured_debit_count = None
+    aggregate_backed = any(
+        "UNCAPTURED" in t.description.upper() for t in stmt.transactions
+    )
+    if stmt.transactions and not aggregate_backed:
+        if stmt.stated_credit_count is not None:
+            captured_credit_count = sum(
+                1 for t in stmt.transactions if t.direction == "credit"
+            )
+            credit_count_matches = captured_credit_count == stmt.stated_credit_count
+        if stmt.stated_debit_count is not None:
+            captured_debit_count = sum(
+                1 for t in stmt.transactions if t.direction == "debit"
+            )
+            debit_count_matches = captured_debit_count == stmt.stated_debit_count
+
     ok = not issues
     return ReconResult(
         ok=ok, issues=issues, summary_ok=summary_ok,
@@ -243,4 +274,8 @@ def reconcile(stmt: Statement) -> ReconResult:
         gross_debit_total=debits,
         settled_credit_detail=settled_credits,
         settled_debit_detail=settled_debits,
+        stated_credit_count_matches=credit_count_matches,
+        stated_debit_count_matches=debit_count_matches,
+        captured_credit_count=captured_credit_count,
+        captured_debit_count=captured_debit_count,
     )

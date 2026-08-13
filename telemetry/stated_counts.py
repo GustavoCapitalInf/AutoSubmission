@@ -8,12 +8,18 @@ proposes that comparison; Gustavo's 2026-08-10 sign-off
 (`WAVE2_EXECUTION_LOG.md`) made a two-phase rollout MANDATORY and this module
 is phase 1 of it.
 
-**Phase 1 changes nothing.** Nothing here is imported by ``analysis/``,
-``ocr/``, ``webapp/`` or ``discovery/``; no flag is emitted; no outcome class
-moves; no payload is written. This is a measuring instrument pointed at
-already-cached artifacts, and its whole output is a statistic. The production
-path is phase-2 material and phase 2 exists only after Gustavo reviews the
-measurement this module produces.
+**This module still changes nothing.** Nothing here is imported by
+``analysis/``, ``ocr/``, ``webapp/`` or ``discovery/``; no flag is emitted; no
+outcome class moves; no payload is written. This is a measuring instrument
+pointed at already-cached artifacts, and its whole output is a statistic.
+
+**Phase 2 landed (COUNTS-P2, 2026-08-13) and one thing here changed with it:**
+the per-bank semantics table moved to ``analysis/count_semantics.py``, where
+the shipping integrity check reads it, and this module imports it from there.
+The vocabulary, the evaluation order and every guard below are untouched. What
+that buys is the property the phase-2 card required — the instrument that
+PREDICTS the flag population and the code that EMITS it cannot disagree,
+because there is only one table. See :data:`OBSERVER_VERSION`.
 
 The closed result vocabulary (binding, from the sign-off)
 --------------------------------------------------------
@@ -90,9 +96,35 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+# The count semantics table, imported from where the SHIPPING check reads it
+# so the two can never disagree. `analysis/count_semantics` imports nothing
+# but `dataclasses`, and `analysis/__init__.py` is empty, so this costs the
+# T12 property nothing: `import telemetry.stated_counts` still pulls in no
+# `webapp` module.
+# Re-exported deliberately: this module's public surface is unchanged, so a
+# caller that imported `SEMANTICS` or `semantics_for` from here still gets
+# them — now resolved to the one table that decides the shipped flag.
+from analysis.count_semantics import (  # noqa: F401
+    DIRECTIONS,
+    SECTION_LEVEL_ORACLES,
+    SEMANTICS,
+    UNSURVEYED,
+    CountSemantics as Semantics,
+    semantics_for,
+)
+
 #: Bumped when the vocabulary, the evaluation order or the semantics table
-#: changes, so two measurement runs can be told apart. Phase 1 ships at 1.
-OBSERVER_VERSION = 1
+#: changes, so two measurement runs can be told apart. Phase 1 shipped at 1.
+#:
+#: 2 - COUNTS-P2: the semantics table stopped living here and became
+#:     `analysis/count_semantics.py`, the table the SHIPPING check reads, with
+#:     chase:debit, us_bank and wilson_muir promoted to comparable on the
+#:     phase-1 evidence. The vocabulary and the evaluation order are
+#:     unchanged; what changed is that this observer now measures the
+#:     production semantics rather than a copy of them, so a v1 rollup and a
+#:     v2 rollup report different `semantics_incomparable` populations for the
+#:     same archive.
+OBSERVER_VERSION = 2
 
 # ----------------------------------------------------------------------
 # the closed vocabulary
@@ -107,10 +139,6 @@ CHECK_UNAVAILABLE = "check_unavailable"
 #: Gustavo's closed vocabulary, in the order the sign-off states it. Nothing
 #: outside this tuple may ever be an observation's `result`.
 RESULTS = (MATCH, MISMATCH, NOT_PRINTED, SEMANTICS_INCOMPARABLE, CHECK_UNAVAILABLE)
-
-#: The two printed directions. `Transaction.direction` is required and is one
-#: of exactly these (`analysis/schema.py:18`).
-DIRECTIONS = ("credit", "debit")
 
 #: Why a direction got the result it got. A closed enum, like every other
 #: string this module emits — never a message, never document content.
@@ -166,343 +194,21 @@ FORBIDDEN_EXPECTED_SOURCES = (
 #: say nothing. Matched on the description the pipeline itself writes.
 AGGREGATE_MARKER = "UNCAPTURED"
 
-
 # ----------------------------------------------------------------------
-# the per-bank count semantics table
+# the per-bank count semantics table — imported, never copied
 # ----------------------------------------------------------------------
+#
+# COUNTS-P2 moved this table into `analysis/count_semantics.py`, where the
+# SHIPPING integrity check reads it. It is imported at the top of this module
+# rather than restated here: an observer that measures a copy of the rule is
+# measuring the wrong thing the moment the copy drifts, and the value of this
+# instrument is that its answer is the production answer.
+#
+# The dependency runs telemetry -> analysis and never the other way.
+# `analysis/` still does not mention this module, and
+# `tests/test_stated_counts.py::test_the_observer_is_not_wired_into_any_production_module`
+# still proves it.
 
-
-@dataclass(frozen=True)
-class Semantics:
-    """What a bank's printed count for one direction actually denotes.
-
-    `comparable` is the whole decision: False means the printed figure counts a
-    different set of rows than `direction == <this direction>` does, so an
-    equality test between them is not a defect detector — it is a mis-reading of
-    the document. `scope` is the short label used in the rollup; `reason`
-    carries the argument and its `file:line` provenance.
-    """
-
-    comparable: bool
-    scope: str
-    reason: str
-
-
-def _whole(printed: str, provenance: str) -> Semantics:
-    """A bank that prints ONE count meaning 'every row in this direction'."""
-    return Semantics(
-        comparable=True,
-        scope="whole_direction",
-        reason=f"prints {printed}; one printed figure per direction ({provenance})",
-    )
-
-
-#: Per parser id (`analysis/parser_registry_entries.py`), per direction.
-#:
-#: Only the parsers that ASSIGN `stated_credit_count`/`stated_debit_count` are
-#: listed. A parser absent from this table never populates the expected side
-#: in the deterministic path, so its documents report `not_printed`; if one
-#: ever does populate it, :func:`semantics_for` returns the unsurveyed default,
-#: which is INCOMPARABLE — the observer refuses to compare semantics nobody has
-#: read, rather than defaulting to a comparison that could manufacture a
-#: mismatch. That default is what makes this table's completeness auditable.
-SEMANTICS: dict[str, dict[str, Semantics]] = {
-    # -- comparable: one printed figure per direction ------------------
-    "atb": {
-        "credit": _whole("a credit count and a debit count in one summary block", "analysis/atb.py:121-122"),
-        "debit": _whole("a credit count and a debit count in one summary block", "analysis/atb.py:121-122"),
-    },
-    "capital_one": {
-        # "N Deposits/Credits" is a whole-direction figure and cheques ARE
-        # inside the printed debit figure by the bank's own label — folded on
-        # both sides, which is comparable (cf. bofa, folded on one side only).
-        "credit": _whole("'N Deposits/Credits'", "analysis/capital_one.py:37-39, :189-193"),
-        "debit": Semantics(
-            comparable=False,
-            scope="service_charge_excluded_from_printed_debit_count",
-            reason=(
-                "the printed summary is a LIST of lines — 'N Checks/Debits "
-                "($x)' AND a separate 'Service Charges ($y)' "
-                "(analysis/capital_one.py:20-28, :189-197). The service charge "
-                "is its own printed line with no count, its money is inside "
-                "the printed debit TOTAL, and the parser records it as a debit "
-                "ROW. So the printed debit count enumerates a strict subset of "
-                "the parser's debit rows: same money, different scope. "
-                "Measured: 12 of 12 capital_one documents disagree by EXACTLY "
-                "+1 captured debit with a non-zero stated_service_charge on "
-                "every one, and debit_coverage is 1.0 with sum_delta 0.0 "
-                "throughout — the rows are right and the scopes differ. "
-                "`stated_debit_count + 1 where a service charge is printed` is "
-                "the mapping a phase-2 parser card should encode; asserting it "
-                "here would be phase 1 changing the expected side, which it "
-                "may not do."
-            ),
-        ),
-    },
-    "chase": {
-        "credit": _whole("'Deposits and Additions  N  $x'", "analysis/chase.py:404-405, :531"),
-        "debit": Semantics(
-            comparable=False,
-            scope="category_subtotal_sum",
-            reason=(
-                "the debit figure is a SUM over a closed label list "
-                "(_SUMMARY_DEBIT_LABELS, analysis/chase.py:380-387; summed at "
-                ":409-418 and :535-543), not a printed whole-direction count. "
-                "The expected side therefore depends on which labels this "
-                "parser knows, so a Chase layout printing a debit category the "
-                "list does not name under-counts the EXPECTED side and would "
-                "manufacture a mismatch against correct rows. Category "
-                "subtotals are named incomparable in the 2026-08-10 sign-off."
-            ),
-        ),
-    },
-    "chase_export": {
-        "credit": _whole("'Deposits and Additions  N  $x'", "analysis/chase.py:404-405, :531"),
-        "debit": Semantics(
-            comparable=False,
-            scope="category_subtotal_sum",
-            reason="same summary reader as `chase` (analysis/chase.py:380-387).",
-        ),
-    },
-    "farmers_merchants": {
-        "credit": _whole("a credit count in the printed account summary", "analysis/farmers_merchants.py:56-57"),
-        "debit": _whole("a debit count in the printed account summary", "analysis/farmers_merchants.py:56-57"),
-    },
-    "first_community": {
-        "credit": _whole("a credit count in the printed summary line", "analysis/first_community.py:150-151"),
-        "debit": _whole("a debit count in the printed summary line", "analysis/first_community.py:150-151"),
-    },
-    "first_farmers": {
-        "credit": _whole("a printed credit count", "analysis/first_farmers.py:152-153"),
-        "debit": _whole("a printed debit count", "analysis/first_farmers.py:152-153"),
-    },
-    "ibc": {
-        "credit": _whole("a printed credit count", "analysis/ibc.py:241-242"),
-        "debit": _whole("a printed debit count", "analysis/ibc.py:241-242"),
-    },
-    "linkbank": {
-        "credit": _whole("a printed credit count", "analysis/linkbank.py:70-71"),
-        "debit": _whole("a printed debit count", "analysis/linkbank.py:70-71"),
-    },
-    "midflorida": {
-        "credit": _whole("a printed credit count", "analysis/midflorida.py:119-120"),
-        "debit": _whole("a printed debit count", "analysis/midflorida.py:119-120"),
-    },
-    "rbc": {
-        "credit": _whole("'Total deposits & credits (N)  + $x'", "analysis/rbc.py:399-401"),
-        "debit": _whole("'Total cheques & debits (N)  - $x'", "analysis/rbc.py:403-405"),
-    },
-    "rbc_french": {
-        "credit": _whole("the French twin of 'Total deposits & credits (N)'", "analysis/rbc.py:399-405"),
-        "debit": _whole("the French twin of 'Total cheques & debits (N)'", "analysis/rbc.py:399-405"),
-    },
-    "scotiabank": {
-        "credit": _whole("'No. of Credits' in the printed summary grid", "analysis/scotia.py:80-82"),
-        "debit": _whole("'No. of Debits' in the printed summary grid", "analysis/scotia.py:80-82"),
-    },
-    "td_canada": {
-        "credit": _whole("'CREDITS  N  $x'", "analysis/td_can.py:449-453"),
-        "debit": _whole("'DEBITS  N  $x'", "analysis/td_can.py:454-457"),
-    },
-    "td_canada_native": {
-        # Accumulated across every printed summary line (`(or 0) + n`,
-        # analysis/td_can.py:451/456 and :586-598) because a TD statement can
-        # print the block more than once. Each line is still a whole-direction
-        # figure, so the sum is one; a REPEATED block would double the expected
-        # side, which is a defect the measurement can see rather than a
-        # semantics difference the observer should hide.
-        "credit": _whole("'CREDITS  N  $x', summed over printed summary lines", "analysis/td_can.py:451, :586-592"),
-        "debit": _whole("'DEBITS  N  $x', summed over printed summary lines", "analysis/td_can.py:456, :598"),
-    },
-    "texas_bank": {
-        "credit": _whole("'Deposits ( N ) + $x'", "analysis/texas_bank.py:68, :129"),
-        "debit": Semantics(
-            comparable=False,
-            scope="service_charge_excluded_from_printed_debit_count",
-            reason=(
-                "the same shape as capital_one, and the parser proves it on "
-                "itself: the summary prints 'Checks/Debits ( N ) - $x' and a "
-                "SEPARATE 'Service Charge - $y' (analysis/texas_bank.py:70-71), "
-                "and the parser's own acceptance gate is "
-                "`debit_sum == debits + service_charge` (:108, :111-112) — it "
-                "requires the service-charge row to be a debit row whose money "
-                "is OUTSIDE the printed 'Checks/Debits' figure. The printed "
-                "count therefore cannot enumerate it. Measured: the single "
-                "texas_bank document disagrees by exactly +1."
-            ),
-        ),
-    },
-    "demo_national": {
-        "credit": _whole("a printed credit count", "analysis/demo_national.py:50-51"),
-        "debit": _whole("a printed debit count", "analysis/demo_national.py:50-51"),
-    },
-    # `community_section` and `scanned_small_bank` already run a count
-    # comparison AS A CLAIM GATE — on mismatch the parser returns None and the
-    # document goes unclaimed (analysis/community_section.py:205-210,
-    # analysis/scanned_small_bank.py:206-207, :368-369, :525-527). A document
-    # they claimed has, by construction, matching counts... under the gate's
-    # OWN key, which is `amount > 0` / `amount < 0` — the SIGN. A zero-amount
-    # row is on neither side of that gate but is on exactly one side of ours.
-    # So these parsers are immune to a sign-keyed check and NOT immune to this
-    # one, which makes them the sharpest available direction-vs-sign probe.
-    # Semantics are comparable; the immunity claim is the thing to measure.
-    "mission_valley": {
-        "credit": _whole("a printed credit count (parser-gated, sign-keyed)", "analysis/community_section.py:192-193, :205-210"),
-        "debit": _whole("a printed debit count (parser-gated, sign-keyed)", "analysis/community_section.py:192-193, :205-210"),
-    },
-    "dakota_west": {
-        "credit": _whole("a printed credit count (parser-gated, sign-keyed)", "analysis/community_section.py:192-193, :205-210"),
-        "debit": _whole("a printed debit count (parser-gated, sign-keyed)", "analysis/community_section.py:192-193, :205-210"),
-    },
-    "apex_scanned": {
-        "credit": _whole("a printed credit count (parser-gated, sign-keyed)", "analysis/scanned_small_bank.py:287-288, :466-467"),
-        "debit": _whole("a printed debit count (parser-gated, sign-keyed)", "analysis/scanned_small_bank.py:287-288, :466-467"),
-    },
-    "southside_scanned": {
-        "credit": _whole("a printed credit count (parser-gated, sign-keyed)", "analysis/scanned_small_bank.py:287-288, :466-467"),
-        "debit": _whole("a printed debit count (parser-gated, sign-keyed)", "analysis/scanned_small_bank.py:287-288, :466-467"),
-    },
-    # -- incomparable, each with its own argument ----------------------
-    "altana": {
-        # BOTH directions, on one argument. The parser's acceptance gate is
-        # `label_deposits != deposit_count -> return None` and
-        # `label_withdrawals != withdrawal_count -> return None`
-        # (analysis/altana.py:187-190): what the printed counts are proven
-        # equal to is the count of LABEL-MATCHED rows, not the count of rows in
-        # that direction. Classifying only the debit side incomparable — which
-        # the parser's comment names explicitly — while comparing the credit
-        # side on the identical construction would be an inconsistency the
-        # measurement would then report as a defect.
-        "credit": Semantics(
-            comparable=False,
-            scope="label_scoped_subset",
-            reason=(
-                "the printed deposit count is gated equal to the count of "
-                "LABEL-MATCHED deposit rows (analysis/altana.py:187), not to "
-                "every row the parser records as a credit. Measured: 3 of 3 "
-                "altana documents record 1-2 more credit rows than the "
-                "printed figure, and altana sets no stated_total_credits at "
-                "all, so nothing else in the payload can even see it."
-            ),
-        ),
-        "debit": Semantics(
-            comparable=False,
-            scope="label_scoped_subset",
-            reason=(
-                "the parser's own comment records it: \"the statement's "
-                "withdrawal summary is LABEL-BASED and excludes some "
-                "balance-increasing adjustment rows\" "
-                "(analysis/altana.py:203-206), and the gate at :189 pins the "
-                "printed figure to the labelled subset. The parser "
-                "deliberately keeps the line-item rows rather than the "
-                "summary's scope."
-            ),
-        ),
-    },
-    "bank_of_america": {
-        "credit": _whole("'# of deposits/credits: N'", "analysis/bofa.py:388-390, :511-513, :574"),
-        "debit": Semantics(
-            comparable=False,
-            scope="cheques_excluded_from_printed_debits",
-            reason=(
-                "BofA prints '# of withdrawals/debits' and a SEPARATE "
-                "'Total # of checks'; the Checks section's rows are recorded "
-                "as debits by the parser. Only ONE of the three BofA summary "
-                "readers applies the mapping — the repair path adds "
-                "`debit_count + (check_count or 0)` (analysis/bofa.py:589) "
-                "while the native path (:391-393) and the table path (:515-516) "
-                "store the raw figure. The payload does not record which path "
-                "ran, so the expected side means two different things across "
-                "one bank's population and neither the raw nor the mapped form "
-                "is safe to assert. Comparable-with-mapping was considered and "
-                "REJECTED for phase 1 for that reason; the advisory block "
-                "measures both forms so phase 2 can decide with numbers. This "
-                "is the 'cheques folded into debit categories' class the "
-                "2026-08-10 sign-off names."
-            ),
-        ),
-    },
-    "us_bank": {
-        "credit": Semantics(
-            comparable=False,
-            scope="category_subtotal_sum_split_by_sign",
-            reason=(
-                "both counts are sums over the printed Account Summary's "
-                "category lines, split into credit and debit BY THE SIGN OF THE "
-                "CATEGORY AMOUNT (analysis/us_bank.py:293-294). The expected "
-                "side is therefore sign-derived at the summary level — the very "
-                "key this check exists to avoid — and it is a category subtotal "
-                "sum. Named in the 2026-08-10 sign-off."
-            ),
-        ),
-        "debit": Semantics(
-            comparable=False,
-            scope="category_subtotal_sum_split_by_sign",
-            reason="see the credit direction (analysis/us_bank.py:293-294).",
-        ),
-    },
-    "wilson_muir": {
-        "credit": Semantics(
-            comparable=False,
-            scope="multi_category_sum",
-            reason=(
-                "`deposit_count + automatic_deposit_count` "
-                "(analysis/wilson_muir.py:162) — a two-way sum of printed "
-                "category counts, and the parser gates on the printed TOTALS, "
-                "not on the counts (:133-136), so a count disagreement is "
-                "reachable. The 'Wilson & Muir three-way' class named in the "
-                "2026-08-10 sign-off."
-            ),
-        ),
-        "debit": Semantics(
-            comparable=False,
-            scope="multi_category_sum",
-            reason=(
-                "`debit_count + automatic_withdrawal_count + card_count` "
-                "(analysis/wilson_muir.py:163) — the three-way sum itself."
-            ),
-        ),
-    },
-}
-
-#: Applied to any parser that populated a printed count but is not in
-#: :data:`SEMANTICS`. Fail-closed for the OBSERVER: an unread semantics is not
-#: a comparable one.
-UNSURVEYED = Semantics(
-    comparable=False,
-    scope="unsurveyed",
-    reason=(
-        "this parser is not in the surveyed semantics table but populated a "
-        "printed count. The observer refuses to compare semantics nobody has "
-        "read rather than default to equality."
-    ),
-)
-
-#: Banks whose printed count evidence exists but is PER SECTION, which the
-#: `Statement` schema has no field for, so it is not expressible in this
-#: check's schema at all. Recorded here so the disclosure is data rather than
-#: a paragraph someone must remember to write: PNC prints an item count per
-#: section (`W3_TRACKA_LOG.md` §3.3, §3.7 item 3) and is the witness that
-#: caught the swallowed-section defect, but a PER-DIRECTION check would not
-#: have caught the `Fee Refunds` case because the direction totals were right.
-#: Wells prints a per-account `Totals` line nothing reads (§W7.4). Neither
-#: parser assigns `stated_credit_count`/`stated_debit_count`, so both report
-#: `not_printed` — which is TRUE of the schema and FALSE of the document, and
-#: that distinction is the disclosure.
-SECTION_LEVEL_ORACLES = {
-    "pnc": "prints a per-SECTION item count the Statement schema cannot hold (W3_TRACKA_LOG.md sec 3.3, sec 3.7 item 3); no per-direction field is assigned",
-    "wells_fargo": "prints a per-account `Totals` line that no parser reads (W3_TRACKA_LOG.md sec W7.4)",
-}
-
-
-def semantics_for(parser_id: str | None, direction: str) -> Semantics:
-    """The count semantics for one parser and one printed direction."""
-    if direction not in DIRECTIONS:
-        raise ValueError(f"unknown direction: {direction!r}")
-    table = SEMANTICS.get(parser_id or "")
-    if table is None:
-        return UNSURVEYED
-    return table[direction]
 
 
 # ----------------------------------------------------------------------
