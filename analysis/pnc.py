@@ -40,6 +40,12 @@ _CHECKS_HEADING = "Checks and Substitute Checks"
 #: amount. Several column groups are printed per physical line. The Reference
 #: number that follows carries no decimal point, so it cannot be read as money.
 _CHECK_ROW_RE = re.compile(r"(\d{2}/\d{2})\s+(\d+)\s*(\*?)\s+(\d[\d,]*\.\d{2}|\.\d{2})")
+#: The space thousands separators `analysis/money.py` already surveys — its
+#: format axes list `1 234.56` (:17) and `EITHER_MINUS_SPACED` (:214) exists to
+#: strip them — written out as the ASCII space plus the two no-break spaces a
+#: PDF text layer emits in its place.
+_THOUSANDS_SPACE = "\u0020\u00a0\u202f"
+
 #: A Balance Summary figure. PNC drops the leading zero on a sub-dollar amount,
 #: so a balance of eighty-seven cents is printed `.87` — and a `\b` before the
 #: point does not match after a space, which is how the old pattern skipped such
@@ -47,7 +53,32 @@ _CHECK_ROW_RE = re.compile(r"(\d{2}/\d{2})\s+(\d+)\s*(\*?)\s+(\d[\d,]*\.\d{2}|\.
 #: closing balance. The boundary here is "not preceded by a digit, comma or
 #: point", which is a statement about the grid rather than about word
 #: characters.
-_SUMMARY_MONEY_RE = re.compile(r"(?<![\d.,])(?:\d[\d,]*)?\.\d{2}-?")
+#:
+#: The body is a FLATTENED grid, so one space character does two jobs: it
+#: separates the columns, and in a figure printed `1 000.00` it groups the
+#: thousands. What tells the two apart is not the character but what stands to
+#: its left — a complete `.dd` figure ENDS a column, so a space after one is a
+#: column gap; anywhere else a digit run adjoining a `<space><3 digits>` group
+#: is the head of one figure rather than the whole of two.
+#:
+#: Both halves of that rule are load-bearing, and they fail in opposite
+#: directions. Without the grouped integer part `1 000.00` cannot match whole.
+#: Without the boundary guard the match that DOES fit — the `000.00` tail — is
+#: a silent truncation of it, and a truncated summary is not caught downstream:
+#: all four columns truncate together, so every printed identity still closes
+#: and the statement publishes approved with each figure wrong by the same
+#: thousand. The guard makes the fragment unmatchable, so a figure this parser
+#: cannot read whole is not read at all and the document fails closed.
+_SUMMARY_MONEY_RE = re.compile(
+    rf"(?<![\d.,])"
+    rf"(?:(?<=\.\d\d[{_THOUSANDS_SPACE}])|(?<![\d][{_THOUSANDS_SPACE}]))"
+    rf"(?:\d[\d,]*(?:[{_THOUSANDS_SPACE}]\d{{3}})*)?\.\d{{2}}-?"
+)
+
+#: The same printed figure where a label rather than a column position finds it,
+#: so the two readings of the Balance Summary block cannot disagree about what a
+#: figure is. Not optional-integer: these lines print a labelled balance.
+_LABELLED_FIGURE = rf"\d[\d,]*(?:[{_THOUSANDS_SPACE}]\d{{3}})*\.\d{{2}}"
 #: A heading owns its line — except that PNC prints the cheque section's
 #: gap-marker footnote on the same line as its heading, so that suffix is
 #: furniture rather than a different heading.
@@ -71,6 +102,12 @@ def _money(value: str | None) -> float | None:
     if value is None:
         return None
     value = value.strip()
+    # A figure read whole from the grid can carry the space thousands separator
+    # the patterns above admit. `parse_money` removes `$`, `,` and `*` but not
+    # spaces, and it SEARCHES rather than anchors, so it would read `1 000.00`
+    # as one dollar — the same truncation by a different route.
+    for space in _THOUSANDS_SPACE:
+        value = value.replace(space, "")
     if value.startswith("."):
         value = "0" + value
     return parse_money(value)
@@ -101,9 +138,16 @@ def _summary_amounts(text: str) -> tuple[float, float, float, float] | None:
 
 
 def _average_balance(text: str) -> float | None:
-    m = re.search(r"Average ledger\s+Average collected\s+balance\s+([\d,]+\.\d{2})", text, re.IGNORECASE)
+    # The average ledger balance is printed in the same Balance Summary block
+    # and in the same figure format as the four columns above it, so it reads
+    # the same figure grammar. Reading it with a narrower one would mean a
+    # document whose columns this parser now reads whole could still publish a
+    # truncated average beside them.
+    m = re.search(rf"Average ledger\s+Average collected\s+balance\s+({_LABELLED_FIGURE})",
+                  text, re.IGNORECASE)
     if not m:
-        m = re.search(r"Average ledger.*?balance\s+([\d,]+\.\d{2})", text, re.IGNORECASE | re.DOTALL)
+        m = re.search(rf"Average ledger.*?balance\s+({_LABELLED_FIGURE})",
+                      text, re.IGNORECASE | re.DOTALL)
     return abs(_money(m.group(1)) or 0.0) if m else None
 
 

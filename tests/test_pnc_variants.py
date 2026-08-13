@@ -277,3 +277,130 @@ def test_f4_negative_a_whole_dollar_summary_is_unchanged():
     stmt = parse_pnc_statement(FEE_REFUNDS_DOC)
     assert (stmt.beginning_balance, stmt.stated_total_credits,
             stmt.stated_total_debits, stmt.ending_balance) == (1000.00, 500.00, 300.00, 1200.00)
+
+
+# --------------------------------------------------------------------------
+# P-F5  a thousands separator the text layer prints as a space
+# --------------------------------------------------------------------------
+# The Balance Summary body is a FLATTENED grid, so the same space character
+# separates the columns and — where a figure is printed `1 000.00` — groups its
+# thousands. The old pattern could not match such a figure whole, and the piece
+# that DID fit was its `000.00` tail: every column truncated by the same
+# thousand, every printed identity still closing, and the statement published
+# approved with beginning, ending and the average balance all wrong by it.
+#
+# Nothing downstream can catch that, which is why it is settled here. The
+# separators are the ones `analysis/money.py` already surveys (`1 234.56`, its
+# :17 format axes; `EITHER_MINUS_SPACED` :214) — an ASCII space and the two
+# no-break spaces a PDF text layer emits in its place.
+
+NBSP = "\u00a0"
+NNBSP = "\u202f"
+
+
+def summary_of(stmt):
+    return (stmt.beginning_balance, stmt.stated_total_credits,
+            stmt.stated_total_debits, stmt.ending_balance)
+
+
+ACTIVITY = (
+    "Deposits and Other Additions\n"
+    "Deposits\n"
+    f"{DESCRIBED_HEADER}"
+    "04/02 500.00 Deposit 000000001\n"
+    "Checks and Other Deductions\n"
+    "Service Charges and Fees\n"
+    f"{DESCRIBED_HEADER}"
+    "04/30 300.00 A Monthly Service Charge 000000003\n"
+)
+
+
+def test_f5_a_space_grouped_thousands_figure_is_read_whole_not_truncated():
+    """`1 000.00` is one figure. Read as `000.00` it is a thousand dollars of
+    silent error that every identity in the document still agrees with."""
+    doc = document(beginning="1 000.00", ending="1 200.00", activity=ACTIVITY)
+    stmt = parse_pnc_statement(doc)
+    assert stmt is not None
+    assert summary_of(stmt) == (1000.00, 500.00, 300.00, 1200.00)
+
+
+def test_f5_the_no_break_space_variant_is_the_same_figure():
+    doc = document(beginning=f"1{NBSP}000.00", ending=f"1{NBSP}200.00",
+                   activity=ACTIVITY)
+    stmt = parse_pnc_statement(doc)
+    assert stmt is not None
+    assert summary_of(stmt) == (1000.00, 500.00, 300.00, 1200.00)
+
+
+def test_f5_the_narrow_no_break_space_variant_is_the_same_figure():
+    doc = document(beginning=f"1{NNBSP}000.00", ending=f"1{NNBSP}200.00",
+                   activity=ACTIVITY)
+    stmt = parse_pnc_statement(doc)
+    assert stmt is not None
+    assert summary_of(stmt) == (1000.00, 500.00, 300.00, 1200.00)
+
+
+def test_f5_the_average_ledger_balance_is_read_whole_too():
+    """The average balance is printed in the same block and the same format as
+    the four columns above it, so a document whose columns are read whole must
+    not publish a truncated average beside them."""
+    doc = (
+        "Business Checking\nPNC Bank\n"
+        "For the Period 04/01/2026 to 04/30/2026\n"
+        "Primary Account Number: XX-XXXX-0000\n"
+        "Balance Summary\nBeginning\n"
+        "Ending balance 1 000.00 500.00 300.00 1 200.00\n"
+        "Deposits and other additions\nChecks and other\nbalance\ndeductions\n"
+        "Average ledger\nAverage collected\nbalance 1 100.00 1 100.00\nbalance\n"
+        "Activity Detail\n"
+        f"{ACTIVITY}"
+        "Daily Balance\nDate Ledger balance\n04/30 1,200.00\n"
+    )
+    stmt = parse_pnc_statement(doc)
+    assert stmt is not None
+    assert stmt.stated_average_balance == 1100.00
+
+
+def test_f5_negative_a_figure_that_cannot_be_read_whole_is_not_read_at_all():
+    """The boundary guard, stated directly. `1 0000.00` is not a grouping this
+    parser knows, and the reading it would otherwise fall back on is the
+    `0000.00` tail — a truncation, and one that publishes as a plausible
+    `0.00` opening balance. Refusing the fragment leaves this summary short of
+    its four columns, so the document fails closed instead."""
+    doc = (
+        "Business Checking\nPNC Bank\n"
+        "For the Period 04/01/2026 to 04/30/2026\n"
+        "Primary Account Number: XX-XXXX-0000\n"
+        "Balance Summary\nBeginning\n"
+        "Ending balance 1 0000.00 500.00 300.00 1,200.00\n"
+        "Deposits and other additions\nChecks and other\nbalance\ndeductions\n"
+        "Activity Detail\n"
+        f"{ACTIVITY}"
+        "Daily Balance\nDate Ledger balance\n04/30 1,200.00\n"
+    )
+    assert parse_pnc_statement(doc) is None
+
+
+def test_f5_negative_the_space_between_two_columns_is_still_a_column_gap():
+    """The same character does both jobs. A complete `.dd` figure ends a
+    column, so the space after one separates columns and must not glue the next
+    figure onto it — including the average ledger and average collected
+    balances, which PNC prints as the same number twice."""
+    doc = document(beginning="1,000.00", credits="500.00", debits="300.00",
+                   ending="1,200.00", activity=ACTIVITY)
+    stmt = parse_pnc_statement(doc)
+    assert stmt is not None
+    assert summary_of(stmt) == (1000.00, 500.00, 300.00, 1200.00)
+    assert stmt.stated_average_balance == 900.00
+
+
+def test_f5_negative_a_bare_sub_dollar_figure_after_another_figure_still_reads():
+    """The concession that motivated the optional integer part: PNC prints
+    eighty-seven cents as `.87`, and it can stand in any column — including
+    directly after a complete figure, which is exactly the position the new
+    boundary rule talks about."""
+    doc = document(beginning="1,000.00", credits=".87", debits="300.00",
+                   ending="700.87", activity=ACTIVITY)
+    stmt = parse_pnc_statement(doc)
+    assert stmt is not None
+    assert summary_of(stmt) == (1000.00, 0.87, 300.00, 700.87)
