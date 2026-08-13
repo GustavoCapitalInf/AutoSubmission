@@ -73,6 +73,15 @@ _ROW_DATE = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})\b")
 #: The grid's own column header, reprinted at the top of every page. It closes
 #: whatever row was open and starts nothing — grid furniture, not a row.
 _GRID_HEADER_LINE = re.compile(rf"^{_GRID_HEADER}$", re.IGNORECASE)
+#: The footer Square prints under each page's last row. It is the same issuer
+#: furniture two of the detection markers are built from, and — the point here —
+#: it stands OUTSIDE the grid. Naming it as a row terminator is what keeps
+#: whatever it happens to carry out of the row printed above it: this layout's
+#: footer may carry a disclosure figure ("Overdraft protection limit $X"), and
+#: a rule that assumed the footer was money-free would read that figure as the
+#: row's amount. The grid's end is a structural fact about the page, not a
+#: property of the footer's wording.
+_PAGE_FOOTER = re.compile(r"BLOCK INC\.|SQUAREUP\.COM/HELP", re.IGNORECASE)
 
 
 def _normalized(markdown: str) -> str:
@@ -169,15 +178,28 @@ def parse_square_checking_statement(markdown: str) -> Statement | None:
     for group in group_rows(
         lines,
         starts_row=lambda line: bool(_ROW_DATE.match(line)),
-        ends_row=lambda line: bool(_GRID_HEADER_LINE.match(line)),
+        ends_row=lambda line: bool(
+            _GRID_HEADER_LINE.match(line) or _PAGE_FOOTER.search(line)
+        ),
     ):
-        joined = compact_whitespace(" ".join(group))
+        # A row's money cells stand on the row's OWN printed line, or — when the
+        # Details cell fills its column — on the continuation line that carries
+        # them. The window therefore closes at the first line printing two money
+        # cells, rather than running to wherever the next row begins. Two
+        # independent bounds, because one content assumption here reads a
+        # neighbouring figure as this row's amount: the footer is excluded from
+        # the group above, and the group is not searched past the row's own
+        # printing here.
+        head = next(
+            (i for i, line in enumerate(group) if len(_MONEY.findall(line)) >= 2),
+            None,
+        )
+        if head is None:
+            continue
+        joined = compact_whitespace(" ".join(group[:head + 1]))
         match = _ROW_DATE.match(joined)
         if not match:
             continue
-        # A row's money cells are the last two the row prints. Everything after
-        # them is the page footer Square repeats under each page's last row,
-        # which carries no money and so cannot be mistaken for a cell.
         cells = list(_MONEY.finditer(joined))
         if len(cells) < 2:
             continue

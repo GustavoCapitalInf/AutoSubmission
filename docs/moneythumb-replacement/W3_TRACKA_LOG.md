@@ -3433,7 +3433,7 @@ prove both directions with synthetic fixtures, measure honestly.
 | Statement-specific constants added | **none.** Every marker is R-4b issuer furniture; every extraction rule is anchored on the printed grid. |
 | Protected modules touched | none beyond the authorized two-line `chase.py` fix. No shared utility, no registry machinery, no pipeline, no other parser, no `ocr/`, no truth-set movement. |
 | Regressions | **zero.** All 393 documents the chase family already claims are identical across every compared field, before and after (§C6.1b). |
-| Files changed | `analysis/chase.py` (2 lines + comment), `analysis/square_checking.py` (new), `analysis/parser_registry_entries.py` (1 entry + 1 override), `tests/test_chase_layouts.py` (new, 35 fixtures), `tests/data/parser_conformance_fixtures.py` (+1), the two registry-count pins, the dispatch-order list, and this log. |
+| Files changed | `analysis/chase.py` (2 lines + comment), `analysis/square_checking.py` (new), `analysis/parser_registry_entries.py` (1 entry + 1 override), `tests/test_chase_layouts.py` (new, 37 fixtures), `tests/data/parser_conformance_fixtures.py` (+1), the two registry-count pins, the dispatch-order list, and this log. |
 | Left as proposals | **A' zero-activity** (7 docs, scratch-measured 4 validated, §C6.2) and **B1 savings** (10 docs, failed closed with a card recommendation, §C6.3) — both per Ocean's ruling of 2026-08-13. |
 | Cache implication | `ANALYSIS_STAGE_VERSION` must be bumped at merge. **Ocean's, not done here.** |
 | Scope deviation, declared | the brief allows "new `analysis/chase_*.py` module(s)". The one buildable family is **not Chase's**, so the module is named for its issuer, `analysis/square_checking.py` (§C6.7). |
@@ -3600,7 +3600,9 @@ defect:
 * a header with no grid is not parsed, and neither is a grid with no summary
   row;
 * detection reads nothing from the source filename;
-* the page footer under a row is not read as part of it;
+* a page footer **carrying a money figure** is not absorbed into the row
+  above it — asserted with the row's own money cells one line further down
+  as well (§C4 item 3);
 * the reprinted grid header does not continue the row that ended the page
   before it.
 
@@ -3643,6 +3645,27 @@ Reported as they happened rather than tidied:
    `ledger_sum_mismatch` plus `running_balance_breaks` — the fail-closed gate
    doing its job — and both now validate. This is why the instrument is worth
    running against documents outside the cell as well.
+
+3. **A money-bearing page footer was absorbed into the row above it.** Found
+   by Ocean's independent adversarial review, not by me: my comment asserted
+   that "the page footer carries no money and so cannot be mistaken for a
+   cell" — a statement about content, not a structural guarantee, and the
+   fixture I wrote for it used a money-free footer, so it pinned the wrong
+   property. Given a footer like `Overdraft protection limit $500.00 applies.`
+   the page's last row published **500.00 as its amount** while its running
+   balance held the real figure. It reached `review` rather than being refused,
+   because Square's printed Activities count still matched and only one
+   continuity break fired — the fail-closed gate caught it, but only just.
+
+   Fixed with two independent structural bounds, neither of which reads the
+   footer's wording for its meaning: the footer is **issuer furniture standing
+   outside the grid**, so it now terminates an open row exactly as the
+   reprinted grid header does (reusing two markers this parser already
+   declares, introducing no new vocabulary); and a row's money cells are now
+   taken from **the row's own printed line** — the search stops at the first
+   line carrying two money cells — rather than from everything before the next
+   row starts. Both fixtures are verified to reproduce the defect against the
+   pre-revision loop.
 
 ## C5. Result over the cell
 
@@ -3725,7 +3748,7 @@ arithmetic.
 * **The pinned corpus**: `python -m pytest -m corpus -q` and
   `python corpus_gate.py` both green, 106 PASS / 3 WITHHELD, same three by
   name; all 11 pinned Chase-family statements byte-identical (§C7).
-* **The suite**: 2,475 → **2,522**, and by nothing else. 35 fixtures in
+* **The suite**: 2,475 → **2,524**, and by nothing else. 37 fixtures in
   `tests/test_chase_layouts.py` plus 12 tests the conformance and registry
   modules generate by *enumerating* the registry. No existing assertion changed
   meaning: the edits to existing test files are the two registration-count
@@ -4055,6 +4078,46 @@ GATE_EXIT=0
 The three WITHHELD are the same three statements by name. No re-baseline was
 requested or performed; neither audit CSV was regenerated.
 
+**Post-review re-run.** Ocean's independent adversarial review returned SHIP
+conditional on two revisions (§C4 item 3 and the adversarial negative fixture
+below). Re-run on the final tree — the code state of this branch's head,
+which differs from the tree the proofs above ran on only by the two revisions:
+
+```
+$ python -m pytest tests/test_chase_layouts.py -q
+37 passed in 0.27s
+CHASE_LAYOUTS_EXIT=0
+
+$ python -m pytest tests/test_parser_conformance.py tests/test_parser_registry_entries.py       tests/test_parser_parity.py tests/test_parser_detection_markers.py       tests/test_chase_native_variants.py -q
+695 passed, 9 deselected in 1.26s
+R34_EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py       tests/test_no_parser_helper_clones.py -q
+100 passed in 0.77s
+GUARDS_EXIT=0
+
+$ set -o pipefail; python -m pytest -q
+2524 passed, 18 deselected, 1 warning in 112.55s (0:01:52)
+SUITE_EXIT=0
+```
+
+The claimed-population sweep was **not** re-run, and does not need to be: the
+revision touches `analysis/square_checking.py` only, and that registration
+cannot reach a chase-family document. Measured rather than argued — over all
+393 documents `chase`/`chase_export` claim in `ca2ba0eb`, `square_checking`
+makes **0 claims** and its highest score is **0.0**, three required markers
+short of the threshold. The `analysis/chase.py` hunk is byte-identical to the
+one the §C6.1 sweep was run against.
+
+The review also strengthened the R4-3 negative fixture: it now carries **three
+of the four** required markers (Square's legal entity, its help domain and its
+routing-number header line, all plausible on a statement settling Square
+deposits), so the grid header alone carries the negative. A companion fixture
+pins what happens when that negative is defeated outright — a document carrying
+all four Square markers and both Chase markers resolves **`ambiguous`**, with
+both ids listed and no registration selected. Never first-wins, never a wrong
+parse.
+
 **Correction to the brief.** It states "the 8 pinned Chase corpus statements".
 Measured from `docs/balance-metrics-audit-results.csv`, the pinned manifest
 carries **11** Chase-family statements — 10 `chase-deterministic` and 1
@@ -4062,7 +4125,7 @@ carries **11** Chase-family statements — 10 `chase-deterministic` and 1
 change; the corpus gate and the corpus-marked suite above are the proof.
 
 **The suite grew by the new fixtures and by nothing else.** Base `b18d999`:
-2,475. Head `39efc0f`: 2,522. `tests/test_chase_layouts.py` collects 35;
+2,475. Branch head: 2,524. `tests/test_chase_layouts.py` collects 37;
 the remaining 12 are generated by `tests/test_parser_conformance.py` and
 `tests/test_parser_registry_entries.py` *enumerating* the registry, which is
 what those two modules exist to do.
@@ -4093,4 +4156,5 @@ fixture.
 | `537f65a` | `analysis/square_checking.py`, 1 registry entry + 1 override, `tests/test_chase_layouts.py`, the conformance fixture and the count pins |
 | `67bcd8b` | `square_checking`: the wrapped Details cell of §C4 item 2, and its fixtures |
 | `39efc0f` | `chase`: the §C6.1 sign fix, its five fixtures, and §CHASE-LAYOUTS C0–C6 |
-| (this one) | §CHASE-LAYOUTS rewritten around the landed fix, plus C7–C8 |
+| `30930cd` | §CHASE-LAYOUTS rewritten around the landed fix, plus C7–C8 |
+| (this one) | `square_checking`: the two revisions from Ocean's adversarial review — the money-bearing-footer defect closed with two structural bounds, and the R4-3 negative rebuilt to 3-of-4 markers |

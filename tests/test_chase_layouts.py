@@ -114,19 +114,45 @@ def test_no_single_marker_is_enough_to_claim(marker):
 def test_a_bank_named_in_a_transaction_line_is_not_a_claim():
     """The R4-3 property, in the direction that produced this cell.
 
-    A Chase statement that pays Square, and a Square statement that pays Chase,
-    must each be claimed by their own issuer's registration and by no other.
+    Deliberately adversarial rather than trivially negative: this Chase
+    statement carries THREE of `square_checking`'s four required markers —
+    Square's legal entity, its help domain and its routing-number header line,
+    all of them plausible on a statement that settles Square deposits — so the
+    grid header alone has to carry the negative. A fixture that fired only one
+    marker would assert almost nothing.
     """
     chase_statement = (
         "JPMorgan Chase Bank, N.A. Member FDIC\n"
         "*start*summary\nCHECKING SUMMARY\n"
-        "01/15 ACH DEBIT SQUARE INC SQUAREUP.COM/HELP 250.00\n"
+        "01/15 ACH CREDIT SQUARE CHECKING ROUTING NUMBER: 000000000 250.00\n"
+        "01/16 ACH DEBIT BLOCK INC. MERCHANT SETTLEMENT 90.00\n"
+        "01/17 DISPUTE FILED VIA SQUAREUP.COM/HELP 0.00\n"
     )
+    fired = [m.id for m in DETECTION_MARKERS if m.test(detection_text(chase_statement))]
+    assert sorted(fired) == [
+        "issuer_help_domain", "issuer_legal_footer", "issuer_product_header",
+    ]
     assert not detect(chase_statement).claims
 
     dispatch = resolve(STATEMENT)
     assert dispatch.registration.id == "square_checking"
     assert "chase" not in dict(dispatch.candidates)
+
+
+def test_a_document_carrying_both_issuers_in_full_goes_to_review_not_to_a_parse():
+    """The property that holds when the negative above is defeated outright.
+
+    A synthetic document carrying all four Square markers AND both Chase
+    markers is a registry conflict, not a document either parser may read. It
+    must resolve `ambiguous` — never first-wins, never a wrong parse.
+    """
+    collision = (
+        "JPMorgan Chase Bank, N.A. Member FDIC\n*start*summary\n" + STATEMENT
+    )
+    dispatch = resolve(collision)
+    assert dispatch.outcome == "ambiguous"
+    assert {"chase", "square_checking"} <= set(dict(dispatch.candidates))
+    assert dispatch.registration is None
 
 
 def test_the_square_layout_is_not_claimed_by_any_other_registration():
@@ -251,15 +277,50 @@ def test_a_wrapped_details_cell_pushes_the_money_columns_onto_the_next_line():
     )
 
 
-def test_the_page_footer_under_a_row_is_not_read_as_part_of_it():
+def test_a_money_bearing_page_footer_is_not_absorbed_into_the_row_above_it():
+    """The footer stands outside the grid, whatever it carries.
+
+    The earlier version of this fixture used a money-free footer and so pinned
+    a content assumption ("the footer carries no money") rather than the
+    structural fact. A footer carrying a disclosure figure was absorbed into
+    its page's last row: the row published the footer's figure as its amount
+    while its running balance held the real one — one continuity break, and
+    the printed Activities count still matched, so it landed at review rather
+    than being refused outright. Both bounds are asserted here.
+    """
     text = STATEMENT + (
+        "Overdraft protection limit $500.00 applies. squareup.com/help\n"
         "Block Inc. 1955 Broadway, Suite 600 Oakland, CA 94612\n"
-        "squareup.com/help\n"
         "(000) 000-0000 Available 6am - 6pm PT\n"
     )
     statement = _parse(text)
     assert len(statement.transactions) == 3
-    assert statement.transactions[-1].description == "Example Bank Transfer out"
+    last = statement.transactions[-1]
+    assert last.description == "Example Bank Transfer out"
+    assert last.amount == -30.00        # the row's own figure, not the footer's
+    assert last.running_balance == 150.00
+    assert 500.00 not in [abs(t.amount) for t in statement.transactions]
+    # and the ledger still closes on the statement's own arithmetic
+    moved = round(sum(t.amount for t in statement.transactions), 2)
+    assert round(statement.beginning_balance + moved, 2) == statement.ending_balance
+
+
+def test_a_money_bearing_footer_under_a_wrapped_row_is_still_excluded():
+    """The same, with the row's own money cells one line further down — the
+    case where a rule bounded only by 'the next row' would still reach past
+    the row's printing into the footer."""
+    text = (
+        HEADER + GRID
+        + "6/1/2026 Example Merchant Card spend $80.00 -$20.00\n"
+        + "6/2/2026 4 Activities Sales $180.00 $100.00\n"
+        + "6/3/2026 Bill Pay * A Very Long Counterparty Name Filling The Column\n"
+        + "Transfers $150.00 -$30.00\n"
+        + "Overdraft protection limit $500.00 applies. squareup.com/help\n"
+    )
+    statement = _parse(text)
+    assert len(statement.transactions) == 3
+    assert statement.transactions[-1].amount == -30.00
+    assert statement.transactions[-1].running_balance == 150.00
 
 
 def test_the_reprinted_grid_header_closes_the_row_above_it():
