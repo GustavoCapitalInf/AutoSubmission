@@ -60,11 +60,28 @@ def _payload(**overrides) -> dict:
 # --- scope ------------------------------------------------------------------
 
 
-def test_only_withheld_documents_are_diagnosed():
-    """The 106-corpus property, as a unit: a published number needs no autopsy."""
-    assert DIAGNOSABLE_CLASSES == ("withheld",)
-    for outcome in ("validated", "review", "failed", "deferred"):
+def test_only_refused_and_flagged_documents_are_diagnosed():
+    """A document nobody questioned needs no autopsy.
+
+    COUNTS-P2 widened this from `withheld` alone to `withheld` and `review`,
+    per the standing 2026-08-10 Ocean ruling. The reason is not that `review`
+    became interesting in general: it is that phase 2 emits count codes whose
+    ONLY outcome class is `review`, so a `withheld`-only scope would have made
+    the new vocabulary unreadable in the rollup that exists. `validated` is
+    the class that must stay silent, and it is the one this asserts.
+    """
+    assert DIAGNOSABLE_CLASSES == ("withheld", "review")
+    for outcome in ("validated", "failed", "deferred"):
         assert diagnose(_payload(), outcome) == empty_diagnostics()
+
+
+def test_a_review_document_is_diagnosed_from_the_flags_that_put_it_there():
+    """The point of widening the scope: the count codes reach the rollup."""
+    payload = _payload(integrity={"flags": ["credit_count_mismatch"]})
+    section = diagnose(payload, "review")
+    assert section["evaluated"] is True
+    assert "integrity:credit_count_mismatch" in section["codes"]
+    assert section["primary_class"] == "detail_coverage"
 
 
 def test_an_empty_diagnostic_reports_no_counts_rather_than_zeros():
@@ -582,7 +599,9 @@ def test_a_mixed_vocabulary_rollup_says_so():
     old["diagnostics"]["diagnostics_version"] = 1
     new = _record(_payload(integrity={"flags": ["summary_math_inconsistent"]}))
     rollup = diagnostics_rollup([old, new])
-    assert rollup["diagnostics_versions"] == {"1": 1, "2": 1}
+    # v3 is COUNTS-P2: two new codes AND a widened diagnosable scope, so a
+    # rollup spanning the boundary is doubly non-comparable and must say so.
+    assert rollup["diagnostics_versions"] == {"1": 1, "3": 1}
     assert "WARNING mixed taxonomy versions" in render_diagnostics(rollup)
 
 
