@@ -199,6 +199,46 @@ def test_the_description_is_the_text_between_the_date_and_the_money_columns():
     assert statement.transactions[1].description == "4 Activities Sales"
 
 
+def test_a_wrapped_details_cell_pushes_the_money_columns_onto_the_next_line():
+    """A long counterparty name fills the Details column, and the Activity
+    type, Balance and Amount print on the physical line below. The row is one
+    row; reading the two lines separately loses it and breaks the continuity of
+    the row after it."""
+    text = STATEMENT.replace(
+        "6/2/2026 4 Activities Sales $180.00 $100.00\n",
+        "6/2/2026 Bill Pay * A Very Long Counterparty Name That Fills The Column\n"
+        "Transfers $180.00 $100.00\n",
+    )
+    statement = _parse(text)
+    assert len(statement.transactions) == 3
+    row = statement.transactions[1]
+    assert row.amount == 100.00
+    assert row.running_balance == 180.00
+    assert row.description == (
+        "Bill Pay * A Very Long Counterparty Name That Fills The Column Transfers"
+    )
+
+
+def test_the_page_footer_under_a_row_is_not_read_as_part_of_it():
+    text = STATEMENT + (
+        "Block Inc. 1955 Broadway, Suite 600 Oakland, CA 94612\n"
+        "squareup.com/help\n"
+        "(000) 000-0000 Available 6am - 6pm PT\n"
+    )
+    statement = _parse(text)
+    assert len(statement.transactions) == 3
+    assert statement.transactions[-1].description == "Example Bank Transfer out"
+
+
+def test_the_reprinted_grid_header_closes_the_row_above_it():
+    """The column header opens each page's grid. It is furniture: it must not
+    continue the row that ended the page before it."""
+    text = HEADER + GRID + ROWS + GRID + "6/4/2026 Example Merchant Card spend $140.00 -$10.00\n"
+    statement = _parse(text)
+    assert len(statement.transactions) == 4
+    assert statement.transactions[2].description == "Example Bank Transfer out"
+
+
 def test_a_row_dated_outside_the_printed_period_is_not_admitted():
     text = STATEMENT + "7/4/2026 Example Merchant Card spend $140.00 -$10.00\n"
     statement = _parse(text)

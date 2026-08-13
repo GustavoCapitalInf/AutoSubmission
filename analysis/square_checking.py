@@ -40,7 +40,7 @@ from datetime import date
 from .money import parse_grouped_float
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
-from .tables import compact_whitespace
+from .tables import compact_whitespace, group_rows
 
 _MONTHS = {
     "JANUARY": 1, "FEBRUARY": 2, "MARCH": 3, "APRIL": 4, "MAY": 5, "JUNE": 6,
@@ -68,9 +68,11 @@ _SUMMARY = re.compile(
 #: the mask, and they are the only part of it this statement ever prints.
 _ACCOUNT = re.compile(r"ACCOUNT NUMBER:\s*\S*?(\d{4})\s*$", re.IGNORECASE | re.MULTILINE)
 _GRID_HEADER = "DATE DETAILS ACTIVITY TYPE BALANCE AMOUNT"
-_ROW = re.compile(
-    rf"^(\d{{1,2}})/(\d{{1,2}})/(\d{{4}})\s+(.*?)\s+({_MONEY.pattern})\s+({_MONEY.pattern})$"
-)
+#: A row starts where the grid starts one: the printed Date column.
+_ROW_DATE = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})\b")
+#: The grid's own column header, reprinted at the top of every page. It closes
+#: whatever row was open and starts nothing — grid furniture, not a row.
+_GRID_HEADER_LINE = re.compile(rf"^{_GRID_HEADER}$", re.IGNORECASE)
 
 
 def _normalized(markdown: str) -> str:
@@ -162,10 +164,22 @@ def parse_square_checking_statement(markdown: str) -> Statement | None:
     if account:
         stmt.account_number = account.group(1)
 
+    lines = [line for line in (raw.strip() for raw in text.splitlines()) if line]
     transactions: list[Transaction] = []
-    for raw in text.splitlines():
-        match = _ROW.match(raw.strip())
+    for group in group_rows(
+        lines,
+        starts_row=lambda line: bool(_ROW_DATE.match(line)),
+        ends_row=lambda line: bool(_GRID_HEADER_LINE.match(line)),
+    ):
+        joined = compact_whitespace(" ".join(group))
+        match = _ROW_DATE.match(joined)
         if not match:
+            continue
+        # A row's money cells are the last two the row prints. Everything after
+        # them is the page footer Square repeats under each page's last row,
+        # which carries no money and so cannot be mistaken for a cell.
+        cells = list(_MONEY.finditer(joined))
+        if len(cells) < 2:
             continue
         try:
             posted = date(int(match.group(3)), int(match.group(1)), int(match.group(2)))
@@ -173,12 +187,14 @@ def parse_square_checking_statement(markdown: str) -> Statement | None:
             continue
         if not (period_start <= posted <= period_end):
             continue
-        description = compact_whitespace(match.group(4))
+        # Matches, not strings: the amount's characters occur again inside the
+        # balance printed beside it, so the description is sliced by position.
+        description = compact_whitespace(joined[match.end():cells[-2].start()])
         if not description:
             continue
         # The grid header prints the column order: Balance, then Amount.
-        balance = _amount(match.group(5))
-        amount = _amount(match.group(6))
+        balance = _amount(cells[-2].group(0))
+        amount = _amount(cells[-1].group(0))
         transactions.append(Transaction(
             date=posted.isoformat(),
             description=description,
