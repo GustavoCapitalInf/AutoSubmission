@@ -4158,3 +4158,393 @@ fixture.
 | `39efc0f` | `chase`: the §C6.1 sign fix, its five fixtures, and §CHASE-LAYOUTS C0–C6 |
 | `30930cd` | §CHASE-LAYOUTS rewritten around the landed fix, plus C7–C8 |
 | (this one) | `square_checking`: the two revisions from Ocean's adversarial review — the money-bearing-footer defect closed with two structural bounds, and the R4-3 negative rebuilt to 3-of-4 markers |
+
+
+# §STRUCTFIX-1 — Three fuzzer-evidenced false-validation cards: `pnc` ×2, `bmo_ca_business` ×1
+
+STRUCTFIX-1, 2026-08-13. Branch `wave3-structfix-1`, base `cc3ab29`. Brief:
+`docs/agent-handoffs/STRUCTFIX-1.md`. Baseline: run `6893a75b`. Live
+reproducers: the wave scratch `repro.py` (cases P1-A, P1-C, P1-B), run first
+and re-run against the fix.
+
+These are not coverage cells. Each card is a document that publishes
+**approved / clear with wrong numbers** — the failure mode where every printed
+identity still closes because the error is applied uniformly, so no downstream
+oracle can see it. The method is therefore the reverse of a coverage cell:
+characterise what the archive ACTUALLY prints before choosing the rule, because
+the whole risk is a fix that reads a fuzzer's document correctly and a real
+one wrongly.
+
+## S0. Summary
+
+| | |
+|---|---|
+| Cards worked | 3 (`pnc` space-thousands truncation; `pnc` dated zero-amount furniture; `bmo_ca_business` `_MONEY_EN`). |
+| Shipped | **2 of 3.** Both `pnc` cards fixed. |
+| **Card B not shipped** | **STOP fired.** The proposed alignment regresses **30 real documents from `validated/approved` to `withheld`**, each losing printed transaction rows. The card's premise is refuted by the archive — §S4. |
+| Populations swept | `PNC Bank` **62 distinct documents** (superset of the 45 `pnc` claimed) and `BMO` **169 distinct documents** (superset of the 127 `bmo_ca_business` claimed). |
+| Movers | **zero.** Both sweeps byte-identical, before and after, over every audited field and every transaction. |
+| Pinned corpus | 5 PNC + 1 BMO statements are in the gate's 109. Gate GREEN, no audited-field movement. |
+| Files changed | `analysis/pnc.py`, `tests/test_pnc_variants.py` (+11 fixtures), this log. **`analysis/bmo_ca_business.py` deliberately untouched.** |
+| Statement-specific constants added | **none.** No furniture-text blocklist. No grammar beyond what `analysis/money.py` already surveys. |
+| Cache implication | `ANALYSIS_STAGE_VERSION` bump at merge — Ocean's, not done here. Output changes only for documents that do not exist in the archive today, but the stage version guards the cache regardless. |
+
+## S1. The populations and the instrument
+
+Run `6893a75b`, distinct by `content_sha256`: 3,506 records → **3,380
+documents**, reproducing M-QUEUE's baseline. Claimed populations:
+
+| parser | records | distinct | outcome at baseline |
+|---|---:|---:|---|
+| `pnc` | 45 | **45** | 41 `validated/approved`, 4 `withheld/withheld_adb` |
+| `bmo_ca_business` | 139 | **127** | 127 `validated/approved` |
+
+Both sweeps were run over the whole **source folder** rather than the claimed
+set — `PNC Bank` 62 documents, `BMO` 169 — because a fix can newly CLAIM a
+document that no parser claimed before, and a claimed-set sweep cannot see
+that. The folder population is a strict superset of the claimed one (`PNC
+Bank`: 45 claimed + 17 unclaimed; `BMO`: 127 + 23 `bmo_us_activity` + 4 `bmo` +
+4 `bmo_ca_business_french` + 11 unclaimed).
+
+**Instrument.** Markdown is served from the D-3 artifact cache the run itself
+consumed (`webapp_data/artifacts/ocr`, keyed by `content_sha256`), so the sweep
+sees the exact text the run saw — including the one `PNC Bank` document that
+came from local Tesseract and cannot be reproduced from the PDF offline. Cache
+paths are derived arithmetically; the sqlite index is never opened, because
+`Storage`/`ArtifactCache` write on read. Each document is then run through
+`analyze_markdown(..., parse_mode="deterministic")` →
+`analysis.serialization.report_to_dict` → `telemetry.record.classify_outcome`
+and serialised as one canonical JSON line. Two sweeps are compared **byte for
+byte**.
+
+Three things were checked before any of its output was believed:
+
+1. **Determinism** — two consecutive baseline runs are byte-identical.
+2. **Fidelity to the run of record** — the 45 `pnc` documents come back 41
+   `validated` / 4 `withheld`, matching `rows.csv` exactly; the 17 unclaimed
+   `PNC Bank` documents come back `RuntimeError: no deterministic parser
+   matched this statement`, which is the fail-closed outcome recorded as such
+   and diffed like any other.
+3. **Baseline provenance** — the "before" tree is `git archive cc3ab29`
+   extracted to scratch, not the worktree before editing. The first attempt at
+   this disagreed with the worktree baseline on 17 records; the entire
+   difference was the `trace` field embedding the tree's own path, which is now
+   not recorded. Type and message are.
+
+## S2. Card P1 — `pnc`: a space-grouped thousands figure read as its tail
+
+**Defect.** `_SUMMARY_MONEY_RE`'s integer part admitted only comma grouping, so
+`1 000.00` could not match whole; the piece that DID fit was its `000.00` tail.
+The Balance Summary is a flattened grid, so all four columns truncate together:
+`beginning`, `ending` and the average balance are each wrong by the same
+thousand, `beginning + activity == ending` still holds, and the statement
+publishes approved/clear. Measured in the reproducer: beginning `1000.00 →
+0.00`, ending `1200.00 → 200.00`, ADB `1243.33 → 243.33`, no flag.
+
+**What the archive prints — measured before choosing the rule.** 53 of the 62
+`PNC Bank` documents have a Balance Summary body. **27 of them contain a
+`<digit><space><3 digits>.<dd>` sequence** — which is exactly the shape a
+space-thousands reading would consume. In every one of the 27, the leading
+digit is the **cents tail of a completed figure** and the space is a column
+gap:
+
+```
+balance 541.22 541.22            <- average ledger / average collected
+Ending balance 232.79 10,321.82 8,358.20 2,196.41
+```
+
+So the naive rule ("a space between digit groups is a thousands separator")
+would have glued real columns together, and the naive fail-closed rule ("refuse
+a figure preceded by digit-space") would have refused the second column of
+every summary line in the archive. Neither is admissible.
+
+**The rule that is.** One space character does two jobs, and what separates
+them is what stands to its left: **a complete `.dd` figure ENDS a column**, so a
+space after one is a column gap; anywhere else a digit run adjoining a
+`<space><3 digits>` group is the head of one figure. Both halves are needed and
+they fail in opposite directions — without the grouped integer part the figure
+cannot match whole; without the boundary guard the truncated tail is what
+matches instead.
+
+```python
+_THOUSANDS_SPACE = "\u0020\u00a0\u202f"
+_SUMMARY_MONEY_RE = re.compile(
+    rf"(?<![\d.,])"
+    rf"(?:(?<=\.\d\d[{_THOUSANDS_SPACE}])|(?<![\d][{_THOUSANDS_SPACE}]))"
+    rf"(?:\d[\d,]*(?:[{_THOUSANDS_SPACE}]\d{{3}})*)?\.\d{{2}}-?"
+)
+```
+
+The separators are the ones `analysis/money.py` already surveys — its format
+axes list `1 234.56` (:17) and `EITHER_MINUS_SPACED` (:214) exists to strip
+them. `_money` now removes them before `parse_money`, which strips `$ , *` but
+not spaces and SEARCHES rather than anchors, and would otherwise read
+`1 000.00` as one dollar by a second route. `_average_balance` reads the same
+figure grammar: same block, same printed format, and a document whose columns
+are read whole must not publish a truncated average beside them.
+
+**Effect on the 53 real bodies.** For 22 of them the pattern now returns a
+different *list* of figures — every difference is at index 6 or later, in the
+`Description Items Amount` index table and the `Daily Balance` grid that the
+non-greedy body capture happens to include. `_summary_amounts` consumes
+`amounts[:4]`. **No document's first four figures move**, and the end-to-end
+sweep is byte-identical. Recorded because it is real: the boundary guard
+suppresses figures that follow a bare digit run (`04/01 30,226.60`, `ACH
+Additions 31 46,670.49`) in the part of the body no reading depends on.
+
+## S3. Card P2 — `pnc`: a dated row that moves no money published as a posting
+
+**Defect.** PNC genuinely prints sub-dollar amounts with the leading zero
+dropped, so the row grammar must accept `.dd`; a dated informational line
+carrying `.00` then satisfies it exactly as a posting does. `04/30 .00
+Overdraft fees assessed this statement period` published as a third
+transaction at approved/clear.
+
+Nothing downstream can catch it: the row adds zero to the ledger sum and zero
+to the section total, so `beginning + activity == ending` still holds with it
+in the ledger, and PNC discloses no per-direction count oracle
+(`analysis/count_semantics.py` `SECTION_LEVEL_ORACLES`) that could see the
+extra row. The refusal has to happen at the row or nowhere.
+
+**What the archive prints.** Over the 62 documents the two section readers
+accept **6,673 rows**:
+
+| measured | count | consequence |
+|---|---:|---|
+| rows carrying a **zero amount** | **0** | the rule reaches no printed posting |
+| rows using the bare `.dd` form | **54** | genuine postings — `02/02 .82 ACH Credit Acctverify …`; the concession must stay |
+| rows with **no** trailing reference number | **3,822** | a "postings carry a Reference number" rule is not available |
+
+So the reference-number column — the other candidate the brief names — is not a
+reliable structural discriminator on this layout, and is not used. The rule
+shipped is the one the measurement supports: **a posting moves money.**
+
+```python
+def _posts(amount: float) -> bool:
+    ...
+    return amount != 0
+```
+
+`_posts` never reads the description, so a furniture wording this parser has
+never seen is refused on the same grounds, and no real posting is refused for
+how it is worded. Applied to `_parse_checks` as well, where `.00` is equally
+readable and a cheque that moves no money is not a cheque.
+
+`Total Overdraft Fees .00 .00` is unaffected and pinned as such: it is printed
+outside the Balance Summary body and carries no date, so it was never a row.
+
+## S4. Card B — `bmo_ca_business` `_MONEY_EN`: STOP, premise refuted by the archive
+
+The card asks for `_MONEY_EN` to be aligned with its `_MONEY_FR` sibling —
+`1 000.00` being "the Canadian/SI convention, on a CANADIAN bank". **The
+archive says this printed layout does not use it, and that the space-grouped
+shape means something else entirely on these documents.**
+
+**Measurement 1 — every space-grouped occurrence is a reference number.** On
+the lines the parser actually reads (the summary row it selects and the ledger
+grid), the EN population contains **441 occurrences of `<1-3 digits><space><3
+digits>.<dd>` across 65 of 168 documents**. Every one of the 30 read verbatim
+is a merchant, cheque or account number abutting the amount column — and
+Measurement 2 below is what generalises that from a sample to the population:
+
+```
+Apr 27 Debit Card Purchase, DOLLARAMA # 95 122.44 1,303.25
+   -> store #95, amount 122.44, balance 1,303.25
+Business Account # 3849 1981-774 277.52 23,730.09 23,955.40 502.83
+   -> account 3849 1981-774, then the four summary cells
+ISN: 5716186693 Cheque #174 500.00
+   -> cheque #174, amount 500.00
+Dec 01 Online Transfer, TF 3849#8840-536 800.00 1,077.52
+   -> reference 3849#8840-536, amount 800.00, balance 1,077.52
+```
+
+The same lines print their real thousands **with commas** — `1,303.25`,
+`23,730.09`, `239,642.85`.
+
+**Measurement 2 — the separator census.** Of the 168 EN-population documents
+with markdown:
+
+| | documents |
+|---|---:|
+| print comma-grouped thousands **and** a space-shaped sequence | 65 |
+| print comma-grouped thousands only | 96 |
+| print a space-shaped sequence and **no** comma-grouped figure | **0** |
+| print neither (no grouped figure at all) | 7 |
+
+**No document in the archive uses the space as its thousands convention.** The
+space-shaped sequences never stand alone; they always coexist with comma
+grouping, which is what identifies them as reference numbers rather than
+separators.
+
+**Measurement 3 — the proposed fix, swept.** The literal alignment (FR's
+separator class AND FR's `-` lookbehind; the separator class alone is not even
+self-consistent, since without excluding `-` an account number's trailing group
+starts a money cell):
+
+```python
+_MONEY_EN = re.compile(r"(?<![\d.,-])-?\$?(?:\d{1,3}(?:[,\u0020\u00a0\u202f]\d{3})+|\d+)\.\d{2}(?!\d)")
+```
+
+It does fix the reproducer, and the `-` exclusion does rescue the account-number
+and transfer-reference lines. Over the 169-document `BMO` sweep:
+
+| | |
+|---|---:|
+| movers | **30** |
+| `validated/approved` → `withheld/withheld_adb` | **30** |
+| any document improved | **0** |
+
+Named movers, with the row each loses (glued cell → `parse_grouped_float`
+raises → the row is skipped → continuity breaks → withheld):
+
+| document | txns | first row lost |
+|---|---|---|
+| `BMO/3b3a1a46_April 30_ 2026.pdf` | 115 → 114 | `-122.44 Debit Card Purchase, DOLLARAMA # 95` |
+| `BMO/3dc6c574_December 31_ 2025.pdf` | 122 → 120 | `-126.44 Debit Card Purchase, MARSHALLS #723` |
+| `BMO/3ecfcd90_April 30_ 2025.pdf` | 74 → 72 | `-938.04 Debit Card Purchase, BEST BUY #84` |
+| `BMO/3ecfcd90_March 31_ 2025.pdf` | 122 → 121 | `-115.42 Debit Card Purchase, BEST BUY #84` |
+| `BMO/548fa9bf_July 31_ 2025-1.pdf` | 59 → 58 | `-143.18 Debit Card Purchase, SWISS CHALET #1` |
+| `BMO/7246d185_February 27_ 2026.pdf` | 206 → 205 | `-137.74 Debit Card Purchase, FOOD BASICS 63` |
+| `BMO/8b7d99d9_April 30_ 2026.pdf` | 198 → 189 | 9 rows |
+| `BMO/8b7d99d9_February 27_ 2026.pdf` | 153 → 148 | 5 rows |
+
+…30 in total. The brief's stop condition — "any outcome-class regression is a
+stop" — fires. **`analysis/bmo_ca_business.py` is unchanged on this branch.**
+
+**What the truncation actually is.** At the token level `1 000.00` (a
+space-grouped amount) and `# 95 122.44` (a store number beside an amount) are
+the same string shape. No lookbehind separates them: the `-` exclusion handles
+the `1981-774` and `8840-536` forms but not the `# <digits>` form, which is the
+common one. And the mutant is self-consistent under truncation — every figure
+truncates together, the balance-continuity rule this module relies on still
+holds, `Closing totals` still agrees with the summary, `Number of items
+processed` still matches — so there is no second printing to catch it either.
+
+The one place the ambiguity resolves is **document level**: no archive document
+mixes the two conventions (0 space-only, 161 comma-bearing). A rule of the form
+"a document that prints comma-grouped thousands anywhere is a comma-grouping
+document, so a space in it is not a separator" would be correct on 161/161 of
+the documents that print any grouped figure, and would read the fuzzer's
+document (which prints no comma anywhere) correctly. That is a real design with
+archive support, but it is per-document state threaded through `_cells`, it is
+materially more than the card scopes, and getting it wrong publishes wrong
+numbers silently — the exact failure class being closed. **Carried to Ocean as
+a proposal (§S6), not taken unilaterally.**
+
+Two smaller findings from the same measurement:
+
+* The FR-style `-` lookbehind, **alone**, removes **0** matches on the whole
+  169-document population — it is free. It does not fix the card (without the
+  separator class `1 000.00` still truncates), so it is not shipped as a change
+  with no defect behind it; it is available to Ocean as a one-character
+  hardening if the document-level rule is ever taken.
+* `_MONEY_FR`'s lookbehind excluding `-` is load-bearing for exactly this
+  reason, and the EN sibling's omission of it is only harmless because EN does
+  not admit space groups. The two facts are coupled: **whoever adds the
+  separator class must add the `-` exclusion in the same change.**
+
+## S5. Proofs
+
+All from the worktree at HEAD, `set -o pipefail`, exit codes verbatim.
+
+```
+$ git rev-parse --abbrev-ref HEAD ; git rev-parse --short HEAD
+wave3-structfix-1
+367baa0                                            (this log is the commit after)
+
+$ git status --short
+(clean)
+
+$ python repro.py                                  # wave scratch, against main
+   P1-A  MUTANT (ASCII space): beginning=0.0   ending=200.0   ADB=243.33   approved/clear
+   P1-C  MUTANT: 3 rows, third is ('2026-04-30', 'Overdraft fees assessed …', -0.0)
+   P1-B  MUTANT (ASCII space): beginning=0.0   ending=100.0   ADB=115.0    approved/clear
+
+$ python sf_repro_worktree.py                      # same reproducer, this branch
+   P1-A  MUTANT (ASCII space): beginning=1000.0 ending=1200.0 ADB=1243.33  == TRUTH
+   P1-A  MUTANT (U+00A0 NBSP): beginning=1000.0 ending=1200.0 ADB=1243.33  == TRUTH
+   P1-C  MUTANT: 2 rows, the zero-amount line is gone                      == TRUTH
+   P1-B  MUTANT: unchanged — Card B not shipped (§S4)
+
+$ python -m pytest tests/test_pnc_variants.py -q   # against base_tree (cc3ab29)
+7 failed, 16 passed                                PREFIX_EXIT=1
+   the 7 are the new fixtures that pin the two defects;
+   the other 4 new ones are controls and pass in both directions
+
+$ python -m pytest tests/test_pnc_variants.py -q   # this branch
+23 passed                                          EXIT=0
+
+$ python -m pytest -q
+2573 passed, 18 deselected, 1 warning in 259.65s   SUITE_EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+      tests/test_no_parser_helper_clones.py -q
+100 passed in 1.28s                                GUARDS_EXIT=0
+
+$ python -m pytest tests/test_parser_conformance.py tests/test_parser_registry_entries.py \
+      tests/test_parser_parity.py tests/test_parser_detection_markers.py \
+      tests/test_pnc_variants.py tests/test_bmo_layouts.py -q
+733 passed, 9 deselected in 2.20s                  CONFORMANCE_EXIT=0
+
+$ python -m pytest -m corpus -q
+14 passed, 2577 deselected, 1 warning in 2333.07s  CORPUS_MARKED_EXIT=0
+
+$ python corpus_gate.py
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  753.7s
+RESULT: GREEN                                      GATE_EXIT=0
+
+$ python sf_sweep.py "PNC Bank" …   (base_tree vs branch)
+folder='PNC Bank' documents=62 no_markdown=0 crashed=17
+BYTE-IDENTICAL                                     CMP_EXIT=0
+
+$ python sf_sweep.py "BMO" …        (base_tree vs branch)
+folder='BMO' documents=169 no_markdown=1 crashed=10
+BYTE-IDENTICAL                                     CMP_EXIT=0
+```
+
+The sweep harness is scratch-only and not committed, per §TRIO-4.5 / §M2
+precedent; only aggregate counts and named movers are reported.
+
+## S6. Carried findings and questions for Ocean
+
+1. **Card B is not shipped, and should not be shipped in the form the card
+   states.** §S4 is the evidence. The decision to want is whether the
+   document-level separator determination is worth a scoped follow-up card, or
+   whether the residual risk (a genuine space-thousands BMO EN document, which
+   the archive does not contain) is accepted as fail-open until one appears.
+2. **The same question exists for every parser whose money pattern admits
+   space grouping while its layout prints reference numbers next to amounts.**
+   `_MONEY_FR` already admits it and already carries the `-` exclusion; whether
+   the FR population contains a `# <digits> <amount>` shape was not measured —
+   out of scope here, and worth a card.
+3. **`_average_balance` was fixed alongside Card P1** (same block, same defect,
+   one line past the card's `:50`). Separable if Ocean wants it out: it is the
+   `_LABELLED_FIGURE` use inside `_average_balance` only.
+4. **`_posts` was applied to `_parse_checks` as well as `_parse_section`.** The
+   card names `:131`. The cheque reader has the identical hole and zero real
+   rows are affected; disclosed rather than assumed.
+5. **What refusing a fragment does when the body has spare figures.**
+   `_summary_amounts` takes the first four figures of a loose scan over a body
+   that, on many real documents, runs well past the Balance Summary grid. So a
+   figure the guard refuses is not always a `None` — on a body with more than
+   four figures the four taken simply shift along. That is still strictly
+   better than what it replaces: the shifted four do not cohere, so
+   reconciliation sees it, whereas the truncated four cohered perfectly and
+   nothing saw it. Fail-loud replacing fail-silent, not fail-closed replacing
+   fail-silent, and worth saying plainly. Tightening the body capture to end at
+   the Balance Summary grid would make it fail-closed properly; that is a
+   separate change and is not made here.
+6. **`ANALYSIS_STAGE_VERSION` bump** is required at merge and is not done here.
+7. The 17 unclaimed `PNC Bank` documents and the 11 unclaimed `BMO` documents
+   are untouched by this branch and remain `no_parser_matched`. They are
+   coverage, not false validation, and belong to a different wave.
+
+## S7. Commits
+
+```
+1cf9a1c  fix(pnc): a space-grouped thousands figure is one figure, not its tail
+367baa0  fix(pnc): a dated row that moves no money is not a posting
+<LOG>    log: §STRUCTFIX-1
+```
