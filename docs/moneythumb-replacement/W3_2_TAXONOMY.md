@@ -117,6 +117,8 @@ withheld, and letting it choose a class would misdirect remediation.
 | `running_balance_breaks` | balance_continuity |
 | `credit_detail_coverage_mismatch` | detail_coverage |
 | `debit_detail_coverage_mismatch` | detail_coverage |
+| `credit_count_mismatch` | detail_coverage (COUNTS-P2) |
+| `debit_count_mismatch` | detail_coverage (COUNTS-P2) |
 | `conflicting_statement_summaries` | source_contradiction |
 | `missing_declared_statement_page` | page_coverage |
 | `transaction_detail_not_corporate_reliable` | *advisory* (a consequence) |
@@ -264,13 +266,20 @@ must be visible in the rollup rather than nulled.
 
 ## 5. Scope: which documents get diagnosed
 
-`DIAGNOSABLE_CLASSES = ("withheld",)`. Every other outcome class gets
-`empty_diagnostics()`.
+`DIAGNOSABLE_CLASSES = ("withheld", "review")` (COUNTS-P2; `("withheld",)`
+through v2). Every other outcome class gets `empty_diagnostics()`.
 
-- `validated` / `review` published a number. `review`'s reason is already in
-  `outcome.reason`, and diagnosing 106 healthy corpus documents would bury the
-  three that matter. This is the acceptance property "the 106 produce empty
-  diagnostics".
+- `validated` published a number nothing questioned, and diagnosing 100
+  healthy corpus documents would bury the ones that matter. This is the
+  acceptance property, restated at v3: **"the 100 validated produce empty
+  diagnostics"** — it was "the 106" while `review` was out of scope.
+- `review` published a number too, but approval is blocked and the reason is a
+  flag this taxonomy already names. It joined the scope at v3 because phase 2
+  of the stated-count check emits codes whose ONLY outcome class is `review`:
+  a `withheld`-only scope would have made a whole vocabulary unreadable in the
+  one rollup that reads it (§10 open question 2, ruled by Ocean 2026-08-10 —
+  "extends to review WHEN phase 2 lands, not before"). The pinned corpus's six
+  review documents are enumerated in `tests/test_telemetry_corpus.py`.
 - `failed` has no payload at all — there is nothing to project. Its cause is
   `outcome.error_type`, which W3-1 is making authoritative. `no_analysis_payload`
   is kept in the precedence list as the reserved name for that class if a later
@@ -360,14 +369,14 @@ the new shape lands in `unmapped` at runtime and shows in the rollup.
 
 ## 10. Open questions for Ocean
 
-1. **The `count_mismatch` gap (§2).** Should `analysis/` grow a
-   stated-count-vs-captured-rows check? It is a protected-module change, so it
-   is out of W3-2's scope; the payload already carries what it needs.
-2. **Scope (§5).** Diagnostics are withheld-only, which is what the card's
-   acceptance requires. If W3-4 wants the same taxonomy over the 10 `review`
-   documents (or the 53 `failed` ones), it is a one-line change to
-   `DIAGNOSABLE_CLASSES` — but "the 106 produce empty diagnostics" is then no
-   longer true, so it needs a ruling rather than a patch.
+1. **The `count_mismatch` gap (§2). RESOLVED** — `PROPOSAL_STATED_COUNTS.md`,
+   Gustavo's 2026-08-10 sign-off, COUNTS-P1's measurement and COUNTS-P2's
+   merge. `analysis/` grew the check, computed in `reconcile.py` and flagged
+   in `pipeline.py`, gated on `analysis/count_semantics.py`. See §11 v3.
+2. **Scope (§5). RESOLVED** — extended to `review` with the COUNTS-P2 merge,
+   per Ocean's 2026-08-10 ruling. The acceptance property was restated, not
+   dropped: "the 100 validated produce empty diagnostics". `failed` remains
+   out of scope — it has no payload to project.
 3. **Precedence (§4).** Cause-over-symptom is a judgement call, and it is what
    the ranking in W3-4's remediation queue will inherit. The three corpus
    anchors agree with it; 614 documents may argue otherwise, and re-ranking is
@@ -425,23 +434,62 @@ it to be inferred.
 cannot drift again — the renumbering this change required was done from the
 code, not by hand.
 
+### v3 — COUNTS-P2 (Gustavo-approved 2026-08-13): the stated-count codes, and `review` becomes diagnosable
+
+Two things at once, in one merge, because each is useless without the other.
+
+**Two new codes.** `integrity:credit_count_mismatch` and
+`integrity:debit_count_mismatch`, both classed **`detail_coverage`** (rank 9,
+§3.2, §4). Same cause as the money-coverage pair (the captured detail does not
+reproduce the bank's stated detail), same remediation (find the rows the
+reader lost or mis-sided), same owner (that bank's parser cell) — so they
+share the class rather than splitting one remediation queue in two, and they
+are **not** ranked higher for being the more sensitive instrument: precedence
+ranks causes, not sensitivities. A count-only failure is still visible without
+a new class, because the document carries `integrity:credit_count_mismatch`
+and *not* `recon:credit_coverage_short`.
+
+**`DIAGNOSABLE_CLASSES` extends to `review`** (§5), per Ocean's standing
+ruling. A count mismatch is flag-never-withhold by design, so `review` is the
+only class these codes can appear in; leaving the scope at `withheld` would
+have shipped a vocabulary nothing could read.
+
+**Blast radius.** Both halves make a v2 rollup and a v3 rollup
+non-comparable, and in different ways: the code set grew, and the *denominator*
+grew. On the pinned 109 the diagnosed population goes 3 → 9 (the 3 withheld
+plus 6 review documents that were already in `review` before this merge, five
+for `page_coverage` and one advisory-only transaction export). No outcome
+class moved: 100 validated / 6 review / 3 withheld before and after, and the
+gate's 106 PASS / 3 WITHHELD is untouched. Exactly one count code appears in
+the whole pinned corpus — `integrity:debit_count_mismatch` on
+`Ace_Auto_Final_Cut.pdf`, which was already withheld and already diagnosed
+`detail_coverage` for the same missing detail, so the code adds evidence to an
+existing diagnosis and changes no class.
+
+**What keeps the new codes quiet.** They are gated on
+`analysis/count_semantics.py`, the per-bank table of what a printed count
+denotes, whose default for an unsurveyed parser is *not comparable*. A parser
+that starts publishing a printed count without a table entry emits nothing.
+
 ---
 
-## 12. Observer-side vocabulary: the stated-count check (COUNTS-P1, phase 1)
+## 12. Observer-side vocabulary: the stated-count check
 
-**No class changes, no code changes, no new taxonomy codes.** This section
-exists because a second closed vocabulary now lives one layer out from this
-one, in `telemetry/stated_counts.py`, and two of its values reuse words that
-already mean something here. Recording the distinction is cheaper than
-discovering it in a rollup.
+The two `integrity:` codes are in §3.2 and §4 as of v3; this section is what
+remains once they are, and it is about the OTHER vocabulary — the five-value
+one the measuring instrument uses, which never enters this taxonomy and reuses
+two words that already mean something here. Recording the distinction is
+cheaper than discovering it in a rollup.
 
 The stated-count observer (Gustavo's 2026-08-10 sign-off; measurement in
 `COUNTS_P1_MEASUREMENT.md`) classifies each document **per direction** as
 exactly one of `match`, `mismatch`, `not_printed`, `semantics_incomparable`,
-`check_unavailable`. It is a **phase-1 measuring instrument over cached
-payloads**: it emits no flag, produces no code in the `integrity:` namespace,
-never reaches `diagnose`, and is not imported by `analysis/`, `ocr/`, `webapp/`
-or `discovery/`. Nothing in §3, §4 or §7 above changes.
+`check_unavailable`. It is a measuring instrument over cached payloads: it
+emits no flag, produces no code in the `integrity:` namespace, never reaches
+`diagnose`, and is not imported by `analysis/`, `ocr/`, `webapp/` or
+`discovery/` — the dependency runs the other way, since COUNTS-P2 moved the
+semantics table into `analysis/count_semantics.py` and the observer now reads
+the shipping one.
 
 Two names, two layers:
 
@@ -452,17 +500,16 @@ Two names, two layers:
   `direction`, so the comparison could not run. They are never mixed — the
   observer's values never enter `CLASS_OF`, `CLASS_PRECEDENCE` or
   `DIAGNOSTICS_VERSION`.
-- **`semantics_incomparable`** has no counterpart here at all. It is the
-  sign-off's forced-mismatch prohibition made into a value: where a bank's
-  printed count denotes a different set of rows than `Transaction.direction`
-  does (cheques folded into a printed debit figure, category subtotals,
-  multi-category sums, label-scoped subsets), the observer declines to compare
-  rather than manufacturing a defect. The per-bank table and its arguments are
-  `telemetry/stated_counts.SEMANTICS`.
+- **`semantics_incomparable`** has no counterpart here at all, and that is the
+  point: it is the sign-off's forced-mismatch prohibition made into a value.
+  Where a bank's printed count denotes a different set of rows than
+  `Transaction.direction` does (cheques folded into a printed debit figure,
+  category subtotals, multi-category sums, label-scoped subsets), the check
+  declines to compare rather than manufacturing a defect — so that population
+  produces no `integrity:` code either, and its absence from this taxonomy is
+  a decision rather than a gap. The per-bank table and its arguments are
+  `analysis/count_semantics.SEMANTICS`.
 
-**When phase 2 lands** it adds `integrity:credit_count_mismatch` and
-`integrity:debit_count_mismatch` to §3.2, both classed `detail_coverage`
-(rank 9), with `DIAGNOSTICS_VERSION` 2 → 3 — and it is the merge that makes
-Ocean's ruling on §10 open question 2 due, since a count mismatch produces
-`review` and `DIAGNOSABLE_CLASSES` is `withheld`-only today. None of that is
-phase 1. This section will be replaced by real §3/§4 rows at that merge.
+**Phase 2 landed (COUNTS-P2, 2026-08-13):** see the v3 changelog entry in §11
+for the two codes, the widened scope, and the blast radius on the pinned 109.
+`DIAGNOSABLE_CLASSES` extending to `review` closed §10 open question 2.
