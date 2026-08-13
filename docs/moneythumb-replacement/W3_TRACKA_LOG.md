@@ -4282,7 +4282,8 @@ a worker that loaded main's code raises instead of silently proving nothing.
 | fuzz3 — silent calendar-year widening, 200 docs x 9 | **120 violated docs**, 240 pairs, 20 crash-mutations | **0 / 0 / 0** | 0 |
 | fuzz5 — parity `analyse(md)` vs `analyse(admissible_text(md))`, 200 docs | 0 changed | **0 changed** | 0 |
 | fuzz4 — LIVE census, all validated archive docs | **0 / 1,615 contaminated** | (see FB7) | — |
-| full default suite | — | 2,696 passed, 18 deselected (156s) | 0 |
+| full default suite | — | 2,699 passed, 18 deselected (197s) | 0 |
+| `tests/test_stated_counts.py` (incl. the new join tests) | — | 58 passed | 0 |
 | `pytest -m corpus` | — | 14 passed, 2,700 deselected (1,803s) | 0 |
 | `python corpus_gate.py` | — | **GREEN, 106 PASS / 3 WITHHELD** (883.6s) | 0 |
 | conformance cross-product | — | 468 tests, inside the green default suite | 0 |
@@ -4350,6 +4351,23 @@ above, plus the gate reproducing all 109 audited documents byte-identically.
    incremental operational cost of card 3 is therefore **zero**: one full
    recompute happens either way, and results are expected identical.
 
+6. **The cache key had a SECOND implementation, and this cell missed it**
+   (caught by Ocean's adversarial review, fixed under an authorised scope
+   extension). `telemetry/stated_counts.py`'s `_ArtifactJoin.payload_for`
+   recomputes the analysis key to join a discovery run to its cached payloads,
+   and it hashed the RAW reconstructed markdown. Once the cache moved to
+   `admissible_text`, that join missed **every** document: `payload_for`
+   returns None for all of them and `observe_run` emits `payload_absent` on
+   100% of rows — the counts instrument goes blind while staying green, which
+   is the worst failure mode available to a measurement tool. It had zero test
+   coverage. Now fixed, pinned by three tests, and a repo-wide sweep confirms
+   these are the only two computations of the analysis key
+   (`webapp/artifact_cache.py:622`, `telemetry/stated_counts.py:777`); the
+   `report` stage at :646 correctly still hashes the whole markdown.
+   **Process lesson for the next platform cell: changing a cache key means
+   grepping the repo for every reimplementation of that key, not just editing
+   the module that owns it.**
+
 ## FB9. Commits
 
 | Commit | Contents |
@@ -4360,4 +4378,5 @@ above, plus the gate reproducing all 109 audited documents byte-identically.
 | `1fa4763` | `tests/test_filename_boundary.py` — the permanent invariant |
 | `b619f16` | two default-suite fallouts, fixed at the cause rather than by relaxing the assertions |
 | `7ebb154` | the two non-parser consumers: repair gates and page declarations |
-| (this one) | §FILENAME-BOUNDARY |
+| `8c2781a` | §FILENAME-BOUNDARY |
+| (this one) | the telemetry join: the second copy of the analysis key, its three tests, and this addendum |
