@@ -27,6 +27,18 @@ _PAGE_RE = re.compile(r"^\d+ of \d+$", re.IGNORECASE)
 #: what tells a price from a reference number.
 _CENTS_TAIL_RE = re.compile(r"[.,]\d{2}\)?$")
 _NON_DIGIT_RE = re.compile(r"\D")
+#: One printed money cell of the `Account Summary for this Period` block: the
+#: currency symbol is optional, and a negative figure is printed either
+#: `-$1,234.56` or `$-1,234.56`.
+#:
+#: The block prints four rows — opening balance, the two totals, closing
+#: balance — in one grid, so whether the symbol is printed is a property of the
+#: STATEMENT, not of the row. Reading the totals with a narrower pattern than
+#: the balances was silent data loss: on a statement that prints `$` on the
+#: total rows, both stated totals AND both stated counts went None, which skips
+#: the summary identity check (`reconcile.summary_ok` None) and ships the
+#: document approved with `summary_totals_reliable=True` and no issue raised.
+_SUMMARY_MONEY = r"(-?\$?[\d,]+\.\d{2}|\$-?[\d,]+\.\d{2})"
 
 
 def _date_from(day: str, mon: str, *, default_year: int) -> str:
@@ -390,17 +402,21 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
         if account:
             stmt.account_number = account.group(1).strip()
 
-        m = re.search(r"Opening balance on .*?(-?\$?[\d,]+\.\d{2}|\$-?[\d,]+\.\d{2})", line, re.IGNORECASE)
+        m = re.search(r"Opening balance on .*?" + _SUMMARY_MONEY, line, re.IGNORECASE)
         if m:
             stmt.beginning_balance = parse_money(m.group(1))
-        m = re.search(r"Closing balance on .*?(-?\$?[\d,]+\.\d{2}|\$-?[\d,]+\.\d{2})", line, re.IGNORECASE)
+        m = re.search(r"Closing balance on .*?" + _SUMMARY_MONEY, line, re.IGNORECASE)
         if m:
             stmt.ending_balance = parse_money(m.group(1))
-        m = re.search(r"Total deposits & credits \((\d+)\)\s*\+?\s*([\d,]+\.\d{2})", line, re.IGNORECASE)
+        m = re.search(
+            r"Total deposits & credits \((\d+)\)\s*\+?\s*" + _SUMMARY_MONEY, line, re.IGNORECASE
+        )
         if m:
             stmt.stated_credit_count = int(m.group(1))
             stmt.stated_total_credits = parse_money(m.group(2))
-        m = re.search(r"Total cheques & debits \((\d+)\)\s*-?\s*([\d,]+\.\d{2})", line, re.IGNORECASE)
+        m = re.search(
+            r"Total cheques & debits \((\d+)\)\s*-?\s*" + _SUMMARY_MONEY, line, re.IGNORECASE
+        )
         if m:
             stmt.stated_debit_count = int(m.group(1))
             stmt.stated_total_debits = parse_money(m.group(2))
