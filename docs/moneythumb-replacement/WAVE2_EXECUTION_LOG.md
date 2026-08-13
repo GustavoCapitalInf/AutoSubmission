@@ -1,5 +1,109 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-13 — **PHASE CELL 2 (CHASE) + COUNTS-P2 OFFICIAL: improved 136 / regressed 0 — validated 1,910 (56.5%), claim coverage 55.0% → 59.1%**
+
+Both workstreams Gustavo-approved 2026-08-13 morning, run in parallel
+worktrees (disjoint ownership enforced by the COUNTS-P2 handoff placing the
+semantics table in new `analysis/count_semantics.py`, NOT registry entries),
+each adversarially reviewed by an independent Opus agent before merge, both
+SHIP. Merged `1c859cc` (COUNTS-P2, tip `67010d9`) + `76c61d8` (Chase cell,
+tip `ae90180`), composed v8 bump `bc60bfe`, pushed, **remote CI SUCCESS
+(conclusion read)**. Composed-tree proofs run by Ocean: suite **2,562** /
+corpus-marked 14 / gate GREEN 106/3, all exit 0; dry run `ccf3735d`
+canonical 100/6/3 at v8.
+
+**Official instrument (`ca2ba0eb` → `6893a75b`, shared 3,380,
+`--fail-on-regression` exit 0): improved 136 / regressed 0.** Transitions:
+failed→validated 134, failed→withheld 2 (entered `summary_identity` — the
+two family-A documents whose own printed summary does not close; the sign
+fix made that visible). Totals: validated 1,776 → **1,910 (56.5%)** ·
+review 10 (unchanged) · withheld 58 → 60 · failed 1,387 · claim coverage
+55.0% → **59.1%**. Families: chase 108 (106 validated + 2 withheld —
+exactly the worker preview), square_checking **28** all validated
+(preview said 11; the stratified probe under-sampled — 28 distinct hashes:
+Unidentified 12 / Chase 7 / BofA 4 / Square 4 / Wells Fargo 1, every one
+`failed` at baseline; folder labels are filing conventions). **COUNTS-P2
+field-confirmed zero movement: no transition outside the two chase-cell
+families, review count unchanged** — its 23 flagged documents were already
+withheld, per its pre-measurement.
+
+**CHASE CELL (§CHASE-LAYOUTS in W3_TRACKA_LOG.md).** Premise corrected:
+126/176 carried chase's own sentinel, detected at 0.5, declined at parse;
+only 33 undetected, 20 of those not statements. `no_parser_matched` was
+R-3 parse-fallthrough, not missing layouts. **Ocean ruling (stop-and-
+propose honored): the two-line `chase.py` sign fix AUTHORIZED** — reuse of
+the module's own `_SUMMARY_AMOUNT` on the two balance rows; conditions all
+met: 393-document before/after sweep zero diffs, detection surface
+unmoved (claims 389→389, scores moved 0), 11 pinned Chase statements
+byte-identical (brief said 8; manifest carries 11 — corrected), overdrawn
+regression fixture proven genuine. `square_checking` (Block, Inc.) built
+under full R-3/R-4: four issuer-furniture markers, 50×49 cross-product
+zero, 447-doc stratified probe clean; module named for its issuer, not
+`chase_*` — deviation accepted. Fail-closed remainders with volumes:
+zero-activity A′ 7 (scratch 4/7 — PROPOSAL held for a FIXUPS-class card),
+savings B1 10 (needs its own card: second grid reader, amount wraps above
+its row), Mission Valley/First Carolina 19 (one `community_section` card),
+American Savings 10 → geometry queue, scanned 4, credit-card 2, not-
+statements 8, empty skeleton 1.
+
+**COUNTS-P2 (COUNTS_P2_REPORT.md).** Pre-measurement gate green on all
+three conditions before any production edit: zero pinned-PASS mismatches
+(the D5 first_community document reads `match` — `acd0b07` did exactly
+what the adjudication predicted), all five promotions re-proven at v7
+(chase:debit 387/0, us_bank 40/0 ×2, wilson_muir 8/0 ×2), zero predicted
+validated→review movers. §7.1 reconcile diff verbatim-as-pinned (+35/−0,
+Ocean forensic read: approved); §7.2 amended with the ruled semantics
+gate **plus one accepted narrowing: flags key on the CLAIMING parser only**
+(bank-label/LLM resolutions never flag — a semantics entry is evidence
+about a parser's reader, not the bank's paper); §7.3 + DIAGNOSABLE_CLASSES
+→ review landed same-merge per the standing ruling. chase_export:debit
+promotion DROPPED (no evidence exists — 4/4 print no debit count).
+Corpus footprint: ONE code (`debit_count_mismatch` on Ace_Auto_Final_Cut,
+already withheld, already `detail_coverage`, class unchanged) — a true
+positive on an already-refused document, found by the live corpus run and
+invisible to the cache join (80/109 pinned docs in the archive run).
+
+**Adversarial reviews (both SHIP, both caught real items, all fixed and
+re-proved pre-merge):** COUNTS — 4,000-statement differential fuzz of
+reconcile vs base: zero divergences, zero new crash paths; findings:
+comparable set now pinned by equality (mutation-checked), first_community
+repair-scope provenance disclosed (`67010d9`, proven reason-text-only).
+CHASE — 600k-trial pattern fuzz: the only divergence class needs a
+repeated balance label inside one non-greedily-sliced block (unreachable,
+and the new reading is the correct one); findings: **money-bearing page
+footer could be absorbed into a page's last row** — closed with two
+structural bounds (footer terminates a row as issuer furniture; a row's
+money comes from the row's own printed line), defect reproduced pre-fix,
+11/11 real Square documents unchanged (`ae90180`); adversarial fixture
+strengthened to 3-of-4 markers + a 4/4-collision test pinning
+ambiguous-never-wrong-parse.
+
+**Backlog cards opened (Ocean holds):** (1) chase zero-activity A′
+(scratch 4/7, conservative guard, full sweep required at implementation);
+(2) chase savings B1 card with its own instrument; (3) `community_section`
+generalization (Mission Valley products + First Carolina, 19 docs, core-
+processor template — will recur); (4) FIXUPS-class: `chase.py:22` `- $X`
+guard gap silently understates a stated total (reviewer evidence in
+transcript); (5) platform card: filename-in-parse seam — parse reads the
+source-filename comment via `_normalized`, square_checking newly makes
+period load-bearing for row admission; conformance covers detection only;
+(6) hardening: production count check vs observer on a row direction
+outside {credit,debit} (schema-unreachable today; observer says
+check_unavailable, production would say False); (7) `$0.00` row direction
+label in square_checking (inert); (8) stale "46 registrations" doc
+mentions (pre-existing). Parser cards already specified by COUNTS-P1/P2
+data: BofA three-readers, capital_one/texas_bank service-charge scope,
+altana label scope, td_canada_native wrong-side class.
+
+**Phase-level ruling adopted (from the cell's evidence): remaining cells
+are ranked by `Dispatch.attempted`, not folder label.** Layout knowledge
+bound 7 documents in this cell; extraction gaps in parsers we already own
+bound 142. The column is in rows.csv; it separates "never seen this
+layout" from "we own it and drop it" without opening a PDF.
+
+Housekeeping: `wave3-counts-p2` + `wave3-chase-layouts` merged;
+branches/worktrees removed post-merge; `worktree-mt-lead` fast-forwarded.
+
 ## 2026-08-13 — **FIXUPS-1 OFFICIAL: improved 26 / regressed 0** · CI record corrected: remote red 08-07→08-12 was ONE Linux-only test the whole streak; fixed `8c01930`, remote GREEN again
 
 FIXUPS-1 merged `28e04ba` (fix 1: pipeline page-declaration lookbehind
