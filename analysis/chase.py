@@ -18,7 +18,21 @@ _EXPORT_MONTHS = {
 
 #: A Chase amount cell as printed: optional parenthesis/minus/dollar wrapper
 #: around a grouped decimal. Scrubbing is only allowed on tokens matching this.
-_AMOUNT_RE = re.compile(r"\(?-?\$?\s*[0-9][0-9,]*(?:\.[0-9]{2})?-?\)?")
+#:
+#: The gap after a leading sign is the one `_SUMMARY_AMOUNT` already admits,
+#: and it is here so that this GUARD admits everything that FINDER finds.
+#: Chase prints the sign outside the currency symbol and the column's padding
+#: can fall between the two, so a summary row reads "- $530,178.70" as readily
+#: as "-$530,178.70" or "- 530,178.70". While the two disagreed the finder
+#: matched such a row, the guard refused to scrub it, `_money` returned None,
+#: and `abs(... or 0.0)` published **0.00** for a figure the bank had plainly
+#: printed — silently, because on a statement whose other debits are small the
+#: resulting error can sit inside the reconciliation tolerance.
+#:
+#: The gap is bound to the sign (`(?:-\s*)?`) rather than floated across the
+#: whole prefix, so this admits the detached-sign spelling and NOTHING else:
+#: an unclosed "( $X" stays out, as it was before. (W3 §CHASE-CLOSURE card C.)
+_AMOUNT_RE = re.compile(r"\(?(?:-\s*)?\$?\s*[0-9][0-9,]*(?:\.[0-9]{2})?-?\)?")
 
 
 def _money(value: str) -> float | None:

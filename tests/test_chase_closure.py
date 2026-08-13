@@ -13,9 +13,12 @@ from the archive appears in this file.
 """
 from __future__ import annotations
 
+import re
+from contextlib import contextmanager
+
 import pytest
 
-from analysis import parser_registry_entries as entries
+from analysis import chase, parser_registry_entries as entries
 from analysis.chase import detect as chase_detect, parse_chase_statement
 
 entries.load()
@@ -172,3 +175,165 @@ def test_a_statement_with_a_ledger_is_unaffected_by_the_guard():
     statement = parse_chase_statement(OVERDRAWN_CHASE)
     assert statement is not None
     assert len(statement.transactions) == 2
+
+
+# ===========================================================================
+# Card C — the money guard admits what the money finder finds
+# ===========================================================================
+
+#: The guard as it stood before card C. Restored in-process by the fixtures
+#: below, which is what makes them regression tests rather than descriptions:
+#: each one is verified to reproduce the defect against this pattern.
+PRE_CARD_C_GUARD = re.compile(r"\(?-?\$?\s*[0-9][0-9,]*(?:\.[0-9]{2})?-?\)?")
+
+
+@contextmanager
+def pre_card_c_guard():
+    """`analysis/chase.py` with the pre-card-C money guard put back."""
+    shipped = chase._AMOUNT_RE
+    chase._AMOUNT_RE = PRE_CARD_C_GUARD
+    try:
+        yield
+    finally:
+        chase._AMOUNT_RE = shipped
+
+
+#: The two printed conventions co-occurring: the sign stands outside the
+#: currency symbol, and the column's padding falls between them. The fee is
+#: small on purpose — see the tolerance fixture below. The identity closes
+#: exactly: 1,000.00 + 500.00 - 200.00 - 0.75 = 1,299.25.
+DETACHED_SIGN_FEE = (
+    "JPMorgan Chase Bank, N.A. Member FDIC\n"
+    "January 1, 2026 through January 31, 2026\n"
+    "*start*summary\n"
+    "Chase Business Complete Checking\n"
+    "CHECKING SUMMARY\n"
+    "INSTANCES AMOUNT\n"
+    "Beginning Balance $1,000.00\n"
+    "Deposits and Additions 1 500.00\n"
+    "Electronic Withdrawals 1 - 200.00\n"
+    "Fees 1 - $0.75\n"
+    "Ending Balance 3 $1,299.25\n"
+    "*end*summary\n"
+    "*start*deposits and additions\n"
+    "DEPOSITS AND ADDITIONS\n"
+    "DATE DESCRIPTION AMOUNT\n"
+    "01/05 Example Deposit Source 500.00\n"
+    "Total Deposits and Additions $500.00\n"
+    "*end*deposits and additions\n"
+    "*start*electronic withdrawal\n"
+    "ELECTRONIC WITHDRAWALS\n"
+    "DATE DESCRIPTION AMOUNT\n"
+    "01/09 Example Counterparty Payment 200.00\n"
+    "Total Electronic Withdrawals $200.00\n"
+    "*end*electronic withdrawal\n"
+    "*start*fees section\n"
+    "FEES\n"
+    "DATE DESCRIPTION AMOUNT\n"
+    "01/31 Example Monthly Service Fee 0.75\n"
+    "Total Fees $0.75\n"
+    "*end*fees section\n"
+)
+
+
+def test_the_guard_admits_every_shape_the_finder_finds():
+    """The card-C invariant, stated as a property rather than as examples.
+
+    `_SUMMARY_AMOUNT` finds the money in a summary row; `_AMOUNT_RE` guards
+    what `_money` is allowed to scrub. A shape the first finds and the second
+    refuses is not a refusal — it is a silent `0.00`, because every caller
+    reads `abs(_money(...) or 0.0)`. The two must not drift apart again.
+    """
+    refused = [
+        sign + symbol + number
+        for sign in ("", "-", "- ", "-  ")
+        for symbol in ("", "$", "$ ", "$  ")
+        for number in ("0.00", "500.00", "530,178.70", "1,234,567.89")
+        if re.fullmatch(chase._SUMMARY_AMOUNT, sign + symbol + number)
+        and chase._money(sign + symbol + number) is None
+    ]
+    assert refused == [], f"the finder finds these and the guard refuses them: {refused}"
+
+
+def test_a_detached_sign_summary_row_published_zero_before_card_c():
+    """The defect, reproduced against the pre-card-C guard.
+
+    Not a description of a bug: the fixture is run through the shipped parser
+    twice, and the pre-card-C reading is asserted to be the wrong number.
+    """
+    with pre_card_c_guard():
+        before = parse_chase_statement(DETACHED_SIGN_FEE)
+    assert before is not None
+    # The bank printed $0.75. The parser published nothing at all for it, and
+    # the fee's absence from the debit total is the same silent zero.
+    assert before.stated_service_charge == 0.0
+    assert before.stated_total_debits == 200.00
+
+    after = parse_chase_statement(DETACHED_SIGN_FEE)
+    assert after is not None
+    assert after.stated_service_charge == 0.75
+    assert after.stated_total_debits == 200.75
+
+
+def test_the_misread_fee_hid_inside_the_reconciliation_tolerance():
+    """Why this one is worth a card: nothing downstream caught it.
+
+    The bank-stated summary identity is accepted within ±1.00 (see
+    `analysis/reconcile.py`), so a fee small enough to sit inside that window
+    left the document reconciling — and shipping — with a stated service
+    charge and a stated debit total that were both wrong. The fix does not
+    move the tolerance; it removes the error that was hiding under it.
+    """
+    from analysis.reconcile import reconcile
+
+    def residual(stmt):
+        """The identity reconcile checks, with the service charge separate."""
+        base = stmt.beginning_balance + stmt.stated_total_credits - stmt.stated_total_debits
+        return round(base - (stmt.stated_service_charge or 0.0) - stmt.ending_balance, 2)
+
+    with pre_card_c_guard():
+        wrong = parse_chase_statement(DETACHED_SIGN_FEE)
+        before = reconcile(wrong)
+    # The document does not close — it is off by exactly the fee that was
+    # read as zero — and nothing says so, because 0.75 is inside the window.
+    assert residual(wrong) == 0.75
+    assert before.summary_ok is True
+    assert before.ok is True
+    assert before.issues == []
+
+    right = parse_chase_statement(DETACHED_SIGN_FEE)
+    after = reconcile(right)
+    assert residual(right) == -0.75  # the charge is now counted in both terms
+    assert after.summary_ok is True
+    assert after.issues == []
+
+
+@pytest.mark.parametrize(
+    "shape",
+    ["( $500.00", "$-500.00"],
+    ids=["unclosed_paren_with_gap", "sign_inside_the_symbol"],
+)
+def test_card_c_admits_the_detached_sign_and_nothing_else(shape):
+    """The alignment is bound to the sign, not floated across the prefix.
+
+    These two shapes are unattested on real Chase documents and stay out, so
+    the guard widened by exactly one printed spelling. Recorded as a pin
+    because "we only meant to admit one shape" is otherwise unverifiable.
+    """
+    assert chase._money(shape) is None
+    with pre_card_c_guard():
+        assert chase._money(shape) is None
+
+
+def test_a_statement_that_read_correctly_before_is_unchanged():
+    """The other direction: on every spelling that already parsed, card C is
+    inert. The archive-wide form of this is the claimed-population sweep."""
+    from tests.test_chase_layouts import OVERDRAWN_CHASE
+
+    for document in (OVERDRAWN_CHASE, ZERO_ACTIVITY):
+        with pre_card_c_guard():
+            before = parse_chase_statement(document)
+        after = parse_chase_statement(document)
+        assert (before is None) == (after is None)
+        if after is not None:
+            assert before.__dict__ == after.__dict__
