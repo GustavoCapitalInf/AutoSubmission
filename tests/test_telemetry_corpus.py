@@ -99,6 +99,31 @@ WITHHELD_REQUIRED_CODES = {
     },
 }
 
+#: COUNTS-P2 widened `DIAGNOSABLE_CLASSES` to `review`, so the pinned corpus's
+#: six review documents are diagnosed too. They are enumerated rather than
+#: counted because this is the anchor that says phase 2 moved nothing: every
+#: one of them is in `review` for a reason that predates the count check, and
+#: none of them carries a count code.
+REVIEW_DIAGNOSIS = {
+    # a transaction export, not a bank statement — a document class, which is
+    # why its evidence is all advisory
+    "Chase Business.pdf": "advisory_only",
+    # the statement declares bank pages the supplied PDF does not contain
+    "Builder June 2026.pdf": "page_coverage",
+    "Columbia May 26 complete.pdf": "page_coverage",
+    "Link Bank April statement.pdf": "page_coverage",
+    "Texas Bank.pdf": "page_coverage",
+    "Regions.pdf": "page_coverage",
+}
+
+#: The count check's entire footprint on the pinned 109: ONE code, on a
+#: document that was already withheld and already diagnosed `detail_coverage`
+#: for the same cause (11 of the bank's 26 stated checks/debits are in the
+#: supplied PDF, so the debit COUNT is short exactly as the debit MONEY is).
+#: The code adds evidence to an existing diagnosis and changes no class.
+COUNT_CODES = {"integrity:credit_count_mismatch", "integrity:debit_count_mismatch"}
+COUNT_CODE_DOCUMENTS = {"Ace_Auto_Final_Cut.pdf": {"integrity:debit_count_mismatch"}}
+
 
 def _manifest() -> list[str]:
     return corpus_gate.manifest_paths(corpus_gate.read_csv(corpus_gate.BALANCE_CSV))
@@ -202,28 +227,59 @@ def test_telemetry_reproduces_the_gate_outcome_split():
 
 @pytest.mark.corpus
 def test_withheld_diagnostics_reproduce_the_documented_diagnosis():
-    """W3-2's anchor: the 3 withheld are diagnosed, the 106 are not.
+    """W3-2's anchor: the refused and the flagged are diagnosed; the published
+    are not.
 
     The diagnosis is the one `docs/adb-withheld-second-pass.md` established
     forensically from the PDF bytes, so this asserts that the taxonomy reaches
     the human conclusion from the product's own serialized payload — and that
-    it stays silent on every document the platform did publish, which is what
-    keeps "why was this withheld" from becoming noise on 106 healthy files.
+    it stays silent on every document the platform published without
+    question, which is what keeps "why was this withheld" from becoming noise
+    on 100 healthy files.
+
+    COUNTS-P2 widened the diagnosable scope from `withheld` to
+    `withheld | review`, so the property changed shape and is restated rather
+    than relaxed: it was "the 106 produce empty diagnostics" and it is now
+    "the 100 VALIDATED produce empty diagnostics", with the 6 review documents
+    enumerated in `REVIEW_DIAGNOSIS`. The gate's own 106 PASS / 3 WITHHELD is
+    untouched — 106 PASS = 100 validated + 6 review — and this test asserts
+    that identity directly so the two vocabularies stay tied together.
     """
     manifest = _manifest()
     records = [_telemetry_for(rel)[0] for rel in manifest]
 
-    diagnosed, quiet = {}, 0
+    diagnosed, review, quiet = {}, {}, 0
     for rel, record in zip(manifest, records):
         section = record["diagnostics"]
-        if record["outcome"]["class"] == "withheld":
+        outcome = record["outcome"]["class"]
+        if outcome == "withheld":
             diagnosed[Path(rel).name] = section
+        elif outcome == "review":
+            review[Path(rel).name] = section
         else:
+            assert outcome == "validated", rel
             assert section == empty_diagnostics(), rel
             quiet += 1
 
-    assert quiet == corpus_gate.EXPECTED_PASS == 106
+    assert quiet == 100
+    assert quiet + len(review) == corpus_gate.EXPECTED_PASS == 106
     assert set(diagnosed) == WITHHELD
+
+    # The review population, enumerated: every one of them is here for a
+    # reason that predates the count check.
+    assert {name: section["primary_class"] for name, section in review.items()} == REVIEW_DIAGNOSIS
+    for name, section in review.items():
+        assert section["evaluated"] is True
+        assert section["codes"], name
+        assert not COUNT_CODES & set(section["codes"]), name
+
+    # The count check's whole footprint on the pinned 109.
+    carrying = {
+        name: COUNT_CODES & set(section["codes"])
+        for name, section in {**diagnosed, **review}.items()
+        if COUNT_CODES & set(section["codes"])
+    }
+    assert carrying == COUNT_CODE_DOCUMENTS
 
     for name, section in diagnosed.items():
         assert section["evaluated"] is True
@@ -243,10 +299,15 @@ def test_withheld_diagnostics_reproduce_the_documented_diagnosis():
     # The rollup answers the W3-2 question in one call over the same records.
     rollup = diagnostics_rollup(records)
     assert rollup["total"] == 109
-    assert rollup["diagnosed"] == 3
+    assert rollup["diagnosed"] == 9  # the 3 withheld + the 6 review
     assert rollup["classes"] == {
         "source_contradiction": 1, "summary_identity": 1, "detail_coverage": 1,
+        "page_coverage": 5, "advisory_only": 1,
     }
+    # One count code in the whole pinned corpus, on the document whose debit
+    # detail the gate already refuses.
+    assert rollup["codes"]["integrity:debit_count_mismatch"] == 1
+    assert "integrity:credit_count_mismatch" not in rollup["codes"]
     assert rollup["unmapped"] == {
         "names": {}, "reconciliation_issues": 0, "adb_warnings": 0,
     }
