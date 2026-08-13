@@ -35,10 +35,20 @@ entries.load()
 # Card A′ — a period in which nothing happened
 # ===========================================================================
 
-#: Chase's statement for a period with no activity: the summary block prints an
-#: instance count of 0 against every section and a closing balance equal to the
-#: opening one, and no detail section is printed at all. Synthetic; the figures
-#: are round numbers chosen so the identity is checkable by eye.
+#: Chase's statement for a period with no activity.
+#:
+#: This fixture prints an explicit instance count of 0 against every section.
+#: **That is not the shape the real population has**, and the rule must not be
+#: read off this fixture: on all of the archive documents the guard admits, the
+#: summary prints no section rows at all, so every stated field comes back
+#: `None` rather than `0`. `ZERO_ACTIVITY_AS_PRINTED` below is the real shape;
+#: this one is kept because a printed zero must be admitted too, and because it
+#: pins that the guard reads a stated 0 and a stated None the same way.
+#:
+#: What actually discriminates is in `analysis/chase.py`: the two balances
+#: agree, no stated evidence was recovered, and **no posting row is printed**.
+#: Synthetic; the figures are round numbers chosen so the identity is
+#: checkable by eye.
 ZERO_ACTIVITY = (
     "JPMorgan Chase Bank, N.A. Member FDIC\n"
     "January 1, 2026 through January 31, 2026\n"
@@ -182,6 +192,194 @@ def test_a_statement_with_a_ledger_is_unaffected_by_the_guard():
     statement = parse_chase_statement(OVERDRAWN_CHASE)
     assert statement is not None
     assert len(statement.transactions) == 2
+
+
+#: The shape the archive actually has. Every document the guard admits prints
+#: its summary WITHOUT section rows — no `Deposits and Additions` line, no
+#: debit line — so `_parse_native_summary` recovers the two balances and
+#: nothing else, and every stated field is `None`. Verified over every distinct
+#: document in the archive: this is the only admitted shape.
+ZERO_ACTIVITY_AS_PRINTED = (
+    "JPMorgan Chase Bank, N.A. Member FDIC\n"
+    "January 1, 2026 through January 31, 2026\n"
+    "*start*summary\n"
+    "Chase Business Complete Checking\n"
+    "CHECKING SUMMARY\n"
+    "INSTANCES AMOUNT\n"
+    "Beginning Balance $0.00\n"
+    "Ending Balance $0.00\n"
+    "*end*summary\n"
+)
+
+# ---------------------------------------------------------------------------
+# The four adversarial probe shapes from Ocean's review.
+#
+# Each reaches the zero-activity guard in the dangerous state: the two balances
+# were read and AGREE, every stated field is unset because the summary reader
+# failed on its own summary, and the ledger is empty. Two equal balances do not
+# make that a quiet period — a sweep account or a net-zero month closes where
+# it opened — and each of these documents plainly prints money.
+#
+# Their detail rows sit in a `*start*transaction detail` grid, which is not one
+# of the six section headings `chase.py` reads, so the ledger comes back empty
+# while the rows are right there on the page. That is not a contrivance: it is
+# the third Chase family this cell turned up (§Z6.1), where a checking
+# statement is printed on the savings grid.
+#
+# Before the no-posting-row clause each of these published an EMPTY LEDGER as
+# an authoritative statement, with reconciliation green.
+# ---------------------------------------------------------------------------
+
+#: The rows every probe prints. A dated posting row carrying real money, in a
+#: block whose heading `chase.py` has no reader for.
+_UNREAD_GRID = (
+    "*start*transaction detail\n"
+    "TRANSACTION DETAIL\n"
+    "DATE DESCRIPTION AMOUNT BALANCE\n"
+    "01/05 Example Inbound Transfer 500.00 1,500.00\n"
+    "01/28 Example Outbound Transfer - 500.00 1,000.00\n"
+    "*end*transaction detail\n"
+)
+
+#: 1. Summary rows carrying no instance count. `_parse_native_summary` requires
+#:    `label <n> <amount>`, so a summary printing only the amount matches
+#:    nothing and every stated field stays None — while both balance rows,
+#:    which are matched by their own patterns, read fine.
+PROBE_COUNTLESS_SUMMARY_ROWS = (
+    "JPMorgan Chase Bank, N.A. Member FDIC\n"
+    "January 1, 2026 through January 31, 2026\n"
+    "*start*summary\n"
+    "CHECKING SUMMARY\n"
+    "Beginning Balance $1,000.00\n"
+    "Deposits and Additions $500.00\n"
+    "Electronic Withdrawals -$500.00\n"
+    "Ending Balance $1,000.00\n"
+    "*end*summary\n"
+) + _UNREAD_GRID
+
+#: 2. Section amounts printed without cents. `_SUMMARY_AMOUNT` requires `.dd`,
+#:    so the count rows match nothing; the balances print cents and read.
+PROBE_CENTLESS_AMOUNTS = (
+    "JPMorgan Chase Bank, N.A. Member FDIC\n"
+    "January 1, 2026 through January 31, 2026\n"
+    "*start*summary\n"
+    "CHECKING SUMMARY\n"
+    "INSTANCES AMOUNT\n"
+    "Beginning Balance $1,000.00\n"
+    "Deposits and Additions 1 $500\n"
+    "Electronic Withdrawals 1 -$500\n"
+    "Ending Balance $1,000.00\n"
+    "*end*summary\n"
+) + _UNREAD_GRID
+
+#: 3. An HTML summary whose SECTION rows carry fewer than three cells. The
+#:    table branch skips any row with `len(cells) < 3`; the balance rows are
+#:    full-width and read.
+PROBE_SHORT_HTML_CELLS = (
+    "JPMorgan Chase Bank, N.A. Member FDIC\n"
+    "January 1, 2026 through January 31, 2026\n"
+    "*start*summary\n"
+    "CHECKING SUMMARY\n"
+    "<table>\n"
+    "<tr><td>Beginning Balance</td><td></td><td>$1,000.00</td></tr>\n"
+    "<tr><td>Deposits and Additions</td><td>$500.00</td></tr>\n"
+    "<tr><td>Electronic Withdrawals</td><td>$500.00</td></tr>\n"
+    "<tr><td>Ending Balance</td><td></td><td>$1,000.00</td></tr>\n"
+    "</table>\n"
+    "*end*summary\n"
+) + _UNREAD_GRID
+
+#: 4. An HTML summary whose SECTION rows are shifted one column right, so the
+#:    label no longer stands in the first cell and every label test misses.
+PROBE_SHIFTED_HTML_COLUMN = (
+    "JPMorgan Chase Bank, N.A. Member FDIC\n"
+    "January 1, 2026 through January 31, 2026\n"
+    "*start*summary\n"
+    "CHECKING SUMMARY\n"
+    "<table>\n"
+    "<tr><td>Beginning Balance</td><td></td><td>$1,000.00</td></tr>\n"
+    "<tr><td></td><td>Deposits and Additions</td><td>1</td><td>$500.00</td></tr>\n"
+    "<tr><td></td><td>Electronic Withdrawals</td><td>1</td><td>$500.00</td></tr>\n"
+    "<tr><td>Ending Balance</td><td></td><td>$1,000.00</td></tr>\n"
+    "</table>\n"
+    "*end*summary\n"
+) + _UNREAD_GRID
+
+PROBE_SHAPES = {
+    "countless_summary_rows": PROBE_COUNTLESS_SUMMARY_ROWS,
+    "centless_amounts": PROBE_CENTLESS_AMOUNTS,
+    "short_html_cells": PROBE_SHORT_HTML_CELLS,
+    "shifted_html_column": PROBE_SHIFTED_HTML_COLUMN,
+}
+
+
+@contextmanager
+def _without_the_posting_row_clause():
+    """`analysis/chase.py` with the no-posting-row clause disabled."""
+    shipped = chase._DATED_ROW_RE
+    chase._DATED_ROW_RE = re.compile(r"(?!x)x")  # never matches
+    try:
+        yield
+    finally:
+        chase._DATED_ROW_RE = shipped
+
+
+def test_the_shape_the_archive_actually_has_is_admitted():
+    """Every document the guard admits looks like this: two equal balances, no
+    section rows in the summary at all, and no posting row anywhere."""
+    statement = parse_chase_statement(ZERO_ACTIVITY_AS_PRINTED)
+    assert statement is not None
+    assert statement.transactions == []
+    # The discriminator is NOT "the bank stated 0" — nothing was stated at all.
+    assert statement.stated_credit_count is None
+    assert statement.stated_debit_count is None
+    assert statement.stated_total_credits is None
+    assert statement.stated_total_debits is None
+    assert statement.beginning_balance == statement.ending_balance
+
+
+@pytest.mark.parametrize("name", sorted(PROBE_SHAPES))
+def test_each_probe_reaches_the_guard_in_the_dangerous_state(name):
+    """The probes have to keep being probes.
+
+    Asserted BEFORE the refusal, because a fixture that is refused for some
+    other reason — balances unread, a ledger that parsed after all — would make
+    the refusal below pass while testing nothing. With the clause disabled,
+    each of these is admitted as an authoritative statement with an empty
+    ledger: that is the defect the review found, reproduced in-process.
+    """
+    document = PROBE_SHAPES[name]
+    with _without_the_posting_row_clause():
+        admitted = parse_chase_statement(document)
+
+    assert admitted is not None, "refused for some other reason; not a probe"
+    assert admitted.transactions == [], "the ledger is not empty; not a probe"
+    assert admitted.beginning_balance == admitted.ending_balance is not None
+    assert admitted.stated_credit_count is None
+    assert admitted.stated_debit_count is None
+    assert admitted.stated_total_credits is None
+    assert admitted.stated_total_debits is None
+    assert chase._DATED_ROW_RE.search(document), "the probe prints no posting row"
+
+
+@pytest.mark.parametrize("name", sorted(PROBE_SHAPES))
+def test_a_summary_this_reader_could_not_read_is_never_an_empty_period(name):
+    """Ocean's adversarial review, kept as fixtures.
+
+    Each of these prints real money and leaves every stated field unset,
+    because the summary reader failed on its own summary rather than because
+    nothing happened. The posting rows it prints are what refuse it.
+    """
+    assert parse_chase_statement(PROBE_SHAPES[name]) is None
+
+
+def test_a_posting_row_anywhere_refuses_the_empty_ledger():
+    """The clause is section-blind on purpose: a dated row in a block this
+    parser has no reader for still means the period was not empty. This is the
+    difference between the real admitted shape and the same document with the
+    grid the third family prints."""
+    assert parse_chase_statement(ZERO_ACTIVITY_AS_PRINTED) is not None
+    assert parse_chase_statement(ZERO_ACTIVITY_AS_PRINTED + _UNREAD_GRID) is None
 
 
 # ===========================================================================
@@ -475,10 +673,27 @@ def test_a_savings_product_named_in_a_transaction_line_is_not_a_claim():
 
 
 def test_savings_detection_reads_nothing_from_the_source_filename():
+    """The filename carries ALL THREE required markers, so the platform strip
+    is the only thing standing between it and a claim.
+
+    `detection_text` itself does not remove the source comment — `make_detector`
+    strips it centrally first (R4-1/R4-2), and this asserts that seam rather
+    than a document that would have scored 0.0 anyway. The unstripped text is
+    checked too, so the fixture fails if the filename ever stops being the
+    thing under test.
+    """
+    filename = "Chase *start*summary SAVINGS SUMMARY Date Description Amount Balance.pdf"
     document = (
-        "<!-- source: Chase SAVINGS SUMMARY statement.pdf | pages: 1 | "
+        f"<!-- source: {filename} | pages: 1 | "
         "model: native-pdf-text | empty: 0 -->\n\nSome other bank statement\n"
     )
+    fired_unstripped = sorted(
+        m.id for m in SAVINGS_MARKERS
+        if m.kind == "required" and m.test(savings_detection_text(document))
+    )
+    assert fired_unstripped == [
+        "savings_summary", "section_sentinels", "transaction_detail_grid",
+    ], "the filename no longer carries every marker; the test has stopped testing the strip"
     assert detect_savings(document).score == 0.0
 
 

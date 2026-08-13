@@ -39,12 +39,23 @@ F1 family, where a wide description pushes the amount cell DOWN. When the
 Description column is full the producer emits the Amount cell before the row's
 own date line, leaving a bare money token standing alone. The rule that
 recovers it is structural and reads no vocabulary: **a group's trailing
-bare-money line is the next row's amount cell.** A bare money token is a
-wrapped AMOUNT when the line after it opens a row, and a wrapped BALANCE when
-it stands inside one — and the difference is exactly the row-group boundary,
-which is why this is decided after grouping and not by pattern-matching the
-token. (The `square_checking` footer lesson: a claim about what a line
-*contains* is not a claim about where the row *ends*.)
+bare-money line is the next row's amount cell.** It is decided after grouping
+rather than by pattern-matching the token, which is the `square_checking`
+footer lesson — a claim about what a line *contains* is not a claim about where
+the row *ends*.
+
+**Where that rule does NOT decide, and what catches it.** The rule is exact
+whenever a wrapped BALANCE is followed by another wrapped-amount row, which is
+how this grid prints on every document measured. It is *not* exact in one
+shape: a row whose balance wrapped onto its own line followed immediately by a
+row that prints both its cells inline. Both readings are then structurally
+available and the flattened text layer no longer says which is which — the
+column geometry that would settle it is gone. This reader takes the wrapped
+token as the next row's amount, and when that is the wrong reading the printed
+running balance stops following from the row above, `analysis/reconcile.py`
+reports the continuity break, and the document is **withheld**. So that shape
+fails closed rather than publishing a plausible ledger; it is not silently
+resolved here, and this comment does not claim it is.
 
 **Direction is printed, not inferred.** The Amount column carries its own sign,
 detached from the currency symbol in this layout's spelling (`- 530.00`), so no
@@ -324,9 +335,6 @@ def parse_chase_savings_statement(markdown: str) -> Statement | None:
     account = re.search(r"Account Number:\s*([0-9]+)", text, re.IGNORECASE)
     if account:
         stmt.account_number = account.group(1)
-    name = re.search(r"^(.*?)\s*SAVINGS SUMMARY", summary, re.IGNORECASE)
-    if name and name.group(1):
-        stmt.account_name = name.group(1).strip()
 
     year = int(period_end[:4])
     transactions = [

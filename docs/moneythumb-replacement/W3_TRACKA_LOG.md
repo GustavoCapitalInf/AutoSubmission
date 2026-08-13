@@ -4269,15 +4269,67 @@ one more contradiction class, so it ships.
 `test_an_empty_ledger_is_not_by_itself_a_zero_activity_statement[total_stated]`
 pins it.
 
-**A residual, disclosed rather than discovered later.** `_parse_native_summary`
-ends `stmt.stated_debit_count = debit_count or None`, so a printed debit count
-of **0** and **no debit row at all** are the same `None` to this guard. Making
-them distinguishable means changing that line, which is outside the single
-authorized guard, so it is not done. The exposure is bounded: the branch is
-reachable only when `txns` is empty, and a summary printing no credit row, no
-debit row and two equal balances describes a document with nothing in it. All
-501 currently-claimed documents have transactions and cannot reach the branch
-at all (§Z4.1 measures this rather than arguing it).
+**AMENDED after Ocean's adversarial review — the clause that makes this safe,
+and a correction to what the rule actually says.**
+
+The review found the guard as first written could not tell "the bank printed
+zero" from "**this reader failed to read the summary**", and built four shapes
+that print real money yet were admitted with an empty ledger and
+reconciliation green: summary rows carrying no instance count; section amounts
+printed without cents; an HTML summary whose section rows are short; an HTML
+summary whose section columns are shifted. Each leaves every stated field
+unset while both balance rows still read, and each needs only
+`beginning == ending` — which is a real shape, not a contrivance: a sweep
+account or a net-zero month closes where it opened.
+
+The required clause is added: the empty ledger is admissible only if the
+document **also prints no posting row** (`and not _DATED_ROW_RE.search(text)`).
+`_DATED_ROW_RE` reuses this module's own `MM/DD` row grammar, looked for
+anywhere in the document and deliberately section-blind — a false positive
+costs one refusal, a false negative publishes an empty ledger for a statement
+that printed rows.
+
+**And the rule is not what the first draft said it was.** Measured over every
+distinct document in the archive with `chase` detection computed live:
+
+```
+distinct documents in the archive: 3380
+rendered: cache hits=3367 misses=13
+chase DETECTS: 515
+admitted empty-ledger WITHOUT the clause: 4
+admitted empty-ledger WITH the clause:    4
+real admissions the clause newly refuses: 0
+SHAPES (cr_none, db_none, tc_none, td_none, balances_equal, dated_row):
+   x4: (True, True, True, True, True, False)
+```
+
+Every admitted document carries **`None` in all four stated fields, never
+`0`** — the summary prints no section rows at all. So "the bank stating zero
+instances" is **not** what fires on the real population and the rule must not
+be read that way. The discriminator is: the two balances agree, no stated
+evidence was recovered, and no posting row is printed. The guard comment and
+the `ZERO_ACTIVITY` fixture description are corrected to say so, and
+`ZERO_ACTIVITY_AS_PRINTED` is the fixture carrying the real shape.
+
+Each of the four probes is pinned twice — once asserting it reaches the guard
+in the dangerous state with the clause disabled in-process (so a fixture that
+starts being refused for some other reason fails rather than passing
+vacuously), and once asserting the shipped tree refuses it.
+
+**A residual, still disclosed.** `_parse_native_summary` ends
+`stmt.stated_debit_count = debit_count or None`, so a printed debit count of
+**0** and **no debit row at all** are the same `None` here. Changing that line
+is outside the authorized guard, so it is not done — and after this amendment
+it no longer carries the safety argument, because the posting-row clause does.
+All 501 currently-claimed documents have transactions and cannot reach the
+branch at all (§Z4.1 measures this rather than arguing it).
+
+**Population note.** The review reports 8 admissions over ~1,034 chase
+documents; this scan finds **4 over 515**, asking `chase.detect` directly on
+every one of the 3,380 distinct archive documents. The two populations are
+built differently and I could not reconcile them from here — flagged for Ocean
+rather than papered over. The clause refuses **zero** real admissions in the
+population measured, which is the property the amendment requires.
 
 **Result over the A′ family.**
 
@@ -4367,6 +4419,14 @@ That is the `square_checking` §C4-item-3 defect, found here by the instrument
 instead of by review. Fixing it structurally took the family to 10/10.
 
 ### Z3.3 Card C — the money guard did not admit what the money finder finds
+
+**Authorization.** Card C is not in the CHASE-CLOSURE handoff. It was
+authorized by **Ocean's scope-extension directive of 2026-08-13**, issued
+mid-flight on the F-MONEYFMT fuzzer's evidence, and scoped there to
+guard/finder alignment only — explicitly not a widening of `_SUMMARY_AMOUNT`.
+Recorded here so the authorization is in the repository rather than in message
+history; the adversarial review was right to refuse to infer it from the
+handoff.
 
 `_AMOUNT_RE` guards what `_money` may scrub; `_SUMMARY_AMOUNT` finds the money
 in a summary row. W3 F10 widened the finder to allow a gap between the sign and
@@ -4541,6 +4601,27 @@ Card C is a real defect with a real silent-wrong-number consequence, and zero
 archive documents exercise it. Both facts belong in the record. It closes a
 class rather than moving a number, and the property fixture is what keeps it
 closed.
+
+### Z6.4b Three small corrections from the adversarial review
+
+Landed with the amendment, recorded so they are not mistaken for drift:
+
+* the dead `account_name` branch in `parse_chase_savings_statement` is deleted.
+  `_summary_block` returns the text *after* `SAVINGS SUMMARY`, so a pattern
+  anchored on `^(.*?)\s*SAVINGS SUMMARY` over that string could never match —
+  `None` on every document, as the review measured;
+* `test_savings_detection_reads_nothing_from_the_source_filename` was passing
+  vacuously: its body carried no marker, so it would have scored 0.0 with or
+  without the platform strip. The filename now carries **all three** required
+  markers and the test asserts they fire against the unstripped
+  `detection_text` before asserting `detect` scores 0.0 — so the strip is
+  what is under test, and the fixture fails if it ever stops being;
+* the wrapped-cell docstring overclaimed. The group-boundary rule does not
+  decide the one shape where a wrapped BALANCE is followed by a row printing
+  both cells inline; both readings are structurally available once the column
+  geometry is flattened away. That shape is caught by reconciliation as a
+  running-balance break and **withheld**, which the docstring now says instead
+  of implying the boundary settles it.
 
 ### Z6.5 `chase_savings` claims no pinned corpus document
 
