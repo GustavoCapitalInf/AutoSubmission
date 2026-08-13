@@ -16,6 +16,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import parser_registry_entries as entries
+from analysis.chase import detect as chase_detect, parse_chase_statement
 from analysis.parser_registry import registrations, resolve
 from analysis.square_checking import (
     DETECTION_MARKERS,
@@ -26,6 +27,37 @@ from analysis.square_checking import (
 )
 
 entries.load()
+
+
+#: A Chase native statement whose period ends overdrawn. Chase prints the sign
+#: outside the currency symbol on both balance rows, exactly as it prints one
+#: on every debit row of the same summary. Synthetic: the figures are round
+#: numbers chosen so the identity is checkable by eye.
+OVERDRAWN_CHASE = (
+    "JPMorgan Chase Bank, N.A. Member FDIC\n"
+    "January 1, 2026 through January 31, 2026\n"
+    "*start*summary\n"
+    "Chase Business Complete Checking\n"
+    "CHECKING SUMMARY\n"
+    "INSTANCES AMOUNT\n"
+    "Beginning Balance -$100.00\n"
+    "Deposits and Additions 1 500.00\n"
+    "Electronic Withdrawals 1 -450.00\n"
+    "Ending Balance 2 -$50.00\n"
+    "*end*summary\n"
+    "*start*deposits and additions\n"
+    "DEPOSITS AND ADDITIONS\n"
+    "DATE DESCRIPTION AMOUNT\n"
+    "01/05 Example Deposit Source 500.00\n"
+    "Total Deposits and Additions $500.00\n"
+    "*end*deposits and additions\n"
+    "*start*electronic withdrawal\n"
+    "ELECTRONIC WITHDRAWALS\n"
+    "DATE DESCRIPTION AMOUNT\n"
+    "01/09 Example Counterparty Payment -450.00\n"
+    "Total Electronic Withdrawals $450.00\n"
+    "*end*electronic withdrawal\n"
+)
 
 
 HEADER = (
@@ -285,6 +317,65 @@ def test_a_ledger_that_contradicts_the_printed_activity_count_is_reported():
 def test_the_registration_carries_that_check():
     registration = next(r for r in registrations() if r.id == "square_checking")
     assert activity_count_contradictions in registration.integrity_checks
+
+
+# ------------------------------------------- the overdrawn Chase summary (C6.1)
+
+
+def test_an_overdrawn_chase_summary_is_read_with_its_sign():
+    """The C6.1 capability: an overdrawn period is a balance, not a missing one.
+
+    Before the fix the two balance rows carried their own unsigned copy of the
+    money pattern, so `-$100.00` matched nothing, `_parse_native_summary`
+    returned False and the whole statement went unclaimed.
+    """
+    statement = parse_chase_statement(OVERDRAWN_CHASE)
+    assert statement is not None
+    assert statement.beginning_balance == -100.00
+    assert statement.ending_balance == -50.00
+
+
+def test_the_overdrawn_statement_reconciles_on_its_own_arithmetic():
+    """Reading the sign is only correct if the ledger then closes with it."""
+    statement = parse_chase_statement(OVERDRAWN_CHASE)
+    assert statement.stated_total_credits == 500.00
+    assert statement.stated_total_debits == 450.00
+    moved = round(sum(txn.amount for txn in statement.transactions), 2)
+    assert moved == 50.00
+    assert round(statement.beginning_balance + moved, 2) == statement.ending_balance
+
+
+def test_the_captured_rows_reproduce_the_printed_section_totals():
+    statement = parse_chase_statement(OVERDRAWN_CHASE)
+    credits = round(sum(t.amount for t in statement.transactions if t.amount > 0), 2)
+    debits = round(-sum(t.amount for t in statement.transactions if t.amount < 0), 2)
+    assert credits == 500.00   # Total Deposits and Additions $500.00
+    assert debits == 450.00    # Total Electronic Withdrawals $450.00
+
+
+def test_a_positive_chase_summary_is_unchanged_by_the_sign_fix():
+    """The pattern is a strict superset: on a statement that read correctly
+    before, the captured balances are identical."""
+    positive = (
+        OVERDRAWN_CHASE
+        .replace("Beginning Balance -$100.00", "Beginning Balance $100.00")
+        .replace("Ending Balance 2 -$50.00", "Ending Balance 2 $150.00")
+    )
+    statement = parse_chase_statement(positive)
+    assert statement.beginning_balance == 100.00
+    assert statement.ending_balance == 150.00
+
+
+def test_the_sign_fix_did_not_move_chase_detection():
+    """C6.1 is a parse-level fix. Detection must be exactly what R4-3 left."""
+    detection = chase_detect(OVERDRAWN_CHASE)
+    assert detection.claims
+    assert detection.matched == ("bank_name", "section_sentinels")
+    # The overdrawn balance is not detection evidence, and removing it cannot
+    # change whether Chase claims its own statement.
+    without = OVERDRAWN_CHASE.replace("-$100.00", "$100.00").replace("-$50.00", "$50.00")
+    assert chase_detect(without).matched == detection.matched
+    assert chase_detect(without).score == detection.score
 
 
 # ------------------------------------------------------------------- purity

@@ -3405,3 +3405,474 @@ not previously shared.
 | `b7b734d` | `bmo_us_activity`: the ledger's bounds named by label rather than position, and `resolve_year` consumed instead of a second local copy |
 | `a990e95` | `bmo_us_activity`: the §M4 item-1 defect class closed in its twin |
 | (this one) | §BMO-LAYOUTS M0–M8 |
+
+---
+
+# §CHASE-LAYOUTS — Cell 10: `Chase × no_parser_matched`, 176 documents
+
+REEF-CHASE-LAYOUTS, 2026-08-13. Branch `wave3-chase-layouts`, base `b18d999`
+(current main, FIXUPS-1 landed). Brief:
+`docs/agent-handoffs/REEF-CHASE-LAYOUTS.md`. Baseline: run `ca2ba0eb`.
+
+Method as §BMO-LAYOUTS: reproduce the cell independently, characterise the
+families structurally BEFORE changing code, build and validate the in-document
+instrument, fix at the capability level or fail closed with the volume stated,
+prove both directions with synthetic fixtures, measure honestly.
+
+## C0. Summary
+
+| | |
+|---|---|
+| Cell worked | `folder_label == "Chase"` × `outcome_class == failed` (`no_parser_matched`) in `ca2ba0eb`: **176 records, 176 distinct content hashes** (no duplicates). |
+| Families found | **11.** Table in §C3. |
+| Result over the cell | **7 / 176 newly CLAIMED and 7 / 176 newly VALIDATED**, from 0 and 0. Nothing ambiguous, nothing crashed. |
+| Result outside the cell | the same registration claims and validates **4 more** in the `Square/` folder, also `failed` at baseline. **Validated gain 11.** |
+| **The headline is not the 7** | **143 of the 176 are blocked inside modules this card may not touch, and 106 of them are blocked by one money pattern.** §C6.1 measures it: with a sign-aware summary pattern in `analysis/chase.py`, **106 of the 176 move `failed` to `validated`**, and a before/after sweep of **all 393 documents the chase family already claims changes nothing at all**. That is the cell's finding; the parser is the smaller half. |
+| Registrations added | 1: `square_checking`. Registry 49 → 50. |
+| Existing `chase` / `chase_export` | unchanged. `analysis/chase.py` is not modified. §C5.3 proves zero movement over all 393 documents the family claims. |
+| Statement-specific constants added | **none.** Every marker is R-4b issuer furniture; every extraction rule is anchored on the printed grid. |
+| Protected modules touched | none. No shared utility, no registry machinery, no pipeline, no other parser, no `ocr/`, no truth-set movement. |
+| Files changed | `analysis/square_checking.py` (new), `analysis/parser_registry_entries.py` (1 entry + 1 override), `tests/test_chase_layouts.py` (new, 30 fixtures), `tests/data/parser_conformance_fixtures.py` (+1), the two registry-count pins, the dispatch-order list, and this log. |
+| Cache implication | a new parser changes deterministic output for these documents, so `ANALYSIS_STAGE_VERSION` must be bumped at merge. **Ocean's, not done here.** |
+| Scope deviation, declared | the brief allows "new `analysis/chase_*.py` module(s)". The one buildable family is **not Chase's** — the folder label is a filing convention — so the module is named for its issuer, `analysis/square_checking.py`. Nothing protected is touched and the registration meets the full R-3/R-4 standard, but the naming is Ocean's to accept or rename (§C6.7). |
+
+## C1. The cell reproduced independently
+
+Reading `ca2ba0eb`'s `rows.csv` directly, counting distinct `content_sha256`
+as well as records:
+
+| | records | distinct documents |
+|---|---|---|
+| whole run | 3,506 | 3,380 |
+| validated | 1,835 | **1,776** |
+| withheld | 59 | **58** |
+| review / deferred | 10 / 13 | 10 / 13 |
+| failed | 1,589 | **1,523** |
+
+The distinct-document column reproduces the brief's `1,776 / 10 / 58 / 1,523`
+over a denominator of 3,380 exactly, which fixes the denominator: **every count
+in this section is distinct documents unless it says records.**
+
+The `Chase/` folder holds 613 records / 591 distinct documents:
+
+| Chase folder | records | documents | note |
+|---|---|---|---|
+| `validated` / `approved` | 430 | 408 | claimed by `chase` (411 records), `chase_export` (4), `mission_valley` (16), `relay` (4) |
+| `failed` / `no_parser_matched` | 176 | **176** | the cell |
+| `withheld` / `withheld_adb` | 4 | 4 | |
+| `review` / `integrity_flags` | 1 | 1 | |
+| `deferred` / `deferred_visual_ocr` | 2 | 2 | |
+
+The brief expected roughly 171-176; the measured cell is **176 records / 176
+distinct documents**, and 176 is also the figure `summary.json`'s
+`unknown_layout_clusters` carries for `Chase`.
+
+**The brief's central assumption is measurably false, and that is the finding.**
+It expected "DIFFERENT Chase layouts (likely consumer/secure-message/older
+templates)" whose problem would be *detection*. Measured:
+
+* **126 of the 176 carry Chase's `*start*summary` sentinel and ARE detected by
+  the existing `chase` registration** — both of its required markers fire, it
+  scores 0.5, and `parse_chase_statement` then returns `None`. They are
+  `Dispatch.attempted == ('chase',)`: the R-3 §4.3 parse-fallthrough path,
+  visible exactly because R-3 made it visible.
+* 17 more are detected by `mission_valley` and declined the same way.
+* Only 33 were not detected by anything, and 20 of those are not bank
+  statements or not this platform's document class.
+
+So this cell is not an unclaimed-layout cell at all. It is an **extraction**
+cell wearing an unclaimed-layout label, and its centre of mass is inside
+`analysis/chase.py`, which this card may not touch.
+
+## C2. The measurement instrument (built and validated before any code changed)
+
+The 176 documents were rendered read-only through the production ladder
+(`ocr.pipeline.parse_statement`, native rung plus the Tesseract rung discovery
+itself ran, `allow_visual_ocr=False` — no model client is ever constructed),
+served from the D-3 artifact cache: **176 cache hits, 0 misses, `$0.00`.** All
+176 have a text layer. Aggregates only are reported here; no customer, amount
+or date from the archive appears in this document or in any fixture.
+
+Grouping by structural signature over that text gave the families in §C3. Two
+instruments were built and validated on the archive text **before** any parser
+code existed:
+
+**Family A** — the token-class shape of every `CHECKING SUMMARY` line was
+tabulated across the cell (shapes, never values). The result is one table:
+
+| printed label | shape | lines |
+|---|---|---|
+| `Beginning Balance` | `$M` | 57 |
+| `Beginning Balance` | **`-$M`** | 50 |
+| `Ending Balance` | `N $M` | 44 |
+| `Ending Balance` | **`N -$M`** | 60 |
+
+Chase prints an overdrawn balance with the sign **outside** the currency
+symbol, and prints the period's **total** instance count on the `Ending
+Balance` row. `analysis/chase.py::_parse_native_summary` matches
+`\$?[0-9][0-9,]*\.[0-9]{2}` — no sign — so on those documents the balance is
+not read, the function returns `False`, and `parse` returns `None`. That is the
+whole of family A. The arithmetic confirms the reading rather than assuming it:
+`beginning + deposits - withdrawals - fees` reproduces the printed ending
+balance including its sign.
+
+**Family D1 (Square Checking)** — the layout prints its own summary row, a
+running Balance on every row, and an activity count. On the 7 cell documents,
+before any parser existed:
+
+| check | before |
+|---|---|
+| `Starting balance Activities Ending balance` row parses | 7 / 7 |
+| every printed running balance follows from the row above | 7 / 7 (1,723 rows) |
+| ending balance equals the last printed running balance | 7 / 7 |
+| `starting + sum(amounts) = ending` | 7 / 7 |
+| printed `Activities` count equals rows read | 7 / 7 |
+
+Five independent printings, mutually consistent on every document — that is
+what made it safe to build on.
+
+The baseline against both instruments is zero on every line by construction:
+nothing claimed these documents, so no ledger existed to compare.
+
+## C3. The families — the deliverable
+
+Named by structure. Nothing below names a customer, a bank product, an amount
+or a date; every rule is anchored on the printed grid.
+
+| # | Family | Structural signature | Root cause | Ruling | Volume |
+|---|---|---|---|---|---|
+| **A** | Chase native, **overdrawn** | `*start*summary` · `CHECKING SUMMARY` · `Beginning Balance -$…` and/or `Ending Balance <n> -$…` | **extraction** — detected by `chase` at 0.5, declined at `_parse_native_summary` because the money pattern has no sign | **STOP AND PROPOSE.** Root cause is inside `analysis/chase.py`, protected by this card. Measured in §C6.1 | **108** |
+| **A'** | Chase native, **zero-activity period** | the same furniture; a zero opening balance, a zero closing balance with a printed instance count of 0, and no detail section at all | **extraction** — `chase.py` returns `None` on `not txns`, so a period in which nothing happened is not a statement | **STOP AND PROPOSE** (§C6.2) | **7** |
+| **B1** | Chase native **savings** | `*start*summary` · `SAVINGS SUMMARY` · `*start*transaction detail` · grid `DATE DESCRIPTION AMOUNT BALANCE` · `Annual Percentage Yield Earned` | **detection + extraction** — `chase.py` hard-requires `CHECKING SUMMARY` and reads only the checking section names | **STOP AND PROPOSE** (§C6.3) | **10** |
+| **B2** | Chase native, **empty sentinel skeleton** | every `*start*…*end*` pair present and **empty**: the producer emitted the section sentinels and none of the content | **unusable input** — structure without data | **FAIL CLOSED BY DESIGN**, volume stated | **1** |
+| **C** | Mission Valley Bank, **other products** | the `Managing Your Accounts` core-processor template · `missionvalleybank.com` · account sections `Business Analyzed Checking` (9), `Business Interest Checking` (4), `Business Checking` (4) | **extraction** — detected by `mission_valley` at 0.5 and declined; the parser reads one product's section shape | **STOP AND PROPOSE.** Root cause is inside `analysis/community_section.py`, another parser (§C6.4) | **17** |
+| **D1** | **Square Checking** (Block, Inc.) | `Square Checking Routing number:` · `squareup.com/help` · `Block Inc.` footer · grid `Date Details Activity type Balance Amount` · signed Amount column · running Balance on every row | **no registration existed** — a readable layout nobody owned | **BUILT**: new registration `square_checking` | **7** |
+| **D2** | American Savings Bank `Statement of Account` | `asbhawaii.com` · `Statement of Account` / `Last Statement:` · `Account Activity` grid `Additions Subtractions Date Description Balance` | **geometry** — the flattened reading order does not preserve the columns: the header's own column order differs page to page, descriptions arrive token-reversed, and money-cells-per-row runs 1/2/3/4/6/13 | **FAIL CLOSED. Routed to the geometry queue** (§C6.5) | **10** |
+| **D3** | First Carolina Bank | `fcbcarolinas.com` on the **same** core-processor template as family C | needs a new entry point in `analysis/community_section.py`, a protected parser | **STOP AND PROPOSE** (§C6.4) | **2** |
+| **D4** | Chase, **scanned** | Chase furniture present via Tesseract; no `*start*` sentinels, because those live in the native text layer | **scanned — the OCR path, out of scope** | **NO CHANGE**, volume stated | **4** |
+| **D5** | Chase **credit card** | `CHASE FREEDOM UNLIMITED` / `UNITED MILEAGEPLUS AWARD` · `New Balance` · `Minimum Payment Due` · `Payment Due Date` · `REWARDS SUMMARY` | **not this statement class** — a card statement is not a deposit-account statement | **NO CHANGE** | **2** |
+| **D6** | not a bank statement | a 1120-S tax return, a business plan, an EIN letter, a credit-denial notice, a zero-balance letter, a voided cheque, a bridge-loan overview, a routing-number screenshot | **not a statement** | **NO CHANGE** | **8** |
+
+The single fact that rules families A, A' and B: **`chase` detects 126 of the
+176 and declines all 126 at parse.** `Dispatch.attempted` names it on every one.
+
+### C3.1 The rules family D1 produced
+
+* **Direction is printed, not inferred.** The Amount column carries its own
+  sign; no description vocabulary, no arithmetic.
+* **The printed column order decides which cell is which.** The grid header
+  reads `Date Details Activity type Balance Amount` — **Balance then Amount** —
+  so the row's last two money cells are read in that order rather than by
+  guessing which is larger. Reading them the other way round inverts the whole
+  ledger, and `test_the_printed_column_order_decides_which_cell_is_the_amount`
+  pins it.
+* **A wrapped Details cell does not end the row.** A counterparty name long
+  enough to fill the column pushes Activity type, Balance and Amount onto the
+  line below — the F1 family `chase.py` met in W3 Track A. Rows are grouped by
+  the printed Date column through the shared `group_rows`; the reprinted grid
+  header closes an open row. This is §C4's defect and it is the difference
+  between 9 validated and 11.
+* **Money cells are matches, not strings**, sliced by position: the amount's
+  characters occur again inside the balance printed beside it.
+* **Every money cell of this layout prints the currency symbol**, which is what
+  keeps a bare reference number in the Details column out of the money columns.
+* **Only the closing year is printed.** A period opening in the previous
+  calendar year is recognised by its opening month standing *after* its closing
+  month — the only ordering that can occur.
+* **Inter-word spacing is a property of the text layer, not of the statement**
+  (§BMO-LAYOUTS M3.1); case likewise, for detection. **Parse does not read
+  through the upper-casing**, because the Details column is description text
+  this platform publishes — a defect the fixtures caught (§C4).
+
+Negative fixtures — each constrains a new rule rather than demonstrating a
+defect:
+
+* a Chase statement that pays Square is not claimed by `square_checking`, and
+  the Square statement — which names Chase as the counterparty of a recurring
+  transfer on nearly every document — is not claimed by `chase`. This is the
+  R4-3 hazard in the exact shape that produced this cell;
+* no single one of the four required markers carries a claim on its own — the
+  single-marker invariant, stated per registration;
+* no other registration claims the Square layout, asserted by enumerating the
+  registry;
+* a header with no grid is not parsed, and neither is a grid with no summary
+  row;
+* detection reads nothing from the source filename;
+* the page footer under a row is not read as part of it;
+* the reprinted grid header does not continue the row that ended the page
+  before it.
+
+### C3.2 What did NOT change, deliberately
+
+* **`analysis/chase.py` is untouched.** Families A, A' and B1 belong inside it;
+  the brief's ruling for that case is "stop and propose", and §C6.1-C6.3 are
+  the proposals, each with the volume measured rather than estimated.
+* **`analysis/community_section.py` is untouched** (families C and D3).
+* **No shared utility's behaviour changed**, so no R-2 differential-equivalence
+  proof is owed. `group_rows`, `compact_whitespace` and `parse_grouped_float`
+  are consumed unmodified, with caller-supplied predicates as designed.
+* **No `supersedes` edge and no band change.** `square_checking` sits at band
+  100; it is disjoint from everything, and §C5.3 proves that rather than
+  asserting it.
+* **`stated_total_credits` / `stated_total_debits` are left unset.** Square
+  prints *net* category movements, not gross period totals. Deriving them from
+  the ledger would be circular — the ledger is the thing they would be
+  checking.
+
+## C4. The defects the instrument caught in this cell's own code
+
+Reported as they happened rather than tidied:
+
+1. **The parser read through its own detection normalization.** `detection_text`
+   upper-cases so that a producer's capitalisation cannot decide whether we
+   claim — and `parse` was reading the same string, so every published
+   description came out in capitals. Detection normalization and parse
+   normalization are now separate functions with the shared part named once.
+   Caught by
+   `test_the_description_is_the_text_between_the_date_and_the_money_columns`
+   before any measurement ran.
+2. **A wrapped Details cell lost its row.** Found by the instrument, not by the
+   tests: two `Square/` documents read 190 of 191 and 269 of 270 rows, with
+   **exactly one continuity break each**, immediately after the missing row —
+   and the last printed balance still equalled the summary's ending balance.
+   One long counterparty name per document had pushed the money columns onto
+   the next physical line. Both documents were `withheld` on
+   `ledger_sum_mismatch` plus `running_balance_breaks` — the fail-closed gate
+   doing its job — and both now validate. This is why the instrument is worth
+   running against documents outside the cell as well.
+
+## C5. Result over the cell
+
+### C5.1 The instrument, before then after (family D1)
+
+| Square Checking — 7 of 7 in the cell | before | after |
+|---|---|---|
+| summary row parses | 0 / 7 | **7 / 7** |
+| every printed running balance follows from the row above | 0 / 7 | **7 / 7** |
+| ending balance equals last printed running balance | 0 / 7 | **7 / 7** |
+| `starting + sum(amounts) = ending` | 0 / 7 | **7 / 7** |
+| printed `Activities` count equals rows read | 0 / 7 | **7 / 7** |
+
+### C5.2 The cell, before then after
+
+| Family | documents | claimed before → after | validated before → after | remainder |
+|---|---|---|---|---|
+| A — Chase native, overdrawn | 108 | 0 → 0 | 0 → 0 | 108 blocked in `analysis/chase.py` (§C6.1) |
+| A' — Chase native, zero activity | 7 | 0 → 0 | 0 → 0 | 7 blocked in `analysis/chase.py` (§C6.2) |
+| B1 — Chase native savings | 10 | 0 → 0 | 0 → 0 | 10 blocked in `analysis/chase.py` (§C6.3) |
+| B2 — empty sentinel skeleton | 1 | 0 → 0 | 0 → 0 | 1 fail-closed |
+| C — Mission Valley other products | 17 | 0 → 0 | 0 → 0 | 17 blocked in `analysis/community_section.py` (§C6.4) |
+| **D1 — Square Checking** | **7** | **0 → 7** | **0 → 7** | — |
+| D2 — American Savings Bank | 10 | 0 → 0 | 0 → 0 | 10 fail-closed, geometry queue (§C6.5) |
+| D3 — First Carolina Bank | 2 | 0 → 0 | 0 → 0 | 2 blocked in `analysis/community_section.py` |
+| D4 — Chase scanned | 4 | 0 → 0 | 0 → 0 | 4 out of scope (OCR path) |
+| D5 — Chase credit card | 2 | 0 → 0 | 0 → 0 | 2 not this statement class |
+| D6 — not a bank statement | 8 | 0 → 0 | 0 → 0 | 8 unclaimed by design |
+| **total (documents)** | **176** | **0 → 7** | **0 → 7** | 143 blocked in protected modules, 26 honestly closed |
+
+Ambiguous dispatches: **0.** Parser exceptions: **0** — all 169 still-unclaimed
+documents raise the deterministic mode's own
+`RuntimeError: no deterministic parser matched this statement`, which is the
+unclaimed path, not a crash.
+
+**Outside the cell:** the `Square/` folder holds 4 documents, all
+`failed`/`no_parser_matched` at baseline. `square_checking` claims and
+validates all 4. **Total validated gain: 11.**
+
+**Nothing was padded to get there.** Every document that now validates does so
+because the rows extracted reproduce, independently: the summary row Square
+prints, the activity count Square prints, and every printed running balance in
+the Balance column. The fail-closed gate is unchanged; these documents pass it
+on their own arithmetic.
+
+### C5.3 Regressions — zero, and the evidence
+
+* **The 393 documents the chase family claims today**: rendered read-only and
+  swept before and after, comparing outcome class, reason, parser id,
+  transaction count, transaction sum and nine statement fields.
+  **388 validated / 4 withheld / 1 review before; identical after; zero
+  documents differ in any field.** The same sweep is what §C6.1's proposal is
+  measured against.
+* **The stratified cross-bank probe**: up to 12 digital documents from each of
+  the **65** folders, validated ones first — **447 documents**.
+  `square_checking` claims **4**, all of them in the `Square/` folder, i.e. its
+  own layout. **Zero claims anywhere else**; it reached a score of 0.0 on every
+  non-Square document. **Zero ambiguous dispatches** anywhere in the sample.
+* **The conformance cross-product**: 50 × 49 fixture pairs, **zero
+  cross-claims**; the single-marker invariant holds for `square_checking` (four
+  required markers); SOURCE-comment invariance holds; both
+  `COUNTERPARTY_VULNERABLE` and `FILENAME_DEPENDENT_PARSERS` remain empty.
+* **The pinned corpus**: `python -m pytest -m corpus -q` and
+  `python corpus_gate.py` both green, 106 PASS / 3 WITHHELD, same three by
+  name; the pinned Chase statements byte-identical (§C7).
+* **The suite**: 2,475 → **2,517**, and by nothing else. 30 fixtures in
+  `tests/test_chase_layouts.py` plus 12 tests the conformance and registry
+  modules generate by *enumerating* the registry. No existing assertion changed
+  meaning: the edits to existing test files are the two registration-count
+  pins, the dispatch-order list (1 id) and one conformance fixture.
+
+## C6. Carried findings and questions for Ocean
+
+### C6.1 `chase.py` cannot read an overdrawn balance — 108 documents in this cell, one money pattern, and a measured zero-regression sweep
+
+**This is the cell's finding and it is larger than the cell.**
+
+`analysis/chase.py::_parse_native_summary` reads the two period balances with
+
+```python
+beginning = re.search(r"Beginning Balance\s+(\$?[0-9][0-9,]*\.[0-9]{2})", summary, re.IGNORECASE)
+ending    = re.search(r"Ending Balance(?:\s+\d+)?\s+(\$?[0-9][0-9,]*\.[0-9]{2})", summary, re.IGNORECASE)
+```
+
+Chase prints an overdrawn balance with the sign outside the currency symbol.
+Neither pattern admits it, so the balance is not read,
+`_parse_native_summary` returns `False`, and `parse_chase_statement` returns
+`None`. The document then reports `failed` / `no_parser_matched`, which is also
+why this extraction defect was filed as an unclaimed-layout cell.
+
+Measured, not asserted, with the pattern widened to
+`-?\$?-?[0-9][0-9,]*\.[0-9]{2}` and monkey-patched **in a scratch script only**:
+
+| over the 176 cell documents | before | after |
+|---|---|---|
+| validated | 0 | **106** |
+| withheld | 0 | 2 |
+| failed | 176 | 68 |
+
+and over **all 393 documents the chase family already claims**, the same
+before/after sweep:
+
+| | before | after |
+|---|---|---|
+| validated / withheld / review | 388 / 4 / 1 | 388 / 4 / 1 |
+| documents differing in ANY compared field | — | **0** |
+
+The change is a strict superset of today's pattern: on a document that matches
+today, the captured text is character-identical, because the only addition is a
+leading sign that today's pattern cannot be adjacent to. It can therefore only
+*add* readable documents — and the 393-document sweep is the evidence rather
+than the argument.
+
+`analysis/chase.py` is protected by this card's brief ("if a family belongs
+inside it, stop and propose"), so it was not touched. **Requested: a ruling.**
+This is the difference between this cell's headline being 7 and 113.
+
+### C6.2 `chase.py` refuses a period in which nothing happened — 7 documents
+
+`parse_chase_statement` ends with
+`if not txns or beginning is None or ending is None: return None`. Seven
+documents in this cell print a zero opening balance, a zero closing balance
+with the bank's instance count printed as 0, a service-charge summary of zeros,
+and no detail section at all — Chase's own statement for a period with no
+activity. The identity closes trivially and the document is complete; the
+platform reports it as unreadable. Whether an empty ledger should validate is a
+policy question as much as a parser one, which is why it is raised rather than
+assumed. Volume: 7 here, and the class will recur in every layout that prints a
+dormant account.
+
+### C6.3 `chase.py` reads only the checking layout — 10 savings documents
+
+Chase's savings statement is the same native template with different section
+names: `SAVINGS SUMMARY` instead of `CHECKING SUMMARY`, a single
+`*start*transaction detail` block with the grid
+`DATE DESCRIPTION AMOUNT BALANCE` instead of the six named checking sections,
+and an `Annual Percentage Yield Earned This Period` line. `chase.py` requires
+`CHECKING SUMMARY` literally and returns `None` two lines into `parse`.
+
+This one is a **structural extension of the existing parser, not a new
+registration**: `chase` already detects all 10 at 0.5, so a second registration
+would either be ambiguous or need a `supersedes` edge, and it would clone
+`chase.py`'s section machinery to do it. It belongs inside `chase.py`.
+Volume: 10.
+
+### C6.4 The Mission Valley core template is read for one product out of four, and a second bank prints it — 19 documents
+
+`analysis/community_section.py`'s Mission Valley entry point pins the account
+section by `Business Checking\s*-\s*([X0-9]+)`. The 17 cell documents are the
+same customer's other products on the same template — `Business Analyzed
+Checking` (9), `Business Interest Checking` (4) and `Business Checking` (4) —
+and `mission_valley` detects all 17 and declines all 17. Two further documents
+(§D3) are **First Carolina Bank** (`fcbcarolinas.com`) printing the identical
+core-processor template: `Statement Ending`, `Customer Number`,
+`Managing Your Accounts`, `Summary of Accounts`, `Account Activity`, grid
+`Post Date Description Debits Credits Balance`.
+
+Both need `analysis/community_section.py`, a protected parser: the first as a
+section-naming generalisation, the second as a new entry point plus a
+registration alongside `mission_valley` and `dakota_west`. Volume 19 in this
+cell alone, and the template is a core processor's, so it will recur under
+other banks' names. **Requested: a ruling**, ideally as one card.
+
+### C6.5 American Savings Bank is a geometry family — 10 documents, routed to the geometry queue
+
+Reported with the measurement rather than the impression. The issuer furniture
+is clean (`asbhawaii.com` in every page footer, `American Savings Bank` in the
+page-2 header), so **detection is not the problem**; the flattened text layer
+is. Its `Account Activity` grid prints
+`Additions | Subtractions | Date | Description | Balance`, and:
+
+* the printed column order in the header itself differs between page 1 and
+  page 2 of the same document;
+* description tokens arrive reversed within a row;
+* money-cells-per-row runs 1, 2, 3, 4, 6 and 13;
+* a reader that takes each row's last two money cells as amount and balance
+  reads 34 of 34 rows on one document and leaves **9 of 20** and **10 of 55**
+  balance movements unexplained on the two larger ones.
+
+Which of Additions and Subtractions a cell stood in is destroyed by flattening
+and — unlike §BMO-LAYOUTS family A — is **not** recoverable from the printed
+Balance column, because the row-to-money association is itself unreliable.
+Four of the 10 are single-page statements with no activity at all. Building
+this from the text layer would produce ledgers that balance by accident.
+**FAIL CLOSED**, volume 10, routed to the geometry queue.
+
+### C6.6 The new class is bounded by the platform, not by layout knowledge — the §BMO-LAYOUTS M6.7 pattern, much stronger
+
+§BMO-LAYOUTS observed that of 164 documents, layout knowledge bound 128 and the
+platform bound 26. This cell inverts that ratio: of 176 documents, **layout
+knowledge bound 7**, protected modules bound **143**, and 26 are honestly
+closed (geometry 10, not-a-statement 8, scanned 4, wrong document class 2,
+unusable 1, plus 1 counted with B). If cell 2 is representative, the
+unclaimed-layout phase's remaining yield is mostly a **queue of small fixes
+inside existing parsers**, not a queue of new ones — and the
+`no_parser_matched` label is actively misleading about where the work is,
+because R-3's parse-fallthrough reports a parser that detected and then
+declined as "no parser matched".
+
+**Recommendation for the phase:** rank the remaining cells by
+`Dispatch.attempted` — documents that a registration detected and declined —
+rather than by folder. That column already exists in `rows.csv` and separates
+"we have never seen this layout" from "we own this layout and drop it" without
+opening a single PDF.
+
+### C6.7 The module-naming deviation, declared rather than discovered
+
+The brief allows "new `analysis/chase_*.py` module(s)", written when the cell
+was believed to be Chase layouts. The one buildable family is Square's. The
+module is therefore `analysis/square_checking.py`, named for its issuer as
+every other parser in `analysis/` is. Nothing protected is touched, the
+registration meets the full R-3/R-4 standard, and the alternative — leaving 11
+statements that read perfectly unbuilt because of a filename prefix — seemed
+the worse call. Renaming is cheap if Ocean disagrees.
+
+### C6.8 `square_checking` claims no pinned corpus document
+
+Its only coverage is `tests/test_chase_layouts.py` and the R-4 conformance
+fixture — the same status `demo_national` and the three BMO layouts have.
+`tests/data/parser_expectations.json` and
+`tools/record_parser_expectations.py::PIPELINE_ENTRY_POINTS` are the pre-R-3
+or-chain baseline and are deliberately **not** extended, for the reason
+§BMO-LAYOUTS M6.8 gives. The divergence from the registry is now four ids, not
+three — noted so it stays a decision rather than a drift.
+
+### C6.9 The registration count moved 49 to 50
+
+Both pinned tests are updated and stated here. `R4_CONFORMANCE_FINDINGS.md`
+(`46 × 45`), `R3_DETECTION_FINDING.md`, `H3_SCHEMA.md` and
+`WAVE2_EXECUTION_LOG.md` still say 46; §BMO-LAYOUTS M6.9 already flagged them
+as records of what was true when written.
+
+### C6.10 `ANALYSIS_STAGE_VERSION`
+
+Must be bumped at merge — `webapp/` is protected and this is Ocean's, not done
+here.
