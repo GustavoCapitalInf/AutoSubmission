@@ -42,9 +42,13 @@ hex SHA-256 — the one convention established by ``ocr/inspect.py``
 ``input`` per stage:
 
 * ``ocr``      — ``content_sha256(pdf_bytes)``: the raw PDF bytes, nothing else.
-* ``analysis`` — ``text_sha256(markdown)``: the UTF-8 bytes of the exact
-  markdown that will be analyzed.
-* ``report``   — ``text_sha256(markdown)``: same.
+* ``analysis`` — ``text_sha256(admissible_text(markdown))``: the UTF-8 bytes of
+  the markdown that will be analyzed, with the source-filename comment removed
+  — exactly the text ``analyze_markdown`` works from (W3 FILENAME-BOUNDARY), so
+  the key partitions on what the answer depends on and not on the filename.
+* ``report``   — ``text_sha256(markdown)``: the WHOLE markdown, filename comment
+  included. The rendered artifact is not the analysis: it can show provenance,
+  so the filename stays key material here.
 
 ``settings`` per stage — every knob that can change that stage's output, and
 nothing else (surveyed from ``webapp/worker.py`` and the functions it calls,
@@ -77,10 +81,15 @@ Deliberately EXCLUDED from the keys, with reasons:
 * ``source_file`` / filename — a LABEL, not a knob. It is re-stamped onto the
   cached ``StatementMarkdown`` on read, so the markdown header always names
   the file actually being processed while a re-upload under a new name still
-  skips OCR entirely. (It does reach the analysis stage input by another
-  route: it is printed into the markdown header, so a renamed duplicate is a
-  different analysis input and re-analyzes. That is correct — parser
-  detection reads the markdown as a whole — and it still costs zero OCR.)
+  skips OCR entirely. It no longer reaches the ANALYSIS stage input either:
+  that stage hashes ``admissible_text(markdown)``, the same filename-free text
+  the pipeline analyzes (W3 FILENAME-BOUNDARY). The old justification — that a
+  renamed duplicate is a genuinely different analysis input because "parser
+  detection reads the markdown as a whole" — was obsoleted twice over: R-4b
+  made detection filename-blind, and the boundary made parsing filename-blind.
+  Keying on it now would mint a separate, durably-cached report for every
+  rename of the same statement: N copies of one answer, each recomputed, and
+  a cache that grows with operator filing habits rather than with documents.
 * ``max_workers`` — page concurrency; ``ocr/config.py`` documents that it does
   not change output.
 * ``timeout``, ``retries``, ``api_key`` — transport and secrets. Secrets must
@@ -164,6 +173,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
+from analysis.parser_registry import admissible_text
 from ocr.document import StatementMarkdown
 from ocr.inspect import content_sha256
 from ocr.truncation import PageIntegrity
@@ -605,7 +615,11 @@ def cached_analysis(
     """
     if cache is None:
         return CacheResult(compute(), False, STAGE_ANALYSIS, None)
-    input_sha = text_sha256(markdown)
+    # Key on the text the analysis actually reads, not on the bytes we were
+    # handed: `analyze_markdown` strips the source-filename comment at its parse
+    # seam (W3 FILENAME-BOUNDARY), so two uploads of one statement under two
+    # filenames are the same analysis input and must share one cache entry.
+    input_sha = text_sha256(admissible_text(markdown))
     settings_key = analysis_settings_key(
         parse_mode=parse_mode, analysis_settings=analysis_settings
     )
