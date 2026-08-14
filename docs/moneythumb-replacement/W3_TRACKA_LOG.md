@@ -6945,3 +6945,412 @@ which produced `attempted = 'regions' | 'navy_federal' | 'bank_of_america'`,
 | `c476f1d` | `discovery/runner.py` + `discovery/report.py`: the `attempted` column, the reason split, the `declined_clusters` rollup |
 | `143435b` | `tests/test_discovery.py`: both reason branches, the live-path column projection, the rollup ranking, and the W3-4 compatibility proof |
 | (this one) | §DISPATCH-REPORTING D0–D6 |
+
+---
+
+# §TD-FRENCH — the Quebec issue of the TD Canada printed grid
+
+TD-FRENCH, 2026-08-13. Branch `wave3-td-french`, base `cce8ac1`. Brief:
+`docs/agent-handoffs/TD-FRENCH.md`. Scout evidence: SC-TDCAN.
+
+**Additive only.** A new parser module and a new registration. No existing
+parser, marker, band or `supersedes` edge is touched, and the archive-wide
+differential in §TF7 shows the claimant set of all 3,396 other documents is
+unchanged.
+
+## TF0. Summary
+
+| | |
+|---|---|
+| The gap | 13 documents print exactly one physical grid the platform already validates 74 of, issued in French, and **nothing claimed them at any score**. Not a near-miss: `candidates == ()`, outcome `unclaimed`, `failed / no deterministic parser matched`. |
+| The family | Confirmed independently of the scout by a marker scan over every OCR artifact in the archive: **exactly 13 of 3,409** documents (§TF1), 2,227 rows, 320 date groups. |
+| What is new | Three things, and only three: FR-CA space-thousands money against descriptions that end in digits (§TF3), a `DC` overdrawn suffix where the English grid prints a minus, and TD's French transaction codes (§TF4). Everything else is the English layout. |
+| What is reused | `td_can._credit_counts_from_balances` and `_directions_from_credit_counts`, imported and consumed unchanged. `analysis/td_can.py` is not modified — TDFIX-1 owns it this cycle. |
+| Result over the family | **13 claimed / 9 validated / 4 withheld**, from 0 / 0 / 0. Every one of the 13 stated summaries reconciles to 0.00 and every printed row is captured; the 4 are the antisymmetric wrong-side class and are named in §TF6. |
+| Movement outside the family | **None.** `td_canada_native` 74/74 and `td_us` 44/44 byte-identical before and after; 0 of 3,396 non-family documents changed claimant set; 0 ambiguous documents anywhere. |
+| Files | `analysis/td_canada_french.py` (new), `analysis/parser_registry_entries.py` (one entry), `tests/test_td_french_layouts.py` (new, 66 tests), the conformance fixture, two count pins, one private-import allowlist entry, this log. |
+| `count_semantics` | Deliberately **no entry**. The new id is UNSURVEYED, so its printed counts are `comparable=False` and the count check emits nothing — verified, not assumed. The table is Ocean's. |
+| `ANALYSIS_STAGE_VERSION` | Must be bumped at merge (`webapp/` protected here): 13 documents produce an analysis payload where they previously produced none. |
+
+## TF1. The family, confirmed independently
+
+The scout's 13 were not taken on trust. Every OCR artifact file under
+`webapp_data/artifacts/ocr/**` was read directly (6,773 files, never the sqlite
+index), grouped by `input_sha256` to 3,409 distinct documents, and scanned for
+the French grid header and the issuer line:
+
+```
+artifact files on disk: 6773
+distinct documents (by input_sha256): 3409
+
+-- marker buckets (fr_grid, fr_issuer_exact, fr_issuer_loose, en_grid, en_issuer) --
+  (True, True, True, False, False)  n=13
+```
+
+One bucket. Every document carrying either French marker carries **both**, and
+**none** of the 13 carries either English TD marker — which is why no
+`supersedes` edge is needed: the two TD layouts cannot both fire.
+
+| SHA-256 of the source PDF | rows | outcome |
+|---|---|---|
+| `1131B8910ECF19D7603B0EFBA991AF87F009114DDB651756A0709F8CD6AFE69C` | 182 | validated |
+| `2FC0E25E64D843BE3D5C4D253A1B2A83EA2EA6A8ECB113F30A6A551A8D8248F9` | 191 | validated |
+| `4DE22E685A04F9D709C6916AF720F7A8553B1854D3F36CDAC5C5152E957951B1` | 204 | withheld |
+| `59BD662C0D4FE1A704E6C6533938FB10C43A265DF79B2A5C8ACCC4634B51546E` | 126 | withheld |
+| `654AB29A910A5DB918035D93E065C6D1CF61C6C4C1739269BCE95E8B9F46C99F` | 126 | withheld |
+| `699846B0E75583514C4A3FD83EE6EA63B87A99A40A27064CA4FEADF88D2C23B4` | 197 | validated |
+| `71852C69DC45A5A68027A7A9CCB7DA5944567BFDAE64C31FC50DFEDA4FCBF8A1` | 145 | validated |
+| `811D6591B6FE1852D12A1E1A0587A66C321E43F6CF0B3908B73ECDF878B89253` | 187 | validated |
+| `A3A50C108B7F4646212A2B8BEE09BEFB7BC9462547261E995CDFD17EE2747B8F` | 226 | withheld |
+| `C29B79723A4BBCD4A7471BB93EE35592690668F9E2996020769170C473B9A0FA` | 152 | validated |
+| `E465C7D5746845B509A2F68EA0BBFC4F7DABDAAB8B314A3E716385DE3AFB2F93` | 172 | validated |
+| `E7300FAC1AD759E95E5A2AD499633AEABC09594332B53B738820649694F5F46E` | 195 | validated |
+| `EA7B603E9FC84198E9E1D36AAE5017BCC12A6A121C70A2F395242900C30A9E0E` | 124 | validated |
+
+These are the first 13 entries of the scout's `targets.json`, reached by a
+different route. Two of them (`59BD662C…` and `654AB29A…`) are the same
+statement issued as two PDFs; they behave identically throughout, which is
+itself a small determinism check.
+
+## TF2. What is the same, and why that is the whole design
+
+    DESCRIPTION        RETRAITS       DEPOTS           DATE    SOLDE
+
+Five columns, one printed row per physical line, and a running balance at the
+end of each date group — the English grid `td_can`'s native path reads, with
+the column headings translated. It therefore loses exactly what the English one
+loses: the text layer collapses the two money columns into one token, so
+*which* column an amount was printed in does not survive.
+
+The answer is the same too, so the arithmetic is the same code. The module
+imports `_credit_counts_from_balances` and `_directions_from_credit_counts` and
+consumes them unchanged. Copying them was not an option — it would fail
+`test_no_two_functions_in_analysis_share_a_body` — and re-deriving them
+differently would put two answers to one question in the tree. The debt is
+recorded as two `ALLOWED_PRIVATE_IMPORTS` entries carrying the argument for the
+end state (promote the pair into a shared module; `td_can.py` is another
+cell's this cycle).
+
+Registration carries **no band and no `supersedes` edge**, because this is a
+disjoint document class rather than a narrower one. What holds the two apart is
+the R-4 cross product (52 × 51 detection-negative assertions, all green) and
+§TF7's archive-wide differential, not a precedence rule.
+
+## TF3. Space thousands against description digits — pinned both ways
+
+FR-CA money separates thousands with a space, so one printed amount arrives as
+several tokens: `1 640,44` is `["1", "640,44"]`. TD's descriptions also end in
+digits — `CHQ#00083-1149169334`, `UO342 TFR-A 5347895` — and the two collide.
+
+The rule: **absorb a token to the left only when the decimal group's integer
+part is exactly three digits.** That is the only case a French thousands group
+can be, because such a group is always padded to three. `40,00` and `5,00`
+cannot continue anything, so `UO342 TFR-A 5347895 40,00` keeps its seven-digit
+account number in the description.
+
+It is still a real ambiguity when the group *is* three digits.
+`PETRO-CANADA 30 145,55` is both "30 145,55" and "145,55, posted by
+PETRO-CANADA 30", and no rule reading one line can separate them. The parser
+takes the French reading — what the bank's own money format says — and the
+balance chain is what makes that safe rather than a guess. Both halves are
+fixtured, on the same printed line under two different printed balances:
+
+| fixture | printed balances | result |
+|---|---|---|
+| `test_the_joined_reading_is_taken_and_the_balance_confirms_it` | `40 000,00 → 9 844,45` | joined; group solves; `reconcile().ok` |
+| `test_the_split_reading_is_not_rescued_it_fails_closed` | `500,00 → 344,45` | still joined; group unsolved; **`not reconcile().ok`** |
+
+The second is the important one: the parser does not quietly switch readings to
+make a document balance. It keeps the grammatical reading, the group goes
+undetermined, the printed summary disagrees, and the document is withheld. Over
+the real family the absorbing branch fires on 173 rows and costs nothing — all
+13 summaries still reconcile to 0.00.
+
+## TF4. The direction codes — derived from the printed balances, then ablated
+
+Where the balances determine a group, they decide, and the codes cannot
+override them. Where they do not, something has to read the row, and
+`td_can._native_credit_like` is the English vocabulary — inert on French text,
+which is why a balances-only build validates only 6 of 13.
+
+The vocabulary was **not** written by reading descriptions. It was derived from
+what the printed balance column says, over the 229 determined date groups whose
+amounts are all distinct — where a group repeats an amount the arithmetic
+cannot say which row is the deposit, so a label taken from one would be an
+artifact of the tie-break rather than evidence:
+
+| code | meaning | credits | debits |
+|---|---|---|---|
+| `DEP ` / `DEPOT ` | depot | 200 | 0 |
+| `TP<nnnn>` | terminal settlement posting | 82 | 0 |
+| `RECEPT - VFC` | reception d'un virement Interac | 80 | 0 |
+| `TFR-DE` | transfert DE un autre compte | 24 | 0 |
+| `CREDIT D'INTERET` | interet porte au credit | 3 | 0 |
+| `ENVOI` | envoi d'un virement Interac | 0 | 119 |
+| `TFR-A ` | transfert A un autre compte | 0 | 28 |
+
+Structural codes only, never a counterparty name (R-1 item 8). The merchant
+settlement codes are exactly why: over the same groups the balances make
+`MRCH…` **53 credits against 42 debits** and `ELAVON` 7 against 14, so a rule
+keyed on either name would be wrong about half the time. They are left out, and
+the documents that need them are withheld (§TF6).
+
+Ablation, one rule removed at a time, measured end to end over the 13:
+
+| rule dropped | validated | documents lost |
+|---|---|---|
+| *(none — shipped)* | **9** | — |
+| `DEP`/`DEPOT` → credit | 6 | `1131B891`, `699846B0`, `811D6591` |
+| `TP<nnnn>` → credit | 6 | `1131B891`, `699846B0`, `811D6591` |
+| `TFR-DE` → credit | 7 | `1131B891`, `699846B0` |
+| `RECEPT - VFC` → credit | 8 | `1131B891` |
+| `TFR-A` → debit | 9 | none |
+| `ENVOI` → debit | 9 | none |
+| `CREDIT D'INTERET` → credit | 9 | none |
+| *no vocabulary at all* | 6 | `1131B891`, `699846B0`, `811D6591` |
+
+The last three rows are recorded as residuals rather than removed. `TFR-A` and
+`ENVOI` restate the default and so **cannot** move an outcome; they are written
+down because TD prints each as one half of a pair, and a reader checking
+`TFR-DE` should find `TFR-A` beside it. `CREDIT D'INTERET` is sound (3 credits,
+0 debits) but its rows happen to fall inside determined groups today. All three
+carry direct unit fixtures, so none of them is untested code.
+
+## TF5. Result over the family
+
+Per document, from `analyze_markdown` + `classify_outcome`. `cap` is captured,
+`st` is what the bank printed in its own per-page footers; `walk` is
+`opening + captured credits − captured debits − ending`:
+
+```
+doc             rows cap_cr    cap_cr$    cap_db$ st_cr  st_db     st_cr$     st_db$  outcome   walk
+1131B8910ECF     182     98   32019.62   33064.54    98     84   32019.62   33064.54  validated -0.0
+2FC0E25E64D8     191    100   26134.23   25868.99   100     91   26134.23   25868.99  validated -0.0
+4DE22E685A04     204     25   32246.20   32662.19    26    178   32708.95   32199.44  withheld  -925.5
+59BD662C0D4F     126     24   28842.89   31459.83    26    100   30788.40   29514.32  withheld  -3891.02
+654AB29A910A     126     24   28842.89   31459.83    26    100   30788.40   29514.32  withheld  -3891.02
+699846B0E755     197    110   26550.09   26097.25   110     87   26550.09   26097.25  validated 0.0
+71852C69DC45     145     29   32360.94   32365.82    29    116   32360.94   32365.82  validated -0.0
+811D6591B6FE     187     96   24995.95   24424.55    96     91   24995.95   24424.55  validated 0.0
+A3A50C108B7F     226     30   43845.64   51393.59    36    190   46129.88   49109.35  withheld  -4568.48
+C29B79723A4B     152     25   23085.82   25207.14    25    127   23085.82   25207.14  validated 0.0
+E465C7D57468     172     26   70297.99   69235.08    26    146   70297.99   69235.08  validated -0.0
+E7300FAC1AD7     195    103   33222.49   33059.13   103     92   33222.49   33059.13  validated 0.0
+EA7B603E9FC8     124     29   34531.88   35249.03    29     95   34531.88   35249.03  validated -0.0
+
+outcomes: {'validated': 9, 'withheld': 4}
+every stated summary reconciles: True
+page footers sum to the stated totals on all 13: True
+```
+
+Three instruments, all green on all 13 where they are checks rather than
+outputs:
+
+1. **Page-footer counts.** The per-page `Credits`/`Debits` footers accumulate to
+   the statement totals on 13/13. This also settles the count/amount split:
+   `Debits 18 924,29` is eighteen rows totalling 924.29, and the page walks
+   prove it — read the other way the page would not balance.
+2. **Summary identity.** `opening + stated credits − stated debits − ending ==
+   0.00` on **13/13**, including the 4 withheld. Nothing is missing from the
+   documents; what is uncertain is the side of individual rows.
+3. **Balance walk.** `walk == 0.00` on the 9. On every one of the 9,
+   `rows == stated_credit_count + stated_debit_count` as well, so the row
+   coverage is total rather than arithmetically lucky.
+
+## TF6. The fail-closed remainder — 4 documents, named
+
+All four are the **antisymmetric wrong-side class**: the credit total is short
+by exactly what the debit total is long, so no money is invented or lost, and
+all four are `withheld / withheld_adb` — never a published number.
+
+| document | rows | side error | rows on the wrong side | what they are |
+|---|---|---|---|---|
+| `4DE22E685A04` | 204 | ±462.75 | 1 | `MRCH22940680010 DIV 462,75` |
+| `59BD662C0D4F` | 126 | ±1945.51 | 2 | `MRCH22940680010 DIV 1 320,51`, `COMPETITION DIV 625,00` |
+| `654AB29A910A` | 126 | ±1945.51 | 2 | same statement, second PDF |
+| `A3A50C108B7F` | 226 | ±2284.24 | 6 | `MERCH PAD PLAC`, `ELAVON MRCH SVC DIV`, `MRCH…` |
+
+Every one is a merchant-settlement row sitting inside a date group whose
+printed balances admit more than one split. They are precisely the codes the
+evidence in §TF4 refuses to guess at: `MRCH…` is 53/42 and `ELAVON` is 7/14
+over the determined groups. Forcing them would publish a wrong direction on
+about half the population the rule touched.
+
+The 4 are not a parser defect and there is no code change that closes them
+honestly. What would close them is the same card §TD.T6 raised for the English
+grid: **the column identity is in the PDF and the extractor discards it.**
+`ocr/native_text.py` already recovers word geometry for two other banks, and
+these amounts sit in one or the other printed money column with no ambiguity at
+all. `ocr/` is protected for this agent: **raised, not attempted**, and it is
+one card for both TD layouts rather than two.
+
+## TF7. Non-interference, measured over the whole archive
+
+The brief asked for a stratified non-TD probe of at least 400 documents. Folder
+labels live only in the sqlite index, which is off limits while the discovery
+run is executing, so the probe was replaced with something stronger and
+folder-free: the **entire** archive, before and after, stratified by claiming
+parser.
+
+Both sweeps run the same script over the same 3,409 documents, read from
+artifact files; the "before" run is this worktree checked out at `cce8ac1`.
+
+```
+documents compared: 3409
+documents whose claimant set changed: 13
+   (none)                   -> td_canada_french          13
+documents OUTSIDE the family whose claimant set changed: 0
+multi-claimant (ambiguous) documents after: 0
+non-family population: 3396 documents in 51 strata
+```
+
+The 51 strata are every registration that claims anything in the archive plus
+the 1,199 unclaimed — `chase` 509, `bank_of_america` 363, `wells_fargo` 223,
+`rbc` 158, `bmo_ca_business` 133, `scotiabank` 84, `td_canada_native` 74,
+`td_us` 44, `bmo_ca_business_french` 4, `cibc_french` 3, `rbc_french` 1, down
+to `texas_bank` 1. The three other French-language registrations are in there,
+and none of them moved.
+
+Full pipeline, every field of the serialised report compared byte for byte:
+
+```
+== td_canada_native: 74 documents ==
+   byte-identical before/after: 74 / 74
+   outcomes before: {'validated': 64, 'withheld': 10}
+   outcomes after:  {'validated': 64, 'withheld': 10}
+
+== td_us: 44 documents ==
+   byte-identical before/after: 44 / 44
+   outcomes before: {'validated': 32, 'failed': 10, 'withheld': 2}
+   outcomes after:  {'validated': 32, 'failed': 10, 'withheld': 2}
+
+== french: 13 documents ==
+   before: {'failed': 13}   after: {'validated': 9, 'withheld': 4}
+```
+
+Two notes on the populations. They are defined by detection over the current
+archive, which makes them a **superset** of the brief's 73 and 40 (74 and 44
+here) — the proof is stronger for it, and every extra document is byte-identical
+too. And `td_us`'s 10 `failed` are TDFIX-1's card U1 declines, untouched here.
+
+13 of the 3,409 documents are unreadable by the sweep script's page extractor.
+They are empty extractions — 0 characters, no OCR model — identical before and
+after, and none carries the French grid. The coincidence with 13 is a
+coincidence.
+
+## TF8. Proofs
+
+```
+$ python -m pytest -q
+2932 passed, 18 deselected, 1 warning in 150.30s
+SUITE_EXIT=0
+
+$ python -m pytest -q -m corpus
+14 passed, 2936 deselected, 1 warning in 1153.27s (0:19:13)
+CORPUS_MARKED_EXIT=0
+
+$ python corpus_gate.py
+[PASS] source_integrity: 109/109 pinned source PDFs match their pinned SHA-256
+[PASS] balance_audit: 109 statements reproduce every audited balance field ...
+[PASS] adb_audit: 109 statements reproduce every audited ADB field ...
+[PASS] balance_outcomes: balance: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes: adb: 106 pass, 3 withheld, same three statements
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR = 109 resolved offline
+[PASS] exclusions: 0 named exclusions
+[PASS] oracle_independence: 4 audit modules import no production financial mathematics
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  408.8s
+RESULT: GREEN
+GATE_EXIT=0
+
+$ python -m pytest tests/test_td_french_layouts.py -q
+66 passed
+EXIT=0
+
+$ python -m pytest tests/test_parser_registry_entries.py tests/test_parser_conformance.py \
+      tests/test_parser_registry.py tests/test_no_parser_helper_clones.py \
+      tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+      tests/test_parser_detection_markers.py tests/test_count_semantics.py -q
+860 passed
+EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+      tests/test_no_parser_helper_clones.py -q
+100 passed
+GUARDS_EXIT=0
+```
+
+Baseline for comparison, this worktree checked out at `cce8ac1` before any
+change: `2854 passed, 18 deselected`. The suite grew by **78** and by nothing
+else — the 66 new fixtures plus the 12 registry-parametrized cases a 52nd
+registration adds (9 in `test_parser_conformance.py`, 3 in
+`test_parser_registry_entries.py`). The only existing assertions edited are the
+two registration-count pins, one line inserted into `EXPECTED_ORDER`, and the
+two allowlist entries.
+
+The corpus-marked and gate runs are slow here because a full archive discovery
+run was executing on the same machine throughout; the wall times are load, not
+drift.
+
+The conformance cross product, the single-marker invariant, the `supersedes`
+pin and the `by_bank_label` pin are all unchanged: `td_canada_french` sits at
+band 100 with two required markers, and `pr.by_bank_label("TD Canada Trust")`
+still resolves to `td_canada_native` at band 10.
+
+Solver headroom, measured rather than assumed: 320 date groups over the 13, the
+largest 31 rows against `_MAX_GROUP_ROWS = 64`. No group approaches the bound,
+so no document falls through it.
+
+`count_semantics`, verified directly:
+
+```
+td_canada_french/credit -> comparable=False scope=unsurveyed
+td_canada_french/debit  -> comparable=False scope=unsurveyed
+in SEMANTICS table: False
+```
+
+## TF9. Carried findings and questions for Ocean
+
+1. **`ANALYSIS_STAGE_VERSION` must be bumped at merge.** 13 documents now
+   produce an analysis payload where they produced none. `webapp/` is protected
+   here.
+2. **The geometry card is one card for both TD layouts.** §TD.T6 raised it for
+   the English grid, where it closes all 24 underdetermined groups; it would
+   close the 4 documents here by the same mechanism. Recommending it be written
+   once, against `ocr/native_text.py`, covering `td_canada_native` and
+   `td_canada_french` together.
+3. **The two private imports want promoting.** `_credit_counts_from_balances`
+   and `_directions_from_credit_counts` are now consumed by two parsers and are
+   not TD-specific — they are "recover a lost sign column from a printed
+   running balance". A shared home under `analysis/` would let both allowlist
+   entries be deleted. Not attempted: `td_can.py` is TDFIX-1's this cycle.
+4. **The equal-amount tie-break inside solved groups is English-blind.**
+   `_directions_from_credit_counts` orders equal-amount rows by
+   `td_can._native_credit_like`, which never fires on French text, so the order
+   is the printed one. This moves no total, no count and no balance — it only
+   decides which of two rows carrying the *same* amount is called the deposit —
+   so it changes no outcome and no published figure. Recorded because the
+   row-level attribution inside such a group is arbitrary, and a `Contr. - VFC`
+   reversal printed beside the `Envoi - VFC` it reverses is where it shows.
+   Fixing it means either passing a vocabulary into the shared helper (a
+   `td_can.py` change) or promoting the helper (finding 3).
+5. **Interaction with TDFIX-1: none, and the branches are disjoint.** TDFIX-1
+   owns `analysis/td_can.py` and `analysis/td_us.py`; this cell adds
+   `analysis/td_canada_french.py` and one registry row. Card C1 widens
+   `_native_credit_like`, which this module reaches only through the
+   equal-amount tie-break of finding 4, where it can move no total; and the
+   codes it adds (`E-TFR `, `TD ATM DEP`, `GC <n>-DEPOSIT`) cannot fire on
+   French descriptions anyway. Safe to merge in either order. The
+   registry-entries file is this cell's, as the two briefs assign it.
+6. **Two PDFs, one statement.** `59BD662C…` and `654AB29A…` are the same Quebec
+   statement issued twice. Both withheld, identically. Flagged only because a
+   naive "documents recovered" count would double-count them: the 13 documents
+   are 12 distinct statements.
+
+## TF10. Commits
+
+| Commit | Contents |
+|---|---|
+| `a29a848` | `analysis/td_canada_french.py`, the registry entry, `tests/test_td_french_layouts.py`, the conformance fixture, the two count pins and the private-import allowlist entries |
+| (this one) | §TD-FRENCH TF0–TF10 |
