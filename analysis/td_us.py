@@ -217,17 +217,23 @@ def parse_td_us_statement(markdown: str) -> Statement | None:
             continue
         # Rows that do not add up to their own section's printed subtotal are
         # a defective READ OF THAT SECTION — on the scanned statements in this
-        # population, Tesseract losing a row out of forty. Discarding the
-        # document over it threw away a complete, self-consistent summary and
-        # every other section's exact rows, and filed an OCR defect as an
-        # unclaimed layout. The rows that were read are kept, and the shortfall
-        # is left where the platform can see it: an incomplete ledger cannot
-        # reproduce the bank's stated totals, so `reconcile` reports the
-        # coverage gap and the document fails CLOSED — withheld or review with
-        # a diagnosis, never validated. That gate reads the same printed
-        # figures this check did (`_summary` totals the same per-section
-        # amounts), so the check was a second, harsher copy of it, sited where
-        # a failure could only destroy evidence instead of reporting it.
+        # population, Tesseract losing a row out of forty, or misreading the
+        # subtotal line itself. Discarding the document over it threw away a
+        # complete, self-consistent summary and every other section's exact
+        # rows, and filed an OCR defect as an unclaimed layout. The rows that
+        # were read are kept and the shortfall is left where the platform can
+        # see it: `reconcile` measures the ledger against the bank's stated
+        # totals, so an incomplete ledger fails CLOSED there — withheld or
+        # review with a named coverage gap, never validated.
+        #
+        # This is a TRADE and the residual is exact, so it is written down
+        # rather than argued away: that gate compares DIRECTION-LEVEL totals,
+        # so two misreads of equal and opposite size WITHIN one direction
+        # cancel and it sees nothing, where this check saw both. Nothing in the
+        # 40-document population does that, and the check as written destroyed
+        # 43 correct rows over a comma in one subtotal line. The capability
+        # belongs in an integrity check registered for this parser, where a
+        # failure reports instead of discarding — W3 §TDFIX-1 T7.1.
         all_txns.extend(txns)
     if not all_txns:
         return None

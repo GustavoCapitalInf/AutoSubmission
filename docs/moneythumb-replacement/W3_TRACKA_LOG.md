@@ -6964,7 +6964,8 @@ the wave.
 | Whole branch | td_us **28 → 34 validated**, 10 → 2 unclaimed, 2 → 4 withheld. td_canada_native **63 → 67 validated**, 10 → 6 withheld. **Zero regressions**: no document in either population loses a class or a field it had. |
 | Detection | **Unmoved, measured**: 113 documents × 51 registrations, 0 scores differ (§T8). |
 | Files | `analysis/td_us.py`, `analysis/td_can.py`, `tests/test_td_us_variants.py` (new), `tests/test_td_can_native_variants.py`, this log. The registry entries file is TD-FRENCH's this cycle and was not touched. |
-| Tests | 16 added (9 in a new `tests/test_td_us_variants.py` + 7 in the TD Canada file); **9 of the 16 fail against the base-commit parser installed in-process** — the other 7 are the invariance assertions, which must pass in both states (§T8). |
+| Tests | 20 added (9 in a new `tests/test_td_us_variants.py` + 11 in the TD Canada file); **9 of them fail against the base-commit parser installed in-process** — the rest are invariance and anti-mutation assertions, which must pass in both states (§T8). |
+| Review | Adversarial review reproduced every headline number and returned SHIP with one condition: C1's fixtures did not constrain the new rule (§T4.1, four mutants killed), §T3's "second, harsher copy" claim was false (§T3, corrected against the reviewer's synthetic), plus record fixes in §T3 and §T7. |
 
 ## T1. The measurement instrument, and what it was allowed to touch
 
@@ -7101,19 +7102,56 @@ there:
 
 with the gap named in the reconciliation issues ("captured $5,193.88 of the
 bank's stated $5,588.59 in debits (93%) — line-item detail is inconsistent or
-incomplete; do not use it for daily-balance reconstruction") and the flags
-`ledger_sum_mismatch` + `debit_detail_coverage_mismatch` raised. **Claimed is
-not published: neither validates**, and they join `D3396D14BA8A` /
+incomplete; do not use it for daily-balance reconstruction"). Both carry the
+same four integrity flags:
+
+```
+['debit_detail_coverage_mismatch', 'ledger_sum_mismatch',
+ 'missing_declared_statement_page', 'transaction_detail_not_corporate_reliable']
+```
+
+`missing_declared_statement_page` is pre-existing and independent of this card
+— both are scans whose page declaration outruns the pages that survived — but
+it belongs in the record: these documents arrive at review carrying it too.
+**Claimed is not published: neither validates**, and they join `D3396D14BA8A` /
 `BDA1DE2F3481`, the two documents of the same scanned batch that were already
 withheld for the same reason.
 
-**Why removing the check does not remove the protection.** The discarded test
-compared each section's rows against a printed subtotal. `_summary` reads those
-same printed per-section figures into `stated_total_credits` /
-`stated_total_debits`, and `reconcile` then measures the ledger against them —
-so the check was a second, harsher copy of a gate that already exists
-downstream, sited where a failure could only destroy the evidence instead of
-reporting it. The residual is stated in §T7.
+**What removing the check costs — corrected after adversarial review.** This
+section first claimed the discarded test "was a second, harsher copy of a gate
+that already exists downstream." **That is false, and the reviewer disproved it
+by construction.** `reconcile` compares DIRECTION-LEVEL totals — captured
+credits against `stated_total_credits`, captured debits against
+`stated_total_debits` — so it is structurally blind to two misreads of equal
+and opposite size *within* one direction. The removed check saw both, because
+it looked at one section at a time. It had a capability the coverage gate does
+not have.
+
+Reproduced independently before rewriting this paragraph, on a two-section
+synthetic where `Electronic Payments` reads 100.00 short of its printed
+subtotal and `Other Withdrawals` reads 100.00 over its own:
+
+```
+base parse    -> None                      (the old check caught it)
+shipped parse -> 3 txns
+recon.ok = True   summary_ok = True   sum_delta = 0.0
+debit_coverage = 1.0   credit_coverage = 1.0   integrity.flags = []
+quality = approved     ADB = 234.68
+OUTCOME = ('validated', 'approved')
+```
+
+So the honest statement of the trade is this. The check was **destructive**: it
+discarded the document, every correct row in it, and the diagnosis, and on
+`2A0B516B2C7D` it did so over a comma in a subtotal line while capturing all 43
+rows correctly. It was also **load-bearing** in exactly one case the platform
+cannot otherwise see: two equal-and-opposite intra-direction OCR errors in one
+statement. **Nothing in the 113-document population exercises that case** — it
+is reachable only by construction — and the trade taken here is 45 recovered
+rows and two honest withheld diagnoses against a residual that requires a
+coincidence. The right home for the lost capability is an integrity check
+registered for `td_us`, where a failure reports instead of discarding; that is
+the §T7.1 card, and it needs a file this cycle does not own. Recorded as a
+known, accepted, non-zero residual rather than as a free move.
 
 One document's second mismatch is worth recording, because it inverts the
 card's framing: on `2A0B516B2C7D` the `Other Withdrawals` section reads 18.00
@@ -7205,6 +7243,48 @@ defect and it stays `withheld` before and after.
 code (it is also the tail of `EPAY`, `BPY` and others) but net-neutral on this
 population; removing it is a separate card, recorded in §T7.
 
+### T4.1 The fixtures did not constrain the rule — four surviving mutants, four new tests
+
+Adversarial review found that the first pass of C1's fixtures pinned the
+*answer* on real shapes but not the *rule*: the negative test
+`test_an_outgoing_e_transfer_is_still_a_debit` is satisfied by the
+**pre-existing `SEND E-TFR` guard**, not by the new anchor, so a mutated anchor
+kept the whole file green. Reproduced here before fixing, and the weakness was
+broader than the two mutants reported — all four survived:
+
+```
+etfr_no_space    startswith("E-TFR") without the trailing space   35 passed  SURVIVED
+etfr_substring   "E-TFR " matched anywhere in the description     35 passed  SURVIVED
+atm_substring    "TD ATM DEP" matched anywhere                    35 passed  SURVIVED
+gc_search        _GC_DEPOSIT_RE.search instead of .match          35 passed  SURVIVED
+```
+
+Four negative fixtures now pin the property the codes actually have — **each is
+a whole leading token of the description, because that is where TD prints the
+channel** — and each mutant dies to exactly one of them:
+
+| Mutant | Killed by | Fixture row |
+|---|---|---|
+| `startswith("E-TFR")` | `test_a_longer_token_that_merely_begins_with_the_code_is_not_a_transfer` | `E-TFRFEE ***a1B` |
+| `"E-TFR " in text` | `test_the_transfer_code_must_open_the_description` | `ACME E-TFR CORP` |
+| `"TD ATM DEP" in text` | `test_the_atm_code_must_open_the_description` | `REVERSAL TD ATM DEP 000000` |
+| `_GC_DEPOSIT_RE.search` | `test_the_deposit_channel_code_must_open_the_description` | `REVERSAL GC 0000-DEPOSIT` |
+
+```
+shipped          39 passed                 (control)
+etfr_no_space    1 failed, 38 passed       KILLED
+etfr_substring   1 failed, 38 passed       KILLED
+atm_substring    1 failed, 38 passed       KILLED
+gc_search        1 failed, 38 passed       KILLED
+```
+
+`E-TFRFEE` is the one worth reading twice: this parser exists because the
+native text layer collapses column gaps, so a joined token is its standing
+failure mode, and the trailing space in `startswith("E-TFR ")` is what keeps a
+joined token from being read as the code. Nothing in the population prints it —
+it is a fixture for the rule, not a shape from the corpus, and it is labelled as
+such in the test file.
+
 ## T5. Result over both populations
 
 Base `cce8ac1` → `3cda874`, one process, 113 documents:
@@ -7246,12 +7326,15 @@ Three, all found by re-measuring rather than by reading:
 
 ## T7. Carried findings and questions for Ocean
 
-1. **U2's residual, stated plainly.** With the per-section check gone, a
-   document whose sections mis-read in *exactly compensating* directions could
-   in principle reconcile on wrong rows and validate. Nothing in either
-   population does this, and it needs two OCR errors of equal size in opposite
-   directions within one statement, but the discarded check did catch that case
-   and the downstream coverage gate (±2% against the stated totals) does not.
+1. **U2's residual — demonstrated, not hypothetical.** With the per-section
+   check gone, a document whose sections mis-read in *exactly compensating*
+   directions within one direction reconciles on wrong rows and **validates
+   with zero flags**. This was written here first as a possibility; adversarial
+   review built it, and §T3 now carries the reproduction. Nothing in either
+   population does it, and it needs two OCR errors of equal size in opposite
+   directions within one statement, but the discarded check caught that case
+   and the downstream coverage gate (direction-level, ±2% against the stated
+   totals) is structurally incapable of catching it.
    The concrete mechanism to watch is the one §T3 documents: when a section's
    subtotal line is unreadable, `_section` runs on into the next section and
    swallows its rows. On `2A0B516B2C7D` the swallowed section then failed to
@@ -7278,18 +7361,33 @@ Three, all found by re-measuring rather than by reading:
 4. **`CANCEL E-TFR` / `RECLAIM E-TFR` are unread.** Six rows in the population.
    A cancelled outgoing transfer is a credit back, and both leave the direction
    to the printed balances today. Not in the card, not measured, not added.
-5. **`MOBILE DEPOSIT` and bare `DEPOSIT` rows** appear four times in the native
-   population and are not in the code vocabulary either. Same treatment: named,
-   not added.
+5. **The rest of the unread native vocabulary, enumerated.** Named here so the
+   next TD card starts from a list rather than a search. Counted over the 73
+   documents; none is in the code vocabulary, all leave direction to the
+   printed balances:
+
+   | Printed form | Rows | Documents | Direction it implies |
+   |---|---|---|---|
+   | `GC <n>-TRANSFER` | 2 | 2 | undetermined — the channel prints both ways |
+   | `GC <n>-DEBIT MEMO` | 1 | 1 | debit (found as `-DEBIT MEMO`, not bare `-DEBIT`) |
+   | `MOBILE DEPOSIT` | 2 | — | credit |
+   | bare `DEPOSIT` | 2 | — | credit |
+
+   The two `GC` forms were surfaced by adversarial review; the exact printed
+   suffix is recorded because `_GC_DEPOSIT_RE` keys on it, and `-DEBIT MEMO` is
+   what the population actually prints. **None added** — R-1 item 8 permits the
+   codes, but this card measured three, and a fourth belongs to whoever
+   measures it.
 6. **D5 (`td_can` never populates `running_balance`)** was not touched, per the
    brief.
 
 ## T8. Proofs
 
-All run at `3cda874`, the final production tree — `dc5d985` after it changes
-one comment in a test file and nothing else. Timings are under the concurrent
-archive discovery run, hence the corpus gate's 454s and the corpus suite's
-minutes.
+The corpus-scale proofs were run at `3cda874`, the production tree they audit;
+`dc5d985` and the review-response commit change one code COMMENT, four test
+fixtures and this log, and nothing a parser reads. The re-run proofs after
+review are the last two rows. Timings are under the concurrent archive
+discovery run, hence the corpus gate's 454s and the corpus suite's 17m22s.
 
 | Proof | Result | Exit |
 |---|---|---|
@@ -7302,6 +7400,10 @@ minutes.
 | Fixtures are genuine regressions — final test files, base-commit `analysis/td_us.py` installed in-process | `6 failed, 3 passed` | 1 (expected) |
 | ditto, base-commit `analysis/td_can.py` | `3 failed, 32 passed` (the file's 28 pre-existing tests all pass) | 1 (expected) |
 | Per-card, same instrument | U1 alone `4 failed, 2 passed`; U2 against `981dc70` `2 failed, 7 passed`; C1 against `98a1781` `3 failed, 32 passed` | 1 (expected) |
+| **After review** — four C1 mutants vs the strengthened fixtures (§T4.1) | control `39 passed`; each mutant `1 failed, 38 passed`, one distinct killing test each | 0 / 1×4 (expected) |
+| **After review** — `pytest tests/test_td_us_variants.py tests/test_td_can_native_variants.py -q` | `48 passed` | 0 |
+| **After review** — guards + conformance, re-run | `795 passed` | 0 |
+| **After review** — `pytest -q` (whole default suite) | `2874 passed, 18 deselected` | 0 |
 
 The regression proof installs the base-commit copy of the parser module under
 its real name before pytest imports the test file, so the fixtures run against
@@ -7317,4 +7419,5 @@ each new code's sibling — which is the assertion that they assert nothing new.
 | `98a1781` | U2: `analysis/td_us.py:213-214` + 3 fixtures in the same file |
 | `3cda874` | C1: `analysis/td_can.py` `_native_credit_like` + 7 fixtures in `tests/test_td_can_native_variants.py` |
 | `dc5d985` | one fixture comment, corrected to describe the fixture rather than the documents it abstracts |
-| (this one) | §TDFIX-1 T0–T9 |
+| `fc3ee3c` | §TDFIX-1 T0–T9 |
+| (this one) | Ocean's review response: 4 anti-mutation fixtures (§T4.1), the §T3 correction in both the log and the `td_us.py` comment that repeated it, and the §T3/§T7 record fixes |

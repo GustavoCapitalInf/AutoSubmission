@@ -410,6 +410,34 @@ SECOND UNCODED ROW 20.00 FEB01
         # the direction is the printed suffix, and this is the other suffix.
         assert self._read("GC 0000-CASH WITHDRA") == [-10.0, -20.0, -30.0]
 
+    # Each code is a whole leading TOKEN of the description, because that is
+    # where TD prints the channel: at the start of its own column. The four
+    # tests below are the ones that say so, and each exists because a mutation
+    # of the rule survived every other test in this file:
+    #
+    #   E-TFRFEE ...        `startswith("E-TFR")` without the trailing space
+    #   ACME E-TFR CORP     `"E-TFR " in text` (matched anywhere)
+    #   REVERSAL TD ATM DEP `"TD ATM DEP" in text`
+    #   REVERSAL GC n-DEP.  `_GC_DEPOSIT_RE.search` instead of `.match`
+    #
+    # None of them can be rescued by the `SEND E-TFR` guard, which is what made
+    # `test_an_outgoing_e_transfer_is_still_a_debit` insufficient on its own.
+
+    def test_a_longer_token_that_merely_begins_with_the_code_is_not_a_transfer(self):
+        # The native text layer collapses column gaps, so a joined token is the
+        # standing risk in this parser: `E-TFRFEE` is not `E-TFR`.
+        assert self._read("E-TFRFEE ***a1B") == [-10.0, -20.0, -30.0]
+
+    def test_the_transfer_code_must_open_the_description(self):
+        assert self._read("ACME E-TFR CORP") == [-10.0, -20.0, -30.0]
+
+    def test_the_atm_code_must_open_the_description(self):
+        # A reversal of a deposit is not a deposit.
+        assert self._read("REVERSAL TD ATM DEP 000000") == [-10.0, -20.0, -30.0]
+
+    def test_the_deposit_channel_code_must_open_the_description(self):
+        assert self._read("REVERSAL GC 0000-DEPOSIT") == [-10.0, -20.0, -30.0]
+
     def test_the_printed_balance_still_outranks_the_new_codes(self):
         # 100.00 - 40.00 - 10.00 = 50.00. The grid says the incoming-transfer
         # row left the account, and the grid wins.
