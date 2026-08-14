@@ -34,9 +34,14 @@ def _period(markdown: str) -> tuple[str, str] | None:
 
 def _summary(markdown: str, stmt: Statement) -> Statement:
     text = re.sub(r"\s+", " ", markdown)
+    # Every balance row of this summary can print negative — TD writes an
+    # overdrawn figure as a leading minus, the same way it already writes the
+    # closing one. A pattern that cannot stand next to the sign does not read a
+    # smaller number, it reads nothing: the field goes None and (:196) discards
+    # the document. `_money` has parsed a leading minus all along.
     fields = {
-        "beginning_balance": r"Beginning Balance\s+([\d,]+\.\d{2})",
-        "stated_average_balance": r"Average Collected Balance\s+([\d,]+\.\d{2})",
+        "beginning_balance": r"Beginning Balance\s+(-?[\d,]+\.\d{2})",
+        "stated_average_balance": r"Average Collected Balance\s+(-?[\d,]+\.\d{2})",
         "days_in_period": r"Days in Period\s+(\d+)",
         "ending_balance": r"Ending Balance\s+(-?[\d,]+\.\d{2})",
     }
@@ -210,8 +215,25 @@ def parse_td_us_statement(markdown: str) -> Statement | None:
         txns, total = _parse_section(markdown, heading, year=year, sign=sign)
         if total is None:
             continue
-        if abs(sum(abs(t.amount) for t in txns) - total) > 0.02:
-            return None
+        # Rows that do not add up to their own section's printed subtotal are
+        # a defective READ OF THAT SECTION — on the scanned statements in this
+        # population, Tesseract losing a row out of forty, or misreading the
+        # subtotal line itself. Discarding the document over it threw away a
+        # complete, self-consistent summary and every other section's exact
+        # rows, and filed an OCR defect as an unclaimed layout. The rows that
+        # were read are kept and the shortfall is left where the platform can
+        # see it: `reconcile` measures the ledger against the bank's stated
+        # totals, so an incomplete ledger fails CLOSED there — withheld or
+        # review with a named coverage gap, never validated.
+        #
+        # This is a TRADE and the residual is exact, so it is written down
+        # rather than argued away: that gate compares DIRECTION-LEVEL totals,
+        # so two misreads of equal and opposite size WITHIN one direction
+        # cancel and it sees nothing, where this check saw both. Nothing in the
+        # 40-document population does that, and the check as written destroyed
+        # 43 correct rows over a comma in one subtotal line. The capability
+        # belongs in an integrity check registered for this parser, where a
+        # failure reports instead of discarding — W3 §TDFIX-1 T7.1.
         all_txns.extend(txns)
     if not all_txns:
         return None

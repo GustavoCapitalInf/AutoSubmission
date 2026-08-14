@@ -196,6 +196,13 @@ def _credit_like(description: str) -> bool:
 _NATIVE_CREDIT_CODES = {"MSP", "CLN", "PAY", "GST"}
 _NATIVE_DEBIT_CODES = {"BUS"}
 
+#: `GC <n>-DEPOSIT` — a deposit posted through TD's own deposit channel, whose
+#: four-digit unit number is statement data and therefore cannot be part of the
+#: marker. The channel prints the direction itself, in the same position, on
+#: both of its forms: the sibling `GC <n>-CASH WITHDRA` is a withdrawal and
+#: must not match, which is why this keys on `-DEPOSIT` and not on `GC`.
+_GC_DEPOSIT_RE = re.compile(r"GC \d+-DEPOSIT\b")
+
 
 def _native_credit_like(description: str) -> bool:
     """Sign from TD's own transaction codes, never from counterparty names."""
@@ -206,7 +213,19 @@ def _native_credit_like(description: str) -> bool:
         return False
     if text.startswith("SEND E-TFR"):
         return False
-    if text.startswith("E-TRANSFER"):
+    # TD writes the direction of an e-transfer as the presence or absence of
+    # its own leading verb: `SEND E-TFR ...` leaves the account, a bare
+    # `E-TFR ...` arrives in it. Only the spelled-out `E-TRANSFER` was read, so
+    # every incoming transfer printed in the abbreviated form was taken for a
+    # debit. `CANCEL`/`RECLAIM E-TFR` lead with their own verb and are left to
+    # the printed balances, as before.
+    if text.startswith("E-TRANSFER") or text.startswith("E-TFR "):
+        return True
+    # `TD ATM DEP <n>` is a deposit at TD's own machine; the sibling
+    # `TD ATM W/D <n>` is a withdrawal, so the code is the whole distinction.
+    if text.startswith("TD ATM DEP"):
+        return True
+    if _GC_DEPOSIT_RE.match(text):
         return True
     tokens = text.split()
     if tokens:
