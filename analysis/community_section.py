@@ -260,9 +260,9 @@ def _sections(text: str) -> list[tuple[int, str]]:
 #: count right, which is precisely the kind of defect a count check cannot see.
 #:
 #: Cut here, at the one place a row's text is turned into money, rather than in
-#: `_clean`: `_section_totals` reads the same trailers as an independent check
-#: on what this function captured, and a scrub would delete the evidence that
-#: check depends on.
+#: `_clean`: `_section_oracle_disagrees` reads these same trailers as an
+#: independent check on what this function captured, and a scrub would delete
+#: the evidence that check depends on.
 _SECTION_TRAILER_RE = re.compile(r"\s*\d+\s+item\(s\) totaling\s+" + _MONEY, re.IGNORECASE)
 
 

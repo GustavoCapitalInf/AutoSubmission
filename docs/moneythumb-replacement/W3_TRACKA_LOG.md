@@ -8388,3 +8388,335 @@ and 8 of 8 card-C.
 | `06f2633` | §RBCCIBC-LAYOUTS RC0–RC10 |
 | `753674a` | card C amendment — the French PERSONAL product, restored after the gate went red |
 | (this one) | the gate proof and the F1 pinned-corpus re-check |
+
+# §JHA-CELL — a core processor's template, read without naming a bank
+
+## J0. Summary
+
+`analysis/community_section.py` already read this template for two issuers.
+It is not a bank's layout: it is a **core processor's**, and the archive
+prints it under **22 different issuers**. Registering it per issuer would mean
+a new registration, a new marker pair and a new fixture for every community
+bank and credit union that ever buys this product, and would leave every
+issuer nobody has met yet unread.
+
+So it is registered once, on the **template's own furniture**, with the
+**issuer read out of each document**. That is the mission_valley product-label
+lesson applied one level up: publish what the document prints.
+
+**56 documents claimed; 47 move `failed` → `validated`; nothing moves down.**
+
+| | before (run `88be9dd3`) | after |
+|---|---|---|
+| validated | 45 | **92** |
+| withheld | 0 | 7 |
+| review | 0 | 2 |
+| failed | 70 | **14** |
+
+All 47 are instrumented per document rather than merely claimed: the summary
+identity closes, the sum check closes, both printed totals equal the published
+ledger, both printed counts equal the published counts, and — where the
+document prints one — every per-section `N item(s) totaling $X` trailer agrees.
+**5,370 transactions** published across the 56. Over the whole cohort,
+**56 of 56 instrument sound and 0 unsound.**
+
+The four issuer-specific readers that already existed are **45/45
+byte-identical**, and the pinned corpus holds one document of each.
+
+## J1. The instrument
+
+Every figure below comes from replaying the archive markdown through the real
+pipeline (`analyze_markdown(parse_mode="deterministic")` +
+`telemetry.record.classify_outcome` + `discovery.runner._failure_reason`),
+resolved from the D-3 OCR artifact store **by direct file path** — the sqlite
+index was never opened. The `content_sha256 → artifact` index was built by
+reading each payload envelope's own `input_sha256`, so it does not depend on
+this process's environment reproducing the run's cache key.
+
+Population re-derived from the run of record rather than taken from the scout:
+`rows.csv` of `2026-08-14T060822.665646-0000-88be9dd3`, 3,506 rows / 3,380
+distinct `content_sha256`, of which **3,367 have offline text** (the 13 without
+are exactly the `deferred_visual_ocr` documents). Zero cache misses.
+
+## J2. The cohort, characterized before any code was written
+
+The scout's signature was `Statement Ending` + `Summary of Accounts` +
+`N Credit(s)/Debit(s) This Period`. Measured, the discriminating member of that
+conjunction is the **grid header**:
+
+| probe | documents, archive-wide |
+|---|---|
+| `Account Summary Date Description Amount` | **115** |
+| `N Credit(s) This Period` | 120 |
+| `Statement Ending <date>` | 120 |
+| `Summary of Accounts` | **193** |
+
+`Summary of Accounts` is *not* exclusive — 17 Wells Fargo documents print it,
+and narrowing on it alone would have reached them. The grid header appears in
+115 documents and **every one is this platform: zero near misses.** The
+registration therefore requires the grid header **and** a printed period-count
+row, which also satisfies the two-required-marker invariant (R4-3).
+
+Of the 115: **45 already claimed** (mission_valley 36, dakota_west 3,
+midflorida 3, first_community 3 — `first_community` is a fourth issuer on this
+template that the handoff did not name) and **70 `failed`, every one
+`no_parser_matched` with an EMPTY `attempted`.** Nothing had ever claimed them.
+
+Folders of the 70: Unidentified 51, Bluevine 5, R Bank 4, Rogue CU 4,
+Columbia 3, Chase 2, SouthStar 1. The folder labels are operator guesses; the
+template is what they have in common.
+
+Sub-layouts: 47 J-A (per-direction sections), 23 J-B (`Account Activity`
+running balance). 12 print more than one account grid. 14 print the
+`N item(s) totaling` trailer.
+
+## J3. Reading the issuer out of the document
+
+| issuer evidence | coverage of the 115 |
+|---|---|
+| a **labelled** domain (`Online`/`Website`/`Internet Banking` + domain) | **110**, and UNIQUE in every one |
+| any bare domain | 114 |
+| a `Thank you for … <Bank>` sentence | 37 (mission_valley 36 + dakota_west 1) |
+| `<Bank> … Member FDIC` | 1 |
+
+The label is what makes this safe. Of the five documents printing no labelled
+domain, **four print merchant domains** — `walmart.com`, `apple.com`,
+`gosq.com` — inside their own transaction descriptions. "The first domain in
+the document" would have published a merchant as the issuer on exactly those.
+
+The read is scoped to the **masthead** (everything before the document starts
+listing accounts), because R Bank prints its state regulator in the fine print
+below the ledger (`Website: www.dob.texas.gov`) and a whole-document read saw
+two labelled domains and could not say which was the bank.
+
+Published as `Statement.bank`, lower-cased with `www.` removed — a domain is
+case-insensitive and `www.` is not part of the name, and the same issuer prints
+it both ways. Nothing else is transformed. Turning `falconbank.com` into a bank
+NAME would be an invention, and a wrong one (it is Falcon International Bank).
+
+## J4. Five defects the measurement found
+
+Each was found by measuring, not by reading the code, and each is pinned.
+
+**1. The section trailer was being read as a row.** `N item(s) totaling $X`
+carries no date, so it lands in the final dated row's chunk, and this reader
+takes the LAST money in a chunk. On a section of 18 items totaling $40,458.87
+that publishes the section total as the last row's amount — a four-figure error
+that leaves the row COUNT right, which is exactly what a count check cannot
+see. Now cut at the money seam, and separately checked as the oracle it is.
+
+**2. The trailer check mis-aligned on page breaks.** A section broken across
+pages reprints its header as `(continued)` and `_sections` rightly treats each
+run separately, but the trailer is printed once and counts the whole section.
+Comparing it against the tail run reported every page-broken section as a
+disagreement. Rows are now accumulated across runs until the trailer appears.
+
+**3. The claim gate counted by SIGN.** The platform posts genuine `$0.00` rows
+(a returned ACH) and the bank counts them in the column it printed them in. A
+zero-amount row is on neither side of a sign test, so the gate rejected
+documents whose ledgers were complete — three archive documents measurably so.
+The gate now counts by `Transaction.direction`, the rule `reconcile` already
+documents. Its cost is disclosed in `count_semantics` (J9.1).
+
+**4. One cheque row masked a whole J-B ledger.** The body reader was chosen by
+"did the first reading return anything", and both arrangements print
+`Checks Cleared`. A single cheque made `txns` non-empty and the
+`Account Activity` ledger was never read — **11 documents**. The arrangement is
+now chosen by whether the document printed per-direction SECTIONS, and the J-B
+branch does not add `_check_rows`, because that ledger already carries the
+cheques and adding them would publish each twice.
+
+**5. The account heading swallowed the page furniture, twice.** A regex matches
+leftmost-first and this heading is preceded on the page by figures. A character
+class admitting `/` and long digit runs let four documents publish an account
+name of `tal Statement Ending 01/31/2026 Business Checking`; allowing a NUMBER
+to open the name then let it begin inside the amount printed just before it
+(`$1,034.78 BASIC BUSINESS CHECKING` → `78 BASIC BUSINESS CHECKING`). The name
+is now a token sequence that must START with a word, so no token can be a date,
+a masked account number, or the tail of an amount. All 56 published names are
+clean; 16 distinct product names, all as printed.
+
+## J5. Result over the cohort
+
+```
+cohort (documents printing the template)      : 115
+already claimed, unchanged                    :  45   byte-identical 45/45
+newly claimed by community_section            :  56
+   validated                                  :  47
+   withheld  (withheld_adb)                   :   7
+   review    (missing_declared_statement_page):   2
+fail closed, named                            :  14
+moved DOWN                                    :   0
+transactions published                        : 5,370
+per-document instrument: sound 56 / unsound 0
+```
+
+The 7 withheld are the platform refusing to publish an ADB, correctly. Four of
+them break the daily-balance walk, and the cause is the document: a cheque is
+presented, bounces, and is returned the next day, and the bank's printed daily
+balances are on a different basis than the posted-row walk on those two days.
+Their sum check closes exactly (`sum_delta = 0.00`) and their printed totals
+and counts match, so the ledger is complete; the ADB engine still refuses, and
+that is the designed fail-closed rather than a defect.
+
+The 2 review documents declare 6 bank pages and the supplied PDFs are missing
+pages 2, 5 and 6. The existing page-sequence integrity check catches both.
+
+## J6. The fail-closed remainder — 14 documents, named
+
+| n | class | why |
+|---|---|---|
+| 7 | **genuinely multi-account** | 4 print three accounts and 3 print two, each with real activity. `Statement` holds ONE account (L-1). Publishing the busiest silently would report a subset of the customer's money as though it were all of it. |
+| 5 | **no issuer** | the template is recognised and the ledgers reconcile, but the document prints no labelled domain. J9.2. |
+| 2 | **J-B without per-row balances** | the ledger prints `Debits Credits Balance` but fills the balance column on no row, so direction survives only as COLUMN POSITION, which flattened text does not carry. Not recoverable without geometry. J9.3. |
+
+A dormant account does not block a document: where a credit union prints a
+membership share and a savings account that never moved, the one account that
+posted is read, and that case is pinned.
+
+## J7. Non-interference, measured over the whole archive
+
+Detection is the entire risk surface for documents outside the cohort — a new
+registration can only change another document's dispatch by claiming it. So
+every registration's detection was swept over **all 3,367** documents, before
+and after:
+
+```
+dispatch outcome transitions
+   2100  claimed   -> claimed
+   1211  unclaimed -> unclaimed
+     56  unclaimed -> claimed
+
+ambiguous, after : 0      ambiguous, before : 0
+community_section detects            : 115
+the measured template cohort         : 115
+   detected but OUTSIDE the cohort   : 0
+   in the cohort but NOT detected    : 0
+winning parser changed               : 56   (all None -> community_section)
+   of which outside the cohort       : 0
+```
+
+Stratified NON-TARGET payload probe — 461 documents drawn evenly across **65
+folder labels**, excluding the cohort, replayed through the full pipeline:
+
+```
+byte-identical payloads : 461 / 461
+payload changed         : 0
+moved UP 0   moved DOWN 0
+```
+
+Sibling populations, full sweeps (their complete archive populations, not a
+sample):
+
+```
+byte-identical payloads : 45 / 45
+mission_valley 36 · dakota_west 3 · midflorida 3 · first_community 3
+payload changed 0   moved UP 0   moved DOWN 0
+```
+
+Not one of the four ever claims a document and then declines it, anywhere in
+the archive — so their populations are bounded by their own detection markers,
+which this cell did not touch, and no generalisation of the shared reader can
+add a document to them.
+
+## J8. Proofs
+
+```
+# full default suite
+3045 passed, 18 deselected in 312.36s                     exit 0
+
+# conformance cross-product (54 x 53) + registry pins
+676 passed                                                exit 0
+
+# the platform grammar + count semantics
+69 passed                                                 exit 0
+
+# corpus-marked (pytest -m corpus), 2186.78s
+PASSED tests/test_corpus_gate.py::test_corpus_gate_is_green
+PASSED tests/test_discovery.py::test_dry_run_reproduces_known_truth
+PASSED tests/test_parser_parity.py::test_no_corpus_document_is_left_unclaimed
+PASSED tests/test_parser_parity.py::test_no_corpus_document_resolves_to_the_wrong_parser
+PASSED tests/test_parser_parity.py::test_no_corpus_document_is_ambiguous
+PASSED tests/test_parser_parity.py::test_every_corpus_document_resolves_to_the_recorded_parser
+PASSED tests/test_parser_parity.py::test_the_recorded_parser_is_always_the_highest_ranked_claimant
+PASSED tests/test_parser_parity.py::test_the_three_promoted_sub_dispatches_claim_their_documents
+PASSED tests/test_parser_parity.py::test_expectations_cover_the_pinned_manifest
+PASSED tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run
+PASSED tests/test_parser_parity.py::test_detection_is_invariant_to_the_filename_echo
+PASSED tests/test_telemetry_corpus.py::test_telemetry_reproduces_the_gate_outcome_split
+PASSED tests/test_telemetry_corpus.py::test_withheld_diagnostics_reproduce_the_documented_diagnosis
+PASSED tests/test_truncation.py::test_no_corpus_document_is_flagged_through_the_real_ladder
+14 passed, 3049 deselected in 2186.78s                    exit 0
+
+# corpus gate (python corpus_gate.py), 905.6s
+[PASS] source_integrity: 109/109 pinned source PDFs match their pinned SHA-256
+[PASS] balance_audit: 109 statements reproduce every audited balance field
+       across backend, API, dashboard, CSV, XLSX, and package surfaces
+[PASS] adb_audit: 109 statements reproduce every audited ADB field
+[PASS] balance_outcomes: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes:     106 pass, 3 withheld, same three statements
+Outcomes: 106 PASS / 3 WITHHELD
+RESULT: GREEN                                             GATE_EXIT:0
+```
+
+The gate is the proof that matters for the four superseded readers: the pinned
+corpus holds one document of each of mission_valley, dakota_west, midflorida
+and first_community, and every audited balance and ADB field on all 109 is
+unchanged. No re-baseline, no audited-field movement.
+
+## J9. Carried findings and questions for Ocean
+
+**J9.1 — `count_semantics`: three ids are now immune by construction.** The
+table recorded mission_valley and dakota_west as "parser-gated, **sign-keyed**"
+and argued they were NOT immune to the stated-count check, because the gate
+keyed on sign while the check keys on `Transaction.direction`. Defect 3 above
+made the gate key on direction too, so a `match` for these three ids is now a
+tautology. The entry says so in those words rather than leaving it to be
+inferred from a run of passes. Their independent evidence is the per-section
+trailer, which no summary figure can reproduce. **Ruling wanted:** accept the
+disclosure, or hold the direction key to `community_section` alone and leave
+the two older ids sign-keyed (which would re-break the three $0.00 documents).
+
+**J9.2 — five reconciling documents declined only because we cannot name the
+bank.** Their ledgers reconcile against every printed figure; they print no
+labelled issuer domain. `Statement.bank` is `str | None`, so publishing them
+unattributed is *possible*. Whether an underwriting product should publish a
+bank-statement analysis that cannot name the bank is a product decision, not a
+parser one, so this cell fails closed and asks. **+5 validated available on a
+one-word ruling.**
+
+**J9.3 — geometry card.** 2 documents print a J-B ledger whose balance column
+is empty on every row; direction is column position and flattened text does not
+carry it. A real customer for the geometry rung.
+
+**J9.4 — L-1 is now costing 7 documents on this template alone**, all credit
+unions printing share + checking + savings. A multi-account schema would
+recover them; picking the busiest would not be honest.
+
+**J9.5 — the registration's `bank` label is `"Core Statement Platform"`, not a
+bank.** It is used only by `by_bank_label` (unclaimed documents) and by
+folder-agreement aliasing. Consequence, deliberate: the 56 claims will read as
+folder-label disagreements in 6 folders, which is TRUE — a JHA statement filed
+under `Chase/` is misfiled — but it will show up in the agreement rollup and
+should not be mistaken for a regression.
+
+**J9.6 — one document is refused by a rule this cell chose to keep.** A signed
+CREDIT total still fails the summary match outright, because a credit total
+that reduced the balance contradicts the row it is printed on. Measured: 0 of
+115 credit totals carry a sign, 1 debit total does. No document is lost to
+this today; it is recorded so the asymmetry is a decision and not an accident.
+
+**J9.7 — `midflorida` reads the J-B arrangement with its own bespoke reader**
+in `analysis/midflorida.py`, gated on one product name. It is now the only
+issuer on this template with a private copy of a body reader the shared module
+also has. Out of this cell's ownership; worth a consolidation card, and its
+3 documents are byte-identical either way.
+
+## J10. Commits
+
+| commit | what |
+|---|---|
+| `c59f98a` | the reader and the issuer-agnostic registration, with the four supersedes edges |
+| `f9c24d5` | `count_semantics`: the direction-key change, disclosed |
+| `eb3ecba` | 21 grammar pins, refusals included |
+| (this one) | §JHA-CELL J0–J10 |
