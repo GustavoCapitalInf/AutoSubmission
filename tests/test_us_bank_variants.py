@@ -737,3 +737,65 @@ def test_f13_negative_no_printed_header_block_publishes_no_product_name():
     stmt = parse_us_bank_statement(doc)
     assert stmt is not None
     assert stmt.account_name is None
+
+
+# --------------------------------------------------------------------------
+# U-F14  a product line is product-SHAPED, not merely product-POSITIONED
+# --------------------------------------------------------------------------
+# Adversarial review, closure 4. The anchor published whatever line sat above
+# the header block. With the product line missing, the line above is whatever
+# the previous page ended on — and a marketing sentence published as the
+# account's name is a worse answer than admitting nothing was printed.
+
+PROSE = (
+    "We may report information about account activity on consumer and small "
+    "business deposit accounts to consumer reporting agencies."
+)
+
+
+def product_replaced_by(line: str) -> str:
+    return document(
+        summary=f"{ANCHOR_CREDIT_CATEGORY} {ANCHOR_DEBIT_CATEGORY}",
+        closing="1,420.00",
+        sections=ANCHOR_SECTIONS + ANCHOR_WITHDRAWAL_SECTION,
+    ).replace("U.S. BANK SILVER - BUSINESS CHECKING", line)
+
+
+def test_f14_a_sentence_at_the_anchor_is_not_published_as_the_product():
+    stmt = parse_us_bank_statement(product_replaced_by(PROSE))
+    assert stmt is not None
+    assert stmt.account_name is None
+
+
+@pytest.mark.parametrize("line", [
+    PROSE,
+    "Here's what you should know:",
+    "Effective May 11, 2026, please review updates made to the document.",
+    "usbank.com/YDAA-upcoming-version",
+    "Products and services available in U.S. only.",
+])
+def test_f14_no_prose_line_is_ever_published_as_a_product(line):
+    stmt = parse_us_bank_statement(product_replaced_by(line))
+    assert stmt is not None
+    assert stmt.account_name is None
+
+
+@pytest.mark.parametrize("product", [
+    "U.S. BANK SILVER - BUSINESS CHECKING",
+    "U.S. BANK GOLD - BUSINESS CHECKING",
+    "SILVER BUSINESS CHECKING",
+    "U.S. BANK SMARTLY CHECKING",
+    "PLATINUM BUSINESS MONEY MARKET",
+])
+def test_f14_every_product_the_bank_actually_prints_still_passes_the_shape(product):
+    stmt = parse_us_bank_statement(product_replaced_by(product))
+    assert stmt is not None
+    assert stmt.account_name == product
+
+
+def test_f14_the_statement_is_still_published_without_a_product_name():
+    """Refusing the NAME must not refuse the statement: the money is unaffected."""
+    stmt = parse_us_bank_statement(product_replaced_by(PROSE))
+    assert stmt.account_name is None
+    assert amounts(stmt) == ANCHOR_AMOUNTS
+    assert stmt.ending_balance == 1420.00

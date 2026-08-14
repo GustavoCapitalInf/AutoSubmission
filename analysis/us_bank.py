@@ -196,6 +196,27 @@ def _period(markdown: str) -> tuple[str, str, int] | None:
 _HEADER_FURNITURE = ("Member FDIC", "U.S. Bank National Association")
 _ACCOUNT_NUMBER_LINE_RE = re.compile(r"^Account Number\b")
 
+#: What a product line LOOKS like, as against a sentence. U.S. Bank sets its
+#: product register in capitals — `U.S. BANK SILVER - BUSINESS CHECKING`,
+#: `PLATINUM BUSINESS MONEY MARKET`, `U.S. BANK SMARTLY CHECKING` — so a line
+#: carrying lower-case words is prose, not a product.
+#:
+#: Checking the SHAPE and not merely the position is what stops the anchor
+#: publishing whatever happens to sit above the header block when the product
+#: line is missing: the page that precedes an Account Summary can be a wall of
+#: disclosure, and a marketing sentence published as the account's name is a
+#: worse answer than admitting the product was not printed.
+_PRODUCT_LINE_RE = re.compile(r"[A-Z0-9][A-Z0-9 .&'/-]*[A-Z0-9]")
+_PRODUCT_LINE_MAX = 60
+
+
+def _looks_like_a_product(line: str) -> bool:
+    return (
+        len(line) <= _PRODUCT_LINE_MAX
+        and any(character.isalpha() for character in line)
+        and bool(_PRODUCT_LINE_RE.fullmatch(line))
+    )
+
 
 def _product_name(markdown: str) -> str | None:
     lines = [line for line in map(compact_whitespace, markdown.splitlines()) if line]
@@ -210,7 +231,7 @@ def _product_name(markdown: str) -> str | None:
             elif not _ACCOUNT_NUMBER_LINE_RE.match(above):
                 break
             cursor -= 1
-        if saw_member and cursor >= 0:
+        if saw_member and cursor >= 0 and _looks_like_a_product(lines[cursor]):
             return lines[cursor]
     return None
 

@@ -7,7 +7,7 @@ from .date_tokens import iso_from_month_day
 from .money import parse_digit_scrubbed
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
-from .tables import table_rows
+from .tables import compact_whitespace, table_rows
 
 
 
@@ -44,7 +44,39 @@ def _money(value: str) -> float | None:
 _SUMMARY_CELL = r"(\(?\$[\d,]+\.\d{2}\)?)"
 
 
-def _native_summary(markdown: str, stmt: Statement) -> Statement:
+#: How each printed summary cell is published. Capital One brackets a cell to
+#: mark it NEGATIVE, so the printed sign is real information and reading it is
+#: not optional — especially now that the unbracketed form of a non-zero cell
+#: parses at all (it did not before `_SUMMARY_CELL`).
+#:
+#: The rule, applied deliberately and identically to all three totals:
+#:
+#: * BALANCES (`Previous`, `Ending`, `Average Collected`) are published SIGNED.
+#:   An overdrawn account really does print `($59.78)` and really is negative.
+#: * TOTALS (`Deposits/Credits`, `Checks/Debits`, `Service Charges`) are
+#:   published as the POSITIVE MAGNITUDE the schema specifies for each of them.
+#:   The printed sign is still read, and used to CHECK that the cell points the
+#:   way its column requires — credits in, debits and charges out. `abs()` on
+#:   its own cannot do that: it maps `($15.00)` and `$15.00` onto the same
+#:   published 15.00, so a service charge and a service-charge REFUND become
+#:   indistinguishable, and a bracketed `Deposits/Credits` would publish a
+#:   negative total with no summary identity check downstream to catch it.
+#:
+#: A cell whose printed sign contradicts its column is REFUSED, not silently
+#: normalised: no such document exists in the archive, so publishing a guess
+#: about one would be inventing a reading rather than reporting one.
+def _magnitude(value: float | None, *, outflow: bool) -> float | None:
+    """The published magnitude of a total, or None if it points the wrong way."""
+    if value is None:
+        return None
+    if outflow and value > 0:
+        return None
+    if not outflow and value < 0:
+        return None
+    return abs(value)
+
+
+def _native_summary(markdown: str, stmt: Statement) -> tuple[Statement, float | None]:
     m = re.search(
         r"Previous Balance\s+\d{2}/\d{2}/\d{2}\s+" + _SUMMARY_CELL + r"\s+"
         r"Number of Days in Cycle\s+(\d+)\s+"
@@ -58,19 +90,26 @@ def _native_summary(markdown: str, stmt: Statement) -> Statement:
         re.IGNORECASE | re.DOTALL,
     )
     if not m:
-        return stmt
+        return stmt, None
     beginning, days, credit_count, credits, debit_count, debits, avg, fees, ending = m.groups()
+    charge = _money(fees)
+    total_credits = _magnitude(_money(credits), outflow=False)
+    total_debits = _magnitude(_money(debits), outflow=True)
+    service_charge = _magnitude(charge, outflow=True)
+    if total_credits is None or total_debits is None or service_charge is None:
+        # A printed cell contradicts its own column. The summary is not read.
+        return stmt, None
     return stmt.model_copy(update={
         "beginning_balance": _money(beginning),
         "days_in_period": int(days),
         "stated_credit_count": int(credit_count),
-        "stated_total_credits": _money(credits),
+        "stated_total_credits": total_credits,
         "stated_debit_count": int(debit_count),
-        "stated_total_debits": abs(_money(debits) or 0.0),
+        "stated_total_debits": total_debits,
         "stated_average_balance": _money(avg),
-        "stated_service_charge": abs(_money(fees) or 0.0),
+        "stated_service_charge": service_charge,
         "ending_balance": _money(ending),
-    })
+    }), charge
 
 
 def _native_transactions(markdown: str, *, year: int, beginning_balance: float | None) -> list[Transaction]:
@@ -125,6 +164,32 @@ def _looks_like_credit(description: str) -> bool:
     ))
 
 
+#: The account line, where a layout prints one: the product the account is,
+#: followed by its number, alone on its line — `Business Enhanced Checking
+#: 123456789`. Read STRUCTURALLY (a capitalised multi-word product name and a
+#: run of account digits), never by naming a product.
+#:
+#: This parser published `account_name="Business Basic Checking"` on every
+#: document it read — the same R-1 class as the us_bank product name, and a
+#: worse instance of it: the phrase is printed in NONE of the 22 documents this
+#: parser validates. Its only occurrence anywhere is in a FILENAME, which
+#: `analyze_markdown` strips at the admissibility boundary before any parser
+#: sees the text, so it was never evidence in the first place. The native
+#: layout prints no product line at all, so the honest reading of these
+#: statements is that the product is not stated — `None`, not a guess.
+_ACCOUNT_LINE_RE = re.compile(
+    r"^(?P<product>[A-Z][A-Za-z]*(?:[ /][A-Z][A-Za-z]*){1,5})\s+(?P<number>\d{6,})\s*$",
+    re.MULTILINE,
+)
+
+
+def _account_line(markdown: str) -> tuple[str | None, str | None]:
+    m = _ACCOUNT_LINE_RE.search(markdown)
+    if m is None:
+        return None, None
+    return compact_whitespace(m.group("product")), m.group("number")
+
+
 def _period(markdown: str) -> tuple[str, str] | None:
     m = re.search(
         r"ACCOUNT SUMMARY\s+FOR PERIOD\s+([A-Z]+)\s+(\d{1,2}),\s+(\d{4})\s+-\s+([A-Z]+)\s+(\d{1,2}),\s+(\d{4})",
@@ -143,27 +208,54 @@ def _period(markdown: str) -> tuple[str, str] | None:
     return start, end
 
 
+#: The ledger wording that names a cycle charge outright.
+_CYCLE_CHARGE_RE = re.compile(r"\b(?:maintenance|cycle service)\s+charge\b", re.IGNORECASE)
+
+#: What a bank-imposed fee is CALLED in this ledger, as against what a purchase
+#: is called. Every fee row the archive prints at a cycle boundary is one of
+#: `Service charge`, `Maintenance charge`, `NSF charge`, `Cash deposit limit
+#: exceeded`. This is the bank's own fee lexicon — the same class of knowledge
+#: as a column heading, keyed on no customer, amount, date or account.
+#:
+#: It is REQUIRED by the arithmetic arm below and that requirement is load
+#: bearing: amount-and-window alone re-dates any debit that happens to equal
+#: the printed charge, so a $12.00 purchase posted the day after a cycle that
+#: printed a ($12.00) charge would be silently moved AND relabelled as a
+#: charge. Matching the amount says only that two numbers agree.
+_FEE_SHAPED_RE = re.compile(
+    r"\b(?:charge|charges|fee|fees|nsf|overdraft|penalty)\b|\blimit\s+exceeded\b",
+    re.IGNORECASE,
+)
+
+
 def _is_cycle_charge(txn: Transaction, printed_charge: float | None) -> bool:
     """Is this row the charge the summary states for the cycle?
 
-    Two readings, either sufficient. The first is the bank's ledger wording.
-    The second is the bank's own arithmetic: `Service Charges` states one
-    figure for the cycle, so a debit of exactly that figure posted at the cycle
-    boundary is the row that total accounts for, whatever the ledger called it
-    — `Cash deposit limit exceeded`, on the document that needed this.
+    Two readings, either sufficient.
+
+    The first is the bank's ledger wording, unchanged: a row that calls itself
+    a maintenance or cycle service charge is one.
+
+    The second is the bank's own arithmetic, and it is deliberately narrow: a
+    row that (a) is worded like a fee at all, (b) is a debit, and (c) equals the
+    printed `Service Charges` figure with the SAME SIGN. Sign, not magnitude:
+    Capital One brackets a cell to mark it negative, so a charge prints
+    `($12.00)` and reads back as −12.00, and comparing magnitudes would let a
+    printed service-charge REFUND stand in for a charge.
 
     That identification is corroborated independently by the printed counts:
     `N Checks/Debits` counts every debit row EXCEPT the one the service-charge
     total covers, and it is short by exactly one on every document that prints
     a non-zero charge and exact on every document that prints a zero one.
     """
-    if re.search(r"\b(?:maintenance|cycle service)\s+charge\b", txn.description, re.IGNORECASE):
+    if _CYCLE_CHARGE_RE.search(txn.description):
         return True
     return (
         printed_charge is not None
-        and printed_charge > 0
+        and printed_charge < 0
         and txn.amount < 0
-        and abs(abs(txn.amount) - printed_charge) < 0.005
+        and abs(txn.amount - printed_charge) < 0.005
+        and bool(_FEE_SHAPED_RE.search(txn.description))
     )
 
 
@@ -211,21 +303,24 @@ def parse_capital_one_statement(markdown: str) -> Statement | None:
     period_start, period_end = period
     year = int(period_end[:4])
 
+    product, number = _account_line(markdown)
     stmt = Statement(
         bank="Capital One",
-        account_name="Business Basic Checking",
+        account_name=product,
         period_start=period_start,
         period_end=period_end,
     )
-
-    acct = re.search(r"\bBusiness Basic Checking\s+([0-9]{6,})\b", markdown, re.IGNORECASE)
-    if acct:
-        stmt.account_number = acct.group(1)
+    if number is not None:
+        stmt.account_number = number
 
     rows = table_rows(markdown)
     prev_balance = stmt.beginning_balance
     in_detail = False
     txns: list[Transaction] = []
+    #: The printed service charge WITH its sign, for the cycle-charge guard.
+    #: `stated_service_charge` is published as a magnitude, and a magnitude
+    #: cannot tell a charge from a refund.
+    signed_charge: float | None = None
 
     for cells in rows:
         if len(cells) == 2:
@@ -244,6 +339,7 @@ def parse_capital_one_statement(markdown: str) -> Statement | None:
                 stmt.stated_debit_count = int(count.group(1)) if count else stmt.stated_debit_count
                 stmt.stated_total_debits = abs(value) if value is not None else None
             elif "service charge" in low:
+                signed_charge = value
                 stmt.stated_service_charge = abs(value) if value is not None else None
             elif "ending balance" in low:
                 stmt.ending_balance = value
@@ -288,12 +384,12 @@ def parse_capital_one_statement(markdown: str) -> Statement | None:
         prev_balance = balance
 
     if not txns:
-        stmt = _native_summary(markdown, stmt)
+        stmt, signed_charge = _native_summary(markdown, stmt)
         txns = _native_transactions(markdown, year=year, beginning_balance=stmt.beginning_balance)
 
     if not txns or stmt.beginning_balance is None or stmt.ending_balance is None:
         return None
     stmt.transactions = _normalize_cycle_service_charge_dates(
-        txns, period_end, stmt.stated_service_charge
+        txns, period_end, signed_charge
     )
     return stmt

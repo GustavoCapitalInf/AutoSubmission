@@ -8767,3 +8767,168 @@ zero     printed Service Charges: 10 documents, captured-minus-stated debits =  
 credit direction: 0 mismatches on all 22
 ```
 
+## DB12. Amendments from adversarial review
+
+Ocean's verdict was SHIP with five closures, all reviewer-evidenced, all in
+these two files. Each is closed below with the fixture the review asked for.
+Containment after the closures is unchanged: **improved 28, regressed 0** over
+the 96-document family, **0 outcome movers** introduced by the closures
+themselves, and archive-wide **0 documents changed outside the two folders**.
+
+**C1 — the printed sign is read, not flattened** (`capital_one.py`).
+`abs(_money(fees))` mapped `($15.00)` and `$15.00` onto the same published
+15.00. That mattered *because of my own widening*: before `_SUMMARY_CELL` an
+unbracketed non-zero cell did not parse at all, so the collision was newly
+reachable and I introduced it. The signed value is now read, and the
+cycle-charge guard tests SIGN rather than magnitude.
+
+**C2 — one stated rule for every summary cell** (`capital_one.py`).
+`stated_total_credits` was the single summary cell read without `abs()`, so a
+bracketed `Deposits/Credits` would have published −500.0 with no summary
+identity check downstream to catch it. The rule is now written down at the top
+of the reader and applied identically to all of them: **balances are published
+SIGNED** (an overdrawn account really does print `($59.78)`), **totals are
+published as the POSITIVE MAGNITUDE the schema specifies**, and the printed
+sign is still read and used to CHECK that each cell points the way its column
+requires. A cell contradicting its column is refused rather than normalised —
+no such document exists in the archive, so publishing a guess about one would
+be inventing a reading.
+
+**C3 — matching an amount is not identifying a fee** (`capital_one.py`).
+The arithmetic arm re-dated ANY debit equal to the printed charge inside the
+window, and relabelled it with a `(printed …)` annotation: the reviewer's
+$12.00 STARBUCKS purchase against a printed `($12.00)` charge was silently
+moved onto the cycle end and presented as a service charge. My negative
+fixture used a different amount, so it covered the amount axis and nothing on
+this one. The arm now additionally requires the row to be **worded like a fee**
+(`_FEE_SHAPED_RE` — the bank's own fee lexicon, which is what admits
+`Cash deposit limit exceeded` and rejects a merchant name). The reviewer's
+exact same-amount fixture is pinned, plus a parametrised set of ordinary rows
+that must never be adopted however well the amount agrees.
+
+Latent, not live: no document in the archive had a non-fee debit matching its
+printed charge inside the window — the only five rows in that window across the
+whole family are genuine fees, so nothing published was ever wrong on this
+axis. The fixture exists so it stays that way.
+
+**C4 — a product line is product-SHAPED, not merely product-POSITIONED**
+(`us_bank.py`). The anchor published whatever line sat above the header block;
+with the product line replaced by prose it published a marketing sentence.
+The anchored line is now validated structurally — U.S. Bank sets its product
+register in capitals, so a line carrying lower-case words is prose — and an
+unshaped line publishes `None`. Refusing the NAME never refuses the statement:
+a pinned test asserts the money is published exactly as before.
+
+**C5 — the hardcoded `account_name`, the R-1 class still standing in the other
+file** (`capital_one.py`). The parser published
+`account_name="Business Basic Checking"` on every document. Measured over the
+22 documents it validates: the phrase appears in **0 of 22** — only 4 contain
+the word "checking" at all, and in every one of those it is inside a
+transaction description (a counterparty named `Delve Checkings`). Its one
+occurrence anywhere in the family is in a FILENAME, which `analyze_markdown`
+strips at the admissibility boundary before any parser sees the text, so it was
+never evidence. This is a worse instance than the us_bank one, which at least
+named a product 4 documents really printed.
+
+The literal is gone, along with the account-number regex that was keyed to the
+same phrase (it matched nothing, so `account_number` was None on all 22 and
+still is). A structural `_ACCOUNT_LINE_RE` reads a printed
+`<Product Name> <account digits>` line where a layout prints one; the native
+layout prints none, so all 22 publish `account_name=None` — the honest reading.
+
+**Movers introduced by the closures: 22, all `account_name`, nothing else.**
+`Business Basic Checking` → `None` on 12 previously-validated and 10
+newly-validated capital_one documents. No ledger row, balance, ADB, count or
+outcome moved.
+
+Full `account_name` movement, base → final, all 69 named by class:
+
+| base | final | documents |
+|---|---|---|
+| `Platinum Business Money Market` | `U.S. BANK SILVER - BUSINESS CHECKING` | 26 |
+| `Platinum Business Money Market` | `U.S. BANK GOLD - BUSINESS CHECKING` | 10 |
+| `Platinum Business Money Market` | `PLATINUM BUSINESS MONEY MARKET` | 4 (case only) |
+| `Business Basic Checking` | `None` | 12 |
+| `None` | `SILVER BUSINESS CHECKING` | 11 (newly validated) |
+| `None` | `U.S. BANK SMARTLY CHECKING` | 5 (newly validated) |
+| `None` | `U.S. BANK GOLD - BUSINESS CHECKING` | 1 (newly validated) |
+
+## DB13. Recorded for the merge, no action taken
+
+**(a) Four dangling `count_semantics` citations into these two files.** The
+table refresh is Ocean's at merge; the old→new mapping is:
+
+| `count_semantics.py` | cites | was (base `d70efbe`) | now |
+|---|---|---|---|
+| `:104` `capital_one:credit` | `capital_one.py:37-39` | `_native_summary` def + regex head | `:79-92` (signature now returns the signed charge too) |
+| `:104` `capital_one:credit` | `capital_one.py:189-193` | the `Business Basic Checking` account regex | **removed**; two-cell credits reader now `:333-336`, structural account line `:180-189` |
+| `:111` `capital_one:debit` | `capital_one.py:20-28` | `_AMOUNT_RE` block | `:14-28`, unchanged in substance |
+| `:111` `capital_one:debit` | `capital_one.py:189-197` | account regex + rows head | two-cell debit reader `:337-340`, service charge `:341-342`, `_native_summary` `:79-116` |
+| `:301` `us_bank:credit` | `us_bank.py:293-294` | the two inline `sum(count …)` expressions | `_direction_count` `:399-419`, called at `:467-468` |
+| `:319` `us_bank:debit` | `us_bank.py:293-294` | same | same |
+
+The us_bank citations' *argument* is unchanged — the count is still the sum of
+a direction's printed `# Items` cells, split by the sign of the category
+amount — so only the line numbers are stale, not the reasoning.
+
+**(b) Duplicated-category double-count (pre-existing, base-identical, carded).**
+If the summary grid printed one category name twice, both readings sum its
+count twice AND read its detail section twice, and every downstream check
+still passes because the doubled rows agree with the doubled total. Reproduced
+against the base blob and this branch in one process:
+`base=(2, 1, 3)  branch=(2, 1, 3)  identical`. No archive document prints a
+duplicated category. Not fixed here: it is not this cell's defect and fixing it
+blind would move a reading no document exercises.
+
+**(c) Zero-amount-category count drop (pre-existing, base-identical).**
+A category whose printed amount is exactly `0.00` is counted in neither
+direction, so its `# Items` figure is dropped from both published counts.
+Reproduced the same way: `base=(1, 1, 2)  branch=(1, 1, 2)  identical`. This
+is the direct consequence of splitting direction by the sign of the category
+amount — the scope `count_semantics` surveyed — so changing it would move the
+count meaning the table pins.
+
+## DB14. Post-review proofs
+
+```
+$ python -m pytest tests/test_us_bank_variants.py tests/test_capital_one_variants.py -q
+105 passed in 1.30s
+EXIT=0
+
+$ python -m pytest tests/test_parser_expectations_baseline.py \
+    tests/test_parser_conformance.py tests/test_parser_detection_markers.py \
+    tests/test_no_parser_helper_clones.py tests/test_no_statement_hardcodes.py \
+    tests/test_r1_hardcodes.py tests/test_parser_registry.py \
+    tests/test_parser_registry_entries.py tests/test_count_semantics.py \
+    tests/test_stated_counts.py tests/test_shared_parser_utils.py \
+    tests/test_money.py -q
+1050 passed, 1 warning in 8.37s
+EXIT=0
+
+$ python -m pytest -q
+3080 passed, 18 deselected, 1 warning in 451.14s (0:07:31)
+EXIT=0
+
+$ python corpus_gate.py
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  1007.1s
+RESULT: GREEN
+EXIT=0
+```
+
+```
+# the 96-document replay, re-run after the closures
+closures vs pre-review branch : outcome movers 0, field movers 22 (all account_name)
+base -> final                 : improved 28, regressed 0, over 96 documents
+US Bank      before {validated 40, parser_declined 17, no_parser_matched 2}
+             after  {validated 57, no_parser_matched 2}
+Capital One  before {validated 10, parser_declined 16, withheld_adb 2, no_parser_matched 9}
+             after  {validated 21, parser_declined 6,  withheld_adb 1, no_parser_matched 9}
+non-account_name field movers on outcome-stable documents: NONE
+
+# archive-wide containment, re-proven after the closures
+scanned 3,367 documents; 85 detected; changed 79, improved 28, regressed 0
+changed outside the two folders: 0
+base arm still reproduces run 88be9dd3 exactly: 0 mismatches
+```
