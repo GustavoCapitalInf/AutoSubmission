@@ -7243,12 +7243,26 @@ folder labels (609 resolved): **zero claims by any registration this cell
 touched**, and — diffed against a run of the same probe at the base commit —
 **zero change to any other parser's claim set** on any of the 609.
 
-**`count_semantics`:** `rbc` is COMPARABLE in both directions and that is
-unchanged. Card B's personal product prints no counts and claims none. **The
-French path now ASSIGNS the two counts it always printed and never read — new
-data for an existing comparable id, on 19 documents.** Flagged here for
-Ocean's table review; `analysis/count_semantics.py` is untouched. `cibc` is a
-new registration and therefore UNSURVEYED, correctly; it prints no counts.
+**`count_semantics` — the one item that needs Ocean's table review.**
+`analysis/count_semantics.py` is untouched. What changed is the data reaching
+it:
+
+* `rbc` is COMPARABLE in both directions and stays so. Card B's personal
+  product prints no counts and claims none, so nothing new is emitted for it.
+* **`rbc_french` already carries a COMPARABLE entry — for counts the parser
+  had never once read.** Its entry describes "the French twin of 'Total
+  deposits & credits (N)'", which was speculative: the registration claimed one
+  document, the personal product, and that product prints no counts at all. The
+  business layout does print them, and now assigns them, so **the stated-count
+  check goes live on this id for the first time, on 19 documents**.
+* Measured: all 19 report `stated_credit_count_matches` and
+  `stated_debit_count_matches` TRUE, and **zero count-related integrity flags
+  are raised**. The newly-live check is quiet, so no outcome moves — but it is
+  now load-bearing where it previously could not fire.
+* Both `rbc` and `rbc_french` entries carry `file:line` provenance into
+  `analysis/rbc.py` that this cell has made stale.
+* `cibc` is a new registration and therefore UNSURVEYED, which is correct; it
+  prints no counts, so it emits nothing either way.
 
 ## RC8. Carried findings for Ocean
 
