@@ -631,3 +631,77 @@ def test_strip_currency_is_the_shared_cleaning_step():
     assert m.strip_currency("  $1,234.56 ") == "1234.56"
     assert m.strip_currency("1,234") == "1234"
     assert m.strip_currency("") == ""
+
+
+# ===========================================================================
+# 4. The sign-glyph class (W3 §MONEY-GRAMMAR card 1)
+# ===========================================================================
+
+MINUS = "−"   # U+2212 MINUS SIGN — what a web export prints
+NDASH = "–"   # U+2013 EN DASH — what OCR puts in its place
+
+#: Every format that honours a LEADING minus, paired with the ASCII spelling
+#: it has always accepted. The class must be honoured wherever the character
+#: is, and nowhere else.
+LEADING_MINUS_FORMATS = (
+    "STRICT_LEADING_SIGN", "STRICT_EITHER_MINUS", "STRICT_EITHER_MINUS_OR_PLUS",
+    "STRICT_EITHER_MINUS_OR_PLUS_SPACED", "EITHER_MINUS_SPACED",
+    "EITHER_MINUS_DROPPED", "EITHER_MINUS_PADDED", "LEADING_MINUS",
+    "LEADING_MINUS_DROPPED", "LEADING_MINUS_PADDED", "PARENS_OR_LEADING_MINUS",
+    "PARENS_OR_LEADING_MINUS_OR_PLUS",
+)
+
+
+@pytest.mark.parametrize("glyph", [MINUS, NDASH], ids=["u2212", "u2013"])
+@pytest.mark.parametrize("fmt_name", LEADING_MINUS_FORMATS)
+def test_every_format_reads_the_sign_class_as_it_reads_ascii(fmt_name, glyph):
+    """One normalization, inherited by every AmountFormat."""
+    fmt = getattr(m, fmt_name)
+    assert m.parse_amount(f"{glyph}1,234.56", fmt) == m.parse_amount("-1,234.56", fmt)
+    assert m.parse_amount(f"{glyph}1,234.56", fmt) == -1234.56
+
+
+@pytest.mark.parametrize("glyph", [MINUS, NDASH], ids=["u2212", "u2013"])
+def test_a_format_that_accepts_no_sign_still_accepts_none(glyph):
+    """The class is the sign's spelling, not a new permission to be signed."""
+    assert m.parse_amount(f"{glyph}1,234.56", m.STRICT_UNSIGNED) is None
+    assert m.parse_amount("-1,234.56", m.STRICT_UNSIGNED) is None
+
+
+@pytest.mark.parametrize("glyph", [MINUS, NDASH], ids=["u2212", "u2013"])
+def test_the_tolerant_parsers_no_longer_read_a_negative_as_positive(glyph):
+    """The dangerous half: these matched the digits AFTER the glyph and
+    returned the amount unsigned — a debit published as a credit."""
+    assert m.parse_money(f"{glyph}500.00") == -500.0
+    assert m.parse_money(f"{glyph}$500.00") == -500.0
+    assert m.parse_digit_scrubbed(f"{glyph}500.00", leading_minus=True) == -500.0
+
+
+@pytest.mark.parametrize("glyph", [MINUS, NDASH], ids=["u2212", "u2013"])
+def test_a_guarded_scrub_admits_the_class_its_guard_spells_in_ascii(glyph):
+    """`parse_digit_scrubbed` normalizes BEFORE the guard, so a caller's guard
+    keeps its ASCII spelling and still admits the printed glyph."""
+    guard = re.compile(r"-?\$?[0-9][0-9,]*\.[0-9]{2}")
+    assert m.parse_digit_scrubbed(
+        f"{glyph}$1,234.56", leading_minus=True, guard=guard
+    ) == -1234.56
+
+
+@pytest.mark.parametrize("glyph", [MINUS, NDASH], ids=["u2212", "u2013"])
+def test_the_raising_family_reads_the_class_rather_than_refusing_it(glyph):
+    assert m.parse_decimal(f"{glyph}1,234.56") == Decimal("-1234.56")
+    assert m.parse_grouped_float(f"{glyph}1,234.56") == -1234.56
+    assert m.parse_french_amount(f"{glyph}1 234,56") == -1234.56
+
+
+def test_normalize_sign_glyphs_touches_the_sign_and_nothing_else():
+    assert m.normalize_sign_glyphs(f"{MINUS}1{NDASH}2") == "-1-2"
+    assert m.normalize_sign_glyphs("ACME — CO") == "ACME — CO"  # em dash untouched
+    assert m.normalize_sign_glyphs("plain") == "plain"
+
+
+def test_minus_class_is_the_fragment_consumers_embed():
+    assert re.fullmatch(m.MINUS_CLASS, "-")
+    assert re.fullmatch(m.MINUS_CLASS, MINUS)
+    assert re.fullmatch(m.MINUS_CLASS, NDASH)
+    assert not re.fullmatch(m.MINUS_CLASS, "—")  # em dash is not a minus

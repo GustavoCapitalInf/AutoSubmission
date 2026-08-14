@@ -2244,6 +2244,38 @@ JPMorgan Chase Bank, N.A. Member FDIC
     assert "not_a_formal_statement" in report.integrity.flags
 
 
+def _chase_export_markdown(minus: str) -> str:
+    """The same export, printing its debit sign with `minus`."""
+    return f"""
+CHASE & for BUSINESS
+Printed from Chase for Business
+BUS COMPLETE CHK (...7350)
+BUS COMPLETE CHK (...7350)
+SEA WONDERS LLC
+Transactions
+Date Description Type Amount Balance
+May 14, 2026 ORIG CO ACH credit $20.00 $115.00
+May 13, 2026 SAMPLE Card {minus}$5.00 $95.00
+Apr 13,2026 REMOTE ONLINE Deposit $100.00 $100.00
+JPMorgan Chase Bank, N.A. Member FDIC
+"""
+
+
+@pytest.mark.parametrize("minus", ["-", "−", "–"], ids=["ascii", "u2212", "u2013"])
+def test_chase_export_reads_every_spelling_of_the_minus_it_prints(minus):
+    """W3 §MONEY-GRAMMAR card 1. The web export prints U+2212; while the row
+    finder knew only ASCII it matched from the `$` onwards, dropped the sign,
+    and booked the debit as a CREDIT — the balance walk then failed and the
+    document withheld. The three spellings must parse identically."""
+    report = analyze_markdown(_chase_export_markdown(minus), parse_mode="deterministic")
+    card = [t for t in report.statement.transactions if t.description == "SAMPLE Card"]
+    assert len(card) == 1
+    assert card[0].amount == -5.0
+    assert card[0].direction == "debit"
+    assert report.statement.ending_balance == 115.0
+    assert report.reconciliation.ok
+
+
 def test_southside_scanned_statement_reconciles_with_daily_balances():
     md = """
 SOUTHSIDE STATEMENT OF ACCOUNT

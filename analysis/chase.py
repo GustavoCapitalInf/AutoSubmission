@@ -4,7 +4,7 @@ import re
 from datetime import date
 
 from .date_tokens import iso_from_month_day, period_from_long_dates
-from .money import parse_digit_scrubbed
+from .money import MINUS_CLASS, parse_digit_scrubbed
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import clean_cell, compact_whitespace, group_rows, table_rows, tables_after
@@ -71,6 +71,14 @@ detect_export = make_detector(EXPORT_DETECTION_MARKERS, detection_text)
 detect = make_detector(DETECTION_MARKERS, detection_text)
 
 
+#: An amount cell in the web export's flattened row. The sign is matched
+#: through the shared class rather than a bare ``-``: this export prints
+#: U+2212 MINUS, and while the finder knew only ASCII it matched the token
+#: from the ``$`` onwards — dropping the sign the bank had plainly printed and
+#: booking every debit as a credit. (W3 §MONEY-GRAMMAR card 1.)
+_EXPORT_AMOUNT_RE = rf"{MINUS_CLASS}?\$\d[\d,]*\.\d{{2}}"
+
+
 def _parse_chase_business_export(markdown: str) -> Statement | None:
     if not detect_export(markdown).claims:
         return None
@@ -100,7 +108,7 @@ def _parse_chase_business_export(markdown: str) -> Statement | None:
             current_date = date(int(raw_year), _EXPORT_MONTHS[raw_month[:3].title()], int(raw_day))
         if current_date is None:
             continue
-        money_matches = list(re.finditer(r"-?\$\d[\d,]*\.\d{2}", line))
+        money_matches = list(re.finditer(_EXPORT_AMOUNT_RE, line))
         if len(money_matches) < 2:
             continue
         amount_match = money_matches[-2]

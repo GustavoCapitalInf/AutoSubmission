@@ -17,7 +17,10 @@ Surveyed format axes, all of which appear in the corpus:
 * symbols/grouping — ``$1,234.56``, ``C$1 234,56``, ``1 234.56`` (space
   thousands), ``1.234,56`` / ``1234,56`` (decimal comma, FR-CA)
 * negative markers — leading ``-``, trailing ``-`` (mainframe convention),
-  parentheses ``(1,234.56)``, and ``D``/``DR`` suffixes (TD Canada)
+  parentheses ``(1,234.56)``, and ``D``/``DR``/``OD`` suffixes (TD Canada).
+  The minus itself is a CLASS, not a character: ``U+2212 MINUS SIGN`` and
+  ``U+2013 EN DASH`` are printed for it as readily as ASCII ``-`` (see
+  `normalize_sign_glyphs`)
 * junk that must be tolerated — ``*`` fill characters, ``+`` prefixes, stray
   whitespace inside cells, values printed as ``.56`` with no leading zero
 * strictness — some parsers must reject anything that is not exactly
@@ -54,6 +57,8 @@ __all__ = [
     "parse_digit_scrubbed",
     "pad_leading_decimal",
     "strip_currency",
+    "normalize_sign_glyphs",
+    "MINUS_CLASS",
     "STRICT_UNSIGNED",
     "STRICT_LEADING_SIGN",
     "STRICT_EITHER_MINUS",
@@ -73,6 +78,35 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # Small shared primitives
 # ---------------------------------------------------------------------------
+
+#: The glyphs a statement can print for a minus sign, besides ASCII ``-``.
+#:
+#: ``U+2212 MINUS SIGN`` is the typographically correct character and is what
+#: a web export emits when it renders a negative amount; ``U+2013 EN DASH`` is
+#: what OCR and several producers' font maps put in its place. To a reader all
+#: three are the same mark, so a grammar that knows only ``-`` does not merely
+#: refuse the token — the strict engine returns ``None`` and drops the field,
+#: while the tolerant parsers match the digits *after* the glyph and return
+#: the amount POSITIVE. That is the dangerous half: a debit booked as a credit.
+MINUS_GLYPHS = "−–"
+#: The same class as a regex fragment, for consumers that find money tokens
+#: with their own pattern before handing them here. Use this rather than a
+#: bare ``-`` so a finder cannot match past a sign its parser would honour.
+MINUS_CLASS = r"[-−–]"
+
+_MINUS_TABLE = str.maketrans({glyph: "-" for glyph in MINUS_GLYPHS})
+
+
+def normalize_sign_glyphs(text: str) -> str:
+    """Rewrite every printed minus glyph to ASCII ``-``.
+
+    Applied at the entry of every parser in this module, so the sign class is
+    stated once and each `AmountFormat` — and each tolerant parser — inherits
+    it rather than re-enumerating the glyphs. This normalizes the SIGN only;
+    no other character is touched.
+    """
+    return text.translate(_MINUS_TABLE)
+
 
 def pad_leading_decimal(text: str) -> str:
     """``.56`` -> ``0.56``. Several banks print sub-dollar amounts that way."""
@@ -151,7 +185,7 @@ def parse_amount(value: str | None, fmt: AmountFormat) -> float | None:
     if not value:
         return None
 
-    text = value
+    text = normalize_sign_glyphs(value)
     for char in fmt.remove:
         text = text.replace(char, "")
     text = text.strip()
@@ -273,7 +307,8 @@ def parse_money(value: str | None) -> float | None:
     """
     if not value:
         return None
-    text = value.replace("$", "").replace(",", "").replace("*", "").strip()
+    text = normalize_sign_glyphs(value)
+    text = text.replace("$", "").replace(",", "").replace("*", "").strip()
     m = _TOKEN_RE.search(text)
     if not m:
         return None
@@ -294,7 +329,7 @@ def parse_money_tokens(value: str | None) -> list[float]:
     if not value:
         return []
     out = []
-    for number, suffix in _TOKENS_RE.findall(value):
+    for number, suffix in _TOKENS_RE.findall(normalize_sign_glyphs(value)):
         text = number.replace(",", "")
         amount = float(text)
         if "D" in suffix.upper() or "-" in suffix:
@@ -312,8 +347,9 @@ def parse_decimal(value: str) -> Decimal:
 
     For parsers that keep Decimal end to end so that their own totals are exact.
     """
+    text = normalize_sign_glyphs(value).replace("$", "").replace(",", "").strip()
     try:
-        return Decimal(value.replace("$", "").replace(",", "").strip())
+        return Decimal(text)
     except InvalidOperation as exc:
         raise ValueError(value) from exc
 
@@ -328,7 +364,7 @@ def parse_decimal_mixed_separator(value: str, *, single_comma_only: bool = False
     additionally requires that there be exactly one comma, which is the
     stricter rule one layout needs to avoid re-reading ``1,23,45``.
     """
-    text = value.replace("$", "").strip()
+    text = normalize_sign_glyphs(value).replace("$", "").strip()
     comma_is_decimal = (
         "." not in text
         and (text.count(",") == 1 if single_comma_only else "," in text)
@@ -347,7 +383,7 @@ def parse_decimal_mixed_separator(value: str, *, single_comma_only: bool = False
 
 def parse_grouped_float(value: str) -> float:
     """``1,234.56`` -> ``1234.56``; raises ValueError on anything else."""
-    return float(value.replace(",", ""))
+    return float(normalize_sign_glyphs(value).replace(",", ""))
 
 
 def parse_trailing_minus_dropped(value: str) -> float:
@@ -358,7 +394,8 @@ def parse_trailing_minus_dropped(value: str) -> float:
     direction the section heading already fixes, so honouring it would
     double-negate. Raises `ValueError` when the token is not a number.
     """
-    return float(value.replace("$", "").replace(",", "").rstrip("-"))
+    text = normalize_sign_glyphs(value)
+    return float(text.replace("$", "").replace(",", "").rstrip("-"))
 
 
 def parse_french_amount(value: str, *, parens: bool = False) -> float:
@@ -368,6 +405,7 @@ def parse_french_amount(value: str, *, parens: bool = False) -> float:
     the bracket convention French-language Canadian statements use instead of
     a minus sign. Raises ValueError when the token is not a number.
     """
+    value = normalize_sign_glyphs(value)
     if parens:
         bracketed = value.strip()
         negative = bracketed.startswith("(") and bracketed.endswith(")")
@@ -394,7 +432,7 @@ def parse_digit_scrubbed(
     fullmatch the (stripped) token first, so scrubbing never turns arbitrary
     text into a number.
     """
-    text = value.strip()
+    text = normalize_sign_glyphs(value).strip()
     if not text:
         return None
     if guard is not None and not guard.fullmatch(text):
