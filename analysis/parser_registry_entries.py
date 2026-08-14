@@ -67,6 +67,7 @@ from . import (
     us_bank,
     wells,
     wilson_muir,
+    woodforest,
 )
 from .parser_registry import Registration, register, registrations, validate_registry
 
@@ -134,6 +135,7 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("us_bank", "U.S. Bank", us_bank, "DETECTION_MARKERS", None, "parse_us_bank_statement"),
     ("wells_fargo", "Wells Fargo", wells, "DETECTION_MARKERS", None, "parse_wells_statement"),
     ("wilson_muir", "Wilson & Muir Bank & Trust", wilson_muir, "DETECTION_MARKERS", None, "parse_wilson_muir_statement"),
+    ("woodforest", "Woodforest National Bank", woodforest, "DETECTION_MARKERS", "detection_text", "parse_woodforest_statement"),
 )
 
 #: Per-registration overrides for anything that is not the default. Kept as a

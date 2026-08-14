@@ -139,6 +139,14 @@ FIXTURES: dict[str, str] = {
     "us_bank": "U.S. Bank National Association\nAccount Summary\n",
     "wells_fargo": "WELLS FARGO\nWF_NATIVE_TRANSACTIONS\n",
     "wilson_muir": "WILSON & MUIR\nSMALL BUSINESS PACKAGE SUMMARY\n",
+    # The institution alone is NOT this parser's evidence: other issuers'
+    # statements name Woodforest in a payee line. The two printed column
+    # headers are what make the document Woodforest's own statement.
+    "woodforest": (
+        "www.woodforest.com\nSummary of Accounts\n"
+        "ACCOUNT TYPE AND NUMBER BALANCE FORWARD TOTAL DEBITS TOTAL CREDITS CLOSING BALANCE\n"
+        "Transactions\nDate Credits Debits Balance Description\n"
+    ),
 }
 
 #: The other branch of each disjunctive marker. Same contract as FIXTURES:
