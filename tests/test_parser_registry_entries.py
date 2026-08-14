@@ -39,6 +39,7 @@ EXPECTED_ORDER = [
     "bmo_ca_business",
     "bmo_ca_business_french",
     "bmo_us_activity",
+    "burke_herbert",
     "capital_one",
     "chase",
     "cibc",
@@ -53,6 +54,7 @@ EXPECTED_ORDER = [
     "first_citizens",
     "first_community",
     "first_farmers",
+    "huntington",
     "ibc",
     "linkbank",
     "midflorida",
@@ -119,10 +121,11 @@ def test_registration_count_matches_the_documented_decision_points():
     """43 registry entry points, the three promoted sub-dispatches, the three
     BMO layouts (W3 §BMO-LAYOUTS), the Square Checking layout
     (W3 §CHASE-LAYOUTS), the Chase savings product (W3 §CHASE-CLOSURE), the
-    TD Canada Trust French layout (W3 §TD-FRENCH) and the English CIBC
-    layout (W3 §RBCCIBC) — the last five opened by the unclaimed-layout
+    TD Canada Trust French layout (W3 §TD-FRENCH), the English CIBC
+    layout (W3 §RBCCIBC) and the Huntington sectioned deposit statement
+    (W3 §HUNT-CELL) — the last six opened by the unclaimed-layout
     phase."""
-    assert len(pr.registrations()) == 53
+    assert len(pr.registrations()) == 55
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():

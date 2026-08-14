@@ -57,6 +57,15 @@ FIXTURES: dict[str, str] = {
         "BMO BANK N.A. MEMBER FDIC\nbmo.com/contact\n"
         "Account Summary\nBEGINNING BALANCE AS OF\nMonthly Activity Details\n"
     ),
+    # The issuer's own name appears in its OWN ledger, as the location of the
+    # ATM a card row was made at. Detection needs the domain, the platform's
+    # activity banner and its summary grid together.
+    "burke_herbert": (
+        "Burke & Herbert Bank\n"
+        "burkeandherbertbank.com\n"
+        "ACTIVITY IN DATE ORDER\n"
+        "PREVIOUS BALANCE 927.81- DAYS THIS STATEMENT PERIOD 28\n"
+    ),
     "capital_one": "CAPITAL ONE\nAN IMPORTANT MESSAGE TO OUR CLIENTS\n",
     "chase": "JPMorgan Chase Bank\nStatement of account\n*start*summary\n",
     "chase_export": "Printed from Chase for Business\nTransactions\n",
@@ -92,6 +101,15 @@ FIXTURES: dict[str, str] = {
     "first_farmers": (
         "WWW.FFBT.COM\nBUSINESS BASIC CHECKING ACCOUNT\n"
         "BALANCE LAST STATEMENT\nTOTAL DAYS IN STATEMENT PERIOD\n"
+    ),
+    # The issuer name alone is not the claim — a statement of another bank that
+    # records an ATM withdrawal at a Huntington branch prints it too. The claim
+    # needs this issuer's own summary grid and its service-mark footer.
+    "huntington": (
+        "THE HUNTINGTON NATIONAL BANK\n"
+        "Beginning Balance $1,000.00 Credits (+) 0.00 Debits (-) 0.00 "
+        "Ending Balance $1,000.00\n"
+        "Huntington Bancshares Incorporated\n"
     ),
     "ibc": "IBC\nBiz Rite Account Recap\n",
     "linkbank": "LINKBANK.COM\nActivity in Date Order\n",
