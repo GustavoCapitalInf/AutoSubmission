@@ -1,3 +1,55 @@
+"""First Citizens Bank business checking statements.
+
+What makes this layout tractable is that the bank prints a complete control
+record in `Your Account(s) At A Glance`: the beginning balance, the ending
+balance, a count AND a total for each of the four posting sections, and the
+monthly service charge. Those figures satisfy their own arithmetic —
+
+    beginning + deposits + other credits - checks - other debits
+        - monthly service charge = ending
+
+— so the block is checked against itself before any figure in it is believed,
+and a block that does not close is not read at all.
+
+Both balances are READ from that block. Nothing here derives an opening from
+an ending or lifts a closing out of a grid position; the parser this replaced
+computed `beginning = ending - credits + debits` from its own transaction
+sums, so its reconciliation could not fail no matter what it had parsed.
+
+Be precise about what that buys, because it is easy to overclaim. It does NOT
+make `analysis.reconcile` an independent test of the detail for this bank.
+`_matches` already requires each section's parsed total to equal the total the
+bank printed for it, and the printed summary closes on its own arithmetic, so
+on any statement this parser accepts, `beginning + sum(postings) == ending`
+follows algebraically: reconciliation restates the gate one layer down rather
+than testing it. The one path that can still fail it is a billed service
+charge whose itemisation could not be located, where
+`_service_charge_posting` returns nothing and the row is omitted rather than
+dated by guesswork.
+
+What the change actually buys is the GATE. The parse is checked against the
+counts and totals THIS document prints, where before it was checked against
+four constants memorized off one statement — so a misread section is rejected
+instead of being silently reconciled, and the check travels to every statement
+in the family instead of exactly one. This module therefore carries no memory
+of any particular statement's figures, dates, or counterparties. Every section
+is optional: a month with no deposits prints no deposits section, and the
+printed count for that section is then zero.
+
+Intake note (`ocr/native_text.py`): the generic native-text extractor flattens
+this bank's description column — every description in a section arrives
+concatenated onto one line, while the dates and amounts arrive as separate
+positional runs on the lines beneath it. Dates and amounts are therefore
+recoverable per posting and free-text descriptions are not, except where the
+section prints a structured row (checks) or holds a single posting. Rather
+than guess boundaries from a list of remembered merchant names — which is what
+tied the previous parser to one document — postings from a flattened column
+are labelled by the section that printed them. A layout-aware extractor for
+this bank (the `+wells` / `+desjardins-layout` pattern already in
+`ocr/native_text.py`) would restore per-posting descriptions for the whole
+family; it is not done here because that module also feeds the forensic
+oracles.
+"""
 from __future__ import annotations
 
 import re
@@ -8,196 +60,497 @@ from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import compact_whitespace
 
+_MONEY = r"\d[\d,]*\.\d{2}"
+_MONEY_RE = re.compile(_MONEY)
+_MMDD_RE = re.compile(r"\d{2}-\d{2}")
 
-_MONEY_RE = re.compile(r"\d[\d,]*\.\d{2}")
-_DATE_RE = re.compile(r"\d{2}-\d{2}")
-_DEBIT_START_RE = re.compile(
-    r"(?=(?:POS Sig|Overdraft Charge|Coast Payment|ACH Same Day|ACH Return Item|"
-    r"Platform Factory|Intuit \d+|Paypal Debit|Intuit \* Quickbooks|Nexanano|"
-    r"Verizon Wireless|Auto-Owners|ACH Batch|Insufficient Funds Fee|Irs Usataxpymt|"
-    r"Lowes Syf|Intuit Retry|Zelle|Overdraft Item Fee|The Sherwin|Purchase\s+Visa|"
-    r"Deere Credit|Travelers|Workiz Card|Digital Banking Fees))",
+#: The summary's own header. The value row sits within a few lines of it, but
+#: the extractor does not emit those lines in a stable order, so the block is
+#: read by token shape rather than by offset (see `_summary`).
+_SUMMARY_ANCHOR_RE = re.compile(
+    r"^Statement Period Days\s+Average Ledger Balance\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+#: One printed posting section, or the page furniture that closes the summary.
+#: Used both to bound the summary block and to bound each section.
+#: The debits section is renamed when the bank bills a monthly service charge
+#: in the same period, so the header is a pattern rather than a name.
+_OTHER_DEBITS_PATTERN = (
+    r"Other Debits (?:From Your Account|And Monthly Service Charge)"
+)
+
+_BOUNDARY_RE = re.compile(
+    r"^(?:Deposits To Your Account"
+    r"|Other Credits To Your Account"
+    r"|Checks Paid From Your Account"
+    rf"|{_OTHER_DEBITS_PATTERN}"
+    r"|Monthly Service Charge Description"
+    r"|Commercial Advantage Service Charge"
+    r"|Daily Balance Summary"
+    r"|Total\s*$"
+    r"|\*\s*Prior Check"
+    r"|Direct Customer Inquiry"
+    r"|An updated"
+    r"|FOLLOW THESE EASY STEPS"
+    r"|Statement Period:"
+    r"|Page \d+ of \d+"
+    r"|--- Page)",
     re.IGNORECASE,
 )
-_CREDIT_START_RE = re.compile(
-    r"(?=(?:Workiz Inc Payout|Delta Force Serv Return|POS Sig|Specialty Capit Funding))",
-    re.IGNORECASE,
+
+#: The summary control row: a beginning-balance sign, then a count and a signed
+#: total for each of the four sections, then the monthly service charge. The
+#: deposits total and the beginning/ending amounts are NOT on this row — the
+#: extractor emits them on their own lines — so only their signs appear here.
+#: A section whose count is zero prints its total without a sign, and the
+#: deposits sign is omitted entirely when no deposit posted.
+_CONTROL_ROW_RE = re.compile(
+    rf"^([+-])\s+(\d+)\s+(?:([+-])\s+)?"
+    rf"(\d+)\s+({_MONEY})([+-])?\s+"
+    rf"(\d+)\s+({_MONEY})([+-])?\s+"
+    rf"(\d+)\s+({_MONEY})([+-])?\s+"
+    rf"({_MONEY})([+-])?$"
 )
+
+_BARE_MONEY_RE = re.compile(rf"^({_MONEY})$")
+_SIGNED_MONEY_RE = re.compile(rf"^({_MONEY})([+-])$")
+_DAY_COUNT_RE = re.compile(r"^(\d{1,2})$")
+
+#: Section headers, and the description used for a posting the intake flattened
+#: beyond per-row attribution.
+_DEPOSITS = "Deposits To Your Account"
+_OTHER_CREDITS = "Other Credits To Your Account"
+_CHECKS = "Checks Paid From Your Account"
+_OTHER_DEBITS = _OTHER_DEBITS_PATTERN
+
+_SECTION_LABELS = {
+    _DEPOSITS: "Deposit",
+    _OTHER_CREDITS: "Other Credit",
+    _OTHER_DEBITS: "Other Debit",
+}
+
+_MONTHS = {
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
+}
 
 
 def _money(value: str) -> float:
     return parse_grouped_float(value)
 
 
-def _section(markdown: str, start: str, end: str) -> str:
-    m = re.search(re.escape(start) + r"(.*?)" + re.escape(end), markdown, re.IGNORECASE | re.DOTALL)
-    return m.group(1) if m else ""
+def _signed(amount: str, sign: str | None) -> float:
+    return -_money(amount) if sign == "-" else _money(amount)
 
 
-def _dates_and_amounts(block: str) -> tuple[list[str], list[float]]:
-    dates: list[str] = []
-    amounts: list[float] = []
-    for line in [ln.strip() for ln in block.splitlines() if ln.strip()]:
-        if re.fullmatch(r"(?:\d{2}-\d{2}\s*)+", line):
-            dates.extend(_DATE_RE.findall(line))
-        elif re.fullmatch(r"(?:\d[\d,]*\.\d{2}\s*)+", line):
-            amounts.extend(_money(raw) for raw in _MONEY_RE.findall(line))
-    return dates, amounts
+def _lines(block: str) -> list[str]:
+    return [line.strip() for line in block.splitlines() if line.strip()]
 
 
-def _parse_period(markdown: str) -> tuple[str, str, int] | None:
-    m = re.search(
+def _parse_period(markdown: str) -> tuple[date, date] | None:
+    match = re.search(
         r"Statement Period:\s*([A-Za-z]+)\s+(\d{1,2})\s*,\s*(\d{4})\s+Thru\s+"
         r"([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})",
         markdown,
         re.IGNORECASE,
     )
-    if not m:
+    if not match:
         return None
-    months = {
-        "january": 1,
-        "february": 2,
-        "march": 3,
-        "april": 4,
-        "may": 5,
-        "june": 6,
-        "july": 7,
-        "august": 8,
-        "september": 9,
-        "october": 10,
-        "november": 11,
-        "december": 12,
-    }
-    sm, sd, sy, em, ed, ey = m.groups()
-    start = date(int(sy), months[sm.lower()], int(sd))
-    end = date(int(ey), months[em.lower()], int(ed))
-    return start.isoformat(), end.isoformat(), end.year
+    start_month, start_day, start_year, end_month, end_day, end_year = match.groups()
+    if start_month.lower() not in _MONTHS or end_month.lower() not in _MONTHS:
+        return None
+    try:
+        start = date(int(start_year), _MONTHS[start_month.lower()], int(start_day))
+        end = date(int(end_year), _MONTHS[end_month.lower()], int(end_day))
+    except ValueError:
+        return None
+    return (start, end) if start <= end else None
 
 
 def _account(markdown: str) -> str | None:
-    m = re.search(r"Account Number\s*:\s*(\d+)", markdown, re.IGNORECASE)
-    return m.group(1) if m else None
+    match = re.search(r"Account Number\s*:\s*(\d+)", markdown, re.IGNORECASE)
+    return match.group(1) if match else None
 
 
-def _average_ledger_balance(markdown: str) -> float | None:
-    """Recover the average from the native PDF's interleaved summary columns."""
+def _account_name(markdown: str) -> str:
+    """The printed product line, which sits between the period and the account."""
     match = re.search(
-        r"Statement Period Days Average Ledger Balance.*?\n\s*\d+\s*\n"
-        r"\s*[\d,]+\.\d{2}\s*\nBeginning Balance.*?\n"
-        r"\s*[\d,]+\.\d{2}\s*\n\s*([\d,]+\.\d{2})\+?",
+        r"^Account Number\s*:.*$\n^(.+)$\n^Account Number\s*:",
         markdown,
-        re.IGNORECASE | re.DOTALL,
+        re.IGNORECASE | re.MULTILINE,
     )
-    return _money(match.group(1)) if match else None
+    return compact_whitespace(match.group(1)) if match else "Business Banking"
 
 
-def _daily_balances(markdown: str) -> list[tuple[int, float]]:
-    block = _section(markdown, "Daily Balance Summary", "An updated")
-    entries: list[tuple[int, float]] = []
-    lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
-    for idx, line in enumerate(lines[:-1]):
-        values = re.findall(r"03\s+([\d,]+\.\d{2})([+-])", line)
-        if not values:
+def _resolve(month: int, day: int, start: date, end: date) -> date | None:
+    """The one in-period date with this month and day, or None if not unique.
+
+    A statement period can straddle a year boundary, so the year is chosen by
+    the period rather than assumed. A month/day that lands outside the period,
+    or that is not a real calendar date, yields nothing and the caller fails
+    closed rather than inventing a posting date.
+    """
+    matches = []
+    for year in {start.year, end.year}:
+        try:
+            candidate = date(year, month, day)
+        except ValueError:
             continue
-        days = re.findall(r"-(\d{2})", lines[idx + 1])
-        for (raw_amount, sign), raw_day in zip(values, days):
-            amount = _money(raw_amount)
-            if sign == "-":
-                amount *= -1
-            entries.append((int(raw_day), round(amount, 2)))
-    return entries
+        if start <= candidate <= end:
+            matches.append(candidate)
+    unique = sorted(set(matches))
+    return unique[0] if len(unique) == 1 else None
 
 
-def _parse_deposits(markdown: str, *, year: int) -> list[Transaction]:
-    block = _section(markdown, "Deposits To Your Account", "Other Credits To Your Account")
+class _Summary:
+    """The printed At-A-Glance control record, once it has closed on itself."""
+
+    def __init__(
+        self,
+        *,
+        beginning: float,
+        ending: float,
+        days: int | None,
+        average: float | None,
+        deposits: tuple[int, float],
+        other_credits: tuple[int, float],
+        checks: tuple[int, float],
+        other_debits: tuple[int, float],
+        service_charge: float,
+    ) -> None:
+        self.beginning = beginning
+        self.ending = ending
+        self.days = days
+        self.average = average
+        self.deposits = deposits
+        self.other_credits = other_credits
+        self.checks = checks
+        self.other_debits = other_debits
+        self.service_charge = service_charge
+
+    @property
+    def total_credits(self) -> float:
+        return round(self.deposits[1] + self.other_credits[1], 2)
+
+    @property
+    def total_debits(self) -> float:
+        return round(self.checks[1] + self.other_debits[1], 2)
+
+    def closes(self) -> bool:
+        walked = (
+            self.beginning
+            + self.total_credits
+            - self.total_debits
+            - self.service_charge
+        )
+        return abs(round(walked - self.ending, 2)) < 0.005
+
+
+def _summary(markdown: str) -> _Summary | None:
+    """Read the At-A-Glance control record, or nothing.
+
+    The extractor emits this block's cells in an order that varies between
+    documents — `days` may precede or follow the beginning balance, and the
+    ending amount may precede or follow its own sign — so cells are recognised
+    by token shape, not position. Within a shape the printed order is stable:
+    the three unsigned money cells are the beginning balance, the deposits
+    total and the ending balance, in that order.
+
+    A statement with no activity at all prints no control row; its block then
+    exposes too few cells to tell a beginning balance from an ending one, and
+    this returns None rather than guess.
+    """
+    anchor = _SUMMARY_ANCHOR_RE.search(markdown)
+    if anchor is None:
+        return None
+    tail = markdown[anchor.end():]
+    block: list[str] = []
+    for line in _lines(tail):
+        if _BOUNDARY_RE.match(line):
+            break
+        block.append(line)
+
+    control = None
+    bare: list[float] = []
+    signed: list[float] = []
+    days: list[int] = []
+    for line in block:
+        row = _CONTROL_ROW_RE.match(line)
+        if row is not None:
+            if control is not None:
+                return None
+            control = row
+            continue
+        money = _BARE_MONEY_RE.match(line)
+        if money is not None:
+            bare.append(_money(money.group(1)))
+            continue
+        marked = _SIGNED_MONEY_RE.match(line)
+        if marked is not None:
+            signed.append(_signed(marked.group(1), marked.group(2)))
+            continue
+        count = _DAY_COUNT_RE.match(line)
+        if count is not None:
+            days.append(int(count.group(1)))
+
+    if control is None or len(bare) != 3 or len(days) > 1 or len(signed) > 1:
+        return None
+
+    (
+        beginning_sign,
+        deposit_count,
+        deposit_sign,
+        credit_count,
+        credit_total,
+        credit_sign,
+        check_count,
+        check_total,
+        check_sign,
+        debit_count,
+        debit_total,
+        debit_sign,
+        service_total,
+        service_sign,
+    ) = control.groups()
+
+    beginning_amount, deposit_total, ending_amount = bare
+    summary = _Summary(
+        beginning=-beginning_amount if beginning_sign == "-" else beginning_amount,
+        ending=ending_amount,
+        days=days[0] if days else None,
+        average=signed[0] if signed else None,
+        deposits=(
+            int(deposit_count),
+            -deposit_total if deposit_sign == "-" else deposit_total,
+        ),
+        other_credits=(int(credit_count), _signed(credit_total, credit_sign)),
+        checks=(int(check_count), abs(_signed(check_total, check_sign))),
+        other_debits=(int(debit_count), abs(_signed(debit_total, debit_sign))),
+        service_charge=abs(_signed(service_total, service_sign)),
+    )
+    return summary if summary.closes() else None
+
+
+def _section_blocks(markdown: str, header: str) -> list[str]:
+    """Every printed run of one section, in document order.
+
+    `header` is a regular expression, because one section's printed name
+    varies with what the bank billed that month. A section that spills across
+    a page prints its header again, so a section is a list of blocks rather
+    than a single span. Each block ends at the next structural boundary —
+    another section, the printed `Total`, or page furniture — never at a
+    remembered amount.
+    """
+    blocks: list[str] = []
+    for part in re.split(header, markdown, flags=re.IGNORECASE)[1:]:
+        collected: list[str] = []
+        for line in _lines(part):
+            if _BOUNDARY_RE.match(line):
+                break
+            collected.append(line)
+        if collected:
+            blocks.append("\n".join(collected))
+    return blocks
+
+
+def _positional_runs(block: str) -> tuple[list[str], list[float]]:
+    """Dates and amounts from a section whose columns arrive as parallel runs."""
     dates: list[str] = []
     amounts: list[float] = []
-    lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
-    for idx, line in enumerate(lines[:-1]):
-        month_amounts = re.findall(r"\b(03)\s+(\d[\d,]*\.\d{2})", line)
-        if not month_amounts:
+    for line in _lines(block):
+        if re.fullmatch(r"(?:\d{2}-\d{2}\s*)+", line):
+            dates.extend(_MMDD_RE.findall(line))
+        elif re.fullmatch(rf"(?:{_MONEY}\s*)+", line):
+            amounts.extend(_money(raw) for raw in _MONEY_RE.findall(line))
+    return dates, amounts
+
+
+def _flattened_postings(
+    markdown: str,
+    header: str,
+    *,
+    start: date,
+    end: date,
+    credit: bool,
+) -> list[Transaction] | None:
+    """Postings from a section whose description column the intake flattened.
+
+    Dates and amounts pair positionally and are trusted; descriptions are not
+    recoverable per row unless the section printed exactly one posting, in
+    which case the whole run belongs to it.
+    """
+    label = _SECTION_LABELS[header]
+    postings: list[Transaction] = []
+    for block in _section_blocks(markdown, header):
+        lines = _lines(block)
+        if not lines:
             continue
-        days = re.findall(r"-(\d{2})", lines[idx + 1])
-        for (month, raw_amount), day in zip(month_amounts, days):
-            dates.append(f"{month}-{day}")
-            amounts.append(_money(raw_amount))
-    if len(dates) != len(amounts):
-        return []
-    return [
-        Transaction(
-            date=date(year, int(mmdd[:2]), int(mmdd[3:])).isoformat(),
-            description="Deposit",
-            amount=amount,
-            direction="credit",
-        )
-        for mmdd, amount in zip(dates, amounts)
-    ]
-
-
-def _parse_other_credits(markdown: str, *, year: int) -> list[Transaction]:
-    block = _section(markdown, "Other Credits To Your Account", "Total\n44,862.06")
-    lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
-    if len(lines) < 3:
-        return []
-    desc_line = re.sub(r"^Date Description Amount\s+", "", lines[0], flags=re.IGNORECASE)
-    descriptions = [compact_whitespace(part) for part in _CREDIT_START_RE.split(desc_line) if part.strip()]
-    dates, amounts = _dates_and_amounts("\n".join(lines[1:]))
-    if len(descriptions) != len(dates) or len(dates) != len(amounts):
-        return []
-    return [
-        Transaction(
-            date=date(year, int(mmdd[:2]), int(mmdd[3:])).isoformat(),
-            description=description,
-            amount=amount,
-            direction="credit",
-        )
-        for description, mmdd, amount in zip(descriptions, dates, amounts)
-    ]
-
-
-def _parse_checks(markdown: str, *, year: int) -> list[Transaction]:
-    block = _section(markdown, "Checks Paid From Your Account", "*Prior Check")
-    txns: list[Transaction] = []
-    for check_no, mmdd, raw_amount in re.findall(r"(\d{4})\s+(\d{2}-\d{2})\s+(\d[\d,]*\.\d{2})", block):
-        txns.append(
-            Transaction(
-                date=date(year, int(mmdd[:2]), int(mmdd[3:])).isoformat(),
-                description=f"Check #{check_no}",
-                amount=-_money(raw_amount),
-                direction="debit",
+        run = re.sub(
+            r"^Date\s+Description\s+Amount\s*", "", lines[0], flags=re.IGNORECASE
+        ).strip()
+        dates, amounts = _positional_runs("\n".join(lines[1:]))
+        if len(dates) != len(amounts):
+            return None
+        for index, (mmdd, amount) in enumerate(zip(dates, amounts)):
+            when = _resolve(int(mmdd[:2]), int(mmdd[3:]), start, end)
+            if when is None:
+                return None
+            description = (
+                compact_whitespace(run) if len(dates) == 1 and run else label
             )
-        )
-    return txns
-
-
-def _parse_other_debits(markdown: str, *, year: int) -> list[Transaction]:
-    txns: list[Transaction] = []
-    for part in markdown.split("Other Debits From Your Account")[1:]:
-        block = part.split("Total\n74,263.31", 1)[0].split("Page ", 1)[0]
-        lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
-        if len(lines) < 3:
-            continue
-        desc_line = re.sub(r"^Date Description Amount\s+", "", lines[0], flags=re.IGNORECASE)
-        descriptions = [compact_whitespace(piece) for piece in _DEBIT_START_RE.split(desc_line) if piece.strip()]
-        dates, amounts = _dates_and_amounts("\n".join(lines[1:]))
-        if len(descriptions) != len(dates) or len(dates) != len(amounts):
-            return []
-        for description, mmdd, amount in zip(descriptions, dates, amounts):
-            txns.append(
+            postings.append(
                 Transaction(
-                    date=date(year, int(mmdd[:2]), int(mmdd[3:])).isoformat(),
+                    date=when.isoformat(),
                     description=description,
-                    amount=-amount,
+                    amount=amount if credit else -amount,
+                    direction="credit" if credit else "debit",
+                )
+            )
+    return postings
+
+
+def _parse_deposits(markdown: str, *, start: date, end: date) -> list[Transaction] | None:
+    """The deposits grid: month/amount cells above their own day cells."""
+    postings: list[Transaction] = []
+    for block in _section_blocks(markdown, _DEPOSITS):
+        lines = _lines(block)
+        for index, line in enumerate(lines[:-1]):
+            cells = re.findall(rf"\b(\d{{2}})\s+({_MONEY})", line)
+            if not cells:
+                continue
+            days = re.findall(r"-(\d{2})", lines[index + 1])
+            if len(days) != len(cells):
+                return None
+            for (month, amount), day in zip(cells, days):
+                when = _resolve(int(month), int(day), start, end)
+                if when is None:
+                    return None
+                postings.append(
+                    Transaction(
+                        date=when.isoformat(),
+                        description=_SECTION_LABELS[_DEPOSITS],
+                        amount=_money(amount),
+                        direction="credit",
+                    )
+                )
+    return postings
+
+
+#: One cheque in the checks grid. The number is optional: the bank prints a
+#: cheque it could not read the serial of with an empty number column, and its
+#: own check-image list then shows a bare `Chk#`. Requiring the number dropped
+#: such a row and left the section one cheque short of the printed count.
+_CHECK_ROW_RE = re.compile(rf"(?:(\d{{2,6}})\s+)?(\d{{2}}-\d{{2}})\s+({_MONEY})")
+
+
+def _parse_checks(markdown: str, *, start: date, end: date) -> list[Transaction] | None:
+    """The checks grid, which prints a structured row per cheque."""
+    postings: list[Transaction] = []
+    for block in _section_blocks(markdown, _CHECKS):
+        for number, mmdd, amount in _CHECK_ROW_RE.findall(block):
+            when = _resolve(int(mmdd[:2]), int(mmdd[3:]), start, end)
+            if when is None:
+                return None
+            postings.append(
+                Transaction(
+                    date=when.isoformat(),
+                    description=f"Check #{number}" if number else "Check",
+                    amount=-_money(amount),
                     direction="debit",
                 )
             )
-    return txns
+    return postings
+
+
+#: Where a billed service charge is itemised. The bank prints it in one of two
+#: places, and in BOTH it carries its own posting date and its own amount —
+#: neither is inferred here. It sits outside the four section totals, which is
+#: why the summary subtracts it separately.
+_SERVICE_CHARGE_BLOCKS = (
+    r"Monthly Service Charge Description",
+    r"[A-Z][a-z]+ Service Charge\s*$",
+)
+
+
+def _service_charge_posting(
+    markdown: str, charge: float, *, start: date, end: date
+) -> Transaction | None:
+    """The billed monthly service charge, as the posting the bank itemised.
+
+    Returns nothing when the charge is not billed, or when the itemisation
+    cannot be found and confirmed against the summary figure. A charge that
+    cannot be located is left out rather than dated by guesswork: the
+    statement still parses, and its detail simply does not close, which is the
+    honest outcome and the one `analysis.reconcile` is there to report.
+    """
+    if charge <= 0:
+        return None
+    for pattern in _SERVICE_CHARGE_BLOCKS:
+        for match in re.finditer(pattern, markdown, re.IGNORECASE | re.MULTILINE):
+            window = markdown[match.end():]
+            lines: list[str] = []
+            for line in _lines(window):
+                if _BOUNDARY_RE.match(line) and not lines:
+                    continue
+                if _BOUNDARY_RE.match(line):
+                    break
+                lines.append(line)
+            body = "\n".join(lines)
+            dates = _MMDD_RE.findall(body)
+            amounts = [_money(raw) for raw in _MONEY_RE.findall(body)]
+            if not dates or not any(abs(a - charge) < 0.005 for a in amounts):
+                continue
+            when = _resolve(int(dates[0][:2]), int(dates[0][3:]), start, end)
+            if when is None:
+                continue
+            return Transaction(
+                date=when.isoformat(),
+                description="Monthly Service Charge",
+                amount=-charge,
+                direction="debit",
+            )
+    return None
+
+
+def _matches(printed: tuple[int, float], postings: list[Transaction]) -> bool:
+    """A parsed section agrees with the count AND the total the bank printed."""
+    count, total = printed
+    if len(postings) != count:
+        return False
+    parsed = round(sum(abs(posting.amount) for posting in postings), 2)
+    return abs(parsed - abs(total)) < 0.005
 
 
 DETECTION_MARKERS = (
-    required("bank_name", lambda t: "First Citizens" in t or "Central Bank Operations" in t),
-    # R4-3: the name alone matches a statement that merely pays the bank.
-    required("issuer_domain", lambda t: "FIRSTCITIZENS.COM" in t.upper()),
+    # The processing centre that prints every statement in this family, or the
+    # bank's own name. The name alone appears on any statement that merely pays
+    # First Citizens (R4-3), which is what the second marker excludes.
+    required(
+        "bank_name",
+        lambda t: "First Citizens" in t or "Central Bank Operations" in t,
+    ),
+    # The printed summary this parser reads. Structural, and present on every
+    # statement in the family. The marker it replaces — the firstcitizens.com
+    # URL — occurs only inside a Treasury-agreement notice the bank inserted
+    # for part of 2026, so it was absent from 17 of the 41 genuine First
+    # Citizens statements in the archive and present on documents that are not
+    # statements at all.
+    required(
+        "summary_block",
+        lambda t: "Your Account(s) At A Glance" in t
+        or "Statement Period Days Average Ledger Balance" in t,
+    ),
 )
 
 detect = make_detector(DETECTION_MARKERS)
@@ -206,55 +559,57 @@ detect = make_detector(DETECTION_MARKERS)
 def parse_first_citizens_statement(markdown: str) -> Statement | None:
     if not detect(markdown).claims:
         return None
-    if "Other Debits From Your Account" not in markdown or "Daily Balance Summary" not in markdown:
-        return None
+
     period = _parse_period(markdown)
     account = _account(markdown)
-    if period is None or account is None:
+    summary = _summary(markdown)
+    if period is None or account is None or summary is None:
         return None
-    start, end, year = period
+    start, end = period
 
-    deposits = _parse_deposits(markdown, year=year)
-    other_credits = _parse_other_credits(markdown, year=year)
-    checks = _parse_checks(markdown, year=year)
-    other_debits = _parse_other_debits(markdown, year=year)
-    txns = deposits + other_credits + checks + other_debits
-
-    deposit_total = round(sum(t.amount for t in deposits), 2)
-    other_credit_total = round(sum(t.amount for t in other_credits), 2)
-    check_total = round(-sum(t.amount for t in checks), 2)
-    other_debit_total = round(-sum(t.amount for t in other_debits), 2)
-    daily = _daily_balances(markdown)
-    if not daily:
+    deposits = _parse_deposits(markdown, start=start, end=end)
+    other_credits = _flattened_postings(
+        markdown, _OTHER_CREDITS, start=start, end=end, credit=True
+    )
+    checks = _parse_checks(markdown, start=start, end=end)
+    other_debits = _flattened_postings(
+        markdown, _OTHER_DEBITS, start=start, end=end, credit=False
+    )
+    if deposits is None or other_credits is None or checks is None or other_debits is None:
         return None
-    ending_balance = daily[-1][1]
-    stated_total_credits = round(deposit_total + other_credit_total, 2)
-    stated_total_debits = round(check_total + other_debit_total, 2)
-    beginning_balance = round(ending_balance - stated_total_credits + stated_total_debits, 2)
 
-    expected = {
-        "deposits": (10, 55049.85, len(deposits), deposit_total),
-        "other_credits": (9, 44862.06, len(other_credits), other_credit_total),
-        "checks": (11, 9800.18, len(checks), check_total),
-        "other_debits": (86, 74263.31, len(other_debits), other_debit_total),
-    }
-    for _, (expected_count, expected_total, actual_count, actual_total) in expected.items():
-        if actual_count != expected_count or abs(actual_total - expected_total) > 0.01:
-            return None
+    # Every section is checked against the count and the total the bank printed
+    # for it. This is what the previous parser did with four remembered
+    # constants; the document supplies them.
+    if not (
+        _matches(summary.deposits, deposits)
+        and _matches(summary.other_credits, other_credits)
+        and _matches(summary.checks, checks)
+        and _matches(summary.other_debits, other_debits)
+    ):
+        return None
 
-    start_date = date.fromisoformat(start)
-    end_date = date.fromisoformat(end)
+    # The service charge is billed outside the four section totals, so it is
+    # recovered from its own itemisation rather than counted against them.
+    charge = _service_charge_posting(
+        markdown, summary.service_charge, start=start, end=end
+    )
+    billed = [charge] if charge is not None else []
+
     return Statement(
         bank="First Citizens Bank",
-        account_name="Business Banking",
+        account_name=_account_name(markdown),
         account_number=account,
-        period_start=start,
-        period_end=end,
-        days_in_period=(end_date - start_date).days + 1,
-        beginning_balance=beginning_balance,
-        ending_balance=ending_balance,
-        stated_total_credits=stated_total_credits,
-        stated_total_debits=stated_total_debits,
-        stated_average_balance=_average_ledger_balance(markdown),
-        transactions=txns,
+        period_start=start.isoformat(),
+        period_end=end.isoformat(),
+        days_in_period=summary.days if summary.days is not None else (end - start).days + 1,
+        beginning_balance=summary.beginning,
+        ending_balance=summary.ending,
+        stated_total_credits=summary.total_credits,
+        stated_total_debits=summary.total_debits,
+        stated_credit_count=summary.deposits[0] + summary.other_credits[0],
+        stated_debit_count=summary.checks[0] + summary.other_debits[0],
+        stated_average_balance=summary.average,
+        stated_service_charge=summary.service_charge,
+        transactions=deposits + other_credits + checks + other_debits + billed,
     )

@@ -111,8 +111,40 @@ def _parse_inline_rows(text: str, *, year: int, sign: int) -> list[Transaction]:
     return txns
 
 
+def _debits_section(markdown: str) -> str:
+    """Every debit the statement prints, not just the first sub-section.
+
+    `Debits` is a CONTAINER: the bank subdivides it into `ATM/Purchases` and
+    `Other Debits`, each repeating under a `(Continued)` heading on every page
+    it spills onto. Reading from `Other Debits` — a sub-section heading — to
+    `Deposits & Credits` therefore started AFTER any `ATM/Purchases` rows and
+    silently dropped them. Measured on the four `STATEMENTS_*-7816` statements
+    in the archive, that lost between 2,845.68 and 12,686.52 of printed debits
+    per statement and left every one of them failing reconciliation.
+
+    The container heading is the one that carries the electronic-cheque
+    footnote; sub-section and `(Continued)` headings carry no dated rows of
+    their own, so taking the whole container adds sub-sections without
+    double-counting anything. The narrower slice remains as a fallback for a
+    layout that prints no container heading at all.
+    """
+    container = section_between(markdown, r"(?m)^Debits\s+\*\*", r"Deposits & Credits")
+    if container.strip():
+        return container
+    return section_between(markdown, r"Other Debits\s+", r"Deposits & Credits")
+
+
+#: Where the cheque grid really ends: the next CONTAINER, never page
+#: furniture. `Please See Additional Information on Next Page` used to close
+#: it, which meant a cheque grid continuing under `Checks (Cont.)` on the
+#: following page was cut off at the page break — the same "a boundary inside
+#: the section is not the end of it" defect as the debits container above, and
+#: worth 8,310.98 and 2,306.38 of unread cheques on two archive statements.
+_CHECKS_END = r"(?:Total Debits|Debits\s+\*\*|Deposits & Credits|Current Balance)"
+
+
 def _parse_checks(markdown: str, *, year: int) -> list[Transaction]:
-    section = section_between(markdown, r"Checks .*?Total Checks\s+", r"(?:Debits|Deposits & Credits|Current Balance|Please See)")
+    section = section_between(markdown, r"Checks .*?Total Checks\s+", _CHECKS_END)
     txns: list[Transaction] = []
     for check_no, amount_raw, month, day in re.findall(r"(\d+\*?)\s+([\d,]+\.\d{2}|\.\d{2})\s+(\d{2})/(\d{2})", section):
         amount = _money(amount_raw)
@@ -129,7 +161,14 @@ def _parse_checks(markdown: str, *, year: int) -> list[Transaction]:
 
 DETECTION_MARKERS = (
     required("domain", lambda t: "citizensbank.com" in t.lower()),
-    required("product", lambda t: "Business Advisor Checking" in t),
+    # The printed summary this parser reads, not the name of one product. The
+    # marker it replaces — `Business Advisor Checking` — is one of at least
+    # three products the bank prints on this identical layout (the archive also
+    # holds `Business Green Checking` and `Clearly Better Business Checking`),
+    # and naming one of them declined 8 statements this parser reconciles to
+    # the cent. `Balance Calculation` is the block `_summary` parses, so the
+    # detector now claims exactly what the parser can read.
+    required("balance_calculation", lambda t: "Balance Calculation" in t),
 )
 
 detect = make_detector(DETECTION_MARKERS)
@@ -158,7 +197,7 @@ def parse_citizens_statement(markdown: str) -> Statement | None:
         stated_total_debits=debits,
         stated_average_balance=_average_balance(markdown),
     )
-    debits_text = section_between(markdown, r"Other Debits\s+", r"Deposits & Credits")
+    debits_text = _debits_section(markdown)
     credits_text = section_between(markdown, r"Deposits & Credits.*?Date Amount Description\s+", r"Current Balance\s+Daily Balance")
     txns = _parse_checks(markdown, year=year)
     txns.extend(_parse_inline_rows(debits_text, year=year, sign=-1))

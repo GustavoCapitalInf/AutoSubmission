@@ -74,7 +74,7 @@ FIXTURES: dict[str, str] = {
         "Date Description Withdrawals ($) Deposits ($) Balance ($)\n"
     ),
     "cibc_french": "CIBC\nDétail de vos opérations\n",
-    "citizens": "citizensbank.com\nBusiness Advisor Checking\n",
+    "citizens": "citizensbank.com\nBalance Calculation\n",
     "columbia_bank": (
         "COLUMBIA BANK\nMARKETPLACE CHECKING\nDEPOSITS/ADDITIONS\nDAILY BALANCES\n"
     ),
@@ -87,7 +87,7 @@ FIXTURES: dict[str, str] = {
     "farmers_merchants": (
         "FARMERS AND MERCHANTS BANK\nDEPOSITS AND CREDITS\n"
     ),
-    "first_citizens": "First Citizens\nfirstcitizens.com\n",
+    "first_citizens": "First Citizens\nYour Account(s) At A Glance\n",
     "first_community": "firstcommunity.com\nBUSINESS PLUS CKG\n",
     "first_farmers": (
         "WWW.FFBT.COM\nBUSINESS BASIC CHECKING ACCOUNT\n"
@@ -151,7 +151,7 @@ ALTERNATE_FIXTURES: dict[str, tuple[str, ...]] = {
     "bmo": ("BANK OF MONTREAL\nAccount Summary Totals\n",),
     "chase": ("\nCHASE\nStatement of account\n*start*summary\n",),
     "consumers": ("ConsumersCU.org\nSummary of All Accounts\n",),
-    "first_citizens": ("Central Bank Operations\nfirstcitizens.com\n",),
+    "first_citizens": ("Central Bank Operations\nYour Account(s) At A Glance\n",),
     "td_canada": (
         "<table>\n<tr><td>BUSINESS CHEQUING ACCOUNT - CAD</td></tr>\n</table>\n",
     ),

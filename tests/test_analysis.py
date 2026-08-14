@@ -1030,9 +1030,51 @@ def test_parse_first_citizens_statement_reconciles_section_totals():
     assert stmt.stated_average_balance == 8117.14
     assert round(sum(t.amount for t in stmt.transactions if t.amount > 0), 2) == 99911.91
     assert round(-sum(t.amount for t in stmt.transactions if t.amount < 0), 2) == 84063.49
-    assert any("Specialty Capit Funding" in t.description for t in stmt.transactions)
-    assert any("Overdraft Charge" in t.description for t in stmt.transactions)
+    # Counts and the service charge come off the printed summary too, and the
+    # counts account for every posting: 10 deposits + 9 other credits,
+    # 11 cheques + 86 other debits.
+    assert stmt.stated_credit_count == 19
+    assert stmt.stated_debit_count == 97
+    assert stmt.stated_credit_count + stmt.stated_debit_count == len(stmt.transactions)
+    assert stmt.stated_service_charge == 0.0
+    # Cheques keep their printed serial; the deposits grid prints no
+    # description column at all.
+    assert any(t.description == "Check #1181" for t in stmt.transactions)
     assert reconcile(stmt).ok
+
+
+def test_first_citizens_balances_are_not_derived_from_the_postings():
+    """Pins NON-DERIVATION of the two balances. Not independence.
+
+    The parser this replaced computed `beginning = ending - credits + debits`
+    from its own transaction sums, so the balances moved with whatever it
+    happened to parse and `beginning + credits - debits == ending` held for any
+    input at all. Mutating the posting list after the parse must now change the
+    walk, which is what this asserts: the balances are fixed by the printed
+    summary and do not follow the detail.
+
+    It deliberately does NOT claim reconciliation independently tests the
+    detail. It cannot for this bank: `_matches` already requires each parsed
+    section to equal the total the bank printed for it, and the printed summary
+    closes on its own arithmetic, so on any statement the parser ACCEPTS the
+    reconciliation is algebraically forced. The gate is what does the work; the
+    mutation here bypasses that gate on purpose.
+    """
+    md = _artifact_markdown("064_First Citizens Bank.md")
+    stmt = parse_first_citizens_statement(md)
+    assert stmt is not None
+    assert reconcile(stmt).ok
+
+    damaged = stmt.model_copy(deep=True)
+    damaged.transactions = damaged.transactions[:-1]
+    assert not reconcile(damaged).ok
+
+
+def test_first_citizens_declines_a_statement_with_no_printed_summary():
+    """No control record, no parse — the figures are not inferable."""
+    md = _artifact_markdown("064_First Citizens Bank.md")
+    without_summary = md.replace("Statement Period Days Average Ledger Balance", "")
+    assert parse_first_citizens_statement(without_summary) is None
 
 
 def test_ibc_source_summary_conflict_fails_closed():

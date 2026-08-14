@@ -8388,3 +8388,626 @@ and 8 of 8 card-C.
 | `06f2633` | §RBCCIBC-LAYOUTS RC0–RC10 |
 | `753674a` | card C amendment — the French PERSONAL product, restored after the gate went red |
 | (this one) | the gate proof and the F1 pinned-corpus re-check |
+
+# §FIRSTCIT — a reconciliation that could not fail, and the guard that never looked
+
+## FI0. Summary
+
+`analysis/first_citizens.py` derived its opening balance from its own
+transaction sums (`beginning = ending - credits + debits`) and lifted its
+closing balance out of a grid position. `beginning + credits - debits ==
+ending` was therefore true by construction: the document's reconciliation was
+an identity restated, not a test, and it would have passed whatever the parser
+had read. The balance oracle could not see this either, because
+`balance_forensic_audit.independent_balances` takes `result.opening =
+money(statement.beginning_balance)` straight off the parser
+(`balance_forensic_audit.py:315-317`) — so `source_opening`,
+`expected_opening` and `production_opening` were three renderings of one
+number.
+
+Both balances now come off the printed `Your Account(s) At A Glance` control
+record, which also prints a count and a total for each of the four posting
+sections and the monthly service charge, and which closes on its own
+arithmetic before any figure in it is believed. The same block replaced four
+memorized section totals, two memorized section terminators and a statement
+MONTH pinned into two row regexes.
+
+Sequencing: the pinned-corpus exposure check ran first and cleared. Five
+pinned documents are in scope (1 `first-citizens-bank-deterministic`, 4
+`citizens-bank-deterministic`) and every audited field on all five is
+unmoved; `corpus_gate.py` is GREEN 106/3. No truth-set ceremony is required.
+
+## FI1. The exposure check, first and in full
+
+`Others/First Citizen/First Citizens Bank.pdf` (SHA `57058C69…A5CFAE`,
+verified against its pin on disk) prints in its At-A-Glance box:
+
+```
+Statement Period Days Average Ledger Balance
+- 10 + 9 44,862.06+ 11 9,800.18- 86 74,263.31- 0.00
+31
+1,145.55
+Beginning Balance
+Deposits Other Credits Checks Other Debits Monthly Service Charge
+55,049.85
+8,117.14+
++
+14,702.87
+Ending  Balance
+```
+
+Beginning is `1,145.55` carrying the leading `-` of the control row, i.e.
+**-1145.55**; ending is **14,702.87**. Both equal the values the old parser
+produced by derivation, so reading them off the page is value-neutral on this
+document and the audited `*_opening` / `*_ending` columns cannot move. That is
+what made the rebuild safe to do rather than a truth-set movement to escalate.
+
+The printed block also closes on itself, which is what licenses trusting it:
+
+```
+-1,145.55 + 55,049.85 + 44,862.06 - 9,800.18 - 74,263.31 - 0.00 = 14,702.87
+```
+
+## FI2. One field deliberately NOT populated
+
+`analysis/adb.py:264-291` overrides the reconstructed daily carry with any
+`stated_daily_balances` snapshot it is given. The Daily Balance Summary on
+this layout is readable and month-generic, and populating it would very likely
+move `backend_adb` — a pinned audited field, currently `8116.50` against a
+printed `8117.14`. `stated_daily_balances` is therefore left empty exactly as
+before. It is a real improvement available to a later cell, and it needs the
+ceremony this cell was told not to perform.
+
+## FI3. FC-A..FC-D, at file:line, and what replaced each
+
+| Finding | Was | Now |
+|---|---|---|
+| FC-A | statement MONTH as literal `03` in two row regexes (`:99`, `:117`) | month read from the row and resolved against the printed period (`_resolve`) |
+| FC-B | parse gated on a memorized four-section count/total fingerprint (`:235-243`) | gated on the counts and totals the document itself prints |
+| FC-B′ | section terminators `"Total\n44,862.06"` (`:138`) and `"Total\n74,263.31"` (`:176`) — not in the scout's list | `_BOUNDARY_RE`, a structural boundary set |
+| FC-C | `Other Debits` and `Daily Balance Summary` required to be present (`:209-210`) | every section optional; a month with no deposits prints none and its printed count is 0 |
+| FC-D | body rasterized inside a digital doc | intake raises `ArtifactError`; recorded, never parsed |
+| new | `required("issuer_domain", FIRSTCITIZENS.COM)` | that URL appears only inside a Treasury-agreement notice the bank ran for part of 2026 — absent from 17 of the 39 genuine statements, and present on 2 documents that are not statements. Replaced by the printed summary block. |
+
+## FI4. What the layout actually does, measured over 39 documents
+
+The signature Ocean named — `Central Bank Operations - DAC02` +
+`Your Account(s) At A Glance` — yields **39** documents corpus-wide when
+scanned over every row of the run of record (21 + 1 pinned in `Unidentified`,
+9 in `Citizens Bank`, 4 in `Bluevine`, 4 in `Synchrony Bank`). The folder
+labels are wrong; the layout is one family.
+
+Three traps, all confirmed:
+
+- The **summary box prints out of order.** `days` precedes the beginning
+  balance on 14 documents and follows it on 4. The ending amount precedes its
+  own sign on some and follows it on others. The block is therefore read by
+  token SHAPE, not offset: a bare integer is `days`, the signed-money line is
+  the average ledger balance, and the three unsigned money cells are
+  beginning, deposits and ending in printed order.
+- The **Daily Balance Summary** prints `MM <bal>+` with the `-DD` day suffixes
+  on the FOLLOWING line. (The audit's own `first_citizens_daily` was already
+  month-generic; only the parser had pinned the month.)
+- The **description column is flattened** by the generic native-text
+  extractor: every description in a section arrives concatenated on one line
+  while dates and amounts arrive as separate positional runs.
+
+Two further variants the prototype's notes did not carry, both found by
+failing loudly against the printed counts:
+
+- The checks grid prints a `*` / `* * *` continuation marker ABOVE its rows on
+  some documents and below them on others, and a cheque whose serial the bank
+  could not read prints with an EMPTY number column (`06-11 8,000.00`; its own
+  check-image list shows a bare `Chk#`). Requiring the serial lost exactly one
+  cheque worth 8,000.00 on `fdfad302__06_30_2026`.
+- When a service charge is billed, the debits section is RENAMED
+  `Other Debits And Monthly Service Charge`, and the charge itself is itemised
+  outside the four section totals — either in a `Monthly Service Charge
+  Description` table or as a `<Month> Service Charge` line. It carries its own
+  posting date in both, so it is recovered rather than dated by guesswork.
+
+## FI5. Result over the family
+
+```
+FC-E signature population            : 39
+validated (approved; see FI14 on what "reconciles" means here): 35
+declined, fail closed                  :  4
+postings recovered                     : 2606
+
+Unidentified folder                    : 22 docs -> 18 validated
+  (survey prototype: 9 of 21)
+cross-folder (Bluevine/Citizens/Synchrony): 17 docs -> 17 validated
+```
+
+The 4 declines are the whole `3df19105_*1301` set — dormant accounts holding
+$200 with no activity. They print NO control row at all, and their summary
+block exposes two money cells where three are needed to tell a beginning
+balance from an ending one. There is no evidence to parse and they are
+refused, not guessed.
+
+The 12 documents the prototype called geometry-bound are among the 35 here.
+Their dates and amounts pair positionally and are exact — proven by closing
+against the printed per-section counts and totals and then walking the printed
+opening to the printed closing. What is genuinely unrecoverable from flat text
+is which description belongs to which row, and that is reported honestly
+rather than guessed (FI6).
+
+## FI6. The cost, stated plainly
+
+The previous parser recovered real merchant text by splitting the flattened
+description run on a regex of ~25 remembered merchant names
+(`_DEBIT_START_RE`, `_CREDIT_START_RE`). That list is a statement-specific
+constant, it generalises to zero other documents, and it is the reason this
+parser covered exactly one file. It is gone. Descriptions across the family:
+
+```
+postings total            2606
+section label (flattened) 2317   88.9%
+cheque serial recovered    271   10.4%
+full printed text           18    0.7%
+```
+
+On the pinned document this is a real regression: 95 of its 116 postings now
+read `Other Credit` / `Other Debit` instead of merchant text. Descriptions are
+in neither audit (`docs/balance-metrics-audit-results.csv`,
+`docs/adb-audit-results.csv`), so the gate does not see it — which is exactly
+why it is named here rather than left to be discovered. Against it: 34
+documents that previously produced nothing now produce complete, reconciled
+financial detail.
+
+**This is recoverable, and cheaply.** `pdfplumber` reads the same PDF as
+`03-02 POS Sig 02/27 Visa #8269 Cucina 100 864-6019606 SC 92.61` — one posting
+per line, date first, amount last. The flattening is an artifact of the
+generic `fitz` path in `ocr/native_text.py`, which already carries
+bank-specific layout extractors (`+desjardins-layout`, `+wells`) for precisely
+this problem. A `+first-citizens-layout` extractor would restore per-posting
+descriptions for all 35 documents. It is NOT done here because
+`ocr/native_text.py` feeds both forensic oracles, so changing it would move
+`raw_daily_balance_snapshots` and `daily_balance_sum` on the pinned document —
+audited fields, and someone else's ceremony.
+
+## FI7. CIT-A — the same defect, twice, in citizens.py
+
+`Debits` is a CONTAINER the bank subdivides into `ATM/Purchases` and
+`Other Debits`, each repeating under `(Continued)` on every page it spills
+onto. `citizens.py:161` sliced from `Other Debits` — a SUB-section heading —
+to `Deposits & Credits`, so it began after any `ATM/Purchases` rows and
+dropped them silently. The cheque grid had the same shape of bug: it was
+closed by `Please See Additional Information on Next Page`, page furniture, so
+a grid continuing under `Checks (Cont.)` was cut off at the page break.
+
+Measured against each statement's own printed `Checks -` / `Debits -` control
+totals:
+
+```
+                                 before        after      printed
+STATEMENTS_March2026-7816     210,617.92   223,304.44   223,304.44
+april 30 2026                 192,620.03   195,465.71   195,465.71
+STATEMENTS_February2026-7816  115,939.98   119,087.25   119,087.25
+statement january 2026        143,598.24   147,530.17   147,530.17
+```
+
+Detection also named ONE product, `Business Advisor Checking`, on a layout the
+bank prints for at least three (`Business Green Checking`,
+`Clearly Better Business Checking` are both in the archive); it is now the
+`Balance Calculation` block the parser actually reads. All **12** native
+archive statements now reconcile to the cent (was 0). The 4 pinned statements
+are unmoved at 105/107/111/67 transactions with identical debit totals. Five
+further Citizens documents are scanned with no committed artifact and are out
+of scope.
+
+## FI8. Why the hardcode guard missed a month literal — both causes
+
+Asked for explicitly, and the fix is test-side, so it is included.
+
+**Cause 1 — scope.** `test_no_literal_years_outside_date_parsing`,
+`test_no_literal_account_numbers`, `test_no_exact_amount_constants` and
+`test_no_raw_mojibake_sequences` were all `parametrize("filename",
+GUARDED_FILES)` over a hardcoded 7-file list that never contained
+`first_citizens.py`. Its four memorized totals (`55049.85`, `44862.06`,
+`9800.18`, `74263.31`) each match `AMOUNT_RE` exactly. The rule that would
+have caught them existed the whole time and was never pointed at the file.
+The irony is on the record: the docstring of
+`test_removed_literals_stay_removed_anywhere_in_analysis` states the R-4b
+lesson that list-scoping fails, and that lesson was applied to the literal
+scan and never carried across to the pattern-class scans.
+
+**Cause 2 — no such class.** A bare `03` is too short for `ACCOUNT_RE`
+(6+ digits), carries no decimal for `AMOUNT_RE`, and is not a year for
+`YEAR_RE`. Even with the file in scope, the month literal would still have
+passed. There was no calendar-literal rule at all.
+
+Fix, with blast radius measured before each move:
+
+| Scan | Scope now | Measured |
+|---|---|---|
+| year | layer-wide | 0 offenders |
+| amount | layer-wide, 3 exempt | only `metrics.py`/`pipeline.py`/`reconcile.py`, whose constants are tolerances (`1.00`, `0.98`, `1.02`), read individually and named in `PATTERN_SCAN_EXEMPT` |
+| calendar (NEW) | layer-wide, 1 baseline | `CALENDAR_RE` flags a 2-digit literal sitting before a regex date separator. Across all 68 modules it produces 2 hits, both in `first_community.py`. **Corrected in FI14:** only ONE is a calendar literal (`10/31 Ending Balance`, a memorized posting date); the other is `70` from a product-code suffix `(\d+-70)` — a false positive — and the `--- Page 12 ---` page marker beside it is invisible to the scan |
+| account | still list-scoped | widening lights up `consumers.py` (`0836327000`) and `ibc.py` (`00000165`) |
+| mojibake | still list-scoped | widening lights up `cibc.py`, `columbia_bank.py`, `navigant.py`, `truist.py` |
+
+The account and mojibake backlog is 6 modules owned by other cells; turning
+another cell's work red mid-wave is not this guard's call, so it is named in
+the module docstring instead of acted on.
+
+Run against the pre-rebuild `first_citizens.py`, `CALENDAR_RE` flags exactly
+`:99` and `:117` — the two literals the handoff asked about — and nothing
+else. That is pinned as a regression proof, along with one test asserting the
+SCOPE itself, since scope was the defect. `_code_lines` also renumbered every
+line below a docstring (it collapsed multi-line docstrings to `""`), so
+offender reports pointed at the wrong code; it now blanks them line for line.
+
+## FI9. Non-interference, measured
+
+Both changed marker sets, over a stratified sample of the archive:
+
+```
+folders sampled : 69
+documents probed: 523
+
+first_citizens NEWLY claimed        : 4   (all genuine, all validated below)
+    Citizens Bank/474bff26_3969 2-28.pdf
+    Citizens Bank/474bff26_3969 5-31.pdf
+    Synchrony Bank/d3fb2e33__02_28_2026-document.pdf
+    Synchrony Bank/d3fb2e33__12_31_2025-document (2).pdf
+first_citizens NO LONGER claimed    : 2   (R4-3 false positives, correctly dropped)
+    Central Bank/d665a2d7_Set January .pdf
+    Central Bank/d665a2d7_Set march .pdf
+citizens NEWLY claimed              : 4   (Business Green Checking, all reconcile)
+    Citizens Bank/386a4fea_Gidley Business Checking {January,February,March,April} 2026.pdf
+citizens NO LONGER claimed          : 0
+```
+
+Every claim change is accounted for. The two dropped documents carry the
+bank's name and its URL but no At-A-Glance box, no statement period and no
+posting sections; the old marker set claimed them and the parser then
+declined, so the claim was never worth anything.
+
+## FI10. Proofs
+
+```
+$ python corpus_gate.py --corpus "<main checkout>/Bank Statements"
+[PASS] inventory / foreign_files / source_integrity
+[PASS] balance_audit: 109 statements reproduce every audited balance field
+[PASS] adb_audit: 109 statements reproduce every audited ADB field
+[PASS] balance_outcomes: balance: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes: adb: 106 pass, 3 withheld, same three statements
+[PASS] ocr_coverage / exclusions / oracle_independence
+Runtime:  890.1s
+RESULT: GREEN
+EXIT=0
+
+$ python -m pytest -q
+3019 passed, 18 deselected, 1 warning in 233.30s (0:03:53)
+EXIT=0
+
+$ python -m pytest tests/test_parser_expectations_baseline.py \
+    tests/test_parser_conformance.py tests/test_parser_detection_markers.py \
+    tests/test_no_parser_helper_clones.py tests/test_no_statement_hardcodes.py \
+    tests/test_r1_hardcodes.py tests/test_parser_registry.py \
+    tests/test_parser_registry_entries.py tests/test_count_semantics.py \
+    tests/test_money.py -q
+955 passed, 1 warning in 38.74s
+EXIT=0
+
+# pinned document, every field, old parser vs new
+field movers: 3
+    stated_credit_count   : None -> 19
+    stated_debit_count    : None -> 97
+    stated_service_charge : None -> 0.0
+transactions 116 -> 116, ordered date/amount/direction identical: True
+stated_daily_balances 0 -> 0 (deliberate, FI2)
+
+# FC-E family, on Ocean's signature
+validated 35 / 39, declined 4, postings 2606
+Unidentified 18/22 (prototype 9/21); cross-folder 17/17
+
+# citizens
+pinned    4/4 unmoved (105/107/111/67 transactions, same debit totals)
+archive  12/12 reconcile to the printed control totals (was 0)
+```
+
+Those three are `Statement` fields that were `None` and now carry a figure the
+bank prints. They are NOT the whole story at document level — see FI14, which
+names six production metrics the description change moves.
+
+`19 + 97 = 116` accounts for every posting on the pinned document, but that
+document bills no service charge. **Corrected in FI14:** on the 9 statements
+that DO bill one, the emitted charge row is outside the printed counts, so a
+COMPARABLE entry would be wrong on 9 of 35. The correct target is a
+capital_one-class MAPPING entry. COUNTS-P3 material; the table is untouched
+and the counts stay inert.
+
+## FI11. Carried findings for Ocean
+
+1. **The balance oracle is not independent of the parser for opening and
+   closing.** `independent_balances` reads both off the `Statement`
+   (`balance_forensic_audit.py:315-317`), so `source_opening` and
+   `production_opening` can never disagree, and `opening_difference` is
+   structurally 0.00 for all 109 pinned documents. It is a real check of the
+   daily walk and of the detail; it is not a check of the balances. Any parser
+   deriving a balance is invisible to it, which is how this one survived.
+2. **`ocr/native_text.py` shreds this layout.** `pdfplumber` recovers it
+   cleanly. A `+first-citizens-layout` extractor restores real descriptions
+   for 35 documents (FI6) but moves pinned ADB evidence, so it needs the
+   ceremony.
+3. **6 modules carry account-number or mojibake literals** (FI8) — owned by
+   other cells, named so the backlog is visible.
+4. **`first_community.py` carries one memorized posting date** (`10/31 Ending
+   Balance`, used as a section boundary) plus one false positive of the rule
+   (`70`, a product-code suffix). **Corrected in FI14**; the original claim of
+   "two calendar literals" was wrong (`CALENDAR_BASELINE`).
+5. **`stated_daily_balances` for this family is available and would likely
+   improve ADB accuracy** (printed 8117.14 vs backend 8116.50 on the pinned
+   document), at the cost of moving a pinned audited field.
+6. **Parsers have no channel for a NAMED decline.** The four dormant
+   statements fail closed correctly but return a bare `None`; the reason lives
+   only in a docstring. A diagnosis channel would make fail-closed auditable
+   instead of merely safe.
+
+## FI12. Commits
+
+| Commit | Contents |
+|---|---|
+| `a924252` | both balances read from the printed control record; month literals, memorized totals and memorized terminators removed; sections optional; detection marker replaced |
+| `76b4178` | citizens — the whole debits container and the whole cheque grid; product-name marker replaced |
+| `b098e5a` | guards — year/amount/calendar scans layer-wide, new calendar class, regression and scope proofs, `_code_lines` line numbering |
+| `f952c42` | §FIRSTCIT FI0–FI12 |
+| `27320fb` | FI13 — the corpus-marked run and the affordability threshold |
+| (this one) | FI14 — corrections from adversarial review |
+
+## FI13. Amendment — the corpus-marked run, and the one test that fails
+
+`pytest -m corpus` on the final tree:
+
+```
+$ python -m pytest -m corpus -q
+FAILED tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run
+1 failed, 13 passed, 3035 deselected, 1 warning in 2809.79s (0:46:49)
+EXIT=1
+```
+
+`corpus_gate.py` itself — the substantive gate, and the 13 tests that passed —
+is GREEN (FI10). The single failure is a WALL-CLOCK THRESHOLD:
+
+```python
+worst = 0.0
+for markdown in sources.values():
+    start = time.perf_counter()
+    for registration in registrations:
+        registration.detect(markdown)
+    worst = max(worst, time.perf_counter() - start)
+assert worst < 0.25
+```
+
+It is not caused by this cell, and this cell makes it cheaper. Measured
+paired and interleaved in ONE process — both marker sets timed alternately,
+trial by trial, so load drift hits both arms equally:
+
+```
+documents 103, registrations 53, 7 paired trials
+  trial 1:  NEW   214.3 ms   OLD   238.4 ms   delta   -24.1 ms
+  trial 2:  NEW   201.1 ms   OLD   212.8 ms   delta   -11.7 ms
+  trial 3:  NEW   253.1 ms   OLD   185.8 ms   delta   +67.3 ms
+  trial 4:  NEW   170.0 ms   OLD   220.9 ms   delta   -50.9 ms
+  trial 5:  NEW   186.6 ms   OLD   217.5 ms   delta   -30.8 ms
+  trial 6:  NEW   228.1 ms   OLD   228.4 ms   delta    -0.3 ms
+  trial 7:  NEW   203.8 ms   OLD   203.4 ms   delta    +0.4 ms
+
+NEW (this branch)   min 170.0  median 203.8  max 253.1
+OLD (base d70efbe)  min 185.8  median 217.5  max 238.4
+paired delta (NEW - OLD): median -11.7 ms
+```
+
+The reason is in the marker itself. The marker this cell removed called
+`t.upper()`, which allocates a full uppercase copy of every document before
+testing it:
+
+```
+worst per-document marker cost
+  first_citizens OLD (t.upper() copy)     0.157 ms
+  first_citizens NEW (substring only)     0.060 ms
+  citizens OLD                            1.166 ms
+  citizens NEW                            1.176 ms
+```
+
+(`citizens` is unchanged in cost: its `t.lower()` call — the expensive one at
+~1.1 ms — is in the domain marker, which this cell did not touch.)
+
+**The real finding is the margin.** 53 registrations sweep the worst document
+in ~200 ms against a 250 ms budget, and the per-trial spread on this machine
+exceeds 80 ms; five consecutive trials during heavy parallel-cell load
+measured 280.6 / 496.5 / 376.6 / 280.6 / 314.8 ms. The assertion therefore
+reports machine load, not registry cost, and it will fail intermittently for
+any cell — the corpus-marked run that produced it took 2809 s against the
+761 s recorded earlier in this log, i.e. the box was ~4x loaded.
+
+Two things follow, both for Ocean rather than for this cell, since
+`tests/test_parser_parity.py` is not this cell's file:
+
+1. The threshold needs either headroom or a load-independent measure (CPU time
+   rather than wall clock, or a per-registration cost budget). Retuning
+   another cell's assertion mid-wave is not this cell's call.
+2. **The budget is genuinely close.** Every cell in this wave adds
+   registrations, and the sweep is per-document overhead on 3,506 discovery
+   documents. `citizens`'s `t.lower()` alone is ~1.1 ms of the ~200 ms; a
+   sweep-wide pass replacing whole-document `.lower()`/`.upper()` marker calls
+   with case-sensitive substring tests, or normalising the text ONCE in
+   `admissible_text` and handing the normalised copy to every marker, would
+   likely halve the sweep. That is RFC risk 7 coming due.
+
+## FI14. Corrections from adversarial review
+
+Verdict was SHIP conditional on record corrections. Four claims in FI0–FI13
+were wrong or overstated; each is corrected here and at its original site.
+Nothing in `analysis/` changed except the module docstring that carried the
+overclaim, and one test comment.
+
+### FI14.1 — "field movers: 3" is true of the Statement, false of the document
+
+FI10 reported three movers because it diffed `Statement` fields. At document
+level the flattened descriptions move **six production metrics** on the pinned
+statement, all classification-driven, none audited by either oracle — which is
+why the gate stayed GREEN and why they must be named here instead:
+
+```
+  nsf_count                 1      -> 0
+  effective_nsf_count       1      -> 0
+  insurance_count           1      -> 0
+  insurance_total           494.00 -> 0.00
+  pos_count                 18     -> 0
+  ach_debit_count           5      -> 0
+```
+
+Consumed at `analysis/metrics.py:208-251` via `analysis/detect.py`
+classification, surfaced at `webapp/app.py:503/549/563`. Every one is keyed on
+merchant text: the classifier is handed `Other Debit` where it used to be
+handed `Overdraft Charge`, `Auto-Owners Ins. Prem`, `POS Sig ... Visa #8269`.
+
+Measured across the family (all 35 parsed documents, not sampled), the same
+collapse is total wherever a metric depends on description text:
+
+```
+  zero on 35/35 : nsf_count, effective_nsf_count, insurance_count,
+                  insurance_total, pos_count, pos_credit_count,
+                  ach_debit_count, ach_credit_count, atm_withdrawal_count,
+                  loan_count, verified_revenue_count, verified_revenue_total
+  survives      : check_count      non-zero on 27/35
+                  unverified_deposit_count non-zero on 35/35
+```
+
+The two survivors are exactly the two that do not need merchant text: cheques
+keep their printed serial, and deposits are counted whatever they are called.
+`verified_revenue_*` at zero across the family is the sharpest edge of this —
+revenue verification is not possible for this bank until descriptions come
+back.
+
+**Recovery path, and it is the same card as FI6:** a `+first-citizens-layout`
+extractor in `ocr/native_text.py`. `pdfplumber` already reads these rows as
+`03-02 POS Sig 02/27 Visa #8269 Cucina 100 864-6019606 SC 92.61`. Restoring
+per-posting descriptions restores all six metrics on the pinned document and
+unlocks the twelve across the family. It moves pinned ADB evidence, so it is
+Gustavo's ceremony, not a cell's.
+
+### FI14.2 — reconciliation is NOT independent for this bank
+
+FI0/FI6 and the object-level test claimed the rebuild made
+`analysis.reconcile` an independent test of the detail. That is wrong, and the
+reviewer's proof is simple: `_matches` already requires each section's parsed
+total to equal the printed total, and the printed summary closes on its own
+arithmetic, so for any statement the parser ACCEPTS,
+
+```
+sum(postings) = printed credits - printed debits - charge
+beginning + printed credits - printed debits - charge = ending   (summary closes)
+=> beginning + sum(postings) = ending                             (forced)
+```
+
+Reconciliation restates the gate one layer down. The single path that can
+still fail it is a billed service charge whose itemisation cannot be located,
+where `_service_charge_posting` omits the row rather than date it by guesswork
+(0 of 35 today).
+
+What the rebuild actually bought, stated without inflation:
+
+- the gate moved from **four constants memorized off one statement** to **the
+  control record each document prints**, so a misread section is rejected
+  rather than silently reconciled, and the check travels to all 39 documents
+  instead of one;
+- the balances are **read, not derived** — the old parser's
+  `beginning = ending - credits + debits` made the walk true for any input
+  whatsoever, including a parse that had recovered nothing.
+
+The object-level test is kept but renamed
+`test_first_citizens_balances_are_not_derived_from_the_postings` and
+re-documented: it pins NON-DERIVATION, and says explicitly that it does not
+demonstrate independence.
+
+### FI14.3 — count_semantics: MAPPING, not COMPARABLE
+
+FI10 recommended a COMPARABLE entry on the strength of `19 + 97 = 116` on the
+pinned document. That document bills no service charge, and generalising from
+it is exactly the error this cell was sent to fix elsewhere. Measured over all
+35:
+
+```
+  counts agree exactly : 26   (all with a zero service charge)
+  counts off by +1     :  9   (all with a billed service charge)
+```
+
+Every one of the nine is off by exactly one in the same direction: the printed
+per-direction counts exclude the service-charge row, which this parser emits
+as a posting. A COMPARABLE entry would therefore manufacture a flag on 9 of 35
+— 26% of the family — which is the precise failure mode
+`count_semantics`'s docstring warns about.
+
+Corrected recommendation: **a capital_one-class MAPPING entry** — printed
+counts denote the four posting sections and exclude the billed service-charge
+row. COUNTS-P3 material, with the 35-document evidence above. The table stays
+untouched and the counts stay inert (`UNSURVEYED`, `comparable=False`).
+
+### FI14.4 — the calendar baseline misdescribed itself
+
+FI8 and FI11 said `first_community.py` carries "a memorized page number and a
+memorized posting date". Measured with the shipped `CALENDAR_RE`:
+
+```
+  HIT 1  line 28  '70'  in  'BUSINESS PLUS CKG-(\d+-70)\s+...'
+  HIT 2  line 37  '10'  in  '...(?=\s+10/31 Ending Balance\s+\$?\d|...'
+```
+
+Only HIT 2 is a calendar literal. HIT 1's `70` is a **product-code suffix** —
+a false positive of a rule that claims to find pinned calendar fields. And the
+`--- Page 12 ---` marker sitting in that same string is **invisible** to the
+scan: the `12` is followed by a space, not a regex date separator. The rule
+finds pinned calendar FIELDS inside patterns, not every memorized number.
+`CALENDAR_BASELINE`'s comment now records this, including the false positive,
+because a ratchet that misdescribes what it excuses is worse than none.
+
+### FI14.5 — carried, measured, not fixed
+
+**D2 — the service-charge date contradicts the bank's own printed daily
+chain.** The Daily Balance Summary is an in-document cross-check this parser
+does not consult. Re-read with the parser's own section bounds (the audit's
+`first_citizens_daily` needs an `^An updated` terminator that 5 of the 9
+statements do not print, so a first pass was blind to them):
+
+```
+  statements billing a service charge : 9
+  printed chain readable              : 9
+  chain contradicts the charge date   : 4
+  ADB impact                          : 0.15 to 0.73
+
+  70e2b596__02_28_2026   charge dated 02-28, chain implies 02-27   0.41
+  70e2b596__05_31_2026   charge dated 05-31, chain implies 05-29   0.52
+  3df19105_Feb2026_0501  charge dated 02-28, chain implies 02-27   0.73
+  3df19105_May2026_0501  charge dated 05-31, chain implies 05-29   0.15
+```
+
+In all four, moving the charge to the day the chain implies resolves EVERY
+divergence (0 remaining). So the printed chain is a usable oracle for the
+posting date, and consulting it would both fix these four and give the family
+a genuine second check — the one thing FI14.2 says the parse currently lacks.
+Card it.
+
+**D5 — the ending-balance sign line is dropped.** `_summary` classifies block
+cells by token shape; a lone `+`/`-` on its own line matches none of
+`_BARE_MONEY_RE`, `_SIGNED_MONEY_RE` or `_DAY_COUNT_RE` and falls through. The
+BEGINNING sign survives because it is the control row's leading token, but a
+statement closing overdrawn has its ending sign only on that dropped line, so
+the ending is read positive. Confirmed by construction: such a statement fails
+the summary identity and is DECLINED, not misread. Fail-closed today and
+unreached in this population — but an overdrawn month-end is an ordinary
+event, so the class is reachable. Card it.
+
+**Wall-clock affordability test (FI13) — direction right, magnitude wrong.**
+FI13 reported a paired median of −11.7 ms in this branch's favour over 7
+trials. The reviewer's paired run puts it at **−2.1 ms**, and further finds the
+BASE arm breaches the 250 ms threshold more often than this branch's. Both
+agree on the sign and on the conclusion — this cell makes the sweep cheaper,
+by removing a whole-document `t.upper()` — but −11.7 ms was noise-dominated at
+7 trials and −2.1 ms supersedes it. The substantive finding is unchanged and
+is the margin, not the delta: ~200 ms against a 250 ms budget with per-trial
+spread over 80 ms, so the assertion reports machine load. Reviewer's numbers
+stand as the record.

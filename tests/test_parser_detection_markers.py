@@ -122,7 +122,7 @@ CASES = [
     pytest.param(
         first_citizens,
         "first_citizens",
-        "First Citizens\nfirstcitizens.com\n",
+        "First Citizens\nYour Account(s) At A Glance\n",
         "COMMUNITY TRUST BANK\nStatement of Account\n"
         "01/15 ACH DEBIT PAYMENT TO First Citizens 250.00\n",
         "R4-3: a card payment to the bank",
