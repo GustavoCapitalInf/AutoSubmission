@@ -74,6 +74,14 @@ FIXTURES: dict[str, str] = {
         "Date Description Withdrawals ($) Deposits ($) Balance ($)\n"
     ),
     "cibc_french": "CIBC\nDétail de vos opérations\n",
+    # Issuer furniture only: the legal entity, the product masthead, the
+    # ledger section and its own column header.
+    "citibusiness": (
+        "CITIBANK, N. A. Account Statement Period\n"
+        "CitiBusiness  ACCOUNT AS OF\n"
+        "CHECKING ACTIVITY\n"
+        "Date Description Debits Credits Balance\n"
+    ),
     "citizens": "citizensbank.com\nBusiness Advisor Checking\n",
     "columbia_bank": (
         "COLUMBIA BANK\nMARKETPLACE CHECKING\nDEPOSITS/ADDITIONS\nDAILY BALANCES\n"

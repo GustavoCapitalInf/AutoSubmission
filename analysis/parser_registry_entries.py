@@ -35,6 +35,7 @@ from . import (
     chase,
     chase_savings,
     cibc,
+    citibusiness,
     citizens,
     columbia_bank,
     community_section,
@@ -96,6 +97,7 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("chase_savings", "Chase Savings", chase_savings, "DETECTION_MARKERS", "detection_text", "parse_chase_savings_statement"),
     ("cibc", "CIBC", cibc, "EN_DETECTION_MARKERS", "en_detection_text", "parse_cibc_statement"),
     ("cibc_french", "CIBC", cibc, "DETECTION_MARKERS", None, "parse_cibc_french_statement"),
+    ("citibusiness", "Citibank", citibusiness, "DETECTION_MARKERS", "detection_text", "parse_citibusiness_statement"),
     ("citizens", "Citizens Bank", citizens, "DETECTION_MARKERS", None, "parse_citizens_statement"),
     ("columbia_bank", "Columbia Bank", columbia_bank, "DETECTION_MARKERS", "detection_text", "parse_columbia_bank_statement"),
     ("consumers", "Consumers Credit Union", consumers, "DETECTION_MARKERS", None, "parse_consumers_statement"),
@@ -191,6 +193,11 @@ _OVERRIDES: dict[str, dict] = {
     # itself.
     "shopify_balance": {
         "integrity_checks": (shopify_balance.totals_contradictions,)
+    },
+    # Citibank reprints the checking product's closing balance in the
+    # relationship block at the top of page 1.
+    "citibusiness": {
+        "integrity_checks": (citibusiness.closing_balance_contradictions,)
     },
     # Square prints its activity count beside the two balances of the same
     # summary row, so a ledger that does not match it contradicts the document.
