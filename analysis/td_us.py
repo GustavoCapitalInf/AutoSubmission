@@ -34,9 +34,14 @@ def _period(markdown: str) -> tuple[str, str] | None:
 
 def _summary(markdown: str, stmt: Statement) -> Statement:
     text = re.sub(r"\s+", " ", markdown)
+    # Every balance row of this summary can print negative — TD writes an
+    # overdrawn figure as a leading minus, the same way it already writes the
+    # closing one. A pattern that cannot stand next to the sign does not read a
+    # smaller number, it reads nothing: the field goes None and (:196) discards
+    # the document. `_money` has parsed a leading minus all along.
     fields = {
-        "beginning_balance": r"Beginning Balance\s+([\d,]+\.\d{2})",
-        "stated_average_balance": r"Average Collected Balance\s+([\d,]+\.\d{2})",
+        "beginning_balance": r"Beginning Balance\s+(-?[\d,]+\.\d{2})",
+        "stated_average_balance": r"Average Collected Balance\s+(-?[\d,]+\.\d{2})",
         "days_in_period": r"Days in Period\s+(\d+)",
         "ending_balance": r"Ending Balance\s+(-?[\d,]+\.\d{2})",
     }
