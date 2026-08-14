@@ -46,6 +46,7 @@ from . import (
     first_citizens,
     first_community,
     first_farmers,
+    fiserv_premier,
     ibc,
     linkbank,
     midflorida,
@@ -107,6 +108,10 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("first_citizens", "First Citizens Bank", first_citizens, "DETECTION_MARKERS", None, "parse_first_citizens_statement"),
     ("first_community", "First Community Credit Union", first_community, "DETECTION_MARKERS", "detection_text", "parse_first_community_statement"),
     ("first_farmers", "First Farmers Bank & Trust", first_farmers, "DETECTION_MARKERS", "detection_text", "parse_first_farmers_statement"),
+    # Fiserv Premier is a platform, not a bank: `bank` here is the platform
+    # label the registry needs, while `Statement.bank` carries the issuing
+    # division read off the document itself.
+    ("fiserv_premier", "Fiserv Premier", fiserv_premier, "DETECTION_MARKERS", "detection_text", "parse_fiserv_premier_statement"),
     ("ibc", "IBC Bank", ibc, "DETECTION_MARKERS", None, "parse_ibc_statement"),
     ("linkbank", "LINKBANK", linkbank, "DETECTION_MARKERS", None, "parse_linkbank_statement"),
     ("midflorida", "MIDFLORIDA Credit Union", midflorida, "DETECTION_MARKERS", None, "parse_midflorida_statement"),

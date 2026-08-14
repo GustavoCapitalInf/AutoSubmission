@@ -54,6 +54,7 @@ EXPECTED_ORDER = [
     "first_citizens",
     "first_community",
     "first_farmers",
+    "fiserv_premier",
     "ibc",
     "linkbank",
     "midflorida",
@@ -122,8 +123,8 @@ def test_registration_count_matches_the_documented_decision_points():
     (W3 §CHASE-LAYOUTS), the Chase savings product (W3 §CHASE-CLOSURE), the
     TD Canada Trust French layout (W3 §TD-FRENCH), the English CIBC
     layout (W3 §RBCCIBC) and the Fifth Third commercial print stream
-    (W3 §UNID-B) — the last six opened by the unclaimed-layout phase."""
-    assert len(pr.registrations()) == 54
+    and the Fiserv Premier parenthesised-counts issue (both W3 §UNID-B) — the last seven opened by the unclaimed-layout phase."""
+    assert len(pr.registrations()) == 55
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():

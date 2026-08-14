@@ -46,6 +46,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .date_tokens import iso_within_period
 from .money import PARENS_OR_LEADING_MINUS, parse_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
@@ -196,23 +197,6 @@ def _section_heads(markdown: str) -> dict[str, tuple[int, float]]:
     return heads
 
 
-def _year_for(month: int, day: int, start: date, end: date) -> int | None:
-    """The year a `MM/DD` row belongs to, decided by the printed period."""
-    for year in dict.fromkeys((start.year, end.year)):
-        try:
-            candidate = date(year, month, day)
-        except ValueError:
-            continue
-        if start <= candidate <= end:
-            return year
-    return None
-
-
-def _dated(token: str, start: date, end: date) -> str | None:
-    month, day = (int(part) for part in token.split("/"))
-    year = _year_for(month, day, start, end)
-    return date(year, month, day).isoformat() if year else None
-
 
 def _item_rows(text: str) -> list[tuple[str, float, str]]:
     """Split a flattened `MM/DD AMOUNT DESCRIPTION` run into its rows."""
@@ -300,7 +284,7 @@ def parse_fifth_third_statement(markdown: str) -> Statement | None:
     ):
         return None
     for number, token, amount in cheques:
-        posted = _dated(token, start, end)
+        posted = iso_within_period(token, start, end)
         if posted is None:
             return None
         transactions.append(
@@ -321,7 +305,7 @@ def parse_fifth_third_statement(markdown: str) -> Statement | None:
         ):
             return None
         for token, amount, description in rows:
-            posted = _dated(token, start, end)
+            posted = iso_within_period(token, start, end)
             if posted is None or not description:
                 return None
             transactions.append(
@@ -339,7 +323,7 @@ def parse_fifth_third_statement(markdown: str) -> Statement | None:
     # Instrument 4 — the day-by-day walk against the printed daily balances.
     printed_days: list[tuple[str, float]] = []
     for m in _DAY_RE.finditer(sections["Daily"]):
-        posted = _dated(m.group(1), start, end)
+        posted = iso_within_period(m.group(1), start, end)
         balance = _money(m.group(2))
         if posted is None or balance is None:
             return None
