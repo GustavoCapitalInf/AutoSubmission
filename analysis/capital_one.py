@@ -34,16 +34,26 @@ def _money(value: str) -> float | None:
     )
 
 
+#: A summary money cell as Capital One prints it. The bank BRACKETS a cell to
+#: mark it negative, so the bracket is there exactly when there is a sign to
+#: mark: a cycle in which nothing was charged prints `Service Charges $0.00`,
+#: never `($0.00)`. Requiring the bracket made the parser refuse 10 documents
+#: whose only distinction was that the customer had been charged nothing —
+#: the shape of the cell is a money cell either way, and `_money` reads the
+#: bracket as the sign it is.
+_SUMMARY_CELL = r"(\(?\$[\d,]+\.\d{2}\)?)"
+
+
 def _native_summary(markdown: str, stmt: Statement) -> Statement:
     m = re.search(
-        r"Previous Balance\s+\d{2}/\d{2}/\d{2}\s+(\(?\$[\d,]+\.\d{2}\)?)\s+"
+        r"Previous Balance\s+\d{2}/\d{2}/\d{2}\s+" + _SUMMARY_CELL + r"\s+"
         r"Number of Days in Cycle\s+(\d+)\s+"
-        r"(\d+)\s+Deposits/Credits\s+\$([\d,]+\.\d{2})\s+"
+        r"(\d+)\s+Deposits/Credits\s+" + _SUMMARY_CELL + r"\s+"
         r"Minimum Balance This Cycle\s+\(?\$[\d,]+\.\d{2}\)?\s+"
-        r"(\d+)\s+Checks/Debits\s+\(\$([\d,]+\.\d{2})\)\s+"
-        r"Average Collected Balance\s+\$([\d,]+\.\d{2})\s+"
-        r"Service Charges\s+\(\$([\d,]+\.\d{2})\)\s+"
-        r"Ending Balance\s+\d{2}/\d{2}/\d{2}\s+(\(?\$[\d,]+\.\d{2}\)?)",
+        r"(\d+)\s+Checks/Debits\s+" + _SUMMARY_CELL + r"\s+"
+        r"Average Collected Balance\s+" + _SUMMARY_CELL + r"\s+"
+        r"Service Charges\s+" + _SUMMARY_CELL + r"\s+"
+        r"Ending Balance\s+\d{2}/\d{2}/\d{2}\s+" + _SUMMARY_CELL,
         markdown,
         re.IGNORECASE | re.DOTALL,
     )
@@ -133,18 +143,40 @@ def _period(markdown: str) -> tuple[str, str] | None:
     return start, end
 
 
+def _is_cycle_charge(txn: Transaction, printed_charge: float | None) -> bool:
+    """Is this row the charge the summary states for the cycle?
+
+    Two readings, either sufficient. The first is the bank's ledger wording.
+    The second is the bank's own arithmetic: `Service Charges` states one
+    figure for the cycle, so a debit of exactly that figure posted at the cycle
+    boundary is the row that total accounts for, whatever the ledger called it
+    — `Cash deposit limit exceeded`, on the document that needed this.
+
+    That identification is corroborated independently by the printed counts:
+    `N Checks/Debits` counts every debit row EXCEPT the one the service-charge
+    total covers, and it is short by exactly one on every document that prints
+    a non-zero charge and exact on every document that prints a zero one.
+    """
+    if re.search(r"\b(?:maintenance|cycle service)\s+charge\b", txn.description, re.IGNORECASE):
+        return True
+    return (
+        printed_charge is not None
+        and printed_charge > 0
+        and txn.amount < 0
+        and abs(abs(txn.amount) - printed_charge) < 0.005
+    )
+
+
 def _normalize_cycle_service_charge_dates(
-    transactions: list[Transaction], period_end: str
+    transactions: list[Transaction], period_end: str,
+    printed_charge: float | None = None,
 ) -> list[Transaction]:
     """Apply cycle charges printed after a short cycle to its final cycle day."""
     end = date.fromisoformat(period_end)
     normalized: list[Transaction] = []
     for txn in transactions:
         posted = date.fromisoformat(txn.date)
-        is_cycle_charge = bool(
-            re.search(r"\b(?:maintenance|cycle service)\s+charge\b", txn.description, re.IGNORECASE)
-        )
-        if is_cycle_charge and 0 < (posted - end).days <= 3:
+        if _is_cycle_charge(txn, printed_charge) and 0 < (posted - end).days <= 3:
             txn = txn.model_copy(
                 update={
                     "date": period_end,
@@ -261,5 +293,7 @@ def parse_capital_one_statement(markdown: str) -> Statement | None:
 
     if not txns or stmt.beginning_balance is None or stmt.ending_balance is None:
         return None
-    stmt.transactions = _normalize_cycle_service_charge_dates(txns, period_end)
+    stmt.transactions = _normalize_cycle_service_charge_dates(
+        txns, period_end, stmt.stated_service_charge
+    )
     return stmt
