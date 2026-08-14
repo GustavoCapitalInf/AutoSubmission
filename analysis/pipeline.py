@@ -378,8 +378,11 @@ def assess_document_integrity(
         # unlabelled deposit-image sheet — and whose rows reproduce the
         # published ledger exactly, so the "missing" page corroborates the parse
         # it was impeaching. UNID-PACK-B §UB4.3 measured the same defect in a
-        # second shape: Fiserv Premier footers `1 of 8` … `6 of 8` and appends
-        # the GLBA privacy notice as two sheets with no footer at all.
+        # second shape: a core-processor platform whose footers run `1 of 8`
+        # … `6 of 8` and which appends the GLBA privacy notice as two sheets
+        # with no footer at all. (No issuer or platform is named here — this
+        # file is scanned for registered bank labels; §UB4.3 holds the four
+        # document hashes.)
         #
         # So an unlabelled sheet is counted as what it is: a candidate for any
         # one of the pages whose label was not found. The flag is withheld only
