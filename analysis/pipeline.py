@@ -4,6 +4,7 @@ statement that fails reconciliation is re-extracted with the stronger model."""
 from __future__ import annotations
 import re
 from dataclasses import dataclass, field
+from collections.abc import Sequence
 from typing import Callable
 from .config import Settings, load_settings
 from .count_semantics import counts_comparable
@@ -73,9 +74,48 @@ def normalize_statement(stmt: Statement) -> Statement:
     return stmt.model_copy(update={"transactions": transactions})
 
 
-def apply_statement_repairs(markdown: str, stmt: Statement) -> Statement:
-    stmt = repair_bofa_summary(markdown, stmt)
-    stmt = repair_regions_summary(markdown, stmt)
+#: The bank-summary repairs, keyed by the registration whose paper each one
+#: reads. Both rewrite PUBLISHED figures — balances and stated totals — from
+#: labels they expect to find, so each may run only for the parser that owns
+#: the layout those labels belong to. `tests/test_analysis.py::
+#: test_every_summary_repair_is_keyed_on_a_live_registration` holds the ids to
+#: the registry, so renaming a parser cannot silently switch its repair off.
+_SUMMARY_REPAIRS: dict[str, Callable[[str, Statement], Statement]] = {
+    "bank_of_america": repair_bofa_summary,
+    "regions": repair_regions_summary,
+}
+
+
+def apply_statement_repairs(
+    markdown: str, stmt: Statement, *, dispatch: Dispatch | None = None
+) -> Statement:
+    # These two used to be gated on substrings of the document — `"REGIONS" in
+    # markdown.upper()`, `"BANK OF AMERICA" ... "ACCOUNT SUMMARY"`. A bank's
+    # name in a document is as often a fact about a COUNTERPARTY as about the
+    # issuer, which is R4-3 (a marker that reads another bank's ledger row)
+    # applied to a REPAIR instead of to a detection marker — and a repair is
+    # the more dangerous place for it, because detection competes and a repair
+    # simply overwrites. HUNT-CELL H6.1 measured it: five statements of another
+    # issuer that merely pay a bill to the bank one of these repairs belongs
+    # to — and print a `Service Charge Summary` — had `beginning_balance`,
+    # `ending_balance` and every stated total rewritten from their OWN issuer's
+    # labels; three further documents in the archive are having `ending_balance`
+    # rewritten the same way today. §PIPEFIX P2.4 names all eight.
+    #
+    # The gate is now the CLAIMING registration, and for an LLM extraction that
+    # claimed nothing, the registration whose bank label it named — exactly the
+    # `_registration_for` resolution (the R-3 ruling) that `assess_quality` and
+    # `assess_document_integrity` already use, so a repair reaches precisely the
+    # documents whose parser knowledge the rest of the pipeline is applying.
+    #
+    # RESTRICTION-ONLY, and that is what makes the hunk safe to review: each
+    # repair keeps its own internal guard untouched, so the new key can only
+    # STOP a repair firing, never start one on a document that did not already
+    # satisfy it. At most one can fire now, since a document has one owner.
+    owner = _registration_for(stmt, dispatch)
+    repair = _SUMMARY_REPAIRS.get(owner.id) if owner is not None else None
+    if repair is not None:
+        stmt = repair(markdown, stmt)
     stmt = repair_first_community_posted_activity(stmt)
     stmt = repair_b1_beginning_balance(stmt)
     stmt = repair_capital_one_running_amount(stmt)
@@ -200,6 +240,23 @@ def assess_quality(
     )
 
 
+#: A printed page declaration, as the integrity check counts them.
+#:
+#: `CONTINUED ON NEXT PAGE` is a continuation footer, not a page declaration.
+#: Banks print it immediately above the page number, and PDF flattening joins
+#: the two lines, so "…NEXT PAGE" + "2 of 20" reads as "Page 2 of 20" to a
+#: pattern that only looks for the word.
+#:
+#: RESTRICTION-ONLY PROPERTY, and the reason that hunk was safe: a negative
+#: lookbehind can only REMOVE matches from the set the pattern found before,
+#: never add one. `declared_pages` can therefore only shrink, so
+#: `missing_declared_statement_page` can only be withdrawn from a document that
+#: carried it — this cannot raise the flag on any document that did not already
+#: have it, and cannot move a validated document to review.
+_PAGE_DECLARATION_RE = re.compile(
+    r"(?<!NEXT )\bPage\s*:?\s*(\d+)\s+of\s+(\d+)\b", re.IGNORECASE
+)
+
 def assess_document_integrity(
     stmt: Statement,
     recon: ReconResult,
@@ -207,7 +264,23 @@ def assess_document_integrity(
     *,
     markdown: str = "",
     dispatch: Dispatch | None = None,
+    sheets: Sequence[str] | None = None,
 ) -> DocumentIntegrity:
+    # `str` is itself a `Sequence[str]`, so `sheets=markdown` type-checks, then
+    # iterates to one CHARACTER per "sheet": thousands of unlabelled sheets, and
+    # `missing_declared_statement_page` silently cleared on every document. That
+    # is the worst failure this parameter can have, so it is refused loudly
+    # rather than coerced. Raising, not treating it as None: passing the
+    # document text here is a caller defect, and a caller that believes it is
+    # supplying page structure while supplying none would otherwise run in the
+    # check's weakest mode forever with nothing to show for it. No document's
+    # content can reach this — only a call site can.
+    if isinstance(sheets, str):
+        raise TypeError(
+            "sheets must be the intake object's page list, not the document "
+            "text; a str iterates per character and would clear the "
+            "page-declaration check"
+        )
     flags: list[str] = []
     notes: list[str] = []
 
@@ -292,30 +365,75 @@ def assess_document_integrity(
     if contradictions:
         flags.append("conflicting_statement_summaries")
         notes.extend(contradictions)
-    # `CONTINUED ON NEXT PAGE` is a continuation footer, not a page
-    # declaration. Banks print it immediately above the page number, and PDF
-    # flattening joins the two lines, so "…NEXT PAGE" + "2 of 20" reads as
-    # "Page 2 of 20" to a pattern that only looks for the word.
-    #
-    # RESTRICTION-ONLY PROPERTY, and the reason this hunk is safe: a negative
-    # lookbehind can only REMOVE matches from the set the pattern found
-    # before, never add one. `declared_pages` can therefore only shrink, so
-    # `missing_declared_statement_page` can only be withdrawn from a document
-    # that carried it — this change cannot raise the flag on any document that
-    # did not already have it, and cannot move a validated document to review.
     declared_pages = [
-        (int(current), int(total))
-        for current, total in re.findall(
-            r"(?<!NEXT )\bPage\s*:?\s*(\d+)\s+of\s+(\d+)\b",
-            markdown,
-            re.IGNORECASE,
-        )
+        (int(current), int(total)) for current, total in _PAGE_DECLARATION_RE.findall(markdown)
     ]
     if declared_pages:
         declared_total = max(total for _, total in declared_pages)
         present = {current for current, total in declared_pages if total == declared_total}
         missing = sorted(set(range(1, declared_total + 1)) - present)
-        if missing:
+        # A missing LABEL is only evidence of a missing PAGE when every sheet
+        # the PDF carries prints one, and plenty do not. HUNT-CELL H6.2 measured
+        # three Burke & Herbert statements whose Nth declared page is an
+        # unlabelled deposit-image sheet — and whose rows reproduce the
+        # published ledger exactly, so the "missing" page corroborates the parse
+        # it was impeaching. UNID-PACK-B §UB4.3 measured the same defect in a
+        # second shape: Fiserv Premier footers `1 of 8` … `6 of 8` and appends
+        # the GLBA privacy notice as two sheets with no footer at all.
+        #
+        # So an unlabelled sheet is counted as what it is: a candidate for any
+        # one of the pages whose label was not found. The flag is withheld only
+        # when BOTH hold — enough candidates for the unfound labels, and a PDF
+        # that is not simply short of its own declared total.
+        #
+        # What that pair does NOT do is defeat padding, and the limit is stated
+        # here rather than discovered later: a blank or whitespace-only sheet is
+        # excluded from `printed_sheets` and raises neither count, but a sheet
+        # carrying ANY text — one character is enough — is a candidate, because
+        # nothing here reads the page. A short PDF padded with text-bearing
+        # junk sheets will have this flag withdrawn. Closing that needs a reader
+        # that can tell a statement page from a filler page, which is a
+        # different capability from counting them.
+        #
+        # `sheets` is the INTAKE OBJECT's page list (`StatementMarkdown.pages`),
+        # one entry per physical sheet, passed down by the caller that ran the
+        # intake ladder. It is deliberately NOT recovered by re-splitting
+        # `markdown` on the `--- Page N ---` separators `to_markdown` writes
+        # between those same pages. That was this hunk's first form and it was
+        # wrong in the way FILENAME-BOUNDARY is about, one layer further down:
+        # the separator is an unescaped text convention and page content is OCR
+        # output, so a statement printing the literal line `--- Page 9 ---`
+        # manufactures a sheet that does not exist. Appended inside the last
+        # page it even leaves the 1..K sequence intact, so validating the
+        # separator STREAM cannot close it — the count has to come from the
+        # object that knows how many sheets were rasterised. This flag is
+        # fraud-relevant; a document must not clear it by printing a line.
+        #
+        # FAIL-CLOSED when the caller supplies nothing: no sheet list means no
+        # evidence that anything is present but unlabelled, so `missing` stands
+        # exactly as it did before this cell. A caller can only ever weaken this
+        # check by proving structure, never by staying silent.
+        #
+        # ASYMMETRY, deliberate and conservative: `declared_pages` reads
+        # declarations from the whole document and takes `declared_total` from
+        # the largest denominator, while a sheet counts as labelled if it
+        # carries ANY declaration, whatever its denominator. A sheet printing
+        # `Page 1 of 2` inside a document that declares 8 is therefore treated
+        # as labelled rather than as a candidate. That direction only ever keeps
+        # the flag, so the asymmetry cannot clear a document.
+        #
+        # This does NOT blunt the check: the pinned Columbia statement declares
+        # 5 pages, supplies 4 sheets and labels all four, so nothing can stand
+        # in for page 5 and its flag stands byte-identical — as does the
+        # synthetic Wells fixture behind the FILENAME-BOUNDARY suppression test.
+        printed_sheets = [sheet for sheet in (sheets or ()) if sheet.strip()]
+        unlabelled_sheets = sum(
+            1 for sheet in printed_sheets if not _PAGE_DECLARATION_RE.search(sheet)
+        )
+        accounted_for = (
+            len(printed_sheets) >= declared_total and len(missing) <= unlabelled_sheets
+        )
+        if missing and not accounted_for:
             flags.append("missing_declared_statement_page")
             notes.append(
                 "statement declares "
@@ -353,7 +471,12 @@ def assess_document_integrity(
 def analyze_markdown(markdown: str, *, settings: Settings | None = None,
                      parse_mode: str = "auto",
                      document_geometry: object | None = None,
+                     sheets: Sequence[str] | None = None,
                      on_dispatch: Callable[[Dispatch], None] | None = None) -> Report:
+    # `sheets` is `StatementMarkdown.pages` from the caller that ran the intake
+    # ladder — the authentic per-sheet structure of the PDF, which this string
+    # cannot be trusted to reproduce (see `assess_document_integrity`). Optional
+    # and fail-closed: a caller that does not have it changes nothing.
     settings = settings or load_settings()
     if parse_mode not in {"auto", "deterministic"}:
         raise ValueError(f"unknown parse_mode: {parse_mode}")
@@ -413,7 +536,9 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         else None
     )
     if deterministic_stmt is not None:
-        stmt = apply_statement_repairs(markdown, normalize_statement(deterministic_stmt))
+        stmt = apply_statement_repairs(
+            markdown, normalize_statement(deterministic_stmt), dispatch=dispatch
+        )
         bank_label = (stmt.bank or "bank").lower().replace(" ", "-")
         model_used = f"{bank_label}-deterministic"
     elif structured_stmt is not None:
@@ -434,7 +559,7 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         if parse_mode == "deterministic":
             raise RuntimeError("no deterministic parser matched this statement")
         stmt = normalize_statement(extract_statement(markdown, settings=settings, model=model_used))
-        stmt = apply_statement_repairs(markdown, stmt)
+        stmt = apply_statement_repairs(markdown, stmt, dispatch=dispatch)
     recon = reconcile(stmt)
 
     escalated = False
@@ -448,7 +573,7 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
     if deterministic_stmt is None and needs_escalation and settings.escalation_model != settings.model:
         try:
             alt = normalize_statement(extract_statement(markdown, settings=settings, model=settings.escalation_model))
-            alt = apply_statement_repairs(markdown, alt)
+            alt = apply_statement_repairs(markdown, alt, dispatch=dispatch)
             alt_recon = reconcile(alt)
             better_summary = bool(alt_recon.summary_ok) and not recon.summary_ok
             fewer_issues = alt_recon.summary_ok == recon.summary_ok and len(alt_recon.issues) < len(recon.issues)
@@ -482,7 +607,9 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         for note in quality.notes:
             if note not in metrics.notes:
                 metrics.notes.append(note)
-    integrity = assess_document_integrity(stmt, recon, quality, markdown=markdown, dispatch=dispatch)
+    integrity = assess_document_integrity(
+        stmt, recon, quality, markdown=markdown, dispatch=dispatch, sheets=sheets
+    )
     if integrity.possible_document_issue and quality.corporate_use != "approved":
         quality = Quality(
             level="needs_review",

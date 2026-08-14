@@ -14023,3 +14023,683 @@ payload   0BE7D98471CB18DF… -> 0BE7D98471CB18DF…   IDENTICAL
 recorded in a different costume: a population derived from one artifact is not
 the population. Re-derive from the artifact STORE, not from the run's rows,
 when the claim is "nothing moved".
+# §PIPEFIX — two orchestrator defects: a repair that reads a counterparty, and a page that was never missing
+
+Protected-module cell. The unit of work is `analysis/pipeline.py`, the
+deliverable is two minimal hunks, and the argument that matters is
+containment: what else in the archive moves, and why every mover is the same
+defect rather than a new one.
+
+## P0. Summary
+
+Both cards were raised by HUNT-CELL, which measured them counterfactually and
+declined to patch modules it did not own. Neither pays out on this branch: the
++5 and the +3 are Huntington and Burke & Herbert documents that no
+registration claims until `wave3-hunt` lands, so today they are
+`failed / no_parser_matched` and never reach either code path. **These are
+enabling fixes.** What they pay out here is the defect they remove from
+documents that do publish.
+
+| card | the defect | movers on this branch |
+|---|---|---|
+| 1 | bank-summary repairs gated on a document substring, so another bank's name as a COUNTERPARTY fires them | **3** statements whose `ending_balance` is rewritten by a foreign repair |
+| 2 | `missing_declared_statement_page` reads an absent page LABEL as an absent PAGE | **0 at merge — ships INERT.** Once wired: 114 documents lose a false flag, of which **13** publish (+2 pinned, ceremony) |
+| 3 | `wells._infer_year` reads the first year token by position | **0** — measured, latent, not shipped (P4) |
+
+Card 2 was extended mid-cell by Ocean with UNID-PACK-B's Fiserv finding. It
+needed **no code change**: the rule keys on the presence of an unlabelled
+sheet, not on what is printed on it, so a GLBA disclosure insert and a
+deposit-image sheet are the same fact to it (P3.3). Enabling totals across the
+wave: 5 Huntington (card 1) + 3 Burke + 4 Fiserv (card 2) = **12** documents
+that stop being blocked by an orchestrator defect once their own registrations
+land.
+
+Card 2's blast radius is materially wider than its carded +3. It is measured
+exactly, every publishing mover is named, and it is put to Ocean rather than
+quietly shipped (P3.5). After adversarial review it ships **inert** — the
+mechanism is corrected and pinned by tests, but no production caller supplies
+the page structure it needs, so nothing moves at merge. Activation is a
+ceremony-gated follow-up card (P4b.5, P7.6).
+
+`analysis/regions.py` and `analysis/bofa.py` carry a **zero-line diff**. The
+change is `analysis/pipeline.py` and `tests/test_analysis.py`, nothing else.
+`ANALYSIS_STAGE_VERSION` is deliberately NOT bumped; it is Ocean's at merge.
+
+## P1. The instrument
+
+Every figure below comes from the archive markdown resolved out of the D-3
+artifact store **by direct file path** — the sqlite index was never opened —
+and replayed through this branch's real `analysis.pipeline`. The store
+resolves 3,367 of the run-of-record documents; the rest have no OCR artifact
+under any settings key and are excluded rather than assumed.
+
+Baseline run of record: `88be9dd3`. Base commit: `625c41d`.
+
+## P2. Card 1 — a repair fires for the registration that claimed the document
+
+### P2.1 The defect
+
+`apply_statement_repairs` gated two repairs on substrings of the document:
+`"REGIONS" in markdown.upper() and "SUMMARY" in ...` (`analysis/regions.py`)
+and `"BANK OF AMERICA" ... "ACCOUNT SUMMARY"` (`analysis/bofa.py`). Both
+rewrite PUBLISHED figures — `beginning_balance`, `ending_balance`, the stated
+totals, `stated_service_charge`.
+
+A bank's name in a statement is as often a fact about a counterparty as about
+the issuer. This is R4-3 applied to a repair instead of to a detection marker,
+and a repair is the worse place for it: detection competes and can be
+adjudicated, a repair simply overwrites.
+
+### P2.2 The fix
+
+The gate is the **claiming registration**, held as data next to the calls:
+
+```python
+_SUMMARY_REPAIRS: dict[str, Callable[[str, Statement], Statement]] = {
+    "bank_of_america": repair_bofa_summary,
+    "regions": repair_regions_summary,
+}
+```
+
+resolved through `_registration_for` — the same R-3 resolution
+`assess_quality` and `assess_document_integrity` already use, so an LLM
+extraction naming a bank we have a parser for still gets that parser's repair
+(the R-3 ruling), and one naming a bank we do not gets nothing. `dispatch` is
+threaded to the three call sites; it was already in scope at all three.
+
+At most one bank-summary repair can now fire, since a document has one owner.
+
+These are registration IDs, not bank labels: `test_pipeline_names_no_bank`
+stays green, and a new test holds every id in the table to a live registration
+so a renamed parser cannot silently switch its repair off.
+
+### P2.3 Why the sweep is complete rather than a sample
+
+Old behaviour is `gate(markdown)`. New behaviour is `owner ∈ {bank_of_america,
+regions}` **and** `gate(markdown)` — because each repair keeps its own internal
+guard, which is why both modules have a zero-line diff. The two can therefore
+differ in exactly one direction:
+
+* `gate` true, owner is not the owner → the repair stops. Measurable, and
+  swept exhaustively below.
+* `gate` false, owner is the owner → the repair is called and its own guard
+  returns the statement unchanged. A no-op by construction.
+
+There is no third case, which makes the substring-gate candidate set a
+complete enumeration of everything that could move.
+
+### P2.4 The sweep, and the named movers
+
+```
+documents with an OCR artifact                  3,367
+satisfy either substring gate                     456
+  ...of which a parser claimed                    424
+  ...whose OWNER is the repair's owner            384   (360 bank_of_america, 24 regions)
+  ...claimed by some OTHER registration            40
+       bmo_ca_business 19, american_express 9, td_us 4,
+       chase 3, wells_fargo 3, mission_valley 1, us_bank 1
+documents whose published statement CHANGES         3
+```
+
+The full claimed populations of `regions` (24) and `bank_of_america` (360) are
+**byte-identical**. Of the 40 documents exposed to a foreign bank's repair, 37
+were already no-ops — the gate was satisfied but the labels the repair reads
+were absent — and 3 were genuinely corrupted:
+
+| document | owner | fields the foreign repair was rewriting | outcome today |
+|---|---|---|---|
+| `Chase/1bfe70c4_20260430-statements-7933- (1).pdf` | `chase` | `ending_balance`, `stated_service_charge`, `stated_total_credits`, `stated_total_debits` | `withheld` |
+| `Chase/abe3b3ef_20260331-statements-8658- (1).pdf` | `chase` | `ending_balance`, `stated_total_debits` | `withheld` |
+| `Chase/d25571c6_20260331-statements-7871-.pdf` | `chase` | `ending_balance`, `stated_total_debits`, `stated_service_charge` | `withheld` |
+
+Each has a correctly-parsed `ending_balance` overwritten today by a repair
+belonging to a bank that appears in it only as a counterparty.
+
+**ADJUDICATED — ACCEPTED (Ocean, adversarial review).** The review established
+what the corruption actually is: on these three the base is publishing a
+transaction COUNT where an ending balance belongs. With the repair keyed on the
+claiming registration their ledgers reconcile exactly, and all three move
+`withheld` → **VALIDATED**. They are carried here as three accepted publishing
+movers, not as an open question.
+
+### P2.5 The carded +5, counterfactually
+
+The five Huntington documents are unclaimed on this branch, so the proof runs
+with HUNT's registration constructed in memory as the claimant, against each
+document's real archive markdown and a statement carrying the issuer's own
+figures:
+
+```
+09d4938d_February statement _1                        OLD rewrites 3 fields | NEW rewrites 0
+09d4938d_Huntington December statement  Account 8098  OLD rewrites 3 fields | NEW rewrites 0
+09d4938d_Huntington January Staement   8098 acct      OLD rewrites 3 fields | NEW rewrites 0
+09d4938d_March Statement _1                           OLD rewrites 3 fields | NEW rewrites 0
+09d4938d_november huntington statement  Account 8098  OLD rewrites 3 fields | NEW rewrites 0
+```
+
+(`beginning_balance`, `ending_balance`, `stated_total_debits` in every case.)
+LLM-path resolution checked directly: `by_bank_label("Regions Bank") →
+regions`, `("Bank of America") → bank_of_america`, `("Huntington National
+Bank") → None`.
+
+## P3. Card 2 — an unlabelled sheet is not a missing page
+
+### P3.1 Characterization first, and it corrected the card
+
+The handoff proposed restricting the DECLARATION SET, on the FIXUPS-1
+lookbehind precedent. The three documents say that cannot be the fix. Their
+printed shape, read off the archive markdown:
+
+| document | declares | labels printed | sheets with text | unlabelled sheets |
+|---|---|---|---|---|
+| `6768-2026-Mar` | 6 | 1–5 | 7 | 2 |
+| `6768-2026-Apr` | 8 | 1–7 | 9 | 2 |
+| `6768-2026-May` | 6 | 1–5 | 7 | 2 |
+
+Every declaration on these documents reads `of 6` / `of 8`. Removing
+declarations from the set can only shrink `present` and therefore GROW
+`missing`; it cannot withdraw this flag. The defect is not in what counts as a
+declaration — it is in the inference from a missing label to a missing page.
+
+The bank's own last page is physically present as an unlabelled deposit-image
+sheet. On `6768-2026-Mar` it lists `2/13 $18,245.24`, `2/23 $8,000.00`,
+`2/13 $1,525.00`, `2/20 $1,200.00` — exactly the two deposit and two
+withdrawal rows of the published ledger. The "missing" page corroborates the
+parse it was being used to impeach.
+
+### P3.2 The fix
+
+An unlabelled sheet is counted as what it is: a sheet that could be any one of
+the pages whose label was not found. Where there are at least as many of them
+as there are missing labels, nothing has been shown to be absent:
+
+```python
+        unlabelled_sheets = sum(
+            1
+            for sheet in _SHEET_SEPARATOR_RE.split(markdown)[1:]
+            if sheet.strip() and not _PAGE_DECLARATION_RE.search(sheet)
+        )
+        if missing and len(missing) > unlabelled_sheets:
+```
+
+The sheet separator is the intake layer's own (`ocr.document.
+StatementMarkdown.to_markdown`), read here for the same reason
+`analysis/navigant.py` already splits on it: it is the one structural record of
+how many sheets the supplied PDF actually has. No issuer literal is involved.
+
+`[1:]` drops the intake preamble, which is not a sheet. It is load-bearing
+twice: a caller passing raw (non-admissible) markdown would otherwise
+contribute a phantom unlabelled sheet and weaken the check by one, and a
+document with no separators at all — every hand-written fixture — yields no
+sheets rather than one. The first draft omitted it and two new tests caught it.
+
+**The check is not blunted.** The discriminating case is real and pinned: the
+Columbia statement declares 5 pages, supplies 4 sheets and prints a label on
+every one of them. Zero unlabelled sheets, so a page really is absent, and its
+flag stands byte-identical — as does the synthetic Wells fixture behind the
+FILENAME-BOUNDARY suppression test.
+
+A tightening was considered and rejected on measurement: additionally
+requiring `sheets_with_text >= declared_total`. It changes **nothing** over
+3,367 documents, and it is close to implied — if each printed label sits on its
+own sheet, `unlabelled >= missing` already entails it.
+
+### P3.3 The second shape — unnumbered disclosure inserts (Ocean's extension)
+
+Ocean extended this card mid-cell with UNID-PACK-B's finding (§UB4.3, UB8.2):
+four Fiserv Premier statements are held out of validation by this same flag
+because the GLBA privacy notice is appended as sheets carrying no footer while
+the printed denominator counts them.
+
+**No code change was needed, and that is the result worth recording.** The rule
+in P3.2 keys on the existence of an unlabelled sheet, not on what the sheet
+contains, so a disclosure insert and a deposit-image sheet are the same fact to
+it. Replicating UNID-PACK-B's three detection markers exactly
+(`STATEMENT OF ACCOUNT`, `PREVIOUS BALANCE`, both parenthesised count clauses)
+reproduces their census — **14 detected, of which exactly 4 carry the flag** —
+and the shipped rule withdraws it from all four:
+
+| document | declares | labels printed | missing | unlabelled sheets | after |
+|---|---|---|---|---|---|
+| `Unidentified/65a7d9a6_8891-2026-Feb-fsb.pdf` | 8 | 1–6 | 7, 8 | 2 | withdrawn |
+| `Unidentified/65a7d9a6_8891-2026-Mar-fsb.pdf` | 10 | 1–8 | 9, 10 | 2 | withdrawn |
+| `Unidentified/7816f0bc_0483-2026-Mar-21983845.pdf` | 8 | 1–6 | 7, 8 | 2 | withdrawn |
+| `Unidentified/7816f0bc_0548-2026-Mar-21523367 (1).pdf` | 8 | 1–6 | 7, 8 | 2 | withdrawn |
+
+This is the exact `1 of 8` … `6 of 8` plus two unfootered inserts that UB4.3
+describes, and it sits on the boundary of the count: two unlabelled sheets for
+two unfound labels. `test_two_unnumbered_disclosure_inserts_are_not_two_missing_pages`
+pins it, alongside `test_more_missing_labels_than_unlabelled_sheets_still_flags`
+which pins the other side (2 unfound, 1 unlabelled → still flagged).
+
+All four are `failed / no_parser_matched` on this branch — `fiserv_premier`
+exists only on `wave3-unid-b` — so like the Burke three they are enabling
+movers, not movers here. **Not asserted, because this cell cannot measure it:**
+whether removing the flag actually validates them depends on their parser's own
+gates, which UNID-PACK-B reports as all passing. That joint outcome is only
+verifiable once both branches land.
+
+Card 2's enabling total is therefore **7** documents — 3 Burke + 4 Fiserv — and
+the wave-wide total across both cards is **12** (5 Huntington on card 1).
+
+### P3.4 The census Ocean asked for, and what it says about narrowing
+
+Every archive document carrying `missing_declared_statement_page` today:
+
+```
+outcome         CARRY  WITHDRAWN  KEPT   of which trailing-insert shape
+failed            137        101    36                              27
+review              9          3     6                               0
+withheld           11         10     1                               0
+TOTAL             157        114    43                              27
+```
+
+So the flag is on 157 documents, 114 of them on the strength of an absent
+footer rather than an absent page. Of the documents that publish today, **10 of
+the 11 `withheld` and 3 of the 9 `review`** are the unnumbered-sheet shape. The
+43 that keep the flag are the documents where a page really is unaccounted for.
+
+The last column is the load-bearing one. Both shapes Ocean named — deposit-image
+sheets and disclosure inserts — are TRAILING inserts, and a rule narrowed to
+that shape was the obvious way to keep the blast radius near the cards. The
+census refutes it: only **27 of 114** withdrawals are trailing, and **none of
+the 13 publishing movers is**. The same defect occurs with leading and interior
+unlabelled sheets (`01 Dec TD Statement`: labels 1, 3, 5, 6 of 6, two unlabelled
+sheets in between), and a trailing-only rule would have fixed the two carded
+families while leaving every publishing document still falsely accused. That is
+why the rule is stated over unlabelled sheets wherever they sit.
+
+### P3.5 The sweep, and the over-scope Ocean must rule on
+
+```
+documents with an OCR artifact                3,367
+flag WITHDRAWN                                  114   (failed 101, review 3, withheld 10)
+flag RAISED                                       0
+```
+
+Zero raised is the FIXUPS-1 restriction-only property, measured rather than
+argued. 101 of the 114 publish nothing today. **The 13 that publish are
+outside the handoff's named population, and are named here in full:**
+
+| outcome | document | declares | missing labels | unlabelled sheets |
+|---|---|---|---|---|
+| review | `Apex Bank/48417524_KLR.Apr_30__2026 (2).pdf` | 9 | 1–8 | 8 |
+| review | `Regions Bank/5a02e151_CHECKINGSTATEMENT_04-28-2026.pdf` | 3 | 1, 2 | 2 |
+| review | `Unidentified/17e8ceec_DOC_6350705.pdf` | 4 | 1, 2, 3 | 3 |
+| withheld | `BMO/00ce1330_BMO_Statement_April_2026 3-1-3.pdf` | 3 | 1, 2 | 2 |
+| withheld | `BMO/00ce1330_BMO_Statement_February_2026 Final-1-3.pdf` | 3 | 1, 2 | 2 |
+| withheld | `BMO/00ce1330_BMO_Statement_January_2026 Final-1-2 (1).pdf` | 2 | 1 | 1 |
+| withheld | `BMO/00ce1330_BMO_Statement_March_2026 2-1-3 (1).pdf` | 3 | 1, 2 | 2 |
+| withheld | `PNC Bank/294407ef_February_2026 monthly_statement pnc(1).pdf` | 10 | 1 | 1 |
+| withheld | `Regions Bank/5a02e151_CHECKINGSTATEMENT_02-25-2026.pdf` | 4 | 2, 4 | 2 |
+| withheld | `TD Bank/b1d8892d_01 Apr TD Statement.pdf` | 5 | 1, 2, 4, 5 | 4 |
+| withheld | `TD Bank/b1d8892d_01 Dec TD Statement.pdf` | 6 | 2, 4 | 2 |
+| withheld | `TD Bank/b1d8892d_01 Jan TD Statement.pdf` | 6 | 2, 4 | 2 |
+| withheld | `TD Bank/b1d8892d_01 Mar TD Statement.pdf` | 5 | 2, 4 | 3 |
+
+Every one is the same defect: the PDF carries at least as many sheets as the
+statement declares pages, and the labels are simply not printed on all of them
+(`01 Dec TD Statement` supplies 6 sheets for 6 declared pages, 4 labelled and 2
+not). None is a document where a page is shown to be absent. The 10 `withheld`
+stay withheld — that is a reconciliation outcome, not an integrity one — so
+what moves for them is the flag and the risk level.
+
+This is a wider footprint than the carded +3, and it is the honest consequence
+of fixing the inference rather than the three documents. **Ocean's call at
+merge**; the narrowings that would hit only the three all require either an
+issuer literal or a shape constraint fitted to them.
+
+## P4. Card 3 — the wells year residual, measured and reported back
+
+`analysis/wells.py` is not in this cell's ownership, and the card is
+conditional on being cheap, so it was measured rather than written.
+
+`_infer_year` returns the first `20\d{2}` token by document position. Over
+every Wells-claiming document in the archive:
+
+```
+wells-claiming documents                                          221
+documents printing MORE THAN ONE distinct year token              221
+documents where the first token by position != the year of the
+  first printed long-form date (the period label)                   0
+```
+
+The residual is real but **latent**: on all 221 the first token by position IS
+the period label's year, so anchoring would be a no-op today. The dangerous
+instance — the filename — was already removed by FILENAME-BOUNDARY. Recorded,
+not shipped.
+
+## P4b. Adversarial review: the separator-injection defect, and the records it asked for
+
+Ocean's review returned SHIP-conditional. Card 1 was accepted outright (P2.4).
+Card 2 carried a defect of my own making, and it is the more interesting half
+of this cell.
+
+### P4b.1 The defect: page content could forge a sheet
+
+The first form of the card-2 hunk recovered the sheet structure by re-splitting
+the RENDERED markdown on the `--- Page N ---` separators. That is a text
+convention `ocr.document.StatementMarkdown.to_markdown` writes BETWEEN pages —
+unescaped — and page content is OCR output of whatever the document printed. A
+statement carrying the literal line `--- Page 9 ---` therefore manufactures a
+sheet that does not exist, and manufacturing one unlabelled sheet is exactly
+what it takes to withdraw a genuine missing-page finding.
+
+This is the FILENAME-BOUNDARY principle one layer down, on the same
+fraud-relevant flag: I replaced one untrusted-input channel (the filename) with
+another (page body text), and did not notice because both were *our own*
+rendering conventions. Validating the separator STREAM does not close it —
+appending the forged marker inside the LAST page leaves the 1..K sequence
+intact — so the count has to come from the object that knows how many sheets
+were rasterised.
+
+### P4b.2 The fix
+
+`assess_document_integrity` takes `sheets: Sequence[str] | None`, the intake
+object's own page list, threaded through `analyze_markdown`. The check is now
+two conjuncts, and Ocean's free tightening is the second:
+
+```python
+        printed_sheets = [sheet for sheet in (sheets or ()) if sheet.strip()]
+        unlabelled_sheets = sum(
+            1 for sheet in printed_sheets if not _PAGE_DECLARATION_RE.search(sheet)
+        )
+        accounted_for = (
+            len(printed_sheets) >= declared_total and len(missing) <= unlabelled_sheets
+        )
+        if missing and not accounted_for:
+```
+
+`_SHEET_SEPARATOR_RE` is deleted; nothing re-derives page structure from the
+string any more.
+
+**Fail-closed on silence.** A caller that supplies no sheet list gets the
+pre-cell behaviour exactly: `printed_sheets` is empty, `accounted_for` is
+False, the flag stands. A caller can only ever weaken this check by PROVING
+structure, never by staying silent — which is the property that makes the
+optional parameter safe to add ahead of its callers.
+
+**What the combined rule now refuses**, stated exactly because the padding
+vector is the obvious next attack:
+
+* a short PDF padded with blank or whitespace-only sheets — they are excluded
+  from `printed_sheets`, so they raise neither conjunct;
+* any document supplying fewer text-bearing sheets than it declares pages,
+  however many unlabelled sheets it has;
+* any forged separator in page content, which no longer participates at all.
+
+**The honest residual**, recorded rather than papered over: padding a short PDF
+with a sheet that carries real text still withdraws the flag, and ONE CHARACTER
+is enough to make a sheet text-bearing. Such a sheet is indistinguishable from
+a genuine unlabelled insert without reading the page, and this cell does not
+read pages; closing it needs a reader that can tell a statement page from a
+filler page, which is a different capability from counting them. The in-code
+comment states this limit at the point of use rather than claiming the two
+conjuncts defeat padding.
+
+**One call-site footgun, refused loudly.** `str` is itself a `Sequence[str]`,
+so `sheets=markdown` type-checks and then iterates one CHARACTER per sheet —
+thousands of unlabelled sheets, and this flag cleared on every document that
+carries it. `assess_document_integrity` raises `TypeError` on a `str` rather
+than coercing it to `None`: passing the document text is a caller defect, and a
+caller that believes it is supplying page structure while supplying none would
+otherwise run the check in its weakest mode indefinitely with nothing to show
+for it. No document's content can reach this path — only a call site can — so
+raising costs nothing at runtime and fails the wiring card loudly if it is
+mis-wired. Pinned by
+`test_passing_the_document_text_as_the_sheet_list_is_refused`.
+
+### P4b.3 Re-verification after the fix
+
+```
+census, recomputed with the intake-object page list
+outcome         CARRY  WITHDRAWN   KEPT
+failed            137        101     36
+review              9          3      6
+withheld           11         10      1
+TOTAL             157        114     43
+
+flags RAISED on any document                                              0
+documents whose PAGE BODY contains a separator line (forgery in the wild) 0
+documents where the intake-object rule disagrees with the string-split rule 0
+publishing movers (card 2)                                               13
+publishing movers (card 1)                                                3
+```
+
+The census reproduces to the document, and the intake-object count is
+**behaviour-identical on every real document in the archive** — the forgery
+vector is a live hole in the string-split form, but nothing in the corpus
+exercises it, which is why the first form's sweeps looked clean. The 16 movers
+are unchanged. The Burke three and the Fiserv four still clear
+(`flags=[]` on all seven).
+
+### P4b.4 Records the review asked for
+
+1. **P3.5 TD-Mar row corrected.** `01 Mar TD Statement.pdf` declares **5**,
+   missing **[2, 4]**, **3** unlabelled sheets (the table said 6 / 2 / 2). The
+   verdict is unchanged; the row was mistranscribed.
+2. **The CONTINUED-footer composition.** FIXUPS-1's `(?<!NEXT )` lookbehind
+   means a sheet whose only page-number text is a continuation footer matches
+   no declaration — so it counts as UNLABELLED here and can excuse a missing
+   page. The two restrictions compose in a direction neither intended.
+   **Measured: 0 of the 157 flag-carrying documents have such a sheet**, so it
+   is synthetic-only today. Carried finding, not patched: the fix belongs with
+   whoever next owns the declaration pattern.
+3. **The denominator asymmetry**, now documented at the point of use:
+   `declared_total` is the largest denominator in the document, but a sheet
+   counts as labelled if it carries ANY declaration whatever its denominator.
+   A sheet printing `Page 1 of 2` in a document declaring 8 is treated as
+   labelled rather than as a candidate. Conservative — it only ever keeps the
+   flag — so it cannot clear a document.
+4. **`tests/test_structurer_pipeline.py`** quoted the pre-cell
+   `apply_statement_repairs(markdown, normalize_statement(deterministic_stmt))`
+   in its illustrative diff. Updated to the shipped call.
+5. **The LLM-path label-parity gap**, carried as a card and NOT fixed here.
+   `by_bank_label` is an exact casefold match on the registration's bank label,
+   so an extraction naming `Bank of America, N.A.` resolves to nothing and gets
+   no repair where the retired substring gate fired. Twenty unclaimed documents
+   satisfy the BofA gate; **four are genuine Bank of America statements**:
+   `927b5806_July_Statement_2026-07-07.pdf`, `94445b3f_Bank letter.pdf`,
+   `b0e2e2e9_eStmt_2026-01-30.pdf`, `b4d1c344_March 2026 Bank of America .pdf`.
+   All four are `failed / no_parser_matched` in the deterministic run of
+   record, so the run cannot show what an LLM would have labelled them — the
+   exposure is on the auto path only. This is a label-normalization card
+   against `by_bank_label`, not a change to this branch.
+
+### P4b.5 The wiring this fix still needs, which is not this cell's to write
+
+The parameter is threaded but no production caller passes it yet, and the three
+that can are all outside this cell's ownership. Until they do, card 2 is
+fail-closed inert in production — no document is wrongly cleared, and none is
+newly accused, but the 13 publishing movers do not move either:
+
+| file | site | change |
+|---|---|---|
+| `discovery/runner.py` | `_analyse` (called from the intake result) | thread `document.pages` in and pass `sheets=` |
+| `webapp/worker.py` | `analyze_markdown(markdown, parse_mode=...)` | `sheets=doc.pages` — `doc` is already in scope one line above |
+| `webapp/artifact_cache.py` | `cached_analysis` compute lambda | pass the document's pages alongside `md` |
+| `webapp/artifact_cache.py` | `analysis_settings_key` / `cached_analysis` key material | **add the sheet count** — see below, this is not optional |
+
+**The wiring card MUST also add the sheet count to the analysis-stage cache
+key material.** An earlier draft of this section claimed the opposite — "no
+cache-key change is needed, the sheet list is a function of the same document
+that produced the markdown". That was FALSE, and it was the most dangerous
+sentence in this cell's output, because it would have been read as clearance.
+
+The analysis key is built at `webapp/artifact_cache.py:638` as
+
+```python
+    input_sha = text_sha256(admissible_text(markdown))
+```
+
+— the ADMISSIBLE text, which is precisely the text with the
+`<!-- source: … | pages: N | … -->` header removed. The page count is
+therefore not in the key material at all. And `to_markdown` is not injective
+over that text: a genuine three-sheet document and a forged one-sheet document
+whose single page prints the separators render to the SAME admissible string,
+so they take the same analysis cache key while having DIFFERENT correct
+answers under this check. The reviewer demonstrated the collision (key
+`EB23C6B1C971…`). Cache the first, serve it for the second.
+
+The header is stripped for a good reason — FILENAME-BOUNDARY, since it also
+carries the filename — so the fix is not to re-admit it but to add the sheet
+count to the key material explicitly, alongside `stage_version` and
+`parse_mode`.
+
+**Ceremony gate.** Activating the wiring legitimately moves two PINNED corpus
+documents, so it is Gustavo's formal ceremony, not a merge-time decision.
+Measured with each document's authentic page list, over all five pinned
+`page_coverage` documents:
+
+| pinned document | declares | missing | sheets | when wired |
+|---|---|---|---|---|
+| `Regions/Regions.pdf` | 3 | 1, 2 | 3 | **flag withdrawn → validated** |
+| `Misc/Texas Bank.pdf` | 4 | 1, 2, 3 | 4 | **flag withdrawn → validated** |
+| `Misc/Builder June 2026.pdf` | 5 | 1, 2, 3 | 4 | flag stands |
+| `Misc/Columbia May 26 complete.pdf` | 5 | 5 | 4 | flag stands |
+| `Misc/Link Bank April statement.pdf` | 20 | 20 | 20 | flag stands |
+
+Both movers are review→validated on a withdrawn false flag, which is exactly
+the movement `corpus_gate.py` cannot see: the gate's partition is
+106 PASS / 3 WITHHELD, and review and validated are both PASS. That is why
+this branch was BLOCKED at `b8013d5`, where the string-split form made those
+two moves with every gate check still green, and why the corpus-marked slice
+(`test_telemetry_reproduces_the_gate_outcome_split`,
+`test_withheld_diagnostics_reproduce_the_documented_diagnosis`) is the proof
+that caught it. Both pass at this HEAD, because card 2 is inert.
+
+`webapp/` is Ocean's and `discovery/runner.py` is outside this cell's
+ownership, so all four items — three call sites plus the cache key — are
+specified here rather than edited.
+
+## P5. Proofs
+
+All at `HEAD`, after the review fixes of P4b.
+
+```
+$ python corpus_gate.py
+RESULT: GREEN        Outcomes: 106 PASS / 3 WITHHELD        Runtime: 426.1s
+  balance_audit  109 statements reproduce every audited balance field
+  adb_audit      109 statements reproduce every audited ADB field
+  ocr_coverage   103 native-text + 6 committed-OCR, no live OCR, no model calls
+EXIT=0
+
+$ python -m pytest -q
+3025 passed, 18 deselected, 1 warning
+EXIT=0
+
+$ python -m pytest -m corpus \
+    tests/test_telemetry_corpus.py::test_telemetry_reproduces_the_gate_outcome_split \
+    tests/test_telemetry_corpus.py::test_withheld_diagnostics_reproduce_the_documented_diagnosis
+2 passed
+EXIT=0
+
+$ python -m pytest tests/test_analysis.py tests/test_filename_boundary.py \
+    tests/test_pipeline_registry_dispatch.py tests/test_structurer_pipeline.py \
+    tests/test_parser_crash_shapes.py tests/test_diagnostics.py -q
+363 passed
+EXIT=0
+
+$ python -m pytest \
+    tests/test_filename_boundary.py::test_a_page_label_filename_cannot_fabricate_a_page_declaration \
+    tests/test_filename_boundary.py::test_a_page_label_filename_cannot_suppress_the_missing_page_flag \
+    tests/test_analysis.py::test_page_content_cannot_forge_a_sheet_boundary \
+    tests/test_analysis.py::test_padding_the_pdf_with_a_blank_sheet_does_not_clear_the_flag \
+    tests/test_analysis.py::test_no_sheet_list_leaves_the_check_exactly_as_it_was -v
+5 passed
+EXIT=0
+```
+
+**The corpus-marked slice is in this list because its absence is what let the
+`b8013d5` regression through.** `corpus_gate.py` partitions the pinned 109 into
+106 PASS / 3 WITHHELD, and review and validated are BOTH inside PASS — so a
+document moving review→validated is invisible to every gate check while all of
+them stay green. Two pinned documents made exactly that move at `b8013d5` and
+the gate reported GREEN over it. The gate proves audited VALUES reproduce; only
+the corpus-marked slice proves the OUTCOME CLASS did.
+
+### The twelve new tests, by the job each does
+
+**Card 1 — the claiming registration (4).** None can run against `625c41d`:
+`apply_statement_repairs` had no `dispatch` parameter and `_SUMMARY_REPAIRS`
+did not exist. Their pre-change evidence is the counterfactual in P2.5, plus an
+assertion inside the first of them that calls the untouched
+`repair_regions_summary` directly and pins that the retired gate really does
+fire on a counterparty document and really does rewrite it.
+
+* `test_a_repair_does_not_fire_for_a_bank_named_only_as_a_counterparty`
+* `test_a_repair_still_fires_for_the_registration_that_owns_it`
+* `test_an_llm_extraction_gets_its_repair_by_bank_label`
+* `test_every_summary_repair_is_keyed_on_a_live_registration`
+
+**Card 2 — the page-declaration inference (8).** The three withdrawal cases
+cannot run against `625c41d` either, since the withdrawal now requires the
+`sheets` parameter; the evidence that they describe a real defect is the
+archive measurement (P3.3, P3.4) rather than a red test. The rest are refusals
+and pins, and they are the more important half:
+
+| test | job |
+|---|---|
+| `test_an_unlabelled_sheet_is_not_a_missing_page` | the HUNT deposit-image shape |
+| `test_two_unnumbered_disclosure_inserts_are_not_two_missing_pages` | the Fiserv disclosure-insert shape, at the boundary of the count |
+| `test_a_declared_page_absent_from_a_fully_labelled_pdf_still_flags` | the Columbia shape — a page really is absent |
+| `test_more_missing_labels_than_unlabelled_sheets_still_flags` | the count is a count, not a switch |
+| `test_page_content_cannot_forge_a_sheet_boundary` | **refuses the separator-injection attack** |
+| `test_padding_the_pdf_with_a_blank_sheet_does_not_clear_the_flag` | **refuses the blank-padding attack** |
+| `test_no_sheet_list_leaves_the_check_exactly_as_it_was` | **pins fail-closed on silence** — runs on `625c41d` and passes there too, which is the point |
+| `test_passing_the_document_text_as_the_sheet_list_is_refused` | **refuses the `sheets=markdown` call-site footgun** |
+
+## P6. Commits
+
+| Commit | Contents |
+|---|---|
+| `35b726e` | card 1 — a repair fires for the registration that claimed the document |
+| `e2ee022` | card 2 — an unlabelled sheet is not a missing page |
+| `421ac97` | the orchestrator names no bank, in prose either |
+| `ea981bb` | card 2 extension — the disclosure-insert shape, pinned (no production change) |
+| `b8013d5` | §PIPEFIX P0–P7 — **BLOCKED in review**, see P4b |
+| `a57a39e` | review fix — the sheet count comes from the intake object |
+| `c6f410f` | §PIPEFIX P4b — the review response and its records |
+| (this one) | the `str` guard, the corrected cache-key claim, and the refreshed P5 |
+
+## P7. Carried findings and questions for Ocean
+
+1. **Card 2's 13 publishing movers (P3.5).** Outside the handoff's named
+   population. Each is the same defect and each is named; accepting the wider
+   footprint is your decision, not this cell's. The census (P3.4) is the case
+   for it: 114 of the 157 documents carrying this flag carry it on the strength
+   of an absent footer, and narrowing the rule to the two carded shapes would
+   have left every publishing document still falsely accused.
+2. **`_SUMMARY_REPAIRS` belongs in the registry, not the orchestrator.**
+   `Registration` already carries `integrity_checks` — "bank-specific checks,
+   run only when this parser claimed" — and a `summary_repair` field is the
+   same shape and the proper home, leaving `pipeline.py` with no parser ids at
+   all. Not done here: it needs `parser_registry.py` and
+   `parser_registry_entries.py`, both outside this cell's ownership.
+3. **`repair_regions_transactions` is still keyed on `stmt.bank`**
+   (`analysis/bank_repairs.py:59`) — not a substring, but not the registration
+   either, and on the LLM path `stmt.bank` is model output. Same question one
+   module over; `bank_repairs.py` is outside this cell's ownership.
+4. **The three card-1 movers — SETTLED, not open.** The adversarial review
+   established that the base publishes a transaction COUNT as an ending balance
+   on these three; with the repair correctly keyed their ledgers reconcile
+   exactly and all three move `withheld` → VALIDATED. Adjudicated ACCEPTED by
+   Ocean; recorded in P2.4.
+5. **`ANALYSIS_STAGE_VERSION`** needs its bump at merge: card 1 changes
+   published output. (Card 2 changes none while it is inert.)
+6. **THE WIRING CARD — ceremony-gated, and it carries a cache-key change.**
+   Card 2 ships INERT: the `sheets` parameter exists, no production caller
+   passes it, and the check therefore behaves exactly as it did before this
+   cell. Activating it is a follow-up card, not a merge-time step, because it
+   legitimately moves two PINNED documents (`Regions/Regions.pdf` and
+   `Misc/Texas Bank.pdf`, review→validated on withdrawn false flags) and pinned
+   movement is Gustavo's formal ceremony. The card must land four things
+   together — the three call sites AND the sheet count in the analysis-stage
+   cache key material, without which a forged one-sheet document is served the
+   cached answer of an honest three-sheet one. Full spec and evidence in P4b.5.
+7. **The corpus-marked slice belongs in every proof floor.** This branch is the
+   demonstration: at `b8013d5` two pinned documents moved review→validated with
+   `corpus_gate.py` reporting GREEN over it, because the gate's partition is
+   106 PASS / 3 WITHHELD and both classes sit inside PASS. The gate proves
+   audited values reproduce; only the corpus-marked slice proves the outcome
+   class did.

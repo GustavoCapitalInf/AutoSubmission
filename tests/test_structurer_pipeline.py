@@ -27,7 +27,9 @@ The diff, in full, as landed:
     +        else None
     +    )
          if deterministic_stmt is not None:
-             stmt = apply_statement_repairs(markdown, normalize_statement(deterministic_stmt))
+             stmt = apply_statement_repairs(
+                 markdown, normalize_statement(deterministic_stmt), dispatch=dispatch
+             )
              bank_label = (stmt.bank or "bank").lower().replace(" ", "-")
              model_used = f"{bank_label}-deterministic"
     +    elif structured_stmt is not None:
