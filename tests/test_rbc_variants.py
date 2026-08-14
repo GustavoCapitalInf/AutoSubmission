@@ -979,8 +979,11 @@ def test_c_a_cheque_serial_is_read_from_the_statements_own_declaration():
     """`Chèque - 253 127,40` is serial 253 and $127.40, not $253,127.40.
 
     French thousands are spaced, so nothing inside the row settles it. The
-    rule is authorised by the cheque-image pages the statement appends, which
-    declare every serial the period cleared.
+    cheque-image pages the statement appends authorise the rule DOCUMENT-WIDE:
+    their presence selects a money pattern that will not begin an amount at
+    the number printed straight after `Chèque - `. The pattern does not consult
+    which serials were declared — see the note on `_FR_MONEY_SERIAL_RE` for the
+    two shapes that misreads, both of which fail closed.
     """
     stmt = parse_rbc_statement(FR.format(
         body="5 mars Chèque - 253 127,40 872,60\n") + FR_CHEQUE_PAGES)

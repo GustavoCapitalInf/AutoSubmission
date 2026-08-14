@@ -7232,6 +7232,16 @@ documents, exactly the four. Re-checked against the population the archive
 census does NOT cover: over the **109 pinned corpus documents** it refuses
 zero, and the worst pinned ratio is 0.025.
 
+**Scope, stated honestly.** The predicate is issuer-neutral; the WIRING is
+three registrations out of 52. A scan of all 3,493 archive documents at the
+shipped threshold returns **exactly five** over it — the four `85259525_*`
+behind this guard, and `Unidentified/125ead7e_Gulf Coast Bank - June 2026.pdf`
+at **0.261**, another issuer's, unclaimed today and behind nothing. Ocean's
+adversarial review found that fifth document independently. Nothing claims it,
+so there is no live exposure; but a guard whose whole purpose is to survive a
+later widening is doing that job on three registrations and not on 49. Wiring
+it platform-wide is RC8.7.
+
 ## RC7. Scope, semantics and the wider probe
 
 **Zero cross-claims.** The conformance cross-product is now 52 x 51 = 2,652
@@ -7308,6 +7318,45 @@ it:
    `analysis/parser_registry_entries.py` was modified: `webapp/`, `ocr/`,
    `pipeline.py`, `count_semantics.py`, `reconcile.py` and `metrics.py` carry a
    zero-line diff against `cce8ac1`.
+7. **FOLLOW-UP CARD — wire `glyph_damaged` platform-wide.** The predicate is
+   issuer-neutral but its wiring is not: it is an excluding marker on 3 of the
+   registry's 52 registrations, the ones this cell owned. A full scan of all
+   3,493 archive documents finds **exactly 5 over threshold**: the four
+   `85259525_*` behind the guard, and
+   `Unidentified/125ead7e_Gulf Coast Bank - June 2026.pdf` at **0.261**, which
+   is another issuer's, unclaimed today, and protected by nothing. Ocean's
+   reviewer found the same fifth document independently (0.274 on their build).
+   Nothing claims it today, so there is no live exposure — but the guard's
+   value is precisely that it holds when a gate is later widened, and on 49
+   registrations it would not.
+8. **FOLLOW-UP CARD — consult the declared serials per row.** The
+   cheque-serial fix uses the declared-serial set as a document-wide BOOLEAN
+   only: it selects `_FR_MONEY_SERIAL_RE`, whose lookbehind is positional and
+   never asks whether the number after `Chèque - ` is one of the serials the
+   document declared. Two shapes are therefore misread on a statement that
+   declares any serial — a row naming an undeclared serial, and a row with no
+   serial at all (`Chèque - 1 234,56` reads as `234,56`). Neither occurs in
+   the family and both fail closed on the balance walk, so this is a
+   correctness-of-form debt rather than a live defect. The comment at
+   `_FR_MONEY_SERIAL_RE` states the real scope.
+9. **The negative cross-product does not cover `ALTERNATE_FIXTURES`.**
+   `tests/test_parser_conformance.py`'s 52 x 51 = 2,652 negative assertions run
+   over `FIXTURES` only. This branch put the RISKIER of `rbc_french`'s two
+   wordings — `Date Description Retraits`, which is also CIBC's French header —
+   into `ALTERNATE_FIXTURES`, so the branch that most needs cross-checking is
+   the one the harness does not cross-check. Ocean's reviewer verified by hand
+   that it cross-claims nothing today, and `test_c_negative_the_personal_
+   header_alone_does_not_reach_a_cibc_statement` pins the specific pair.
+   Extending the harness to run the cross-product over alternates as well is a
+   follow-up card and would benefit every disjunctive marker in the registry,
+   not just this one.
+10. **A latent double sign in `read_grid_rows`.** The balance-sign rule reads a
+   bare `-` between two cells as the sign of the second, and the money patterns
+   also match a minus welded to the figure. A line printing BOTH — `194.82 -
+   -192.33` — negates twice and publishes `+192.33`. No document in the
+   surveyed populations prints it, and the balance walk fails closed if one
+   ever does; recorded because the two rules were added in the same cell and
+   neither comment mentions the other.
 
 ## RC9. Proofs
 

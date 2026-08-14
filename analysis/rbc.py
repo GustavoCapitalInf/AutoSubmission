@@ -448,13 +448,23 @@ def _money_fr(text: str) -> float:
 #: the row settles it — but the statement settles it elsewhere, on the
 #: cheque-image pages it appends (`No de série: 253 Montant: 127,40 $`).
 #:
-#: So the rule is authorised by the document, not assumed from the wording:
-#: this pattern is used only for a statement that declares cheque serials, and
-#: it refuses to BEGIN an amount at the number printed straight after
-#: `Chèque - `, which on such a statement is a serial. The remaining lookbehind
-#: then rejects every interior digit of that serial too, so the match lands on
-#: the amount. A statement that declares no serials keeps the plain pattern and
-#: a mis-read row fails the bank's own totals rather than being split on a guess.
+#: The document authorises the rule, but only DOCUMENT-WIDE, and the
+#: difference matters. The declared-serial set is used as a single boolean —
+#: "this statement declares cheque serials at all" — which selects this pattern
+#: over the plain one. The lookbehind itself is positional, not evidential: it
+#: refuses to BEGIN an amount at whatever number is printed straight after
+#: `Chèque - `, without ever asking whether THAT number is one of the declared
+#: serials. The remaining lookbehind then rejects the serial's interior digits
+#: too, so the match lands on the amount.
+#:
+#: Two shapes are therefore misread on a statement that declares any serial:
+#: a cheque row naming a serial the document never declares, and a row with no
+#: serial at all (`Chèque - 1 234,56` reads as 234,56). Neither occurs in the
+#: family, and both fail closed — the balance walk does not close and the
+#: document is withheld rather than published wrong. Consulting the set
+#: per row is the correct form and is a follow-up card (W3 §RBCCIBC RC8.8).
+#: A statement that declares no serials keeps the plain pattern, and a row
+#: mis-read there fails the bank's own totals rather than being split on a guess.
 _FR_MONEY_SERIAL_RE = re.compile(
     r"(?<![A-Za-z0-9+])(?<!ch.que - )\(?-?(?:\d{1,3}(?: \d{3})+|\d+),\d{2}\s*\)?",
     re.IGNORECASE,

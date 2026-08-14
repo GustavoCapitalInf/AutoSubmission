@@ -213,10 +213,16 @@ def glyph_damaged(text: str) -> bool:
     other reason would claim them and publish the corrupted figures, which is
     worse than not reading them at all.
 
-    So admissibility is asserted rather than assumed, and it is asserted on the
-    damage itself rather than on any particular parser's markers: a statement
-    whose own words have digits substituted into them is not a statement this
-    platform can read, whoever printed it.
+    The predicate is issuer-neutral — it reads the damage, not anyone's
+    markers — but its WIRING is not platform-wide. It is an excluding marker on
+    exactly three of the registry's 52 registrations (`rbc`, `rbc_french`,
+    `cibc`), which are the ones W3 §RBCCIBC touched. Every other registration
+    is unguarded, and a fifth over-threshold document exists:
+    `Unidentified/125ead7e_Gulf Coast Bank - June 2026.pdf` at 0.261, another
+    issuer's, unclaimed today and protected by nothing. Five documents in 3,493
+    exceed the limit; four of them are behind this guard. Wiring it platform-
+    wide is a follow-up card (W3 §RBCCIBC RC8.7), not something this cell could
+    do inside its own ownership.
     """
     plain = len(_PLAIN_WORD_RE.findall(text))
     if plain < _GLYPH_DAMAGE_MIN_WORDS:
@@ -266,12 +272,14 @@ def _grid_cells(line: str, pattern: re.Pattern[str]) -> list[re.Match]:
       the layout prints between the two: keying on the mark rather than on a
       list of currency codes is what keeps `403.50 SCD 09502` (a branch
       reference that happens to follow an amount) a printed cell;
-    * a tariff quoted inside the description — `SERVICE CHARGE CAPPED MONTHLY
-      FEE$16.95 RECORD-KEEPING N/A` names the monthly fee and then the row's
-      own cell prints it again. The mark is the missing gap: a printed cell
-      stands in a column, so a currency symbol welded to the word before it is
-      part of the sentence, not the start of a column. Reading it as a cell
-      booked the fee twice;
+    * a figure welded to whatever precedes it — `SERVICE CHARGE CAPPED MONTHLY
+      FEE$16.95 RECORD-KEEPING N/A` quotes the monthly tariff and the row's own
+      cell then prints it again, so reading the quote as a cell booked the fee
+      twice. The mark is the missing gap: a printed cell starts a column, so
+      anything non-whitespace immediately in front of a figure means the figure
+      is inside the description's sentence. This is deliberately broader than
+      the shape that motivated it — see the comment at the check for exactly
+      what else it refuses and how it fails when it is wrong;
     * a reference number, which a printed price never resembles because a
       price carries no leading zero.
     """
@@ -286,10 +294,23 @@ def _grid_cells(line: str, pattern: re.Pattern[str]) -> list[re.Match]:
             continue
         if _RATE_OPERAND_RE.match(after):
             continue
-        # What the token is welded to on its left, taking off only a symbol
-        # that is itself welded: the symbol belongs to the figure, whatever
-        # else does not. A gap here means a column started; no gap means the
-        # figure is a word inside the description's own sentence.
+        # A printed cell starts a column, so it is preceded by whitespace or by
+        # nothing. This rejects EVERY non-whitespace predecessor, not only a
+        # welded currency symbol: `(16.95`, `*16.95`, `:16.95` and `x16.95` are
+        # all refused, and only a `$` welded to the figure is taken off first,
+        # because that symbol belongs to the figure. (A leading `-` never
+        # reaches here — the money patterns match it as part of the token, so
+        # its predecessor is the space in front of the minus.)
+        #
+        # Being broader than the shape it was written for is a real cost, and
+        # the failure mode is worth naming: suppressing a cell leaves its row
+        # one cell short, so the NEXT cell — the running balance — is read as
+        # the row's amount. `Item (100.00) 900.00` publishes amount 900.00 with
+        # no balance instead of 100.00 with balance 900.00. That is wrong but
+        # not silent: the balance chain then fails and the platform's coverage
+        # and ledger checks withhold the document. Measured blast radius over
+        # the surveyed populations is 9 tokens in 9 documents, all of them the
+        # quoted tariff this rule exists for.
         attached = line[:match.start()]
         if attached.endswith("$"):
             attached = attached[:-1]
