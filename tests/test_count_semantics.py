@@ -197,6 +197,13 @@ def test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental():
         "us_bank:debit",
         "wilson_muir:credit",
         "wilson_muir:debit",
+        # W3 §CITI3 card C. Surveyed comparable at registration rather than
+        # left UNSURVEYED: the printed count heads the very column whose rows
+        # the parser publishes, and the parser refuses a row whose sign
+        # contradicts its section, so the two sides are the same set by
+        # construction. Measured 13/13 agreeing, 0 flags, before this line.
+        "zions:credit",
+        "zions:debit",
     }
     # Both halves cover the table exactly, so an entry cannot be dropped from
     # one set without appearing in the other.
