@@ -294,6 +294,20 @@ def source_posting_dates(markdown: str, period_start: date, period_end: date) ->
         # by a masked card suffix. That is not the account posting date.
         if re.fullmatch(r"\(\s*\.\.\.\s*\d+\s*\)", remainder):
             continue
+        # A summary block can print a balance label with the DATE as the
+        # label's own qualifier -- "AUG 31 BALANCE" -- so none of the compound
+        # wordings in `_NOT_A_POSTING_ROW` ("closing balance", "opening
+        # balance") ever forms and the label reads as a posting row. What
+        # identifies it is that the whole remainder is the bare word, with no
+        # money on the line: a posting row's remainder is a description, and a
+        # layout that labels a balance this way prints its figure elsewhere.
+        #
+        # Direction of effect, as for `_SUMMARY_TOTAL_ROW`: this can only
+        # REMOVE dates from `source_posting_dates`, and
+        # `posting_dates_cover_source` is `source_dates - parsed_dates`, so the
+        # check can go from failing to passing on a document, never the reverse.
+        if re.fullmatch(r"balances?", remainder, re.I) and not _MONEY_RE.search(line):
+            continue
         if len(remainder) < 3 and not _MONEY_RE.search(line):
             lookahead = [l for l in lines[index + 1: index + 5] if l.strip()][:3]
             if not any(_MONEY_RE.search(l) for l in lookahead):

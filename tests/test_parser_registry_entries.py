@@ -74,6 +74,7 @@ EXPECTED_ORDER = [
     "texas_bank",
     "truist",
     "us_bank",
+    "wealthsimple",
     "wells_fargo",
     "wilson_muir",
     "woodforest",
@@ -121,10 +122,10 @@ def test_registration_count_matches_the_documented_decision_points():
     BMO layouts (W3 §BMO-LAYOUTS), the Square Checking layout
     (W3 §CHASE-LAYOUTS), the Chase savings product (W3 §CHASE-CLOSURE), the
     TD Canada Trust French layout (W3 §TD-FRENCH), the English CIBC
-    layout (W3 §RBCCIBC) and the Woodforest National Bank layout
-    (W3 §UNID-PACK-A) — the last six opened by the unclaimed-layout
+    layout (W3 §RBCCIBC) and the Woodforest and Wealthsimple layouts
+    (W3 §UNID-PACK-A) — the last seven opened by the unclaimed-layout
     phase."""
-    assert len(pr.registrations()) == 54
+    assert len(pr.registrations()) == 55
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():

@@ -137,6 +137,14 @@ FIXTURES: dict[str, str] = {
     "texas_bank": "Texas Bank and Trust\nWITHDRAWALS AND OTHER DEBITS (CONTINUED)\n",
     "truist": "TRUIST\nAccount summary Your previous balance\n",
     "us_bank": "U.S. Bank National Association\nAccount Summary\n",
+    # The issuer name alone is NOT this parser's evidence: three CIBC
+    # statements in the archive name Wealthsimple in a payee line. The
+    # product line and the activity grid's column header are what make the
+    # document Wealthsimple's own statement.
+    "wealthsimple": (
+        "Chequing monthly statement\nWealthsimple\n"
+        "DATE POSTED DATE DESCRIPTION AMOUNT (CAD) BALANCE (CAD)\n"
+    ),
     "wells_fargo": "WELLS FARGO\nWF_NATIVE_TRANSACTIONS\n",
     "wilson_muir": "WILSON & MUIR\nSMALL BUSINESS PACKAGE SUMMARY\n",
     # The institution alone is NOT this parser's evidence: other issuers'
