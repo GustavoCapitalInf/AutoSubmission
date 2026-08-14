@@ -181,12 +181,18 @@ def _postings(lines: list[str]) -> tuple[list[Transaction], int] | None:
     """(settled transactions, pending rows excluded). None if a line was unread.
 
     A grid opens at the printed column header and closes at the first line
-    that is not a posting row — the page furniture, and on the month-to-date
-    document a paragraph of flowed legal text. What is NOT tolerated is a
-    posting row outside an open grid: that would mean this reader lost its
-    place and skipped one, and a dropped row is invisible to every arithmetic
-    check downstream, because the rows that remain still sum to their own
-    total. The document is refused instead.
+    that is not a posting row — the page footer, and on the month-to-date
+    document a paragraph of flowed legal text.
+
+    Two things are NOT tolerated, and both are the same concern: a dropped row
+    is invisible to every arithmetic check downstream, because the rows that
+    remain still sum to their own total, walk to the closing balance and
+    reconcile. So the document is refused when
+
+    * a line inside an open grid carries MONEY and is not a row — that is a
+      posting this reader could not place, not furniture; and
+    * a posting row appears outside an open grid — that means the reader lost
+      its place and has been stepping over rows since.
     """
     transactions: list[Transaction] = []
     pending = 0

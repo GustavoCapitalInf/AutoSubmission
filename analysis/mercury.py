@@ -32,7 +32,7 @@ a masked card number             639     no direction word at all; 27 are
                                          credits (refunds)
 ``Credit Account Payment``       120     says "Credit", every one a DEBIT
 ``Credit Cashback Deposit``      118     says "Credit", every one a CREDIT
-``Intl. Transaction Fee``        155     a fee, and 5 of them are CREDITS
+``Intl. Transaction Fee``        155     a fee, and 4 of them are CREDITS
 ``Wire`` / ``Wire Payment``      28      the same instrument in both
                                          directions
 ===============================  ======  ==================================
@@ -295,10 +295,8 @@ def parse_mercury_statement(markdown: str) -> Statement | None:
     if beginning is None or ending is None or credits is None or debits is None:
         return None
 
-    account = re.search(r"^Account Number\s+(?P<number>[\w-]+)$", "\n".join(lines), re.MULTILINE)
-    account_type = re.search(r"^Account Type\s+(?P<kind>\S.*)$", "\n".join(lines), re.MULTILINE)
     holder = _account_holder(lines)
-    if account is None or holder is None:
+    if holder is None:
         return None
 
     read = _postings(lines, period_start, period_end)
