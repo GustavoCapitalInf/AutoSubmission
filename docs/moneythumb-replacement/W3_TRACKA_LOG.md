@@ -4376,6 +4376,10 @@ Outcomes: 106 PASS / 3 WITHHELD
 Runtime:  488.3s
 RESULT: GREEN
 EXIT=0
+
+$ python -m pytest -m corpus -q
+14 passed, 2583 deselected, 1 warning in 1171.90s (0:19:31)
+EXIT=0
 ```
 
 The seventeen layout tests were also run against `analysis/scotia.py` as it
