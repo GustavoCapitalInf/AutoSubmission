@@ -9547,3 +9547,693 @@ scanned 3,367 documents; 85 detected; changed 79, improved 28, regressed 0
 changed outside the two folders: 0
 base arm still reproduces run 88be9dd3 exactly: 0 mismatches
 ```
+# §DECLINES-C — three declined parsers: a month, a font, and a product name
+
+## DC0. Summary
+
+Three ownerships, six structural shapes, 33 declined documents. **21 documents
+move `failed` -> `validated`, zero documents move down, and the 61 documents
+that were already publishing numbers are byte-identical in every audited
+field.** The 12 that stay refused each have a named diagnosis and four of them
+are refused on purpose by a rule this cell added.
+
+| cell | shape | before | after |
+|---|---|---|---|
+| bluevine | B1 abbreviated month (`Feb. 1, 2026`) | 12 failed | **12 validated** |
+| bluevine | B2 fragmented rows — geometry | 2 failed | 2 refused, named |
+| relay | R1 private-use sign glyphs | 6 failed | **6 validated** |
+| relay | R2 row whose label wrapped | 3 failed | **3 validated** |
+| navy_federal | N1 retail product read from the document | 10 failed | 4 withheld (ADB), 6 refused |
+
+Per cell, over the full claimed population of each:
+
+| cell | population | validated | withheld | failed |
+|---|---|---|---|---|
+| bluevine | 14 | 0 -> **12** | 0 -> 0 | 14 -> 2 |
+| relay | 26 | 16 -> **25** | 1 -> 1 | 9 -> **0** |
+| navy_federal | 54 | 44 -> 44 | 0 -> 4 | 10 -> 6 |
+
+All 21 are instrumented per document, not merely claimed: every published
+credit and debit total equals the total the bank prints, the balance walk
+reaches the printed closing balance, the ADB validations pass and
+`continuity_breaks` is 0. **21 sound, 0 unsound, 3,981 transactions
+published.**
+
+`relay` has a second, independent in-document oracle: this platform prints one
+`Settled`/`Returned` status word per transaction row, so the printed row count
+is checkable against the published one. Over the **whole relay population, all
+26 documents, it is exact — 26 match, 0 mismatch, 0 refused** (the nine
+recovered ones read 28, 42, 277, 162, 177, 21, 15, 14, 46). A row invented,
+dropped or double-counted by the glyph restoration or the wrapped-row rule
+would show here even if the arithmetic happened to survive.
+
+## DC1. The instrument
+
+Every figure below comes from replaying the archive markdown through the real
+pipeline (`analysis.pipeline.analyze_markdown` in deterministic mode +
+`analysis.serialization.report_to_dict` +
+`telemetry.record.classify_outcome` + `discovery.runner._failure_reason`),
+resolved from the D-3 OCR artifact store in the MAIN checkout **by direct
+file path** — the cache key is recomputed with the repo's own
+`ocr_settings_key`/`cache_key` and the payload JSON is read from
+`webapp_data/artifacts/ocr/<shard>/<key>.json`. The sqlite index was never
+read. The ANALYSIS stage is deliberately **not** served from cache: a code
+change of mine must never be measured through a payload the previous code
+wrote, and `ANALYSIS_STAGE_VERSION` is Ocean's to bump.
+
+Before any production edit the harness was checked against the baseline run of
+record `88be9dd3`: over all 94 cohort documents it reproduced the run's
+`outcome_class` and `outcome_reason` **exactly, 94/94, 0 disagreements**, with
+**0 OCR-cache misses**.
+
+The cohort is derived by content, not by run bookkeeping: the run's row
+projection loses `parser_id` on the 1,034 cache-served rows, so the declined
+population is taken from `attempted` (which survives) and the validated
+population from `parser_id`, unioned. The scout's counts reproduced exactly —
+bluevine 14, navy_federal 10, relay 9.
+
+## DC2. bluevine — an abbreviated month is a month (12 documents)
+
+Bluevine prints the same field two ways in the same sentence:
+
+    Statement Period: February 2026 (February 1, 2026 - February 28, 2026)
+    Statement Period: February 2026 (Feb. 1, 2026 - Feb. 28, 2026)
+
+The period pattern matched the month with `\w+`, which cannot span the
+abbreviating period, so the parser was refused on the **first field it asked
+for**. Measured, not assumed: on all 12 the summary block matched and the
+transaction rows matched — 70 to 581 rows each — and only the period failed.
+The parser then never reached them.
+
+The month is now read as a NAME, from an exact vocabulary of the twelve full
+names and their abbreviations with the abbreviating period optional.
+
+**Deliberately not the looser idiom.** `bmo_us_activity.py:70` and
+`bmo_ca_business.py:93` use `(Jan|Feb|…)[a-z]*\.?` — a three-letter stem
+followed by anything. That form was written first here and a test rejected it:
+it reads "Janubry 1, 2026" as January. A statement period is the field every
+other date in the document is resolved against, so this reader accepts a month
+name or nothing. The test is `test_bluevine_declines_a_month_it_does_not_
+recognise`.
+
+The old `datetime.strptime(..., "%B %d, %Y")` also **raised** on an unreadable
+month rather than declining — a `parser_exception`, not a decline. The reader
+returns None now and the document fails closed.
+
+**Correction (DC10.4): that property was documented before it was true.** The
+first version of `_long_date` said "never as an exception" while still calling
+`date(...)` unguarded, so an unreadable MONTH declined but an impossible DAY
+did not: the period pattern admits a one-or-two-digit day, so `Feb. 30, 2026`
+reached `date()` and raised `ValueError` — a crash, in a docstring that
+promised a decline. `date()` is now wrapped and the document declines.
+Terminally both were non-publishing, so no number was ever at risk; the defect
+was that a crash and a decline put the document in different queues, and the
+record claimed the better one. Fixture `test_bluevine_declines_a_day_the_month_
+does_not_have`.
+
+## DC3. relay — a font that could not print a sign, and a row that wrapped
+
+### R1. Four printed characters arriving in the private-use area (6 documents)
+
+Six of the nine declines embed a subset font whose ToUnicode table leaves four
+characters unmapped, so they arrive as private-use codepoints:
+
+| codepoint | printed character | occurrences in the six |
+|---|---|---|
+| U+E09D | `+` | 207 |
+| U+E088 | `-` | 755 |
+| U+E081 | `(` | 226 |
+| U+E082 | `)` | 220 |
+
+(private-use codepoints shown as <XXXX>; in the document they are invisible)
+
+    Deposits <E09D>$24,969.32
+    Withdrawals <E088>$18,168.92
+    Expenses <E081>3240<E082> Transfer To Jul 13, 2026 Settled <E088>$300.00
+
+`_ROW_RE` requires `[+-]\$` for the amount, so **not one transaction row
+matched** in any of the six — the parser saw a Relay statement with no
+transactions.
+
+**The signs are not assumed. They are certified by the document's own
+arithmetic.** This parser already required, with `Decimal` equality and no
+tolerance anywhere: every row's running balance chains exactly from the printed
+opening balance to the printed closing balance; the positive amounts sum
+exactly to the printed Deposits total; the negative amounts sum exactly to the
+printed Withdrawals total. Over the six documents that is a chain of 28 to 277
+links plus two exact totals. A sign read backwards breaks the chain at the
+first row it touches. The ablation is pinned by
+`test_relay_refuses_a_statement_whose_signs_are_the_wrong_way_round`, which
+inverts the glyphs **in the transaction rows only, leaving the printed summary
+intact** — see DC10.1 for why that distinction is the whole test, and for the
+mutant that proves it load-bearing.
+
+**The two brackets are NOT certified, and an earlier version of this section
+claimed they were.** It said they "occur only as a matched pair around an
+account's last four digits". Measured across the six documents, that is false:
+
+| document | `U+E081` | `U+E082` | balanced | 4-digit pairs | other pairs |
+|---|---|---|---|---|---|
+| `0d8ac487_Income-July` | 29 | 29 | yes | 19 | 10 |
+| `0d8ac487_Income-June` | 44 | 44 | yes | 33 | 11 |
+| `1b7c38d5_Operations-May` | 72 | 72 | yes | 62 | 10 |
+| `a5314b98_03-2026` | 23 | 20 | **no** | 6 | 16 |
+| `a5314b98_05-2026-1` | 30 | 27 | **no** | 9 | 20 |
+| `a6deaa10_Relay (Partial)` | 28 | 28 | yes | 18 | 10 |
+
+The counts do not balance in two of six, and every document wraps things that
+are not an account's last four: disclosure numerals (`(10)`, `(60)`, `(90)`,
+`(3)`), a masked account number (`(XXXXXX-3373)`), and short tokens (`(CD)`,
+`(WM)`).
+
+What actually bounds the risk is **reach, not position: no number flows
+through these two glyphs.** `(` and `)` appear in no pattern this module reads
+a figure with — not the amount, not the balance, not the date, not
+`Account Number:\s*([X\d-]+)` — so they can only land in a row's label, which
+is description text. A wrong bracket mapping yields a cosmetically wrong
+description and cannot move a published figure. The only evidence for `(`/`)`
+is that statements from this platform whose font maps correctly print
+parentheses in the same construct (`Business Checking (8923) Transfer From`);
+that is suggestive, not proof, and it is now recorded as an assumption in both
+the code comment and here.
+
+One clarification the correction turned up: the SIGN glyphs do reach one
+non-arithmetic field. `U+E088` restores the hyphen in the masked account
+number, so `Account Number: XXXXXX<E088>3373` publishes as `XXXXXX-3373`.
+That is the certified glyph, so the field is sound — but the neat claim that
+"the certified glyphs touch only numbers" is not true either, and is not made.
+
+### R1b. Is the glyph class platform-wide? Measured: no, and the answer is useful
+
+The handoff asked for a measurement, not a guess. Every one of the 3,493
+documents in the run of record with cached OCR text was scanned for
+codepoints in U+E000–U+F8FF. **66 documents carry them, in three unrelated
+families:**
+
+| family | codepoints | documents | folders | what they are |
+|---|---|---|---|---|
+| Relay | U+E081/E082/E088/E09D | 6 | Thread Bank | printed `(`, `)`, `-`, `+` — this cell |
+| Mercury | U+EA01/EA02/EA04/EA08 | 30 | Mercury | a subset font, **all 30 unclaimed** |
+| symbol/barcode | U+F020–U+F15F | 26 | Unidentified 22, R Bank 2, +4 | **not text loss** |
+| singletons | U+E608, U+F0F0, U+F0A0 … | 4 | one each | one glyph each |
+
+The third family was decoded before it was dismissed: subtracting 0xF000 —
+the standard PDF symbolic-font offset — yields `` `:O=[$A0J!_"E6 `` and
+`QQ1111Q111Q111`, i.e. a barcode/MICR font, not lost words. Those 26 documents
+lose nothing.
+
+**Conclusion: there is no platform table to write.** The *phenomenon* recurs,
+but each font is its own encoding and only the issuer's own document can
+certify a mapping. The mapping therefore lives at the relay reader, and `ocr/`
+was not touched. The one adjacent finding worth routing is Mercury: 30
+documents, one coherent glyph family, currently `no_parser_matched` — see
+DC7.2.
+
+### R2. A row whose label wrapped onto the line above (3 documents)
+
+`_ROW_RE` anchored label, date, status, amount and balance on one line. When a
+label wrapped, the row became invisible:
+
+    Business Checking (8923) Transfer From
+    Mar 10, 2026 Settled +$375.00 $25,470.00
+
+Each of the three lost **exactly one** row — always the last row of page 1 —
+and a statement missing one row fails its own balance walk, so all three were
+refused whole. The row tail now matches on its own and takes its label from the
+line above.
+
+**Fail closed on attribution, not on arithmetic.** The balance walk would
+accept a mislabelled row perfectly happily — the amounts are right, only the
+description would be wrong — so the label rule cannot lean on it.
+
+**What the rule is, stated accurately** (an earlier version of this paragraph
+implied more than the code does). It is a **blacklist of exactly two furniture
+shapes** — the OCR page separator `--- Page N ---` and the platform footer
+`Page N of M` — plus the structural fact that a line already consumed as a row
+is cleared, so a row can never be another row's label. It is **not** a
+positive test that the line above looks like a transaction label. Any other
+non-row line directly above a wrapped row is accepted as its label, so a piece
+of furniture this pattern does not name would be taken as a description.
+
+The exposure is bounded and worth stating exactly: the wrapped row's own date,
+amount and balance are read from the wrapped line itself and still have to
+survive the balance walk, so a mislabelling costs a wrong description and
+never a wrong figure. Upgrading to a positive label test is recorded as a
+residual (DC7.6) rather than guessed at — it needs a characterisation of what
+a label looks like across the population, and three documents cannot supply
+one. `test_relay_refuses_a_wrapped_row_whose_label_is_page_furniture` pins the
+blacklist half.
+
+## DC4. navy_federal — the product, read from the document
+
+`navy_federal` carried `"Business Checking"` as a **structural anchor**, in
+four places: the summary regex, the section heading it searched for, the noise
+filter, and `account_name`. That silently restricted the parser to the
+BUSINESS issue of a statement Navy Federal also prints for retail members. All
+ten declines are the retail issue — same grid, same columns, same row order, a
+different product word:
+
+| family | products declared | documents |
+|---|---|---|
+| `614d30ce` | EveryDay Checking + Membership Savings | 4 |
+| `85a1317f` | EveryDay Checking + Membership Savings + Money Market Savings | 2 |
+| `b71d6d2a` | EveryDay Checking + **e-Checking** + Membership Savings | 4 |
+
+The product is now read from the statement's own `Summary of your deposit
+accounts` table, by head noun — this platform names its deposit products
+`<qualifier> Checking` and `<qualifier> Savings` — and **accepted only when
+the transaction detail confirms it** by printing the same product and account
+as a section heading. Two independent printings of the same fact, not one.
+
+That reader was validated before it went into the parser: over all 54 cohort
+documents, every checking account it read from the summary table was confirmed
+by a matching section heading — **54/54, zero unconfirmed, zero documents
+without the table**.
+
+Section extent is now read from the document's own headings too. The old stop
+list named the sibling products one issue happens to print (`Mbr Business
+Savings`, `Bus Money Mkt Savings`, `Checking Line`) and named **none** of the
+products a retail statement carries, so a retail savings section would have
+been read as part of the checking one.
+
+Also fixed: an overdrawn balance prints with a trailing minus either detached
+(`136.51 -`) or attached (`136.51-`), and only the detached form was read, so
+the ledger walk stopped at the first overdrawn day. The file's own
+beginning-balance anchor already read the attached form. This is the TDFIX-1
+finding one layer down.
+
+### DC4.1 Two accounts, one schema — and a boundary drawn carefully
+
+A statement declaring two DIFFERENT checking products has no single product to
+anchor on, and the single-account extraction schema (L-1) cannot say "both".
+The four `b71d6d2a` documents are refused.
+
+**The rule is PRODUCT-level and deliberately not ACCOUNT-level, and that
+distinction is load-bearing.** Measuring the cohort found something the scout's
+note did not anticipate: **three currently-VALIDATED documents already declare
+several accounts under one product** —
+
+    58ba2f73_april   Business Checking × 3   (7200649320, 7217670327, 7217965081)
+    58ba2f73_march   Business Checking × 2
+    81a8298f_APRIL   Business Checking × 2
+
+— and the parser publishes the first of them as if it were the statement. An
+account-level rule would have refused those three, which is truth-set movement
+and a stop-the-line event. This cell therefore changed nothing about them: with
+one checking product declared, the anchor is well-defined and the existing
+account selection is untouched, byte-identically. The pre-existing L-1 exposure
+those three represent is reported, not changed — DC7.1.
+
+### DC4.2 The result, and why it is 0 new validated
+
+| | documents | disposition |
+|---|---|---|
+| already validated | 44 | **44, byte-identical in every audited field** |
+| now readable, ADB withheld | 4 | honest refusal with a named diagnosis |
+| refused: two checking products (L-1) | 4 | by the rule above |
+| refused: zero activity | 1 | A-prime is Gustavo-pending — DC5 |
+| refused: consumer date-ownership layout | 1 | needs the geometry rung — DC5 |
+
+The four that now read are refused by the platform's own ADB gate on
+`posting_dates_cover_source` — the check that catches a parser folding posting
+dates together, so end-of-day balances land on the wrong days. **This is the
+gate working, and the correct outcome.** The parser's own guards pass on all
+four (credits and debits match the printed totals exactly, the final running
+balance equals the printed ending balance), which is precisely why a
+date-attribution defect needs a check that looks at dates.
+
+Diagnosed one further level, because the two causes rank differently:
+
+| document | missing posting dates | cause |
+|---|---|---|
+| `614d30ce_april` | `2026-03-15` only | the beginning-balance day — a **false** failure, DC7.3 |
+| `614d30ce_june` | `2026-06-02`, `2026-06-14` | real mid-period mis-attribution |
+| `85a1317f_march` | `2026-03-11`, `2026-03-19` | real mid-period mis-attribution |
+| `85a1317f_may` | `2026-04-25`, `2026-05-24` | mixed |
+
+**No attempt was made to widen the line-order heuristic to fix the real ones.**
+In the retail layout the date and description follow the money for debits as
+well as credits, where the business layout puts them before; the existing
+reader guesses ownership from direction, and the gate has now proved that guess
+wrong on documents where it does produce output. Guessing harder would risk
+mis-dating documents that currently validate. This is a geometry problem and it
+is named as one.
+
+## DC5. The fail-closed remainder — 12 documents, each named
+
+| n | cell | diagnosis | why it stays refused |
+|---|---|---|---|
+| 2 | bluevine | geometry: fragmented rows | date, description and amount interleaved across lines with no recoverable reading order — `03/07/26` / `$9,500.00` / `03/15/26 … $-200.00` / `$-2,500.00`. Which amount belongs to which date is not decidable from the text. |
+| 4 | navy_federal | L-1 two checking products | DC4.1 |
+| 1 | navy_federal | zero activity | `614d30ce_march`: EveryDay Checking, previous $2.26, deposits $0.00, withdrawals $0.00, ending $2.26. Reading it needs the A-prime admissibility rule, which is **Gustavo-pending for non-chase parsers**. The rule was NOT copied. |
+| 1 | navy_federal | consumer date ownership | `614d30ce_may`: the first row's date follows its money and the reader has no date to attribute it to. Geometry rung. |
+| 4 | navy_federal | ADB withheld | now readable; refused by the gate, DC4.2 |
+| 1 | relay | genuine source defect | the pre-existing `withheld_adb` document, kept refused as directed |
+
+## DC6. Non-interference
+
+Argued structurally, then measured.
+
+**Structurally:** a parser can only reach a document its detector claims, and
+`git diff d70efbe..HEAD` touches no detection surface in any of the three files
+— no `DETECTION_MARKERS`, no `required(...)`, no `detection_text`, no
+`make_detector` call changed. The relay glyph restoration is applied INSIDE
+`parse_relay_statement`, after `detect()` has already run, so it cannot change
+what relay claims either. The set of documents whose outcome can change is
+therefore exactly the 94 measured in DC0.
+
+**Measured:** a stratified probe of 500 documents outside the three
+cells, drawn round-robin across folder labels so no large folder (Chase 613,
+Bank of America 405) can dominate — **67 distinct folder labels**,
+23,463 transactions replayed. Because the base tree's CODE is identical to
+the tree that produced the run of record (only docs commits separate
+`99b9b33` from base `d70efbe`), the run of record IS the before-state.
+
+    documents probed                    500
+    agree with the run of record        498
+    disagree                            2
+    claimed or attempted by my parsers  0
+
+Both disagreements are instrument artifacts, not movements, and neither
+involves these parsers. The instrument starts from the CACHED OCR TEXT, so it
+does not run the preflight or OCR stages: `BMO/08a2c390_bmo voided check.pdf`
+was deferred to visual OCR in the run and has no cached text at all, and
+`Desjardins/7da28d6e_avril2026.pdf` is rejected by preflight as `invalid_pdf`,
+a class reached before any text exists. Both are `failed` in the run and
+`failed`/absent here; neither was ever analysed.
+
+## DC7. Carried findings and questions for Ocean
+
+**DC7.1 — `navy_federal` publishes one of several checking accounts, today,
+on three validated documents.** `58ba2f73_april` declares three Business
+Checking accounts and the platform publishes the first one's balances, ADB and
+ledger as the statement's. `58ba2f73_march` and `81a8298f_APRIL` declare two.
+This is pre-existing, merged, and validated; it is the L-1 gap made concrete.
+This cell did not change it — refusing them is truth-set movement — but Ocean
+should know the 2,030 validated tier contains three documents where "the
+account" is a choice the parser made silently. Recommend: a review flag rather
+than a refusal, decided at platform level, not in this parser.
+
+**DC7.2 — Mercury: 30 documents, one glyph family, all unclaimed.** The census
+found U+EA01/EA02/EA04/EA08 across 30 Mercury documents, every one currently
+`no_parser_matched`. That is the same defect class as R1 — a subset font whose
+ToUnicode table is incomplete — and it is the largest single block of it in the
+archive. It belongs to the Mercury/fintech cell in this batch, and the census
+JSON naming all 66 affected documents is available. Whoever takes it should
+know the mapping must be certified by the issuer's own arithmetic, as R1's was,
+not inferred by eye.
+
+**DC7.3 — a false `posting_dates_cover_source` failure, in a shared module.**
+`614d30ce_april` is blocked only by the beginning-balance day. The statement
+prints
+
+    2.26
+    03-15
+    Beginning Balance
+
+on three separate lines, and `_NOT_A_POSTING_ROW` in `analysis/dates.py` tests
+one line at a time, so the bare `03-15` is counted as a source posting date
+that no transaction can ever cover. Where the same platform prints
+`05-01 Beginning Balance` on one line the guard catches it correctly, which is
+why the 44 business documents are unaffected. This is the same class as the
+`_SUMMARY_TOTAL_ROW` fix already in that file, one line-split further, and its
+direction of effect is the same safe one: it can only REMOVE dates from the
+source set, so the check can go from failing to passing, never the reverse.
+`analysis/dates.py` is outside this cell's ownership and was not touched.
+Recommend routing to whoever owns the shared date grammar this batch.
+
+**DC7.4 — four documents moved `failed` -> `withheld` with no validated gain.**
+Ocean's instrument will show them. The claim is that this is an improvement in
+honesty, not a regression: they move from "no parser could read this document"
+to "the platform read it and refuses to publish an ADB it cannot trust", with a
+diagnosis W3-2 can rank (`posting_date_coverage`). If Ocean prefers no class
+movement without a validated gain, reverting is one commit — but the navy
+federal hardcode removal is R-1 class debt and its removal is the point of the
+card.
+
+**DC7.6 — RESIDUAL: relay's wrapped-row label rule is a two-item furniture
+blacklist, not a positive label test.** Raised by adversarial review (finding
+B) and recorded rather than fixed. Today a wrapped row takes the line above as
+its label unless that line is the OCR page separator or the platform footer;
+any other unnamed furniture would become a description. Cost is bounded to a
+wrong description — the row's date, amount and balance come from the wrapped
+line and still face the balance walk — so this is a quality residual, not a
+correctness one. A positive test needs a characterisation of what a label
+looks like across the whole relay population; the three documents in this cell
+cannot supply it, and inventing one from three samples is how a blacklist
+becomes a wrong whitelist. Recommend it rides with whoever next has relay
+volume.
+
+**DC7.5 — the scout's `navy_federal` estimate was 9 recoverable; the measured
+answer is 0 validated.** The gap is not a missing capability, it is four
+documents the ADB gate refuses and five refused on rules the handoff itself
+directed. Recorded so the estimate is not carried forward.
+
+## DC8. Proofs
+
+Exit codes verbatim.
+
+    # full default suite, on the composed tree
+    $ python -m pytest -q
+    3030 passed, 18 deselected, 1 warning in 236.03s
+    EXIT=0
+    # 3,013 was the batch-2 baseline; the 17 new ones are this cell's.
+
+    # corpus gate, corpus-marked
+    $ python corpus_gate.py
+    [PASS] balance_audit   109 statements reproduce every audited balance field
+    [PASS] adb_audit       109 statements reproduce every audited ADB field
+    [PASS] balance_outcomes  balance: 106 pass, 3 withheld, same three statements
+    [PASS] adb_outcomes      adb:     106 pass, 3 withheld, same three statements
+    [PASS] ocr_coverage    103 native-text + 6 committed-OCR = 109 resolved offline
+    [PASS] oracle_independence
+    Outcomes: 106 PASS / 3 WITHHELD
+    RESULT: GREEN
+    EXIT=0
+
+    # guards + the conformance cross-product
+    $ python -m pytest tests/test_no_statement_hardcodes.py \
+        tests/test_parser_conformance.py tests/test_parser_registry_entries.py \
+        tests/test_shared_parser_utils.py tests/test_adjudication.py -q
+    784 passed
+    EXIT=0
+
+    # the cell's own shapes
+    $ python -m pytest tests/test_declines_c_variants.py -q
+    20 passed
+
+    # instrument calibration, before any production edit
+    documents 94  agree 94  disagree 0        (vs run of record 88be9dd3)
+
+    # full claimed populations, before -> after, every mover named
+    population 94 documents
+    AUDITED-FIELD DRIFT on already-publishing documents: 0
+    OUTCOME MOVERS: 25   (21 failed->validated, 4 failed->withheld, 0 down)
+
+    # per-document instrument, every newly validated document
+    sound 21  unsound 0  transactions published 3,981
+
+    # relay printed-count oracle, whole population
+    match 26  mismatch 0  refused 0
+
+    # navy_federal product reader, whole cohort, before it entered the parser
+    54/54 checking accounts read from the summary table confirmed by a
+    matching transaction-section heading; 0 unconfirmed
+
+    # stratified non-target probe
+    documents probed 500   distinct folder labels 67   transactions 23,463
+    agree with run of record 498   disagree 2 (both instrument artifacts)
+    claimed or attempted by bluevine/navy_federal/relay: 0
+
+    # private-use codepoint census, whole archive
+    scanned 3,493 documents (13 without cached text)
+    documents containing private-use codepoints: 66
+
+Not run, and why: `ANALYSIS_STAGE_VERSION` is unbumped — the bump is Ocean's,
+and this cell's output changes for 25 documents, so the composed bump must
+cover it. No discovery re-run was performed; the numbers above come from the
+per-document instrument, which was calibrated against the run of record first.
+
+## DC9. Commits
+
+| commit | what |
+|---|---|
+| `7f1269b` | bluevine — an abbreviated month is a month (12 documents) |
+| `91eb98c` | relay — restore the printed signs, and read a row whose label wrapped (9 documents) |
+| `d201790` | navy_federal — read the product from the document, not from the parser |
+| `362c98b` | the six shapes, as synthetic structural reproductions (17 tests) |
+| `d5ee820` | §DECLINES-C DC0–DC9 |
+| (this one) | DC10 — amendments from adversarial review |
+
+## DC10. Amendments from adversarial review
+
+Ocean's verdict was **SHIP conditional**. The code held — the reviewer built a
+mutant with relay's entire balance-walk certification deleted and confirmed
+the shipped parser still refuses a rows-only sign inversion — but **two of the
+evidence items did not**, and both were mine. Recorded in full because a cell
+whose thesis is "measured, not assumed" has to hold its own prose to that.
+
+**DC10.1 — the vacuous pin (required, fixed).** The sign ablation rewrote
+every `+$`/`-$` in the document, the printed SUMMARY included. The summary
+pattern requires a literal `+` before Deposits and `-` before Withdrawals, so
+the parser returned None at the summary regex **before reading a single row**.
+The test therefore passed for the wrong reason, and would have passed against
+a tree with the entire certification deleted — it proved nothing, while
+sitting under a docstring calling itself "the load-bearing one".
+
+Rewritten to invert the ROW glyphs only (`Settled +$` / `Settled -$`), leaving
+the summary intact, plus two asserts that the summary survived so the test
+cannot silently go vacuous again. Verified against the reviewer's mutant,
+reproduced independently here:
+
+    inversion                                       shipped       mutant
+    rows-only inversion (the NEW ablation)             None    STATEMENT
+    whole-document inversion (the OLD ablation)        None         None
+
+    NEW ablation kills the mutant : True
+    OLD ablation kills the mutant : False
+    shipped still reads the honest statement: True
+
+The mutant is built by deleting the balance walk, the closing-balance check
+and the two exact total checks from a compiled-in-memory copy of `relay.py`;
+nothing was written to the worktree.
+
+**DC10.2 — the bracket claim was false (required, corrected).** DC3/R1 and
+`relay.py` both asserted the bracket glyphs were "proven by position — only a
+matched pair around an account's last four digits". Measurement refutes it:
+unbalanced open/close counts in two of six documents, 10–20 non-conforming
+pairs per document. Both records now state the truth — an **uncertified
+assumption**, bounded by reach rather than position, because no number flows
+through `(`/`)`. Full table and reasoning in DC3/R1.
+
+**DC10.3 — the navy_federal second-print check was a substring test
+(hardening, applied — but NOT as specified, and that matters).**
+`f"{product} - {account}" in markdown` is satisfied by prose that merely
+mentions the pair, which defeats the point of demanding a second printing.
+The finding is correct and the check is now position-anchored.
+
+**The prescribed remedy could not ship, and the cohort is why.** The condition
+asked for the existing whole-line `_SECTION_HEADING_RE`, described as a
+one-token change with no behaviour change. Applied literally it **regressed
+three currently-validated documents** — caught by re-sweeping all 94 cohort
+documents after the amendment rather than trusting the description:
+
+    Unidentified/1db08d32_Mode March 2026 Bank Statement.pdf   validated -> failed
+    Unidentified/4a83173e_may_2026_monthly_statement.pdf       validated -> failed
+    Unidentified/73b975d3_June2026MonthlyStatement.pdf         validated -> failed
+
+In those three the text extractor merges the section caption onto the end of
+the grid's column-header line, so the caption is never a whole line:
+
+    Date Transaction Detail Amount($) Balance($) Business Checking - 7137039603
+    Date Transaction Detail Amount($) Balance($) Business Checking - 7196281617 Checking
+    Business Checking - 7216974365 (Continued from previous page)
+
+The shipped rule anchors on the two positions a caption actually occupies —
+**line start, or immediately after the grid column header** — and leaves what
+FOLLOWS it open, because a continuation marker or a stray column word is
+downstream of the caption and varies. What may PRECEDE it is the whole test,
+and a sentence cannot. That is strictly stronger than the substring test it
+replaces and does not refuse a document the platform reads today.
+
+Fixtures both ways:
+`test_navy_federal_ignores_a_prose_mention_of_the_heading` (refused) and
+`test_navy_federal_accepts_a_caption_merged_into_the_column_header`
+(accepted). Cohort re-swept after the change: 94/94 unchanged, zero
+audited-field drift.
+
+Recorded plainly because it is the second time in this cell that a
+confidently-described claim did not survive measurement — the first was mine
+(DC10.2), this one was the review's. The lesson is the same either way: the
+94-document re-sweep is cheap and the description of a change is not evidence
+about it.
+
+**DC10.4 — bluevine crashed on an impossible date (hardening, applied).** The
+docstring promised "never as an exception"; `Feb. 30` raised. `date()` is now
+guarded and the document declines. Detail in DC2.
+
+**DC10.5 — the wrapped-row rule was overstated (corrected).** Finding B: it is
+a two-item furniture blacklist, not a positive label test. DC3/R2 now says so;
+the upgrade is residual DC7.6.
+
+Two of the five are corrections to claims rather than to code, which is the
+part worth carrying forward: the parsers were right and the write-up was not,
+and only a reviewer who ran the mutant could tell the difference.
+
+### DC10.6 Proofs of the amendments
+
+    $ python -m pytest tests/test_declines_c_variants.py -q
+    20 passed
+    EXIT=0
+
+    $ python -m pytest tests/test_no_statement_hardcodes.py \
+        tests/test_parser_conformance.py tests/test_parser_registry_entries.py \
+        tests/test_shared_parser_utils.py tests/test_adjudication.py -q
+    784 passed
+    EXIT=0
+
+    $ python -m pytest -q -k "relay or bluevine or navy"
+    71 passed, 2980 deselected
+    EXIT=0
+
+    $ python -m pytest -q
+    3033 passed, 18 deselected
+    EXIT=0
+
+    # the ablation, against the certification-deleted mutant
+    NEW ablation kills the mutant : True
+    OLD ablation kills the mutant : False
+    shipped still reads the honest statement: True
+
+    # all 94 cohort documents re-swept at the amended state
+    outcome movement vs the reviewed tree : 0
+    audited-field drift                   : 0
+    vs the run of record: 21 failed->validated, 4 failed->withheld,
+                          60 validated preserved, 1 withheld preserved
+
+The cohort re-sweep is the one that earned its keep: it is what caught DC10.3
+regressing three documents, and what confirms the shipped anchor does not.
+
+**The pinned corpus, checked directly.** The amendments change parser
+behaviour, and six of the pinned 109 belong to these three parsers — four Navy
+Federal (one of them overdrawn at `-28.08`, so the trailing-minus reading is
+exercised), one Bluevine, one Relay. Those six were parsed from the gate's own
+`source_markdown` under the BASE code and under HEAD and compared field by
+field, transactions included:
+
+    SAME  Navy Fed/APRIL 2026.pdf                          txns=80
+    SAME  Navy Fed/JUNE 2026.pdf                           txns=63
+    SAME  Navy Fed/MARCH 2026.pdf                          txns=5
+    SAME  Navy Fed/MAY 2026.pdf                            txns=87
+    SAME  Others/Bluevine/bluevine_Statement_2026-04-02…    txns=195
+    SAME  Others/Relay Operations-June-2026.pdf            txns=176
+
+    pinned documents owned by these parsers: 6
+    field-identical base vs HEAD           : 6   (606 transactions, row by row:
+                                                  date, description, amount,
+                                                  direction, running balance)
+    differing                              : 0
+
+Every other pinned document belongs to a parser this cell never touched, so
+the gate had nothing left it could move — and the gate then said so itself:
+
+    $ python corpus_gate.py            # on the amended tree
+    Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+    Ignored:  0 non-corpus PDFs under the corpus root
+    Outcomes: 106 PASS / 3 WITHHELD
+    Runtime:  1082.7s
+    RESULT: GREEN
+    EXIT=0
+
+The run was launched on `0551cb5` and only the markdown of this log has
+changed since (`git diff --name-only 0551cb5..HEAD` is this file alone, and
+`git diff 0551cb5..HEAD -- '*.py'` is empty), so it is a GREEN gate on exactly
+the code that ships. 106 PASS / 3 WITHHELD, the same three statements, byte
+for byte with the reviewed tree and with every gate run of the wave.
+
+Worth recording how nearly this went the other way: an intermediate report
+called the gate "outstanding" because a process-list check at the wrong moment
+did not show it and the shell that launched it had been killed, while the run
+itself was alive and finished normally. Under a machine running fourteen
+Python processes across parallel cells, "I cannot see it" is not "it died" —
+the durable output file is the authority, not the shell.

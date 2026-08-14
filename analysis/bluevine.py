@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import date
 
 from .date_tokens import iso_from_month_day_year
 from .money import LEADING_MINUS, parse_amount
@@ -17,6 +17,60 @@ def _iso(mmddyy: str) -> str:
     return iso_from_month_day_year(mmddyy, century="always")
 
 
+#: Bluevine prints the same statement period two ways: the month spelled out
+#: ("February 1, 2026") and the month abbreviated with its abbreviating period
+#: ("Feb. 1, 2026"). Both are the SAME field of the same sentence, so this
+#: reads a month NAME rather than one spelling of it.
+#:
+#: The vocabulary is exact - each month's full name and its abbreviation, with
+#: the abbreviating period optional. It deliberately does NOT accept a
+#: three-letter stem followed by anything, the looser idiom some readers in
+#: this package use: inside a pattern this permissive a word that merely
+#: STARTS like a month ("Janubry") would be silently read as that month, and a
+#: statement period is the field every other date in the document is resolved
+#: against.
+_MONTH_NAMES = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+_MONTHS: dict[str, int] = {}
+for _number, _name in enumerate(_MONTH_NAMES, start=1):
+    _MONTHS[_name.lower()] = _number
+    _MONTHS[_name[:3].lower()] = _number
+_MONTHS["sept"] = 9
+
+#: Longest first, so "June" is preferred over "Jun" and the optional period
+#: attaches to the whole name rather than truncating it.
+_MONTH_TOKEN = "|".join(sorted(_MONTHS, key=len, reverse=True))
+_LONG_DATE = r"(?i:" + _MONTH_TOKEN + r")\.?\s+\d{1,2},\s+\d{4}"
+_LONG_DATE_PARTS = re.compile(r"([A-Za-z]+)\.?\s+(\d{1,2}),\s+(\d{4})")
+
+
+def _long_date(token: str) -> date | None:
+    """"February 1, 2026" / "Feb. 1, 2026" -> a date, else None.
+
+    None is "this is not a date I can read", which the caller treats as a
+    declined document - never as an exception. Two ways in: a month name
+    outside the vocabulary, and a day the month does not have. The second is
+    the reason for the `try`. `_LONG_DATE` admits a one-or-two-digit day because
+    a statement period is not the place to encode a calendar, so "Feb. 30,
+    2026" reaches here; `date()` raises ValueError on it, and an escaping
+    ValueError is a `parser_exception` - a crash - where this document
+    deserves a named decline. Terminally both are non-publishing, but only one
+    of them is honest about which queue the document belongs in.
+    """
+    parts = _LONG_DATE_PARTS.fullmatch(token.strip())
+    if not parts:
+        return None
+    month = _MONTHS.get(parts.group(1).lower())
+    if month is None:
+        return None
+    try:
+        return date(int(parts.group(3)), month, int(parts.group(2)))
+    except ValueError:
+        return None
+
+
 DETECTION_MARKERS = (
     required("bank_name", lambda t: "Bluevine Inc." in t),
     required("section", lambda t: "Activity summary" in t),
@@ -29,7 +83,7 @@ def parse_bluevine_statement(markdown: str) -> Statement | None:
     if not detect(markdown).claims:
         return None
     period = re.search(
-        r"Statement Period:\s+.+?\((\w+ \d{1,2}, \d{4}) - (\w+ \d{1,2}, \d{4})\)",
+        r"Statement Period:\s+.+?\((" + _LONG_DATE + r") - (" + _LONG_DATE + r")\)",
         markdown,
     )
     summary = re.search(
@@ -42,8 +96,10 @@ def parse_bluevine_statement(markdown: str) -> Statement | None:
     )
     if not period or not summary:
         return None
-    period_start = datetime.strptime(period.group(1), "%B %d, %Y").date()
-    period_end = datetime.strptime(period.group(2), "%B %d, %Y").date()
+    period_start = _long_date(period.group(1))
+    period_end = _long_date(period.group(2))
+    if period_start is None or period_end is None:
+        return None
     beginning, credits, debits, ending = [_money(part) for part in summary.groups()]
     if None in (beginning, credits, debits, ending):
         return None

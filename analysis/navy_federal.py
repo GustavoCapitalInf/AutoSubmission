@@ -26,21 +26,132 @@ def _parse_period(markdown: str) -> tuple[str, str, int] | None:
     return start.isoformat(), end.isoformat(), end.year
 
 
-def _summary(markdown: str) -> tuple[str, float, float, float, float] | None:
+#: The table in which the statement declares every account it covers. It is
+#: the parser's map of the document.
+_SUMMARY_HEADING = "Summary of your deposit accounts"
+
+#: A deposit product's name, as the summary table prints it on its own line.
+#: The HEAD NOUN carries the kind: Navy Federal names its deposit products
+#: "<qualifier> Checking" and "<qualifier> Savings". Reading the head noun is
+#: what makes this a reader of the product LINE rather than a reader of one
+#: product - "Business Checking" was previously written into the parser as a
+#: structural anchor, which silently restricted it to the business issue of a
+#: statement the credit union also prints for retail members ("EveryDay
+#: Checking", "e-Checking"). Same layout, same grid, different word.
+_PRODUCT_LINE_RE = re.compile(r"[A-Za-z][A-Za-z0-9&'./ -]{0,30}?(?:Checking|Savings)")
+_ACCOUNT_LINE_RE = re.compile(r"(\d{6,})(?:\s|$)")
+
+#: The transaction grid's printed column header. It matters here because the
+#: text extractor sometimes merges a section's caption onto the end of it, so
+#: "the caption is at the start of its line" and "the caption follows this
+#: header" are the same structural position seen twice. The tokens are the
+#: ones `_line_is_noise` already knows as grid furniture.
+_GRID_HEADER = (
+    r"(?:Date\s+Transaction Detail\s+Amount\(\$\)\s+Balance\(\$\)\s+)?"
+)
+
+#: Any account's section heading, "<product> - <account>", on its own line.
+#: One account's section ends where the next one's begins, whatever product
+#: that next one is - including products that never appear in the deposit
+#: table at all, such as a credit line.
+_SECTION_HEADING_RE = re.compile(r"(?m)^[A-Za-z][A-Za-z0-9&'./ -]{0,30}\s+-\s+\d{4,}\s*$")
+
+
+def _deposit_accounts(markdown: str) -> list[tuple[str, str]]:
+    """[(product, account)] in the order the summary table declares them."""
+    start = markdown.find(_SUMMARY_HEADING)
+    if start < 0:
+        return []
+    region = markdown[start + len(_SUMMARY_HEADING):]
+    # The table ends at its own cross-account Totals row; the remittance
+    # notice bounds a statement that prints no Totals.
+    stops = [i for i in (region.find("\nTotals"), region.find("REMITTANCE")) if i > 0]
+    if stops:
+        region = region[:min(stops)]
+    accounts: list[tuple[str, str]] = []
+    product: str | None = None
+    for raw_line in region.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        name = _PRODUCT_LINE_RE.fullmatch(line)
+        if name:
+            product = name.group(0)
+            continue
+        # An account number opens its row; the accounts that follow a product
+        # name without repeating it belong to that same product.
+        account = _ACCOUNT_LINE_RE.match(line)
+        if account and product:
+            accounts.append((product, account.group(1)))
+    return accounts
+
+
+def _checking_account(markdown: str) -> tuple[str, str] | None:
+    """The one checking product this statement is about, or None.
+
+    None has two causes and both are refusals, not errors. No checking
+    product: there is nothing this parser publishes. More than one checking
+    PRODUCT: the statement covers two different checking accounts and the
+    single-account extraction schema (L-1) has no way to say so - publishing
+    either one as "the" account would present half a statement as the whole
+    of it. The reading is accepted only when the transaction detail confirms
+    it by printing the same product and account as a section HEADING, so the
+    product name rests on two independent printings, not one.
+
+    The confirmation is POSITION-anchored, not a substring test. A bare
+    `f"{product} - {account}" in markdown` is satisfied by any prose that
+    happens to mention the pair, so it would confirm a reading the document
+    never printed as a heading - the whole point of asking for a second
+    printing.
+
+    A heading occupies one of exactly two positions, and both are the caption
+    of a transaction grid: the start of its own line, or immediately after the
+    grid's column header on the line the extractor merged it into
+    (`Date Transaction Detail Amount($) Balance($) Business Checking - 1234`).
+    What may FOLLOW it is left open - a continuation marker, a stray column
+    word - because that is downstream of the caption and varies. What may
+    precede it is the whole test, and a sentence cannot precede it.
+
+    Note this is deliberately NOT `_SECTION_HEADING_RE`, the whole-line pattern
+    used for section boundaries below. Requiring the heading to BE the entire
+    line is too strong: it refuses three documents in the cohort whose caption
+    the extractor merged into the column-header line, all three of which
+    validate. That is measured, not assumed - see the W3 log, DC10.3.
+    """
+    checking = [
+        (product, account)
+        for product, account in _deposit_accounts(markdown)
+        if product.lower().endswith("checking")
+    ]
+    if len({product for product, _ in checking}) != 1:
+        return None
+    product, account = checking[0]
+    heading = f"{product} - {account}"
+    confirmed = re.search(
+        r"(?m)^" + _GRID_HEADER + re.escape(heading) + r"(?!\d)", markdown
+    )
+    return (product, account) if confirmed else None
+
+
+def _summary(markdown: str) -> tuple[str, str, float, float, float, float] | None:
+    product_account = _checking_account(markdown)
+    if product_account is None:
+        return None
+    product, account = product_account
     flat = re.sub(r"\s+", " ", markdown)
     m = re.search(
-        r"Business Checking\s+(\d+)\s+"
+        re.escape(product) + r"\s+" + re.escape(account) + r"\s+"
         r"(\$?[\d,]+\.\d{2}-?)\s+(\$?[\d,]+\.\d{2})\s+"
         r"(\$?[\d,]+\.\d{2})\s+(\$?[\d,]+\.\d{2}-?)\s+\$?[\d,]+\.\d{2}",
         flat,
     )
     if not m:
         return None
-    account, beginning, credits, debits, ending = m.groups()
+    beginning, credits, debits, ending = m.groups()
     parsed = (_money(beginning), _money(credits), _money(debits), _money(ending))
     if any(value is None for value in parsed):
         return None
-    return account, parsed[0], parsed[1], parsed[2], parsed[3]  # type: ignore[return-value]
+    return (product, account, *parsed)  # type: ignore[return-value]
 
 
 def _average_balance(markdown: str) -> float | None:
@@ -48,22 +159,29 @@ def _average_balance(markdown: str) -> float | None:
     return _money(m.group(1)) if m else None
 
 
-def _checking_section(markdown: str, account: str) -> str:
-    start = markdown.find(f"Business Checking - {account}")
+def _checking_section(markdown: str, product: str, account: str) -> str:
+    heading = f"{product} - {account}"
+    start = markdown.find(heading)
     if start < 0:
         return ""
-    candidates = [
-        markdown.find("Mbr Business Savings", start),
-        markdown.find("Bus Money Mkt Savings", start),
-        markdown.find("Checking Line", start),
-        markdown.find("Disclosure", start),
-    ]
+    # This account's section runs to wherever the NEXT account's section
+    # begins. Reading that boundary from the document's own headings replaces
+    # a list of the sibling products one issue of this statement happens to
+    # print ("Mbr Business Savings", "Bus Money Mkt Savings", "Checking
+    # Line"), which named none of the products a retail member's statement
+    # carries and so let a savings section be read as part of the checking
+    # one.
+    candidates = [markdown.find("Disclosure", start)]
+    for match in _SECTION_HEADING_RE.finditer(markdown, start):
+        if match.group(0).strip() != heading:
+            candidates.append(match.start())
+            break
     stops = [idx for idx in candidates if idx > start]
     end = min(stops) if stops else len(markdown)
     return markdown[start:end]
 
 
-def _line_is_noise(line: str, account: str) -> bool:
+def _line_is_noise(line: str, heading: str) -> bool:
     return (
         line.startswith("---")
         or line.startswith("Page ")
@@ -71,14 +189,23 @@ def _line_is_noise(line: str, account: str) -> bool:
         or line.startswith("Access No")
         or line.startswith("For ")
         or line.startswith("(Continued")
-        or line == f"Business Checking - {account}"
+        or line == heading
         or line in {"Date", "Transaction Detail", "Amount($)", "Balance($)", "Items Paid", "Item"}
         or line.startswith("Average Daily Balance")
     )
 
 
+#: This platform writes an overdrawn balance with a TRAILING minus, and the
+#: extracted text carries it either detached in its own column ("136.51 -")
+#: or attached to the figure ("136.51-"). Both are the same printed balance,
+#: so the separator is optional - the file's own beginning-balance anchor
+#: already reads the attached form, and a balance the reader cannot see stops
+#: the walk at the first overdrawn day.
+_TRAILING_MINUS = r"(?:\s*(-))?"
+
+
 def _amount_balance(line: str) -> tuple[float, float] | None:
-    m = re.fullmatch(r"([\d,]+\.\d{2})\s+([\d,]+\.\d{2})(?:\s+(-))?", line)
+    m = re.fullmatch(r"([\d,]+\.\d{2})\s+([\d,]+\.\d{2})" + _TRAILING_MINUS, line)
     if m:
         amount = _money(m.group(1))
         balance = _money(m.group(2) + (m.group(3) or ""))
@@ -92,7 +219,7 @@ def _separate_amount_balance(lines: list[str], idx: int) -> tuple[float, float, 
         return None
     if not re.fullmatch(r"[\d,]+\.\d{2}", lines[idx]):
         return None
-    if not re.fullmatch(r"[\d,]+\.\d{2}(?:\s+-)?", lines[idx + 1]):
+    if not re.fullmatch(r"[\d,]+\.\d{2}" + _TRAILING_MINUS, lines[idx + 1]):
         return None
     amount = _money(lines[idx])
     balance = _money(lines[idx + 1])
@@ -114,7 +241,7 @@ def _consume_following_date_desc(lines: list[str], idx: int) -> tuple[str, str, 
             or line == "-"
             or "Ending Balance" in line
             or _amount_balance(line) is not None
-            or re.fullmatch(r"[\d,]+\.\d{2}(?:\s+-)?", line)
+            or re.fullmatch(r"[\d,]+\.\d{2}" + _TRAILING_MINUS, line)
         ):
             break
         parts.append(line)
@@ -157,9 +284,9 @@ def _parse_native_transactions(
     return txns or None
 
 
-def _parse_transactions(section: str, account: str, *, year: int, beginning: float) -> list[Transaction] | None:
+def _parse_transactions(section: str, heading: str, *, year: int, beginning: float) -> list[Transaction] | None:
     lines = [line.strip() for line in section.splitlines() if line.strip()]
-    lines = [line for line in lines if not _line_is_noise(line, account)]
+    lines = [line for line in lines if not _line_is_noise(line, heading)]
 
     idx = 0
     while idx < len(lines):
@@ -261,14 +388,16 @@ def parse_navy_federal_statement(markdown: str) -> Statement | None:
     if period is None or summary is None:
         return None
     start, end, year = period
-    account, beginning, credits, debits, ending_balance = summary
-    section = _checking_section(markdown, account)
+    product, account, beginning, credits, debits, ending_balance = summary
+    section = _checking_section(markdown, product, account)
     if not section:
         return None
     if "NFCU_NATIVE_TRANSACTIONS_BEGIN" in markdown:
         txns = _parse_native_transactions(markdown, account, year=year, beginning=beginning)
     else:
-        txns = _parse_transactions(section, account, year=year, beginning=beginning)
+        txns = _parse_transactions(
+            section, f"{product} - {account}", year=year, beginning=beginning
+        )
     if not txns:
         return None
     if abs(sum(tx.amount for tx in txns if tx.amount > 0) - credits) > 0.01:
@@ -282,7 +411,7 @@ def parse_navy_federal_statement(markdown: str) -> Statement | None:
     end_date = date.fromisoformat(end)
     stmt = Statement(
         bank="Navy Federal Credit Union",
-        account_name="Business Checking",
+        account_name=product,
         account_number=account,
         period_start=start,
         period_end=end,
