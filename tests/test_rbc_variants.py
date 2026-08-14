@@ -31,7 +31,8 @@ from __future__ import annotations
 import pytest
 
 from analysis.money import parse_money
-from analysis.rbc import _MONEY_RE, _read_grid_rows, parse_rbc_statement
+from analysis.rbc import _MONEY_RE, parse_rbc_statement
+from analysis.tables import read_grid_rows
 from analysis.reconcile import reconcile
 
 HEAD = """
@@ -683,7 +684,7 @@ def test_d_the_opening_row_line_does_not_swallow_what_follows_it():
     first posting onto one physical line, so consuming the whole line here
     discarded a real transaction.
     """
-    rows, opening = _read_grid_rows(
+    rows, opening = read_grid_rows(
         [("Opening balance 1,000.00 Withdrawal item 100.00 900.00", "2026-03-02", True)],
         pattern=_MONEY_RE,
         to_amount=lambda token: parse_money(token) or 0.0,
@@ -697,7 +698,7 @@ def test_d_the_opening_row_line_does_not_swallow_what_follows_it():
 
 
 def test_d_negative_an_opening_row_alone_on_its_line_still_yields_no_row():
-    rows, opening = _read_grid_rows(
+    rows, opening = read_grid_rows(
         [("Opening balance 1,000.00", "2026-03-02", True)],
         pattern=_MONEY_RE,
         to_amount=lambda token: parse_money(token) or 0.0,
