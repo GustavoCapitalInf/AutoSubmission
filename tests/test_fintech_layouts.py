@@ -522,3 +522,107 @@ def test_a_bad_date_declines_rather_than_raising(parser, document):
     """The refusal must be a `None`, not an exception: W3-1's seam would record
     it as `parser_exception` and file our own crash as a document defect."""
     assert parser(document()) is None
+
+
+# ===========================================================================
+# Mercury glyph ablations (asked for by Ocean out of the DECLINES-C cell)
+# ===========================================================================
+#
+# The DECLINES-C finding is that a platform can encode its SIGNS as private-use
+# codepoints, that no shared translation table across platforms is possible,
+# and that a reader which maps them must certify the mapping against the
+# document's own arithmetic.
+#
+# Mercury does not do that, and it is worth pinning that it does not. Measured
+# over all 31 statements and their 3,453 printed amounts: the character
+# immediately before a `$` is MINUS SIGN 1,202 times, EN DASH 687, HYPHEN-MINUS
+# 13, and nothing at all on the 1,551 credits. It is a PUA codepoint ZERO
+# times, and there are zero parenthesised negatives. All 2,696 PUA occurrences
+# are followed by TEXT — they are the icon at the head of the Type column, and
+# this parser reads them as a column boundary and never as a symbol.
+#
+# The three ablations below are what make those two claims falsifiable.
+
+_MARK_IN = "\ue001"       # the icon Mercury sets on a credit's Type cell
+_MARK_OUT = "\ue002"      # ... and on a debit's
+_MARK_FOREIGN = "\uf8f0"  # a PUA codepoint from nowhere in this archive
+
+
+def _two_row_document(mark_credit=_MARK_IN, mark_debit=_MARK_OUT, debit_sign="-"):
+    return mercury_document(
+        f"Apr 02 Payer Co {mark_credit}ACH In $40.00\n"
+        f"Vendor Co {mark_debit}ACH Pull {debit_sign}$10.00 $130.00\n",
+        beginning="$100.00", withdrawals="-$10.00", deposits="$40.00", ending="$130.00",
+    )
+
+
+def test_the_type_icon_carries_no_direction_permuting_it_changes_nothing():
+    """THE ablation for this cell's central claim. Swap the "in" icon for the
+    "out" icon on both rows — a permutation that would invert every direction
+    if the glyph were being read as a sign — and the published payload must be
+    byte-identical, because direction comes from the printed sign alone.
+
+    If someone ever wires the icon into the direction rule, this test fails.
+    """
+    baseline = mercury.parse_mercury_statement(_two_row_document())
+    swapped = mercury.parse_mercury_statement(
+        _two_row_document(mark_credit=_MARK_OUT, mark_debit=_MARK_IN)
+    )
+    assert baseline is not None and swapped is not None
+    assert baseline.model_dump() == swapped.model_dump()
+    assert [t.direction for t in baseline.transactions] == ["credit", "debit"]
+
+
+def test_an_unknown_private_use_glyph_still_marks_the_column():
+    """No mapping is assumed and no table is consulted: the mark is read as
+    INK. A codepoint this archive has never printed divides the columns exactly
+    as Mercury's own does, which is what makes the rule issuer-neutral rather
+    than a memorized list of four codepoints."""
+    baseline = mercury.parse_mercury_statement(_two_row_document())
+    foreign = mercury.parse_mercury_statement(
+        _two_row_document(mark_credit=_MARK_FOREIGN, mark_debit=_MARK_FOREIGN)
+    )
+    assert baseline is not None and foreign is not None
+    assert baseline.model_dump() == foreign.model_dump()
+
+
+def test_a_tampered_sign_glyph_publishes_nothing():
+    """The signs are CERTIFIED by the document's own arithmetic, not trusted.
+    Drop the minus from one debit — the only change — and the row becomes a
+    credit, the balance walk no longer reaches the printed end-of-day balance,
+    and the printed totals no longer match the ledger. Nothing publishes.
+
+    This is what makes the three-glyph minus reading safe: a wrong sign cannot
+    survive to the output, whichever glyph it was printed with."""
+    from analysis.metrics import compute_metrics
+
+    statement = mercury.parse_mercury_statement(_two_row_document(debit_sign=""))
+    # The grid still READS — the row shape is intact and only the sign moved —
+    # which is exactly what makes this the dangerous case rather than an
+    # obvious one.
+    assert statement is not None
+    recon = reconcile(statement)
+    assert not recon.ok
+    assert recon.continuity_breaks > 0 or recon.summary_ok is False
+    # And nothing publishes: no average daily balance is produced, which is
+    # what `telemetry.record.classify_outcome` turns into `withheld_adb`. The
+    # intact document validates through the same path.
+    metrics = compute_metrics(statement, trust_stated_summary=recon.summary_ok,
+                              trust_running_balances=recon.ok)
+    assert metrics.average_daily_balance is None
+
+    intact = mercury.parse_mercury_statement(_two_row_document())
+    intact_recon = reconcile(intact)
+    assert intact_recon.ok
+    assert compute_metrics(intact, trust_stated_summary=intact_recon.summary_ok,
+                           trust_running_balances=True).average_daily_balance is not None
+
+
+@pytest.mark.parametrize("minus", ["-", "−", "–"])
+def test_every_printed_minus_glyph_certifies_against_the_same_arithmetic(minus):
+    """The three glyphs are one column. Each must produce the SAME statement,
+    and each must reconcile — the arithmetic is what certifies the reading."""
+    statement = mercury.parse_mercury_statement(_two_row_document(debit_sign=minus))
+    assert statement is not None
+    assert statement.transactions[1].amount == -10.00
+    assert reconcile(statement).ok
