@@ -549,3 +549,144 @@ def test_a_crash_is_not_ranked_as_an_unknown_layout_cluster():
     assert summary["unknown_layout_clusters"] == {"BankY": 1}
     assert summary["dispatch"]["parser_exception"] == 1
     assert "parser_exception" in render_report(summary)
+
+
+# ---------------------------------------------------------------------------
+# Dispatch.attempted: "claimed it, then declined it" is its own finding
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def declining_registry():
+    """A registry of exactly one parser that claims everything and parses
+    nothing — the `attempted` shape, with no bank's real code involved."""
+    from analysis import parser_registry as pr
+
+    saved = dict(pr._REGISTRY)
+    pr.clear_registry()
+    pr.register(pr.Registration(
+        id="always_declines",
+        bank="Always Declines",
+        markers=(pr.required("any", lambda _markdown: True),),
+        parse=lambda _markdown: None,
+    ))
+    try:
+        yield
+    finally:
+        pr.clear_registry()
+        pr._REGISTRY.update(saved)
+
+
+def test_a_parser_that_claimed_and_declined_is_not_an_unseen_layout():
+    """The split the report ranks by. `no_parser_matched` had been carrying two
+    findings that need different work — a bank we have never parsed, and a
+    parser that recognises the document and gives up on it."""
+    from analysis.parser_registry import Dispatch, ParserFailure
+    from discovery.runner import _failure_reason
+
+    tried = Dispatch("unclaimed", attempted=("chase",))
+    assert _failure_reason("RuntimeError", tried) == "parser_declined"
+    # An EMPTY attempted is the only thing that still earns the old name.
+    assert _failure_reason("RuntimeError", Dispatch("unclaimed")) == "no_parser_matched"
+    # A crash still outranks both: "detected, then broke" is a defect of ours
+    # and must not be filed as "detected, then declined".
+    crashed = Dispatch(
+        "parser_exception", attempted=("chase",),
+        exceptions=(ParserFailure("us_bank", "parse", "AttributeError"),),
+    )
+    assert _failure_reason("RuntimeError", crashed) == "parser_exception"
+    # And no dispatch outcome invents a failure where the document succeeded.
+    assert _failure_reason(None, tried) is None
+
+
+def test_the_row_carries_the_parsers_that_declined(
+    tree: Path, tmp_path: Path, declining_registry
+):
+    """End to end: the runner projects `Dispatch.attempted` onto the row and the
+    CSV grows a column for it, so the queue is readable without re-running."""
+    row = _runner(tree).process("BankX/statement.pdf", "BankX")
+
+    assert row.dispatch_outcome == "unclaimed"
+    assert row.parser_id is None
+    assert row.attempted == ["always_declines"]
+    assert (row.outcome_class, row.outcome_reason) == ("failed", "parser_declined")
+
+    write_rows(tmp_path / "rows.csv", [row])
+    written = list(csv.DictReader((tmp_path / "rows.csv").open(encoding="utf-8")))
+    assert set(written[0]) == set(ROW_FIELDS)
+    assert written[0]["attempted"] == "always_declines"
+
+
+def test_a_document_nothing_claimed_still_reports_no_parser_matched(tree: Path):
+    """The other branch, through the same live path: with the real registry
+    nothing claims a broken PDF's empty read, and the row says so."""
+    row = _runner(tree).process("BankY/broken.pdf", "BankY")
+    assert row.attempted == []
+    assert row.outcome_reason != "parser_declined"
+
+
+def test_declined_documents_rank_by_the_parser_that_declined():
+    """The bucket answers "which parser needs widening", which is a different
+    question from the folder-keyed "which bank needs a parser" beside it."""
+    rows = [
+        _row(relative_path=f"Chase/{i}.pdf", folder_label="Chase",
+             dispatch_outcome="unclaimed", attempted=["chase"],
+             outcome_class="failed", outcome_reason="parser_declined")
+        for i in range(2)
+    ]
+    rows.append(_row(folder_label="Wells", dispatch_outcome="unclaimed",
+                     attempted=["wells", "chase"], outcome_class="failed",
+                     outcome_reason="parser_declined"))
+    # A document nothing claimed contributes nothing to this ranking.
+    rows.append(_row(folder_label="Unknown", dispatch_outcome="unclaimed",
+                     outcome_class="failed", outcome_reason="no_parser_matched"))
+    summary = summarize(rows, mode=MODE_DIGITAL, run_id="r")
+
+    assert summary["declined_clusters"] == {"chase": 3, "wells": 1}
+    assert list(summary["declined_clusters"]) == ["chase", "wells"]   # ranked
+    assert summary["reasons"] == {"parser_declined": 3, "no_parser_matched": 1}
+    assert "claimed then declined" in render_report(summary)
+    # The rename does not move anything out of the coverage arithmetic: these
+    # are all still unclaimed, and all still failed.
+    assert summary["dispatch"] == {"unclaimed": 4}
+    assert summary["outcome"] == {"failed": 4}
+
+
+def test_the_rename_is_not_movement_between_two_runs(tmp_path: Path):
+    """W3-4 compatibility (requirement 4), proven rather than asserted.
+
+    `discovery.compare` keys movement on `outcome_class` and on the W3-2
+    `diagnostics.primary_class` — it reads `outcome.reason` into `Document` and
+    never ranks by it. So the same document reported `no_parser_matched` by a
+    baseline run and `parser_declined` by a candidate run is UNCHANGED, and a
+    merge gate cannot read this reporting split as a regression.
+
+    The record builders are imported from the W3-4 suite on purpose: a private
+    copy of the telemetry record shape here could drift, and a compatibility
+    proof written against a stale shape proves nothing.
+    """
+    from discovery.compare import compare
+    from discovery.evidence import load_run
+
+    from tests.test_adjudication import _record, _write_run
+
+    sha = "D" * 64
+    unmatched = _record(sha, run_id="base", parser_id=None,
+                        dispatch_outcome="unclaimed", outcome_class="failed",
+                        outcome_reason="no_parser_matched")
+    declined = _record(sha, run_id="cand", parser_id=None,
+                       dispatch_outcome="unclaimed", outcome_class="failed",
+                       outcome_reason="parser_declined")
+    baseline = load_run(_write_run(tmp_path / "base", [unmatched]))
+    candidate = load_run(_write_run(tmp_path / "cand", [declined]))
+
+    # The reason DID change, and it is visible in the evidence...
+    assert baseline.documents[sha].outcome_reason == "no_parser_matched"
+    assert candidate.documents[sha].outcome_reason == "parser_declined"
+
+    # ...and it is still not movement.
+    report = compare(baseline, candidate)
+    assert report["identical"] is True
+    assert report["movement"] == {"unchanged": 1}
+    assert report["transitions"] == {}
+    assert report["failure_class_movement"] == {}
+    assert report["regressed_sample"] == []

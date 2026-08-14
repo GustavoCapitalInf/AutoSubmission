@@ -6819,3 +6819,129 @@ above, plus the gate reproducing all 109 audited documents byte-identically.
 | `7ebb154` | the two non-parser consumers: repair gates and page declarations |
 | `8c2781a` | §FILENAME-BOUNDARY |
 | (this one) | the telemetry join: the second copy of the analysis key, its three tests, and this addendum |
+---
+
+# §DISPATCH-REPORTING — the declined queue, made visible
+
+DISPATCH-REPORTING, 2026-08-13. Branch `wave3-dispatch-reporting`, base
+`b95595f` (current main). Brief: `docs/agent-handoffs/DISPATCH-REPORTING.md`.
+
+**Reporting only.** No dispatch, parsing, analysis or caching behaviour
+changes; no outcome class moves; `ANALYSIS_STAGE_VERSION` untouched, because
+no analysis payload differs by a single byte.
+
+## D0. Summary
+
+| | |
+|---|---|
+| The defect | `analysis/parser_registry.py:544-573` has recorded `Dispatch.attempted` ("declined, rather than broke") since W3-1 and `telemetry/record.py:210` has written it since H-3. `discovery/runner.py` never read it: `:592-595` mapped **every** statement-less unclaimed to `no_parser_matched`. |
+| Why it matters | That one name carried two findings needing opposite work — a bank we have no parser for (build one) and a parser that recognises the document and returns None (widen it). 175 archive documents are the second kind. §CHASE-LAYOUTS C0 independently found 126 of its 176 documents were `Dispatch.attempted == ('chase',)` and the resulting fix validated 106 of them: the declined class is where the cheap validated gain lives, and it was filed at the bottom of the expensive list. |
+| Changes | Three, all in `discovery/`: the row carries `attempted`; `_failure_reason` splits `parser_declined` from `no_parser_matched`; `summarize` ranks `parser_declined × parser` as `declined_clusters`. |
+| `discovery/compare.py` | **Not changed, and proven not to need changing** (§D3). |
+| Files | `discovery/runner.py`, `discovery/report.py`, `tests/test_discovery.py`, this log. Nothing else — `parser_registry.py` and `telemetry/` already did their part. |
+| Tests | 5 added, all in the fast default suite. |
+| Dry run | The pinned 109 reproduce exactly, with the new column present (§D4). |
+
+## D1. The split
+
+`no_parser_matched` now means what it says — nothing even claimed the
+document. An unclaimed dispatch whose `attempted` is non-empty is
+`parser_declined`. A crash still outranks both: "detected, then broke" is a
+defect of ours and must never be filed as "detected, then declined", which is
+the same argument W3-1 made one level up.
+
+```python
+    if dispatch is not None and dispatch.outcome == "unclaimed":
+        return "parser_declined" if dispatch.attempted else "no_parser_matched"
+```
+
+The row's `attempted` column is bare ids, not `id:score` pairs: the declining
+parser's detection score is already in `candidates`, and what the new column
+adds is that it got as far as `parse` and returned None. It sits between
+`candidates` and `near_miss` in `ROW_FIELDS`.
+
+Note the column is populated for **claimed** documents too, when a claimant
+declined before the winner was reached. The `declined_clusters` rollup counts
+only documents that ended unclaimed — a document that was ultimately served is
+not a work item — so the row and the rollup answer deliberately different
+questions.
+
+## D2. Why no outcome class can move
+
+`telemetry.record.classify_outcome` reaches the reason only through
+`if payload is None: return "failed", error_reason or ...`. The reason is a
+pass-through label on an already-decided class. Both names are `failed`, both
+are `unclaimed`, and `deterministic_coverage` is computed from
+`dispatch_outcome`, never from the reason. The rename cannot move a document,
+a coverage percentage, or a gate.
+
+## D3. W3-4 compatibility, proven rather than asserted
+
+`discovery/compare.py` keys movement on `outcome_class` and on the W3-2
+`diagnostics.primary_class`. It loads `outcome.reason` into
+`evidence.Document` and **never ranks by it**. So a baseline row saying
+`no_parser_matched` and a candidate row saying `parser_declined` for the same
+document is `unchanged`, contributes no transition, and cannot trip
+`--fail-on-regression`. `test_the_rename_is_not_movement_between_two_runs`
+builds both runs and asserts `identical is True`,
+`movement == {"unchanged": 1}`, and empty transitions — so if compare ever
+starts ranking by reason, that test fails rather than a merge gate
+mis-reporting a reporting change as a regression.
+
+Both surviving reason aggregators — `discovery.report.summarize`'s `reasons`
+Counter and `telemetry/report.py:50` — are open-vocabulary Counters. A new
+reason name flows through them with no code change.
+
+## D4. The dry run
+
+`python -m discovery --dry-run --no-cache --quiet`, **exit code 0**:
+
+```
+documents 109 | processed 109 | deferred 0 | dispatched 109
+deterministic_coverage 1.0
+dispatch {'claimed': 109}
+outcome  {'validated': 100, 'review': 6, 'withheld': 3}
+reasons  {'approved': 100, 'integrity_flags': 6, 'withheld_adb': 3}
+dedup    {'unique': 109}
+declined_clusters {}   unknown_layout_clusters {}   crash_clusters {}
+```
+
+Canonical 100/6/3. `attempted` is present in the header at index 18, between
+`candidates` and `near_miss`, and is **empty for all 109**: on the pinned set
+the top-ranked claimant always parses, so nothing was reclassified and the
+split has zero false positives here. The pinned corpus therefore proves the
+non-regression, not the new bucket — no pinned document declines, and the
+3,506-document archive is not present in this worktree. The bucket is proven
+instead by the tests and by a scratch run over real corpus bytes with three
+real registrations' `parse` swapped for `None` (markers and ids untouched),
+which produced `attempted = 'regions' | 'navy_federal' | 'bank_of_america'`,
+`reasons {'parser_declined': 3, 'approved': 1}` and the rendered section
+`claimed then declined (parser_declined), ranked by parser`.
+
+## D5. Carried findings for Ocean
+
+1. **A declined document still appears in `unknown_layout_clusters`.** That
+   ranking is folder-keyed and answers "which bank needs a parser"; the new
+   one is parser-keyed and answers "which parser needs widening". I left the
+   old bucket untouched on purpose — changing it would move existing reported
+   numbers, which this card was not asked to do — but W3-1 set the opposite
+   precedent for crashes, which ARE excluded from it. If you want the same
+   treatment, it is one clause in `report.py`'s `unknown` comprehension.
+2. **Two out-of-scope consumers still use the closed old vocabulary:**
+   `experiments/w3_3a/evaluate.py:207` and `tools/measure_structurer.py:193`
+   both filter `row["outcome_reason"] in ("no_parser_matched", "exception")`.
+   Neither is production (`tests/test_experiments_are_not_wired.py` pins
+   `experiments/` outside every real path, and `tools/` is not in its
+   `PRODUCTION_TREES` either), and both read already-written `rows.csv` files,
+   so nothing breaks today. But a NEW archive run's declined documents would
+   silently drop out of their samples — exactly the population they exist to
+   sample. One-line fix each: add `"parser_declined"` to the tuple. Left
+   untouched because the brief protects them.
+
+## D6. Commits
+
+| Commit | Contents |
+|---|---|
+| `c476f1d` | `discovery/runner.py` + `discovery/report.py`: the `attempted` column, the reason split, the `declined_clusters` rollup |
+| `143435b` | `tests/test_discovery.py`: both reason branches, the live-path column projection, the rollup ranking, and the W3-4 compatibility proof |
+| (this one) | §DISPATCH-REPORTING D0–D6 |

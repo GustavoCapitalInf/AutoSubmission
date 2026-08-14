@@ -49,8 +49,9 @@ cache partitions of the same bytes.
 The deferral taxonomy does not soften: a document the visual rung ALSO cannot
 serve stops being `deferred` and becomes an explicit terminal `failed` —
 `ocr_failed` when the rung raised (server down mid-run: that document fails
-closed, the run continues), `no_parser_matched` when it produced text nobody
-claimed. Nothing is lost silently.
+closed, the run continues), and when it produced text nobody parsed, whichever
+of `no_parser_matched` / `parser_declined` the dispatch earned. Nothing is lost
+silently.
 """
 from __future__ import annotations
 
@@ -127,6 +128,12 @@ class DocumentRow:
     parser_score: float | None = None
     dispatch_outcome: str | None = None
     candidates: list[str] = field(default_factory=list)
+    #: Registrations that claimed this document and then declined to parse it
+    #: (`Dispatch.attempted`). Bare ids, not `id:score` pairs: the declining
+    #: parser's detection score is already in `candidates`, and what this
+    #: column adds is the fact that it got as far as `parse` and returned None.
+    #: A parser that raised is NOT here — that is `parser_exceptions`.
+    attempted: list[str] = field(default_factory=list)
     near_miss: list[str] = field(default_factory=list)
     #: "<parser_id>:<stage>:<ExceptionClass>" per registration that raised.
     #: Registry ids and exception class names only — never a message (W3-1).
@@ -145,6 +152,7 @@ class DocumentRow:
     def as_dict(self) -> dict:
         row = asdict(self)
         row["candidates"] = "; ".join(self.candidates)
+        row["attempted"] = "; ".join(self.attempted)
         row["near_miss"] = "; ".join(self.near_miss)
         row["parser_exceptions"] = "; ".join(self.parser_exceptions)
         return row
@@ -472,6 +480,7 @@ class DiscoveryRunner:
                 dispatch.detection.score if dispatch.detection is not None else None
             )
             row.candidates = _fmt(dispatch.candidates)
+            row.attempted = list(dispatch.attempted)
             row.parser_exceptions = [
                 f"{failure.parser_id}:{failure.stage}:{failure.exception}"
                 for failure in dispatch.exceptions
@@ -584,6 +593,14 @@ def _failure_reason(error_type: str | None, dispatch) -> str | None:
     undifferentiated `exception` bucket. Now the dispatch says a parser broke,
     the deterministic mode's own `RuntimeError` no longer disguises it as
     "no parser matched", and the row names the failure class it belongs to.
+
+    `parser_declined` is the same argument applied one level down. An unclaimed
+    document with a non-empty `Dispatch.attempted` is NOT a bank whose layout we
+    have never seen: a parser recognised it, ran, and returned None. Those two
+    findings need different work — one needs a new parser, the other needs an
+    existing one widened — and reporting both as `no_parser_matched` put the
+    cheaper queue at the bottom of the more expensive one. `no_parser_matched`
+    now means what it says: nothing even claimed it.
     """
     if error_type is None:
         return None
@@ -592,5 +609,5 @@ def _failure_reason(error_type: str | None, dispatch) -> str | None:
     if dispatch is not None and dispatch.outcome == "parser_exception":
         return "parser_exception"
     if dispatch is not None and dispatch.outcome == "unclaimed":
-        return "no_parser_matched"
+        return "parser_declined" if dispatch.attempted else "no_parser_matched"
     return "exception"
