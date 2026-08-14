@@ -252,7 +252,22 @@ OCR_STAGE_VERSION = 2
 # French-business layouts + English CIBC registration + CMap guard
 # (+66; 4 mangled docs structurally refused). One composed bump before
 # the round's measurement.
-ANALYSIS_STAGE_VERSION = 10
+# 10 -> 11: composed — coverage-wave batch 3 (eleven reviewed merges):
+# first_citizens control-record rebuild + citizens container fix (+47);
+# us_bank/capital_one decline closures + R-1 product hardcodes removed
+# (+28, 22 account_name -> None); bluevine/relay/navy_federal declines
+# (+21); shared money grammar — U+2212/U+2013 sign class, one-decimal
+# refusal, 13-digit bound, welded marker tokens (3 corrected movers);
+# huntington + burke_herbert (+36); shopify_balance + citibusiness +
+# zions (+41); mercury + found_lead(+activity) + brex (+52, 3 review by
+# the issuer's own disclaimer); community_section issuer-agnostic
+# template + 4 supersedes edges (+47); woodforest + wealthsimple +
+# symitar (+38); fifth_third + fiserv_premier (+19); pipeline repairs
+# keyed on the claiming registration (+3 chase whose ending balance a
+# foreign repair rewrote) with the page-declaration sheet count inert
+# until the ceremony-gated wiring card. Registry 53 -> 68. One composed
+# bump before the round's measurement.
+ANALYSIS_STAGE_VERSION = 11
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 

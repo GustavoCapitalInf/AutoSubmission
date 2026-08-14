@@ -101,14 +101,14 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
         # "N Deposits/Credits" is a whole-direction figure and cheques ARE
         # inside the printed debit figure by the bank's own label — folded on
         # both sides, which is comparable (cf. bofa, folded on one side only).
-        "credit": _whole("'N Deposits/Credits'", "analysis/capital_one.py:37-39, :189-193"),
+        "credit": _whole("'N Deposits/Credits'", "analysis/capital_one.py:81-88, :106"),
         "debit": CountSemantics(
             comparable=False,
             scope="service_charge_excluded_from_printed_debit_count",
             reason=(
                 "the printed summary is a LIST of lines — 'N Checks/Debits "
                 "($x)' AND a separate 'Service Charges ($y)' "
-                "(analysis/capital_one.py:20-28, :189-197). The service charge "
+                "(analysis/capital_one.py:81-108). The service charge "
                 "is its own printed line with no count, its money is inside "
                 "the printed debit TOTAL, and the parser records it as a debit "
                 "ROW. So the printed debit count enumerates a strict subset of "
@@ -319,7 +319,7 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
                 "PROMOTED to comparable on measured evidence. Both counts are "
                 "sums over the printed Account Summary's category lines, split "
                 "into credit and debit BY THE SIGN OF THE CATEGORY AMOUNT "
-                "(analysis/us_bank.py:293-294) — a summary-level sign split, "
+                "(analysis/us_bank.py:399-412, :467-468) — a summary-level sign split, "
                 "which is why this was held incomparable until it had been "
                 "measured. It reproduces the captured rows on 40 of 40 us_bank "
                 "documents in both directions (COUNTS_P1_MEASUREMENT.md §3.3), "
@@ -337,7 +337,7 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
             reason=(
                 "PROMOTED with the credit direction and on the same evidence: "
                 "the printed Account Summary category sums split by the sign "
-                "of the category amount (analysis/us_bank.py:293-294), "
+                "of the category amount (analysis/us_bank.py:399-412, :467-468), "
                 "reproducing the captured debit rows on 40 of 40 documents in "
                 "the phase-1 measurement and 40 of 40 again when re-measured "
                 "against the current archive."
