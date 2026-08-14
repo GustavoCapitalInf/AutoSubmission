@@ -280,6 +280,15 @@ def parse_fiserv_premier_statement(markdown: str) -> Statement | None:
         return None
 
     # The summary closes on itself before any row is read.
+    #
+    # The fee terms are treated as SEPARATE from the two transaction totals —
+    # a service charge is not inside `Checks/Debits`, interest is not inside
+    # `Deposits/Credits`. Every document of this family in the archive prints
+    # both as zero, so that reading is not corroborated by the corpus; it is
+    # kept because getting it wrong fails CLOSED. A charge that is in fact
+    # already inside the debit total would be subtracted twice here, the
+    # identity would miss, and the document would be refused rather than
+    # published with a wrong opening or closing balance.
     walked = (
         summary["previous"]
         + abs(summary["credits"])
