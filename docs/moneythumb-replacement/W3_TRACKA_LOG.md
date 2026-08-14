@@ -8388,3 +8388,296 @@ and 8 of 8 card-C.
 | `06f2633` | §RBCCIBC-LAYOUTS RC0–RC10 |
 | `753674a` | card C amendment — the French PERSONAL product, restored after the gate went red |
 | (this one) | the gate proof and the F1 pinned-corpus re-check |
+
+# §MONEY-GRAMMAR — the shared money grammar: a sign class, two bounds, and a marker
+
+MONEY-GRAMMAR, 2026-08-14. Branch `wave3-money-grammar`, base `d70efbe`
+(current main). Brief: `docs/agent-handoffs/MONEY-GRAMMAR.md`. Single
+integration owner for `analysis/money.py`, which ~20 parsers import — so
+every card here lands behind one archive-wide byte-identity proof.
+
+## MG0. Summary
+
+Four defects in the shared grammar, each characterized on the base tree
+before a line was written, each fixed at the grammar rather than in a
+parser, and all four landed behind a single sweep over **3,367 documents**
+(the entire claimed population of 2,100 — validated 2,030 / review 10 /
+withheld 60 — plus all 1,267 `failed`; the 13 documents not covered are
+`deferred` intake rejects with no cached OCR document, none of them
+claimed).
+
+**Result: 3,364 / 3,367 byte-identical. Exactly 3 movers, all
+`chase_export`, all named — the three the brief predicted. Zero unexpected
+movement anywhere in the archive.**
+
+| Card | Defect | Direction of the fix |
+|---|---|---|
+| 1 | No grammar knew U+2212 MINUS or U+2013 EN DASH | the sign is a CLASS, normalized once |
+| 2 | `parse_money("34.9")` returned `34.0` | one decimal place is not money |
+| 3 | 26+ integer digits crashed `adb.py` | bound token acceptance at the grammar |
+| 4 | The debit-marker rule was "contains a D" | match the marker token, exactly |
+
+## MG1. The instrument, proven against the run of record
+
+The sweep runs `analyze_markdown(md, parse_mode="deterministic")` plus
+`telemetry.classify_outcome` over cached OCR markdown rebuilt from the D-3
+artifacts by DIRECT file path — each artifact JSON carries its own
+`input_sha256`, so the index is rebuilt from the files themselves and the
+sqlite index is never opened. The analysis cache is never consulted.
+
+Before trusting it, the instrument was checked against the baseline run of
+record `2026-08-14T060822.665646-0000-88be9dd3`:
+
+```
+total docs 3367
+recomputed outcomes [('validated', 2030), ('failed', 1267), ('withheld', 60), ('review', 10)]
+DISAGREEMENTS with baseline run 88be9dd3: 0
+```
+
+Zero disagreements over 3,367 documents. Every number below is measured on
+that instrument.
+
+## MG2. Card 1 — the minus is a class, not a character
+
+`U+2212 MINUS SIGN` is what the Chase-for-Business web export prints;
+`U+2013 EN DASH` is what OCR and some producers' font maps put in its
+place. Measured on the base tree, the two failure modes are not the same:
+
+* every one of the 13 `AmountFormat`s returned `None` — the field is
+  silently dropped;
+* `parse_money` and `parse_digit_scrubbed` returned **+500.0** for
+  `−500.00` — they matched the digits AFTER the glyph. **A printed debit
+  booked as a credit.**
+
+The archive prints it: 47 documents carry a non-ASCII minus welded to a
+money token. 44 are unclaimed `failed` (Mercury/fintech — FINTECH-CELL
+territory, and that scout's "direction must come from the printed sign"
+trap runs through this same grammar). Exactly **3 are claimed, and all 3
+are the `withheld` chase_export documents** the brief named.
+
+The fix is one primitive, `normalize_sign_glyphs`, applied at the entry of
+every parser in the module, so each `AmountFormat` and each tolerant parser
+inherits the class instead of re-enumerating it. It runs BEFORE
+`parse_digit_scrubbed`'s guard, which is why no per-bank guard pattern
+changed: chase's `_AMOUNT_RE` still spells its sign in ASCII and now admits
+the printed glyph. `MINUS_CLASS` is exported for consumers that find money
+with a pattern of their own.
+
+One consumer change, in `analysis/chase.py` — the export row finder was
+`-?\$\d[\d,]*\.\d{2}`, so on a `−$1,234.56` row it matched from the `$`
+onwards and dropped the sign the bank had plainly printed.
+
+End-to-end on a synthetic export, base vs branch:
+
+```
+### ON MAIN (base d70efbe) ###
+control (ASCII -): amount=    -5.0  direction=debit   recon_ok=True
+repro   (U+2212): amount=     5.0  direction=credit  recon_ok=False
+REPRODUCED
+
+### ON BRANCH wave3-money-grammar ###
+control (ASCII -): amount=    -5.0  direction=debit   recon_ok=True
+repro   (U+2212): amount=    -5.0  direction=debit   recon_ok=True
+FIXED
+```
+
+`analysis/regions.py:25` already hand-rolled `replace("–", "-")` locally —
+independent corroboration that the en dash is real, and a candidate to
+inherit the shared class instead of keeping its private copy.
+
+## MG3. Card 2 — one decimal place is not money
+
+`parse_money("34.9")` returned `34.0`: the decimal group is optional, so
+the integer part matched alone. `parse_money_tokens("34.9")` was worse —
+`[34.0, 9.0]`, two amounts out of one. A plausible wrong number is the
+worst failure this module can have.
+
+A money token is now a WHOLE number: it may not begin part-way through one
+(`(?<![\d.])`) and what follows may not continue it (`(?![.,]?\d)`). Both
+are load-bearing — without the leading boundary the trailing one is
+defeated, because `34.9` refuses `34` and then matches `9`. The comma is in
+the trailing class because the token parser groups with it, so `1,234.5`
+cannot fall back to matching `1`.
+
+Refusing exposed a second defect in the same grammar. `.56` — a surveyed
+axis the module docstring claims to tolerate — was never actually read:
+the search skipped the dot and matched `56`, returning **a hundred times**
+the printed amount. The tolerance is now real (`.56` reads 0.56), which is
+also what keeps `farmers_merchants` reading its printed `.00` interest.
+That caller was found by the full suite rather than by inspection, and it
+is the reason the card ships with padding rather than bare refusal.
+
+193 archive documents contain a one-decimal token (103 of them validated),
+scotia dominating — and scotia pads at its own call site
+(`analysis/scotia.py::_amount_value`), which is why the sweep shows it
+unmoved. `bofa._money` anchors with a fullmatch guard, so its 62-hit
+documents never passed those tokens through either.
+
+## MG4. Card 3 — the bound belongs at the grammar, never in adb.py
+
+Measured boundary on the base tree: 25 integer digits quantize, **26 raise
+`decimal.InvalidOperation`** out of `analysis/adb.py`, which quantizes
+every amount to cents in the default 28-digit Decimal context. The
+document then dies with a CRASH rather than an honest decline.
+
+`MAX_INTEGER_DIGITS = 13` is measured, not chosen: over the 3,367-document
+archive the largest integer part of any well-formed amount is **11
+digits**, while **2,143 documents carry bare runs of 14 digits or more**
+(longest 54) — barcodes and reference numbers, exactly the F-STRUCTURE
+hypothesis. The bound sits above every amount anyone has printed and far
+below the crash.
+
+Pattern parsers fail closed to `None`; the raising family raises
+`ValueError`, their documented contract for "not money". `adb.py` is
+PROTECTED and carries a zero-line diff. The crash boundary itself is pinned
+as a regression test, so the two numbers cannot drift into each other
+unnoticed.
+
+## MG5. Card 4 — the marker is a token, and measuring it prevented a regression
+
+The rule was "the suffix CONTAINS a D", which is not a rule about markers
+at all: `100.00CREDIT` read as **-100.00** because "CREDIT" has a D in it,
+and `USD`, `CAD`, `DEBIT` and `DC` all inverted their amounts too.
+
+The obvious fix — match `D` or `DR` exactly — would have been a **mass
+regression**, and the archive says so. `OD` is TD Canada's overdraft marker
+on a running balance (`371.96OD`; that balance IS overdrawn, so the sign is
+right): **596 occurrences across 50 documents, 39 claimed by
+`td_canada_native`, 37 of them validated.** Every one of those balance
+walks would have inverted. `/` is likewise a separator TD prints inside the
+marker cell (`1234.56/D`), not part of the marker.
+
+So the marker set is `{D, DR, OD}` — what the archive prints — plus the
+trailing-minus convention. Zero movement on the frozen pre-R-2 equivalence
+matrix: every marker shape in `INPUTS` reads exactly as it did before. This
+card is a pure latent-defect fix.
+
+## MG6. The archive-wide byte-identity sweep
+
+```
+before: 3367 documents   after: 3367 documents
+
+byte-identical payloads : 3364 / 3367
+movers                  : 3
+
+outcome transitions among movers: [(('withheld', 'withheld'), 3)]
+
+  [payload] 112431717DA1  withheld -> withheld  chase_export
+        Chase/1e7c60f6_BUS COMPLETE CHK (...7302) - chase.com.pdf
+  [payload] 5A29258D7626  withheld -> withheld  chase_export
+        Chase/190282be_July to date.pdf
+  [payload] 5C93775BBA87  withheld -> withheld  chase_export
+        Chase/1e7c60f6_BUS COMPLETE CHK (...7501) - chase.com.pdf
+```
+
+No outcome class moved anywhere in the archive; nothing that was validated
+stopped being validated; no new crash and no new decline.
+
+## MG7. What the three movers gained — and why they still withhold
+
+Claimed-but-not-validated is not success, so the movers are instrumented
+per document rather than counted:
+
+| doc | credits/debits | debit total |
+|---|---|---|
+| `112431717DA1` | 153/0 to **28/117** | 0.00 to **117,365.14** |
+| `5A29258D7626` | 29/0 to **5/24** | 0.00 to **15,393.95** |
+| `5C93775BBA87` | 90/0 to **20/68** | 0.00 to **27,082.05** |
+
+Every one was publishing **100% credits and zero debits** — the direction
+of the entire ledger was wrong. `5A29258D7626` also had its opening balance
+sign corrected (-146.41 to +146.41).
+
+**They remain `withheld_adb`, so the brief's "3 recoverable" should be read
+as "3 corrected", not "3 validated".** The residual is an independent and
+PRE-EXISTING defect that this cell deliberately did not fix — the export
+wraps a long row across two physical lines:
+
+```
+Incoming wire transfer
+$20,000.00 $22,760.05
+```
+
+The amount line carries no description, so `if not description: continue`
+drops the row — which is exactly the `sum check off by -20000.00` on
+`5A29258D7626`. Verified pre-existing: that row was dropped on the base
+tree too. Follow-up card MG-C1 below.
+
+## MG8. Carried findings and cards for Ocean
+
+1. **MG-C1 — the chase export drops wrapped rows.** Described above. It is
+   the sole remaining reason all three movers withhold, so MG-C1 and card 1
+   together are what would recover the family. Not taken here: it is a
+   row-assembly change in a parser, not a money-grammar change, and the
+   brief scoped this cell to the grammar.
+2. **MG-C2 — 12 call sites swallow a refusal into a silent 0.00.**
+   `parse_money(...) or 0.0` (and `abs(... or 0.0)`) appears at
+   `capital_one.py:59,61`, `cibc.py:263`, `linkbank.py:72`, `rbc.py:361`,
+   `regions.py:219`, `td_us.py:165`, `truist.py:58,59,190`,
+   `us_bank.py:236`, `wells.py:263`. A token the grammar refuses is
+   published as zero instead of declining the document. This is the exact
+   mechanism by which cards 2 and 3 could have turned refusals into silent
+   zeros; the sweep proves none fired today, but the idiom is a standing
+   fail-open across 10 parsers and deserves a platform card.
+3. **CARD 4 CALLERS (out of scope, as briefed).** `parse_money` still reads
+   a number out of a whole line when a caller hands it one:
+   `analysis/td_can.py:464` passes an entire line (mitigated by `abs()`),
+   and `2026-01-31` still reads as `-2026.0` because the ISO separator is
+   indistinguishable from the trailing-minus convention at token level.
+   `bofa.py:20` looks like a whole-line caller but anchors with its own
+   fullmatch guard and is safe; `capital_one.py:201` has been guarded since
+   MONEYFIX-1. The fix belongs at the callers, which must pass a cell.
+4. **`parse_money_tokens` has no leading-sign rule at all** — `−500.00`
+   yields `[500.0]`, exactly as `-500.00` always did. Its only consumer is
+   `td_can`, which takes `abs()` of the results, so this is latent. Left
+   alone deliberately rather than changed without a consumer that needs it.
+5. **`100.00 DR` (space-separated) still reads positive** — the suffix group
+   does not cross whitespace. Unattested in the archive; recorded because
+   card 4 is where someone will look for it.
+6. **`ANALYSIS_STAGE_VERSION` needs a bump on merge** — 3 documents change
+   their analysis output, so their cached payloads are stale. The brief
+   reserves the bump to Ocean; `webapp/` is untouched here.
+7. **The equivalence harness now declares divergences.** The frozen pre-R-2
+   oracles stay frozen — they are historical record. `assert_equivalent`
+   takes a declared divergence set: undeclared drift still fails, AND a
+   declaration that no longer diverges fails too, so the list cannot go
+   stale. Recommended for any future money-rule change.
+
+## MG9. Proofs
+
+```
+$ python -m pytest -q
+3103 passed, 18 deselected, 1 warning in 400.39s (0:06:40)
+EXIT=0
+
+$ python -m pytest -m corpus -q
+14 passed, 3107 deselected, 1 warning in 1871.02s (0:31:11)
+EXIT=0
+
+$ python corpus_gate.py
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  762.1s
+RESULT: GREEN
+EXIT=0
+
+# archive-wide byte-identity sweep (whole claimed population + all failed)
+byte-identical payloads : 3364 / 3367   movers 3 (all chase_export, named)
+outcome transitions     : withheld -> withheld x3; no other class moved
+
+# instrument soundness, against run of record 88be9dd3
+DISAGREEMENTS: 0 / 3367
+
+# card fixtures, pre-fix proven against the base tree
+card 1: 34 of 37 fail on base (the 3 that pass are the ASCII controls)
+```
+
+## MG10. Commits
+
+| Commit | Contents |
+|---|---|
+| `222ee64` | card 1 — the minus is a class, not a character (U+2212, U+2013) |
+| `c2f9f5b` | card 2 — one decimal place is not money, and a bare .56 is cents |
+| `bdfad1f` | card 3 — a digit run past 13 places is not an amount |
+| `f1727c9` | card 4 — the debit marker is a token, not a letter |
+| (this one) | §MONEY-GRAMMAR MG0–MG10 |
