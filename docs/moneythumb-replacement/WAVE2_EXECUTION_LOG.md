@@ -1,6 +1,57 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
-## 2026-08-14 — **COVERAGE-WAVE BATCH 2 OFFICIAL: improved 90 / regressed 0 — validated 2,030 (60.1%): THE 60% TIER CROSSED**
+## 2026-08-14 — **COVERAGE-WAVE BATCH 3 OFFICIAL: improved 356 / regressed 0 — validated 2,357 (69.7%)**
+
+Eleven scout-evidenced cells, each adversarially reviewed — **all eleven
+reviews produced real findings** (two BLOCK-grade defects fixed pre-merge:
+FINTECH's wrapped-disclaimer leak that published a month-to-date view as
+validated, and UNID-A's Woodforest L-1 guard failing OPEN on a page break;
+one BLOCK verdict at PIPELINE-FIX-2's first revision — it moved two
+pinned-corpus documents review→validated while the gate stayed GREEN,
+proving **the gate is blind to review↔validated movement inside its PASS
+bucket**; the corpus-marked slice caught it and is now mandatory in every
+proof floor). Merged as one composed train on `625c41d`: `786493b`
+(FIRSTCIT) · `8e32b0e` (DECLINES-B) · `4539c66` (DECLINES-C) · `7e619f4`
+(MONEY-GRAMMAR) · `91bcf83` (HUNT) · `2a2c1c3` (CITI3) · `7b504a9`
+(FINTECH) · `bb0953b` (UNID-A) · `545166b` (UNID-B) · `655cfe9` (JHA) ·
+`1f9d566` (PIPELINE-FIX-2), + integration `463870e` (composed v10→11,
+count_semantics citation refresh) + `79cd7d3` (pipeline comment de-named
+the platform label UNID-B registered — a guard composition catch,
+AST-identical). Registry **53 → 68**; pins resolved to the running union
+at each merge and proven green before committing (the four JHA sibling
+readers now sit in the narrow dispatch band under supersedes edges).
+
+Composed-tree proofs by Ocean: suite **3,769** / corpus-marked **14**
+(the detect-sweep affordability test HELD at 68 registrations — JHA's
+clean-once optimization paid for the twelve new detectors) / gate GREEN
+106/3 / guards 507, all exit 0. Push `79cd7d3`, **remote CI SUCCESS, run
+31843481979 (conclusion read)**. Dry run `6e21bd68` canonical 100/6/3 at
+v11 — PIPELINE-FIX-2 card 2 confirmed inert in production.
+
+**Official instrument (`88be9dd3` → `d5c75ff6`, shared 3,380,
+--fail-on-regression exit 0): improved 356 / regressed 0.** Transitions:
+failed→validated 319 · withheld→validated 8 · failed→withheld 17 ·
+failed→review 12. Totals: validated 2,030 → **2,357 (69.7%)** · failed
+1,267 → 919 · withheld 69 · review 22 · deferred 13. Families (top):
+community_section 55 · huntington 38 · first_citizens 34 · mercury 31 ·
+woodforest 18 · us_bank 17 · shopify_balance 16 · wealthsimple 14 ·
+citibusiness/citizens/fifth_third/zions 13 each · bluevine/found_lead 12
+each · capital_one 11 · fiserv_premier 10 · relay 9 · brex 6 ·
+navy_federal/symitar 4 each. Cumulative: 1,048 → 2,357 (+125%), zero
+regressions program-wide, $0 vendor.
+
+**Gustavo's rulings executed this batch:** (1) Regions/Texas Bank
+truth-set ceremony APPROVED — the two pinned documents move
+review→validated only when the ceremony-gated wiring card lands (three
+call sites + sheet count into the analysis cache-key material + pinned
+expectations update, one card; evidence preserved at §PIPEFIX P4b);
+gate-hardening item OPEN (make review↔validated movement of pinned
+statements directly observable). (2) Honest-unknown-issuer APPROVED —
+bank=None where the document prints no issuer; UNKNOWN-ISSUER card
+covers JHA's 5 + the French-caisse 6 (+11). (3) Woodforest account
+openings: NARROW initialization-event exception approved as a capability
+card with fail-closed default; the two statements stay withheld until
+provable generically.
 
 Three scout-evidenced cells, each adversarially reviewed (all SHIP; every
 review produced findings, every finding fixed and re-proven pre-merge).
