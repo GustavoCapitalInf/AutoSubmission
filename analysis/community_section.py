@@ -3,17 +3,27 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-from .money import STRICT_UNSIGNED, parse_amount
+from .money import STRICT_LEADING_SIGN, STRICT_UNSIGNED, parse_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 
 _DATE = r"\d{2}/\d{2}/\d{4}"
 _MONEY = r"\$[\d,]+\.\d{2}"
+#: A *balance* is the only figure this platform prints with a sign: an
+#: overdrawn period prints `-$1,234.56` for the opening and/or closing balance.
+#: The period's credit and debit totals are magnitudes whose direction is the
+#: row they are printed on, so they deliberately keep the unsigned pattern -
+#: widening them would let a mis-read minus become a negative period total.
+_SIGNED_MONEY = r"-?\$[\d,]+\.\d{2}"
 
 
 def _money(value: str | None) -> float | None:
     return parse_amount(value, STRICT_UNSIGNED)
+
+
+def _balance(value: str | None) -> float | None:
+    return parse_amount(value, STRICT_LEADING_SIGN)
 
 
 def _iso(value: str) -> str:
@@ -45,20 +55,67 @@ def _account_block(markdown: str, account_heading: str | None = None) -> str:
 def _summary(block: str):
     return re.search(
         r"Account Summary Date Description Amount\s+"
-        r"(" + _DATE + r") Beginning (?:Statement )?Balance (" + _MONEY + r")\s+"
+        r"(" + _DATE + r") Beginning (?:Statement )?Balance (" + _SIGNED_MONEY + r")\s+"
         r"(\d+) Credit\(s\) This Period (" + _MONEY + r")\s+"
         r"(\d+) Debit\(s\) This Period (" + _MONEY + r")\s+"
-        r"(" + _DATE + r") Ending (?:Statement )?Balance (" + _MONEY + r")",
+        r"(" + _DATE + r") Ending (?:Statement )?Balance (" + _SIGNED_MONEY + r")",
         _clean(block),
         re.IGNORECASE | re.DOTALL,
     )
 
 
-def _section_bodies(text: str, headers: list[str], stops: list[str]) -> list[str]:
-    header = r"(?:" + "|".join(headers) + r")"
-    stop = r"(?:" + "|".join(stops) + r")"
-    pattern = header + r"\s+Date Description Amount\s+(.*?)(?=\s+" + stop + r"\s+(?:Date|Check|Total|$)|$)"
-    return [m.group(1) for m in re.finditer(pattern, text, re.IGNORECASE | re.DOTALL)]
+#: A transaction section on this platform is introduced by its own name
+#: followed by the printed column header `Date Description Amount`, and the
+#: **head noun of that name carries the direction**: the processor names its
+#: sections `<qualifier> Credits` / `<qualifier> Debits`, plus the unqualified
+#: `Deposits`.
+#:
+#: Reading the head noun rather than a list of whole section names is what
+#: makes this a platform reader instead of a per-product one. A statement that
+#: prints a qualifier this code has never seen is still read correctly, and
+#: `Account Summary` - which prints the *identical* grid header - is excluded
+#: structurally, because "Summary" is not a direction noun, rather than by
+#: being named in a stop list. The lookbehind keeps the noun from matching
+#: inside a longer word.
+#:
+#: A section reprinted after a page break repeats its name with `(continued)`,
+#: and the whitespace around it is whatever the page break left behind, so the
+#: reprint marker is separated by `\s+` like the grid header itself rather than
+#: by a literal space.
+_SECTION_RE = re.compile(
+    r"(?<![A-Za-z])(?:[A-Za-z]+ )?(Credits|Debits|Deposits)"
+    r"(?:\s+\(continued\))?\s+Date Description Amount",
+    re.IGNORECASE,
+)
+
+#: The non-transaction blocks that can follow the last transaction section.
+#: Each is guarded by the first word of its own grid header, so none of these
+#: words can end a section from inside a transaction description.
+_SECTION_END_RE = re.compile(
+    r"\s+(?:Checks Cleared|Daily Balances|Overdraft|Service Charge Summary|Thank you)"
+    r"\s+(?:Date|Check|Total)",
+    re.IGNORECASE,
+)
+
+_CREDIT_NOUNS = frozenset({"credits", "deposits"})
+
+
+def _sections(text: str) -> list[tuple[int, str]]:
+    """`(sign, body)` for every transaction section, in printed order.
+
+    A section runs from its own grid header to the next section's header, so
+    rows always land in the section that printed them; the last one runs to
+    whichever non-transaction block follows it.
+    """
+    matches = list(_SECTION_RE.finditer(text))
+    sections: list[tuple[int, str]] = []
+    for index, match in enumerate(matches):
+        start = match.end()
+        limit = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        end = _SECTION_END_RE.search(text, start, limit)
+        sign = 1 if match.group(1).lower() in _CREDIT_NOUNS else -1
+        sections.append((sign, text[start:end.start() if end else limit]))
+    return sections
 
 
 def _dated_amount_rows(body: str, *, sign: int, year: int) -> list[Transaction]:
@@ -161,18 +218,8 @@ def _parse_sectioned_statement(
         return None
 
     txns: list[Transaction] = []
-    for body in _section_bodies(
-        block,
-        [r"Deposits(?: \(continued\))?", r"Other Credits(?: \(continued\))?"],
-        [r"Other Credits", r"Electronic Debits", r"Other Debits", r"Checks Cleared", r"Daily Balances", r"Overdraft", r"Service Charge Summary", r"Thank you"],
-    ):
-        txns.extend(_dated_amount_rows(body, sign=1, year=end_year))
-    for body in _section_bodies(
-        block,
-        [r"Electronic Debits(?: \(continued\))?", r"Other Debits(?: \(continued\))?"],
-        [r"Other Debits", r"Checks Cleared", r"Daily Balances", r"Overdraft", r"Service Charge Summary", r"Thank you"],
-    ):
-        txns.extend(_dated_amount_rows(body, sign=-1, year=end_year))
+    for sign, body in _sections(block):
+        txns.extend(_dated_amount_rows(body, sign=sign, year=end_year))
     txns.extend(_check_rows(block, year=end_year))
     if not txns:
         return None
@@ -185,8 +232,8 @@ def _parse_sectioned_statement(
         period_start=_iso(start_date),
         period_end=_iso(end_date),
         days_in_period=(datetime.strptime(end_date, "%m/%d/%Y").date() - datetime.strptime(start_date, "%m/%d/%Y").date()).days + 1,
-        beginning_balance=_money(beginning),
-        ending_balance=_money(ending),
+        beginning_balance=_balance(beginning),
+        ending_balance=_balance(ending),
         stated_total_credits=_money(credits),
         stated_total_debits=_money(debits),
         stated_credit_count=int(credit_count),

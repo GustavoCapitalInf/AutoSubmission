@@ -5167,6 +5167,215 @@ Corpus gate
 
 [PASS] inventory: 109 pinned corpus PDFs, all on disk and audited by both oracles
 [PASS] foreign_files: no non-corpus PDFs under the corpus root
+# §COMMSEC-GEN — the `community_section` core-processor template, generalized
+
+COMMSEC-GEN, 2026-08-13. Branch `wave3-community-section`, base `c5673d2`,
+worktree `.claude/worktrees/mt-commsec`, brief
+`docs/agent-handoffs/COMMSEC-GEN.md`. Baseline: run `6893a75b`.
+
+The cell as handed over: Mission Valley product variants (19 documents detected
+at 0.5 and declined at parse) plus First Carolina Bank (2 unclaimed documents on
+the same template). §C6.4 had characterized the 19 as "the same customer's other
+products … the parser reads one product's section shape" and requested a ruling.
+
+## G0. The characterization contradicts the cell's own premise
+
+**The account product was never the discriminator.** §C6.4 attributed the 19
+declines to `Business Analyzed Checking` / `Business Interest Checking` /
+`Business Checking` being products the reader does not handle. They are not:
+`mission_valley`'s entry point passes `account_heading=None`, so the reader
+never restricts itself to a product section in the first place, and the product
+literal it does carry (`Business Checking\s*-\s*([X0-9]+)`) only ever populated
+`account_number`.
+
+The decisive counter-example is inside the baseline's own validated set:
+`85F9F7E7…` is a **`Business Analyzed Checking`** statement and it validates,
+while `C7AE0ADA…` is also **`Business Analyzed Checking`** and is declined.
+Same issuer, same product, opposite outcomes. Whatever separates them is not the
+product name.
+
+What separates them is which **credit section** the statement happens to print.
+
+## G1. Populations, derived from the run rather than quoted
+
+| Population | Distinct hashes | Rows | Where |
+|---|---|---|---|
+| `mission_valley` detected ≥0.5, `failed`/`no_parser_matched` | **19** | 21 | 17 `Chase/`, 2 `Mission Valley Bank/` |
+| `mission_valley` validated (must not move) | **17** | 18 | 16 `Chase/`, 1 `Mission Valley Bank/` |
+| `dakota_west` validated (must not move) | **3** | 3 | `Unidentified/` |
+| First Carolina (`fcbcarolinas.com`), unclaimed | **2** | 2 | `Chase/` |
+
+The row/hash gap is deduplication: two of the declined Mission Valley documents
+and one of the validated ones are filed twice under different customer prefixes.
+(Dakota West has no gap; its November statement is a single row marked
+`pinned_corpus_duplicate`, which is how the pinned corpus shows through.)
+
+A fortieth document is reachable and was **not** in the run: `CD7E104D…`,
+`Misc/Checking Account Statements - 1_30_2026 - 4001245.pdf`, the pinned-corpus
+Mission Valley statement. It is covered by `corpus_gate.py`, field for field.
+Complete reachable set = 39 + 1 = **40**, and §G6 proves that enumeration
+exhaustively rather than by sample.
+
+## G2. The section grammar this platform actually prints
+
+Every transaction section is introduced by its own name followed by the printed
+column header `Date Description Amount`. Over the 41 documents of §G1 — the 39
+this template claims plus the 2 First Carolina — the set of names is exactly
+six:
+
+| Printed name | Occurrences | What it is |
+|---|---|---|
+| `Electronic Credits` | 79 | credits |
+| `Other Debits` | 50 | debits |
+| `Account Summary` | 44 | **not a transaction section** — same grid header |
+| `Electronic Debits` | 38 | debits |
+| `Deposits` | 23 | credits |
+| `Other Credits` | 7 | credits |
+
+The reader's credit headers were `Deposits` and `Other Credits`. **The commonest
+credit section on the whole platform, `Electronic Credits`, was not a credit
+section at all.**
+
+It nonetheless read correctly on 17 documents, by accident. `Electronic Credits`
+was absent from the *credit stop list* as well, so a `Deposits` section's lazy
+body ran straight through the `Electronic Credits` header and swallowed its
+rows. A statement that prints no `Deposits` section has nothing to run past, and
+reads **zero credits** — which the reconciliation gate then declines, correctly,
+because the ledger does not match the printed count.
+
+That is the whole of families C and (with §G4) the sign case. Per-document
+instrument over the 19:
+
+| Decline stage | Documents |
+|---|---|
+| reconciliation gate, credits read **0** of N | 14 |
+| reconciliation gate, credits read only the `Other Credits` section (1, 3 and 5 rows of 96, 27 and 36) | 3 |
+| summary did not match at all (overdrawn balance, §G4) | 2 |
+
+On all 17 gate declines the **debit** side was already exact — count and total,
+delta `0.00` on both — which is what makes the diagnosis unambiguous rather than
+a guess: one side of the ledger was perfect and the other was empty.
+
+## G3. The fix is the grammar, not a longer list
+
+Enumerating `Electronic Credits` into the header list would have closed the 19
+and left the next qualifier this core processor invents to a future cell. The
+platform's rule is that **the head noun of a section's name carries its
+direction** — `<qualifier> Credits` / `<qualifier> Debits`, plus the unqualified
+`Deposits` — so that is what the reader now reads:
+
+```python
+_SECTION_RE = re.compile(
+    r"(?<![A-Za-z])(?:[A-Za-z]+ )?(Credits|Debits|Deposits)"
+    r"(?:\s+\(continued\))?\s+Date Description Amount",
+    re.IGNORECASE,
+)
+```
+
+Three properties follow structurally rather than by enumeration:
+
+* an unseen qualifier (`ATM Credits`, `Wire Debits`) is read on its shape —
+  pinned by `test_a_qualifier_the_reader_has_never_seen_is_still_read_by_its_head_noun`;
+* `Account Summary`, which prints the **identical** grid header, is excluded
+  because "Summary" is not a direction noun — not by being named in a stop list;
+* a section runs to the **next section's header**, so rows land in the section
+  that printed them and no section can absorb the next one's rows. The
+  swallow that used to do the work by accident is gone.
+
+## G4. The second defect: an overdrawn period is still a period
+
+Two of the 19 never reached the gate — their summary did not match at all. The
+summary's money pattern was unsigned, and an overdrawn statement prints
+`Beginning Statement Balance -$1,363.27`. Identical defect class to §C6.1's
+Chase fix, in a different parser.
+
+Widened to `-?\$[\d,]+\.\d{2}` for the two **balance** slots only, parsed with
+`STRICT_LEADING_SIGN`. The period's credit and debit **totals** deliberately keep
+the unsigned pattern: they are magnitudes whose direction is the row they sit on,
+and widening them would let a stray minus become a negative period total.
+`test_the_totals_are_magnitudes_and_a_signed_total_is_not_invented` pins that the
+reader declines rather than invents.
+
+**What was deliberately not widened.** `_daily_balances` uses the same unsigned
+pattern, so an overdrawn *day* silently drops its running balance. Widening it is
+a one-character change and it is **not made here**: two currently-validated
+documents (`EB13FC00…`, `6EDE6313…`) print a negative daily balance, so the
+change would move their `running_balance` output and break the byte-identity this
+cell is required to preserve. Reported as a card in §G8.
+
+## G5. First Carolina Bank — FAIL CLOSED, routed to the geometry queue
+
+The two `fcbcarolinas.com` documents share this platform's *furniture* and its
+*summary grammar* exactly — `Statement Ending`, `Customer Number`,
+`Managing Your Accounts`, `Summary of Accounts`, and an
+`Account Summary Date Description Amount` block the existing `_summary` regex
+already matches unmodified. What they do not share is the activity grid. Instead
+of named credit and debit sections they print one `Account Activity` table:
+
+```
+Post Date Description Debits Credits Balance
+```
+
+**Which of the two money columns a cell stood in is destroyed by flattening.**
+Rows carry one money cell and, on the larger document, no balance. That is the
+§C6.5 American Savings Bank criterion, and it was measured rather than assumed.
+
+The only recovery signal printed is the Daily Balances ladder. Instrumented per
+day — given a day's money cells and that day's balance delta, how many sign
+assignments reproduce the delta?
+
+| Document | Rows | Days unique | Days ambiguous | Ledgers fitting the ladder | …also fitting the printed counts and totals |
+|---|---|---|---|---|---|
+| `FA0B3967…` (4 pp) | 6 of 6 parsed | 4 | 0 | **1** | **1** — determined |
+| `EA62440C…` (6 pp) | 107 of 117 parsed | 16 | 4 | **100** | **0** — no consistent ledger |
+
+On the larger document 14 of 121 parsed rows carry no single money cell: the
+row-to-money association is itself unreliable, and **no** assignment reproduces
+what the bank printed. It is unreadable from the text layer, full stop.
+
+The smaller document *is* determined — but only by enumerating sign assignments
+and keeping the one that matches the printed totals. That is the decisive
+architectural objection, and it is worth stating plainly because it is not an
+argument about effort:
+
+> For every other statement on this platform, **direction is printed** — the
+> section name says `Credits` or `Debits` — and the reconciliation gate is an
+> *independent* check on a reading made without it. For First Carolina the
+> direction would be *derived from* the reconciliation, so the gate stops being
+> evidence and becomes a tautology: the ledger balances because balancing is
+> how it was constructed. A reader with no instrument left cannot be validated,
+> only asserted.
+
+**Ruling: FAIL CLOSED, volume 2, routed to the geometry queue** alongside §C6.5.
+No `first_carolina` registration is added. A detect-only registration would
+convert `no_parser_matched` into `attempted`, which §C6.6 rightly values, but it
+would also be a claim that can never validate, and requirement 3 is explicit that
+claimed-but-not-validated is not success. The fix belongs upstream, where the
+column geometry still exists.
+
+## G6. Proofs
+
+Exit codes verbatim, `set -o pipefail` throughout.
+
+```
+$ python -m pytest -q
+2574 passed, 18 deselected, 1 warning in 323.18s (0:05:23)
+EXIT=0
+
+$ python -m pytest tests/test_parser_conformance.py tests/test_r1_hardcodes.py \
+    tests/test_count_semantics.py tests/test_stated_counts.py \
+    tests/test_parser_registry_entries.py tests/test_parser_detection_markers.py -q
+823 passed, 1 warning in 11.21s
+EXIT=0
+
+$ python -m pytest tests/test_community_section_layouts.py tests/test_analysis.py -q
+125 passed, 1 warning in 81.54s (0:01:21)
+EXIT=0
+```
+
+```
+$ python corpus_gate.py
+[PASS] inventory: 109 pinned corpus PDFs, all on disk and audited by both oracles
 [PASS] source_integrity: 109/109 pinned source PDFs match their pinned SHA-256
 [PASS] balance_audit: 109 statements reproduce every audited balance field across backend, API, dashboard, CSV, XLSX, and package surfaces
 [PASS] adb_audit: 109 statements reproduce every audited ADB field across backend, API, and dashboard-package surfaces
@@ -5187,6 +5396,9 @@ Ignored:  0 non-corpus PDFs under the corpus root
 Outcomes: 106 PASS / 3 WITHHELD
 Runtime:  849.5s
 
+[PASS] oracle_independence: 4 audit modules import no production financial mathematics
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  1076.5s
 RESULT: GREEN
 EXIT=0
 ```
@@ -5286,3 +5498,194 @@ next counts measurement.
 | `786814c` | `analysis/count_semantics.py`: `bank_of_america:debit` promoted with provenance + falsifier; the pinned-set edit and its provenance test; 7 F9 fixtures |
 | `2f2ad0b` | §BOFA-COUNTS BC0-BC5, BC7 |
 | (this one) | §BOFA-COUNTS BC6 (the verbatim proofs) and BC8; subsection prefixes renamed B→BC so they do not collide with §BOFA's |
+```
+$ python -m pytest -m corpus -q
+14 passed, 2579 deselected, 1 warning in 2176.00s (0:36:16)
+EXIT=0
+```
+
+The corpus-marked suite is a superset of the gate: it re-runs it through pytest
+and adds parser parity, discovery, telemetry-corpus and truncation over the same
+109 statements.
+
+The gate is not a bystander here: the pinned corpus contains **one Mission
+Valley statement** (`CD7E104D…`) and **one Dakota West statement**
+(`F748A799…`), and the gate reproduces every audited balance and ADB field for
+both, byte for byte, against the committed CSVs. That is an independent
+byte-identity proof of this cell's two protected populations, produced by
+oracles that import none of the production financial mathematics.
+
+**The two sweeps.** Both populations rendered READ-ONLY through the production
+intake ladder (offline rungs; `allow_visual_ocr=False`, no model client is ever
+constructed) from the MAIN checkout's D-3 cache, base `c5673d2` vs branch head,
+comparing the full serialized ledger — every transaction's date, description,
+amount, direction and running balance, plus parser id, period, balances and all
+four stated figures:
+
+```
+mv_validated   n=17   byte-identical=17   changed=0
+dw_validated   n=3    byte-identical=3    changed=0
+mv_failed      n=19   byte-identical=0    changed=19
+       19  failed/no_parser_matched -> validated/approved
+fcb            n=2    byte-identical=2    changed=0
+
+--- existing claims: every differing field, if any ---
+   TOTAL differing fields across the 20 existing claims: 0
+```
+
+Every one of the 19 newly validated documents reads counts equal to **both**
+printed counts; the smallest is 25 rows and the largest 162.
+
+**An instrument the reconciliation gate does not supply.** The gate compares
+rows against the two printed counts and the two printed totals. The balance
+equation is independent of it — the parser never uses the opening or closing
+balance to decide anything — so it is a genuine second oracle:
+
+```
+19 newly validated documents; balance equation fails on 0
+```
+
+The two overdrawn documents are the sharpest case, because they are consecutive
+periods of the same account and the sign has to survive the boundary:
+
+```
+doc          begin      +credits    -debits   = computed     printed   ok
+1B41B7B514AE   49021.99   148288.75  198674.01 =   -1363.27    -1363.27   True
+ACB64C6C811A   -1363.27   188199.27  180434.21 =    6401.79     6401.79   True
+```
+
+The first period closes overdrawn at `-1363.27`; the second opens at exactly
+that figure and works back to a positive close. Both readings are produced by
+the widened balance pattern, and each is checked by arithmetic the other
+statement printed.
+
+**The reachable set, enumerated exhaustively rather than sampled.**
+`_SECTION_RE` is reachable only from the two parse functions, and each returns
+early unless its detector claims, so the complete set of documents any section
+change can touch is the set those detectors claim:
+
+```
+documents in the archive text cache: 3299
+documents the two community_section detectors claim: 40
+documents where the two forms produce different section spans: 0
+RESULT: IDENTICAL over the complete reachable set
+```
+
+(That run was the safety proof for the `(continued)` whitespace change of
+commit `45b4266`; the 40 are the 39 of §G1 plus the pinned-corpus statement.)
+
+A second, independent check asked whether any section body reaches a
+non-transaction grid — a body that ran into the `Daily Balances` or
+`Overdraft and Returned Item Fees` table could take that table's figure as a
+row's amount:
+
+```
+claimed: 40
+section bodies containing a non-transaction GRID heading: 0
+```
+
+**The stratified probe.** 450 documents, seeded (`SEED=20260813`) and therefore
+reproducible, covering **all 69 folder labels in the run** — every folder is
+represented, none is empty — re-rendered and re-classified against the baseline:
+
+```
+sampled=450 render_errors=0 moved=4
+moved AND in the §C6.4 expected set: 2
+UNEXPECTED movement: 2
+   1C6CB4078AC0  deferred/  ->  failed/
+   9413957E2F56  deferred/  ->  failed/
+EXIT=0
+```
+
+Both "unexpected" rows are a **harness artifact, not a change**, and the control
+says so: the probe renders offline only (`allow_visual_ocr=False`), while the
+baseline *deferred* these two to visual OCR. Re-run against **base `c5673d2`**
+with the same harness they are identical:
+
+```
+9413957E2F56 | baseline: deferred deferred_visual_ocr | BASE CODE offline: failed no_text | detected: (none)
+1C6CB4078AC0 | baseline: deferred deferred_visual_ocr | BASE CODE offline: failed no_text | detected: (none)
+```
+
+Neither is detected by anything, and both are scanned documents with no text
+layer. **Unexpected movement attributable to this change: 0.**
+
+## G7. Measurement preview vs `6893a75b`
+
+21 rows (19 distinct hashes) move `failed`/`no_parser_matched` →
+`validated`/`approved`, claimed by `mission_valley`. Nothing else moves.
+
+| Metric | baseline `6893a75b` | after |
+|---|---|---|
+| validated | 1969 (56.4%) | **1990 (57.0%)** |
+| failed | 1453 (41.6%) | 1432 (41.0%) |
+| unclaimed (`no_parser_matched`) | 1436 (41.3%) | 1415 (40.7%) |
+| deterministic coverage | 2040 (58.7%) | **2061 (59.3%)** |
+
+`label_unmatched: Chase -> mission_valley` grows 16 → 33. That is the
+folder-label artifact §CHASE-LAYOUTS already documented — the `Chase/` folder
+holds Mission Valley statements — not a mis-claim.
+
+Nineteen documents for a change that removes a list, and the §C6.6 ratio holds
+again: an existing parser's own extraction bound all 19, and no new layout
+knowledge was needed for any of them.
+
+## G8. What this cell deliberately did not touch — three cards for Ocean
+
+**1. `analysis/count_semantics.py` — requirement 4 checked, no stop, one stale
+citation.** `mission_valley` is a COMPARABLE `whole_direction` entry whose
+argument rests on the reconciliation gate being **sign-keyed** (`amount > 0` /
+`amount < 0`) and on the stated-count assignment. Both are *literally untouched*
+by this diff:
+
+```
+$ git diff c5673d2..HEAD -- analysis/community_section.py \
+    | grep -E "^[-+]" | grep -iE "stated_credit_count|stated_debit_count|credit_rows|debit_rows|credit_total|debit_total"
+(no output)
+```
+
+What the printed counts denote is unchanged, and after the fix a validating
+document matches them on both directions rather than being declined for missing
+one — the semantics are more exactly satisfied, not redefined. **No stop
+condition fires.** The one consequence: the entry's provenance string cites
+`analysis/community_section.py:192-193, :205-210`, and those lines are now
+`:234-235` and `:247-253`. Line numbers only. Ocean owns the table; the citation
+wants refreshing at merge, and no new entries are added — the cell registers
+nothing, so nothing becomes UNSURVEYED.
+
+**2. `mission_valley` labels every account `Business Checking`.** A pre-existing
+R-1-class literal, not introduced here and not fixed here because fixing it moves
+existing claims. Of the 36 documents `mission_valley` validates after this cell,
+**all 36** are labelled `account_name="Business Checking"` and **29 carry
+`account_number=None`**, because the literal `Business Checking\s*-\s*([X0-9]+)`
+cannot match a `Business Analyzed Checking` or `Business Interest Checking`
+heading. The majority of this parser's claims therefore name a product the
+statement does not print.
+
+The remedy is already in the same file: `parse_dakota_west_statement` reads the
+product from the document's own heading via `_ACCOUNT_HEADING_RE` and gets it
+right on all three of its claims. Giving `mission_valley` the same treatment
+needs only a mask-tolerant account-number group (`[X0-9]+` rather than `\d+`).
+It is a genuine improvement and an output change on 17 existing claims, so it is
+Ocean's ruling, not this cell's.
+
+**3. An overdrawn *day* drops its running balance.** §G4: `_daily_balances`
+keeps the unsigned pattern because two currently-validated documents print a
+negative daily balance and widening it would move their output. Small, real, and
+blocked on the same byte-identity constraint as card 2 — worth taking together
+with it in one authorized output-change card.
+
+## G9. Commits
+
+| Commit | Contents |
+|---|---|
+| `2a2a696` | `community_section`: the head-noun section grammar and the signed summary balances, plus `tests/test_community_section_layouts.py` |
+| `45b4266` | `community_section`: `(continued)` matched across the page break that produces it, and its fixture |
+| (this one) | §COMMSEC-GEN |
+
+Scope held: `analysis/community_section.py` and two test files.
+`analysis/parser_registry_entries.py` is **unmodified** — the cell warranted no
+new registration, and said so with evidence rather than adding one that could
+never validate. No registry machinery, no shared utility, no truth-set movement,
+no ambiguity weakening. `ANALYSIS_STAGE_VERSION` is Ocean's at merge: this cell
+changes analysis output for 21 rows, so the cache version must move.
