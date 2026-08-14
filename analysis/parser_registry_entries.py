@@ -60,6 +60,7 @@ from . import (
     secu,
     square_checking,
     td_can,
+    td_canada_french,
     td_us,
     texas_bank,
     truist,
@@ -121,6 +122,11 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("square_checking", "Square", square_checking, "DETECTION_MARKERS", "detection_text", "parse_square_checking_statement"),
     ("td_canada", "TD Canada Trust", td_can, "DETECTION_MARKERS", None, "parse_td_canada_statement"),
     ("td_canada_native", "TD Canada Trust", td_can, "NATIVE_DETECTION_MARKERS", "detection_text", "parse_native_td_canada_statement"),
+    # The Quebec issue of the same printed grid. No `supersedes` edge and no
+    # band: it is not a narrower class of the English layouts but a disjoint
+    # one, and the cross-product in tests/test_parser_conformance.py is what
+    # holds that apart rather than a precedence rule.
+    ("td_canada_french", "TD Canada Trust", td_canada_french, "DETECTION_MARKERS", "detection_text", "parse_td_canada_french_statement"),
     ("td_us", "TD Bank", td_us, "DETECTION_MARKERS", None, "parse_td_us_statement"),
     ("texas_bank", "Texas Bank and Trust", texas_bank, "DETECTION_MARKERS", None, "parse_texas_bank_statement"),
     ("truist", "Truist", truist, "DETECTION_MARKERS", None, "parse_truist_statement"),
