@@ -8510,7 +8510,7 @@ failing loudly against the printed counts:
 
 ```
 FC-E signature population            : 39
-validated (approved, recon independent): 35
+validated (approved; see FI14 on what "reconciles" means here): 35
 declined, fail closed                  :  4
 postings recovered                     : 2606
 
@@ -8623,7 +8623,7 @@ Fix, with blast radius measured before each move:
 |---|---|---|
 | year | layer-wide | 0 offenders |
 | amount | layer-wide, 3 exempt | only `metrics.py`/`pipeline.py`/`reconcile.py`, whose constants are tolerances (`1.00`, `0.98`, `1.02`), read individually and named in `PATTERN_SCAN_EXEMPT` |
-| calendar (NEW) | layer-wide, 1 baseline | `CALENDAR_RE` flags a 2-digit literal sitting before a regex date separator. Across all 68 modules it produces 2 hits, both genuine, both in `first_community.py`: a memorized page number (`--- Page 12 ---`) and a memorized posting date (`10/31 Ending Balance`) |
+| calendar (NEW) | layer-wide, 1 baseline | `CALENDAR_RE` flags a 2-digit literal sitting before a regex date separator. Across all 68 modules it produces 2 hits, both in `first_community.py`. **Corrected in FI14:** only ONE is a calendar literal (`10/31 Ending Balance`, a memorized posting date); the other is `70` from a product-code suffix `(\d+-70)` — a false positive — and the `--- Page 12 ---` page marker beside it is invisible to the scan |
 | account | still list-scoped | widening lights up `consumers.py` (`0836327000`) and `ibc.py` (`00000165`) |
 | mojibake | still list-scoped | widening lights up `cibc.py`, `columbia_bank.py`, `navigant.py`, `truist.py` |
 
@@ -8708,11 +8708,16 @@ pinned    4/4 unmoved (105/107/111/67 transactions, same debit totals)
 archive  12/12 reconcile to the printed control totals (was 0)
 ```
 
-The three movers are fields that were `None` and now carry a figure the bank
-prints. `19 + 97 = 116` accounts for every posting, which makes
-`first_citizens` a candidate for a `count_semantics` COMPARABLE entry; that
-survey is COUNTS-P2's, not this cell's, so the table is untouched and the
-counts stay inert.
+Those three are `Statement` fields that were `None` and now carry a figure the
+bank prints. They are NOT the whole story at document level — see FI14, which
+names six production metrics the description change moves.
+
+`19 + 97 = 116` accounts for every posting on the pinned document, but that
+document bills no service charge. **Corrected in FI14:** on the 9 statements
+that DO bill one, the emitted charge row is outside the printed counts, so a
+COMPARABLE entry would be wrong on 9 of 35. The correct target is a
+capital_one-class MAPPING entry. COUNTS-P3 material; the table is untouched
+and the counts stay inert.
 
 ## FI11. Carried findings for Ocean
 
@@ -8729,9 +8734,10 @@ counts stay inert.
    ceremony.
 3. **6 modules carry account-number or mojibake literals** (FI8) — owned by
    other cells, named so the backlog is visible.
-4. **`first_community.py` carries two calendar literals** — a memorized page
-   number and a memorized posting date, both used as section boundaries
-   (`CALENDAR_BASELINE`).
+4. **`first_community.py` carries one memorized posting date** (`10/31 Ending
+   Balance`, used as a section boundary) plus one false positive of the rule
+   (`70`, a product-code suffix). **Corrected in FI14**; the original claim of
+   "two calendar literals" was wrong (`CALENDAR_BASELINE`).
 5. **`stated_daily_balances` for this family is available and would likely
    improve ADB accuracy** (printed 8117.14 vs backend 8116.50 on the pinned
    document), at the cost of moving a pinned audited field.
@@ -8748,7 +8754,8 @@ counts stay inert.
 | `76b4178` | citizens — the whole debits container and the whole cheque grid; product-name marker replaced |
 | `b098e5a` | guards — year/amount/calendar scans layer-wide, new calendar class, regression and scope proofs, `_code_lines` line numbering |
 | `f952c42` | §FIRSTCIT FI0–FI12 |
-| (this one) | FI13 — the corpus-marked run and the affordability threshold |
+| `27320fb` | FI13 — the corpus-marked run and the affordability threshold |
+| (this one) | FI14 — corrections from adversarial review |
 
 ## FI13. Amendment — the corpus-marked run, and the one test that fails
 
@@ -8829,3 +8836,178 @@ Two things follow, both for Ocean rather than for this cell, since
    with case-sensitive substring tests, or normalising the text ONCE in
    `admissible_text` and handing the normalised copy to every marker, would
    likely halve the sweep. That is RFC risk 7 coming due.
+
+## FI14. Corrections from adversarial review
+
+Verdict was SHIP conditional on record corrections. Four claims in FI0–FI13
+were wrong or overstated; each is corrected here and at its original site.
+Nothing in `analysis/` changed except the module docstring that carried the
+overclaim, and one test comment.
+
+### FI14.1 — "field movers: 3" is true of the Statement, false of the document
+
+FI10 reported three movers because it diffed `Statement` fields. At document
+level the flattened descriptions move **six production metrics** on the pinned
+statement, all classification-driven, none audited by either oracle — which is
+why the gate stayed GREEN and why they must be named here instead:
+
+```
+  nsf_count                 1      -> 0
+  effective_nsf_count       1      -> 0
+  insurance_count           1      -> 0
+  insurance_total           494.00 -> 0.00
+  pos_count                 18     -> 0
+  ach_debit_count           5      -> 0
+```
+
+Consumed at `analysis/metrics.py:208-251` via `analysis/detect.py`
+classification, surfaced at `webapp/app.py:503/549/563`. Every one is keyed on
+merchant text: the classifier is handed `Other Debit` where it used to be
+handed `Overdraft Charge`, `Auto-Owners Ins. Prem`, `POS Sig ... Visa #8269`.
+
+Measured across the family (all 35 parsed documents, not sampled), the same
+collapse is total wherever a metric depends on description text:
+
+```
+  zero on 35/35 : nsf_count, effective_nsf_count, insurance_count,
+                  insurance_total, pos_count, pos_credit_count,
+                  ach_debit_count, ach_credit_count, atm_withdrawal_count,
+                  loan_count, verified_revenue_count, verified_revenue_total
+  survives      : check_count      non-zero on 27/35
+                  unverified_deposit_count non-zero on 35/35
+```
+
+The two survivors are exactly the two that do not need merchant text: cheques
+keep their printed serial, and deposits are counted whatever they are called.
+`verified_revenue_*` at zero across the family is the sharpest edge of this —
+revenue verification is not possible for this bank until descriptions come
+back.
+
+**Recovery path, and it is the same card as FI6:** a `+first-citizens-layout`
+extractor in `ocr/native_text.py`. `pdfplumber` already reads these rows as
+`03-02 POS Sig 02/27 Visa #8269 Cucina 100 864-6019606 SC 92.61`. Restoring
+per-posting descriptions restores all six metrics on the pinned document and
+unlocks the twelve across the family. It moves pinned ADB evidence, so it is
+Gustavo's ceremony, not a cell's.
+
+### FI14.2 — reconciliation is NOT independent for this bank
+
+FI0/FI6 and the object-level test claimed the rebuild made
+`analysis.reconcile` an independent test of the detail. That is wrong, and the
+reviewer's proof is simple: `_matches` already requires each section's parsed
+total to equal the printed total, and the printed summary closes on its own
+arithmetic, so for any statement the parser ACCEPTS,
+
+```
+sum(postings) = printed credits - printed debits - charge
+beginning + printed credits - printed debits - charge = ending   (summary closes)
+=> beginning + sum(postings) = ending                             (forced)
+```
+
+Reconciliation restates the gate one layer down. The single path that can
+still fail it is a billed service charge whose itemisation cannot be located,
+where `_service_charge_posting` omits the row rather than date it by guesswork
+(0 of 35 today).
+
+What the rebuild actually bought, stated without inflation:
+
+- the gate moved from **four constants memorized off one statement** to **the
+  control record each document prints**, so a misread section is rejected
+  rather than silently reconciled, and the check travels to all 39 documents
+  instead of one;
+- the balances are **read, not derived** — the old parser's
+  `beginning = ending - credits + debits` made the walk true for any input
+  whatsoever, including a parse that had recovered nothing.
+
+The object-level test is kept but renamed
+`test_first_citizens_balances_are_not_derived_from_the_postings` and
+re-documented: it pins NON-DERIVATION, and says explicitly that it does not
+demonstrate independence.
+
+### FI14.3 — count_semantics: MAPPING, not COMPARABLE
+
+FI10 recommended a COMPARABLE entry on the strength of `19 + 97 = 116` on the
+pinned document. That document bills no service charge, and generalising from
+it is exactly the error this cell was sent to fix elsewhere. Measured over all
+35:
+
+```
+  counts agree exactly : 26   (all with a zero service charge)
+  counts off by +1     :  9   (all with a billed service charge)
+```
+
+Every one of the nine is off by exactly one in the same direction: the printed
+per-direction counts exclude the service-charge row, which this parser emits
+as a posting. A COMPARABLE entry would therefore manufacture a flag on 9 of 35
+— 26% of the family — which is the precise failure mode
+`count_semantics`'s docstring warns about.
+
+Corrected recommendation: **a capital_one-class MAPPING entry** — printed
+counts denote the four posting sections and exclude the billed service-charge
+row. COUNTS-P3 material, with the 35-document evidence above. The table stays
+untouched and the counts stay inert (`UNSURVEYED`, `comparable=False`).
+
+### FI14.4 — the calendar baseline misdescribed itself
+
+FI8 and FI11 said `first_community.py` carries "a memorized page number and a
+memorized posting date". Measured with the shipped `CALENDAR_RE`:
+
+```
+  HIT 1  line 28  '70'  in  'BUSINESS PLUS CKG-(\d+-70)\s+...'
+  HIT 2  line 37  '10'  in  '...(?=\s+10/31 Ending Balance\s+\$?\d|...'
+```
+
+Only HIT 2 is a calendar literal. HIT 1's `70` is a **product-code suffix** —
+a false positive of a rule that claims to find pinned calendar fields. And the
+`--- Page 12 ---` marker sitting in that same string is **invisible** to the
+scan: the `12` is followed by a space, not a regex date separator. The rule
+finds pinned calendar FIELDS inside patterns, not every memorized number.
+`CALENDAR_BASELINE`'s comment now records this, including the false positive,
+because a ratchet that misdescribes what it excuses is worse than none.
+
+### FI14.5 — carried, measured, not fixed
+
+**D2 — the service-charge date contradicts the bank's own printed daily
+chain.** The Daily Balance Summary is an in-document cross-check this parser
+does not consult. Re-read with the parser's own section bounds (the audit's
+`first_citizens_daily` needs an `^An updated` terminator that 5 of the 9
+statements do not print, so a first pass was blind to them):
+
+```
+  statements billing a service charge : 9
+  printed chain readable              : 9
+  chain contradicts the charge date   : 4
+  ADB impact                          : 0.15 to 0.73
+
+  70e2b596__02_28_2026   charge dated 02-28, chain implies 02-27   0.41
+  70e2b596__05_31_2026   charge dated 05-31, chain implies 05-29   0.52
+  3df19105_Feb2026_0501  charge dated 02-28, chain implies 02-27   0.73
+  3df19105_May2026_0501  charge dated 05-31, chain implies 05-29   0.15
+```
+
+In all four, moving the charge to the day the chain implies resolves EVERY
+divergence (0 remaining). So the printed chain is a usable oracle for the
+posting date, and consulting it would both fix these four and give the family
+a genuine second check — the one thing FI14.2 says the parse currently lacks.
+Card it.
+
+**D5 — the ending-balance sign line is dropped.** `_summary` classifies block
+cells by token shape; a lone `+`/`-` on its own line matches none of
+`_BARE_MONEY_RE`, `_SIGNED_MONEY_RE` or `_DAY_COUNT_RE` and falls through. The
+BEGINNING sign survives because it is the control row's leading token, but a
+statement closing overdrawn has its ending sign only on that dropped line, so
+the ending is read positive. Confirmed by construction: such a statement fails
+the summary identity and is DECLINED, not misread. Fail-closed today and
+unreached in this population — but an overdrawn month-end is an ordinary
+event, so the class is reachable. Card it.
+
+**Wall-clock affordability test (FI13) — direction right, magnitude wrong.**
+FI13 reported a paired median of −11.7 ms in this branch's favour over 7
+trials. The reviewer's paired run puts it at **−2.1 ms**, and further finds the
+BASE arm breaches the 250 ms threshold more often than this branch's. Both
+agree on the sign and on the conclusion — this cell makes the sweep cheaper,
+by removing a whole-document `t.upper()` — but −11.7 ms was noise-dominated at
+7 trials and −2.1 ms supersedes it. The substantive finding is unchanged and
+is the margin, not the delta: ~200 ms against a 250 ms budget with per-trial
+spread over 80 ms, so the assertion reports machine load. Reviewer's numbers
+stand as the record.

@@ -12,18 +12,29 @@ monthly service charge. Those figures satisfy their own arithmetic —
 and a block that does not close is not read at all.
 
 Both balances are READ from that block. Nothing here derives an opening from
-an ending or lifts a closing out of a grid position, which is what keeps
-`analysis.reconcile` an independent test of the transaction detail rather than
-an identity restated: if the postings recovered here do not walk the printed
-opening to the printed ending, that is a real failure and it is meant to
-surface. The parser this replaced computed
-`beginning = ending - credits + debits` from its own transaction sums, so its
-reconciliation could not fail no matter what it had parsed.
+an ending or lifts a closing out of a grid position; the parser this replaced
+computed `beginning = ending - credits + debits` from its own transaction
+sums, so its reconciliation could not fail no matter what it had parsed.
 
-The printed counts and totals are also what the parse is checked against, so
-this module carries no memory of any particular statement's figures, dates, or
-counterparties. Every section is optional: a month with no deposits prints no
-deposits section, and the printed count for that section is then zero.
+Be precise about what that buys, because it is easy to overclaim. It does NOT
+make `analysis.reconcile` an independent test of the detail for this bank.
+`_matches` already requires each section's parsed total to equal the total the
+bank printed for it, and the printed summary closes on its own arithmetic, so
+on any statement this parser accepts, `beginning + sum(postings) == ending`
+follows algebraically: reconciliation restates the gate one layer down rather
+than testing it. The one path that can still fail it is a billed service
+charge whose itemisation could not be located, where
+`_service_charge_posting` returns nothing and the row is omitted rather than
+dated by guesswork.
+
+What the change actually buys is the GATE. The parse is checked against the
+counts and totals THIS document prints, where before it was checked against
+four constants memorized off one statement — so a misread section is rejected
+instead of being silently reconciled, and the check travels to every statement
+in the family instead of exactly one. This module therefore carries no memory
+of any particular statement's figures, dates, or counterparties. Every section
+is optional: a month with no deposits prints no deposits section, and the
+printed count for that section is then zero.
 
 Intake note (`ocr/native_text.py`): the generic native-text extractor flattens
 this bank's description column — every description in a section arrives

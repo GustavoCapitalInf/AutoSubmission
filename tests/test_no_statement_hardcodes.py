@@ -108,12 +108,25 @@ CALENDAR_RE = re.compile(r"(?<![\d\\])\(?(\d{2})\)?(?=\\s|\\-|-|/)")
 #: each file at the time this exemption was written. No parser is exempt.
 PATTERN_SCAN_EXEMPT = {"metrics.py", "pipeline.py", "reconcile.py"}
 
-#: Calendar literals that predate this scan, with the module that owns them.
-#: A ratchet, not a pardon: nothing new may be added, and each entry names a
-#: real memorized value that its owning cell should clear.
-#:   first_community.py - `--- Page 12 ---` (a memorized page number) and
-#:   `10/31 Ending Balance` (a memorized posting date), both used as section
-#:   boundaries.
+#: Modules already flagged by this scan when it was written. A ratchet, not a
+#: pardon: nothing new may be added, and the entry shrinks as its owner clears.
+#:
+#: `first_community.py` produces exactly two hits, and only ONE of them is a
+#: calendar literal — stated precisely because a baseline that misdescribes
+#: what it excuses is worse than no baseline:
+#:
+#:   1. `10/31 Ending Balance` (line 37) — a memorized POSTING DATE used as a
+#:      section boundary. Genuine, and the class this rule exists for.
+#:   2. `(\d+-70)` (line 28) — the `70` is a PRODUCT-CODE SUFFIX, not a date.
+#:      A false positive of this rule. It is arguably a statement-specific
+#:      literal of a different class, but it is not what CALENDAR_RE claims to
+#:      find, and it is the reason the rule cannot yet be tightened to
+#:      zero-false-positive.
+#:
+#: Note what the scan does NOT see in that same string: the `--- Page 12 ---`
+#: page marker beside hit 2 is invisible to it, because the `12` is followed by
+#: a space rather than a regex date separator. The rule finds pinned calendar
+#: FIELDS inside patterns, not every memorized number.
 CALENDAR_BASELINE = {"first_community.py"}
 
 

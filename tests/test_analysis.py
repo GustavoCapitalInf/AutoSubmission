@@ -1043,14 +1043,22 @@ def test_parse_first_citizens_statement_reconciles_section_totals():
     assert reconcile(stmt).ok
 
 
-def test_first_citizens_reconciliation_is_not_an_identity():
-    """The balances are READ, so breaking the detail must break reconcile.
+def test_first_citizens_balances_are_not_derived_from_the_postings():
+    """Pins NON-DERIVATION of the two balances. Not independence.
 
     The parser this replaced computed `beginning = ending - credits + debits`
-    from its own transaction sums, which made `beginning + credits - debits ==
-    ending` true by construction: reconciliation could not fail however wrong
-    the postings were. Dropping a posting must now be visible, and that is the
-    whole point of taking both balances off the printed summary.
+    from its own transaction sums, so the balances moved with whatever it
+    happened to parse and `beginning + credits - debits == ending` held for any
+    input at all. Mutating the posting list after the parse must now change the
+    walk, which is what this asserts: the balances are fixed by the printed
+    summary and do not follow the detail.
+
+    It deliberately does NOT claim reconciliation independently tests the
+    detail. It cannot for this bank: `_matches` already requires each parsed
+    section to equal the total the bank printed for it, and the printed summary
+    closes on its own arithmetic, so on any statement the parser ACCEPTS the
+    reconciliation is algebraically forced. The gate is what does the work; the
+    mutation here bypasses that gate on purpose.
     """
     md = _artifact_markdown("064_First Citizens Bank.md")
     stmt = parse_first_citizens_statement(md)
