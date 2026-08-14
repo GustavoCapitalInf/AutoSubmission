@@ -86,13 +86,47 @@ def _both(fn_a, fn_b, value):
     return out[0], out[1]
 
 
-def assert_equivalent(oracle, replacement, *, inputs=INPUTS):
-    mismatches = []
+#: The inputs on which the shared grammar deliberately no longer agrees with
+#: the frozen pre-R-2 oracle, each with the card that changed it. The oracles
+#: stay frozen — they are the historical record — so a deliberate change is
+#: declared HERE, and anything not declared must still be identical.
+#:
+#: Every entry is one shape: a token that is not a whole money number is no
+#: longer read as one (W3 §MONEY-GRAMMAR card 2). The legacy readings are all
+#: wrong values rather than refusals, which is why refusing is the fix:
+#:
+#:   '12.3'       -> 12.0   now None    the one-decimal truncation itself
+#:   '1.2.3'      -> 1.0    now None    a version string read as money
+#:   '12.345.67'  -> 12.35  now None    two numbers welded, read as one
+#:   '1.234,56'   -> 1.23   now None    an FR-CA amount read by the US grammar
+#:   '.56'        -> 56.0   now 0.56    a sub-dollar amount, read 100x too
+#:                                      large by the legacy clone and now
+#:                                      padded (the module's documented
+#:                                      tolerance, which never actually held)
+#:
+#: A layout that prints one decimal pads it at its own call site (scotia).
+ONE_DECIMAL_DIVERGENCES: frozenset[str] = frozenset({
+    "12.3", "1.2.3", "12.345.67", "1.234,56",
+    ".5", ".56", ".05", ".567", "$.56", "-.56", ".56-",
+})
+#: `parse_money_tokens` scans a whole flattened cell, so it additionally stops
+#: emitting the fragments left over from a malformed token.
+TOKENS_ONLY_DIVERGENCES: frozenset[str] = frozenset({"1..00"})
+
+
+def assert_equivalent(oracle, replacement, *, inputs=INPUTS, diverges=frozenset()):
+    """Every input reads identically to the frozen clone, except the declared
+    divergences — which must actually differ, so a stale declaration fails."""
+    mismatches, undivergent = [], []
     for value in inputs:
         left, right = _both(oracle, replacement, value)
-        if left != right:
+        if value in diverges:
+            if left == right:
+                undivergent.append(f"{value!r}: declared divergent but identical ({left})")
+        elif left != right:
             mismatches.append(f"{value!r}: legacy={left} shared={right}")
-    assert not mismatches, "behaviour drift:\n  " + "\n  ".join(mismatches)
+    assert not mismatches, "undeclared behaviour drift:\n  " + "\n  ".join(mismatches)
+    assert not undivergent, "stale divergence declaration:\n  " + "\n  ".join(undivergent)
 
 
 # ===========================================================================
@@ -406,11 +440,13 @@ def test_strict_format_matches_legacy_clone(name, oracle, fmt):
 
 
 def test_parse_money_matches_legacy_td_can_clone():
-    assert_equivalent(_legacy_parse_money, m.parse_money)
+    assert_equivalent(_legacy_parse_money, m.parse_money,
+                      diverges=ONE_DECIMAL_DIVERGENCES)
 
 
 def test_parse_money_tokens_matches_legacy_clone():
-    assert_equivalent(_legacy_money_tokens, m.parse_money_tokens)
+    assert_equivalent(_legacy_money_tokens, m.parse_money_tokens,
+                      diverges=ONE_DECIMAL_DIVERGENCES | TOKENS_ONLY_DIVERGENCES)
 
 
 def test_parse_decimal_matches_legacy_clone():
@@ -698,6 +734,65 @@ def test_normalize_sign_glyphs_touches_the_sign_and_nothing_else():
     assert m.normalize_sign_glyphs(f"{MINUS}1{NDASH}2") == "-1-2"
     assert m.normalize_sign_glyphs("ACME — CO") == "ACME — CO"  # em dash untouched
     assert m.normalize_sign_glyphs("plain") == "plain"
+
+
+# ===========================================================================
+# 5. One decimal place is not money (W3 §MONEY-GRAMMAR card 2)
+# ===========================================================================
+
+@pytest.mark.parametrize("value", ["34.9", "1,234.5", "0.5", "12.3", "$7.1"])
+def test_a_one_decimal_token_is_refused_rather_than_truncated(value):
+    """The defect: the optional decimal group let the integer part match
+    alone, so `34.9` returned `34.0` — a plausible, silently wrong amount."""
+    assert m.parse_money(value) is None
+    assert m.parse_money_tokens(value) == []
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("34.90", 34.9), ("34.99", 34.99), ("0.00", 0.0),
+    ("34.999", 35.0),            # a rate column still prints three
+    ("1234", 1234.0),            # a whole number of dollars is money
+    ("1,234.56", 1234.56),
+])
+def test_the_surveyed_money_shapes_still_read(value, expected):
+    assert m.parse_money(value) == expected
+
+
+def test_refusing_the_shape_does_not_re_enter_it_one_digit_later():
+    """Without the leading boundary the trailing one is defeated: `34.9`
+    would refuse `34` and then match `9` on the next position."""
+    assert m.parse_money("34.9") is None
+    assert m.parse_money_tokens("12.5 34.9") == []
+
+
+def test_a_padded_one_decimal_reads_which_is_how_a_caller_supplies_one():
+    """The division money.py documents: the engine is shared, the format
+    stays with the bank. `analysis/scotia.py::_amount_value` is the surveyed
+    example — it restores the trailing zero its bank strips."""
+    assert m.parse_money("34.90") == 34.9
+    assert m.parse_money(m.pad_leading_decimal(".5") + "0") == 0.5
+
+
+@pytest.mark.parametrize("value,expected", [
+    (".56", 0.56), ("$.56", 0.56), ("-.56", -0.56), (".56-", -0.56),
+    (".00", 0.0), (".567", 0.57),
+])
+def test_a_bare_sub_dollar_amount_reads_as_cents_not_as_dollars(value, expected):
+    """The legacy clone skipped the dot and matched the digits after it, so
+    `.56` read as 56.00 — a hundred times the printed amount. The leading zero
+    is restored before the token is matched."""
+    assert m.parse_money(value) == expected
+
+
+@pytest.mark.parametrize("value", [".", "..", ".a", "-."])
+def test_padding_never_manufactures_a_zero_out_of_punctuation(value):
+    assert m.parse_money(value) is None
+
+
+def test_a_number_that_continues_is_not_a_money_token():
+    assert m.parse_money("1.2.3") is None
+    assert m.parse_money("12.345.67") is None
+    assert m.parse_money("34.9999") is None
 
 
 def test_minus_class_is_the_fragment_consumers_embed():

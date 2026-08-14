@@ -289,8 +289,57 @@ PARENS_OR_LEADING_MINUS_OR_PLUS = AmountFormat(
 # The tolerant token parser (formerly analysis/td_can.py::_parse_money)
 # ---------------------------------------------------------------------------
 
-_TOKEN_RE = re.compile(r"(-)?(\d+(?:\.\d{2,3})?)([A-Z/-]*)?", re.IGNORECASE)
-_TOKENS_RE = re.compile(r"\$?(\d[\d,]*(?:\.\d{2,3})?)([D*-]?)")
+#: A money token is a WHOLE number, not a fragment of one. Both boundaries
+#: are load-bearing and neither is redundant:
+#:
+#: ``(?<![\d.])``
+#:     the match may not begin part-way through a number. Without it, a token
+#:     the trailing boundary has already refused is re-entered one digit later
+#:     and matched anyway — ``34.9`` would refuse ``34`` and then return
+#:     ``9.0``.
+#: ``(?![.,]?\d)``
+#:     what follows may not continue the number. This is what makes ONE
+#:     decimal place not-money: money prints two (or three, in a rate column),
+#:     and the optional decimal group is what let ``34.9`` match its integer
+#:     part alone and return ``34.0`` — a silently truncated amount, the worst
+#:     failure this module can have, because it is a plausible number. The
+#:     comma is in the class because the token parser groups with it, so
+#:     ``1,234.5`` must not fall back to matching ``1``.
+#:
+#: Rejecting the shape is the structural answer: a layout that legitimately
+#: prints one decimal pads it at its own call site, where the format lives
+#: (`analysis/scotia.py::_amount_value` is the surveyed example). Nothing in
+#: the archive prints a one-decimal amount that is not padded first.
+_NOT_PART_OF_A_LONGER_NUMBER = r"(?<![\d.])"
+_NOT_CONTINUED = r"(?![.,]?\d)"
+
+_TOKEN_RE = re.compile(
+    rf"{_NOT_PART_OF_A_LONGER_NUMBER}(-)?(\d+(?:\.\d{{2,3}})?){_NOT_CONTINUED}([A-Z/-]*)?",
+    re.IGNORECASE,
+)
+_TOKENS_RE = re.compile(
+    rf"(?<![\d.,])\$?(\d[\d,]*(?:\.\d{{2,3}})?){_NOT_CONTINUED}([D*-]?)"
+)
+
+
+def _pad_bare_decimal(text: str) -> str:
+    """``.56`` -> ``0.56``, behind an optional sign.
+
+    A bare sub-dollar amount is one of the surveyed axes this module tolerates
+    (see the module docstring), but the tolerant parser never actually read
+    one: with no leading digit the search skipped the dot and matched ``56``,
+    returning the amount a HUNDRED TIMES too large. Now that a token must be a
+    whole number, the same shape would be refused instead — so the leading
+    zero is restored here, which is what the strict engine has always done via
+    its `pad_leading_decimal` field and what the callers that meet this shape
+    (`analysis/pnc.py`, `analysis/citizens.py`) do at their own call sites.
+    """
+    sign, rest = ("-", text[1:]) if text.startswith("-") else ("", text)
+    # A digit must actually follow the dot: padding a lone "." would
+    # manufacture a zero out of punctuation.
+    if rest.startswith(".") and rest[1:2].isdigit():
+        return f"{sign}0{rest}"
+    return text
 
 
 def parse_money(value: str | None) -> float | None:
@@ -309,6 +358,7 @@ def parse_money(value: str | None) -> float | None:
         return None
     text = normalize_sign_glyphs(value)
     text = text.replace("$", "").replace(",", "").replace("*", "").strip()
+    text = _pad_bare_decimal(text)
     m = _TOKEN_RE.search(text)
     if not m:
         return None
