@@ -464,3 +464,121 @@ def test_french_a_leading_zero_reference_is_not_a_money_cell():
     assert stmt is not None
     assert amounts(stmt) == [500.0, -300.0]
     assert descriptions(stmt)[1] == "Article deux 00314,06"
+
+
+# ---------------------------------------------------------------------------
+# MONEYFIX-1 card R — the summary TOTAL rows admit the currency symbol
+#
+# `Account Summary for this Period` prints four rows in one grid: the opening
+# balance, the two totals, the closing balance. The balance rows admitted
+# `$`; the total rows did not. Whether a statement prints the symbol is a
+# property of the statement, not of the row, so on a statement that prints it
+# the two stated totals AND both stated counts went None — which skips the
+# summary identity check entirely and ships the document approved with
+# `summary_totals_reliable=True` and no issue raised. (F-MONEYFMT finding 1.)
+# ---------------------------------------------------------------------------
+
+#: The grammar the total rows carried BEFORE the fix, quoted verbatim so the
+#: fixtures below prove the defect in-process rather than describing it.
+PRE_FIX_CREDIT_TOTAL_RE = r"Total deposits & credits \((\d+)\)\s*\+?\s*([\d,]+\.\d{2})"
+PRE_FIX_DEBIT_TOTAL_RE = r"Total cheques & debits \((\d+)\)\s*-?\s*([\d,]+\.\d{2})"
+
+DOLLAR_TOTALS = dict(
+    opening="1,000.00", closing="1,700.00",
+    credits="$1,000.00", credit_count=1, debits="$300.00", debit_count=1,
+)
+PLAIN_TOTALS = dict(
+    opening="1,000.00", closing="1,700.00",
+    credits="1,000.00", credit_count=1, debits="300.00", debit_count=1,
+)
+R_BODY = """02 Mar Deposit item 1,000.00
+Withdrawal item 300.00 1,700.00
+"""
+
+
+def test_r_pre_fix_the_total_row_grammar_refused_the_symbol_the_balance_rows_took():
+    """The defect, in process: same block, same symbol, opposite readings."""
+    import re
+
+    from analysis.rbc import _SUMMARY_MONEY
+
+    credit_line = "Total deposits & credits (1) + $1,000.00"
+    debit_line = "Total cheques & debits (1) - $300.00"
+    balance_line = "Opening balance on March 2, 2026 $1,000.00"
+
+    # What the block's balance rows have always admitted, on all three lines.
+    assert re.search(r"Opening balance on .*?" + _SUMMARY_MONEY, balance_line)
+    # What the total rows admitted before the fix: nothing at all.
+    assert re.search(PRE_FIX_CREDIT_TOTAL_RE, credit_line) is None
+    assert re.search(PRE_FIX_DEBIT_TOTAL_RE, debit_line) is None
+    # What they admit now: the balance rows' own pattern, reused.
+    assert re.search(
+        r"Total deposits & credits \((\d+)\)\s*\+?\s*" + _SUMMARY_MONEY, credit_line
+    ).group(2) == "$1,000.00"
+    assert re.search(
+        r"Total cheques & debits \((\d+)\)\s*-?\s*" + _SUMMARY_MONEY, debit_line
+    ).group(2) == "$300.00"
+
+
+def test_r_a_statement_printing_the_symbol_on_its_totals_reads_identically():
+    """The symbol is cosmetic; the two documents are the same statement."""
+    with_symbol = parse_rbc_statement(statement(R_BODY, **DOLLAR_TOTALS))
+    without = parse_rbc_statement(statement(R_BODY, **PLAIN_TOTALS))
+    assert with_symbol is not None and without is not None
+    assert with_symbol.model_dump() == without.model_dump()
+    assert with_symbol.stated_total_credits == 1000.00
+    assert with_symbol.stated_total_debits == 300.00
+
+
+def test_r_the_stated_counts_survive_with_the_totals():
+    """The counts are captured by the same match, so they were lost with it."""
+    stmt = parse_rbc_statement(statement(R_BODY, **DOLLAR_TOTALS))
+    assert stmt is not None
+    assert stmt.stated_credit_count == 1
+    assert stmt.stated_debit_count == 1
+
+
+def test_r_a_wrong_total_printed_with_a_symbol_is_caught():
+    """The point of the fix: the summary oracle is live on these documents.
+
+    Before it, this statement — whose printed credit total contradicts its own
+    activity table by 8,999.00 — reconciled with `summary_ok` None and shipped
+    approved. The mismatch has to be CAUGHT, not merely parsed.
+    """
+    stmt = parse_rbc_statement(statement(
+        R_BODY, opening="1,000.00", closing="1,700.00",
+        credits="$9,999.00", credit_count=1, debits="$300.00", debit_count=1,
+    ))
+    assert stmt is not None
+    report = reconcile(stmt)
+    assert report.summary_ok is False
+    assert report.issues
+
+
+def test_r_negative_a_symbol_less_statement_is_untouched():
+    """The overwhelming majority of the archive; it must not move at all."""
+    stmt = parse_rbc_statement(statement(R_BODY, **PLAIN_TOTALS))
+    assert stmt is not None
+    assert stmt.stated_total_credits == 1000.00
+    assert stmt.stated_total_debits == 300.00
+    assert stmt.stated_credit_count == 1
+    assert stmt.stated_debit_count == 1
+    assert reconcile(stmt).summary_ok is True
+
+
+@pytest.mark.parametrize("printed", ["- $300.00", "-$300.00", "- 300.00", "-300.00"],
+                         ids=["symbol, spaced", "symbol, tight", "plain, spaced", "plain, tight"])
+def test_r_negative_the_debit_rows_minus_is_its_direction_cell_not_a_sign(printed):
+    """A debit total is a magnitude however tightly the direction is printed.
+
+    The row prints its direction as its own cell (`(1) - 300.00`), so the
+    pattern must keep consuming the marker OUTSIDE the figure. Reading it into
+    the figure would publish `stated_total_debits = -300.00` and break every
+    identity that treats the stated totals as magnitudes.
+    """
+    doc = statement(R_BODY, **DOLLAR_TOTALS).replace("- $300.00", printed)
+    assert printed in doc
+    stmt = parse_rbc_statement(doc)
+    assert stmt is not None
+    assert stmt.stated_total_debits == 300.00
+    assert stmt.stated_debit_count == 1

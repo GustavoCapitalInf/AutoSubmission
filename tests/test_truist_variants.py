@@ -188,3 +188,204 @@ def test_f5_negative_a_statement_with_no_checks_table_is_unaffected():
     stmt = parse_truist_statement(doc)
     assert stmt is not None
     assert amounts(stmt) == [-200.00, 500.00]
+
+
+# --------------------------------------------------------------------------
+# MONEYFIX-1 card T — the Account summary's activity rows admit the symbol
+#
+# `_DOLLAR` exists because Truist prints its currency symbol as its own cell,
+# and its docstring says every money pattern in the module admits it. Three
+# did not: the summary's `Checks`, `Other withdrawals...` and `Deposits...`
+# rows. The summary is the parser's entry gate — `_summary()` returning None
+# returns None for the whole statement — so unlike T-F1, which lost a section,
+# this lost the DOCUMENT. (F-MONEYFMT finding 4.)
+# --------------------------------------------------------------------------
+
+#: The grammar those three rows carried BEFORE the fix, quoted verbatim.
+PRE_FIX_ACTIVITY_ROWS_RE = (
+    r"Checks\s+-\s+([\d,]+\.\d{2})\s+"
+    r"Other withdrawals, debits and service charges\s+-\s+([\d,]+\.\d{2})\s+"
+    r"Deposits, credits and interest\s+\+\s+([\d,]+\.\d{2})"
+)
+
+T_CHECKS_SECTION = (
+    f"Checks {CHECK_HEADER_1} 02/24 1001 100.00 02/23 1002 200.00 "
+    "Total checks = $300.00\n"
+)
+
+
+def summary_document(checks_cell: str, other_cell: str, deposits_cell: str) -> str:
+    """The same document as `document()`, with the three activity cells free."""
+    return (
+        "Your account statement\n"
+        f"{ACCOUNT_LINE}\n"
+        "Account summary Your previous balance as of 01/30/2026 $1,000.00 "
+        f"Checks - {checks_cell} "
+        f"Other withdrawals, debits and service charges - {other_cell} "
+        f"Deposits, credits and interest + {deposits_cell} "
+        "Your new balance as of 02/27/2026 = $1,000.00\n"
+        f"{T_CHECKS_SECTION}{OTHER_SECTION}{DEPOSIT_SECTION}"
+    )
+
+
+def test_t_pre_fix_the_activity_rows_refused_the_symbol_cell_beside_them():
+    """The defect, in process: one printed grid, two different readings."""
+    import re
+
+    from analysis.truist import _DOLLAR
+
+    spelled = ("Checks - $ 300.00 "
+               "Other withdrawals, debits and service charges - $ 200.00 "
+               "Deposits, credits and interest + $ 500.00")
+
+    # Before the fix: no match, so `_summary` returned None for the document.
+    assert re.search(PRE_FIX_ACTIVITY_ROWS_RE, spelled, re.IGNORECASE) is None
+    # After: the module's own gap-tolerant pattern, applied as documented.
+    fixed = (
+        r"Checks\s+-\s+" + _DOLLAR + r"([\d,]+\.\d{2})\s+"
+        r"Other withdrawals, debits and service charges\s+-\s+" + _DOLLAR
+        + r"([\d,]+\.\d{2})\s+"
+        r"Deposits, credits and interest\s+\+\s+" + _DOLLAR + r"([\d,]+\.\d{2})"
+    )
+    assert re.search(fixed, spelled, re.IGNORECASE).groups() == ("300.00", "200.00", "500.00")
+
+
+@pytest.mark.parametrize("spelling", ["300.00", "$300.00", "$ 300.00"],
+                         ids=["no symbol", "symbol against the figure",
+                              "symbol as its own cell"])
+def test_t_the_summary_is_read_whichever_way_the_symbol_is_printed(spelling):
+    other = spelling.replace("300.00", "200.00")
+    deposits = spelling.replace("300.00", "500.00")
+    stmt = parse_truist_statement(summary_document(spelling, other, deposits))
+    assert stmt is not None
+    assert stmt.stated_total_debits == 500.00
+    assert stmt.stated_total_credits == 500.00
+    assert amounts(stmt) == [-100.00, -200.00, -200.00, 500.00]
+
+
+def test_t_the_symbol_bearing_document_is_the_symbol_less_one():
+    """Cosmetic means cosmetic: not one published field may differ."""
+    plain = parse_truist_statement(summary_document("300.00", "200.00", "500.00"))
+    spaced = parse_truist_statement(summary_document("$ 300.00", "$ 200.00", "$ 500.00"))
+    assert plain is not None and spaced is not None
+    assert spaced.model_dump() == plain.model_dump()
+
+
+def test_t_negative_a_row_carrying_no_figure_still_withholds_the_document():
+    """`_DOLLAR` admits the symbol, not the absence of the amount."""
+    assert parse_truist_statement(summary_document("$", "200.00", "500.00")) is None
+
+
+# --------------------------------------------------------------------------
+# MONEYFIX-1 card T2 — a note ABOUT the Checks table is not a row of it
+#
+# The Checks table has three columns and prints no words in any of them. The
+# sequence-gap note prints a date, a cheque number and an amount in that
+# order — `Gap in check sequence 02/28 1099 0.00` — so the row pattern matched
+# it wherever it appeared and it was published as `Check 1099` for -0.00, at
+# approved/clear. Truist has no count oracle (`count_semantics` UNSURVEYED,
+# correctly), so nothing downstream saw the phantom row. (F-STRUCTURE #4.)
+#
+# The discriminator is the printed grid, not the words: a row may follow only
+# cells, or a page break, which the bank closes by REPRINTING the column
+# header. Measured over the whole truist population (33 documents printing a
+# Checks table, 532 rows), the only text ever standing between two rows is a
+# numbers-only `~` cross-reference cell or that reprinted header — and no
+# genuine cheque is printed for 0.00.
+# --------------------------------------------------------------------------
+
+GAP_NOTE = "Gap in check sequence 02/28 1099 0.00 "
+
+
+def gap_document(note: str = GAP_NOTE) -> str:
+    return document(checks_section=(
+        f"Checks {CHECK_HEADER_1} 02/24 1001 100.00 02/23 1002 200.00 "
+        f"{note}Total checks = $300.00\n"))
+
+
+def test_t2_pre_fix_the_row_pattern_matched_the_note_and_booked_it():
+    """The defect, in process: the pattern alone cannot tell the two apart."""
+    from analysis.truist import _CHECK_ROW_RE
+
+    found = _CHECK_ROW_RE.findall(
+        "02/24 1001 100.00 02/23 1002 200.00 " + GAP_NOTE)
+    assert [(m[0], m[2].strip(), m[3]) for m in found] == [
+        ("02/24", "1001", "100.00"),
+        ("02/23", "1002", "200.00"),
+        ("02/28", "1099", "0.00"),   # <- the phantom cheque, pre-fix
+    ]
+
+
+def test_t2_the_sequence_gap_note_is_not_published_as_a_cheque():
+    stmt = parse_truist_statement(gap_document())
+    assert stmt is not None
+    assert descriptions(stmt) == [
+        "Check 1001", "Check 1002", "A COUNTERPARTY PAYMENT", "A COUNTERPARTY DEPOSIT",
+    ]
+    assert 0.0 not in amounts(stmt)
+
+
+def test_t2_the_note_changes_nothing_else_about_the_document():
+    with_note = parse_truist_statement(gap_document())
+    without = parse_truist_statement(gap_document(note=""))
+    assert with_note is not None and without is not None
+    assert with_note.model_dump() == without.model_dump()
+
+
+@pytest.mark.parametrize("note", [
+    "Gap in check sequence 02/28 1099 0.00 ",
+    "Missing check numbers 02/28 1099 25.00 ",
+    "See reverse for check images 02/28 1099 25.00 ",
+], ids=["zero-amount gap note", "note carrying a real-looking figure",
+        "an unrelated printed note"])
+def test_t2_any_note_carrying_a_row_shaped_figure_is_refused(note):
+    """The rule is the grid, not the wording: no blocklist of phrases.
+
+    The second and third notes carry 25.00, so booking them would ALSO break
+    the printed total and withhold the document — which is the fail-closed
+    half of the same rule.
+    """
+    stmt = parse_truist_statement(gap_document(note=note))
+    if stmt is None:
+        return
+    assert "Check 1099" not in descriptions(stmt)
+
+
+def test_t2_negative_rows_resuming_after_a_page_break_are_still_rows():
+    """The one interruption the table really prints. The bank closes a page
+    break by reprinting the column header, and the cheques after it are
+    cheques — dropping them would break the printed total and withhold two
+    archive documents that validate today."""
+    doc = document(checks_section=(
+        f"Checks {CHECK_HEADER_1} 02/24 1001 100.00 "
+        "continued\nPAGE  1  OF  8 0185530\n\n--- Page 2 ---\n\n"
+        f"{ACCOUNT_LINE} (continued) {CHECK_HEADER_3} "
+        "02/23 1002 200.00 "
+        "Total checks = $300.00\n"))
+    stmt = parse_truist_statement(doc)
+    assert stmt is not None
+    assert descriptions(stmt)[:2] == ["Check 1001", "Check 1002"]
+    assert amounts(stmt) == [-100.00, -200.00, -200.00, 500.00]
+
+
+def test_t2_negative_the_numbers_only_cross_reference_cell_is_unaffected():
+    """`05/26 1645~` prints no amount: it is a pointer into the other section.
+    It carries no words, so the rule never looks at it, and the cheque printed
+    after it is still read."""
+    doc = document(checks_section=(
+        f"Checks {CHECK_HEADER_1} 02/24 1001 100.00 02/26 1645~ 02/23 1002 200.00 "
+        "Total checks = $300.00\n"))
+    stmt = parse_truist_statement(doc)
+    assert stmt is not None
+    assert descriptions(stmt)[:2] == ["Check 1001", "Check 1002"]
+
+
+def test_t2_negative_a_note_that_swallows_a_real_cheque_withholds_the_document():
+    """The safety argument for skipping rather than fabricating: the table's
+    own printed total is the oracle. A note that swallowed a genuine cheque
+    cannot reproduce it, so the document is withheld, never shipped short."""
+    doc = document(checks_section=(
+        f"Checks {CHECK_HEADER_1} 02/24 1001 100.00 "
+        "Gap in check sequence 02/23 1002 200.00 "
+        "Total checks = $300.00\n"))
+    assert parse_truist_statement(doc) is None
