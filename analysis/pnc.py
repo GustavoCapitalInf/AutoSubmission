@@ -40,6 +40,12 @@ _CHECKS_HEADING = "Checks and Substitute Checks"
 #: amount. Several column groups are printed per physical line. The Reference
 #: number that follows carries no decimal point, so it cannot be read as money.
 _CHECK_ROW_RE = re.compile(r"(\d{2}/\d{2})\s+(\d+)\s*(\*?)\s+(\d[\d,]*\.\d{2}|\.\d{2})")
+#: The space thousands separators `analysis/money.py` already surveys — its
+#: format axes list `1 234.56` (:17) and `EITHER_MINUS_SPACED` (:214) exists to
+#: strip them — written out as the ASCII space plus the two no-break spaces a
+#: PDF text layer emits in its place.
+_THOUSANDS_SPACE = "\u0020\u00a0\u202f"
+
 #: A Balance Summary figure. PNC drops the leading zero on a sub-dollar amount,
 #: so a balance of eighty-seven cents is printed `.87` — and a `\b` before the
 #: point does not match after a space, which is how the old pattern skipped such
@@ -47,7 +53,40 @@ _CHECK_ROW_RE = re.compile(r"(\d{2}/\d{2})\s+(\d+)\s*(\*?)\s+(\d[\d,]*\.\d{2}|\.
 #: closing balance. The boundary here is "not preceded by a digit, comma or
 #: point", which is a statement about the grid rather than about word
 #: characters.
-_SUMMARY_MONEY_RE = re.compile(r"(?<![\d.,])(?:\d[\d,]*)?\.\d{2}-?")
+#:
+#: The body is a FLATTENED grid, so one space character does two jobs: it
+#: separates the columns, and in a figure printed `1 000.00` it groups the
+#: thousands. What tells the two apart is not the character but what stands to
+#: its left — a complete `.dd` figure ENDS a column, so a space after one is a
+#: column gap; anywhere else a digit run adjoining a `<space><3 digits>` group
+#: is the head of one figure rather than the whole of two.
+#:
+#: Both halves of that rule are load-bearing, and they fail in opposite
+#: directions. Without the grouped integer part `1 000.00` cannot match whole.
+#: Without the boundary guard the match that DOES fit — the `000.00` tail — is
+#: a silent truncation of it, and a truncated summary is not caught downstream:
+#: all four columns truncate together, so every printed identity still closes
+#: and the statement publishes approved with each figure wrong by the same
+#: thousand. The guard makes the fragment unmatchable, so a figure this parser
+#: cannot read whole is not read as a smaller one. What turns that refusal into
+#: a REFUSAL rather than a shift is `_grid_row`: the summary is read from the
+#: grid's own row, so a missing figure leaves that row a column short instead
+#: of moving the reader on to the next four figures printed below it.
+_SUMMARY_MONEY_RE = re.compile(
+    rf"(?<![\d.,])"
+    rf"(?:(?<=\.\d\d[{_THOUSANDS_SPACE}])|(?<![\d][{_THOUSANDS_SPACE}]))"
+    rf"(?:\d[\d,]*(?:[{_THOUSANDS_SPACE}]\d{{3}})*)?\.\d{{2}}-?"
+)
+
+#: Any printed figure, INCLUDING the truncated fragments the pattern above
+#: refuses. Used only to count figures on a line — to find the grid's row —
+#: and never to read a value, so its tolerance costs nothing.
+_ANY_FIGURE_RE = re.compile(r"(?<![\d.,])(?:\d[\d,]*)?\.\d{2}-?")
+
+#: The same printed figure where a label rather than a column position finds it,
+#: so the two readings of the Balance Summary block cannot disagree about what a
+#: figure is. Not optional-integer: these lines print a labelled balance.
+_LABELLED_FIGURE = rf"\d[\d,]*(?:[{_THOUSANDS_SPACE}]\d{{3}})*\.\d{{2}}"
 #: A heading owns its line — except that PNC prints the cheque section's
 #: gap-marker footnote on the same line as its heading, so that suffix is
 #: furniture rather than a different heading.
@@ -71,6 +110,12 @@ def _money(value: str | None) -> float | None:
     if value is None:
         return None
     value = value.strip()
+    # A figure read whole from the grid can carry the space thousands separator
+    # the patterns above admit. `parse_money` removes `$`, `,` and `*` but not
+    # spaces, and it SEARCHES rather than anchors, so it would read `1 000.00`
+    # as one dollar — the same truncation by a different route.
+    for space in _THOUSANDS_SPACE:
+        value = value.replace(space, "")
     if value.startswith("."):
         value = "0" + value
     return parse_money(value)
@@ -87,11 +132,45 @@ def _period(markdown: str) -> tuple[str, str] | None:
     )
 
 
+def _grid_row(body: str) -> str | None:
+    """The Balance Summary's four-column row, which is one printed line.
+
+    The block between the `Balance Summary` heading and whichever of the
+    Overdraft summary or the Activity Detail is printed next is, on many
+    statements, far more than the grid: the `Description Items Amount` index
+    table and the entire `Daily Balance` ladder are inside it. Scanning all of
+    that for figures and taking the first four worked only because the grid is
+    printed first — and it left the reader standing over a region of numbers
+    that are not summary columns at all, where an item count beside an amount
+    (`Debit Card Purchases 7 202.05`) or a date beside a ledger balance
+    (`02/11 953.78`) reads as one figure.
+
+    So the grid is bounded to the line that prints it. On every one of the 54
+    Balance Summary blocks in the archive the four columns are the first four
+    figures of a single physical line, and nothing below that line is read.
+
+    The row is LOCATED by a permissive figure count and READ with
+    `_SUMMARY_MONEY_RE`. That split is the whole point: a figure the strict
+    pattern refuses still counts towards finding the row, so the row is found
+    and comes up a column short and the statement fails closed. Locating by the
+    strict count instead would skip the grid and settle on the next line with
+    four figures in it — a `Daily Balance` ladder read as a summary, which is a
+    silent approval standing exactly where the refusal belongs.
+    """
+    for line in body.splitlines():
+        if len(_ANY_FIGURE_RE.findall(line)) >= 4:
+            return line
+    return None
+
+
 def _summary_amounts(text: str) -> tuple[float, float, float, float] | None:
     summary = re.search(r"Balance Summary(?P<body>.*?)(?:Overdraft and Returned Item Fee Summary|Activity Detail)", text, re.DOTALL | re.IGNORECASE)
     if not summary:
         return None
-    amounts = _SUMMARY_MONEY_RE.findall(summary.group("body"))
+    row = _grid_row(summary.group("body"))
+    if row is None:
+        return None
+    amounts = _SUMMARY_MONEY_RE.findall(row)
     if len(amounts) < 4:
         return None
     values = [_money(amount) for amount in amounts[:4]]
@@ -101,9 +180,16 @@ def _summary_amounts(text: str) -> tuple[float, float, float, float] | None:
 
 
 def _average_balance(text: str) -> float | None:
-    m = re.search(r"Average ledger\s+Average collected\s+balance\s+([\d,]+\.\d{2})", text, re.IGNORECASE)
+    # The average ledger balance is printed in the same Balance Summary block
+    # and in the same figure format as the four columns above it, so it reads
+    # the same figure grammar. Reading it with a narrower one would mean a
+    # document whose columns this parser now reads whole could still publish a
+    # truncated average beside them.
+    m = re.search(rf"Average ledger\s+Average collected\s+balance\s+({_LABELLED_FIGURE})",
+                  text, re.IGNORECASE)
     if not m:
-        m = re.search(r"Average ledger.*?balance\s+([\d,]+\.\d{2})", text, re.IGNORECASE | re.DOTALL)
+        m = re.search(rf"Average ledger.*?balance\s+({_LABELLED_FIGURE})",
+                      text, re.IGNORECASE | re.DOTALL)
     return abs(_money(m.group(1)) or 0.0) if m else None
 
 
@@ -121,6 +207,34 @@ def _section_chunks(markdown: str, heading: str) -> list[str]:
     return chunks
 
 
+def _posts(amount: float) -> bool:
+    """Whether an Activity Detail row is a POSTING rather than furniture.
+
+    A posting is a movement of money, and the Activity Detail also carries
+    dated lines that state a fact about the period instead of moving anything —
+    an overdraft-fee notice, a period marker. Those print in the same column
+    group as a posting and the row grammar cannot tell them apart: PNC prints
+    genuine sub-dollar amounts with the leading zero dropped (`02/02 .82 ACH
+    Credit ...` — 54 such postings in the archive), so `.dd` has to stay
+    readable, and a `.00` line then satisfies the row pattern exactly as a
+    posting does.
+
+    What separates them is the figure itself: a row that moves nothing is not a
+    posting. That is also the only reading a downstream check could ever
+    recover, because such a row is invisible to every identity the fail-closed
+    gate applies — it adds zero to both the ledger sum and the section total,
+    so a fabricated one leaves beginning + activity == ending intact. PNC
+    discloses no per-direction count oracle (`analysis/count_semantics.py`
+    SECTION_LEVEL_ORACLES), so the row count cannot catch it either. The
+    refusal has to happen here or nowhere.
+
+    Structural, not a vocabulary: nothing here reads the description, so a
+    furniture wording this parser has never seen is refused on the same
+    grounds, and a real posting is never refused for how it is worded.
+    """
+    return amount != 0
+
+
 def _parse_section(markdown: str, heading: str, *, year: int, sign: int) -> list[Transaction]:
     txns: list[Transaction] = []
     for chunk in _section_chunks(markdown, heading):
@@ -133,7 +247,7 @@ def _parse_section(markdown: str, heading: str, *, year: int, sign: int) -> list
                 continue
             txn_date = iso_from_month_day_strict(m.group(1), year)
             amount = _money(m.group(2))
-            if txn_date is None or amount is None:
+            if txn_date is None or amount is None or not _posts(amount):
                 continue
             signed = round(abs(amount) * sign, 2)
             txns.append(Transaction(
@@ -158,7 +272,7 @@ def _parse_checks(markdown: str, *, year: int) -> list[Transaction]:
         for mmdd, number, marker, amount in _CHECK_ROW_RE.findall(chunk):
             txn_date = iso_from_month_day_strict(mmdd, year)
             value = _money(amount)
-            if txn_date is None or value is None:
+            if txn_date is None or value is None or not _posts(value):
                 continue
             txns.append(Transaction(
                 date=txn_date,
