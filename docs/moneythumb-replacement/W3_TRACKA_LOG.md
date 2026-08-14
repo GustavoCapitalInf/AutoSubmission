@@ -6971,10 +6971,21 @@ printed count equals the published count, and `continuity_breaks` is 0.
 **4,273 transactions** are published across the 66. Over the whole cohort,
 **220 validated documents instrument sound and 0 unsound.**
 
-The remaining 18 unclaimed documents are not this layout family: 4 broken-CMap
-(card F1), 3 French CIBC statements, 2 void cheques, 2 zero-money scans and 7
-online-banking screen captures. None is a statement of a layout this cell
-covers, and none is claimed.
+The remaining 18 unclaimed documents were each identified, and none is a
+statement of a layout this cell covers:
+
+| n | what they are | disposition |
+|---|---|---|
+| 4 | broken character map (`85259525_*`) | refused by card F1 |
+| 3 | French CIBC (`..._Account Statement 3`) | `cibc_french` detects, parses, declines |
+| 4 | online-banking screen captures | `no_parser_matched` — not statements |
+| 2 | void cheques | `no_parser_matched` |
+| 2 | zero-money scans (`CTS*`) | `no_parser_matched` |
+| 1 | an online transaction export (`...0672 2026-05-31`) | `no_parser_matched` |
+| 1 | an online statement (`78ec8e63_onlineStatement (15)`) | `no_parser_matched` |
+| 1 | a ZERO-ACTIVITY statement (`...0672 2025-09-09`) | `parser_declined` — see RC8.5 |
+
+The last one is the only recoverable document left in the cohort.
 
 ## RC1. The instrument, and the scout's numbers
 
@@ -7264,6 +7275,15 @@ new registration and therefore UNSURVEYED, correctly; it prints no counts.
 4. **`fb677033_5085287_2026_01_12_2026_01_12.pdf`** validates on a single
    transaction. It is a genuine one-day statement, instrumented sound, but it
    is the thinnest evidence in the cell.
+5. **One zero-activity RBC statement is recoverable and was left alone.**
+   `RBC/b9225462_Chequing Statement-0672 2025-09-09.pdf` prints
+   `No activity for this statement period.`, an opening and closing balance of
+   $0.00, and both totals as `(0) + 0.00` / `(0) - 0.00`. It satisfies the
+   zero-activity rule already ruled on for Chase (A-prime) and applied in
+   §SCOTIA-REBUILD S3.4 — four negatives, all present here. It declines today,
+   which is the correct fail-closed behaviour in the absence of that rule for
+   this parser. Admitting it is a one-document card and is deliberately NOT
+   taken here: the rule is Ocean's to extend, not this cell's to copy.
 
 ## RC9. Proofs
 
