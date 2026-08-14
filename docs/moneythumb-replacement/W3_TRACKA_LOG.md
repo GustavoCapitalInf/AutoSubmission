@@ -7354,3 +7354,80 @@ in SEMANTICS table: False
 |---|---|
 | `a29a848` | `analysis/td_canada_french.py`, the registry entry, `tests/test_td_french_layouts.py`, the conformance fixture, the two count pins and the private-import allowlist entries |
 | (this one) | §TD-FRENCH TF0–TF10 |
+
+## TF11. Amendments from adversarial review
+
+Ocean's review returned SHIP with two tightenings and one optional. All three
+are applied. Every number in TF0-TF10 above is unchanged: the 13-document
+instrument is byte-identical before and after these edits, 9 validated / 4
+withheld, and detection is untouched so the archive-wide differential of §TF7
+cannot move.
+
+**1. A zero-padded token cannot open a number.** Only the groups AFTER the
+first are padded to three digits, so `FACTURE 007 100,00DC` is an invoice
+number printed beside an amount and not 7 100,00.
+
+The review prescribed one condition on `_LEADING_GROUP_RE`. Reproduced against
+the code, that is **necessary but not sufficient for the review's own
+example**: `007` is three digits, so the thousands-group loop takes it and it
+never reaches the leading-group test. Narrowing that pattern alone leaves
+`FACTURE 007 100,00DC` reading 7100.0. Both halves were therefore needed, and
+both are in:
+
+- `_LEADING_GROUP_RE` narrowed to `[1-9]\d{0,2}` — closes `FACTURE 07 100,00`,
+  the shape that does reach the leader test;
+- a stop condition after the absorption — whatever the two rules took, the
+  group the number now opens with must not be padded. Absorption stops rather
+  than the amount being rejected: `100,00` is still an amount, it just starts
+  one token later.
+
+Differential, the pre-review module loaded from `a29a848` beside the current
+one in the same process:
+
+```
+line                     before         after          verdict
+FACTURE 007 100,00DC     7100.0         100.0          FIXED
+FACTURE 07 100,00        7100.0         100.0          FIXED
+X 0 100,00               100.0          100.0          kept
+FACTURE 1 007 100,00     1007100.0      1007100.0      kept
+VENDEUR 30 145,55        30145.55       30145.55       kept
+DEPOT 1 640,44           1640.44        1640.44        kept
+```
+
+The `1 007 100,00` line is the contrast half and is fixtured: a padded MIDDLE
+group is correct French and must still read whole. Three fixtures added.
+
+**2. The accent-folding docstring over-promised.** The review proved that
+mixed-content mojibake does not detect: where only some characters are
+double-encoded, `td_can.normalize_mojibake`'s whole-text reversal fails and the
+fallback `_MOJIBAKE_TABLE` has no entry for an upper-case O-circumflex, so a
+double-encoded `DEPOTS` beside one clean accent folds to text the markers miss.
+Pre-existing, fails closed to a decline rather than a wrong parse, and
+unreachable on this family, whose headers print unaccented. `_fold`'s docstring
+now states what is actually guaranteed — unaccented, accented, and uniformly
+double-encoded forms — and names the table gap as the cause of the limit.
+`td_can.py` not touched; Ocean is queuing the table gap as its own card.
+
+**3. Optional, taken:** `TFR-DE` now carries a word boundary, matching the
+discipline of its sibling `TFR-A `. 0 occurrences affected in the corpus;
+`TFR-DEX` no longer matches where it did before.
+
+Proofs after the amendments:
+
+```
+$ python -m pytest tests/test_td_french_layouts.py -q
+69 passed
+FRENCH_EXIT=0
+
+$ python -m pytest -q
+2935 passed, 18 deselected, 1 warning in 154.70s
+SUITE_EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+      tests/test_no_parser_helper_clones.py tests/test_parser_conformance.py -q
+586 passed
+GUARDS_CONF_EXIT=0
+
+13-document instrument identical pre/post tightening: 13 / 13
+outcomes: {'validated': 9, 'withheld': 4}
+```

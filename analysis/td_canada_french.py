@@ -69,7 +69,10 @@ _DATE_TOKEN_RE = re.compile(rf"(\d{{1,2}})({_FR_MONTH_ALT})")
 #: anything may legitimately sit to its left.
 _AMOUNT_TAIL_RE = re.compile(r"(\d{1,3}),(\d{2})(DC)?")
 _THOUSANDS_GROUP_RE = re.compile(r"\d{3}")
-_LEADING_GROUP_RE = re.compile(r"\d{1,3}")
+#: Only the groups AFTER the first are zero-padded to three digits. The leading
+#: group carries no padding — `1 007 100,00`, never `007 100,00` — so a token
+#: that opens with a zero is not a leading group.
+_LEADING_GROUP_RE = re.compile(r"[1-9]\d{0,2}")
 
 #: The page head that carries the account number. Read only from this line: a
 #: ledger row can print another account of the same customer inside its
@@ -100,6 +103,17 @@ def _fold(text: str) -> str:
     `Credits`), and an OCR pass can restore an accent the native text layer
     dropped. Folding keeps every marker and every pattern below written in
     plain ASCII rather than as a list of spellings.
+
+    What that guarantees, precisely: an unaccented document and an accented one
+    fold alike, and so does one whose accents are UNIFORMLY double-encoded,
+    because `td_can.normalize_mojibake` reverses the whole text before this
+    runs. Mixed content is not guaranteed. There the whole-text reversal fails
+    and the fallback is `td_can._MOJIBAKE_TABLE`, which is not exhaustive — an
+    upper-case O-circumflex has no entry, so a double-encoded `DEPOTS` sitting
+    beside one clean accent folds to text the markers miss. That fails closed,
+    to a decline rather than a wrong parse, and it is unreachable on this
+    family: every document measured prints its grid header and issuer line
+    without accents. The table gap is `td_can`'s and is recorded separately.
     """
     decomposed = unicodedata.normalize("NFKD", text)
     return "".join(c for c in decomposed if not unicodedata.combining(c)).upper()
@@ -187,6 +201,16 @@ def _amount_ending_at(tokens: list[str], index: int) -> _Amount | None:
             start -= 1
         if start - 1 >= 0 and _LEADING_GROUP_RE.fullmatch(tokens[start - 1]):
             start -= 1
+        # Whatever the two rules above absorbed, the group the number now opens
+        # with must be a leading group, and a leading group is never padded.
+        # `FACTURE 007 100,00` is an invoice number printed beside an amount,
+        # not 7 100,00, so the padded token goes back to the description.
+        # `_LEADING_GROUP_RE` cannot express this on its own: `007` is three
+        # digits, so the thousands loop takes it and it never reaches the
+        # leader test. Absorption stops rather than the amount being rejected —
+        # `100,00` is still an amount, it simply starts one token later.
+        while start < index and tokens[start].startswith("0"):
+            start += 1
     joined = " ".join(tokens[start:index + 1])
     if tail.group(3):
         joined = joined[:-len(tail.group(3))]
@@ -262,7 +286,7 @@ def _row_date(token: str, period_start: date, period_end: date) -> str | None:
 #: `td_can._native_credit_like`, which reads the English issue of the same
 #: codes (`TFR-FR`/`TFR-TO`, `E-TRANSFER`/`SEND E-TFR`).
 _FRENCH_DIRECTION_CODES = (
-    (re.compile(r"TFR-DE"), True),
+    (re.compile(r"TFR-DE\b"), True),
     (re.compile(r"TFR-A "), False),
     (re.compile(r"^RECEPT ?- ?VFC\b"), True),
     (re.compile(r"^ENVOI"), False),

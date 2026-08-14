@@ -252,6 +252,42 @@ UO342 TFR-A 5347895 40,00 01FEV 60,00
         assert amounts(stmt) == [-40.0]
         assert stmt.transactions[0].description == "UO342 TFR-A 5347895"
 
+    def test_a_zero_padded_token_cannot_open_a_number(self):
+        """Only the groups AFTER the first are padded to three digits, so
+        `007` cannot be where a number starts: this is an invoice number
+        printed beside an amount, not 7 100,00.
+
+        The padded token is three digits, so it is taken by the thousands-group
+        loop and never reaches the leading-group test — narrowing that pattern
+        alone does not close this shape.
+        """
+        stmt = parse("""
+SOLDE REPORTE 31JAN 200,00
+FACTURE 007 100,00 01FEV 100,00
+""", debits="1 100,00")
+        assert amounts(stmt) == [-100.0]
+        assert stmt.transactions[0].description == "FACTURE 007"
+
+    def test_a_zero_padded_leading_group_is_not_a_leading_group(self):
+        """The other half of the same rule, on the shape that does reach the
+        leading-group test: `07` is one or two digits, not three."""
+        stmt = parse("""
+SOLDE REPORTE 31JAN 200,00
+FACTURE 07 100,00 01FEV 100,00
+""", debits="1 100,00")
+        assert amounts(stmt) == [-100.0]
+        assert stmt.transactions[0].description == "FACTURE 07"
+
+    def test_a_genuine_number_with_a_padded_middle_group_still_reads_whole(self):
+        """The contrast half. `1 007 100,00` pads its middle group and opens
+        with a significant digit, so all three groups are one amount."""
+        stmt = parse("""
+SOLDE REPORTE 31JAN 1 007 200,00
+LIGNE SANS CODE UN 1 007 100,00 01FEV 100,00
+""", debits="1 1 007 100,00")
+        assert amounts(stmt) == [-1007100.0]
+        assert stmt.transactions[0].description == "LIGNE SANS CODE UN"
+
     def test_a_single_digit_amount_is_never_joined_leftwards(self):
         stmt = parse("""
 SOLDE REPORTE 31JAN 100,00
