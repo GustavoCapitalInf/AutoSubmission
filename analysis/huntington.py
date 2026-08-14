@@ -546,6 +546,16 @@ def _validate(
     charges = summary.get("Total Service Charges (-)", 0.0)
 
     # 1. The summary identity, entirely between figures the bank printed.
+    #
+    #    Stated honestly: given checks 3 and 4 this is REDUNDANT, and no
+    #    document can isolate it. Check 3 pins the published credit and debit
+    #    sums to `credits` and `debits` and the fee net to `charges`; check 4
+    #    pins `beginning + every published row == ending`; substituting the
+    #    first into the second yields exactly this equation. It is kept because
+    #    it is the one check that states the bank's own summary identity
+    #    directly, so it still holds if either of the others is ever narrowed —
+    #    and a mutation test will report it as unkillable, which is the truth
+    #    rather than a gap in the fixtures.
     if abs(round(beginning + credits - debits - charges, 2) - ending) > _EXACT:
         return False
 
