@@ -245,7 +245,14 @@ OCR_STAGE_VERSION = 2
 # grammar; FILENAME-BOUNDARY (admissible text at stage entry — also
 # re-keys this stage's input hash, so v8 entries are unreachable
 # regardless). One composed bump before the round's measurement.
-ANALYSIS_STAGE_VERSION = 9
+# 9 -> 10: composed — coverage-wave batch 2 (three reviewed merges):
+# td_us overdrawn-opening + section softening and td_can credit
+# vocabulary (+10, +2 honest withheld); td_canada_french registration
+# (+9, 4 withheld); rbc money-grammar hardening + English-personal +
+# French-business layouts + English CIBC registration + CMap guard
+# (+66; 4 mangled docs structurally refused). One composed bump before
+# the round's measurement.
+ANALYSIS_STAGE_VERSION = 10
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 

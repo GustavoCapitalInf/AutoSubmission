@@ -218,12 +218,12 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
         "debit": _whole("a printed debit count", "analysis/midflorida.py:119-120"),
     },
     "rbc": {
-        "credit": _whole("'Total deposits & credits (N)  + $x'", "analysis/rbc.py:399-401"),
-        "debit": _whole("'Total cheques & debits (N)  - $x'", "analysis/rbc.py:403-405"),
+        "credit": _whole("'Total deposits & credits (N)  + $x'", "analysis/rbc.py:298-308 (business; the personal layout prints no counts and assigns none)"),
+        "debit": _whole("'Total cheques & debits (N)  - $x'", "analysis/rbc.py:298-308 (business; the personal layout prints no counts and assigns none)"),
     },
     "rbc_french": {
-        "credit": _whole("the French twin of 'Total deposits & credits (N)'", "analysis/rbc.py:399-405"),
-        "debit": _whole("the French twin of 'Total cheques & debits (N)'", "analysis/rbc.py:399-405"),
+        "credit": _whole("the French twin of 'Total deposits et credits (N)'", "analysis/rbc.py:565-578 — LIVE since W3 RBCCIBC: the business layout prints and assigns both counts (19 docs, all match); the personal product prints none"),
+        "debit": _whole("the French twin of 'Total cheques et debits (N)'", "analysis/rbc.py:565-578 — LIVE since W3 RBCCIBC: see credit note"),
     },
     "scotiabank": {
         "credit": _whole("'No. of Credits' in the printed summary grid", "analysis/scotia.py:176-181"),
