@@ -34,6 +34,19 @@ _TABLE_CLOSE = re.compile(
     re.IGNORECASE,
 )
 
+#: Every Scotiabank grid announces itself the same way: a `Date`-led run of
+#: column labels reaching a `($)` money column. The posting table is the one
+#: whose labels are `Description ... Balance ($)`; `Deposit Interest` declares
+#: `Date Closing Balance ($) Yield/Rate Calculated Interest ($)`.
+#:
+#: A table therefore ends where the NEXT table declares its own columns, and
+#: not only at `_TABLE_CLOSE`. Two things go wrong without this bound, both
+#: on sections that never print a closing token: a trailing posting table
+#: swallows the daily-yield sheet that follows it, and — because each header
+#: opens a span independently — an unclosed span runs THROUGH the next
+#: header, so every row of the following page is read twice.
+_ANY_TABLE_HEADER = re.compile(r"\bDate\s+[A-Za-z][A-Za-z/&. ]*?\(\$\)", re.IGNORECASE)
+
 # A printed balance is a currency value: two decimal places, optional
 # thousands grouping, and the trailing minus this bank prints for an
 # overdraft. A merchant reference number never takes this shape, which is
@@ -86,12 +99,25 @@ def _amount_value(token: str) -> float | None:
 
 
 def _posting_tables(markdown: str) -> list[str]:
-    """The `Account Details` posting tables, in document order."""
+    """The `Account Details` posting tables, in document order.
+
+    Each span runs from its own column header to whichever comes first: the
+    token that closes the table, or the point at which the next table — of
+    any kind — declares its columns. Spans can therefore never overlap and
+    never absorb a neighbouring sheet.
+    """
     text = re.sub(r"\s+", " ", markdown)
     tables = []
     for header in _TABLE_HEADER.finditer(text):
-        close = _TABLE_CLOSE.search(text, header.end())
-        tables.append(text[header.end():close.start() if close else len(text)])
+        start = header.end()
+        bounds = [len(text)]
+        close = _TABLE_CLOSE.search(text, start)
+        if close is not None:
+            bounds.append(close.start())
+        following = _ANY_TABLE_HEADER.search(text, start)
+        if following is not None:
+            bounds.append(following.start())
+        tables.append(text[start:min(bounds)])
     return tables
 
 
@@ -156,6 +182,12 @@ def parse_scotiabank_statement(markdown: str, base: Statement | None = None) -> 
 
     txns: list[Transaction] = []
     prev_balance: float | None = None
+    #: Dated rows the posting tables actually printed, `BALANCE FORWARD`
+    #: excluded because it is the table's opening bound and not a posting.
+    #: This is what separates "the bank printed no activity" from "activity
+    #: was printed and this parser could not read it" — the two are
+    #: indistinguishable from an empty `txns` alone.
+    printed_rows = 0
     for table in _posting_tables(markdown):
         for row in _split_rows(table):
             m = _DATE_RE.search(row)
@@ -170,6 +202,7 @@ def parse_scotiabank_statement(markdown: str, base: Statement | None = None) -> 
                     prev_balance = stmt.beginning_balance
                 continue
 
+            printed_rows += 1
             tokens = rest.split()
             balance_at = next(
                 (i for i in range(len(tokens) - 1, -1, -1) if _is_balance_cell(tokens[i])),
@@ -227,8 +260,14 @@ def parse_scotiabank_statement(markdown: str, base: Statement | None = None) -> 
         #: balance: then the closing balance is the opening balance, on the
         #: bank's own evidence. An empty ledger on any other document means
         #: the detail was not read, and that still refuses.
+        #: The posting tables must also be EMPTY of dated rows. An empty
+        #: `txns` on its own cannot tell "the bank printed no activity" from
+        #: "rows were printed and every one of them was refused", and
+        #: publishing the second as a zero-activity statement would assert
+        #: that nothing happened on a document that says otherwise.
         printed_zero_activity = (
-            stmt.stated_debit_count == 0
+            printed_rows == 0
+            and stmt.stated_debit_count == 0
             and stmt.stated_credit_count == 0
             and stmt.stated_total_debits == 0.0
             and stmt.stated_total_credits == 0.0

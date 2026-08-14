@@ -317,6 +317,86 @@ def test_f14_empty_ledger_refuses_without_an_opening_balance():
 # Detection and the stated-count surface
 # ---------------------------------------------------------------------------
 
+def test_f18_zero_activity_refuses_when_posting_rows_were_printed():
+    """The clause the other four negatives missed.
+
+    The summary states zeros and the balances agree, but the posting table
+    is NOT empty: it prints two dated rows whose cells the shape rules
+    refuse. An empty `txns` alone cannot tell that from a period with no
+    activity, and publishing it would assert that nothing happened on a
+    document that prints two rows saying otherwise.
+    """
+    assert parse_scotiabank_statement(_zero_statement(
+        ZERO_SUMMARY,
+        "01/30/2026 BALANCE FORWARD 1,000.00 "
+        "02/02/2026 MISC PAYMENT 29473680015 MRCH SAMPLE PROCESSOR(K) "
+        "02/03/2026 DEBIT MEMO 96981659 INTERAC E-TRANSFER",
+    )) is None
+
+
+# ---------------------------------------------------------------------------
+# Section spans cannot overlap or absorb their neighbours
+# ---------------------------------------------------------------------------
+
+def test_f19_an_unclosed_table_does_not_absorb_the_next_sheet():
+    """A trailing posting table that never prints a closing token.
+
+    The `Deposit Interest` sheet that follows opens with neither
+    `Statement Of:` nor a page marker, so only its own column declaration
+    ends the posting table. Without that bound the span runs on to the
+    document footer and the daily-yield rows become postings.
+
+    The sheet is written here in its LABELLED form. The bare numeric form
+    (`02/03/2026 940.00 1.488 0.41`) is refused a second time over by the
+    cell-shape rules, which leave it no description — so it is the labelled
+    form that this bound is load-bearing for.
+    """
+    stmt = parse_scotiabank_statement(
+        "1 SAMPLE STREET 00000 SOMEWHERE NS A0A0A0 000-0000\n"
+        "NORTHWIND SUPPLY LTD. Statement Of: Account Number: From: To: "
+        "Business Account 00000 00000 00 Jan 30 2026 Feb 27 2026 "
+        "Account Summary for this Period:\n"
+        f"{SUMMARY_2D_1C}\n"
+        "Account Details:\n"
+        "Date Description Withdrawals/Debits ($) Deposits/Credits ($) "
+        "Balance ($) 01/30/2026 BALANCE FORWARD 1,000.00 "
+        "02/02/2026 POINT OF SALE PURCHASE FPOS SAMPLE STORE 60.00 940.00\n"
+        "Date Closing Balance ($) Yield/Rate Calculated Interest ($) "
+        "02/03/2026 INTEREST TIER A 940.00 0.41 "
+        "02/04/2026 INTEREST TIER A 940.00 0.41\n"
+        f"{FOOTER}"
+    )
+    assert stmt is not None
+    assert len(stmt.transactions) == 1
+    assert stmt.transactions[0].date == "2026-02-02"
+
+
+def test_f20_an_unclosed_table_does_not_overlap_the_next_one():
+    """Each header opens a span, so an unclosed span must still stop.
+
+    Two posting tables, the first with no closing token. If the first span
+    runs through the second header, every row of the second table is read
+    twice — once by each span — and the ledger silently doubles.
+    """
+    stmt = parse_scotiabank_statement(
+        "1 SAMPLE STREET 00000 SOMEWHERE NS A0A0A0 000-0000\n"
+        "NORTHWIND SUPPLY LTD. Statement Of: Account Number: From: To: "
+        "Business Account 00000 00000 00 Jan 30 2026 Feb 27 2026 "
+        "Account Summary for this Period:\n"
+        f"{SUMMARY_2D_1C}\n"
+        "Account Details:\n"
+        "Date Description Withdrawals/Debits ($) Deposits/Credits ($) "
+        "Balance ($) 01/30/2026 BALANCE FORWARD 1,000.00 "
+        "02/01/2026 POINT OF SALE PURCHASE FPOS SAMPLE STORE 60.00 940.00\n"
+        "Date Description Withdrawals/Debits ($) Deposits/Credits ($) "
+        "Balance ($) 03/02/2026 MISC PAYMENT SAMPLE PAYER 50.00 990.00\n"
+        f"{FOOTER}"
+    )
+    assert stmt is not None
+    assert [t.date for t in stmt.transactions] == ["2026-02-01", "2026-03-02"]
+    assert len(stmt.transactions) == 2
+
+
 def test_f15_declines_a_document_that_is_not_scotiabank():
     assert parse_scotiabank_statement(
         "SOME OTHER BANK Account Details 01/30/2026 BALANCE FORWARD 10.00"

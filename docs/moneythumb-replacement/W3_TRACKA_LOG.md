@@ -4363,11 +4363,11 @@ $ python -m pytest tests/test_parser_expectations_baseline.py \
 EXIT=0
 
 $ python -m pytest tests/test_scotia_layouts.py -q
-17 passed in 0.34s
+20 passed in 0.31s
 EXIT=0
 
 $ python -m pytest -q
-2579 passed, 18 deselected, 1 warning in 156.52s (0:02:36)
+2582 passed, 18 deselected, 1 warning in 94.67s (0:01:34)
 EXIT=0
 
 $ python corpus_gate.py
@@ -4382,13 +4382,22 @@ $ python -m pytest -m corpus -q
 EXIT=0
 ```
 
-The seventeen layout tests were also run against `analysis/scotia.py` as it
-stands at `b95595f`: **7 fail**, one per defect — f2 (the printed cell
-surviving a disagreement), f5 and f6 (a reference number read as a balance
-and as an amount; the shipped parser produces `amount=12344678.0` on f5), f7
-(the daily-yield sheet fabricating postings), f9 and f10 (the zero-activity
-period refused) and f17 (a missing amount cell back-solved). The other ten
-are regression pins on behaviour that was already right.
+The gate and the corpus-marked run were measured before the §S9 review
+amendments and were deliberately not re-run: the amendments change only span
+bounding and zero-activity admissibility, the re-run cohort sweep is
+byte-identical on all 84 documents (§S9), and the pinned document prints a
+summary grid and closes every section, so neither amendment can reach it. The
+pinned field-level comparison WAS re-run after the amendments and is still 0
+on every audited field.
+
+The layout tests were also run against `analysis/scotia.py` as it stands at
+`b95595f`: **7 fail**, one per defect — f2 (the printed cell surviving a
+disagreement), f5 and f6 (a reference number read as a balance and as an
+amount; the shipped parser produces `amount=12344678.0` on f5), f7 (the
+daily-yield sheet fabricating postings), f9 and f10 (the zero-activity period
+refused) and f17 (a missing amount cell back-solved). The three added by the
+review (f18-f20) fail against the pre-amendment commit. The remaining ten are
+regression pins on behaviour that was already right.
 
 No conformance fixture was added: the scotiabank fixture carries detection
 furniture only and detection is unchanged.
@@ -4399,4 +4408,66 @@ furniture only and detection is unchanged.
 |---|---|
 | `4f6011b` | `analysis/scotia.py`: the printed cell as the amount of record, section-bounded rows, the balance/amount cell shapes, and the zero-activity guard |
 | `3e4e156` | `tests/test_scotia_layouts.py`: 17 synthetic documents, 7 of which fail against `b95595f` |
-| (this one) | §SCOTIA-REBUILD |
+| `8622136` | §SCOTIA-REBUILD |
+| `cf592ec` | the corpus-marked proof recorded in §S7 |
+| (this one) | the two review amendments of §S9, their three tests, and this record |
+
+## S9. Amendments from adversarial review
+
+Ocean's review returned SHIP with two required amendments. Both are the same
+class: a rule that was correct about what it looked at, and silent about what
+it did not look at.
+
+**1. Zero-activity was not checking that the posting tables were empty.**
+The guard fired on `not txns`, which cannot distinguish "the bank printed no
+activity" from "activity was printed and every row of it was refused". The
+reviewer's probe prints 0/0 counts, $0.00/$0.00 totals, an opening balance
+*and* two posting rows whose cells the shape rules reject — and the parser
+published `transactions=[]` as validated/approved, which is exactly the
+"empty captured ledger equated with a valid statement" the four negatives
+were written to prevent. They all happened to carry no rows at all, so none
+of them caught it.
+
+The clause added: zero-activity is admissible only if the posting tables
+contain no dated row, `BALANCE FORWARD` excluded as the table's opening
+bound rather than a posting. This mirrors the Chase A′ no-MM/DD-row
+discipline, scoped to the structural spans. `90D94C41`, the genuine
+zero-activity mover, still validates.
+
+**2. Spans were bounded at one end only.** `_posting_tables` ended a span at
+`_TABLE_CLOSE` or the end of the document, so a section that never printed a
+closing token ran on. Two consequences, both proven by the reviewer: a
+trailing posting table absorbed a following `Deposit Interest` sheet that did
+not open with a close token (2 fabricated rows), and — because every header
+opens a span independently — an unclosed span ran THROUGH the next header, so
+the following table's rows were read by both spans and published twice
+(`03/02` duplicated).
+
+Each span is now additionally bounded by the point at which the next table
+declares its own columns. Every Scotiabank grid announces itself as a
+`Date`-led run of column labels reaching a `($)` money column, so one bound
+closes both holes.
+
+**Re-proof after the span change** (span construction changed, so
+byte-identity had to be re-established): the 84-document cohort sweep is
+**identical on all 84 documents** — 0 differing on any of the 21 compared
+fields against the pre-amendment run — and still 3 up / 0 down against the
+baseline, the same three movers. The pinned document re-compared field by
+field against `b95595f` is still 0 on every audited field.
+
+### Residuals recorded, deliberately not fixed
+
+* **Tail truncation with no summary grid.** When a document's final posting
+  table is cut off and the layout prints no summary block, `ending_balance`
+  is taken from the last row actually read, so a truncated tail yields a
+  closing balance that is real but early. This is inherent to a layout that
+  prints no closing figure to check against — there is no second source on
+  the page to detect it. Recorded as the honest limit of this parser rather
+  than papered over.
+* **`$0.00` rows carry the debit label.** Five rows across the cohort print a
+  zero amount — every one of them a `LOAN INTEREST` posting, in `6F78F153`
+  (1) and `B616BF47` (4). With `delta == 0` the direction rule yields
+  `debit`. This matches the behaviour at `b95595f`, and loan interest is
+  genuinely a debit-column item, so nothing is misstated.
+* **The `count_semantics` citation** (`analysis/scotia.py:80-82`) now points
+  at shifted line numbers. Ocean's at merge.
