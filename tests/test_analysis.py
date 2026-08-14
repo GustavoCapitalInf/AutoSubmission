@@ -489,6 +489,24 @@ def test_a_declared_page_absent_from_a_fully_labelled_pdf_still_flags():
     assert any("5 are absent" in note for note in integrity.notes)
 
 
+def test_two_unnumbered_disclosure_inserts_are_not_two_missing_pages():
+    """The second shape of the same defect (UNID-PACK-B §UB4.3): a Fiserv
+    Premier statement footers its pages `1 of 8` … `6 of 8` and then appends the
+    GLBA privacy notice as two sheets carrying no footer, so the printed
+    denominator counts pages the footers never label. Two unlabelled sheets
+    account for two unfound labels exactly — the boundary of the count."""
+    stmt, recon, quality = _reconciled_statement_for_page_declarations()
+    markdown = _sheets(
+        "Page 1 of 4\nAccount Summary",
+        "Page 2 of 4\nActivity",
+        "IMPORTANT PRIVACY CHOICES FOR CONSUMERS\nWhat we do with your information",
+        "To limit our sharing, call the number on your statement",
+    )
+    integrity = assess_document_integrity(stmt, recon, quality, markdown=markdown)
+    assert "missing_declared_statement_page" not in integrity.flags
+    assert integrity.flags == []
+
+
 def test_more_missing_labels_than_unlabelled_sheets_still_flags():
     """The restriction is a count, not a switch: one unlabelled sheet excuses
     one missing label, and no more. Two pages absent behind a single unlabelled
