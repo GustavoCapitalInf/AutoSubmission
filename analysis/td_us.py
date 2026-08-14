@@ -215,8 +215,19 @@ def parse_td_us_statement(markdown: str) -> Statement | None:
         txns, total = _parse_section(markdown, heading, year=year, sign=sign)
         if total is None:
             continue
-        if abs(sum(abs(t.amount) for t in txns) - total) > 0.02:
-            return None
+        # Rows that do not add up to their own section's printed subtotal are
+        # a defective READ OF THAT SECTION — on the scanned statements in this
+        # population, Tesseract losing a row out of forty. Discarding the
+        # document over it threw away a complete, self-consistent summary and
+        # every other section's exact rows, and filed an OCR defect as an
+        # unclaimed layout. The rows that were read are kept, and the shortfall
+        # is left where the platform can see it: an incomplete ledger cannot
+        # reproduce the bank's stated totals, so `reconcile` reports the
+        # coverage gap and the document fails CLOSED — withheld or review with
+        # a diagnosis, never validated. That gate reads the same printed
+        # figures this check did (`_summary` totals the same per-section
+        # amounts), so the check was a second, harsher copy of it, sited where
+        # a failure could only destroy evidence instead of reporting it.
         all_txns.extend(txns)
     if not all_txns:
         return None

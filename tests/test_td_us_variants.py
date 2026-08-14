@@ -25,6 +25,7 @@ U2 the section subtotal that does not add up
 """
 from __future__ import annotations
 
+from analysis.pipeline import analyze_markdown
 from analysis.td_us import detect, parse_td_us_statement
 
 #: The layout sentinels this parser recognises itself in, plus an invented
@@ -34,7 +35,7 @@ from analysis.td_us import detect, parse_td_us_statement
 #: overdrawn, so reading the sign is the only way the ledger can balance.
 TD_OVERDRAWN = (
     "STATEMENT OF ACCOUNT\n"
-    "Page: 1 of 2 Statement Period: Jan 01 2026-Jan 31 2026 "
+    "Page: 1 of 1 Statement Period: Jan 01 2026-Jan 31 2026 "
     "Cust Ref #: 0000000000-000-X-*** Primary Account #: 000-0000000\n"
     "EXAMPLE COMPANY LLC 1 EXAMPLE WAY EXAMPLETOWN NY 10000\n"
     "TD Business Simple Checking\n"
@@ -126,3 +127,53 @@ def test_the_sign_fix_did_not_move_td_us_detection():
     assert detection.matched == ("bank_name", "title")
     assert detect(TD_IN_CREDIT).matched == detection.matched
     assert detect(TD_IN_CREDIT).score == detection.score
+
+
+# ------------------------------------------- U2 the section that lost a row
+
+#: The scanned shape: one debit row of a forty-row section did not survive
+#: Tesseract, so that section's rows fall 100.00 short of the subtotal TD
+#: printed above them. Everything else about the document is intact — the
+#: summary, the other section, the two balances.
+TD_DROPPED_ROW = TD_IN_CREDIT.replace(
+    "01/09 ACH DEBIT, EXAMPLE COUNTERPARTY 425.00\nSubtotal: 425.00\n",
+    "01/09 ACH DEBIT, EXAMPLE COUNTERPARTY 325.00\nSubtotal: 425.00\n",
+)
+
+
+def test_a_section_that_misses_its_printed_subtotal_keeps_the_rows_it_read():
+    """The U2 capability. Before, one short section discarded the document and
+    the OCR defect was filed as an unclaimed layout."""
+    statement = parse_td_us_statement(TD_DROPPED_ROW)
+    assert statement is not None
+    assert len(statement.transactions) == 2
+    assert round(sum(t.amount for t in statement.transactions), 2) == 175.00
+    # The bank's own summary is intact and is read from the summary block, not
+    # from the rows — which is what makes the shortfall measurable downstream.
+    assert statement.stated_total_debits == 425.00
+    assert statement.beginning_balance == 100.00
+    assert statement.ending_balance == 175.00
+
+
+def test_the_incomplete_ledger_then_fails_closed():
+    """Claimed is not published. The document must reach the platform's
+    fail-closed gate and be refused there, with the gap named."""
+    report = analyze_markdown(TD_DROPPED_ROW, parse_mode="deterministic")
+    assert report.reconciliation.ok is False
+    assert report.reconciliation.summary_ok is True
+    assert report.reconciliation.sum_delta == 100.00
+    assert report.reconciliation.debit_coverage is not None
+    assert report.reconciliation.debit_coverage < 0.98
+    assert report.quality.corporate_use != "approved"
+    assert report.metrics.average_daily_balance is None
+    assert "ledger_sum_mismatch" in report.integrity.flags
+    assert "debit_detail_coverage_mismatch" in report.integrity.flags
+
+
+def test_a_document_whose_sections_do_add_up_is_unaffected():
+    """The softening must not cost the intact statements anything."""
+    report = analyze_markdown(TD_IN_CREDIT, parse_mode="deterministic")
+    assert report.reconciliation.ok is True
+    assert report.reconciliation.sum_delta == 0.00
+    assert report.quality.corporate_use == "approved"
+    assert report.integrity.flags == []
