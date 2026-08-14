@@ -116,7 +116,14 @@ _COLUMN_HEADER_RE = re.compile(
     r"^Date\s+(?:Amount|Balance|Service Charge)\b|^Date\s+Balance\s+Date\b"
 )
 
-#: A second account presented on the same statement. See `_SECOND_ACCOUNT`.
+#: The heading of a SECOND account presented on the same statement — a
+#: Business Overdraft Protection line of credit, with its own summary, its own
+#: advances and payments and its own daily balance table. Matching it is what
+#: makes `parse_huntington_statement` decline: see the L-1 note there.
+#:
+#: Scope, stated honestly: this keys on the heading of the second-account
+#: product this issuer sells today. Another such product under a different
+#: heading would not be caught here (recorded as a carried finding).
 _LINE_OF_CREDIT_RE = re.compile(
     r"^Business Overdraft Protection Account\s+Account\s*:", re.M
 )
