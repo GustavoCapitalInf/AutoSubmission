@@ -87,6 +87,25 @@ def test_does_not_claim_without_the_issuer_domain():
     assert not detect(document().replace("www.53.com/businessbanking", "")).claims
 
 
+def test_a_custodian_disclosure_naming_the_bank_is_not_a_claim():
+    """The archive's most pointed counter-example, in synthetic form.
+
+    A third-party banking product names its custodian bank in the disclosure
+    at the foot of page one — every document of one such family in the archive
+    names Fifth Third, and not one of them is a Fifth Third statement. This is
+    why detection keys on the print stream and the issuer's own domain rather
+    than on the bank's name.
+    """
+    custodian = (
+        "--- Page 1 ---\n\n"
+        "Synthetic Balance\nStatement summary\n"
+        "Starting balance $10.00\nAccount balance as of 03/31/2026 $10.00\n"
+        "This product partners for money transmission services with funds held "
+        "at Fifth Third Bank, Member FDIC.\n"
+    )
+    assert not detect(custodian).claims
+
+
 def test_detection_ignores_the_source_filename_comment():
     plain = document()
     renamed = plain.replace("synthetic.pdf", "fifth third statement.pdf")
