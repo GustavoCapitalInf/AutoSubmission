@@ -96,12 +96,13 @@ def test_no_fixture_names_a_registration_that_does_not_exist():
 
 
 def test_the_registry_holds_the_documented_number_of_registrations():
-    assert len(REGISTRATIONS) == 55, (
+    assert len(REGISTRATIONS) == 58, (
         "43 registry entry points, the three promoted sub-dispatches, the "
         "three BMO layouts, the Square Checking layout, the Chase savings "
         "product, the TD Canada Trust French layout, the English CIBC "
-        "layout and the Huntington sectioned deposit statement, opened by "
-        "the unclaimed-layout phase; update this count and the docs together"
+        "layout, plus the batch-3 train: Huntington, Burke & Herbert, "
+        "Shopify Balance, CitiBusiness and Zions; update this count and "
+        "the docs together"
     )
 
 

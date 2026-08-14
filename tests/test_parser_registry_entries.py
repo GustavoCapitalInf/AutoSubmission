@@ -44,6 +44,7 @@ EXPECTED_ORDER = [
     "chase",
     "cibc",
     "cibc_french",
+    "citibusiness",
     "citizens",
     "columbia_bank",
     "consumers",
@@ -68,6 +69,7 @@ EXPECTED_ORDER = [
     "santander",
     "scotiabank",
     "secu",
+    "shopify_balance",
     "southside_scanned",
     "square_checking",
     "td_canada",
@@ -78,6 +80,7 @@ EXPECTED_ORDER = [
     "us_bank",
     "wells_fargo",
     "wilson_muir",
+    "zions",
 ]
 
 
@@ -122,10 +125,12 @@ def test_registration_count_matches_the_documented_decision_points():
     BMO layouts (W3 §BMO-LAYOUTS), the Square Checking layout
     (W3 §CHASE-LAYOUTS), the Chase savings product (W3 §CHASE-CLOSURE), the
     TD Canada Trust French layout (W3 §TD-FRENCH), the English CIBC
-    layout (W3 §RBCCIBC) and the Huntington sectioned deposit statement
-    (W3 §HUNT-CELL) — the last six opened by the unclaimed-layout
-    phase."""
-    assert len(pr.registrations()) == 55
+    layout (W3 §RBCCIBC), the Huntington sectioned deposit statement and
+    the Burke & Herbert grid (W3 §HUNT-CELL), plus the Shopify Balance
+    ledger, the CitiBusiness checking statement and the Zions
+    Bancorporation Statement of Accounts (W3 §CITI3) — the batch-3
+    registrations land through one composed merge train."""
+    assert len(pr.registrations()) == 58
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():

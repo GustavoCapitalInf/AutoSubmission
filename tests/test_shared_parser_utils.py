@@ -402,3 +402,35 @@ def test_period_from_long_dates_reads_the_first_span():
 
 def test_period_from_long_dates_returns_none_for_other_period_formats():
     assert dt.period_from_long_dates("01/05/2026 - 02/04/2026") is None
+
+
+# ---------------------------------------------------------------------------
+# iso_unique_in_period (W3 §CITI3): a Date column that prints no year
+# ---------------------------------------------------------------------------
+
+def test_iso_unique_in_period_uses_the_only_year_that_fits():
+    start, end = date(2026, 4, 1), date(2026, 4, 30)
+    assert dt.iso_unique_in_period(4, 15, start=start, end=end) == "2026-04-15"
+
+
+def test_iso_unique_in_period_resolves_a_period_that_crosses_a_year():
+    start, end = date(2026, 12, 1), date(2027, 1, 31)
+    assert dt.iso_unique_in_period(12, 31, start=start, end=end) == "2026-12-31"
+    assert dt.iso_unique_in_period(1, 2, start=start, end=end) == "2027-01-02"
+
+
+def test_iso_unique_in_period_declines_a_token_outside_the_period():
+    start, end = date(2026, 4, 1), date(2026, 4, 30)
+    assert dt.iso_unique_in_period(6, 15, start=start, end=end) is None
+
+
+def test_iso_unique_in_period_declines_an_ambiguous_token():
+    """A period longer than a year can hold the same month/day twice; the
+    document never printed which, so neither is published."""
+    start, end = date(2025, 1, 1), date(2026, 12, 31)
+    assert dt.iso_unique_in_period(6, 15, start=start, end=end) is None
+
+
+def test_iso_unique_in_period_declines_an_impossible_date():
+    start, end = date(2026, 2, 1), date(2026, 3, 31)
+    assert dt.iso_unique_in_period(2, 30, start=start, end=end) is None

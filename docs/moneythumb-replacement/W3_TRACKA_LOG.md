@@ -11143,6 +11143,431 @@ $ python corpus_gate.py
 Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
 Outcomes: 106 PASS / 3 WITHHELD
 Runtime:  912.5s
+# §CITI3-CELL — three registrations, and a folder label that was not evidence
+
+## C0. Summary
+
+Three new registrations on one ownership. **41 of the 45 documents in the
+three archive folders move `failed` -> `validated`**, zero documents move
+down, and no document outside the three families changes in any way.
+
+| card | family | documents | before | after |
+|---|---|---|---|---|
+| A | Shopify Balance ledger (`shopify_balance`) | 16 | 16 failed | **16 validated** |
+| B | CitiBusiness CHECKING ACTIVITY (`citibusiness`) | 14 | 14 failed | **14 validated** |
+| C | Zions Bancorporation Statement of Accounts (`zions`) | 13 | 13 failed | **11 validated**, 2 withheld |
+| — | not statements of these layouts | 2 | 2 failed | 2 fail closed, named |
+
+All 41 are instrumented per document rather than merely claimed: the summary
+identity closes, every stated TOTAL the bank prints equals the published
+ledger, every printed COUNT equals the published count, and — on the two
+families that print a running balance — the balance walk closes on every one
+of 3,840 rows. **4,901 transactions** are published across the 41.
+
+The scout's counts reproduced exactly (16 / 14 / 13, and rec 0 for the other
+two), and **one of its identifications was wrong** — see C3.
+
+## C1. The instrument, and what it was allowed to touch
+
+Every figure below comes from replaying the archive markdown through the real
+pipeline (`analyze_markdown` + `telemetry.record.classify_outcome` +
+`discovery.runner._failure_reason`) on this branch, resolved from the D-3 OCR
+artifact store **by direct file path** — the sqlite index was never opened.
+Zero OCR cache misses across all 45 documents: 44 are served from the digital
+partition and one is a cached NEGATIVE (a scan the digital tranche deferred).
+
+Base of record: `d70efbe`. Before/after is measured against a clean export of
+that tree (`git archive d70efbe`), not against memory.
+
+## C2. Card A — the Shopify Balance ledger, and a folder label that was not evidence
+
+The archive files these 16 under **Fifth Third Bank**, because the statement's
+own disclosure says the money is held at "Evolve Bank & Trust and Fifth Third
+Bank, Members FDIC". That is a folder label and a custodian, not an issuer:
+nothing in the document is a Fifth Third statement. The registration is
+written against the layout's own furniture — the `Shopify Balance` masthead,
+the `Statement summary` block, `Transaction history`, and the grid's own
+column header — and two negative fixtures pin the point: naming the partner
+banks is neither necessary (a document without them is still claimed) nor
+sufficient (a document with only them is not).
+
+A third negative fixture pins the other direction: `SHOPIFY*` merchant rows
+appear in other banks' ledgers throughout the archive, and a mention of the
+word is not a Shopify statement.
+
+**The layout destroys nothing.** Both date columns print in full, so no year
+is inferred; the amount carries its own sign; a balance closes every row. The
+work was in three places: bounding the grid so page furniture never lands in
+a description, cutting rows at the printed date PAIR (a long description wraps
+and its money cells arrive on the next physical line), and the account
+question below.
+
+### More than one account on one PDF
+
+Twelve of the sixteen carry a **second account block**: its own masthead, its
+own account number, and a summary printing `$0.00` for all four figures under
+`No transactions during this period.`. The platform's schema holds one account
+(L-1), so this could have been 4 claimed and 12 refused.
+
+It is 16, and the argument is arithmetic rather than convenient. A block
+printing zero opening, zero deposits, zero withdrawals, zero closing and no
+rows contributes nothing to any published figure — consolidating it with the
+funded account would change no number this platform emits. So publishing the
+funded account alone is **exact**, not partial. That inertness is therefore
+*asserted*, not assumed: `_inert` tests all four printed figures AND the row
+count, and a document with two funded blocks returns None. Two fixtures pin
+it, including the near-miss — a second block with a non-zero opening balance
+but no rows still fails closed.
+
+The `Totals` row the grid closes with reprints the period's net movement and
+closing balance, so it is registered as an **integrity check** rather than
+consumed silently, on the pattern `bmo` already uses for its second summary.
+
+Result: **16/16 validated, 2,855 transactions**, balance walk closing on all
+2,855.
+
+### The shared date guard, narrowed once
+
+Two of the sixteen were withheld at `withheld_adb` on
+`posting_dates_cover_source`, and the document was right: the statement's last
+posting was three weeks before the phantom "activity day". The cause is the
+`Totals` row again. Where its label and column captions fill the line, the
+bank's own date for that total prints ALONE on the line below, and the
+money-proximity test in `analysis.dates.source_posting_dates` finds the
+total's figures on the next line and counts it as a posting date. This is the
+defect class `8ec039e` already fixed one line higher up.
+
+The narrowing suppresses a bare date line only where the previous line
+**opens** with `Total`/`Totals` and prints no money. It fires on **16 lines in
+16 documents (0.5%) of the 3,400-document archive, all of them this one
+wrapped row, all in this family**.
+
+**Where that precision actually comes from — a correction to this cell's first
+account of itself.** The anchor is not a structural guarantee; it is an
+archive-measured property, and on its own it isolates almost nothing: **1,355
+documents (39.9%) print a moneyless line opening with "Total", 2,333 such
+lines in all**. What makes the rule precise is ADJACENCY — it is consulted
+only from the bare-date branch, i.e. only when the very next line is nothing
+but a date token. Anchor and adjacency together give the 16.
+
+The anchor still earns its place, on the other axis. Unanchored, the same
+adjacency test also swallows genuine posting dates: **41 further lines across
+15 documents and 4 folder labels** (Bank of America, Citizens Bank, PNC Bank,
+Unidentified), which are only **4 distinct printed shapes** — a merchant
+called "Total Quality Logistics", the column headers `... FEES TOTAL*` and
+`Date Description Total Items ...`, and a PNC sentence beginning "Note: The
+total charge...". An earlier draft of this section reported that counterfactual
+as "57 lines across 5 folder labels"; that number added the 16 lines the
+shipped rule correctly catches to the 41 it prevents, and counted this
+family's own folder as a fifth label. The qualitative argument is unchanged —
+the anchor prevents real false suppressions — but the magnitude is 41 lines /
+15 documents / 4 shapes / 4 labels.
+
+**The known falsifier, stated rather than implied.** Because the rule cannot
+be proven from structure, there is a shape it gets wrong: a posting row whose
+DESCRIPTION opens with the word and prints no amount on its own line, directly
+above a lone date (`Total Wine & More` / `06/09` / the amounts). Its date is
+suppressed. No document in the surveyed archive prints it, and it is pinned as
+a test so the boundary is visible.
+
+What keeps that tolerable is the direction of effect, which matches the
+existing `_SUMMARY_TOTAL_ROW` rule: it can only remove dates from
+`source_posting_dates`, so a document can go from failing to passing but never
+the reverse. The cost of being wrong is a coverage check quieter than it
+should be, never a false validation.
+
+These pins live in `tests/test_adb.py`, beside the other `source_posting_dates`
+tests, rather than only in this cell's file: the rule belongs to a shared
+module, and retiring one parser's tests must not silently drop its only
+coverage.
+
+**Recorded, not celebrated (C7.1).** Every posting row of this grid prints TWO
+dates, and `_is_posting_row` classes any line with more than one date token as
+a balance grid. So the coverage heuristic sees *nothing* on this layout: the
+wrapped `Totals` line was the only line it could see, which is why suppressing
+it was enough. A test pins that emptiness so the limitation is visible in the
+suite rather than only in this paragraph. What holds this family honest is the
+balance walk.
+
+## C3. Card C — the scout named a division, and the family has two
+
+The scout reported the Zions folder as "Zions Statement of Accounts (13,
+rec 13): brands itself NSBank (Nevada State) — marker on the printed
+branding." The first half is right and **the marker advice is wrong**.
+
+Nine of the thirteen carry `WWW.NSBANK.COM`. The other four carry
+`WWW.AMEGYBANK.COM`, `Amegy Bank - The "A" Bank` and `Amegy Bank of Texas`.
+Both are divisions of **Zions Bancorporation, N.A.** printing one mainframe
+layout under different trade names, and a marker on either brand would have
+left the other four unclaimed — precisely the failure `rbc_french` had, where
+a marker written for one product meant the registration saw none of the other.
+The string "Nevada State Bank" appears in **none of the thirteen**; only the
+URL does.
+
+What all thirteen print is the corporate footer `A division of Zions
+Bancorporation, N.A.`, the title `Statement of Accounts`, the
+`SUMMARY OF ACCOUNT BALANCE(S)` block and the grid's own column legend. That
+is the registration. Fixtures pin that both brands are claimed, that neither
+trade name is required, and that the footer alone is not enough.
+
+### The oracles, and the two that are traps
+
+The layout is the most generous in this cell, and the module uses all of it:
+
+* the summary grid's amounts and **instance counts**, read positionally
+  against the printed column legend — never against a product name, because
+  this bank renamed `BUSINESS GROWTH CHECKING` to `BUSINESS ELEVATE CHECKING`
+  inside the archive's own date range and both spellings appear;
+* `DEPOSITS/CREDITS` and `CHARGES/DEBITS`, whose rows print the sign their
+  section implies. Measured: 162 deposit rows all positive, 899 charge rows
+  all trailing-minus, **zero disagreements**. A row that disagreed with its
+  own section would fail the document closed;
+* `Number Of Days This Statement Period`, checked against the span the
+  statement's own two dates describe. The period opens the day AFTER
+  `Last Statement`, and the bank's day count is what proves that reading —
+  32 for a Feb-27-to-Mar-31 statement, and it agrees on all 13;
+* the `DAILY BALANCE` block, published as `stated_daily_balances`.
+
+Two printed figures are deliberately NOT read.
+
+**`CHECKS PROCESSED` is a register, not a section of postings.** Its cheques
+have already posted in `CHARGES/DEBITS` — verified by count on every document
+— so reading it would publish every cheque twice. This is the
+double-publication class already closed once for BofA.
+
+**`Total Items` is not the transaction count.** Measured across the family it
+exceeds the summary's own counts by between 0 and 12, with no constant offset,
+so it is not used as an oracle. What it does count is not established here
+(C7.3).
+
+Because the layout splits money out across TWO printed columns, the debit
+TOTAL is the sum of both — and the debit COUNT covers the same two columns.
+A count narrower than its own total is the defect §FIXUPS-1 corrected on
+`first_community`, and the scopes are aligned here by construction.
+
+Result: **11/13 validated, 1,061 transactions**, and the first family in this
+cell whose printed counts are assigned: all 13 documents state a per-direction
+count and all 26 equal the published count.
+
+### `count_semantics` — surveyed at registration, and measured quiet
+
+A new registration defaults to `UNSURVEYED`, which would leave these 26
+printed counts assigned but never compared. They are surveyed instead, both
+directions **comparable**, because the two sides are the same set by
+construction: the printed count heads the very column whose rows the parser
+publishes, and the parser refuses a row whose sign contradicts its section.
+The debit direction is a two-category sum with the same shape as the
+`wilson_muir` promotion already in the table, and carries that entry's
+existing `multi_category_sum_proven_complete` scope label; the credit
+direction carries the existing `whole_direction`. Neither introduces a new
+label — an earlier draft coined `whole_direction_column` for the credit side,
+which was a synonym for a concept the table had already named.
+
+The equality pin in `tests/test_count_semantics.py` is what forced this to be
+a deliberate edit rather than a silent one. Measured after wiring: **13/13
+agree, 0 disagreements, 0 count-related integrity flags, and no outcome
+moves** — the check is now load-bearing on a population where it previously
+could not fire.
+
+### The two that fail closed, and why they are not this parser's defect
+
+`7b66e22e_..._7412-2025-11-28` and `e28d7ad3_..._0340-2026-04-30` are withheld
+at `withheld_adb` on `posting_dates_cover_source`. **They are not claimed as
+successes.** Both are false positives of the shared heuristic, and neither
+phantom date comes from anything this parser reads:
+
+* `...7412-2025-11-28`: the line `11/01 $0.00` — a single-column cell of the
+  DAILY BALANCE block belonging to the **inert savings account**. It is missed
+  by the two rules that filter the funded account's daily-balance grid: the
+  section title is preceded by the layout's printed dotted rule, so
+  `_DAILY_BALANCE_SECTION_START` (anchored, no leading dots) does not match
+  it, and this block has only ONE cell on the line where the funded account's
+  has three, so the "more than one date token" rule does not catch it either.
+* `...0340-2026-04-30`: the continuation-page header
+  `April 30, 2026 EARTH POWER A/C AND HEAT INC 5802990340`, which repeats the
+  statement date. It occurs four times in that document.
+
+Both were verified against the documents rather than assumed: neither has any
+row on the date in question (zero occurrences of `04/30 04/30` and
+`11/01 11/01` in any posting section), the ledger's last activity is 04/28 and
+11/28, and the bank's own printed daily balances end at exactly the published
+closing balances. Every other instrument on both documents is sound.
+
+Fixing either needs a change to `analysis/dates.py` with a much wider blast
+radius than card A's, and one of them — widening
+`_DAILY_BALANCE_SECTION_START` — is **actively unsafe** without also
+hardening `_DAILY_BALANCE_SECTION_END`, because a too-narrow END would let the
+skip-mode swallow genuine posting rows on some other bank's layout and turn a
+correctly-withheld document into a validated one. That is a false-validation
+risk, so it was left undone rather than half-done. Carried as C7.2.
+
+## C4. Card B — one printed grid, two flattenings, and a quoted amount
+
+No CitiBusiness parser existed. The five printed columns are Date,
+Description, Debits, Credits, Balance, and the text layer destroys the two
+that decide direction: an amount arrives as a bare figure with no trace of
+which money column it stood in.
+
+**Direction is read from the arithmetic the bank printed**, the same way
+`cibc` reads its three-column grid: the movement between two printed balances
+IS the signed amount. A row whose printed magnitude disagrees with that
+movement fails the document closed rather than being signed by guesswork, and
+a fixture pins that a row whose description reads `ELECTRONIC CREDIT` is
+published as a debit when the balances say so — the wording is not the column.
+
+The family arrives in **two flattenings** of the same grid. One trails both
+money cells at the end of the row; the other prints them immediately after the
+transaction type and the rest of the description after them. The module reads
+the invariant rather than either arrangement — after the Date column a row
+prints exactly two cells, amount then balance, and the Description column is
+whatever is printed around them — and both are pinned, and pinned to publish
+the same ledger.
+
+### What is a printed cell, and what is only quoted
+
+Four rows across the family gave four money cells instead of two. Each is a
+government EDI remittance advice quoting the payment amount twice inside the
+description: `RMR*IV*DMSAHD-2605*AI*508497.83*508497.83*0.`. This is the
+"tariff quoted inside a description" class from §RBCCIBC card A, in a
+different alphabet. A printed cell stands in a column, so it begins a
+whitespace-delimited token; a figure welded into a reference does not. With
+that rule **all 985 rows of all 14 documents carry exactly two cells**.
+
+### The average balance that belongs to another period
+
+Every statement of this family prints `Average Daily Collected Balance` — and
+it is not this period's. It sits inside a `SERVICE CHARGE SUMMARY` block whose
+own printed span is the PREVIOUS analysis period: the April statement's block
+reads `FROM MARCH 1, 2026 THRU MARCH 31, 2026`, the June statement's reads
+`FROM APRIL 29, 2026 THRU MAY 31, 2026`. It is on all 14. Reading it into
+`stated_average_balance` would report another period's average as this one's,
+so it is never read, and a test pins the block's printed period against the
+statement's so the trap is documented where someone would fall into it.
+
+`Relationship Summary: Checking` reprints the ledger's closing balance at the
+top of page 1 and is registered as an integrity check.
+
+Result: **14/14 validated, 985 transactions.** The 14 are 13 distinct
+statements: `e93c186f_April2026 2.pdf` and `e93c186f_April2026 BS.pdf` are
+different PDF bytes whose admissible text is identical, so they are two
+documents in the run's denominator and one statement in the world.
+
+The 15th document in the folder is not a Citibank statement at all and stays
+`no_parser_matched` — see C5.
+
+## C5. The two documents that are not statements of these layouts
+
+| document | what it is | disposition |
+|---|---|---|
+| `Citibank/4c5fd2c9_AxBusChk-July202026.pdf` | a browser print of the **American Express** Business Checking dashboard — page "1 of 5" of a 2-page capture, no statement period, no summary, and the "Available balance"/"Current balance" labels printed with no figures beside them | `no_parser_matched` |
+| `Zions Bank/e28d7ad3_EP GROSS SALES JAN 2025 TO JUNE 2026_...pdf` | a scanned sales report, not a bank statement; the deterministic preflight returned no text and the result is a cached NEGATIVE in the digital partition | `failed` (deferred scan) |
+
+Both match the scout's rec 0. Neither is recoverable by anything in this cell.
+
+## C6. Scope, and the wider population
+
+**Zero cross-claims.** The conformance cross-product is now 56 x 55 = 3,080
+negative assertions and passes.
+
+**The complete non-interference argument, by construction.** `resolve()` keeps
+only registrations scoring at or above the claim threshold, so a new
+registration can change another document only by CLAIMING it — or by making it
+ambiguous, which is the same event. The sweep therefore records the whole
+claim SET, not the winner, for every readable document in the archive under
+both trees.
+
+**Shared-module changes, censused rather than sampled.** `analysis/dates.py`
+is the only shared file whose behaviour changed; its census is in C2.
+`analysis/date_tokens.py` gains `iso_unique_in_period` — a new function with
+no pre-existing caller, promoted because `citibusiness` and `zions` had
+written the same helper byte-for-byte and
+`tests/test_no_parser_helper_clones.py` caught it. That guard finding is
+recorded here because it is the guard working, not a nuisance: the fix is a
+leaf module that imports no parser, and the three families were re-instrumented
+after it to prove the promotion behaviour-neutral.
+
+Nothing outside `analysis/shopify_balance.py`, `analysis/citibusiness.py`,
+`analysis/zions.py`, `analysis/dates.py`, `analysis/date_tokens.py`,
+`analysis/count_semantics.py` and `analysis/parser_registry_entries.py` was
+modified. `webapp/`, `ocr/`, `pipeline.py`, `reconcile.py`, `metrics.py` and
+`adb.py` carry a zero-line diff against `d70efbe`.
+
+**`ANALYSIS_STAGE_VERSION` needs a bump on merge and this cell did not make
+it.** 41 documents change their analysis output, so every cached payload for
+them is stale. The brief reserves the bump to Ocean, so `webapp/` is
+untouched here — flagged so it is not missed.
+
+## C7. Carried findings for Ocean
+
+1. **The page-coverage heuristic is blind to a two-date posting grid.**
+   `_is_posting_row` treats any line with more than one date token as a
+   balance grid, so on the Shopify layout — where every posting row prints
+   `Posted Date` and `Transaction Date` — `source_posting_dates` returns the
+   empty set and `posting_dates_cover_source` is vacuously true on all 16.
+   The check is not failing; it is not running. Pinned by a test. Widening it
+   to read two-date grids would touch every registration and is not this
+   cell's call.
+
+2. **FOLLOW-UP CARD — two more false positives of the same heuristic, with
+   the evidence attached.** They cost 2 Zions documents (C3). (a) A section
+   title preceded by the layout's printed dotted rule is not matched by
+   `_DAILY_BALANCE_SECTION_START`, whose pattern is anchored with no leading
+   dots — but widening START without hardening
+   `_DAILY_BALANCE_SECTION_END` (currently a short keyword list) risks the
+   skip-mode swallowing genuine posting rows elsewhere, which would turn a
+   correctly-withheld document into a validated one. (b) A continuation-page
+   header that repeats the statement date reads as a posting row; extending
+   the existing money-proximity lookahead to all lines does NOT fix it
+   (measured — one of the four headers has a genuine posting row two lines
+   below), so it needs a page-header notion the module does not have.
+
+3. **`Total Items` on the Zions layout is unexplained.** It exceeds the sum of
+   the summary's own three counts by 0, 1, 1, 2, 3, 4, 4, 4, 4, 5, 6, 7 and 12
+   across the thirteen. Not used, and worth knowing before anyone treats it as
+   a count oracle.
+
+4. **`shopify_balance` publishes the schema's default `currency="USD"`.** The
+   layout prints no currency code anywhere. The evidence that these are US
+   accounts is circumstantial but consistent (US addresses, `Members FDIC`,
+   US partner banks), and the published value is correct for all 16. It is
+   noted because Shopify Balance also exists outside the US, and the honest
+   fix is to read a printed code — which this layout does not print — rather
+   than to assert one. Same shape as RC8.1, without the live defect.
+
+5. **The Zions bank label is the legal entity, not the division.** All 13
+   publish `bank="Zions Bancorporation"`. The document's own branding is a
+   division (Nevada State Bank / Amegy Bank) and there is no uniform printed
+   spelling of it — nine print only a URL. Publishing the entity is what the
+   documents actually evidence; if Ocean wants the division surfaced,
+   `account_name` already carries the product and a second field would be the
+   place, not a brand-name lookup table.
+
+6. **A zero-amount CitiBusiness row is published as a debit.** One row in the
+   family prints `0.00` with an unchanged balance. Direction follows the repo
+   convention (`amount > 0` is a credit, else debit); it moves no total, and
+   this layout prints no counts, so no oracle constrains it. Recorded because
+   the convention is doing the choosing, not the document.
+
+7. **`cibc._en_date` is a near-clone of the promoted
+   `date_tokens.iso_unique_in_period`.** It resolves a bare `Mon D` token
+   against the period in exactly the same way; only the month lookup differs,
+   which is why the clone guard does not catch it. Folding it in would be a
+   small cleanup, but it would move `cibc`'s code under a cell that has not
+   re-proven the RBC/CIBC cohort, so it was left alone.
+
+## C8. Proofs
+
+```
+$ python -m pytest -q
+3130 passed, 18 deselected, 1 warning in 316.73s (0:05:16)
+EXIT=0
+
+$ python corpus_gate.py
+[PASS] oracle_independence: 4 audit modules import no production financial mathematics
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  1378.4s
 RESULT: GREEN
 EXIT=0
 
@@ -11218,3 +11643,74 @@ one conformance fixture per new registration.
 | `6762bcc` | `burke_herbert` — the mainframe layout filed under a Huntington folder label |
 | `d1eff37` | the short-print shape, pinned by a fixture rather than only by the archive |
 | (this one) | §HUNT-CELL H0–H10 |
+14 passed, 3134 deselected, 1 warning in 1900.69s (0:31:40)
+EXIT=0
+
+$ python -m pytest tests/test_parser_expectations_baseline.py \
+    tests/test_parser_conformance.py tests/test_parser_detection_markers.py \
+    tests/test_no_parser_helper_clones.py tests/test_no_statement_hardcodes.py \
+    tests/test_r1_hardcodes.py tests/test_parser_registry.py \
+    tests/test_parser_registry_entries.py tests/test_count_semantics.py \
+    tests/test_stated_counts.py tests/test_shared_parser_utils.py \
+    tests/test_money.py -q
+1092 passed, 1 warning in 20.67s
+EXIT=0
+
+$ python -m pytest tests/test_shopify_balance.py \
+    tests/test_citibusiness_layouts.py tests/test_zions_layouts.py -q
+75 passed in 1.30s
+EXIT=0
+```
+
+The suite grows 3,013 -> 3,130 (+117), both numbers measured rather than
+copied: `d70efbe` collects 3,013, and the figure above is the run against the
+final committed tree. The last of the 117 is not a test this cell wrote:
+`tests/test_stated_counts.py` parametrizes over `SEMANTICS`, so surveying
+`zions` adds one case to an existing parametrization.
+
+**The cell, per document, over its three folders.** Not "it validated" but
+why — the identity, every printed total, every printed count, and the walk:
+
+```
+outcomes                    : 41 validated / 2 withheld / 2 failed
+instrumented                : 41 sound / 0 unsound
+transactions published      : 4,901
+printed counts assigned     : 26   (13 zions documents x 2 directions)
+balance-walk rows closed    : 3,840 / 3,840   (the two families that print one)
+OCR cache misses            : 0 / 45
+```
+
+**The shipped `analysis/dates.py` narrowing, censused over the whole archive**
+— importing the shipped predicate, not a copy of it:
+
+```
+documents scanned                        : 3,400
+lines the narrowing skips                : 16, all in the Shopify family
+of those, lines the base code COUNTED    : 16
+other folder labels touched              : 0
+```
+
+**Base vs branch, detection over the WHOLE population** — not a stratified
+sample. `resolve()` keeps only registrations at or above the claim threshold,
+so a new registration can move another document only by claiming it or by
+colliding with an existing claim; both are recorded, for every document:
+
+```
+documents compared                                : 3,598  (3,400 readable)
+documents whose PRE-EXISTING claim set changed    : 0
+documents claimed by a new registration           : 43
+    shopify_balance 16 · citibusiness 14 · zions 13
+new-registration collisions with an existing claim: 0
+non-target documents probed                       : 3,357, zero claims
+```
+
+## C9. Commits
+
+| Commit | Contents |
+|---|---|
+| `a915c1f` | card A — the Shopify Balance ledger, registered by its own furniture |
+| `ff568be` | card B — the CitiBusiness CHECKING ACTIVITY statement |
+| `2d2ebe9` | card C — the Zions Bancorporation Statement of Accounts |
+| `234e84c` | `count_semantics` survey for `zions`, and §CITI3 C0–C9 |
+| `be653ed` | log: the proof numbers of the final committed tree |
+| (this one) | review closures: the debit-sum `round()`, the shared-rule pins moved to `tests/test_adb.py`, the anchor's real precision stated, and these corrections |

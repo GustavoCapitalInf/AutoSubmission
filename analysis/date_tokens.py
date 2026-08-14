@@ -28,6 +28,7 @@ __all__ = [
     "iso_from_month_day_strict",
     "iso_from_month_day_year",
     "period_from_long_dates",
+    "iso_unique_in_period",
 ]
 
 _MONTH_DAY_RE = re.compile(r"(\d{2})/(\d{2})")
@@ -136,3 +137,28 @@ def period_from_long_dates(markdown: str) -> tuple[str, str] | None:
         date(int(sy), start_month, int(sd)).isoformat(),
         date(int(ey), end_month, int(ed)).isoformat(),
     )
+
+
+def iso_unique_in_period(month: int, day: int, *, start: date, end: date) -> str | None:
+    """The one date inside the printed period a bare month/day can mean.
+
+    A Date column that prints no year is ambiguous the moment a period
+    straddles a year boundary: `01/02` inside `Dec 1 - Jan 31` belongs to the
+    later year, and `12/31` to the earlier one. The period decides, and only
+    where it decides UNIQUELY — a token that lands inside the period under
+    both candidate years, or under neither, returns None so the caller can
+    fail closed rather than guess a year the document never printed.
+
+    Shared because the alternative is a clone: two registrations reading a
+    `MM/DD` posting column need exactly this, and the guard in
+    `tests/test_no_parser_helper_clones.py` is what says so out loud.
+    """
+    hits = []
+    for year in {start.year, end.year}:
+        try:
+            candidate = date(year, month, day)
+        except ValueError:
+            continue
+        if start <= candidate <= end:
+            hits.append(candidate)
+    return hits[0].isoformat() if len(hits) == 1 else None

@@ -36,6 +36,7 @@ from . import (
     chase,
     chase_savings,
     cibc,
+    citibusiness,
     citizens,
     columbia_bank,
     community_section,
@@ -60,6 +61,7 @@ from . import (
     scanned_small_bank,
     scotia,
     secu,
+    shopify_balance,
     square_checking,
     td_can,
     td_canada_french,
@@ -69,6 +71,7 @@ from . import (
     us_bank,
     wells,
     wilson_muir,
+    zions,
 )
 from .parser_registry import Registration, register, registrations, validate_registry
 
@@ -98,6 +101,7 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("chase_savings", "Chase Savings", chase_savings, "DETECTION_MARKERS", "detection_text", "parse_chase_savings_statement"),
     ("cibc", "CIBC", cibc, "EN_DETECTION_MARKERS", "en_detection_text", "parse_cibc_statement"),
     ("cibc_french", "CIBC", cibc, "DETECTION_MARKERS", None, "parse_cibc_french_statement"),
+    ("citibusiness", "Citibank", citibusiness, "DETECTION_MARKERS", "detection_text", "parse_citibusiness_statement"),
     ("citizens", "Citizens Bank", citizens, "DETECTION_MARKERS", None, "parse_citizens_statement"),
     ("columbia_bank", "Columbia Bank", columbia_bank, "DETECTION_MARKERS", "detection_text", "parse_columbia_bank_statement"),
     ("consumers", "Consumers Credit Union", consumers, "DETECTION_MARKERS", None, "parse_consumers_statement"),
@@ -123,6 +127,7 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("santander", "Santander Bank", santander, "DETECTION_MARKERS", None, "parse_santander_statement"),
     ("scotiabank", "Scotiabank", scotia, "DETECTION_MARKERS", "detection_text", "parse_scotiabank_statement"),
     ("secu", "SECU Maryland", secu, "DETECTION_MARKERS", None, "parse_secu_statement"),
+    ("shopify_balance", "Shopify Balance", shopify_balance, "DETECTION_MARKERS", "detection_text", "parse_shopify_balance_statement"),
     ("southside_scanned", "Southside Bank", scanned_small_bank, "SOUTHSIDE_DETECTION_MARKERS", "detection_text", "parse_southside_scanned_statement"),
     ("square_checking", "Square", square_checking, "DETECTION_MARKERS", "detection_text", "parse_square_checking_statement"),
     ("td_canada", "TD Canada Trust", td_can, "DETECTION_MARKERS", None, "parse_td_canada_statement"),
@@ -138,6 +143,7 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("us_bank", "U.S. Bank", us_bank, "DETECTION_MARKERS", None, "parse_us_bank_statement"),
     ("wells_fargo", "Wells Fargo", wells, "DETECTION_MARKERS", None, "parse_wells_statement"),
     ("wilson_muir", "Wilson & Muir Bank & Trust", wilson_muir, "DETECTION_MARKERS", None, "parse_wilson_muir_statement"),
+    ("zions", "Zions Bancorporation", zions, "DETECTION_MARKERS", "detection_text", "parse_zions_statement"),
 )
 
 #: Per-registration overrides for anything that is not the default. Kept as a
@@ -187,6 +193,21 @@ _OVERRIDES: dict[str, dict] = {
         "integrity_checks": (bmo_us_activity.summary_row_contradictions,)
     },
     "td_canada_native": {"band": 10, "supersedes": frozenset({"td_canada"})},
+    # Shopify prints the period's net movement and closing balance twice: in
+    # the summary block that opens the statement and again in the grid's
+    # closing `Totals` row. Where the two disagree the document contradicts
+    # itself.
+    "shopify_balance": {
+        "integrity_checks": (shopify_balance.totals_contradictions,)
+    },
+    # Citibank reprints the checking product's closing balance in the
+    # relationship block at the top of page 1.
+    "citibusiness": {
+        "integrity_checks": (citibusiness.closing_balance_contradictions,)
+    },
+    # A Zions statement of several accounts prints each closing balance and
+    # their total; the total is what says the accounts read as inert were.
+    "zions": {"integrity_checks": (zions.balance_summary_contradictions,)},
     # Square prints its activity count beside the two balances of the same
     # summary row, so a ledger that does not match it contradicts the document.
     "square_checking": {

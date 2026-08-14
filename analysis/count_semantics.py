@@ -441,6 +441,54 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
             ),
         ),
     },
+    # W3 §CITI3 card C. A new registration, surveyed here rather than left
+    # UNSURVEYED because its printed counts and the rows this parser captures
+    # are the same set BY CONSTRUCTION, and that construction is checked.
+    "zions": {
+        "credit": CountSemantics(
+            comparable=True,
+            # The existing label, not a new one: this IS "one printed figure
+            # per direction". The grid prints one instance count above the
+            # `Deposits/Credits` column and the parser publishes exactly the
+            # rows of the `DEPOSITS/CREDITS` section that column heads.
+            scope="whole_direction",
+            reason=(
+                "The summary grid prints one instance count above the "
+                "`Deposits/Credits` column (analysis/zions.py:_blocks), and "
+                "the parser's credit rows are exactly the rows of the "
+                "`DEPOSITS/CREDITS` section that column heads — one printed "
+                "column, one published direction. Two things stop the sides "
+                "drifting apart silently: the parser refuses any row whose "
+                "printed sign contradicts its section, and it parses the "
+                "grid's column legend rather than assuming it, so a layout "
+                "printing an unknown extra column fails the document closed "
+                "instead of under-counting (analysis/zions.py:_rows, "
+                ":_blocks). Measured over all 13 archive documents of the "
+                "family: 13/13 agree, 0 disagreements, 0 flags raised."
+            ),
+        ),
+        "debit": CountSemantics(
+            comparable=True,
+            scope="multi_category_sum_proven_complete",
+            reason=(
+                "The layout splits money out across TWO printed columns, "
+                "`Withdrawals/Debits` and `Checks Processed`, each with its "
+                "own instance count; the expected side is their sum, and the "
+                "debit TOTAL is the sum of the same two columns, so count and "
+                "total cover one scope — the alignment W3 §FIXUPS-1 corrected "
+                "on `first_community`. Both categories post into the single "
+                "`CHARGES/DEBITS` section, which is what the parser reads; "
+                "`CHECKS PROCESSED` is a register of rows already posted "
+                "there and is deliberately not read, so no cheque is counted "
+                "twice. Measured over all 13 archive documents: 13/13 agree, "
+                "0 disagreements, 0 flags raised. Same caveat as any category "
+                "sum — a third printed debit category this parser did not add "
+                "would under-count the expected side; the family prints none, "
+                "and the grid's column legend is parsed rather than assumed, "
+                "so an unknown third column fails the document closed."
+            ),
+        ),
+    },
 }
 
 #: Applied to any parser that populated a printed count but is not in

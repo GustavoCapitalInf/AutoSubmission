@@ -83,6 +83,14 @@ FIXTURES: dict[str, str] = {
         "Date Description Withdrawals ($) Deposits ($) Balance ($)\n"
     ),
     "cibc_french": "CIBC\nDétail de vos opérations\n",
+    # Issuer furniture only: the legal entity, the product masthead, the
+    # ledger section and its own column header.
+    "citibusiness": (
+        "CITIBANK, N. A. Account Statement Period\n"
+        "CitiBusiness  ACCOUNT AS OF\n"
+        "CHECKING ACTIVITY\n"
+        "Date Description Debits Credits Balance\n"
+    ),
     "citizens": "citizensbank.com\nBalance Calculation\n",
     "columbia_bank": (
         "COLUMBIA BANK\nMARKETPLACE CHECKING\nDEPOSITS/ADDITIONS\nDAILY BALANCES\n"
@@ -130,6 +138,13 @@ FIXTURES: dict[str, str] = {
     "santander": "Santander\nAccount Activity\n",
     "scotiabank": "SCOTIABANK\nThe Bank of Nova Scotia\n",
     "secu": "secumd.org\nFree Business Checking\n",
+    # Every marker is the layout's own printed furniture. The partner banks
+    # named in the statement's disclosure (and in the archive's folder label)
+    # are deliberately absent: they are not what identifies this document.
+    "shopify_balance": (
+        "Shopify Balance\nStatement summary\nTransaction history\n"
+        "Posted Date Transaction Date Description Amount Account balance\n"
+    ),
     "southside_scanned": "SOUTHSIDE\nACCOUNT SUMMARY\nBUILDER ACCOUNT\n",
     "square_checking": (
         "Square Checking Routing number:\nsquareup.com/help\n"
@@ -156,7 +171,20 @@ FIXTURES: dict[str, str] = {
     "truist": "TRUIST\nAccount summary Your previous balance\n",
     "us_bank": "U.S. Bank National Association\nAccount Summary\n",
     "wells_fargo": "WELLS FARGO\nWF_NATIVE_TRANSACTIONS\n",
+    # The issuer, not the trade name: Zions Bancorporation prints this same
+    # layout as Nevada State Bank and as Amegy Bank, and registering on
+    # either brand would leave the other unclaimed.
     "wilson_muir": "WILSON & MUIR\nSMALL BUSINESS PACKAGE SUMMARY\n",
+    # The issuer, not the trade name. Zions Bancorporation prints this same
+    # layout as Nevada State Bank and as Amegy Bank; registering on either
+    # brand would leave the other unclaimed, so the evidence is the corporate
+    # footer every issue carries plus the layout's own column legend.
+    "zions": (
+        "Statement of Accounts\n"
+        "SUMMARY OF ACCOUNT BALANCE\n"
+        "Previous Balance Deposits/Credits Withdrawals/Debits Checks Processed Ending Balance\n"
+        "A division of Zions Bancorporation, N.A.\n"
+    ),
 }
 
 #: The other branch of each disjunctive marker. Same contract as FIXTURES:
