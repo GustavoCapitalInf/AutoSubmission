@@ -118,6 +118,14 @@ FIXTURES: dict[str, str] = {
         "Block Inc. Broadway, Suite Oakland, CA\n"
         "Date Details Activity type Balance Amount\n"
     ),
+    # A member statement: the ACCOUNT SUMMARY, a per-account section heading
+    # and the deposit grid. The loan grid is deliberately absent - a section
+    # printing it is a credit facility, not a deposit ledger.
+    "symitar": (
+        "Statement of Account\nACCOUNT SUMMARY\n"
+        "Free Business Checking ( ID 0210 )\n"
+        "Posting Date Deposit Withdrawal Balance Description\n"
+    ),
     "td_canada": (
         "Accounts issued by: THE TORONTO-DOMINION BANK\n"
         "<table>\n<tr><td>Branch No.</td><td>Account No.</td></tr>\n</table>\n"

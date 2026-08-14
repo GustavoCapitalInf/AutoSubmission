@@ -59,6 +59,7 @@ from . import (
     scotia,
     secu,
     square_checking,
+    symitar,
     td_can,
     td_canada_french,
     td_us,
@@ -123,6 +124,7 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("secu", "SECU Maryland", secu, "DETECTION_MARKERS", None, "parse_secu_statement"),
     ("southside_scanned", "Southside Bank", scanned_small_bank, "SOUTHSIDE_DETECTION_MARKERS", "detection_text", "parse_southside_scanned_statement"),
     ("square_checking", "Square", square_checking, "DETECTION_MARKERS", "detection_text", "parse_square_checking_statement"),
+    ("symitar", "Symitar Credit Union", symitar, "DETECTION_MARKERS", "detection_text", "parse_symitar_statement"),
     ("td_canada", "TD Canada Trust", td_can, "DETECTION_MARKERS", None, "parse_td_canada_statement"),
     ("td_canada_native", "TD Canada Trust", td_can, "NATIVE_DETECTION_MARKERS", "detection_text", "parse_native_td_canada_statement"),
     # The Quebec issue of the same printed grid. No `supersedes` edge and no
