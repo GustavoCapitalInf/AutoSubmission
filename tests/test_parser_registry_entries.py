@@ -76,14 +76,17 @@ EXPECTED_ORDER = [
     "shopify_balance",
     "southside_scanned",
     "square_checking",
+    "symitar",
     "td_canada",
     "td_canada_french",
     "td_us",
     "texas_bank",
     "truist",
     "us_bank",
+    "wealthsimple",
     "wells_fargo",
     "wilson_muir",
+    "woodforest",
     "zions",
 ]
 
@@ -134,8 +137,9 @@ def test_registration_count_matches_the_documented_decision_points():
     and the Zions Bancorporation Statement of Accounts (W3 §CITI3);
     Mercury, Brex, and Found's two documents — the closed statement and
     the month-to-date view the issuer prints a disclaimer on
-    (W3 §FINTECH)."""
-    assert len(pr.registrations()) == 62
+    (W3 §FINTECH); and the Woodforest, Wealthsimple and Symitar layouts
+    (W3 §UNID-PACK-A)."""
+    assert len(pr.registrations()) == 65
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():

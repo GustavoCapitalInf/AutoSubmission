@@ -11610,6 +11610,421 @@ the platform exists to prevent.
 
 All of these run on the merge commit itself, `42c4826` — re-run in full after Ocean's review conditions were applied, since those changed
 production code in all three parsers.
+# §UNID-PACK-A — three registrations out of the Unidentified folder: a balance that is the only oracle, a minus that is not ASCII, and a member statement that is several accounts
+
+## UA0. Summary
+
+Three new registrations, no shared ownership, sequenced independently.
+**35 of the 45 archive documents in the three families move `failed` →
+`validated`, zero documents move down, and every already-claimed document in
+the archive is byte-identical.** The remaining 10 fail closed, each named
+below with its diagnosis.
+
+| family | archive docs | validated | fail closed |
+|---|---|---|---|
+| `woodforest` | 20 | **15** | 3 withheld + 2 declined |
+| `wealthsimple` | 18 | **16** | 1 declined + 1 unclaimed void cheque |
+| `symitar` | 7 | **4** | 3 declined (L-1) |
+
+All 35 are instrumented per document rather than merely claimed: every stated
+total the bank prints equals the published ledger, the balance walk closes on
+the printed closing balance, and `continuity_breaks` is 0. **4,631
+transactions** are published across the 35.
+
+The expected result in the brief was ~41 claimed. It is 35, and the six-document
+gap is not a defect in the readers — it is two facts about the documents that
+the scout's prototype did not measure, both recorded in UA6:
+
+* two Woodforest statements post the account's opening deposit **one day
+  before the period the bank itself prints**, and the platform's ADB engine
+  excludes out-of-period transactions;
+* the Symitar family is **7 documents, not 8**, and three of them carry two
+  genuinely ACTIVE deposit accounts, which the single-account extraction
+  schema cannot represent (L-1).
+
+## UA1. The instrument
+
+Every figure below comes from replaying the archive markdown through the real
+pipeline (`analyze_markdown` + `telemetry.record.classify_outcome` +
+`discovery.runner._failure_reason`), resolved from the D-3 OCR artifact store
+in the main checkout **by direct file path** — the sqlite index was never
+opened. All 3,506 enumerated rows resolve to an artifact; there were zero
+cache misses.
+
+Before any production edit the harness was checked against the run of record
+`88be9dd3`: over the 42 distinct CIBC-folder documents it reproduced the run's
+`outcome_class` **42/42, 0 disagreements**. Those rows are cache-served and
+carry no `parser_id`, so parser identity was enriched from the earlier runs as
+the brief directs (2,093 distinct hashes carry a known `parser_id` across the
+24 recorded runs).
+
+### The scout's numbers, corrected by measurement
+
+| family | scout | measured |
+|---|---|---|
+| Woodforest | 20 docs / 17 rec | 20 docs / **15** validated |
+| Wealthsimple | 17 docs / 16 rec (+3 in the CIBC folder) | 18 distinct / **16** validated |
+| Symitar CU | 8 docs / 8 rec | **7** docs / **4** validated |
+
+**The three "parserless-validated" documents in the CIBC folder are not
+Wealthsimple statements.** They are genuine `CIBC Account Statement`s that
+print `INVESTMENT Wealthsimple Investments Inc.` as a payee, and they are
+claimed and validated by the `cibc` registration — they showed no `parser_id`
+in the run of record only because those rows were cache-served. They needed no
+migration; what they needed was for the new registration not to steal them,
+which is why `wealthsimple` requires the product line and the grid header and
+not the issuer word. All 42 distinct CIBC-folder documents are byte-identical.
+
+## UA2. `woodforest` — the running balance is the only sign oracle
+
+The document prints a `Summary of Accounts` row that states the period's whole
+arithmetic —
+
+    BALANCE FORWARD - TOTAL DEBITS + TOTAL CREDITS = CLOSING BALANCE
+
+— and it holds on all 17 documents whose summary block reads.
+
+The posting grid heads `Date Credits Debits Balance Description`. Credits and
+Debits are two ADJACENT columns and the text layer destroys which of the two a
+magnitude stood in: every posting arrives as one bare number between the date
+and the running balance. The description is not an oracle either — `POS DB`
+and `POS CR` prefix some rows and not others, and plenty of rows carry
+neither.
+
+What the bank prints on every row is the balance AFTER the posting, so
+direction is the movement between two printed balances and magnitude is the
+printed cell — the standard `analysis/scotia.py` established and
+`analysis/cibc.py` applies to the same problem. A row whose printed magnitude
+contradicts that movement keeps a debit reading and the document then fails
+the platform's ledger checks; the sign is never invented to make the
+arithmetic close. The walk is seeded from `BALANCE FORWARD`, because this
+layout prints no opening row inside the grid.
+
+Measured before a line of production code was written, over all 20: the reader
+reproduces **every one of the bank's own printed totals exactly** — credits,
+debits and the closing balance — on all 17 readable documents, with zero rows
+whose magnitude disagrees with the balance movement.
+
+**A date opens a row only where the grid can print one.** The rule is the date
+token followed by BOTH money cells in their printed order; a description does
+not print two money cells that way, so `POS DB INVOICE 03-04 REF 000000001014568`
+stays one row. Pinned.
+
+### The fail-closed five
+
+* **`e96144ab_Royalty2/3/4` — scrambled reading order (3).** These emit the
+  cells of each row out of column order — description, balance, date, amount,
+  and not even consistently — which cannot be reassembled from a linear text
+  stream without the geometry the text layer threw away. Royalty3 and Royalty4
+  decline outright (their summary block does not read); Royalty2's summary
+  reads but all 16 rows the grid yields contradict the balance movement, so it
+  is refused at `withheld_adb`. It is deliberately NOT declined by a
+  "how many rows agree" threshold: that would be a tuned constant, and the
+  platform's own oracles already refuse the document. The parser publishes what
+  it reads and the ledger checks say no — the division of labour `cibc` uses.
+* **`c183e584_Feb` and `fad3db75_document` — an opening deposit posted before
+  the period (2).** Both are mid-cycle account openings: `BALANCE FORWARD` is
+  0.00 and the first posting is dated the day BEFORE the printed
+  `Statement Period` (02-10 for a Feb 11–28 statement; 01-23 for a Jan 24–31
+  one). The bank's own `TOTAL CREDITS` includes it, and the bank's own Daily
+  Closing Balance Summary prints a balance for that day. `analysis/adb.py`
+  excludes out-of-period transactions, so the ledger cannot reconcile and both
+  are withheld. Widening `period_start` to cover the row would invent a period
+  the document does not state, so it was not done. See UA6.1.
+
+Result: **15/15 validated documents instrument sound**, 1,794 transactions.
+
+### What was measured and deliberately NOT published
+
+`stated_average_balance` and `days_in_period` ARE published — both are printed
+in the document's own `Account Summary` block. The bank's average and the
+platform's ADB differ by a systematic sub-dollar amount on 13 of 15 documents
+(and by 60.08 on one), which `analysis/adb.py` already has a designed warning
+for; it is not a required check, so nothing is withheld by it.
+
+`stated_daily_balances` is NOT published, and that was a measurement rather
+than a preference. The Daily Closing Balance Summary is PARTIAL on most
+documents (19 of 28 days, 23 of 30, …) — it prints only days with activity —
+and on `fad3db75_document` it carries a date OUTSIDE the printed period, which
+`adb.py` treats as an invalid snapshot. Anchoring on it also does not close the
+sub-dollar gap: reproducing the bank's average from its own table succeeds on
+exactly the two documents whose table is complete. Publishing it would add
+risk and buy nothing.
+
+## UA3. `wealthsimple` — a printed minus that is not ASCII, and a row that wraps
+
+`Chequing monthly statement`, one account, `DATE POSTED DATE DESCRIPTION
+AMOUNT (CAD) BALANCE (CAD)`.
+
+**The sign glyph.** A withdrawal is set `–$403.00` with **U+2013 EN DASH**. The
+family prints **no ASCII minus in its money at all**: a census of the whole
+family finds 2,469 occurrences of U+2013 and every single one stands
+immediately before an amount cell. The sign is therefore read as an explicit
+class of printed sign glyphs (U+2013, U+2212, U+2014 and ASCII `-`) standing
+immediately before the amount's currency symbol — the position is what makes
+it this cell's sign rather than punctuation belonging to the description, and
+the family prints dashes inside descriptions and addresses (`Co-op`,
+`209 - 31 Rodenbush Drive`) that must not be read as signs. Both are pinned.
+`analysis/money.py` is growing a shared sign-glyph class in a parallel cell
+(MONEY-GRAMMAR); this reader deliberately does not depend on it. **Flagged for
+Ocean's merge — see UA6.3.**
+
+**The row closes on its Balance cell.** A row opens on the two printed dates
+and ends at the amount/balance pair, which is its last column. Reading it that
+way is what lets a long description wrap onto a later physical line — one
+archive row does, and a line-at-a-time reader silently dropped it and broke the
+walk — while the page-2 legal boilerplate printed after the final row is never
+swallowed into it. A first version that closed rows only on the next date
+opener made every document in the family fail; the balance-cell rule fixed all
+18 at once.
+
+**The date.** The layout prints two, and the document itself says which is
+authoritative: *"Posted date is when the transaction is processed and
+finalized. Use this for accounting purposes."* The posted date is published.
+On two documents the two columns differ on 191 and 183 rows, so this is a real
+choice and not a formality.
+
+**The summary block prints its two labels before their two figures**
+(`Your March summary MAR 1 BALANCE / MAR 31 BALANCE / $497.27 / $380.58`), so
+the pairing is positional. Each label carries its own date, which is what lets
+the parser CHECK the pairing against the printed period instead of assuming
+it; a document whose labels do not match is declined. No totals and no counts
+are printed, so every stated total and count stays `None`.
+
+### `analysis/dates.py` — a dated balance label is not a posting row
+
+Two documents were withheld for a reason untrue of them. `source_posting_dates`
+read the summary's `AUG 31 BALANCE` as a posting row, so
+`posting_dates_cover_source` failed on an activity day the statement never had.
+The heuristic's own docstring says balance labels are excluded — but this
+layout prints the label with the DATE as the label's own qualifier, so none of
+the compound wordings in `_NOT_A_POSTING_ROW` ("closing balance", "opening
+balance") ever forms. It bit only the two documents whose last day happens to
+carry no posting.
+
+The narrowing is structure-keyed — the whole remainder after the date is the
+bare word, and there is no money on the line — and carries the same
+direction-of-effect argument FIXUPS-1's `_SUMMARY_TOTAL_ROW` does: it can only
+REMOVE dates from `source_posting_dates`, and the check is
+`source_dates - parsed_dates`, so a document can go from failing to passing and
+never the reverse. **Censused over all 3,380 distinct archive documents, the
+shape occurs in exactly 17 — every one of them this family's, none claimed by
+any other parser.**
+
+Worth recording plainly: on this layout the check is now **vacuous, not
+load-bearing**. Every posting row prints TWO dates, which the heuristic reads
+as a balance grid rather than a posting, so it finds no source dates at all.
+The label was the only date it ever saw, and it was the wrong one. Pinned.
+
+Result: **16/16 validated documents instrument sound**, 2,486 transactions,
+zero continuity breaks.
+
+### The two that fail closed
+
+* **`June_2025.pdf` — zero activity.** It prints the grid header, an opening
+  and closing balance of $0.00, and no rows. It declines. Admitting it is the
+  platform's zero-activity rule (ruled on for Chase as A-prime, applied in
+  §SCOTIA-REBUILD S3.4) and is Ocean's to extend, not this parser's to assume —
+  the same call §RBCCIBC RC8.5 made for the RBC zero-activity statement.
+* **`void_cheque(1).pdf`** is a void cheque, not a statement:
+  `no_parser_matched`.
+
+## UA4. `symitar` — one PDF, several of a member's accounts
+
+The document is a MEMBER statement: an `ACCOUNT SUMMARY` naming every account
+the member holds, then one section per account, re-opened with `(Continued)`
+after each page break. The parser's whole job is deciding which section is a
+ledger this schema can carry, and three distinctions do it.
+
+**A loan facility is not a deposit ledger.** The member's credit products are
+printed in the same document under a different grid — `Date Amount Fees
+Interest Principal Balance Description`, with its own payment and interest
+columns. A section is read only when it prints the deposit grid. This matters
+concretely: a first census that counted any dated money pair as a posting
+found "4 active accounts" on every `fad663aa` document and would have blocked
+all three; three of those four are loans.
+
+**A dormant sibling is not a second ledger.** Members hold share/membership
+accounts that print `No Transactions This Period` beside a beginning balance
+equal to their ending balance. Failing the document closed because such an
+account exists would refuse a perfectly readable statement, so dormant deposit
+siblings are skipped.
+
+**A second ACTIVE deposit account is a document this schema cannot carry.**
+Three `5a75e912` documents hold a Free Business Checking account AND a Money
+Market account that posts a real dividend deposit. Two deposit ledgers cannot
+be represented (L-1), so those three are declined rather than published under
+one account's name.
+
+**The per-account oracle**, and both issues are read:
+
+* the six-figure equation row — `Beginning Balance + Credits/Deposits +
+  Dividends - Debits/Withdrawals = Ending Balance`, with YTD Dividends printed
+  sixth — which states the account's whole arithmetic and holds on every
+  document that prints it; and
+* where none is printed, the account's own entry in the document's
+  `ACCOUNT SUMMARY`, which states its ending balance.
+
+Where the equation row and the grid's own opening row disagree, the document
+contradicts itself and is declined. Dividends are credited to the account and
+post as their own rows, so the stated credit total is the two credit columns
+together — measured, not assumed.
+
+Amount and balance are printed BEFORE the description in both issues and the
+amount carries its own printed sign, so here the running balance is a
+cross-check rather than the sign oracle it has to be on Woodforest.
+
+Result: **4/4 validated documents instrument sound**, 351 transactions.
+
+| document | accounts | active deposit | outcome |
+|---|---|---|---|
+| `5a75e912_jan26` | 2 deposit | 2 (checking 207 rows, money market 1) | declined, L-1 |
+| `5a75e912_feb26` | 2 deposit | 2 (135 / 1) | declined, L-1 |
+| `5a75e912_april26` | 2 deposit | 2 (184 / 1) | declined, L-1 |
+| `5a75e912_march26` | 2 deposit | 1 (181 rows; sibling dormant) | **validated** |
+| `fad663aa_Apr 2026` | 3 deposit + 3 loan | 1 (64 rows) | **validated** |
+| `fad663aa_May 2026` | 3 deposit + 3 loan | 1 (59 rows) | **validated** |
+| `fad663aa_June 2026` | 3 deposit + 3 loan | 1 (47 rows) | **validated** |
+
+## UA5. Scope, semantics and the wider probe
+
+**Zero cross-claims.** The registry goes 53 → 56 and the conformance
+cross-product is now 56 × 55 = 3,080 negative assertions, all passing. Two of
+the three new fixtures exist specifically to pin a counterparty trap that is
+real in this archive rather than hypothetical:
+
+* another issuer's statement naming **Woodforest** in a payee line (there are
+  two such documents in the archive, one in the Chase folder and one claimed
+  by `navy_federal`, both already validated by their own parsers);
+* a **CIBC** statement naming `INVESTMENT Wealthsimple Investments Inc.` as a
+  payee (three such documents, all in the CIBC folder).
+
+Neither reaches the new registration, because in both cases the institution
+word is only one of three required markers and the other two are the
+document's own printed column headers.
+
+**The probe is the whole archive, not a sample.** The brief asks for a
+stratified non-target probe of at least 400 documents; the before/after sweep
+below covers all **3,380 distinct documents across all 68 folder labels**,
+which is a superset of any stratified sample. Across it, the three new
+registrations claim **exactly 44 documents — woodforest 20, wealthsimple 17,
+symitar 7 — and not one document outside their own families.** No other
+parser's claim set changes anywhere.
+
+**`count_semantics` — nothing to review.** `analysis/count_semantics.py` is
+untouched and no new registration emits a stated count: Woodforest prints two
+totals with no instance count beside either, Wealthsimple prints no totals at
+all, and Symitar's equation row prints figures rather than counts. All three
+ids are therefore correctly UNSURVEYED and the stated-count check cannot fire
+on them. Deriving counts from the ledger would manufacture the oracle the
+platform checks the ledger against.
+
+**Currency is set explicitly on all three** — `USD` for Woodforest and
+Symitar, `CAD` for Wealthsimple, whose activity grid states it in both money
+column headings. None of the three inherits the schema default, so none
+repeats the `rbc` `currency="USD"` defect recorded in §RBCCIBC RC8.1.
+
+## UA6. Carried findings and questions for Ocean
+
+1. **FOLLOW-UP CARD — a mid-cycle opening deposit posted before the printed
+   period.** Two Woodforest statements (`c183e584_Feb`, `fad3db75_document`)
+   are fully readable — every printed total matches the published ledger
+   exactly — and are withheld only because their single opening deposit is
+   dated the day BEFORE the `Statement Period` the bank prints, while
+   `analysis/adb.py` requires `transactions_within_period`. The document is
+   internally consistent: the bank's own `TOTAL CREDITS` includes the row and
+   its own daily balance table prints a balance for that day. This cell did
+   NOT widen the period to cover the row — that would invent a period the
+   document does not state — and did not move the row to a boundary day, which
+   `adb.py` explicitly refuses to do. Whether the ADB engine should admit a
+   pre-period opening posting when `BALANCE FORWARD` is 0.00 is a platform
+   policy question and Ocean's to rule on, exactly as the zero-activity rule
+   was. Two documents turn on it.
+2. **The Symitar family is 7 documents, not 8, and 3 are L-1 blocked.** The
+   brief's "8/8" is not reachable, and the family size is now measured over
+   the whole archive rather than sampled: `symitar` claims exactly 7 documents
+   in 3,380. Three of them carry two genuinely active deposit accounts (a
+   checking account and a money market that posts a real dividend), which the
+   single-account extraction schema cannot represent. They are declined, not
+   mis-published. They are also a small, well-understood test case for L-1
+   whenever it is scheduled: the sections, their per-account oracles and their
+   boundaries are already parsed by `analysis/symitar.py`, so the remaining
+   work is schema and packaging rather than reading.
+3. **MERGE OVERLAP — the shared sign-glyph class.** `analysis/wealthsimple.py`
+   defines its own `_SIGN_GLYPHS` (U+2013, U+2212, U+2014, ASCII `-`) and
+   reads it positionally, immediately before the amount's currency symbol. The
+   MONEY-GRAMMAR cell is landing a shared class for the same problem in
+   `analysis/money.py`. The brief said not to depend on it and this reader does
+   not, so the two are independent and cannot conflict at merge — but they ARE
+   duplicate knowledge, and once MONEY-GRAMMAR is merged this parser should be
+   moved onto the shared class in a follow-up that proves byte-identity over
+   the 16 documents. Flagged so it is a deliberate decision rather than a
+   forgotten duplicate.
+4. **`analysis/dates.py` is shared, and this cell narrowed it.** The change is
+   structure-keyed and can only shrink `source_posting_dates` — so
+   `posting_dates_cover_source` can go from failing to passing and never the
+   reverse. The shape it excludes was censused over all 3,380 distinct archive
+   documents and occurs in exactly 17, every one of them Wealthsimple's, and
+   the full sweep confirms no document outside the three families changed by a
+   byte. It is nonetheless a shared module and the second cell in a row to
+   narrow this one heuristic (FIXUPS-1 `8ec039e` was the first), which is
+   itself worth noticing: the guard is tuned to be quiet and each new layout
+   finds a new false positive in it. A layout-declared
+   `SOURCE_POSTING_DATES_BEGIN` block already exists as the authoritative
+   alternative; migrating native parsers onto it would retire the heuristic
+   rather than keep narrowing it.
+5. **`posting_dates_cover_source` is vacuous on any layout printing two dates
+   per row.** On the Wealthsimple grid the heuristic sees two date tokens on
+   every posting line and classifies them as a balance grid, so after the
+   narrowing it finds NO source dates at all and the check passes trivially.
+   The 16 documents are protected by the balance walk and the summary
+   identity, not by this check. Recorded because a check that is quiet for a
+   good reason and a check that is quiet because it cannot see anything look
+   identical in a report.
+6. **The detect-sweep budget is now the binding constraint on registry
+   growth.** `test_detect_sweep_stays_affordable_for_the_discovery_run` FAILED
+   on this cell's first corpus-marked run — the three new registrations each
+   built a whole-document normalized copy on every detect, and the worst
+   full-registry sweep reached the 250 ms limit. Removing the normalization
+   from all three (proven a detection no-op over 3,367 documents, 0
+   disagreements) brought the worst sweep to **202.9 ms**. That is 81% of the
+   budget with 56 registrations, and the cost is per-document on every
+   discovery run. The next few registrations will hit this wall. The
+   structural fix is not to keep shaving parsers but to stop running 56
+   full-document scans per document — a cheap pre-filter, or markers compiled
+   into one alternation — and it is worth a platform card now rather than
+   after the next cell is blocked. The three most expensive registrations
+   today are `rbc_french` (17.7 ms), `rbc` (15.5 ms) and `cibc` (14.0 ms),
+   none of them this cell's.
+7. **`ANALYSIS_STAGE_VERSION` needs a bump on merge, and this cell did not
+   make it.** 38 documents change their analysis output, so every cached
+   payload for them is stale; `webapp/artifact_cache.py` documents that a code
+   change altering analysis output must bump the version in the same commit.
+   The brief reserves the bump to Ocean, so `webapp/` is untouched here.
+   Nothing outside `analysis/woodforest.py`, `analysis/wealthsimple.py`,
+   `analysis/symitar.py`, `analysis/dates.py`,
+   `analysis/parser_registry_entries.py` and the tests was modified:
+   `webapp/`, `ocr/`, `pipeline.py`, `adb.py`, `count_semantics.py`,
+   `reconcile.py` and `metrics.py` carry a zero-line diff against `a46555c`.
+8. **Woodforest's printed average and the platform's ADB disagree by a
+   systematic sub-dollar amount** on 13 of 15 documents (0.38–0.50), and by
+   60.08 on `b9f577f9_WNBStatement 3`. Reproducing the bank's figure from its
+   OWN daily balance table gives the platform's answer, not the bank's, on
+   every document whose table is complete — so the difference is a convention
+   in how Woodforest averages (its `Average Collected Balance` is printed
+   equal to its `Average Balance`, which suggests the collected-funds reading
+   `adb.py`'s warning already names) rather than a reading error. Nothing is
+   withheld by it. Recorded so the warning is not rediscovered as a defect.
+9. **The three scrambled `Royalty` documents are a visual-rung candidate.**
+   Their text layer has the right glyphs in the wrong order, which is exactly
+   the class a geometry-aware or visual read fixes and a linear reader cannot.
+   They are the same shape as the 19-document geometry class already recorded
+   in the wave. No action taken.
+
+## UA7. Proofs
+
+Exit codes verbatim; every command run in the worktree, all against the final
+tree.
 
 ```
 $ python corpus_gate.py
@@ -12127,6 +12542,18 @@ EXIT=0
 
 $ python -m pytest -q
 3148 passed, 18 deselected, 1 warning in 193.47s (0:03:13)
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  480.8s
+RESULT: GREEN
+EXIT=0
+
+$ python -m pytest -q
+3095 passed, 18 deselected, 1 warning in 239.99s (0:03:59)
+EXIT=0
+
+$ python -m pytest -m corpus -q
+14 passed, 3099 deselected, 1 warning in 1261.32s (0:21:01)
 EXIT=0
 
 $ python -m pytest tests/test_parser_expectations_baseline.py \
@@ -12286,3 +12713,197 @@ when someone simplifies it back to the alternative.
 | `c452b88` | §FINTECH FT0–FT10 |
 | `946d6ad` | the corpus gate and corpus-marked suite, re-run on the merge commit |
 | (this one) | Ocean's review conditions: the MTD title boundary, the corrected fixture claim, Brex alignment, records |
+1086 passed, 1 warning in 5.68s
+EXIT=0
+
+$ python -m pytest tests/test_woodforest.py tests/test_wealthsimple.py \
+    tests/test_symitar.py -q
+46 passed in 0.29s
+EXIT=0
+```
+
+The before/after sweep, over every distinct document in the archive, comparing
+the canonical JSON of the whole analysis payload under `a46555c` and under this
+branch:
+
+```
+# full population, base a46555c -> this branch
+documents compared      : 3380
+byte-identical payloads : 3342
+payload changed         :   38
+moved UP                :   38
+moved DOWN              :    0
+```
+
+All 38 movers are named in UA0–UA4: 35 `failed -> validated` and 3
+`failed -> withheld` (the two out-of-period opening deposits and the scrambled
+`Royalty2`). **No document outside the three families changed by a byte.**
+
+```
+# the three families, per document, through the real pipeline
+woodforest   : 20 claimed -> 15 validated / 3 withheld / 2 declined
+wealthsimple : 17 claimed -> 16 validated / 1 declined  (+1 void cheque unclaimed)
+symitar      :  7 claimed ->  4 validated / 3 declined (L-1)
+
+# per-document instrument over every validated document in the three families
+instrumented validated documents: 35 sound / 0 unsound
+transactions published          : 4,631
+
+# detection equivalence for the normalization removal
+documents checked        : 3367
+detection disagreements  :    0
+
+# archive-wide claim census for the three new registrations
+woodforest 20 · wealthsimple 17 · symitar 7 · outside their families: 0
+```
+
+Fixtures: 16 in `tests/test_woodforest.py`, 16 in `tests/test_wealthsimple.py`
+(three of them over the narrowed `analysis/dates.py` heuristic), 14 in
+`tests/test_symitar.py` — 46 in all, 49 after the review amendments (UA9) —
+plus one conformance fixture per registration. Test count 3,013 → 3,098.
+
+## UA8. Commits
+
+| Commit | Contents |
+|---|---|
+| `f83f5cb` | `woodforest` — a new registration, signed by the balance the bank prints |
+| `c083c4b` | `wealthsimple` — a new registration that reads the printed minus, and `analysis/dates.py`: a dated balance label is not a posting row |
+| `b79e990` | `symitar` — a member statement, read on its one active deposit account |
+| `0e84758` | the three new registrations declare no normalization (the affordability budget). NOT detection-only, and the commit subject overstates it: dropping the normalization also required rewriting two `symitar` PARSE-path regexes (`_ACCOUNT_SUMMARY_RE`, `_SECTION_RE`) to tolerate the raw text's leading and trailing spaces. Detection equivalence was proven at the time over 3,367 documents; PARSE equivalence is proven in UA9 — 45/45 family payloads byte-identical |
+| `3126af5` | §UNID-PACK-A UA0–UA8 |
+| (this one) | UA9 — the adversarial-review fixes: the L-1 guard's fail-open, the Symitar refuse convention, and four record corrections |
+
+## UA9. Amendments from adversarial review
+
+Ocean's review reproduced all eight claims independently and returned SHIP with
+one BLOCK-grade fix and three closures. All are applied below. **No outcome
+moves: all 45 family documents are byte-identical to the reviewed branch.**
+
+### UA9.1 The L-1 guard failed OPEN (the blocker)
+
+`woodforest._accounts` collected summary rows only while they were
+CONSECUTIVE and stopped at the first line that did not match. A summary block
+whose rows straddle a page break prints `--- Page 2 ---` and the page's own
+header between them — so a **two-account document would have been read as
+one account and published**. That is the exact inversion of what the guard
+exists for: a control designed to fail closed must not fail open, and this one
+did.
+
+The fix is structural rather than a wider tolerance. The summary region is now
+bounded by **its own printed close** — the `Transactions` label or the activity
+grid's column header, both of which the document prints to open the
+per-account sections — and every summary row inside that region is collected
+while anything else in it is skipped. Line adjacency is no longer load-bearing.
+
+The reviewer's exact construction is pinned as
+`test_a_second_account_split_by_a_page_break_still_fails_closed`, and a second
+fixture pins that collecting across the region does NOT run past its close
+(the account section that follows prints the same product name and number, and
+the postings below it print money of their own).
+
+**Why no document moves:** all 20 archive Woodforest documents are
+single-account, so the defect was latent rather than live. It would have gone
+live on the first genuinely multi-account Woodforest statement — which is
+precisely the document the guard was written for.
+
+### UA9.2 Symitar's silent row drop, aligned to the refuse convention
+
+A posting whose `MM/DD` could not be resolved was `continue`d — dropped from
+the ledger without a word — while this cell's own `woodforest._postings`
+returns None and refuses the document for the same condition. Two readers, two
+conventions, in one cell. Symitar now refuses: a row the grid printed but the
+reader cannot resolve is a hole in the ledger, and a hole must refuse the
+document rather than shrink it silently. Pinned with an unresolvable `02/30`.
+
+### UA9.3 The `$`-blind `_ROW_RE`, recorded
+
+`symitar._ROW_RE`'s money alternatives do not admit a currency symbol, while
+the opening and closing rows this layout prints DO carry one
+(`05/01/26 $ 1,000.00 Beginning Balance`). A posting row that ever printed `$`
+would not open a row and would be swallowed into the previous row's
+description. **Censused: across all 7 family documents the number of dated `$`
+amounts that are not a Beginning/Ending Balance row is zero.** Left as-is
+deliberately — widening the pattern to admit `$` would make the opening row
+itself match as a posting, which is the more dangerous of the two errors — and
+recorded at the pattern.
+
+### UA9.4 The ±0.01 tolerance is a rounding allowance, not a repair budget
+
+Inherited verbatim from `cibc._en_sign_from_balances`. Where it admits the
+balance movement, the published amount becomes the MOVEMENT rather than the
+bank's printed magnitude, which is a silent preference worth stating.
+Measured over the whole Woodforest family:
+
+```
+rows total                          : 1,887
+delta == printed magnitude exactly  : 1,871
+NON-TRIVIAL repairs (0 < gap <= 0.01):     0
+outside tolerance (kept as a debit) :    16   (all of them Royalty2's)
+```
+
+So every amount this parser publishes is the bank's own printed cell, and the
+convention has never once altered one. Recorded at the function, because that
+stays true only while the census stays at zero.
+
+### UA9.5 The wealthsimple furniture claim is conditional
+
+"The page furniture printed after the final row is never swallowed into it"
+holds **only while the final row closes**. Two constructions break it, and
+both are now stated at the module docstring and in the fixture:
+
+* a wrapped description that happens to END in something the tail pattern
+  reads as an amount/balance pair closes the row early, and the rest of the
+  description becomes furniture;
+* if the final row never closes, the boilerplate after it is accumulated into
+  that row until something completes the pair.
+
+Neither occurs in the family — all 16 documents read with zero unread rows —
+and both fail closed downstream, because a row published with the wrong amount
+breaks the balance walk the summary block is checked against. Recorded rather
+than guarded, so the claim is not read as unconditional.
+
+### UA9.6 The normalization commit was not detection-only
+
+`0e84758`'s subject says "detection", and that overstates what it touched.
+Dropping the whole-document normalization also required rewriting two `symitar`
+**parse-path** regexes — `_ACCOUNT_SUMMARY_RE` and `_SECTION_RE` — to tolerate
+the leading and trailing spaces the collapsing pass had been stripping. Both
+are used by `_sections` and `_account_summary_balances` during parsing, not
+only during detection. Detection equivalence was proven at the time (3,367
+documents, 0 disagreements); **parse equivalence is proven here**, in the
+sweep below.
+
+### UA9.7 Proofs for the amendments
+
+```
+$ python -m pytest tests/test_woodforest.py tests/test_wealthsimple.py \
+    tests/test_symitar.py -q
+49 passed in 0.38s
+EXIT=0
+
+$ python -m pytest tests/test_parser_conformance.py \
+    tests/test_parser_registry_entries.py tests/test_parser_registry.py \
+    tests/test_parser_detection_markers.py tests/test_no_parser_helper_clones.py \
+    tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+    tests/test_count_semantics.py tests/test_stated_counts.py \
+    tests/test_shared_parser_utils.py tests/test_money.py \
+    tests/test_parser_expectations_baseline.py -q
+1086 passed, 1 warning in 6.27s
+EXIT=0
+
+$ python -m pytest -q
+3098 passed, 18 deselected, 1 warning in 181.90s (0:03:01)
+EXIT=0
+
+# the three families re-swept at HEAD, against the reviewed branch's payloads
+family documents compared    : 45
+byte-identical               : 45
+changed                      :  0
+
+  woodforest    15 validated / 3 withheld     wealthsimple  16 validated
+  symitar        4 validated                  unclaimed      7 failed
+```
+
+The L-1 guard fix moves nothing (all 20 Woodforest documents are
+single-account), and the same sweep is what proves UA9.6's two parse-path
+regexes byte-identical over all 45.

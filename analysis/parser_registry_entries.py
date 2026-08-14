@@ -66,14 +66,17 @@ from . import (
     secu,
     shopify_balance,
     square_checking,
+    symitar,
     td_can,
     td_canada_french,
     td_us,
     texas_bank,
     truist,
     us_bank,
+    wealthsimple,
     wells,
     wilson_muir,
+    woodforest,
     zions,
 )
 from .parser_registry import Registration, register, registrations, validate_registry
@@ -143,6 +146,7 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("shopify_balance", "Shopify Balance", shopify_balance, "DETECTION_MARKERS", "detection_text", "parse_shopify_balance_statement"),
     ("southside_scanned", "Southside Bank", scanned_small_bank, "SOUTHSIDE_DETECTION_MARKERS", "detection_text", "parse_southside_scanned_statement"),
     ("square_checking", "Square", square_checking, "DETECTION_MARKERS", "detection_text", "parse_square_checking_statement"),
+    ("symitar", "Symitar Credit Union", symitar, "DETECTION_MARKERS", None, "parse_symitar_statement"),
     ("td_canada", "TD Canada Trust", td_can, "DETECTION_MARKERS", None, "parse_td_canada_statement"),
     ("td_canada_native", "TD Canada Trust", td_can, "NATIVE_DETECTION_MARKERS", "detection_text", "parse_native_td_canada_statement"),
     # The Quebec issue of the same printed grid. No `supersedes` edge and no
@@ -154,8 +158,10 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("texas_bank", "Texas Bank and Trust", texas_bank, "DETECTION_MARKERS", None, "parse_texas_bank_statement"),
     ("truist", "Truist", truist, "DETECTION_MARKERS", None, "parse_truist_statement"),
     ("us_bank", "U.S. Bank", us_bank, "DETECTION_MARKERS", None, "parse_us_bank_statement"),
+    ("wealthsimple", "Wealthsimple", wealthsimple, "DETECTION_MARKERS", None, "parse_wealthsimple_statement"),
     ("wells_fargo", "Wells Fargo", wells, "DETECTION_MARKERS", None, "parse_wells_statement"),
     ("wilson_muir", "Wilson & Muir Bank & Trust", wilson_muir, "DETECTION_MARKERS", None, "parse_wilson_muir_statement"),
+    ("woodforest", "Woodforest National Bank", woodforest, "DETECTION_MARKERS", None, "parse_woodforest_statement"),
     ("zions", "Zions Bancorporation", zions, "DETECTION_MARKERS", "detection_text", "parse_zions_statement"),
 )
 

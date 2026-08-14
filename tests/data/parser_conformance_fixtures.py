@@ -185,6 +185,14 @@ FIXTURES: dict[str, str] = {
         "Block Inc. Broadway, Suite Oakland, CA\n"
         "Date Details Activity type Balance Amount\n"
     ),
+    # A member statement: the ACCOUNT SUMMARY, a per-account section heading
+    # and the deposit grid. The loan grid is deliberately absent - a section
+    # printing it is a credit facility, not a deposit ledger.
+    "symitar": (
+        "Statement of Account\nACCOUNT SUMMARY\n"
+        "Free Business Checking ( ID 0210 )\n"
+        "Posting Date Deposit Withdrawal Balance Description\n"
+    ),
     "td_canada": (
         "Accounts issued by: THE TORONTO-DOMINION BANK\n"
         "<table>\n<tr><td>Branch No.</td><td>Account No.</td></tr>\n</table>\n"
@@ -204,11 +212,27 @@ FIXTURES: dict[str, str] = {
     "texas_bank": "Texas Bank and Trust\nWITHDRAWALS AND OTHER DEBITS (CONTINUED)\n",
     "truist": "TRUIST\nAccount summary Your previous balance\n",
     "us_bank": "U.S. Bank National Association\nAccount Summary\n",
+    # The issuer name alone is NOT this parser's evidence: three CIBC
+    # statements in the archive name Wealthsimple in a payee line. The
+    # product line and the activity grid's column header are what make the
+    # document Wealthsimple's own statement.
+    "wealthsimple": (
+        "Chequing monthly statement\nWealthsimple\n"
+        "DATE POSTED DATE DESCRIPTION AMOUNT (CAD) BALANCE (CAD)\n"
+    ),
     "wells_fargo": "WELLS FARGO\nWF_NATIVE_TRANSACTIONS\n",
     # The issuer, not the trade name: Zions Bancorporation prints this same
     # layout as Nevada State Bank and as Amegy Bank, and registering on
     # either brand would leave the other unclaimed.
     "wilson_muir": "WILSON & MUIR\nSMALL BUSINESS PACKAGE SUMMARY\n",
+    # The institution alone is NOT this parser's evidence: other issuers'
+    # statements name Woodforest in a payee line. The two printed column
+    # headers are what make the document Woodforest's own statement.
+    "woodforest": (
+        "www.woodforest.com\nSummary of Accounts\n"
+        "ACCOUNT TYPE AND NUMBER BALANCE FORWARD TOTAL DEBITS TOTAL CREDITS CLOSING BALANCE\n"
+        "Transactions\nDate Credits Debits Balance Description\n"
+    ),
     # The issuer, not the trade name. Zions Bancorporation prints this same
     # layout as Nevada State Bank and as Amegy Bank; registering on either
     # brand would leave the other unclaimed, so the evidence is the corporate
