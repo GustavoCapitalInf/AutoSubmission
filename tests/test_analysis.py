@@ -1030,9 +1030,43 @@ def test_parse_first_citizens_statement_reconciles_section_totals():
     assert stmt.stated_average_balance == 8117.14
     assert round(sum(t.amount for t in stmt.transactions if t.amount > 0), 2) == 99911.91
     assert round(-sum(t.amount for t in stmt.transactions if t.amount < 0), 2) == 84063.49
-    assert any("Specialty Capit Funding" in t.description for t in stmt.transactions)
-    assert any("Overdraft Charge" in t.description for t in stmt.transactions)
+    # Counts and the service charge come off the printed summary too, and the
+    # counts account for every posting: 10 deposits + 9 other credits,
+    # 11 cheques + 86 other debits.
+    assert stmt.stated_credit_count == 19
+    assert stmt.stated_debit_count == 97
+    assert stmt.stated_credit_count + stmt.stated_debit_count == len(stmt.transactions)
+    assert stmt.stated_service_charge == 0.0
+    # Cheques keep their printed serial; the deposits grid prints no
+    # description column at all.
+    assert any(t.description == "Check #1181" for t in stmt.transactions)
     assert reconcile(stmt).ok
+
+
+def test_first_citizens_reconciliation_is_not_an_identity():
+    """The balances are READ, so breaking the detail must break reconcile.
+
+    The parser this replaced computed `beginning = ending - credits + debits`
+    from its own transaction sums, which made `beginning + credits - debits ==
+    ending` true by construction: reconciliation could not fail however wrong
+    the postings were. Dropping a posting must now be visible, and that is the
+    whole point of taking both balances off the printed summary.
+    """
+    md = _artifact_markdown("064_First Citizens Bank.md")
+    stmt = parse_first_citizens_statement(md)
+    assert stmt is not None
+    assert reconcile(stmt).ok
+
+    damaged = stmt.model_copy(deep=True)
+    damaged.transactions = damaged.transactions[:-1]
+    assert not reconcile(damaged).ok
+
+
+def test_first_citizens_declines_a_statement_with_no_printed_summary():
+    """No control record, no parse — the figures are not inferable."""
+    md = _artifact_markdown("064_First Citizens Bank.md")
+    without_summary = md.replace("Statement Period Days Average Ledger Balance", "")
+    assert parse_first_citizens_statement(without_summary) is None
 
 
 def test_ibc_source_summary_conflict_fails_closed():

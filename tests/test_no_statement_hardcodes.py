@@ -1,13 +1,36 @@
 """R-1 guard: statement-specific constants must never return to the parsers.
 
-Scans the seven R-1 parser/repair modules for (a) the exact literals removed
-by R-1 and (b) forbidden pattern classes: literal 4-digit years outside
-date-parsing context, long literal account-number digit runs, exact-cent
-amount constants, and raw mojibake byte sequences. Test fixtures may contain
-such strings (they represent documents); production parser code may not.
+Scans the parser layer for (a) the exact literals removed by R-1 and (b)
+forbidden pattern classes: literal 4-digit years outside date-parsing context,
+long literal account-number digit runs, exact-cent amount constants, literal
+calendar fields pinned into a pattern, and raw mojibake byte sequences. Test
+fixtures may contain such strings (they represent documents); production
+parser code may not.
+
+Why some scans are layer-wide and some are not
+----------------------------------------------
+R-4b established that scoping a scan to a remembered list of files is itself
+the defect: a customer name was found in `farmers_merchants.py` precisely
+because that file was never on the list, and the literal scan was widened to
+the whole layer in response. That lesson was never carried across to the
+pattern-class scans, which stayed bound to :data:`GUARDED_FILES` — and
+`analysis/first_citizens.py` then carried four memorized section totals
+(`55049.85`, `44862.06`, `9800.18`, `74263.31`) and two memorized section
+terminators for as long as it existed. `AMOUNT_RE` matches every one of them.
+The scan simply never looked at that file.
+
+The year, amount and calendar scans are therefore layer-wide as of this
+change; their blast radius was measured first and is recorded in
+:data:`PATTERN_SCAN_EXEMPT` and :data:`CALENDAR_BASELINE`. The account-number
+and mojibake scans remain list-scoped for now: widening them lights up six
+modules owned by other cells (`consumers.py`, `ibc.py`, `cibc.py`,
+`columbia_bank.py`, `navigant.py`, `truist.py`), and turning another cell's
+work red mid-wave is not this guard's call to make. That backlog is named
+here so it is visible rather than forgotten.
 """
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -67,16 +90,68 @@ AMOUNT_RE = re.compile(r"(?<![\d.])\d+\.\d{2}(?![\d.])")
 #: Raw mojibake byte sequences; only escape literals are acceptable.
 MOJIBAKE_RE = re.compile("[ÃÂ]|â€")
 
+#: A literal calendar field welded into a pattern: two digits, optionally
+#: parenthesised as a capture group, sitting immediately before a regex
+#: whitespace or date separator. This is the class no other rule could see —
+#: a bare `03` is too short for `ACCOUNT_RE`, carries no decimal for
+#: `AMOUNT_RE`, and is not a year — and it is what let
+#: `analysis/first_citizens.py` pin the statement MONTH into two row regexes
+#: (`r"03\s+([\d,]+\.\d{2})([+-])"` and `r"\b(03)\s+(\d[\d,]*\.\d{2})"`), so
+#: the parser could only ever read a March statement. A quantifier such as
+#: `\d{2}` is a single digit between braces and does not match; a two-digit
+#: run inside a longer number does not match either.
+CALENDAR_RE = re.compile(r"(?<![\d\\])\(?(\d{2})\)?(?=\\s|\\-|-|/)")
+
+#: Modules the amount scan does not apply to: the deterministic math layer,
+#: where an exact-cent constant is a TOLERANCE (`1.00`, `0.98`, `1.02`) rather
+#: than a figure copied off a statement. Verified by reading every match in
+#: each file at the time this exemption was written. No parser is exempt.
+PATTERN_SCAN_EXEMPT = {"metrics.py", "pipeline.py", "reconcile.py"}
+
+#: Calendar literals that predate this scan, with the module that owns them.
+#: A ratchet, not a pardon: nothing new may be added, and each entry names a
+#: real memorized value that its owning cell should clear.
+#:   first_community.py - `--- Page 12 ---` (a memorized page number) and
+#:   `10/31 Ending Balance` (a memorized posting date), both used as section
+#:   boundaries.
+CALENDAR_BASELINE = {"first_community.py"}
+
 
 def _code_lines(path: Path):
-    """Source lines with comments and docstrings stripped."""
+    """Source lines with comments and docstrings stripped.
+
+    Docstrings are blanked line for line rather than collapsed, so the numbers
+    reported to a failing developer are the numbers in the file. Collapsing
+    them to `""` shifted every subsequent line number by the length of the
+    docstring above it, which made offender reports point at the wrong code.
+    """
     text = path.read_text(encoding="utf-8")
-    # Remove triple-quoted strings (docstrings/comments in this codebase).
-    text = re.sub(r'"""(?:[^"]|"(?!""))*"""', '""', text, flags=re.DOTALL)
+
+    def blank(match: re.Match[str]) -> str:
+        return '""' + "\n" * match.group(0).count("\n")
+
+    text = re.sub(r'"""(?:[^"]|"(?!""))*"""', blank, text, flags=re.DOTALL)
     for number, raw in enumerate(text.splitlines(), 1):
         line = raw.split("#", 1)[0]
         if line.strip():
             yield number, line
+
+
+def _parser_modules() -> list[Path]:
+    """Every module in the parser layer the pattern scans apply to."""
+    return [
+        path
+        for path in sorted(ANALYSIS_DIR.glob("*.py"))
+        if path.name not in LITERAL_SCAN_EXEMPT
+    ]
+
+
+def _pattern_strings(path: Path):
+    """Every string constant in a module, with its real line number."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            yield node.lineno, node.value
 
 
 def test_removed_literals_stay_removed_anywhere_in_analysis():
@@ -108,16 +183,120 @@ def test_removed_literals_stay_removed(filename):
     assert not hits, f"{filename} reintroduces statement-specific literals: {hits}"
 
 
-@pytest.mark.parametrize("filename", GUARDED_FILES)
-def test_no_literal_years_outside_date_parsing(filename):
+def test_no_literal_years_outside_date_parsing():
+    """Layer-wide. Measured blast radius when this was widened: zero."""
     offenders = []
-    for number, line in _code_lines(ANALYSIS_DIR / filename):
-        if not YEAR_RE.search(line):
-            continue
-        if "2000 +" in line or "+= 2000" in line or "+ 2000" in line:
-            continue
-        offenders.append(f"{filename}:{number}: {line.strip()}")
+    for path in _parser_modules():
+        for number, line in _code_lines(path):
+            if not YEAR_RE.search(line):
+                continue
+            if "2000 +" in line or "+= 2000" in line or "+ 2000" in line:
+                continue
+            offenders.append(f"{path.name}:{number}: {line.strip()}")
     assert not offenders, f"literal year constants: {offenders}"
+
+
+def test_no_exact_amount_constants_anywhere_in_analysis():
+    """Layer-wide, and the scan that would have caught `first_citizens.py`.
+
+    That module pinned four section totals off one statement and gated its
+    whole parse on them. Every one matches `AMOUNT_RE`; nothing was looking.
+    """
+    offenders = []
+    for path in _parser_modules():
+        if path.name in PATTERN_SCAN_EXEMPT:
+            continue
+        for number, line in _code_lines(path):
+            for match in AMOUNT_RE.finditer(line):
+                if float(match.group(0)) >= 1.0:
+                    offenders.append(f"{path.name}:{number}: {line.strip()}")
+                    break
+    assert not offenders, f"exact-cent amount constants: {offenders}"
+
+
+def test_no_literal_calendar_fields_in_patterns():
+    """Layer-wide. A pinned month or day makes a parser read one statement.
+
+    `CALENDAR_BASELINE` holds the modules that already carried such a literal
+    when this scan was written; a module outside it may carry none.
+    """
+    offenders = []
+    for path in _parser_modules():
+        if path.name in CALENDAR_BASELINE:
+            continue
+        for number, text in _pattern_strings(path):
+            if "\\d" not in text and "\\s" not in text:
+                continue
+            for match in CALENDAR_RE.finditer(text):
+                offenders.append(
+                    f"{path.name}:{number}: literal {match.group(1)!r} in {text[:70]!r}"
+                )
+    assert not offenders, f"literal calendar fields pinned into patterns: {offenders}"
+
+
+#: The two row regexes `analysis/first_citizens.py` carried before the
+#: rebuild, and the four section totals its parse was gated on. Kept verbatim
+#: as the thing these scans exist to catch: a guard nobody has watched fail is
+#: a guard nobody has tested.
+FIRST_CITIZENS_MONTH_PATTERNS = (
+    r"03\s+([\d,]+\.\d{2})([+-])",
+    r"\b(03)\s+(\d[\d,]*\.\d{2})",
+)
+FIRST_CITIZENS_MEMORIZED_TOTALS = ("55049.85", "44862.06", "9800.18", "74263.31")
+
+
+@pytest.mark.parametrize("pattern", FIRST_CITIZENS_MONTH_PATTERNS)
+def test_calendar_scan_catches_the_literal_that_escaped(pattern):
+    assert CALENDAR_RE.search(pattern), (
+        "CALENDAR_RE must flag a pinned statement month; this pattern is the "
+        "one that shipped and made the parser March-only"
+    )
+
+
+@pytest.mark.parametrize("total", FIRST_CITIZENS_MEMORIZED_TOTALS)
+def test_amount_scan_catches_the_totals_that_escaped(total):
+    match = AMOUNT_RE.search(f'"deposits": (10, {total}, len(deposits), total),')
+    assert match and float(match.group(0)) >= 1.0, (
+        "AMOUNT_RE must flag a memorized section total; these four gated the "
+        "whole parse and were never scanned because the file was not listed"
+    )
+
+
+def test_pattern_scans_cover_every_parser_module():
+    """No parser may be outside the layer-wide scans.
+
+    The defect this file now guards against was a scope defect, so the scope
+    itself is asserted rather than assumed.
+    """
+    scanned = {path.name for path in _parser_modules()}
+    every = {path.name for path in ANALYSIS_DIR.glob("*.py")}
+    assert every - scanned == LITERAL_SCAN_EXEMPT
+    assert "first_citizens.py" in scanned
+    assert "citizens.py" in scanned
+    assert not (PATTERN_SCAN_EXEMPT & {"first_citizens.py", "citizens.py"})
+
+
+def test_calendar_baseline_still_describes_real_offenders():
+    """The ratchet may not outlive what it excuses.
+
+    An entry that no longer carries a calendar literal must be deleted, so the
+    baseline can only ever shrink.
+    """
+    stale = []
+    for name in sorted(CALENDAR_BASELINE):
+        path = ANALYSIS_DIR / name
+        if not path.exists():
+            stale.append(f"{name}: no longer exists")
+            continue
+        hits = [
+            match.group(1)
+            for _, text in _pattern_strings(path)
+            if "\\d" in text or "\\s" in text
+            for match in CALENDAR_RE.finditer(text)
+        ]
+        if not hits:
+            stale.append(f"{name}: clean now, remove it from CALENDAR_BASELINE")
+    assert not stale, f"stale calendar baseline entries: {stale}"
 
 
 @pytest.mark.parametrize("filename", GUARDED_FILES)
