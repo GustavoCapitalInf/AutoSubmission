@@ -447,17 +447,24 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
     "zions": {
         "credit": CountSemantics(
             comparable=True,
-            scope="whole_direction_column",
+            # The existing label, not a new one: this IS "one printed figure
+            # per direction". The grid prints one instance count above the
+            # `Deposits/Credits` column and the parser publishes exactly the
+            # rows of the `DEPOSITS/CREDITS` section that column heads.
+            scope="whole_direction",
             reason=(
                 "The summary grid prints one instance count above the "
                 "`Deposits/Credits` column (analysis/zions.py:_blocks), and "
                 "the parser's credit rows are exactly the rows of the "
                 "`DEPOSITS/CREDITS` section that column heads — one printed "
-                "column, one published direction. The parser also refuses any "
-                "row whose printed sign contradicts its section "
-                "(analysis/zions.py:_rows), so the two sides cannot drift "
-                "apart silently. Measured over all 13 archive documents of "
-                "the family: 13/13 agree, 0 disagreements, 0 flags raised."
+                "column, one published direction. Two things stop the sides "
+                "drifting apart silently: the parser refuses any row whose "
+                "printed sign contradicts its section, and it parses the "
+                "grid's column legend rather than assuming it, so a layout "
+                "printing an unknown extra column fails the document closed "
+                "instead of under-counting (analysis/zions.py:_rows, "
+                ":_blocks). Measured over all 13 archive documents of the "
+                "family: 13/13 agree, 0 disagreements, 0 flags raised."
             ),
         ),
         "debit": CountSemantics(

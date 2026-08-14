@@ -654,6 +654,97 @@ def test_source_posting_dates_accepts_a_bare_date_line_followed_by_amounts():
     assert got == {date(2026, 5, 18), date(2026, 5, 19)}
 
 
+# ---- the wrapped section total (W3 §CITI3) -----------------------------------
+#
+# These four pin `_WRAPPED_TOTAL_LABEL`, and they live HERE rather than only in
+# the cell that added it: the rule belongs to `analysis/dates.py` and is shared
+# by every registration, so retiring one parser's test file must not silently
+# drop its only coverage.
+
+def test_source_posting_dates_ignores_the_date_of_a_wrapped_section_total():
+    """Where a total's label and column captions fill the line, the bank's own
+    date for that total prints alone below it and its figures below that."""
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "Jun 30, 2026 Jun 30, 2026 SOME MERCHANT -$12.00 $1,200.00",
+        "Totals Amount Account balance as of",
+        "06/30/2026",
+        "-$200.00 $1,200.00",
+    ])
+    assert date(2026, 6, 30) not in source_posting_dates(
+        md, date(2026, 6, 1), date(2026, 6, 30)
+    )
+
+
+def test_a_wrapped_total_only_suppresses_the_line_directly_below_it():
+    """The rule reaches exactly one line. A bare date further down, with an
+    ordinary line between, keeps the existing money-proximity behaviour."""
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "Totals Amount Account balance as of",
+        "06/30/2026",
+        "-$200.00 $1,200.00",
+        "06/15/2026",
+        "SOME MERCHANT 42.00",
+    ])
+    got = source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30))
+    assert date(2026, 6, 15) in got
+    assert date(2026, 6, 30) not in got
+
+
+def test_a_total_that_prints_its_own_money_suppresses_nothing():
+    """Only a label whose figures WRAPPED reaches the line below it."""
+    from analysis.dates import source_posting_dates
+
+    md = "Totals 1,234.56 7,890.12\n06/30/2026\nSOME MERCHANT 42.00\n"
+    assert date(2026, 6, 30) in source_posting_dates(
+        md, date(2026, 6, 1), date(2026, 6, 30)
+    )
+
+
+@pytest.mark.parametrize(
+    "preceding",
+    [
+        # a merchant name that CONTAINS the word, from the archive census
+        "POS Debit- Business Debit Card 7853 06-08-26 Total Quality Logi 180-05",
+        # column headers that END in it
+        "DATE DESCRIPTION CURRENCY AMOUNT FEES TOTAL*",
+        "Date Description Total Items Item Fee Amount Excess Dr/Cr Fee",
+        # a sentence that merely mentions it
+        "Note:  The total charge for the following services will be posted",
+    ],
+)
+def test_the_word_total_away_from_the_line_start_suppresses_nothing(preceding):
+    """The anchor is what keeps the rule off genuine posting dates. Each of
+    these was measured above a real posting date in the archive."""
+    from analysis.dates import source_posting_dates
+
+    md = f"{preceding}\n06/09/2026\nSOME MERCHANT 42.00\n"
+    assert date(2026, 6, 9) in source_posting_dates(
+        md, date(2026, 6, 1), date(2026, 6, 30)
+    )
+
+
+def test_a_total_opening_description_above_a_lone_date_is_the_known_falsifier():
+    """The rule's boundary, stated as a test rather than left implicit.
+
+    `_WRAPPED_TOTAL_LABEL` cannot tell a wrapped total's label from a posting
+    description that happens to OPEN with the word and print no amount on its
+    own line. Such a row's date is suppressed. No document in the surveyed
+    archive prints this shape; it is pinned so the limit is visible, and it
+    fails closed in the safe direction — a suppressed date can only relax
+    `posting_dates_cover_source`, never tighten it.
+    """
+    from analysis.dates import source_posting_dates
+
+    md = "Total Wine & More\n06/09/2026\n42.00 1,200.00\n"
+    assert date(2026, 6, 9) not in source_posting_dates(
+        md, date(2026, 6, 1), date(2026, 6, 30)
+    )
+
+
 # ---- which average the dashboards display ------------------------------------
 
 def test_validated_computed_adb_is_preferred_over_the_bank_printed_average():

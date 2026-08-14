@@ -305,61 +305,10 @@ def test_the_coverage_heuristic_cannot_see_this_layouts_posting_rows():
     assert source_posting_dates(_document(), date(2026, 6, 1), date(2026, 6, 30)) == set()
 
 
-def test_a_bare_date_after_an_ordinary_line_is_still_a_posting_date():
-    """The narrowing is keyed on a total's label OPENING the previous line;
-    everything else keeps the existing money-proximity behaviour."""
-    from datetime import date
-
-    from analysis.dates import source_posting_dates
-
-    markdown = "DEPOSITS AND CREDITS\n06/15/2026\nSOME MERCHANT 100.00\n"
-    assert date(2026, 6, 15) in source_posting_dates(
-        markdown, date(2026, 6, 1), date(2026, 6, 30)
-    )
-
-
-def test_a_merchant_named_total_does_not_suppress_the_next_posting_date():
-    """An archive census found `... Total Quality Logi 180-05` above a real
-    posting date. The word must OPEN the line to suppress anything."""
-    from datetime import date
-
-    from analysis.dates import source_posting_dates
-
-    markdown = (
-        "POS Debit- Business Debit Card 7853 06-08-26 Total Quality Logi 180-05\n"
-        "06/09/2026\n"
-        "SOME MERCHANT 42.00\n"
-    )
-    assert date(2026, 6, 9) in source_posting_dates(
-        markdown, date(2026, 6, 1), date(2026, 6, 30)
-    )
-
-
-def test_a_column_header_ending_in_total_does_not_suppress_a_posting_date():
-    from datetime import date
-
-    from analysis.dates import source_posting_dates
-
-    markdown = (
-        "DATE DESCRIPTION CURRENCY AMOUNT FEES TOTAL*\n"
-        "06/03/2026\n"
-        "SOME MERCHANT 42.00\n"
-    )
-    assert date(2026, 6, 3) in source_posting_dates(
-        markdown, date(2026, 6, 1), date(2026, 6, 30)
-    )
-
-
-def test_a_totals_label_that_prints_its_own_money_is_untouched():
-    """Only a label whose figures WRAPPED suppresses the line below it."""
-    from datetime import date
-
-    from analysis.dates import source_posting_dates
-
-    markdown = "Totals 1,234.56 7,890.12\n06/30/2026\nSOME MERCHANT 42.00\n"
-    assert date(2026, 6, 30) in source_posting_dates(
-        markdown, date(2026, 6, 1), date(2026, 6, 30)
-    )
+# The generic pins for `analysis.dates._WRAPPED_TOTAL_LABEL` — the anchor's
+# counterfactuals and its known falsifier — live in tests/test_adb.py beside
+# the other `source_posting_dates` tests, because the rule is shared and must
+# not lose its only coverage if this cell's file is ever retired.
 
 
 def test_the_published_statement_is_a_statement_object():

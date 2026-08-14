@@ -305,7 +305,13 @@ def parse_zions_statement(markdown: str, base: Statement | None = None) -> State
     # total is both of them and the debit COUNT must cover the same scope --
     # a count narrower than its own total is what W3 §FIXUPS-1 corrected on
     # `first_community`.
-    stmt.stated_total_debits = abs(debits) + abs(checks)
+    #
+    # Rounded because this is the one published figure this parser ADDS rather
+    # than reads: binary floating point turns 175,923.68 + 43,557.86 into
+    # 219481.53999999998, which reconciles fine and then serializes as an
+    # artifact nobody printed. Every other summing parser rounds at the same
+    # seam (`analysis/bofa.py:417`, `analysis/chase.py:449`).
+    stmt.stated_total_debits = round(abs(debits) + abs(checks), 2)
     stmt.stated_debit_count = debit_count + check_count
 
     days = _DAYS_RE.search(text)

@@ -8484,16 +8484,48 @@ total's figures on the next line and counts it as a posting date. This is the
 defect class `8ec039e` already fixed one line higher up.
 
 The narrowing suppresses a bare date line only where the previous line
-**opens** with `Total`/`Totals` and prints no money. Both halves were earned
-by census rather than assumed. Keying on the word ANYWHERE in the line — the
-first attempt — would have swallowed genuine posting dates printed after a
-merchant called "Total Quality Logistics", after `... FEES TOTAL*`, and after
-`Date Description Total Items ...`: 57 lines across 5 folder labels. Anchored,
-it fires on **16 lines in the whole 3,400-document archive, all of them this
-one wrapped row, all in this family**. Direction of effect matches the
+**opens** with `Total`/`Totals` and prints no money. It fires on **16 lines in
+16 documents (0.5%) of the 3,400-document archive, all of them this one
+wrapped row, all in this family**.
+
+**Where that precision actually comes from — a correction to this cell's first
+account of itself.** The anchor is not a structural guarantee; it is an
+archive-measured property, and on its own it isolates almost nothing: **1,355
+documents (39.9%) print a moneyless line opening with "Total", 2,333 such
+lines in all**. What makes the rule precise is ADJACENCY — it is consulted
+only from the bare-date branch, i.e. only when the very next line is nothing
+but a date token. Anchor and adjacency together give the 16.
+
+The anchor still earns its place, on the other axis. Unanchored, the same
+adjacency test also swallows genuine posting dates: **41 further lines across
+15 documents and 4 folder labels** (Bank of America, Citizens Bank, PNC Bank,
+Unidentified), which are only **4 distinct printed shapes** — a merchant
+called "Total Quality Logistics", the column headers `... FEES TOTAL*` and
+`Date Description Total Items ...`, and a PNC sentence beginning "Note: The
+total charge...". An earlier draft of this section reported that counterfactual
+as "57 lines across 5 folder labels"; that number added the 16 lines the
+shipped rule correctly catches to the 41 it prevents, and counted this
+family's own folder as a fifth label. The qualitative argument is unchanged —
+the anchor prevents real false suppressions — but the magnitude is 41 lines /
+15 documents / 4 shapes / 4 labels.
+
+**The known falsifier, stated rather than implied.** Because the rule cannot
+be proven from structure, there is a shape it gets wrong: a posting row whose
+DESCRIPTION opens with the word and prints no amount on its own line, directly
+above a lone date (`Total Wine & More` / `06/09` / the amounts). Its date is
+suppressed. No document in the surveyed archive prints it, and it is pinned as
+a test so the boundary is visible.
+
+What keeps that tolerable is the direction of effect, which matches the
 existing `_SUMMARY_TOTAL_ROW` rule: it can only remove dates from
 `source_posting_dates`, so a document can go from failing to passing but never
-the reverse.
+the reverse. The cost of being wrong is a coverage check quieter than it
+should be, never a false validation.
+
+These pins live in `tests/test_adb.py`, beside the other `source_posting_dates`
+tests, rather than only in this cell's file: the rule belongs to a shared
+module, and retiring one parser's tests must not silently drop its only
+coverage.
 
 **Recorded, not celebrated (C7.1).** Every posting row of this grid prints TWO
 dates, and `_is_posting_row` classes any line with more than one date token as
@@ -8571,7 +8603,11 @@ directions **comparable**, because the two sides are the same set by
 construction: the printed count heads the very column whose rows the parser
 publishes, and the parser refuses a row whose sign contradicts its section.
 The debit direction is a two-category sum with the same shape as the
-`wilson_muir` promotion already in the table.
+`wilson_muir` promotion already in the table, and carries that entry's
+existing `multi_category_sum_proven_complete` scope label; the credit
+direction carries the existing `whole_direction`. Neither introduces a new
+label — an earlier draft coined `whole_direction_column` for the credit side,
+which was a synonym for a concept the table had already named.
 
 The equality pin in `tests/test_count_semantics.py` is what forced this to be
 a deliberate edit rather than a silent one. Measured after wiring: **13/13
@@ -8850,4 +8886,6 @@ non-target documents probed                       : 3,357, zero claims
 | `a915c1f` | card A — the Shopify Balance ledger, registered by its own furniture |
 | `ff568be` | card B — the CitiBusiness CHECKING ACTIVITY statement |
 | `2d2ebe9` | card C — the Zions Bancorporation Statement of Accounts |
-| (this one) | `count_semantics` survey for `zions`, and §CITI3 C0–C9 |
+| `234e84c` | `count_semantics` survey for `zions`, and §CITI3 C0–C9 |
+| `be653ed` | log: the proof numbers of the final committed tree |
+| (this one) | review closures: the debit-sum `round()`, the shared-rule pins moved to `tests/test_adb.py`, the anchor's real precision stated, and these corrections |

@@ -207,19 +207,37 @@ _MONEY_RE = re.compile(r"\d[\d,]*\.\d{2}")
 # test below, finds the total's figures on the next line, and is counted as a
 # posting date the statement never had.
 #
-# Keyed on the label OPENING the line, which is where a section total prints
-# its own name, and on that line carrying no money, which is what says the
-# figures wrapped. Both halves are load-bearing: an archive census of all 3,400
-# readable documents showed that keying on the word ANYWHERE in the line
-# instead would swallow genuine posting dates printed after a merchant called
-# "Total Quality Logistics" and after the column headers "... FEES TOTAL*" and
-# "Date Description Total Items ...". Anchored, it fires on 16 lines in the
-# whole archive, all of them this one wrapped total row.
+# Keyed on the label OPENING the line, and on that line carrying no money,
+# which is what says the figures wrapped.
 #
-# Direction of effect is the same as `_SUMMARY_TOTAL_ROW`: it can only REMOVE
-# dates from `source_posting_dates`, and `posting_dates_cover_source` is
+# Be honest about what each half buys, because the anchor is NOT a structural
+# guarantee -- it is an archive-measured property. Censused over all 3,400
+# readable documents: 1,355 of them (39.9%) print a moneyless line opening
+# with "Total", 2,333 such lines in all. So the anchor alone does not isolate
+# anything. What makes the rule precise is ADJACENCY: it is consulted only from
+# the bare-date branch below, i.e. only when the very next line is nothing but
+# a date token. That conjunction fires on 16 lines in 16 documents (0.5%) in
+# the whole archive, all of them this one wrapped total row.
+#
+# The anchor still earns its place, on the other axis: unanchored, the same
+# adjacency test also swallows genuine posting dates printed under a merchant
+# called "Total Quality Logistics" and under the column headers
+# "... FEES TOTAL*" and "Date Description Total Items ...". Those are measured
+# too, and pinned in tests/test_adb.py.
+#
+# KNOWN FALSIFIER, since the rule cannot be proven from structure: a posting
+# row whose DESCRIPTION opens with the word and prints no amount on its own
+# line, sitting directly above a lone date -- "Total Wine & More" / "06/09" /
+# the amounts. Its date is suppressed. No document in the surveyed archive
+# prints that shape, and it is pinned as a test so the boundary is visible
+# rather than implied.
+#
+# What keeps the falsifier tolerable is the direction of effect, which is the
+# same as `_SUMMARY_TOTAL_ROW`: this can only REMOVE dates from
+# `source_posting_dates`, and `posting_dates_cover_source` is
 # `source_dates - parsed_dates`, so a document can go from failing to passing
-# but never from passing to failing.
+# but never from passing to failing. The cost of being wrong is a coverage
+# check that is quieter than it should be, never a false validation.
 _WRAPPED_TOTAL_LABEL = re.compile(r"^totals?\b", re.I)
 # A date-token grid ("01/01 -225.43 01/12 4.68 01/22 -14.82") is a balance
 # summary, not a posting row: real posting rows carry one date, not several.
