@@ -6961,7 +6961,7 @@ longer be claimed by any registration this cell touches.
 |---|---|---|---|
 | D | the shared money grammar (the gate) | — | 160 claimed documents byte-identical |
 | B | RBC English personal | 12 failed | **12 validated** |
-| C | RBC French business (`rbc_french`, a DEAD registration) | 19 failed, 0 claims corpus-wide | **19 validated** |
+| C | RBC French business (`rbc_french`, which saw only its other product) | 19 failed, 0 archive claims | **19 validated** |
 | A | CIBC English (`cibc`, new registration) | 35 failed | **35 validated** |
 | F1 | broken character map | 4 failed | 4 refused, structurally |
 
