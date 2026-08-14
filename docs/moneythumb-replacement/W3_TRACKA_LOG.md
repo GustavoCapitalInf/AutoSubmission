@@ -8388,3 +8388,467 @@ and 8 of 8 card-C.
 | `06f2633` | §RBCCIBC-LAYOUTS RC0–RC10 |
 | `753674a` | card C amendment — the French PERSONAL product, restored after the gate went red |
 | (this one) | the gate proof and the F1 pinned-corpus re-check |
+
+
+# §HUNT-CELL — the Huntington folder: 54 documents, two issuers, and a bank that prints its own answer four times
+
+## H0. Summary
+
+The folder holds **54 distinct documents and two issuers**. Fifty are
+Huntington National Bank's sectioned business deposit statement; four are
+Burke & Herbert Bank of Moorefield, WV, filed here because the account
+holder's address is in Huntington, **WV** and several card rows were made at a
+Huntington Bank ATM. Every one of the 54 was `failed / no_parser_matched` in
+the run of record; no registration reached the 0.5 claim threshold and
+the highest near-miss over the 54 was 0.25.
+
+| id | family | documents | outcome on this branch |
+|---|---|---|---|
+| A1 | Huntington sectioned deposit statement | 38 | **33 validated**, 5 withheld (see H6.1) |
+| Q | the same layout, printed incomplete | 8 | `parser_declined`, each with named evidence |
+| A2 | the same layout carrying a SECOND account | 4 | `parser_declined` — L-1, fail closed |
+| B | Burke & Herbert mainframe layout | 3 | **3 review**, ADB computed, every oracle met (H6.2) |
+| C | Burke & Herbert insufficient-funds notice | 1 | `no_parser_matched` — not a statement |
+
+**33 documents move `failed` → `validated`, 4,520 transactions are published
+across them, and all 33 instrument sound with zero unsound.** Two further
+groups — 5 + 3 documents — are complete, correct parses held back by two
+PRE-EXISTING defects in modules this cell does not own; both are measured
+counterfactually below and carded, not patched.
+
+Two new registrations, `huntington` and `burke_herbert`. Registry 53 → 55.
+
+## H1. The instrument, and what it was checked against first
+
+Every figure below comes from replaying the archive markdown through the real
+pipeline (`analyze_markdown` + `telemetry.record.classify_outcome` +
+`discovery.runner._failure_reason`), with the OCR text resolved from the D-3
+artifact store **by direct file path**; the sqlite index was never opened.
+
+Before any production edit the harness was checked against the run of record
+`88be9dd3`: over all 54 documents it reproduced the run's `parser_id`,
+`outcome_class` and `outcome_reason` **exactly, 54/54, 0 disagreements**, with
+**zero OCR-cache misses**.
+
+The scout's partition was verified and two numbers corrected: the defective
+group is **8 documents, not 5** (H4), so the recoverable Huntington family is
+**38, not 41**; and the folder holds a second issuer the scout read as one
+family (H5).
+
+The scout's headline of 41 is nonetheless the right target, reached a
+different way: **38 Huntington** (33 shipped, plus the 5 of H6.1 behind the
+`regions` card) **plus 3 Burke & Herbert** (behind the page-declaration card)
+= 41. What is NOT reachable is any of the 8 short-print documents: no card
+recovers a service charge the bank never dated.
+
+## H2. What the layout gives you, which is unusually much
+
+One physical line carries the whole account summary as label/figure pairs.
+Activity follows as named, direction-bearing sections — `Deposits (+)`,
+`Other Credits (+)`, `Checks (-)`, `Other Debits (-)` — each repeated verbatim
+when it continues after a page break. Fees are itemised in
+`Service Charge Detail`, totalled in `Service Charge Summary`, and the period
+closes with `Balance Activity`: the bank's own end-of-day balance for every day
+it posted anything.
+
+So the bank prints its own answer four times, and the parser publishes only
+what all four agree on:
+
+1. the summary identity — `beginning + credits - debits - service charges`;
+2. the per-direction subtotals, which the printed sections must add up to;
+3. the service-charge total, which the itemised fees must net to;
+4. **`Balance Activity`, reproduced day by day from the published ledger.**
+
+Check 4 is the one that matters and the one no aggregate can make. The sums
+cannot see a misdated row; the daily walk fails on the day the date is wrong.
+Since `analysis/adb.py` requires `ledger_reconciles_to_closing` at zero
+tolerance and `posting_dates_cover_source`, and since Average Daily Balance is
+the platform's headline figure, a layout whose dates are unproven is a layout
+whose ADB is unproven. A statement that prints no `Balance Activity` is
+therefore refused rather than published on its sums (H4).
+
+Stated plainly and against interest: **check 1 is redundant.** Given checks 3
+and 4 it follows algebraically, no document can isolate it, and the mutation
+run reports it as unkillable. It is kept as the one direct statement of the
+bank's own identity and the code says so, rather than a fixture being invented
+to make it look load-bearing.
+
+### H2.1 Two conventions of the print, read rather than guessed
+
+**A negative is a TRAILING minus** — `$2,693.10-`. It is this issuer's only
+negative marker and it appears on the summary's opening and closing figures,
+on the service-charge-cycle averages and in every cell of `Balance Activity`.
+Six documents in the folder open or close overdrawn and twelve print at
+least one negative daily balance. Read as a magnitude they
+still balance — against a sign-flipped closing balance — which is why the
+cross-month chain is the proof that this is right rather than merely
+self-consistent: April 3152 closes at −1,184.20 and May 3152 opens at
+`1,184.20-`; May closes −2,318.04 and June opens `2,318.04-`; and June, read
+with the sign, lands on its printed 9.13.
+
+**`Service Charge Detail` prints two money columns** — `Service Charge (-)` and
+`Waives and Discounts (+)` — and the flattened text keeps no trace of which
+column a figure stood in: a charge and a waiver are both
+`date amount description`, and the waiver rows are not even a separate block
+(one appears mid-block on `414771fa_..._2026-03-01_...`, before the block ends
+and a second one begins).
+
+A first design split them at the point where the printed dates stop ascending,
+on the argument that the columns are read top-to-bottom in turn. **It was
+rejected on measurement**: the regression only exists when the first waiver
+predates the last charge, and on four documents it does not, so a 36.00 waiver
+was booked as a 36.00 charge and the net came out 72.00 high. What settles it
+is that the document states both column totals separately in
+`Service Charge Summary`, so the boundary is the position at which the rows
+before it sum to the stated charges and the rows after it sum to the stated
+waivers. If no position satisfies both, or more than one does, the split is not
+determined by the document and the parser does not guess it. That block's own
+identity (`charges - waivers == the stated total`) is checked first, so a
+misread of the arbiter cannot license a mis-split.
+
+`Net Service Charges` is printed between the two column totals and is in
+neither: adding it would count the previous month's charges twice. A fixture
+pins that.
+
+## H3. A2 — the second account, refused at parse and not at detection
+
+Four documents present a `Business Overdraft Protection Account` beside the
+deposit account: its own summary (`Beginning Balance / Payments (-) /
+Advances (+) / Interest Expense (+) / Ending Balance`), its own activity
+sections and its own `Daily Balance` table. Two accounts, two balance chains,
+one statement.
+
+`Statement` carries one account (L-1), so publishing this document would mean
+publishing one of its two accounts and dropping the other silently — the exact
+failure the schema limit exists to prevent. Refused.
+
+It is refused **at parse, not by an excluding marker**, and that is deliberate:
+the document IS a Huntington statement of this layout, and reporting it as a
+bank nobody has seen would put it in the most expensive queue. It reports as
+`parser_declined` — a layout we recognise and decline — which is what
+§DISPATCH-REPORTING built that split for. No outcome class moves: both are
+`failed`.
+
+**Volume for Gustavo's architecture item: 4 documents, one account family
+(`e9475306_*`), deposit + line-of-credit on one statement.**
+
+## H4. Q — eight documents whose own printed detail is short
+
+Eight documents (`df4e5937_*`, accounts 3152 and 5891) print a summary that
+accounts for money the document never itemises. Every one of them declares its
+own page count and carries every page it declares, so nothing was lost in
+handling: the bank printed them this way.
+
+All eight state a `Total Service Charges (-)` and print **no**
+`Service Charge Detail` block, so that money has no date and no row; and all
+eight print **no** `Balance Activity`, so nothing in the document dates the
+ledger. Three are short in the transaction sections as well:
+
+| document | stated but not itemised | section shortfall |
+|---|---|---|
+| `df4e5937_March 3152` | service charges 80.50 | — |
+| `df4e5937_April 3152` | service charges 189.50 | — |
+| `df4e5937_May 3152` | service charges 95.00 | — |
+| `df4e5937_JUNE 3152` | service charges 8.50 | — |
+| `df4e5937_March 5891` | service charges 468.50 | — |
+| `df4e5937_April 5891` | service charges 288.50 | debits 291.80 printed vs 791.80 stated (short 500.00) |
+| `df4e5937_May 5891` | service charges 72.00 | debits 17,528.66 printed vs 23,378.66 stated (short 5,850.00) |
+| `df4e5937_JUNE 5891` | service charges 110.50 | debits 15,660.30 printed vs 16,660.28 stated (short 999.98) |
+
+A service charge with no printed date cannot be published without inventing
+one, and an invented date corrupts the daily ledger and therefore the ADB —
+the one number this platform is most careful about. Fail closed, eight
+documents, named.
+
+## H5. B — Burke & Herbert, and the folder label that was wrong
+
+Four documents are not Huntington's. The issuer is Burke & Herbert Bank; the
+statements print `burkeandherbertbank.com`, a Moorefield WV return address,
+and a fixed-pitch mainframe `ACTIVITY IN DATE ORDER` grid. "Huntington" is on
+them because the holder's address is `HUNTINGTON WV 25701` and because rows
+read `ATM W/D … HUNTINGTON BAN 5704 ROUTE 60 EAST`. **R4-3's counterparty
+hazard, arriving in a folder label instead of in a marker** — worth carrying
+forward, because folder labels are the discovery run's bank attribution.
+
+The text layer flattens each page's entire activity region onto ONE physical
+line — banner, every row, and each row's continuation text, run together. No
+columns survive. What does survive is that **every row prints its own running
+balance**, so the read is checked row by row: opening balance plus the first
+row's amount equals the first row's printed balance, and so on to the last,
+which must equal the printed `ENDING BALANCE`.
+
+That chain closes on **215 of 215 rows across the three statements, with zero
+breaks**, at the first attempt. The bank also prints the **COUNT** beside each
+direction's total (`2 DEPOSITS/CREDITS 26,245.24`), so the ledger is checked
+against its own row counts in both directions as well as its money — 3/3
+documents, both directions, exact. The cross-month chain closes too (Feb→Mar
+ends 15,302.22 and Mar→Apr opens on it; Apr ends 7.53 and May opens on it), and
+on `6768-2026-Mar` the computed ADB is **9,113.00** against the bank's printed
+`AVERAGE LEDGER BALANCE 9,113.00`.
+
+The fourth document is a `NOTICE OF ITEMS WITH INSUFFICIENT FUNDS`: no period,
+no summary, no ledger. It is not claimed. The informal-document registration
+class (`formal_statement=False`) is Gustavo-pending and this cell did not open
+one — recorded, not built.
+
+`resolve_year` is imported from `analysis/dates.py` rather than reimplemented.
+The first draft copied it into both parsers and
+`tests/test_no_parser_helper_clones.py` caught it, which is exactly what that
+guard is for.
+
+## H6. Two complete parses, held back by defects this cell does not own
+
+Both are measured counterfactually. **Neither fix is shipped**: the modules
+belong to no card in this handoff, and a cell that quietly edits a shared
+module is how a wave loses its byte-identity argument.
+
+### H6.1 `repair_regions_summary` fires on another bank's statement (+5)
+
+`analysis/regions.py:243` gates the Regions summary repair on
+`"REGIONS" in markdown.upper() and "SUMMARY" in markdown.upper()`. Five
+Huntington statements pay a bill to `REGIONS BANK` and print a
+`Service Charge Summary`, so the repair fires on them and rewrites
+`beginning_balance`, `ending_balance`, `stated_total_credits`,
+`stated_total_debits`, `stated_service_charge` and `stated_average_balance`
+from labels (`Beginning Balance`, `Checks`, `Ending Balance`) that Huntington
+also prints. On `09d4938d_February statement _1` it replaces a correctly-read
+`Debits (-)` of 23,968.60 with 12,096.40; reconciliation then fails, ADB is
+withheld, and the document lands `withheld_adb`.
+
+This is R4-3 applied to a REPAIR rather than to a detection marker: the bank's
+name appears in other banks' statements as a counterparty. The five are, precisely, the five folder documents whose text contains the
+word REGIONS: `09d4938d_February statement _1`,
+`09d4938d_Huntington December statement  Account 8098`,
+`09d4938d_Huntington January Staement   8098 acct`,
+`09d4938d_March Statement _1` and
+`09d4938d_november huntington statement  Account 8098`.
+
+**Counterfactual, with the repair neutralised in memory and nothing else
+changed: all five validate, all five instrument SOUND.** The platform failed
+closed rather than publishing wrong numbers, which is the system working; but
+the repair can corrupt a correct parse of any issuer, and its blast radius is
+larger than this folder.
+
+### H6.2 an unlabelled image page reads as a missing page (+3)
+
+The three Burke statements land `review / integrity_flags` on
+`missing_declared_statement_page`. The check
+(`analysis/pipeline.py:306`) requires every page label `1..N` to be printed.
+This layout's final declared page is a **deposit-image sheet** that prints no
+page-number footer, so label `N` is never found:
+
+| document | declares | labels printed | PDF pages |
+|---|---|---|---|
+| `6768-2026-Mar` | 6 | 1–5 | 8 |
+| `6768-2026-Apr` | 8 | 1–7 | 10 |
+| `6768-2026-May` | 6 | 1–5 | 8 |
+
+The page is present. On `6768-2026-Mar` it is physical page 7 and lists
+`2/13 $18,245.24`, `2/23 $8,000.00`, `2/13 $1,525.00`, `2/20 $1,200.00` —
+which are exactly the two DEPOSIT and two WITHDRAWAL rows of the published
+ledger, so the "missing" page independently corroborates the parse.
+
+**Counterfactual, treating the last declared page as present and changing
+nothing else: all three validate, all three instrument SOUND, both printed
+count checks TRUE on all three.**
+
+## H7. Scope, semantics and the sweep
+
+**Nothing shared was touched.** The branch is two new parser modules, two
+registry rows, one conformance fixture each and tests. `webapp/`, `ocr/`,
+`pipeline.py`, `reconcile.py`, `metrics.py`, `adb.py`, `count_semantics.py`,
+`money.py`, `tables.py` and `dates.py` all carry a **zero-line diff** against
+`d70efbe`. So the only way any other document's outcome can move is if one of
+the two new registrations claims it — which makes the sweep below a complete
+argument rather than a sample.
+
+**Zero cross-claims.** The conformance cross-product is now 55 × 54 = **2,970**
+negative assertions and passes.
+
+**The full-population sweep**, over every distinct document of the run of
+record: **3,188 of 3,380 swept; 53 claims, all inside the Huntington folder
+(50 `huntington`, 3 `burke_herbert`); zero claims outside it; zero documents
+where either new registration claims alongside any other.**
+
+The 192 unswept documents have no OCR artifact in the store under any offline
+or visual settings key, and are named rather than waved past: 152 scanned or
+mixed documents that already fail `no_parser_matched`, 13 deferred, and — the
+only ones a new claim could pull DOWN — **15 that are validated or review
+today**, from Apex Bank (3), Bank of America (1), Chase (1), Columbia Bank (1),
+Regions Bank (2) and Unidentified (7, mostly `first_farmers`). None is in the
+Huntington folder; for either registration to reach one, a Tesseract read
+would have to contain `THE HUNTINGTON NATIONAL BANK` **and**
+`HUNTINGTON BANCSHARES INCORPORATED` **and** the summary-grid regex, or
+`BURKEANDHERBERTBANK.COM` **and** `ACTIVITY IN DATE ORDER`.
+
+**The pinned corpus was probed separately**, because RC8.3's lesson is that a
+census of the archive is not a census of it: 103 of the 109 pinned documents
+read offline as native text and **neither registration claims one**; the other
+six are the committed-OCR image-only statements, and `corpus_gate.py` covers
+all 109 completely and comes back GREEN 106/3.
+
+**`count_semantics`.** `analysis/count_semantics.py` is untouched.
+`huntington` prints no instance count beside either total and claims none, so
+it emits nothing either way and is correctly UNSURVEYED. **`burke_herbert`
+prints both counts and assigns them, so a new registration arrives with the
+stated-count check live on it** — 3 documents, both directions,
+`stated_credit_count_matches` and `stated_debit_count_matches` TRUE on all
+three, zero count-related integrity flags. It needs a `count_semantics` table
+entry from Ocean (H8.5).
+
+## H8. Carried findings and questions for Ocean
+
+1. **`repair_regions_summary` reaches other issuers (H6.1).** A shared repair
+   gated on two substrings, one of which is a bank name that appears in other
+   banks' ledgers as a counterparty. Worth +5 validated here; the exposure is
+   platform-wide and is not limited to what this cell can see. Recommend
+   scoping it the way detection is scoped (R4-3), by conjunction with issuer
+   furniture rather than the bare name. NOT done here — `analysis/regions.py`
+   is outside this cell's ownership.
+2. **The page-declaration check assumes every declared page prints a label
+   (H6.2).** False for a layout whose last page is an image sheet. Worth +3
+   validated here. NOT done — `analysis/pipeline.py` is outside this cell's
+   ownership, and the check is one FIXUPS-1 already touched, so it should move
+   with that history in view.
+3. **A2 multi-account volume: 4 documents** (`e9475306_*`), deposit + Business
+   Overdraft Protection line of credit on one statement, each with its own
+   summary, activity and daily balance table. Gustavo's L-1 architecture item.
+4. **The informal-document class is still pending.** The Burke
+   insufficient-funds notice is one document and is not claimed. A
+   `formal_statement=False` registration is the shape that would admit it, and
+   this cell did not open one.
+5. **`burke_herbert` needs a `count_semantics` entry.** It is the newly-live
+   surface: the registration assigns both printed counts, so the stated-count
+   check fires on it from its first day. All three documents match today; the
+   table should say so explicitly rather than leave a live check unsurveyed.
+6. **`ANALYSIS_STAGE_VERSION` needs a bump on merge, and this cell did not make
+   it.** 36 documents change their analysis output, so every cached payload for
+   them is stale. The brief reserves the bump to Ocean, so `webapp/` is
+   untouched here — flagged so it is not missed.
+7. **FOLLOW-UP CARD — promote the posting-date resolver.** Both new parsers
+   resolve a printed `MM/DD` into the statement period and refuse a date that
+   lands outside it. `analysis/dates.py::resolve_year` does the year half;
+   the "and it must be inside the period" half is written twice, once as a
+   named helper and once inline, because a third shared-module edit was out of
+   this cell's ownership. When a third parser needs it, promote
+   `posting_date_within(day, start, end)` to `analysis/dates.py`.
+8. **The archive is not the pinned corpus, again.** §RBCCIBC-LAYOUTS RC8.3
+   made this point and it held here too: the 192 documents this sweep cannot
+   reach are invisible to every archive census in this record, and the gate is
+   what covers the other 109. Both populations are reported separately above
+   rather than added together.
+9. **One folder label is wrong, and folder labels are the run's bank
+   attribution.** Four of 54 documents in `Huntington Bank/` are Burke &
+   Herbert's. `discovery/adjudication.py` clusters and routes by folder label,
+   so a mislabelled family is a mis-ranked cluster. This is one folder; the
+   general question — how often the label disagrees with the parsed issuer —
+   is now answerable cheaply for every claimed document and is worth asking.
+10. **`tests/test_adjudication.py` used "Huntington Bank" as its example of an
+    UNREGISTERED bank**, and registering Huntington broke three tests. Replaced
+    with a deliberately fictional name so the assertion cannot date again. Flagged
+    because the same trap exists for whatever the next cell registers.
+11. **STOP-THE-LINE CANDIDATE FOR THE BATCH, not for this branch: the
+    full-registry detect sweep is at 78% of its budget.**
+    `test_detect_sweep_stays_affordable_for_the_discovery_run` caps the worst
+    per-document sweep at 250 ms. It **failed once** in this cell's proofs —
+    on a corpus-marked run competing with three other heavy processes — and
+    **passed on the clean run**, which is the result recorded above. But the
+    margin is the finding, not the flake. Measured over the 103 native-text
+    pinned documents, best-of-three per document:
+
+    | | worst per-document sweep |
+    |---|---|
+    | all 55 registrations (this branch) | **195.2 ms** |
+    | the 53 without this cell's two | 182.2 ms |
+    | this cell's two alone | 5.5 ms |
+    | the test's limit | 250.0 ms |
+
+    So **182 of the 195 ms is pre-existing** and this cell adds roughly 13 ms
+    of it — but batch 3 has six more cells, and at ~13 ms a cell the cap is
+    four merges away. The sweep is per-document overhead on every one of the
+    3,506 discovery documents, so this is a throughput question as well as a
+    red-test question. Worth deciding at the batch level, before the merge
+    train, rather than by whichever cell happens to cross the line.
+
+## H9. Proofs
+
+```
+$ python corpus_gate.py
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  912.5s
+RESULT: GREEN
+EXIT=0
+
+$ python -m pytest -m corpus -q
+14 passed, 3098 deselected, 1 warning in 2203.78s (0:36:43)
+EXIT=0
+# an earlier run of this suite, competing with three other heavy processes,
+# failed test_detect_sweep_stays_affordable_for_the_discovery_run (a 250 ms
+# performance cap). The clean run above passes; the margin is measured and
+# carded at H8.11 rather than dismissed as a flake.
+
+$ python -m pytest -q
+3095 passed, 18 deselected, 1 warning in 302.85s (0:05:02)
+EXIT=0
+
+$ python -m pytest tests/test_huntington.py tests/test_burke_herbert.py -q
+58 passed in 0.95s
+EXIT=0
+
+$ python -m pytest tests/test_parser_registry.py     tests/test_parser_registry_entries.py tests/test_parser_conformance.py     tests/test_parser_detection_markers.py tests/test_no_parser_helper_clones.py     tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py     tests/test_count_semantics.py -q
+852 passed in 22.27s
+EXIT=0
+
+# the harness, against the run of record, BEFORE any production edit
+cohort 54   cache hits 54   misses 0
+reproduces run of record: 54 / 54   disagreements 0
+
+# the cell, over the folder
+33 huntington validated / approved     4,520 transactions
+ 5 huntington withheld  / withheld_adb (H6.1, +5 counterfactual)
+ 3 burke_herbert review / integrity_flags (H6.2, +3 counterfactual)
+12 parser_declined  (8 short prints + 4 second-account)
+ 1 no_parser_matched (the insufficient-funds notice)
+instrumented validated documents: 33 sound / 0 unsound
+
+# Burke & Herbert, the row-by-row chain
+215 rows over 3 documents: 0 chain breaks
+printed counts matched, both directions, 3/3
+computed ADB 9,113.00 vs printed AVERAGE LEDGER BALANCE 9,113.00
+
+# full-population sweep, every distinct document of the run of record
+distinct documents            : 3,380
+documents swept               : 3,188
+claimed by the new registrations: 53  (50 huntington, 3 burke_herbert)
+claimed OUTSIDE the folder    : 0
+claims alongside another registration: 0
+unswept, all named            : 192  (0 in the Huntington folder)
+
+# the pinned corpus, probed separately (RC8.3)
+pinned documents        : 109
+read offline            : 103
+claimed by a new registration: 0
+
+# the detect-sweep budget (H8.11)
+worst per-document full-registry sweep : 195.2 ms of a 250 ms cap
+  the 53 registrations without this cell : 182.2 ms
+  this cell's two alone                  :   5.5 ms
+
+# mutation
+analysis/huntington.py    : 13 mutants, 12 killed, 1 documented-redundant
+analysis/burke_herbert.py : 10 mutants,  9 killed, 1 deliberately corroborating
+```
+
+Fixtures: 38 in `tests/test_huntington.py`, 20 in `tests/test_burke_herbert.py`,
+one conformance fixture per new registration.
+
+## H10. Commits
+
+| Commit | Contents |
+|---|---|
+| `5da2c25` | `huntington` — the sectioned business deposit statement, on its own registration |
+| `ed6e5cc` | fixtures for every rule the parser enforces, mutation-checked |
+| `6762bcc` | `burke_herbert` — the mainframe layout filed under a Huntington folder label |
+| `d1eff37` | the short-print shape, pinned by a fixture rather than only by the archive |
+| (this one) | §HUNT-CELL H0–H10 |
