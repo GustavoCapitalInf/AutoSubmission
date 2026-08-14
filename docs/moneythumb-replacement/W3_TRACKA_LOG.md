@@ -9057,10 +9057,25 @@ field, transactions included:
     differing                              : 0
 
 Every other pinned document belongs to a parser this cell never touched, so
-the gate has nothing left it could move. The full `corpus_gate.py` run is
-queued behind three other cells' gates on a machine running fourteen Python
-processes (205 of the ~1,200 CPU-seconds it needs at the time of writing) and
-is NOT reported here as green — it was GREEN on the reviewed tree (`d5ee820`,
-106 PASS / 3 WITHHELD), and the six-document check is the evidence offered for
-the amendments on top of it. Ocean should treat the gate as outstanding and
-re-run it at merge, which is where it belongs anyway.
+the gate had nothing left it could move — and the gate then said so itself:
+
+    $ python corpus_gate.py            # on the amended tree
+    Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+    Ignored:  0 non-corpus PDFs under the corpus root
+    Outcomes: 106 PASS / 3 WITHHELD
+    Runtime:  1082.7s
+    RESULT: GREEN
+    EXIT=0
+
+The run was launched on `0551cb5` and only the markdown of this log has
+changed since (`git diff --name-only 0551cb5..HEAD` is this file alone, and
+`git diff 0551cb5..HEAD -- '*.py'` is empty), so it is a GREEN gate on exactly
+the code that ships. 106 PASS / 3 WITHHELD, the same three statements, byte
+for byte with the reviewed tree and with every gate run of the wave.
+
+Worth recording how nearly this went the other way: an intermediate report
+called the gate "outstanding" because a process-list check at the wrong moment
+did not show it and the shell that launched it had been killed, while the run
+itself was alive and finished normally. Under a machine running fourteen
+Python processes across parallel cells, "I cannot see it" is not "it died" —
+the durable output file is the authority, not the shell.
