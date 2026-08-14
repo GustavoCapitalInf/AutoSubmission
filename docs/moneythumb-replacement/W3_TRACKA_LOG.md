@@ -6945,3 +6945,376 @@ which produced `attempted = 'regions' | 'navy_federal' | 'bank_of_america'`,
 | `c476f1d` | `discovery/runner.py` + `discovery/report.py`: the `attempted` column, the reason split, the `declined_clusters` rollup |
 | `143435b` | `tests/test_discovery.py`: both reason branches, the live-path column projection, the rollup ranking, and the W3-4 compatibility proof |
 | (this one) | §DISPATCH-REPORTING D0–D6 |
+
+# §TDFIX-1 — `td_us` reads an overdrawn balance and keeps a short section; `td_can` reads three more of TD's codes
+
+TDFIX-1, 2026-08-13/14. Branch `wave3-tdfix-1`, base `cce8ac1` (current main).
+Brief: `docs/agent-handoffs/TDFIX-1.md`, from the SC-TDCAN scout report. Three
+parser-local cards, three commits, two production files. `ANALYSIS_STAGE_VERSION`
+NOT bumped — outputs move, so the bump is Ocean's to compose with the rest of
+the wave.
+
+## T0. Summary
+
+| | |
+|---|---|
+| U1 | `analysis/td_us.py:38-39` — the ACCOUNT SUMMARY's opening balance and printed average could not be read with a minus sign, though the closing balance (`:41`) always could. **+6 validated**, plus one printed average recovered on a document that already validated. |
+| U2 | `analysis/td_us.py:213-214` — one section whose rows missed its own printed subtotal discarded the whole document. **+2 claimed, 0 validated**: both reach `withheld` with an honest diagnosis. |
+| C1 | `analysis/td_can.py:200-217` — `_native_credit_like` missed three codes TD prints itself. **63/73 → 67/73 exact.** |
+| Whole branch | td_us **28 → 34 validated**, 10 → 2 unclaimed, 2 → 4 withheld. td_canada_native **63 → 67 validated**, 10 → 6 withheld. **Zero regressions**: no document in either population loses a class or a field it had. |
+| Detection | **Unmoved, measured**: 113 documents × 51 registrations, 0 scores differ (§T8). |
+| Files | `analysis/td_us.py`, `analysis/td_can.py`, `tests/test_td_us_variants.py` (new), `tests/test_td_can_native_variants.py`, this log. The registry entries file is TD-FRENCH's this cycle and was not touched. |
+| Tests | 16 added (9 in a new `tests/test_td_us_variants.py` + 7 in the TD Canada file); **9 of the 16 fail against the base-commit parser installed in-process** — the other 7 are the invariance assertions, which must pass in both states (§T8). |
+
+## T1. The measurement instrument, and what it was allowed to touch
+
+Everything measured below comes from scratch scripts outside the repo, reading:
+
+* `discovery_reports/2026-08-13T163911.518386-0000-6893a75b/rows.csv` — the two
+  populations and their baseline outcomes (40 documents whose `candidates`
+  name `td_us`: 28 validated, 2 withheld, 10 unclaimed; 73 naming
+  `td_canada_native`: 63 validated, 10 withheld);
+* the D-3 artifact cache at `webapp_data/artifacts/ocr/`, **by direct file
+  path only** — the sqlite index was never opened, because a full archive
+  discovery run was executing on the machine throughout. The markdown was
+  reconstructed through `StatementMarkdown(...).to_markdown()`, the same
+  reconstruction `webapp/artifact_cache.cached_ocr` performs on a hit, from
+  the artifact whose `document.model` matches the run's recorded
+  `source_model`.
+
+**Zero OCR, zero model calls, `$0.00`, no write of any kind to the archive or
+the cache.** `analyze_markdown` is called directly, never through
+`cached_analysis`, so no artifact is stored.
+
+**The instrument reproduces the run of record.** Before any edit, the sweep
+over all 113 reconstructed documents returns the recorded outcome class for
+every one, and the recorded reason for 103. The other 10 are the td_us
+declines, recorded `no_parser_matched` by a run that predates `c476f1d`
+(§DISPATCH-REPORTING) and reproduced as `parser_declined` — the rename, not a
+drift, and it is the same 10 documents.
+
+Before/after is measured **in one process**: the base-commit copy of each
+changed file is loaded from its git blob as its own module and swapped into
+`parser_registry._REGISTRY`, so the only variable is the file under test.
+Compared per document: outcome class and reason, dispatch outcome, parser id,
+candidate vector, attempted list, exceptions, 15 statement fields, transaction
+count and signed sums, the reconciliation object, ADB and its validity,
+coverage, quality and the integrity flags.
+
+**The population is provably the whole of it, and nothing outside it can
+move.** `resolve` builds `candidates` from every surviving claimant *before any
+parse runs*, and returns `ambiguous` immediately when there is more than one.
+So a document where `td_us` claims is a document whose `candidates` name
+`td_us` — the 40 — and on every one of them `td_us` was the sole survivor
+(`len(survivors) > 1` would have made it `ambiguous`, and none is). A parser
+that starts returning a statement where it used to return `None` therefore
+cannot displace another parser anywhere in the archive: on a multi-claimant
+document the verdict was already decided before either parse. The same
+argument covers C1's 73. `analysis/td_can.py`'s HTML-table path is untouched
+either way — `_native_credit_like` has two callers, both inside the native
+balance resolution; the table path reads `_credit_like`, which is unchanged.
+
+## T2. U1 — an overdrawn opening balance is a balance (6 documents)
+
+`_summary` reads four summary fields with four patterns. Three of the four are
+balances; only the closing one could stand next to TD's minus sign.
+
+```python
+-        "beginning_balance": r"Beginning Balance\s+([\d,]+\.\d{2})",
+-        "stated_average_balance": r"Average Collected Balance\s+([\d,]+\.\d{2})",
++        "beginning_balance": r"Beginning Balance\s+(-?[\d,]+\.\d{2})",
++        "stated_average_balance": r"Average Collected Balance\s+(-?[\d,]+\.\d{2})",
+         "days_in_period": r"Days in Period\s+(\d+)",
+         "ending_balance": r"Ending Balance\s+(-?[\d,]+\.\d{2})",
+```
+
+A pattern that cannot match the sign does not read a smaller number: it reads
+nothing, `beginning_balance` stays `None`, and `:196` returns `None` for the
+whole document — which is why an extraction defect arrived filed as an
+unclaimed layout. `_money` already parsed a leading minus
+(`PARENS_OR_LEADING_MINUS`), so only the capture pattern was ever at fault.
+Identical defect class to §C6.1, which is where the shape of this card comes
+from.
+
+**The six movers, each verified against the figure the statement prints.**
+
+| Document | printed `Beginning Balance` | closes at | rows | `sum_delta` | `summary_ok` |
+|---|---|---|---|---|---|
+| `1E175E596948` | `-8.32` | 124.07 | 76 | 0.00 | True |
+| `9AB8FB6C0B20` | `-128.60` | -8.32 | 99 | 0.00 | True |
+| `523A6816FA49` | `-16.04` | 9,317.95 | 53 | 0.00 | True |
+| `CEA1C7496377` | `-335.39` | -921.58 | 99 | 0.00 | True |
+| `3B228A49B3B4` | `-921.58` | 21.23 | 93 | 0.00 | True |
+| `B839AE3942A4` | `-722.51` | 29,225.28 | 51 | 0.00 | True |
+
+All six are `validated` / `approved` with no integrity flags. Two independent
+corroborations that the sign is read correctly rather than merely accepted:
+each document's ledger closes on its own arithmetic (`sum_delta 0.00`, a
+mis-signed opening would break that identity rather than close it), and **two
+pairs chain across consecutive months** — `9AB8FB6C0B20` ends at `-8.32` where
+`1E175E596948` begins, and `CEA1C7496377` ends at `-921.58` where
+`3B228A49B3B4` begins.
+
+**The one value mover on a document that already validated.** `:39` was
+silently dropping a printed negative average. Exactly one document in the
+validated population prints one:
+
+```
+  B5AEDEB7E9C9  stated_average_balance: None -> -78.54
+```
+
+verified against its ACCOUNT SUMMARY, which prints
+`Average Collected Balance -78.54` under a positive `Beginning Balance 163.90`.
+Nothing else about that document moves — the field is not a required ADB
+check (`analysis/adb.py:486-500` records `agrees_with_bank_stated_average` as
+evidence and a warning, never as a gate), and its class, ADB, flags and quality
+are identical before and after.
+
+**The four documents that still decline are correctly declining**, and neither
+card touches them: `7645F0A8583C` prints `Beginning Balance �,017.43` (Tesseract
+lost the leading digit — an unreadable figure, not an unread one),
+`A7E4B895E2A9` has no readable `Statement Period:` line at all, and the other
+two are U2's.
+
+## T3. U2 — a short section is a short section, not a void document
+
+```python
+-        if abs(sum(abs(t.amount) for t in txns) - total) > 0.02:
+-            return None
+         all_txns.extend(txns)
+```
+
+Two scanned documents hit this, and on both the statement is not
+self-contradictory — Tesseract lost rows out of a 40-row section while the
+summary, the balances and the other sections came through exactly. Discarding
+the document threw away 43 and 58 good rows and filed an OCR defect as an
+unclaimed layout.
+
+The rows that were read are kept and the shortfall is left where the platform
+can see it. Both documents now reach the fail-closed gate and are refused
+there:
+
+| Document | rows | `sum_delta` | `summary_ok` | debit coverage | ADB | outcome |
+|---|---|---|---|---|---|---|
+| `2A0B516B2C7D` | 43 | +394.71 | True | 93% | refused | `withheld` / `withheld_adb` |
+| `1A8B92DC6167` | 58 | +307.18 | True | 97% | refused | `withheld` / `withheld_adb` |
+
+with the gap named in the reconciliation issues ("captured $5,193.88 of the
+bank's stated $5,588.59 in debits (93%) — line-item detail is inconsistent or
+incomplete; do not use it for daily-balance reconstruction") and the flags
+`ledger_sum_mismatch` + `debit_detail_coverage_mismatch` raised. **Claimed is
+not published: neither validates**, and they join `D3396D14BA8A` /
+`BDA1DE2F3481`, the two documents of the same scanned batch that were already
+withheld for the same reason.
+
+**Why removing the check does not remove the protection.** The discarded test
+compared each section's rows against a printed subtotal. `_summary` reads those
+same printed per-section figures into `stated_total_credits` /
+`stated_total_debits`, and `reconcile` then measures the ledger against them —
+so the check was a second, harsher copy of a gate that already exists
+downstream, sited where a failure could only destroy the evidence instead of
+reporting it. The residual is stated in §T7.
+
+One document's second mismatch is worth recording, because it inverts the
+card's framing: on `2A0B516B2C7D` the `Other Withdrawals` section reads 18.00
+against a subtotal of 3.00, which looks like the worse defect of the two. It is
+not a defect in the rows at all. Tesseract read that section's own subtotal
+line as `Subtotal: 15,00` — a comma where the decimal point is — so the money
+pattern skipped it, the section body ran on into `Service Charges`, and the
+section was compared against the *next* section's printed 3.00:
+
+```
+ 12/08 WIRE TRANSFER FEE 15.00 Subtotal: 15,00 eee A180
+ Service Charges POSTING DATE ?- DESCRIPTION AMOUNT 12/31 PAPER STATEMENT FEE 3.00
+```
+
+Both rows are captured exactly once, both are debits the ACCOUNT SUMMARY prints
+(`Other Withdrawals 15.00`, `Service Charges 3.00`), and the stated total
+corroborates them: 5,570.59 + 15.00 + 3.00 = 5,588.59, against a captured
+5,175.88 + 18.00 = 5,193.88. **The whole remaining gap is the 394.71 Tesseract
+lost from `Electronic Payments`, and nothing else.** The old check was
+discarding a document, and 43 correct rows with it, over a comma in a subtotal
+line — a figure it was trusting more than the rows it was testing.
+
+## T4. C1 — three more of TD's own structural codes (4 documents)
+
+`_native_credit_like` recovers direction from TD's transaction codes wherever
+the printed BALANCE column leaves a group underdetermined. Three of TD's own
+codes were missing, and each has a **sibling printed in the same position by
+the same channel meaning the opposite** — which is what makes the code, and not
+the wording around it, the evidence (R-1 item 8).
+
+| Code | Meaning | Sibling that must not match |
+|---|---|---|
+| `E-TFR <ref>` | an incoming e-transfer | `SEND E-TFR <ref>` (outgoing) |
+| `TD ATM DEP <n>` | deposit at TD's own machine | `TD ATM W/D <n>` |
+| `GC <n>-DEPOSIT` | deposit through TD's deposit channel | `GC <n>-CASH WITHDRA` |
+
+Only the spelled-out `E-TRANSFER` was read, so every incoming transfer printed
+in TD's abbreviated form was taken for a debit — 90-odd rows across the
+population. `CANCEL E-TFR` and `RECLAIM E-TFR` lead with their own verb, do not
+match, and are left to the printed balances exactly as before. The `GC` unit
+number is statement data, so the marker keys on the printed `-DEPOSIT` suffix
+rather than on `GC`.
+
+**The four movers**, each closing to `sum_delta 0.00` with no integrity flags
+and ADB restored:
+
+| Document | rows flipped | code |
+|---|---|---|
+| `D76F2467889F` | 1 (`TD ATM DEP 005218`, 200.00) | ATM |
+| `D42B4023ECDA` | 1 (`E-TFR ***wG8 EPAY`, 4,201.00) | E-TFR |
+| `7F19A3E37AAD` | 2 (`E-TFR`, 850.00 + 100.00) | E-TFR |
+| `230E0915D1C7` | 4 `E-TFR` rows, **and one uncoded row the other way** | E-TFR |
+
+The fifth flip on `230E0915D1C7` is the documented equal-amount tie-break, not
+a second rule: `ENTEGRUS R2Y6X2` and `E-TFR ***2uN EPAY` are both 200.00 in a
+group the arithmetic says contains exactly one 200.00 deposit, and
+`_directions_from_credit_counts` now hands it to the coded row. The document
+reconciles to 0.00 with that assignment and did not before, so the printed
+balances confirm the swap.
+
+**The ablation, all eight subsets over all 73 documents in one process:**
+
+```
+(none: base vocabulary)      validated= 63/73
+etfr                         validated= 66/73     E-TFR      alone +3, removed from the full set -3
+atmdep                       validated= 64/73     TD ATM DEP alone +1, removed from the full set -1
+gcdep                        validated= 63/73     GC-DEPOSIT alone +0, removed from the full set +0
+atmdep+etfr                  validated= 67/73
+atmdep+etfr+gcdep            validated= 67/73
+```
+
+`GC <n>-DEPOSIT` earns no validation on this population, alone or in
+combination — the brief's "+0 but needed" is not what the ablation says, and
+this corrects it. It is not inert, though: with only that rule removed, two
+documents that stay withheld either way move materially the wrong way —
+`477E2FD610A1` from `sum_delta -19.90` to `-6,019.90`, **re-raising both
+coverage flags it otherwise clears**, and `5E682B9B2C69` by 6,040.00 (credit
+coverage 83% → 76%). A 3,000.00 deposit read as a 3,000.00 withdrawal is a
+6,000.00 error, and the arithmetic moving toward the bank's own printed
+balances is the evidence for the code. It ships with the other two.
+
+**The caveat the brief flagged, verified.** `EA5C61862BB8` drifts from
+`sum_delta +600.72` to `+1,000.72` — its one flipped row is
+`E-TFR ***53t EPAY 200.00`, correctly a credit by TD's code, and the document
+does not reconcile either way. Its remaining 600.72 is a different, unrelated
+defect and it stays `withheld` before and after.
+
+`PAY` was left in `_NATIVE_CREDIT_CODES`. It is unsound as a trailing-token
+code (it is also the tail of `EPAY`, `BPY` and others) but net-neutral on this
+population; removing it is a separate card, recorded in §T7.
+
+## T5. Result over both populations
+
+Base `cce8ac1` → `3cda874`, one process, 113 documents:
+
+```
+td_us              before n= 40 {'failed': 10, 'validated': 28, 'withheld': 2}
+td_us              after  n= 40 {'failed':  2, 'validated': 34, 'withheld': 4}
+td_canada_native   before n= 73 {'validated': 63, 'withheld': 10}
+td_canada_native   after  n= 73 {'validated': 67, 'withheld':  6}
+DOCUMENTS_DIFFERING_IN_ANY_FIELD= 16
+```
+
+Sixteen movers, every one named: 6 U1 validations, 1 U1 value change on an
+already-validated document, 2 U2 documents moving unclaimed → withheld, 4 C1
+validations, and 3 C1 documents that stay withheld (two improved, one drifted).
+**No document in either population moves in the losing direction on class, and
+none of the 91 documents that were already validated loses a field** — the one
+already-validated mover, `B5AEDEB7E9C9`, gains a field it was dropping.
+
+**The pinned corpus carries 10 TD statements** — 4 `td_us` and 6
+`td_canada_trust`, including one whose closing balance is `-8.00` and one whose
+opening is `-19.07` — and every audited balance and ADB field on all 109 is
+byte-identical, 106 PASS / 3 WITHHELD, the same three by name (§T8).
+
+## T6. Corrections to the brief's measured numbers
+
+Three, all found by re-measuring rather than by reading:
+
+1. **"7 of the 10 class-1 declines print a negative opening" — it is 6.** The
+   seventh, `7645F0A8583C`, prints `�,017.43`: an OCR-mangled figure, not a
+   signed one. The card's own headline (+6) was right.
+2. **"e.g. CEA1C7496377 — that is a value change on a validated doc" —
+   `CEA1C7496377` is one of the ten declines**, not a validated document; it
+   prints both a negative opening (`-335.39`) and a negative average
+   (`-316.10`) and is one of the six U1 validations. The one true value mover
+   on an already-validated document is **`B5AEDEB7E9C9`** (§T2).
+3. **"`GC <n>-DEPOSIT`: +0 but needed" — it is +0 and not needed for the +4**,
+   but it materially improves two withheld documents (§T4).
+
+## T7. Carried findings and questions for Ocean
+
+1. **U2's residual, stated plainly.** With the per-section check gone, a
+   document whose sections mis-read in *exactly compensating* directions could
+   in principle reconcile on wrong rows and validate. Nothing in either
+   population does this, and it needs two OCR errors of equal size in opposite
+   directions within one statement, but the discarded check did catch that case
+   and the downstream coverage gate (±2% against the stated totals) does not.
+   The concrete mechanism to watch is the one §T3 documents: when a section's
+   subtotal line is unreadable, `_section` runs on into the next section and
+   swallows its rows. On `2A0B516B2C7D` the swallowed section then failed to
+   parse on its own, so nothing was double-counted — but a document where both
+   parse would count a row twice, and only the coverage gate would notice. If
+   Ocean wants the protection back without the destruction, the parser-local
+   way is an integrity check registered for `td_us`, which needs
+   `parser_registry_entries.py` — TD-FRENCH's file this cycle. **Recorded as a
+   card, not attempted.** The narrower fix for the mechanism itself (bound a
+   section body at the next section heading, not merely at the next
+   `Subtotal:`) is a second card, also not attempted: it changes what every
+   td_us section captures and deserves its own measurement.
+2. **The UNCAPTURED alternative for U2, considered and not taken.** The
+   pipeline already has a convention for "activity the bank totals but we could
+   not read as postings" (`Quality.aggregate_rows` / `summary_only`). Emitting
+   the shortfall as an UNCAPTURED row would make both documents reconcile at
+   100% coverage and land in `review` rather than `withheld`. That is a
+   different, larger claim — it asserts the gap is real activity — and it is
+   not what the card measured. Ocean's call.
+3. **`PAY` in `_NATIVE_CREDIT_CODES`.** Kept per the brief. It is a trailing
+   *token* test, so it fires only on a description ending in the bare word
+   `PAY`; the population's `EPAY`/`BPY` tails do not reach it. Unsound as
+   written, net-neutral as measured, worth its own measured card.
+4. **`CANCEL E-TFR` / `RECLAIM E-TFR` are unread.** Six rows in the population.
+   A cancelled outgoing transfer is a credit back, and both leave the direction
+   to the printed balances today. Not in the card, not measured, not added.
+5. **`MOBILE DEPOSIT` and bare `DEPOSIT` rows** appear four times in the native
+   population and are not in the code vocabulary either. Same treatment: named,
+   not added.
+6. **D5 (`td_can` never populates `running_balance`)** was not touched, per the
+   brief.
+
+## T8. Proofs
+
+All run at `3cda874`, the final production tree — `dc5d985` after it changes
+one comment in a test file and nothing else. Timings are under the concurrent
+archive discovery run, hence the corpus gate's 454s and the corpus suite's
+minutes.
+
+| Proof | Result | Exit |
+|---|---|---|
+| `python -m pytest -q` (default suite, final tree) | `2870 passed, 18 deselected` | 0 |
+| `python -m pytest -m corpus -q` (final tree) | `14 passed, 2874 deselected` (1042.2s under load) | 0 |
+| `python corpus_gate.py` (final tree) | `RESULT: GREEN`, `Outcomes: 106 PASS / 3 WITHHELD`, 9 of 9 checks PASS, runtime 454.2s | 0 |
+| guards + conformance (`test_r1_hardcodes`, `test_no_statement_hardcodes`, `test_no_parser_helper_clones`, `test_parser_detection_markers`, `test_experiments_are_not_wired`, `test_parser_conformance`, `test_parser_registry_entries`, `test_parser_expectations_baseline`) | `795 passed` | 0 |
+| Detection invariance, 113 docs × 51 registrations, base vs HEAD | `DETECTION_SCORES_MOVED= 0` | 0 |
+| Population sweep, base vs HEAD | `DOCUMENTS_DIFFERING_IN_ANY_FIELD= 16`, all named in §T5 | 0 |
+| Fixtures are genuine regressions — final test files, base-commit `analysis/td_us.py` installed in-process | `6 failed, 3 passed` | 1 (expected) |
+| ditto, base-commit `analysis/td_can.py` | `3 failed, 32 passed` (the file's 28 pre-existing tests all pass) | 1 (expected) |
+| Per-card, same instrument | U1 alone `4 failed, 2 passed`; U2 against `981dc70` `2 failed, 7 passed`; C1 against `98a1781` `3 failed, 32 passed` | 1 (expected) |
+
+The regression proof installs the base-commit copy of the parser module under
+its real name before pytest imports the test file, so the fixtures run against
+the defect. The tests that pass in that state are exactly the invariance ones —
+the credit-side statement, the detection scores, the unaffected document, and
+each new code's sibling — which is the assertion that they assert nothing new.
+
+## T9. Commits
+
+| Commit | Contents |
+|---|---|
+| `981dc70` | U1: `analysis/td_us.py:38-39` + `tests/test_td_us_variants.py` (6 fixtures) |
+| `98a1781` | U2: `analysis/td_us.py:213-214` + 3 fixtures in the same file |
+| `3cda874` | C1: `analysis/td_can.py` `_native_credit_like` + 7 fixtures in `tests/test_td_can_native_variants.py` |
+| `dc5d985` | one fixture comment, corrected to describe the fixture rather than the documents it abstracts |
+| (this one) | §TDFIX-1 T0–T9 |
