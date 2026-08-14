@@ -7284,6 +7284,16 @@ new registration and therefore UNSURVEYED, correctly; it prints no counts.
    which is the correct fail-closed behaviour in the absence of that rule for
    this parser. Admitting it is a one-document card and is deliberately NOT
    taken here: the rule is Ocean's to extend, not this cell's to copy.
+6. **`ANALYSIS_STAGE_VERSION` needs a bump on merge, and this cell did not
+   make it.** 66 documents change their analysis output, so every cached
+   payload for them is stale; `webapp/artifact_cache.py` documents that a code
+   change altering analysis output must bump the version in the same commit.
+   The brief reserves the bump to Ocean, so `webapp/` is untouched here —
+   flagged so it is not missed. Nothing else outside `analysis/rbc.py`,
+   `analysis/cibc.py`, `analysis/tables.py` and
+   `analysis/parser_registry_entries.py` was modified: `webapp/`, `ocr/`,
+   `pipeline.py`, `count_semantics.py`, `reconcile.py` and `metrics.py` carry a
+   zero-line diff against `cce8ac1`.
 
 ## RC9. Proofs
 
