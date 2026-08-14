@@ -9,13 +9,65 @@ from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 
-_ROW_RE = re.compile(
-    r"^(?P<label>.*?)\s+"
+#: A transaction row's tail: the four printed columns that carry its meaning.
+#: Every one of them is a fixed shape, which is what lets the label in front of
+#: them be optional (see `_CONTINUATION_RE`).
+_ROW_TAIL = (
     r"(?P<date>[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})\s+"
     r"(?P<status>Settled|Returned)\s+"
     r"(?P<amount>[+-]\$[\d,]+\.\d{2})\s+"
     r"(?P<balance>-?\$[\d,]+\.\d{2})$"
 )
+#: The ordinary row: label and tail on one line.
+_ROW_RE = re.compile(r"^(?P<label>.*?)\s+" + _ROW_TAIL)
+#: The same row after its label wrapped onto the line above it. `_ROW_RE`
+#: cannot match this - it requires whitespace between label and date - so a
+#: wrapped row was silently invisible, and a statement missing one row fails
+#: its own balance walk and is refused whole.
+_CONTINUATION_RE = re.compile(r"^" + _ROW_TAIL)
+
+#: Document furniture that is never a transaction's label: the OCR page
+#: separator, and the platform's per-page footer line. A wrapped row sitting
+#: directly under either of these has its label on the far side of a page
+#: break, where this reader cannot reach it.
+_NOT_A_LABEL_RE = re.compile(r"^-{3} Page \d+|Page \d+ of \d+")
+
+
+#: Some Relay statements embed a subset font whose ToUnicode table leaves four
+#: glyphs unmapped, so characters the statement PRINTS arrive in the Unicode
+#: private-use area instead: the amount signs `+` and `-`, and the parentheses
+#: around an account's last four digits.
+#:
+#: The two SIGNS are not assumed - they are proven by the document's own
+#: arithmetic. Every row's running balance must chain exactly from the printed
+#: opening balance to the printed closing balance, and the signed sums must
+#: equal the printed Deposits and Withdrawals totals exactly (`Decimal`
+#: equality below, no tolerance anywhere). A sign read backwards breaks that
+#: chain at the first row it touches, so a mis-mapping cannot reach a
+#: published number: it declines the document instead.
+#:
+#: The two BRACKETS carry no arithmetic, so they are proven by position: they
+#: occur only as a matched pair around an account's last four digits, in the
+#: same construct that statements from this platform whose font maps correctly
+#: print with parentheses ("Business Checking (8923) Transfer From").
+#:
+#: This lives here, at the reader, and not in `ocr/`: the mapping is a fact
+#: about ONE issuer's embedded font, not about PDF text extraction. A census
+#: over the archive found the private-use phenomenon recurs under other
+#: issuers with entirely different codepoints and no shared meaning, so there
+#: is no platform table to write - only per-issuer ones.
+_PUA_GLYPHS = {
+    "\ue09d": "+",
+    "\ue088": "-",
+    "\ue081": "(",
+    "\ue082": ")",
+}
+_PUA_RE = re.compile("[" + "".join(_PUA_GLYPHS) + "]")
+
+
+def _restore_glyphs(markdown: str) -> str:
+    """Printed characters that arrived as private-use codepoints, put back."""
+    return _PUA_RE.sub(lambda m: _PUA_GLYPHS[m.group(0)], markdown)
 
 
 def _money(value: str) -> Decimal:
@@ -65,9 +117,11 @@ detect = make_detector(DETECTION_MARKERS, detection_text)
 
 
 def parse_relay_statement(markdown: str) -> Statement | None:
-    upper = markdown.upper()
     if not detect(markdown).claims:
         return None
+    # Detection runs on the document as extracted; everything after it reads
+    # the characters the statement actually printed.
+    markdown = _restore_glyphs(markdown)
 
     period = re.search(
         r"(?P<holder>[^\n|]+?)\s*\|\s*"
@@ -97,14 +151,31 @@ def parse_relay_statement(markdown: str) -> Statement | None:
     debits = _money(summary.group("debits"))
 
     source_rows: list[tuple[datetime, Decimal, Decimal, str]] = []
+    previous_line = ""
     for raw_line in markdown.splitlines():
-        match = _ROW_RE.match(raw_line.strip())
-        if not match:
-            continue
+        line = raw_line.strip()
+        match = _ROW_RE.match(line)
+        if match:
+            label = match.group("label")
+        else:
+            wrapped = _CONTINUATION_RE.match(line)
+            if not wrapped:
+                if line:
+                    previous_line = line
+                continue
+            # A row whose label wrapped onto the line above. Attribute it to
+            # that line only when that line can BE a label: not another row,
+            # not page furniture, not already consumed. Anything else and the
+            # document is refused rather than given a guessed description -
+            # the balance walk below would happily accept a mislabelled row.
+            if not previous_line or _NOT_A_LABEL_RE.search(previous_line):
+                return None
+            label, match = previous_line, wrapped
+        previous_line = ""
         txn_date = datetime.strptime(match.group("date"), "%b %d, %Y")
         amount = _money(match.group("amount"))
         balance = _money(match.group("balance"))
-        description = _description(match.group("label"), match.group("status"), amount)
+        description = _description(label, match.group("status"), amount)
         source_rows.append((txn_date, amount, balance, description))
 
     if not source_rows:
