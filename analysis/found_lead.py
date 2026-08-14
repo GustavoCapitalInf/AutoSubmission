@@ -40,7 +40,7 @@ from __future__ import annotations
 import re
 from decimal import Decimal
 
-from .date_tokens import MONTH_NAME_ALT, iso_from_month_day_year, iso_from_named_month_day
+from .date_tokens import MONTH_NAME_ALT, iso_from_named_month_day, iso_or_none
 from .money import SIGNED_MONEY_TOKEN, parse_signed_decimal
 from .parser_registry import corroborating, excluding, make_detector, required
 from .schema import Statement, Transaction
@@ -230,10 +230,19 @@ def _postings(lines: list[str]) -> tuple[list[Transaction], int] | None:
         if section != _SETTLED_SECTION:
             return None
 
+        # The row pattern proved the token's SHAPE only: `13/45/26` matches
+        # it perfectly and is not a date. A Date cell that holds no date means
+        # the columns were not read as they were printed, so the document is
+        # refused rather than the row dropped — and `date()` never raises out
+        # of the parser.
+        month, day, year = (int(part) for part in match.group("date").split("/"))
+        posted = iso_or_none(2000 + year, month, day)
+        if posted is None:
+            return None
         amount = parse_signed_decimal(match.group("amount"))
         transactions.append(
             Transaction(
-                date=iso_from_month_day_year(match.group("date"), century="always"),
+                date=posted,
                 description=match.group("description"),
                 amount=float(amount),
                 direction="debit" if amount < 0 else "credit",

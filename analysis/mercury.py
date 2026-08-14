@@ -86,13 +86,31 @@ _GRID_TOTAL_RE = re.compile(r"^Total\s+(?P<total>" + SIGNED_MONEY_TOKEN + r")$")
 
 #: One posting. Date and balance are both optional because both columns print
 #: once per day; the amount and the Type mark are not.
+#:
+#: The row is split at the Type mark rather than at "the last money on the
+#: line", and that is load-bearing rather than tidy. With the balance column
+#: optional, a description ENDING in a money token is ambiguous —
+#: ``Alpha $5.00 -$10.00`` reads equally well as (amount $5.00, balance
+#: -$10.00) and as (description "Alpha $5.00", amount -$10.00, no balance) —
+#: and a non-greedy pattern silently picks the first. §RBCCIBC lost nine
+#: documents to exactly that shape (`SERVICE CHARGE ... FEE$16.95` booked
+#: twice). The mark makes the question structural instead of a guess: the
+#: money columns are what follows it, and the description is what precedes it.
+#: Measured over the surveyed set: 0 of 2,696 descriptions contain a money
+#: token, so this changes no reading today and removes the way it could break.
 _ROW_RE = re.compile(
     r"^(?:(?P<month>" + MONTH_NAME_ALT + r")\s+(?P<day>\d{1,2})\s+)?"
-    r"(?P<body>\S.*?)\s+"
+    r"(?P<description>\S.*?)\s*"
+    r"(?P<mark>[-])"
+    r"(?P<type>[^-]*?)\s+"
     r"(?P<amount>" + SIGNED_MONEY_TOKEN + r")"
     r"(?:\s+(?P<balance>" + SIGNED_MONEY_TOKEN + r"))?$",
     re.IGNORECASE,
 )
+
+#: A line that ends in money. Inside an open grid, a line that is one of these
+#: and is NOT a posting row is a row this reader failed to place.
+_TRAILING_MONEY_RE = re.compile(SIGNED_MONEY_TOKEN + r"$")
 
 _ACCOUNT_RE = re.compile(r"^Account Number\s+(?P<number>[\w-]+)$", re.IGNORECASE)
 _ACCOUNT_TYPE_RE = re.compile(r"^Account Type\s+(?P<kind>\S.*)$", re.IGNORECASE)
@@ -194,26 +212,24 @@ def _postings(
 
         match = _ROW_RE.match(line)
         if match is None:
-            # No money at the end of the line: page furniture. The grid closes
-            # and the next page's column header reopens it.
+            if inside and _TRAILING_MONEY_RE.search(line):
+                # A line carrying money that this reader cannot place as a
+                # posting — no Type mark, so no column boundary. Stepping over
+                # it would drop a row, and a dropped row is invisible to every
+                # arithmetic check downstream because the rows that remain
+                # still sum to their own total.
+                return None
+            # Page furniture (and, outside the grid, the summary block's
+            # row-shaped `Beginning Balance $0.00`). The grid closes here and
+            # the next page's column header reopens it.
             inside = False
             continue
-        if not _TYPE_MARK_RE.search(match.group("body")):
-            if not inside:
-                # The summary block's `Beginning Balance $0.00` is row-shaped
-                # and carries no Type mark. Outside the grid that is expected.
-                continue
-            # Inside the grid it is not: a line carrying money that this reader
-            # cannot place as a posting must not be stepped over. A dropped row
-            # is invisible to every arithmetic check downstream, because the
-            # rows that remain still sum to their own total.
-            return None
         if not inside:
             # A posting outside an open grid means this reader lost its place.
             return None
         seen += 1
 
-        body = match.group("body")
+        body = f"{match.group('description')} {match.group('type')}"
         if match.group("month"):
             day = iso_from_named_month_day(
                 match.group("month"), match.group("day"), period_start[:4]
@@ -240,7 +256,11 @@ def _postings(
         transactions.append(
             Transaction(
                 date=current_date,
-                description=compact_whitespace(_TYPE_MARK_RE.sub(" ", body)),
+                # Description and Type, as printed, with the icon that divided
+                # them replaced by the space the columns already put there.
+                # The schema has no Type field, so the alternative is to drop
+                # what the bank printed.
+                description=compact_whitespace(body),
                 amount=float(amount),
                 direction="debit" if amount < 0 else "credit",
                 running_balance=None if balance is None else float(balance),

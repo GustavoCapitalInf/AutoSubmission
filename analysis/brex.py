@@ -36,7 +36,7 @@ from __future__ import annotations
 import re
 from decimal import Decimal
 
-from .date_tokens import MONTH_NAME_ALT, iso_from_month_day, iso_from_named_month_day
+from .date_tokens import MONTH_NAME_ALT, iso_from_named_month_day, iso_or_none
 from .money import MINUS_GLYPHS, SIGNED_MONEY_TOKEN, parse_signed_decimal
 from .parser_registry import corroborating, make_detector, required
 from .schema import Statement, Transaction
@@ -194,8 +194,15 @@ def _postings(lines: list[str], year: int) -> tuple[list[Transaction], list[str]
             continue
         amount = parse_signed_decimal(closed.group("amount"))
         description = compact_whitespace(pending[1][: closed.start()])
-        date = iso_from_month_day(pending[0], year)
-        if not description:
+        # `_ROW_OPEN_RE` proved the token's SHAPE and nothing more: `13/45`
+        # matches it perfectly and is not a date. `iso_or_none` is where that
+        # is decided, and a Date cell that holds no date means the columns were
+        # not read as they were printed — so the document is refused rather
+        # than the row silently dropped, and `date()` never raises out of the
+        # parser (the defect class discovery hit on 17 documents).
+        month, day = (int(part) for part in pending[0].split("/"))
+        date = iso_or_none(year, month, day)
+        if date is None or not description:
             return None
         printed = "debit" if amount < 0 else "credit"
         if printed != direction:

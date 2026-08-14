@@ -64,6 +64,28 @@ def test_mercury_prints_the_balance_only_on_the_last_row_of_a_day():
     assert reconcile(statement).continuity_breaks == 0
 
 
+def test_mercury_splits_the_row_at_the_type_mark_not_at_the_last_money():
+    """A description ending in a money token, on a row whose balance column is
+    empty. "The last two money tokens are amount and balance" reads this as
+    (amount $5.00, balance -$10.00) and publishes a POSITIVE 5.00 with a
+    fabricated running balance. Splitting at the printed column boundary gives
+    the only reading the grid supports.
+
+    Zero of the 2,696 surveyed rows print this, so the pin is what stops the
+    pattern being "simplified" back — §RBCCIBC lost nine documents to the same
+    shape."""
+    statement = mercury.parse_mercury_statement(mercury_document(
+        f"Apr 02 Refund of $5.00 fee {MARK}ACH Pull -$10.00\n"
+        f"Beta Freight {MARK}ACH Pull -$10.00 $80.00\n",
+        beginning="$100.00", withdrawals="-$20.00", deposits="$0.00", ending="$80.00",
+    ))
+    assert statement is not None
+    assert statement.transactions[0].amount == -10.00
+    assert statement.transactions[0].running_balance is None
+    assert statement.transactions[0].description == "Refund of $5.00 fee ACH Pull"
+    assert reconcile(statement).ok
+
+
 def test_mercury_carries_the_date_forward_across_a_page_break():
     """A day whose postings span two pages: the second page reprints the
     column header and NOT the date."""
@@ -461,3 +483,42 @@ def test_no_fintech_parser_claims_another_fintech_layout(parser):
     ]
     parsed = [parser(document) is not None for document in documents]
     assert sum(parsed) == 1, "a fintech parser claimed more than one platform's layout"
+
+
+# ===========================================================================
+# A date-shaped token that is not a date
+# ===========================================================================
+
+def test_found_refuses_a_date_cell_that_no_calendar_can_hold():
+    """`13/45/26` matches the row pattern's date shape perfectly. Converting it
+    without a guard raises out of `parse` — a `ParserCrashError` in
+    deterministic mode, which is the defect class discovery hit on 17
+    documents. A Date cell holding no date means the columns were not read as
+    printed, so the document is refused."""
+    assert found_lead.parse_found_lead_statement(found_document(
+        "13/45/26 Alpha Supply - $30.00 $70.00\n",
+        beginning="$100.00", debits="$30.00", ending="$70.00",
+    )) is None
+
+
+def test_brex_refuses_a_date_cell_that_no_calendar_can_hold():
+    assert brex.parse_brex_statement(brex_document(
+        "13/45 Alpha Supply ACH $500.00\n",
+        "4/6 Beta Freight ACH -$200.00\n",
+        beginning="$100.00", additions="$500.00", subtractions="-$200.00", ending="$400.00",
+    )) is None
+
+
+@pytest.mark.parametrize("parser,document", [
+    (found_lead.parse_found_lead_statement,
+     lambda: found_document("13/45/26 Alpha Supply - $30.00 $70.00\n",
+                            beginning="$100.00", debits="$30.00", ending="$70.00")),
+    (brex.parse_brex_statement,
+     lambda: brex_document("13/45 Alpha Supply ACH $500.00\n",
+                           "4/6 Beta ACH -$200.00\n", beginning="$100.00",
+                           additions="$500.00", subtractions="-$200.00", ending="$400.00")),
+])
+def test_a_bad_date_declines_rather_than_raising(parser, document):
+    """The refusal must be a `None`, not an exception: W3-1's seam would record
+    it as `parser_exception` and file our own crash as a document defect."""
+    assert parser(document()) is None
