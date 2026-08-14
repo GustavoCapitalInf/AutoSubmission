@@ -45,9 +45,11 @@ from . import (
     demo_national,
     desjardins,
     farmers_merchants,
+    fifth_third,
     first_citizens,
     first_community,
     first_farmers,
+    fiserv_premier,
     found_lead,
     huntington,
     ibc,
@@ -116,9 +118,14 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("demo_national", "Demo National Bank", demo_national, "DETECTION_MARKERS", None, "parse_demo_national_statement"),
     ("desjardins", "Desjardins", desjardins, "DETECTION_MARKERS", None, "parse_desjardins_statement"),
     ("farmers_merchants", "Farmers & Merchants Bank", farmers_merchants, "DETECTION_MARKERS", "detection_text", "parse_farmers_merchants_statement"),
+    ("fifth_third", "Fifth Third Bank", fifth_third, "DETECTION_MARKERS", "detection_text", "parse_fifth_third_statement"),
     ("first_citizens", "First Citizens Bank", first_citizens, "DETECTION_MARKERS", None, "parse_first_citizens_statement"),
     ("first_community", "First Community Credit Union", first_community, "DETECTION_MARKERS", "detection_text", "parse_first_community_statement"),
     ("first_farmers", "First Farmers Bank & Trust", first_farmers, "DETECTION_MARKERS", "detection_text", "parse_first_farmers_statement"),
+    # Fiserv Premier is a platform, not a bank: `bank` here is the platform
+    # label the registry needs, while `Statement.bank` carries the issuing
+    # division read off the document itself.
+    ("fiserv_premier", "Fiserv Premier", fiserv_premier, "DETECTION_MARKERS", "detection_text", "parse_fiserv_premier_statement"),
     # Found's two documents, one reader. The month-to-date view is a separate
     # registration because the issuer prints, on it and on nothing else, that
     # it "is not a bank statement" — see the `_OVERRIDES` entry below and

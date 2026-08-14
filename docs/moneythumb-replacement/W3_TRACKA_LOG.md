@@ -12451,6 +12451,483 @@ $ python -m pytest -q
 EXIT=0
 
 $ python corpus_gate.py
+# §UNID-B — two print streams claimed, and a family whose issuer is not on the page
+
+UNID-PACK-B, 2026-08-14. Branch `wave3-unid-b`, base `a46555c`. Brief:
+`docs/agent-handoffs/UNID-PACK-B.md`. Scout evidence: SC-UNID-3.
+
+**Additive only.** Two new parser modules and two new registrations, plus one
+shared date helper promoted out of them. No existing parser, marker, band or
+`supersedes` edge is touched, and the archive-wide differential in §UB7 shows
+the claimant set of all 1,536 other extracted documents is unchanged.
+
+## UB0. Summary
+
+| | |
+|---|---|
+| Card 5 — Fifth Third | 13 documents, **13 validated**. The scout expected 12/13; the thirteenth is recoverable and §UB2 says why. |
+| Card 2 — Fiserv Premier | 14 documents detected, 10 parsed, **6 validated**, 4 claimed-but-withheld on a platform page-coverage flag (§UB4.3), 4 refused for want of an issuer. |
+| Card 8 — "Desjardins French" | **Not built. Blocked on identification** — the premise is not supported by any of the 16 documents (§UB5). 6 of the 16 reconcile end to end, so the coverage is real and waiting on one ruling. |
+| The Fiserv trap | Confirmed and quantified: the loose counts clause reaches **216 of 236** Wells Fargo documents. The conjunction shipped reaches **0**. Own section, §UB6. |
+| Movement outside the two families | **Zero**, over 1,563 distinct extracted documents and a 679-document stratified probe. |
+| Files | `analysis/fifth_third.py`, `analysis/fiserv_premier.py` (new); `analysis/date_tokens.py` (+2 shared helpers); `analysis/parser_registry_entries.py`, three test files, two conformance fixtures. |
+| `count_semantics` | Deliberately **no entry** for either id. Both are UNSURVEYED / `comparable=False`, verified rather than assumed (§UB7). |
+| `ANALYSIS_STAGE_VERSION` | **Not bumped.** `webapp/` is Ocean's; both registrations change analysis output and the bump is required before the D-3 cache is trusted again. Carried finding UB8.1. |
+
+## UB1. The instrument, and the scout's numbers
+
+Every measurement in this record was taken with a harness that reproduces the
+production native-text rung exactly (`ocr.pipeline.parse_statement`, visual OCR
+disabled), reading the archive PDFs from the MAIN checkout read-only. Nothing
+was written to the archive or to the D-3 cache; `analyze_markdown` is called
+directly, never through `cached_analysis`. **Zero OCR, zero model calls, $0.00.**
+
+Harness fidelity was established before any production edit: over the 26
+documents of the `Desjardins` folder the harness reproduced run `88be9dd3`'s
+dispatch exactly — the same 5 rows claimed by `desjardins` plus the one
+`pinned_corpus_duplicate` the run excludes, and the same 20 unclaimed.
+
+The scout's populations, re-derived rather than repeated:
+
+| family | scout | measured | note |
+|---|---|---|---|
+| Fifth Third | 13 docs, 12 rec | **13 docs, 13 validated** | all 13 in `Unidentified`, none in the folder named `Fifth Third Bank` |
+| Fiserv | 56 in-folder, 30 rec, +10 other folders | **84 docs carrying the furniture**; 62 in `Unidentified`, 22 across 5 other labels | 18 of the 84 are already claimed (§UB4.1) |
+| Desjardins FR | 10 docs, 6 rec, 4 chain-broken | **16 docs, 6 reconcile, 10 chain-broken** | the scout's 10 is the `Unidentified` slice; 6 more are filed under `Desjardins` |
+
+**The folder named `Fifth Third Bank` contains no Fifth Third statement.** All
+16 of its PDFs are Shopify Balance statements — a Stripe-issued product whose
+disclosure names Fifth Third as one of two custodians. The 13 real Fifth Third
+documents are filed under `Unidentified`. This is the §CHASE-LAYOUTS lesson
+again, in a sharper form: the folder label was not merely unhelpful here, it
+pointed at a different product entirely.
+
+## UB2. Card 5 — three debit components, and what a bare label means
+
+The account summary flattens to one line (shape reproduced with synthetic
+figures throughout this record — no archive amount, date or name appears here):
+
+```
+02/01 Beginning Balance $(100.00) Number of Days in Period 28
+300 Checks $(1,000.00) 150 Withdrawals / Debits $(2,000.00)
+70 Deposits / Credits $4,000.00 02/28 Ending Balance $900.00
+```
+
+`Checks` is a debit-side total **separate from** `Withdrawals / Debits`. The
+identity is `beginning + deposits − checks − withdrawals == ending`, and the
+two-component reading fails on the 8 of 13 documents that print a cheque
+total — the other 5 print the bare label discussed below. The
+fixture `test_folding_the_cheque_total_away_would_break_the_closing_identity`
+pins the reading rather than the result: it asserts that the two-component walk
+does *not* reach the printed closing balance and the three-component walk does.
+
+**The grammar the scout's trap sits inside.** Each component prints as
+`[count] LABEL [amount]`, and *both* optional parts really are optional:
+
+```
+... Period 28 Checks 30 Withdrawals / Debits $(2,000.00) 25 Deposits / Credits ...
+... Period 31 3 Checks $(1,000.00) Withdrawals / Debits 7 Deposits / Credits ...
+```
+
+In the first, `Checks` carries neither count nor amount and the `30` belongs to
+`Withdrawals / Debits`; in the second, `Withdrawals / Debits` is the bare one.
+A bare label means the component is **absent**, and the parser only accepts that
+reading because the document says it twice: the matching detail section is
+absent too. Where the two printings disagree the document is refused
+(`test_a_bare_label_with_its_section_still_present_is_refused`).
+
+**Where this cell disagrees with the scout.** The scout recorded "1 doc missing
+the withdrawals clause — fail closed". That document (bare `Withdrawals /
+Debits`) is not defective: its closing identity closes exactly with the
+component at zero, it prints no `Withdrawals / Debits` detail section, and its
+daily-balance walk completes. Refusing it would be fail-closed on a document
+that proves itself. It validates, and the family is 13/13.
+
+**Four instruments, all required to agree.** Measured over all 13 before any
+parser existed, then again through the parser:
+
+```
+summary identity holds                : 13 / 13
+section headings agree with summary   : 13 / 13
+rows match their section's count+total: 13 / 13
+daily balance walk holds              : 13 / 13
+```
+
+The cheque grid is a three-up `Number Date Paid Amount` layout with independent
+`*` / `i` / `s` flags, and the three detail sections interleave across pages —
+a page ends mid-grid and the next resumes it under `- continued` after
+reprinting the whole address block. Sections are therefore gathered globally: a
+page boundary closes whatever section was open, and every continuing page
+reprints its own heading, so the reprinted furniture is *structurally* unable to
+leak into a section without the parser needing to know what furniture looks like.
+
+Detection keys on the print stream's own header
+(`FTCSTMT### ### ######## UDSPDFSTMT ################### DDA`, uniform across
+all 13), the issuer domain the page footers carry, and the summary heading. The
+issuer matters in both directions, and the archive supplies the proof of each.
+
+**A name-based marker would have missed twelve of the thirteen.** The words
+"Fifth Third" appear on exactly one of the 13 real statements. The domain
+appears on all 13.
+
+**A name-based marker would also have claimed sixteen documents that are not
+Fifth Third statements at all.** The 16 Shopify Balance documents filed under
+the folder named `Fifth Third Bank` each name Fifth Third Bank in their
+page-one custodian disclosure — a third-party product naming the bank that
+holds the funds. Detection claims none of them:
+
+```
+Shopify Balance documents filed as 'Fifth Third Bank': 16
+mentions of 'Fifth Third' in them                    : 16
+claimed by fifth_third or fiserv_premier             :  0
+```
+
+This is R4-3's invariant meeting a real document rather than a hypothetical
+one, and it is pinned as a fixture
+(`test_a_custodian_disclosure_naming_the_bank_is_not_a_claim`).
+
+## UB3. Result over the Fifth Third family
+
+```
+outcomes: {'validated': 13}
+bank on every document: Fifth Third Bank
+integrity flags raised: none
+```
+
+## UB4. Card 2 — a platform, three parsers already on it, and one issue taken
+
+### UB4.1 The collision surface is not only Wells Fargo
+
+Fiserv Premier is a core banking platform. Censusing the whole extracted corpus
+for its summary furniture found **84 documents**, and 18 of them are already
+claimed:
+
+```
+unclaimed                66
+claimed: capital_one     11
+claimed: linkbank         4
+claimed: farmers_merchants 3
+```
+
+`analysis/linkbank.py` is, in substance, already a Fiserv Premier parser — it is
+simply gated on one bank's domain. Capital One's business checking and Farmers &
+Merchants run on the same template. A registration written to "the Fiserv
+summary" would make all 18 **ambiguous**, which routes 18 currently-resolved
+documents to review. That is a regression, and no amount of downstream care
+prevents it, because ambiguity is decided before any parse runs.
+
+**That 18 is a floor, not the population.** It counts only the documents this
+cell extracted; Ocean's review re-derived the same coexistence over a superset
+and found **40**, every one of them byte-identical with and without this
+registration. The larger number strengthens the claim rather than weakening it —
+the disjointness holds over more than twice the evidence used to design it — and
+the figure to quote going forward is 40.
+
+The three parsers involved also hold **6 documents of the pinned corpus**
+between them (`capital_one` 4, `linkbank` 1, `farmers_merchants` 1), so a
+broader registration would have to clear the gate as well as the archive — the
+RC8.3 lesson, and the reason §UB9 checks all 109 pinned documents directly
+rather than inferring their safety from an archive census.
+
+The 84 split into three printed issues:
+
+| issue | n | already claimed |
+|---|---|---|
+| leading counts (`26 Deposits/Credits 9,999.99`) | 58 | 18 |
+| parenthesised counts (`Deposits/Credits (28) $9,999.99`) | 14 | 0 |
+| one-sided | 12 | 0 |
+
+**This cell takes the parenthesised-counts issue only**, because it is the one
+that is provably disjoint from every registration already on the platform: none
+of the 18 already-claimed documents prints it. That disjointness is what lets
+this registration be purely additive — no `excluding` marker naming another
+bank, no `supersedes` edge, no change to an existing entry.
+
+### UB4.2 The issuer is read off the page, not off the folder
+
+The template prints a domain in its customer-service block and no bank name at
+all. The name is recovered structurally: the statement's own return address is
+reprinted in the group's disclosure directory beside the division that owns it,
+so the return address selects the row and the name is the text in front of it.
+Repeated-glyph page furniture is filtered; a directory that resolves to more
+than one division, or to none, refuses the document.
+
+This is what leaves the 4 fourth-family documents unnamed: their disclosure page
+carries no directory, so there is no printed evidence of the issuer's name, and
+this parser will not name a bank the page does not.
+
+They are **not** named here either. An earlier draft of this section called them
+"Coastal States Bank" — read off the same unverified furniture the section is
+about, which is precisely the standard §UB5 applies to card 8. Struck.
+
+Their refusal is in any case **over-determined**: all 4 also lack the
+`Statement Dates … (N days)` period line this layout requires, so they are
+refused on the period before the issuer is ever consulted.
+
+```
+d8ddb4db_April.pdf          REFUSED  period=N  issuer=None
+d8ddb4db_Checking_…_6_3     REFUSED  period=N  issuer=None
+d8ddb4db_Checking_…_7_3     REFUSED  period=N  issuer=None
+d8ddb4db_May.pdf            REFUSED  period=N  issuer=None
+```
+
+### UB4.3 Result over the Fiserv family
+
+```
+detected by fiserv_premier : 14
+parsed                     : 10
+outcomes: {'validated': 6, 'review': 4}
+declined (no printed issuer): 4      -> parser_declined, named below
+```
+
+| n | what they are | disposition |
+|---|---|---|
+| 6 | two divisions, both ledger shapes | validated |
+| 4 | same two divisions | **claimed, withheld from validation by `missing_declared_statement_page`** — see below |
+| 4 | a fourth family, not named here | refused: no period line, and no printed issuer (UB4.2) |
+
+**One reading in this parser is uncorroborated, and is named as such.** The
+summary carries `Service Charge` and `Interest Paid` clauses, and the closing
+identity treats both as sitting *outside* the two transaction totals. Every
+document of this family in the archive prints both as `$0.00`, so the corpus
+does not test that reading either way. It is kept because it fails closed: a
+charge that is in fact already inside the debit total would be subtracted twice,
+the identity would miss, and the document would be refused rather than published
+with a wrong balance. Recorded in the module at the point of use.
+
+The 4 in the middle row are a **platform finding, not a parser defect**. Each
+declares `Page N of M` footers on the statement pages and then appends the GLBA
+privacy notice as unnumbered inserts — so a 6-page statement footered `1 of 8`
+through `6 of 8` is followed by two pages carrying no footer at all. The
+pipeline's page-declaration check reads that as two missing pages. The parser's
+own four gates (summary identity, both counts, both totals, and either the
+running-balance chain or the section totals) all pass on these documents. Raised
+as carried finding UB8.2; `analysis/pipeline.py` is not this cell's to change.
+
+## UB5. Card 8 — the family is real, the bank is not on the page
+
+The card asked for a French-language extension of `analysis/desjardins.py`,
+with three structural hints. All three point unambiguously at one family, and
+that family is not identifiable as Desjardins.
+
+**The family.** 16 documents printing `Relevé de compte` over a
+`MM JJ DESCRIPTION DÉBIT ($) CRÉDIT ($) SOLDE ($)` grid, opening on
+`SOLDE PRECEDENT`, running into a `FACTURATION DÉTAILLÉE` fee table. Every one
+of the card's hints matches it and only it: the fee table is the structural
+terminator; the money grammar is space-thousands with a comma decimal mark and a
+**detached** minus printed as its own token before the balance; and the `MM JJ`
+date pair collides with a space-thousands amount exactly as described — both are
+a digit group, a space and another digit group, so a row-start matcher fires
+inside `9 999,99` as readily as on a real `05 01`. Anchoring the row start on a
+**following capital** separates them, because a date pair is always followed by
+the description's first word and an amount never is. The known-Desjardins
+layouts in the same folder match none of the three hints.
+
+**The measurement.** With that grammar, over all 16:
+
+```
+family size                                     : 16
+reconcile against the printed counts AND totals :  6
+chain-broken                                    : 10
+```
+
+The 6 reconcile against a genuine in-document oracle — the fee table prints
+`TRANSACTIONS DÉBIT <n> <total> CRÉDIT <n> <total>`, so the count *and* the
+total of each side are checkable, on top of a zero-break balance chain. This
+reproduces the scout's "10 docs, 6 rec, 4 chain-broken" exactly on the slice the
+scout surveyed.
+
+**Why nothing was built.** The registration would have to assert a bank. No
+document in the family names one:
+
+```
+institution words in any document's header block: NONE
+```
+
+The only evidence for "Desjardins" is the archive folder label on 6 of the 16 —
+and folder labels are established in this record as filing conventions rather
+than truth (§CHASE-LAYOUTS: one parser's 28 documents were filed across five
+different labels; and in this very cell, §UB1, the folder named `Fifth Third
+Bank` holds no Fifth Third statement). Three independent lines of evidence point
+away from Desjardins:
+
+1. **There is a French Desjardins layout in the archive, and it is a different
+   document.** 13 documents print `CAISSE DESJARDINS <caisse name>` in the
+   header of every page over an `EOP ÉPARGNE AVEC OPÉRATIONS` grid. They name
+   their institution; this family never does.
+2. **The two share no ledger vocabulary.** `Solde reporté` / `Virement Interac`
+   / `Paiement facture - AccèsD Internet` against `SOLDE PRECEDENT` /
+   `COMPTE DIVERS` / `DPA ENTREPRISE` / `PERCEPTION DE CPTE`.
+3. **They do not even print money the same way.** The Desjardins layouts use a
+   **dot** decimal mark; this family uses a **comma**. And their PDFs are
+   produced by `TargetStream StreamA2P for Visa Desjardins` with author
+   `AccesD`, where this family's are `OpenText Exstream`.
+
+Registering these as `Desjardins` would put a bank name into published
+underwriting output on the strength of a folder name, which is the failure mode
+`tests/test_parser_detection_markers.py` exists to prevent. **The card's gate
+was met regardless**: `analysis/desjardins.py` is untouched, all 6 documents it
+claims still parse and validate, and the archive-wide differential in §UB7 shows
+no document outside the two new families changed claimant at all.
+
+**What Ocean needs to rule.** Whether a registration may carry a `bank` label
+its documents do not print, and if so what that label is. The template furniture
+is unmistakable and the arithmetic is already proven on 6 documents, so the
+answer to that one question is the whole of the remaining work.
+
+## UB6. The Fiserv anti-collision proof
+
+The brief made this clause binding, and it is the finding this cell would most
+want re-checked, so it is measured three ways.
+
+### UB6.1 The collision is real, and it is the counts clause alone
+
+A Wells Fargo account summary prints the opening balance immediately to the left
+of the `Deposits/Credits` label, and PDF flattening puts them on one line:
+
+```
+Statement period activity summary
+Beginning balance on 1/1 $1,234.56 Deposits/Credits 9,999.99 Withdrawals/Debits ...
+                                ^^
+```
+
+The obvious counts clause, `\d+\s+Deposits/Credits`, therefore matches the
+**cents of the opening balance** and reads them as a transaction count. (The
+shape is quoted with synthetic figures; the real ones stay in the archive.)
+Over the 236 Wells Fargo documents of the stratified probe:
+
+```
+== single clauses, hits in the wells stratum (236 documents) ==
+   counts clause, one side  (\d+\s+Deposits/Credits)     216 / 236
+   counts clause, both sides                               0 / 236
+   parenthesised counts (both sides)                       0 / 236
+   opening balance ("Previous Balance")                    0 / 236
+   "Statement of Account"                                 17 / 236
+   the shipped conjunction (all three)                     0 / 236
+```
+
+Two of those lines are worth pausing on. **The template's own heading is not
+sufficient either** — 17 Wells Fargo documents print "Statement of Account"
+somewhere. Neither the heading nor the counts clause can carry this
+registration on its own, which is precisely why the opening-balance clause is
+required rather than corroborating: it is the only one of the three that is
+zero on its own.
+
+216 of 236, and 229 of those 236 are `validated` in the run of record. The
+scout's figure of 197 is the same finding measured over a different slice; the
+mechanism is confirmed.
+
+### UB6.2 The clause shipped
+
+`DETECTION_MARKERS` is a conjunction of three `required` markers — the template
+heading, **the opening-balance clause**, and the parenthesised counts clause.
+`required` rather than corroborating is the load-bearing choice: `score_markers`
+carries a `+1` in the denominator when any required marker misses, so one
+missing marker caps the score below `CLAIM_THRESHOLD` no matter how much else
+fires. Each of the three is proven load-bearing by ablation in
+`tests/test_fiserv_premier.py::test_every_marker_is_load_bearing`, and the
+collision shape itself is pinned as a fixture
+(`test_the_wells_shaped_summary_is_not_claimed`).
+
+### UB6.3 The stratified probe, with the wells-heavy stratum
+
+Deterministic (documents taken in `rows.csv` order, no sampling randomness):
+every folder label, validated documents first, up to 12 each — **plus the whole
+of the Wells Fargo labels**, which is the binding stratum. The run of record
+holds 243 Wells Fargo rows, 236 of them digital; the probe took all 236, so the
+wells stratum is not a sample of that population but the whole of its readable
+part. (The archive's second `WellsFargo` folder contributes no row of its own to
+the run — its files are deduplicated against the main label.)
+
+```
+== stratified non-target probe ==
+documents probed : 679
+strata           : 65 folder labels
+wells stratum    : 236 documents (229 validated in the run of record)
+
+claims by fifth_third or fiserv_premier            : 0
+   of those, in the wells_fargo strata             : 0
+documents whose OTHER claimants changed            : 0
+ambiguous dispatches after                         : 0
+```
+
+Every probe document is resolved twice — once with the two new registrations
+present and once with them removed from the registry — so "nothing changed" is a
+differential rather than an assertion about a single run.
+
+## UB7. Non-interference, measured over everything extracted
+
+The same differential over every document this cell extracted (the whole
+`Unidentified`, `Desjardins` and `Fifth Third Bank` folders plus the probe
+cohort), deduplicated:
+
+```
+distinct extracted documents: 1563
+documents whose claimant set changed: 27
+   (none)  -> fiserv_premier   14
+   (none)  -> fifth_third      13
+documents OUTSIDE the two families whose claimants changed: 0
+multi-claimant (ambiguous) documents after: 0
+```
+
+Every change is a document nothing claimed before. No document lost a claimant,
+no document gained a second one. The counts here are *claimant sets*, so
+`fiserv_premier` shows 14 rather than the 10 it parses: the other 4 are claimed
+and then declined for want of a printed issuer, which is the `parser_declined`
+outcome and exactly the fail-closed behaviour §UB4.2 describes — not a crash and
+not a silent pass.
+
+## UB8. Carried findings for Ocean
+
+1. **`ANALYSIS_STAGE_VERSION` needs a bump** (`webapp/artifact_cache.py`,
+   currently 10). Both registrations change analysis output for documents whose
+   cached payloads predate them. Not this cell's file.
+2. **The page-declaration check does not tolerate unnumbered inserts.** Four
+   otherwise-clean Fiserv statements are withheld because the GLBA privacy
+   notice appended after the statement carries no `Page N of M` footer while the
+   footers count it in their denominator. The signal is doing exactly what it
+   was written to do; the question is whether "declared pages with no footer at
+   the end of the document" should be distinguishable from "a page is missing
+   from the middle". Four documents here; likely more across the archive.
+3. **The Fiserv leading-counts issue is 40 unclaimed documents** and is reachable
+   without touching an existing entry, by giving a second registration
+   `excluding` markers for the three issuers already on the platform — which is
+   a property of the new entry, not a change to theirs. It was not attempted
+   here: it needs a generic issuer reader across roughly twenty banks, and the
+   sub-vocabularies of its detail sections are genuinely various (14 distinct
+   section-heading signatures among the 66 unclaimed documents of the family).
+   It is the single largest remaining block this cell surveyed.
+4. **`analysis/linkbank.py` is a Fiserv Premier parser under a bank's name.** If
+   UB8.3 is taken up, the honest end state is one platform parser with the
+   issuer read from the document, and `linkbank`/`capital_one`/`farmers_merchants`
+   reconsidered against it. That is a change to existing registrations and
+   therefore a ruling, not a cell decision.
+5. **Card 8 is one ruling away from 6 validated documents** — see §UB5.
+6. **The Fiserv fee terms are an uncorroborated reading** (§UB4.3). Every
+   document of the family prints a zero service charge and zero interest, so
+   whether they sit inside or outside the two transaction totals is untested.
+   Both mistakes fail closed, so nothing wrong can be published; but the first
+   document of this family with a real service charge will either validate or
+   be refused, and which of those happens is the answer to the question.
+
+## UB9. Proofs
+
+All from the worktree at HEAD, `set -o pipefail`, exit codes verbatim.
+
+```
+$ git rev-parse --abbrev-ref HEAD ; git rev-parse --short HEAD
+wave3-unid-b
+f0f9a4c
+
+$ git status --short
+(clean)
+
+$ python -m pytest -q
+3081 passed, 18 deselected, 1 warning in 259.60s (0:04:19)
+SUITE_EXIT=0
+
+$ python corpus_gate.py | tail -12          # tail only; all 8 checks PASS
+[PASS] exclusions: 0 named exclusions
 [PASS] oracle_independence: 4 audit modules import no production financial mathematics
 Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
 Ignored:  0 non-corpus PDFs under the corpus root
@@ -12907,3 +13384,182 @@ changed                      :  0
 The L-1 guard fix moves nothing (all 20 Woodforest documents are
 single-account), and the same sweep is what proves UA9.6's two parse-path
 regexes byte-identical over all 45.
+Runtime:  733.0s
+RESULT: GREEN
+GATE_EXIT=0
+
+$ python -m pytest tests/test_fifth_third.py tests/test_fiserv_premier.py -q
+44 passed
+EXIT=0
+
+$ python -m pytest tests/test_fifth_third.py tests/test_fiserv_premier.py -q   # against base_tree (a46555c)
+E   ModuleNotFoundError: No module named 'analysis.fifth_third'
+E   ModuleNotFoundError: No module named 'analysis.fiserv_premier'
+2 errors during collection
+PREFIX_EXIT=2
+
+$ python -m pytest tests/test_parser_expectations_baseline.py \
+      tests/test_parser_conformance.py tests/test_parser_detection_markers.py \
+      tests/test_no_parser_helper_clones.py tests/test_no_statement_hardcodes.py \
+      tests/test_r1_hardcodes.py tests/test_parser_registry.py \
+      tests/test_parser_registry_entries.py tests/test_count_semantics.py \
+      tests/test_stated_counts.py tests/test_shared_parser_utils.py \
+      tests/test_money.py -q
+1074 passed, 1 warning in 10.52s
+EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+      tests/test_no_parser_helper_clones.py -q
+100 passed
+GUARDS_EXIT=0
+```
+
+The conformance cross-product is `tests/test_parser_conformance.py`, which
+enumerates the registry: **55 × 54 = 2,970** detection-negative assertions, zero
+wrong claims. The suite grew from **3,013** at `a46555c` to **3,081** — the 44
+new fixtures plus the **24** registry-parametrized cases two new registrations
+add (12 each), and nothing else. `git diff a46555c..HEAD --name-only -- tests/`
+lists exactly the two new test files plus the three registry pins a new
+registration requires, so no existing assertion was edited:
+
+```
+tests/data/parser_conformance_fixtures.py
+tests/test_fifth_third.py
+tests/test_fiserv_premier.py
+tests/test_parser_conformance.py
+tests/test_parser_registry_entries.py
+```
+
+Both new test files fail to collect at all against the base tree, which is what
+makes them evidence rather than decoration: the modules they exercise do not
+exist there.
+
+**The pinned corpus is a different population from the archive** (§RBCCIBC
+RC8.3), so it is checked directly as well as through the gate:
+
+```
+# both new registrations, detection over every pinned corpus document
+pinned corpus documents checked : 109 / 109
+claims by fifth_third or fiserv_premier on the pinned corpus: 0
+```
+
+Neither registration can move a pinned document, so the gate's 106 PASS / 3
+WITHHELD is unchanged by construction rather than merely observed to be
+unchanged.
+
+`count_semantics`, verified rather than assumed:
+
+```
+fifth_third/credit     -> comparable=False scope=unsurveyed
+fifth_third/debit      -> comparable=False scope=unsurveyed
+fiserv_premier/credit  -> comparable=False scope=unsurveyed
+fiserv_premier/debit   -> comparable=False scope=unsurveyed
+in SEMANTICS table: False
+```
+
+## UB-RC. Review closures
+
+Ocean's adversarial review returned **SHIP** — every headline survived
+re-derivation over larger populations than this cell used (0/229 Wells; 40/40
+coexistence byte-identity; the 27 movers re-derived from source PDFs) — with
+three closures required before merge.
+
+### RC-D1 A capitalized run in front of an address is not an identity
+
+**Finding.** `_issuer` published whatever capitalized run preceded the return
+address. The reviewer constructed `Statement.bank = "Member FDIC Equal Housing
+Lender"` and `"Notices to Smith and Jones LLP"` from ordinary boilerplate, and
+the docstring's "will not name a bank the page does not" was an overclaim. This
+registration is slated to generalize across ~20 issuers, so a blocklist was
+explicitly not an acceptable close.
+
+**Close.** The name is published only when the document's **own web address
+spells it** — `_spells(label, name)`: the domain's letters appear in the name in
+order and both begin with the same letter. That is one structural rule covering
+all three ways this platform's issuers name themselves, none of them enumerated:
+
+| printed as | domain | name | why it passes |
+|---|---|---|---|
+| directory row | `altabank.com` | Altabank | the name written out |
+| Regulation E notice | `ches.bank` | Chesapeake Bank | the name shortened |
+| directory row | `fsbmsla.com` | First Security Bank of Missoula | the name abbreviated |
+
+The shared first letter is load-bearing: `ches` is a subsequence of "Notices to
+Smith and Jones LLP" *as letters*, and is rejected because that phrase does not
+begin with a `c`. Otherwise, and when two names are corroborated at once,
+`bank=None` — the capital_one precedent, None over a guess.
+
+**An unnamed issuer no longer refuses the document.** The arithmetic does not
+depend on the label, so refusing would have discarded a provable statement and
+mis-reported the guard as a parse failure in telemetry. Over the whole extracted
+archive **0 documents actually take that path** — every document this parser
+publishes still carries a corroborated issuer — so `bank=None` is a safety net,
+not a new class of unlabelled output.
+
+Fixtures: the reviewer's three constructions publish None; three synthetic
+issuers, one per row of the table above, still publish
+(`tests/test_fiserv_premier.py`, D1 block).
+
+### RC-D2 A zero-amount row has no sign to read a direction from
+
+**Finding.** The count gate partitioned by `amount > 0` / `amount < 0`, so a
+`$0.00` row fell out of both counts while still riding in `transactions` — a
+four-row document passing a three-row count check, with the row published as a
+zero-amount credit. The platform's rule is direction-not-sign.
+
+**Close.** The gate now partitions by `Transaction.direction`. In the split
+sections the heading fixes the direction, so a zero row is kept and counted. In
+the running grid the direction lives in a Debits/Credits column the flattened
+text layer has destroyed, so there is nothing to derive it from and the row is
+refused outright rather than filed under a guessed side. Both halves fixtured on
+the reviewer's four-row shape.
+
+### RC-D3 Records
+
+* **"Coastal States" struck** from §UB4.2. It was read off the same unverified
+  furniture that section is about — the standard §UB5 applies to card 8, applied
+  inconsistently one section earlier. The 4 documents are described, not named,
+  and their refusal is noted as **over-determined**: all 4 also lack the period
+  line, so they are refused before the issuer is consulted.
+* **The 18-document coexistence figure is a floor**, covering only what this
+  cell extracted; the reviewer's superset puts it at **40**, byte-identical
+  throughout. Recorded at §UB4.1 as the figure to quote.
+
+### RC-Proofs
+
+```
+$ python -m pytest tests/test_fifth_third.py tests/test_fiserv_premier.py -q
+50 passed in 0.47s
+EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+      tests/test_no_parser_helper_clones.py -q
+100 passed in 3.17s
+EXIT=0
+
+$ python -m pytest tests/test_parser_conformance.py tests/test_parser_registry_entries.py \
+      tests/test_parser_detection_markers.py -q
+733 passed in 2.07s
+EXIT=0
+
+$ python -m pytest -q
+3087 passed, 18 deselected, 1 warning in 231.80s (0:03:51)
+SUITE_EXIT=0
+```
+
+Re-measured after the closures, unchanged: Fifth Third **13 validated**; Fiserv
+**10 parsed, 6 validated**; the stratified probe **0 claims / 0 changes / 0
+ambiguous** over 679 documents and 65 strata; the archive-wide differential
+**27 movers, all `(none) → new`, 0 outside the two families, 0 ambiguous** over
+1,563 distinct documents.
+
+## UB10. Commits
+
+| Commit | Contents |
+|---|---|
+| `8a7c06e` | card 5 — the Fifth Third commercial print stream, on its three-component identity |
+| `95d6226` | card 2 — the Fiserv Premier parenthesised-counts issue, behind the measured anti-collision clause |
+| `38a02fb` | the printed order is kept where the rows carry running balances |
+| `b8d7006` | a custodian disclosure naming the bank is not a claim |
+| `13c8e1d` | §UNID-B UB0–UB10 |
+| (this one) | §UNID-B UB-RC — Ocean's three review closures |

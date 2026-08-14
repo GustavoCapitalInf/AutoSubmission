@@ -110,6 +110,19 @@ FIXTURES: dict[str, str] = {
     "farmers_merchants": (
         "FARMERS AND MERCHANTS BANK\nDEPOSITS AND CREDITS\n"
     ),
+    "fifth_third": (
+        "FTCSTMT000 000 00000000 UDSPDFSTMT 0000000000000000000 DDA\n"
+        "Account Summary\nwww.53.com/businessbanking\n"
+    ),
+    # A platform template, so the fixture carries the template's furniture
+    # rather than an issuer: the heading, the opening-balance clause that keeps
+    # it off Wells Fargo, and the parenthesised counts.
+    "fiserv_premier": (
+        "Statement of Account\n"
+        "Previous Balance $0.00 Deposits/Credits (0) $0.00 "
+        "Checks/Debits (0) $0.00 Ending Balance $0.00\n"
+    ),
+    "first_citizens": "First Citizens\nfirstcitizens.com\n",
     "first_citizens": "First Citizens\nYour Account(s) At A Glance\n",
     "first_community": "firstcommunity.com\nBUSINESS PLUS CKG\n",
     "first_farmers": (

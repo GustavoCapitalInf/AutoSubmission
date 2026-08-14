@@ -53,9 +53,11 @@ EXPECTED_ORDER = [
     "demo_national",
     "desjardins",
     "farmers_merchants",
+    "fifth_third",
     "first_citizens",
     "first_community",
     "first_farmers",
+    "fiserv_premier",
     "found_lead",
     "found_lead_activity",
     "huntington",
@@ -138,8 +140,9 @@ def test_registration_count_matches_the_documented_decision_points():
     Mercury, Brex, and Found's two documents — the closed statement and
     the month-to-date view the issuer prints a disclaimer on
     (W3 §FINTECH); and the Woodforest, Wealthsimple and Symitar layouts
-    (W3 §UNID-PACK-A)."""
-    assert len(pr.registrations()) == 65
+    (W3 §UNID-PACK-A); and the Fifth Third commercial print stream and
+    the Fiserv Premier parenthesised-counts issue (W3 §UNID-B)."""
+    assert len(pr.registrations()) == 67
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():

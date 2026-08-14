@@ -32,6 +32,8 @@ __all__ = [
     "iso_from_named_month_day",
     "period_from_long_dates",
     "iso_unique_in_period",
+    "iso_within_period",
+    "year_within_period",
 ]
 
 _MONTH_DAY_RE = re.compile(r"(\d{2})/(\d{2})")
@@ -201,3 +203,42 @@ def iso_unique_in_period(month: int, day: int, *, start: date, end: date) -> str
         if start <= candidate <= end:
             hits.append(candidate)
     return hits[0].isoformat() if len(hits) == 1 else None
+
+
+def year_within_period(month: int, day: int, start: date, end: date) -> int | None:
+    """The year a bare `month/day` row belongs to, decided by the period.
+
+    A statement whose period does not cross a year boundary has one candidate
+    and this is trivially that year. One that does cross has two, and the
+    correct one is the only one that puts the row inside the printed period —
+    which is a fact about the document rather than a rule about which half of
+    the period a month "usually" falls in.
+
+    None when neither candidate lands inside the period, including when the
+    numbers are not a date at all (`02/30`): a row-date regex proves a token's
+    shape and nothing more, so the caller must be able to refuse it.
+    """
+    for year in dict.fromkeys((start.year, end.year)):
+        try:
+            candidate = date(year, month, day)
+        except ValueError:
+            continue
+        if start <= candidate <= end:
+            return year
+    return None
+
+
+def iso_within_period(token: str, start: date, end: date) -> str | None:
+    """``("03/05", …)`` -> ``"2026-03-05"`` when it falls inside the period.
+
+    `year_within_period` applied to a `month/day` token, for the parsers whose
+    rows carry no year and whose statement period is the only evidence of one.
+    None for a token that is not `month/day`, or that no candidate year places
+    inside the period.
+    """
+    parts = token.split("/")
+    if len(parts) != 2 or not all(part.isdigit() for part in parts):
+        return None
+    month, day = (int(part) for part in parts)
+    year = year_within_period(month, day, start, end)
+    return date(year, month, day).isoformat() if year else None
