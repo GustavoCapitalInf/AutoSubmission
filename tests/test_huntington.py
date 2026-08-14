@@ -151,6 +151,22 @@ def test_the_issuer_prints_no_instance_counts_so_none_are_claimed():
     assert stmt.stated_debit_count is None
 
 
+def test_a_printed_zero_service_charge_is_published_as_zero_not_as_absent():
+    """Two documents in the surveyed folder print `Total Service Charges (-)
+    0.00`. That is the bank stating the charge was nothing, which is not the
+    same claim as the bank stating nothing — and an `or` chain cannot tell
+    them apart."""
+    summary = SUMMARY.replace(
+        "Total Service Charges (-) 20.00", "Total Service Charges (-) 0.00"
+    ).replace("Ending Balance $1,730.00", "Ending Balance $1,750.00")
+    balances = BALANCES.replace("01/20 1,730.00", "01/20 1,750.00")
+    stmt = parse_huntington_statement(
+        document(summary=summary, fee_detail="", fee_summary="", balances=balances)
+    )
+    assert stmt is not None
+    assert stmt.stated_service_charge == 0.0
+
+
 def test_the_service_charge_cycle_average_is_not_published_as_the_period_average():
     """The statement prints `Average Ledger Balance` under its own footnote
     saying the figure belongs to the service charge cycle, which is not the

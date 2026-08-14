@@ -2,7 +2,7 @@
 
 Before R-4 six parsers had no direct test at all and the rest were tested only
 through whichever corpus document happened to exercise them. This module gives
-all 52 registrations the same four checks, and — crucially — enumerates the
+all 55 registrations the same four checks, and — crucially — enumerates the
 registry to do it, so a parser added without a fixture fails here rather than
 being discovered later by a wrong parse.
 
@@ -11,7 +11,7 @@ The four checks per registration:
 1. **detection-positive** — it recognises a minimal document carrying its own
    bank's identification.
 2. **detection-negative** — run as a full cross product: every other
-   registration's fixture must NOT be claimed. 54 × 53 = 2,862 assertions. This
+   registration's fixture must NOT be claimed. 55 × 54 = 2,970 assertions. This
    is the check that matters for discovery (WAVE2_BRIEF R-4): it proves parser
    X does not claim bank Y's statement, which arithmetic reconciliation cannot
    catch when a wrong parse happens to balance.

@@ -62,6 +62,14 @@ _DEBITS_RE = re.compile(r"(\d+) CHECKS/DEBITS\s+(" + _MONEY + ")")
 _SERVICE_RE = re.compile(r"SERVICE CHARGE\s+(" + _MONEY + ")")
 _INTEREST_RE = re.compile(r"INTEREST\s+(" + _MONEY + ")")
 _DAYS_RE = re.compile(r"DAYS THIS STATEMENT PERIOD\s+(\d+)")
+#: This platform prints its average balance for the STATEMENT PERIOD, with no
+#: footnote scoping it to anything else — unlike the Huntington layout in the
+#: same folder, whose averages are printed under "the above balances correspond
+#: to the service charge cycle for this account" and are therefore deliberately
+#: not published as the period's stated average. Publishing it here is what
+#: lets the platform's advisory stated-vs-computed ADB check fire at all; on
+#: `6768-2026-Mar` the two agree exactly at 9,113.00.
+_AVERAGE_RE = re.compile(r"AVERAGE LEDGER BALANCE\s+(" + _MONEY + ")")
 _ACCOUNT_RE = re.compile(r"ACCOUNT NUMBER\s+([X\d]+)")
 _PRODUCT_RE = re.compile(r"^([A-Z][A-Za-z ]*?Checking)\s{2,}", re.M)
 
@@ -241,6 +249,7 @@ def parse_burke_herbert_statement(markdown: str) -> Statement | None:
 
     service = _SERVICE_RE.search(markdown)
     interest = _INTEREST_RE.search(markdown)
+    average = _AVERAGE_RE.search(markdown)
     days = _DAYS_RE.search(markdown)
     account = _ACCOUNT_RE.search(markdown)
     product = _PRODUCT_RE.search(markdown)
@@ -259,6 +268,7 @@ def parse_burke_herbert_statement(markdown: str) -> Statement | None:
         stated_debit_count=int(debits.group(1)),
         stated_service_charge=_figure(service.group(1)) if service else None,
         stated_interest_paid=_figure(interest.group(1)) if interest else None,
+        stated_average_balance=_figure(average.group(1)) if average else None,
         transactions=[
             Transaction(
                 date=posted.isoformat(),

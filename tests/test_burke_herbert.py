@@ -86,6 +86,14 @@ def test_the_printed_counts_are_carried_as_the_banks_own_oracle():
     assert stmt.stated_total_debits == 400.00
 
 
+def test_the_printed_average_ledger_balance_is_published():
+    """This platform prints its average for the statement period, so it is
+    published and the platform's advisory stated-vs-computed ADB check can
+    fire. On the real `6768-2026-Mar` the two agree exactly at 9,113.00."""
+    stmt = parse_burke_herbert_statement(document())
+    assert stmt.stated_average_balance == 500.00
+
+
 def test_an_overdrawn_opening_balance_is_negative():
     """`100.00-` is the mainframe trailing minus, and it is the only negative
     marker this print has — on the summary and on every row alike."""

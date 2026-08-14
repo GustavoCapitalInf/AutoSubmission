@@ -8478,13 +8478,27 @@ to make it look load-bearing.
 **A negative is a TRAILING minus** — `$2,693.10-`. It is this issuer's only
 negative marker and it appears on the summary's opening and closing figures,
 on the service-charge-cycle averages and in every cell of `Balance Activity`.
-Six documents in the folder open or close overdrawn and twelve print at
-least one negative daily balance. Read as a magnitude they
-still balance — against a sign-flipped closing balance — which is why the
-cross-month chain is the proof that this is right rather than merely
-self-consistent: April 3152 closes at −1,184.20 and May 3152 opens at
-`1,184.20-`; May closes −2,318.04 and June opens `2,318.04-`; and June, read
-with the sign, lands on its printed 9.13.
+Seven documents in the folder open or close overdrawn (six Huntington, one
+Burke & Herbert) and twelve print at least one negative daily balance. Read as
+a magnitude they still balance — against a sign-flipped closing balance — so
+self-consistency proves nothing and the cross-month chain is what does. Three
+pairs in this folder print the minus on BOTH sides, closing balance and the
+next statement's opening balance:
+
+| account | closes | opens, next statement |
+|---|---|---|
+| `...2676` | `$2,693.10-` (April) | `$2,693.10-` (May) |
+| `...3152` | `$1,184.20-` (April) | `$1,184.20-` (May) |
+| `...5891` | `$1,388.26-` (March) | `$1,388.26-` (April) |
+
+**A record correction, and it cuts against the marker rather than for it.** An
+earlier draft of this section offered a fourth pair — May 3152 closing at
+−2,318.04 into June 3152 — as a fifth line of evidence. It is not one: May
+3152 prints its closing balance as `$2,318.04` with **no** minus, while June
+3152 opens `$2,318.04-` with one. The issuer is not perfectly consistent, so
+the glyph alone is not the authority; the summary identity is, and a document
+that omits the minus fails that identity and is refused rather than published
+sign-flipped. Ocean's review caught the bad example.
 
 **`Service Charge Detail` prints two money columns** — `Service Charge (-)` and
 `Waives and Discounts (+)` — and the flattened text keeps no trace of which
@@ -8496,8 +8510,15 @@ and a second one begins).
 A first design split them at the point where the printed dates stop ascending,
 on the argument that the columns are read top-to-bottom in turn. **It was
 rejected on measurement**: the regression only exists when the first waiver
-predates the last charge, and on four documents it does not, so a 36.00 waiver
-was booked as a 36.00 charge and the net came out 72.00 high. What settles it
+predates the last charge, and on **five** of this folder's own documents it
+does not, so a waiver was booked as a charge and the fee total came out by
+twice its amount. Re-measured for the record after review — the earlier draft
+said four, and the case against the rejected design is stronger than that:
+applied to the 30 documents that itemise fees, it gets 25 right and **5 wrong**
+(`09d4938d_February statement _1` +72.00, `09d4938d_Huntington December
+statement Account 8098` +72.00, `09d4938d_november huntington statement Account
+8098` +72.00, `414771fa_..._2026-04-01_...` +60.00,
+`414771fa_..._2026-05-01_...` +60.00). What settles it
 is that the document states both column totals separately in
 `Service Charge Summary`, so the boundary is the position at which the rows
 before it sum to the stated charges and the rows after it sum to the stated
@@ -8671,12 +8692,22 @@ record: **3,188 of 3,380 swept; 53 claims, all inside the Huntington folder
 where either new registration claims alongside any other.**
 
 The 192 unswept documents have no OCR artifact in the store under any offline
-or visual settings key, and are named rather than waved past: 152 scanned or
-mixed documents that already fail `no_parser_matched`, 13 deferred, and — the
-only ones a new claim could pull DOWN — **15 that are validated or review
-today**, from Apex Bank (3), Bank of America (1), Chase (1), Columbia Bank (1),
-Regions Bank (2) and Unidentified (7, mostly `first_farmers`). None is in the
-Huntington folder; for either registration to reach one, a Tesseract read
+or visual settings key, and are accounted for in full rather than waved past:
+
+| outcome today | n |
+|---|---|
+| `failed / no_parser_matched` | 152 |
+| `deferred / deferred_visual_ocr` | 13 |
+| `validated / approved` | 10 |
+| `withheld / withheld_adb` | 7 |
+| `review / integrity_flags` | 5 |
+| `failed / parser_declined` | 5 |
+| **total** | **192** |
+
+Only the 10 validated and the 5 review — **15 documents** — could be pulled
+DOWN by a new claim, and they are named individually: Apex Bank (3), Bank of
+America (1), Chase (1), Columbia Bank (1), Regions Bank (2), Unidentified (7,
+mostly `first_farmers`). None is in the Huntington folder; for either registration to reach one, a Tesseract read
 would have to contain `THE HUNTINGTON NATIONAL BANK` **and**
 `HUNTINGTON BANCSHARES INCORPORATED` **and** the summary-grid regex, or
 `BURKEANDHERBERTBANK.COM` **and** `ACTIVITY IN DATE ORDER`.
@@ -8770,6 +8801,102 @@ entry from Ocean (H8.5).
     red-test question. Worth deciding at the batch level, before the merge
     train, rather than by whichever cell happens to cross the line.
 
+## H8b. Amendments from adversarial review
+
+Ocean's review returned SHIP with conditions. All eight of the cell's claims
+reproduced independently; what the review found were three defects in the
+record and two in the code, and one of the code defects had been hiding a
+finding.
+
+**D1 (the blocker) — the module docstring specified the design that was
+REJECTED.** `analysis/huntington.py` described the date-regression boundary as
+though it were the shipped rule. The code has always used the totals-pinned
+unique cut; the docstring did not, and the rule it described is measurably
+wrong on five of this folder's own documents. Rewritten to state the shipped
+rule (the unique cut where the prefix sums to the printed charges AND the
+suffix to the printed waivers, refusing on zero or multiple cuts), with the
+rejected design and its measured failure kept as the reason. This is the worst
+kind of comment defect — one that would teach the next reader the wrong rule —
+and it was invisible to every test, because tests exercise code and not prose.
+
+**D7 — a printed zero read as an absent figure.** `stated_service_charge` was
+built with an `or` chain, so a printed `Total Service Charges (-) 0.00` fell
+through to the fallback and published `None`. "The bank stated the charge was
+nothing" and "the bank stated nothing" are different claims. Two documents were
+affected — `3222c646_Weismantel Nov 25` and `3222c646_Weismantel feb 26` — and
+both now publish `0.00`. Explicit `is not None` check, extracted into
+`_stated_service_charge` with the reasoning attached, and fixtured.
+
+**D9 — an oracle cited as evidence but never published.** §H5 offered the
+agreement between the computed ADB and Burke's printed `AVERAGE LEDGER BALANCE`
+as corroboration, while the parser never set `stated_average_balance` — so the
+platform's own advisory stated-vs-computed check could not fire on it. Now
+published, and **the check surfaced something the cell had not seen**:
+
+| document | printed | computed | agrees |
+|---|---|---|---|
+| `6768-2026-Mar` | 9,113.00 | 9,113.00 | yes |
+| `6768-2026-Apr` | 4,122.56 | 4,122.56 | yes |
+| `6768-2026-May` | 1,267.21 | 1,267.22 | **no — by one cent** |
+
+The third document's printed average differs from the reconstructed one by
+$0.01. The check is advisory and is not in `adb.ok`'s required set, so no
+outcome moves and the ledger is unaffected — the balance chain still closes on
+215/215 rows. It is a rounding-basis difference in the bank's own figure, and
+it is recorded rather than tuned away. Publishing the field is what made it
+visible at all, which is the argument for publishing it.
+
+Not published for `huntington`, deliberately and unchanged: that layout prints
+its averages under the footnote "the above balances correspond to the service
+charge cycle for this account", which is not the statement period.
+
+**D6** — the dead `_SECOND_ACCOUNT` constant and its stale comment (which
+described `Balance Activity`, not the constant it sat above) are deleted.
+
+**Record corrections: D2** seven overdrawn, not ten (six Huntington + one
+Burke). **D3** the second cross-month example was not evidence — May 3152
+prints no minus on its closing balance — struck and replaced with the three
+genuine both-sides pairs, and the inconsistency recorded as a point against the
+glyph rather than for it. **D12** the rejected design fails on five documents,
+not four. **D5** the unswept 192 are now broken down in full. **D4** the
+conformance module's own docstring carried an inherited off-by-one (`52` and
+`54 × 53`) and now reads 55 and `55 × 54 = 2,970`. The guard-set proof reads
+897, not the 852 measured on an intermediate tree.
+
+**Zero outcome movement from any of this:** re-measured over the folder after
+the two code fixes — 33 validated / 5 withheld / 3 review / 12 declined / 1
+unmatched, 4,520 transactions, 33 sound / 0 unsound, identical to the
+pre-review measurement.
+
+### Two further carried findings from the review
+
+12. **D8 — the fee-boundary residual, and a free oracle sitting unused.** The
+    shipped split is located by the printed column totals alone. Where several
+    fee rows share a date AND their amounts allow more than one cut, the
+    parser refuses (uniqueness is required) — correct but blunt, because the
+    document carries a second, independent signal that nothing consults: this
+    issuer NAMES its waiver rows (`24-HOUR GRACE ... FEE WAIVER`,
+    `TOTAL RELATIONSHIP SERVICE FEE WAIVE`). Measured over every fee row this
+    cell publishes, the description signal and the totals-pinned split agree
+    **157 of 157, zero disagreements** — and **25 of the 30 documents** with
+    itemised fees have fee rows sharing a date, so this is the common shape
+    rather than an exotic one. Consulting the descriptions as a corroborating
+    check (never as the locator) would let the parser refuse a genuinely
+    ambiguous split with evidence, and would catch a totals-pinned cut that is
+    unique but wrong. Not done here: it is a widening, and the cell's rule is
+    to publish only what the printed totals pin.
+13. **D10 — the second-account guard keys on a heading.**
+    `_LINE_OF_CREDIT_RE` matches the printed heading
+    `Business Overdraft Protection Account Account:`. That is the heading this
+    issuer uses for the product it sells today; another second-account product
+    under a different heading would not be caught, and the deposit account
+    would be published alone. The four surveyed documents all print this
+    heading, and the failure mode is bounded by the fact that a second
+    account's rows are not inside the deposit account's sections, so its money
+    does not enter the ledger — the summary checks would have to pass by
+    coincidence. Recorded because the guard's scope is narrower than its
+    purpose.
+
 ## H9. Proofs
 
 ```
@@ -8789,15 +8916,15 @@ EXIT=0
 # carded at H8.11 rather than dismissed as a flake.
 
 $ python -m pytest -q
-3095 passed, 18 deselected, 1 warning in 302.85s (0:05:02)
+3097 passed, 18 deselected, 1 warning in 342.05s (0:05:42)
 EXIT=0
 
 $ python -m pytest tests/test_huntington.py tests/test_burke_herbert.py -q
-58 passed in 0.95s
+60 passed in 2.19s
 EXIT=0
 
 $ python -m pytest tests/test_parser_registry.py     tests/test_parser_registry_entries.py tests/test_parser_conformance.py     tests/test_parser_detection_markers.py tests/test_no_parser_helper_clones.py     tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py     tests/test_count_semantics.py -q
-852 passed in 22.27s
+897 passed in 22.20s
 EXIT=0
 
 # the harness, against the run of record, BEFORE any production edit
@@ -8836,11 +8963,11 @@ worst per-document full-registry sweep : 195.2 ms of a 250 ms cap
   this cell's two alone                  :   5.5 ms
 
 # mutation
-analysis/huntington.py    : 13 mutants, 12 killed, 1 documented-redundant
-analysis/burke_herbert.py : 10 mutants,  9 killed, 1 deliberately corroborating
+analysis/huntington.py    : 14 mutants, 13 killed, 1 documented-redundant
+analysis/burke_herbert.py : 11 mutants, 10 killed, 1 deliberately corroborating
 ```
 
-Fixtures: 38 in `tests/test_huntington.py`, 20 in `tests/test_burke_herbert.py`,
+Fixtures: 39 in `tests/test_huntington.py`, 21 in `tests/test_burke_herbert.py`,
 one conformance fixture per new registration.
 
 ## H10. Commits

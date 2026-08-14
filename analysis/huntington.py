@@ -33,19 +33,35 @@ convention this issuer uses for balances everywhere — the summary's opening an
 closing figures, the service-charge-cycle averages and every cell of
 ``Balance Activity``. It is the only negative marker the layout has, so an
 overdrawn statement read without it comes out sign-flipped and still sums
-correctly against a sign-flipped closing balance. Ten documents in the surveyed
-population open or close overdrawn.
+correctly against a sign-flipped closing balance. Six documents of this
+issuer's family in the surveyed archive open or close overdrawn, and twelve
+print at least one negative daily balance.
 
 **``Service Charge Detail`` prints two money columns** — ``Service Charge (-)``
 and ``Waives and Discounts (+)`` — and the flattened text layer keeps no trace
 of which column a figure stood in: a charge and a waiver are both
-``date amount description``. What the text layer DOES keep is the reading
-order, because the columns are read top-to-bottom in turn, so each column's
-dates ascend and the second column restarts at an earlier date. That date
-regression is the column boundary, and it is never trusted on its own: the
-split is accepted only if the two runs net to the service-charge total the bank
-prints, and only if the resulting rows reproduce ``Balance Activity`` day by
-day.
+``date amount description``.
+
+What the text layer keeps is the reading ORDER: the charge column is read down
+first and the waiver column after it, so the waivers are a SUFFIX of the rows.
+That fixes the SHAPE of the split but not where it starts, and the document
+answers that itself — ``Service Charge Summary`` states the two column totals
+separately. **The boundary is therefore the cut at which the rows before it sum
+to the stated charges AND the rows after it sum to the stated waivers, and it
+is taken only when exactly one cut satisfies both.** No cut, or more than one,
+means the document does not determine the split and this parser does not guess
+it: it returns ``None``. That block's own identity (charges − waivers == the
+stated total) is checked first, so a misread of the arbiter cannot license a
+mis-split.
+
+A first design instead placed the boundary where the printed dates stop
+ascending, on the argument that each column's dates ascend and the second
+restarts earlier. **It was rejected on measurement and is not what ships**: the
+regression only exists when the first waiver predates the last charge, and on
+FIVE documents of this folder it does not, so a waiver was booked as a charge
+and the fee total came out by twice its amount. Dates are still what prove the
+split is right — every fee row has to land on the day ``Balance Activity``
+prints — but they are not what locates it.
 """
 from __future__ import annotations
 
@@ -605,13 +621,24 @@ def _validate(
     return abs(running - ending) <= _EXACT
 
 
-#: Every day this issuer posts anything appears in ``Balance Activity``, so a
-#: statement that prints the table proves its own dates. A statement that omits
-#: it has no such proof and is refused rather than published on the sums alone.
-_SECOND_ACCOUNT = (
-    "statement presents a second account (Business Overdraft Protection) "
-    "alongside the deposit account"
-)
+def _stated_service_charge(summary: dict[str, float]) -> float | None:
+    """The period's total service charge, as the bank states it.
+
+    Two printings, and this issuer uses one or the other: a separate
+    ``Total Service Charges (-)`` row outside ``Debits (-)``, or ``Fees`` and
+    ``Service Charges`` as components inside it. `reconcile` accepts the
+    summary identity either way, so both are published as the same field.
+
+    A PRINTED ZERO is a stated figure and is published as 0.00. Reading it as
+    "absent" would say the bank never stated a service charge on a statement
+    that stated it was nothing — which is a different claim, and the one an
+    `or` chain silently makes.
+    """
+    total = summary.get("Total Service Charges (-)")
+    if total is not None:
+        return total
+    parts = [summary[label] for label in ("Fees", "Service Charges") if label in summary]
+    return round(sum(parts), 2) if parts else None
 
 
 def parse_huntington_statement(markdown: str) -> Statement | None:
@@ -663,12 +690,7 @@ def parse_huntington_statement(markdown: str) -> Statement | None:
         # The issuer prints no instance count beside either total, so both
         # stated counts stay unset. Deriving them from the ledger would
         # manufacture the oracle the platform checks the ledger against.
-        stated_service_charge=summary.get("Total Service Charges (-)")
-        or (
-            round(sum(summary[label] for label in ("Fees", "Service Charges")
-                      if label in summary), 2)
-            or None
-        ),
+        stated_service_charge=_stated_service_charge(summary),
         # `Average Ledger Balance` is deliberately NOT published as the bank's
         # stated average: this statement prints it under the footnote "the
         # above balances correspond to the service charge cycle for this
