@@ -216,6 +216,12 @@ def test_parser_index_takes_the_first_run_that_dispatched(tmp_path: Path):
     assert parser_index([first, second])["A" * 64][0] == "chase"
 
 
+#: A bank name no registration will ever answer to, for the tests that need
+#: "unregistered" to stay true. See the note in
+#: `test_registered_banks_are_read_from_the_live_registry`.
+UNREGISTERED_BANK = "Thornbury Savings Bank"
+
+
 # --- the registry is the source of truth for "do we support this bank" -------
 
 
@@ -224,7 +230,11 @@ def test_registered_banks_are_read_from_the_live_registry():
     assert len(tokens) > 40
     assert bank_is_registered("Chase", tokens)
     assert bank_is_registered("Bank of America", tokens)
-    assert not bank_is_registered("Huntington Bank", tokens)
+    # DELIBERATELY FICTIONAL. This assertion needs a bank the registry does
+    # not know, and naming a real one dates the test: it used to name
+    # Huntington, and broke the day Huntington was registered (W3 §HUNT-CELL).
+    # A bank that cannot be registered cannot break it again.
+    assert not bank_is_registered(UNREGISTERED_BANK, tokens)
 
 
 def test_a_parser_answers_to_its_registered_bank_name_not_just_its_id():
@@ -285,9 +295,9 @@ def test_an_unregistered_bank_over_the_floor_is_proposed_as_a_new_parser(tmp_pat
         tmp_path / "r",
         [_record(s, dispatch_outcome="unclaimed", parser_id=None,
                  outcome_class="failed") for s in shas],
-        folders={s: "Huntington Bank" for s in shas},
+        folders={s: UNREGISTERED_BANK for s in shas},
     ))
-    cluster = next(c for c in build_clusters(run) if c.key == "Huntington Bank")
+    cluster = next(c for c in build_clusters(run) if c.key == UNREGISTERED_BANK)
     assert cluster.disposition == "new_parser_candidate"
     assert cluster.rule == "R3_unregistered_bank_volume"
     # A proposal, not a decision: the other half of the test is unmeasurable.
@@ -301,9 +311,9 @@ def test_an_unregistered_bank_under_the_floor_goes_to_the_structurer(tmp_path: P
         tmp_path / "r",
         [_record(s, dispatch_outcome="unclaimed", parser_id=None,
                  outcome_class="failed") for s in shas],
-        folders={s: "Huntington Bank" for s in shas},
+        folders={s: UNREGISTERED_BANK for s in shas},
     ))
-    cluster = next(c for c in build_clusters(run) if c.key == "Huntington Bank")
+    cluster = next(c for c in build_clusters(run) if c.key == UNREGISTERED_BANK)
     assert cluster.disposition == "generic_structurer"
     assert cluster.rule == "R4_unregistered_bank_tail"
 

@@ -52,6 +52,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime
 
+from .dates import resolve_year
 from .money import STRICT_UNSIGNED, pad_leading_decimal, parse_amount
 from .parser_registry import excluding, make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
@@ -255,19 +256,24 @@ def _period(text: str) -> tuple[date, date] | None:
 def _posting_date(day: str, start: date, end: date) -> date | None:
     """``MM/DD`` resolved into the statement period.
 
-    The year is not printed beside a posting date. A period never spans more
-    than one year boundary, so the candidate years are the period's own two;
-    the date is accepted only if exactly one of them lands inside the period.
+    The year is never printed beside a posting date on this layout.
+    `dates.resolve_year` is the platform's rule for choosing it, and a date it
+    places OUTSIDE the period is refused here rather than published: this
+    layout prints its activity sections per statement period, so a row dated
+    outside one means the read went wrong.
     """
-    resolved = []
-    for year in {start.year, end.year}:
-        try:
-            candidate = datetime.strptime(f"{day}/{year}", "%m/%d/%Y").date()
-        except ValueError:
-            continue
-        if start <= candidate <= end:
-            resolved.append(candidate)
-    return resolved[0] if len(resolved) == 1 else None
+    parts = day.split("/")
+    if len(parts) != 2:
+        return None
+    month, day_of_month = int(parts[0]), int(parts[1])
+    year = resolve_year(month, day_of_month, start, end)
+    if year is None:
+        return None
+    try:
+        posted = date(year, month, day_of_month)
+    except ValueError:
+        return None
+    return posted if start <= posted <= end else None
 
 
 def _row_groups(line: str) -> list[tuple[str, str, str]]:

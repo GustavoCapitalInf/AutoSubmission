@@ -39,6 +39,7 @@ EXPECTED_ORDER = [
     "bmo_ca_business",
     "bmo_ca_business_french",
     "bmo_us_activity",
+    "burke_herbert",
     "capital_one",
     "chase",
     "cibc",
@@ -124,7 +125,7 @@ def test_registration_count_matches_the_documented_decision_points():
     layout (W3 §RBCCIBC) and the Huntington sectioned deposit statement
     (W3 §HUNT-CELL) — the last six opened by the unclaimed-layout
     phase."""
-    assert len(pr.registrations()) == 54
+    assert len(pr.registrations()) == 55
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():
