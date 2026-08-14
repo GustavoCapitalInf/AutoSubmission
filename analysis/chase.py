@@ -18,7 +18,21 @@ _EXPORT_MONTHS = {
 
 #: A Chase amount cell as printed: optional parenthesis/minus/dollar wrapper
 #: around a grouped decimal. Scrubbing is only allowed on tokens matching this.
-_AMOUNT_RE = re.compile(r"\(?-?\$?\s*[0-9][0-9,]*(?:\.[0-9]{2})?-?\)?")
+#:
+#: The gap after a leading sign is the one `_SUMMARY_AMOUNT` already admits,
+#: and it is here so that this GUARD admits everything that FINDER finds.
+#: Chase prints the sign outside the currency symbol and the column's padding
+#: can fall between the two, so a summary row reads "- $530,178.70" as readily
+#: as "-$530,178.70" or "- 530,178.70". While the two disagreed the finder
+#: matched such a row, the guard refused to scrub it, `_money` returned None,
+#: and `abs(... or 0.0)` published **0.00** for a figure the bank had plainly
+#: printed — silently, because on a statement whose other debits are small the
+#: resulting error can sit inside the reconciliation tolerance.
+#:
+#: The gap is bound to the sign (`(?:-\s*)?`) rather than floated across the
+#: whole prefix, so this admits the detached-sign spelling and NOTHING else:
+#: an unclosed "( $X" stays out, as it was before. (W3 §CHASE-CLOSURE card C.)
+_AMOUNT_RE = re.compile(r"\(?(?:-\s*)?\$?\s*[0-9][0-9,]*(?:\.[0-9]{2})?-?\)?")
 
 
 def _money(value: str) -> float | None:
@@ -158,6 +172,17 @@ _MONEY_TOKEN = r"[0-9][0-9,]*\.[0-9]{2}"
 #: date in the DATE column. Card and transfer rows print a second MM/DD (the
 #: transaction date) immediately after it.
 _ROW_START_RE = re.compile(r"^(\d{2}/\d{2})(?:\s+\d{2}/\d{2})?(?:\s|$)")
+#: The same posting date, looked for ANYWHERE in the document rather than at
+#: the head of a segmented line: at the start of any physical line, or after an
+#: amount cell on a line a producer has flattened. Used only by the
+#: zero-activity guard, which refuses when this matches — so it is deliberately
+#: liberal and deliberately section-blind. Every false positive here costs one
+#: refusal of a document that would otherwise publish an empty ledger, which is
+#: the safe direction; a false negative would let a statement that plainly
+#: prints rows be published as though nothing had happened.
+_DATED_ROW_RE = re.compile(
+    r"(?m)^[ \t]*\d{2}/\d{2}(?:\s|$)|(?<=\.\d{2})[ \t]+\d{2}/\d{2}(?:\s|$)"
+)
 #: Lines that end a row without starting one: the section total, and the
 #: headings of whatever follows the section inside the same block.
 _ROW_STOP_RE = re.compile(
@@ -592,7 +617,39 @@ def parse_chase_statement(markdown: str) -> Statement | None:
         txns.extend(_parse_native_section(text, "OTHER WITHDRAWALS, FEES & CHARGES", year=year, sign=-1))
         txns.extend(_parse_native_section(text, "FEES", year=year, sign=-1))
 
-    if not txns or stmt.beginning_balance is None or stmt.ending_balance is None:
+    if stmt.beginning_balance is None or stmt.ending_balance is None:
+        return None
+    # A period in which nothing happened is still a statement, and Chase prints
+    # one: an opening balance, a closing balance equal to it, and NO detail
+    # section — on the real population every such document prints no section
+    # rows at all, so the stated count and total fields come back None rather
+    # than 0. "The bank stated zero" is therefore NOT what fires here, and the
+    # rule must not be read that way.
+    #
+    # The discriminator is three facts together: the two balances agree, the
+    # summary states no instances and no totals, and **the document prints no
+    # posting row**. The last is load-bearing and is the reason the first two
+    # are not enough on their own: an empty `txns` with unset stated fields is
+    # also exactly what THIS READER FAILING TO READ THE SUMMARY looks like —
+    # a summary whose rows carry no instance count, or amounts without cents,
+    # or an HTML summary whose cells are short or whose columns are shifted,
+    # all leave every stated field None while the statement plainly prints
+    # money. Each of those still prints its dated rows, and that is what
+    # separates them from a period in which nothing was posted. Beginning ==
+    # ending does not separate them: a sweep account or a net-zero month is a
+    # real shape.
+    #
+    # Fail closed in the direction that matters: emptiness is never its own
+    # proof that the period was empty.
+    # (W3 §CHASE-CLOSURE card A′, amended after Ocean's adversarial review.)
+    if not txns and not (
+        not stmt.stated_credit_count
+        and not stmt.stated_debit_count
+        and not stmt.stated_total_credits
+        and not stmt.stated_total_debits
+        and stmt.beginning_balance == stmt.ending_balance
+        and not _DATED_ROW_RE.search(text)
+    ):
         return None
     stmt.transactions = txns
     return stmt

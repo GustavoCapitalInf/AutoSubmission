@@ -60,6 +60,15 @@ FIXTURES: dict[str, str] = {
     "capital_one": "CAPITAL ONE\nAN IMPORTANT MESSAGE TO OUR CLIENTS\n",
     "chase": "JPMorgan Chase Bank\nStatement of account\n*start*summary\n",
     "chase_export": "Printed from Chase for Business\nTransactions\n",
+    # Deliberately carries no bank NAME: this product is recognised by Chase's
+    # own text-layer sentinel plus its printed savings furniture, and adding
+    # the name would make `chase` claim this fixture in the cross product —
+    # which is the real relationship between the two, expressed as a
+    # `supersedes` edge rather than as detection overlap.
+    "chase_savings": (
+        "*start*summary\nSAVINGS SUMMARY\n"
+        "Date Description Amount Balance\n"
+    ),
     "cibc_french": "CIBC\nDétail de vos opérations\n",
     "citizens": "citizensbank.com\nBusiness Advisor Checking\n",
     "columbia_bank": (

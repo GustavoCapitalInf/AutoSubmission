@@ -5163,6 +5163,527 @@ $ set -o pipefail; python -m pytest -m corpus -q
 EXIT=0
 
 $ set -o pipefail; python corpus_gate.py
+# §CHASE-CLOSURE — the Chase residuals of §CHASE-LAYOUTS, plus a money-format card
+
+CHASE-CLOSURE, 2026-08-13. Branch `wave3-chase-closure`, base `c5673d2`
+(current main). Brief: `docs/agent-handoffs/CHASE-CLOSURE.md`. Baseline: run
+`6893a75b`.
+
+Three cards. Two were carried out of §CHASE-LAYOUTS as fail-closed residuals
+(A′ zero-activity, B1 savings); the third arrived mid-flight from Ocean, out
+of the F-MONEYFMT fuzzer's finding.
+
+**Revised after Ocean's adversarial review (verdict: SHIP with amendments).**
+The review's strong findings held — card C moves nothing, the savings family
+validates with row counts equal to the bank's stated instance counts, combined
+statements route correctly, and every A′ admission is genuinely empty. Three
+amendments landed in `4c15e88` and are recorded where they belong rather than
+in a changelog: the A′ guard gained the posting-row clause and its stated rule
+was **corrected** to what fires on the real population (§Z2); card C's
+authorization is now in the repository (§Z3.3); three small corrections came
+out of the same review (§Z6.4b). All proofs below are re-run on the amended
+tree.
+
+## Z0. Summary
+
+| | |
+|---|---|
+| Cell worked | `folder_label == "Chase"` × `failed` × `chase` detected at ≥0.5 in `6893a75b`: **18 records / 18 distinct documents**, reproduced exactly. |
+| Card A′ | `chase.py` refused a period in which nothing happened. **4 of 7 validated**, 3 correctly refused — exactly what §C6.2 scratch-measured. **Amended after Ocean's adversarial review**: the empty ledger now also requires that the document print no posting row (§Z2). |
+| Card B1 | new registration `chase_savings`. **10 of 10 validated**, against a preview of ~6 (§Z3.2 says why). |
+| Card C | `chase.py`'s money GUARD did not admit what its money FINDER finds, so a summary row printing `- $X` published **0.00**. Fixed. **Zero archive movement** — no document in the 501-strong claimed population prints the shape — so the card's value is the class of defect closed, not a document count (§Z3.3). |
+| Result over the cell | **0 → 14 claimed and 0 → 14 VALIDATED.** The other 4 fail closed with named diagnoses. |
+| Registrations added | 1: `chase_savings`. Registry 50 → **51**. |
+| Statement-specific constants added | **none.** Every marker is R-4b issuer furniture; every extraction rule is anchored on the printed grid. |
+| Protected modules touched | **none.** `analysis/chase.py` is scope-restricted rather than protected; it changed by the one pre-authorized A′ guard and the one authorized card-C constant, and by nothing else. |
+| Regressions | **zero.** All 501 documents the chase family claims are identical across every compared field, before and after (§Z4.1). |
+| Cache implication | `ANALYSIS_STAGE_VERSION` must be bumped at merge. **Ocean's, not done here.** |
+
+## Z1. The cell reproduced, and the families re-separated
+
+Selecting `folder_label == "Chase"` × `outcome_class == "failed"` × `chase`
+scoring ≥0.5 in `candidates`/`near_miss` from `6893a75b`'s `rows.csv` gives
+**18 records over 18 distinct content hashes** — the brief's 18 exactly, no
+duplicates. Every one carries `chase:0.5` and `no_parser_matched`: detected by
+`chase`, declined at parse.
+
+All 18 were rendered read-only through the production ladder
+(`ocr.pipeline.parse_statement`, offline rungs only, `allow_visual_ocr=False`,
+so no model client is ever constructed), served from the MAIN checkout's D-3
+artifact cache: **18 cache hits, 0 misses, `$0.00`.** The 501-document
+claimed population likewise: **501 hits, 0 misses.**
+
+The ANALYSIS stage is deliberately **not** cached in any instrument here. This
+branch changes analysis output while `ANALYSIS_STAGE_VERSION` is still 8, so a
+cached payload would answer the question the previous tree answered — and a
+cached *write* would put this branch's output into the cache the main checkout
+and every other worktree in the wave read. OCR artifacts are shared read-only;
+analysis is computed fresh and discarded.
+
+Grouping the 18 by printed structure gives a different split from the one
+§CHASE-LAYOUTS assumed:
+
+| Family | Printed signature | Volume |
+|---|---|---|
+| **A′-1** genuine zero-activity | `CHECKING SUMMARY`, instance count 0 in every section, **no** `*start*transaction detail` | **4** |
+| **A′-2** checking on the savings grid | `CHECKING SUMMARY` **and** a single `*start*transaction detail` grid | **3** |
+| **B1** savings | `SAVINGS SUMMARY`, single `*start*transaction detail`, grid `DATE DESCRIPTION AMOUNT BALANCE` | **10** |
+| **B2** empty sentinel skeleton | all 14 `*start*…*end*` pairs present and empty | **1** |
+
+§CHASE-LAYOUTS filed all 7 non-savings documents as A′ and predicted 4 would
+validate. The prediction is right; this is **why** it is right. Only 4 of the 7
+are zero-activity documents at all. The other **3 are Chase checking statements
+printing the single transaction-detail grid instead of the six named
+sections** — a third family, not a zero-activity variant. The conservative
+guard refuses them because they state instances and their balances differ,
+which is the correct outcome, but "the conservative rule correctly declines
+them" (§C6.2) understates what they are. Recorded as a new fail-closed family
+with its volume rather than folded into A′ (§Z6.1).
+
+## Z2. Card A′ — a period in which nothing happened
+
+`parse_chase_statement` ended
+`if not txns or stmt.beginning_balance is None or stmt.ending_balance is None: return None`,
+so Chase's own statement for a period with no activity was refused as
+unreadable. Pre-authorized by Ocean under the §C6.1 conditions.
+
+**(a) The minimal diff.**
+
+```python
+-    if not txns or stmt.beginning_balance is None or stmt.ending_balance is None:
++    if stmt.beginning_balance is None or stmt.ending_balance is None:
++        return None
++    # A period in which nothing happened is still a statement, and Chase prints
++    # one: an opening balance, a closing balance equal to it, and its own
++    # instance count of 0 against every section, with no detail section at all.
++    # An empty ledger is admissible ONLY on that evidence — the bank itself
++    # stating no instances and no movement, and the two balances agreeing.
++    # An empty ledger on any other document is this reader failing to read a
++    # section that is there, so it keeps refusing: the emptiness is never taken
++    # as its own proof that the period was empty.
++    # (W3 §CHASE-CLOSURE, from §CHASE-LAYOUTS C6.2.)
++    if not txns and not (
++        not stmt.stated_credit_count
++        and not stmt.stated_debit_count
++        and not stmt.stated_total_credits
++        and not stmt.stated_total_debits
++        and stmt.beginning_balance == stmt.ending_balance
++    ):
+         return None
+     stmt.transactions = txns
+     return stmt
+```
+
+**One declared strengthening over the §C6.2 proposal.** That proposal tested
+the two stated COUNTS and the two balances. This also tests the two stated
+TOTALS. The reason is the `do NOT equate an empty ledger with a valid
+statement` condition: a summary stating `Deposits and Additions 0 $250.00`
+contradicts itself, and the counts alone would have admitted it. Measured both
+ways over the 7 — the strengthening costs nothing (4/7 either way) and refuses
+one more contradiction class, so it ships.
+`test_an_empty_ledger_is_not_by_itself_a_zero_activity_statement[total_stated]`
+pins it.
+
+**AMENDED after Ocean's adversarial review — the clause that makes this safe,
+and a correction to what the rule actually says.**
+
+The review found the guard as first written could not tell "the bank printed
+zero" from "**this reader failed to read the summary**", and built four shapes
+that print real money yet were admitted with an empty ledger and
+reconciliation green: summary rows carrying no instance count; section amounts
+printed without cents; an HTML summary whose section rows are short; an HTML
+summary whose section columns are shifted. Each leaves every stated field
+unset while both balance rows still read, and each needs only
+`beginning == ending` — which is a real shape, not a contrivance: a sweep
+account or a net-zero month closes where it opened.
+
+The required clause is added: the empty ledger is admissible only if the
+document **also prints no posting row** (`and not _DATED_ROW_RE.search(text)`).
+`_DATED_ROW_RE` reuses this module's own `MM/DD` row grammar, looked for
+anywhere in the document and deliberately section-blind — a false positive
+costs one refusal, a false negative publishes an empty ledger for a statement
+that printed rows.
+
+**And the rule is not what the first draft said it was.** Measured over every
+distinct document in the archive with `chase` detection computed live:
+
+```
+distinct documents in the archive: 3380
+rendered: cache hits=3367 misses=13
+chase DETECTS: 515
+admitted empty-ledger WITHOUT the clause: 4
+admitted empty-ledger WITH the clause:    4
+real admissions the clause newly refuses: 0
+SHAPES (cr_none, db_none, tc_none, td_none, balances_equal, dated_row):
+   x4: (True, True, True, True, True, False)
+```
+
+Every admitted document carries **`None` in all four stated fields, never
+`0`** — the summary prints no section rows at all. So "the bank stating zero
+instances" is **not** what fires on the real population and the rule must not
+be read that way. The discriminator is: the two balances agree, no stated
+evidence was recovered, and no posting row is printed. The guard comment and
+the `ZERO_ACTIVITY` fixture description are corrected to say so, and
+`ZERO_ACTIVITY_AS_PRINTED` is the fixture carrying the real shape.
+
+Each of the four probes is pinned twice — once asserting it reaches the guard
+in the dangerous state with the clause disabled in-process (so a fixture that
+starts being refused for some other reason fails rather than passing
+vacuously), and once asserting the shipped tree refuses it.
+
+**A residual, still disclosed.** `_parse_native_summary` ends
+`stmt.stated_debit_count = debit_count or None`, so a printed debit count of
+**0** and **no debit row at all** are the same `None` here. Changing that line
+is outside the authorized guard, so it is not done — and after this amendment
+it no longer carries the safety argument, because the posting-row clause does.
+All 501 currently-claimed documents have transactions and cannot reach the
+branch at all (§Z4.1 measures this rather than arguing it).
+
+**Population note.** The review reports 8 admissions over ~1,034 chase
+documents; this scan finds **4 over 515**, asking `chase.detect` directly on
+every one of the 3,380 distinct archive documents. The two populations are
+built differently and I could not reconcile them from here — flagged for Ocean
+rather than papered over. The clause refuses **zero** real admissions in the
+population measured, which is the property the amendment requires.
+
+**Result over the A′ family.**
+
+| the 7 A′ documents | base `c5673d2` | shipped |
+|---|---|---|
+| validated | 0 | **4** |
+| failed | 7 | 3 |
+
+The 3 are family A′-2 (§Z1): they state instances and their balances differ.
+
+## Z3. Cards B1 and C
+
+### Z3.1 `chase_savings` — the registration
+
+Chase's savings statement is a distinct printed product on the same native
+template: `SAVINGS SUMMARY`, and ONE `*start*transaction detail` grid
+`DATE DESCRIPTION AMOUNT BALANCE` in place of the six named checking sections.
+`chase` detects all 10 on its own two markers and declines all 10 at parse,
+because it hard-requires `CHECKING SUMMARY`.
+
+**Markers — three required, all issuer furniture, no bank NAME.** `*start*summary`
+(Chase's own text-layer sentinel, the marker R4-3 added to `chase` precisely
+because a bank name is wire boilerplate), `SAVINGS SUMMARY`, and the printed
+grid header. Plus one **excluding** marker on `CHECKING SUMMARY`.
+
+**Band 10 + `supersedes` chase**, the established shape for a narrower document
+class of the same institution (`chase_export`, `rbc_french`,
+`td_canada_native`). Without the edge both registrations claim and the document
+resolves **`ambiguous`** — a readable statement sent to review. The edge is safe
+in the strong sense rather than the observed one: the excluding marker means
+`chase_savings` **cannot** claim, and therefore cannot shadow `chase` on, any
+document printing the checking product. A combined statement printing both
+summaries stays with `chase`, which owns the checking sections.
+`test_the_checking_product_is_positively_excluded` asserts the exclusion by
+`excluded_by`, not by absence.
+
+**Two structural rules carry the grid**, and neither reads vocabulary for
+meaning:
+
+* **The amount cell wraps onto the line ABOVE its row** — the mirror image of
+  the F1 family — when the Description column is full. A bare money line is a
+  wrapped AMOUNT when a row starts on the line after it, and a wrapped BALANCE
+  when it stands inside one. The difference is the row-group boundary, so it is
+  resolved after grouping (a group's trailing bare-money line is the next row's
+  amount) rather than by pattern-matching the token. This is the
+  `square_checking` footer lesson applied before the defect rather than after
+  it: a claim about what a line *contains* is not a claim about where the row
+  *ends*. `test_a_bare_money_line_inside_a_row_is_its_balance_not_the_next_amount`
+  is the fixture that would fail under the naive rule.
+* **The grid's Beginning/Ending Balance rows are bounds, not transactions.**
+  One producer flattens the whole grid onto a single physical line, which puts
+  the closing bound at the end of the last row — where its figure would be read
+  as that row's Balance cell. It is split back off as furniture, reusing the
+  bound marker the parser already declares.
+
+`tables.group_rows` is consumed unmodified. It drops what precedes the first
+row by contract, and the first row's wrapped amount lives exactly there, so
+that leading run is restored by the caller — the case its docstring names.
+
+### Z3.2 The B1 instrument, and why 10/10 rather than ~6/10
+
+Five printings, none derived from the ledger being checked: the summary's two
+balances, the grid's own two bound rows, every row's printed running balance,
+the last printed balance against the stated ending balance, and the stated
+instance counts against the rows read.
+
+| the 10 B1 documents | base `c5673d2` | shipped |
+|---|---|---|
+| validated | 0 | **10** |
+| running-balance walk clean | 0 | **10 / 10** |
+| ledger identity holds | 0 | **10 / 10** |
+| last printed balance == stated ending | 0 | **10 / 10** |
+| grid bound rows agree with the summary | 0 | **10 / 10** |
+| stated credit and debit counts == rows read | 0 | **10 / 10** |
+
+§C6.3's rough reader reached 6 validated / 3 withheld / 1 failed and was
+explicitly built "to size the family rather than to propose an
+implementation" — it captured 1–3 rows on documents whose ledgers carry more.
+The two structural rules above are the difference, and the count check is what
+makes 10/10 a measurement rather than a hope: a dropped row would show up as a
+stated-count mismatch and as a break in the walk, on documents that print
+between 1 and 9 rows.
+
+The first build of this reader scored **9/10**, and the one withheld document
+was the flattened producer whose closing bound was absorbed into its last row.
+That is the `square_checking` §C4-item-3 defect, found here by the instrument
+instead of by review. Fixing it structurally took the family to 10/10.
+
+### Z3.3 Card C — the money guard did not admit what the money finder finds
+
+**Authorization.** Card C is not in the CHASE-CLOSURE handoff. It was
+authorized by **Ocean's scope-extension directive of 2026-08-13**, issued
+mid-flight on the F-MONEYFMT fuzzer's evidence, and scoped there to
+guard/finder alignment only — explicitly not a widening of `_SUMMARY_AMOUNT`.
+Recorded here so the authorization is in the repository rather than in message
+history; the adversarial review was right to refuse to infer it from the
+handoff.
+
+`_AMOUNT_RE` guards what `_money` may scrub; `_SUMMARY_AMOUNT` finds the money
+in a summary row. W3 F10 widened the finder to allow a gap between the sign and
+the figure; the guard was not widened with it.
+
+```python
+-_AMOUNT_RE = re.compile(r"\(?-?\$?\s*[0-9][0-9,]*(?:\.[0-9]{2})?-?\)?")
++_AMOUNT_RE = re.compile(r"\(?(?:-\s*)?\$?\s*[0-9][0-9,]*(?:\.[0-9]{2})?-?\)?")
+```
+
+A row printing the two attested conventions together — the sign outside the
+currency symbol, the column's padding between them, `- $530,178.70` — matched
+the finder, failed the guard's `fullmatch`, and `abs(_money(...) or 0.0)`
+published **0.00** for a figure the bank had plainly printed.
+
+**It was silent, which is the point.** With a small fee the error sits inside
+reconcile's ±1.00 summary tolerance:
+`test_the_misread_fee_hid_inside_the_reconciliation_tolerance` reproduces a
+document that ships `summary_ok=True`, `ok=True`, `issues=[]` with a residual
+of **+0.75** and both `stated_service_charge` and `stated_total_debits` wrong.
+The fix does not move the tolerance; it removes what was hiding under it.
+
+**The gap is bound to the sign** (`(?:-\s*)?`) rather than floated across the
+prefix, so the guard widened by exactly one printed spelling: an unclosed
+`( $X` is still refused, as it was before. `_SUMMARY_AMOUNT` is **not** widened;
+the deletion-variant shapes (`($X)`, `$-X`, U+2212) are unattested and stay
+backlog. `test_the_guard_admits_every_shape_the_finder_finds` pins the
+alignment as a property over the sign × symbol × spacing product rather than as
+examples, so the two cannot drift apart again.
+
+**Archive movement: zero.** No document in the 501-strong claimed population
+prints the shape (§Z4.1 is 0 diffs with card C in the reverted set). The card's
+value is the defect class closed and the invariant now pinned, and the honest
+figure is zero documents moved — not a number.
+
+## Z4. Regressions — zero, and the evidence
+
+### Z4.1 The claimed population
+
+Every document the chase family claims in `6893a75b` — **523 records / 501
+distinct** — rendered once and analysed TWICE in one process: once with all
+three cards reverted in-process to base-`c5673d2` behaviour, once with the
+shipped code. Compared per document: outcome class and reason, error type,
+dispatch outcome, parser id, candidate count, attempted tuple, transaction
+count, transaction sum, integrity flags and nine statement fields.
+
+```
+chase-family claimed distinct: 501   cell: 18
+claimed population: 501 rendered  cache hits=501 misses=0
+
+== CLAIMED_POPULATION ==
+BEFORE: {'validated': 494, 'withheld': 6, 'review': 1}
+AFTER : {'validated': 494, 'withheld': 6, 'review': 1}
+CLAIMED_POPULATION_DIFFS= 0
+  chase claims before=497 after=497  scores moved (shared ids)=0
+```
+
+Not one document moved, and the detection surface did not move either: `chase`
+claims **497** before and after — the brief's figure exactly — with **0** score
+changes across every registration shared between the two trees.
+
+### Z4.2 The cell, before then after
+
+```
+the cell: 18 rendered  cache hits=18 misses=0
+BEFORE: {('failed', 'no_parser_matched'): 18}
+AFTER : {('validated', 'approved'): 14, ('failed', 'no_parser_matched'): 4}
+```
+
+4 claimed by `chase` (A′-1), 10 by `chase_savings` (B1). The 4 that remain
+failed are the 3 A′-2 documents and the 1 B2 empty skeleton. **Ambiguous
+dispatches: 0. Parser exceptions: 0** — every still-unclaimed document raises
+the deterministic mode's own `RuntimeError`, which is the unclaimed path and
+not a crash.
+
+### Z4.3 The stratified cross-bank probe
+
+Up to 12 distinct documents from each folder, validated ones first —
+**476 documents across 69 folders**:
+
+```
+== stratified probe: 476 documents from 69 folders ==
+rendered=476  chase_savings claims=0  highest non-claiming score=0.125  ambiguous dispatches=0
+```
+
+Stated precisely: this sample is a pure **negative** control. It sorts
+validated-first, and the B1 documents are `failed` at baseline, so they are not
+in it — `chase_savings` claims nothing anywhere in it and never exceeds 0.125,
+three required markers short of a claim. The positive direction is §Z4.2 (it
+claims exactly the 10 savings documents), and the safety direction is §Z4.1
+(it claims **0** of the 501 documents `chase` already owns — any claim would
+have flipped `parser_id` and shown as a diff).
+
+### Z4.4 Suite, conformance, corpus
+
+The conformance cross-product is **51 × 50** with **zero cross-claims**; the
+single-marker invariant holds for `chase_savings` (three required markers);
+SOURCE-comment invariance holds; `COUNTERPARTY_VULNERABLE` and
+`FILENAME_DEPENDENT_PARSERS` remain empty and asserted empty.
+
+The suite went **2,562 → 2,618, and by nothing else**: `tests/test_chase_closure.py`
+collects **44**, and **12** more are generated by `tests/test_parser_conformance.py`
+and `tests/test_parser_registry_entries.py` *enumerating* the registry — 44 + 12
+= 56, measured, not inferred. (Before the review amendment the same arithmetic
+read 34 + 12 = 46 against a suite of 2,608; the amendment's ten probe fixtures
+are the whole difference.) No existing assertion changed meaning; the edits to
+existing test files are the two registration-count pins, the dispatch-order list
+(1 id), the `supersedes` map (1 edge) and one conformance fixture.
+
+## Z5. What did NOT change, deliberately
+
+* **`analysis/chase.py`'s detection surface.** Both chase cards are
+  parse-level; the markers and `detection_text` are untouched, and §Z4.1
+  measures that over both populations rather than asserting it.
+* **`analysis/count_semantics.py` is untouched** — it is protected. The
+  consequence is stated rather than left implicit: `chase_savings` populates
+  printed counts and is absent from `SEMANTICS`, so
+  `semantics_for("chase_savings", …)` returns `scope='unsurveyed'` and the
+  stated-count check **says nothing at all** about this parser in either
+  direction. That is the table's designed fail-closed behaviour and the right
+  state to ship in; a surveyed entry is Ocean's (§Z6.2).
+* **No shared utility's behaviour changed**, so no R-2 differential-equivalence
+  proof is owed. `group_rows`, `compact_whitespace`, `parse_digit_scrubbed`,
+  `iso_from_month_day` and `period_from_long_dates` are consumed unmodified,
+  with caller-supplied predicates as designed.
+* **No truth-set movement**, no audit CSV regenerated, no re-baseline.
+* **`tests/data/parser_expectations.json` and
+  `tools/record_parser_expectations.py::PIPELINE_ENTRY_POINTS` are deliberately
+  not extended**, for the reason §BMO-LAYOUTS M6.8 gives. That divergence is now
+  **five** ids — the three BMO layouts, `square_checking`, `chase_savings` —
+  alongside the three promoted sub-dispatches, which are a different class.
+  Noted so it stays a decision rather than a drift.
+
+## Z6. Carried findings and questions for Ocean
+
+### Z6.1 A third Chase family: checking printed on the savings grid — 3 documents
+
+Not a zero-activity variant and not savings: a Chase **checking** statement
+printing `CHECKING SUMMARY` plus a single `*start*transaction detail` grid,
+instead of the six named checking sections `chase.py` reads. `chase` detects
+and declines all 3; `chase_savings` is positively excluded from all 3 by its
+`CHECKING SUMMARY` marker, which is the correct refusal — this is `chase`'s
+product.
+
+The grid is the one `chase_savings` already reads. The obvious move — let the
+savings reader take them — is the wrong one, because it would put a checking
+statement's ledger under a registration whose whole safety argument is that it
+never touches the checking product. **Requested: a ruling.** The shapes are
+`chase.py` growing a grid reader for its own product, or a third registration.
+Volume 3 in this cell; the layout will recur.
+
+### Z6.2 `chase_savings` is `unsurveyed` in the count-semantics table
+
+Fail-closed and correct today. The evidence for a surveyed entry already
+exists and is unusually clean: on **10 of 10** documents the printed
+`Deposits and Additions` count and the printed debit count equal the rows read,
+with **0** disagreements. `analysis/count_semantics.py` is protected, so the
+entry is Ocean's. Recommended as comparable in both directions, with this
+section as the survey.
+
+### Z6.3 `chase.py:_parse_native_summary` cannot distinguish a printed zero
+
+`stmt.stated_debit_count = debit_count or None` collapses "the bank printed 0"
+and "no debit row was printed" into `None`. It is outside the A′ guard's scope
+and left alone. It weakens the A′ guard's reading of "the bank printed zero
+instances in every section" to "stated no instances", which §Z2 bounds. A
+FIXUPS-class card would make the distinction real; it is also the same line
+COUNTS-P2 reads for the debit count, so the two cards should be considered
+together.
+
+### Z6.4 The `- $X` shape is unattested in the archive
+
+Card C is a real defect with a real silent-wrong-number consequence, and zero
+archive documents exercise it. Both facts belong in the record. It closes a
+class rather than moving a number, and the property fixture is what keeps it
+closed.
+
+### Z6.4b Three small corrections from the adversarial review
+
+Landed with the amendment, recorded so they are not mistaken for drift:
+
+* the dead `account_name` branch in `parse_chase_savings_statement` is deleted.
+  `_summary_block` returns the text *after* `SAVINGS SUMMARY`, so a pattern
+  anchored on `^(.*?)\s*SAVINGS SUMMARY` over that string could never match —
+  `None` on every document, as the review measured;
+* `test_savings_detection_reads_nothing_from_the_source_filename` was passing
+  vacuously: its body carried no marker, so it would have scored 0.0 with or
+  without the platform strip. The filename now carries **all three** required
+  markers and the test asserts they fire against the unstripped
+  `detection_text` before asserting `detect` scores 0.0 — so the strip is
+  what is under test, and the fixture fails if it ever stops being;
+* the wrapped-cell docstring overclaimed. The group-boundary rule does not
+  decide the one shape where a wrapped BALANCE is followed by a row printing
+  both cells inline; both readings are structurally available once the column
+  geometry is flattened away. That shape is caught by reconciliation as a
+  running-balance break and **withheld**, which the docstring now says instead
+  of implying the boundary settles it.
+
+### Z6.5 `chase_savings` claims no pinned corpus document
+
+Its only coverage is `tests/test_chase_closure.py` and the R-4 conformance
+fixture — the same status `demo_national`, the three BMO layouts and
+`square_checking` have. Noted, not remedied.
+
+### Z6.6 `ANALYSIS_STAGE_VERSION`
+
+Must be bumped at merge — `webapp/` is protected and this is Ocean's, not done
+here.
+
+## Z7. Proofs
+
+Run on a clean tree at `4c15e88`, the amended head — every proof below is from
+the post-review tree, not carried over from the pre-amendment one.
+
+```
+$ git status --short
+$ git rev-parse --short HEAD
+4c15e88
+
+$ python -m pytest tests/test_chase_closure.py -q
+44 passed in 0.35s
+CLOSURE_EXIT=0
+
+$ python -m pytest tests/test_chase_layouts.py tests/test_chase_native_variants.py       tests/test_parser_conformance.py tests/test_parser_registry_entries.py       tests/test_parser_parity.py tests/test_parser_detection_markers.py -q
+744 passed, 9 deselected in 1.63s
+CHASE_R34_EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py       tests/test_no_parser_helper_clones.py -q
+100 passed in 0.91s
+GUARDS_EXIT=0
+
+$ set -o pipefail; python -m pytest -q
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2618 passed, 18 deselected, 1 warning in 165.41s (0:02:45)
+SUITE_EXIT=0
+
+$ set -o pipefail; python -m pytest -m corpus -q
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+14 passed, 2622 deselected, 1 warning in 942.76s (0:15:42)
+CORPUS_MARKED_EXIT=0
+
+$ python corpus_gate.py
 Corpus gate
 
 [PASS] inventory: 109 pinned corpus PDFs, all on disk and audited by both oracles
@@ -5689,3 +6210,79 @@ new registration, and said so with evidence rather than adding one that could
 never validate. No registry machinery, no shared utility, no truth-set movement,
 no ambiguity weakening. `ANALYSIS_STAGE_VERSION` is Ocean's at merge: this cell
 changes analysis output for 21 rows, so the cache version must move.
+Runtime:  386.7s
+
+RESULT: GREEN
+GATE_EXIT=0
+```
+
+The three WITHHELD are the same three statements by name. No re-baseline was
+requested or performed; neither audit CSV was regenerated.
+
+The archive instruments, re-run against the same amended tree:
+
+```
+chase-family claimed distinct: 501   cell: 18
+claimed population: 501 rendered  cache hits=501 misses=0
+
+== CLAIMED_POPULATION ==
+BEFORE: {'validated': 494, 'withheld': 6, 'review': 1}
+AFTER : {'validated': 494, 'withheld': 6, 'review': 1}
+CLAIMED_POPULATION_DIFFS= 0
+  chase claims before=497 after=497  scores moved (shared ids)=0
+the cell: 18 rendered  cache hits=18 misses=0
+
+== the cell, before then after ==
+BEFORE: {('failed', 'no_parser_matched'): 18}
+AFTER : {('validated', 'approved'): 14, ('failed', 'no_parser_matched'): 4}
+
+== stratified probe: 476 documents from 69 folders ==
+rendered=476  chase_savings claims=0  highest non-claiming score=0.125  ambiguous dispatches=0
+SWEEP_EXIT=0
+```
+
+The A′ clause is unreachable for any document that has transactions, so zero
+diffs here is the expected result — and it is measured rather than argued,
+which is the point of running it again after the amendment.
+
+The archive-wide A′ verification (§Z2), on the same tree:
+
+```
+distinct documents in the archive: 3380
+rendered: cache hits=3367 misses=13
+chase DETECTS: 515
+admitted empty-ledger WITHOUT the clause: 4
+admitted empty-ledger WITH the clause:    4
+real admissions the clause newly refuses: 0
+SHAPES (cr_none, db_none, tc_none, td_none, balances_equal, dated_row):
+   x4: (True, True, True, True, True, False)
+```
+
+And the B1 instrument, re-measured after the amendment (`chase_savings.py`
+changed in the same commit):
+
+```
+B1 family: 10 documents
+OUTCOMES: {('validated', 'approved'): 10}
+INSTRUMENT (of 10): {'ledger_identity': 10, 'ends_where_stated': 10,
+                     'grid_bounds_agree': 10, 'no_balance_breaks': 10}
+```
+
+**Cost.** Every archive read was an OCR-stage cache hit except 13, which are
+the archive's malformed PDFs and were computed offline: 501 + 18 + 476 + 3,380
+documents, **$0.00**, no model client constructed at any point
+(`allow_visual_ocr=False` throughout). Nothing was written to the shared D-3
+**analysis** cache — see §Z1. The 13 OCR-stage misses did write artifacts, which
+is correct and shareable: `OCR_STAGE_VERSION` is unchanged by this branch and
+the computation is a deterministic function of the same bytes and settings.
+
+## Z8. Commits
+
+| Commit | Contents |
+|---|---|
+| `9e592cd` | card A′: the zero-activity guard in `analysis/chase.py`, and its fixtures |
+| `1337247` | card C: the money guard aligned with the money finder, the in-process regression fixtures and the drift-pinning property test |
+| `50bd704` | card B1: `analysis/chase_savings.py`, 1 registry entry + 1 override, the conformance fixture, the three registry pins and the B1 fixtures |
+| `15108c5` | §CHASE-CLOSURE, first cut |
+| `4c15e88` | Ocean's adversarial review: the A′ posting-row clause and the corrected rule, the four probe shapes pinned twice each, the three small corrections, and card C's authorization record |
+| (this one) | §CHASE-CLOSURE finalised — the amendment record and the re-run proofs |
