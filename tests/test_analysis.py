@@ -51,6 +51,7 @@ from analysis.santander import parse_santander_statement
 from analysis.scanned_small_bank import _section, parse_apex_scanned_statement
 from analysis.secu import parse_secu_statement
 from analysis.wilson_muir import parse_wilson_muir_statement
+from ocr.document import StatementMarkdown
 from ocr.native_text import (
     parse_native_desjardins,
     parse_native_navy_federal,
@@ -446,6 +447,61 @@ def test_the_page_declaration_restriction_can_only_remove_matches():
     ]
     for sample in samples:
         assert set(after.findall(sample)) <= set(before.findall(sample))
+
+
+def _sheets(*pages: str) -> str:
+    """The intake layer's rendering of a PDF with one entry per physical sheet
+    — the shape `assess_document_integrity` actually receives in production."""
+    return StatementMarkdown(
+        source_file="statement.pdf", model="test-model", pages=list(pages)
+    ).to_markdown()
+
+
+def test_an_unlabelled_sheet_is_not_a_missing_page():
+    """HUNT-CELL H6.2: a layout whose last declared page is a deposit-image
+    sheet prints no footer on it, so the label is absent while the page is
+    present. Accusing that document of a missing page is a false finding."""
+    stmt, recon, quality = _reconciled_statement_for_page_declarations()
+    markdown = _sheets(
+        "Page 1 of 3\nAccount Summary",
+        "Page 2 of 3\nActivity",
+        "Images of deposited items\n2/13 $18,245.24    2/23 $8,000.00",
+    )
+    integrity = assess_document_integrity(stmt, recon, quality, markdown=markdown)
+    assert "missing_declared_statement_page" not in integrity.flags
+    assert integrity.flags == []
+
+
+def test_a_declared_page_absent_from_a_fully_labelled_pdf_still_flags():
+    """The discriminating case, and why the restriction does not blunt the
+    check: the pinned Columbia statement declares five pages, supplies four
+    sheets and prints a label on every one of them. Nothing unlabelled can
+    stand in for page 5, so the page really is absent and the flag stands."""
+    stmt, recon, quality = _reconciled_statement_for_page_declarations()
+    markdown = _sheets(
+        "Page 1 of 5\nAccount Summary",
+        "Page 2 of 5\nActivity",
+        "Page 3 of 5\nActivity",
+        "Page 4 of 5\nActivity",
+    )
+    integrity = assess_document_integrity(stmt, recon, quality, markdown=markdown)
+    assert integrity.flags == ["missing_declared_statement_page"]
+    assert any("5 are absent" in note for note in integrity.notes)
+
+
+def test_more_missing_labels_than_unlabelled_sheets_still_flags():
+    """The restriction is a count, not a switch: one unlabelled sheet excuses
+    one missing label, and no more. Two pages absent behind a single unlabelled
+    sheet is still a finding."""
+    stmt, recon, quality = _reconciled_statement_for_page_declarations()
+    markdown = _sheets(
+        "Page 1 of 4\nAccount Summary",
+        "Page 2 of 4\nActivity",
+        "Images of deposited items",
+    )
+    integrity = assess_document_integrity(stmt, recon, quality, markdown=markdown)
+    assert integrity.flags == ["missing_declared_statement_page"]
+    assert any("3, 4 are absent" in note for note in integrity.notes)
 
 
 def test_parse_atb_native_text_transactions_from_running_balance():

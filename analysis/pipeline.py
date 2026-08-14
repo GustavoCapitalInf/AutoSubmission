@@ -238,6 +238,31 @@ def assess_quality(
     )
 
 
+#: A printed page declaration, as the integrity check counts them.
+#:
+#: `CONTINUED ON NEXT PAGE` is a continuation footer, not a page declaration.
+#: Banks print it immediately above the page number, and PDF flattening joins
+#: the two lines, so "…NEXT PAGE" + "2 of 20" reads as "Page 2 of 20" to a
+#: pattern that only looks for the word.
+#:
+#: RESTRICTION-ONLY PROPERTY, and the reason that hunk was safe: a negative
+#: lookbehind can only REMOVE matches from the set the pattern found before,
+#: never add one. `declared_pages` can therefore only shrink, so
+#: `missing_declared_statement_page` can only be withdrawn from a document that
+#: carried it — this cannot raise the flag on any document that did not already
+#: have it, and cannot move a validated document to review.
+_PAGE_DECLARATION_RE = re.compile(
+    r"(?<!NEXT )\bPage\s*:?\s*(\d+)\s+of\s+(\d+)\b", re.IGNORECASE
+)
+
+#: The intake layer's per-sheet separator (`ocr.document.StatementMarkdown.
+#: to_markdown`), which marks every physical sheet of the supplied PDF whether
+#: or not the bank printed a page footer on it. Read here for the same reason
+#: `analysis/navigant.py` already splits on it: it is the one structural record
+#: of how many sheets the document is actually made of.
+_SHEET_SEPARATOR_RE = re.compile(r"(?m)^--- Page \d+(?: \(empty\))? ---\s*$")
+
+
 def assess_document_integrity(
     stmt: Statement,
     recon: ReconResult,
@@ -330,30 +355,54 @@ def assess_document_integrity(
     if contradictions:
         flags.append("conflicting_statement_summaries")
         notes.extend(contradictions)
-    # `CONTINUED ON NEXT PAGE` is a continuation footer, not a page
-    # declaration. Banks print it immediately above the page number, and PDF
-    # flattening joins the two lines, so "…NEXT PAGE" + "2 of 20" reads as
-    # "Page 2 of 20" to a pattern that only looks for the word.
-    #
-    # RESTRICTION-ONLY PROPERTY, and the reason this hunk is safe: a negative
-    # lookbehind can only REMOVE matches from the set the pattern found
-    # before, never add one. `declared_pages` can therefore only shrink, so
-    # `missing_declared_statement_page` can only be withdrawn from a document
-    # that carried it — this change cannot raise the flag on any document that
-    # did not already have it, and cannot move a validated document to review.
     declared_pages = [
-        (int(current), int(total))
-        for current, total in re.findall(
-            r"(?<!NEXT )\bPage\s*:?\s*(\d+)\s+of\s+(\d+)\b",
-            markdown,
-            re.IGNORECASE,
-        )
+        (int(current), int(total)) for current, total in _PAGE_DECLARATION_RE.findall(markdown)
     ]
     if declared_pages:
         declared_total = max(total for _, total in declared_pages)
         present = {current for current, total in declared_pages if total == declared_total}
         missing = sorted(set(range(1, declared_total + 1)) - present)
-        if missing:
+        # A missing LABEL is only evidence of a missing PAGE when every sheet
+        # the PDF carries prints one, and plenty do not: deposit-image sheets,
+        # back-of-page notices and continuation sheets routinely carry no page
+        # footer at all. HUNT-CELL H6.2 measured three Burke & Herbert
+        # statements that declare N pages, print labels 1..N-1, and carry the
+        # Nth as an unlabelled deposit-image sheet whose rows reproduce the
+        # published ledger exactly — the page is demonstrably THERE, and the
+        # document was being accused of a missing page on the strength of an
+        # absent footer.
+        #
+        # So an unlabelled sheet is counted as what it is: a sheet that could
+        # be any one of the pages whose label was not found. Where there are at
+        # least as many of them as there are missing labels, every declared
+        # page is accounted for by something physically present, and "absent
+        # from the supplied PDF" is a claim the evidence does not support.
+        #
+        # This does NOT blunt the check, because the discriminating case is a
+        # real one: the pinned Columbia statement declares 5 pages, supplies 4
+        # sheets and prints a label on all four — zero unlabelled sheets, so a
+        # page really is absent and the flag stands, byte-identical. Likewise
+        # the synthetic Wells fixture behind the FILENAME-BOUNDARY suppression
+        # test, which prints `Page 1 of 4` on its only sheet.
+        #
+        # RESTRICTION-ONLY, the FIXUPS-1 property: this adds a conjunct that
+        # can only withdraw the flag, never raise it on a document that did not
+        # already carry it. Swept over the 3,367 archive documents that have an
+        # OCR artifact: 114 withdrawn, ZERO raised.
+        #
+        # `[1:]` drops what precedes the first separator, which is intake
+        # preamble and not a sheet. It matters twice: `analyze_markdown` strips
+        # the source comment before this runs, but a caller passing raw
+        # markdown would otherwise contribute a phantom unlabelled sheet and
+        # weaken the check by one; and a document with no separators at all —
+        # every hand-written fixture — yields no sheets rather than one, so
+        # `unlabelled_sheets` is 0 and nothing about those documents moves.
+        unlabelled_sheets = sum(
+            1
+            for sheet in _SHEET_SEPARATOR_RE.split(markdown)[1:]
+            if sheet.strip() and not _PAGE_DECLARATION_RE.search(sheet)
+        )
+        if missing and len(missing) > unlabelled_sheets:
             flags.append("missing_declared_statement_page")
             notes.append(
                 "statement declares "
