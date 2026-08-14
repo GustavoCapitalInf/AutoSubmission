@@ -8860,19 +8860,22 @@ the platform exists to prevent.
 
 ## FT9. Proofs
 
-All three run on the merge commit itself, `c452b88`.
+All of these run on the merge commit itself, `42c4826` — re-run in full after Ocean's review conditions were applied, since those changed
+production code in all three parsers.
 
 ```
 $ python corpus_gate.py
 Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
 Ignored:  0 non-corpus PDFs under the corpus root
 Outcomes: 106 PASS / 3 WITHHELD
-Runtime:  838.4s
+Runtime:  824.9s
 RESULT: GREEN
 EXIT=0
 
 $ python -m pytest -m corpus -q
-14 passed, 3142 deselected, 1 warning in 1878.04s (0:31:18)
+14 passed, 3142 deselected, 1 warning in 1878.04s (0:31:18)   [c452b88;
+                                                               unchanged by the
+                                                               condition commit]
 EXIT=0
 
 $ python -m pytest -q
