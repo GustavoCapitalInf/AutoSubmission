@@ -464,3 +464,103 @@ def test_an_observation_carries_only_ids_codes_and_integers():
     for value in obs.as_dict().values():
         assert not isinstance(value, float)
     assert "ACME" not in json.dumps(obs.as_dict())
+
+
+# --- the artifact join: the observer's one integration point ----------------
+#
+# `_ArtifactJoin` reimplements the analysis cache key. That is a second copy of
+# a computation that lives in `webapp/artifact_cache.py`, and copies drift: W3
+# FILENAME-BOUNDARY changed the analysis stage to key on
+# `text_sha256(admissible_text(markdown))` and this copy kept hashing the raw
+# reconstruction, which misses on EVERY document — `payload_for` returns None
+# for all of them and `observe_run` emits `payload_absent` on 100% of rows. The
+# instrument fails safe and measures nothing, which is the worst kind of green.
+# These are the tests that catch it.
+
+
+def _seed_one_document(data_dir, *, cached_under: str, pages=("LEDGER PAGE",)):
+    """Write one real OCR + analysis artifact pair, exactly as the worker does.
+
+    Returns `(content_sha, payload)`. Nothing is faked: the analysis entry goes
+    in through `cached_analysis`, so the key under test is the key production
+    writes.
+    """
+    from ocr.document import StatementMarkdown
+    from ocr.inspect import content_sha256
+    from webapp.artifact_cache import (
+        ArtifactCache,
+        cached_analysis,
+        ocr_settings_key,
+    )
+    from webapp.storage import Storage
+
+    pdf_bytes = b"%PDF-1.7\nstated-counts join fixture"
+    cache = ArtifactCache(Storage(data_dir))
+    document = StatementMarkdown(
+        source_file=cached_under, model="fake-ocr", pages=list(pages)
+    )
+    cache.put_ocr(
+        content_sha256(pdf_bytes),
+        ocr_settings_key(force_ocr=False, allow_local_ocr=False, allow_visual_ocr=False),
+        document,
+    )
+    payload = {"statement": {"bank": "Test Bank"}, "counts": {"credit": 1}}
+    result = cached_analysis(
+        document.to_markdown(),
+        compute=lambda: payload,
+        cache=cache,
+        parse_mode="deterministic",
+    )
+    assert not result.cached, "fixture must have WRITTEN the analysis entry"
+    return content_sha256(pdf_bytes), payload
+
+
+def test_the_artifact_join_resolves_a_document_to_its_analysis_payload(tmp_path):
+    """The join works at all — the coverage this integration point never had."""
+    from telemetry.stated_counts import _ArtifactJoin
+
+    data_dir = tmp_path / "data"
+    content_sha, payload = _seed_one_document(data_dir, cached_under="statement.pdf")
+
+    join = _ArtifactJoin(data_dir)
+    assert join.payload_for(content_sha, "statement.pdf") == payload
+
+
+def test_the_artifact_join_survives_a_rename_of_the_document(tmp_path):
+    """The join must key on the same text the analysis stage keys on.
+
+    The archive reconstructs `StatementMarkdown` with whatever `source_file` the
+    run row carries, so if the filename reached the hash the join would break
+    the moment a document were re-filed — and it would break SILENTLY, as a
+    universal `payload_absent`. Since the analysis stage is filename-blind, so
+    is this.
+    """
+    from telemetry.stated_counts import _ArtifactJoin
+
+    data_dir = tmp_path / "data"
+    content_sha, payload = _seed_one_document(data_dir, cached_under="original name.pdf")
+
+    join = _ArtifactJoin(data_dir)
+    assert join.payload_for(content_sha, "renamed 2020 copy.pdf") == payload
+
+
+def test_the_artifact_join_computes_the_same_key_the_analysis_cache_writes(tmp_path):
+    """Pins the two copies of the key together, so a future change to one is a
+    failure here rather than a blind instrument in production."""
+    from analysis.parser_registry import admissible_text
+    from ocr.document import StatementMarkdown
+    from webapp.artifact_cache import text_sha256
+    from telemetry.stated_counts import _ArtifactJoin
+
+    data_dir = tmp_path / "data"
+    _seed_one_document(data_dir, cached_under="s.pdf")
+    join = _ArtifactJoin(data_dir)
+
+    markdown = StatementMarkdown(
+        source_file="s.pdf", model="fake-ocr", pages=["LEDGER PAGE"]
+    ).to_markdown()
+    assert "<!-- source:" in markdown, "fixture must carry the header"
+    # The key the cache wrote is the admissible-text key, and it is the only one
+    # the join's index knows.
+    assert text_sha256(admissible_text(markdown)) in join._analysis_index
+    assert text_sha256(markdown) not in join._analysis_index

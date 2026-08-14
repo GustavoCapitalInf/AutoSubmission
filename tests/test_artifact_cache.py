@@ -499,8 +499,17 @@ class _CallCounter:
     def install(self, monkeypatch, pages=("ledger page",)) -> None:
         def fake_parse(pdf_bytes, source_file="", **kwargs):
             self.ocr += 1
+            # Different bytes must produce different TEXT, as the real ladder
+            # does. Since W3 FILENAME-BOUNDARY the analysis stage keys on the
+            # filename-free markdown, so a stub that returned one fixed page for
+            # every PDF would make two genuinely different documents share one
+            # analysis input — and the distinct-documents assertion below would
+            # be measuring the stub rather than the cache. (Before the boundary
+            # it passed only because the filename was still in the key.)
             return StatementMarkdown(
-                source_file=source_file, model="fake-ocr", pages=list(pages)
+                source_file=source_file,
+                model="fake-ocr",
+                pages=[*pages, f"document {content_sha256(pdf_bytes)[:16]}"],
             )
 
         def fake_analyze(markdown, parse_mode="auto", **kwargs):

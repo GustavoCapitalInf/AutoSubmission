@@ -25,6 +25,7 @@ from .parser_registry import (
     Dispatch,
     ParserCrashError,
     Registration,
+    admissible_text,
     by_bank_label,
     resolve,
     run_integrity_checks,
@@ -356,6 +357,30 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
     settings = settings or load_settings()
     if parse_mode not in {"auto", "deterministic"}:
         raise ValueError(f"unknown parse_mode: {parse_mode}")
+
+    # THE ADMISSIBILITY BOUNDARY (W3 FILENAME-BOUNDARY). Everything below this
+    # line — detection, every parser's `parse`, the repairs, the ADB engine's
+    # source-text check, the integrity checks and the LLM extraction prompt —
+    # sees the document with its source-filename comment removed.
+    #
+    # Deliberately a REBIND of the parameter rather than a second local passed
+    # to each consumer: one line makes the property total and checkable by
+    # reading this function, where a new local would leave the guarantee to
+    # every present and future call site remembering which variable is the
+    # admissible one. Filenames are operator-supplied metadata (R-4b); F-
+    # PROVENANCE measured 7 of 10 sampled parsers reading financial evidence
+    # out of them — periods, ADB and year inference moving on a rename alone.
+    # The fix belongs here, at the one seam every parser is behind, not as an
+    # exclusion re-implemented in each parser.
+    #
+    # `admissible_text` is idempotent, and detection already applied it, so the
+    # detection path is unchanged and parse now sees the exact bytes detection
+    # scored. It removes the comment line and the blank lines that followed it,
+    # so absolute line numbers shift by a constant prefix; nothing downstream
+    # keys off an absolute markdown line index (the structurer derives its own
+    # indices from the text it is handed, and `DocumentGeometry` is built from
+    # OCR word boxes, not from this string).
+    markdown = admissible_text(markdown)
 
     model_used = settings.model
     dispatch = resolve(markdown)

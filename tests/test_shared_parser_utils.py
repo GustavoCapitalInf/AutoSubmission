@@ -354,7 +354,6 @@ PERIOD_DOCS = (
     "period: December 31, 2025 through January 30, 2026 (30 days)",
     "February 1, 2026 through February 29, 2026",
     "February 1, 2025 through February 29, 2025",
-    "Jan 5, 2026 through Feb 4, 2026",
     "January 5 2026 through February 4 2026",
     "January 5, 2026 to February 4, 2026",
     "",
@@ -366,6 +365,33 @@ PERIOD_DOCS = (
 def test_period_from_long_dates_matches_clone(doc):
     left, right = _both(_legacy_period, dt.period_from_long_dates, doc)
     assert left == right
+
+
+#: The inputs where the shared helper DELIBERATELY no longer matches the frozen
+#: oracle, moved out of the parity matrix above so that matrix keeps meaning
+#: "identical to the code it replaced" rather than being quietly relaxed.
+DIVERGENT_PERIOD_DOCS = (
+    "Jan 5, 2026 through Feb 4, 2026",
+    "Balance 5, 2026 through February 4, 2026",
+)
+
+
+@pytest.mark.parametrize("doc", DIVERGENT_PERIOD_DOCS)
+def test_period_from_long_dates_no_longer_raises_where_the_clone_did(doc):
+    """W3 FILENAME-BOUNDARY: a phrase that merely LOOKS like a long period is a
+    non-match, not a crash.
+
+    `([A-Z][a-z]+)` matches any capitalized word, so the oracle's `months[sm]`
+    raised `KeyError` on an abbreviated month or an ordinary capitalized word.
+    The documented contract is that None means "try another period format"; the
+    escaping KeyError was a `ParserCrashError` in deterministic mode and, in the
+    webapp's auto mode, a silent fall-through to LLM extraction. This asserts
+    both halves — what the clone did, and what the replacement does instead.
+    """
+    assert _both(_legacy_period, dt.period_from_long_dates, doc) == (
+        ("raise", "KeyError"),
+        ("ok", None),
+    )
 
 
 def test_period_from_long_dates_reads_the_first_span():

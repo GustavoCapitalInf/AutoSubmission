@@ -6598,3 +6598,224 @@ field against `b95595f` is still 0 on every audited field.
   genuinely a debit-column item, so nothing is misstated.
 * **The `count_semantics` citation** (`analysis/scotia.py:80-82`) now points
   at shifted line numbers. Ocean's at merge.
+# §FILENAME-BOUNDARY — the provenance admissibility boundary, applied to parsing
+
+Platform cell, not a layout cell. The unit of work is one seam, and the
+deliverable is an invariant: **a rename cannot change a published answer.**
+
+## FB0. Summary
+
+The OCR/native layer prefixes every document with
+`<!-- source: <file> | pages: … -->`. R-4b made DETECTION blind to it
+(`parser_registry.admissible_text`) and wrote the carve-out into that
+function's own docstring — *"Parsing is unaffected: `parse` still receives the
+whole document."* That sentence was the vulnerability.
+
+F-PROVENANCE measured what came through the hole: 7 of 10 sampled parsers read
+financial evidence out of the filename. The fix is one line at one seam —
+`analyze_markdown` applies `admissible_text` at stage entry — plus the crash it
+exposed, the cache key it obsoleted, and the test that keeps it closed.
+
+`ANALYSIS_STAGE_VERSION` is deliberately NOT bumped here; it is Ocean's at
+merge.
+
+## FB1. The defect, reproduced independently
+
+Two reproducers, run against this branch's code before any change:
+
+* **R1 — same bytes, different answers.** Corpus document `09BAFBBC`
+  (`wells_fargo`). Under a neutral filename it publishes period
+  `2026-05-01 … 2026-05-31`. Renamed to
+  `January 1, 2020 through December 31, 2020.pdf` it publishes
+  `2020-05-01 … 2020-05-31` — a six-year error in the period a human reads,
+  from a rename alone. `wells._infer_year` takes the FIRST word-bounded year
+  token in the document, and the comment line is above the statement.
+  Post-fix, the same document under 5 filenames yields **1 distinct answer**,
+  and it is the correct 2026 one.
+* **R2 — the crash.** `date_tokens.period_from_long_dates` raised `KeyError`
+  on 4 of 5 probe phrases: any abbreviated month, and any capitalized
+  non-month word, because `([A-Z][a-z]+)` matches both. Post-fix: 0 raise,
+  genuine long dates unchanged.
+
+## FB2. Cards
+
+1. **The boundary.** `analyze_markdown` rebinds `markdown = admissible_text(markdown)`
+   as its first act. A REBIND, not a second local: one line makes the property
+   total and checkable by reading the function, where a new local would leave
+   the guarantee to every present and future call site remembering which
+   variable is the admissible one.
+2. **The crash.** `_MONTH_NAMES[sm]` → `.get`, and a miss returns `None`. The
+   docstring's own contract is that None means "try another period format";
+   the escaping `KeyError` was a `ParserCrashError` in deterministic mode and,
+   in the webapp's auto mode, a silent fall-through to LLM extraction — an
+   engine swap decided by an abbreviated month.
+3. **The cache key.** The analysis stage hashed the raw markdown, and the
+   filename is printed into the markdown header, so the filename was key
+   material by the back door. Now `text_sha256(admissible_text(markdown))`.
+   The `report` stage still keys on the whole markdown: a rendered artifact
+   may legitimately show provenance.
+4. **The test.** `tests/test_filename_boundary.py`, default suite.
+
+## FB3. Why the seam is at stage entry, not at the parser call site
+
+`parse` is not the only consumer of the document text. `analyze_markdown`
+hands the same string to:
+
+| Consumer | What it reads it for | Exposure |
+|---|---|---|
+| `resolve` → `registration.parse` | the ledger | periods, ADB, year inference |
+| `apply_statement_repairs` | BofA / Regions substring gates | can overwrite ANOTHER bank's published balances |
+| `assess_document_integrity` | the `Page N of M` declaration set | can FABRICATE or SUPPRESS `missing_declared_statement_page` |
+| `compute_metrics(source_markdown=)` | the ADB posting-date check | ADB denominator |
+| `extract_statement` | the LLM prompt | everything |
+
+One rebind at stage entry covers all five. Each is pinned by its own test
+rather than by inspection — see FB5.
+
+## FB4. Scope discipline — what was NOT changed
+
+No parser was edited. `wells._infer_year` still takes the first year token in
+the document; it is simply no longer reachable from provenance, because the
+provenance is gone before it runs. The repair stage still gates on substrings.
+Those are separate cards. **One fix, one seam: no stop condition fired — every
+measured case is neutralized by the boundary alone.**
+
+## FB5. The invariance test — `tests/test_filename_boundary.py`
+
+Default suite (no pinned PDFs, no OCR cache, no network, ~27s). 133 tests.
+
+| Group | Cases | What it pins |
+|---|---|---|
+| primary invariance | 4 parsers x 26 hostile filenames = 104 | identical bytes -> byte-identical FULL serialized report |
+| vacuity guards | 4 | each fixture is still CLAIMED by its parser and still parses transactions |
+| sentinel | 4 | no filename byte appears anywhere in the published report |
+| seam idempotency | 4 | `analyze(md) == analyze(admissible_text(md))` — fuzz5's property, permanently |
+| repair gate | 4 | a `BANK OF AMERICA` / `REGIONS` filename cannot fire that bank's repair |
+| page declarations | 2 | a `Page N of M` filename can neither FABRICATE nor SUPPRESS `missing_declared_statement_page` |
+| `date_tokens` | 8 | non-month long-date phrases are non-matches; genuine long dates unchanged |
+| cache key | 2 | renames share one analysis entry; different bodies still do not |
+
+The comparison is the whole serialized report, not a watched field list, so a
+parser that starts reading provenance for any reason fails here rather than
+being caught later by whichever field somebody remembered to check.
+
+**Verified as a regression test, not a tautology.** With the seam line removed
+and everything else intact: **23 failures across all four parsers**; the
+Ocean-requested subset alone gives **9 failures**, including the Regions repair
+firing on the Chase fixture from the filename alone, page-declaration
+fabrication on all four fixtures, and suppression of the missing-page flag on
+wells. Restored byte-exact and green.
+
+## FB6. Proofs
+
+Harnesses run from the wave scratchpad with `sys.path` pointed at THIS
+worktree and the D-3 cache + `rows.csv` read from the main checkout read-only.
+The adaptation is one line in a private copy (`wt_filename/fuzz2.py`:
+`sys.path.insert(0, CODE)` instead of `REPO`) plus a hard assertion that
+`analysis.pipeline` and `analysis.parser_registry` resolve under the worktree —
+a worker that loaded main's code raises instead of silently proving nothing.
+
+| Proof | Pre-fix | Post-fix | Exit |
+|---|---|---|---|
+| fuzz2 — 200 docs x 20 mutations (4,200 analyses) | **140 violated docs**, 420 violated pairs, 60 crash-mutations | **0 / 0 / 0** | 0 |
+| fuzz3 — silent calendar-year widening, 200 docs x 9 | **120 violated docs**, 240 pairs, 20 crash-mutations | **0 / 0 / 0** | 0 |
+| fuzz5 — parity `analyse(md)` vs `analyse(admissible_text(md))`, 200 docs | 0 changed | **0 changed** | 0 |
+| fuzz4 — LIVE census, all validated archive docs | **0 / 1,615 contaminated** | (see FB7) | — |
+| full default suite | — | 2,699 passed, 18 deselected (197s) | 0 |
+| `tests/test_stated_counts.py` (incl. the new join tests) | — | 58 passed | 0 |
+| `pytest -m corpus` | — | 14 passed, 2,700 deselected (1,803s) | 0 |
+| `python corpus_gate.py` | — | **GREEN, 106 PASS / 3 WITHHELD** (883.6s) | 0 |
+| conformance cross-product | — | 468 tests, inside the green default suite | 0 |
+
+Pre-fix figures are F-PROVENANCE's own committed artifacts (`full.json`,
+`wide.json`, `safe.json`, `live.json`), re-counted rather than quoted, over the
+identical sample and mutation set — the reruns use the same `--per-parser 20`
+and the same ordering, so the two columns are like-for-like.
+
+## FB7. Zero outcome movement — the preview Ocean's instrument should confirm
+
+**Predicted: zero.** Two independent measurements, both pre-fix, which is where
+this question can actually be answered:
+
+* fuzz4's live census compared every validated archive document's real
+  filename against a neutral one: **0 of 1,615 contaminated**. Nothing the
+  platform publishes today depends on a filename — naming-convention luck, not
+  design.
+* fuzz5 measured the change directly: applying `admissible_text` to the parse
+  path altered **0 of 200** published reports across 10 parsers.
+
+Honest limitation: **post-fix fuzz5 is a tautology** (both sides now go through
+the boundary), so it is a no-crash regression check, not evidence of
+invariance. The load-bearing evidence for zero movement is the pre-fix pair
+above, plus the gate reproducing all 109 audited documents byte-identically.
+
+## FB8. Carried findings and questions for Ocean
+
+1. **The brief's line-index claim is wrong, and it does not matter.**
+   `admissible_text` does NOT "substitute an empty line" on a real document.
+   `to_markdown` emits `header\n\n\n\n--- Page 1 ---`, and the pattern's greedy
+   `\s*$` consumes the header plus three newlines, so an 8-line document
+   becomes 5: **a uniform 3-line prefix shift**, all of it above any content.
+   Nothing downstream keys off an absolute markdown line index — the
+   structurer derives its own from the text it is handed, and
+   `DocumentGeometry` is built from OCR word boxes and is `None` for every
+   production caller. Empirically confirmed by fuzz5 (0/200) and the gate.
+   Flagged because the handoff asserted the opposite as verified.
+2. **`period_from_long_dates` still raises `ValueError`** on an in-range-looking
+   but impossible date — `"January 99, 2026 through February 4, 2026"`,
+   `"February 31, 2026 through March 1, 2026"`. Same call sites, same crash
+   class as the `KeyError` just fixed. **Deliberately not patched**: card 2 was
+   scoped to the month lookup, and
+   `test_shared_parser_utils.PERIOD_DOCS` currently PINS the `ValueError` as
+   matching the frozen R-2 oracle, so changing it is a contract decision, not a
+   cleanup. No longer reachable from a filename; still reachable from a garbled
+   document body. Recommend a follow-up card.
+3. **`admissible_text` strips EVERY matching line, not just line 1.** A body
+   line shaped like `<!-- SOURCE: … -->` is now also removed from the parse
+   text. New for parsing (detection always behaved this way). Almost certainly
+   a hardening bonus — it defeats an injected fake provenance line — but it is
+   a behaviour change, so it is stated rather than assumed benign.
+4. **Two non-production callers still parse raw markdown**:
+   `experiments/w3_3a/evaluate.py:158` and `tools/measure_structurer.py:153`
+   call `resolve(markdown)` directly, below the boundary. Neither publishes an
+   answer, and `tests/test_experiments_are_not_wired.py` structurally forbids
+   `experiments/` from reaching production. Left alone — moving the boundary
+   into `resolve` would create a SECOND boundary and still not cover the
+   repairs, metrics and integrity consumers, which is exactly why the seam is
+   at stage entry. Worth a decision if those tools ever gain a publishing path.
+5. **Cache re-key cost is subsumed by the stage bump.** Card 3 re-keys every
+   cached analysis on its own — an estimated **~13,300 artifacts** (256 shards,
+   8 sampled, avg 52/shard). But `ANALYSIS_STAGE_VERSION` is in the same key
+   and Ocean is bumping it at merge, which invalidates the same set. The
+   incremental operational cost of card 3 is therefore **zero**: one full
+   recompute happens either way, and results are expected identical.
+
+6. **The cache key had a SECOND implementation, and this cell missed it**
+   (caught by Ocean's adversarial review, fixed under an authorised scope
+   extension). `telemetry/stated_counts.py`'s `_ArtifactJoin.payload_for`
+   recomputes the analysis key to join a discovery run to its cached payloads,
+   and it hashed the RAW reconstructed markdown. Once the cache moved to
+   `admissible_text`, that join missed **every** document: `payload_for`
+   returns None for all of them and `observe_run` emits `payload_absent` on
+   100% of rows — the counts instrument goes blind while staying green, which
+   is the worst failure mode available to a measurement tool. It had zero test
+   coverage. Now fixed, pinned by three tests, and a repo-wide sweep confirms
+   these are the only two computations of the analysis key
+   (`webapp/artifact_cache.py:622`, `telemetry/stated_counts.py:777`); the
+   `report` stage at :646 correctly still hashes the whole markdown.
+   **Process lesson for the next platform cell: changing a cache key means
+   grepping the repo for every reimplementation of that key, not just editing
+   the module that owns it.**
+
+## FB9. Commits
+
+| Commit | Contents |
+|---|---|
+| `4183718` | the boundary: `admissible_text` at `analyze_markdown`'s stage entry + the `parser_registry` docstring that documented the hole |
+| `7984efd` | `date_tokens`: a long-date phrase that is not months is a non-match |
+| `bfae455` | the analysis-stage cache key on the admissible text (`ANALYSIS_STAGE_VERSION` untouched) |
+| `1fa4763` | `tests/test_filename_boundary.py` — the permanent invariant |
+| `b619f16` | two default-suite fallouts, fixed at the cause rather than by relaxing the assertions |
+| `7ebb154` | the two non-parser consumers: repair gates and page declarations |
+| `8c2781a` | §FILENAME-BOUNDARY |
+| (this one) | the telemetry join: the second copy of the analysis key, its three tests, and this addendum |

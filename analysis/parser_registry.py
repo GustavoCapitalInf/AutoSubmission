@@ -191,7 +191,7 @@ SOURCE_COMMENT_RE = re.compile(r"^<!--\s*SOURCE:.*?-->\s*$", re.MULTILINE | re.I
 
 
 def admissible_text(markdown: str) -> str:
-    """The part of `markdown` detection is allowed to look at.
+    """The part of `markdown` the analysis is allowed to look at.
 
     Strips the source-filename comment. Applied centrally, before any parser's
     own normalization, so filename text is structurally inadmissible for all
@@ -199,7 +199,14 @@ def admissible_text(markdown: str) -> str:
     that were reading it (R4_CONFORMANCE_FINDINGS.md R4-1, R4-2), one of which
     recognised its own corpus document *only* by its filename.
 
-    Parsing is unaffected: `parse` still receives the whole document.
+    Parsing is covered too, since W3 FILENAME-BOUNDARY: `analysis.pipeline.
+    analyze_markdown` applies this at its single parse seam, so `parse` sees
+    the same admissible text detection scored. The previous carve-out ("parse
+    still receives the whole document") was the hole: F-PROVENANCE measured 7
+    of 10 sampled parsers reading periods, ADB inputs and inferred years out
+    of the filename, so a rename alone could change a published answer.
+
+    Idempotent, and safe to apply more than once on the same document.
     """
     return SOURCE_COMMENT_RE.sub("", markdown)
 
