@@ -11137,6 +11137,479 @@ pre-review measurement.
     purpose.
 
 ## H9. Proofs
+# §FINTECH — three platforms, one sponsor bank between two of them, and a document that says it is not a statement
+
+## FT0. Summary
+
+Three fintech layouts, four registrations, **52 of the 56 unclaimed documents
+in the cohort move `failed` → claimed, zero documents move down, and every
+other archive document is byte-identical.**
+
+| registration | family | before | after |
+|---|---|---|---|
+| `mercury` | Mercury, over Column N.A. / Choice Financial | 31 failed | **31 validated** |
+| `found_lead` | Found's closed monthly statement, over Lead Bank | 12 failed | **12 validated** |
+| `found_lead_activity` | Found's month-to-date view | 3 failed | **3 review**, by the issuer's own words |
+| `brex` | Brex business checking, over Column N.A. | 6 failed | **6 validated** |
+
+**49 validated + 3 review.** The three are not a shortfall. The month-to-date
+document prints, in the issuer's own sentence, that it *"is not a bank
+statement and therefore should not be relied upon as a bank statement"*, and
+publishing it as a validated bank statement would contradict the document. It
+is registered `formal_statement=False` — the mechanism `chase_export` already
+uses — so its figures are still published (all three carry a computed ADB) and
+its single integrity flag is `not_a_formal_statement`. See FT4, and FT8.1 where
+the one-line alternative is put to Ocean with its measured outcome, because
+this is a reporting judgement and not a parsing one.
+
+All 52 are instrumented per document rather than merely claimed: the bank's own
+summary identity closes, the balance walk closes with `continuity_breaks` 0 and
+`sum_delta` 0.00, both coverage ratios are exactly 1.000, every ADB validation
+passes including `posting_dates_cover_source`, and every figure a document
+prints twice agrees with its other printing. **5,327 transactions** are
+published across the 52. **52 instrument sound, 0 unsound.**
+
+The four documents the cohort does not claim were each identified, and none is
+a statement of a layout this cell covers:
+
+| n | what it is | disposition |
+|---|---|---|
+| 1 | a **Rho** deposit statement holding TWO accounts (`******6928` and `******2073`, two summaries, one period) | `no_parser_matched` — L-1 blocked, FT7 |
+| 2 | InStride Staffing **invoices** | `no_parser_matched` — not statements |
+| 1 | a **Brex Treasury** transaction receipt | `no_parser_matched` — not a statement |
+
+All four sit in the `Brex` folder, which is why the scout's Brex count was 10
+and this cell's is 6. A folder label is a filing decision, not evidence.
+
+## FT1. The instrument, and the scout's numbers
+
+Every figure below comes from replaying the archive markdown through the real
+pipeline (`analysis.pipeline.analyze_markdown(parse_mode="deterministic")` +
+`telemetry.record.classify_outcome` + `discovery.runner._failure_reason`),
+resolved from the D-3 OCR artifact store **by direct file path**; the sqlite
+index was never opened.
+
+The harness was checked against the baseline run of record `88be9dd3` over the
+**whole 3,506-document archive** before any conclusion was drawn from it:
+
+```
+documents resolved from the D-3 store          3,493
+documents with no OCR artifact                    13   (the run's deferred_visual_ocr 13)
+outcome + reason agreement with the run        3,476 / 3,493
+parser_id agreement where the run recorded one 1,095 / 1,095
+BEFORE outcome totals   validated 2,092 · failed 1,330 · review 10 · withheld 61
+```
+
+Those totals are the run's own `report.txt`, reproduced exactly. The 17
+disagreements are all one shape — the run says `failed/invalid_pdf`, the
+harness says `failed/no_parser_matched` — and they are not disagreements about
+parsing: the runner rejects a malformed PDF at PREFLIGHT, before OCR, and a
+harness that starts from cached OCR text has no preflight to run. Same outcome
+class on all 17, and none is in this cohort.
+
+The scout's per-family counts reproduced, and the Brex count was corrected:
+
+| family | scout | measured |
+|---|---|---|
+| Mercury | 31 | **31** |
+| Found / Lead Bank | 15 | **15** — 12 closed statements + 3 month-to-date |
+| Brex | 6 + 3 non-statements | **6 + 3 non-statements + 1 Rho** |
+
+## FT2. Mercury — the columns that print once per day, and the column that lies
+
+`analysis/mercury.py`. 31 documents, 2,696 postings, one template across seven
+account holders and two sponsor banks.
+
+**Two columns print once per DAY, not once per row.** `End of Day Balance` is
+exactly what it says: the last posting of a calendar day carries the balance,
+every earlier posting of that day carries none. The Date column behaves the
+same way, page breaks included — Mercury splits a day's postings over two pages
+and does not reprint the date. A reader that expects both on every row either
+drops the rows that lack them or hands the day's balance to the wrong posting.
+Rows without a balance publish `running_balance=None`, which is the state
+`reconcile` already accumulates across, and the day is inherited from the row
+above.
+
+**The Type column is not a direction column**, and this is the trap the cell
+was warned about. Measured over all 2,696 postings:
+
+| Type cell | rows | against the printed sign |
+|---|---|---|
+| a masked card number | 639 | no direction word at all; **27 are credits** (refunds) |
+| `Credit Account Payment` | 120 | says "Credit", every one a **debit** |
+| `Credit Cashback Deposit` | 118 | says "Credit", every one a **credit** |
+| `Intl. Transaction Fee` | 155 | a fee — and **4 of them are credits** |
+| `Wire` / `Wire Payment` | 28 | the same instrument in both directions |
+
+**Direction comes from the sign printed on the amount, and from nothing else.**
+
+**The column boundary is one glyph.** Mercury sets the Type column behind a
+small icon from its own webfont, and that font maps its icons into the Unicode
+Private Use Area. A PUA codepoint means nothing on its own — which is the
+point: it is read as INK, not as a symbol, and it is the one mark of the
+Description | Type boundary that survives PDF flattening. **2,696 of 2,696
+posting rows carry exactly one, no row carries two, and no occurrence falls
+anywhere outside the posting grid.** Four glyphs appear; the three that are not
+the card icon agree with the printed sign on all 2,057 of their rows and the
+card icon does not on 27 of its 639, so the icon is used as a BOUNDARY and
+never as evidence about direction.
+
+**The PUA glyphs are NOT the signs — a correction to intelligence relayed
+mid-cell.** Ocean passed on a DECLINES-C finding that a platform can encode
+`+`/`-`/`()` as private-use codepoints, that no cross-platform translation
+table is possible, and that a reader mapping them must certify the mapping
+against the document's arithmetic. Measured over all 31 Mercury statements and
+their 3,453 printed amounts, the character immediately before a `$` is:
+
+| what precedes the amount | count |
+|---|---|
+| `MINUS SIGN` U+2212 | 1,202 |
+| `EN DASH` U+2013 | 687 |
+| `HYPHEN-MINUS` U+002D | 13 |
+| nothing at all (the credits) | 1,551 |
+| **a PUA codepoint** | **0** |
+| parenthesised negatives `(1,234.56)` | **0** |
+
+Mercury's signs are ordinary Unicode dashes. Its PUA glyphs are a different
+thing entirely: all 2,696 occurrences are followed by TEXT and never by an
+amount, because they are the Type-column icon. And nothing matched Mercury
+before this cell for the simplest reason — no Mercury parser existed; the
+run's near-miss vector for these documents tops out at `chase_export:0.167`
+and its `parser_declined` count for Mercury is 0.
+
+The three ablations Ocean asked for are in the suite, aimed at what is
+actually printed:
+
+* **permuting the "in" and "out" icons** between two rows produces a
+  BYTE-IDENTICAL payload — the strongest available statement that direction is
+  never taken from the glyph, and the test that fails the day someone wires it
+  in;
+* **a PUA codepoint that appears nowhere in this archive** divides the columns
+  exactly as Mercury's own does, so no mapping is assumed and no table is
+  consulted;
+* **dropping the minus from one debit** — the only change, row shape intact —
+  leaves the grid readable and publishes NOTHING: the walk breaks and
+  `average_daily_balance` is `None`, i.e. `withheld_adb`, while the intact
+  document validates through the same path. That is the arithmetic certifying
+  the sign, and it is what makes reading three different minus glyphs safe.
+
+**Three glyphs for one minus.** The summary block prints `-$40,577.11` on 13
+statements and `−$40,577.11` (U+2212) on 14 — the other 4 print no sign because
+the figure is `$0.00`. The posting rows use U+2013 687 times and U+2212 1,202
+times. Same generator, same issuer, consecutive months. The layout engine picks
+a dash by WIDTH, not by meaning, and a reader that knows only ASCII hyphen
+sign-flips whichever rows the typesetter set with another. `money.MINUS_GLYPHS`
+is that finding, and all three are pinned.
+
+**A month word in a merchant name does not open a row.** The Date cell holds a
+day of *this* statement's period; a token resolving outside it stays part of
+the description and the row continues the day above. The first draft consumed
+the token and dropped it from the description even when it rejected it as a
+date — an edit to what the bank printed — and a test caught it.
+
+**A printed zero-activity period is a statement.** One savings statement prints
+an opening and closing balance of `$0.00`, both totals `$0.00`, an empty grid
+and a `Total $0.00` closing row. Admitted on the four negatives Ocean ruled for
+Chase (A-prime) and applied in §SCOTIA-REBUILD F9, in the terms Mercury prints:
+the grid must have been EMPTY rather than unread, both stated totals zero, and
+the two balances printed and equal. Three ablations are pinned — rows printed
+and none read, activity stated with no rows printed, and balances that moved
+with nothing to move them — and each refuses.
+
+## FT3. Found — the pending grid, and the fee that is already counted
+
+`analysis/found_lead.py`. 15 documents, 2,474 settled postings.
+
+**A pending item is not a posting.** The month-to-date document prints a
+`Pending transactions` grid above the settled one and marks every row of it
+unsettled by printing `--` in BOTH the Date and the Balance column. The issuer
+states the rule in the same document: *"pending transactions are visible in
+your account activity but not included as part of the total account balance"*.
+28 such rows appear across the three documents; booking them would inflate the
+ledger against the bank's own totals. They are excluded on the two printed
+marks together, and the section heading is then required to agree — a row that
+claims to be pending outside the pending grid means this reader has lost its
+place. Both halves are pinned, and so is the half-nil row.
+
+**The Fees line is a memo inside the debit total.** `beginning + credits -
+debits` reproduces the printed ending balance **exactly on all 15**, with the
+printed `Fees` figure already contained in `Purchases & other debits`.
+Published as `stated_service_charge` for reporting and deliberately not
+deducted a second time.
+
+**The period comes from inside the balance labels.** Found prints its period
+twice — once in a flattened header block (`February 1 to February 28, 2026`,
+year on the end date only) and once inside the label of each summary balance
+(`Beginning balance on February 1, 2026`), where each boundary carries its own
+year. The statement is built from the labels; the header block is a free second
+opinion and is what the registered integrity check reads.
+
+**The account number is recovered by its GROUPING.** The header block flattens
+into three label lines followed by three value lines, so no label stands beside
+its value. Routing is `NNN NNN NNN` and the account is `NNNN NNNN NNNN` — two
+different printed groupings, which is what tells them apart. `tables.
+unique_line` then requires the value to be identical on every page: two
+different values under one pattern is either a pattern catching something else
+or more than one account in the PDF, and neither is a choice to make by taking
+the first.
+
+## FT4. The document that declines to be a statement
+
+Found's month-to-date view carries one sentence the closed statement does not:
+
+> The information in this document is not a bank statement and therefore should
+> not be relied upon as a bank statement.
+
+It appears on **3 of the 15** Found documents and on **none of the 12** closed
+statements. That is not a partial-period judgement of ours; it is the
+document's own declaration, and the registry already has the mechanism —
+`chase_export` is `formal_statement=False` because a transaction export is not
+a statement. `found_lead_activity` is registered the same way, with the
+issuer's words as its note. The figures are still published: each of the three
+carries a computed ADB, and `not_a_formal_statement` is the ONLY integrity flag
+any of them raises.
+
+**The boundary is the printed TITLE, and that is a correction.** This cell
+first split the two registrations on a flat uppercased substring of the
+disclaimer clause. Ocean's adversarial review proved that leaks in BOTH
+directions, and the second one is unsafe:
+
+* a closed statement that merely QUOTES the clause — a disclosure note, a
+  quoted policy — was wrongly demoted to review; and
+* the clause **split across a line wrap**, which is how the PDF actually breaks
+  flowed body text, made a real month-to-date document invisible to the
+  substring test: `found_lead` claimed it as `formal_statement=True` and the
+  platform published it **`validated/approved` with no flag at all** — asserting
+  a partial-period view was a closed bank statement, on a document that says
+  otherwise in words it happened to wrap.
+
+The title cannot wrap: it is a short generated line reprinted at the top of
+every page. So `Account Statement` is now REQUIRED on `found_lead` with
+`Activity (Month to Date)` EXCLUDING, and the reverse title REQUIRED on
+`found_lead_activity`; the disclaimer stays as corroboration on the
+month-to-date registration. The closed-statement registration therefore scores
+a hard **0.0** on a month-to-date document before any other marker runs,
+whatever its disclaimer looks like. Both leak directions are pinned, the
+wrapped-clause fixture exactly as the reviewer built it, and a third pins that
+a Found document printing NEITHER title is claimed by neither and fails closed.
+No `supersedes` edge is needed and none is added — they are disjoint by
+construction, and the conformance cross-product is what holds that.
+
+The two registrations share this module and this reader, because the document
+class changes how the platform REPORTS the result and not how the grid is
+read.
+
+## FT5. Brex — two columns in the summary, and a dash that means zero
+
+`analysis/brex.py`. 6 documents, 157 postings.
+
+**The summary is a two-column grid.** Every row prints `This Period` and
+`Year-to-Date` side by side, so each figure appears twice with different
+values, and a reader that takes "the money on the line" gets the year's number
+for the month's statement. The printed column header `This Period Year-to-Date`
+is what fixes which cell is which, and it is a REQUIRED marker: without it
+there is no way to know, so the document is not this layout.
+
+**A nil cell is a dash.** Brex prints `-` where a figure is zero — on
+`Fees & Charges` in all six documents, and on `Beginning Account Balance` for
+an account's first statement. Reading it as "absent" costs the statement its
+opening balance, and `analysis.adb._resolve_opening` then derives the opening
+from the closing balance, which makes `ledger_reconciles_to_closing` an
+identity against itself. **That is the reconciliation-tautology class this
+program has already closed once** (the scotia finding in batch 2), and it is
+why the dash reads as zero here. The reading is corroborated by the documents
+rather than assumed: on every statement that prints it, the printed
+`beginning + additions + subtractions` reproduces the printed ending balance
+exactly with the dash valued at zero, and on the `Fees & Charges` row the value
+is independently known to be zero on all six.
+
+**Two direction-declaring grids and no balance column.** Deposits and
+withdrawals are printed as separate sections, each with its own column header
+(`Date From Method Amount` / `Date To Method Amount`) and its own printed
+total. The column header — not the section heading — is what re-declares the
+grid after a page break, because Brex reprints the header and not the heading.
+Direction still comes from the sign; the grid is an independent second
+declaration, and a row whose sign disagrees with its grid is REPORTED as a
+contradiction rather than resolved by preferring one of them. Zero such rows in
+the six.
+
+**A `Deposited checks` appendix re-prints deposits the grid already booked.**
+One document ends with a headed section, no column header, listing two check
+deposits a second time in a different phrasing and a different date format
+(`02/25 Check from Rakuten $81.92` against the grid's `2/25 Rakuten Check`).
+Booking them doubles $756.92 against the bank's own total; stepping over them
+is the silent-drop defect this cell refuses everywhere else. Ocean's review
+found that this parser was doing the second — a dated posting outside an open
+grid was skipped here, where `mercury.py` and `found_lead.py` refuse. Now the
+heading is recognised and **every appendix row is checked against the ledger**:
+a row the grid never booked means a posting was dropped, and the document is
+refused rather than published short. A dated posting outside both the grids and
+the appendix is refused outright, which is the sibling convention.
+
+**A long counterparty name wraps.** The date and the name occupy one physical
+line and the Method and Amount land on the next. A row therefore opens at a
+date and stays open until an amount closes it; a second date arriving while a
+row is still open would attach this row's money to that row's counterparty, so
+it refuses.
+
+## FT6. No silent drops — and the rule caught this cell's own defects
+
+All three parsers share one rule, stated once here because it is the cell's
+main structural contribution:
+
+> **A line carrying money inside an open grid is never stepped over.**
+
+A dropped row is invisible to every arithmetic check downstream — the rows that
+remain still sum to their own total, still walk to the closing balance, and
+still reconcile — so a reader that quietly skips what it cannot parse produces
+a document that passes every gate and is wrong. Where a line inside an open
+grid ends in a money token and cannot be read as a posting, the document is
+REFUSED. Page furniture (which carries no trailing money) closes the grid
+normally, and the next page's column header reopens it. The converse is refused
+too: a posting row found OUTSIDE an open grid means the reader lost its place.
+
+The rule earned its place immediately. **Three defects in this cell's own code
+were caught by its own tests and by self-review**, and a fourth item listed
+here in the first draft was NOT a defect fix — Ocean's review caught the
+overclaim, and it is corrected below:
+
+1. A Mercury posting row with no Type mark closed the grid and was silently
+   dropped, because nothing followed it to trigger the refusal.
+2. A rejected date token was consumed and dropped from the description, so the
+   published description was not what the bank printed.
+3. `13/45/26` and `13/45` match Found's and Brex's date shapes perfectly and
+   are not dates. Both were converted with a helper that RAISES, which escapes
+   `parse` as a `ParserCrashError` in deterministic mode — the defect class
+   `date_tokens.iso_or_none` exists to prevent and the one discovery hit on 17
+   documents. Both now refuse.
+4. **CORRECTED — the row-split change was a clarification, not a fix.** The
+   first draft of this record claimed Mercury had been splitting rows at "the
+   last money on the line" and that the mark-split repaired it. It did not:
+   measured over nine ambiguous shapes, the earlier pattern (non-greedy body,
+   `\s+` separator, mandatory mark check) produced the IDENTICAL split on
+   every one — its `\s+` and the mark requirement already forced the correct
+   reading. The mark-split makes the column boundary structural rather than
+   emergent, which is worth having, but it fixed nothing and the fixture that
+   claimed to pin the repair passes against the old pattern too. Its docstring
+   now says so.
+
+   **And the mark-split introduced two defects of its own**, both found by
+   asking Ocean's question — does this really differ from what it replaced? —
+   and both now fixed and pinned by fixtures that DO discriminate:
+
+   * a row whose Description cell is EMPTY prints the mark straight after the
+     date; the pattern demanded a non-space character there, so the engine
+     backtracked and swallowed the DATE into the description, costing the row
+     its posting day and moving an end-of-day balance onto the wrong date;
+   * a row printing TWO icons left the first one **raw inside the published
+     description** — a font-private codepoint in a financial field. The glyph
+     is column furniture in every position and is now scrubbed in every
+     position.
+
+## FT7. The Rho document — L-1, fail closed, recorded
+
+`Brex/a4a4064f_Jan Statement.pdf` is not Brex. It is a **Rho** (Under
+Technologies Inc, DBA Rho Technologies, over Webster Bank) deposit statement,
+and it holds **two accounts in one PDF**: two `Deposit Account Statement`
+blocks, two account numbers (`******6928`, `******2073`), two summaries
+(`Ending Balance $8,538.60` and `$0.00`) over one period.
+
+That is the L-1 boundary — the extraction schema is single-account — and this
+cell does not cross it. Nothing claims the document, it stays
+`failed/no_parser_matched`, and the layout is recorded here so whoever takes
+L-1 has a real specimen. Publishing the first account's figures as "the
+statement" would be a wrong answer that reconciles, which is the failure mode
+the platform exists to prevent.
+
+## FT8. Carried findings and questions for Ocean
+
+1. **THE ONE DECISION FOR OCEAN — `found_lead_activity` and
+   `formal_statement`.** As shipped, Found's 3 month-to-date documents publish
+   their figures and land in `review`, on the strength of the issuer's own
+   printed sentence. They are instrumented sound: all three close their balance
+   walk with zero breaks, reproduce both printed totals exactly, and pass every
+   ADB validation. If Ocean rules that a month-to-date view with a complete
+   printed summary and a stated period is a formal statement, the change is
+   deleting three lines from the `_OVERRIDES` entry and the cell becomes
+   **52 validated / 0 review**; no parse output moves either way. It is put
+   here rather than decided because it is a reporting judgement about a
+   document class, and `formal_statement=False` costs every document of that
+   class its automatic approval.
+2. **`ANALYSIS_STAGE_VERSION` needs a bump on merge, and this cell did not make
+   it.** 52 documents change their analysis output, so every cached payload for
+   them is stale; `webapp/artifact_cache.py` documents that a code change
+   altering analysis output must bump the version in the same commit. The brief
+   reserves the bump to Ocean, so `webapp/` is untouched here — flagged so it
+   is not missed. Nothing outside `analysis/` was modified at all.
+3. **`count_semantics` — all four registrations are correctly UNSURVEYED.**
+   `analysis/count_semantics.py` is untouched, and none of the three issuers
+   prints a per-direction instance count anywhere in the 52 documents
+   (measured: 0). `stated_credit_count` and `stated_debit_count` are therefore
+   `None` throughout, the stated-count check cannot fire, and a NEW
+   registration absent from the semantics table emits nothing — the structural
+   default, and correct. Deriving counts from the ledger would manufacture the
+   oracle the platform checks itself against.
+4. **The Mercury Type column is published inside the description, not as a
+   field.** The schema has no column for it, so the published description is
+   the printed row with the icon replaced by the space the columns already put
+   there — `Mercury Credit Credit Account Payment` reads oddly and is exactly
+   what the bank printed. A `Transaction.type` field is a schema change and not
+   this cell's to make; recorded because a reader of the output will notice.
+5. **A zero-amount posting would be published as a credit.** `direction` is
+   `debit if amount < 0 else credit`, so a `$0.00` row lands on the credit
+   side. Measured: zero such rows in the 2,696. It cannot affect any published
+   figure (coverage is amount-based and none of these issuers prints a count),
+   but it is the one place where the sign rule has no answer — and the icon
+   glyph, which would distinguish them, is deliberately not consulted because
+   it is wrong on 639 rows.
+6. **FOLLOW-UP CARD — the Brex sign-vs-grid check re-parses the document.**
+   `brex.printed_total_contradictions` calls `_postings` a second time to
+   recover the per-row contradictions, because `IntegrityCheck` receives the
+   `Statement` and the markdown but not the parser's working. It is correct and
+   costs one extra parse on 6 documents. The general fix — letting a parser
+   hand findings forward to its own integrity check — would benefit every
+   registration that wants to report something it noticed while reading, and it
+   is the same seam RC8.2's silent-row-drop counter needed.
+7. **The archive is not the pinned corpus** (RC8.3, carried). Every census in
+   this record covers the 3,506-document archive; the gate is what covers the
+   other 109, and it is GREEN. No document of any of these three layouts exists
+   in the pinned corpus, so the four registrations' only corpus-side coverage
+   is `tests/test_parser_conformance.py` and `tests/test_fintech_layouts.py`.
+8. **CORRECTION TO RELAYED INTELLIGENCE — Mercury does not encode signs as
+   PUA.** The DECLINES-C finding is real and its method is the right one, but
+   its premise does not transfer to Mercury: 0 of 3,453 amounts carry a PUA
+   sign, there are 0 parenthesised negatives, and all 2,696 PUA occurrences sit
+   at the Type-column boundary followed by text. Recorded here because a
+   correction that lives only in a commit message is a correction that gets
+   re-made. The METHOD was adopted in full — certify by the document's own
+   arithmetic, assume no mapping, ablate — and the resulting tests are stronger
+   for being aimed at the real shape (FT2).
+9. **RESIDUAL — the Type|Amount boundary inside a row is still "last money".**
+   The mark fixes the Description|Type boundary structurally, but within the
+   tail that follows it the amount is still found as the money token that lets
+   the rest of the line match. A Type cell containing money would therefore be
+   mis-split. The surveyed Type vocabulary is words and masked card numbers
+   only — 0 of 2,696 contain money — so it is unreachable today; recorded
+   because the outer boundary's fix does not extend inward.
+10. **RESIDUAL — the month-word date guard is a NARROWING, not a decision.**
+   It rejects a leading month token that resolves outside the statement
+   period. A merchant name opening with a month word that lands INSIDE the
+   period ("May 15 Holdings" on a May statement) is still read as the date and
+   would re-date the row. The balance walk and `posting_dates_cover_source`
+   are what would catch it. The code comment claimed more than that until
+   Ocean's review; it now states the real scope.
+11. **`found_lead_activity`'s bank label names a document class, not a bank.**
+   `by_bank_label("Lead Bank (Found) Month-to-Date Activity")` resolves to it,
+   which is only reachable for a document no parser claimed whose LLM
+   extraction named that exact string — effectively never. Giving both
+   registrations the same label would instead make `by_bank_label` resolve
+   deterministically to the lower `(band, id)`, which is `found_lead`, and is
+   equally defensible. Recorded rather than churned.
+
+## FT9. Proofs
+
+All of these run on the merge commit itself, `42c4826` — re-run in full after Ocean's review conditions were applied, since those changed
+production code in all three parsers.
 
 ```
 $ python corpus_gate.py
@@ -11568,6 +12041,9 @@ Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
 Ignored:  0 non-corpus PDFs under the corpus root
 Outcomes: 106 PASS / 3 WITHHELD
 Runtime:  1378.4s
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  824.9s
 RESULT: GREEN
 EXIT=0
 
@@ -11644,6 +12120,13 @@ one conformance fixture per new registration.
 | `d1eff37` | the short-print shape, pinned by a fixture rather than only by the archive |
 | (this one) | §HUNT-CELL H0–H10 |
 14 passed, 3134 deselected, 1 warning in 1900.69s (0:31:40)
+14 passed, 3142 deselected, 1 warning in 1878.04s (0:31:18)   [c452b88;
+                                                               unchanged by the
+                                                               condition commit]
+EXIT=0
+
+$ python -m pytest -q
+3148 passed, 18 deselected, 1 warning in 193.47s (0:03:13)
 EXIT=0
 
 $ python -m pytest tests/test_parser_expectations_baseline.py \
@@ -11714,3 +12197,92 @@ non-target documents probed                       : 3,357, zero claims
 | `234e84c` | `count_semantics` survey for `zions`, and §CITI3 C0–C9 |
 | `be653ed` | log: the proof numbers of the final committed tree |
 | (this one) | review closures: the debit-sum `round()`, the shared-rule pins moved to `tests/test_adb.py`, the anchor's real precision stated, and these corrections |
+    tests/test_money.py tests/test_fintech_layouts.py -q
+1202 passed, 1 warning in 4.80s
+EXIT=0
+
+# THE FULL-POPULATION BEFORE/AFTER SWEEP — every archive document through the
+# real pipeline at the base commit and at HEAD, same harness, same D-3 reads
+before 3506   after 3506   compared 3506
+byte-identical payloads : 3441 / 3506
+payload changed         :   52
+moved UP                :   52
+moved DOWN              :    0
+same outcome, different payload : 0        <- nothing changed silently
+
+  49  failed/no_parser_matched  ->  validated/approved
+   3  failed/no_parser_matched  ->  review/integrity_flags
+
+  movers by folder label:  Mercury 31 · Lead Bank 15 · Brex 6
+  (3441 identical + 52 movers + 13 documents with no OCR artifact = 3506)
+
+# THE FULL-POPULATION CLAIM DIFF — every registration's markers over every
+# document, base vs HEAD. Detection only, so it covers the population the
+# payload sweep covers and answers the question directly.
+documents with an unchanged claim set              : 3441 / 3506
+documents whose claim set changed                  :   52
+  ... where an EXISTING registration lost a claim  :    0
+  ... where a registration outside this cell gained:    0
+  ... resolving to more than one claimant          :    0   <- no new ambiguity
+
+newly claimed:  mercury 31 · found_lead 12 · found_lead_activity 3 · brex 6
+
+# PER-DOCUMENT INSTRUMENT over every document the cell claims
+instrumented cohort documents : 52 sound / 0 unsound
+transactions published        : 5,327
+documents printing a per-direction count : 0   (so count_semantics stays quiet)
+by parser: brex 6 · found_lead 12 · found_lead_activity 3 · mercury 31
+
+# COHORT OUTCOMES
+  31  mercury               validated  approved
+  12  found_lead            validated  approved
+   6  brex                  validated  approved
+   3  found_lead_activity   review     integrity_flags   (only flag:
+                                                          not_a_formal_statement;
+                                                          all three publish an ADB)
+   4  (unclaimed)           failed     no_parser_matched (2 invoices, 1 treasury
+                                                          receipt, 1 Rho L-1)
+
+# THE INSTRUMENT ITSELF, checked against run 88be9dd3 BEFORE any conclusion
+documents resolved from the D-3 store          3,493
+documents with no OCR artifact                    13   (the run's deferred 13)
+outcome + reason agreement with the run        3,476 / 3,493
+parser_id agreement where the run recorded one 1,095 / 1,095
+BEFORE totals  validated 2,092 · failed 1,330 · review 10 · withheld 61
+               — the run's own report.txt, reproduced exactly
+```
+
+The 17 documents where the harness and the run disagree are all
+`failed/invalid_pdf` vs `failed/no_parser_matched`: the runner rejects a
+malformed PDF at PREFLIGHT, before OCR, and a harness that starts from cached
+OCR text has no preflight to run. Same outcome class on all 17, none in this
+cohort.
+
+**The diff is addition-only.** `git diff --stat d70efbe..HEAD -- analysis/`
+reports **1,329 insertions and 0 deletions** at the final commit (the figure
+was quoted as 1,184 before the review conditions were applied, and was stale by
+two commits when Ocean read it): not one existing line of the analysis layer
+changed. Every shared-module contribution is a new name, so no
+existing parser's code path can have moved — which is what the 3,441
+byte-identical payloads then confirm empirically.
+
+Fixtures: 53 tests in the new `tests/test_fintech_layouts.py` — Mercury,
+Found and Brex families, the cross-family negatives, the crash-guard pair and
+the four glyph ablations —
+alongside 4 conformance fixtures, 4 money tests and 6 shared-utility tests.
+Every printed rule that was chosen over a plausible alternative is pinned BOTH
+ways, which is the point: a test that only shows the rule working cannot fail
+when someone simplifies it back to the alternative.
+
+## FT10. Commits
+
+| Commit | Contents |
+|---|---|
+| `dcb5ba2` | shared utils — a printed sign glyph, a named month, and two line helpers |
+| `daa5839` | Mercury, Found/Lead Bank and Brex — four registrations |
+| `ed0b8d7` | the column boundary is the mark, and a date-shaped token is not a date |
+| `f1f588e` | mercury reads its account cells once, through the uniqueness check |
+| `f8d79e5` | glyph ablations for Mercury — and the measurement that redirects them |
+| `c452b88` | §FINTECH FT0–FT10 |
+| `946d6ad` | the corpus gate and corpus-marked suite, re-run on the merge commit |
+| (this one) | Ocean's review conditions: the MTD title boundary, the corrected fixture claim, Brex alignment, records |

@@ -23,10 +23,13 @@ import re
 from datetime import date
 
 __all__ = [
+    "MONTH_NAME_ALT",
+    "MONTH_NUMBERS",
     "iso_or_none",
     "iso_from_month_day",
     "iso_from_month_day_strict",
     "iso_from_month_day_year",
+    "iso_from_named_month_day",
     "period_from_long_dates",
     "iso_unique_in_period",
 ]
@@ -111,6 +114,42 @@ _MONTH_NAMES = {
     "January": 1, "February": 2, "March": 3, "April": 4, "May": 5, "June": 6,
     "July": 7, "August": 8, "September": 9, "October": 10, "November": 11, "December": 12,
 }
+
+#: Month name -> number, case-folded, accepting the full name and the
+#: three-letter abbreviation of it. Derived from `_MONTH_NAMES` rather than
+#: written out again: one table, so a month can never mean two things.
+#:
+#: Both spellings occur on ONE document — a statement heads itself "April 2026
+#: statement … April 1, 2026" and then dates each posting row "Apr 01", so a
+#: parser reading that layout needs the two forms to resolve identically.
+MONTH_NUMBERS: dict[str, int] = {
+    key: number
+    for name, number in _MONTH_NAMES.items()
+    for key in (name.casefold(), name[:3].casefold())
+}
+
+#: Alternation of every accepted month spelling, longest first so that
+#: "January" is never truncated to "Jan" mid-match. For embedding in a
+#: parser's own row pattern; carries no groups.
+MONTH_NAME_ALT = "|".join(
+    sorted((re.escape(key) for key in MONTH_NUMBERS), key=len, reverse=True)
+)
+
+
+def iso_from_named_month_day(month: str, day: str | int, year: str | int) -> str | None:
+    """``("April", 1, 2026)`` / ``("Apr", "01", "2026")`` -> ``"2026-04-01"``.
+
+    Returns None — never raises — when the month word is not a month or the
+    three numbers are not a calendar date, because the callers reach this from
+    a regex that has proved a token's SHAPE and nothing more (`iso_or_none`).
+    """
+    number = MONTH_NUMBERS.get(month.strip().casefold())
+    if number is None:
+        return None
+    try:
+        return iso_or_none(int(year), number, int(day))
+    except ValueError:
+        return None
 
 
 def period_from_long_dates(markdown: str) -> tuple[str, str] | None:

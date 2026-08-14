@@ -38,6 +38,8 @@ __all__ = [
     "ROW_RE",
     "CELL_RE",
     "compact_whitespace",
+    "compact_lines",
+    "unique_line",
     "clean_cell",
     "table_rows",
     "tables_after",
@@ -65,6 +67,33 @@ def compact_whitespace(text: str) -> str:
     applied first.
     """
     return re.sub(r"\s+", " ", text).strip()
+
+
+def compact_lines(markdown: str) -> list[str]:
+    """The document as printed lines: blank lines dropped, each one compacted.
+
+    The first thing a parser reading a flattened TEXT layer does, as opposed to
+    one reading recovered `<table>` grids. Blank lines carry nothing — PDF
+    flattening inserts and removes them by page — so a line-oriented reader
+    that keeps them has to skip them at every decision instead.
+    """
+    return [compact_whitespace(line) for line in markdown.splitlines() if line.strip()]
+
+
+def unique_line(lines: Iterable[str], pattern: re.Pattern[str]) -> re.Match | None:
+    """The single distinct line matching `pattern`, or None when it is not one.
+
+    A page header is reprinted on every page, so a document legitimately prints
+    its account number, its period and its holder many times — always
+    identically. TWO different values under one pattern is a different fact: it
+    means the pattern is catching something else, or that the PDF holds more
+    than one account (L-1). Returning None there makes the caller fail closed
+    rather than take whichever came first.
+    """
+    matched = {line: match for line in lines if (match := pattern.match(line))}
+    if len(matched) != 1:
+        return None
+    return next(iter(matched.values()))
 
 
 def clean_cell(value: str) -> str:

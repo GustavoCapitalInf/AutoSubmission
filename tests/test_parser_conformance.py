@@ -2,7 +2,7 @@
 
 Before R-4 six parsers had no direct test at all and the rest were tested only
 through whichever corpus document happened to exercise them. This module gives
-all 55 registrations the same four checks, and — crucially — enumerates the
+all 62 registrations the same four checks, and — crucially — enumerates the
 registry to do it, so a parser added without a fixture fails here rather than
 being discovered later by a wrong parse.
 
@@ -11,7 +11,7 @@ The four checks per registration:
 1. **detection-positive** — it recognises a minimal document carrying its own
    bank's identification.
 2. **detection-negative** — run as a full cross product: every other
-   registration's fixture must NOT be claimed. 55 × 54 = 2,970 assertions. This
+   registration's fixture must NOT be claimed. 62 × 61 = 3,782 assertions. This
    is the check that matters for discovery (WAVE2_BRIEF R-4): it proves parser
    X does not claim bank Y's statement, which arithmetic reconciliation cannot
    catch when a wrong parse happens to balance.
@@ -96,12 +96,13 @@ def test_no_fixture_names_a_registration_that_does_not_exist():
 
 
 def test_the_registry_holds_the_documented_number_of_registrations():
-    assert len(REGISTRATIONS) == 58, (
+    assert len(REGISTRATIONS) == 62, (
         "43 registry entry points, the three promoted sub-dispatches, the "
         "three BMO layouts, the Square Checking layout, the Chase savings "
         "product, the TD Canada Trust French layout, the English CIBC "
         "layout, plus the batch-3 train: Huntington, Burke & Herbert, "
-        "Shopify Balance, CitiBusiness and Zions; update this count and "
+        "Shopify Balance, CitiBusiness, Zions, Mercury, Brex, and Found's "
+        "closed statement and month-to-date view; update this count and "
         "the docs together"
     )
 

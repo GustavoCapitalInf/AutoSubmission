@@ -39,6 +39,7 @@ EXPECTED_ORDER = [
     "bmo_ca_business",
     "bmo_ca_business_french",
     "bmo_us_activity",
+    "brex",
     "burke_herbert",
     "capital_one",
     "chase",
@@ -55,9 +56,12 @@ EXPECTED_ORDER = [
     "first_citizens",
     "first_community",
     "first_farmers",
+    "found_lead",
+    "found_lead_activity",
     "huntington",
     "ibc",
     "linkbank",
+    "mercury",
     "midflorida",
     "mission_valley",
     "navigant",
@@ -125,12 +129,13 @@ def test_registration_count_matches_the_documented_decision_points():
     BMO layouts (W3 §BMO-LAYOUTS), the Square Checking layout
     (W3 §CHASE-LAYOUTS), the Chase savings product (W3 §CHASE-CLOSURE), the
     TD Canada Trust French layout (W3 §TD-FRENCH), the English CIBC
-    layout (W3 §RBCCIBC), the Huntington sectioned deposit statement and
-    the Burke & Herbert grid (W3 §HUNT-CELL), plus the Shopify Balance
-    ledger, the CitiBusiness checking statement and the Zions
-    Bancorporation Statement of Accounts (W3 §CITI3) — the batch-3
-    registrations land through one composed merge train."""
-    assert len(pr.registrations()) == 58
+    layout (W3 §RBCCIBC), and the batch-3 train: Huntington and the
+    Burke & Herbert grid (W3 §HUNT-CELL); Shopify Balance, CitiBusiness
+    and the Zions Bancorporation Statement of Accounts (W3 §CITI3);
+    Mercury, Brex, and Found's two documents — the closed statement and
+    the month-to-date view the issuer prints a disclaimer on
+    (W3 §FINTECH)."""
+    assert len(pr.registrations()) == 62
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():
@@ -161,6 +166,7 @@ def test_each_registration_detects_the_same_way_its_module_does(registration):
         "dakota_west": "detect_dakota_west",
         "southside_scanned": "detect_southside",
         "apex_scanned": "detect_apex",
+        "found_lead_activity": "activity_detect",
     }.get(registration.id, "detect")
     detect = getattr(module, module_detect)
     for document in ("", "nothing here", "Statement of account", "BANK OF AMERICA ACCOUNT SUMMARY"):
@@ -216,6 +222,19 @@ def test_only_the_promoted_sub_dispatches_supersede_anything():
     )
 
 
-def test_only_the_chase_export_is_not_a_formal_statement():
+def test_the_registrations_that_are_not_formal_statements_are_exactly_these_two():
+    """`formal_statement=False` is a claim about a DOCUMENT CLASS, and it costs
+    every document of that class its automatic approval — so the set is pinned
+    literally and grows only with the evidence that justified each member.
+
+    * `chase_export` — an online transaction export with no summary and no
+      period (R-3).
+    * `found_lead_activity` — a month-to-date view carrying the issuer's own
+      printed sentence that it "is not a bank statement and therefore should
+      not be relied upon as a bank statement" (W3 §FINTECH). This is not our
+      reading of a partial period: it is the document's own declaration, and
+      it appears on 3 of the 15 surveyed Found documents and on none of the 12
+      closed statements.
+    """
     informal = {reg.id for reg in pr.registrations() if not reg.formal_statement}
-    assert informal == {"chase_export"}
+    assert informal == {"chase_export", "found_lead_activity"}

@@ -46,10 +46,13 @@ from functools import lru_cache
 
 __all__ = [
     "AmountFormat",
+    "MINUS_GLYPHS",
+    "SIGNED_MONEY_TOKEN",
     "parse_amount",
     "parse_money",
     "parse_money_tokens",
     "parse_decimal",
+    "parse_signed_decimal",
     "parse_decimal_mixed_separator",
     "parse_grouped_float",
     "parse_trailing_minus_dropped",
@@ -503,6 +506,49 @@ def parse_decimal(value: str) -> Decimal:
         return Decimal(text)
     except InvalidOperation as exc:
         raise ValueError(value) from exc
+
+
+#: Every glyph the surveyed statements print where a minus sign belongs.
+#:
+#: ASCII hyphen-minus, the typographic MINUS SIGN (U+2212) and the en/em
+#: dashes. This is not tolerance for OCR noise: these are native-text PDFs, and
+#: the layout engine picks a dash by WIDTH rather than by meaning. One issuer's
+#: generator prints U+2212 on one statement and U+2013 on the next month's,
+#: with ASCII hyphen in the summary block of the same document (measured over
+#: 31 statements: 1,202 U+2212, 687 U+2013, 13 U+002D immediately before a
+#: currency symbol). A parser that reads only one of them sign-flips whichever
+#: rows the typesetter set with another.
+MINUS_GLYPHS = "-−–—"
+
+#: One money cell with an optional printed sign: ``$0.69``, ``-$1,234.56``,
+#: ``− $1,234.56``, ``+ $3.57``. A SUB-PATTERN — no anchors and no capturing
+#: groups, so a parser can compose it into a row pattern without its group
+#: numbers shifting underneath the row's own groups.
+#:
+#: The space is optional because the sign and the figure are two CELLS: layouts
+#: that set the sign in the label column print it one space away, and the same
+#: issuer prints it welded to the symbol elsewhere. Both are the same column.
+SIGNED_MONEY_TOKEN = r"[" + MINUS_GLYPHS + r"+]?\s?\$[\d,]+\.\d{2}"
+
+
+def parse_signed_decimal(value: str) -> Decimal:
+    """A signed money cell -> `Decimal`, sign preserved. Raises `ValueError`.
+
+    For layouts that print the direction as a sign glyph on the amount itself
+    rather than as a column heading, where the sign is the ONLY direction
+    evidence the platform should trust (a "Type" or "Method" column names the
+    product, not the direction — see `analysis/mercury.py`).
+
+    Delegates the numeric conversion to `parse_decimal`, so what is added here
+    is the sign reading and nothing else; anything that is not money still
+    raises rather than being guessed at.
+    """
+    text = value.strip()
+    negative = bool(text) and text[0] in MINUS_GLYPHS
+    if negative or text.startswith("+"):
+        text = text[1:].lstrip()
+    amount = parse_decimal(text)
+    return -amount if negative else amount
 
 
 def parse_decimal_mixed_separator(value: str, *, single_comma_only: bool = False) -> Decimal:

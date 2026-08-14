@@ -31,6 +31,7 @@ from . import (
     bmo_ca_business,
     bmo_us_activity,
     bofa,
+    brex,
     burke_herbert,
     capital_one,
     chase,
@@ -47,9 +48,11 @@ from . import (
     first_citizens,
     first_community,
     first_farmers,
+    found_lead,
     huntington,
     ibc,
     linkbank,
+    mercury,
     midflorida,
     navigant,
     navy_federal,
@@ -94,6 +97,7 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("bmo_ca_business", "BMO", bmo_ca_business, "DETECTION_MARKERS", "detection_text", "parse_bmo_ca_business_statement"),
     ("bmo_ca_business_french", "BMO", bmo_ca_business, "FRENCH_DETECTION_MARKERS", "detection_text", "parse_bmo_ca_business_french_statement"),
     ("bmo_us_activity", "BMO", bmo_us_activity, "DETECTION_MARKERS", "detection_text", "parse_bmo_us_activity_statement"),
+    ("brex", "Brex", brex, "DETECTION_MARKERS", "detection_text", "parse_brex_statement"),
     ("burke_herbert", "Burke & Herbert Bank", burke_herbert, "DETECTION_MARKERS", "detection_text", "parse_burke_herbert_statement"),
     ("capital_one", "Capital One", capital_one, "DETECTION_MARKERS", None, "parse_capital_one_statement"),
     ("chase", "Chase", chase, "DETECTION_MARKERS", "detection_text", "parse_chase_statement"),
@@ -112,9 +116,18 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("first_citizens", "First Citizens Bank", first_citizens, "DETECTION_MARKERS", None, "parse_first_citizens_statement"),
     ("first_community", "First Community Credit Union", first_community, "DETECTION_MARKERS", "detection_text", "parse_first_community_statement"),
     ("first_farmers", "First Farmers Bank & Trust", first_farmers, "DETECTION_MARKERS", "detection_text", "parse_first_farmers_statement"),
+    # Found's two documents, one reader. The month-to-date view is a separate
+    # registration because the issuer prints, on it and on nothing else, that
+    # it "is not a bank statement" — see the `_OVERRIDES` entry below and
+    # `analysis/found_lead.py`. The disclaimer is EXCLUDING on one and REQUIRED
+    # on the other, so no `supersedes` edge is needed: they are disjoint by
+    # construction and the conformance cross-product holds them apart.
+    ("found_lead", "Lead Bank (Found)", found_lead, "DETECTION_MARKERS", "detection_text", "parse_found_lead_statement"),
+    ("found_lead_activity", "Lead Bank (Found) Month-to-Date Activity", found_lead, "ACTIVITY_DETECTION_MARKERS", "detection_text", "parse_found_lead_statement"),
     ("huntington", "Huntington National Bank", huntington, "DETECTION_MARKERS", "detection_text", "parse_huntington_statement"),
     ("ibc", "IBC Bank", ibc, "DETECTION_MARKERS", None, "parse_ibc_statement"),
     ("linkbank", "LINKBANK", linkbank, "DETECTION_MARKERS", None, "parse_linkbank_statement"),
+    ("mercury", "Mercury", mercury, "DETECTION_MARKERS", "detection_text", "parse_mercury_statement"),
     ("midflorida", "MIDFLORIDA Credit Union", midflorida, "DETECTION_MARKERS", None, "parse_midflorida_statement"),
     ("mission_valley", "Mission Valley Bank", community_section, "MISSION_VALLEY_DETECTION_MARKERS", None, "parse_mission_valley_statement"),
     ("navigant", "Navigant Credit Union", navigant, "DETECTION_MARKERS", "detection_text", "parse_navigant_statement"),
@@ -213,6 +226,34 @@ _OVERRIDES: dict[str, dict] = {
     "square_checking": {
         "integrity_checks": (square_checking.activity_count_contradictions,)
     },
+    # Mercury closes its grid with the statement balance printed a second time
+    # and states its own period length in days; neither is used to build the
+    # statement, so both are free second opinions.
+    "mercury": {"integrity_checks": (mercury.printed_total_contradictions,)},
+    # Found prints its period twice: in the header block, and inside the label
+    # of each summary balance.
+    "found_lead": {"integrity_checks": (found_lead.printed_period_contradictions,)},
+    # The month-to-date view. `formal_statement=False` is not our judgement of
+    # the document — it is the issuer's, printed on the document itself, and
+    # the notes below quote it. The consequence is the one the registry already
+    # defines for a Chase transaction export: the figures are published, the
+    # quality level is `needs_review`, and a human approves or does not.
+    "found_lead_activity": {
+        "integrity_checks": (found_lead.printed_period_contradictions,),
+        "formal_statement": False,
+        "informal_quality_note": (
+            "Found month-to-date activity view; the issuer states it is not a bank "
+            "statement and that pending transactions are shown but excluded from the balance"
+        ),
+        "informal_integrity_note": (
+            "document declares itself not a bank statement and covers a partial period"
+        ),
+    },
+    # Brex prints each direction's total three times — the summary group row,
+    # its detail row, and the closing total of the matching activity grid — and
+    # prints every posting in a grid whose heading declares its direction
+    # independently of the sign on the amount.
+    "brex": {"integrity_checks": (brex.printed_total_contradictions,)},
 }
 
 _loaded = False
