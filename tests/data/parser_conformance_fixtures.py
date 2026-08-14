@@ -87,6 +87,10 @@ FIXTURES: dict[str, str] = {
     "farmers_merchants": (
         "FARMERS AND MERCHANTS BANK\nDEPOSITS AND CREDITS\n"
     ),
+    "fifth_third": (
+        "FTCSTMT000 000 00000000 UDSPDFSTMT 0000000000000000000 DDA\n"
+        "Account Summary\nwww.53.com/businessbanking\n"
+    ),
     "first_citizens": "First Citizens\nfirstcitizens.com\n",
     "first_community": "firstcommunity.com\nBUSINESS PLUS CKG\n",
     "first_farmers": (
