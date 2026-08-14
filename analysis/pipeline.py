@@ -94,11 +94,12 @@ def apply_statement_repairs(
     # issuer, which is R4-3 (a marker that reads another bank's ledger row)
     # applied to a REPAIR instead of to a detection marker — and a repair is
     # the more dangerous place for it, because detection competes and a repair
-    # simply overwrites. HUNT-CELL H6.1 measured it: five Huntington statements
-    # that merely pay a bill to Regions Bank, plus a `Service Charge Summary`,
-    # had `beginning_balance`, `ending_balance` and every stated total rewritten
-    # from Huntington's own labels; three Chase documents in the archive are
-    # having their `ending_balance` rewritten the same way today.
+    # simply overwrites. HUNT-CELL H6.1 measured it: five statements of another
+    # issuer that merely pay a bill to the bank one of these repairs belongs
+    # to — and print a `Service Charge Summary` — had `beginning_balance`,
+    # `ending_balance` and every stated total rewritten from their OWN issuer's
+    # labels; three further documents in the archive are having `ending_balance`
+    # rewritten the same way today. §PIPEFIX P2.4 names all eight.
     #
     # The gate is now the CLAIMING registration, and for an LLM extraction that
     # claimed nothing, the registration whose bank label it named — exactly the
