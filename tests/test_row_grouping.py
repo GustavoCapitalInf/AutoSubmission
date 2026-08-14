@@ -28,6 +28,7 @@ import pytest
 
 from analysis import chase, rbc, td_can
 from analysis.schema import Statement
+from analysis import tables
 from analysis.tables import compact_whitespace, group_rows
 from analysis.money import parse_money
 
@@ -369,7 +370,15 @@ def test_chase_parses_every_family_document_identically_to_the_oracle(markdown, 
 # ===========================================================================
 
 def _legacy_rbc_read_grid_rows(entries, *, pattern, to_amount, opening_label, closing_label):
-    """`analysis/rbc.py::_read_grid_rows`, verbatim as of `8ce6abc`."""
+    """`analysis/rbc.py::_read_grid_rows`, verbatim as of `8ce6abc`.
+
+    Now promoted to `analysis/tables.py::read_grid_rows` (W3 §RBCCIBC) and
+    hardened there, so this oracle proves two things at once: that the move
+    was behaviour-preserving, and that the card-D fixes reach only the shapes
+    they name. Every input below still reads identically — the fixed shapes
+    (a bare minus signing a balance, an opening row sharing its line) are
+    pinned separately in tests/test_rbc_variants.py, because they are the
+    places this oracle is deliberately no longer authoritative."""
     rows: list[dict] = []
     opening: float | None = None
     description: list[str] = []
@@ -390,7 +399,7 @@ def _legacy_rbc_read_grid_rows(entries, *, pattern, to_amount, opening_label, cl
             text = text[:stop.start()].strip()
             if not text:
                 break
-        cells = rbc._grid_cells(text, pattern)
+        cells = tables._grid_cells(text, pattern)
         if opens.match(text):
             if cells:
                 opening = to_amount(cells[-1].group(0))
@@ -498,7 +507,7 @@ RBC_DOCUMENTS = (
 @pytest.mark.parametrize("markdown", RBC_DOCUMENTS)
 def test_rbc_parses_every_grid_document_identically_to_the_oracle(markdown, monkeypatch):
     live = _statement_json(rbc.parse_rbc_statement(markdown))
-    monkeypatch.setattr(rbc, "_read_grid_rows", _legacy_rbc_read_grid_rows)
+    monkeypatch.setattr(rbc, "read_grid_rows", _legacy_rbc_read_grid_rows)
     assert live == _statement_json(rbc.parse_rbc_statement(markdown))
 
 
@@ -527,7 +536,7 @@ def test_rbc_grid_reader_matches_the_oracle_on_raw_entry_streams(entries):
         opening_label="OPENING BALANCE",
         closing_label="CLOSING BALANCE",
     )
-    assert rbc._read_grid_rows(list(entries), **kwargs) == _legacy_rbc_read_grid_rows(
+    assert tables.read_grid_rows(list(entries), **kwargs) == _legacy_rbc_read_grid_rows(
         list(entries), **kwargs
     )
 

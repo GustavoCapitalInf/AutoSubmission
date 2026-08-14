@@ -69,6 +69,10 @@ FIXTURES: dict[str, str] = {
         "*start*summary\nSAVINGS SUMMARY\n"
         "Date Description Amount Balance\n"
     ),
+    "cibc": (
+        "CIBC Account Statement\nTransaction details\n"
+        "Date Description Withdrawals ($) Deposits ($) Balance ($)\n"
+    ),
     "cibc_french": "CIBC\nDétail de vos opérations\n",
     "citizens": "citizensbank.com\nBusiness Advisor Checking\n",
     "columbia_bank": (
@@ -99,7 +103,7 @@ FIXTURES: dict[str, str] = {
     "navy_federal": "Navy Federal\nSummary of your deposit accounts\n",
     "pnc": "PNC Bank\nBusiness Checking\nBalance Summary\n",
     "rbc": "ROYAL BANK OF CANADA\nACCOUNT ACTIVITY DETAILS\n",
-    "rbc_french": "BANQUE ROYALE\nDATE DESCRIPTION RETRAITS\n",
+    "rbc_french": "BANQUE ROYALE\nDate Description Chèques et débits ($)\n",
     "regions": "REGIONS BANK\nSUMMARY\nThank you for banking with Regions!\n",
     "relay": (
         "RELAY FINANCIALS TECHNOLOGY\nACCOUNT STATEMENT\n"
@@ -142,6 +146,8 @@ FIXTURES: dict[str, str] = {
 ALTERNATE_FIXTURES: dict[str, tuple[str, ...]] = {
     "banco_popular": ("TeleBanco Comercial\nFLEXICUENTA DE NEGOCIOS\n",),
     "farmers_merchants": ("BUSINESS/COMMERCIAL\nCHECKS/DEBITS\nDEPOSITS AND CREDITS\n",),
+    # RBC prints its French grid under two product names, as it does in English.
+    "rbc_french": ("BANQUE ROYALE\nDate Description Retraits ($)\n",),
     "bmo": ("BANK OF MONTREAL\nAccount Summary Totals\n",),
     "chase": ("\nCHASE\nStatement of account\n*start*summary\n",),
     "consumers": ("ConsumersCU.org\nSummary of All Accounts\n",),

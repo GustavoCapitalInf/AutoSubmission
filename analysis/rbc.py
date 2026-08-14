@@ -3,12 +3,11 @@ from __future__ import annotations
 import re
 import unicodedata
 from datetime import date
-from itertools import takewhile
 
 from .money import parse_french_amount, parse_money
-from .parser_registry import make_detector, required
+from .parser_registry import excluding, make_detector, required
 from .schema import Statement, Transaction
-from .tables import group_rows
+from .tables import glyph_damaged, group_rows, read_grid_rows
 from .td_can import _MONTHS, normalize_mojibake
 
 _PERIOD_RE = re.compile(
@@ -22,11 +21,12 @@ _MONTH_NAMES = {
 _DATE_START_RE = re.compile(r"^(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b", re.IGNORECASE)
 _MONEY_RE = re.compile(r"(?<![#\w])-?\$?[\d,]+\.\d{2}(?!\w)")
 _PAGE_RE = re.compile(r"^\d+ of \d+$", re.IGNORECASE)
-#: The cents group every printed amount ends with, in either locale
-#: (`1,234.56` / `1 234,56`). Stripping it leaves the integer part, which is
-#: what tells a price from a reference number.
-_CENTS_TAIL_RE = re.compile(r"[.,]\d{2}\)?$")
-_NON_DIGIT_RE = re.compile(r"\D")
+#: The activity table's own printed column header, which is what opens the
+#: grid — the business product names its first money column `Cheques & Debits`
+#: and the personal one `Withdrawals`. Matching the header rather than the
+#: heading above it is what makes a continuation page re-enter the table.
+_ACTIVITY_GRID_RE = re.compile(
+    r"DATE DESCRIPTION (?:CHEQUES & DEBITS|WITHDRAWALS)")
 #: One printed money cell of the `Account Summary for this Period` block: the
 #: currency symbol is optional, and a negative figure is printed either
 #: `-$1,234.56` or `$-1,234.56`.
@@ -38,175 +38,31 @@ _NON_DIGIT_RE = re.compile(r"\D")
 #: total rows, both stated totals AND both stated counts went None, which skips
 #: the summary identity check (`reconcile.summary_ok` None) and ships the
 #: document approved with `summary_totals_reliable=True` and no issue raised.
-_SUMMARY_MONEY = r"(-?\$?[\d,]+\.\d{2}|\$-?[\d,]+\.\d{2})"
+#:
+#: The sign is printed in three places relative to the symbol — `-$2.55`,
+#: `$-2.55` and `- $2.55` — because the minus is set in the *label* column of
+#: the summary grid while the symbol belongs to the figure. Reading only the
+#: first two was the same class of loss one level down: a personal statement
+#: closing overdrawn printed `= - $2.55` and the parser published `+2.55`, so
+#: the summary identity balanced against a sign-flipped closing balance
+#: instead of failing. Six of the twelve personal-layout documents close or
+#: open overdrawn and print it this way.
+_SUMMARY_MONEY = r"((?:-\s*)?\$?(?:-\s*)?[\d,]+\.\d{2})"
+
+
+def _summary_amount(token: str) -> float | None:
+    """One `Account Summary` money cell, however its sign was spaced.
+
+    `- $2.55` and `$-2.55` are the same printed figure, but `parse_money`
+    searches for the first money-shaped token and would read the detached
+    minus as unrelated punctuation, returning `+2.55`. Closing the gap first
+    is what makes the three printed placements one value.
+    """
+    return parse_money(re.sub(r"\s+", "", token))
 
 
 def _date_from(day: str, mon: str, *, default_year: int) -> str:
     return date(default_year, _MONTHS[mon[:3].upper()], int(day)).isoformat()
-
-
-def _is_printed_price(token: str) -> bool:
-    """False for a money-SHAPED token that the grid does not print as money.
-
-    A printed price never carries a leading zero, so `00314.06` beside an
-    amount is a reference number the description happens to end with, not a
-    second money cell. `0.45` keeps its single leading zero and stays money.
-    """
-    body = token.strip().lstrip("(").lstrip("-").lstrip("$").strip()
-    digits = _NON_DIGIT_RE.sub("", _CENTS_TAIL_RE.sub("", body))
-    return not (len(digits) > 1 and digits[0] == "0")
-
-
-def _grid_cells(line: str, pattern: re.Pattern[str]) -> list[re.Match]:
-    """The money cells the activity grid prints on one physical line.
-
-    Three kinds of money-shaped token are printed inside a description cell
-    rather than in a money column, and each is recognised by the mark the
-    statement prints beside it, never by its value:
-
-    * the operand of `@` — the "at unit price" marker (`4 Drs @ 2.50 10.00`
-      prints a rate and then the fee);
-    * a percentage operand (`@ RBP+05.00%P.A`);
-    * a reference number, which a printed price never resembles because a
-      price carries no leading zero.
-    """
-    cells = []
-    for match in pattern.finditer(line):
-        if not _is_printed_price(match.group(0)):
-            continue
-        if line[match.end():match.end() + 1] == "%":
-            continue
-        before = line[:match.start()].rstrip()
-        if before.endswith("$"):
-            before = before[:-1].rstrip()
-        if before.endswith("@"):
-            continue
-        cells.append(match)
-    return cells
-
-
-def _read_grid_rows(entries, *, pattern, to_amount, opening_label, closing_label):
-    """Rows read off the printed grid rather than off the physical lines.
-
-    `entries` is the activity section as `(text, date, opens_a_date_group)`,
-    with the Date column already consumed by the caller. Returns the rows and
-    the balance the table's own opening row prints.
-
-    Two structural rules do all the work, and both come from the printed
-    column order `... | Cheques & Debits | Deposits & Credits | Balance`:
-
-    1. **A lone money cell is an amount; two money cells with nothing between
-       them are one row's amount and its running balance.** Balance is the
-       last column and is never printed without an amount beside it, so the
-       pairing is decided by adjacency in the grid, not by which token comes
-       last on a line. This is what makes a row carrying TWO money cells
-       readable at all, and it is deliberately blind to the values: a balance
-       smaller than its own amount is still the balance.
-    2. **A row ends at its amount cell**, so text that follows one begins the
-       next row. That reads a compressed line (several printed rows emitted on
-       one physical line) and a wrapped row (one printed row spread over
-       several physical lines) with the same rule, and it needs no whitelist
-       of description wordings.
-
-    The one line-level fact that survives: an amount printed alone on its line
-    is vertically centred between two description lines, so a following
-    description-only line continues THAT row instead of opening a new one.
-
-    Rule 1 — where a row starts — is `tables.group_rows` (W3 §GROUPER): a
-    printed posting date opens a row here, and so does the table's own opening
-    balance row, which prints no date. The entries a page footer or a header
-    block would contribute never reach this function; the caller drops them.
-    """
-    entries = list(entries)
-    rows: list[dict] = []
-    opening: float | None = None
-    description: list[str] = []
-    #: the row the most recent cell closed, while it can still take a balance
-    open_row: dict | None = None
-    centred_amount = False
-    # Case-insensitive matching, not `.upper()` plus an index: upper-casing can
-    # change a string's length, and these two labels are used to CUT a line.
-    opens = re.compile(re.escape(opening_label), re.IGNORECASE)
-    closes = re.compile(re.escape(closing_label), re.IGNORECASE)
-
-    def starts_row(entry) -> bool:
-        text, _, opens_group = entry
-        return bool(opens_group) or bool(opens.match(text))
-
-    groups = group_rows(entries, starts_row=starts_row)
-    #: Whatever the table prints above its first row start already stands
-    #: inside that row: unlike a section heading in a Chase block, there is no
-    #: furniture here for the caller to have left behind.
-    head = list(takewhile(lambda entry: not starts_row(entry), entries))
-    if head:
-        groups.insert(0, head)
-
-    stopped = False
-    for group in groups:
-        # A new posting date closes whatever was pending: a description
-        # with no amount cell under it never became a row.
-        description = []
-        open_row = None
-        centred_amount = False
-        for text, tx_date, _ in group:
-            if not text:
-                continue
-            stop = closes.search(text)
-            if stop:
-                text = text[:stop.start()].strip()
-                if not text:
-                    stopped = True
-                    break
-            cells = _grid_cells(text, pattern)
-            if opens.match(text):
-                if cells:
-                    opening = to_amount(cells[-1].group(0))
-                description, open_row, centred_amount = [], None, False
-                continue
-            if not cells:
-                if open_row is not None and centred_amount:
-                    open_row["description"] = f"{open_row['description']} {text}".strip()
-                else:
-                    description.append(text)
-                centred_amount = False
-                continue
-
-            cells_only = (
-                not text[:cells[0].start()].strip()
-                and not text[cells[-1].end():].strip()
-                and all(not text[a.end():b.start()].strip() for a, b in zip(cells, cells[1:]))
-            )
-            position = 0
-            for match in cells:
-                gap = text[position:match.start()].strip()
-                if gap:
-                    description.append(gap)
-                    open_row = None
-                value = to_amount(match.group(0))
-                if open_row is not None and open_row["balance"] is None:
-                    open_row["balance"] = value
-                    open_row = None
-                else:
-                    row = {
-                        "date": tx_date,
-                        "description": " ".join(description).strip(),
-                        "abs_amount": abs(value),
-                        "amount": -abs(value),
-                        "balance": None,
-                    }
-                    description = []
-                    rows.append(row)
-                    open_row = row
-                position = match.end()
-            tail = text[position:].strip()
-            if tail:
-                description.append(tail)
-                open_row = None
-            centred_amount = cells_only
-        if stopped:
-            break
-
-    return rows, opening
 
 
 def _column_split_signs(amounts: list[int], delta: int) -> list[int] | None:
@@ -352,14 +208,44 @@ def french_detection_text(markdown: str) -> str:
     return normalize_mojibake(markdown).upper()
 
 
+#: The heading RBC prints over the posting table, in each of the two products
+#: it issues in English. `Account Activity Details` is the business statement;
+#: `Details of your account activity` is the personal one. They are the same
+#: document class printed under a different product name — same institution,
+#: same three-column grid, same opening/closing rows — so they are one
+#: registration rather than two, and the conjunction with the bank name below
+#: is what keeps either heading from reaching another issuer's statement.
+_ACTIVITY_HEADINGS = ("ACCOUNT ACTIVITY DETAILS", "DETAILS OF YOUR ACCOUNT ACTIVITY")
+
 DETECTION_MARKERS = (
+    # A text layer whose own words have digits substituted into them is not
+    # readable, however intact the bank name happens to be (W3 §RBCCIBC F1).
+    excluding("glyph_damage", glyph_damaged),
     required("bank_name", lambda t: "ROYAL BANK OF CANADA" in t),
-    required("activity_section", lambda t: "ACCOUNT ACTIVITY DETAILS" in t),
+    required("activity_section", lambda t: any(h in t for h in _ACTIVITY_HEADINGS)),
 )
 
+#: The French activity table's own printed column header. Accented letters
+#: reach this parser as U+FFFD — the text layer of this family loses them
+#: outright rather than double-encoding them, so `normalize_mojibake` has
+#: nothing to repair — and every accent is therefore matched as `.`, the same
+#: tolerance `analysis/cibc.py` uses on the same problem.
+#:
+#: RBC issues its French statement under two products, exactly as it does in
+#: English (see `_ACTIVITY_HEADINGS`): the personal one heads its first money
+#: column `Retraits`, the business one `Chèques et débits`. This marker
+#: required only the personal wording, so the registration claimed the single
+#: pinned personal statement and NOTHING else — nineteen business documents of
+#: the same layout went unclaimed corpus-wide. Both are matched now, and the
+#: conjunction with `BANQUE ROYALE` is what keeps `Retraits` — which is also
+#: CIBC's French header — from reaching a CIBC statement.
+_FR_ACTIVITY_GRID_RE = re.compile(
+    r"DATE DESCRIPTION (?:CH.QUES ET D.BITS|RETRAITS)", re.IGNORECASE)
+
 FRENCH_DETECTION_MARKERS = (
+    excluding("glyph_damage", glyph_damaged),
     required("bank_name", lambda t: "BANQUE ROYALE" in t),
-    required("activity_header", lambda t: "DATE DESCRIPTION RETRAITS" in t),
+    required("activity_header", lambda t: bool(_FR_ACTIVITY_GRID_RE.search(t))),
 )
 
 detect = make_detector(DETECTION_MARKERS, detection_text)
@@ -404,24 +290,38 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
 
         m = re.search(r"Opening balance on .*?" + _SUMMARY_MONEY, line, re.IGNORECASE)
         if m:
-            stmt.beginning_balance = parse_money(m.group(1))
+            stmt.beginning_balance = _summary_amount(m.group(1))
         m = re.search(r"Closing balance on .*?" + _SUMMARY_MONEY, line, re.IGNORECASE)
         if m:
-            stmt.ending_balance = parse_money(m.group(1))
+            stmt.ending_balance = _summary_amount(m.group(1))
         m = re.search(
             r"Total deposits & credits \((\d+)\)\s*\+?\s*" + _SUMMARY_MONEY, line, re.IGNORECASE
         )
         if m:
             stmt.stated_credit_count = int(m.group(1))
-            stmt.stated_total_credits = parse_money(m.group(2))
+            stmt.stated_total_credits = _summary_amount(m.group(2))
         m = re.search(
             r"Total cheques & debits \((\d+)\)\s*-?\s*" + _SUMMARY_MONEY, line, re.IGNORECASE
         )
         if m:
             stmt.stated_debit_count = int(m.group(1))
-            stmt.stated_total_debits = parse_money(m.group(2))
+            stmt.stated_total_debits = _summary_amount(m.group(2))
+        # The personal product prints the same four-row summary in its own
+        # words and, unlike the business one, prints NO instance counts beside
+        # its totals. The counts stay None rather than being derived from the
+        # ledger: a count this document does not print is not a stated count.
+        m = re.search(
+            r"Total deposits into your account\s*\+\s*" + _SUMMARY_MONEY, line, re.IGNORECASE
+        )
+        if m:
+            stmt.stated_total_credits = _summary_amount(m.group(1))
+        m = re.search(
+            r"Total withdrawals from your account\s*-\s*" + _SUMMARY_MONEY, line, re.IGNORECASE
+        )
+        if m:
+            stmt.stated_total_debits = _summary_amount(m.group(1))
 
-        if "DATE DESCRIPTION CHEQUES & DEBITS" in u:
+        if _ACTIVITY_GRID_RE.search(u):
             in_activity = True
             continue
         if in_activity and (u.startswith("CLOSING BALANCE") or u.startswith("ACCOUNT FEES:")):
@@ -455,7 +355,7 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
             continue
         entries.append((line, current_date, bool(dm)))
 
-    rows, table_opening = _read_grid_rows(
+    rows, table_opening = read_grid_rows(
         entries,
         pattern=_MONEY_RE,
         to_amount=lambda token: parse_money(token) or 0.0,
@@ -498,7 +398,25 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
 
 
 _FR_DATE_RE = re.compile(r"^(\d{1,2})\s+([^\s]+)\s+(.*)$", re.IGNORECASE)
-_FR_MONEY_RE = re.compile(r"(?<![A-Za-z0-9])\(?-?(?:\d{1,3}(?: \d{3})+|\d+),\d{2}\)?")
+#: One printed money cell of the French grid.
+#:
+#: `\s*\)` rather than `\)`: this layout sets the closing bracket in its own
+#: column, so an overdrawn balance prints as `(1 066,25 )` with the gap the
+#: grid left. Requiring the bracket to be adjacent matched `(1 066,25` — which
+#: `parse_french_amount` then read as POSITIVE, because the token it was given
+#: no longer looked bracketed. The bracket is this layout's ONLY negative
+#: marker, so every overdrawn balance in the family was sign-flipped.
+#:
+#: `+` in the lookbehind: a reference glued to a `+` (`ARCHIVE+8 129,14`)
+#: otherwise began a match at its own last digit, and the space-grouping
+#: alternative then swallowed the real amount behind it — `129,14` became
+#: `8 129,14`. A digit reachable only by starting mid-reference is not a cell.
+_FR_MONEY_RE = re.compile(r"(?<![A-Za-z0-9+])\(?-?(?:\d{1,3}(?: \d{3})+|\d+),\d{2}\s*\)?")
+#: A French summary figure, anchored so it cannot begin inside the number
+#: beside it. Without `(?<!\d)` the space-grouped alternative started at the
+#: last digits of the printed YEAR: `... le 23 juillet 2025 801,53 $` read as
+#: `025 801,53`, publishing an opening balance of 25,801.53 for one of 801.53.
+_FR_SUMMARY_MONEY = r"((?<!\d)(?:\d{1,3}(?: \d{3})+|\d+),\d{2})"
 _FR_PAGE_RE = re.compile(r"^\d+ de \d+$", re.IGNORECASE)
 #: Full French month names; tokens resolve by unambiguous prefix, so every
 #: month works, not only December/January (R-1 item 7).
@@ -513,8 +431,44 @@ _FR_PERIOD_RE = re.compile(
 )
 
 
+#: The cheque-image pages this layout appends, which declare every cheque the
+#: period cleared: `No de série: 253 Montant: 127,40 $`.
+_FR_CHEQUE_DECLARED_RE = re.compile(
+    r"No de s.rie\s*:\s*(\d+)\s+Montant\s*:", re.IGNORECASE)
 def _money_fr(text: str) -> float:
     return parse_french_amount(text, parens=True)
+
+
+#: The money pattern for a statement that declares its own cheque serials.
+#:
+#: French thousands are spaced, so a three-digit cheque serial followed by a
+#: three-digit amount is indistinguishable from one grouped number:
+#: `Chèque - 253 127,40` reads as 253,127.40 and the row books a quarter of a
+#: million dollars against an account holding four thousand. Nothing inside
+#: the row settles it — but the statement settles it elsewhere, on the
+#: cheque-image pages it appends (`No de série: 253 Montant: 127,40 $`).
+#:
+#: The document authorises the rule, but only DOCUMENT-WIDE, and the
+#: difference matters. The declared-serial set is used as a single boolean —
+#: "this statement declares cheque serials at all" — which selects this pattern
+#: over the plain one. The lookbehind itself is positional, not evidential: it
+#: refuses to BEGIN an amount at whatever number is printed straight after
+#: `Chèque - `, without ever asking whether THAT number is one of the declared
+#: serials. The remaining lookbehind then rejects the serial's interior digits
+#: too, so the match lands on the amount.
+#:
+#: Two shapes are therefore misread on a statement that declares any serial:
+#: a cheque row naming a serial the document never declares, and a row with no
+#: serial at all (`Chèque - 1 234,56` reads as 234,56). Neither occurs in the
+#: family, and both fail closed — the balance walk does not close and the
+#: document is withheld rather than published wrong. Consulting the set
+#: per row is the correct form and is a follow-up card (W3 §RBCCIBC RC8.8).
+#: A statement that declares no serials keeps the plain pattern, and a row
+#: mis-read there fails the bank's own totals rather than being split on a guess.
+_FR_MONEY_SERIAL_RE = re.compile(
+    r"(?<![A-Za-z0-9+])(?<!ch.que - )\(?-?(?:\d{1,3}(?: \d{3})+|\d+),\d{2}\s*\)?",
+    re.IGNORECASE,
+)
 
 
 def _fr_month(month_token: str) -> int | None:
@@ -597,18 +551,61 @@ def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) ->
     # audited corpus surface identical; enabling it is proposed in
     # R1_HARDCODE_LOG.md for an Ocean-approved re-baseline.
 
-    m = re.search(r"solde d'ouverture.*?([\d ]+,\d{2})\s*\$", markdown, re.IGNORECASE)
-    if m:
-        stmt.beginning_balance = _money_fr(m.group(1))
-    m = re.search(r"Total des d.*?compte\s*\+\s*([\d ]+,\d{2})", markdown, re.IGNORECASE)
-    if m:
-        stmt.stated_total_credits = _money_fr(m.group(1))
-    m = re.search(r"Total des retraits.*?-\s*([\d ]+,\d{2})", markdown, re.IGNORECASE)
-    if m:
-        stmt.stated_total_debits = _money_fr(m.group(1))
-    m = re.search(r"solde de cl.*?=\s*([\d ]+,\d{2})\s*\$", markdown, re.IGNORECASE)
-    if m:
-        stmt.ending_balance = _money_fr(m.group(1))
+    # The summary block, read off the collapsed line rather than off the whole
+    # document, and in BOTH products' wordings. The personal statement writes
+    # `Total des dépôts dans votre compte +` and prints no instance count; the
+    # business one writes `Total des dépôts et des crédits (10) +` and prints
+    # one. Only the personal wording was ever matched, so on every business
+    # statement both stated totals were silently None and
+    # `reconcile.summary_ok` had nothing to check.
+    #
+    # Accents arrive as U+FFFD from this text layer — it loses them outright
+    # rather than double-encoding them, so `normalize_mojibake` has nothing to
+    # repair — and every accented letter is therefore matched as `.`, the same
+    # tolerance `analysis/cibc.py` uses on the same problem.
+    for raw in markdown.splitlines():
+        line = re.sub(r"\s+", " ", raw).strip()
+        if not line:
+            continue
+        m = re.search(
+            r"solde d'ouverture\b.*?" + _FR_SUMMARY_MONEY + r"\s*\$", line, re.IGNORECASE
+        )
+        if m:
+            stmt.beginning_balance = _money_fr(m.group(1))
+        m = re.search(
+            r"Total des d.p.ts et des cr.dits\s*\((\d+)\)\s*\+\s*" + _FR_SUMMARY_MONEY,
+            line, re.IGNORECASE,
+        )
+        if m:
+            stmt.stated_credit_count = int(m.group(1))
+            stmt.stated_total_credits = _money_fr(m.group(2))
+        m = re.search(
+            r"Total des ch.ques et des d.bits\s*\((\d+)\)\s*-\s*" + _FR_SUMMARY_MONEY,
+            line, re.IGNORECASE,
+        )
+        if m:
+            stmt.stated_debit_count = int(m.group(1))
+            stmt.stated_total_debits = _money_fr(m.group(2))
+        m = re.search(
+            r"Total des d.p.ts dans votre compte\s*\+\s*" + _FR_SUMMARY_MONEY,
+            line, re.IGNORECASE,
+        )
+        if m:
+            stmt.stated_total_credits = _money_fr(m.group(1))
+        m = re.search(
+            r"Total des retraits de votre compte\s*-\s*" + _FR_SUMMARY_MONEY,
+            line, re.IGNORECASE,
+        )
+        if m:
+            stmt.stated_total_debits = _money_fr(m.group(1))
+        m = re.search(
+            r"solde de cl.ture\b.*?=\s*" + _FR_SUMMARY_MONEY + r"\s*\$", line, re.IGNORECASE
+        )
+        if m:
+            stmt.ending_balance = _money_fr(m.group(1))
+
+    #: Every cheque serial the statement's own cheque-image pages declare.
+    serials = frozenset(_FR_CHEQUE_DECLARED_RE.findall(markdown))
 
     entries: list[tuple[str, str, bool]] = []
     current_date: str | None = None
@@ -624,7 +621,7 @@ def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) ->
             # the page's own header block never reaches the grid reader.
             in_activity = False
             continue
-        if "DATE DESCRIPTION RETRAITS" in u:
+        if _FR_ACTIVITY_GRID_RE.search(u):
             in_activity = True
             continue
         if in_activity and (u.startswith("SOLDE DE CL") or u.startswith("VOTRE LIMITE")):
@@ -657,9 +654,9 @@ def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) ->
     # `Retraits ($) | Dépôts ($) | Solde ($)`, so a row carries the same two
     # money cells and the same missing column-of-origin. It is a first-class
     # family of this parser, not an exception to it.
-    rows, table_opening = _read_grid_rows(
+    rows, table_opening = read_grid_rows(
         entries,
-        pattern=_FR_MONEY_RE,
+        pattern=_FR_MONEY_SERIAL_RE if serials else _FR_MONEY_RE,
         to_amount=_money_fr,
         opening_label="SOLDE D'OUVERTURE",
         closing_label="SOLDE DE CL",

@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import re
 from html import unescape
+from itertools import takewhile
 from typing import Callable, Iterable, TypeVar
 
 __all__ = [
@@ -42,6 +43,8 @@ __all__ = [
     "tables_after",
     "section_between",
     "group_rows",
+    "read_grid_rows",
+    "glyph_damaged",
 ]
 
 _Item = TypeVar("_Item")
@@ -132,7 +135,7 @@ def group_rows(
     line already stands inside the table's first row — RBC's activity table,
     which opens with an undated `Opening balance` row — restores that leading
     run itself rather than have this function guess which case it is in (see
-    `rbc._read_grid_rows`).
+    `read_grid_rows`, which is that caller).
 
     `starts_row` and `ends_row` are predicates, not patterns, and they are the
     caller's: the date grammar, the terminator vocabulary and the column the
@@ -140,12 +143,15 @@ def group_rows(
     regex's `.match` is a valid predicate, which is how all four call sites
     pass theirs.
 
-    What is deliberately NOT here is the rest of the row: which of a row's
-    money cells is its amount and which is its running balance. That question
-    has three different printed answers in the three layouts (Chase prints no
-    balance column at all; RBC prints ``amount balance`` adjacent; TD Canada
-    prints the Date column between them), so it is answered by each parser
-    against its own printed grid — see W3_TRACKA_LOG §GROUPER.
+    What is NOT here is the rest of the row: which of a row's money cells is
+    its amount and which is its running balance. That question has three
+    different printed answers in the three layouts (Chase prints no balance
+    column at all; RBC prints ``amount balance`` adjacent; TD Canada prints the
+    Date column between them), so it is answered against the printed grid — see
+    W3_TRACKA_LOG §GROUPER. `read_grid_rows` below answers it for the ONE of
+    those three that a second issuer turned out to share, and takes the money
+    pattern and the row labels as arguments so the bank knowledge still stays
+    with the bank.
     """
     rows: list[list[_Item]] = []
     current: list[_Item] | None = None
@@ -175,3 +181,317 @@ def section_between(markdown: str, start: str, end: str) -> str:
     """
     m = re.search(start + r"(?P<body>.*?)" + end, markdown, re.IGNORECASE | re.DOTALL)
     return m.group("body") if m else ""
+
+
+#: A word with digits welded inside it between letters — `A11ount` for
+#: "Account", `4t5t060nt` for "Statement". A PDF whose embedded font carries a
+#: broken character map extracts like this: the glyphs are right, the codepoints
+#: they map to are not, and the substitution lands indiscriminately on letters
+#: and digits alike.
+_GLYPH_SUBSTITUTED_RE = re.compile(r"(?i)\b[a-z]+\d+[a-z]+\b")
+#: Ordinary alphabetic vocabulary, the denominator.
+_PLAIN_WORD_RE = re.compile(r"(?i)\b[a-z]{3,}\b")
+#: Above this share of substituted words the text layer is not readable. The
+#: surveyed populations do not come close to overlapping: 858 documents (the
+#: 160 claimed RBC/CIBC, 80 unclaimed ones that must still be claimable, and a
+#: 618-document stratified sample of every other issuer) top out at 0.036,
+#: while the four documents with a broken CMap run 0.30 to 0.45. The threshold
+#: sits an order of magnitude clear of both.
+_GLYPH_DAMAGE_LIMIT = 0.15
+#: Below this much vocabulary the ratio is noise rather than evidence.
+_GLYPH_DAMAGE_MIN_WORDS = 20
+
+
+def glyph_damaged(text: str) -> bool:
+    """Is this text layer's character map broken beyond being readable?
+
+    Detection normally fails safe on such a document, because the furniture a
+    parser looks for is corrupted along with everything else. The danger is the
+    document that corrupts its *body* while leaving the one string a parser
+    keys on intact: these four print `ROYAL BANK OF CANADA` perfectly and then
+    render seventeen thousand dollars as `17J000-00`. A gate widened for some
+    other reason would claim them and publish the corrupted figures, which is
+    worse than not reading them at all.
+
+    The predicate is issuer-neutral — it reads the damage, not anyone's
+    markers — but its WIRING is not platform-wide. It is an excluding marker on
+    exactly three of the registry's 52 registrations (`rbc`, `rbc_french`,
+    `cibc`), which are the ones W3 §RBCCIBC touched. Every other registration
+    is unguarded, and a fifth over-threshold document exists:
+    `Unidentified/125ead7e_Gulf Coast Bank - June 2026.pdf` at 0.261, another
+    issuer's, unclaimed today and protected by nothing. Five documents in 3,493
+    exceed the limit; four of them are behind this guard. Wiring it platform-
+    wide is a follow-up card (W3 §RBCCIBC RC8.7), not something this cell could
+    do inside its own ownership.
+    """
+    plain = len(_PLAIN_WORD_RE.findall(text))
+    if plain < _GLYPH_DAMAGE_MIN_WORDS:
+        return False
+    return len(_GLYPH_SUBSTITUTED_RE.findall(text)) / plain > _GLYPH_DAMAGE_LIMIT
+
+
+#: The cents group every printed amount ends with, in either locale
+#: (`1,234.56` / `1 234,56`). Stripping it leaves the integer part, which is
+#: what tells a price from a reference number.
+_CENTS_TAIL_RE = re.compile(r"[.,]\d{2}\)?$")
+_NON_DIGIT_RE = re.compile(r"\D")
+#: What follows a money-shaped token that makes it the operand of a printed
+#: exchange rate: the currency it is denominated in, and then the `@` mark.
+#: Both are required — the code alone follows plenty of genuine cells.
+_RATE_OPERAND_RE = re.compile(r"\s+[A-Z]{3}\s*@")
+
+
+def _is_printed_price(token: str) -> bool:
+    """False for a money-SHAPED token that the grid does not print as money.
+
+    A printed price never carries a leading zero, so `00314.06` beside an
+    amount is a reference number the description happens to end with, not a
+    second money cell. `0.45` keeps its single leading zero and stays money.
+    """
+    body = token.strip().lstrip("(").lstrip("-").lstrip("$").strip()
+    digits = _NON_DIGIT_RE.sub("", _CENTS_TAIL_RE.sub("", body))
+    return not (len(digits) > 1 and digits[0] == "0")
+
+
+def _grid_cells(line: str, pattern: re.Pattern[str]) -> list[re.Match]:
+    """The money cells the activity grid prints on one physical line.
+
+    Five kinds of money-shaped token are printed inside a description cell
+    rather than in a money column, and each is recognised by the mark the
+    statement prints beside it, never by its value:
+
+    * the operand of `@` — the "at unit price" marker (`4 Drs @ 2.50 10.00`
+      prints a rate and then the fee);
+    * a percentage operand (`@ RBP+05.00%P.A`);
+    * the numerator of a printed rate — `DEPOSIT NOTE FEE SELF-SERVICE 6170.0
+      AT 2.25/1,000` charges $2.25 per $1,000, and the `/` is what says so;
+    * the foreign-currency operand of an exchange rate — `INTERNET GLOBAL
+      MONEY TRANSFER 450000.00 PKR @.005` moved 450,000 rupees, and the
+      account was debited the converted figure printed in its own column. The
+      mark is the same `@` as the first rule, read THROUGH the currency code
+      the layout prints between the two: keying on the mark rather than on a
+      list of currency codes is what keeps `403.50 SCD 09502` (a branch
+      reference that happens to follow an amount) a printed cell;
+    * a figure welded to whatever precedes it — `SERVICE CHARGE CAPPED MONTHLY
+      FEE$16.95 RECORD-KEEPING N/A` quotes the monthly tariff and the row's own
+      cell then prints it again, so reading the quote as a cell booked the fee
+      twice. The mark is the missing gap: a printed cell starts a column, so
+      anything non-whitespace immediately in front of a figure means the figure
+      is inside the description's sentence. This is deliberately broader than
+      the shape that motivated it — see the comment at the check for exactly
+      what else it refuses and how it fails when it is wrong;
+    * a reference number, which a printed price never resembles because a
+      price carries no leading zero.
+    """
+    cells = []
+    for match in pattern.finditer(line):
+        if not _is_printed_price(match.group(0)):
+            continue
+        after = line[match.end():]
+        if after[:1] == "%":
+            continue
+        if after[:1] == "/":
+            continue
+        if _RATE_OPERAND_RE.match(after):
+            continue
+        # A printed cell starts a column, so it is preceded by whitespace or by
+        # nothing. This rejects EVERY non-whitespace predecessor, not only a
+        # welded currency symbol: `(16.95`, `*16.95`, `:16.95` and `x16.95` are
+        # all refused, and only a `$` welded to the figure is taken off first,
+        # because that symbol belongs to the figure. (A leading `-` never
+        # reaches here — the money patterns match it as part of the token, so
+        # its predecessor is the space in front of the minus.)
+        #
+        # Being broader than the shape it was written for is a real cost, and
+        # the failure mode is worth naming: suppressing a cell leaves its row
+        # one cell short, so the NEXT cell — the running balance — is read as
+        # the row's amount. `Item (100.00) 900.00` publishes amount 900.00 with
+        # no balance instead of 100.00 with balance 900.00. That is wrong but
+        # not silent: the balance chain then fails and the platform's coverage
+        # and ledger checks withhold the document. Measured blast radius over
+        # the surveyed populations is 9 tokens in 9 documents, all of them the
+        # quoted tariff this rule exists for.
+        attached = line[:match.start()]
+        if attached.endswith("$"):
+            attached = attached[:-1]
+        if attached and not attached[-1].isspace():
+            continue
+        # The `@` may be separated from the figure by its symbol AND a space
+        # (`4 Drs @ $ 5.00`), so that check reads the trimmed text.
+        before = line[:match.start()].rstrip()
+        if before.endswith("$"):
+            before = before[:-1].rstrip()
+        if before.endswith("@"):
+            continue
+        cells.append(match)
+    return cells
+
+
+def read_grid_rows(entries, *, pattern, to_amount, opening_label, closing_label):
+    """Rows read off the printed grid rather than off the physical lines.
+
+    `entries` is the activity section as `(text, date, opens_a_date_group)`,
+    with the Date column already consumed by the caller. Returns the rows and
+    the balance the table's own opening row prints.
+
+    Two structural rules do all the work, and both come from the printed
+    column order `... | Cheques & Debits | Deposits & Credits | Balance`:
+
+    1. **A lone money cell is an amount; two money cells with nothing between
+       them are one row's amount and its running balance.** Balance is the
+       last column and is never printed without an amount beside it, so the
+       pairing is decided by adjacency in the grid, not by which token comes
+       last on a line. This is what makes a row carrying TWO money cells
+       readable at all, and it is deliberately blind to the values: a balance
+       smaller than its own amount is still the balance.
+
+       The Balance column is also the ONLY column that prints a sign: the two
+       activity columns print magnitudes and the column heading supplies the
+       direction. So a bare minus standing between a row's amount and the cell
+       that follows it is that balance going overdrawn (`194.82 - 192.33`),
+       and it is read as one here rather than in the money pattern — which
+       cannot tell it from the hyphen a merchant name ends with
+       (`... LITTLE KABUL - 180.59`, where 180.59 is a withdrawal). Reading
+       the sign where the column is known is what separates the two.
+    2. **A row ends at its amount cell**, so text that follows one begins the
+       next row. That reads a compressed line (several printed rows emitted on
+       one physical line) and a wrapped row (one printed row spread over
+       several physical lines) with the same rule, and it needs no whitelist
+       of description wordings.
+
+    The one line-level fact that survives: an amount printed alone on its line
+    is vertically centred between two description lines, so a following
+    description-only line continues THAT row instead of opening a new one.
+
+    Rule 1 — where a row starts — is `group_rows` (W3 §GROUPER): a printed
+    posting date opens a row here, and so does the table's own opening balance
+    row, which prints no date. The entries a page footer or a header block
+    would contribute never reach this function; the caller drops them.
+
+    `opening_label` is one printed wording or several. A layout that continues
+    its table across a page break re-prints the running balance under a second
+    label (`Balance forward`), and that row is the same thing as the opening
+    row: a balance, printed with no amount beside it, that is not a
+    transaction. Both are matched here so neither becomes one.
+
+    Promoted out of `analysis/rbc.py` (W3 §RBCCIBC) when a second issuer — CIBC
+    — turned out to print the same grid. It is shared rather than copied: the
+    money pattern, the amount conversion and the row labels are all arguments,
+    so what moved is the reading of the grid and not either bank's knowledge of
+    its own furniture.
+    """
+    entries = list(entries)
+    rows: list[dict] = []
+    opening: float | None = None
+    description: list[str] = []
+    #: the row the most recent cell closed, while it can still take a balance
+    open_row: dict | None = None
+    centred_amount = False
+    # Case-insensitive matching, not `.upper()` plus an index: upper-casing can
+    # change a string's length, and these two labels are used to CUT a line.
+    labels = (opening_label,) if isinstance(opening_label, str) else tuple(opening_label)
+    opens = re.compile("|".join(re.escape(label) for label in labels), re.IGNORECASE)
+    closes = re.compile(re.escape(closing_label), re.IGNORECASE)
+
+    def starts_row(entry) -> bool:
+        text, _, opens_group = entry
+        return bool(opens_group) or bool(opens.match(text))
+
+    groups = group_rows(entries, starts_row=starts_row)
+    #: Whatever the table prints above its first row start already stands
+    #: inside that row: unlike a section heading in a Chase block, there is no
+    #: furniture here for the caller to have left behind.
+    head = list(takewhile(lambda entry: not starts_row(entry), entries))
+    if head:
+        groups.insert(0, head)
+
+    stopped = False
+    for group in groups:
+        # A new posting date closes whatever was pending: a description
+        # with no amount cell under it never became a row.
+        description = []
+        open_row = None
+        centred_amount = False
+        for text, tx_date, _ in group:
+            if not text:
+                continue
+            stop = closes.search(text)
+            if stop:
+                text = text[:stop.start()].strip()
+                if not text:
+                    stopped = True
+                    break
+            cells = _grid_cells(text, pattern)
+            label = opens.match(text)
+            if label:
+                # The table's own opening row prints ONE cell, in the Balance
+                # column, and everything after it belongs to the rows that
+                # follow. Consuming the whole physical line here discarded
+                # them: this layout family compresses the column header, the
+                # opening row and the first posting onto one line, so what was
+                # thrown away was a real transaction. Take the label's own
+                # cell, then let the remainder be read as grid content.
+                description, open_row, centred_amount = [], None, False
+                if not cells:
+                    continue
+                gap = text[label.end():cells[0].start()].strip()
+                opening = to_amount(cells[0].group(0))
+                if gap == "-":
+                    opening = -opening
+                text = text[cells[0].end():]
+                cells = _grid_cells(text, pattern)
+                if not text.strip():
+                    continue
+            if not cells:
+                if open_row is not None and centred_amount:
+                    open_row["description"] = f"{open_row['description']} {text}".strip()
+                else:
+                    description.append(text)
+                centred_amount = False
+                continue
+
+            cells_only = (
+                not text[:cells[0].start()].strip()
+                and not text[cells[-1].end():].strip()
+                and all(not text[a.end():b.start()].strip() for a, b in zip(cells, cells[1:]))
+            )
+            position = 0
+            for match in cells:
+                gap = text[position:match.start()].strip()
+                # A bare minus between a row's amount and the next cell is the
+                # sign of the balance that cell carries (rule 1). Anything else
+                # standing between two cells is description, and it closes the
+                # open row exactly as before.
+                signed_balance = (
+                    gap == "-"
+                    and open_row is not None
+                    and open_row["balance"] is None
+                )
+                if gap and not signed_balance:
+                    description.append(gap)
+                    open_row = None
+                value = to_amount(match.group(0))
+                if open_row is not None and open_row["balance"] is None:
+                    open_row["balance"] = -value if signed_balance else value
+                    open_row = None
+                else:
+                    row = {
+                        "date": tx_date,
+                        "description": " ".join(description).strip(),
+                        "abs_amount": abs(value),
+                        "amount": -abs(value),
+                        "balance": None,
+                    }
+                    description = []
+                    rows.append(row)
+                    open_row = row
+                position = match.end()
+            tail = text[position:].strip()
+            if tail:
+                description.append(tail)
+                open_row = None
+            centred_amount = cells_only
+        if stopped:
+            break
+
+    return rows, opening

@@ -317,6 +317,11 @@ class TestChaseRemoteDepositRepair:
 # Item 7 - RBC: no counterparty sign knowledge; French parser generalized
 # ---------------------------------------------------------------------------
 
+#: The French PERSONAL product, which is the layout the pinned corpus document
+#: `RBC French/12 - Relevé Royale Décembre 2025` prints. Its business sibling
+#: heads the same grid `Chèques et débits` and prints instance counts beside
+#: its totals; that one is covered in `tests/test_rbc_variants.py` (W3 §RBCCIBC
+#: card C), which is the layout `rbc_french` used to miss entirely.
 RBC_FR_TEMPLATE = """
 Relevé de votre compte forfait bancaire personnel RBC
 Banque Royale du Canada
