@@ -8769,7 +8769,7 @@ untouched here — flagged so it is not missed.
 
 ```
 $ python -m pytest -q
-3129 passed, 18 deselected, 1 warning in 430.05s (0:07:10)
+3130 passed, 18 deselected, 1 warning in 316.73s (0:05:16)
 EXIT=0
 
 $ python corpus_gate.py
@@ -8801,8 +8801,11 @@ $ python -m pytest tests/test_shopify_balance.py \
 EXIT=0
 ```
 
-The suite grows 3,013 -> 3,129 (+116), both numbers measured rather than
-copied: `d70efbe` collects 3,013.
+The suite grows 3,013 -> 3,130 (+117), both numbers measured rather than
+copied: `d70efbe` collects 3,013, and the figure above is the run against the
+final committed tree. The last of the 117 is not a test this cell wrote:
+`tests/test_stated_counts.py` parametrizes over `SEMANTICS`, so surveying
+`zions` adds one case to an existing parametrization.
 
 **The cell, per document, over its three folders.** Not "it validated" but
 why — the identity, every printed total, every printed count, and the walk:
