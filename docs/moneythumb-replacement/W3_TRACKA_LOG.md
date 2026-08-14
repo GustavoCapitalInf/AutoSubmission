@@ -8388,3 +8388,382 @@ and 8 of 8 card-C.
 | `06f2633` | §RBCCIBC-LAYOUTS RC0–RC10 |
 | `753674a` | card C amendment — the French PERSONAL product, restored after the gate went red |
 | (this one) | the gate proof and the F1 pinned-corpus re-check |
+
+
+# §DECLB — the printed vocabulary is wider than the memorized one, in both banks
+
+DECLINES-B, 2026-08-14. Branch `wave3-declines-b`, base `d70efbe` (current
+main). Brief: `docs/agent-handoffs/DECLINES-B.md`, from the SC-USBANK and
+SC-CAPONE scout reports. Six cards, two production files, three commits.
+`ANALYSIS_STAGE_VERSION` NOT bumped — published output moves on 68 documents,
+so the bump is Ocean's to compose with the rest of the wave.
+
+## DB0. Summary
+
+| | |
+|---|---|
+| Cells worked | `analysis/us_bank.py`, `analysis/capital_one.py` |
+| Cards worked | US-DAYS 11 · US-CONSUMER 5 · US-ECHECK 1 · US-PERIOD 1 · us_bank product name (R-1) 40 · CO-FEES 10 · CO-ADB 1 of 2 |
+| The gap | Both parsers had memorized a subset of what their bank prints — a summary category list, a section heading per category, a required optional line, a bracket that is really a sign marker — and refused whole documents outside it |
+| Populations swept | Whole `US Bank` folder (59 distinct) + whole `Capital One` folder (37 distinct) = 96; plus an archive-wide detection-scoped sweep of all 3,367 documents with an OCR artifact |
+| Result over the family | **improved 28, regressed 0** — us_bank validated 40 → 57, capital_one validated 10 → 21 |
+| Movement outside the family | **none, provably** — 85 of 3,367 archive documents are detected by either parser, all 85 inside the two folders, all 85 swept both ways (DB6) |
+| Movers named | 28 outcome movers + 40 `account_name` movers, every one listed at DB6 |
+| Pinned corpus | 6 documents in the blast radius (2 US Bank, 4 CapitalOne), all PASS before and after; gate byte-identical |
+| Files | 2 production, 2 test |
+| Tests | 3,013 → 3,048 (+35) |
+| Statement-specific constants added | none |
+| `count_semantics` | us_bank COMPARABLE unchanged and re-proven (counts identical on all 40 previously-claimed documents); capital_one debit promotion PROPOSED with a fresh counterfactual (DB8) — the table edit is Ocean's |
+| `ANALYSIS_STAGE_VERSION` | not bumped (Ocean's) |
+| Detection | untouched in both parsers; no new registration |
+| Fail-closed remainders | 15 documents, each named and diagnosed at DB7 |
+
+## DB1. The measurement instrument, and what it was allowed to touch
+
+Baseline run of record
+`discovery_reports/2026-08-14T060822.665646-0000-88be9dd3` (v10), read from
+the MAIN checkout. Parser identity for the cache-served rows enriched from
+`…-6893a75b`, `…-89bb6185` and `…-52b4b2b2` — necessary, not optional:
+capital_one has **zero** rows carrying a `parser_id` in the run of record
+(all twelve of its claims were analysis-cache hits), so an unenriched
+population is empty.
+
+Markdown came from the D-3 OCR artifacts, addressed **arithmetically** —
+`cache_key(STAGE_OCR, content_sha256, ocr_settings_key(...))` →
+`webapp_data/artifacts/ocr/<key[:2]>/<key>.json` — across the three settings
+partitions. The sqlite index was never opened. `analyze_markdown` was called
+directly rather than through `cached_analysis`, so no artifact was written.
+Zero OCR, zero model calls, **$0.00**.
+
+**Fidelity first.** Before believing any output, the instrument replayed the
+96-document family and reproduced the run of record's `parser_id`,
+`outcome_class` and `outcome_reason` on **96 of 96 — zero mismatches**. Two
+consecutive sweeps were byte-identical.
+
+Before/after in one process: the base-commit copy of each changed parser was
+loaded from its git blob as its own module and swapped into
+`analysis.parser_registry._REGISTRY`, so both readings ran against identical
+text through identical downstream code.
+
+## DB2. us_bank — four refusals, one summary grid
+
+The parser read the Account Summary through a memorized six-name category
+vocabulary, mapped each name to exactly one detail heading, and required a
+`Number of Days in Statement Period` line. All four cards are that one
+assumption failing in four places.
+
+**US-DAYS (11 documents).** The days line is optional — the layouts that print
+no `# Items` column print no days line either. The printed period already
+states the figure and `parse_us_bank_statement` already had that fallback
+(`int(summary.get("days") or period_days)`), so the requirement refused 11
+complete documents over nothing. The printed line still outranks the period
+where it exists: the two disagree as a matter of course on this bank (the
+cycle closes on a business day, the count is calendar), and **15 already
+validated documents** carry that disagreement, so nothing new was introduced.
+
+**US-CONSUMER (5 documents).** The consumer grid prints a different category
+vocabulary — one `Deposits / Credits` for every inflow — and **no count column
+at all**. The memorized six names matched nothing, so `_summary` read zero
+categories and declined. The category NAME is now read. Measured across all 59
+documents the generic reader finds exactly the six business categories (with
+counts) and the three consumer ones (without), and **no spurious category at
+all**; a spurious one would fail its own section-total check anyway.
+
+**US-ECHECK (1 document).** Cheques are presented by MANNER — `Checks
+Presented Conventionally` and `Checks Presented Electronically`, each with its
+own subtotal — both rolling up to the summary's single `Checks Paid` figure
+and a printed `Total Checks Paid`. A one-heading-per-category map read the
+conventional block only and the category's section-total check then refused
+the whole document. Sections are now keyed by CATEGORY, and any `Checks
+Presented …` heading feeds the cheque category; the manner is matched, not
+enumerated.
+
+**US-PERIOD (1 document).** `Statement Period:`, the start date and `through
+<end>` are one column of the page header, and flattening interleaves the
+neighbouring columns between them. A multi-page statement reprints the header
+on every page and somewhere in those repeats the halves land adjacent; this
+one is `Page 1 of 1` and got a single printing to be lucky in. The period is
+now read from the bank's own label. The bare adjacent pair is still read when
+no label sits above one, so the reading is strictly the older one plus the
+interleaved case — a point the `tests/test_parser_crash_shapes.py` fixture
+caught when the first attempt replaced it instead of extending it.
+
+## DB3. us_bank — the published product name (R-1 class)
+
+The parser published `account_name="Platinum Business Money Market"` on every
+document it read. Measured over the 40 it had validated:
+
+| printed product line | documents |
+|---|---|
+| `U.S. BANK SILVER - BUSINESS CHECKING` | 26 |
+| `U.S. BANK GOLD - BUSINESS CHECKING` | 10 |
+| `PLATINUM BUSINESS MONEY MARKET` | 4 |
+
+— wrong on **36 of 40**. The name is now read from the block the bank prints
+above every Account Summary (product / `Member FDIC` / association line /
+account number, the last two in either order). Anchoring on the whole block is
+load bearing: `Member FDIC` is also printed as the footer of the credit-bureau
+disclosure page, where the nearest line above is prose — and three documents in
+the fix population print exactly that. A document printing no such block
+publishes `None` rather than a guess.
+
+## DB4. capital_one — a bracket is a sign marker (CO-FEES, 10 documents)
+
+The native cycle-summary reader required literal brackets around
+`Checks/Debits` and `Service Charges`. Capital One brackets a cell to mark it
+**negative**, so the bracket is present exactly when there is a sign to mark.
+Measured over every `Service Charges` cell the folder prints:
+
+| printed cell | documents |
+|---|---|
+| `$0.00` | 10 |
+| `($15.00)` / `($35.00)` / `($10.00)` / `($12.00)` / `($4.00)` | 12 |
+
+The ten zero-charge documents are exactly the ten declines. Both cells now
+admit the printed shape either way and `_money` reads the bracket as the sign
+it is — `parse_digit_scrubbed(parens=True)`, which already did.
+
+## DB5. capital_one — the cycle charge the summary states (CO-ADB, 1 of 2)
+
+The bank posts its cycle charge on the day the charge falls, which can be
+after the cycle it belongs to has closed. One such row puts the document
+outside `adb.py`'s `transactions_within_period` check and the ADB engine fails
+closed on all of it — correctly; its own warning says such rows "were excluded
+rather than moved to a boundary day".
+
+The existing normalizer already moved such a row onto the final cycle day but
+identified it by ledger wording alone (`maintenance` / `cycle service
+charge`). The remaining document prints the same charge as `Cash deposit limit
+exceeded`. The charge is now also identified by the bank's own arithmetic: a
+debit of exactly the figure printed under `Service Charges`, posted at the
+boundary. Two independent readings agree on that row — the amount matches the
+printed total exactly, and the printed debit COUNT is short by exactly one on
+that document, which is the bank saying it does not count that row among its
+`Checks/Debits` (DB8).
+
+**No ADB oracle exists here and I did not pretend one did.** Capital One's
+printed `Average Collected Balance` is a collected-funds average, not a daily
+balance average: measured against our ADB on the documents where both exist it
+differs by 0.01% to 25.6% (and by four orders of magnitude on a near-zero
+account). It cannot validate a date treatment, so the second CO-ADB document
+was left withheld (DB7).
+
+## DB6. Result over both populations, with every mover named
+
+Whole-folder sweep, 96 distinct documents, **improved 28 / regressed 0**.
+
+| | before | after |
+|---|---|---|
+| `US Bank` validated | 40 | **57** |
+| `US Bank` parser_declined | 17 | **0** |
+| `US Bank` no_parser_matched | 2 | 2 |
+| `Capital One` validated | 10 | **21** |
+| `Capital One` parser_declined | 16 | **6** |
+| `Capital One` withheld_adb | 2 | **1** |
+| `Capital One` no_parser_matched | 9 | 9 |
+
+**Outcome movers (28), all `failed`/`withheld` → `validated/approved`:**
+`0564d385` ×4 · `4079d95f_STATEMENT INVEST MAY 2026` · `4079d95f_STATEMENT
+PERSONAL jUNE 2026` · `c1` ×4 · `f0553b9e` ×4 · `fa2dd442` ×3 (us_bank, 17);
+`3bfd3c66_Jan` · `58cd6c52` ×4 · `8145d2ff …FEB_2026` · `8145d2ff …MAY_2026` ·
+`bc29cf56_March` · `c8663304_20260330` · `c8663304_20260629` (capital_one
+CO-FEES, 10); `3bfd3c66_Feb` (capital_one CO-ADB, 1).
+
+**Published-field movers with the outcome unchanged (40):** every one is
+`account_name` and **nothing else** — no ledger row, no balance, no ADB, no
+count moved on any of them. 36 move to a different product (26 to
+`U.S. BANK SILVER - BUSINESS CHECKING`, 10 to `U.S. BANK GOLD - BUSINESS
+CHECKING`); 4 — the `a375ac56 … Business Saving 1631` series — move only in
+case, `Platinum Business Money Market` → `PLATINUM BUSINESS MONEY MARKET`,
+because the value is now published as the bank prints it.
+
+**The wider probe, and why it is a proof rather than a sample.** Neither
+`DETECTION_MARKERS` tuple was touched, so the set of documents these parsers
+are even offered is identical before and after — and everything outside that
+set never calls into either module, so its observation cannot move. Running
+both detectors over every archive document with an OCR artifact:
+
+```
+scanned 3,367 documents; 85 detected by a target parser
+by folder   : US Bank 57, Capital One 28        <- nothing outside the two folders
+by detector : us_bank 57, capital_one 28        <- no document claimed by both
+```
+
+All 85 were swept against the base blobs and the branch in one process:
+**changed 68, improved 28, regressed 0, and zero documents changed outside the
+two folders.** The 68 are the 28 outcome movers plus the 40 `account_name`
+movers, and nothing else. This supersedes a stratified sample: the blast
+radius was enumerated rather than estimated. (No new registration was added,
+so the ≥400-document stratified non-target probe is not triggered; this is
+stronger than it anyway.)
+
+## DB7. The fail-closed remainder — 15 documents, named and not forced
+
+| documents | diagnosis |
+|---|---|
+| `cd9cd210_MN CAPITALONE …` ×6 | **L-1 blocked.** Each prints THREE complete `Previous Balance … Ending Balance` cycle summaries — three accounts on one statement. Not expressible in a single-account extraction schema. |
+| `b0e2e2e9_…-Bank statement` ×6 | **L-1 blocked.** Capital One 360 layout carrying `360 Checking…8424`, `360 Performance Savings…8460`, `360 Performance Savings…8058` and an `All Accounts` roll-up. |
+| `acfe96c3_May_s Bank Statement` | 360 layout, single account, but an OCR-degraded scan. One degraded document is not evidence enough to register a layout — and the six documents that layout would exist to serve are L-1 blocked anyway. |
+| `8145d2ff_Capital One Business Checking JUN_2026 to date` | Not a statement: a web-app screenshot (`Help`, `VIEW DETAILS`, `AVAILABLE BALANCE`). Correctly unclaimed. |
+| `f9b7c73f_2026-0228 MACU Statement` | Another bank's statement (Mountain America CU) filed in the `Capital One` folder. Correctly unclaimed. |
+| `c8663304_20260528` | CO-ADB, second document. Its out-of-period row is an `NSF charge` of −35.00 dated the day BEFORE the cycle opens, while the printed `Service Charges` figure is 15.00 — so the row is NOT the cycle charge and its cycle membership is unevidenced. Left withheld. |
+| `a375ac56_Voided check (1)`, `b3d832b4_To-Date June 26 USB` | Not statements (a voided-cheque image; a partial to-date export). Neither prints an account-header block or a period. |
+
+**Reported, not acted on:** the run of record's `likely_account_count`
+advisory reads **1** for all six `b0e2e2e9` documents and all six `cd9cd210`
+documents, every one of which carries three or more printed accounts. The O-1
+signal under-counts this family badly; it is advisory only, but anything
+leaning on it to route multi-account work would be misled.
+
+## DB7b. The stated-count check, re-measured live over both families
+
+`count_semantics` promotes us_bank to COMPARABLE in both directions with scope
+`category_subtotal_sum_proven_complete`. That scope is unchanged — the counts
+are still the sum of the `# Items` cells of a direction's categories, split by
+the sign of the category amount — and the promotion is re-proven, not assumed.
+Running `telemetry.stated_counts.evaluate` over both families:
+
+| parser · direction | match | not_printed | semantics_incomparable | **mismatch** |
+|---|---|---|---|---|
+| us_bank credit | 52 | 5 | – | **0** |
+| us_bank debit | 52 | 5 | – | **0** |
+| capital_one credit | 22 | – | – | **0** |
+| capital_one debit | – | – | 22 | **0** |
+
+The live check now covers **52 us_bank documents where it covered 40**, and
+matches on every one. The five consumer documents report `not_printed`,
+which is the correct reading of a grid with no count column — publishing a
+zero there would have manufactured 5 documents claiming the bank said they had
+no deposits, and it would have manufactured 5 mismatches. Counts on the 40
+previously-claimed documents are byte-identical before and after.
+
+## DB8. The capital_one debit count-scope — a promotion PROPOSED, with a fresh counterfactual
+
+`count_semantics` records `capital_one:debit` as INCOMPARABLE, with
+COUNTS-P1 §3.2's note that `stated_debit_count + 1 where a service charge is
+printed` "is the mapping a parser card should encode". COUNTS-P1 measured 12
+of 12 documents disagreeing by exactly +1 — **and every one of those 12 printed
+a non-zero charge**, because the zero-charge documents were all declining.
+"+1 always" and "+1 iff charged" were indistinguishable on that population.
+
+CO-FEES supplies the control arm. Measured over all 22 documents capital_one
+now reads:
+
+| printed `Service Charges` | documents | captured debits − `stated_debit_count` |
+|---|---|---|
+| non-zero | 12 | **+1 on every one** |
+| zero | 10 | **0 on every one** |
+
+Credit direction: **0 mismatches on all 22**. Coverage 1.0 and `sum_delta`
+0.0 throughout, so the rows are right and only the scopes differ.
+
+Mechanism, not just correlation: on 8 of the 12 charged documents the extra
+row is named `Service charge` or `Maintenance charge` outright; on the other
+4 it is the fee whose amount equals the printed total exactly. The bank's
+`N Checks/Debits` counts every debit row except the one its `Service Charges`
+total covers.
+
+**Proposal for Ocean** (the table is yours): promote `capital_one:debit` to
+comparable with scope `service_charge_excluded_from_printed_debit_count` and
+the mapping `stated_debit_count + (1 if stated_service_charge else 0)`.
+Caveat I could not close: every charged document in the archive has exactly
+ONE fee row, so what is strictly proven is "the rows the `Service Charges`
+total covers are excluded" — a cycle aggregating two fees into that total
+would want +2, and no such document exists here to measure.
+
+## DB9. Carried findings and questions for Ocean
+
+1. **`ANALYSIS_STAGE_VERSION` must be bumped** before these outputs are served
+   from cache: 68 documents' published payloads change (28 new/upgraded
+   outcomes, 40 `account_name` corrections). Yours to compose with the rest of
+   the wave.
+2. **`count_semantics` — capital_one debit promotion proposed** (DB8), with the
+   counterfactual COUNTS-P1 could not have had. Table edit is yours.
+3. **`account_name` is published as printed, in the bank's capitals.** 36 of
+   the 40 corrections change the product outright; 4 change only case. If the
+   platform wants a normalized presentation that is a serialization concern,
+   not a parser one — the parser should keep publishing what the page says.
+4. **The R-1 guard does not cover these modules.**
+   `tests/test_no_statement_hardcodes.py:GUARDED_FILES` lists seven parsers;
+   `us_bank.py` and `capital_one.py` are not among them, which is why a
+   memorized product name survived R-1 in a parser serving five products. I
+   did not widen the list — it is a shared guard and outside my two files —
+   but the hole is real and cheap to close.
+5. **`likely_account_count` under-counts multi-account statements** (DB7): it
+   reads 1 for twelve documents carrying three or more printed accounts.
+   Advisory only, but anything routing L-1 work off it would be misled.
+6. **The `Capital One` folder holds another bank's statement**
+   (`f9b7c73f_… MACU …`) and a web-app screenshot. Folder labels are not
+   ground truth for bank identity; both are correctly unclaimed.
+7. **Capital One's `Average Collected Balance` is not an ADB** and should not
+   be treated as one anywhere: it differs from our daily-balance average by
+   0.01%–25.6% across the documents where both exist. It cannot serve as an
+   oracle for ADB work.
+
+## DB10. Commits
+
+| Commit | Contents |
+|---|---|
+| `7fae691` | `us_bank`: printed summary vocabulary, optional days line, cheque presentation manners, label-anchored period, product name from the printed header block; +20 tests |
+| `d13282e` | `capital_one`: bracket as sign marker, cycle charge identified by the printed total; +15 tests |
+| (this one) | `W3_TRACKA_LOG.md` §DECLB |
+
+## DB11. Proofs
+
+```
+$ python -m pytest -q
+3048 passed, 18 deselected, 1 warning in 359.75s (0:05:59)
+EXIT=0
+
+$ python -m pytest tests/test_parser_expectations_baseline.py \
+    tests/test_parser_conformance.py tests/test_parser_detection_markers.py \
+    tests/test_no_parser_helper_clones.py tests/test_no_statement_hardcodes.py \
+    tests/test_r1_hardcodes.py tests/test_parser_registry.py \
+    tests/test_parser_registry_entries.py tests/test_count_semantics.py \
+    tests/test_stated_counts.py tests/test_shared_parser_utils.py \
+    tests/test_money.py -q
+1050 passed, 1 warning in 54.60s
+EXIT=0
+
+$ python -m pytest tests/test_us_bank_variants.py tests/test_capital_one_variants.py -q
+73 passed
+EXIT=0
+
+$ python corpus_gate.py
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  1366.2s
+RESULT: GREEN
+EXIT=0
+
+$ python -m pytest -m corpus -q
+14 passed, 3052 deselected, 1 warning in 2150.34s (0:35:50)
+EXIT=0
+```
+
+Sweep results, verbatim from the instrument:
+
+```
+# fidelity, before trusting anything
+replayed 96 family documents against run 88be9dd3: parser_id/outcome_class/
+outcome_reason reproduced 96/96, mismatches 0; two consecutive sweeps byte-identical
+
+# the family
+US Bank      before {validated 40, parser_declined 17, no_parser_matched 2}
+             after  {validated 57, no_parser_matched 2}
+Capital One  before {validated 10, parser_declined 16, withheld_adb 2, no_parser_matched 9}
+             after  {validated 21, parser_declined 6,  withheld_adb 1, no_parser_matched 9}
+TOTAL improved 28, regressed 0, over 96 documents
+
+# archive-wide blast radius (detection is unchanged, so this is exhaustive)
+scanned 3,367 documents with an OCR artifact; 85 detected by a target parser
+by folder: US Bank 57, Capital One 28   |   by detector: us_bank 57, capital_one 28
+changed 68, improved 28, regressed 0, changed outside the two folders 0
+
+# capital_one count scope, the natural experiment CO-FEES created
+non-zero printed Service Charges: 12 documents, captured-minus-stated debits = +1 on all 12
+zero     printed Service Charges: 10 documents, captured-minus-stated debits =  0 on all 10
+credit direction: 0 mismatches on all 22
+```
+
