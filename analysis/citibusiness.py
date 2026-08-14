@@ -28,6 +28,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .date_tokens import iso_unique_in_period
 from .money import parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -114,24 +115,6 @@ def _period(markdown: str) -> tuple[date, date] | None:
     return (start, end) if start <= end else None
 
 
-def _row_date(month: str, day: str, *, start: date, end: date) -> str | None:
-    """The unique in-period date for a printed `MM/DD`, else None.
-
-    The Date column prints no year and a period can straddle a year boundary,
-    so the year is the one that puts the date inside the printed period. An
-    ambiguous or out-of-period token fails closed rather than guessing.
-    """
-    hits = []
-    for year in {start.year, end.year}:
-        try:
-            candidate = date(year, int(month), int(day))
-        except ValueError:
-            continue
-        if start <= candidate <= end:
-            hits.append(candidate)
-    return hits[0].isoformat() if len(hits) == 1 else None
-
-
 def _ledger_text(markdown: str) -> str:
     """The activity table's text, furniture removed, pages joined.
 
@@ -177,7 +160,7 @@ def _rows(markdown: str, *, start: date, end: date, beginning: float) -> list[Tr
             return None
         magnitude = _amount(cells[0].group(0))
         balance = _amount(cells[1].group(0))
-        posting = _row_date(cut.group(1), cut.group(2), start=start, end=end)
+        posting = iso_unique_in_period(int(cut.group(1)), int(cut.group(2)), start=start, end=end)
         if magnitude is None or balance is None or posting is None:
             return None
 

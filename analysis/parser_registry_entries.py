@@ -69,6 +69,7 @@ from . import (
     us_bank,
     wells,
     wilson_muir,
+    zions,
 )
 from .parser_registry import Registration, register, registrations, validate_registry
 
@@ -138,6 +139,7 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("us_bank", "U.S. Bank", us_bank, "DETECTION_MARKERS", None, "parse_us_bank_statement"),
     ("wells_fargo", "Wells Fargo", wells, "DETECTION_MARKERS", None, "parse_wells_statement"),
     ("wilson_muir", "Wilson & Muir Bank & Trust", wilson_muir, "DETECTION_MARKERS", None, "parse_wilson_muir_statement"),
+    ("zions", "Zions Bancorporation", zions, "DETECTION_MARKERS", "detection_text", "parse_zions_statement"),
 )
 
 #: Per-registration overrides for anything that is not the default. Kept as a
@@ -199,6 +201,9 @@ _OVERRIDES: dict[str, dict] = {
     "citibusiness": {
         "integrity_checks": (citibusiness.closing_balance_contradictions,)
     },
+    # A Zions statement of several accounts prints each closing balance and
+    # their total; the total is what says the accounts read as inert were.
+    "zions": {"integrity_checks": (zions.balance_summary_contradictions,)},
     # Square prints its activity count beside the two balances of the same
     # summary row, so a ledger that does not match it contradicts the document.
     "square_checking": {

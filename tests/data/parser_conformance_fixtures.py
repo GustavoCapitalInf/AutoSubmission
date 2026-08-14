@@ -153,7 +153,20 @@ FIXTURES: dict[str, str] = {
     "truist": "TRUIST\nAccount summary Your previous balance\n",
     "us_bank": "U.S. Bank National Association\nAccount Summary\n",
     "wells_fargo": "WELLS FARGO\nWF_NATIVE_TRANSACTIONS\n",
+    # The issuer, not the trade name: Zions Bancorporation prints this same
+    # layout as Nevada State Bank and as Amegy Bank, and registering on
+    # either brand would leave the other unclaimed.
     "wilson_muir": "WILSON & MUIR\nSMALL BUSINESS PACKAGE SUMMARY\n",
+    # The issuer, not the trade name. Zions Bancorporation prints this same
+    # layout as Nevada State Bank and as Amegy Bank; registering on either
+    # brand would leave the other unclaimed, so the evidence is the corporate
+    # footer every issue carries plus the layout's own column legend.
+    "zions": (
+        "Statement of Accounts\n"
+        "SUMMARY OF ACCOUNT BALANCE\n"
+        "Previous Balance Deposits/Credits Withdrawals/Debits Checks Processed Ending Balance\n"
+        "A division of Zions Bancorporation, N.A.\n"
+    ),
 }
 
 #: The other branch of each disjunctive marker. Same contract as FIXTURES:

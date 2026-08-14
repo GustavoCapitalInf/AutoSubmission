@@ -96,12 +96,12 @@ def test_no_fixture_names_a_registration_that_does_not_exist():
 
 
 def test_the_registry_holds_the_documented_number_of_registrations():
-    assert len(REGISTRATIONS) == 55, (
+    assert len(REGISTRATIONS) == 56, (
         "43 registry entry points, the three promoted sub-dispatches, the "
         "three BMO layouts, the Square Checking layout, the Chase savings "
         "product, the TD Canada Trust French layout, the English CIBC "
-        "layout, the Shopify Balance ledger and the CitiBusiness checking "
-        "statement opened by the "
+        "layout, the Shopify Balance ledger, the CitiBusiness checking "
+        "statement and the Zions Statement of Accounts opened by the "
         "unclaimed-layout phase; update this count and the docs together"
     )
 
