@@ -8641,7 +8641,7 @@ All figures below are the POST-AMENDMENT re-run (J11), on the shipped tree.
 # cell tests + count semantics + conformance + registry pins
 749 passed                                                exit 0
 
-# corpus-marked (pytest -m corpus), 2186.78s
+# corpus-marked (pytest -m corpus), 1239.23s
 PASSED tests/test_corpus_gate.py::test_corpus_gate_is_green
 PASSED tests/test_discovery.py::test_dry_run_reproduces_known_truth
 PASSED tests/test_parser_parity.py::test_no_corpus_document_is_left_unclaimed
@@ -8656,9 +8656,9 @@ PASSED tests/test_parser_parity.py::test_detection_is_invariant_to_the_filename_
 PASSED tests/test_telemetry_corpus.py::test_telemetry_reproduces_the_gate_outcome_split
 PASSED tests/test_telemetry_corpus.py::test_withheld_diagnostics_reproduce_the_documented_diagnosis
 PASSED tests/test_truncation.py::test_no_corpus_document_is_flagged_through_the_real_ladder
-14 passed, 3049 deselected in 2186.78s                    exit 0
+14 passed, 3053 deselected in 1239.23s                    exit 0
 
-# corpus gate (python corpus_gate.py), 905.6s
+# corpus gate (python corpus_gate.py), 467.2s
 [PASS] source_integrity: 109/109 pinned source PDFs match their pinned SHA-256
 [PASS] balance_audit: 109 statements reproduce every audited balance field
        across backend, API, dashboard, CSV, XLSX, and package surfaces
@@ -8666,8 +8666,15 @@ PASSED tests/test_truncation.py::test_no_corpus_document_is_flagged_through_the_
 [PASS] balance_outcomes: 106 pass, 3 withheld, same three statements
 [PASS] adb_outcomes:     106 pass, 3 withheld, same three statements
 Outcomes: 106 PASS / 3 WITHHELD
-RESULT: GREEN                                             GATE_EXIT:0
+RESULT: GREEN                                            GATE2_EXIT:0
 ```
+
+Every figure in this block was produced at `80439b5`, the tree that carries
+the review closures. The corpus pair was run a second time deliberately: the
+amendments changed parser code, and the gate is the standing floor whether or
+not a re-run is asked for. Both were green before the amendments too (gate
+905.6s, corpus-marked 2186.78s); the deselected count moves 3049 -> 3053 with
+the four fixtures J11.1 and J11.2 added.
 
 The gate is the proof that matters for the four superseded readers: the pinned
 corpus holds one document of each of mission_valley, dakota_west, midflorida
