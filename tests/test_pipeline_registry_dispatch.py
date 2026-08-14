@@ -123,9 +123,14 @@ def test_a_formal_statement_is_not_flagged():
     assert "not_a_formal_statement" not in integrity.flags
 
 
-def test_only_the_export_registration_is_informal():
+def test_exactly_two_registrations_are_informal():
+    """The second, `found_lead_activity`, was added by W3 §FINTECH: a Found
+    month-to-date view printing the issuer's own sentence that it "is not a
+    bank statement". The set is pinned literally in both places that assert it
+    (see tests/test_parser_registry_entries.py) because `formal_statement=False`
+    costs every document of a class its automatic approval."""
     informal = [reg.id for reg in pr.registrations() if not reg.formal_statement]
-    assert informal == ["chase_export"]
+    assert informal == ["chase_export", "found_lead_activity"]
 
 
 # ---------------------------------------------------------------------------

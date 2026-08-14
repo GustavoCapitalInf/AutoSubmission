@@ -53,6 +53,12 @@ FIXTURES: dict[str, str] = {
         "Sommaire de votre compte\n"
         "Montants déduits de votre compte ($) Montants ajoutés à votre compte ($)\n"
     ),
+    "brex": (
+        "support@brex.com Account Statement\n"
+        "Account Summary\nThis Period Year-to-Date\n"
+        "Beginning Account Balance\nEnding Account Balance\n"
+        "Date From Method Amount\n"
+    ),
     "bmo_us_activity": (
         "BMO BANK N.A. MEMBER FDIC\nbmo.com/contact\n"
         "Account Summary\nBEGINNING BALANCE AS OF\nMonthly Activity Details\n"
@@ -93,8 +99,34 @@ FIXTURES: dict[str, str] = {
         "WWW.FFBT.COM\nBUSINESS BASIC CHECKING ACCOUNT\n"
         "BALANCE LAST STATEMENT\nTOTAL DAYS IN STATEMENT PERIOD\n"
     ),
+    "found_lead": (
+        "Found is a financial technology company, not a bank.\n"
+        "Banking services are provided by Lead Bank, Member FDIC.\n"
+        "Account summary\n"
+        "Deposits & other credits\nPurchases & other debits\n"
+        "Date Description Amount Balance\n"
+    ),
+    # The same document class, plus the one sentence in which the issuer
+    # refuses the word "statement". That line is the whole difference between
+    # the two registrations, and the cross-product below is what proves it is
+    # enough to keep them apart.
+    "found_lead_activity": (
+        "Found is a financial technology company, not a bank.\n"
+        "Banking services are provided by Lead Bank, Member FDIC.\n"
+        "Account summary\n"
+        "Deposits & other credits\nPurchases & other debits\n"
+        "Date Description Amount Balance\n"
+        "The information in this document is not a bank statement and therefore should not be relied upon as a bank statement.\n"
+    ),
     "ibc": "IBC\nBiz Rite Account Recap\n",
     "linkbank": "LINKBANK.COM\nActivity in Date Order\n",
+    "mercury": (
+        "Mercury | help@mercury.com\n"
+        "Account details\nAccount activity\n"
+        "Statement balance\n"
+        "Banking services provided by Member FDIC\n"
+        "Date (UTC) Description Type Amount End of Day Balance\n"
+    ),
     "midflorida": "midflorida.com\nFree Business Checking\n",
     "mission_valley": "Mission Valley Bank\nOnline Banking www.missionvalleybank.com\n",
     "navigant": (
