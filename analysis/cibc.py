@@ -15,9 +15,9 @@ import re
 from datetime import date
 
 from .money import parse_french_amount, parse_money
-from .parser_registry import make_detector, required
+from .parser_registry import excluding, make_detector, required
 from .schema import Statement, Transaction
-from .tables import read_grid_rows
+from .tables import glyph_damaged, read_grid_rows
 
 _MONTHS = {
     "jan": 1,
@@ -244,6 +244,7 @@ _EN_FOOTER_RE = re.compile(
 _EN_MONEY_TAIL_RE = re.compile(r"[\d,]+\.\d{2}$")
 
 EN_DETECTION_MARKERS = (
+    excluding("glyph_damage", glyph_damaged),
     required("bank_name", lambda t: "CIBC ACCOUNT STATEMENT" in t),
     required("activity_section", lambda t: "TRANSACTION DETAILS" in t),
     required("activity_header", lambda t: bool(_EN_GRID_RE.search(t))),

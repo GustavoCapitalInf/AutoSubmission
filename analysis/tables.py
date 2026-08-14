@@ -44,6 +44,7 @@ __all__ = [
     "section_between",
     "group_rows",
     "read_grid_rows",
+    "glyph_damaged",
 ]
 
 _Item = TypeVar("_Item")
@@ -180,6 +181,47 @@ def section_between(markdown: str, start: str, end: str) -> str:
     """
     m = re.search(start + r"(?P<body>.*?)" + end, markdown, re.IGNORECASE | re.DOTALL)
     return m.group("body") if m else ""
+
+
+#: A word with digits welded inside it between letters — `A11ount` for
+#: "Account", `4t5t060nt` for "Statement". A PDF whose embedded font carries a
+#: broken character map extracts like this: the glyphs are right, the codepoints
+#: they map to are not, and the substitution lands indiscriminately on letters
+#: and digits alike.
+_GLYPH_SUBSTITUTED_RE = re.compile(r"(?i)\b[a-z]+\d+[a-z]+\b")
+#: Ordinary alphabetic vocabulary, the denominator.
+_PLAIN_WORD_RE = re.compile(r"(?i)\b[a-z]{3,}\b")
+#: Above this share of substituted words the text layer is not readable. The
+#: surveyed populations do not come close to overlapping: 858 documents (the
+#: 160 claimed RBC/CIBC, 80 unclaimed ones that must still be claimable, and a
+#: 618-document stratified sample of every other issuer) top out at 0.036,
+#: while the four documents with a broken CMap run 0.30 to 0.45. The threshold
+#: sits an order of magnitude clear of both.
+_GLYPH_DAMAGE_LIMIT = 0.15
+#: Below this much vocabulary the ratio is noise rather than evidence.
+_GLYPH_DAMAGE_MIN_WORDS = 20
+
+
+def glyph_damaged(text: str) -> bool:
+    """Is this text layer's character map broken beyond being readable?
+
+    Detection normally fails safe on such a document, because the furniture a
+    parser looks for is corrupted along with everything else. The danger is the
+    document that corrupts its *body* while leaving the one string a parser
+    keys on intact: these four print `ROYAL BANK OF CANADA` perfectly and then
+    render seventeen thousand dollars as `17J000-00`. A gate widened for some
+    other reason would claim them and publish the corrupted figures, which is
+    worse than not reading them at all.
+
+    So admissibility is asserted rather than assumed, and it is asserted on the
+    damage itself rather than on any particular parser's markers: a statement
+    whose own words have digits substituted into them is not a statement this
+    platform can read, whoever printed it.
+    """
+    plain = len(_PLAIN_WORD_RE.findall(text))
+    if plain < _GLYPH_DAMAGE_MIN_WORDS:
+        return False
+    return len(_GLYPH_SUBSTITUTED_RE.findall(text)) / plain > _GLYPH_DAMAGE_LIMIT
 
 
 #: The cents group every printed amount ends with, in either locale

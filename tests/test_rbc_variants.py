@@ -965,3 +965,102 @@ def test_c_negative_without_the_declaration_the_row_is_left_whole():
         body="5 mars Chèque - 253 127,40 872,60\n"))
     assert stmt is not None
     assert amounts(stmt) == [-253127.40]
+
+
+# ---------------------------------------------------------------------------
+# Card F1 — the mangled-font guard.
+#
+# Four archive documents carry a broken character map. Their glyphs are right
+# and their codepoints are not, so the text layer prints `ROYAL BANK OF CANADA`
+# perfectly and renders seventeen thousand dollars as `17J000-00`. Detection
+# fails safe on them today only because the furniture it looks for is corrupted
+# too; a gate widened for any other reason would claim them and publish the
+# corrupted figures. The guard makes that structurally impossible.
+# ---------------------------------------------------------------------------
+
+MANGLED = """
+ROYAL BANK OF CANADA P.O. BOX 404( )ER,-./0 / )ORO.)O O. ,12 101
+Bu-in0-- A11ount 4t5t060nt
+4567589 2(, 2026 to FeA87589 2(, 2026
+A11ount nu6C07D 0F6H8 F00-KLK-M
+A11ount 4u66578 9o7 t:i- P07iod
+)pening bABAnCe 9n DAnEAFG HIJ H0HL M17-I6
+49NAB Oep9PiNP & CFeOiNP R.S T 17J000-00
+49NAB CheqEeP & OebiNP R6S - LJH68-00
+A11ount A1tiPit8 D0t5il-
+D)=e De$crip=io& Cheq.e$ A De(i=$ B6C Depo$i=$ A CreDi=$ B6C B)l)&ce B6C
+Fpe&i&g ()l)&ce 18:14
+0H Yeb +CC9EnN ZAGAbBe ZmN H16L1U1 )N4+1$) 5J000-00
+5iPC ZAGmenN Z+Y-Y$(2 Y22S H-00 5J013-74
+59nNhBG fee L-00 5J007-74
+Clo$i&g ()l)&ce 10,767.74
+"""
+
+
+def test_f1_a_broken_character_map_is_refused_however_intact_the_bank_name():
+    """The bank name reads perfectly and the money does not. Publishing this
+    document's figures would be worse than not reading it at all."""
+    from analysis.tables import glyph_damaged
+
+    assert "ROYAL BANK OF CANADA" in MANGLED
+    assert glyph_damaged(MANGLED)
+
+
+def test_f1_the_damaged_document_is_excluded_by_every_registration_here():
+    from analysis.cibc import detect_en
+    from analysis.rbc import detect, detect_french
+
+    for detector in (detect, detect_french):
+        detection = detector(MANGLED)
+        assert not detection.claims
+        assert detection.excluded_by == "glyph_damage"
+    assert not detect_en(MANGLED).claims
+    assert parse_rbc_statement(MANGLED) is None
+
+
+def test_f1_the_guard_survives_a_gate_widened_to_the_intact_bank_name():
+    """The point of an EXCLUDING marker rather than a parse-time refusal: it
+    returns 0.0 before any other marker is scored, so a future marker that
+    happened to match this text still cannot produce a claim."""
+    from analysis.parser_registry import required, score_markers
+    from analysis.tables import glyph_damaged
+    from analysis.rbc import DETECTION_MARKERS
+
+    widened = DETECTION_MARKERS + (required("anything", lambda t: True),)
+    assert score_markers(widened, MANGLED.upper()).claims is False
+    assert glyph_damaged(MANGLED.upper())
+
+
+def test_f1_negative_a_healthy_statement_is_not_refused():
+    from analysis.tables import glyph_damaged
+
+    healthy = statement(
+        "02 Mar Deposit item 1,000.00 2,000.00\n",
+        opening="1,000.00", closing="2,000.00",
+        credits="1,000.00", credit_count=1, debits="0.00", debit_count=0,
+    )
+    assert not glyph_damaged(healthy)
+    assert parse_rbc_statement(healthy) is not None
+
+
+def test_f1_negative_reference_codes_and_hashes_are_not_damage():
+    """Real statements are full of letter-digit tokens — `E-TRANSFER105685026661`,
+    `MRCH29473680015`, a 32-character autodeposit hash. None of them is a word
+    with digits substituted INTO it, and the surveyed populations top out at
+    0.036 against a 0.15 limit."""
+    from analysis.tables import glyph_damaged
+
+    noisy = statement(
+        "02 Mar e-Transfer - Autodeposit ALI 3fa83159d62b456a96179bd988551150 100.00 1,100.00\n"
+        "03 Mar Misc Payment MRCH29473680015 29473680015 50.00 1,050.00\n"
+        "04 Mar E-TRANSFER105685026661 recipient 4506*********163 50.00 1,000.00\n",
+        opening="1,000.00", closing="1,000.00",
+        credits="100.00", credit_count=1, debits="100.00", debit_count=2,
+    )
+    assert not glyph_damaged(noisy)
+
+
+def test_f1_negative_a_short_document_is_not_judged_on_a_noisy_ratio():
+    from analysis.tables import glyph_damaged
+
+    assert not glyph_damaged("A11ount 4t5t060nt")

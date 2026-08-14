@@ -5,9 +5,9 @@ import unicodedata
 from datetime import date
 
 from .money import parse_french_amount, parse_money
-from .parser_registry import make_detector, required
+from .parser_registry import excluding, make_detector, required
 from .schema import Statement, Transaction
-from .tables import group_rows, read_grid_rows
+from .tables import glyph_damaged, group_rows, read_grid_rows
 from .td_can import _MONTHS, normalize_mojibake
 
 _PERIOD_RE = re.compile(
@@ -218,6 +218,9 @@ def french_detection_text(markdown: str) -> str:
 _ACTIVITY_HEADINGS = ("ACCOUNT ACTIVITY DETAILS", "DETAILS OF YOUR ACCOUNT ACTIVITY")
 
 DETECTION_MARKERS = (
+    # A text layer whose own words have digits substituted into them is not
+    # readable, however intact the bank name happens to be (W3 §RBCCIBC F1).
+    excluding("glyph_damage", glyph_damaged),
     required("bank_name", lambda t: "ROYAL BANK OF CANADA" in t),
     required("activity_section", lambda t: any(h in t for h in _ACTIVITY_HEADINGS)),
 )
@@ -237,6 +240,7 @@ _FR_ACTIVITY_GRID_RE = re.compile(
     r"DATE DESCRIPTION CH.QUES ET D.BITS", re.IGNORECASE)
 
 FRENCH_DETECTION_MARKERS = (
+    excluding("glyph_damage", glyph_damaged),
     required("bank_name", lambda t: "BANQUE ROYALE" in t),
     required("activity_header", lambda t: bool(_FR_ACTIVITY_GRID_RE.search(t))),
 )

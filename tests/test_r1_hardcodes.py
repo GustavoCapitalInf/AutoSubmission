@@ -317,21 +317,27 @@ class TestChaseRemoteDepositRepair:
 # Item 7 - RBC: no counterparty sign knowledge; French parser generalized
 # ---------------------------------------------------------------------------
 
+#: The furniture the French statements actually print. This template used to
+#: invent a `Date Description Retraits` header — which is CIBC's French header,
+#: not RBC's — and the detection marker had been written to match it, so
+#: `rbc_french` claimed no document anywhere in the archive while these tests
+#: passed. Corrected with the marker in W3 §RBCCIBC card C; the year-resolution
+#: and mojibake properties these tests exist for are unchanged.
 RBC_FR_TEMPLATE = """
-Relevé de votre compte forfait bancaire personnel RBC
+Relevé de compte d'entreprise
 Banque Royale du Canada
 Du 3 {start_month} {start_year} au 2 {end_month} {end_year}
-Sommaire de votre compte pour cette période
-Votre solde d'ouverture le 3 {start_month} {start_year} 1 000,00 $
-Total des dépôts dans votre compte + 500,00
-Total des retraits de votre compte - 300,00
-Votre solde de clôture le 2 {end_month} {end_year} = 1 200,00 $
-Détails de l'activité du compte
-Date Description Retraits ($) Dépôts ($) Solde ($)
+Sommaire du compte pour cette période
+Solde d'ouverture le 3 {start_month} {start_year} 1 000,00 $
+Total des dépôts et des crédits (1) + 500,00
+Total des chèques et des débits (1) - 300,00
+Solde de clôture le 2 {end_month} {end_year} = 1 200,00 $
+Détails des opérations passées au compte
+Date Description Chèques et débits ($) Dépôts et crédits ($) Solde ($)
 Solde d'ouverture 1 000,00
 5 {start_abbr} Dépôt reçu client 500,00 1 500,00
 12 {start_abbr} Paiement fournisseur 300,00 1 200,00
-Solde de clôture de votre compte 1 200,00
+Solde de clôture 1 200,00
 """
 
 
