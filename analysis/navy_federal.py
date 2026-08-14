@@ -41,6 +41,15 @@ _SUMMARY_HEADING = "Summary of your deposit accounts"
 _PRODUCT_LINE_RE = re.compile(r"[A-Za-z][A-Za-z0-9&'./ -]{0,30}?(?:Checking|Savings)")
 _ACCOUNT_LINE_RE = re.compile(r"(\d{6,})(?:\s|$)")
 
+#: The transaction grid's printed column header. It matters here because the
+#: text extractor sometimes merges a section's caption onto the end of it, so
+#: "the caption is at the start of its line" and "the caption follows this
+#: header" are the same structural position seen twice. The tokens are the
+#: ones `_line_is_noise` already knows as grid furniture.
+_GRID_HEADER = (
+    r"(?:Date\s+Transaction Detail\s+Amount\(\$\)\s+Balance\(\$\)\s+)?"
+)
+
 #: Any account's section heading, "<product> - <account>", on its own line.
 #: One account's section ends where the next one's begins, whatever product
 #: that next one is - including products that never appear in the deposit
@@ -86,8 +95,28 @@ def _checking_account(markdown: str) -> tuple[str, str] | None:
     single-account extraction schema (L-1) has no way to say so - publishing
     either one as "the" account would present half a statement as the whole
     of it. The reading is accepted only when the transaction detail confirms
-    it by printing the same product and account as a section heading, so the
+    it by printing the same product and account as a section HEADING, so the
     product name rests on two independent printings, not one.
+
+    The confirmation is POSITION-anchored, not a substring test. A bare
+    `f"{product} - {account}" in markdown` is satisfied by any prose that
+    happens to mention the pair, so it would confirm a reading the document
+    never printed as a heading - the whole point of asking for a second
+    printing.
+
+    A heading occupies one of exactly two positions, and both are the caption
+    of a transaction grid: the start of its own line, or immediately after the
+    grid's column header on the line the extractor merged it into
+    (`Date Transaction Detail Amount($) Balance($) Business Checking - 1234`).
+    What may FOLLOW it is left open - a continuation marker, a stray column
+    word - because that is downstream of the caption and varies. What may
+    precede it is the whole test, and a sentence cannot precede it.
+
+    Note this is deliberately NOT `_SECTION_HEADING_RE`, the whole-line pattern
+    used for section boundaries below. Requiring the heading to BE the entire
+    line is too strong: it refuses three documents in the cohort whose caption
+    the extractor merged into the column-header line, all three of which
+    validate. That is measured, not assumed - see the W3 log, DC10.3.
     """
     checking = [
         (product, account)
@@ -97,7 +126,11 @@ def _checking_account(markdown: str) -> tuple[str, str] | None:
     if len({product for product, _ in checking}) != 1:
         return None
     product, account = checking[0]
-    return (product, account) if f"{product} - {account}" in markdown else None
+    heading = f"{product} - {account}"
+    confirmed = re.search(
+        r"(?m)^" + _GRID_HEADER + re.escape(heading) + r"(?!\d)", markdown
+    )
+    return (product, account) if confirmed else None
 
 
 def _summary(markdown: str) -> tuple[str, str, float, float, float, float] | None:

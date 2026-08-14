@@ -101,6 +101,22 @@ def test_bluevine_month_spelling_changes_nothing_else():
     ]
 
 
+def test_bluevine_declines_a_day_the_month_does_not_have():
+    """B1 fail-closed: "Feb. 30" is date-SHAPED and is not a date.
+
+    `_LONG_DATE` admits `\\d{1,2}` as the day, so this reaches `date()`, which
+    raises ValueError. An escaping ValueError is a `parser_exception` — a
+    crash — where this document deserves a named decline. Both are terminally
+    non-publishing; only one puts the document in the right queue.
+    """
+    assert parse_bluevine_statement(
+        BLUEVINE_FULL_MONTH.replace(
+            "(January 1, 2026 - January 31, 2026)",
+            "(Feb. 1, 2026 - Feb. 30, 2026)",
+        )
+    ) is None
+
+
 def test_bluevine_declines_a_month_it_does_not_recognise():
     """A period-shaped phrase headed by a word that is not a month is a
     DECLINE, not an exception: the parser must fail closed, never crash."""
@@ -166,15 +182,30 @@ def test_relay_glyph_statement_matches_the_printed_one():
 
 def test_relay_refuses_a_statement_whose_signs_are_the_wrong_way_round():
     """R1 ablation, the load-bearing one: the sign mapping is not trusted, it
-    is CERTIFIED by the balance walk. Swap the two sign glyphs and the walk
-    cannot reach the printed closing balance, so nothing is published."""
-    inverted = (
-        RELAY_PRINTED_SIGNS
-        .replace("+$", "\ue088$")      # deliberately mapped to "-"
-        .replace("-$", "\ue09d$")      # deliberately mapped to "+"
-    )
+    is CERTIFIED by the balance walk.
 
-    assert parse_relay_statement(inverted) is None
+    The inversion is applied to the TRANSACTION ROWS ONLY and the printed
+    summary is left exactly as it is. That distinction is the whole test. An
+    earlier version rewrote every `+$`/`-$` in the document, summary included,
+    so the summary pattern (which requires a literal `+` before Deposits and
+    `-` before Withdrawals) failed first and the parser returned None before
+    reading a single row \u2014 it passed against a tree with the entire balance
+    walk deleted, and therefore certified nothing.
+
+    With the summary intact the parser reaches the walk with a ledger whose
+    signs are backwards: opening 100.00 + (-500.00) cannot be the printed
+    600.00, so it stops at the first row it touches.
+    """
+    rows_inverted = (
+        RELAY_PRINTED_SIGNS
+        .replace("Settled +$", "Settled \ue088$")   # deliberately mapped to "-"
+        .replace("Settled -$", "Settled \ue09d$")   # deliberately mapped to "+"
+    )
+    # The summary must still be readable, or this test proves nothing again.
+    assert "Deposits +$500.00" in rows_inverted
+    assert "Withdrawals -$200.00" in rows_inverted
+
+    assert parse_relay_statement(rows_inverted) is None
 
 
 def test_relay_glyph_restoration_leaves_ordinary_text_alone():
@@ -318,6 +349,43 @@ def test_navy_federal_stops_a_section_at_the_next_account_heading():
     # The savings section's own beginning balance is not in the checking walk.
     assert len(statement.transactions) == 2
     assert statement.stated_average_balance == 1050.00
+
+
+def test_navy_federal_ignores_a_prose_mention_of_the_heading():
+    """N1: the second printing must be a HEADING, not any prose that happens
+    to name the pair.
+
+    The statement's transaction detail is replaced by a sentence mentioning
+    "EveryDay Checking - 7000000001" mid-line. A substring test is satisfied
+    by that and would confirm a reading the document never printed as a
+    heading; the line-anchored test is not, and the document is refused.
+    """
+    prose_only = _navy_federal("EveryDay Checking").replace(
+        "EveryDay Checking - 7000000001\n",
+        "Questions about EveryDay Checking - 7000000001 may be directed to us.\n",
+    )
+
+    assert "EveryDay Checking - 7000000001" in prose_only      # substring: yes
+    assert parse_navy_federal_statement(prose_only) is None    # heading: no
+
+
+def test_navy_federal_accepts_a_caption_merged_into_the_column_header():
+    """N1: the second printing may sit at the END of the grid's column-header
+    line, which is where the text extractor puts it on three cohort documents
+    that validate. Requiring the caption to BE the whole line refuses them.
+    """
+    merged = _navy_federal("Business Checking").replace(
+        "Date Transaction Detail Amount($) Balance($)\n"
+        "Business Checking - 7000000001\n",
+        "Date Transaction Detail Amount($) Balance($) "
+        "Business Checking - 7000000001 (Continued from previous page)\n",
+    )
+
+    statement = parse_navy_federal_statement(merged)
+
+    assert statement is not None
+    assert statement.account_number == "7000000001"
+    assert [t.amount for t in statement.transactions] == [-200.00, 300.00]
 
 
 def test_navy_federal_refuses_two_different_checking_products():

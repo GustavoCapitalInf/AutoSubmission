@@ -8482,6 +8482,17 @@ The old `datetime.strptime(..., "%B %d, %Y")` also **raised** on an unreadable
 month rather than declining — a `parser_exception`, not a decline. The reader
 returns None now and the document fails closed.
 
+**Correction (DC10.4): that property was documented before it was true.** The
+first version of `_long_date` said "never as an exception" while still calling
+`date(...)` unguarded, so an unreadable MONTH declined but an impossible DAY
+did not: the period pattern admits a one-or-two-digit day, so `Feb. 30, 2026`
+reached `date()` and raised `ValueError` — a crash, in a docstring that
+promised a decline. `date()` is now wrapped and the document declines.
+Terminally both were non-publishing, so no number was ever at risk; the defect
+was that a crash and a decline put the document in different queues, and the
+record claimed the better one. Fixture `test_bluevine_declines_a_day_the_month_
+does_not_have`.
+
 ## DC3. relay — a font that could not print a sign, and a row that wrapped
 
 ### R1. Four printed characters arriving in the private-use area (6 documents)
@@ -8513,15 +8524,46 @@ opening balance to the printed closing balance; the positive amounts sum
 exactly to the printed Deposits total; the negative amounts sum exactly to the
 printed Withdrawals total. Over the six documents that is a chain of 28 to 277
 links plus two exact totals. A sign read backwards breaks the chain at the
-first row it touches. The ablation is pinned:
-`test_relay_refuses_a_statement_whose_signs_are_the_wrong_way_round` feeds the
-same statement with the two sign glyphs swapped and asserts the parser
-publishes nothing.
+first row it touches. The ablation is pinned by
+`test_relay_refuses_a_statement_whose_signs_are_the_wrong_way_round`, which
+inverts the glyphs **in the transaction rows only, leaving the printed summary
+intact** — see DC10.1 for why that distinction is the whole test, and for the
+mutant that proves it load-bearing.
 
-The two brackets carry no arithmetic, so they rest on position instead: they
-occur only as a matched pair around an account's last four digits, in exactly
-the construct that statements from this platform whose font maps correctly
-print with parentheses (`Business Checking (8923) Transfer From`).
+**The two brackets are NOT certified, and an earlier version of this section
+claimed they were.** It said they "occur only as a matched pair around an
+account's last four digits". Measured across the six documents, that is false:
+
+| document | `U+E081` | `U+E082` | balanced | 4-digit pairs | other pairs |
+|---|---|---|---|---|---|
+| `0d8ac487_Income-July` | 29 | 29 | yes | 19 | 10 |
+| `0d8ac487_Income-June` | 44 | 44 | yes | 33 | 11 |
+| `1b7c38d5_Operations-May` | 72 | 72 | yes | 62 | 10 |
+| `a5314b98_03-2026` | 23 | 20 | **no** | 6 | 16 |
+| `a5314b98_05-2026-1` | 30 | 27 | **no** | 9 | 20 |
+| `a6deaa10_Relay (Partial)` | 28 | 28 | yes | 18 | 10 |
+
+The counts do not balance in two of six, and every document wraps things that
+are not an account's last four: disclosure numerals (`(10)`, `(60)`, `(90)`,
+`(3)`), a masked account number (`(XXXXXX-3373)`), and short tokens (`(CD)`,
+`(WM)`).
+
+What actually bounds the risk is **reach, not position: no number flows
+through these two glyphs.** `(` and `)` appear in no pattern this module reads
+a figure with — not the amount, not the balance, not the date, not
+`Account Number:\s*([X\d-]+)` — so they can only land in a row's label, which
+is description text. A wrong bracket mapping yields a cosmetically wrong
+description and cannot move a published figure. The only evidence for `(`/`)`
+is that statements from this platform whose font maps correctly print
+parentheses in the same construct (`Business Checking (8923) Transfer From`);
+that is suggestive, not proof, and it is now recorded as an assumption in both
+the code comment and here.
+
+One clarification the correction turned up: the SIGN glyphs do reach one
+non-arithmetic field. `U+E088` restores the hyphen in the masked account
+number, so `Account Number: XXXXXX<E088>3373` publishes as `XXXXXX-3373`.
+That is the certified glyph, so the field is sound — but the neat claim that
+"the certified glyphs touch only numbers" is not true either, and is not made.
 
 ### R1b. Is the glyph class platform-wide? Measured: no, and the answer is useful
 
@@ -8564,12 +8606,25 @@ line above.
 
 **Fail closed on attribution, not on arithmetic.** The balance walk would
 accept a mislabelled row perfectly happily — the amounts are right, only the
-description would be wrong — so the label rule cannot lean on it. A wrapped row
-is attributed only when the line above CAN be a label: not another row, not
-already consumed, and not the OCR page separator or the platform's page footer.
-Under page furniture the label is on the far side of a page break and the
-document is refused. `test_relay_refuses_a_wrapped_row_whose_label_is_page_
-furniture` pins it.
+description would be wrong — so the label rule cannot lean on it.
+
+**What the rule is, stated accurately** (an earlier version of this paragraph
+implied more than the code does). It is a **blacklist of exactly two furniture
+shapes** — the OCR page separator `--- Page N ---` and the platform footer
+`Page N of M` — plus the structural fact that a line already consumed as a row
+is cleared, so a row can never be another row's label. It is **not** a
+positive test that the line above looks like a transaction label. Any other
+non-row line directly above a wrapped row is accepted as its label, so a piece
+of furniture this pattern does not name would be taken as a description.
+
+The exposure is bounded and worth stating exactly: the wrapped row's own date,
+amount and balance are read from the wrapped line itself and still have to
+survive the balance walk, so a mislabelling costs a wrong description and
+never a wrong figure. Upgrading to a positive label test is recorded as a
+residual (DC7.6) rather than guessed at — it needs a characterisation of what
+a label looks like across the population, and three documents cannot supply
+one. `test_relay_refuses_a_wrapped_row_whose_label_is_page_furniture` pins the
+blacklist half.
 
 ## DC4. navy_federal — the product, read from the document
 
@@ -8758,6 +8813,19 @@ movement without a validated gain, reverting is one commit — but the navy
 federal hardcode removal is R-1 class debt and its removal is the point of the
 card.
 
+**DC7.6 — RESIDUAL: relay's wrapped-row label rule is a two-item furniture
+blacklist, not a positive label test.** Raised by adversarial review (finding
+B) and recorded rather than fixed. Today a wrapped row takes the line above as
+its label unless that line is the OCR page separator or the platform footer;
+any other unnamed furniture would become a description. Cost is bounded to a
+wrong description — the row's date, amount and balance come from the wrapped
+line and still face the balance walk — so this is a quality residual, not a
+correctness one. A positive test needs a characterisation of what a label
+looks like across the whole relay population; the three documents in this cell
+cannot supply it, and inventing one from three samples is how a blacklist
+becomes a wrong whitelist. Recommend it rides with whoever next has relay
+volume.
+
 **DC7.5 — the scout's `navy_federal` estimate was 9 recoverable; the measured
 answer is 0 validated.** The gap is not a missing capability, it is four
 documents the ADB gate refuses and five refused on rules the handoff itself
@@ -8794,7 +8862,7 @@ Exit codes verbatim.
 
     # the cell's own shapes
     $ python -m pytest tests/test_declines_c_variants.py -q
-    17 passed
+    20 passed
 
     # instrument calibration, before any production edit
     documents 94  agree 94  disagree 0        (vs run of record 88be9dd3)
@@ -8836,4 +8904,163 @@ per-document instrument, which was calibrated against the run of record first.
 | `91eb98c` | relay — restore the printed signs, and read a row whose label wrapped (9 documents) |
 | `d201790` | navy_federal — read the product from the document, not from the parser |
 | `362c98b` | the six shapes, as synthetic structural reproductions (17 tests) |
-| (this one) | §DECLINES-C DC0–DC9 |
+| `d5ee820` | §DECLINES-C DC0–DC9 |
+| (this one) | DC10 — amendments from adversarial review |
+
+## DC10. Amendments from adversarial review
+
+Ocean's verdict was **SHIP conditional**. The code held — the reviewer built a
+mutant with relay's entire balance-walk certification deleted and confirmed
+the shipped parser still refuses a rows-only sign inversion — but **two of the
+evidence items did not**, and both were mine. Recorded in full because a cell
+whose thesis is "measured, not assumed" has to hold its own prose to that.
+
+**DC10.1 — the vacuous pin (required, fixed).** The sign ablation rewrote
+every `+$`/`-$` in the document, the printed SUMMARY included. The summary
+pattern requires a literal `+` before Deposits and `-` before Withdrawals, so
+the parser returned None at the summary regex **before reading a single row**.
+The test therefore passed for the wrong reason, and would have passed against
+a tree with the entire certification deleted — it proved nothing, while
+sitting under a docstring calling itself "the load-bearing one".
+
+Rewritten to invert the ROW glyphs only (`Settled +$` / `Settled -$`), leaving
+the summary intact, plus two asserts that the summary survived so the test
+cannot silently go vacuous again. Verified against the reviewer's mutant,
+reproduced independently here:
+
+    inversion                                       shipped       mutant
+    rows-only inversion (the NEW ablation)             None    STATEMENT
+    whole-document inversion (the OLD ablation)        None         None
+
+    NEW ablation kills the mutant : True
+    OLD ablation kills the mutant : False
+    shipped still reads the honest statement: True
+
+The mutant is built by deleting the balance walk, the closing-balance check
+and the two exact total checks from a compiled-in-memory copy of `relay.py`;
+nothing was written to the worktree.
+
+**DC10.2 — the bracket claim was false (required, corrected).** DC3/R1 and
+`relay.py` both asserted the bracket glyphs were "proven by position — only a
+matched pair around an account's last four digits". Measurement refutes it:
+unbalanced open/close counts in two of six documents, 10–20 non-conforming
+pairs per document. Both records now state the truth — an **uncertified
+assumption**, bounded by reach rather than position, because no number flows
+through `(`/`)`. Full table and reasoning in DC3/R1.
+
+**DC10.3 — the navy_federal second-print check was a substring test
+(hardening, applied — but NOT as specified, and that matters).**
+`f"{product} - {account}" in markdown` is satisfied by prose that merely
+mentions the pair, which defeats the point of demanding a second printing.
+The finding is correct and the check is now position-anchored.
+
+**The prescribed remedy could not ship, and the cohort is why.** The condition
+asked for the existing whole-line `_SECTION_HEADING_RE`, described as a
+one-token change with no behaviour change. Applied literally it **regressed
+three currently-validated documents** — caught by re-sweeping all 94 cohort
+documents after the amendment rather than trusting the description:
+
+    Unidentified/1db08d32_Mode March 2026 Bank Statement.pdf   validated -> failed
+    Unidentified/4a83173e_may_2026_monthly_statement.pdf       validated -> failed
+    Unidentified/73b975d3_June2026MonthlyStatement.pdf         validated -> failed
+
+In those three the text extractor merges the section caption onto the end of
+the grid's column-header line, so the caption is never a whole line:
+
+    Date Transaction Detail Amount($) Balance($) Business Checking - 7137039603
+    Date Transaction Detail Amount($) Balance($) Business Checking - 7196281617 Checking
+    Business Checking - 7216974365 (Continued from previous page)
+
+The shipped rule anchors on the two positions a caption actually occupies —
+**line start, or immediately after the grid column header** — and leaves what
+FOLLOWS it open, because a continuation marker or a stray column word is
+downstream of the caption and varies. What may PRECEDE it is the whole test,
+and a sentence cannot. That is strictly stronger than the substring test it
+replaces and does not refuse a document the platform reads today.
+
+Fixtures both ways:
+`test_navy_federal_ignores_a_prose_mention_of_the_heading` (refused) and
+`test_navy_federal_accepts_a_caption_merged_into_the_column_header`
+(accepted). Cohort re-swept after the change: 94/94 unchanged, zero
+audited-field drift.
+
+Recorded plainly because it is the second time in this cell that a
+confidently-described claim did not survive measurement — the first was mine
+(DC10.2), this one was the review's. The lesson is the same either way: the
+94-document re-sweep is cheap and the description of a change is not evidence
+about it.
+
+**DC10.4 — bluevine crashed on an impossible date (hardening, applied).** The
+docstring promised "never as an exception"; `Feb. 30` raised. `date()` is now
+guarded and the document declines. Detail in DC2.
+
+**DC10.5 — the wrapped-row rule was overstated (corrected).** Finding B: it is
+a two-item furniture blacklist, not a positive label test. DC3/R2 now says so;
+the upgrade is residual DC7.6.
+
+Two of the five are corrections to claims rather than to code, which is the
+part worth carrying forward: the parsers were right and the write-up was not,
+and only a reviewer who ran the mutant could tell the difference.
+
+### DC10.6 Proofs of the amendments
+
+    $ python -m pytest tests/test_declines_c_variants.py -q
+    20 passed
+    EXIT=0
+
+    $ python -m pytest tests/test_no_statement_hardcodes.py \
+        tests/test_parser_conformance.py tests/test_parser_registry_entries.py \
+        tests/test_shared_parser_utils.py tests/test_adjudication.py -q
+    784 passed
+    EXIT=0
+
+    $ python -m pytest -q -k "relay or bluevine or navy"
+    71 passed, 2980 deselected
+    EXIT=0
+
+    $ python -m pytest -q
+    3033 passed, 18 deselected
+    EXIT=0
+
+    # the ablation, against the certification-deleted mutant
+    NEW ablation kills the mutant : True
+    OLD ablation kills the mutant : False
+    shipped still reads the honest statement: True
+
+    # all 94 cohort documents re-swept at the amended state
+    outcome movement vs the reviewed tree : 0
+    audited-field drift                   : 0
+    vs the run of record: 21 failed->validated, 4 failed->withheld,
+                          60 validated preserved, 1 withheld preserved
+
+The cohort re-sweep is the one that earned its keep: it is what caught DC10.3
+regressing three documents, and what confirms the shipped anchor does not.
+
+**The pinned corpus, checked directly.** The amendments change parser
+behaviour, and six of the pinned 109 belong to these three parsers — four Navy
+Federal (one of them overdrawn at `-28.08`, so the trailing-minus reading is
+exercised), one Bluevine, one Relay. Those six were parsed from the gate's own
+`source_markdown` under the BASE code and under HEAD and compared field by
+field, transactions included:
+
+    SAME  Navy Fed/APRIL 2026.pdf                          txns=80
+    SAME  Navy Fed/JUNE 2026.pdf                           txns=63
+    SAME  Navy Fed/MARCH 2026.pdf                          txns=5
+    SAME  Navy Fed/MAY 2026.pdf                            txns=87
+    SAME  Others/Bluevine/bluevine_Statement_2026-04-02…    txns=195
+    SAME  Others/Relay Operations-June-2026.pdf            txns=176
+
+    pinned documents owned by these parsers: 6
+    field-identical base vs HEAD           : 6   (606 transactions, row by row:
+                                                  date, description, amount,
+                                                  direction, running balance)
+    differing                              : 0
+
+Every other pinned document belongs to a parser this cell never touched, so
+the gate has nothing left it could move. The full `corpus_gate.py` run is
+queued behind three other cells' gates on a machine running fourteen Python
+processes (205 of the ~1,200 CPU-seconds it needs at the time of writing) and
+is NOT reported here as green — it was GREEN on the reviewed tree (`d5ee820`,
+106 PASS / 3 WITHHELD), and the six-document check is the evidence offered for
+the amendments on top of it. Ocean should treat the gate as outstanding and
+re-run it at merge, which is where it belongs anyway.

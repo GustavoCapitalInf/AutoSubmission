@@ -26,17 +26,28 @@ _ROW_RE = re.compile(r"^(?P<label>.*?)\s+" + _ROW_TAIL)
 #: its own balance walk and is refused whole.
 _CONTINUATION_RE = re.compile(r"^" + _ROW_TAIL)
 
-#: Document furniture that is never a transaction's label: the OCR page
-#: separator, and the platform's per-page footer line. A wrapped row sitting
-#: directly under either of these has its label on the far side of a page
-#: break, where this reader cannot reach it.
+#: A BLACKLIST of exactly two furniture shapes, and no more than that: the OCR
+#: page separator and the platform's per-page footer. A wrapped row sitting
+#: directly under either has its label on the far side of a page break, where
+#: this reader cannot reach it, so the document is refused.
+#:
+#: Be clear about what this is NOT: it is not a positive test that the line
+#: above LOOKS like a transaction label. Any other non-row line directly above
+#: a wrapped row is accepted as its label, so furniture this pattern does not
+#: name would be taken as a description. That is bounded - a wrong label is a
+#: wrong description, never a wrong figure, because the row's own date, amount
+#: and balance are read from the wrapped line itself and still have to survive
+#: the balance walk - but it is a real gap. Upgrading to a positive label test
+#: is a recorded residual (W3 log, §DECLINES-C DC7.6); it needs a
+#: characterisation of what a label looks like across the population, which
+#: this cell's three documents cannot supply.
 _NOT_A_LABEL_RE = re.compile(r"^-{3} Page \d+|Page \d+ of \d+")
 
 
 #: Some Relay statements embed a subset font whose ToUnicode table leaves four
 #: glyphs unmapped, so characters the statement PRINTS arrive in the Unicode
-#: private-use area instead: the amount signs `+` and `-`, and the parentheses
-#: around an account's last four digits.
+#: private-use area instead: the amount signs `+` and `-`, and a pair of
+#: round brackets that appear throughout the document's text.
 #:
 #: The two SIGNS are not assumed - they are proven by the document's own
 #: arithmetic. Every row's running balance must chain exactly from the printed
@@ -46,10 +57,27 @@ _NOT_A_LABEL_RE = re.compile(r"^-{3} Page \d+|Page \d+ of \d+")
 #: chain at the first row it touches, so a mis-mapping cannot reach a
 #: published number: it declines the document instead.
 #:
-#: The two BRACKETS carry no arithmetic, so they are proven by position: they
-#: occur only as a matched pair around an account's last four digits, in the
-#: same construct that statements from this platform whose font maps correctly
-#: print with parentheses ("Business Checking (8923) Transfer From").
+#: The two BRACKETS are NOT certified by anything. They are an assumption, and
+#: an earlier version of this comment justified them by position - "only ever a
+#: matched pair around an account's last four digits" - which measurement
+#: refutes: across the six documents the open and close counts do not even
+#: balance in two of them (23/20, 30/27), and 10 to 20 pairs per document wrap
+#: something else entirely (disclosure numerals "(10)", "(60)", "(90)", a
+#: masked account "(XXXXXX-3373)", short tokens "(CD)", "(WM)").
+#:
+#: What bounds the risk is not position, it is REACH: no number flows through
+#: these two glyphs. `(` and `)` appear in no pattern this module matches a
+#: figure with - not the amount, not the balance, not the date, not
+#: `Account Number:\s*([X\d-]+)` - so the only fields they can reach are a
+#: row's label and the holder name, which are free text either way. A wrong
+#: bracket mapping produces a cosmetically wrong description or account name
+#: and cannot move a published figure. The evidence for
+#: `(`/`)` is only that statements from this platform whose font maps correctly
+#: print parentheses in the same construct ("Business Checking (8923) Transfer
+#: From"); that is suggestive, not proof, and it is recorded as such.
+#:
+#: Note the sign glyphs DO reach one non-arithmetic field: `U+E088` restores
+#: the hyphen in the masked account number. That glyph is the certified one.
 #:
 #: This lives here, at the reader, and not in `ocr/`: the mapping is a fact
 #: about ONE issuer's embedded font, not about PDF text extraction. A census

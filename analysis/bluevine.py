@@ -50,9 +50,14 @@ def _long_date(token: str) -> date | None:
     """"February 1, 2026" / "Feb. 1, 2026" -> a date, else None.
 
     None is "this is not a date I can read", which the caller treats as a
-    declined document - never as an exception. A month name outside the
-    vocabulary reaches here whenever the surrounding pattern matched something
-    date-shaped that is not a date.
+    declined document - never as an exception. Two ways in: a month name
+    outside the vocabulary, and a day the month does not have. The second is
+    the reason for the `try`. `_LONG_DATE` admits a one-or-two-digit day because
+    a statement period is not the place to encode a calendar, so "Feb. 30,
+    2026" reaches here; `date()` raises ValueError on it, and an escaping
+    ValueError is a `parser_exception` - a crash - where this document
+    deserves a named decline. Terminally both are non-publishing, but only one
+    of them is honest about which queue the document belongs in.
     """
     parts = _LONG_DATE_PARTS.fullmatch(token.strip())
     if not parts:
@@ -60,7 +65,10 @@ def _long_date(token: str) -> date | None:
     month = _MONTHS.get(parts.group(1).lower())
     if month is None:
         return None
-    return date(int(parts.group(3)), month, int(parts.group(2)))
+    try:
+        return date(int(parts.group(3)), month, int(parts.group(2)))
+    except ValueError:
+        return None
 
 
 DETECTION_MARKERS = (
