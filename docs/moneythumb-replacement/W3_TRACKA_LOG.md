@@ -8621,13 +8621,35 @@ issuer's words as its note. The figures are still published: each of the three
 carries a computed ADB, and `not_a_formal_statement` is the ONLY integrity flag
 any of them raises.
 
-The two registrations share this module and this reader, because the document
-class changes how the platform REPORTS the result and not how the grid is read.
-They cannot both claim: the disclaimer is a REQUIRED marker on one and an
-EXCLUDING marker on the other, so the closed-statement registration scores a
-hard **0.0** on a month-to-date document rather than merely falling short. No
-`supersedes` edge is needed and none is added — they are disjoint by
+**The boundary is the printed TITLE, and that is a correction.** This cell
+first split the two registrations on a flat uppercased substring of the
+disclaimer clause. Ocean's adversarial review proved that leaks in BOTH
+directions, and the second one is unsafe:
+
+* a closed statement that merely QUOTES the clause — a disclosure note, a
+  quoted policy — was wrongly demoted to review; and
+* the clause **split across a line wrap**, which is how the PDF actually breaks
+  flowed body text, made a real month-to-date document invisible to the
+  substring test: `found_lead` claimed it as `formal_statement=True` and the
+  platform published it **`validated/approved` with no flag at all** — asserting
+  a partial-period view was a closed bank statement, on a document that says
+  otherwise in words it happened to wrap.
+
+The title cannot wrap: it is a short generated line reprinted at the top of
+every page. So `Account Statement` is now REQUIRED on `found_lead` with
+`Activity (Month to Date)` EXCLUDING, and the reverse title REQUIRED on
+`found_lead_activity`; the disclaimer stays as corroboration on the
+month-to-date registration. The closed-statement registration therefore scores
+a hard **0.0** on a month-to-date document before any other marker runs,
+whatever its disclaimer looks like. Both leak directions are pinned, the
+wrapped-clause fixture exactly as the reviewer built it, and a third pins that
+a Found document printing NEITHER title is claimed by neither and fails closed.
+No `supersedes` edge is needed and none is added — they are disjoint by
 construction, and the conformance cross-product is what holds that.
+
+The two registrations share this module and this reader, because the document
+class changes how the platform REPORTS the result and not how the grid is
+read.
 
 ## FT5. Brex — two columns in the summary, and a dash that means zero
 
@@ -8663,6 +8685,19 @@ declaration, and a row whose sign disagrees with its grid is REPORTED as a
 contradiction rather than resolved by preferring one of them. Zero such rows in
 the six.
 
+**A `Deposited checks` appendix re-prints deposits the grid already booked.**
+One document ends with a headed section, no column header, listing two check
+deposits a second time in a different phrasing and a different date format
+(`02/25 Check from Rakuten $81.92` against the grid's `2/25 Rakuten Check`).
+Booking them doubles $756.92 against the bank's own total; stepping over them
+is the silent-drop defect this cell refuses everywhere else. Ocean's review
+found that this parser was doing the second — a dated posting outside an open
+grid was skipped here, where `mercury.py` and `found_lead.py` refuse. Now the
+heading is recognised and **every appendix row is checked against the ledger**:
+a row the grid never booked means a posting was dropped, and the document is
+refused rather than published short. A dated posting outside both the grids and
+the appendix is refused outright, which is the sibling convention.
+
 **A long counterparty name wraps.** The date and the name occupy one physical
 line and the Method and Amount land on the next. A row therefore opens at a
 date and stays open until an amount closes it; a second date arriving while a
@@ -8685,8 +8720,10 @@ REFUSED. Page furniture (which carries no trailing money) closes the grid
 normally, and the next page's column header reopens it. The converse is refused
 too: a posting row found OUTSIDE an open grid means the reader lost its place.
 
-The rule earned its place immediately. **Four defects in this cell's own code
-were caught by its own tests and by self-review, not by anyone else:**
+The rule earned its place immediately. **Three defects in this cell's own code
+were caught by its own tests and by self-review**, and a fourth item listed
+here in the first draft was NOT a defect fix — Ocean's review caught the
+overclaim, and it is corrected below:
 
 1. A Mercury posting row with no Type mark closed the grid and was silently
    dropped, because nothing followed it to trigger the refusal.
@@ -8697,16 +8734,29 @@ were caught by its own tests and by self-review, not by anyone else:**
    `parse` as a `ParserCrashError` in deterministic mode — the defect class
    `date_tokens.iso_or_none` exists to prevent and the one discovery hit on 17
    documents. Both now refuse.
-4. Mercury split its row at "the last money on the line". With the balance
-   column optional, a description ending in a money token is genuinely
-   ambiguous — `Alpha $5.00 -$10.00` reads equally well as (amount $5.00,
-   balance -$10.00) and as (description "Alpha $5.00", amount -$10.00, no
-   balance) — and a non-greedy pattern silently takes the first, publishing a
-   POSITIVE amount with a fabricated running balance. §RBCCIBC lost nine
-   documents to this exact shape. The row now splits at the printed Type mark,
-   which IS the column boundary. Measured: 0 of 2,696 descriptions contain a
-   money token, so no reading changes today — the pin is what stops the pattern
-   being simplified back.
+4. **CORRECTED — the row-split change was a clarification, not a fix.** The
+   first draft of this record claimed Mercury had been splitting rows at "the
+   last money on the line" and that the mark-split repaired it. It did not:
+   measured over nine ambiguous shapes, the earlier pattern (non-greedy body,
+   `\s+` separator, mandatory mark check) produced the IDENTICAL split on
+   every one — its `\s+` and the mark requirement already forced the correct
+   reading. The mark-split makes the column boundary structural rather than
+   emergent, which is worth having, but it fixed nothing and the fixture that
+   claimed to pin the repair passes against the old pattern too. Its docstring
+   now says so.
+
+   **And the mark-split introduced two defects of its own**, both found by
+   asking Ocean's question — does this really differ from what it replaced? —
+   and both now fixed and pinned by fixtures that DO discriminate:
+
+   * a row whose Description cell is EMPTY prints the mark straight after the
+     date; the pattern demanded a non-space character there, so the engine
+     backtracked and swallowed the DATE into the description, costing the row
+     its posting day and moving an end-of-day balance onto the wrong date;
+   * a row printing TWO icons left the first one **raw inside the published
+     description** — a font-private codepoint in a financial field. The glyph
+     is column furniture in every position and is now scrubbed in every
+     position.
 
 ## FT7. The Rho document — L-1, fail closed, recorded
 
@@ -8786,7 +8836,21 @@ the platform exists to prevent.
    re-made. The METHOD was adopted in full — certify by the document's own
    arithmetic, assume no mapping, ablate — and the resulting tests are stronger
    for being aimed at the real shape (FT2).
-9. **`found_lead_activity`'s bank label names a document class, not a bank.**
+9. **RESIDUAL — the Type|Amount boundary inside a row is still "last money".**
+   The mark fixes the Description|Type boundary structurally, but within the
+   tail that follows it the amount is still found as the money token that lets
+   the rest of the line match. A Type cell containing money would therefore be
+   mis-split. The surveyed Type vocabulary is words and masked card numbers
+   only — 0 of 2,696 contain money — so it is unreachable today; recorded
+   because the outer boundary's fix does not extend inward.
+10. **RESIDUAL — the month-word date guard is a NARROWING, not a decision.**
+   It rejects a leading month token that resolves outside the statement
+   period. A merchant name opening with a month word that lands INSIDE the
+   period ("May 15 Holdings" on a May statement) is still read as the date and
+   would re-date the row. The balance walk and `posting_dates_cover_source`
+   are what would catch it. The code comment claimed more than that until
+   Ocean's review; it now states the real scope.
+11. **`found_lead_activity`'s bank label names a document class, not a bank.**
    `by_bank_label("Lead Bank (Found) Month-to-Date Activity")` resolves to it,
    which is only reachable for a document no parser claimed whose LLM
    extraction named that exact string — effectively never. Giving both
@@ -8812,7 +8876,7 @@ $ python -m pytest -m corpus -q
 EXIT=0
 
 $ python -m pytest -q
-3138 passed, 18 deselected, 1 warning in 302.50s (0:05:02)
+3148 passed, 18 deselected, 1 warning in 193.47s (0:03:13)
 EXIT=0
 
 $ python -m pytest tests/test_parser_expectations_baseline.py \
@@ -8822,7 +8886,7 @@ $ python -m pytest tests/test_parser_expectations_baseline.py \
     tests/test_parser_registry_entries.py tests/test_count_semantics.py \
     tests/test_stated_counts.py tests/test_shared_parser_utils.py \
     tests/test_money.py tests/test_fintech_layouts.py -q
-1169 passed, 1 warning in 73.11s
+1202 passed, 1 warning in 4.80s
 EXIT=0
 
 # THE FULL-POPULATION BEFORE/AFTER SWEEP — every archive document through the
@@ -8883,12 +8947,14 @@ OCR text has no preflight to run. Same outcome class on all 17, none in this
 cohort.
 
 **The diff is addition-only.** `git diff --stat d70efbe..HEAD -- analysis/`
-reports **1,184 insertions and 0 deletions**: not one existing line of the
-analysis layer changed. Every shared-module contribution is a new name, so no
+reports **1,329 insertions and 0 deletions** at the final commit (the figure
+was quoted as 1,184 before the review conditions were applied, and was stale by
+two commits when Ocean read it): not one existing line of the analysis layer
+changed. Every shared-module contribution is a new name, so no
 existing parser's code path can have moved — which is what the 3,441
 byte-identical payloads then confirm empirically.
 
-Fixtures: 43 tests in the new `tests/test_fintech_layouts.py` — Mercury,
+Fixtures: 53 tests in the new `tests/test_fintech_layouts.py` — Mercury,
 Found and Brex families, the cross-family negatives, the crash-guard pair and
 the four glyph ablations —
 alongside 4 conformance fixtures, 4 money tests and 6 shared-utility tests.
@@ -8906,4 +8972,5 @@ when someone simplifies it back to the alternative.
 | `f1f588e` | mercury reads its account cells once, through the uniqueness check |
 | `f8d79e5` | glyph ablations for Mercury — and the measurement that redirects them |
 | `c452b88` | §FINTECH FT0–FT10 |
-| (this one) | the corpus gate and corpus-marked suite, re-run on the merge commit |
+| `946d6ad` | the corpus gate and corpus-marked suite, re-run on the merge commit |
+| (this one) | Ocean's review conditions: the MTD title boundary, the corrected fixture claim, Brex alignment, records |

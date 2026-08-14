@@ -81,6 +81,13 @@ _GRID_TOTAL_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: A supplementary section that re-prints deposits the activity grid has
+#: ALREADY booked — Brex heads it `Deposited checks` and gives it no column
+#: header. Its rows carry a date and money, so without recognising the heading
+#: a reader either books them twice or steps over them silently; this parser
+#: does neither, and checks each of them against the ledger instead.
+_APPENDIX_HEADING_RE = re.compile(r"^Deposited checks$", re.IGNORECASE)
+
 #: A posting opens with its date. Everything after it is the counterparty and
 #: the method, which the flattened line no longer separates.
 _ROW_OPEN_RE = re.compile(r"^(?P<date>\d{1,2}/\d{1,2})\s+(?P<rest>\S.*)$")
@@ -147,10 +154,19 @@ def _summary_cell(lines: list[str], label: str) -> Decimal | None:
 
 
 def _postings(lines: list[str], year: int) -> tuple[list[Transaction], list[str]] | None:
-    """(transactions, sign-vs-grid contradictions). None if a row was unread."""
+    """(transactions, sign-vs-grid contradictions). None if a row was unread.
+
+    Aligned with `analysis/mercury.py` and `analysis/found_lead.py` after
+    Ocean's review: a dated posting that this reader cannot place is a REFUSAL,
+    never a skip. Silently dropping one is invisible downstream, because the
+    rows that remain still sum to their own printed total — which is exactly
+    what happened here before the alignment, on a real document.
+    """
     transactions: list[Transaction] = []
     contradictions: list[str] = []
+    appendix_rows: list[tuple[str, Decimal]] = []
     direction: str | None = None
+    in_appendix = False
     pending: list[str] | None = None
 
     for line in lines:
@@ -159,13 +175,38 @@ def _postings(lines: list[str], year: int) -> tuple[list[Transaction], list[str]
             if pending is not None:
                 return None
             direction = "credit" if header.group("direction").lower() == "from" else "debit"
+            in_appendix = False
             continue
         if _GRID_TOTAL_RE.match(line):
             if pending is not None:
                 return None
             direction = None
             continue
+        if _APPENDIX_HEADING_RE.match(line):
+            if pending is not None:
+                return None
+            direction, in_appendix = None, True
+            continue
         if direction is None:
+            # Outside every activity grid. A dated money row here is either the
+            # `Deposited checks` appendix — a SECOND printing of deposits the
+            # grid already booked, which must not be booked twice — or a
+            # posting this reader has lost. The two are told apart by the
+            # printed heading, and the appendix's rows are checked against the
+            # ledger below rather than trusted.
+            opened = _ROW_OPEN_RE.match(line)
+            if opened is None:
+                if not _ROW_CLOSE_RE.search(line):
+                    in_appendix = False
+                continue
+            closed = _ROW_CLOSE_RE.search(opened.group("rest"))
+            if not in_appendix or closed is None:
+                return None
+            month, day = (int(part) for part in opened.group("date").split("/"))
+            date = iso_or_none(year, month, day)
+            if date is None:
+                return None
+            appendix_rows.append((date, parse_signed_decimal(closed.group("amount"))))
             continue
 
         opened = _ROW_OPEN_RE.match(line)
@@ -222,7 +263,18 @@ def _postings(lines: list[str], year: int) -> tuple[list[Transaction], list[str]
         )
         pending = None
 
-    return (None if pending is not None else (transactions, contradictions))
+    if pending is not None:
+        return None
+    # Every appendix row must already be in the ledger, same day and same
+    # amount. A row the grid never booked is a posting this reader dropped, and
+    # the document is refused rather than published short.
+    booked = [(t.date, Decimal(str(t.amount))) for t in transactions]
+    for entry in appendix_rows:
+        if entry in booked:
+            booked.remove(entry)
+        else:
+            return None
+    return transactions, contradictions
 
 
 def parse_brex_statement(markdown: str) -> Statement | None:

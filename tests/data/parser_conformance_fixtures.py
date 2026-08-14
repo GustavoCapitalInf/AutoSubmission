@@ -100,6 +100,7 @@ FIXTURES: dict[str, str] = {
         "BALANCE LAST STATEMENT\nTOTAL DAYS IN STATEMENT PERIOD\n"
     ),
     "found_lead": (
+        "February 2026 Account Statement\n"
         "Found is a financial technology company, not a bank.\n"
         "Banking services are provided by Lead Bank, Member FDIC.\n"
         "Account summary\n"
@@ -111,6 +112,7 @@ FIXTURES: dict[str, str] = {
     # the two registrations, and the cross-product below is what proves it is
     # enough to keep them apart.
     "found_lead_activity": (
+        "February 2026 Activity (Month to Date)\n"
         "Found is a financial technology company, not a bank.\n"
         "Banking services are provided by Lead Bank, Member FDIC.\n"
         "Account summary\n"

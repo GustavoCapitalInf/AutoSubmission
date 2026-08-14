@@ -98,9 +98,15 @@ _GRID_TOTAL_RE = re.compile(r"^Total\s+(?P<total>" + SIGNED_MONEY_TOKEN + r")$")
 #: money columns are what follows it, and the description is what precedes it.
 #: Measured over the surveyed set: 0 of 2,696 descriptions contain a money
 #: token, so this changes no reading today and removes the way it could break.
+#:
+#: `description` may be EMPTY: a row whose Description cell is blank prints its
+#: Type mark straight after the date, and a group that demanded a non-space
+#: character there would backtrack and swallow the DATE into the description —
+#: costing the row its posting day. Ocean's review is what found that, by
+#: asking whether this pattern really differed from the one it replaced.
 _ROW_RE = re.compile(
     r"^(?:(?P<month>" + MONTH_NAME_ALT + r")\s+(?P<day>\d{1,2})\s+)?"
-    r"(?P<description>\S.*?)\s*"
+    r"(?P<description>.*?)\s*"
     r"(?P<mark>[-])"
     r"(?P<type>[^-]*?)\s+"
     r"(?P<amount>" + SIGNED_MONEY_TOKEN + r")"
@@ -229,17 +235,30 @@ def _postings(
             return None
         seen += 1
 
-        body = f"{match.group('description')} {match.group('type')}"
+        # Description and Type, rejoined by the space their columns already
+        # put between them. Any FURTHER mark inside the description (a row
+        # printing two icons) is scrubbed the same way: a Private Use glyph is
+        # column furniture and must never survive into a published field.
+        body = _TYPE_MARK_RE.sub(
+            " ", f"{match.group('description')} {match.group('type')}"
+        )
         if match.group("month"):
             day = iso_from_named_month_day(
                 match.group("month"), match.group("day"), period_start[:4]
             )
-            # A Date cell holds a day of THIS statement's period. A month word
-            # that opens a merchant name does not, and reading it as the date
-            # would silently re-date the row (and, with it, an end-of-day
-            # balance). Outside the period the token is given back to the
-            # description — dropping it would edit what the bank printed — and
-            # the row continues the day above it.
+            # A Date cell holds a day of THIS statement's period, so a leading
+            # month word that resolves OUTSIDE it is not the date: the token is
+            # given back to the description — dropping it would edit what the
+            # bank printed — and the row continues the day above.
+            #
+            # SCOPE, stated honestly (Ocean's review): this rejects only the
+            # out-of-period case. A merchant name opening with a month word
+            # that happens to land INSIDE the period ("May 15 Holdings" on a
+            # May statement) is still read as a date, and would re-date the row
+            # and the end-of-day balance attributed to it. The balance walk
+            # and `posting_dates_cover_source` are what would catch it; no
+            # surveyed row prints the shape, and the period test is a
+            # narrowing, never a widening.
             if day is not None and period_start <= day <= period_end:
                 current_date = day
             else:

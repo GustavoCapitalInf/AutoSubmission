@@ -15,7 +15,7 @@ from analysis.reconcile import reconcile
 
 #: The icon glyph Mercury sets at the head of the Type column. A Private Use
 #: Area codepoint: no meaning, only ink, and the column boundary.
-MARK = ""
+MARK = "\ue001"
 
 
 # ===========================================================================
@@ -64,16 +64,22 @@ def test_mercury_prints_the_balance_only_on_the_last_row_of_a_day():
     assert reconcile(statement).continuity_breaks == 0
 
 
-def test_mercury_splits_the_row_at_the_type_mark_not_at_the_last_money():
-    """A description ending in a money token, on a row whose balance column is
-    empty. "The last two money tokens are amount and balance" reads this as
-    (amount $5.00, balance -$10.00) and publishes a POSITIVE 5.00 with a
-    fabricated running balance. Splitting at the printed column boundary gives
-    the only reading the grid supports.
+def test_mercury_reads_a_description_that_ends_in_a_money_token():
+    """Pins the CURRENT mechanism — the row splits at the printed Type mark —
+    on a description ending in money with the balance column empty.
 
-    Zero of the 2,696 surveyed rows print this, so the pin is what stops the
-    pattern being "simplified" back — §RBCCIBC lost nine documents to the same
-    shape."""
+    **This test does not discriminate against the pattern it replaced, and the
+    docstring said otherwise until Ocean's review caught it.** Measured over
+    nine ambiguous shapes, the earlier pattern (non-greedy body, `\\s+`
+    separator, mandatory mark check) produced the IDENTICAL split on every one:
+    its `\\s+` and the mark requirement already forced this reading. The
+    mark-split is a structural clarification, not a defect fix, and §FT6 of the
+    log has been corrected to say so.
+
+    It is kept because the property is worth holding: it is what stops the
+    pattern being "simplified" to "the last two money tokens", which §RBCCIBC
+    lost nine documents to. The two tests below DO discriminate — they pin
+    shapes where the mark-split, as first written, was wrong."""
     statement = mercury.parse_mercury_statement(mercury_document(
         f"Apr 02 Refund of $5.00 fee {MARK}ACH Pull -$10.00\n"
         f"Beta Freight {MARK}ACH Pull -$10.00 $80.00\n",
@@ -84,6 +90,42 @@ def test_mercury_splits_the_row_at_the_type_mark_not_at_the_last_money():
     assert statement.transactions[0].running_balance is None
     assert statement.transactions[0].description == "Refund of $5.00 fee ACH Pull"
     assert reconcile(statement).ok
+
+
+def test_mercury_keeps_the_date_when_the_description_cell_is_empty():
+    """A row whose Description cell is blank prints the Type mark straight
+    after the date. The mark-split, as first written, required a non-space
+    character before the mark — so the engine backtracked and swallowed
+    `Apr 02` INTO the description, costing the row its posting day and moving
+    an end-of-day balance onto the wrong date.
+
+    Found by asking (at Ocean's prompting) whether the new pattern really
+    differed from the old one: it did, and here it was worse."""
+    statement = mercury.parse_mercury_statement(mercury_document(
+        f"Apr 02 {MARK}ACH Pull -$10.00 $90.00\n",
+        beginning="$100.00", withdrawals="-$10.00", deposits="$0.00", ending="$90.00",
+    ))
+    assert statement is not None
+    assert statement.transactions[0].date == "2026-04-02"
+    assert statement.transactions[0].description == "ACH Pull"
+
+
+def test_no_private_use_glyph_survives_into_a_published_description():
+    """A row printing TWO icons. The mark-split keeps the last one as the
+    column boundary, which left the FIRST sitting raw inside the description —
+    a font-private codepoint in a published financial field, rendering as
+    whatever the reader's font happens to map it to.
+
+    The glyph is column furniture in every position, so it is scrubbed in every
+    position."""
+    statement = mercury.parse_mercury_statement(mercury_document(
+        f"Apr 02 Two {MARK}marks {MARK}Type -$10.00 $90.00\n",
+        beginning="$100.00", withdrawals="-$10.00", deposits="$0.00", ending="$90.00",
+    ))
+    assert statement is not None
+    description = statement.transactions[0].description
+    assert description == "Two marks Type"
+    assert not any("\ue000" <= c <= "\uf8ff" for c in description)
 
 
 def test_mercury_carries_the_date_forward_across_a_page_break():
@@ -101,7 +143,7 @@ def test_mercury_carries_the_date_forward_across_a_page_break():
     assert [t.date for t in statement.transactions] == ["2026-04-02", "2026-04-02"]
 
 
-@pytest.mark.parametrize("minus", ["-", "−", "–"])
+@pytest.mark.parametrize("minus", ["-", "\u2212", "\u2013", "\u2014"])
 def test_mercury_reads_all_three_printed_minus_glyphs(minus):
     """The same generator prints ASCII hyphen, U+2212 and U+2013 as the sign,
     and a reader that knows only one of them sign-flips the others."""
@@ -332,7 +374,8 @@ def test_found_reports_a_header_period_that_disagrees_with_the_balance_labels():
 
 def brex_document(credit_rows: str, debit_rows: str, *, beginning="$0.00",
                   additions="$0.00", subtractions="-$0.00", fees="-",
-                  ending="$0.00", credit_total=None, debit_total=None) -> str:
+                  ending="$0.00", credit_total=None, debit_total=None,
+                  appendix="") -> str:
     return (
         "Apr 1 - Apr 30, 2026\n"
         "Account Number: 63325646\n"
@@ -356,6 +399,7 @@ def brex_document(credit_rows: str, debit_rows: str, *, beginning="$0.00",
         "Date To Method Amount\n"
         + debit_rows +
         f"Total Withdrawals & Debits {debit_total if debit_total is not None else subtractions}\n"
+        + appendix +
         "Page 1 of 1\n"
     )
 
@@ -618,7 +662,7 @@ def test_a_tampered_sign_glyph_publishes_nothing():
                            trust_running_balances=True).average_daily_balance is not None
 
 
-@pytest.mark.parametrize("minus", ["-", "−", "–"])
+@pytest.mark.parametrize("minus", ["-", "\u2212", "\u2013", "\u2014"])
 def test_every_printed_minus_glyph_certifies_against_the_same_arithmetic(minus):
     """The three glyphs are one column. Each must produce the SAME statement,
     and each must reconcile — the arithmetic is what certifies the reading."""
@@ -626,3 +670,133 @@ def test_every_printed_minus_glyph_certifies_against_the_same_arithmetic(minus):
     assert statement is not None
     assert statement.transactions[1].amount == -10.00
     assert reconcile(statement).ok
+
+
+# ===========================================================================
+# The MTD boundary — both leak directions (Ocean's adversarial review)
+# ===========================================================================
+#
+# The split between `found_lead` and `found_lead_activity` first rested on a
+# flat substring of the disclaimer clause. The clause is FLOWED body text, so
+# the PDF breaks it wherever it reaches the margin, and the reviewer proved the
+# test leaked both ways. The boundary is now the printed TITLE, which is a
+# generated line of its own and does not wrap. These two tests are the leaks.
+
+#: The disclaimer as the PDF actually breaks it on a real month-to-date
+#: document: the clause spans a line wrap, so no single line — and no flat
+#: uppercased substring of the whole text — contains it intact.
+_WRAPPED_DISCLAIMER = (
+    "The information in this document is not a bank statement and therefore\n"
+    "should not be relied upon as a bank statement.\n"
+)
+
+
+def test_a_month_to_date_document_whose_clause_wraps_never_validates():
+    """THE UNSAFE LEAK, pinned. Under the substring boundary this document was
+    claimed by `found_lead` as `formal_statement=True` and published
+    `validated/approved` with no flag at all — the platform asserting a
+    month-to-date view is a closed bank statement, on a document that says
+    otherwise in words it happened to break across two lines.
+
+    The title is what settles it, so the wrap cannot reach the decision.
+    """
+    document = found_document(
+        "02/04/26 Alpha Supply - $30.00 $70.00\n",
+        title="Activity (Month to Date)",
+        beginning="$100.00", debits="$30.00", ending="$70.00",
+        disclaimer=_WRAPPED_DISCLAIMER,
+    )
+    # the clause really is unreachable as a flat substring
+    assert "is not a bank statement and therefore should not be relied upon" not in document
+    # `found_lead` must not merely fail to claim — it must be EXCLUDED
+    assert found_lead.detect(document).score == 0.0
+    assert found_lead.detect(document).excluded_by == "month_to_date_title"
+    assert found_lead.activity_detect(document).claims
+
+
+def test_a_closed_statement_that_quotes_the_clause_is_not_demoted():
+    """THE OTHER LEAK. A closed statement carrying the sentence in a footnote —
+    a disclosure change, a quoted policy — was demoted to review by the
+    substring boundary. Its title says what it is."""
+    document = found_document(
+        "02/04/26 Alpha Supply - $30.00 $70.00\n",
+        beginning="$100.00", debits="$30.00", ending="$70.00",
+        disclaimer=(
+            "Note: unlike our month-to-date view, which is not a bank statement "
+            "and therefore should not be relied upon as a bank statement, this "
+            "document is your statement of record.\n"
+        ),
+    )
+    assert found_lead.detect(document).claims
+    assert not found_lead.activity_detect(document).claims
+    statement = found_lead.parse_found_lead_statement(document)
+    assert statement is not None
+    assert reconcile(statement).ok
+
+
+def test_neither_registration_claims_a_found_document_with_no_printed_title():
+    """The title is REQUIRED on both, so a Found document whose title line this
+    reader cannot see is claimed by neither and fails closed — rather than one
+    of them taking it by default."""
+    document = found_document(
+        "02/04/26 Alpha Supply - $30.00 $70.00\n",
+        title="Statement Of Account",  # not a title this issuer prints
+        beginning="$100.00", debits="$30.00", ending="$70.00",
+    )
+    assert not found_lead.detect(document).claims
+    assert not found_lead.activity_detect(document).claims
+
+
+# ===========================================================================
+# Brex: a dated posting this reader cannot place is a REFUSAL, not a skip
+# (alignment with the sibling parsers, from Ocean's review)
+# ===========================================================================
+
+def test_brex_refuses_a_posting_that_follows_mid_page_furniture():
+    """Furniture closes a grid, and Brex reopens it by REPRINTING the column
+    header. A dated posting arriving after the furniture with no header before
+    it is a row this reader has lost its place on.
+
+    Before the alignment this was silently skipped — and a skipped row is
+    invisible downstream, because the rows that remain still sum to their own
+    printed total. mercury.py and found_lead.py already refused here."""
+    assert brex.parse_brex_statement(brex_document(
+        "4/3 Alpha Supply ACH $500.00\n",
+        "4/6 Beta Freight ACH -$150.00\n"
+        "Page 2 of 3\n"
+        "4/7 Gamma Retail ACH -$50.00\n",   # no column header reopened the grid
+        beginning="$100.00", additions="$500.00", subtractions="-$200.00", ending="$400.00",
+    )) is None
+
+
+def test_brex_does_not_book_the_deposited_checks_appendix_twice():
+    """Brex re-prints its check deposits in a `Deposited checks` section with
+    no column header. They are the SAME two deposits the grid already booked,
+    so booking them again would double-count them against the bank's own
+    total — and stepping over them silently is the defect this cell refuses
+    everywhere else. The heading is recognised, and the rows are checked."""
+    statement = brex.parse_brex_statement(brex_document(
+        "4/3 Rakuten Check $81.92\n"
+        "4/3 Novi Commons Check $675.00\n",
+        "4/6 Beta Freight ACH -$200.00\n",
+        beginning="$100.00", additions="$756.92", subtractions="-$200.00", ending="$656.92",
+        appendix="Deposited checks\n04/03 Check from Rakuten $81.92\n"
+                 "04/03 Check from Novi Commons $675.00\n",
+    ))
+    assert statement is not None
+    assert len(statement.transactions) == 3
+    assert sum(x.amount for x in statement.transactions if x.amount > 0) == 756.92
+    assert reconcile(statement).ok
+
+
+def test_brex_refuses_an_appendix_row_the_grid_never_booked():
+    """The appendix is only safe because it is CHECKED. A check listed there
+    that no grid row accounts for is a posting that was dropped, and the
+    document is refused rather than published short."""
+    assert brex.parse_brex_statement(brex_document(
+        "4/3 Rakuten Check $81.92\n",
+        "4/6 Beta Freight ACH -$200.00\n",
+        beginning="$100.00", additions="$81.92", subtractions="-$200.00", ending="-$18.08",
+        appendix="Deposited checks\n04/03 Check from Rakuten $81.92\n"
+                 "04/04 Check from Nobody $999.00\n",
+    )) is None

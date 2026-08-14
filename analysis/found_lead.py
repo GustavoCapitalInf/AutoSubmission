@@ -14,8 +14,20 @@ the same finding the registry already models for a Chase transaction export, so
 it is modelled the same way: `found_lead_activity` registers with
 ``formal_statement=False`` and carries the issuer's own words as its note, and
 the document is routed to review rather than published as a validated bank
-statement. The two registrations cannot both claim: the disclaimer is a
-REQUIRED marker on one and an EXCLUDING marker on the other.
+statement.
+
+**What SEPARATES the two registrations is the printed TITLE, not that
+sentence.** The sentence is flowed body text: the PDF breaks it at whichever
+word reaches the margin, so a substring test for it leaks in both directions —
+a closed statement quoting the clause in a footnote is wrongly demoted, and a
+month-to-date document whose clause wraps is claimed as a formal statement and
+published `validated/approved` with no flag. That second leak is the dangerous
+one, and Ocean's adversarial review found it. The title is a short generated
+line reprinted on every page and does not wrap, so it is what the boundary
+rests on: `Account Statement` is REQUIRED on `found_lead` with
+`Activity (Month to Date)` EXCLUDING, and the reverse title is REQUIRED on
+`found_lead_activity`. The disclaimer stays as corroboration. Both leak
+directions are pinned.
 
 Two things about the layout decide the rest of the design.
 
@@ -69,10 +81,25 @@ _PENDING_SECTION = "Pending transactions"
 #: What Found prints in a column that has no value yet.
 _NIL_CELL = "--"
 
-_TITLE_RE = re.compile(
-    r"^(?:" + MONTH_NAME_ALT + r")\s+\d{4}\s+"
-    r"(?:Account Statement|Activity \(Month to Date\))$",
-    re.IGNORECASE,
+#: The printed page-header title, which is what names the PRODUCT — and, since
+#: Ocean's adversarial review, what separates the two registrations.
+#:
+#: The disclaimer sentence cannot carry that job. It is flowed body text, so
+#: the PDF breaks it at a different word depending on where it lands on the
+#: page, and a substring test then leaks BOTH ways: a closed statement that
+#: merely quotes the clause in a footnote is wrongly demoted to review, and —
+#: the unsafe direction — a month-to-date document whose clause happens to
+#: wrap is claimed by `found_lead` as a formal statement and published
+#: `validated/approved` with no flag at all. Both leaks are pinned in
+#: tests/test_fintech_layouts.py.
+#:
+#: The title is a short line of its own, reprinted at the top of every page,
+#: and it is set by the generator rather than flowed — so it does not wrap.
+_CLOSED_TITLE_RE = re.compile(
+    r"^(?:" + MONTH_NAME_ALT + r")\s+\d{4}\s+Account Statement$", re.IGNORECASE
+)
+_MONTH_TO_DATE_TITLE_RE = re.compile(
+    r"^(?:" + MONTH_NAME_ALT + r")\s+\d{4}\s+Activity \(Month to Date\)$", re.IGNORECASE
 )
 
 #: "Beginning balance on February 1, 2026 $0.00" — the summary prints the
@@ -141,30 +168,44 @@ _ISSUER_MARKERS = (
         and "PURCHASES & OTHER DEBITS" in t,
     ),
     corroborating("activity_grid", lambda t: _GRID_HEADER.upper() in t),
-    corroborating("statement_title", lambda t: any(
-        _TITLE_RE.match(line.strip()) for line in t.splitlines()
-    )),
 )
 
 
 def _declines_to_be_a_statement(text: str) -> bool:
+    """The issuer's own refusal of the word "statement", as a flat substring.
+
+    Corroborating evidence ONLY. It is flowed body text and therefore wraps,
+    so its absence proves nothing — which is exactly what made it unfit to be
+    the boundary between the two registrations.
+    """
     return _NOT_A_STATEMENT_DISCLAIMER.upper() in text
 
 
-#: The closed monthly statement: the issuer's furniture, and the absence of its
-#: own disclaimer. EXCLUDING rather than "not required", so this registration
-#: scores 0.0 on a month-to-date document before any other marker runs and the
+def _closed_statement_title(text: str) -> bool:
+    return any(_CLOSED_TITLE_RE.match(line.strip()) for line in text.splitlines())
+
+
+def _month_to_date_title(text: str) -> bool:
+    return any(_MONTH_TO_DATE_TITLE_RE.match(line.strip()) for line in text.splitlines())
+
+
+#: The closed monthly statement. The product is named by the printed title, and
+#: the other product's title is EXCLUDING rather than merely absent — so this
+#: registration scores a hard 0.0 on a month-to-date document before any other
+#: marker runs, whatever its flowed disclaimer happens to look like, and the
 #: two can never resolve `ambiguous`.
 DETECTION_MARKERS = (
     *_ISSUER_MARKERS,
-    excluding("month_to_date_disclaimer", _declines_to_be_a_statement),
+    required("closed_statement_title", _closed_statement_title),
+    excluding("month_to_date_title", _month_to_date_title),
 )
 
-#: The month-to-date view, identified by the sentence in which the issuer
-#: refuses the word "statement".
+#: The month-to-date view, named by its own printed title. The disclaimer
+#: corroborates that reading and no longer carries it.
 ACTIVITY_DETECTION_MARKERS = (
     *_ISSUER_MARKERS,
-    required("month_to_date_disclaimer", _declines_to_be_a_statement),
+    required("month_to_date_title", _month_to_date_title),
+    corroborating("month_to_date_disclaimer", _declines_to_be_a_statement),
 )
 
 detect = make_detector(DETECTION_MARKERS, detection_text)
