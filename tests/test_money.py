@@ -72,6 +72,15 @@ INPUTS: tuple[str, ...] = (
     "\t12.34\n", "12.34 ", "€12,34", "C$12.34", "USD 12.34",
     # --- reference-number shaped (must not become money) -----------------
     "1944", "0000123456", "2026", "#1234", "REF 12345",
+    # --- the sign class, welded to the amount (W3 §MONEY-GRAMMAR card 1) --
+    # Added after the fact: the pre-R-2 matrix had no non-ASCII row at all,
+    # so cards 1 and 3 would otherwise sit OUTSIDE the differential proof.
+    "−500.00", "–500.00", "−$1,234.56",
+    "$1,234.56−", "1,234.56–",
+    # --- digit runs past the bound (card 3) -------------------------------
+    "99999999999999.00",                  # 14 integer digits, one past
+    "99999999999999999999999999.00",      # 26 — the adb crash width
+    "1" * 54,                             # the longest bare run in the archive
 )
 
 
@@ -112,6 +121,49 @@ ONE_DECIMAL_DIVERGENCES: frozenset[str] = frozenset({
 #: `parse_money_tokens` scans a whole flattened cell, so it additionally stops
 #: emitting the fragments left over from a malformed token.
 TOKENS_ONLY_DIVERGENCES: frozenset[str] = frozenset({"1..00"})
+
+# --- card 1 and card 3 divergences over the rows added above ---------------
+#: A leading sign glyph, with and without the currency symbol. The symbol
+#: matters: a parser that does not strip `$` refuses both spellings either
+#: way, so the row is only divergent for the parsers that do.
+GLYPH_LEADING_PLAIN: frozenset[str] = frozenset({"−500.00", "–500.00"})
+GLYPH_LEADING_DOLLAR: frozenset[str] = frozenset({"−$1,234.56"})
+#: A trailing sign glyph — divergent only where a trailing `-` means anything.
+GLYPH_TRAILING: frozenset[str] = frozenset({"$1,234.56−", "1,234.56–"})
+#: Runs past `MAX_INTEGER_DIGITS`. Divergent EVERYWHERE: the legacy clones all
+#: read them as amounts (up to 1e+53), which is what reached `adb.py` and
+#: raised `decimal.InvalidOperation` rather than declining the document.
+BOUND_DIVERGENCES: frozenset[str] = frozenset({
+    "99999999999999.00", "99999999999999999999999999.00", "1" * 54,
+})
+
+
+def _format_reads_a_leading_minus(fmt: m.AmountFormat) -> bool:
+    """Either the engine detects the marker, or the pattern admits it."""
+    return fmt.leading_minus or fmt.pattern.startswith("-?")
+
+
+def _format_reacts_to_a_trailing_minus(fmt: m.AmountFormat) -> bool:
+    """Honoured as a sign, or merely stripped/deleted — both change the read."""
+    return fmt.trailing_minus or "-" in (fmt.strip_chars + fmt.remove_chars)
+
+
+def strict_divergences(fmt: m.AmountFormat) -> frozenset[str]:
+    """The rows on which `fmt` deliberately leaves its pre-R-2 clone behind.
+
+    Derived from the format's OWN declared fields rather than hand-listed per
+    bank, which is the stronger claim: card 1 says a format that honours a
+    printed minus now honours every spelling of it, and this asserts that
+    uniformly across the family. `assert_equivalent` checks it in both
+    directions, so an over- or under-declaration fails the test.
+    """
+    rows = set(BOUND_DIVERGENCES)
+    if _format_reads_a_leading_minus(fmt):
+        rows |= GLYPH_LEADING_PLAIN | GLYPH_LEADING_DOLLAR
+    if _format_reacts_to_a_trailing_minus(fmt):
+        rows |= GLYPH_TRAILING
+    # a bare 54-digit run has no decimals, so no `ddd.dd` format ever read it
+    return frozenset(rows - {"1" * 54})
 
 
 def assert_equivalent(oracle, replacement, *, inputs=INPUTS, diverges=frozenset()):
@@ -436,40 +488,61 @@ STRICT_CASES = (
 
 @pytest.mark.parametrize("name,oracle,fmt", STRICT_CASES, ids=[c[0] for c in STRICT_CASES])
 def test_strict_format_matches_legacy_clone(name, oracle, fmt):
-    assert_equivalent(oracle, lambda value: m.parse_amount(value, fmt))
+    assert_equivalent(oracle, lambda value: m.parse_amount(value, fmt),
+                      diverges=strict_divergences(fmt))
 
 
 def test_parse_money_matches_legacy_td_can_clone():
-    assert_equivalent(_legacy_parse_money, m.parse_money,
-                      diverges=ONE_DECIMAL_DIVERGENCES)
+    assert_equivalent(
+        _legacy_parse_money, m.parse_money,
+        diverges=(ONE_DECIMAL_DIVERGENCES | BOUND_DIVERGENCES
+                  | GLYPH_LEADING_PLAIN | GLYPH_LEADING_DOLLAR | GLYPH_TRAILING),
+    )
 
 
 def test_parse_money_tokens_matches_legacy_clone():
-    assert_equivalent(_legacy_money_tokens, m.parse_money_tokens,
-                      diverges=ONE_DECIMAL_DIVERGENCES | TOKENS_ONLY_DIVERGENCES)
+    # no leading-sign rule in this parser, so only the TRAILING glyph moves
+    assert_equivalent(
+        _legacy_money_tokens, m.parse_money_tokens,
+        diverges=(ONE_DECIMAL_DIVERGENCES | TOKENS_ONLY_DIVERGENCES
+                  | BOUND_DIVERGENCES | GLYPH_TRAILING),
+    )
 
 
 def test_parse_decimal_matches_legacy_clone():
-    assert_equivalent(_legacy_navigant, m.parse_decimal)
+    assert_equivalent(
+        _legacy_navigant, m.parse_decimal,
+        diverges=BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN | GLYPH_LEADING_DOLLAR,
+    )
 
 
 def test_parse_decimal_mixed_separator_matches_columbia_clone():
-    assert_equivalent(_legacy_columbia, m.parse_decimal_mixed_separator)
+    assert_equivalent(
+        _legacy_columbia, m.parse_decimal_mixed_separator,
+        diverges=BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN | GLYPH_LEADING_DOLLAR,
+    )
 
 
 def test_parse_decimal_mixed_separator_matches_first_farmers_clone():
     assert_equivalent(
         _legacy_first_farmers,
         lambda value: m.parse_decimal_mixed_separator(value, single_comma_only=True),
+        diverges=BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN | GLYPH_LEADING_DOLLAR,
     )
 
 
 def test_parse_grouped_float_matches_legacy_clone():
-    assert_equivalent(_legacy_first_citizens, m.parse_grouped_float)
+    # this one never stripped `$`, so the dollar-bearing glyph row still raises
+    assert_equivalent(_legacy_first_citizens, m.parse_grouped_float,
+                      diverges=BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN)
 
 
 def test_parse_trailing_minus_dropped_matches_legacy_clone():
-    assert_equivalent(_legacy_altana, m.parse_trailing_minus_dropped)
+    assert_equivalent(
+        _legacy_altana, m.parse_trailing_minus_dropped,
+        diverges=(BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN
+                  | GLYPH_LEADING_DOLLAR | GLYPH_TRAILING),
+    )
 
 
 def test_parse_trailing_minus_dropped_discards_rather_than_applies_the_marker():
@@ -480,19 +553,23 @@ def test_parse_trailing_minus_dropped_discards_rather_than_applies_the_marker():
 
 
 def test_parse_french_amount_matches_cibc_clone():
-    assert_equivalent(_legacy_cibc, m.parse_french_amount)
+    assert_equivalent(_legacy_cibc, m.parse_french_amount,
+                      diverges=BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN)
 
 
 def test_parse_french_amount_matches_rbc_clone():
     assert_equivalent(
-        _legacy_rbc_fr, lambda value: m.parse_french_amount(value, parens=True)
+        _legacy_rbc_fr, lambda value: m.parse_french_amount(value, parens=True),
+        diverges=BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN,
     )
 
 
 def test_parse_digit_scrubbed_matches_capital_one_clone():
+    # capital_one passes no `leading_minus`, so only the trailing glyph moves
     assert_equivalent(
         _legacy_capital_one,
         lambda value: m.parse_digit_scrubbed(value, parens=True, trailing_minus=True),
+        diverges=BOUND_DIVERGENCES | GLYPH_TRAILING,
     )
 
 
@@ -506,6 +583,8 @@ def test_parse_digit_scrubbed_matches_chase_clone():
             trailing_minus=True,
             guard=_CHASE_GUARD,
         ),
+        diverges=(BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN
+                  | GLYPH_LEADING_DOLLAR | GLYPH_TRAILING),
     )
 
 
@@ -886,6 +965,71 @@ def test_the_marker_set_is_what_the_archive_prints():
     assert m.MAX_INTEGER_DIGITS  # module imported
     assert m.parse_money("371.96OD") == -371.96
     assert m.parse_money("371.96") == 371.96
+
+
+# --- the detached-marker trap ----------------------------------------------
+# THE MARKER MUST BE WELDED. The suffix group cannot cross whitespace, and
+# that boundary is load-bearing rather than incidental: a DETACHED OD/DR/D is
+# description text. The archive prints detached markers 212 times across 23
+# documents, 6 of them VALIDATED — so relaxing the boundary to "read the next
+# word as a marker" would negate real amounts on documents that pass today.
+
+@pytest.mark.parametrize("value,expected", [
+    # PNC, validated (2 documents): an overdraft FEE is a positive amount
+    ("36.00 OD Fee", 36.0),
+    ("100.00 OD Fee", 100.0),
+    # Huntington: OD opens a description, it does not close an amount
+    ("282.12 OD PROTECTION TRANSFER FROM CREDIT CARD", 282.12),
+    # Beem Credit Union prints its running balance and a spaced DR
+    ("6,649.65  DR", 6649.65),
+    # BMO prints a spaced D between two amounts
+    ("500.00 D", 500.0),
+])
+def test_a_detached_marker_is_description_text_and_leaves_the_sign_alone(
+    value, expected
+):
+    assert m.parse_money(value) == expected
+
+
+@pytest.mark.parametrize("welded,detached", [
+    ("371.96OD", "371.96 OD"),
+    ("1234.56DR", "1234.56 DR"),
+    ("1234.56D", "1234.56 D"),
+])
+def test_welding_is_what_makes_a_marker_a_marker(welded, detached):
+    """The same letters, one space apart, mean opposite things."""
+    assert m.parse_money(welded) < 0
+    assert m.parse_money(detached) > 0
+
+
+# --- the rule as implemented, not as summarized ----------------------------
+
+def test_a_searching_parser_yields_the_next_token_not_none():
+    """Refusing a token is not the same as returning None: the search
+    resumes. This is the behaviour a caller actually sees."""
+    assert m.parse_money("34.9 100.00") == 100.0
+    assert m.parse_money("0.5 7.25") == 7.25
+    # None only when nothing in the input qualifies
+    assert m.parse_money("34.9") is None
+    assert m.parse_money("12.5 34.9") is None
+
+
+def test_parse_digit_scrubbed_never_got_the_token_rule():
+    """It keeps digits and dots and calls float, so it reads the TRUE value
+    rather than a truncation. It was never the defect; callers bound it with
+    `guard`. Pinned so the asymmetry is deliberate rather than forgotten."""
+    assert m.parse_digit_scrubbed("34.9") == 34.9
+    assert m.parse_digit_scrubbed("1,234.5") == 1234.5
+    assert m.parse_digit_scrubbed("34.99999") == 34.99999
+    assert m.parse_money("34.9") is None      # the contrast
+
+
+@pytest.mark.parametrize("value", ["34.9999", "0.000668276", "1.2.3", "12.345.67"])
+def test_the_refusal_covers_more_than_one_decimal_place(value):
+    """Four-or-more decimals and dot-adjacent tokens are refused too — the
+    `0.000668276` case is the exchange-rate factor chase's own local grammar
+    already had to defend against."""
+    assert m.parse_money(value) is None
 
 
 def test_minus_class_is_the_fragment_consumers_embed():

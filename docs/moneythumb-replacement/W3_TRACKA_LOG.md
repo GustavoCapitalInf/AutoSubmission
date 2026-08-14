@@ -8413,7 +8413,7 @@ movement anywhere in the archive.**
 | Card | Defect | Direction of the fix |
 |---|---|---|
 | 1 | No grammar knew U+2212 MINUS or U+2013 EN DASH | the sign is a CLASS, normalized once |
-| 2 | `parse_money("34.9")` returned `34.0` | one decimal place is not money |
+| 2 | `parse_money("34.9")` returned `34.0` | a money token is two-or-three decimals, unadjacent (MG3) |
 | 3 | 26+ integer digits crashed `adb.py` | bound token acceptance at the grammar |
 | 4 | The debit-marker rule was "contains a D" | match the marker token, exactly |
 
@@ -8485,14 +8485,41 @@ FIXED
 independent corroboration that the en dash is real, and a candidate to
 inherit the shared class instead of keeping its private copy.
 
-## MG3. Card 2 — one decimal place is not money
+## MG3. Card 2 — the money-token shape (amended after review)
 
 `parse_money("34.9")` returned `34.0`: the decimal group is optional, so
 the integer part matched alone. `parse_money_tokens("34.9")` was worse —
 `[34.0, 9.0]`, two amounts out of one. A plausible wrong number is the
 worst failure this module can have.
 
-A money token is now a WHOLE number: it may not begin part-way through one
+**THE RULE AS IMPLEMENTED.** The card's one-line name ("one decimal place
+is not money") is shorter than the code, and the review was right to make
+this precise, because the short form implies a fail-closed `None` that the
+implementation does not promise:
+
+> A money token carries either no decimal point at all or **exactly two or
+> three** decimals, and is adjacent to **neither a digit nor a dot** on
+> either side.
+
+Three consequences, all pinned by fixtures:
+
+1. **These parsers SEARCH, so a refusal is not a `None`.** The search
+   resumes and returns the next qualifying token:
+   `parse_money("34.9 100.00")` is **`100.0`**, not `None`. `None` comes
+   back only when nothing in the whole input qualifies (`"34.9"` alone,
+   `"12.5 34.9"`). For a caller handing over a single cell the two are the
+   same; for a caller handing over a line they are not.
+2. **The refusal class is wider than one decimal.** Dot-adjacent tokens go
+   too (`1.2.3`, `12.345.67`), and so does anything with four or more
+   decimals — including `0.000668276`, the foreign-exchange factor chase's
+   own local grammar already had to defend against.
+3. **`parse_digit_scrubbed` never got this rule.** It keeps digits and dots
+   and calls `float`, so it still reads `34.9` as **`34.9`** — the true
+   value, not a truncation. It was never the defect; its callers bound it
+   with `guard`. The asymmetry is deliberate and is now pinned so it cannot
+   be "tidied up" by someone assuming the module is uniform.
+
+Mechanically: a money token may not begin part-way through a number
 (`(?<![\d.])`) and what follows may not continue it (`(?![.,]?\d)`). Both
 are load-bearing — without the leading boundary the trailing one is
 defeated, because `34.9` refuses `34` and then matches `9`. The comma is in
@@ -8631,13 +8658,73 @@ tree too. Follow-up card MG-C1 below.
    yields `[500.0]`, exactly as `-500.00` always did. Its only consumer is
    `td_can`, which takes `abs()` of the results, so this is latent. Left
    alone deliberately rather than changed without a consumer that needs it.
-5. **`100.00 DR` (space-separated) still reads positive** — the suffix group
-   does not cross whitespace. Unattested in the archive; recorded because
-   card 4 is where someone will look for it.
+5. **THE DETACHED-MARKER TRAP — corrected on review, and now PINNED.**
+   The first draft of this finding said a space-separated marker was
+   "unattested in the archive". **That was false**, and the correction
+   matters more than the original note: a detached `OD`/`DR`/`D` is printed
+   **212 times across 23 documents, 6 of them VALIDATED**
+   (`DR` 150, `OD` 48, `D` 14). In every attested case the letters are
+   DESCRIPTION TEXT, not a marker:
+
+   | document | outcome | printed |
+   |---|---|---|
+   | `91E80C335091` PNC | validated | `36.00 OD Fee` (an overdraft FEE — positive) |
+   | `52F62442E906` PNC | validated | `36.00 OD Fee` |
+   | `9A982B45CB60` BMO | validated | `500.00 D 500.00 120,305.25` |
+   | Huntington ×4 | failed | `282.12 OD PROTECTION TRANSFER FROM CREDIT CARD` |
+   | Beem Credit Union ×5 | failed | `6,649.65  DR` (running balance) |
+
+   So the whitespace boundary on the suffix group is **load-bearing, not
+   incidental**: relaxing it to "read the next word as a marker" would
+   negate a real fee on documents that validate today. It is now stated in
+   `money.py` at `_DEBIT_MARKERS` and pinned by
+   `test_a_detached_marker_is_description_text_and_leaves_the_sign_alone`
+   and `test_welding_is_what_makes_a_marker_a_marker` — the same letters,
+   one space apart, must mean opposite things.
 6. **`ANALYSIS_STAGE_VERSION` needs a bump on merge** — 3 documents change
    their analysis output, so their cached payloads are stale. The brief
    reserves the bump to Ocean; `webapp/` is untouched here.
-7. **The equivalence harness now declares divergences.** The frozen pre-R-2
+7. **The sign class is exactly two glyphs, and the brief's wider claim is
+   corrected.** `MINUS_GLYPHS` is U+2212 and U+2013 — **U+2010 HYPHEN is
+   NOT in it**, nor are U+2011 NON-BREAKING HYPHEN or U+FF0D FULLWIDTH
+   HYPHEN-MINUS. Measured: each still reads `‐500.00` as **+500.0**. They
+   are carried CANDIDATES pending attestation, deliberately not added — a
+   sign class is the last place to admit an unattested member, since each
+   one silently flips the sign of everything carrying it. U+2014 EM DASH
+   stays out permanently: it is punctuation, not a sign.
+8. **Attached-dash trailing-minus latent.** `1234-5678` reads as
+   **`-1234.0`**, and now `1234–5678` does too, because the dash is
+   indistinguishable from the mainframe trailing-minus at token level. This
+   reaches only whole-line callers — the same class as finding 3, and
+   `td_can.py:464` is mitigated by its `abs()`. **Zero documents moved** in
+   the archive sweep. Recorded rather than fixed: telling a trailing sign
+   from a separator needs the caller's column, which the grammar does not
+   have.
+9. **`strip_currency` and `pad_leading_decimal` are exported paths that do
+   NOT normalize.** They are string utilities, not parsers, and pass a
+   non-ASCII sign straight through (`strip_currency("−$1,234.56")` keeps the
+   U+2212). The parsers that DO normalize are, exhaustively: `parse_amount`
+   (hence every `AmountFormat`), `parse_money`, `parse_money_tokens`,
+   `parse_decimal`, `parse_decimal_mixed_separator`, `parse_grouped_float`,
+   `parse_trailing_minus_dropped`, `parse_french_amount`,
+   `parse_digit_scrubbed`. A caller that cleans with the helpers and then
+   matches on its own must call `normalize_sign_glyphs` first.
+10. **`CENTS`/`SIGNED_CENTS` are FULLMATCH patterns — the tail-match
+    latent.** `parse_amount` applies them with `re.fullmatch`, which is what
+    makes the digit bound bite. Under `re.search` they match the TAIL of an
+    over-long run (`"9"*20 + ".67"` yields `9999999999999.67`) and the bound
+    is defeated silently. No consumer does that today; recorded because the
+    two uses look interchangeable and are not.
+11. **Non-finite literals are a carried crash class, low reach.**
+    `parse_decimal("Infinity")` returns `Decimal('Infinity')` and
+    `parse_grouped_float("inf")` returns `inf` — neither raises, and the
+    digit bound does not catch them (`"inf"` has no digits to count).
+    `adb._money(Decimal('Infinity'))` then raises `InvalidOperation`, the
+    same crash class as card 3 by a different route. Reach is small:
+    `parse_money` refuses them (no digits), so only the raising family is
+    exposed, and no archive document prints the literal. A `is_finite`
+    check at those four entry points would close it.
+12. **The equivalence harness now declares divergences.** The frozen pre-R-2
    oracles stay frozen — they are historical record. `assert_equivalent`
    takes a declared divergence set: undeclared drift still fails, AND a
    declaration that no longer diverges fails too, so the list cannot go
@@ -8646,7 +8733,23 @@ tree too. Follow-up card MG-C1 below.
 ## MG9. Proofs
 
 ```
-$ python -m pytest -q
+$ python -m pytest -q                     # after the review amendments
+3117 passed, 18 deselected, 1 warning in 481.53s (0:08:01)
+EXIT=0
+
+$ python -m pytest tests/test_money.py -q
+170 passed in 1.12s
+EXIT=0
+
+$ python -m pytest tests/test_money.py -q -k "<the equivalence oracles>"
+26 passed, 144 deselected in 0.33s
+EXIT=0
+
+$ python -m pytest <the seven guard modules> -q
+800 passed, 1 warning in 14.84s
+EXIT=0
+
+$ python -m pytest -q                     # pre-amendment, cards 1-4 only
 3103 passed, 18 deselected, 1 warning in 400.39s (0:06:40)
 EXIT=0
 
@@ -8680,4 +8783,5 @@ card 1: 34 of 37 fail on base (the 3 that pass are the ASCII controls)
 | `c2f9f5b` | card 2 — one decimal place is not money, and a bare .56 is cents |
 | `bdfad1f` | card 3 — a digit run past 13 places is not an amount |
 | `f1727c9` | card 4 — the debit marker is a token, not a letter |
+| (amendment) | review conditions 1–4: the detached-marker trap pinned, card 2 restated as implemented, the INPUTS matrix extended to cards 1 and 3, five record corrections |
 | (this one) | §MONEY-GRAMMAR MG0–MG10 |

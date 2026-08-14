@@ -89,6 +89,13 @@ __all__ = [
 #: refuse the token — the strict engine returns ``None`` and drops the field,
 #: while the tolerant parsers match the digits *after* the glyph and return
 #: the amount POSITIVE. That is the dangerous half: a debit booked as a credit.
+#: The class is exactly these two, on attestation. ``U+2010 HYPHEN``,
+#: ``U+2011 NON-BREAKING HYPHEN`` and ``U+FF0D FULLWIDTH HYPHEN-MINUS`` are
+#: plausible siblings and are deliberately NOT here: no archive document
+#: prints one, and a sign class is the last place to add unattested members —
+#: each one silently flips the sign of anything that carries it. They are
+#: carried candidates, to be added the day a document attests one.
+#: ``U+2014 EM DASH`` stays out on purpose: it is punctuation, not a sign.
 MINUS_GLYPHS = "−–"
 #: The same class as a regex fragment, for consumers that find money tokens
 #: with their own pattern before handing them here. Use this rather than a
@@ -101,10 +108,21 @@ _MINUS_TABLE = str.maketrans({glyph: "-" for glyph in MINUS_GLYPHS})
 def normalize_sign_glyphs(text: str) -> str:
     """Rewrite every printed minus glyph to ASCII ``-``.
 
-    Applied at the entry of every parser in this module, so the sign class is
+    Applied at the entry of every PARSER in this module, so the sign class is
     stated once and each `AmountFormat` — and each tolerant parser — inherits
     it rather than re-enumerating the glyphs. This normalizes the SIGN only;
     no other character is touched.
+
+    The parsers that normalize, exhaustively: `parse_amount` (hence every
+    `AmountFormat`), `parse_money`, `parse_money_tokens`, `parse_decimal`,
+    `parse_decimal_mixed_separator`, `parse_grouped_float`,
+    `parse_trailing_minus_dropped`, `parse_french_amount` and
+    `parse_digit_scrubbed`.
+
+    The two exported CLEANING helpers do not, and callers should not assume
+    they do: `strip_currency` and `pad_leading_decimal` are string utilities
+    that pass a non-ASCII sign straight through. A caller that cleans with
+    them and then compares or matches on its own must call this first.
     """
     return text.translate(_MINUS_TABLE)
 
@@ -151,6 +169,13 @@ _INTEGER_RUN = rf"\d{{1,{MAX_INTEGER_DIGITS}}}"
 
 #: Exactly ``digits.dd``. The workhorse shape for statements whose columns are
 #: reliable enough that anything else must be rejected rather than guessed.
+#:
+#: These are FULLMATCH patterns — `parse_amount` applies them with
+#: `re.fullmatch`, which is what makes the digit bound above bite. Used with
+#: `re.search` instead they would match the TAIL of an over-long run
+#: (``"9" * 20 + ".67"`` yields the last 13 digits and the cents), and the
+#: bound would be defeated silently. No consumer does that today; the note is
+#: here because the two uses look interchangeable and are not.
 CENTS = rf"{_INTEGER_RUN}\.\d{{2}}"
 #: As above but tolerating a leading minus inside the token itself.
 SIGNED_CENTS = rf"-?{_INTEGER_RUN}\.\d{{2}}"
@@ -332,10 +357,27 @@ PARENS_OR_LEADING_MINUS_OR_PLUS = AmountFormat(
 #:     comma is in the class because the token parser groups with it, so
 #:     ``1,234.5`` must not fall back to matching ``1``.
 #:
-#: Rejecting the shape is the structural answer: a layout that legitimately
-#: prints one decimal pads it at its own call site, where the format lives
-#: (`analysis/scotia.py::_amount_value` is the surveyed example). Nothing in
-#: the archive prints a one-decimal amount that is not padded first.
+#: THE RULE, EXACTLY AS IMPLEMENTED — a money token carries either no decimal
+#: point at all or exactly TWO OR THREE decimals, and is adjacent to neither a
+#: digit nor a dot on either side. Three consequences worth stating plainly,
+#: because "one decimal is not money" is a shorter claim than the code makes:
+#:
+#: * these parsers SEARCH, so refusing a token is not the same as returning
+#:   None: the search resumes and yields the next token that does qualify.
+#:   ``parse_money("34.9 100.00")`` is ``100.0``, not ``None``. None comes back
+#:   only when no qualifying token exists anywhere in the input.
+#: * the refusal covers more than one decimal place. A dot-adjacent token is
+#:   refused (``1.2.3``, ``12.345.67``) and so is anything with four or more
+#:   decimals (``34.9999``, and the ``0.000668276`` exchange-rate factor that
+#:   chase's own local grammar already had to defend against).
+#: * `parse_digit_scrubbed` does NOT get this rule. It keeps only digits and
+#:   dots and calls `float`, so it still reads ``34.9`` as ``34.9`` — the true
+#:   value, not a truncation. It was never the defect and is left alone;
+#:   callers bound it with `guard` instead.
+#:
+#: A layout that legitimately prints one decimal pads it at its own call site,
+#: where the format lives (`analysis/scotia.py::_amount_value` is the surveyed
+#: example). Nothing in the archive prints a one-decimal amount unpadded.
 _NOT_PART_OF_A_LONGER_NUMBER = r"(?<![\d.])"
 _NOT_CONTINUED = r"(?![.,]?\d)"
 
@@ -380,6 +422,15 @@ def _pad_bare_decimal(text: str) -> str:
 #: IS negative); it appears 596 times across 50 documents, 39 of them claimed
 #: and 37 validated, so dropping it in the name of an "exact D/DR" rule would
 #: have inverted the balance walk on every one of them.
+#:
+#: THE MARKER MUST BE WELDED TO THE AMOUNT, and that boundary is load-bearing
+#: rather than incidental: the suffix group cannot cross whitespace, so a
+#: DETACHED ``OD``/``DR``/``D`` is description text and leaves the sign alone.
+#: The archive prints detached ones 212 times across 23 documents, 6 of them
+#: VALIDATED — PNC prints ``36.00 OD Fee`` (an overdraft fee, a positive
+#: amount) and Huntington prints ``282.12 OD PROTECTION TRANSFER``. Relaxing
+#: the whitespace boundary to "read the next word as a marker" would negate a
+#: real fee on documents that validate today. `tests/test_money.py` pins it.
 _DEBIT_MARKERS = frozenset({"D", "DR", "OD"})
 
 
