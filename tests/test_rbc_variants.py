@@ -426,17 +426,24 @@ def test_negative_a_third_adjacent_money_cell_does_not_become_a_second_balance()
 # The French layout is the same grid and gets the same rules
 # ---------------------------------------------------------------------------
 
+#: The furniture the French business statement actually prints. The previous
+#: version of this fixture invented three wordings — a `Date Description
+#: Retraits` header (which is CIBC's, not RBC's) and two `Total des ...`
+#: rows that match no document — and the parser was written to them, so
+#: `rbc_french` claimed nothing corpus-wide. See W3_TRACKA_LOG §RBCCIBC card C.
 FR = """
 BANQUE ROYALE DU CANADA
-Relevé de compte
+Relevé de compte d'entreprise
 Du 3 mars 2026 au 2 avril 2026
+Sommaire du compte pour cette période
+Solde d'ouverture le 3 mars 2026 1 000,00 $
+Total des dépôts et des crédits (1) + 500,00
+Total des chèques et des débits (1) - 300,00
+Solde de clôture le 2 avril 2026 = 1 200,00 $
+Détails des opérations passées au compte
+Date Description Chèques et débits ($) Dépôts et crédits ($) Solde ($)
 Solde d'ouverture 1 000,00
-Total des dépôts portés à votre compte + 500,00
-Total des retraits - 300,00
-Solde de clôture de votre compte = 1 200,00
-Date Description Retraits ($) Dépôts ($) Solde ($)
-Solde d'ouverture 1 000,00
-{body}Solde de clôture de votre compte 1 200,00
+{body}Solde de clôture 1 200,00
 """
 
 
@@ -846,3 +853,115 @@ def test_b_negative_the_personal_heading_alone_does_not_claim_another_issuer():
     assert "Details of your account activity" in foreign
     assert not detect(foreign).claims
     assert parse_rbc_statement(foreign) is None
+
+
+# ---------------------------------------------------------------------------
+# Card C — the French BUSINESS layout, and the registration it resurrects.
+# `rbc_french` claimed nothing corpus-wide: its activity marker was CIBC's
+# French header, so paired with `BANQUE ROYALE` it matched no document at all
+# while nineteen documents of the layout it was written for went unclaimed.
+# ---------------------------------------------------------------------------
+
+FR_CHEQUE_PAGES = "No de série: 253 Montant: 127,40 $\n"
+
+
+def test_c_the_french_business_layout_is_detected_on_its_real_header():
+    from analysis.rbc import detect_french
+
+    document = FR.format(body="5 mars Article un 500,00 1 500,00\n"
+                              "12 mars Article deux 300,00 1 200,00\n")
+    assert detect_french(document).claims
+    stmt = parse_rbc_statement(document)
+    assert stmt is not None
+    assert stmt.bank == "Banque Royale du Canada"
+    assert stmt.currency == "CAD"
+
+
+def test_c_negative_the_header_the_marker_required_is_cibcs_not_rbcs():
+    """The old marker required `Date Description Retraits`. That is the French
+    CIBC header; RBC prints `Chèques et débits`. For as long as it required
+    the wrong one, the registration matched no document."""
+    from analysis.rbc import detect_french
+
+    cibc_header = FR.replace(
+        "Date Description Chèques et débits ($) Dépôts et crédits ($) Solde ($)",
+        "Date Description Retraits ($) Dépôts ($) Solde ($)",
+    ).format(body="5 mars Article un 500,00 1 500,00\n")
+    assert not detect_french(cibc_header).claims
+
+
+def test_c_the_summary_reads_both_totals_and_both_printed_counts():
+    """The two total rows print an instance count in brackets and the French
+    path never assigned either. Both totals matched no wording at all, so the
+    summary identity had nothing to check and the document shipped anyway."""
+    stmt = parse_rbc_statement(FR.format(
+        body="5 mars Article un 500,00 1 500,00\n"
+             "12 mars Article deux 300,00 1 200,00\n"))
+    assert stmt is not None
+    assert stmt.beginning_balance == 1000.0
+    assert stmt.ending_balance == 1200.0
+    assert stmt.stated_total_credits == 500.0
+    assert stmt.stated_total_debits == 300.0
+    assert stmt.stated_credit_count == 1
+    assert stmt.stated_debit_count == 1
+    assert reconcile(stmt).summary_ok is True
+
+
+def test_c_the_opening_balance_pattern_does_not_absorb_the_printed_year():
+    """`... le 23 juillet 2025 801,53 $` opens at 801.53, not 25,801.53: the
+    unanchored pattern began the grouped alternative inside the YEAR."""
+    document = FR.replace(
+        "Solde d'ouverture le 3 mars 2026 1 000,00 $",
+        "Solde d'ouverture le 23 juillet 2025 801,53 $",
+    ).replace("Solde d'ouverture 1 000,00", "Solde d'ouverture 801,53")
+    stmt = parse_rbc_statement(document.format(
+        body="5 mars Article un 500,00 1 301,53\n"))
+    assert stmt is not None
+    assert stmt.beginning_balance == 801.53
+
+
+def test_c_a_bracket_negative_balance_survives_the_printed_gap():
+    """`(1 066,25 )` — the closing bracket is set in its own column. The
+    bracket is this layout's ONLY negative marker, so failing to span the gap
+    sign-flipped every overdrawn balance in the family."""
+    stmt = parse_rbc_statement(FR.format(
+        body="5 mars Article un 2 066,25 (1 066,25 )\n"
+             "12 mars Article deux 2 266,25 1 200,00\n"))
+    assert stmt is not None
+    assert balances(stmt) == [-1066.25, 1200.0]
+    assert amounts(stmt) == [-2066.25, 2266.25]
+
+
+def test_c_a_reference_glued_to_a_plus_does_not_swallow_the_amount():
+    """`ARCHIVE+8 129,14`: the `8` belongs to the reference, and the grouped
+    alternative then read the amount as 8,129.14."""
+    stmt = parse_rbc_statement(FR.format(
+        body="5 mars Frais ARCHIVE+8 129,14 870,86\n"))
+    assert stmt is not None
+    assert amounts(stmt) == [-129.14]
+    assert balances(stmt) == [870.86]
+
+
+def test_c_a_cheque_serial_is_read_from_the_statements_own_declaration():
+    """`Chèque - 253 127,40` is serial 253 and $127.40, not $253,127.40.
+
+    French thousands are spaced, so nothing inside the row settles it. The
+    rule is authorised by the cheque-image pages the statement appends, which
+    declare every serial the period cleared.
+    """
+    stmt = parse_rbc_statement(FR.format(
+        body="5 mars Chèque - 253 127,40 872,60\n") + FR_CHEQUE_PAGES)
+    assert stmt is not None
+    assert amounts(stmt) == [-127.40]
+    assert balances(stmt) == [872.60]
+    assert descriptions(stmt) == ["Chèque - 253"]
+
+
+def test_c_negative_without_the_declaration_the_row_is_left_whole():
+    """A statement that declares no serials keeps the plain pattern: the row
+    reads as one grouped number and fails the bank's own totals rather than
+    being split on a guess."""
+    stmt = parse_rbc_statement(FR.format(
+        body="5 mars Chèque - 253 127,40 872,60\n"))
+    assert stmt is not None
+    assert amounts(stmt) == [-253127.40]

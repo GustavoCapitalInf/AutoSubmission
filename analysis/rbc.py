@@ -222,9 +222,23 @@ DETECTION_MARKERS = (
     required("activity_section", lambda t: any(h in t for h in _ACTIVITY_HEADINGS)),
 )
 
+#: The French activity table's own printed column header. Accented letters
+#: reach this parser as U+FFFD — the text layer of this family loses them
+#: outright rather than double-encoding them, so `normalize_mojibake` has
+#: nothing to repair — and every accent is therefore matched as `.`, the same
+#: tolerance `analysis/cibc.py` uses on the same problem.
+#:
+#: The wording matters: this marker previously required `DATE DESCRIPTION
+#: RETRAITS`, which is CIBC's French header, not RBC's. Paired with
+#: `BANQUE ROYALE` it matched NO document, and the registration claimed
+#: nothing corpus-wide while nineteen documents of the layout it was written
+#: for went unclaimed. `Chèques et débits` is what the statements print.
+_FR_ACTIVITY_GRID_RE = re.compile(
+    r"DATE DESCRIPTION CH.QUES ET D.BITS", re.IGNORECASE)
+
 FRENCH_DETECTION_MARKERS = (
     required("bank_name", lambda t: "BANQUE ROYALE" in t),
-    required("activity_header", lambda t: "DATE DESCRIPTION RETRAITS" in t),
+    required("activity_header", lambda t: bool(_FR_ACTIVITY_GRID_RE.search(t))),
 )
 
 detect = make_detector(DETECTION_MARKERS, detection_text)
@@ -410,8 +424,34 @@ _FR_PERIOD_RE = re.compile(
 )
 
 
+#: The cheque-image pages this layout appends, which declare every cheque the
+#: period cleared: `No de série: 253 Montant: 127,40 $`.
+_FR_CHEQUE_DECLARED_RE = re.compile(
+    r"No de s.rie\s*:\s*(\d+)\s+Montant\s*:", re.IGNORECASE)
 def _money_fr(text: str) -> float:
     return parse_french_amount(text, parens=True)
+
+
+#: The money pattern for a statement that declares its own cheque serials.
+#:
+#: French thousands are spaced, so a three-digit cheque serial followed by a
+#: three-digit amount is indistinguishable from one grouped number:
+#: `Chèque - 253 127,40` reads as 253,127.40 and the row books a quarter of a
+#: million dollars against an account holding four thousand. Nothing inside
+#: the row settles it — but the statement settles it elsewhere, on the
+#: cheque-image pages it appends (`No de série: 253 Montant: 127,40 $`).
+#:
+#: So the rule is authorised by the document, not assumed from the wording:
+#: this pattern is used only for a statement that declares cheque serials, and
+#: it refuses to BEGIN an amount at the number printed straight after
+#: `Chèque - `, which on such a statement is a serial. The remaining lookbehind
+#: then rejects every interior digit of that serial too, so the match lands on
+#: the amount. A statement that declares no serials keeps the plain pattern and
+#: a mis-read row fails the bank's own totals rather than being split on a guess.
+_FR_MONEY_SERIAL_RE = re.compile(
+    r"(?<![A-Za-z0-9+])(?<!ch.que - )\(?-?(?:\d{1,3}(?: \d{3})+|\d+),\d{2}\s*\)?",
+    re.IGNORECASE,
+)
 
 
 def _fr_month(month_token: str) -> int | None:
@@ -530,6 +570,9 @@ def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) ->
         if m:
             stmt.ending_balance = _money_fr(m.group(1))
 
+    #: Every cheque serial the statement's own cheque-image pages declare.
+    serials = frozenset(_FR_CHEQUE_DECLARED_RE.findall(markdown))
+
     entries: list[tuple[str, str, bool]] = []
     current_date: str | None = None
     in_activity = False
@@ -544,7 +587,7 @@ def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) ->
             # the page's own header block never reaches the grid reader.
             in_activity = False
             continue
-        if "DATE DESCRIPTION RETRAITS" in u:
+        if _FR_ACTIVITY_GRID_RE.search(u):
             in_activity = True
             continue
         if in_activity and (u.startswith("SOLDE DE CL") or u.startswith("VOTRE LIMITE")):
@@ -579,7 +622,7 @@ def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) ->
     # family of this parser, not an exception to it.
     rows, table_opening = read_grid_rows(
         entries,
-        pattern=_FR_MONEY_RE,
+        pattern=_FR_MONEY_SERIAL_RE if serials else _FR_MONEY_RE,
         to_amount=_money_fr,
         opening_label="SOLDE D'OUVERTURE",
         closing_label="SOLDE DE CL",

@@ -103,7 +103,7 @@ FIXTURES: dict[str, str] = {
     "navy_federal": "Navy Federal\nSummary of your deposit accounts\n",
     "pnc": "PNC Bank\nBusiness Checking\nBalance Summary\n",
     "rbc": "ROYAL BANK OF CANADA\nACCOUNT ACTIVITY DETAILS\n",
-    "rbc_french": "BANQUE ROYALE\nDATE DESCRIPTION RETRAITS\n",
+    "rbc_french": "BANQUE ROYALE\nDate Description Chèques et débits ($)\n",
     "regions": "REGIONS BANK\nSUMMARY\nThank you for banking with Regions!\n",
     "relay": (
         "RELAY FINANCIALS TECHNOLOGY\nACCOUNT STATEMENT\n"
