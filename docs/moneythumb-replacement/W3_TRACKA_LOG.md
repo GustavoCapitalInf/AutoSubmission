@@ -6286,3 +6286,315 @@ the computation is a deterministic function of the same bytes and settings.
 | `15108c5` | §CHASE-CLOSURE, first cut |
 | `4c15e88` | Ocean's adversarial review: the A′ posting-row clause and the corrected rule, the four probe shapes pinned twice each, the three small corrections, and card C's authorization record |
 | (this one) | §CHASE-CLOSURE finalised — the amendment record and the re-run proofs |
+# §SCOTIA-REBUILD — Cell 11: `scotiabank`, 80 documents, and a reconciliation that could not fail
+
+## S0. Summary
+
+`analysis/scotia.py` published the balance movement as every row's amount and
+discarded the printed money cell. `:113` computed
+`amount = round(balance - prev_balance, 2)`; `:114-118` read like a guard on
+the printed cell but its body re-assigned the identical expression, so the
+branch was dead and `values[-2]` was never used for anything.
+
+That alone would be a value defect. What made it a *gate* defect is that the
+same loop published `running_balance = balance` and the parser took its
+ending balance from the last row. `analysis/reconcile.py` checks
+`beginning + sum(amounts) == ending` and `prev + pending == running_balance` —
+both of which the parser had just constructed to be true. **`sum_delta` was
+0.0 and `continuity_breaks` was 0 on all 80 scotiabank documents by
+construction**, so the fail-closed path had nothing left to check on this
+parser and its 75 validated documents were certified by a check that
+re-derived their own arithmetic.
+
+The rebuild makes the printed cell the amount of record and leaves the
+balance column supplying only the direction, which is all it can supply: this
+layout flattens `Withdrawals/Debits ($)` and `Deposits/Credits ($)` into one
+printed value. Result over the cell: **validated 75 -> 78, withheld 5 -> 3,
+failed 4 -> 3, and zero documents moved down.**
+
+## S1. The pinned-corpus question, answered before any production edit
+
+The corpus pins exactly one scotiabank document, `ScotiaBank/Scotiabank
+-2.pdf` (`B64A0764...`, 417 transactions, PASS on both oracles). The row loop
+was replayed on it through the audits' own markdown path
+(`adb_forensic_audit.source_markdown`, as `corpus_gate` resolves it) before
+`analysis/scotia.py` was touched.
+
+The first replay found 20 rows where the printed cell disagreed with the
+walk. **All 20 were an artifact of the tokeniser, not a disagreement.** This
+document's text layer prints the amount column with its trailing zeros
+stripped — `34.9` for $34.90, `403.5` for $403.50, `25` for $25.00 — and both
+the parser's own `_MONEY_RE` and `analysis.money.parse_money` require two or
+three decimal places, so `34.9` was read as the two numbers `34` and `9`.
+Padding the printed form first, the printed cell agrees with the balance walk
+on **all 417 rows**.
+
+Field-level, against the module as it stood at `b95595f`:
+
+| field | differences | audited? |
+|---|---|---|
+| `transaction.date` | 0 | yes (ADB posting days) |
+| `transaction.amount` | 0 | yes (ledger sum) |
+| `transaction.running_balance` | 0 | yes (balance oracle) |
+| `transaction.direction` | 0 | published |
+| `transaction.description` | **38** | published, not audited |
+| every `Statement` scalar | 0 | — |
+
+No audited value moves, so the formal ceremony is not engaged. The 38
+descriptions all move the same way: the shipped parser located the
+description's cut with `rfind` on the money token as a *substring*, so rows
+kept a fragment of their own money cell (`...ONCA 34.9 3,`, `...MB-TRANSFER 2
+52`). The rebuild cuts at the token index and the fragments are gone. This is
+the one published-field change on a pinned PASS document and it is recorded
+here rather than buried: `docs/*-audit-results.csv` carries no description
+column, and `tests/data/parser_expectations.json` pins only `parser_id` and
+`chain_declined_ids`.
+
+`corpus_gate.py` returns GREEN (S7), which is the empirical half of the same
+claim.
+
+## S2. The cell reproduced independently
+
+Run `6893a75b`, the newest full archive run. The scotiabank *detector* claims
+84 documents (`scotiabank:0.5` in `candidates`); the other 28 documents where
+the id appears at all sit at `0.166667`, a single marker, below the claim
+threshold. Detection is untouched by this cell, so those 84 are the complete
+blast radius and every one of them was swept.
+
+Of the 84: 80 parsed (75 validated, 5 withheld on `withheld_adb`) and 4
+declined. Replaying the archive markdown through the real pipeline
+(`analyze_markdown` + `telemetry.record.classify_outcome`) reproduced
+`75 / 5 / 4` exactly.
+
+**One scout figure did not reproduce.** The brief carried "615 rows divergent
+from the printed cell, 512 of them in validated documents". That measurement
+compared `abs(delta)` with `abs(values[-2])` under the broken tokeniser, and
+it is the same artifact §S1 found on the pinned document. Under correct
+tokenisation the census over the cohort is **10 divergent rows out of 11,138,
+and 0 of them in a validated document** — all 10 sit in three documents that
+were already withheld. The brief's "~29 recoverable F1-class declines" did
+not reproduce either: the cohort holds 4 declines, of which 1 is recoverable
+and 3 are the geometry class.
+
+The tautology was real and is exactly as described; what was not real is the
+volume of wrong amounts it was hiding. The shipped amounts were mostly
+*right* — because the delta equals the printed cell whenever the walk is
+sound — but they were right underneath a check that could not fail.
+
+## S3. The four defects, and the structural rule that replaces each
+
+**1. The tautology.** The printed cell now ships as the magnitude and the
+balance movement supplies only the sign. Where they disagree the
+disagreement is published rather than resolved: the printed magnitude ships,
+the printed balance ships, and `reconcile` sees a continuity break and a
+ledger-sum mismatch. No new schema field — the platform already had the
+check; it had been given nothing to check.
+
+**2. Merchant-ref-as-balance.** A balance cell is now a currency value
+printed to two decimals with optional grouping and an optional trailing
+overdraft minus. An 11-digit `MRCH FIRST DATA CANADA(K)` reference on a
+continuation line is not that shape and can no longer become a balance. The
+amount is then the money token immediately preceding that balance, with bare
+unseparated integers longer than three digits refused as reference numbers,
+account fragments and years.
+
+**3. Section discipline.** Rows are read only from inside an `Account
+Details` posting table, bounded by the table's own printed column header
+(`Date Description Withdrawals/Debits ($) Deposits/Credits ($) Balance ($)`)
+and the section close. A Scotiabank PDF bundles several statements for one
+account; the `Deposit Interest` sheet is a daily-yield ledger with one dated
+row per calendar day and it declares a *different* grid, so it falls outside
+every span by construction rather than by a blocklist of section names.
+
+**4. Zero activity.** Admitted per the Chase A-prime rule: zero instances AND
+zero totals in both directions, plus an opening balance, and then the closing
+balance is the opening balance on the bank's own evidence. An empty ledger on
+any other document still refuses — four negatives pin the ways a document can
+fail to prove that nothing happened.
+
+## S4. Result over the cell
+
+| | before | after |
+|---|---|---|
+| validated | 75 | **78** |
+| withheld | 5 | 3 |
+| failed | 4 | 3 |
+
+**Moved up (3), each named:**
+
+| document | before -> after | what changed |
+|---|---|---|
+| `90D94C41` `Scotiabank/546b70d9_Feb.pdf` | failed -> validated | zero-activity period; prints `0 $0.00 0 $0.00` and a single `BALANCE FORWARD 0.00` |
+| `9EAD644B` `Scotiabank/67f4ee87_June1.pdf` | withheld -> validated | 32 -> 4 rows; the 28 `Deposit Interest` daily-yield rows stop being postings. Captured 0 debits / 4 credits against stated 0 / 4, totals $0.00 / $5,543.58 against stated $0.00 / $5,543.58 |
+| `86FB0B50` `Scotiabank/67f4ee87_May 1.pdf` | withheld -> validated | 12 -> 5 rows, same cause. Captured 1 / 4 against stated 1 / 4, totals $15.20 / $7,306.33 exact |
+
+**Moved down: 0.** No currently-validated document became withheld, because
+no validated document carries a divergent row (§S2).
+
+**Value-corrected in place (3)** — all three were already withheld, and all
+three now carry honest numbers where they carried constructed ones:
+
+| document | correction |
+|---|---|
+| `125127F3` `9ee60bf6_May 2026 e-statement scotiabank.pdf` | debit total **$322,749,939,392.81 -> $39,113.26** (the back-solve), credit total $322,749,939,660.99 -> $32,541.85, 55 -> 54 rows, `sum_delta` 0.0 -> -6,839.59, `continuity_breaks` 0 -> 5 |
+| `B52CDF2B` `3128bbbf_Scotiabank -1 .pdf` | `sum_delta` 0.0 -> -134.08, `continuity_breaks` 0 -> 3, risk review -> high |
+| `D0056217` `3128bbbf_Scotiabank -3 .pdf` | `sum_delta` 0.0 -> 9.33, `continuity_breaks` 0 -> 2 |
+
+**Unchanged on every compared financial field: 78 documents.**
+
+## S5. Fail-closed remainders, reported and not forced
+
+* **Geometry class, 3 documents** (`A63E37F9`, `B4946150`, `ADFE654C`, all
+  `Unidentified/e2646953_*`). The native rung flattens the two money columns
+  and the balance column does not survive at all: every row carries one
+  money value and `BALANCE FORWARD` carries none. 378 rows are dropped for
+  having no printed balance cell and the parser declines all three. This is
+  the geometry queue, not a parsing defect.
+* **Web-print `Account Details` documents.** These never reach this parser —
+  the detector does not claim them (`scotiabank` is absent from their
+  `candidates` and `near_miss` entirely, or sits at 0.166667). They are a
+  `formal_statement=False` registration question for Ocean, untouched here.
+
+## S6. Carried findings and questions for Ocean
+
+1. **`parse_money` cannot read a one-decimal amount.** `_TOKEN_RE` accepts
+   two or three decimal places, so `34.9` returns `34.0` — silently, and
+   $0.90 low. This cell pads the token at its own call site, which is the
+   division `analysis/money.py` documents (engine shared, format with the
+   bank), and money.py is out of scope here. But the shape "money printed
+   with trailing zeros stripped" is unlikely to be Scotiabank's alone, and a
+   parser that hands `34.9` straight to `parse_money` gets a wrong number
+   with no signal. Worth a sweep on the money integration card.
+2. **The scout's 615/512 figures should not be carried forward** into any
+   roll-up; §S2 has the corrected census (10 / 0).
+3. **Direction on a divergent row is the walk's sign**, since the flattened
+   layout leaves no column evidence. On a row where printed and walk
+   disagree, the magnitude is printed and the sign is inferred — the row is
+   published *with* the contradiction rather than dropped, and `reconcile`
+   withholds the document. Recorded as a deliberate choice.
+4. **`possible_document_issue` fires at `continuity_breaks >= 3`.** Two of
+   the three value-corrected documents now sit at 3 and 5; `D0056217` sits at
+   2 and is withheld on other grounds. No action needed, noted so the
+   threshold's new sensitivity on this parser is not a surprise.
+
+## S7. Proofs
+
+```
+$ python -m pytest tests/test_parser_expectations_baseline.py \
+    tests/test_parser_conformance.py tests/test_parser_detection_markers.py \
+    tests/test_no_parser_helper_clones.py tests/test_no_statement_hardcodes.py \
+    tests/test_r1_hardcodes.py tests/test_parser_registry.py \
+    tests/test_parser_registry_entries.py tests/test_count_semantics.py \
+    tests/test_stated_counts.py -q
+900 passed, 1 warning in 3.58s
+EXIT=0
+
+$ python -m pytest tests/test_scotia_layouts.py -q
+20 passed in 0.31s
+EXIT=0
+
+$ python -m pytest -q
+2582 passed, 18 deselected, 1 warning in 94.67s (0:01:34)
+EXIT=0
+
+$ python corpus_gate.py
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  488.3s
+RESULT: GREEN
+EXIT=0
+
+$ python -m pytest -m corpus -q
+14 passed, 2583 deselected, 1 warning in 1171.90s (0:19:31)
+EXIT=0
+```
+
+The gate and the corpus-marked run were measured before the §S9 review
+amendments and were deliberately not re-run: the amendments change only span
+bounding and zero-activity admissibility, the re-run cohort sweep is
+byte-identical on all 84 documents (§S9), and the pinned document prints a
+summary grid and closes every section, so neither amendment can reach it. The
+pinned field-level comparison WAS re-run after the amendments and is still 0
+on every audited field.
+
+The layout tests were also run against `analysis/scotia.py` as it stands at
+`b95595f`: **7 fail**, one per defect — f2 (the printed cell surviving a
+disagreement), f5 and f6 (a reference number read as a balance and as an
+amount; the shipped parser produces `amount=12344678.0` on f5), f7 (the
+daily-yield sheet fabricating postings), f9 and f10 (the zero-activity period
+refused) and f17 (a missing amount cell back-solved). The three added by the
+review (f18-f20) fail against the pre-amendment commit. The remaining ten are
+regression pins on behaviour that was already right.
+
+No conformance fixture was added: the scotiabank fixture carries detection
+furniture only and detection is unchanged.
+
+## S8. Commits
+
+| Commit | Contents |
+|---|---|
+| `4f6011b` | `analysis/scotia.py`: the printed cell as the amount of record, section-bounded rows, the balance/amount cell shapes, and the zero-activity guard |
+| `3e4e156` | `tests/test_scotia_layouts.py`: 17 synthetic documents, 7 of which fail against `b95595f` |
+| `8622136` | §SCOTIA-REBUILD |
+| `cf592ec` | the corpus-marked proof recorded in §S7 |
+| (this one) | the two review amendments of §S9, their three tests, and this record |
+
+## S9. Amendments from adversarial review
+
+Ocean's review returned SHIP with two required amendments. Both are the same
+class: a rule that was correct about what it looked at, and silent about what
+it did not look at.
+
+**1. Zero-activity was not checking that the posting tables were empty.**
+The guard fired on `not txns`, which cannot distinguish "the bank printed no
+activity" from "activity was printed and every row of it was refused". The
+reviewer's probe prints 0/0 counts, $0.00/$0.00 totals, an opening balance
+*and* two posting rows whose cells the shape rules reject — and the parser
+published `transactions=[]` as validated/approved, which is exactly the
+"empty captured ledger equated with a valid statement" the four negatives
+were written to prevent. They all happened to carry no rows at all, so none
+of them caught it.
+
+The clause added: zero-activity is admissible only if the posting tables
+contain no dated row, `BALANCE FORWARD` excluded as the table's opening
+bound rather than a posting. This mirrors the Chase A′ no-MM/DD-row
+discipline, scoped to the structural spans. `90D94C41`, the genuine
+zero-activity mover, still validates.
+
+**2. Spans were bounded at one end only.** `_posting_tables` ended a span at
+`_TABLE_CLOSE` or the end of the document, so a section that never printed a
+closing token ran on. Two consequences, both proven by the reviewer: a
+trailing posting table absorbed a following `Deposit Interest` sheet that did
+not open with a close token (2 fabricated rows), and — because every header
+opens a span independently — an unclosed span ran THROUGH the next header, so
+the following table's rows were read by both spans and published twice
+(`03/02` duplicated).
+
+Each span is now additionally bounded by the point at which the next table
+declares its own columns. Every Scotiabank grid announces itself as a
+`Date`-led run of column labels reaching a `($)` money column, so one bound
+closes both holes.
+
+**Re-proof after the span change** (span construction changed, so
+byte-identity had to be re-established): the 84-document cohort sweep is
+**identical on all 84 documents** — 0 differing on any of the 21 compared
+fields against the pre-amendment run — and still 3 up / 0 down against the
+baseline, the same three movers. The pinned document re-compared field by
+field against `b95595f` is still 0 on every audited field.
+
+### Residuals recorded, deliberately not fixed
+
+* **Tail truncation with no summary grid.** When a document's final posting
+  table is cut off and the layout prints no summary block, `ending_balance`
+  is taken from the last row actually read, so a truncated tail yields a
+  closing balance that is real but early. This is inherent to a layout that
+  prints no closing figure to check against — there is no second source on
+  the page to detect it. Recorded as the honest limit of this parser rather
+  than papered over.
+* **`$0.00` rows carry the debit label.** Five rows across the cohort print a
+  zero amount — every one of them a `LOAN INTEREST` posting, in `6F78F153`
+  (1) and `B616BF47` (4). With `delta == 0` the direction rule yields
+  `debit`. This matches the behaviour at `b95595f`, and loan interest is
+  genuinely a debit-column item, so nothing is misstated.
+* **The `count_semantics` citation** (`analysis/scotia.py:80-82`) now points
+  at shifted line numbers. Ocean's at merge.
