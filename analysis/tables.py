@@ -224,6 +224,12 @@ def _grid_cells(line: str, pattern: re.Pattern[str]) -> list[re.Match]:
       the layout prints between the two: keying on the mark rather than on a
       list of currency codes is what keeps `403.50 SCD 09502` (a branch
       reference that happens to follow an amount) a printed cell;
+    * a tariff quoted inside the description — `SERVICE CHARGE CAPPED MONTHLY
+      FEE$16.95 RECORD-KEEPING N/A` names the monthly fee and then the row's
+      own cell prints it again. The mark is the missing gap: a printed cell
+      stands in a column, so a currency symbol welded to the word before it is
+      part of the sentence, not the start of a column. Reading it as a cell
+      booked the fee twice;
     * a reference number, which a printed price never resembles because a
       price carries no leading zero.
     """
@@ -238,6 +244,17 @@ def _grid_cells(line: str, pattern: re.Pattern[str]) -> list[re.Match]:
             continue
         if _RATE_OPERAND_RE.match(after):
             continue
+        # What the token is welded to on its left, taking off only a symbol
+        # that is itself welded: the symbol belongs to the figure, whatever
+        # else does not. A gap here means a column started; no gap means the
+        # figure is a word inside the description's own sentence.
+        attached = line[:match.start()]
+        if attached.endswith("$"):
+            attached = attached[:-1]
+        if attached and not attached[-1].isspace():
+            continue
+        # The `@` may be separated from the figure by its symbol AND a space
+        # (`4 Drs @ $ 5.00`), so that check reads the trimmed text.
         before = line[:match.start()].rstrip()
         if before.endswith("$"):
             before = before[:-1].rstrip()

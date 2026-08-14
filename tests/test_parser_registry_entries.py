@@ -41,6 +41,7 @@ EXPECTED_ORDER = [
     "bmo_us_activity",
     "capital_one",
     "chase",
+    "cibc",
     "cibc_french",
     "citizens",
     "columbia_bank",
@@ -116,9 +117,10 @@ def test_every_parse_entry_point_in_analysis_is_registered():
 def test_registration_count_matches_the_documented_decision_points():
     """43 registry entry points, the three promoted sub-dispatches, the three
     BMO layouts (W3 §BMO-LAYOUTS), the Square Checking layout
-    (W3 §CHASE-LAYOUTS) and the Chase savings product (W3 §CHASE-CLOSURE) —
-    the last three opened by the unclaimed-layout phase."""
-    assert len(pr.registrations()) == 51
+    (W3 §CHASE-LAYOUTS), the Chase savings product (W3 §CHASE-CLOSURE) and the
+    English CIBC layout (W3 §RBCCIBC) — the last four opened by the
+    unclaimed-layout phase."""
+    assert len(pr.registrations()) == 52
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():

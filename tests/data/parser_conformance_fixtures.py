@@ -69,6 +69,10 @@ FIXTURES: dict[str, str] = {
         "*start*summary\nSAVINGS SUMMARY\n"
         "Date Description Amount Balance\n"
     ),
+    "cibc": (
+        "CIBC Account Statement\nTransaction details\n"
+        "Date Description Withdrawals ($) Deposits ($) Balance ($)\n"
+    ),
     "cibc_french": "CIBC\nDétail de vos opérations\n",
     "citizens": "citizensbank.com\nBusiness Advisor Checking\n",
     "columbia_bank": (
