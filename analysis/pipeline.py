@@ -73,9 +73,47 @@ def normalize_statement(stmt: Statement) -> Statement:
     return stmt.model_copy(update={"transactions": transactions})
 
 
-def apply_statement_repairs(markdown: str, stmt: Statement) -> Statement:
-    stmt = repair_bofa_summary(markdown, stmt)
-    stmt = repair_regions_summary(markdown, stmt)
+#: The bank-summary repairs, keyed by the registration whose paper each one
+#: reads. Both rewrite PUBLISHED figures — balances and stated totals — from
+#: labels they expect to find, so each may run only for the parser that owns
+#: the layout those labels belong to. `tests/test_analysis.py::
+#: test_every_summary_repair_is_keyed_on_a_live_registration` holds the ids to
+#: the registry, so renaming a parser cannot silently switch its repair off.
+_SUMMARY_REPAIRS: dict[str, Callable[[str, Statement], Statement]] = {
+    "bank_of_america": repair_bofa_summary,
+    "regions": repair_regions_summary,
+}
+
+
+def apply_statement_repairs(
+    markdown: str, stmt: Statement, *, dispatch: Dispatch | None = None
+) -> Statement:
+    # These two used to be gated on substrings of the document — `"REGIONS" in
+    # markdown.upper()`, `"BANK OF AMERICA" ... "ACCOUNT SUMMARY"`. A bank's
+    # name in a document is as often a fact about a COUNTERPARTY as about the
+    # issuer, which is R4-3 (a marker that reads another bank's ledger row)
+    # applied to a REPAIR instead of to a detection marker — and a repair is
+    # the more dangerous place for it, because detection competes and a repair
+    # simply overwrites. HUNT-CELL H6.1 measured it: five Huntington statements
+    # that merely pay a bill to Regions Bank, plus a `Service Charge Summary`,
+    # had `beginning_balance`, `ending_balance` and every stated total rewritten
+    # from Huntington's own labels; three Chase documents in the archive are
+    # having their `ending_balance` rewritten the same way today.
+    #
+    # The gate is now the CLAIMING registration, and for an LLM extraction that
+    # claimed nothing, the registration whose bank label it named — exactly the
+    # `_registration_for` resolution (the R-3 ruling) that `assess_quality` and
+    # `assess_document_integrity` already use, so a repair reaches precisely the
+    # documents whose parser knowledge the rest of the pipeline is applying.
+    #
+    # RESTRICTION-ONLY, and that is what makes the hunk safe to review: each
+    # repair keeps its own internal guard untouched, so the new key can only
+    # STOP a repair firing, never start one on a document that did not already
+    # satisfy it. At most one can fire now, since a document has one owner.
+    owner = _registration_for(stmt, dispatch)
+    repair = _SUMMARY_REPAIRS.get(owner.id) if owner is not None else None
+    if repair is not None:
+        stmt = repair(markdown, stmt)
     stmt = repair_first_community_posted_activity(stmt)
     stmt = repair_b1_beginning_balance(stmt)
     stmt = repair_capital_one_running_amount(stmt)
@@ -413,7 +451,9 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         else None
     )
     if deterministic_stmt is not None:
-        stmt = apply_statement_repairs(markdown, normalize_statement(deterministic_stmt))
+        stmt = apply_statement_repairs(
+            markdown, normalize_statement(deterministic_stmt), dispatch=dispatch
+        )
         bank_label = (stmt.bank or "bank").lower().replace(" ", "-")
         model_used = f"{bank_label}-deterministic"
     elif structured_stmt is not None:
@@ -434,7 +474,7 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         if parse_mode == "deterministic":
             raise RuntimeError("no deterministic parser matched this statement")
         stmt = normalize_statement(extract_statement(markdown, settings=settings, model=model_used))
-        stmt = apply_statement_repairs(markdown, stmt)
+        stmt = apply_statement_repairs(markdown, stmt, dispatch=dispatch)
     recon = reconcile(stmt)
 
     escalated = False
@@ -448,7 +488,7 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
     if deterministic_stmt is None and needs_escalation and settings.escalation_model != settings.model:
         try:
             alt = normalize_statement(extract_statement(markdown, settings=settings, model=settings.escalation_model))
-            alt = apply_statement_repairs(markdown, alt)
+            alt = apply_statement_repairs(markdown, alt, dispatch=dispatch)
             alt_recon = reconcile(alt)
             better_summary = bool(alt_recon.summary_ok) and not recon.summary_ok
             fewer_issues = alt_recon.summary_ok == recon.summary_ok and len(alt_recon.issues) < len(recon.issues)

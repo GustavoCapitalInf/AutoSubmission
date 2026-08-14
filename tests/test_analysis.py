@@ -27,7 +27,13 @@ from analysis.ibc import parse_ibc_statement
 from analysis.linkbank import parse_linkbank_statement
 from analysis.midflorida import parse_midflorida_statement
 from analysis.navy_federal import parse_navy_federal_statement
-from analysis.pipeline import analyze_markdown, assess_document_integrity, normalize_statement, Quality
+from analysis.pipeline import (
+    analyze_markdown,
+    apply_statement_repairs,
+    assess_document_integrity,
+    normalize_statement,
+    Quality,
+)
 from analysis.td_can import parse_td_canada_statement
 from analysis.td_us import parse_td_us_statement
 from analysis.texas_bank import parse_texas_bank_statement
@@ -1858,6 +1864,111 @@ Average Balance $297
     assert stmt.stated_total_debits == 78744.96
     assert stmt.stated_average_balance == 297.0
     assert reconcile(stmt).summary_ok is True
+
+
+# ---------------------------------------------------------------------------
+# Bank-summary repairs are keyed on the claiming registration (HUNT-CELL H6.1)
+# ---------------------------------------------------------------------------
+
+#: A statement of another issuer's that PAYS a bill to Regions and prints its
+#: own `Service Charge Summary` — which is all the retired substring gate
+#: (`"REGIONS" ... "SUMMARY"`) ever required. The figures below are this
+#: issuer's own; the repair would overwrite them from the labels it recognises.
+_COUNTERPARTY_MARKDOWN = """
+The Huntington National Bank
+Beginning Balance 1,000.00 Ending Balance 2,000.00
+Deposits & Credits 5,000.00 Withdrawals 3,100.00
+Checks 900.00
+Service Charge Summary
+Total Service Charges 25.00
+02/14 ONLINE BILL PAY REGIONS BANK CARD PMT 250.00
+"""
+
+
+def _claimed_by(parser_id: str, bank: str):
+    """A `Dispatch` in which `parser_id` claimed the document. Built directly
+    rather than registered, so the registry the rest of the suite sees is
+    untouched."""
+    from analysis.parser_registry import Dispatch, Marker, Registration
+
+    registration = Registration(
+        id=parser_id, bank=bank, markers=(Marker("m", lambda text: True),),
+        parse=lambda markdown: None,
+    )
+    return Dispatch("claimed", registration=registration)
+
+
+def test_a_repair_does_not_fire_for_a_bank_named_only_as_a_counterparty():
+    """HUNT-CELL H6.1: five Huntington statements that merely pay a bill to
+    Regions Bank had their balances and stated totals rewritten by the Regions
+    repair, and failed reconciliation. The claiming registration is the gate."""
+    # `stated_total_debits` is this issuer's own printed `Debits (-)`. The
+    # Regions repair adds `Checks` to `Withdrawals`, which on this paper double
+    # counts the cheques — HUNT-CELL measured exactly that substitution.
+    original = Statement(
+        bank="Huntington National Bank", beginning_balance=1000.0, ending_balance=2000.0,
+        stated_total_credits=5000.0, stated_total_debits=3100.0, stated_service_charge=25.0,
+    )
+    # The retired gate is genuinely satisfied by this document...
+    assert "REGIONS" in _COUNTERPARTY_MARKDOWN.upper()
+    assert "SUMMARY" in _COUNTERPARTY_MARKDOWN.upper()
+    assert repair_regions_summary(_COUNTERPARTY_MARKDOWN, original) != original
+    # ...and the claiming registration is what now keeps the repair off it.
+    repaired = apply_statement_repairs(
+        _COUNTERPARTY_MARKDOWN, original,
+        dispatch=_claimed_by("huntington", "Huntington National Bank"),
+    )
+    for field in ("beginning_balance", "ending_balance", "stated_total_credits",
+                  "stated_total_debits", "stated_service_charge"):
+        assert getattr(repaired, field) == getattr(original, field), field
+
+
+def test_a_repair_still_fires_for_the_registration_that_owns_it():
+    """The other direction, so the gate cannot be satisfied by switching every
+    repair off: the owning parser's claim still applies its repair."""
+    markdown = _COUNTERPARTY_MARKDOWN.replace(
+        "The Huntington National Bank", "Regions Bank"
+    )
+    original = Statement(bank="Regions Bank")
+    repaired = apply_statement_repairs(
+        markdown, original, dispatch=_claimed_by("regions", "Regions Bank")
+    )
+    assert repaired.beginning_balance == 1000.0
+    assert repaired.ending_balance == 2000.0
+
+
+def test_an_llm_extraction_gets_its_repair_by_bank_label():
+    """The R-3 ruling: a document no parser claimed still gets the document
+    knowledge of the registration whose bank label the extraction named — that
+    is what the pre-R-3 `stmt.bank == ...` literals gave it."""
+    from analysis.parser_registry import Dispatch
+
+    markdown = _COUNTERPARTY_MARKDOWN.replace(
+        "The Huntington National Bank", "Regions Bank"
+    )
+    unclaimed = Dispatch("unclaimed")
+    named = apply_statement_repairs(
+        markdown, Statement(bank="Regions Bank"), dispatch=unclaimed
+    )
+    assert named.beginning_balance == 1000.0
+    # ...and an extraction naming a bank we have no parser for gets nothing.
+    unnamed = apply_statement_repairs(
+        _COUNTERPARTY_MARKDOWN,
+        Statement(bank="Huntington National Bank"),
+        dispatch=unclaimed,
+    )
+    assert unnamed.beginning_balance is None
+
+
+def test_every_summary_repair_is_keyed_on_a_live_registration():
+    """The ids in `_SUMMARY_REPAIRS` are registry keys, so a renamed parser
+    would silently switch its repair off. This is what makes that loud."""
+    from analysis import parser_registry
+    from analysis.pipeline import _SUMMARY_REPAIRS
+
+    assert _SUMMARY_REPAIRS, "the table must not be empty"
+    for parser_id in _SUMMARY_REPAIRS:
+        assert parser_registry.by_id(parser_id).id == parser_id
 
 
 def test_parse_regions_native_text_sections():
