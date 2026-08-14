@@ -402,3 +402,73 @@ def test_period_from_long_dates_reads_the_first_span():
 
 def test_period_from_long_dates_returns_none_for_other_period_formats():
     assert dt.period_from_long_dates("01/05/2026 - 02/04/2026") is None
+
+
+# ---------------------------------------------------------------------------
+# W3 §FINTECH additions
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("month,day,year,expected", [
+    ("April", 1, 2026, "2026-04-01"),
+    ("Apr", "01", "2026", "2026-04-01"),
+    ("APRIL", 1, 2026, "2026-04-01"),
+    ("apr", 1, 2026, "2026-04-01"),
+    ("September", 30, 2026, "2026-09-30"),
+    ("Sep", 30, 2026, "2026-09-30"),
+])
+def test_iso_from_named_month_day_reads_both_printed_spellings(month, day, year, expected):
+    """One statement prints both: "April 2026 statement ... April 1, 2026" in
+    its header and "Apr 01" on every posting row."""
+    assert dt.iso_from_named_month_day(month, day, year) == expected
+
+
+@pytest.mark.parametrize("month,day,year", [
+    ("Balance", 1, 2026),      # a capitalized word that is not a month
+    ("Janury", 1, 2026),       # a misspelling
+    ("February", 30, 2026),    # a shape that no calendar can hold
+    ("April", "x", 2026),      # not a number
+])
+def test_iso_from_named_month_day_returns_none_rather_than_raising(month, day, year):
+    """Callers reach this from a regex that proved a token's SHAPE only, so a
+    non-date is an ordinary occurrence and never an exception — an escaping
+    error is a `ParserCrashError` in deterministic mode."""
+    assert dt.iso_from_named_month_day(month, day, year) is None
+
+
+def test_the_month_table_has_one_entry_per_spelling_and_no_duplicates():
+    """Twelve months, two spellings each, minus the one month whose name is
+    already three letters and is therefore its own abbreviation."""
+    assert len(dt.MONTH_NUMBERS) == 23
+    assert dt.MONTH_NUMBERS["may"] == 5
+    assert dt.MONTH_NUMBERS["march"] == dt.MONTH_NUMBERS["mar"] == 3
+
+
+def test_the_month_alternation_prefers_the_longer_spelling():
+    """Written longest-first so "January" is never truncated to "Jan"
+    mid-match, which would leave "uary" in the caller's next group."""
+    pattern = re.compile(r"^(" + dt.MONTH_NAME_ALT + r")", re.IGNORECASE)
+    assert pattern.match("January 5").group(1) == "January"
+    assert pattern.match("Jan 5").group(1) == "Jan"
+
+
+def test_compact_lines_drops_blanks_and_compacts_what_remains():
+    assert tb.compact_lines("  a   b \n\n\n  c\t d \n") == ["a b", "c d"]
+
+
+def test_unique_line_returns_the_match_when_every_occurrence_is_identical():
+    """A page header reprinted on every page is one value, not three."""
+    pattern = re.compile(r"^Account Number:\s*(\w+)$")
+    lines = ["Account Number: 12345", "other", "Account Number: 12345"]
+    assert tb.unique_line(lines, pattern).group(1) == "12345"
+
+
+@pytest.mark.parametrize("lines", [
+    [],
+    ["nothing here"],
+    # two DIFFERENT values under one pattern: more than one account in the PDF
+    # (L-1), or a pattern catching something else. Either way, not a choice to
+    # make silently.
+    ["Account Number: 12345", "Account Number: 67890"],
+])
+def test_unique_line_returns_none_when_the_value_is_not_unique(lines):
+    assert tb.unique_line(lines, re.compile(r"^Account Number:\s*(\w+)$")) is None

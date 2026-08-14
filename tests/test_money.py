@@ -572,6 +572,46 @@ def test_parse_decimal_raises_value_error_on_junk():
         m.parse_decimal("N/A")
 
 
+@pytest.mark.parametrize("printed,expected", [
+    # unsigned
+    ("$1,234.56", "1234.56"),
+    # every glyph a surveyed statement sets where a minus belongs, welded to
+    # the currency symbol and set one cell away from it
+    ("-$1,234.56", "-1234.56"),
+    ("- $1,234.56", "-1234.56"),
+    ("−$1,234.56", "-1234.56"),
+    ("− $1,234.56", "-1234.56"),
+    ("–$1,234.56", "-1234.56"),
+    ("— $1,234.56", "-1234.56"),
+    # an explicit credit marker is a marker, not a digit
+    ("+$3.57", "3.57"),
+    ("+ $3.57", "3.57"),
+])
+def test_parse_signed_decimal_reads_every_printed_sign_glyph(printed, expected):
+    assert m.parse_signed_decimal(printed) == Decimal(expected)
+
+
+def test_parse_signed_decimal_is_exact():
+    assert (m.parse_signed_decimal("- $0.10") + m.parse_signed_decimal("$0.30")
+            == Decimal("0.20"))
+
+
+@pytest.mark.parametrize("junk", ["N/A", "", "--", "-", "$", "- N/A"])
+def test_parse_signed_decimal_refuses_anything_that_is_not_money(junk):
+    """The sign reading is added on top of `parse_decimal`; the refusal to
+    guess at a non-money token is inherited unchanged."""
+    with pytest.raises(ValueError):
+        m.parse_signed_decimal(junk)
+
+
+def test_the_signed_money_token_pattern_carries_no_capturing_groups():
+    """It is composed into row patterns whose own group numbers must not shift
+    underneath them."""
+    assert re.compile(m.SIGNED_MONEY_TOKEN).groups == 0
+    assert re.fullmatch(m.SIGNED_MONEY_TOKEN, "− $1,234.56")
+    assert not re.fullmatch(m.SIGNED_MONEY_TOKEN, "1,234.56")
+
+
 def test_mixed_separator_reads_comma_as_decimal_mark_only_when_unambiguous():
     assert m.parse_decimal_mixed_separator("1234,56") == Decimal("1234.56")
     assert m.parse_decimal_mixed_separator("1,234.56") == Decimal("1234.56")
