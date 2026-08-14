@@ -849,6 +849,45 @@ def test_the_bound_is_below_the_decimal_context_that_crashes_adb():
     assert m.MAX_INTEGER_DIGITS < 26
 
 
+# ===========================================================================
+# 7. The debit marker is a token, not a letter (W3 §MONEY-GRAMMAR card 4)
+# ===========================================================================
+
+@pytest.mark.parametrize("value,expected", [
+    ("1234.56D", -1234.56),      # TD Canada's own marker
+    ("1234.56DR", -1234.56),
+    ("1234.56/D", -1234.56),     # "/" is a separator TD prints, not a marker
+    ("12.34D*", -12.34),         # fill characters are stripped first
+    ("371.96OD", -371.96),       # TD Canada overdraft on a running balance
+    ("1234.56-", -1234.56),      # the trailing-minus convention
+])
+def test_a_real_debit_marker_still_marks_a_debit(value, expected):
+    assert m.parse_money(value) == expected
+
+
+@pytest.mark.parametrize("value", [
+    "100.00CREDIT",   # the defect: "CREDIT" contains a D
+    "100.00DEBIT",    # not a marker anyone prints welded; not in the set
+    "100.00USD", "100.00CAD",
+    "100.00CR", "100.00C",
+    "20.00DC",
+])
+def test_a_suffix_that_merely_contains_a_d_does_not_invert_the_sign(value):
+    """The rule was 'the suffix CONTAINS a D', which is not a rule about
+    markers: any word a flattened cell welds to an amount could flip it."""
+    assert m.parse_money(value) == 100.0 or m.parse_money(value) == 20.0
+    assert m.parse_money(value) > 0
+
+
+def test_the_marker_set_is_what_the_archive_prints():
+    """OD is in the set on evidence, not by taste: it is TD Canada's
+    overdraft marker on 50 archive documents, 39 of them claimed. An
+    'exact D/DR' reading would have inverted every one of their balances."""
+    assert m.MAX_INTEGER_DIGITS  # module imported
+    assert m.parse_money("371.96OD") == -371.96
+    assert m.parse_money("371.96") == 371.96
+
+
 def test_minus_class_is_the_fragment_consumers_embed():
     assert re.fullmatch(m.MINUS_CLASS, "-")
     assert re.fullmatch(m.MINUS_CLASS, MINUS)

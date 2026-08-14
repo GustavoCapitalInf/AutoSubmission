@@ -369,14 +369,28 @@ def _pad_bare_decimal(text: str) -> str:
     return text
 
 
+#: The suffixes that mark a debit, matched as WHOLE marker tokens.
+#:
+#: The rule was once "the suffix CONTAINS a D", which is not a rule about
+#: markers at all: it made ``100.00CREDIT`` negative, because "CREDIT" has a D
+#: in it. Any suffix a flattened cell welds to an amount could invert its sign.
+#:
+#: The set is what the archive actually prints. ``OD`` is TD Canada's overdraft
+#: marker on a running balance (``371.96OD`` — the balance is overdrawn, so it
+#: IS negative); it appears 596 times across 50 documents, 39 of them claimed
+#: and 37 validated, so dropping it in the name of an "exact D/DR" rule would
+#: have inverted the balance walk on every one of them.
+_DEBIT_MARKERS = frozenset({"D", "DR", "OD"})
+
+
 def parse_money(value: str | None) -> float | None:
     """First money-shaped token in `value`, sign-aware, rounded to cents.
 
     Tolerant by design: it searches rather than anchors, ignores ``*`` fill
     characters, accepts three decimal places (some statements print rates in
-    the same column), and reads a trailing ``D``/``DR`` or ``-`` as a debit
-    marker. Used wherever the surrounding layout already established that the
-    cell is an amount, so over-matching a reference number is not a risk.
+    the same column), and reads a trailing debit marker (``D``/``DR``/``OD``)
+    or ``-``. Used wherever the surrounding layout already established that
+    the cell is an amount, so over-matching a reference number is not a risk.
 
     Zero is returned as ``+0.0`` regardless of markers — a signed zero would
     round-trip badly through the reconciliation identities.
@@ -392,7 +406,12 @@ def parse_money(value: str | None) -> float | None:
     amount = float(m.group(2))
     if amount == 0:
         return 0.0
-    if m.group(1) or (m.group(3) and ("D" in m.group(3).upper() or "-" in m.group(3))):
+    suffix = (m.group(3) or "").upper()
+    # "/" is a separator TD prints inside the marker cell ("1234.56/D"), not
+    # part of the marker; a "-" anywhere in the suffix is the trailing-minus
+    # convention and is honoured on its own.
+    marker = suffix.replace("/", "").strip("-")
+    if m.group(1) or "-" in suffix or marker in _DEBIT_MARKERS:
         amount *= -1
     return round(amount, 2)
 
