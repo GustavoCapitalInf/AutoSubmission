@@ -131,10 +131,10 @@ def test_the_sign_fix_did_not_move_td_us_detection():
 
 # ------------------------------------------- U2 the section that lost a row
 
-#: The scanned shape: one debit row of a forty-row section did not survive
-#: Tesseract, so that section's rows fall 100.00 short of the subtotal TD
-#: printed above them. Everything else about the document is intact — the
-#: summary, the other section, the two balances.
+#: The scanned shape, reduced to its structure: a debit section whose rows
+#: fall 100.00 short of the subtotal TD printed for it — on the real documents,
+#: Tesseract losing one row out of forty. Everything else is intact: the
+#: summary, the other section, and both balances still agree with each other.
 TD_DROPPED_ROW = TD_IN_CREDIT.replace(
     "01/09 ACH DEBIT, EXAMPLE COUNTERPARTY 425.00\nSubtotal: 425.00\n",
     "01/09 ACH DEBIT, EXAMPLE COUNTERPARTY 325.00\nSubtotal: 425.00\n",
