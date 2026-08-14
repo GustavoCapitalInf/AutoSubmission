@@ -27,6 +27,10 @@ _PAGE_RE = re.compile(r"^\d+ of \d+$", re.IGNORECASE)
 #: what tells a price from a reference number.
 _CENTS_TAIL_RE = re.compile(r"[.,]\d{2}\)?$")
 _NON_DIGIT_RE = re.compile(r"\D")
+#: What follows a money-shaped token that makes it the operand of a printed
+#: exchange rate: the currency it is denominated in, and then the `@` mark.
+#: Both are required — the code alone follows plenty of genuine cells.
+_RATE_OPERAND_RE = re.compile(r"\s+[A-Z]{3}\s*@")
 #: One printed money cell of the `Account Summary for this Period` block: the
 #: currency symbol is optional, and a negative figure is printed either
 #: `-$1,234.56` or `$-1,234.56`.
@@ -38,7 +42,27 @@ _NON_DIGIT_RE = re.compile(r"\D")
 #: total rows, both stated totals AND both stated counts went None, which skips
 #: the summary identity check (`reconcile.summary_ok` None) and ships the
 #: document approved with `summary_totals_reliable=True` and no issue raised.
-_SUMMARY_MONEY = r"(-?\$?[\d,]+\.\d{2}|\$-?[\d,]+\.\d{2})"
+#:
+#: The sign is printed in three places relative to the symbol — `-$2.55`,
+#: `$-2.55` and `- $2.55` — because the minus is set in the *label* column of
+#: the summary grid while the symbol belongs to the figure. Reading only the
+#: first two was the same class of loss one level down: a personal statement
+#: closing overdrawn printed `= - $2.55` and the parser published `+2.55`, so
+#: the summary identity balanced against a sign-flipped closing balance
+#: instead of failing. Six of the twelve personal-layout documents close or
+#: open overdrawn and print it this way.
+_SUMMARY_MONEY = r"((?:-\s*)?\$?(?:-\s*)?[\d,]+\.\d{2})"
+
+
+def _summary_amount(token: str) -> float | None:
+    """One `Account Summary` money cell, however its sign was spaced.
+
+    `- $2.55` and `$-2.55` are the same printed figure, but `parse_money`
+    searches for the first money-shaped token and would read the detached
+    minus as unrelated punctuation, returning `+2.55`. Closing the gap first
+    is what makes the three printed placements one value.
+    """
+    return parse_money(re.sub(r"\s+", "", token))
 
 
 def _date_from(day: str, mon: str, *, default_year: int) -> str:
@@ -60,13 +84,22 @@ def _is_printed_price(token: str) -> bool:
 def _grid_cells(line: str, pattern: re.Pattern[str]) -> list[re.Match]:
     """The money cells the activity grid prints on one physical line.
 
-    Three kinds of money-shaped token are printed inside a description cell
+    Five kinds of money-shaped token are printed inside a description cell
     rather than in a money column, and each is recognised by the mark the
     statement prints beside it, never by its value:
 
     * the operand of `@` — the "at unit price" marker (`4 Drs @ 2.50 10.00`
       prints a rate and then the fee);
     * a percentage operand (`@ RBP+05.00%P.A`);
+    * the numerator of a printed rate — `DEPOSIT NOTE FEE SELF-SERVICE 6170.0
+      AT 2.25/1,000` charges $2.25 per $1,000, and the `/` is what says so;
+    * the foreign-currency operand of an exchange rate — `INTERNET GLOBAL
+      MONEY TRANSFER 450000.00 PKR @.005` moved 450,000 rupees, and the
+      account was debited the converted figure printed in its own column. The
+      mark is the same `@` as the first rule, read THROUGH the currency code
+      the layout prints between the two: keying on the mark rather than on a
+      list of currency codes is what keeps `403.50 SCD 09502` (a branch
+      reference that happens to follow an amount) a printed cell;
     * a reference number, which a printed price never resembles because a
       price carries no leading zero.
     """
@@ -74,7 +107,12 @@ def _grid_cells(line: str, pattern: re.Pattern[str]) -> list[re.Match]:
     for match in pattern.finditer(line):
         if not _is_printed_price(match.group(0)):
             continue
-        if line[match.end():match.end() + 1] == "%":
+        after = line[match.end():]
+        if after[:1] == "%":
+            continue
+        if after[:1] == "/":
+            continue
+        if _RATE_OPERAND_RE.match(after):
             continue
         before = line[:match.start()].rstrip()
         if before.endswith("$"):
@@ -102,6 +140,15 @@ def _read_grid_rows(entries, *, pattern, to_amount, opening_label, closing_label
        last on a line. This is what makes a row carrying TWO money cells
        readable at all, and it is deliberately blind to the values: a balance
        smaller than its own amount is still the balance.
+
+       The Balance column is also the ONLY column that prints a sign: the two
+       activity columns print magnitudes and the column heading supplies the
+       direction. So a bare minus standing between a row's amount and the cell
+       that follows it is that balance going overdrawn (`194.82 - 192.33`),
+       and it is read as one here rather than in the money pattern — which
+       cannot tell it from the hyphen a merchant name ends with
+       (`... LITTLE KABUL - 180.59`, where 180.59 is a withdrawal). Reading
+       the sign where the column is known is what separates the two.
     2. **A row ends at its amount cell**, so text that follows one begins the
        next row. That reads a compressed line (several printed rows emitted on
        one physical line) and a wrapped row (one printed row spread over
@@ -158,11 +205,26 @@ def _read_grid_rows(entries, *, pattern, to_amount, opening_label, closing_label
                     stopped = True
                     break
             cells = _grid_cells(text, pattern)
-            if opens.match(text):
-                if cells:
-                    opening = to_amount(cells[-1].group(0))
+            label = opens.match(text)
+            if label:
+                # The table's own opening row prints ONE cell, in the Balance
+                # column, and everything after it belongs to the rows that
+                # follow. Consuming the whole physical line here discarded
+                # them: this layout family compresses the column header, the
+                # opening row and the first posting onto one line, so what was
+                # thrown away was a real transaction. Take the label's own
+                # cell, then let the remainder be read as grid content.
                 description, open_row, centred_amount = [], None, False
-                continue
+                if not cells:
+                    continue
+                gap = text[label.end():cells[0].start()].strip()
+                opening = to_amount(cells[0].group(0))
+                if gap == "-":
+                    opening = -opening
+                text = text[cells[0].end():]
+                cells = _grid_cells(text, pattern)
+                if not text.strip():
+                    continue
             if not cells:
                 if open_row is not None and centred_amount:
                     open_row["description"] = f"{open_row['description']} {text}".strip()
@@ -179,12 +241,21 @@ def _read_grid_rows(entries, *, pattern, to_amount, opening_label, closing_label
             position = 0
             for match in cells:
                 gap = text[position:match.start()].strip()
-                if gap:
+                # A bare minus between a row's amount and the next cell is the
+                # sign of the balance that cell carries (rule 1). Anything else
+                # standing between two cells is description, and it closes the
+                # open row exactly as before.
+                signed_balance = (
+                    gap == "-"
+                    and open_row is not None
+                    and open_row["balance"] is None
+                )
+                if gap and not signed_balance:
                     description.append(gap)
                     open_row = None
                 value = to_amount(match.group(0))
                 if open_row is not None and open_row["balance"] is None:
-                    open_row["balance"] = value
+                    open_row["balance"] = -value if signed_balance else value
                     open_row = None
                 else:
                     row = {
@@ -404,22 +475,22 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
 
         m = re.search(r"Opening balance on .*?" + _SUMMARY_MONEY, line, re.IGNORECASE)
         if m:
-            stmt.beginning_balance = parse_money(m.group(1))
+            stmt.beginning_balance = _summary_amount(m.group(1))
         m = re.search(r"Closing balance on .*?" + _SUMMARY_MONEY, line, re.IGNORECASE)
         if m:
-            stmt.ending_balance = parse_money(m.group(1))
+            stmt.ending_balance = _summary_amount(m.group(1))
         m = re.search(
             r"Total deposits & credits \((\d+)\)\s*\+?\s*" + _SUMMARY_MONEY, line, re.IGNORECASE
         )
         if m:
             stmt.stated_credit_count = int(m.group(1))
-            stmt.stated_total_credits = parse_money(m.group(2))
+            stmt.stated_total_credits = _summary_amount(m.group(2))
         m = re.search(
             r"Total cheques & debits \((\d+)\)\s*-?\s*" + _SUMMARY_MONEY, line, re.IGNORECASE
         )
         if m:
             stmt.stated_debit_count = int(m.group(1))
-            stmt.stated_total_debits = parse_money(m.group(2))
+            stmt.stated_total_debits = _summary_amount(m.group(2))
 
         if "DATE DESCRIPTION CHEQUES & DEBITS" in u:
             in_activity = True
@@ -498,7 +569,25 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
 
 
 _FR_DATE_RE = re.compile(r"^(\d{1,2})\s+([^\s]+)\s+(.*)$", re.IGNORECASE)
-_FR_MONEY_RE = re.compile(r"(?<![A-Za-z0-9])\(?-?(?:\d{1,3}(?: \d{3})+|\d+),\d{2}\)?")
+#: One printed money cell of the French grid.
+#:
+#: `\s*\)` rather than `\)`: this layout sets the closing bracket in its own
+#: column, so an overdrawn balance prints as `(1 066,25 )` with the gap the
+#: grid left. Requiring the bracket to be adjacent matched `(1 066,25` — which
+#: `parse_french_amount` then read as POSITIVE, because the token it was given
+#: no longer looked bracketed. The bracket is this layout's ONLY negative
+#: marker, so every overdrawn balance in the family was sign-flipped.
+#:
+#: `+` in the lookbehind: a reference glued to a `+` (`ARCHIVE+8 129,14`)
+#: otherwise began a match at its own last digit, and the space-grouping
+#: alternative then swallowed the real amount behind it — `129,14` became
+#: `8 129,14`. A digit reachable only by starting mid-reference is not a cell.
+_FR_MONEY_RE = re.compile(r"(?<![A-Za-z0-9+])\(?-?(?:\d{1,3}(?: \d{3})+|\d+),\d{2}\s*\)?")
+#: A French summary figure, anchored so it cannot begin inside the number
+#: beside it. Without `(?<!\d)` the space-grouped alternative started at the
+#: last digits of the printed YEAR: `... le 23 juillet 2025 801,53 $` read as
+#: `025 801,53`, publishing an opening balance of 25,801.53 for one of 801.53.
+_FR_SUMMARY_MONEY = r"((?<!\d)(?:\d{1,3}(?: \d{3})+|\d+),\d{2})"
 _FR_PAGE_RE = re.compile(r"^\d+ de \d+$", re.IGNORECASE)
 #: Full French month names; tokens resolve by unambiguous prefix, so every
 #: month works, not only December/January (R-1 item 7).
@@ -597,18 +686,41 @@ def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) ->
     # audited corpus surface identical; enabling it is proposed in
     # R1_HARDCODE_LOG.md for an Ocean-approved re-baseline.
 
-    m = re.search(r"solde d'ouverture.*?([\d ]+,\d{2})\s*\$", markdown, re.IGNORECASE)
-    if m:
-        stmt.beginning_balance = _money_fr(m.group(1))
-    m = re.search(r"Total des d.*?compte\s*\+\s*([\d ]+,\d{2})", markdown, re.IGNORECASE)
-    if m:
-        stmt.stated_total_credits = _money_fr(m.group(1))
-    m = re.search(r"Total des retraits.*?-\s*([\d ]+,\d{2})", markdown, re.IGNORECASE)
-    if m:
-        stmt.stated_total_debits = _money_fr(m.group(1))
-    m = re.search(r"solde de cl.*?=\s*([\d ]+,\d{2})\s*\$", markdown, re.IGNORECASE)
-    if m:
-        stmt.ending_balance = _money_fr(m.group(1))
+    # The summary block, read off the collapsed line rather than off the whole
+    # document. The four wordings below are the ones the layout actually
+    # prints; the two total rows previously looked for `Total des ...compte`
+    # and `Total des retraits`, which match no document in the family, so both
+    # stated totals were silently None and `reconcile.summary_ok` had nothing
+    # to check. Accents arrive as U+FFFD from this text layer, so every accented
+    # letter is matched as `.` — the same tolerance `analysis/cibc.py` uses.
+    for raw in markdown.splitlines():
+        line = re.sub(r"\s+", " ", raw).strip()
+        if not line:
+            continue
+        m = re.search(
+            r"solde d'ouverture\b.*?" + _FR_SUMMARY_MONEY + r"\s*\$", line, re.IGNORECASE
+        )
+        if m:
+            stmt.beginning_balance = _money_fr(m.group(1))
+        m = re.search(
+            r"Total des d.p.ts et des cr.dits\s*\((\d+)\)\s*\+\s*" + _FR_SUMMARY_MONEY,
+            line, re.IGNORECASE,
+        )
+        if m:
+            stmt.stated_credit_count = int(m.group(1))
+            stmt.stated_total_credits = _money_fr(m.group(2))
+        m = re.search(
+            r"Total des ch.ques et des d.bits\s*\((\d+)\)\s*-\s*" + _FR_SUMMARY_MONEY,
+            line, re.IGNORECASE,
+        )
+        if m:
+            stmt.stated_debit_count = int(m.group(1))
+            stmt.stated_total_debits = _money_fr(m.group(2))
+        m = re.search(
+            r"solde de cl.ture\b.*?=\s*" + _FR_SUMMARY_MONEY + r"\s*\$", line, re.IGNORECASE
+        )
+        if m:
+            stmt.ending_balance = _money_fr(m.group(1))
 
     entries: list[tuple[str, str, bool]] = []
     current_date: str | None = None

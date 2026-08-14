@@ -30,7 +30,8 @@ from __future__ import annotations
 
 import pytest
 
-from analysis.rbc import parse_rbc_statement
+from analysis.money import parse_money
+from analysis.rbc import _MONEY_RE, _read_grid_rows, parse_rbc_statement
 from analysis.reconcile import reconcile
 
 HEAD = """
@@ -582,3 +583,161 @@ def test_r_negative_the_debit_rows_minus_is_its_direction_cell_not_a_sign(printe
     assert stmt is not None
     assert stmt.stated_total_debits == 300.00
     assert stmt.stated_debit_count == 1
+
+
+# ---------------------------------------------------------------------------
+# RBCCIBC-LAYOUTS card D - the money grammar, hardened against the shapes the
+# unclaimed RBC/CIBC families print. Every fixture below fails against
+# `cce8ac1`, and none of the shapes occurs in the 160 documents the registry
+# already claims (the census and the byte-identity sweep are in
+# W3_TRACKA_LOG.md §RBCCIBC).
+# ---------------------------------------------------------------------------
+
+def test_d_a_summary_balance_printed_minus_space_symbol_is_negative():
+    """`- $2.55` is one figure: the minus is set in the label column.
+
+    The shipped pattern admitted `-$2.55` and `$-2.55` and stopped there, so a
+    statement that opens or closes overdrawn published `+2.55` and its summary
+    identity balanced against a sign-flipped figure instead of failing.
+    """
+    doc = statement(
+        "02 Mar Deposit item 1,000.00 997.45\n",
+        opening="2.55", closing="997.45",
+        credits="1,000.00", credit_count=1, debits="0.00", debit_count=0,
+    ).replace("Opening balance on March 2, 2026 $2.55",
+              "Opening balance on March 2, 2026 - $2.55")
+    stmt = parse_rbc_statement(doc)
+    assert stmt is not None
+    assert stmt.beginning_balance == -2.55
+
+
+def test_d_a_summary_closing_balance_printed_equals_minus_symbol_is_negative():
+    doc = statement(
+        "02 Mar Withdrawal item 5.32 -2.55\n",
+        opening="2.77", closing="2.55",
+        credits="0.00", credit_count=0, debits="5.32", debit_count=1,
+    ).replace("Closing balance on April 1, 2026 = $2.55",
+              "Closing balance on April 1, 2026 = - $2.55")
+    stmt = parse_rbc_statement(doc)
+    assert stmt is not None
+    assert stmt.ending_balance == -2.55
+
+
+def test_d_a_bare_minus_between_two_cells_signs_the_balance():
+    """`194.82 - 192.33`: the account went overdrawn on that row.
+
+    The Balance column is the only column that prints a sign, so the minus
+    belongs to the cell it stands in front of. Reading it as unrelated
+    punctuation published a POSITIVE 192.33 balance and broke the chain.
+    """
+    stmt = parse_rbc_statement(statement(
+        "02 Mar Deposit item 100.00 102.77\n"
+        "03 Mar Withdrawal item 194.82 - 192.33\n",
+        opening="2.77", closing="-192.33",
+        credits="100.00", credit_count=1, debits="194.82", debit_count=1,
+    ))
+    assert stmt is not None
+    assert balances(stmt) == [102.77, -192.33]
+    assert amounts(stmt) == [100.0, -194.82]
+
+
+def test_d_negative_a_description_ending_in_a_hyphen_does_not_sign_its_amount():
+    """The adversary for the rule above, taken from a claimed document.
+
+    `Interac purchase - 0184 B001 LITTLE KABUL - 180.59` prints a merchant
+    name that ends with a hyphen and then a WITHDRAWAL. The minus is not
+    between two cells — there is no open row awaiting a balance — so it stays
+    description and 180.59 stays a debit magnitude.
+    """
+    stmt = parse_rbc_statement(statement(
+        "02 Mar Interac purchase - 0184 B001 LITTLE KABUL - 180.59\n"
+        "03 Mar Deposit item 250.00 1,069.41\n",
+        opening="1,000.00", closing="1,069.41",
+        credits="250.00", credit_count=1, debits="180.59", debit_count=1,
+    ))
+    assert stmt is not None
+    assert amounts(stmt) == [-180.59, 250.0]
+    assert balances(stmt) == [None, 1069.41]
+    assert descriptions(stmt)[0] == "Interac purchase - 0184 B001 LITTLE KABUL -"
+
+
+def test_d_the_opening_row_prints_its_own_sign():
+    doc = statement(
+        "02 Mar Deposit item 100.00 97.45\n",
+        opening="2.55", closing="97.45",
+        credits="100.00", credit_count=1, debits="0.00", debit_count=0,
+    ).replace("Opening balance on March 2, 2026 $2.55",
+              "Opening balance on March 2, 2026 - $2.55"
+    ).replace("Opening balance 2.55", "Opening balance - 2.55")
+    stmt = parse_rbc_statement(doc)
+    assert stmt is not None
+    assert stmt.beginning_balance == -2.55
+    assert balances(stmt) == [97.45]
+    assert amounts(stmt) == [100.0]
+
+
+def test_d_the_opening_row_line_does_not_swallow_what_follows_it():
+    """The opening row prints ONE cell; the rest of the line is the next row.
+
+    This layout family compresses the column header, the opening row and the
+    first posting onto one physical line, so consuming the whole line here
+    discarded a real transaction.
+    """
+    rows, opening = _read_grid_rows(
+        [("Opening balance 1,000.00 Withdrawal item 100.00 900.00", "2026-03-02", True)],
+        pattern=_MONEY_RE,
+        to_amount=lambda token: parse_money(token) or 0.0,
+        opening_label="OPENING BALANCE",
+        closing_label="CLOSING BALANCE",
+    )
+    assert opening == 1000.0
+    assert [row["description"] for row in rows] == ["Withdrawal item"]
+    assert [row["abs_amount"] for row in rows] == [100.0]
+    assert [row["balance"] for row in rows] == [900.0]
+
+
+def test_d_negative_an_opening_row_alone_on_its_line_still_yields_no_row():
+    rows, opening = _read_grid_rows(
+        [("Opening balance 1,000.00", "2026-03-02", True)],
+        pattern=_MONEY_RE,
+        to_amount=lambda token: parse_money(token) or 0.0,
+        opening_label="OPENING BALANCE",
+        closing_label="CLOSING BALANCE",
+    )
+    assert opening == 1000.0
+    assert rows == []
+
+
+def test_d_a_printed_rate_is_not_a_money_cell():
+    """`2.25/1,000` is a price per thousand dollars deposited, not a cell."""
+    stmt = parse_rbc_statement(statement(
+        "02 Mar Deposit note fee self-service 6170.0 AT 2.25/1,000 13.88 986.12\n",
+        opening="1,000.00", closing="986.12",
+        credits="0.00", credit_count=0, debits="13.88", debit_count=1,
+    ))
+    assert stmt is not None
+    assert amounts(stmt) == [-13.88]
+    assert balances(stmt) == [986.12]
+
+
+def test_d_a_foreign_currency_operand_of_an_exchange_rate_is_not_a_money_cell():
+    """`450000.00 PKR @.005` is what was sent abroad, not what left the account."""
+    stmt = parse_rbc_statement(statement(
+        "02 Mar Global money transfer 450000.00 PKR @.005 2,250.00 7,750.00\n",
+        opening="10,000.00", closing="7,750.00",
+        credits="0.00", credit_count=0, debits="2,250.00", debit_count=1,
+    ))
+    assert stmt is not None
+    assert amounts(stmt) == [-2250.0]
+    assert balances(stmt) == [7750.0]
+
+
+def test_d_negative_a_three_letter_reference_after_an_amount_is_still_a_cell():
+    """`403.50 SCD 09502` — the guard requires the `@`, not just the code."""
+    stmt = parse_rbc_statement(statement(
+        "02 Mar ABM withdrawal INTERAC SCD 09502 403.50 9,596.50\n",
+        opening="10,000.00", closing="9,596.50",
+        credits="0.00", credit_count=0, debits="403.50", debit_count=1,
+    ))
+    assert stmt is not None
+    assert amounts(stmt) == [-403.50]
