@@ -266,6 +266,21 @@ def assess_document_integrity(
     dispatch: Dispatch | None = None,
     sheets: Sequence[str] | None = None,
 ) -> DocumentIntegrity:
+    # `str` is itself a `Sequence[str]`, so `sheets=markdown` type-checks, then
+    # iterates to one CHARACTER per "sheet": thousands of unlabelled sheets, and
+    # `missing_declared_statement_page` silently cleared on every document. That
+    # is the worst failure this parameter can have, so it is refused loudly
+    # rather than coerced. Raising, not treating it as None: passing the
+    # document text here is a caller defect, and a caller that believes it is
+    # supplying page structure while supplying none would otherwise run in the
+    # check's weakest mode forever with nothing to show for it. No document's
+    # content can reach this — only a call site can.
+    if isinstance(sheets, str):
+        raise TypeError(
+            "sheets must be the intake object's page list, not the document "
+            "text; a str iterates per character and would clear the "
+            "page-declaration check"
+        )
     flags: list[str] = []
     notes: list[str] = []
 
@@ -369,10 +384,16 @@ def assess_document_integrity(
         # So an unlabelled sheet is counted as what it is: a candidate for any
         # one of the pages whose label was not found. The flag is withheld only
         # when BOTH hold — enough candidates for the unfound labels, and a PDF
-        # that is not simply short of its own declared total. Both conjuncts are
-        # load-bearing against padding: appending junk sheets raises
-        # `unlabelled_sheets`, while a whitespace-only sheet is excluded from
-        # `printed_sheets` and so can raise neither.
+        # that is not simply short of its own declared total.
+        #
+        # What that pair does NOT do is defeat padding, and the limit is stated
+        # here rather than discovered later: a blank or whitespace-only sheet is
+        # excluded from `printed_sheets` and raises neither count, but a sheet
+        # carrying ANY text — one character is enough — is a candidate, because
+        # nothing here reads the page. A short PDF padded with text-bearing
+        # junk sheets will have this flag withdrawn. Closing that needs a reader
+        # that can tell a statement page from a filler page, which is a
+        # different capability from counting them.
         #
         # `sheets` is the INTAKE OBJECT's page list (`StatementMarkdown.pages`),
         # one entry per physical sheet, passed down by the caller that ran the

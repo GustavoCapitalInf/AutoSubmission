@@ -8409,7 +8409,7 @@ documents that do publish.
 | card | the defect | movers on this branch |
 |---|---|---|
 | 1 | bank-summary repairs gated on a document substring, so another bank's name as a COUNTERPARTY fires them | **3** statements whose `ending_balance` is rewritten by a foreign repair |
-| 2 | `missing_declared_statement_page` reads an absent page LABEL as an absent PAGE | **114** documents lose a false flag; 101 publish nothing, **13** publish |
+| 2 | `missing_declared_statement_page` reads an absent page LABEL as an absent PAGE | **0 at merge — ships INERT.** Once wired: 114 documents lose a false flag, of which **13** publish (+2 pinned, ceremony) |
 | 3 | `wells._infer_year` reads the first year token by position | **0** — measured, latent, not shipped (P4) |
 
 Card 2 was extended mid-cell by Ocean with UNID-PACK-B's Fiserv finding. It
@@ -8422,7 +8422,10 @@ land.
 
 Card 2's blast radius is materially wider than its carded +3. It is measured
 exactly, every publishing mover is named, and it is put to Ocean rather than
-quietly shipped (P3.5).
+quietly shipped (P3.5). After adversarial review it ships **inert** — the
+mechanism is corrected and pinned by tests, but no production caller supplies
+the page structure it needs, so nothing moves at merge. Activation is a
+ceremony-gated follow-up card (P4b.5, P7.6).
 
 `analysis/regions.py` and `analysis/bofa.py` carry a **zero-line diff**. The
 change is `analysis/pipeline.py` and `tests/test_analysis.py`, nothing else.
@@ -8792,9 +8795,25 @@ vector is the obvious next attack:
 * any forged separator in page content, which no longer participates at all.
 
 **The honest residual**, recorded rather than papered over: padding a short PDF
-with a sheet that carries REAL text still withdraws the flag. That sheet is
-indistinguishable from a genuine unlabelled insert without reading the page,
-and this cell does not read pages.
+with a sheet that carries real text still withdraws the flag, and ONE CHARACTER
+is enough to make a sheet text-bearing. Such a sheet is indistinguishable from
+a genuine unlabelled insert without reading the page, and this cell does not
+read pages; closing it needs a reader that can tell a statement page from a
+filler page, which is a different capability from counting them. The in-code
+comment states this limit at the point of use rather than claiming the two
+conjuncts defeat padding.
+
+**One call-site footgun, refused loudly.** `str` is itself a `Sequence[str]`,
+so `sheets=markdown` type-checks and then iterates one CHARACTER per sheet —
+thousands of unlabelled sheets, and this flag cleared on every document that
+carries it. `assess_document_integrity` raises `TypeError` on a `str` rather
+than coercing it to `None`: passing the document text is a caller defect, and a
+caller that believes it is supplying page structure while supplying none would
+otherwise run the check in its weakest mode indefinitely with nothing to show
+for it. No document's content can reach this path — only a call site can — so
+raising costs nothing at runtime and fails the wiring card loudly if it is
+mis-wired. Pinned by
+`test_passing_the_document_text_as_the_sheet_list_is_refused`.
 
 ### P4b.3 Re-verification after the fix
 
@@ -8865,73 +8884,136 @@ newly accused, but the 13 publishing movers do not move either:
 | `discovery/runner.py` | `_analyse` (called from the intake result) | thread `document.pages` in and pass `sheets=` |
 | `webapp/worker.py` | `analyze_markdown(markdown, parse_mode=...)` | `sheets=doc.pages` — `doc` is already in scope one line above |
 | `webapp/artifact_cache.py` | `cached_analysis` compute lambda | pass the document's pages alongside `md` |
+| `webapp/artifact_cache.py` | `analysis_settings_key` / `cached_analysis` key material | **add the sheet count** — see below, this is not optional |
 
-No cache-key change is needed: the sheet list is a function of the same
-document that produced the markdown the key already covers. `webapp/` is
-Ocean's, and `discovery/runner.py` is outside the handoff's ownership list, so
-they are named here rather than edited.
+**The wiring card MUST also add the sheet count to the analysis-stage cache
+key material.** An earlier draft of this section claimed the opposite — "no
+cache-key change is needed, the sheet list is a function of the same document
+that produced the markdown". That was FALSE, and it was the most dangerous
+sentence in this cell's output, because it would have been read as clearance.
+
+The analysis key is built at `webapp/artifact_cache.py:638` as
+
+```python
+    input_sha = text_sha256(admissible_text(markdown))
+```
+
+— the ADMISSIBLE text, which is precisely the text with the
+`<!-- source: … | pages: N | … -->` header removed. The page count is
+therefore not in the key material at all. And `to_markdown` is not injective
+over that text: a genuine three-sheet document and a forged one-sheet document
+whose single page prints the separators render to the SAME admissible string,
+so they take the same analysis cache key while having DIFFERENT correct
+answers under this check. The reviewer demonstrated the collision (key
+`EB23C6B1C971…`). Cache the first, serve it for the second.
+
+The header is stripped for a good reason — FILENAME-BOUNDARY, since it also
+carries the filename — so the fix is not to re-admit it but to add the sheet
+count to the key material explicitly, alongside `stage_version` and
+`parse_mode`.
+
+**Ceremony gate.** Activating the wiring legitimately moves two PINNED corpus
+documents, so it is Gustavo's formal ceremony, not a merge-time decision.
+Measured with each document's authentic page list, over all five pinned
+`page_coverage` documents:
+
+| pinned document | declares | missing | sheets | when wired |
+|---|---|---|---|---|
+| `Regions/Regions.pdf` | 3 | 1, 2 | 3 | **flag withdrawn → validated** |
+| `Misc/Texas Bank.pdf` | 4 | 1, 2, 3 | 4 | **flag withdrawn → validated** |
+| `Misc/Builder June 2026.pdf` | 5 | 1, 2, 3 | 4 | flag stands |
+| `Misc/Columbia May 26 complete.pdf` | 5 | 5 | 4 | flag stands |
+| `Misc/Link Bank April statement.pdf` | 20 | 20 | 20 | flag stands |
+
+Both movers are review→validated on a withdrawn false flag, which is exactly
+the movement `corpus_gate.py` cannot see: the gate's partition is
+106 PASS / 3 WITHHELD, and review and validated are both PASS. That is why
+this branch was BLOCKED at `b8013d5`, where the string-split form made those
+two moves with every gate check still green, and why the corpus-marked slice
+(`test_telemetry_reproduces_the_gate_outcome_split`,
+`test_withheld_diagnostics_reproduce_the_documented_diagnosis`) is the proof
+that caught it. Both pass at this HEAD, because card 2 is inert.
+
+`webapp/` is Ocean's and `discovery/runner.py` is outside this cell's
+ownership, so all four items — three call sites plus the cache key — are
+specified here rather than edited.
 
 ## P5. Proofs
 
+All at `HEAD`, after the review fixes of P4b.
+
 ```
 $ python corpus_gate.py
-RESULT: GREEN        Outcomes: 106 PASS / 3 WITHHELD        Runtime: 905.6s
+RESULT: GREEN        Outcomes: 106 PASS / 3 WITHHELD        Runtime: 426.1s
   balance_audit  109 statements reproduce every audited balance field
   adb_audit      109 statements reproduce every audited ADB field
   ocr_coverage   103 native-text + 6 committed-OCR, no live OCR, no model calls
 EXIT=0
 
 $ python -m pytest -q
-3021 passed, 18 deselected, 1 warning
+3025 passed, 18 deselected, 1 warning
 EXIT=0
 
-$ python -m pytest tests/test_filename_boundary.py -q
-133 passed
+$ python -m pytest -m corpus \
+    tests/test_telemetry_corpus.py::test_telemetry_reproduces_the_gate_outcome_split \
+    tests/test_telemetry_corpus.py::test_withheld_diagnostics_reproduce_the_documented_diagnosis
+2 passed
+EXIT=0
+
+$ python -m pytest tests/test_analysis.py tests/test_filename_boundary.py \
+    tests/test_pipeline_registry_dispatch.py tests/test_structurer_pipeline.py \
+    tests/test_parser_crash_shapes.py tests/test_diagnostics.py -q
+363 passed
 EXIT=0
 
 $ python -m pytest \
     tests/test_filename_boundary.py::test_a_page_label_filename_cannot_fabricate_a_page_declaration \
-    tests/test_filename_boundary.py::test_a_page_label_filename_cannot_suppress_the_missing_page_flag -v
-2 passed
-EXIT=0
-
-$ python -m pytest tests/test_pipeline_registry_dispatch.py -q
-17 passed
+    tests/test_filename_boundary.py::test_a_page_label_filename_cannot_suppress_the_missing_page_flag \
+    tests/test_analysis.py::test_page_content_cannot_forge_a_sheet_boundary \
+    tests/test_analysis.py::test_padding_the_pdf_with_a_blank_sheet_does_not_clear_the_flag \
+    tests/test_analysis.py::test_no_sheet_list_leaves_the_check_exactly_as_it_was -v
+5 passed
 EXIT=0
 ```
 
-Both FILENAME-BOUNDARY page-declaration fixtures were run by name, as the
-handoff requires. The suppression fixture is the one that constrains card 2:
-the Wells fixture must keep its flag, and it does, because it prints its
-declaration on its only sheet.
+**The corpus-marked slice is in this list because its absence is what let the
+`b8013d5` regression through.** `corpus_gate.py` partitions the pinned 109 into
+106 PASS / 3 WITHHELD, and review and validated are BOTH inside PASS — so a
+document moving review→validated is invisible to every gate check while all of
+them stay green. Two pinned documents made exactly that move at `b8013d5` and
+the gate reported GREEN over it. The gate proves audited VALUES reproduce; only
+the corpus-marked slice proves the OUTCOME CLASS did.
 
-Eight new tests. Their status against `625c41d` is stated exactly rather than
-as a blanket claim:
+### The twelve new tests, by the job each does
 
-**Fails on base, behaviourally** — one, and it is the card:
-
-* `test_an_unlabelled_sheet_is_not_a_missing_page` — base raises
-  `missing_declared_statement_page` on a document whose last page is present
-  as an unlabelled sheet.
-* `test_two_unnumbered_disclosure_inserts_are_not_two_missing_pages` — the
-  Fiserv shape, and the boundary of the count.
-
-**Cannot run on base** — the four card-1 tests, because
+**Card 1 — the claiming registration (4).** None can run against `625c41d`:
 `apply_statement_repairs` had no `dispatch` parameter and `_SUMMARY_REPAIRS`
-did not exist. Their pre-change evidence is therefore not a red test but the
-counterfactual in P2.5, plus one assertion inside
-`test_a_repair_does_not_fire_for_a_bank_named_only_as_a_counterparty` that
-calls the untouched `repair_regions_summary` directly and pins that the
-retired gate really does fire on that document and really does rewrite it.
+did not exist. Their pre-change evidence is the counterfactual in P2.5, plus an
+assertion inside the first of them that calls the untouched
+`repair_regions_summary` directly and pins that the retired gate really does
+fire on a counterparty document and really does rewrite it.
 
-**Regression pins on behaviour that was already right**, and must survive the
-change — these pass on base and on this branch:
-
-* `test_a_declared_page_absent_from_a_fully_labelled_pdf_still_flags`
-* `test_more_missing_labels_than_unlabelled_sheets_still_flags`
+* `test_a_repair_does_not_fire_for_a_bank_named_only_as_a_counterparty`
 * `test_a_repair_still_fires_for_the_registration_that_owns_it`
 * `test_an_llm_extraction_gets_its_repair_by_bank_label`
 * `test_every_summary_repair_is_keyed_on_a_live_registration`
+
+**Card 2 — the page-declaration inference (8).** The three withdrawal cases
+cannot run against `625c41d` either, since the withdrawal now requires the
+`sheets` parameter; the evidence that they describe a real defect is the
+archive measurement (P3.3, P3.4) rather than a red test. The rest are refusals
+and pins, and they are the more important half:
+
+| test | job |
+|---|---|
+| `test_an_unlabelled_sheet_is_not_a_missing_page` | the HUNT deposit-image shape |
+| `test_two_unnumbered_disclosure_inserts_are_not_two_missing_pages` | the Fiserv disclosure-insert shape, at the boundary of the count |
+| `test_a_declared_page_absent_from_a_fully_labelled_pdf_still_flags` | the Columbia shape — a page really is absent |
+| `test_more_missing_labels_than_unlabelled_sheets_still_flags` | the count is a count, not a switch |
+| `test_page_content_cannot_forge_a_sheet_boundary` | **refuses the separator-injection attack** |
+| `test_padding_the_pdf_with_a_blank_sheet_does_not_clear_the_flag` | **refuses the blank-padding attack** |
+| `test_no_sheet_list_leaves_the_check_exactly_as_it_was` | **pins fail-closed on silence** — runs on `625c41d` and passes there too, which is the point |
+| `test_passing_the_document_text_as_the_sheet_list_is_refused` | **refuses the `sheets=markdown` call-site footgun** |
 
 ## P6. Commits
 
@@ -8941,7 +9023,10 @@ change — these pass on base and on this branch:
 | `e2ee022` | card 2 — an unlabelled sheet is not a missing page |
 | `421ac97` | the orchestrator names no bank, in prose either |
 | `ea981bb` | card 2 extension — the disclosure-insert shape, pinned (no production change) |
-| (this one) | §PIPEFIX P0–P7 |
+| `b8013d5` | §PIPEFIX P0–P7 — **BLOCKED in review**, see P4b |
+| `a57a39e` | review fix — the sheet count comes from the intake object |
+| `c6f410f` | §PIPEFIX P4b — the review response and its records |
+| (this one) | the `str` guard, the corrected cache-key claim, and the refreshed P5 |
 
 ## P7. Carried findings and questions for Ocean
 
@@ -8966,5 +9051,21 @@ change — these pass on base and on this branch:
    on these three; with the repair correctly keyed their ledgers reconcile
    exactly and all three move `withheld` → VALIDATED. Adjudicated ACCEPTED by
    Ocean; recorded in P2.4.
-5. **`ANALYSIS_STAGE_VERSION`** needs its bump at merge: both cards change
-   published output.
+5. **`ANALYSIS_STAGE_VERSION`** needs its bump at merge: card 1 changes
+   published output. (Card 2 changes none while it is inert.)
+6. **THE WIRING CARD — ceremony-gated, and it carries a cache-key change.**
+   Card 2 ships INERT: the `sheets` parameter exists, no production caller
+   passes it, and the check therefore behaves exactly as it did before this
+   cell. Activating it is a follow-up card, not a merge-time step, because it
+   legitimately moves two PINNED documents (`Regions/Regions.pdf` and
+   `Misc/Texas Bank.pdf`, review→validated on withdrawn false flags) and pinned
+   movement is Gustavo's formal ceremony. The card must land four things
+   together — the three call sites AND the sheet count in the analysis-stage
+   cache key material, without which a forged one-sheet document is served the
+   cached answer of an honest three-sheet one. Full spec and evidence in P4b.5.
+7. **The corpus-marked slice belongs in every proof floor.** This branch is the
+   demonstration: at `b8013d5` two pinned documents moved review→validated with
+   `corpus_gate.py` reporting GREEN over it, because the gate's partition is
+   106 PASS / 3 WITHHELD and both classes sit inside PASS. The gate proves
+   audited values reproduce; only the corpus-marked slice proves the outcome
+   class did.

@@ -589,6 +589,24 @@ def test_no_sheet_list_leaves_the_check_exactly_as_it_was():
     assert integrity.flags == ["missing_declared_statement_page"]
 
 
+def test_passing_the_document_text_as_the_sheet_list_is_refused():
+    """`str` is a `Sequence[str]`, so `sheets=markdown` type-checks and then
+    iterates one CHARACTER per sheet — thousands of unlabelled sheets, and a
+    fraud-relevant flag cleared on every document that carries it. The one
+    call-site mistake this parameter invites is refused loudly."""
+    stmt, recon, quality = _reconciled_statement_for_page_declarations()
+    markdown = _sheet_markdown(
+        "Page 1 of 5\nAccount Summary",
+        "Page 2 of 5\nActivity",
+        "Page 3 of 5\nActivity",
+        "Page 4 of 5\nActivity",
+    )
+    with pytest.raises(TypeError, match="per character"):
+        assess_document_integrity(
+            stmt, recon, quality, markdown=markdown, sheets=markdown
+        )
+
+
 def _sheet_markdown(*pages: str) -> str:
     return StatementMarkdown(
         source_file="statement.pdf", model="test-model", pages=list(pages)
