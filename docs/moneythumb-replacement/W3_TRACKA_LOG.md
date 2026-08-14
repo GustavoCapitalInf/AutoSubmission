@@ -6945,3 +6945,362 @@ which produced `attempted = 'regions' | 'navy_federal' | 'bank_of_america'`,
 | `c476f1d` | `discovery/runner.py` + `discovery/report.py`: the `attempted` column, the reason split, the `declined_clusters` rollup |
 | `143435b` | `tests/test_discovery.py`: both reason branches, the live-path column projection, the rollup ranking, and the W3-4 compatibility proof |
 | (this one) | §DISPATCH-REPORTING D0–D6 |
+
+
+# §RBCCIBC-LAYOUTS — the RBC/CIBC tranche: 66 documents, and a money grammar that could not read a minus
+
+## RC0. Summary
+
+Five cards on one ownership, sequenced behind a gate. **66 of the 84 unclaimed
+RBC/CIBC archive documents move `failed` -> `validated`, zero documents move
+down, and the 160 already-claimed documents are byte-identical.** The four
+documents with a broken character map are refused structurally and can no
+longer be claimed by any registration this cell touches.
+
+| card | family | before | after |
+|---|---|---|---|
+| D | the shared money grammar (the gate) | — | 160 claimed documents byte-identical |
+| B | RBC English personal | 12 failed | **12 validated** |
+| C | RBC French business (`rbc_french`, a DEAD registration) | 19 failed, 0 claims corpus-wide | **19 validated** |
+| A | CIBC English (`cibc`, new registration) | 35 failed | **35 validated** |
+| F1 | broken character map | 4 failed | 4 refused, structurally |
+
+All 66 are instrumented per document, not merely claimed: the balance walk
+closes, every stated total the bank prints equals the published ledger, every
+printed count equals the published count, and `continuity_breaks` is 0.
+**4,273 transactions** are published across the 66. Over the whole cohort,
+**220 validated documents instrument sound and 0 unsound.**
+
+The remaining 18 unclaimed documents are not this layout family: 4 broken-CMap
+(card F1), 3 French CIBC statements, 2 void cheques, 2 zero-money scans and 7
+online-banking screen captures. None is a statement of a layout this cell
+covers, and none is claimed.
+
+## RC1. The instrument, and the scout's numbers
+
+Every figure below comes from replaying the archive markdown through the real
+pipeline (`analyze_markdown` + `telemetry.record.classify_outcome` +
+`discovery.runner._failure_reason`), resolved from the D-3 OCR artifact store
+by direct file path — the sqlite index was being written by a live discovery
+run and was never read.
+
+Before any production edit the harness was checked against run `6893a75b`: over
+all 244 cohort documents (160 claimed, 84 unclaimed) it reproduced the run's
+`parser_id` and `outcome_class` **exactly, 244/244, 0 disagreements**. Zero
+OCR-cache misses.
+
+The scout's per-family counts reproduced, and two were beaten:
+
+| family | scout | measured |
+|---|---|---|
+| A CIBC English | 34 | **35** |
+| B RBC English personal | 12 | **12** |
+| C RBC French business | 18–19 | **19** |
+| F1 broken CMap | 4 | **4** |
+
+The scout's cohort of "153 rbc + 2 cibc_french = 155 claimed" is really **156
+rbc + 4 cibc_french = 160**; the byte-identity sweep covers all 160, a superset.
+
+## RC2. Card D — the gate, and the 160-document byte-identity sweep
+
+Six defects in the shared money grammar, each with a named printed shape.
+
+**1. `_SUMMARY_MONEY` could not read `- $2.55`.** It admitted `-$2.55` and
+`$-2.55` and stopped, because the minus is set in the summary grid's *label*
+column while the symbol belongs to the figure. A personal statement closing
+overdrawn published `+2.55`, so the summary identity balanced against a
+sign-flipped closing balance instead of failing. Six of the twelve card-B
+documents open or close overdrawn and print it this way.
+
+**2. A bare minus between two cells did not sign the balance.**
+`194.82 - 192.33` published a POSITIVE 192.33 and broke the chain. The fix is
+NOT in the money pattern, and that matters: the shipped `_MONEY_RE` widened to
+`-?\s?` was dry-run against all 160 claimed documents first and **changed the
+payload of 156 of them** — because `Interac purchase - 0184 B001 LITTLE KABUL -
+180.59` is a merchant name that ends in a hyphen followed by a WITHDRAWAL. The
+sign is now read in `read_grid_rows`, where the column is known: the Balance
+column is the only column that prints a sign, so a bare minus is a sign only
+between a row's amount and the cell that follows it. Both readings are pinned,
+the adversary taken from a claimed document.
+
+**3. The opening-balance row consumed its whole physical line.** Everything
+printed after its own cell was discarded. In the CIBC layout that is a real
+transaction, because the column header, the opening row and the first posting
+share one line. Card A depends on this.
+
+**4. `_grid_cells` read two rate operands as money** — the numerator of
+`2.25/1,000` and the foreign amount in `450000.00 PKR @.005`. Both are now
+recognised by the mark printed beside them (the `/`, and the same `@` the
+existing rule uses, read *through* the currency code), so `403.50 SCD 09502`
+stays a cell. Keying on the mark rather than on a list of currency codes is
+what makes that true: the three-letter tokens that follow an amount in the
+claimed population are `VSA`, `ATM`, `AMX`, `NSF`, `MON`, `INT`, `MIN`, `PAD`,
+`GST` and `TIM` — not one is a currency.
+
+**5. `_FR_MONEY_RE` could not span `(1 066,25 )`.** The bracket is the French
+layout's only negative marker and it is set in its own column, so every
+overdrawn balance in that family was sign-flipped. Its lookbehind also admitted
+`+`, letting `ARCHIVE+8 129,14` glue a reference digit onto the amount.
+
+**6. The French summary matched almost nothing.** Its two total wordings occur
+in no document of the family, so both stated totals were silently `None` and
+`reconcile.summary_ok` had nothing to check; the opening-balance pattern was
+unanchored and began the space-grouped alternative inside the printed YEAR
+(`... 2025 801,53 $` -> 2 025 801,53). Rewritten to the real wording, anchored,
+read off the collapsed line, and it now assigns the two printed COUNTS.
+
+### The sweep
+
+Card D alone, over the full cohort:
+
+```
+byte-identical payloads : 244 / 244
+payload changed         : 0
+moved UP                : 0
+moved DOWN              : 0
+```
+
+The argument was also made in advance, by census: of the shapes card D changes
+the reading of, **every one occurs zero times in the 160 claimed documents**
+(`summary_minus_space_dollar` 0, `grid_minus_space_amount` 0,
+`grid_label_minus_space` 0, `fr_paren_space_close` 0, `fr_plus_glued_digit` 0,
+`rate_slash` 0, glued-symbol tariff 0). The two probes that DID fire in the
+claimed population were both investigated and neither is reachable: every
+`Total cheques & debits (121) - 12,410.01` hit is in the summary block, which
+the grid pattern never sees, and every `+`-glued digit is an `@ RBP+05.00`
+rate already excluded by two existing guards.
+
+## RC3. Card B — the English personal product, on one registration
+
+RBC issues its English statement under two product names: the business one
+heads its table `Account Activity Details` / `Cheques & Debits`, the personal
+one `Details of your account activity` / `Withdrawals`. Same institution, same
+three-column grid, same opening and closing rows — one registration, not two.
+The conjunction with `ROYAL BANK OF CANADA` is unchanged and is what keeps
+either heading from reaching another issuer; CIBC prints the identical column
+header over its own grid, and a negative fixture pins that it still does not
+claim.
+
+The personal summary prints **no instance count** beside either total, so both
+stated counts stay `None`. Deriving them from the ledger would manufacture the
+oracle the platform checks itself against.
+
+Result: **12/12 validated**, 1,180 transactions, all instrumented sound. Both
+overdrawn documents carry the right sign (one opens at -2.55, one closes at
+-2.55).
+
+## RC4. Card C — a registration that had never claimed anything
+
+`rbc_french` claimed **zero documents corpus-wide**. Its activity marker
+required `DATE DESCRIPTION RETRAITS` — which is CIBC's French header, not RBC's
+— so paired with `BANQUE ROYALE` the conjunction matched no document that
+exists. Nineteen documents of the layout it was written for went unclaimed.
+
+The reason nothing failed is worth recording: **the synthetic fixture the
+parser was tested against had invented the same header**, and two summary
+wordings besides. Three test files carried it (`test_rbc_variants.py`,
+`test_row_grouping.py` via import, `test_r1_hardcodes.py`) plus the conformance
+fixture. All four now carry the furniture these statements actually print.
+
+Accents reach this parser as U+FFFD — this text layer loses them outright
+rather than double-encoding them, so `normalize_mojibake` has nothing to repair
+— and every accent is matched as `.`, the tolerance `analysis/cibc.py` already
+uses.
+
+### The cheque-serial ambiguity, resolved from the document
+
+French thousands are spaced, so `Chèque - 253 127,40` is indistinguishable from
+253,127.40. One row booked a quarter of a million dollars against an account
+holding four thousand, and the document failed closed at `withheld_adb` with
+`db 1,292,217.31` against a stated `19,118.73`.
+
+Nothing inside the row settles it. The statement settles it elsewhere: these
+documents append cheque-image pages declaring every serial the period cleared
+(`No de série: 253 Montant: 127,40 $`). A statement that declares serials gets
+a money pattern that refuses to BEGIN an amount at the number printed straight
+after `Chèque - `; a statement that declares none keeps the plain pattern, and
+a mis-read row fails the bank's own totals rather than being split on a guess.
+Both halves are pinned.
+
+A first attempt split the entry in two and was **rejected on measurement**: it
+changed the row-boundary semantics of the shared reader, so a cheque row with
+no printed balance handed its amount to the previous row as a balance. The
+document went from one wrong number to fifteen continuity breaks. The pattern
+form has no such effect.
+
+Result: **19/19 validated**, all with both stated totals equal to the published
+ledger and — for the first time — **both printed counts assigned, 19/19**.
+
+## RC5. Card A — a new registration for the English CIBC statement
+
+No English CIBC parser existed. It lives in `analysis/cibc.py` beside the
+French layout, which is the convention `rbc.py`, `td_can.py` and
+`bmo_ca_business.py` already follow for a second layout of one institution: its
+own markers, its own normalization, its own registration (`cibc`, band 0, no
+`supersedes`). The two share nothing but the bank word.
+
+`read_grid_rows` is **shared, not copied**: `rbc._read_grid_rows` and its two
+collaborators were promoted to `analysis/tables.py` in their own commit, proven
+byte-neutral over all 244 documents. That is the option the brief preferred —
+importing another parser's private helper is the dependency inversion the
+no-parser-helper-clones guard exists to stop. `tables.py` imports no parser, so
+the leaf property the guard tests still holds.
+
+Four things are CIBC's own:
+
+* **the grid is compressed horizontally.** The column header, the opening row
+  and the first posting arrive on one physical line. So the Date column is
+  consumed wherever it is printed, and a date token opens a row only where the
+  grid can print one — at the start of the table's text, or right after a
+  completed money cell, which is the previous row's Balance column. A `May`
+  inside a merchant name has no printed balance before it and is pinned not to
+  split a row.
+* **`Balance forward`** is the opening row again after a page break, matched by
+  the same label argument, and (thanks to card D) no longer swallowing the
+  description printed after it.
+* **bare `Withdrawals -` / `Deposits +` totals**, no counts.
+* **a foreign-currency account states its currency on the closing-balance row**
+  and nowhere else. 3 documents are USD, 32 CAD.
+
+### The tariff quoted inside a description
+
+Nine documents were off by exactly 16.95. `SERVICE CHARGE CAPPED MONTHLY
+FEE$16.95 RECORD-KEEPING N/A` names the fee and the row's own cell then prints
+it again, so it was booked twice. A printed cell stands in a column, so a
+currency symbol welded to the word before it is part of the sentence, not the
+start of a column — zero occurrences in the claimed population, nine in exactly
+those nine documents. Fixing it took the family from 26 validated + 9 withheld
+to **35 validated**.
+
+Result: **35/35 validated**, 2,449 transactions, all instrumented sound.
+
+## RC6. Card F1 — a broken character map is refused, not read
+
+Four documents carry a PDF font whose character map is broken: the glyphs are
+right, the codepoints are not. The text layer prints `ROYAL BANK OF CANADA`
+perfectly, renders "Business Account Statement" as `Bu-in0-- A11ount
+4t5t060nt`, and renders seventeen thousand dollars as `17J000-00` — while
+*other* money on the same page survives intact. That mixture is what makes them
+dangerous rather than merely useless.
+
+`tables.glyph_damaged` asserts admissibility on the damage itself rather than
+on any parser's markers, and is wired as an **EXCLUDING** marker on `rbc`,
+`rbc_french` and `cibc`, so it returns 0.0 before any other marker is scored.
+A test widens the marker set with an always-true marker and pins that the
+document still cannot be claimed.
+
+The threshold is measured, and the obvious metric was **rejected on the
+measurement**: damaged MONEY tokens do not separate the populations — one of
+the four targets has zero of them, and a healthy document scores 0.24 against
+a target's 0.14. The metric that does separate is the share of words with
+digits welded between their letters:
+
+| population | documents | max ratio |
+|---|---|---|
+| the four targets | 4 | 0.45 (min 0.30) |
+| claimed RBC/CIBC | 160 | 0.031 |
+| unclaimed RBC/CIBC that must stay claimable | 80 | 0.036 |
+| stratified sample, every other issuer | 618 | 0.033 |
+
+Limit 0.15 — an order of magnitude clear of both. It fires on 4 of 858
+documents, exactly the four.
+
+## RC7. Scope, semantics and the wider probe
+
+**Zero cross-claims.** The conformance cross-product is now 52 x 51 = 2,652
+assertions and passes, including `cibc` against `cibc_french` — whose four
+documents still parse byte-identically.
+
+**The stratified probe.** 619 documents sampled across all 67 non-RBC/CIBC
+folder labels (609 resolved): **zero claims by any registration this cell
+touched**, and — diffed against a run of the same probe at the base commit —
+**zero change to any other parser's claim set** on any of the 609.
+
+**`count_semantics`:** `rbc` is COMPARABLE in both directions and that is
+unchanged. Card B's personal product prints no counts and claims none. **The
+French path now ASSIGNS the two counts it always printed and never read — new
+data for an existing comparable id, on 19 documents.** Flagged here for
+Ocean's table review; `analysis/count_semantics.py` is untouched. `cibc` is a
+new registration and therefore UNSURVEYED, correctly; it prints no counts.
+
+## RC8. Carried findings for Ocean
+
+1. **`rbc` publishes `currency="USD"` on Canadian statements.** The English RBC
+   path never sets `Statement.currency`, so it keeps the schema default. This
+   is pre-existing and affects all 156 already-claimed documents as well as
+   card B's 12, so it was deliberately NOT changed — fixing it would move every
+   claimed payload. The French path sets CAD and card A sets CAD/USD correctly.
+   Recommend a separate re-baseline ceremony.
+2. **Silent grid-row drops are still silent (card D item 7, NOT done).** Both
+   parsers drop rows lacking a description or a date without counting them.
+   Measured: exactly **1 row in 1 document across all 160 claimed**, and that
+   document is already `withheld`. No `Statement` field exists to carry the
+   count, and the natural seam — a registry `integrity_check` — would need
+   either a second parse or a refactor of the entry loop. Left undone
+   deliberately rather than half-done; the measurement is the reason it is low
+   priority.
+3. **A French PERSONAL RBC layout is no longer covered.** The old marker would
+   have claimed one; no document in the 3,506-document archive is one, and the
+   marker's price was the whole registration being dead. If such a document
+   appears it needs the card-B treatment on the French side.
+4. **`fb677033_5085287_2026_01_12_2026_01_12.pdf`** validates on a single
+   transaction. It is a genuine one-day statement, instrumented sound, but it
+   is the thinnest evidence in the cell.
+
+## RC9. Proofs
+
+```
+$ python -m pytest -q
+2909 passed, 18 deselected, 1 warning in 156.22s (0:02:36)
+EXIT=0
+
+$ python -m pytest tests/test_parser_expectations_baseline.py \
+    tests/test_parser_conformance.py tests/test_parser_detection_markers.py \
+    tests/test_no_parser_helper_clones.py tests/test_no_statement_hardcodes.py \
+    tests/test_r1_hardcodes.py tests/test_parser_registry.py \
+    tests/test_parser_registry_entries.py tests/test_count_semantics.py \
+    tests/test_stated_counts.py tests/test_shared_parser_utils.py \
+    tests/test_money.py -q
+1025 passed, 1 warning in 5.49s
+EXIT=0
+
+$ python -m pytest tests/test_rbc_variants.py tests/test_cibc_layouts.py \
+    tests/test_row_grouping.py -q
+229 passed
+EXIT=0
+
+# card D alone, over the whole cohort
+byte-identical payloads : 244 / 244   moved UP 0   moved DOWN 0
+
+# the cell, over the whole cohort
+byte-identical payloads : 178 / 244   moved UP 66   moved DOWN 0
+  claimed   160: 154 validated / 6 withheld, 0 disagreements with run 6893a75b
+  unclaimed  84: 66 validated / 18 failed  (was 0 / 84)
+
+# per-document instrument over every validated document in the cohort
+instrumented validated documents: 220 sound / 0 unsound
+
+# stratified non-RBC/CIBC probe, detection over 67 folder labels
+documents probed : 609
+claims by a registration this cell touched: 0
+documents whose claim set changed vs the base commit: 0
+```
+
+Fixtures: 10 card-D, 5 card-B, 8 card-C, 6 card-F1 in
+`tests/test_rbc_variants.py`; 14 card-A in the new `tests/test_cibc_layouts.py`;
+one conformance fixture for `cibc` and a corrected one for `rbc_french`.
+Against `cce8ac1`, 7 of the 10 card-D fixtures fail (one per defect; the other
+three are regression pins on behaviour that was already right), 4 of 5 card-B,
+and 8 of 8 card-C.
+
+## RC10. Commits
+
+| Commit | Contents |
+|---|---|
+| `0673dcd` | card D — the money grammar hardened where the column is known |
+| `f2be617` | card B — the English personal product, on one registration |
+| `ad2f664` | `read_grid_rows` promoted to `analysis/tables.py`, byte-neutral |
+| `07e1b90` | card A — the English `CIBC Account Statement`, a new registration |
+| `41c280a` | card C — the French business layout, and the marker that matched nothing |
+| `d96f4f2` | card F1 — a broken character map is refused, not read |
+| (this one) | §RBCCIBC-LAYOUTS RC0–RC10 |
