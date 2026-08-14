@@ -132,17 +132,21 @@ def test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental():
         # enumerate the service-charge row the parser records as a debit
         "capital_one:debit",
         "texas_bank:debit",
-        # cheques folded into debits on ONE of three summary readers
-        "bank_of_america:debit",
         # printed counts gated equal to LABEL-MATCHED rows, both directions
         "altana:credit",
         "altana:debit",
         # the chase reader, on a population that prints no debit count at all
         "chase_export:debit",
     }
-    # The three phase-2 promotions, each earned by a measured counterfactual.
+    # The phase-2 promotions, each earned by a measured counterfactual.
+    # `bank_of_america:debit` joined them in BOFA-COUNTS: it was incomparable
+    # because the parser's three summary readers stored two different meanings
+    # of the field, and it is comparable now because they were made to store
+    # one — the raw printed figure, which reproduces the captured debit rows on
+    # 344 of 344 archive documents that print it.
     assert {"chase:debit", "us_bank:credit", "us_bank:debit",
-            "wilson_muir:credit", "wilson_muir:debit"} <= comparable
+            "wilson_muir:credit", "wilson_muir:debit",
+            "bank_of_america:debit"} <= comparable
     # ... and the comparable set is pinned by EQUALITY too, not just by the
     # subset above: a brand-new comparable entry is a new population that can
     # be flagged, so it must be a deliberate edit here and not something a
@@ -153,6 +157,7 @@ def test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental():
         "atb:credit",
         "atb:debit",
         "bank_of_america:credit",
+        "bank_of_america:debit",
         "capital_one:credit",
         "chase:credit",
         "chase:debit",
@@ -200,11 +205,24 @@ def test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental():
 
 def test_a_promoted_entry_records_the_evidence_that_promoted_it():
     for key in ("chase:debit", "us_bank:credit", "us_bank:debit",
-                "wilson_muir:credit", "wilson_muir:debit"):
+                "wilson_muir:credit", "wilson_muir:debit",
+                "bank_of_america:debit"):
         parser_id, direction = key.split(":")
         reason = SEMANTICS[parser_id][direction].reason
         assert "PROMOTED" in reason, key
         assert re.search(r"\d+ of \d+|\d+/\d+", reason), key
+
+
+def test_the_bofa_debit_promotion_carries_its_falsifier():
+    """The promotion rests on one measured claim — that BofA's printed
+    `# of withdrawals/debits` already counts the cheque block. An entry that
+    can be wrong has to say how you would find out, in the idiom the
+    first_community entry established."""
+    reason = SEMANTICS["bank_of_america"]["debit"].reason
+    assert "FALSIFIER" in reason
+    assert "Total # of checks" in reason
+    # ... and it must not quietly become an argument from our own rows.
+    assert "Independence holds" in reason
 
 
 def test_an_unsurveyed_parser_is_incomparable_rather_than_assumed_comparable():

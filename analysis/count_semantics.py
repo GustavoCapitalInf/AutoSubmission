@@ -394,27 +394,50 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
         ),
     },
     "bank_of_america": {
-        "credit": _whole("'# of deposits/credits: N'", "analysis/bofa.py:388-390, :511-513, :574"),
+        "credit": _whole("'# of deposits/credits: N'", "analysis/bofa.py:427-428, :552-554, :639-641"),
         "debit": CountSemantics(
-            comparable=False,
-            scope="cheques_excluded_from_printed_debits",
+            comparable=True,
+            scope="whole_direction",
             reason=(
-                "BofA prints '# of withdrawals/debits' and a SEPARATE "
-                "'Total # of checks'; the Checks section's rows are recorded "
-                "as debits by the parser. Only ONE of the three BofA summary "
-                "readers applies the mapping — the repair path adds "
-                "`debit_count + (check_count or 0)` (analysis/bofa.py:589) "
-                "while the native path (:391-393) and the table path (:515-516) "
-                "store the raw figure. The payload does not record which path "
-                "ran, so the expected side means two different things across "
-                "one bank's population and neither the raw nor the mapped form "
-                "is safe to assert: measured over the 344 documents that print "
-                "the figure, the raw form disagrees on 107 and the mapped form "
-                "on 191, so the mapping the parser already applies would be "
-                "WRONG on more than half. The remediation is a BofA parser "
-                "card making its three readers agree on one documented scope, "
-                "not a platform mapping. This is the 'cheques folded into "
-                "debit categories' class the 2026-08-10 sign-off names."
+                "PROMOTED to comparable once the three readers were made to "
+                "agree (BOFA-COUNTS). The history is the argument: BofA prints "
+                "'# of withdrawals/debits' and, on some layouts, a SEPARATE "
+                "'Total # of checks', and the Checks section's rows are "
+                "recorded as debits by the parser — so the repair path added "
+                "`debit_count + (check_count or 0)` while the native and table "
+                "readers stored the raw printed figure. One field, two "
+                "meanings, and the payload records nowhere which ran. "
+                "CHARACTERISED FIRST, from the archive's own documents: the "
+                "raw printed figure reproduces the captured debit rows on "
+                "344 of 344 documents that print it, and `raw + check_count` "
+                "on 0 of the 107 that also print a cheque count — the printed "
+                "statistic ALREADY counts cheques, and the mapping "
+                "double-counted them on every document where it fired. The "
+                "control is the credit sibling in the same printed statistics "
+                "box, 344 of 344. The repair now stores the raw figure "
+                "(analysis/bofa.py:642) and all three readers store one "
+                "documented scope (`_SUMMARY_COUNT_SCOPE`, :368-403). "
+                "WHY THE MAPPING LOOKED RIGHT, recorded so nobody re-derives "
+                "it: the cheque MONEY genuinely is outside 'Withdrawals and "
+                "other debits' — the summary prints 'Checks' as its own line, "
+                "equal to the section's own 'Total checks' figure on 107 of "
+                "107, and `stated_total_debits` really does sum those lines. "
+                "Money scope and count scope differ on this bank, and reading "
+                "one off the other is the defect. "
+                "SCOPE OF THE EVIDENCE: all 344 are the native business "
+                "summary; the 16 consumer-vocabulary documents print no debit "
+                "count at all (the check is `not_printed` there, never a "
+                "comparison), and NO archive document renders the account "
+                "summary as an HTML table, so the table reader's scope is "
+                "inherited from the identical printed line rather than "
+                "measured. Independence holds: the expected side is the "
+                "integer the bank printed, read straight off the page, with "
+                "nothing derived from a captured row. FALSIFIER: if a BofA "
+                "layout is ever found whose '# of withdrawals/debits' excludes "
+                "the cheque block — the tell is `raw + Total # of checks` "
+                "matching where `raw` does not — this entry stops being true "
+                "and the direction goes back to incomparable rather than the "
+                "readers going back to disagreeing."
             ),
         ),
     },

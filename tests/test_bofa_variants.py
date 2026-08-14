@@ -466,3 +466,211 @@ Total service fees -$25.00
     assert stmt.stated_total_credits == 1000.0
     assert stmt.stated_total_debits == 925.0
     assert reconcile(stmt).ok
+
+
+# ---------------------------------------------------------------------------
+# F9 — ONE documented scope for `# of withdrawals/debits` (BOFA-COUNTS)
+#
+# The three summary readers used to store two different meanings of
+# `stated_debit_count`: the native (`_parse_native_summary`) and table
+# (`parse_bofa_statement`) readers stored the printed figure, the repair path
+# stored `debit_count + (check_count or 0)`. Measured over the archive, the
+# printed figure already counts the cheque block — the raw form reproduces the
+# captured debit rows on 344 of 344 documents that print it and `raw + cheques`
+# on 0 of the 107 that also print a cheque count. These fixtures pin the scope
+# per reader and per layout, including the shape that made the mapping look
+# right: cheque MONEY printed outside the withdrawals total.
+# ---------------------------------------------------------------------------
+
+#: The whole debit column: 2 withdrawals + 2 cheques + 1 service fee.
+CHEQUES_FOLDED = dict(
+    credits="1,000.00", debits="500.00", checks="350.00", fees="25.00",
+    credits_n=1, debits_n=5, ending="1,125.00", body="""
+Deposits and other credits Date Description Amount
+01/03/26 Incoming wire 1,000.00
+Total deposits and other credits $1,000.00
+Withdrawals and other debits Date Description Amount
+01/05/26 PURCHASE 0105 ONE -200.00
+01/06/26 PURCHASE 0106 TWO -300.00
+Total withdrawals and other debits -$500.00
+Checks
+Date Check # Amount Date Check # Amount
+01/08/26 1301 -150.00 01/09/26 1302 -200.00
+Total checks -$350.00
+Total # of checks 2
+Service fees
+Date Transaction description Amount
+01/10/26 Wire Transfer Fee -25.00
+Total service fees -$25.00
+""")
+
+
+def _table_summary_document(*, debits_n: int, credits_n: int) -> str:
+    """The third reader's layout: the account summary rendered as an HTML
+    table, with the printed counts in the summary row's trailing cell.
+
+    Recorded because it matters to how much this fixture proves: NO archive
+    document takes this branch (0 of 360), so this is the only place the table
+    reader's scope is exercised at all.
+    """
+    return f"""
+bankofamerica.com
+Bank of America, N.A.
+Your Business Advantage Fundamentals Banking
+for January 1, 2026 to January 31, 2026 Account number: 1111 2222 3333
+Account summary
+<table>
+<tr><td>Beginning balance on January 1, 2026</td><td>$1,000.00</td><td># of deposits/credits: {credits_n}</td></tr>
+<tr><td>Deposits and other credits</td><td>1,000.00</td><td># of withdrawals/debits: {debits_n}</td></tr>
+<tr><td>Withdrawals and other debits</td><td>-500.00</td><td># of days in cycle: 31</td></tr>
+<tr><td>Checks</td><td>-350.00</td><td></td></tr>
+<tr><td>Service fees</td><td>-25.00</td><td></td></tr>
+<tr><td>Ending balance on January 31, 2026</td><td>$1,125.00</td><td></td></tr>
+</table>
+Your checking account
+Deposits and other credits
+<table>
+<tr><td>Date</td><td>Description</td><td>Amount</td></tr>
+<tr><td>01/03/26</td><td>Incoming wire</td><td>1,000.00</td></tr>
+<tr><td>Total deposits and other credits</td><td>$1,000.00</td></tr>
+</table>
+Withdrawals and other debits
+<table>
+<tr><td>Date</td><td>Description</td><td>Amount</td></tr>
+<tr><td>01/05/26</td><td>PURCHASE ONE</td><td>-200.00</td></tr>
+<tr><td>01/06/26</td><td>PURCHASE TWO</td><td>-300.00</td></tr>
+<tr><td>Total withdrawals and other debits</td><td>-$500.00</td></tr>
+</table>
+Checks
+Date Check # Amount Date Check # Amount
+01/08/26 1301 -150.00 01/09/26 1302 -200.00
+Total checks -$350.00
+Total # of checks 2
+Service fees
+Date Transaction description Amount
+01/10/26 Wire Transfer Fee -25.00
+Total service fees -$25.00
+"""
+
+
+def test_f9_the_printed_debit_count_already_counts_the_cheque_block():
+    """The cheques-folded shape. The bank prints `# of withdrawals/debits: 5`
+    AND `Total # of checks 2`, and 5 is the whole debit column — two
+    withdrawals, two cheques and the fee. Adding the 2 would count them
+    twice."""
+    md = business(**CHEQUES_FOLDED)
+    stmt = repair_bofa_summary(md, parse_bofa_statement(md))
+
+    assert stmt is not None
+    assert amounts(stmt) == [1000.0, -200.0, -300.0, -150.0, -200.0, -25.0]
+    assert sum(1 for t in stmt.transactions if t.direction == "debit") == 5
+    assert stmt.stated_debit_count == 5, "the printed figure, not 5 + 2"
+
+    recon = reconcile(stmt)
+    assert recon.captured_debit_count == 5
+    assert recon.stated_debit_count_matches is True
+
+
+def test_f9_the_cheque_money_still_sits_outside_the_withdrawals_total():
+    """Why the mapping looked right, pinned so it is not re-derived: the
+    cheque MONEY genuinely is a separate printed line, so the debit TOTAL does
+    sum the lines even though the debit COUNT does not."""
+    md = business(**CHEQUES_FOLDED)
+    stmt = repair_bofa_summary(md, parse_bofa_statement(md))
+
+    # 500 withdrawals + 350 cheques + 25 fees, summed from three printed lines.
+    assert stmt.stated_total_debits == 875.0
+    assert reconcile(stmt).ok
+
+
+def test_f9_all_three_summary_readers_store_the_same_figure():
+    """The defect was disagreement, so the fixture is the agreement. One
+    printed line, three readers, one stored value."""
+    md = business(**CHEQUES_FOLDED)
+
+    native = parse_bofa_statement(md)                       # _parse_native_summary
+    repaired = repair_bofa_summary(md, native)              # the repair path
+
+    table_md = _table_summary_document(debits_n=5, credits_n=1)
+    tabled = parse_bofa_statement(table_md)                 # the HTML-table reader
+
+    assert native.stated_debit_count == 5
+    assert repaired.stated_debit_count == 5
+    assert tabled is not None and tabled.stated_debit_count == 5
+
+
+def test_f9_a_statement_with_no_cheques_is_untouched():
+    """The zero-cheque statement: nothing to fold either way, and the two
+    readings coincided here even before the fix — which is exactly why the
+    disagreement stayed invisible on 237 of the archive's 344 documents."""
+    md = business(credits="1,000.00", debits="500.00", credits_n=1, debits_n=2,
+                  ending="1,500.00", body="""
+Deposits and other credits Date Description Amount
+01/03/26 Incoming wire 1,000.00
+Total deposits and other credits $1,000.00
+Withdrawals and other debits Date Description Amount
+01/05/26 PURCHASE 0105 ONE -200.00
+01/06/26 PURCHASE 0106 TWO -300.00
+Total withdrawals and other debits -$500.00
+""")
+    stmt = repair_bofa_summary(md, parse_bofa_statement(md))
+
+    assert "Total # of checks" not in md
+    assert stmt.stated_debit_count == 2
+    assert reconcile(stmt).stated_debit_count_matches is True
+
+
+def test_f9_the_consumer_layout_prints_no_debit_count_and_none_is_invented():
+    """The 16 archive documents on the consumer vocabulary print no
+    `# of withdrawals/debits` at all. `not_printed` is the honest answer and
+    the field stays None rather than being reconstructed from the sections."""
+    md = CONSUMER_SUMMARY.format(credits="1,000.00", atm="200.00",
+                                 other="300.00", ending="1,500.00") + """
+Deposits and other additions Date Description Amount
+01/03/26 Incoming wire 1,000.00
+Total deposits and other additions $1,000.00
+ATM and debit card subtractions Date Description Amount
+01/05/26 CHECKCARD 0105 ONE -200.00
+Total ATM and debit card subtractions -$200.00
+Other subtractions Date Description Amount
+01/06/26 Service charge -300.00
+Total other subtractions -$300.00
+"""
+    stmt = repair_bofa_summary(md, parse_bofa_statement(md))
+
+    assert stmt is not None
+    assert sum(1 for t in stmt.transactions if t.direction == "debit") == 2
+    assert stmt.stated_debit_count is None
+    assert reconcile(stmt).stated_debit_count_matches is None
+
+
+def test_f9_negative_the_repair_no_longer_reads_the_printed_cheque_count():
+    """A statement whose printed cheque count is large and whose debit count is
+    small: under the old mapping the stored figure moved by the cheque count,
+    which is the movement this asserts is gone."""
+    md = business(credits="1,000.00", checks="900.00", credits_n=1, debits_n=3,
+                  ending="1,100.00", body="""
+Deposits and other credits Date Description Amount
+01/03/26 Incoming wire 1,000.00
+Total deposits and other credits $1,000.00
+Checks
+Date Check # Amount Date Check # Amount
+01/08/26 1401 -300.00 01/09/26 1402 -300.00
+01/10/26 1403 -300.00
+Total checks -$900.00
+Total # of checks 3
+""")
+    stmt = repair_bofa_summary(md, parse_bofa_statement(md))
+
+    assert stmt.stated_debit_count == 3         # was 3 + 3 = 6 before BOFA-COUNTS
+    assert reconcile(stmt).stated_debit_count_matches is True
+
+
+def test_f9_the_scope_is_what_makes_the_direction_comparable():
+    """The `analysis/count_semantics.py` promotion and this parser's scope are
+    one decision. If the readers ever disagree again the entry is false, so the
+    test that pins the scope also pins the entry that depends on it."""
+    from analysis.count_semantics import counts_comparable
+
+    assert counts_comparable("bank_of_america", "debit") is True
+    assert counts_comparable("bank_of_america", "credit") is True
