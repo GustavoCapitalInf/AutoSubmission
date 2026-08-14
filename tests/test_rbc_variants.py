@@ -741,3 +741,107 @@ def test_d_negative_a_three_letter_reference_after_an_amount_is_still_a_cell():
     ))
     assert stmt is not None
     assert amounts(stmt) == [-403.50]
+
+
+# ---------------------------------------------------------------------------
+# Card B - the English PERSONAL product. Same institution, same three-column
+# grid, same opening/closing rows; the product names its furniture differently
+# and prints no instance counts beside its totals.
+# ---------------------------------------------------------------------------
+
+PERSONAL = """
+Your RBC personal banking account statement
+Royal Bank of Canada P.O. Box 4047 Terminal A Toronto ON M5W 1L5
+From December 19, 2025 to January 20, 2026
+Your account number: 00144-0000000
+Summary of your account for this period
+Your opening balance on December 19, 2025 {opening}
+Total deposits into your account + {credits}
+Total withdrawals from your account - {debits}
+Your closing balance on January 20, 2026 = {closing}
+Details of your account activity
+Date Description Withdrawals ($) Deposits ($) Balance ($)
+Opening Balance {open_row}
+{body}Closing Balance {closing}
+"""
+
+
+def personal(body, *, opening, closing, credits, debits, open_row=None):
+    return PERSONAL.format(
+        opening=opening, closing=closing, credits=credits, debits=debits,
+        open_row=open_row if open_row is not None else opening.lstrip("$"),
+        body=body,
+    )
+
+
+def test_b_the_personal_product_is_detected_and_parsed():
+    """`Details of your account activity` is the personal heading; the
+    business product prints `Account Activity Details` over the same grid."""
+    stmt = parse_rbc_statement(personal(
+        "13 Jan e-Transfer received SENDER 100.00 102.77\n"
+        "14 Jan e-Transfer sent PAYEE 15.00 87.77\n",
+        opening="$2.77", closing="$87.77", credits="100.00", debits="15.00",
+    ))
+    assert stmt is not None
+    assert stmt.bank == "Royal Bank of Canada"
+    assert stmt.period_start == "2025-12-19"
+    assert stmt.period_end == "2026-01-20"
+    assert amounts(stmt) == [100.0, -15.0]
+    assert balances(stmt) == [102.77, 87.77]
+
+
+def test_b_the_personal_summary_totals_are_read_without_counts():
+    """This product prints no instance count beside either total, so the two
+    stated counts stay None: a count the document does not print is not a
+    stated count, and deriving one from the ledger would invent an oracle."""
+    stmt = parse_rbc_statement(personal(
+        "13 Jan e-Transfer received SENDER 100.00 102.77\n"
+        "14 Jan e-Transfer sent PAYEE 15.00 87.77\n",
+        opening="$2.77", closing="$87.77", credits="100.00", debits="15.00",
+    ))
+    assert stmt is not None
+    assert stmt.stated_total_credits == 100.0
+    assert stmt.stated_total_debits == 15.0
+    assert stmt.stated_credit_count is None
+    assert stmt.stated_debit_count is None
+    assert reconcile(stmt).summary_ok is True
+
+
+def test_b_a_personal_statement_that_closes_overdrawn_publishes_it_negative():
+    """The card-D shape in its own family: six of the twelve documents in this
+    layout print an overdrawn balance as `- $2.55`."""
+    stmt = parse_rbc_statement(personal(
+        "13 Jan e-Transfer sent PAYEE 5.32 - 2.55\n",
+        opening="$2.77", closing="- $2.55", credits="0.00", debits="5.32",
+    ))
+    assert stmt is not None
+    assert stmt.beginning_balance == 2.77
+    assert stmt.ending_balance == -2.55
+    assert balances(stmt) == [-2.55]
+    assert amounts(stmt) == [-5.32]
+
+
+def test_b_a_personal_statement_that_opens_overdrawn_publishes_it_negative():
+    stmt = parse_rbc_statement(personal(
+        "13 Jan e-Transfer received SENDER 100.00 97.45\n",
+        opening="- $2.55", closing="$97.45", credits="100.00", debits="0.00",
+        open_row="- 2.55",
+    ))
+    assert stmt is not None
+    assert stmt.beginning_balance == -2.55
+    assert amounts(stmt) == [100.0]
+    assert balances(stmt) == [97.45]
+
+
+def test_b_negative_the_personal_heading_alone_does_not_claim_another_issuer():
+    """CIBC prints the identical column header over its own grid, so the
+    heading is only ever evidence in conjunction with the bank name."""
+    from analysis.rbc import detect
+
+    foreign = personal(
+        "13 Jan Item 1.00 1.77\n",
+        opening="$2.77", closing="$1.77", credits="0.00", debits="1.00",
+    ).replace("Royal Bank of Canada", "Some Other Bank")
+    assert "Details of your account activity" in foreign
+    assert not detect(foreign).claims
+    assert parse_rbc_statement(foreign) is None

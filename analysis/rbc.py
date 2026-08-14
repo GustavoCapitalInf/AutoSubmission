@@ -31,6 +31,12 @@ _NON_DIGIT_RE = re.compile(r"\D")
 #: exchange rate: the currency it is denominated in, and then the `@` mark.
 #: Both are required — the code alone follows plenty of genuine cells.
 _RATE_OPERAND_RE = re.compile(r"\s+[A-Z]{3}\s*@")
+#: The activity table's own printed column header, which is what opens the
+#: grid — the business product names its first money column `Cheques & Debits`
+#: and the personal one `Withdrawals`. Matching the header rather than the
+#: heading above it is what makes a continuation page re-enter the table.
+_ACTIVITY_GRID_RE = re.compile(
+    r"DATE DESCRIPTION (?:CHEQUES & DEBITS|WITHDRAWALS)")
 #: One printed money cell of the `Account Summary for this Period` block: the
 #: currency symbol is optional, and a negative figure is printed either
 #: `-$1,234.56` or `$-1,234.56`.
@@ -423,9 +429,18 @@ def french_detection_text(markdown: str) -> str:
     return normalize_mojibake(markdown).upper()
 
 
+#: The heading RBC prints over the posting table, in each of the two products
+#: it issues in English. `Account Activity Details` is the business statement;
+#: `Details of your account activity` is the personal one. They are the same
+#: document class printed under a different product name — same institution,
+#: same three-column grid, same opening/closing rows — so they are one
+#: registration rather than two, and the conjunction with the bank name below
+#: is what keeps either heading from reaching another issuer's statement.
+_ACTIVITY_HEADINGS = ("ACCOUNT ACTIVITY DETAILS", "DETAILS OF YOUR ACCOUNT ACTIVITY")
+
 DETECTION_MARKERS = (
     required("bank_name", lambda t: "ROYAL BANK OF CANADA" in t),
-    required("activity_section", lambda t: "ACCOUNT ACTIVITY DETAILS" in t),
+    required("activity_section", lambda t: any(h in t for h in _ACTIVITY_HEADINGS)),
 )
 
 FRENCH_DETECTION_MARKERS = (
@@ -491,8 +506,22 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
         if m:
             stmt.stated_debit_count = int(m.group(1))
             stmt.stated_total_debits = _summary_amount(m.group(2))
+        # The personal product prints the same four-row summary in its own
+        # words and, unlike the business one, prints NO instance counts beside
+        # its totals. The counts stay None rather than being derived from the
+        # ledger: a count this document does not print is not a stated count.
+        m = re.search(
+            r"Total deposits into your account\s*\+\s*" + _SUMMARY_MONEY, line, re.IGNORECASE
+        )
+        if m:
+            stmt.stated_total_credits = _summary_amount(m.group(1))
+        m = re.search(
+            r"Total withdrawals from your account\s*-\s*" + _SUMMARY_MONEY, line, re.IGNORECASE
+        )
+        if m:
+            stmt.stated_total_debits = _summary_amount(m.group(1))
 
-        if "DATE DESCRIPTION CHEQUES & DEBITS" in u:
+        if _ACTIVITY_GRID_RE.search(u):
             in_activity = True
             continue
         if in_activity and (u.startswith("CLOSING BALANCE") or u.startswith("ACCOUNT FEES:")):
