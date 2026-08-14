@@ -7217,7 +7217,9 @@ digits welded between their letters:
 | stratified sample, every other issuer | 618 | 0.033 |
 
 Limit 0.15 — an order of magnitude clear of both. It fires on 4 of 858
-documents, exactly the four.
+documents, exactly the four. Re-checked against the population the archive
+census does NOT cover: over the **109 pinned corpus documents** it refuses
+zero, and the worst pinned ratio is 0.025.
 
 ## RC7. Scope, semantics and the wider probe
 
@@ -7266,8 +7268,15 @@ new registration and therefore UNSURVEYED, correctly; it prints no counts.
 ## RC9. Proofs
 
 ```
+$ python corpus_gate.py
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  369.0s
+RESULT: GREEN
+EXIT=0
+
 $ python -m pytest -q
-2909 passed, 18 deselected, 1 warning in 156.22s (0:02:36)
+2912 passed, 18 deselected, 1 warning in 109.93s (0:01:49)
 EXIT=0
 
 $ python -m pytest tests/test_parser_expectations_baseline.py \
@@ -7319,4 +7328,6 @@ and 8 of 8 card-C.
 | `07e1b90` | card A — the English `CIBC Account Statement`, a new registration |
 | `41c280a` | card C — the French business layout, and the marker that matched nothing |
 | `d96f4f2` | card F1 — a broken character map is refused, not read |
-| (this one) | §RBCCIBC-LAYOUTS RC0–RC10 |
+| `06f2633` | §RBCCIBC-LAYOUTS RC0–RC10 |
+| `753674a` | card C amendment — the French PERSONAL product, restored after the gate went red |
+| (this one) | the gate proof and the F1 pinned-corpus re-check |
