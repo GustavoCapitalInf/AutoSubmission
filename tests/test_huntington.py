@@ -322,6 +322,16 @@ def test_itemised_fees_with_no_summary_to_split_them_are_refused():
     assert parse_huntington_statement(document(fee_summary="")) is None
 
 
+def test_a_service_charge_the_document_never_itemises_is_refused():
+    """The shape eight documents in the surveyed folder are printed in: the
+    summary accounts for fees that no block itemises, so that money has no
+    date and no row. Publishing the rest would publish a ledger the statement
+    itself says is short."""
+    assert parse_huntington_statement(
+        document(fee_detail="", fee_summary="")
+    ) is None
+
+
 def test_the_intermediate_net_line_is_not_counted_as_a_charge():
     """`Net Service Charges` is printed between the two columns' totals.
     Adding it would count the previous month's charges twice."""
