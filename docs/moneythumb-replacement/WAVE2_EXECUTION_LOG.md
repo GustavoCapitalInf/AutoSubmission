@@ -1,5 +1,71 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-14 — **COVERAGE-WAVE BATCH 2 OFFICIAL: improved 90 / regressed 0 — validated 2,030 (60.1%): THE 60% TIER CROSSED**
+
+Three scout-evidenced cells, each adversarially reviewed (all SHIP; every
+review produced findings, every finding fixed and re-proven pre-merge).
+Merged `97a1638`/`836473f`/`64a22ca` + integration `99b9b33` (composed
+v9→10 + count_semantics rbc provenance refresh incl. the rbc_french
+LIVE note), pushed, **remote CI SUCCESS on `99b9b33` (conclusion read)**.
+Composed-tree proofs by Ocean: suite **3,013** / corpus-marked 14 / gate
+GREEN 106/3, all exit 0; dry run `589100cf` canonical 100/6/3 at v10.
+One merge conflict (registry count pins) resolved to the 53-registration
+union, proven green before committing.
+
+**Official instrument (`89bb6185` → `88be9dd3`, shared 3,380,
+--fail-on-regression exit 0): improved 90 / regressed 0.** Transitions:
+failed→validated 80, failed→withheld 6 (honest new refusals),
+withheld→validated 4. Families: CIBC 34 · rbc_french 19 ·
+td_canada_french 12 · rbc 11 · td_us 8 · td_canada_native 4 (+2 folder-
+attributed). Totals: validated 1,946 → **2,030 (60.1%)** · review 10 ·
+withheld 58 → 60 · failed 1,267. **Cumulative vs canonical `1dfaf7e9`:
+1,048 → 2,030 (+94%); withheld 650 → 60; zero regressions anywhere; $0
+vendor cost.** Coverage-metric note: the printed −11.9% is the known
+cache-accounting artifact at full scale — the run resumed from a warm
+cache and 1,034 cache-served rows carry NO dispatch and NO parser_id in
+the row projection (the compare tool's --enrich exists for this). The
+reporting card is now precisely specified: project parser identity from
+the cached payload into discovery rows.
+
+**The three merges:** TDFIX-1 `143407d` (td_us overdrawn-opening `-?` —
++6 with cross-month balance chaining as corroboration; section-mismatch
+softening — +2 honest withholds, with the review-corrected record that
+the removed check had a capability reconcile lacks (compensating
+intra-direction errors), residual disclosed and carded; td_can credit
+vocabulary +4; four mutation-killing fixtures added after review showed
+the E-TFR anchor unpinned — the cell found and killed two MORE analogous
+mutants than the review demanded) · TD-FRENCH `2e65855` (new
+`td_canada_french` registration — 13 claimed / 9 validated / 4 withheld
+exactly as prototyped; review proved fail-closed holds even without
+printed footers; leading-zero absorption tightened with the cell
+correcting Ocean's own insufficient prescription) · RBCCIBC-LAYOUTS
+`fdac3dc` (+66: English CIBC registration 35/35, rbc French business
+19/19 with the cheque-serial in-document oracle, rbc English personal
+12/12, all gated on six money-grammar fixes in rbc.py that left all 160
+claimed docs byte-identical; read_grid_rows lifted to analysis/tables.py
+as a proven pure move; CMap mangled-font guard refuses 4 corrupted docs;
+**the corpus gate caught the cell mid-work** — an archive census had
+justified narrowing the French marker but the pinned corpus held the one
+personal-product document the archive lacked; lesson recorded: the
+archive and the pinned corpus are different populations).
+
+**Registry now 53. Suite 3,013. The stated-count check went LIVE on
+rbc_french for the first time** (19 documents, both directions, all
+match, zero flags).
+
+**Follow-up cards recorded in the branch logs (RC8.7-RC8.10, §T7, §TF):**
+platform-wide CMap guard wiring (5 of 3,493 docs over threshold — the
+5th is Gulf Coast Bank, unclaimed, unguarded); per-row cheque-serial
+consultation; ALTERNATE_FIXTURES negative cross-product extension;
+double-sign latent; td_us compensating-section integrity check +
+section-bounding; td_can PAY code; GC TRANSFER/DEBIT MEMO/MOBILE
+DEPOSIT codes unread; td_can mojibake table missing uppercase Ô;
+rbc silent row-drop counter; discovery cached-claims projection.
+**For Gustavo's list: rbc publishes currency="USD" on all 156 Canadian
+RBC statements (pre-existing; fixing moves every claimed payload —
+re-baseline ceremony); the RBC zero-activity doc satisfying the Chase A′
+rule (deliberate rule-extension card, not copied).**
+
 ## 2026-08-14 — **COVERAGE-WAVE BATCH 1 OFFICIAL: improved 36 / regressed 0 — validated 1,946 (57.6%); eight adversarially-reviewed merges in one train**
 
 The 2026-08-13 high-parallelism wave's first merge train: eight branches,
