@@ -102,7 +102,7 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     # issuer is read out of each document and published as `Statement.bank`,
     # so the label here names the PLATFORM - there is no one bank to name, and
     # inventing one would be the hardcode this registration exists to avoid.
-    ("community_section", "Core Statement Platform", community_section, "PLATFORM_DETECTION_MARKERS", None, "parse_community_section_statement"),
+    ("community_section", "Core Statement Platform", community_section, "PLATFORM_DETECTION_MARKERS", "detection_text", "parse_community_section_statement"),
     ("consumers", "Consumers Credit Union", consumers, "DETECTION_MARKERS", None, "parse_consumers_statement"),
     ("dakota_west", "Dakota West Credit Union", community_section, "DAKOTA_WEST_DETECTION_MARKERS", None, "parse_dakota_west_statement"),
     ("demo_national", "Demo National Bank", demo_national, "DETECTION_MARKERS", None, "parse_demo_national_statement"),

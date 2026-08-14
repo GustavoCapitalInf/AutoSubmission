@@ -215,7 +215,7 @@ def _summary(block: str) -> _Summary | None:
 #: reprint marker is separated by `\s+` like the grid header itself rather than
 #: by a literal space.
 _SECTION_RE = re.compile(
-    r"(?<![A-Za-z])(?:[A-Za-z]+ )?(Credits|Debits|Deposits)"
+    r"(?<![A-Za-z])((?:[A-Za-z]+ )?(Credits|Debits|Deposits))"
     r"(?:\s+\(continued\))?\s+Date Description Amount",
     re.IGNORECASE,
 )
@@ -232,21 +232,27 @@ _SECTION_END_RE = re.compile(
 _CREDIT_NOUNS = frozenset({"credits", "deposits"})
 
 
-def _sections(text: str) -> list[tuple[int, str]]:
-    """`(sign, body)` for every transaction section, in printed order.
+def _sections(text: str) -> list[tuple[str, int, str]]:
+    """`(name, sign, body)` for every transaction section, in printed order.
 
     A section runs from its own grid header to the next section's header, so
     rows always land in the section that printed them; the last one runs to
     whichever non-transaction block follows it.
+
+    `name` is the section's printed name WITHOUT its `(continued)` marker, so
+    the runs a page break split apart can be recognised as one section again
+    by whoever needs that - which `_section_oracle_disagrees` does, and the
+    row reader deliberately does not.
     """
     matches = list(_SECTION_RE.finditer(text))
-    sections: list[tuple[int, str]] = []
+    sections: list[tuple[str, int, str]] = []
     for index, match in enumerate(matches):
         start = match.end()
         limit = matches[index + 1].start() if index + 1 < len(matches) else len(text)
         end = _SECTION_END_RE.search(text, start, limit)
-        sign = 1 if match.group(1).lower() in _CREDIT_NOUNS else -1
-        sections.append((sign, text[start:end.start() if end else limit]))
+        sign = 1 if match.group(2).lower() in _CREDIT_NOUNS else -1
+        name = " ".join(match.group(1).split()).lower()
+        sections.append((name, sign, text[start:end.start() if end else limit]))
     return sections
 
 
@@ -429,18 +435,31 @@ def _section_oracle_disagrees(block: str, txns_by_section: list[list[Transaction
     An INDEPENDENT oracle, and the only per-section one this platform prints:
     the summary grid checks the whole direction, so a row that landed in the
     wrong section of the right direction is invisible to it and visible here.
-    Sections that print no trailer are simply not checked - absent evidence is
-    never read as agreement.
+    A section that prints no trailer is genuinely not checked - absent
+    evidence is never read as agreement, and never read as evidence about a
+    DIFFERENT section either.
     """
     # A section broken by a page break is reprinted as `<name> (continued)`,
     # and `_sections` - rightly - treats each printed header as its own run.
     # The trailer, though, is printed ONCE, under the last of those runs, and
-    # counts the whole section. So the rows are accumulated across runs and
-    # compared when the trailer appears, rather than run by run: comparing the
-    # whole section's printed count against the tail end of it would report
-    # every page-broken section as a disagreement.
+    # counts the whole section. So rows accumulate across the runs of ONE
+    # section and are compared when its trailer appears: comparing a whole
+    # section's printed count against the tail end of it would report every
+    # page-broken section as a disagreement.
+    #
+    # The accumulator resets on a change of section NAME. Without that reset
+    # the docstring above was false: where a trailer-less section is followed
+    # by one that prints a trailer, section A's rows were folded into section
+    # B's comparison and the document was refused on evidence about a section
+    # the bank had said nothing about. A false REFUSAL rather than a false
+    # acceptance, but a fail-closed bug is still a bug, and it made the only
+    # per-section oracle unusable on the mixed layouts.
     pending: list[Transaction] = []
-    for (_sign, body), captured in zip(_sections(block), txns_by_section):
+    pending_name: str | None = None
+    for (name, _sign, body), captured in zip(_sections(block), txns_by_section):
+        if pending_name is not None and name != pending_name:
+            pending = []
+        pending_name = name
         pending.extend(captured)
         trailer = _SECTION_TRAILER_RE.search(_clean(body))
         if not trailer:
@@ -491,7 +510,7 @@ def _parse_sectioned_statement(
     # eleven archive documents before this was written as a layout choice.
     by_section: list[list[Transaction]] = [
         _dated_amount_rows(body, sign=sign, year=end_year)
-        for sign, body in _sections(block)
+        for _name, sign, body in _sections(block)
     ]
     section_rows = [txn for rows in by_section for txn in rows]
     if section_rows:
@@ -644,24 +663,50 @@ _PLATFORM_GRID = "account summary date description amount"
 
 _PERIOD_COUNT_RE = re.compile(r"\d+\s+Credit\(s\) This Period", re.IGNORECASE)
 
+#: This registration's normalization, registered as registry data so the
+#: collapse runs ONCE per document instead of once per marker.
+#:
+#: It is not a micro-optimisation. `_clean` rewrites the whole document, and a
+#: full registry sweep runs every marker of every registration over all 3,500
+#: discovery documents; cleaning per marker made this one registration cost
+#: about 13% of a sweep whose budget the wave is already close to spending.
+#: `make_detector` and `Registration` both take the same callable, so the
+#: module's `detect_platform` and the registry's detection stay one
+#: computation (tests/test_parser_registry_entries.py asserts exactly that).
+detection_text = _clean
+
 PLATFORM_DETECTION_MARKERS = (
-    required("summary_grid", lambda t: _PLATFORM_GRID in _clean(t).lower()),
-    required("period_counts", lambda t: bool(_PERIOD_COUNT_RE.search(_clean(t)))),
+    required("summary_grid", lambda t: _PLATFORM_GRID in t.lower()),
+    required("period_counts", lambda t: bool(_PERIOD_COUNT_RE.search(t))),
 )
 
-detect_platform = make_detector(PLATFORM_DETECTION_MARKERS)
+detect_platform = make_detector(PLATFORM_DETECTION_MARKERS, detection_text)
 
-#: How this template identifies its issuer: a domain printed under a label that
-#: says it is the bank's own. The LABEL is the whole point. Five of the 115
-#: archive documents print no labelled domain, and four of those five DO print
-#: bare domains - `walmart.com`, `apple.com`, `gosq.com` - inside transaction
-#: descriptions. Reading "the first domain in the document" would publish a
-#: merchant as the issuer on exactly those documents, so the label is required
-#: and a document without one is declined rather than guessed at.
+#: How this template identifies its issuer: a domain printed beside a label
+#: naming it as somewhere to reach the bank, on ONE PRINTED LINE.
+#:
+#: Two guards, and it is worth being exact about which does the work, because
+#: the reviewer of this cell built a document that got `walmart.com` published
+#: as the issuer when the comment here overstated the second one:
+#:
+#: * the SCOPE is the guard. Only the masthead is read (`_masthead_lines`), so
+#:   the merchant domains this platform's customers spend money at -
+#:   `walmart.com`, `apple.com`, `gosq.com`, which four of the five
+#:   issuer-less archive documents really do print - are out of range because
+#:   they appear in transaction descriptions.
+#: * the LABEL is corroborating, not decisive. `Online` and `Visit` are
+#:   ordinary words and can occur in the holder's own address block, which is
+#:   inside the masthead.
+#:
+#: The line restriction is what closes the gap between the two. `_clean`
+#: collapses newlines, so a label ending one printed line and an unrelated
+#: domain beginning the next became adjacent and matched; the issuer's real
+#: contact block prints both on the same line. Matching per printed line costs
+#: nothing on the archive and removes the construction.
 _ISSUER_RE = re.compile(
     r"(?:Online(?:\s+(?:Access|Banking))?|Web\s?site|Internet\s+Banking"
     r"|Visit(?:\s+us)?(?:\s+at)?)"
-    r"[:\s]+((?:www\.)?(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,10})\b",
+    r"[: \t]+((?:www\.)?(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,10})\b",
     re.IGNORECASE,
 )
 
@@ -676,6 +721,19 @@ _MASTHEAD_END_RE = re.compile(r"Summary of Accounts|Account Summary Date Descrip
                               re.IGNORECASE)
 
 
+def _masthead_lines(markdown: str) -> list[str]:
+    """The statement's top block, ONE PRINTED LINE AT A TIME.
+
+    Deliberately not `_clean`ed: this is the one read in the module that needs
+    the printed line breaks intact, because a label and a domain being on the
+    same line is part of the evidence (see `_ISSUER_RE`). The page-header
+    scrub `_clean` performs is not needed here - a page header cannot be in
+    the masthead, which ends before the first account.
+    """
+    end = _MASTHEAD_END_RE.search(markdown)
+    return (markdown[:end.start()] if end else markdown).splitlines()
+
+
 def _issuer(markdown: str) -> str | None:
     """The issuer this document names as its own, or None.
 
@@ -688,12 +746,10 @@ def _issuer(markdown: str) -> str | None:
     Two DIFFERENT labelled domains in the masthead means the document does not
     identify one issuer, and this returns None rather than picking one.
     """
-    text = _clean(markdown)
-    end = _MASTHEAD_END_RE.search(text)
-    masthead = text[:end.start()] if end else text
     found = {
         match.group(1).lower().removeprefix("www.")
-        for match in _ISSUER_RE.finditer(masthead)
+        for line in _masthead_lines(markdown)
+        for match in _ISSUER_RE.finditer(line)
     }
     return found.pop() if len(found) == 1 else None
 

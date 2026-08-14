@@ -316,6 +316,45 @@ def test_the_issuer_is_read_from_the_masthead_not_from_a_cited_regulator():
     assert stmt.bank == "examplecommunitybank.com"
 
 
+def test_a_label_ending_a_line_does_not_adopt_the_domain_on_the_next_one():
+    """The adversarial review's construction, pinned.
+
+    `_clean` collapses newlines, so a label word ending the holder's own
+    address line and an unrelated domain beginning the next line became
+    adjacent and were read as the issuer — this document published
+    `bank='walmart.com'`. `Online` and `Visit` are ordinary words and the
+    holder's address block is inside the masthead, so the LABEL alone was
+    never the guard it was described as; the issuer's real contact block
+    prints label and domain on ONE line, and that is now required.
+    """
+    md = (
+        "Statement Ending 01/30/2026\n"
+        "ACME HOLDINGS LLC 123 MAIN ST SPRINGFIELD Visit\n"
+        "walmart.com\n"
+        "Summary of Accounts\n"
+        "Account Type Account Number Ending Balance Business Checking XXXXXX1234 $105.00\n"
+        + SIMPLE_BODY
+    )
+    assert parse_community_section_statement(md) is None
+
+
+def test_the_issuer_is_still_read_when_such_a_line_break_is_present():
+    """The control: the tightening must not cost a document whose issuer does
+    print a proper contact line."""
+    md = (
+        "Statement Ending 01/30/2026\n"
+        "ACME HOLDINGS LLC 123 MAIN ST SPRINGFIELD Visit\n"
+        "walmart.com\n"
+        "Online Access www.examplecommunitybank.com\n"
+        "Summary of Accounts\n"
+        "Account Type Account Number Ending Balance Business Checking XXXXXX1234 $105.00\n"
+        + SIMPLE_BODY
+    )
+    stmt = parse_community_section_statement(md)
+    assert stmt is not None
+    assert stmt.bank == "examplecommunitybank.com"
+
+
 def test_two_different_issuers_in_the_masthead_is_declined():
     md = PLATFORM_HEAD.replace(
         "Online Access www.examplecommunitybank.com",
@@ -376,6 +415,47 @@ def test_a_trailer_is_matched_against_the_whole_section_it_closes():
     stmt = parse_community_section_statement(md)
     assert stmt is not None
     assert [t.amount for t in stmt.transactions] == [10.0, 20.0, -5.0]
+
+
+def test_a_trailer_less_section_is_not_folded_into_its_neighbour():
+    """The adversarial review's second construction, pinned.
+
+    The accumulator that lets a page-broken section be compared as one section
+    also carried a trailer-LESS section's rows into the next section's
+    comparison. Here `Deposits` prints no trailer and `Other Debits` prints
+    one for its single row; folding the deposit in made the debit trailer read
+    as 2-vs-1 and refused a sound document. A false refusal is still a bug.
+    """
+    md = PLATFORM_HEAD + (
+        "Business Checking - XXXXXX1234\n"
+        "Account Summary Date Description Amount 01/01/2026 Beginning Balance $100.00"
+        " 1 Credit(s) This Period $10.00 1 Debit(s) This Period $5.00"
+        " 01/30/2026 Ending Balance $105.00\n"
+        "Deposits Date Description Amount 01/02/2026 BRANCH DEPOSIT $10.00\n"
+        "Other Debits Date Description Amount 01/03/2026 SERVICE CHARGE $5.00"
+        " 1 item(s) totaling $5.00\n"
+    )
+    stmt = parse_community_section_statement(md)
+    assert stmt is not None
+    assert [t.amount for t in stmt.transactions] == [10.0, -5.0]
+
+
+def test_the_reset_still_catches_a_row_missing_from_the_trailered_section():
+    """The control for the reset: it must not have turned the oracle off.
+
+    Same shape as above, but the debit section's trailer counts two items and
+    only one is printed — the section really does disagree with itself, and
+    the document must still be refused."""
+    md = PLATFORM_HEAD + (
+        "Business Checking - XXXXXX1234\n"
+        "Account Summary Date Description Amount 01/01/2026 Beginning Balance $100.00"
+        " 1 Credit(s) This Period $10.00 1 Debit(s) This Period $5.00"
+        " 01/30/2026 Ending Balance $105.00\n"
+        "Deposits Date Description Amount 01/02/2026 BRANCH DEPOSIT $10.00\n"
+        "Other Debits Date Description Amount 01/03/2026 SERVICE CHARGE $5.00"
+        " 2 item(s) totaling $5.00\n"
+    )
+    assert parse_community_section_statement(md) is None
 
 
 def test_sub_layout_j_b_is_read_from_its_running_balance():

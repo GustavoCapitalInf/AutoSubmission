@@ -8420,7 +8420,7 @@ document prints one — every per-section `N item(s) totaling $X` trailer agrees
 **5,370 transactions** published across the 56. Over the whole cohort,
 **56 of 56 instrument sound and 0 unsound.**
 
-The four issuer-specific readers that already existed are **45/45
+The four issuer-specific readers that already existed are **46/46
 byte-identical**, and the pinned corpus holds one document of each.
 
 ## J1. The instrument
@@ -8540,7 +8540,9 @@ clean; 16 distinct product names, all as printed.
 
 ```
 cohort (documents printing the template)      : 115
-already claimed, unchanged                    :  45   byte-identical 45/45
+already claimed, unchanged                    :  45   byte-identical
+   (+1 more in the artifact store, outside the run population - J11.5,
+    making the sibling byte-identity claim 46/46)
 newly claimed by community_section            :  56
    validated                                  :  47
    withheld  (withheld_adb)                   :   7
@@ -8551,13 +8553,22 @@ transactions published                        : 5,370
 per-document instrument: sound 56 / unsound 0
 ```
 
-The 7 withheld are the platform refusing to publish an ADB, correctly. Four of
-them break the daily-balance walk, and the cause is the document: a cheque is
-presented, bounces, and is returned the next day, and the bank's printed daily
-balances are on a different basis than the posted-row walk on those two days.
-Their sum check closes exactly (`sum_delta = 0.00`) and their printed totals
-and counts match, so the ledger is complete; the ADB engine still refuses, and
-that is the designed fail-closed rather than a defect.
+The 7 withheld are the platform refusing to publish an ADB, correctly, and
+they are **two distinct classes** — named separately because they rank
+differently as future work (review closure 4):
+
+| n | diagnosis | what the document does |
+|---|---|---|
+| 4 | `balance_continuity` — `adb:running_balances_support_daily_ledger`, `continuity_breaks` 1–4 | a cheque is presented, bounces, and is returned the next day; the bank's printed daily balances are on a different basis than the posted-row walk across those two days |
+| 3 | `posting_date_coverage` — `adb:posting_dates_cover_source`, `continuity_breaks` **0** | one issuer (4 statements of the same account, 3 of them here); the ADB engine finds one posting date in the SOURCE that the parsed ledger has no row for (`missing_posting_dates: 1`, `source_posting_days: 1`) |
+
+Both classes reconcile: all 7 close the sum check exactly
+(`sum_delta = 0.00`) and match both printed totals and both printed counts, so
+the ledgers are complete. The ADB engine still refuses, which is the designed
+fail-closed rather than a defect. The second class is carded (J9.10): because
+the printed counts DO match, the uncovered date is unlikely to be a dropped
+transaction, and is more likely a date printed outside the transaction
+sections that the source check reads as a posting day.
 
 The 2 review documents declare 6 bank pages and the supplied PDFs are missing
 pages 2, 5 and 6. The existing page-sequence integrity check catches both.
@@ -8605,12 +8616,12 @@ payload changed         : 0
 moved UP 0   moved DOWN 0
 ```
 
-Sibling populations, full sweeps (their complete archive populations, not a
-sample):
+Sibling populations, full sweeps over the D-3 artifact STORE (3,409 distinct
+shas, 3,367 servable offline) rather than the run's rows — see J11.5:
 
 ```
-byte-identical payloads : 45 / 45
-mission_valley 36 · dakota_west 3 · midflorida 3 · first_community 3
+byte-identical payloads : 46 / 46
+mission_valley 37 · dakota_west 3 · midflorida 3 · first_community 3
 payload changed 0   moved UP 0   moved DOWN 0
 ```
 
@@ -8621,15 +8632,14 @@ add a document to them.
 
 ## J8. Proofs
 
+All figures below are the POST-AMENDMENT re-run (J11), on the shipped tree.
+
 ```
 # full default suite
-3045 passed, 18 deselected in 312.36s                     exit 0
+3049 passed, 18 deselected in 169.92s                     exit 0
 
-# conformance cross-product (54 x 53) + registry pins
-676 passed                                                exit 0
-
-# the platform grammar + count semantics
-69 passed                                                 exit 0
+# cell tests + count semantics + conformance + registry pins
+749 passed                                                exit 0
 
 # corpus-marked (pytest -m corpus), 2186.78s
 PASSED tests/test_corpus_gate.py::test_corpus_gate_is_green
@@ -8712,6 +8722,33 @@ issuer on this template with a private copy of a body reader the shared module
 also has. Out of this cell's ownership; worth a consolidation card, and its
 3 documents are byte-identical either way.
 
+**J9.8 — a DATED statistic after the closing balance would be read as the
+closing balance.** `_summary` takes the first and last dated balance rows. The
+two-column arrangement prints `Minimum Balance` / `Average Ledger Balance`
+undated, which is what excludes them; an issuer that dates one of those rows
+and prints it after the closing row would have it read as the closing balance.
+Downstream this withholds rather than publishes (the ledger would not close
+against it), but **the reader's own gate never checks the summary identity** —
+`beginning + credits - debits == ending` — so it would claim and hand a wrong
+closing balance to the pipeline. No archive document does this. Card: add the
+printed identity as a parser-side gate, where it is cheap and local.
+
+**J9.9 — the J-B $0.00 row is published as a credit.** In `_activity_rows` the
+sign rule is `balance >= previous`, so a zero-amount row (the balance does not
+move) takes `direction="credit"`. On the J-A side the direction is the column
+the bank printed the row in, which is the platform's own rule and the one this
+cell adopted for the count gate; the J-B branch cannot see a column. No
+archive document has a $0.00 row in a J-B ledger, so nothing is measurably
+wrong today. Card: derive J-B direction from the printed column where geometry
+makes it available, and until then record that this one row class is signed by
+convention rather than by evidence.
+
+**J9.10 — the `posting_date_coverage` withholds (3 documents).** One posting
+day in the source is not covered by the parsed ledger, while both printed
+counts match exactly. A dropped transaction would break the counts, so the
+uncovered date is most likely printed outside the transaction sections. Worth
+one look before the ADB engine is asked to relax anything.
+
 ## J10. Commits
 
 | commit | what |
@@ -8719,4 +8756,89 @@ also has. Out of this cell's ownership; worth a consolidation card, and its
 | `c59f98a` | the reader and the issuer-agnostic registration, with the four supersedes edges |
 | `f9c24d5` | `count_semantics`: the direction-key change, disclosed |
 | `eb3ecba` | 21 grammar pins, refusals included |
-| (this one) | §JHA-CELL J0–J10 |
+| `f545a32` | §JHA-CELL J0–J10 |
+| (this one) | J11 — the amendments from adversarial review |
+
+## J11. Amendments from adversarial review
+
+Verdict SHIP, with four closures. The review also proved the byte-identity
+claim one document larger than this cell had (J11.5) and confirmed the edges
+are structural rather than observed: each sibling's markers are independent of
+the template furniture, so no mangling of the template can flip a document
+from a sibling to the general reader.
+
+**J11.1 — the issuer comment overstated the label, and the reviewer built the
+document that proved it.** The comment said "a domain printed under a label
+that says it is the bank's own — the LABEL is the whole point". The code
+required only that a label WORD appear immediately before a domain *in the
+collapsed masthead*, and `Online`/`Visit` are ordinary words that occur in the
+holder's own address block. The reviewer got `bank='walmart.com'` published.
+
+Taken as a **structural tightening**, not just a comment fix, because the gap
+had a clean cause: `_clean` collapses newlines, so a label ending one printed
+line and an unrelated domain beginning the next became adjacent. The issuer's
+real contact block prints both on ONE line. `_issuer` now reads the masthead
+line by line (`_masthead_lines`, deliberately un-collapsed) and the separator
+class is `[: \t]+` rather than `[:\s]+`. The comment is also corrected to say
+what is actually true: **the masthead SCOPE is the guard, the label is
+corroborating.** Reproduced and pinned both ways — the construction now
+declines, and a document carrying that same line break *plus* a real contact
+line still reads its issuer.
+
+Cost on the archive: none. 56 claims, 47 validated, 5,370 transactions,
+56/56 instrument sound — unchanged to the document.
+
+**J11.2 — the trailer-oracle docstring was false, and the code with it.**
+"Sections that print no trailer are simply not checked" did not hold when a
+trailer-less section preceded a trailer-printing one: the accumulator that
+lets a page-broken section be compared as one section folded section A's rows
+into section B's comparison. A **false refusal** — fail-closed, but a bug, and
+it made the only per-section oracle unusable on mixed layouts.
+
+`_sections` now yields each section's printed name with the `(continued)`
+marker removed, and the accumulator resets on a change of name. A trailer-less
+section is now genuinely unchecked. Pinned with the reviewer's construction
+(A no-trailer + B trailer → B compares only B's rows) **and its control** (a
+row missing from B is still caught), so the reset cannot be mistaken for
+turning the oracle off.
+
+**J11.3 — clean once per document, not once per marker.** Both markers called
+`_clean`, which rewrites the whole document, so this registration paid for two
+full rewrites on every document of a 3,500-document sweep. The normalization
+is now registry data (`detection_text`, passed to both `make_detector` and the
+`Registration`), which is exactly the seam `make_detector` documents.
+
+Measured over 300 sampled archive documents, one process, best of three:
+
+```
+52 other registrations                       10.628s
+community_section, once-per-marker (before)   1.744s   share 14.1%
+community_section, once-per-document (now)    1.010s   share  8.7%
+speedup 1.73x · 5.9 percentage points of a whole sweep removed
+claim disagreements between the two forms: 0
+```
+
+**J11.4 — records.** J9.8 (dated-statistic-as-closing-balance, and the
+parser-side identity check it argues for), J9.9 (the J-B $0.00 direction
+convention) and J9.10 + the two-class table in J5 (the 3
+`posting_date_coverage` withholds, now named apart from the 4 bounced-cheque
+walks) are added above.
+
+**J11.5 — the sibling population is 46, not 45.** The review found one more
+mission_valley document. It is in the D-3 store but NOT in run `88be9dd3`'s
+population: the run's OCR settings key holds a NULL document for it, and its
+text exists only under the other settings key — so a sweep derived from
+`rows.csv`, as this cell's was, cannot see it. Swept explicitly:
+
+```
+content_sha256 CD7E104D7474…      claimants before: ['mission_valley']
+                                  claimants after : ['community_section',
+                                                     'mission_valley']
+dispatch  claimed -> claimed, parser mission_valley -> mission_valley
+payload   0BE7D98471CB18DF… -> 0BE7D98471CB18DF…   IDENTICAL
+```
+
+**46/46 byte-identical.** The lesson is the same one card C of §RBCCIBC
+recorded in a different costume: a population derived from one artifact is not
+the population. Re-derive from the artifact STORE, not from the run's rows,
+when the claim is "nothing moved".
