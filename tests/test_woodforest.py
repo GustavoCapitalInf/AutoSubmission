@@ -207,6 +207,37 @@ def test_a_multi_account_document_fails_closed():
     assert parse_woodforest_statement(text) is None
 
 
+def test_a_second_account_split_by_a_page_break_still_fails_closed():
+    """The L-1 guard must not fail OPEN.
+
+    A summary block whose rows straddle a page break prints the page marker
+    and the page's own header between them. A reader that stopped collecting
+    at the first non-matching line would see one account on a two-account
+    document and publish it — the exact inversion of what this guard is for.
+    """
+    text = (
+        HEADER
+        + "Business Simple Checking 1205009515 1,000.00 300.00 500.00 1,200.00\n"
+        + "--- Page 2 ---\n"
+        + "Statement Period: March 01  - March 31, 2026 Page 2 of 6\n"
+        + "Business Simple Checking 1205009999 2,000.00 100.00 100.00 2,000.00\n"
+        + "Business Simple Checking 1205009515\n"
+        + GRID
+        + "03-02 200.00 800.00 POS DB ONE\n"
+    )
+    assert detect(text).claims
+    assert parse_woodforest_statement(text) is None
+
+
+def test_the_summary_region_ends_where_the_document_closes_it():
+    """Collecting across the region must not run past it: the account section
+    that follows prints the same product name and number, and the postings
+    below it print money of their own."""
+    stmt = parse_woodforest_statement(SIMPLE)
+    assert stmt is not None
+    assert stmt.account_number == "1205009515"
+
+
 def test_a_grid_whose_columns_arrive_out_of_order_fails_closed():
     """Three archive documents emit the cells of each row in a scrambled
     reading order — description, balance, date, amount — which cannot be

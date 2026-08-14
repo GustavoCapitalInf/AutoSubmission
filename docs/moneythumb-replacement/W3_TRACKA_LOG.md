@@ -8402,7 +8402,7 @@ below with its diagnosis.
 | family | archive docs | validated | fail closed |
 |---|---|---|---|
 | `woodforest` | 20 | **15** | 3 withheld + 2 declined |
-| `wealthsimple` | 18 | **16** | 2 declined |
+| `wealthsimple` | 18 | **16** | 1 declined + 1 unclaimed void cheque |
 | `symitar` | 7 | **4** | 3 declined (L-1) |
 
 All 35 are instrumented per document rather than merely claimed: every stated
@@ -8875,8 +8875,8 @@ woodforest 20 · wealthsimple 17 · symitar 7 · outside their families: 0
 
 Fixtures: 16 in `tests/test_woodforest.py`, 16 in `tests/test_wealthsimple.py`
 (three of them over the narrowed `analysis/dates.py` heuristic), 14 in
-`tests/test_symitar.py` — 46 in all — plus one conformance fixture per
-registration. Test count 3,013 → 3,095.
+`tests/test_symitar.py` — 46 in all, 49 after the review amendments (UA9) —
+plus one conformance fixture per registration. Test count 3,013 → 3,098.
 
 ## UA8. Commits
 
@@ -8885,5 +8885,141 @@ registration. Test count 3,013 → 3,095.
 | `f83f5cb` | `woodforest` — a new registration, signed by the balance the bank prints |
 | `c083c4b` | `wealthsimple` — a new registration that reads the printed minus, and `analysis/dates.py`: a dated balance label is not a posting row |
 | `b79e990` | `symitar` — a member statement, read on its one active deposit account |
-| `0e84758` | detection — the three new registrations declare no normalization (the affordability budget) |
-| (this one) | §UNID-PACK-A UA0–UA8 |
+| `0e84758` | the three new registrations declare no normalization (the affordability budget). NOT detection-only, and the commit subject overstates it: dropping the normalization also required rewriting two `symitar` PARSE-path regexes (`_ACCOUNT_SUMMARY_RE`, `_SECTION_RE`) to tolerate the raw text's leading and trailing spaces. Detection equivalence was proven at the time over 3,367 documents; PARSE equivalence is proven in UA9 — 45/45 family payloads byte-identical |
+| `3126af5` | §UNID-PACK-A UA0–UA8 |
+| (this one) | UA9 — the adversarial-review fixes: the L-1 guard's fail-open, the Symitar refuse convention, and four record corrections |
+
+## UA9. Amendments from adversarial review
+
+Ocean's review reproduced all eight claims independently and returned SHIP with
+one BLOCK-grade fix and three closures. All are applied below. **No outcome
+moves: all 45 family documents are byte-identical to the reviewed branch.**
+
+### UA9.1 The L-1 guard failed OPEN (the blocker)
+
+`woodforest._accounts` collected summary rows only while they were
+CONSECUTIVE and stopped at the first line that did not match. A summary block
+whose rows straddle a page break prints `--- Page 2 ---` and the page's own
+header between them — so a **two-account document would have been read as
+one account and published**. That is the exact inversion of what the guard
+exists for: a control designed to fail closed must not fail open, and this one
+did.
+
+The fix is structural rather than a wider tolerance. The summary region is now
+bounded by **its own printed close** — the `Transactions` label or the activity
+grid's column header, both of which the document prints to open the
+per-account sections — and every summary row inside that region is collected
+while anything else in it is skipped. Line adjacency is no longer load-bearing.
+
+The reviewer's exact construction is pinned as
+`test_a_second_account_split_by_a_page_break_still_fails_closed`, and a second
+fixture pins that collecting across the region does NOT run past its close
+(the account section that follows prints the same product name and number, and
+the postings below it print money of their own).
+
+**Why no document moves:** all 20 archive Woodforest documents are
+single-account, so the defect was latent rather than live. It would have gone
+live on the first genuinely multi-account Woodforest statement — which is
+precisely the document the guard was written for.
+
+### UA9.2 Symitar's silent row drop, aligned to the refuse convention
+
+A posting whose `MM/DD` could not be resolved was `continue`d — dropped from
+the ledger without a word — while this cell's own `woodforest._postings`
+returns None and refuses the document for the same condition. Two readers, two
+conventions, in one cell. Symitar now refuses: a row the grid printed but the
+reader cannot resolve is a hole in the ledger, and a hole must refuse the
+document rather than shrink it silently. Pinned with an unresolvable `02/30`.
+
+### UA9.3 The `$`-blind `_ROW_RE`, recorded
+
+`symitar._ROW_RE`'s money alternatives do not admit a currency symbol, while
+the opening and closing rows this layout prints DO carry one
+(`05/01/26 $ 1,000.00 Beginning Balance`). A posting row that ever printed `$`
+would not open a row and would be swallowed into the previous row's
+description. **Censused: across all 7 family documents the number of dated `$`
+amounts that are not a Beginning/Ending Balance row is zero.** Left as-is
+deliberately — widening the pattern to admit `$` would make the opening row
+itself match as a posting, which is the more dangerous of the two errors — and
+recorded at the pattern.
+
+### UA9.4 The ±0.01 tolerance is a rounding allowance, not a repair budget
+
+Inherited verbatim from `cibc._en_sign_from_balances`. Where it admits the
+balance movement, the published amount becomes the MOVEMENT rather than the
+bank's printed magnitude, which is a silent preference worth stating.
+Measured over the whole Woodforest family:
+
+```
+rows total                          : 1,887
+delta == printed magnitude exactly  : 1,871
+NON-TRIVIAL repairs (0 < gap <= 0.01):     0
+outside tolerance (kept as a debit) :    16   (all of them Royalty2's)
+```
+
+So every amount this parser publishes is the bank's own printed cell, and the
+convention has never once altered one. Recorded at the function, because that
+stays true only while the census stays at zero.
+
+### UA9.5 The wealthsimple furniture claim is conditional
+
+"The page furniture printed after the final row is never swallowed into it"
+holds **only while the final row closes**. Two constructions break it, and
+both are now stated at the module docstring and in the fixture:
+
+* a wrapped description that happens to END in something the tail pattern
+  reads as an amount/balance pair closes the row early, and the rest of the
+  description becomes furniture;
+* if the final row never closes, the boilerplate after it is accumulated into
+  that row until something completes the pair.
+
+Neither occurs in the family — all 16 documents read with zero unread rows —
+and both fail closed downstream, because a row published with the wrong amount
+breaks the balance walk the summary block is checked against. Recorded rather
+than guarded, so the claim is not read as unconditional.
+
+### UA9.6 The normalization commit was not detection-only
+
+`0e84758`'s subject says "detection", and that overstates what it touched.
+Dropping the whole-document normalization also required rewriting two `symitar`
+**parse-path** regexes — `_ACCOUNT_SUMMARY_RE` and `_SECTION_RE` — to tolerate
+the leading and trailing spaces the collapsing pass had been stripping. Both
+are used by `_sections` and `_account_summary_balances` during parsing, not
+only during detection. Detection equivalence was proven at the time (3,367
+documents, 0 disagreements); **parse equivalence is proven here**, in the
+sweep below.
+
+### UA9.7 Proofs for the amendments
+
+```
+$ python -m pytest tests/test_woodforest.py tests/test_wealthsimple.py \
+    tests/test_symitar.py -q
+49 passed in 0.38s
+EXIT=0
+
+$ python -m pytest tests/test_parser_conformance.py \
+    tests/test_parser_registry_entries.py tests/test_parser_registry.py \
+    tests/test_parser_detection_markers.py tests/test_no_parser_helper_clones.py \
+    tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+    tests/test_count_semantics.py tests/test_stated_counts.py \
+    tests/test_shared_parser_utils.py tests/test_money.py \
+    tests/test_parser_expectations_baseline.py -q
+1086 passed, 1 warning in 6.27s
+EXIT=0
+
+$ python -m pytest -q
+3098 passed, 18 deselected, 1 warning in 181.90s (0:03:01)
+EXIT=0
+
+# the three families re-swept at HEAD, against the reviewed branch's payloads
+family documents compared    : 45
+byte-identical               : 45
+changed                      :  0
+
+  woodforest    15 validated / 3 withheld     wealthsimple  16 validated
+  symitar        4 validated                  unclaimed      7 failed
+```
+
+The L-1 guard fix moves nothing (all 20 Woodforest documents are
+single-account), and the same sweep is what proves UA9.6's two parse-path
+regexes byte-identical over all 45.

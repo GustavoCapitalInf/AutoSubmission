@@ -183,3 +183,19 @@ def test_a_short_date_is_resolved_against_the_printed_period():
 
 def test_a_document_with_no_active_deposit_account_is_declined():
     assert parse_symitar_statement(HEAD + DORMANT) is None
+
+
+def test_a_row_whose_date_cannot_be_resolved_refuses_the_document():
+    """A row the grid printed but this reader cannot resolve is a hole in the
+    ledger. It refuses the document rather than shrinking it silently — the
+    convention `woodforest._postings` follows. `02/30` is not a date in any
+    year the period spans."""
+    text = HEAD + (
+        "Free Business Checking ( ID 0210 )\n"
+        + GRID
+        + "05/01/26 $ 1,000.00 Beginning Balance "
+        "02/30 -300.00 700.00 Card purchase "
+        "05/03/26 500.00 1,200.00 ACH Deposit\n"
+    )
+    assert detect(text).claims
+    assert parse_symitar_statement(text) is None

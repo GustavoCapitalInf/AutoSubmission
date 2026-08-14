@@ -117,6 +117,10 @@ def test_a_row_closes_on_its_balance_cell_so_a_wrapped_description_is_kept():
 
 
 def test_the_page_furniture_after_the_last_row_is_not_swallowed_into_it():
+    """Conditional, and the condition is that the final row closes. If it
+    never closed, the boilerplate would be accumulated into it until something
+    completed an amount/balance pair; that fails the balance walk rather than
+    publishing quietly, and it happens on none of the 16 family documents."""
     stmt = parse_wealthsimple_statement(
         ONE_ROW
         + "Wealthsimple chequing accounts are offered by Wealthsimple "

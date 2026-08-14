@@ -13,8 +13,19 @@ this in a parallel cell; this reader deliberately does not depend on it.)
 **A row is opened by its two dates and closed by its Balance cell.** The
 Balance column is the row's last, so reading the row as "everything from the
 dates up to and including the amount/balance pair" is what lets a long
-description wrap onto a later physical line while the page furniture printed
-after the final row is never swallowed into it.
+description wrap onto a later physical line, and — *while the final row
+closes* — keeps the page furniture printed after it out of that row.
+
+That conditional is exact, and two constructions break it. If a wrapped
+description happens to END in something the tail pattern reads as an
+amount/balance pair, the row closes early and the rest of the description
+becomes furniture. If the final row never closes, the boilerplate that
+follows is accumulated into it until something completes the pair. Neither
+occurs in the family — every one of the 16 documents reads with zero unread
+rows — and both fail closed downstream, because a row published with the
+wrong amount breaks the balance walk the summary block is checked against.
+They are recorded rather than guarded so the claim is not read as
+unconditional.
 
 The document states which of its two dates is the accounting one — "Posted
 date is when the transaction is processed and finalized. Use this for

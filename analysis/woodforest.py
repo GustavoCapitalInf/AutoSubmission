@@ -72,6 +72,10 @@ _GRID_END_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: What closes the `Summary of Accounts` region. The per-account sections
+#: follow it, and each opens with this label above its own column header.
+_SUMMARY_CLOSE_RE = re.compile(r"^Transactions\s*$", re.IGNORECASE)
+
 #: A posting row: the Date column, then the amount cell, then the Balance
 #: cell. Requiring BOTH money cells straight after the date is what keeps a
 #: `03-05` printed inside a description from opening a row — a description
@@ -150,22 +154,38 @@ def _accounts(markdown: str) -> list[re.Match]:
     More than one means a multi-account document, which the single-account
     extraction schema cannot represent (L-1); the caller fails closed rather
     than publishing one account's ledger under the whole document's name.
+
+    The region is bounded by its own printed close — the `Transactions` label
+    or the activity grid's column header — and NOT by line adjacency. That
+    distinction is the whole safety of the L-1 guard: a summary block whose
+    rows are split by a page break prints `--- Page 2 ---` and the page's own
+    header between them, and a reader that stopped at the first non-matching
+    line would see one account on a two-account document and publish it. A
+    guard that exists to fail closed must not fail open, so every summary row
+    in the region is collected and anything else in it is skipped.
     """
     lines = [re.sub(r"\s+", " ", raw).strip() for raw in markdown.splitlines()]
     lines = [line for line in lines if line]
     found: list[re.Match] = []
-    for index, line in enumerate(lines):
-        header = _SUMMARY_HEADER_RE.search(line)
-        if not header:
+    inside = False
+    for line in lines:
+        if not inside:
+            header = _SUMMARY_HEADER_RE.search(line)
+            if not header:
+                continue
+            inside = True
+            # The header may carry its first account row on the same line.
+            tail = line[header.end():].strip()
+            if tail:
+                match = _SUMMARY_ROW_RE.match(tail)
+                if match:
+                    found.append(match)
             continue
-        # The header may carry its first account row on the same physical line.
-        tail = line[header.end():].strip()
-        for candidate in ([tail] if tail else []) + lines[index + 1:]:
-            match = _SUMMARY_ROW_RE.match(candidate)
-            if match is None:
-                break
+        if _SUMMARY_CLOSE_RE.match(line) or _GRID_RE.search(line):
+            break
+        match = _SUMMARY_ROW_RE.match(line)
+        if match:
             found.append(match)
-        break
     return found
 
 
@@ -236,6 +256,15 @@ def _sign_from_balances(rows: list[dict], opening: float | None) -> None:
     between two printed balances is the signed amount. A row whose printed
     magnitude does not equal that movement keeps a debit reading, so the
     document fails the ledger checks rather than being quietly corrected.
+
+    The ±0.01 tolerance is inherited verbatim from that function and is a
+    ROUNDING allowance, not a repair budget: where it admits the movement, the
+    published amount becomes the movement rather than the printed magnitude.
+    Measured over this family it never does anything but agree — across all
+    1,887 rows the two differ by a non-zero amount within the tolerance
+    **zero times**, so every published amount here is the bank's own printed
+    cell. Recorded because the convention silently prefers the delta, and that
+    only stays invisible while the census stays at zero.
     """
     previous = opening
     for row in rows:

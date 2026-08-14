@@ -90,6 +90,16 @@ _DORMANT_RE = re.compile(r"No\s+Transactions\s+This\s+Period", re.IGNORECASE)
 #: A posting: the Date column, then the signed amount cell, then the Balance
 #: cell. Requiring both money cells straight after the date is what keeps a
 #: date printed inside a description from opening a row.
+#:
+#: LATENT, recorded rather than fixed: the money alternatives here are
+#: $-blind, while the opening and closing rows this layout prints DO carry the
+#: symbol (`05/01/26 $ 1,000.00 Beginning Balance`). A posting row that ever
+#: printed `$` would therefore not open a row and would be swallowed into the
+#: previous row's description. It cannot happen in the surveyed population:
+#: across all 7 family documents, the number of dated `$` amounts that are not
+#: a Beginning/Ending Balance row is **zero**. Left as-is because widening the
+#: pattern to admit `$` would make the opening row itself match as a posting,
+#: which is the more dangerous of the two errors.
 _ROW_RE = re.compile(
     r"(?<![\d/])(\d{2}/\d{2}(?:/\d{2,4})?)\s+(-?[\d,]+\.\d{2})\s+(-?[\d,]+\.\d{2})(?![\d.,])"
 )
@@ -267,7 +277,13 @@ def parse_symitar_statement(markdown: str, base: Statement | None = None) -> Sta
             amount = _money(match.group(2))
             balance = _money(match.group(3))
             if posted is None or amount is None or balance is None:
-                continue
+                # A row the grid printed but this reader cannot resolve is a
+                # hole in the ledger, and a hole must refuse the document
+                # rather than shrink it silently — the same convention
+                # `woodforest._postings` follows. Dropping it would publish a
+                # ledger the bank never printed and leave the balance walk to
+                # notice, which it does not always do.
+                return None
             stop = hits[index + 1].start() if index + 1 < len(hits) else len(body)
             rows.append(
                 {
