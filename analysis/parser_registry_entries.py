@@ -58,6 +58,7 @@ from . import (
     scanned_small_bank,
     scotia,
     secu,
+    shopify_balance,
     square_checking,
     td_can,
     td_canada_french,
@@ -119,6 +120,7 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("santander", "Santander Bank", santander, "DETECTION_MARKERS", None, "parse_santander_statement"),
     ("scotiabank", "Scotiabank", scotia, "DETECTION_MARKERS", "detection_text", "parse_scotiabank_statement"),
     ("secu", "SECU Maryland", secu, "DETECTION_MARKERS", None, "parse_secu_statement"),
+    ("shopify_balance", "Shopify Balance", shopify_balance, "DETECTION_MARKERS", "detection_text", "parse_shopify_balance_statement"),
     ("southside_scanned", "Southside Bank", scanned_small_bank, "SOUTHSIDE_DETECTION_MARKERS", "detection_text", "parse_southside_scanned_statement"),
     ("square_checking", "Square", square_checking, "DETECTION_MARKERS", "detection_text", "parse_square_checking_statement"),
     ("td_canada", "TD Canada Trust", td_can, "DETECTION_MARKERS", None, "parse_td_canada_statement"),
@@ -183,6 +185,13 @@ _OVERRIDES: dict[str, dict] = {
         "integrity_checks": (bmo_us_activity.summary_row_contradictions,)
     },
     "td_canada_native": {"band": 10, "supersedes": frozenset({"td_canada"})},
+    # Shopify prints the period's net movement and closing balance twice: in
+    # the summary block that opens the statement and again in the grid's
+    # closing `Totals` row. Where the two disagree the document contradicts
+    # itself.
+    "shopify_balance": {
+        "integrity_checks": (shopify_balance.totals_contradictions,)
+    },
     # Square prints its activity count beside the two balances of the same
     # summary row, so a ledger that does not match it contradicts the document.
     "square_checking": {

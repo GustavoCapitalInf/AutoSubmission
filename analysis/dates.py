@@ -200,6 +200,27 @@ _SUMMARY_TOTAL_ROW = re.compile(
     re.I,
 )
 _MONEY_RE = re.compile(r"\d[\d,]*\.\d{2}")
+# The same printed section total, wrapped. Where the total's label and column
+# captions fill the line, the bank's own date for that total is printed BELOW
+# it, alone -- "Totals Amount Account balance as of" / "12/31/2025" /
+# "-$70,195.36 $13,692.91". The bare date line then reaches the money-proximity
+# test below, finds the total's figures on the next line, and is counted as a
+# posting date the statement never had.
+#
+# Keyed on the label OPENING the line, which is where a section total prints
+# its own name, and on that line carrying no money, which is what says the
+# figures wrapped. Both halves are load-bearing: an archive census of all 3,400
+# readable documents showed that keying on the word ANYWHERE in the line
+# instead would swallow genuine posting dates printed after a merchant called
+# "Total Quality Logistics" and after the column headers "... FEES TOTAL*" and
+# "Date Description Total Items ...". Anchored, it fires on 16 lines in the
+# whole archive, all of them this one wrapped total row.
+#
+# Direction of effect is the same as `_SUMMARY_TOTAL_ROW`: it can only REMOVE
+# dates from `source_posting_dates`, and `posting_dates_cover_source` is
+# `source_dates - parsed_dates`, so a document can go from failing to passing
+# but never from passing to failing.
+_WRAPPED_TOTAL_LABEL = re.compile(r"^totals?\b", re.I)
 # A date-token grid ("01/01 -225.43 01/12 4.68 01/22 -14.82") is a balance
 # summary, not a posting row: real posting rows carry one date, not several.
 _DATE_TOKEN_RE = re.compile(
@@ -295,6 +316,11 @@ def source_posting_dates(markdown: str, period_start: date, period_end: date) ->
         if re.fullmatch(r"\(\s*\.\.\.\s*\d+\s*\)", remainder):
             continue
         if len(remainder) < 3 and not _MONEY_RE.search(line):
+            previous = next(
+                (l.strip() for l in reversed(lines[:index]) if l.strip()), ""
+            )
+            if _WRAPPED_TOTAL_LABEL.match(previous) and not _MONEY_RE.search(previous):
+                continue
             lookahead = [l for l in lines[index + 1: index + 5] if l.strip()][:3]
             if not any(_MONEY_RE.search(l) for l in lookahead):
                 continue

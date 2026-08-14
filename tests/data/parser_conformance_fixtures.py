@@ -112,6 +112,13 @@ FIXTURES: dict[str, str] = {
     "santander": "Santander\nAccount Activity\n",
     "scotiabank": "SCOTIABANK\nThe Bank of Nova Scotia\n",
     "secu": "secumd.org\nFree Business Checking\n",
+    # Every marker is the layout's own printed furniture. The partner banks
+    # named in the statement's disclosure (and in the archive's folder label)
+    # are deliberately absent: they are not what identifies this document.
+    "shopify_balance": (
+        "Shopify Balance\nStatement summary\nTransaction history\n"
+        "Posted Date Transaction Date Description Amount Account balance\n"
+    ),
     "southside_scanned": "SOUTHSIDE\nACCOUNT SUMMARY\nBUILDER ACCOUNT\n",
     "square_checking": (
         "Square Checking Routing number:\nsquareup.com/help\n"
