@@ -129,7 +129,7 @@ DETECTION_MARKERS = (
 detect = make_detector(DETECTION_MARKERS, detection_text)
 
 
-def _sections(markdown: str) -> dict[str, list[str]]:
+def _sections(markdown: str) -> dict[str, str]:
     """Each detail section's text, gathered across every page it appears on.
 
     A page boundary closes whatever section was open, because a section that

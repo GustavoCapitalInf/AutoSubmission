@@ -326,7 +326,13 @@ def parse_fiserv_premier_statement(markdown: str) -> Statement | None:
     if abs(sum(-t.amount for t in debit_rows) - abs(summary["debits"])) > _TOLERANCE:
         return None
 
-    transactions.sort(key=lambda txn: txn.date)
+    # Only the split-section shape is re-ordered, because its credits and debits
+    # are printed in two separate runs. The single-grid shape is left in the
+    # order the document printed it: its rows carry running balances whose chain
+    # was verified in exactly that order, and re-ordering them would publish a
+    # balance sequence the document does not show.
+    if all(txn.running_balance is None for txn in transactions):
+        transactions.sort(key=lambda txn: txn.date)
     title = _TITLE_RE.search(markdown)
     product = _PRODUCT_RE.search(markdown)
     return Statement(
