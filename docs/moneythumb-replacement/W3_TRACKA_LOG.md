@@ -7089,18 +7089,32 @@ Result: **12/12 validated**, 1,180 transactions, all instrumented sound. Both
 overdrawn documents carry the right sign (one opens at -2.55, one closes at
 -2.55).
 
-## RC4. Card C — a registration that had never claimed anything
+## RC4. Card C — a registration that could see only one of its two products
 
-`rbc_french` claimed **zero documents corpus-wide**. Its activity marker
-required `DATE DESCRIPTION RETRAITS` — which is CIBC's French header, not RBC's
-— so paired with `BANQUE ROYALE` the conjunction matched no document that
-exists. Nineteen documents of the layout it was written for went unclaimed.
+`rbc_french` claimed **zero documents in the 3,506-document archive**. Its
+activity marker required `DATE DESCRIPTION RETRAITS` and nothing else, so the
+nineteen BUSINESS statements — which head the same grid `Chèques et débits` —
+went unclaimed corpus-wide. Its two summary total wordings were the personal
+product's, so on every business statement both stated totals were silently
+`None` and `reconcile.summary_ok` had nothing to check.
 
-The reason nothing failed is worth recording: **the synthetic fixture the
-parser was tested against had invented the same header**, and two summary
-wordings besides. Three test files carried it (`test_rbc_variants.py`,
-`test_row_grouping.py` via import, `test_r1_hardcodes.py`) plus the conformance
-fixture. All four now carry the furniture these statements actually print.
+**A correction, and the gate is what forced it.** This cell first concluded
+that `RETRAITS` was CIBC's header and matched no RBC document at all, and
+narrowed the marker to the business wording alone. That was measured over the
+archive only. The PINNED corpus holds one RBC French document —
+`RBC French/12 - Relevé Royale Décembre 2025` — and it is the PERSONAL product,
+which really does print `Date Description Retraits ($) Dépôts ($) Solde ($)`.
+Narrowing the marker un-claimed it and `corpus_gate.py` went RED with
+`no deterministic parser matched this statement`. The archive and the pinned
+corpus are different populations and a census of one is not a census of the
+other; that is the lesson worth carrying out of this cell.
+
+The marker now accepts BOTH products, exactly as card B does on the English
+side, and the summary reads both sets of wordings. The conjunction with
+`BANQUE ROYALE` is what keeps `Retraits` — which IS also CIBC's French header —
+from reaching a CIBC statement, and a negative fixture pins it. The
+`ALTERNATE_FIXTURES` entry pins the personal branch so neither can be dropped
+again.
 
 Accents reach this parser as U+FFFD — this text layer loses them outright
 rather than double-encoding them, so `normalize_mojibake` has nothing to repair
@@ -7239,10 +7253,12 @@ new registration and therefore UNSURVEYED, correctly; it prints no counts.
    either a second parse or a refactor of the entry loop. Left undone
    deliberately rather than half-done; the measurement is the reason it is low
    priority.
-3. **A French PERSONAL RBC layout is no longer covered.** The old marker would
-   have claimed one; no document in the 3,506-document archive is one, and the
-   marker's price was the whole registration being dead. If such a document
-   appears it needs the card-B treatment on the French side.
+3. **The archive is not the pinned corpus.** Card C's first design was
+   censused over the 3,506-document archive, passed every archive proof, and
+   was still wrong: the pinned corpus holds a document of a layout the archive
+   has none of. Every census in this record covers the archive cohort; the
+   gate is what covers the other 109. Worth making explicit in the next cell
+   brief.
 4. **`fb677033_5085287_2026_01_12_2026_01_12.pdf`** validates on a single
    transaction. It is a genuine one-day statement, instrumented sound, but it
    is the thinnest evidence in the cell.

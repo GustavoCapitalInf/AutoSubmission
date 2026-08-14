@@ -877,17 +877,50 @@ def test_c_the_french_business_layout_is_detected_on_its_real_header():
     assert stmt.currency == "CAD"
 
 
-def test_c_negative_the_header_the_marker_required_is_cibcs_not_rbcs():
-    """The old marker required `Date Description Retraits`. That is the French
-    CIBC header; RBC prints `Chèques et débits`. For as long as it required
-    the wrong one, the registration matched no document."""
+def test_c_both_french_products_are_detected():
+    """RBC issues its French statement under two products, as it does in
+    English: the personal one heads its first money column `Retraits`, the
+    business one `Chèques et débits`. The marker required only the personal
+    wording, so the registration claimed the single pinned personal statement
+    and nothing else — the whole business family went unclaimed."""
     from analysis.rbc import detect_french
 
-    cibc_header = FR.replace(
+    business = FR.format(body="5 mars Article un 500,00 1 500,00\n")
+    personal = FR.replace(
         "Date Description Chèques et débits ($) Dépôts et crédits ($) Solde ($)",
         "Date Description Retraits ($) Dépôts ($) Solde ($)",
     ).format(body="5 mars Article un 500,00 1 500,00\n")
-    assert not detect_french(cibc_header).claims
+    assert detect_french(business).claims
+    assert detect_french(personal).claims
+
+
+def test_c_negative_the_personal_header_alone_does_not_reach_a_cibc_statement():
+    """`Date Description Retraits` is also CIBC's French header. The
+    conjunction with `BANQUE ROYALE` is what separates them."""
+    from analysis.rbc import detect_french
+
+    cibc = FR.replace("BANQUE ROYALE DU CANADA", "CIBC").replace(
+        "Date Description Chèques et débits ($) Dépôts et crédits ($) Solde ($)",
+        "Date Description Retraits ($) Dépôts ($) Solde ($)",
+    ).format(body="5 mars Article un 500,00 1 500,00\n")
+    assert not detect_french(cibc).claims
+
+
+def test_c_the_personal_product_prints_no_counts_beside_its_totals():
+    personal = FR.replace(
+        "Total des dépôts et des crédits (1) + 500,00",
+        "Total des dépôts dans votre compte + 500,00",
+    ).replace(
+        "Total des chèques et des débits (1) - 300,00",
+        "Total des retraits de votre compte - 300,00",
+    ).format(body="5 mars Article un 500,00 1 500,00\n"
+                  "12 mars Article deux 300,00 1 200,00\n")
+    stmt = parse_rbc_statement(personal)
+    assert stmt is not None
+    assert stmt.stated_total_credits == 500.0
+    assert stmt.stated_total_debits == 300.0
+    assert stmt.stated_credit_count is None
+    assert stmt.stated_debit_count is None
 
 
 def test_c_the_summary_reads_both_totals_and_both_printed_counts():

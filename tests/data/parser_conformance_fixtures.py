@@ -139,6 +139,8 @@ FIXTURES: dict[str, str] = {
 ALTERNATE_FIXTURES: dict[str, tuple[str, ...]] = {
     "banco_popular": ("TeleBanco Comercial\nFLEXICUENTA DE NEGOCIOS\n",),
     "farmers_merchants": ("BUSINESS/COMMERCIAL\nCHECKS/DEBITS\nDEPOSITS AND CREDITS\n",),
+    # RBC prints its French grid under two product names, as it does in English.
+    "rbc_french": ("BANQUE ROYALE\nDate Description Retraits ($)\n",),
     "bmo": ("BANK OF MONTREAL\nAccount Summary Totals\n",),
     "chase": ("\nCHASE\nStatement of account\n*start*summary\n",),
     "consumers": ("ConsumersCU.org\nSummary of All Accounts\n",),

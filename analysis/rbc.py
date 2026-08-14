@@ -231,13 +231,16 @@ DETECTION_MARKERS = (
 #: nothing to repair — and every accent is therefore matched as `.`, the same
 #: tolerance `analysis/cibc.py` uses on the same problem.
 #:
-#: The wording matters: this marker previously required `DATE DESCRIPTION
-#: RETRAITS`, which is CIBC's French header, not RBC's. Paired with
-#: `BANQUE ROYALE` it matched NO document, and the registration claimed
-#: nothing corpus-wide while nineteen documents of the layout it was written
-#: for went unclaimed. `Chèques et débits` is what the statements print.
+#: RBC issues its French statement under two products, exactly as it does in
+#: English (see `_ACTIVITY_HEADINGS`): the personal one heads its first money
+#: column `Retraits`, the business one `Chèques et débits`. This marker
+#: required only the personal wording, so the registration claimed the single
+#: pinned personal statement and NOTHING else — nineteen business documents of
+#: the same layout went unclaimed corpus-wide. Both are matched now, and the
+#: conjunction with `BANQUE ROYALE` is what keeps `Retraits` — which is also
+#: CIBC's French header — from reaching a CIBC statement.
 _FR_ACTIVITY_GRID_RE = re.compile(
-    r"DATE DESCRIPTION CH.QUES ET D.BITS", re.IGNORECASE)
+    r"DATE DESCRIPTION (?:CH.QUES ET D.BITS|RETRAITS)", re.IGNORECASE)
 
 FRENCH_DETECTION_MARKERS = (
     excluding("glyph_damage", glyph_damaged),
@@ -539,12 +542,17 @@ def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) ->
     # R1_HARDCODE_LOG.md for an Ocean-approved re-baseline.
 
     # The summary block, read off the collapsed line rather than off the whole
-    # document. The four wordings below are the ones the layout actually
-    # prints; the two total rows previously looked for `Total des ...compte`
-    # and `Total des retraits`, which match no document in the family, so both
-    # stated totals were silently None and `reconcile.summary_ok` had nothing
-    # to check. Accents arrive as U+FFFD from this text layer, so every accented
-    # letter is matched as `.` — the same tolerance `analysis/cibc.py` uses.
+    # document, and in BOTH products' wordings. The personal statement writes
+    # `Total des dépôts dans votre compte +` and prints no instance count; the
+    # business one writes `Total des dépôts et des crédits (10) +` and prints
+    # one. Only the personal wording was ever matched, so on every business
+    # statement both stated totals were silently None and
+    # `reconcile.summary_ok` had nothing to check.
+    #
+    # Accents arrive as U+FFFD from this text layer — it loses them outright
+    # rather than double-encoding them, so `normalize_mojibake` has nothing to
+    # repair — and every accented letter is therefore matched as `.`, the same
+    # tolerance `analysis/cibc.py` uses on the same problem.
     for raw in markdown.splitlines():
         line = re.sub(r"\s+", " ", raw).strip()
         if not line:
@@ -568,6 +576,18 @@ def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) ->
         if m:
             stmt.stated_debit_count = int(m.group(1))
             stmt.stated_total_debits = _money_fr(m.group(2))
+        m = re.search(
+            r"Total des d.p.ts dans votre compte\s*\+\s*" + _FR_SUMMARY_MONEY,
+            line, re.IGNORECASE,
+        )
+        if m:
+            stmt.stated_total_credits = _money_fr(m.group(1))
+        m = re.search(
+            r"Total des retraits de votre compte\s*-\s*" + _FR_SUMMARY_MONEY,
+            line, re.IGNORECASE,
+        )
+        if m:
+            stmt.stated_total_debits = _money_fr(m.group(1))
         m = re.search(
             r"solde de cl.ture\b.*?=\s*" + _FR_SUMMARY_MONEY + r"\s*\$", line, re.IGNORECASE
         )
