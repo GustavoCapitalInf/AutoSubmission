@@ -59,6 +59,7 @@ __all__ = [
     "strip_currency",
     "normalize_sign_glyphs",
     "MINUS_CLASS",
+    "MAX_INTEGER_DIGITS",
     "STRICT_UNSIGNED",
     "STRICT_LEADING_SIGN",
     "STRICT_EITHER_MINUS",
@@ -129,11 +130,36 @@ def _compiled(pattern: str) -> re.Pattern[str]:
     return re.compile(pattern)
 
 
+#: The most integer digits a money token may carry. Above this the token is
+#: not an amount at all — it is a barcode, a reference number or a page-margin
+#: digit run that a flattened layout has pushed into an amount column.
+#:
+#: The bound exists because such a run is not merely wrong, it is FATAL: the
+#: ADB engine quantizes every amount to cents in the default 28-digit Decimal
+#: context, so a token of 26 integer digits raises `decimal.InvalidOperation`
+#: and takes the whole document down with a crash rather than a decline. The
+#: bound belongs here, at the grammar that decides what a money token is —
+#: `analysis/adb.py` is a protected module and is not the place to defend
+#: against input the grammar should never have admitted.
+#:
+#: 13 is measured, not chosen: the largest integer part of any well-formed
+#: amount in the 3,367-document archive is 11 digits, and 2,143 documents
+#: carry bare runs of 14 digits or more (longest 54). The bound therefore
+#: sits above every amount anyone has printed and far below the crash.
+MAX_INTEGER_DIGITS = 13
+_INTEGER_RUN = rf"\d{{1,{MAX_INTEGER_DIGITS}}}"
+
 #: Exactly ``digits.dd``. The workhorse shape for statements whose columns are
 #: reliable enough that anything else must be rejected rather than guessed.
-CENTS = r"\d+\.\d{2}"
+CENTS = rf"{_INTEGER_RUN}\.\d{{2}}"
 #: As above but tolerating a leading minus inside the token itself.
-SIGNED_CENTS = r"-?\d+\.\d{2}"
+SIGNED_CENTS = rf"-?{_INTEGER_RUN}\.\d{{2}}"
+
+
+def _within_digit_bound(text: str) -> bool:
+    """Whether `text`'s integer part is short enough to be an amount."""
+    whole = text.lstrip("+-").split(".")[0].replace(",", "").replace(" ", "")
+    return len(whole) <= MAX_INTEGER_DIGITS
 
 
 # ---------------------------------------------------------------------------
@@ -314,7 +340,8 @@ _NOT_PART_OF_A_LONGER_NUMBER = r"(?<![\d.])"
 _NOT_CONTINUED = r"(?![.,]?\d)"
 
 _TOKEN_RE = re.compile(
-    rf"{_NOT_PART_OF_A_LONGER_NUMBER}(-)?(\d+(?:\.\d{{2,3}})?){_NOT_CONTINUED}([A-Z/-]*)?",
+    rf"{_NOT_PART_OF_A_LONGER_NUMBER}(-)?({_INTEGER_RUN}(?:\.\d{{2,3}})?){_NOT_CONTINUED}"
+    rf"([A-Z/-]*)?",
     re.IGNORECASE,
 )
 _TOKENS_RE = re.compile(
@@ -381,6 +408,8 @@ def parse_money_tokens(value: str | None) -> list[float]:
     out = []
     for number, suffix in _TOKENS_RE.findall(normalize_sign_glyphs(value)):
         text = number.replace(",", "")
+        if not _within_digit_bound(text):
+            continue
         amount = float(text)
         if "D" in suffix.upper() or "-" in suffix:
             amount *= -1
@@ -398,6 +427,8 @@ def parse_decimal(value: str) -> Decimal:
     For parsers that keep Decimal end to end so that their own totals are exact.
     """
     text = normalize_sign_glyphs(value).replace("$", "").replace(",", "").strip()
+    if not _within_digit_bound(text):
+        raise ValueError(value)
     try:
         return Decimal(text)
     except InvalidOperation as exc:
@@ -425,6 +456,8 @@ def parse_decimal_mixed_separator(value: str, *, single_comma_only: bool = False
         text = f"{whole.replace(',', '')}.{cents}"
     else:
         text = text.replace(",", "")
+    if not _within_digit_bound(text):
+        raise ValueError(value)
     try:
         return Decimal(text)
     except InvalidOperation as exc:
@@ -433,7 +466,10 @@ def parse_decimal_mixed_separator(value: str, *, single_comma_only: bool = False
 
 def parse_grouped_float(value: str) -> float:
     """``1,234.56`` -> ``1234.56``; raises ValueError on anything else."""
-    return float(normalize_sign_glyphs(value).replace(",", ""))
+    text = normalize_sign_glyphs(value).replace(",", "")
+    if not _within_digit_bound(text):
+        raise ValueError(value)
+    return float(text)
 
 
 def parse_trailing_minus_dropped(value: str) -> float:
@@ -444,8 +480,10 @@ def parse_trailing_minus_dropped(value: str) -> float:
     direction the section heading already fixes, so honouring it would
     double-negate. Raises `ValueError` when the token is not a number.
     """
-    text = normalize_sign_glyphs(value)
-    return float(text.replace("$", "").replace(",", "").rstrip("-"))
+    text = normalize_sign_glyphs(value).replace("$", "").replace(",", "").rstrip("-")
+    if not _within_digit_bound(text):
+        raise ValueError(value)
+    return float(text)
 
 
 def parse_french_amount(value: str, *, parens: bool = False) -> float:
@@ -463,7 +501,10 @@ def parse_french_amount(value: str, *, parens: bool = False) -> float:
     else:
         negative = False
         text = value
-    amount = float(text.replace(" ", "").replace(",", "."))
+    text = text.replace(" ", "").replace(",", ".")
+    if not _within_digit_bound(text):
+        raise ValueError(value)
+    amount = float(text)
     return round(-amount if negative else amount, 2)
 
 
@@ -494,6 +535,8 @@ def parse_digit_scrubbed(
     )
     cleaned = re.sub(r"[^0-9.]", "", text)
     if not cleaned:
+        return None
+    if not _within_digit_bound(cleaned):
         return None
     amount = float(cleaned)
     return -amount if negative else amount

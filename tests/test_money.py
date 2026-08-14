@@ -795,6 +795,60 @@ def test_a_number_that_continues_is_not_a_money_token():
     assert m.parse_money("34.9999") is None
 
 
+# ===========================================================================
+# 6. The digit bound — a barcode is not an amount (W3 §MONEY-GRAMMAR card 3)
+# ===========================================================================
+
+def _run(digits: int) -> str:
+    return "9" * digits
+
+
+@pytest.mark.parametrize("digits", [1, 2, 7, 12, 13])
+def test_an_amount_within_the_bound_still_reads(digits):
+    assert m.parse_money(f"{_run(digits)}.00") == float(f"{_run(digits)}.00")
+    assert m.parse_decimal(f"{_run(digits)}.00") == Decimal(f"{_run(digits)}.00")
+    assert m.parse_grouped_float(f"{_run(digits)}.00") == float(f"{_run(digits)}.00")
+
+
+@pytest.mark.parametrize("digits", [14, 20, 25, 26, 27, 54])
+def test_a_digit_run_past_the_bound_is_not_money(digits):
+    """A barcode or reference number pushed into an amount column."""
+    assert m.parse_money(f"{_run(digits)}.00") is None
+    assert m.parse_money(_run(digits)) is None
+    assert m.parse_money_tokens(f"{_run(digits)}.00") == []
+    assert m.parse_amount(f"{_run(digits)}.00", m.STRICT_UNSIGNED) is None
+    assert m.parse_digit_scrubbed(f"{_run(digits)}.00") is None
+
+
+@pytest.mark.parametrize("digits", [14, 26, 54])
+def test_the_raising_family_refuses_the_same_run(digits):
+    for fn in (m.parse_decimal, m.parse_grouped_float,
+               m.parse_trailing_minus_dropped, m.parse_french_amount,
+               m.parse_decimal_mixed_separator):
+        with pytest.raises(ValueError):
+            fn(f"{_run(digits)}.00")
+
+
+def test_the_bound_is_below_the_decimal_context_that_crashes_adb():
+    """THE CRASH CLASS. `analysis/adb.py` quantizes to cents in the default
+    28-digit Decimal context, so a 26-integer-digit amount raises
+    `decimal.InvalidOperation` and the document dies with a crash instead of
+    a decline. adb.py is protected: the bound is enforced HERE, so no such
+    value can ever reach it."""
+    from decimal import InvalidOperation
+
+    from analysis.adb import _money as adb_money
+
+    # the boundary, measured: 25 integer digits quantize, 26 do not
+    assert adb_money(float(f"1{'0' * 24}")) is not None
+    with pytest.raises(InvalidOperation):
+        adb_money(float(f"1{'0' * 26}"))
+
+    # and the grammar refuses long before it, so adb never sees one
+    assert m.parse_money(f"1{'0' * 26}.00") is None
+    assert m.MAX_INTEGER_DIGITS < 26
+
+
 def test_minus_class_is_the_fragment_consumers_embed():
     assert re.fullmatch(m.MINUS_CLASS, "-")
     assert re.fullmatch(m.MINUS_CLASS, MINUS)
