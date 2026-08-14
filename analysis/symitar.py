@@ -53,14 +53,17 @@ _DEPOSIT_GRID_RE = re.compile(
 _LOAN_GRID_RE = re.compile(
     r"Date\s+Amount\s+Fees\s+Interest\s+Principal\s+Balance\s+Description", re.IGNORECASE
 )
-_ACCOUNT_SUMMARY_RE = re.compile(r"^ACCOUNT\s+SUMMARY\s*$", re.IGNORECASE | re.MULTILINE)
+_ACCOUNT_SUMMARY_RE = re.compile(
+    r"^[^\S\n]*ACCOUNT[^\S\n]+SUMMARY[^\S\n]*$", re.IGNORECASE | re.MULTILINE
+)
 
 #: The two issues' section headings: `Free Business Checking ( ID 0210 )` and
 #: `Business Checking (Account #xxxxxx9247)`, each re-printed with
 #: `(Continued)` after a page break.
 _SECTION_RE = re.compile(
-    r"^(?P<name>.{1,60}?)\s*\(\s*(?:ID\s*(?P<id>\d+)|Account\s*#\s*(?P<masked>[x\d]+))\s*\)"
-    r"(?P<continued>\s*\(Continued\))?\s*$",
+    r"^[^\S\n]*(?P<name>.{1,60}?)[^\S\n]*"
+    r"\([^\S\n]*(?:ID[^\S\n]*(?P<id>\d+)|Account[^\S\n]*#[^\S\n]*(?P<masked>[x\d]+))[^\S\n]*\)"
+    r"(?P<continued>[^\S\n]*\(Continued\))?[^\S\n]*$",
     re.IGNORECASE | re.MULTILINE,
 )
 
@@ -96,23 +99,26 @@ _PERIOD_RE = re.compile(
     r"(\d{2}/\d{2}/\d{2,4})\s*(?:-|thru|through)\s*(\d{2}/\d{2}/\d{2,4})", re.IGNORECASE
 )
 
+# Line structure is evidence here — the section headings and the
+# `ACCOUNT SUMMARY` label are whole lines — so every pattern is anchored with
+# re.MULTILINE and tolerates the leading and trailing spaces a collapsing pass
+# would have stripped. Declaring no normalization keeps the registry from
+# building a whole-document copy on every detect (RFC risk 7).
+#: The section heading's own identifier, without the product name in front of
+#: it. Detection asks only whether the document prints one; `_SECTION_RE` —
+#: whose leading lazy match is what makes it expensive to scan a whole document
+#: with — is applied per line during parsing, where the name is needed.
+_SECTION_MARK_RE = re.compile(
+    r"\([^\S\n]*(?:ID[^\S\n]*\d+|Account[^\S\n]*#[^\S\n]*[x\d]+)[^\S\n]*\)", re.IGNORECASE
+)
+
 DETECTION_MARKERS = (
     required("account_summary", lambda t: bool(_ACCOUNT_SUMMARY_RE.search(t))),
     required("deposit_grid", lambda t: bool(_DEPOSIT_GRID_RE.search(t))),
-    required("account_section", lambda t: bool(_SECTION_RE.search(t))),
+    required("account_section", lambda t: bool(_SECTION_MARK_RE.search(t))),
 )
 
-
-def detection_text(markdown: str) -> str:
-    """Line structure is evidence here — the section headings and the
-    `ACCOUNT SUMMARY` label are whole lines — so lines are preserved and only
-    runs of spaces within them are collapsed."""
-    return "\n".join(
-        re.sub(r"[^\S\n]+", " ", line).strip() for line in markdown.upper().splitlines()
-    )
-
-
-detect = make_detector(DETECTION_MARKERS, detection_text)
+detect = make_detector(DETECTION_MARKERS)
 
 
 def _money(token: str) -> float | None:

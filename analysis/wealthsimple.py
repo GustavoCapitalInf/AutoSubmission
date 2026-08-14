@@ -45,19 +45,18 @@ _GRID_RE = re.compile(
     re.IGNORECASE,
 )
 
+_ISSUER_RE = re.compile(r"WEALTHSIMPLE", re.IGNORECASE)
+
+# Every marker scans the document as it arrives; no normalization is declared,
+# so no whole-document copy is built per detect (RFC risk 7). The `\s+` in
+# these patterns already spans the line breaks a collapsing pass would remove.
 DETECTION_MARKERS = (
     required("product", lambda t: bool(_PRODUCT_RE.search(t))),
-    required("issuer", lambda t: "WEALTHSIMPLE" in t),
+    required("issuer", lambda t: bool(_ISSUER_RE.search(t))),
     required("activity_header", lambda t: bool(_GRID_RE.search(t))),
 )
 
-
-def detection_text(markdown: str) -> str:
-    """The text this parser recognises itself in."""
-    return re.sub(r"\s+", " ", markdown.upper())
-
-
-detect = make_detector(DETECTION_MARKERS, detection_text)
+detect = make_detector(DETECTION_MARKERS)
 
 _MONTHS = {
     "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,

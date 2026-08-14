@@ -83,23 +83,25 @@ _ACCOUNT_SUMMARY_RE = re.compile(
 )
 _DAYS_RE = re.compile(r"Number\s+of\s+Days\s+in\s+Cycle\s+(\d+)", re.IGNORECASE)
 
+_BANK_RE = re.compile(r"WOODFOREST", re.IGNORECASE)
+
 DETECTION_MARKERS = (
     # The institution, and the two printed column headers that make this its
     # statement rather than a document that merely names it. Another bank's
     # statement can carry `WOODFOREST` in a payee line — several in the
     # archive do — and neither header appears on any of them.
-    required("bank_name", lambda t: "WOODFOREST" in t),
+    #
+    # Every marker scans the document as it arrives. No normalization is
+    # declared deliberately: the registry runs each registration's normalize
+    # on every document, so a whole-document copy here is per-document
+    # overhead on the discovery run (RFC risk 7), and `\s+` in these patterns
+    # already spans the line breaks a collapsing pass would have removed.
+    required("bank_name", lambda t: bool(_BANK_RE.search(t))),
     required("summary_header", lambda t: bool(_SUMMARY_HEADER_RE.search(t))),
     required("activity_header", lambda t: bool(_GRID_RE.search(t))),
 )
 
-
-def detection_text(markdown: str) -> str:
-    """The text this parser recognises itself in."""
-    return re.sub(r"\s+", " ", markdown.upper())
-
-
-detect = make_detector(DETECTION_MARKERS, detection_text)
+detect = make_detector(DETECTION_MARKERS)
 
 _MONTHS = {
     "JANUARY": 1, "FEBRUARY": 2, "MARCH": 3, "APRIL": 4, "MAY": 5, "JUNE": 6,
