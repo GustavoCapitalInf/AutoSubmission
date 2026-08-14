@@ -93,6 +93,15 @@ FIXTURES: dict[str, str] = {
         "WWW.FFBT.COM\nBUSINESS BASIC CHECKING ACCOUNT\n"
         "BALANCE LAST STATEMENT\nTOTAL DAYS IN STATEMENT PERIOD\n"
     ),
+    # The issuer name alone is not the claim — a statement of another bank that
+    # records an ATM withdrawal at a Huntington branch prints it too. The claim
+    # needs this issuer's own summary grid and its service-mark footer.
+    "huntington": (
+        "THE HUNTINGTON NATIONAL BANK\n"
+        "Beginning Balance $1,000.00 Credits (+) 0.00 Debits (-) 0.00 "
+        "Ending Balance $1,000.00\n"
+        "Huntington Bancshares Incorporated\n"
+    ),
     "ibc": "IBC\nBiz Rite Account Recap\n",
     "linkbank": "LINKBANK.COM\nActivity in Date Order\n",
     "midflorida": "midflorida.com\nFree Business Checking\n",

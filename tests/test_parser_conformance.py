@@ -11,7 +11,7 @@ The four checks per registration:
 1. **detection-positive** — it recognises a minimal document carrying its own
    bank's identification.
 2. **detection-negative** — run as a full cross product: every other
-   registration's fixture must NOT be claimed. 52 × 51 = 2,652 assertions. This
+   registration's fixture must NOT be claimed. 54 × 53 = 2,862 assertions. This
    is the check that matters for discovery (WAVE2_BRIEF R-4): it proves parser
    X does not claim bank Y's statement, which arithmetic reconciliation cannot
    catch when a wrong parse happens to balance.
@@ -96,12 +96,12 @@ def test_no_fixture_names_a_registration_that_does_not_exist():
 
 
 def test_the_registry_holds_the_documented_number_of_registrations():
-    assert len(REGISTRATIONS) == 53, (
+    assert len(REGISTRATIONS) == 54, (
         "43 registry entry points, the three promoted sub-dispatches, the "
         "three BMO layouts, the Square Checking layout, the Chase savings "
-        "product, the TD Canada Trust French layout and the English CIBC "
-        "layout opened by the unclaimed-layout phase; update this count "
-        "and the docs together"
+        "product, the TD Canada Trust French layout, the English CIBC "
+        "layout and the Huntington sectioned deposit statement, opened by "
+        "the unclaimed-layout phase; update this count and the docs together"
     )
 
 
