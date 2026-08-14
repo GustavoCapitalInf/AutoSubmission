@@ -8796,11 +8796,19 @@ the platform exists to prevent.
 
 ## FT9. Proofs
 
+All three run on the merge commit itself, `c452b88`.
+
 ```
 $ python corpus_gate.py
 Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
 Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  838.4s
 RESULT: GREEN
+EXIT=0
+
+$ python -m pytest -m corpus -q
+14 passed, 3142 deselected, 1 warning in 1878.04s (0:31:18)
 EXIT=0
 
 $ python -m pytest -q
@@ -8897,4 +8905,5 @@ when someone simplifies it back to the alternative.
 | `ed0b8d7` | the column boundary is the mark, and a date-shaped token is not a date |
 | `f1f588e` | mercury reads its account cells once, through the uniqueness check |
 | `f8d79e5` | glyph ablations for Mercury — and the measurement that redirects them |
-| (this one) | §FINTECH FT0–FT10 |
+| `c452b88` | §FINTECH FT0–FT10 |
+| (this one) | the corpus gate and corpus-marked suite, re-run on the merge commit |
