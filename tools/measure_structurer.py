@@ -190,7 +190,7 @@ def sample(rows: list[dict], per_cluster: int) -> dict[str, list[dict]]:
                 row for row in rows
                 if row["outcome_class"] != "deferred"
                 and row["dispatch_outcome"] in ("unclaimed", "")
-                and row["outcome_reason"] in ("no_parser_matched", "exception")
+                and row["outcome_reason"] in ("no_parser_matched", "parser_declined", "exception")
                 and any(folder.lower() in row["folder_label"].lower() for folder in folders)
             ),
             key=lambda row: row["relative_path"],

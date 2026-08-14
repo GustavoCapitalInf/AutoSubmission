@@ -282,7 +282,7 @@ def test_t_negative_a_row_carrying_no_figure_still_withholds_the_document():
 # The Checks table has three columns and prints no words in any of them. The
 # sequence-gap note prints a date, a cheque number and an amount in that
 # order — `Gap in check sequence 02/28 1099 0.00` — so the row pattern matched
-# it wherever it appeared and it was published as `Check 1099` for -0.00, at
+# it wherever it appeared and it WOULD have been published as `Check 1099` for -0.00 (latent for truist), at
 # approved/clear. Truist has no count oracle (`count_semantics` UNSURVEYED,
 # correctly), so nothing downstream saw the phantom row. (F-STRUCTURE #4.)
 #

@@ -451,8 +451,9 @@ def _advisory(
     incomparable populations the vocabulary answer is deliberately silent, so
     the counterfactual is measured here and labelled as a counterfactual: what
     the comparison WOULD have said, and — for BofA — what it would say under
-    the `+ check_count` mapping one of its three readers already applies
-    (`analysis/bofa.py:589`).
+    the `+ check_count` mapping the repair path applied UNTIL BOFA-COUNTS
+    removed it (2026-08-13); the counterfactual is kept as the historical
+    record of what that mapping would have manufactured.
     """
     out: dict[str, Any] = {}
     for direction in DIRECTIONS:

@@ -236,7 +236,16 @@ OCR_STAGE_VERSION = 2
 # changes ~108 archive documents from no-parse to full extraction;
 # square_checking claims 11). Both change analysis output for unchanged
 # settings; one composed bump before the round's measurement.
-ANALYSIS_STAGE_VERSION = 8
+# 8 -> 9: composed — the 2026-08-13 coverage-wave batch (eight reviewed
+# merges): chase A′ zero-activity + card C guard + chase_savings (+14);
+# community_section head-noun grammar (+19); scotia rebuild — printed
+# cell as amount of record (+3, three withheld corrected in place);
+# bofa stated_debit_count scope (107 docs' published fields); pnc
+# summary bounding + furniture row; rbc/truist/capital_one money
+# grammar; FILENAME-BOUNDARY (admissible text at stage entry — also
+# re-keys this stage's input hash, so v8 entries are unreachable
+# regardless). One composed bump before the round's measurement.
+ANALYSIS_STAGE_VERSION = 9
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 

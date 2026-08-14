@@ -170,8 +170,9 @@ def _parse_checks(block: str, *, year: int) -> tuple[list[Transaction], float | 
         # A figure quoted inside a note about the table is not a posting. The
         # sequence-gap note — `Gap in check sequence 02/28 1099 0.00` — carries
         # a date, a cheque number and an amount in that order, so the row
-        # pattern matches it wherever it is printed, and it was published as a
-        # cheque for -0.00. Truist has no count oracle (`count_semantics`
+        # pattern matches it wherever it is printed, and it WOULD have been
+        # published as a cheque for -0.00 (latent: attested on pnc, synthetic
+        # for truist). Truist has no count oracle (`count_semantics`
         # UNSURVEYED, correctly), so nothing downstream saw the extra row.
         #
         # Skipping is safe because the table prints its own total: dropping a

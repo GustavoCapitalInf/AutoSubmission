@@ -125,7 +125,7 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
         ),
     },
     "chase": {
-        "credit": _whole("'Deposits and Additions  N  $x'", "analysis/chase.py:404-405, :531"),
+        "credit": _whole("'Deposits and Additions  N  $x'", "analysis/chase.py:428 (native), :581 (table label)"),
         "debit": CountSemantics(
             comparable=True,
             scope="category_subtotal_sum_proven_complete",
@@ -151,7 +151,7 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
         ),
     },
     "chase_export": {
-        "credit": _whole("'Deposits and Additions  N  $x'", "analysis/chase.py:404-405, :531"),
+        "credit": _whole("'Deposits and Additions  N  $x'", "analysis/chase.py:428 (native), :581 (table label)"),
         "debit": CountSemantics(
             comparable=False,
             scope="category_subtotal_sum",
@@ -226,8 +226,8 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
         "debit": _whole("the French twin of 'Total cheques & debits (N)'", "analysis/rbc.py:399-405"),
     },
     "scotiabank": {
-        "credit": _whole("'No. of Credits' in the printed summary grid", "analysis/scotia.py:80-82"),
-        "debit": _whole("'No. of Debits' in the printed summary grid", "analysis/scotia.py:80-82"),
+        "credit": _whole("'No. of Credits' in the printed summary grid", "analysis/scotia.py:176-181"),
+        "debit": _whole("'No. of Debits' in the printed summary grid", "analysis/scotia.py:176-181"),
     },
     "td_canada": {
         "credit": _whole("'CREDITS  N  $x'", "analysis/td_can.py:449-453"),
@@ -267,7 +267,7 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
     },
     # `community_section` and `scanned_small_bank` already run a count
     # comparison AS A CLAIM GATE — on mismatch the parser returns None and the
-    # document goes unclaimed (analysis/community_section.py:205-210,
+    # document goes unclaimed (analysis/community_section.py (gate),
     # analysis/scanned_small_bank.py:206-207, :368-369, :525-527). A document
     # they claimed has, by construction, matching counts... under the gate's
     # OWN key, which is `amount > 0` / `amount < 0` — the SIGN. A zero-amount
@@ -275,12 +275,12 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
     # so these parsers are immune to a sign-keyed check and NOT immune to this
     # one. Semantics are comparable; the immunity is the gate's, not ours.
     "mission_valley": {
-        "credit": _whole("a printed credit count (parser-gated, sign-keyed)", "analysis/community_section.py:192-193, :205-210"),
-        "debit": _whole("a printed debit count (parser-gated, sign-keyed)", "analysis/community_section.py:192-193, :205-210"),
+        "credit": _whole("a printed credit count (parser-gated, sign-keyed)", "analysis/community_section.py:239-240 (assignment), sign-keyed gate nearby"),
+        "debit": _whole("a printed debit count (parser-gated, sign-keyed)", "analysis/community_section.py:239-240 (assignment), sign-keyed gate nearby"),
     },
     "dakota_west": {
-        "credit": _whole("a printed credit count (parser-gated, sign-keyed)", "analysis/community_section.py:192-193, :205-210"),
-        "debit": _whole("a printed debit count (parser-gated, sign-keyed)", "analysis/community_section.py:192-193, :205-210"),
+        "credit": _whole("a printed credit count (parser-gated, sign-keyed)", "analysis/community_section.py:239-240 (assignment), sign-keyed gate nearby"),
+        "debit": _whole("a printed debit count (parser-gated, sign-keyed)", "analysis/community_section.py:239-240 (assignment), sign-keyed gate nearby"),
     },
     "apex_scanned": {
         "credit": _whole("a printed credit count (parser-gated, sign-keyed)", "analysis/scanned_small_bank.py:287-288, :466-467"),
