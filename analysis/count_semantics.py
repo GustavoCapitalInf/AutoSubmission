@@ -269,18 +269,39 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
     # comparison AS A CLAIM GATE — on mismatch the parser returns None and the
     # document goes unclaimed (analysis/community_section.py (gate),
     # analysis/scanned_small_bank.py:206-207, :368-369, :525-527). A document
-    # they claimed has, by construction, matching counts... under the gate's
-    # OWN key, which is `amount > 0` / `amount < 0` — the SIGN. A zero-amount
-    # row is on neither side of that gate but is on exactly one side of ours,
-    # so these parsers are immune to a sign-keyed check and NOT immune to this
-    # one. Semantics are comparable; the immunity is the gate's, not ours.
+    # they claimed has, by construction, matching counts — and for the three
+    # `community_section` registrations that is now matching counts UNDER THIS
+    # CHECK'S OWN KEY.
+    #
+    # RECORD OF A CHANGE (W3 §JHA-CELL). Until that cell the gate keyed on
+    # `amount > 0` / `amount < 0` — the SIGN — while this check keys on
+    # `Transaction.direction`, the column the bank printed the row in. A
+    # zero-amount row is on neither side of a sign test and on exactly one side
+    # of a column test, so the two could disagree and these parsers were NOT
+    # immune to this check. The gate now keys on `direction` as well, for the
+    # reason the difference exists: this platform posts genuine `$0.00` rows (a
+    # returned ACH), the bank counts them, and a sign-keyed gate therefore
+    # rejected documents whose ledgers were complete — three archive documents
+    # measurably so. The two keys are now the same key.
+    #
+    # What that costs is stated plainly: these three parsers are now immune to
+    # this check BY CONSTRUCTION, so a `match` here is a tautology and carries
+    # no information. It is not a silent one — this paragraph is the
+    # disclosure, and the independent evidence for these parsers is the printed
+    # per-section `N item(s) totaling $X` trailer, which
+    # `_section_oracle_disagrees` checks and which no summary figure can
+    # reproduce.
     "mission_valley": {
-        "credit": _whole("a printed credit count (parser-gated, sign-keyed)", "analysis/community_section.py:239-240 (assignment), sign-keyed gate nearby"),
-        "debit": _whole("a printed debit count (parser-gated, sign-keyed)", "analysis/community_section.py:239-240 (assignment), sign-keyed gate nearby"),
+        "credit": _whole("a printed credit count (parser-gated, direction-keyed)", "analysis/community_section.py `_summary` (assignment), gate in `_parse_sectioned_statement`"),
+        "debit": _whole("a printed debit count (parser-gated, direction-keyed)", "analysis/community_section.py `_summary` (assignment), gate in `_parse_sectioned_statement`"),
     },
     "dakota_west": {
-        "credit": _whole("a printed credit count (parser-gated, sign-keyed)", "analysis/community_section.py:239-240 (assignment), sign-keyed gate nearby"),
-        "debit": _whole("a printed debit count (parser-gated, sign-keyed)", "analysis/community_section.py:239-240 (assignment), sign-keyed gate nearby"),
+        "credit": _whole("a printed credit count (parser-gated, direction-keyed)", "analysis/community_section.py `_summary` (assignment), gate in `_parse_sectioned_statement`"),
+        "debit": _whole("a printed debit count (parser-gated, direction-keyed)", "analysis/community_section.py `_summary` (assignment), gate in `_parse_sectioned_statement`"),
+    },
+    "community_section": {
+        "credit": _whole("a printed credit count (parser-gated, direction-keyed)", "analysis/community_section.py `_summary` (assignment), gate in `_parse_sectioned_statement`"),
+        "debit": _whole("a printed debit count (parser-gated, direction-keyed)", "analysis/community_section.py `_summary` (assignment), gate in `_parse_sectioned_statement`"),
     },
     "apex_scanned": {
         "credit": _whole("a printed credit count (parser-gated, sign-keyed)", "analysis/scanned_small_bank.py:287-288, :466-467"),

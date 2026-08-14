@@ -110,6 +110,15 @@ FIXTURES: dict[str, str] = {
     "farmers_merchants": (
         "FARMERS AND MERCHANTS BANK\nDEPOSITS AND CREDITS\n"
     ),
+    # The only fixture here that carries no issuer identification, because the
+    # registration it covers carries none: `community_section` recognises a
+    # CORE PROCESSOR's template and reads the issuer out of each document. Its
+    # evidence is the template's own grid header and the period-count row it
+    # prints, and that is exactly what this fixture holds.
+    "community_section": (
+        "Account Summary Date Description Amount\n"
+        "1 Credit(s) This Period $10.00\n"
+    ),
     "fifth_third": (
         "FTCSTMT000 000 00000000 UDSPDFSTMT 0000000000000000000 DDA\n"
         "Account Summary\nwww.53.com/businessbanking\n"
@@ -122,7 +131,6 @@ FIXTURES: dict[str, str] = {
         "Previous Balance $0.00 Deposits/Credits (0) $0.00 "
         "Checks/Debits (0) $0.00 Ending Balance $0.00\n"
     ),
-    "first_citizens": "First Citizens\nfirstcitizens.com\n",
     "first_citizens": "First Citizens\nYour Account(s) At A Glance\n",
     "first_community": "firstcommunity.com\nBUSINESS PLUS CKG\n",
     "first_farmers": (

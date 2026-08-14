@@ -18,6 +18,7 @@ from __future__ import annotations
 import pytest
 
 from analysis.community_section import (
+    parse_community_section_statement,
     parse_dakota_west_statement,
     parse_mission_valley_statement,
 )
@@ -252,3 +253,400 @@ def test_a_direction_noun_inside_a_longer_word_is_not_a_section_header(noun: str
     stmt = parse_mission_valley_statement(md)
     assert stmt is not None
     assert [t.amount for t in stmt.transactions] == [10.0, -5.0]
+
+
+# ===========================================================================
+# The platform registered without an issuer (W3 §JHA-CELL)
+# ===========================================================================
+#
+# Every fixture below is synthetic. The issuer domains are invented and the
+# product names generic: what is pinned is the TEMPLATE's grammar, which is the
+# only thing this registration is allowed to know.
+
+PLATFORM_HEAD = (
+    "Statement Ending 01/30/2026\n"
+    "Online Access www.examplecommunitybank.com\n"
+    "Summary of Accounts\n"
+    "Account Type Account Number Ending Balance Business Checking XXXXXX1234 $105.00\n"
+)
+
+SIMPLE_BODY = (
+    "Business Checking - XXXXXX1234\n"
+    "Account Summary Date Description Amount 01/01/2026 Beginning Balance $100.00"
+    " 1 Credit(s) This Period $10.00 1 Debit(s) This Period $5.00"
+    " 01/30/2026 Ending Balance $105.00\n"
+    "Deposits Date Description Amount 01/02/2026 BRANCH DEPOSIT $10.00\n"
+    "Other Debits Date Description Amount 01/03/2026 SERVICE CHARGE $5.00\n"
+)
+
+
+def test_the_platform_is_read_without_naming_the_issuer():
+    """The whole point: an issuer this code has never seen is read anyway, and
+    the bank published is the one the DOCUMENT printed."""
+    stmt = parse_community_section_statement(PLATFORM_HEAD + SIMPLE_BODY)
+    assert stmt is not None
+    assert stmt.bank == "examplecommunitybank.com"
+    assert stmt.account_name == "Business Checking"
+    assert stmt.account_number == "XXXXXX1234"
+    assert [t.amount for t in stmt.transactions] == [10.0, -5.0]
+    assert reconcile(stmt).ok
+
+
+def test_a_document_that_names_no_issuer_is_declined_rather_than_guessed():
+    """Five archive documents print no labelled domain, and four of those do
+    print MERCHANT domains in their transaction descriptions. Reading "the
+    first domain in the document" would publish a merchant as the bank."""
+    no_issuer = (
+        "Statement Ending 01/30/2026\nSummary of Accounts\n"
+        + SIMPLE_BODY.replace("BRANCH DEPOSIT", "PURCHASE AT WWW.EXAMPLE-MERCHANT.COM")
+    )
+    assert parse_community_section_statement(no_issuer) is None
+
+
+def test_the_issuer_is_read_from_the_masthead_not_from_a_cited_regulator():
+    """A statement of this template cites its state banking regulator in the
+    fine print below the ledger. That must not make the issuer unreadable, and
+    must never resolve to the regulator."""
+    md = (
+        PLATFORM_HEAD + SIMPLE_BODY
+        + "\nMEMBER NOTICE Website: www.example-regulator.gov\n"
+    )
+    stmt = parse_community_section_statement(md)
+    assert stmt is not None
+    assert stmt.bank == "examplecommunitybank.com"
+
+
+def test_a_label_ending_a_line_does_not_adopt_the_domain_on_the_next_one():
+    """The adversarial review's construction, pinned.
+
+    `_clean` collapses newlines, so a label word ending the holder's own
+    address line and an unrelated domain beginning the next line became
+    adjacent and were read as the issuer — this document published
+    `bank='walmart.com'`. `Online` and `Visit` are ordinary words and the
+    holder's address block is inside the masthead, so the LABEL alone was
+    never the guard it was described as; the issuer's real contact block
+    prints label and domain on ONE line, and that is now required.
+    """
+    md = (
+        "Statement Ending 01/30/2026\n"
+        "ACME HOLDINGS LLC 123 MAIN ST SPRINGFIELD Visit\n"
+        "walmart.com\n"
+        "Summary of Accounts\n"
+        "Account Type Account Number Ending Balance Business Checking XXXXXX1234 $105.00\n"
+        + SIMPLE_BODY
+    )
+    assert parse_community_section_statement(md) is None
+
+
+def test_the_issuer_is_still_read_when_such_a_line_break_is_present():
+    """The control: the tightening must not cost a document whose issuer does
+    print a proper contact line."""
+    md = (
+        "Statement Ending 01/30/2026\n"
+        "ACME HOLDINGS LLC 123 MAIN ST SPRINGFIELD Visit\n"
+        "walmart.com\n"
+        "Online Access www.examplecommunitybank.com\n"
+        "Summary of Accounts\n"
+        "Account Type Account Number Ending Balance Business Checking XXXXXX1234 $105.00\n"
+        + SIMPLE_BODY
+    )
+    stmt = parse_community_section_statement(md)
+    assert stmt is not None
+    assert stmt.bank == "examplecommunitybank.com"
+
+
+def test_two_different_issuers_in_the_masthead_is_declined():
+    md = PLATFORM_HEAD.replace(
+        "Online Access www.examplecommunitybank.com",
+        "Online Access www.examplecommunitybank.com\nWebsite www.otherbank.com",
+    ) + SIMPLE_BODY
+    assert parse_community_section_statement(md) is None
+
+
+def test_a_section_trailer_is_an_oracle_and_never_a_transaction_row():
+    """`N item(s) totaling $X` carries no date, so it lands in the last row's
+    chunk - and this reader takes the LAST money in a chunk. Left in place it
+    republishes the section's total as that row's own amount."""
+    md = PLATFORM_HEAD + (
+        "Business Checking - XXXXXX1234\n"
+        "Account Summary Date Description Amount 01/01/2026 Beginning Balance $100.00"
+        " 2 Credit(s) This Period $30.00 1 Debit(s) This Period $5.00"
+        " 01/30/2026 Ending Balance $125.00\n"
+        "Deposits Date Description Amount 01/02/2026 BRANCH DEPOSIT $10.00"
+        " 01/03/2026 BRANCH DEPOSIT $20.00 2 item(s) totaling $30.00\n"
+        "Other Debits Date Description Amount 01/04/2026 SERVICE CHARGE $5.00"
+        " 1 item(s) totaling $5.00\n"
+    )
+    stmt = parse_community_section_statement(md)
+    assert stmt is not None
+    assert [t.amount for t in stmt.transactions] == [10.0, 20.0, -5.0]
+    assert reconcile(stmt).ok
+
+
+def test_a_section_trailer_that_disagrees_with_the_rows_refuses_the_document():
+    """The only PER-SECTION oracle this platform prints. The summary grid
+    checks a whole direction, so a row lost inside one section of the right
+    direction is invisible to it and visible here."""
+    md = PLATFORM_HEAD + (
+        "Business Checking - XXXXXX1234\n"
+        "Account Summary Date Description Amount 01/01/2026 Beginning Balance $100.00"
+        " 2 Credit(s) This Period $30.00 1 Debit(s) This Period $5.00"
+        " 01/30/2026 Ending Balance $125.00\n"
+        "Deposits Date Description Amount 01/02/2026 BRANCH DEPOSIT $10.00"
+        " 01/03/2026 BRANCH DEPOSIT $20.00 3 item(s) totaling $30.00\n"
+        "Other Debits Date Description Amount 01/04/2026 SERVICE CHARGE $5.00\n"
+    )
+    assert parse_community_section_statement(md) is None
+
+
+def test_a_trailer_is_matched_against_the_whole_section_it_closes():
+    """A page break reprints the header as `(continued)`, but the trailer is
+    printed once and counts every row of the section."""
+    md = PLATFORM_HEAD + (
+        "Business Checking - XXXXXX1234\n"
+        "Account Summary Date Description Amount 01/01/2026 Beginning Balance $100.00"
+        " 2 Credit(s) This Period $30.00 1 Debit(s) This Period $5.00"
+        " 01/30/2026 Ending Balance $125.00\n"
+        "Deposits Date Description Amount 01/02/2026 BRANCH DEPOSIT $10.00\n"
+        "Deposits (continued) Date Description Amount 01/03/2026 BRANCH DEPOSIT $20.00"
+        " 2 item(s) totaling $30.00\n"
+        "Other Debits Date Description Amount 01/04/2026 SERVICE CHARGE $5.00\n"
+    )
+    stmt = parse_community_section_statement(md)
+    assert stmt is not None
+    assert [t.amount for t in stmt.transactions] == [10.0, 20.0, -5.0]
+
+
+def test_a_trailer_less_section_is_not_folded_into_its_neighbour():
+    """The adversarial review's second construction, pinned.
+
+    The accumulator that lets a page-broken section be compared as one section
+    also carried a trailer-LESS section's rows into the next section's
+    comparison. Here `Deposits` prints no trailer and `Other Debits` prints
+    one for its single row; folding the deposit in made the debit trailer read
+    as 2-vs-1 and refused a sound document. A false refusal is still a bug.
+    """
+    md = PLATFORM_HEAD + (
+        "Business Checking - XXXXXX1234\n"
+        "Account Summary Date Description Amount 01/01/2026 Beginning Balance $100.00"
+        " 1 Credit(s) This Period $10.00 1 Debit(s) This Period $5.00"
+        " 01/30/2026 Ending Balance $105.00\n"
+        "Deposits Date Description Amount 01/02/2026 BRANCH DEPOSIT $10.00\n"
+        "Other Debits Date Description Amount 01/03/2026 SERVICE CHARGE $5.00"
+        " 1 item(s) totaling $5.00\n"
+    )
+    stmt = parse_community_section_statement(md)
+    assert stmt is not None
+    assert [t.amount for t in stmt.transactions] == [10.0, -5.0]
+
+
+def test_the_reset_still_catches_a_row_missing_from_the_trailered_section():
+    """The control for the reset: it must not have turned the oracle off.
+
+    Same shape as above, but the debit section's trailer counts two items and
+    only one is printed — the section really does disagree with itself, and
+    the document must still be refused."""
+    md = PLATFORM_HEAD + (
+        "Business Checking - XXXXXX1234\n"
+        "Account Summary Date Description Amount 01/01/2026 Beginning Balance $100.00"
+        " 1 Credit(s) This Period $10.00 1 Debit(s) This Period $5.00"
+        " 01/30/2026 Ending Balance $105.00\n"
+        "Deposits Date Description Amount 01/02/2026 BRANCH DEPOSIT $10.00\n"
+        "Other Debits Date Description Amount 01/03/2026 SERVICE CHARGE $5.00"
+        " 2 item(s) totaling $5.00\n"
+    )
+    assert parse_community_section_statement(md) is None
+
+
+def test_sub_layout_j_b_is_read_from_its_running_balance():
+    """The other arrangement: one `Account Activity` ledger, where a row's
+    direction is the direction its balance moved."""
+    md = PLATFORM_HEAD + (
+        "Business Checking - XXXXXX1234\n"
+        "Account Summary Date Description Amount 01/01/2026 Beginning Balance $100.00"
+        " 1 Credit(s) This Period $10.00 1 Debit(s) This Period $5.00"
+        " 01/30/2026 Ending Balance $105.00\n"
+        "Account Activity\n"
+        "Post Date Description Debits Credits Balance\n"
+        "01/01/2026 Beginning Balance $100.00\n"
+        "01/02/2026 INCOMING ACH $10.00 $110.00\n"
+        "01/03/2026 SERVICE CHARGE $5.00 $105.00\n"
+        "Daily Balances Date Amount 01/03/2026 $105.00\n"
+    )
+    stmt = parse_community_section_statement(md)
+    assert stmt is not None
+    assert [(t.amount, t.direction) for t in stmt.transactions] == [
+        (10.0, "credit"), (-5.0, "debit"),
+    ]
+    assert reconcile(stmt).ok
+
+
+def test_a_j_b_ledger_whose_balance_chain_does_not_close_is_refused():
+    """The chain IS the direction evidence here, so a broken chain must not be
+    published with a guessed sign."""
+    md = PLATFORM_HEAD + (
+        "Business Checking - XXXXXX1234\n"
+        "Account Summary Date Description Amount 01/01/2026 Beginning Balance $100.00"
+        " 1 Credit(s) This Period $10.00 1 Debit(s) This Period $5.00"
+        " 01/30/2026 Ending Balance $105.00\n"
+        "Account Activity\n"
+        "Post Date Description Debits Credits Balance\n"
+        "01/01/2026 Beginning Balance $100.00\n"
+        "01/02/2026 INCOMING ACH $10.00 $999.00\n"
+        "01/03/2026 SERVICE CHARGE $5.00 $105.00\n"
+    )
+    assert parse_community_section_statement(md) is None
+
+
+def test_a_cheque_row_does_not_mask_a_j_b_ledger():
+    """Both arrangements print `Checks Cleared`. Choosing the body reader by
+    "did we capture anything at all" let one cheque row hide a whole ledger -
+    the defect eleven archive documents had."""
+    md = PLATFORM_HEAD + (
+        "Business Checking - XXXXXX1234\n"
+        "Account Summary Date Description Amount 01/01/2026 Beginning Balance $100.00"
+        " 1 Credit(s) This Period $10.00 2 Debit(s) This Period $25.00"
+        " 01/30/2026 Ending Balance $85.00\n"
+        "Account Activity\n"
+        "Post Date Description Debits Credits Balance\n"
+        "01/01/2026 Beginning Balance $100.00\n"
+        "01/02/2026 INCOMING ACH $10.00 $110.00\n"
+        "01/03/2026 Check 1001 $20.00 $90.00\n"
+        "01/04/2026 SERVICE CHARGE $5.00 $85.00\n"
+        "Checks Cleared Check Nbr Date Amount 1001 01/03/2026 $20.00\n"
+        "Daily Balances Date Amount 01/04/2026 $85.00\n"
+    )
+    stmt = parse_community_section_statement(md)
+    assert stmt is not None
+    # Three rows, not four: the cheque is published once, from the ledger.
+    assert [t.amount for t in stmt.transactions] == [10.0, -20.0, -5.0]
+    assert reconcile(stmt).ok
+
+
+def test_a_zero_amount_row_is_counted_in_the_column_the_bank_printed_it_in():
+    """The platform posts a returned ACH of $0.00 and counts it as a credit. A
+    sign-keyed count sees it on neither side and rejects a complete ledger."""
+    md = PLATFORM_HEAD + (
+        "Business Checking - XXXXXX1234\n"
+        "Account Summary Date Description Amount 01/01/2026 Beginning Balance $100.00"
+        " 2 Credit(s) This Period $10.00 1 Debit(s) This Period $5.00"
+        " 01/30/2026 Ending Balance $105.00\n"
+        "Deposits Date Description Amount 01/02/2026 BRANCH DEPOSIT $10.00"
+        " 01/03/2026 ACH ORIG RETURN $0.00\n"
+        "Other Debits Date Description Amount 01/04/2026 SERVICE CHARGE $5.00\n"
+    )
+    stmt = parse_community_section_statement(md)
+    assert stmt is not None
+    assert stmt.stated_credit_count == 2
+    assert [t.amount for t in stmt.transactions] == [10.0, 0.0, -5.0]
+    assert [t.direction for t in stmt.transactions] == ["credit", "credit", "debit"]
+
+
+def test_a_second_account_with_activity_is_refused_rather_than_half_published():
+    """L-1: the schema holds ONE account. Publishing the busiest of two active
+    accounts would report a subset of the customer's money as though it were
+    all of it."""
+    md = PLATFORM_HEAD + SIMPLE_BODY + (
+        "Business Savings - XXXXXX5678\n"
+        "Account Summary Date Description Amount 01/01/2026 Beginning Balance $50.00"
+        " 1 Credit(s) This Period $1.00 0 Debit(s) This Period $0.00"
+        " 01/30/2026 Ending Balance $51.00\n"
+        "Other Credits Date Description Amount 01/05/2026 DIVIDEND $1.00\n"
+    )
+    assert parse_community_section_statement(md) is None
+
+
+def test_a_dormant_second_account_does_not_block_the_one_that_posted():
+    """The same credit unions print a membership share that never moves."""
+    md = PLATFORM_HEAD + (
+        "Business Ownership - XXXXXX5678\n"
+        "Account Summary Date Description Amount 01/01/2026 Beginning Balance $5.00"
+        " 0 Credit(s) This Period $0.00 0 Debit(s) This Period $0.00"
+        " 01/30/2026 Ending Balance $5.00\n"
+    ) + SIMPLE_BODY
+    stmt = parse_community_section_statement(md)
+    assert stmt is not None
+    assert stmt.account_number == "XXXXXX1234"
+    assert [t.amount for t in stmt.transactions] == [10.0, -5.0]
+
+
+def test_the_two_column_summary_interleaves_statistics_between_its_rows():
+    """`Minimum Balance` and `Average Ledger Balance` are balances by name, and
+    are excluded because they carry no DATE - the platform's own rule, not a
+    list of their names."""
+    md = PLATFORM_HEAD + (
+        "Business Checking - XXXXXX1234\n"
+        "Account Summary Date Description Amount\n"
+        "01/01/2026 Balance Last Statement $100.00 Minimum Balance $80.00"
+        " 1 Credit(s) This Period $10.00 Average Ledger Balance $95.00\n"
+        "1 Debit(s) This Period $5.00 Average Available Balance $93.00\n"
+        "01/30/2026 Balance This Statement $105.00\n"
+        "Deposits Date Description Amount 01/02/2026 BRANCH DEPOSIT $10.00\n"
+        "Other Debits Date Description Amount 01/03/2026 SERVICE CHARGE $5.00\n"
+    )
+    stmt = parse_community_section_statement(md)
+    assert stmt is not None
+    assert stmt.beginning_balance == 100.0
+    assert stmt.ending_balance == 105.0
+    assert reconcile(stmt).ok
+
+
+def test_a_printed_minus_on_the_debit_total_is_a_direction_not_a_negative_total():
+    """One archive document prints `106 Debit(s) This Period -$372,804.35`, and
+    its summary identity closes on the MAGNITUDE."""
+    md = PLATFORM_HEAD + SIMPLE_BODY.replace(
+        "1 Debit(s) This Period $5.00", "1 Debit(s) This Period -$5.00"
+    )
+    stmt = parse_community_section_statement(md)
+    assert stmt is not None
+    assert stmt.stated_total_debits == 5.0
+    assert reconcile(stmt).ok
+
+
+def test_a_printed_minus_on_the_credit_total_still_refuses_the_summary():
+    """A credit total that reduced the balance contradicts the row it is
+    printed on. Widening the debit row must not widen this one."""
+    md = PLATFORM_HEAD + SIMPLE_BODY.replace(
+        "1 Credit(s) This Period $10.00", "1 Credit(s) This Period -$10.00"
+    )
+    assert parse_community_section_statement(md) is None
+
+
+def test_the_account_name_published_is_the_product_the_document_printed():
+    """Not a constant in the parser, and not the page furniture printed just
+    before the heading - four documents published an account name of
+    `tal Statement Ending 01/31/2026 Business Checking` before the heading
+    grammar was written as a token sequence."""
+    md = (
+        "Statement Ending 01/30/2026\n"
+        "Online Access www.examplecommunitybank.com\n"
+        "Summary of Accounts\n"
+        "Account Type Account Number Ending Balance\n"
+        "Total Current Value $105.00 Statement Ending 01/30/2026\n"
+        + SIMPLE_BODY.replace("Business Checking - XXXXXX1234",
+                              "COMM BUS CHCKING - XXXXXX1234")
+    )
+    stmt = parse_community_section_statement(md)
+    assert stmt is not None
+    assert stmt.account_name == "COMM BUS CHCKING"
+
+
+def test_an_account_number_is_not_absorbed_into_the_product_name():
+    md = PLATFORM_HEAD.replace(
+        "Business Checking XXXXXX1234 $105.00",
+        "Business Checking XXXXXX1234 $105.00 XXXXXX6909",
+    ) + SIMPLE_BODY
+    stmt = parse_community_section_statement(md)
+    assert stmt is not None
+    assert stmt.account_name == "Business Checking"
+
+
+def test_a_joint_owner_line_between_the_heading_and_the_grid_is_stepped_over():
+    md = PLATFORM_HEAD + SIMPLE_BODY.replace(
+        "Business Checking - XXXXXX1234\n",
+        "Business Checking - XXXXXX1234 Joint Owner -A Person;Joint Owner -B Person\n",
+    )
+    stmt = parse_community_section_statement(md)
+    assert stmt is not None
+    assert stmt.account_name == "Business Checking"
+    assert stmt.account_number == "XXXXXX1234"

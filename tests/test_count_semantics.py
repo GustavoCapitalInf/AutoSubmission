@@ -162,6 +162,12 @@ def test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental():
         "chase:credit",
         "chase:debit",
         "chase_export:credit",
+        # W3 §JHA-CELL. Comparable, and immune by construction: the parser's
+        # claim gate now counts by the same `Transaction.direction` key this
+        # check does, which is disclosed in the SEMANTICS entry rather than
+        # left for someone to discover from a run of tautological `match`es.
+        "community_section:credit",
+        "community_section:debit",
         "dakota_west:credit",
         "dakota_west:debit",
         "demo_national:credit",

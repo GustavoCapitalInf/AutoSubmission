@@ -113,6 +113,12 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("citibusiness", "Citibank", citibusiness, "DETECTION_MARKERS", "detection_text", "parse_citibusiness_statement"),
     ("citizens", "Citizens Bank", citizens, "DETECTION_MARKERS", None, "parse_citizens_statement"),
     ("columbia_bank", "Columbia Bank", columbia_bank, "DETECTION_MARKERS", "detection_text", "parse_columbia_bank_statement"),
+    # Not a bank: a core processor's statement template, printed by 22 issuers
+    # in the archive and read without naming any of them (W3 §JHA-CELL). The
+    # issuer is read out of each document and published as `Statement.bank`,
+    # so the label here names the PLATFORM - there is no one bank to name, and
+    # inventing one would be the hardcode this registration exists to avoid.
+    ("community_section", "Core Statement Platform", community_section, "PLATFORM_DETECTION_MARKERS", "detection_text", "parse_community_section_statement"),
     ("consumers", "Consumers Credit Union", consumers, "DETECTION_MARKERS", None, "parse_consumers_statement"),
     ("dakota_west", "Dakota West Credit Union", community_section, "DAKOTA_WEST_DETECTION_MARKERS", None, "parse_dakota_west_statement"),
     ("demo_national", "Demo National Bank", demo_national, "DETECTION_MARKERS", None, "parse_demo_national_statement"),
@@ -204,6 +210,25 @@ _OVERRIDES: dict[str, dict] = {
     # printing the checking product.
     "chase_savings": {"band": 10, "supersedes": frozenset({"chase"})},
     "rbc_french": {"band": 10, "supersedes": frozenset({"rbc"})},
+    # The four issuers that already had their own reader on the core-processor
+    # template `community_section` now registers generically (W3 §JHA-CELL).
+    # Each is a narrower document class of the same template - the general
+    # reader claims all 45 of their archive documents on the template furniture
+    # alone - so each supersedes it outright, exactly as the promoted
+    # sub-dispatches above do. Without these edges those 45 documents would
+    # resolve `ambiguous` and go to review.
+    #
+    # The edges are safe in the strong sense, not the observed one: each of the
+    # four identifies its issuer by markers the general reader does not consult
+    # at all, so the general reader can never shadow one of them, and none of
+    # them can reach an issuer it was not registered for. Measured over the
+    # archive: mission_valley 36, dakota_west 3, midflorida 3,
+    # first_community 3, and not one of the four ever claims a document and
+    # then declines it, so no edge can strand a document either.
+    "mission_valley": {"band": 10, "supersedes": frozenset({"community_section"})},
+    "dakota_west": {"band": 10, "supersedes": frozenset({"community_section"})},
+    "midflorida": {"band": 10, "supersedes": frozenset({"community_section"})},
+    "first_community": {"band": 10, "supersedes": frozenset({"community_section"})},
     # BMO prints a second summary block; where the two disagree the document
     # contradicts itself. Registered here so the orchestrator never names BMO.
     "bmo": {"integrity_checks": (bmo.summary_contradictions,)},
