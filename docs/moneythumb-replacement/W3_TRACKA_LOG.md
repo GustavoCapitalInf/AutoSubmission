@@ -8747,4 +8747,85 @@ counts stay inert.
 | `a924252` | both balances read from the printed control record; month literals, memorized totals and memorized terminators removed; sections optional; detection marker replaced |
 | `76b4178` | citizens — the whole debits container and the whole cheque grid; product-name marker replaced |
 | `b098e5a` | guards — year/amount/calendar scans layer-wide, new calendar class, regression and scope proofs, `_code_lines` line numbering |
-| (this one) | §FIRSTCIT FI0–FI12 |
+| `f952c42` | §FIRSTCIT FI0–FI12 |
+| (this one) | FI13 — the corpus-marked run and the affordability threshold |
+
+## FI13. Amendment — the corpus-marked run, and the one test that fails
+
+`pytest -m corpus` on the final tree:
+
+```
+$ python -m pytest -m corpus -q
+FAILED tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run
+1 failed, 13 passed, 3035 deselected, 1 warning in 2809.79s (0:46:49)
+EXIT=1
+```
+
+`corpus_gate.py` itself — the substantive gate, and the 13 tests that passed —
+is GREEN (FI10). The single failure is a WALL-CLOCK THRESHOLD:
+
+```python
+worst = 0.0
+for markdown in sources.values():
+    start = time.perf_counter()
+    for registration in registrations:
+        registration.detect(markdown)
+    worst = max(worst, time.perf_counter() - start)
+assert worst < 0.25
+```
+
+It is not caused by this cell, and this cell makes it cheaper. Measured
+paired and interleaved in ONE process — both marker sets timed alternately,
+trial by trial, so load drift hits both arms equally:
+
+```
+documents 103, registrations 53, 7 paired trials
+  trial 1:  NEW   214.3 ms   OLD   238.4 ms   delta   -24.1 ms
+  trial 2:  NEW   201.1 ms   OLD   212.8 ms   delta   -11.7 ms
+  trial 3:  NEW   253.1 ms   OLD   185.8 ms   delta   +67.3 ms
+  trial 4:  NEW   170.0 ms   OLD   220.9 ms   delta   -50.9 ms
+  trial 5:  NEW   186.6 ms   OLD   217.5 ms   delta   -30.8 ms
+  trial 6:  NEW   228.1 ms   OLD   228.4 ms   delta    -0.3 ms
+  trial 7:  NEW   203.8 ms   OLD   203.4 ms   delta    +0.4 ms
+
+NEW (this branch)   min 170.0  median 203.8  max 253.1
+OLD (base d70efbe)  min 185.8  median 217.5  max 238.4
+paired delta (NEW - OLD): median -11.7 ms
+```
+
+The reason is in the marker itself. The marker this cell removed called
+`t.upper()`, which allocates a full uppercase copy of every document before
+testing it:
+
+```
+worst per-document marker cost
+  first_citizens OLD (t.upper() copy)     0.157 ms
+  first_citizens NEW (substring only)     0.060 ms
+  citizens OLD                            1.166 ms
+  citizens NEW                            1.176 ms
+```
+
+(`citizens` is unchanged in cost: its `t.lower()` call — the expensive one at
+~1.1 ms — is in the domain marker, which this cell did not touch.)
+
+**The real finding is the margin.** 53 registrations sweep the worst document
+in ~200 ms against a 250 ms budget, and the per-trial spread on this machine
+exceeds 80 ms; five consecutive trials during heavy parallel-cell load
+measured 280.6 / 496.5 / 376.6 / 280.6 / 314.8 ms. The assertion therefore
+reports machine load, not registry cost, and it will fail intermittently for
+any cell — the corpus-marked run that produced it took 2809 s against the
+761 s recorded earlier in this log, i.e. the box was ~4x loaded.
+
+Two things follow, both for Ocean rather than for this cell, since
+`tests/test_parser_parity.py` is not this cell's file:
+
+1. The threshold needs either headroom or a load-independent measure (CPU time
+   rather than wall clock, or a per-registration cost budget). Retuning
+   another cell's assertion mid-wave is not this cell's call.
+2. **The budget is genuinely close.** Every cell in this wave adds
+   registrations, and the sweep is per-document overhead on 3,506 discovery
+   documents. `citizens`'s `t.lower()` alone is ~1.1 ms of the ~200 ms; a
+   sweep-wide pass replacing whole-document `.lower()`/`.upper()` marker calls
+   with case-sensitive substring tests, or normalising the text ONCE in
+   `admissible_text` and handing the normalised copy to every marker, would
+   likely halve the sweep. That is RFC risk 7 coming due.
