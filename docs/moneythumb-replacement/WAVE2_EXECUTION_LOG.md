@@ -1,5 +1,95 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-14 — **COVERAGE-WAVE BATCH 1 OFFICIAL: improved 36 / regressed 0 — validated 1,946 (57.6%); eight adversarially-reviewed merges in one train**
+
+The 2026-08-13 high-parallelism wave's first merge train: eight branches,
+each built by an Opus cell from scout/fuzzer evidence, each cleared by an
+independent adversarial reviewer before merge (2 BLOCK verdicts and 3
+amendment sets were found, fixed, and re-proven pre-merge — the review
+layer caught defects invisible to 2,854 green tests). Merged `4ace2d6` …
+`3eb5379` + integration `4620561` (composed v8→9 + six reviewer-flagged
+one-liners), pushed `cce8ac1`, **remote CI SUCCESS on `4620561`
+(conclusion read)**. Composed-tree proofs by Ocean: suite **2,854** /
+corpus-marked 14 / gate GREEN 106/3, all exit 0; dry run `050b9c66`
+canonical 100/6/3 at v9.
+
+**Official instrument (`6893a75b` → `89bb6185`, shared 3,380,
+--fail-on-regression exit 0): improved 36 / regressed 0.** Transitions:
+failed→validated 34, withheld→validated 2 (left `summary_identity` — the
+scotia rebuild's honest recoveries). Families: mission_valley 17 (+2
+folder-labeled), chase_savings 10, chase 4, scotiabank 3. Totals:
+validated 1,910 → **1,946 (57.6%)** · review 10 · withheld 60 → 58 ·
+failed 1,353. Cumulative vs canonical `1dfaf7e9`: **1,048 → 1,946 (+86%)**;
+withheld 650 → 58; zero regressions anywhere; $0 vendor cost.
+**Coverage-metric note:** deterministic coverage printed −1.0% — an
+ACCOUNTING artifact, fully diagnosed: 116 byte-distinct rename-class
+duplicates (same admissible text) now share one cached analysis under the
+boundary's filename-free key; all 116 keep identical parser/outcome;
+the discovery coverage metric doesn't count cache-served claims (H-3
+cache-hit hole). Backlog card: count cached claims via parser_id.
+Also live: `parser_declined 141` now split from `no_parser_matched 1,196`
+in production data (DISPATCH-REPORTING).
+
+**The eight merges:** MONEYFIX-1 `fb7db00` (rbc summary oracle restored —
+four fields died together on a `$`-bearing totals row, identity check
+silently skipped; truist `_DOLLAR` + phantom-cheque furniture rule;
+capital_one guarded scrub — 'Page 3 of 8' no longer parses as 38.0) ·
+STRUCTFIX-1 `f037d73` (pnc space-thousands truncation + grid-bounded
+summary read — the review refuted the first fix's fail-closed claim and
+census, both corrected; pnc dated zero-amount furniture; bmo_ca card
+REFUTED by archive census and deliberately unshipped — 30-doc regression
+avoided) · BOFA-COUNTS `fb093e2` (the repair's `+check_count` double-count
+removed from 107 trusted docs — `effective_num_withdrawals` was PUBLISHED
+wrong; whole-direction scope proven 344/344 with the service-fee sections
+closing the subset hypothesis 12/12; `bank_of_america:debit` promoted on a
+fresh 344/0 counterfactual) · COMMSEC-GEN `0f1fae2` (head-noun section
+grammar — `Electronic Credits`, the platform's commonest credit section,
+was never a recognized header; 17 docs validated by accident via a
+swallow; +19; reviewer ran a harder differential: 79 docs, 41/41
+byte-identical, 0 regressions) · CHASE-CLOSURE `dd371cf` (A′ zero-activity
+guard WITH the review's posting-row clause — 4 constructed
+empty-ledger-false-validation shapes refused, all 4 real admissions kept;
+chase_savings 10/10 with counts equal to printed instance counts; card C
+guard/finder alignment — a `- $0.75` fee published 0.00 inside the ±1.00
+tolerance, now closed; +14) · SCOTIA-REBUILD `95e3ee2` (the reconciliation
+TAUTOLOGY broken: printed cell is the amount of record, walk is an
+independent check; pinned doc bit-identical on every audited field, both
+gate oracles re-run PASS; $322.7bn back-solve → $39,113.26; 75→78
+validated 0 down; zero-activity + span-bound amendments landed; scout's
+615-divergent figure corrected to 10 in the record) · FILENAME-BOUNDARY
+`44878ab` (admissible text at analyze_markdown stage entry — parsers,
+repairs, page-declaration integrity, metrics, LLM path all behind one
+seam; fuzz violations 140→0 and 120→0; analysis cache key filename-free;
+the reviewer's BLOCK caught a SECOND key implementation in
+telemetry/stated_counts that would have blinded the counts instrument on
+this very run — fixed, mutation-tested) · DISPATCH-REPORTING `cd1ae16`
+(Dispatch.attempted projected into rows; parser_declined split;
+compare-compatibility proven).
+
+**Review-layer scoreboard (the wave's methodological result):** 8/8
+branches survived only after review — 2 BLOCKs (a second cache-key
+implementation with zero test coverage; a fabricating summary pattern
+whose own census was wrong 10-vs-27), 3 amendment sets (Chase A′
+empty-ledger clause; scotia zero-activity + span bounds; MONEYFIX record
+overclaim), every finding fixed and re-proven pre-merge. Standing rules
+adopted mid-wave: instruments bypass the analysis cache while stage
+versions lag; agents use private scratchpad subdirectories; cache-key
+changes require repo-wide greps for reimplementations.
+
+**Batch 2 dispatched (building):** TDFIX-1 (td_us overdrawn-opening `-?`,
++6 measured/0 reg; section softening; td_can credit vocabulary +4/0) ·
+TD-FRENCH (13-doc family, all summaries reconcile 0.00, expect 9/13) ·
+RBCCIBC-LAYOUTS (the wave's largest tranche: 64-65 of 79 prototype-
+recoverable — cibc English 34/34, rbc personal 12/12, rbc_french business
+18-19/19, gated on the rbc money-grammar card; mangled-font guard).
+Scouts 28/28 complete. Backlog additions: td_can inert continuity check
+(73 docs of constructed zeros — scotia-class, pinned-first), rbc French
+summary-identity silently skipped, coverage-metric cached-claims
+accounting, informal-registration class for OLB web exports (Ocean ruling
+pending), intake reason codes (void cheques / XFA / card statements),
+parse_money one-decimal truncation (34.9 → 34.0) on the MONEY-GRAMMAR
+card, Huntington 54 / Mercury+fintech / Citi-5/3-Zions cells.
+
 ## 2026-08-13 — **PHASE CELL 2 (CHASE) + COUNTS-P2 OFFICIAL: improved 136 / regressed 0 — validated 1,910 (56.5%), claim coverage 55.0% → 59.1%**
 
 Both workstreams Gustavo-approved 2026-08-13 morning, run in parallel
