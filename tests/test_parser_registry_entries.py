@@ -24,6 +24,12 @@ EXPECTED_ORDER = [
     # band 10 — narrower document classes that supersede their general form
     "chase_export",
     "chase_savings",
+    # The four issuer-specific readers of the core-processor template that
+    # `community_section` now registers generically (W3 §JHA-CELL).
+    "dakota_west",
+    "first_community",
+    "midflorida",
+    "mission_valley",
     "rbc_french",
     "td_canada_native",
     # band 100 — everything else, alphabetically
@@ -45,18 +51,15 @@ EXPECTED_ORDER = [
     "cibc_french",
     "citizens",
     "columbia_bank",
+    "community_section",
     "consumers",
-    "dakota_west",
     "demo_national",
     "desjardins",
     "farmers_merchants",
     "first_citizens",
-    "first_community",
     "first_farmers",
     "ibc",
     "linkbank",
-    "midflorida",
-    "mission_valley",
     "navigant",
     "navy_federal",
     "pnc",
@@ -119,10 +122,10 @@ def test_registration_count_matches_the_documented_decision_points():
     """43 registry entry points, the three promoted sub-dispatches, the three
     BMO layouts (W3 §BMO-LAYOUTS), the Square Checking layout
     (W3 §CHASE-LAYOUTS), the Chase savings product (W3 §CHASE-CLOSURE), the
-    TD Canada Trust French layout (W3 §TD-FRENCH) and the English CIBC
-    layout (W3 §RBCCIBC) — the last five opened by the unclaimed-layout
-    phase."""
-    assert len(pr.registrations()) == 53
+    TD Canada Trust French layout (W3 §TD-FRENCH), the English CIBC
+    layout (W3 §RBCCIBC) and the issuer-agnostic core-processor template
+    (W3 §JHA-CELL) — the last six opened by the unclaimed-layout phase."""
+    assert len(pr.registrations()) == 54
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():
@@ -151,6 +154,7 @@ def test_each_registration_detects_the_same_way_its_module_does(registration):
         "td_canada_native": "detect_native",
         "mission_valley": "detect_mission_valley",
         "dakota_west": "detect_dakota_west",
+        "community_section": "detect_platform",
         "southside_scanned": "detect_southside",
         "apex_scanned": "detect_apex",
     }.get(registration.id, "detect")
@@ -200,6 +204,19 @@ def test_only_the_promoted_sub_dispatches_supersede_anything():
         # `Chase x failed x chase:0.5` cell in discovery run `6893a75b`, named
         # in the commit message; there is no such document in the pinned corpus.
         "chase_savings": ["chase"],
+        # W3 §JHA-CELL: `community_section` registers the core-processor
+        # template these four issuers print, and claims it on the template
+        # furniture alone — so it claims every one of their documents too.
+        # Evidence for the edges, measured over discovery run `88be9dd3` and
+        # named in the commit message: the general reader detects exactly the
+        # 115 archive documents that print the template, of which
+        # mission_valley holds 36, dakota_west 3, midflorida 3 and
+        # first_community 3. Without the edges those 45 resolve `ambiguous`.
+        # The pinned corpus holds one document of each of the four.
+        "dakota_west": ["community_section"],
+        "first_community": ["community_section"],
+        "midflorida": ["community_section"],
+        "mission_valley": ["community_section"],
         "rbc_french": ["rbc"],
         "td_canada_native": ["td_canada"],
     }, (
