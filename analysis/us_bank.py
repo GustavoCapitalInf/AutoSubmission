@@ -25,32 +25,41 @@ _MONTHS = {
 _DATE_RE = r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}"
 _MONEY_RE = r"\$?\s*[\d,]+\.\d{2}-?"
 
-#: The Account Summary categories U.S. Bank prints, and the detail section each
-#: one is itemized in. This is the bank's printed vocabulary — the same class of
-#: knowledge as a column heading — and nothing here is keyed on a customer, an
-#: amount, a date or an account. The DIRECTION of a category is deliberately NOT
-#: in this table: the summary prints a trailing minus on every outflow line, so
-#: the sign is read from the grid (see `_summary`).
+#: An Account Summary category line, read as the grid prints it:
+#: `<category> [<# items>] <amount>[-]`. The category NAME is read, not chosen
+#: from a memorized list, because U.S. Bank prints more than one summary
+#: vocabulary — the business grid itemizes `Customer Deposits` / `Other
+#: Deposits` / `Card Deposits` / `Card Withdrawals` / `Other Withdrawals` /
+#: `Checks Paid`, the consumer grid folds every inflow into a single
+#: `Deposits / Credits`. A memorized vocabulary matched nothing on a consumer
+#: statement and the parser declined the document whole.
+#:
+#: The `# Items` cell is OPTIONAL because the consumer grid does not print a
+#: count column at all (it prints no `# Items` heading either). A count that is
+#: not printed is not a zero; see `_direction_count`.
+#:
+#: The DIRECTION of a category is deliberately not encoded: the summary prints a
+#: trailing minus on every outflow line, so the sign is read from the grid.
 #:
 #: The summary is the index to the ledger: whichever categories a statement
-#: prints are exactly the sections it itemizes. A U.S. Bank statement that
-#: itemizes no card activity simply prints no card line, so a fixed list of
-#: three sections — which is what this parser had — silently dropped every
-#: category outside it from BOTH the stated totals and the ledger.
-_DETAIL_HEADING = {
-    "Customer Deposits": "Customer Deposits",
-    "Other Deposits": "Other Deposits",
-    "Card Deposits": "Card Deposits",
-    "Card Withdrawals": "Card Withdrawals",
-    "Other Withdrawals": "Other Withdrawals",
-    "Checks Paid": "Checks Presented Conventionally",
-}
-_SECTION_HEADINGS = frozenset(_DETAIL_HEADING.values())
-
+#: prints are exactly the sections it itemizes, so this one reading drives both
+#: the stated totals and which detail sections are collected.
 _SUMMARY_CATEGORY_RE = re.compile(
-    r"(" + "|".join(re.escape(name) for name in _DETAIL_HEADING) + r")"
-    r"\s+(\d+)\s+([\d,]+\.\d{2})(-?)(?![\d.])"
+    r"(?P<name>[A-Za-z][A-Za-z /&'.-]*?)\s+(?:(?P<count>\d+)\s+)?"
+    r"(?P<amount>[\d,]+\.\d{2})(?P<minus>-?)(?![\d.])"
 )
+
+#: Checks are the one category whose detail sections are not printed under the
+#: category's own name: the summary says `Checks Paid` and the ledger presents
+#: them by the MANNER of presentation — `Checks Presented Conventionally` and,
+#: when the statement has any, `Checks Presented Electronically`. Both roll up
+#: to the single `Checks Paid` figure, so both feed one category. Matching the
+#: manner rather than enumerating manners is what lets a statement that
+#: itemizes electronic cheques be read at all; a one-heading-per-category map —
+#: which is what this parser had — dropped the electronic block's rows and then
+#: refused the document on its own section-total check.
+_CHECKS_CATEGORY = "Checks Paid"
+_CHECKS_SECTION_RE = re.compile(r"^Checks Presented\b")
 
 #: A row begins where the printed grid begins one: a physical line whose first
 #: cell is the Date column, optionally preceded by the row's own number column
@@ -76,10 +85,12 @@ _ROW_FURNITURE_RE = re.compile(
 )
 
 #: What ends a detail section: the bank's own printed total for it, the checks
-#: section's differently-worded total and its gap-marker footnote, a page break
-#: (the section re-enters at its `(continued)` heading), the page footer, and
-#: the headings of the blocks that follow the ledger.
-_CHECKS_TOTAL_RE = re.compile(r"^Conventional Checks Paid \(\d+\)")
+#: sections' differently-worded per-manner subtotals and the gap-marker
+#: footnote, a page break (the section re-enters at its `(continued)` heading),
+#: the page footer, and the headings of the blocks that follow the ledger.
+#: `<Manner> Checks Paid (n)` closes one manner's block; the category's own
+#: `Total Checks Paid` line is closed by the generic `Total <category>` rule.
+_CHECKS_TOTAL_RE = re.compile(r"^[A-Za-z]+ Checks Paid \(\d+\)")
 _SECTION_END_PREFIXES = (
     "--- Page",
     "Products and services available",
@@ -99,19 +110,109 @@ def _iso(month_day: str, year: int) -> str:
     return date(year, _MONTHS[month], int(day)).isoformat()
 
 
-def _period(markdown: str) -> tuple[str, str, int] | None:
-    m = re.search(
-        r"(?P<start_month>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+"
-        r"(?P<start_day>\d{1,2}),\s+(?P<start_year>\d{4})\s+through\s+"
-        r"(?P<end_month>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+"
-        r"(?P<end_day>\d{1,2}),\s+(?P<end_year>\d{4})",
-        markdown,
+def _full_date_pattern(prefix: str = "") -> str:
+    return (
+        rf"(?P<{prefix}month>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+"
+        rf"(?P<{prefix}day>\d{{1,2}}),\s+(?P<{prefix}year>\d{{4}})"
     )
-    if not m:
+
+
+_PERIOD_LABEL_RE = re.compile(r"Statement Period:?")
+_PERIOD_START_RE = re.compile(_full_date_pattern())
+_PERIOD_END_RE = re.compile(r"through\s+" + _full_date_pattern())
+_ADJACENT_PERIOD_RE = re.compile(
+    _full_date_pattern() + r"\s+through\s+" + _full_date_pattern("end_")
+)
+
+#: How far past the `Statement Period` label the period's two halves can be
+#: printed. The label, the start date and `through <end>` are one column of the
+#: page header; flattening a page interleaves the neighbouring columns' lines
+#: between them, so the halves are adjacent in the text only by luck.
+_PERIOD_WINDOW = 600
+
+
+def _full_date(m: re.Match[str], prefix: str = "") -> date:
+    return date(
+        int(m.group(f"{prefix}year")),
+        _MONTHS[m.group(f"{prefix}month")],
+        int(m.group(f"{prefix}day")),
+    )
+
+
+def _span(start: date, end: date) -> tuple[str, str, int] | None:
+    if end < start:
         return None
-    start = date(int(m.group("start_year")), _MONTHS[m.group("start_month")], int(m.group("start_day")))
-    end = date(int(m.group("end_year")), _MONTHS[m.group("end_month")], int(m.group("end_day")))
     return start.isoformat(), end.isoformat(), (end - start).days + 1
+
+
+def _period(markdown: str) -> tuple[str, str, int] | None:
+    """The period the bank prints, read from its own `Statement Period` label.
+
+    Reading from the LABEL is what makes a single-page statement readable. The
+    label, the start date and `through <end>` are one column of the page header;
+    flattening a page interleaves the neighbouring columns' lines between them,
+    so the two halves are adjacent in the text only by luck. A multi-page
+    statement reprints the header on every page and somewhere in those repeats
+    the halves land together — a one-page statement gets exactly one printing to
+    be lucky in, and when it is not, the whole document was declined.
+
+    The bare `<start> through <end>` pair is still read when no label is printed
+    above one, so this is strictly the older reading plus the interleaved case.
+    """
+    for label in _PERIOD_LABEL_RE.finditer(markdown):
+        window = markdown[label.end(): label.end() + _PERIOD_WINDOW]
+        opening = _PERIOD_START_RE.search(window)
+        if opening is None:
+            continue
+        closing = _PERIOD_END_RE.search(window, opening.end())
+        if closing is None:
+            continue
+        span = _span(_full_date(opening), _full_date(closing))
+        if span is not None:
+            return span
+    adjacent = _ADJACENT_PERIOD_RE.search(markdown)
+    if adjacent is None:
+        return None
+    return _span(_full_date(adjacent), _full_date(adjacent, "end_"))
+
+
+#: The block U.S. Bank prints immediately above every Account Summary:
+#:
+#:     <PRODUCT NAME>
+#:     Member FDIC
+#:     U.S. Bank National Association     <- these two are printed in either
+#:     Account Number 1-575-0037-6890     <- order, depending on the layout
+#:
+#: The product name is the line that OPENS that block, and reading it is the
+#: only way to publish the account's actual name: this parser serves at least
+#: five U.S. Bank products (Silver, Gold and Platinum business accounts, the
+#: unprefixed `SILVER BUSINESS CHECKING` layout, and consumer Smartly
+#: Checking), and it used to publish one memorized product name on all of them
+#: — wrong on 36 of the 40 documents it had validated.
+#:
+#: Anchoring on the whole block rather than on `Member FDIC` alone is load
+#: bearing: `Member FDIC` is also printed as the footer of the credit-bureau
+#: disclosure page, above which the nearest line is disclosure prose.
+_HEADER_FURNITURE = ("Member FDIC", "U.S. Bank National Association")
+_ACCOUNT_NUMBER_LINE_RE = re.compile(r"^Account Number\b")
+
+
+def _product_name(markdown: str) -> str | None:
+    lines = [line for line in map(compact_whitespace, markdown.splitlines()) if line]
+    for index, line in enumerate(lines):
+        if line != "Account Summary":
+            continue
+        cursor, saw_member = index - 1, False
+        while cursor >= 0 and index - cursor <= len(_HEADER_FURNITURE) + 1:
+            above = lines[cursor]
+            if above in _HEADER_FURNITURE:
+                saw_member = saw_member or above == "Member FDIC"
+            elif not _ACCOUNT_NUMBER_LINE_RE.match(above):
+                break
+            cursor -= 1
+        if saw_member and cursor >= 0:
+            return lines[cursor]
+    return None
 
 
 def _summary(markdown: str) -> dict | None:
@@ -129,20 +230,33 @@ def _summary(markdown: str) -> dict | None:
         markdown,
         re.DOTALL,
     )
-    days = re.search(r"Number of Days in Statement Period\s+(\d+)", markdown)
-    if not m or not days:
+    if not m:
         return None
+    # `Number of Days in Statement Period` is an OPTIONAL summary line, like the
+    # interest line below and like the categories themselves: the business
+    # layouts that print no `# Items` column print no days line either. Treating
+    # it as required refused 11 otherwise-complete documents over a figure the
+    # printed period already states — and `parse_us_bank_statement` has always
+    # had that fallback, so nothing new is being inferred here.
+    days = re.search(r"Number of Days in Statement Period\s+(\d+)", markdown)
     interest = re.search(r"Interest Earned this Period\s+\$\s*([\d,]+\.\d{2})", markdown)
-    categories: list[tuple[str, int, float]] = []
+    categories: list[tuple[str, int | None, float]] = []
     for c in _SUMMARY_CATEGORY_RE.finditer(m.group("categories")):
-        amount = _money(c.group(3)) or 0.0
-        categories.append((c.group(1), int(c.group(2)), -amount if c.group(4) else amount))
+        amount = _money(c.group("amount")) or 0.0
+        count = c.group("count")
+        categories.append(
+            (
+                c.group("name").strip(),
+                int(count) if count is not None else None,
+                -amount if c.group("minus") else amount,
+            )
+        )
     if not categories:
         return None
     return {
         "beginning": _money(m.group("open")) or 0.0,
         "ending": _money(m.group("close")) or 0.0,
-        "days": int(days.group(1)),
+        "days": int(days.group(1)) if days else None,
         "categories": categories,
         # Interest is an OPTIONAL summary line, exactly like the optional
         # categories above: a non-interest-bearing account simply does not print
@@ -154,23 +268,32 @@ def _summary(markdown: str) -> dict | None:
     }
 
 
-def _section_lines(markdown: str) -> dict[str, list[str]]:
-    """Every printed detail section, as the physical lines printed inside it.
+def _section_lines(markdown: str, categories: list[str]) -> dict[str, list[str]]:
+    """The lines printed inside each summary category's detail section(s).
+
+    Keyed by CATEGORY, not by heading, because one category can be itemized
+    under more than one heading — cheques are presented conventionally and
+    electronically, under a heading each, and both roll up to the summary's
+    single `Checks Paid` figure.
 
     A heading owns its line, so a summary line or a sentence of disclosure prose
     that happens to contain the heading's words never opens a section. A page
     break leaves the section and its `(continued)` heading re-enters it, which
     is what keeps the reprinted letterhead out of the ledger.
     """
-    sections: dict[str, list[str]] = {heading: [] for heading in _SECTION_HEADINGS}
+    wanted = set(categories)
+    sections: dict[str, list[str]] = {name: [] for name in wanted}
     current: str | None = None
     for raw in markdown.splitlines():
         line = compact_whitespace(raw)
         if not line:
             continue
         heading = line[: -len(" (continued)")] if line.endswith(" (continued)") else line
-        if heading in _SECTION_HEADINGS:
+        if heading in wanted:
             current = heading
+            continue
+        if _CHECKS_CATEGORY in wanted and _CHECKS_SECTION_RE.match(heading):
+            current = _CHECKS_CATEGORY
             continue
         if current is None:
             continue
@@ -252,6 +375,36 @@ def _rows(lines: list[str], *, year: int, sign: int) -> list[Transaction]:
     return txns
 
 
+def _direction_count(
+    categories: list[tuple[str, int | None, float]], *, credit: bool
+) -> int | None:
+    """The bank's stated item count for one direction, or None if unstated.
+
+    The count published for a direction is the sum of the `# Items` cells of
+    that direction's categories — the same scope `count_semantics` surveyed and
+    promoted to comparable for this parser, unchanged.
+
+    The consumer grid prints no count column at all. A count that was never
+    printed is NOT zero, and publishing zero would turn a document the bank
+    says nothing about into one that claims it had no deposits — so a direction
+    whose categories are not all counted publishes nothing, and the stated-count
+    check reads that as `not_printed` rather than comparing against a fiction.
+
+    A direction with no categories at all sums to zero here, which mirrors the
+    zero total the same absence produces in `stated_total_credits` /
+    `stated_total_debits`: the grid states its own identity, so a direction it
+    itemizes nothing in is a direction that had no activity.
+    """
+    counts = [
+        count
+        for _, count, amount in categories
+        if (amount > 0 if credit else amount < 0)
+    ]
+    if any(count is None for count in counts):
+        return None
+    return sum(counts)
+
+
 DETECTION_MARKERS = (
     required("bank_name", lambda t: "U.S. Bank National Association" in t),
     required("section", lambda t: "Account Summary" in t),
@@ -282,7 +435,7 @@ def parse_us_bank_statement(markdown: str) -> Statement | None:
     period_start, period_end, period_days = period
     stmt = Statement(
         bank="U.S. Bank",
-        account_name="Platinum Business Money Market",
+        account_name=_product_name(markdown),
         period_start=period_start,
         period_end=period_end,
         days_in_period=int(summary.get("days") or period_days),
@@ -290,8 +443,8 @@ def parse_us_bank_statement(markdown: str) -> Statement | None:
         ending_balance=float(summary["ending"]),
         stated_total_credits=credits,
         stated_total_debits=debits,
-        stated_credit_count=sum(count for _, count, amount in categories if amount > 0),
-        stated_debit_count=sum(count for _, count, amount in categories if amount < 0),
+        stated_credit_count=_direction_count(categories, credit=True),
+        stated_debit_count=_direction_count(categories, credit=False),
         stated_interest_paid=float(summary["interest"]),
     )
     acct = re.search(r"Account Number\s+([0-9 -]+)", markdown)
@@ -299,10 +452,10 @@ def parse_us_bank_statement(markdown: str) -> Statement | None:
         stmt.account_number = acct.group(1).strip()
 
     year = int(period_end[:4])
-    sections = _section_lines(markdown)
+    sections = _section_lines(markdown, [name for name, _, _ in categories])
     txns: list[Transaction] = []
     for name, _, amount in categories:
-        rows = _rows(sections[_DETAIL_HEADING[name]], year=year, sign=1 if amount > 0 else -1)
+        rows = _rows(sections[name], year=year, sign=1 if amount > 0 else -1)
         # Each category prints its own total, so each section is checkable on
         # its own before anything is published. Failing here means the detail we
         # read does not account for the money the bank says is in that section.

@@ -59,18 +59,29 @@ ANCHOR_AMOUNTS = [500.00, -80.00]
 
 
 def document(*, summary: str, opening: str = "1,000.00", closing: str,
-             sections: str, days: str = "31") -> str:
-    """A U.S. Bank statement with the printed blocks the parser reads."""
+             sections: str, days: str | None = "31",
+             product: str = "U.S. BANK SILVER - BUSINESS CHECKING",
+             items_heading: str = "# Items\n") -> str:
+    """A U.S. Bank statement with the printed blocks the parser reads.
+
+    The header block is printed as the bank prints it — product name, `Member
+    FDIC`, the association line and the account number, immediately above the
+    Account Summary — because the published product name is read from it.
+
+    `days=None` prints no `Number of Days in Statement Period` line, which is
+    what the layouts without an `# Items` column do.
+    """
     return (
         "Business Statement\n"
         f"{PERIOD}"
-        "U.S. BANK SILVER - BUSINESS CHECKING\n"
+        f"{product}\n"
+        "Member FDIC\n"
         "U.S. Bank National Association\n"
         "Account Number 1-234-5678-9012\n"
         "Account Summary\n"
-        "# Items\n"
-        f"Number of Days in Statement Period {days}\n"
-        f"Beginning Balance on Mar 2 $ {opening} {summary}\n"
+        f"{items_heading}"
+        + (f"Number of Days in Statement Period {days}\n" if days is not None else "")
+        + f"Beginning Balance on Mar 2 $ {opening} {summary}\n"
         f"Ending Balance on  Mar 31, 2026 $ {closing}\n"
         f"{sections}"
     )
@@ -445,3 +456,284 @@ def test_f8_an_overdrawn_balance_prints_its_minus_after_the_figure():
     assert stmt is not None
     assert stmt.ending_balance == -200.00
     assert amounts(stmt) == [500.00, -1700.00]
+
+
+# --------------------------------------------------------------------------
+# U-F9  the optional `Number of Days in Statement Period` line
+# --------------------------------------------------------------------------
+# The days line is an optional summary line, exactly like `Interest Earned this
+# Period` and like the categories themselves: the layouts that print no
+# `# Items` column print no days line either. Requiring it refused otherwise
+# complete documents over a figure the printed period already states.
+
+NO_DAYS_DOC = document(
+    summary=f"{ANCHOR_CREDIT_CATEGORY} {ANCHOR_DEBIT_CATEGORY}",
+    closing="1,420.00",
+    sections=ANCHOR_SECTIONS + ANCHOR_WITHDRAWAL_SECTION,
+    days=None,
+    items_heading="",
+)
+
+
+def test_f9_a_summary_that_prints_no_days_line_is_still_read():
+    stmt = parse_us_bank_statement(NO_DAYS_DOC)
+    assert stmt is not None
+    assert amounts(stmt) == ANCHOR_AMOUNTS
+
+
+def test_f9_the_day_count_falls_back_to_the_printed_period():
+    stmt = parse_us_bank_statement(NO_DAYS_DOC)
+    # Mar 2 through Mar 31 inclusive, from the period the bank prints.
+    assert stmt.days_in_period == 30
+
+
+def test_f9_a_printed_days_line_still_outranks_the_period():
+    # The bank's two printed figures disagree on this layout as a matter of
+    # course (the cycle ends on a business day, the count is calendar), and the
+    # printed count is the one the bank states.
+    stmt = parse_us_bank_statement(
+        document(
+            summary=f"{ANCHOR_CREDIT_CATEGORY} {ANCHOR_DEBIT_CATEGORY}",
+            closing="1,420.00",
+            sections=ANCHOR_SECTIONS + ANCHOR_WITHDRAWAL_SECTION,
+            days="31",
+        )
+    )
+    assert stmt.days_in_period == 31
+
+
+# --------------------------------------------------------------------------
+# U-F10  the consumer grid — a category vocabulary with no count column
+# --------------------------------------------------------------------------
+# The consumer layout folds every inflow into one `Deposits / Credits` category
+# and prints no `# Items` cells at all. A memorized six-name vocabulary matched
+# nothing in it, so the parser read no categories and declined the document.
+
+CONSUMER_DOC = document(
+    summary="Deposits / Credits 500.00 Card Withdrawals 120.00- Other Withdrawals 80.00-",
+    closing="1,300.00",
+    days=None,
+    items_heading="",
+    product="U.S. BANK SMARTLY CHECKING",
+    sections=(
+        "Deposits / Credits\n"
+        f"{DESCRIBED_HEADER}\n"
+        "Mar 3 Mobile Banking Transfer From Account\n"
+        "$ 500.00\n"
+        "Total Deposits / Credits $ 500.00\n"
+        "Card Withdrawals\n"
+        "Card Number: xxxx-xxxx-xxxx-0000\n"
+        f"{DESCRIBED_HEADER}\n"
+        "Mar 4 Debit Purchase - VISA\n"
+        "0000000001 120.00-\n"
+        "Total Card Withdrawals $ 120.00-\n"
+        "Other Withdrawals\n"
+        f"{DESCRIBED_HEADER}\n"
+        "Mar 6 Electronic Withdrawal\n"
+        "$ 80.00-\n"
+        "Total Other Withdrawals $ 80.00-\n"
+    ),
+)
+
+
+def test_f10_a_category_vocabulary_outside_the_business_grid_is_read():
+    stmt = parse_us_bank_statement(CONSUMER_DOC)
+    assert stmt is not None
+    assert stmt.stated_total_credits == 500.00
+    assert stmt.stated_total_debits == 200.00
+    assert amounts(stmt) == [500.00, -120.00, -80.00]
+
+
+def test_f10_an_unprinted_item_count_is_not_a_zero():
+    stmt = parse_us_bank_statement(CONSUMER_DOC)
+    assert stmt.stated_credit_count is None
+    assert stmt.stated_debit_count is None
+
+
+def test_f10_a_direction_counted_only_in_part_publishes_no_count():
+    # One printed count in a direction does not state that direction's total.
+    stmt = parse_us_bank_statement(
+        document(
+            summary="Other Deposits 1 500.00 Card Withdrawals 120.00- Other Withdrawals 1 80.00-",
+            closing="1,300.00",
+            sections=(
+                ANCHOR_SECTIONS
+                + "Card Withdrawals\n"
+                "Card Number: xxxx-xxxx-xxxx-0000\n"
+                f"{DESCRIBED_HEADER}\n"
+                "Mar 4 Debit Purchase - VISA\n"
+                "0000000001 120.00-\n"
+                "Total Card Withdrawals $ 120.00-\n"
+                + ANCHOR_WITHDRAWAL_SECTION
+            ),
+        )
+    )
+    assert stmt is not None
+    assert stmt.stated_credit_count == 1
+    assert stmt.stated_debit_count is None
+
+
+# --------------------------------------------------------------------------
+# U-F11  cheques presented under more than one heading
+# --------------------------------------------------------------------------
+# The summary states one `Checks Paid` figure; the ledger presents cheques by
+# the MANNER of presentation, each manner under its own heading with its own
+# subtotal. A one-heading-per-category map read the conventional block only,
+# and the category's section-total check then refused the whole document.
+
+ELECTRONIC_CHECKS_DOC = anchored(
+    extra_categories="Checks Paid 2 300.00-",
+    extra_sections=(
+        "Checks Presented Conventionally\n"
+        f"{CHECK_HEADER}\n"
+        "1341 Mar 6 0000000001 100.00\n"
+        "Conventional Checks Paid (1) $ 100.00-\n"
+        "Checks Presented Electronically\n"
+        "Check Date Ref Number Amount Description of Transaction Payee\n"
+        "1344 Mar 27 200.00 Redepcheck A COUNTERPARTY\n"
+        "Electronic Checks Paid (1) $ 200.00-\n"
+        "Total Checks Paid $ 300.00-\n"
+    ),
+    closing="1,120.00",
+    last=True,
+)
+
+
+def test_f11_both_presentation_sections_feed_the_one_checks_category():
+    stmt = parse_us_bank_statement(ELECTRONIC_CHECKS_DOC)
+    assert stmt is not None
+    assert amounts(stmt) == [500.00, -80.00, -100.00, -200.00]
+    assert stmt.stated_total_debits == 380.00
+
+
+def test_f11_an_electronic_cheque_keeps_its_printed_number_as_the_description():
+    stmt = parse_us_bank_statement(ELECTRONIC_CHECKS_DOC)
+    assert [t.description for t in stmt.transactions][-2:] == ["Check 1341", "Check 1344"]
+
+
+def test_f11_negative_the_per_manner_subtotals_are_never_rows():
+    stmt = parse_us_bank_statement(ELECTRONIC_CHECKS_DOC)
+    assert len(stmt.transactions) == 4
+    assert -300.00 not in amounts(stmt)
+
+
+# --------------------------------------------------------------------------
+# U-F12  the period, read from the label the bank prints it under
+# --------------------------------------------------------------------------
+# `Statement Period:`, the start date and `through <end>` are one column of the
+# page header. Flattening a page interleaves the neighbouring columns between
+# them, so the two halves are adjacent only by luck — and a single-page
+# statement gets exactly one printing of the header to be lucky in.
+
+INTERLEAVED_PERIOD_DOC = (
+    "Business Statement\n"
+    "Account Number:\n"
+    "1 234 5678 9012 Statement Period:\n"
+    "P.O. Box 1800 Saint Paul, Minnesota 55101-0800\n"
+    "Mar 2, 2026\n"
+    "1499 TRN S Y ST01\n"
+    "through Mar 31, 2026\n"
+    "Page 1 of 1\n"
+    "U.S. BANK GOLD - BUSINESS CHECKING\n"
+    "Member FDIC\n"
+    "U.S. Bank National Association\n"
+    "Account Number 1-234-5678-9012\n"
+    "Account Summary\n"
+    "# Items\n"
+    "Number of Days in Statement Period 31\n"
+    f"Beginning Balance on Mar 2 $ 1,000.00 {ANCHOR_CREDIT_CATEGORY} {ANCHOR_DEBIT_CATEGORY}\n"
+    "Ending Balance on  Mar 31, 2026 $ 1,420.00\n"
+    + ANCHOR_SECTIONS
+    + ANCHOR_WITHDRAWAL_SECTION
+)
+
+
+def test_f12_a_period_split_by_an_interleaved_column_is_still_read():
+    stmt = parse_us_bank_statement(INTERLEAVED_PERIOD_DOC)
+    assert stmt is not None
+    assert (stmt.period_start, stmt.period_end) == ("2026-03-02", "2026-03-31")
+
+
+def test_f12_negative_a_document_printing_no_period_label_is_refused():
+    assert parse_us_bank_statement(
+        INTERLEAVED_PERIOD_DOC.replace("Statement Period:", "")
+    ) is None
+
+
+def test_f12_negative_a_reversed_pair_is_not_a_period():
+    assert parse_us_bank_statement(
+        INTERLEAVED_PERIOD_DOC.replace("through Mar 31, 2026", "through Mar 1, 2026")
+    ) is None
+
+
+# --------------------------------------------------------------------------
+# U-F13  the published product name, read from the printed header block
+# --------------------------------------------------------------------------
+# This parser serves several U.S. Bank products. It used to publish one
+# memorized product name on every document it read (R-1 class).
+
+@pytest.mark.parametrize("product", [
+    "U.S. BANK SILVER - BUSINESS CHECKING",
+    "U.S. BANK GOLD - BUSINESS CHECKING",
+    "SILVER BUSINESS CHECKING",
+    "U.S. BANK SMARTLY CHECKING",
+    "PLATINUM BUSINESS MONEY MARKET",
+])
+def test_f13_the_published_product_is_the_one_printed(product):
+    stmt = parse_us_bank_statement(
+        document(
+            summary=f"{ANCHOR_CREDIT_CATEGORY} {ANCHOR_DEBIT_CATEGORY}",
+            closing="1,420.00",
+            sections=ANCHOR_SECTIONS + ANCHOR_WITHDRAWAL_SECTION,
+            product=product,
+        )
+    )
+    assert stmt is not None
+    assert stmt.account_name == product
+
+
+def test_f13_the_header_block_is_read_in_either_printed_order():
+    # Some layouts print the account number above the association line.
+    swapped = document(
+        summary=f"{ANCHOR_CREDIT_CATEGORY} {ANCHOR_DEBIT_CATEGORY}",
+        closing="1,420.00",
+        sections=ANCHOR_SECTIONS + ANCHOR_WITHDRAWAL_SECTION,
+    ).replace(
+        "U.S. Bank National Association\nAccount Number 1-234-5678-9012\n",
+        "Account Number 1-234-5678-9012\nU.S. Bank National Association\n",
+    )
+    stmt = parse_us_bank_statement(swapped)
+    assert stmt is not None
+    assert stmt.account_name == "U.S. BANK SILVER - BUSINESS CHECKING"
+
+
+def test_f13_negative_a_disclosure_page_footer_is_not_the_product_name():
+    # `Member FDIC` is also printed under the credit-bureau disclosure, where
+    # the line above it is prose. Only the block above an Account Summary names
+    # the product.
+    doc = document(
+        summary=f"{ANCHOR_CREDIT_CATEGORY} {ANCHOR_DEBIT_CATEGORY}",
+        closing="1,420.00",
+        sections=ANCHOR_SECTIONS + ANCHOR_WITHDRAWAL_SECTION,
+    )
+    with_disclosure = (
+        "CONSUMER REPORT DISPUTES\n"
+        "We may report information about account activity on consumer and small\n"
+        "business deposit accounts to consumer reporting agencies.\n"
+        "Member FDIC\n"
+        "--- Page 2 ---\n"
+    ) + doc
+    stmt = parse_us_bank_statement(with_disclosure)
+    assert stmt is not None
+    assert stmt.account_name == "U.S. BANK SILVER - BUSINESS CHECKING"
+
+
+def test_f13_negative_no_printed_header_block_publishes_no_product_name():
+    doc = document(
+        summary=f"{ANCHOR_CREDIT_CATEGORY} {ANCHOR_DEBIT_CATEGORY}",
+        closing="1,420.00",
+        sections=ANCHOR_SECTIONS + ANCHOR_WITHDRAWAL_SECTION,
+    ).replace("Member FDIC\n", "")
+    stmt = parse_us_bank_statement(doc)
+    assert stmt is not None
+    assert stmt.account_name is None
