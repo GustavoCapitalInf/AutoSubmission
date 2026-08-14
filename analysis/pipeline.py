@@ -4,6 +4,7 @@ statement that fails reconciliation is re-extracted with the stronger model."""
 from __future__ import annotations
 import re
 from dataclasses import dataclass, field
+from collections.abc import Sequence
 from typing import Callable
 from .config import Settings, load_settings
 from .count_semantics import counts_comparable
@@ -256,14 +257,6 @@ _PAGE_DECLARATION_RE = re.compile(
     r"(?<!NEXT )\bPage\s*:?\s*(\d+)\s+of\s+(\d+)\b", re.IGNORECASE
 )
 
-#: The intake layer's per-sheet separator (`ocr.document.StatementMarkdown.
-#: to_markdown`), which marks every physical sheet of the supplied PDF whether
-#: or not the bank printed a page footer on it. Read here for the same reason
-#: `analysis/navigant.py` already splits on it: it is the one structural record
-#: of how many sheets the document is actually made of.
-_SHEET_SEPARATOR_RE = re.compile(r"(?m)^--- Page \d+(?: \(empty\))? ---\s*$")
-
-
 def assess_document_integrity(
     stmt: Statement,
     recon: ReconResult,
@@ -271,6 +264,7 @@ def assess_document_integrity(
     *,
     markdown: str = "",
     dispatch: Dispatch | None = None,
+    sheets: Sequence[str] | None = None,
 ) -> DocumentIntegrity:
     flags: list[str] = []
     notes: list[str] = []
@@ -364,46 +358,61 @@ def assess_document_integrity(
         present = {current for current, total in declared_pages if total == declared_total}
         missing = sorted(set(range(1, declared_total + 1)) - present)
         # A missing LABEL is only evidence of a missing PAGE when every sheet
-        # the PDF carries prints one, and plenty do not: deposit-image sheets,
-        # back-of-page notices and continuation sheets routinely carry no page
-        # footer at all. HUNT-CELL H6.2 measured three Burke & Herbert
-        # statements that declare N pages, print labels 1..N-1, and carry the
-        # Nth as an unlabelled deposit-image sheet whose rows reproduce the
-        # published ledger exactly — the page is demonstrably THERE, and the
-        # document was being accused of a missing page on the strength of an
-        # absent footer.
+        # the PDF carries prints one, and plenty do not. HUNT-CELL H6.2 measured
+        # three Burke & Herbert statements whose Nth declared page is an
+        # unlabelled deposit-image sheet — and whose rows reproduce the
+        # published ledger exactly, so the "missing" page corroborates the parse
+        # it was impeaching. UNID-PACK-B §UB4.3 measured the same defect in a
+        # second shape: Fiserv Premier footers `1 of 8` … `6 of 8` and appends
+        # the GLBA privacy notice as two sheets with no footer at all.
         #
-        # So an unlabelled sheet is counted as what it is: a sheet that could
-        # be any one of the pages whose label was not found. Where there are at
-        # least as many of them as there are missing labels, every declared
-        # page is accounted for by something physically present, and "absent
-        # from the supplied PDF" is a claim the evidence does not support.
+        # So an unlabelled sheet is counted as what it is: a candidate for any
+        # one of the pages whose label was not found. The flag is withheld only
+        # when BOTH hold — enough candidates for the unfound labels, and a PDF
+        # that is not simply short of its own declared total. Both conjuncts are
+        # load-bearing against padding: appending junk sheets raises
+        # `unlabelled_sheets`, while a whitespace-only sheet is excluded from
+        # `printed_sheets` and so can raise neither.
         #
-        # This does NOT blunt the check, because the discriminating case is a
-        # real one: the pinned Columbia statement declares 5 pages, supplies 4
-        # sheets and prints a label on all four — zero unlabelled sheets, so a
-        # page really is absent and the flag stands, byte-identical. Likewise
-        # the synthetic Wells fixture behind the FILENAME-BOUNDARY suppression
-        # test, which prints `Page 1 of 4` on its only sheet.
+        # `sheets` is the INTAKE OBJECT's page list (`StatementMarkdown.pages`),
+        # one entry per physical sheet, passed down by the caller that ran the
+        # intake ladder. It is deliberately NOT recovered by re-splitting
+        # `markdown` on the `--- Page N ---` separators `to_markdown` writes
+        # between those same pages. That was this hunk's first form and it was
+        # wrong in the way FILENAME-BOUNDARY is about, one layer further down:
+        # the separator is an unescaped text convention and page content is OCR
+        # output, so a statement printing the literal line `--- Page 9 ---`
+        # manufactures a sheet that does not exist. Appended inside the last
+        # page it even leaves the 1..K sequence intact, so validating the
+        # separator STREAM cannot close it — the count has to come from the
+        # object that knows how many sheets were rasterised. This flag is
+        # fraud-relevant; a document must not clear it by printing a line.
         #
-        # RESTRICTION-ONLY, the FIXUPS-1 property: this adds a conjunct that
-        # can only withdraw the flag, never raise it on a document that did not
-        # already carry it. Swept over the 3,367 archive documents that have an
-        # OCR artifact: 114 withdrawn, ZERO raised.
+        # FAIL-CLOSED when the caller supplies nothing: no sheet list means no
+        # evidence that anything is present but unlabelled, so `missing` stands
+        # exactly as it did before this cell. A caller can only ever weaken this
+        # check by proving structure, never by staying silent.
         #
-        # `[1:]` drops what precedes the first separator, which is intake
-        # preamble and not a sheet. It matters twice: `analyze_markdown` strips
-        # the source comment before this runs, but a caller passing raw
-        # markdown would otherwise contribute a phantom unlabelled sheet and
-        # weaken the check by one; and a document with no separators at all —
-        # every hand-written fixture — yields no sheets rather than one, so
-        # `unlabelled_sheets` is 0 and nothing about those documents moves.
+        # ASYMMETRY, deliberate and conservative: `declared_pages` reads
+        # declarations from the whole document and takes `declared_total` from
+        # the largest denominator, while a sheet counts as labelled if it
+        # carries ANY declaration, whatever its denominator. A sheet printing
+        # `Page 1 of 2` inside a document that declares 8 is therefore treated
+        # as labelled rather than as a candidate. That direction only ever keeps
+        # the flag, so the asymmetry cannot clear a document.
+        #
+        # This does NOT blunt the check: the pinned Columbia statement declares
+        # 5 pages, supplies 4 sheets and labels all four, so nothing can stand
+        # in for page 5 and its flag stands byte-identical — as does the
+        # synthetic Wells fixture behind the FILENAME-BOUNDARY suppression test.
+        printed_sheets = [sheet for sheet in (sheets or ()) if sheet.strip()]
         unlabelled_sheets = sum(
-            1
-            for sheet in _SHEET_SEPARATOR_RE.split(markdown)[1:]
-            if sheet.strip() and not _PAGE_DECLARATION_RE.search(sheet)
+            1 for sheet in printed_sheets if not _PAGE_DECLARATION_RE.search(sheet)
         )
-        if missing and len(missing) > unlabelled_sheets:
+        accounted_for = (
+            len(printed_sheets) >= declared_total and len(missing) <= unlabelled_sheets
+        )
+        if missing and not accounted_for:
             flags.append("missing_declared_statement_page")
             notes.append(
                 "statement declares "
@@ -441,7 +450,12 @@ def assess_document_integrity(
 def analyze_markdown(markdown: str, *, settings: Settings | None = None,
                      parse_mode: str = "auto",
                      document_geometry: object | None = None,
+                     sheets: Sequence[str] | None = None,
                      on_dispatch: Callable[[Dispatch], None] | None = None) -> Report:
+    # `sheets` is `StatementMarkdown.pages` from the caller that ran the intake
+    # ladder — the authentic per-sheet structure of the PDF, which this string
+    # cannot be trusted to reproduce (see `assess_document_integrity`). Optional
+    # and fail-closed: a caller that does not have it changes nothing.
     settings = settings or load_settings()
     if parse_mode not in {"auto", "deterministic"}:
         raise ValueError(f"unknown parse_mode: {parse_mode}")
@@ -572,7 +586,9 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         for note in quality.notes:
             if note not in metrics.notes:
                 metrics.notes.append(note)
-    integrity = assess_document_integrity(stmt, recon, quality, markdown=markdown, dispatch=dispatch)
+    integrity = assess_document_integrity(
+        stmt, recon, quality, markdown=markdown, dispatch=dispatch, sheets=sheets
+    )
     if integrity.possible_document_issue and quality.corporate_use != "approved":
         quality = Quality(
             level="needs_review",

@@ -449,25 +449,31 @@ def test_the_page_declaration_restriction_can_only_remove_matches():
         assert set(after.findall(sample)) <= set(before.findall(sample))
 
 
-def _sheets(*pages: str) -> str:
-    """The intake layer's rendering of a PDF with one entry per physical sheet
-    — the shape `assess_document_integrity` actually receives in production."""
-    return StatementMarkdown(
+def _page_integrity(*pages: str):
+    """The integrity assessment of a PDF whose physical sheets are `pages`.
+
+    Both arguments the production path supplies: the rendered markdown AND the
+    intake object's own page list. They are passed separately on purpose — the
+    check must never recover the second from the first.
+    """
+    stmt, recon, quality = _reconciled_statement_for_page_declarations()
+    document = StatementMarkdown(
         source_file="statement.pdf", model="test-model", pages=list(pages)
-    ).to_markdown()
+    )
+    return assess_document_integrity(
+        stmt, recon, quality, markdown=document.to_markdown(), sheets=document.pages
+    )
 
 
 def test_an_unlabelled_sheet_is_not_a_missing_page():
     """HUNT-CELL H6.2: a layout whose last declared page is a deposit-image
     sheet prints no footer on it, so the label is absent while the page is
     present. Accusing that document of a missing page is a false finding."""
-    stmt, recon, quality = _reconciled_statement_for_page_declarations()
-    markdown = _sheets(
+    integrity = _page_integrity(
         "Page 1 of 3\nAccount Summary",
         "Page 2 of 3\nActivity",
         "Images of deposited items\n2/13 $18,245.24    2/23 $8,000.00",
     )
-    integrity = assess_document_integrity(stmt, recon, quality, markdown=markdown)
     assert "missing_declared_statement_page" not in integrity.flags
     assert integrity.flags == []
 
@@ -477,14 +483,12 @@ def test_a_declared_page_absent_from_a_fully_labelled_pdf_still_flags():
     check: the pinned Columbia statement declares five pages, supplies four
     sheets and prints a label on every one of them. Nothing unlabelled can
     stand in for page 5, so the page really is absent and the flag stands."""
-    stmt, recon, quality = _reconciled_statement_for_page_declarations()
-    markdown = _sheets(
+    integrity = _page_integrity(
         "Page 1 of 5\nAccount Summary",
         "Page 2 of 5\nActivity",
         "Page 3 of 5\nActivity",
         "Page 4 of 5\nActivity",
     )
-    integrity = assess_document_integrity(stmt, recon, quality, markdown=markdown)
     assert integrity.flags == ["missing_declared_statement_page"]
     assert any("5 are absent" in note for note in integrity.notes)
 
@@ -495,14 +499,12 @@ def test_two_unnumbered_disclosure_inserts_are_not_two_missing_pages():
     GLBA privacy notice as two sheets carrying no footer, so the printed
     denominator counts pages the footers never label. Two unlabelled sheets
     account for two unfound labels exactly — the boundary of the count."""
-    stmt, recon, quality = _reconciled_statement_for_page_declarations()
-    markdown = _sheets(
+    integrity = _page_integrity(
         "Page 1 of 4\nAccount Summary",
         "Page 2 of 4\nActivity",
         "IMPORTANT PRIVACY CHOICES FOR CONSUMERS\nWhat we do with your information",
         "To limit our sharing, call the number on your statement",
     )
-    integrity = assess_document_integrity(stmt, recon, quality, markdown=markdown)
     assert "missing_declared_statement_page" not in integrity.flags
     assert integrity.flags == []
 
@@ -511,15 +513,86 @@ def test_more_missing_labels_than_unlabelled_sheets_still_flags():
     """The restriction is a count, not a switch: one unlabelled sheet excuses
     one missing label, and no more. Two pages absent behind a single unlabelled
     sheet is still a finding."""
-    stmt, recon, quality = _reconciled_statement_for_page_declarations()
-    markdown = _sheets(
+    integrity = _page_integrity(
         "Page 1 of 4\nAccount Summary",
         "Page 2 of 4\nActivity",
         "Images of deposited items",
     )
-    integrity = assess_document_integrity(stmt, recon, quality, markdown=markdown)
     assert integrity.flags == ["missing_declared_statement_page"]
     assert any("3, 4 are absent" in note for note in integrity.notes)
+
+
+def test_page_content_cannot_forge_a_sheet_boundary():
+    """The separator-injection vector, and why the sheet count comes from the
+    intake object rather than from re-splitting the rendered markdown.
+
+    `--- Page N ---` is an unescaped text convention that `to_markdown` writes
+    BETWEEN pages, and page content is OCR output of whatever the document
+    printed. This statement declares 5 pages, supplies 4, and its last page
+    carries the literal separator line — so a reader that recovered the sheet
+    count from the string would see a fifth, unlabelled sheet and withdraw a
+    genuine missing-page finding. The PDF has four sheets and page 5 is absent.
+    """
+    import re
+
+    forged = "Page 4 of 5\nActivity\n\n--- Page 5 ---\n\nnothing was scanned here"
+    integrity = _page_integrity(
+        "Page 1 of 5\nAccount Summary",
+        "Page 2 of 5\nActivity",
+        "Page 3 of 5\nActivity",
+        forged,
+    )
+    assert integrity.flags == ["missing_declared_statement_page"], (
+        "page content forged a sheet boundary and cleared a fraud-relevant flag"
+    )
+    # The vector is real: the rendered string does carry a fifth separator.
+    assert len(re.findall(r"(?m)^--- Page \d+ ---$", _sheet_markdown(
+        "Page 1 of 5\nAccount Summary", "Page 2 of 5\nActivity",
+        "Page 3 of 5\nActivity", forged,
+    ))) == 5
+
+
+def test_padding_the_pdf_with_a_blank_sheet_does_not_clear_the_flag():
+    """The other way to manufacture an unlabelled sheet: append one to the PDF.
+
+    Columbia's shape with one near-empty sheet stapled on. The sheet is real,
+    so the intake object reports it — and it is still refused, because a sheet
+    with no text is not a candidate for a page the bank printed and because the
+    supplied PDF is still short of the declared total.
+
+    What the combined rule therefore refuses: a short PDF padded with blank or
+    whitespace-only sheets, and any document supplying fewer text-bearing
+    sheets than it declares pages. What it still accepts, and is the honest
+    residual: padding with a sheet that carries real text, which is
+    indistinguishable from an unlabelled insert without reading the page.
+    """
+    integrity = _page_integrity(
+        "Page 1 of 5\nAccount Summary",
+        "Page 2 of 5\nActivity",
+        "Page 3 of 5\nActivity",
+        "Page 4 of 5\nActivity",
+        "   \n  \n",
+    )
+    assert integrity.flags == ["missing_declared_statement_page"]
+
+
+def test_no_sheet_list_leaves_the_check_exactly_as_it_was():
+    """Fail-closed: a caller that cannot supply the intake page list gets the
+    pre-cell behaviour, so silence can never weaken a fraud-relevant flag."""
+    stmt, recon, quality = _reconciled_statement_for_page_declarations()
+    markdown = _sheet_markdown(
+        "Page 1 of 3\nAccount Summary",
+        "Page 2 of 3\nActivity",
+        "Images of deposited items",
+    )
+    integrity = assess_document_integrity(stmt, recon, quality, markdown=markdown)
+    assert integrity.flags == ["missing_declared_statement_page"]
+
+
+def _sheet_markdown(*pages: str) -> str:
+    return StatementMarkdown(
+        source_file="statement.pdf", model="test-model", pages=list(pages)
+    ).to_markdown()
 
 
 def test_parse_atb_native_text_transactions_from_running_balance():
