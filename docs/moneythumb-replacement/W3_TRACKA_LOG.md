@@ -7319,6 +7319,10 @@ Runtime:  369.0s
 RESULT: GREEN
 EXIT=0
 
+$ python -m pytest -m corpus -q
+14 passed, 2916 deselected, 1 warning in 761.45s (0:12:41)
+EXIT=0
+
 $ python -m pytest -q
 2912 passed, 18 deselected, 1 warning in 109.93s (0:01:49)
 EXIT=0
