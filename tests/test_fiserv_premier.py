@@ -17,13 +17,13 @@ from analysis.fiserv_premier import detect, parse_fiserv_premier_statement
 
 RETURN_ADDRESS = "PO Box 1 Springfield, ZZ 00000"
 DIRECTORY = (
-    "Example Bank PO Box 1 Springfield, ZZ 00000 www.example-bank.test 000-000-0000 "
-    "Second Example Bank PO Box 2 Shelbyville, ZZ 00001 www.second.test 000-000-0001"
+    "Example Bank PO Box 1 Springfield, ZZ 00000 www.example-bank.com 000-000-0000 "
+    "Second Example Bank PO Box 2 Shelbyville, ZZ 00001 www.second-example.com 000-000-0001"
 )
 HEAD = (
     f"{RETURN_ADDRESS}\n"
     "Customer Service: Website:\n"
-    "000-000-0000 www.example-bank.test\n"
+    "000-000-0000 www.example-bank.com\n"
     "Statement of Account\n"
     "Account Title: SYNTHETIC HOLDINGS LLC\n"
     "Statement Dates 3/01/26 to 3/31/26 (31 days)\n"
@@ -137,12 +137,26 @@ def test_the_issuer_is_recovered_from_the_disclosure_directory():
     assert stmt.account_name == "SYNTHETIC BUSINESS CHECKING"
 
 
-def test_a_document_whose_directory_names_no_division_is_refused():
-    """This parser will not name a bank the page does not name. The template
-    prints only a domain, and a domain is not the issuer's name."""
-    assert parse_fiserv_premier_statement(
-        activity_document().replace(DIRECTORY, "")
-    ) is None
+def test_a_document_whose_directory_names_no_division_publishes_no_bank():
+    """This parser will not name a bank the page does not name — and an
+    un-named issuer is not a reason to throw the arithmetic away. The statement
+    is published with `bank=None`, which is what the page supports."""
+    stmt = parse_fiserv_premier_statement(activity_document().replace(DIRECTORY, ""))
+    assert stmt is not None
+    assert stmt.bank is None
+    assert stmt.ending_balance == 120.00
+
+
+def test_two_corroborated_divisions_sharing_a_return_address_publish_no_bank():
+    """Both names spell the same domain, so the document supports neither over
+    the other and the parser declines to choose."""
+    ambiguous = activity_document().replace(
+        DIRECTORY,
+        DIRECTORY + " Example Bank Of Springfield PO Box 1 Springfield, ZZ 00000",
+    )
+    stmt = parse_fiserv_premier_statement(ambiguous)
+    assert stmt is not None
+    assert stmt.bank is None
 
 
 def test_repeated_glyph_furniture_is_not_mistaken_for_a_division_name():
@@ -157,11 +171,80 @@ def test_repeated_glyph_furniture_is_not_mistaken_for_a_division_name():
     assert stmt.bank == "Example Bank"
 
 
-def test_two_divisions_sharing_a_return_address_are_refused():
-    ambiguous = activity_document().replace(
-        DIRECTORY, DIRECTORY + " Third Example Bank PO Box 1 Springfield, ZZ 00000"
+# --- D1: a capitalized run in front of an address is not an identity --------
+
+#: The three shapes a real issuer of this platform uses to name itself, and the
+#: three shapes that merely look like it. Reported by Ocean's adversarial review
+#: (§UNID-B RC-D1) after the first version of `_issuer` published all six.
+GENUINE = {
+    # the domain's label is inside the name
+    "Alta Example Bank": "www.altaexample.com",
+    # the Regulation E notice names the bank in front of the same address
+    "Chesterfield Example Bank": "chesterfield.bank",
+}
+
+
+def named_document(name: str, domain: str, *, in_directory: bool = True) -> str:
+    directory = (
+        f"{name} {RETURN_ADDRESS} {domain} 000-000-0000" if in_directory
+        else f"If you think your statement is wrong write us at {name} {RETURN_ADDRESS}."
     )
-    assert parse_fiserv_premier_statement(ambiguous) is None
+    return (
+        "--- Page 1 ---\n\n"
+        f"{RETURN_ADDRESS}\nCustomer Service: Website:\n000-000-0000 {domain}\n"
+        "Statement of Account\nAccount Title: SYNTHETIC HOLDINGS LLC\n"
+        "Statement Dates 3/01/26 to 3/31/26 (31 days)\n"
+        "SYNTHETIC BUSINESS CHECKING - XXXXXX0000\n"
+        f"{SUMMARY}\n"
+        "Transaction Activity Date Description Debits Credits Balance\n"
+        "3/02 SYNTHETIC DEBIT ONE -$10.00 $90.00\n"
+        "3/03 SYNTHETIC CREDIT $50.00 $140.00\n"
+        "3/04 SYNTHETIC DEBIT TWO -$20.00 $120.00\n"
+        "--- Page 2 ---\n\n"
+        f"{directory}\n"
+    )
+
+
+def test_an_issuer_whose_name_carries_the_documents_own_domain_publishes():
+    for name, domain in GENUINE.items():
+        stmt = parse_fiserv_premier_statement(named_document(name, domain))
+        assert stmt is not None and stmt.bank == name, name
+
+
+def test_an_issuer_named_only_in_the_regulation_e_notice_publishes():
+    """`ches.bank` / "Chesapeake Bank" in the archive: the bank names itself
+    nowhere but the error-resolution notice, and the domain corroborates it."""
+    stmt = parse_fiserv_premier_statement(
+        named_document("Chesterfield Example Bank", "chesterfield.bank", in_directory=False)
+    )
+    assert stmt is not None
+    assert stmt.bank == "Chesterfield Example Bank"
+
+
+def test_an_issuer_named_only_beside_the_domain_in_the_directory_publishes():
+    """The archive's third shape: an abbreviated domain that is no part of the
+    name, corroborated instead by sitting in the same directory row."""
+    stmt = parse_fiserv_premier_statement(
+        named_document("First Example Bank of Springfield", "www.febspr.com")
+    )
+    assert stmt is not None
+    assert stmt.bank == "First Example Bank of Springfield"
+
+
+def test_boilerplate_in_front_of_the_return_address_is_not_an_identity():
+    """The finding that reopened this function. Each of these is a capitalized
+    run immediately in front of the statement's own return address, and none of
+    them is a bank; the first version of `_issuer` published all three."""
+    for impostor in (
+        "Member FDIC Equal Housing Lender",
+        "Notices to Smith and Jones LLP",
+        "Please Remit Payment To",
+    ):
+        stmt = parse_fiserv_premier_statement(
+            named_document(impostor, "www.altaexample.com")
+        )
+        assert stmt is not None, impostor
+        assert stmt.bank is None, impostor
 
 
 # ===========================================================================
@@ -210,6 +293,50 @@ def test_a_row_that_breaks_the_running_balance_chain_is_refused():
             "3/04 SYNTHETIC DEBIT TWO -$20.00 $120.00"
         )
     )) is None
+
+
+# --- D2: a zero-amount row has no sign to read a direction from -------------
+
+def test_a_zero_amount_row_in_the_running_grid_is_refused():
+    """Ocean's four-row shape (§UNID-B RC-D2). The grid prints its amount in a
+    Debits or a Credits column, and the flattened text layer has destroyed
+    which — so a `$0.00` posting carries no direction at all. Partitioning by
+    sign used to drop it out of both counts while it rode along in the ledger,
+    so a four-row document passed a three-row count check."""
+    hidden = parse_fiserv_premier_statement(activity_document(
+        summary=(
+            "Previous Balance $100.00 Average Ledger $150.00 "
+            "Deposits/Credits (1) $50.00 Average Collected $150.00 "
+            "Checks/Debits (2) $30.00 Service Charge $0.00 "
+            "Interest Paid $0.00 Ending Balance $120.00"
+        ),
+        rows=(
+            "3/02 SYNTHETIC DEBIT ONE -$10.00 $90.00\n"
+            "3/03 SYNTHETIC CREDIT $50.00 $140.00\n"
+            "3/03 SYNTHETIC ZERO ADJUSTMENT $0.00 $140.00\n"
+            "3/04 SYNTHETIC DEBIT TWO -$20.00 $120.00"
+        ),
+    ))
+    assert hidden is None
+
+
+def test_a_zero_amount_row_in_a_split_section_keeps_its_sections_direction():
+    """Where the section heading fixes the direction there is nothing to guess,
+    so the row is kept — and counted, which is the property that matters."""
+    stmt = parse_fiserv_premier_statement(split_document(
+        credits="3/03 SYNTHETIC CREDIT $50.00 3/05 SYNTHETIC ZERO CREDIT $0.00",
+        debits="3/02 SYNTHETIC DEBIT ONE $10.00 3/04 SYNTHETIC DEBIT TWO $20.00",
+    ))
+    assert stmt is None  # the printed count says 1 credit; the section prints 2
+
+    counted = parse_fiserv_premier_statement(split_document(
+        credits="3/03 SYNTHETIC CREDIT $50.00 3/05 SYNTHETIC ZERO CREDIT $0.00",
+        debits="3/02 SYNTHETIC DEBIT ONE $10.00 3/04 SYNTHETIC DEBIT TWO $20.00",
+    ).replace("Deposits/Credits (1)", "Deposits/Credits (2)"))
+    assert counted is not None
+    zero = [t for t in counted.transactions if t.amount == 0]
+    assert len(zero) == 1
+    assert zero[0].direction == "credit"
 
 
 def test_rows_that_do_not_match_the_printed_counts_are_refused():

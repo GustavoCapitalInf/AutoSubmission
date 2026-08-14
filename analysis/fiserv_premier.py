@@ -27,12 +27,15 @@ template's own `Statement of Account` heading. Each of the three is necessary;
 the scoring rule makes that literal, since one missing required marker caps the
 score below the claim threshold no matter how much else fires.
 
-**The issuer is read off the document.** The template prints only a domain in
-its customer-service block, so the bank's name is recovered structurally: the
-statement's return address is reprinted in the disclosure directory beside the
-name of the division that owns it, and the name is the text in front of it.
-A document whose directory does not resolve to exactly one name is refused —
-this parser will not name a bank the page does not.
+**The issuer is read off the document, and only when the document corroborates
+it.** The template prints its bank's name nowhere prominent — only in passing,
+in front of an address, in a disclosure directory or a Regulation E notice. A
+capitalized run in front of an address is *not* an identity: regulatory
+boilerplate and third-party notice addresses have the same shape. `_issuer`
+therefore publishes a name only when the document's own web address spells it
+(`_spells`), and otherwise leaves `Statement.bank` as None rather than
+guessing. The arithmetic does not depend on the name, so an unnamed issuer
+costs a label, not a document.
 
 **Two ledger shapes**, both gated on the summary's own counts and totals:
 a single `Transaction Activity` grid carrying a running balance, whose chain is
@@ -77,6 +80,10 @@ _PERIOD_RE = re.compile(
 _TITLE_RE = re.compile(r"Account Title:\s*(.+?)\s*$", re.MULTILINE)
 _PRODUCT_RE = re.compile(r"^(.+?)\s+-\s+(X+\d+)\s*$", re.MULTILINE)
 
+#: A printed web address. Used for the issuer's identity, never for routing.
+_DOMAIN_RE = re.compile(
+    r"\b(?:www\.)?([A-Za-z][A-Za-z0-9\-]{2,})\.(?:com|bank|net|org)\b", re.IGNORECASE
+)
 #: The statement's own return address, printed at the top of page one.
 _RETURN_RE = re.compile(
     r"^(PO Box \d+|\d+ [A-Z][^\n,]{3,40})\s+([A-Za-z .'\-]+),\s*[A-Z]{2}\s+\d{5}",
@@ -130,25 +137,77 @@ DETECTION_MARKERS = (
 detect = make_detector(DETECTION_MARKERS, detection_text)
 
 
-def _issuer(markdown: str) -> str | None:
-    """The division that issued this statement, read off the printed page.
+def _spells(label: str, name: str) -> bool:
+    """Is `label` the way `name` writes itself as a domain?
 
-    The customer-service block carries a domain but no name. The disclosure
-    directory carries both, for every division of the group, so the statement's
-    own return address is what selects the right row of it.
+    True when the domain's letters appear in the name in order and both start
+    with the same letter — which is what a bank's own web address is: the name
+    spelled short. It covers the name written out (``altabank`` /
+    "Altabank"), the name shortened (``ches`` / "Chesapeake Bank") and the name
+    reduced to an abbreviation (``fsbmsla`` / "First Security Bank of
+    Missoula"), without any of them being enumerated here.
+
+    The shared first letter is what stops a short label drifting onto unrelated
+    text: ``ches`` is a subsequence of "Notices to Smith and Jones LLP" as
+    letters, and is rejected because that phrase does not begin with a ``c``.
+    """
+    if not label or not name or label[0] != name[0]:
+        return False
+    remaining = iter(name)
+    return all(character in remaining for character in label)
+
+
+def _own_domain(markdown: str) -> str | None:
+    """The registrable label of the domain this statement prints for itself.
+
+    The contact block at the head of page one is the statement's own; the
+    disclosure directory further down lists every sibling division's domain, so
+    document order is what separates "mine" from "theirs".
+    """
+    m = _DOMAIN_RE.search(markdown)
+    return m.group(1).lower() if m else None
+
+
+def _issuer(markdown: str) -> str | None:
+    """The division that issued this statement, or None when it is not printed.
+
+    The template names its issuer only in passing: beside the return address in
+    the group's disclosure directory, or in the Regulation E notice ("write us
+    at <bank> <address>"). Both are just a capitalized run in front of an
+    address — and **a capitalized run in front of an address is not an
+    identity**. The same shape is produced by regulatory boilerplate ("Member
+    FDIC Equal Housing Lender") and by a third party's notice address ("Notices
+    to <firm>"), and publishing either as `Statement.bank` would put a fiction
+    into underwriting output. This registration is meant to generalize across
+    many issuers of one platform, so the guard has to be structural rather than
+    a list of known bad phrases.
+
+    A candidate is therefore published only when the document ties it to the one
+    identity it *does* print unambiguously — its own web address — by `_spells`:
+    the domain has to be that name written short. Boilerplate that merely sits
+    in front of an address does not spell the bank's domain, so it never
+    survives, and no phrase has to be enumerated for it to be rejected.
+
+    When nothing is corroborated, or more than one thing is, the answer is None
+    and the caller publishes no bank at all: an unnamed issuer is a gap a human
+    can close, where a wrong one is a finding nobody knows to question.
     """
     ret = _RETURN_RE.search(markdown)
-    if ret is None:
+    domain = _own_domain(markdown)
+    if ret is None or domain is None:
         return None
     anchor = f"{ret.group(1)} {ret.group(2)}"
     named = re.compile(r"([A-Z][A-Za-z.&'\- ]{2,40}?)\s+" + re.escape(anchor))
-    candidates = {
-        name.strip()
-        for name in (m.group(1) for m in named.finditer(markdown))
+
+    corroborated: set[str] = set()
+    for match in named.finditer(markdown):
+        name = match.group(1).strip()
         # The text layer emits runs of one repeated glyph as page furniture.
-        if len(set(name.strip().replace(" ", ""))) > 1
-    }
-    return candidates.pop() if len(candidates) == 1 else None
+        if len(set(name.replace(" ", ""))) <= 1:
+            continue
+        if _spells(re.sub(r"[^a-z0-9]", "", domain), re.sub(r"[^a-z0-9]", "", name.lower())):
+            corroborated.add(name)
+    return corroborated.pop() if len(corroborated) == 1 else None
 
 
 def _summary(markdown: str):
@@ -228,6 +287,14 @@ def _activity_rows(text: str, start: date, end: date, opening: float):
         posted = iso_within_period(m.group(1), start, end)
         if amount is None or balance is None or posted is None:
             return None
+        # A zero-amount posting has no sign to read a direction from, and this
+        # grid prints the amount in a Debits or a Credits column whose identity
+        # the flattened text layer has already destroyed. Direction is a
+        # property of the column, not of the sign (the platform rule), so there
+        # is nothing here to derive it from — refuse rather than file the row
+        # under a guessed side and let it count against a printed total.
+        if amount == 0:
+            return None
         if abs(round(running + amount, 2) - balance) > _TOLERANCE:
             return None
         running = balance
@@ -266,8 +333,12 @@ def parse_fiserv_premier_statement(markdown: str) -> Statement | None:
         return None
     summary = _summary(markdown)
     period = _PERIOD_RE.search(markdown)
+    # An unnamed issuer is not a reason to refuse the document: the arithmetic
+    # is the same either way, and `bank=None` reports exactly what the page
+    # supports. Refusing would also make the guard above look like a parse
+    # failure in the telemetry, which is the opposite of what it is.
     issuer = _issuer(markdown)
-    if summary is None or period is None or issuer is None:
+    if summary is None or period is None:
         return None
 
     sm, sd, sy, em, ed, ey, days = (int(part) for part in period.groups())
@@ -324,8 +395,13 @@ def parse_fiserv_premier_statement(markdown: str) -> Statement | None:
         return None
 
     # The summary's own counts and totals are the gate on the rows.
-    credit_rows = [t for t in transactions if t.amount > 0]
-    debit_rows = [t for t in transactions if t.amount < 0]
+    # Partitioned by DIRECTION, not by sign. A zero-amount row belongs to
+    # whichever side the document filed it under, and a sign test would drop it
+    # out of both counts while still carrying it in `transactions` — the count
+    # gate below would then compare a short list against the printed total and
+    # pass, publishing a ledger with a row nobody counted.
+    credit_rows = [t for t in transactions if t.direction == "credit"]
+    debit_rows = [t for t in transactions if t.direction == "debit"]
     if len(credit_rows) != summary["credit_count"]:
         return None
     if len(debit_rows) != summary["debit_count"]:

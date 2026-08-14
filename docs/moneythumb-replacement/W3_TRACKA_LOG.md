@@ -8554,6 +8554,13 @@ summary" would make all 18 **ambiguous**, which routes 18 currently-resolved
 documents to review. That is a regression, and no amount of downstream care
 prevents it, because ambiguity is decided before any parse runs.
 
+**That 18 is a floor, not the population.** It counts only the documents this
+cell extracted; Ocean's review re-derived the same coexistence over a superset
+and found **40**, every one of them byte-identical with and without this
+registration. The larger number strengthens the claim rather than weakening it —
+the disjointness holds over more than twice the evidence used to design it — and
+the figure to quote going forward is 40.
+
 The three parsers involved also hold **6 documents of the pinned corpus**
 between them (`capital_one` 4, `linkbank` 1, `farmers_merchants` 1), so a
 broader registration would have to clear the gate as well as the archive — the
@@ -8583,9 +8590,24 @@ so the return address selects the row and the name is the text in front of it.
 Repeated-glyph page furniture is filtered; a directory that resolves to more
 than one division, or to none, refuses the document.
 
-This is what refuses the 4 Coastal States Bank documents: their disclosure page
+This is what leaves the 4 fourth-family documents unnamed: their disclosure page
 carries no directory, so there is no printed evidence of the issuer's name, and
 this parser will not name a bank the page does not.
+
+They are **not** named here either. An earlier draft of this section called them
+"Coastal States Bank" — read off the same unverified furniture the section is
+about, which is precisely the standard §UB5 applies to card 8. Struck.
+
+Their refusal is in any case **over-determined**: all 4 also lack the
+`Statement Dates … (N days)` period line this layout requires, so they are
+refused on the period before the issuer is ever consulted.
+
+```
+d8ddb4db_April.pdf          REFUSED  period=N  issuer=None
+d8ddb4db_Checking_…_6_3     REFUSED  period=N  issuer=None
+d8ddb4db_Checking_…_7_3     REFUSED  period=N  issuer=None
+d8ddb4db_May.pdf            REFUSED  period=N  issuer=None
+```
 
 ### UB4.3 Result over the Fiserv family
 
@@ -8600,7 +8622,7 @@ declined (no printed issuer): 4      -> parser_declined, named below
 |---|---|---|
 | 6 | two divisions, both ledger shapes | validated |
 | 4 | same two divisions | **claimed, withheld from validation by `missing_declared_statement_page`** — see below |
-| 4 | Coastal States Bank | refused: the document names no issuer (UB4.2) |
+| 4 | a fourth family, not named here | refused: no period line, and no printed issuer (UB4.2) |
 
 **One reading in this parser is uncorroborated, and is named as such.** The
 summary carries `Service Charge` and `Interest Paid` clauses, and the closing
@@ -8921,6 +8943,102 @@ fiserv_premier/debit   -> comparable=False scope=unsurveyed
 in SEMANTICS table: False
 ```
 
+## UB-RC. Review closures
+
+Ocean's adversarial review returned **SHIP** — every headline survived
+re-derivation over larger populations than this cell used (0/229 Wells; 40/40
+coexistence byte-identity; the 27 movers re-derived from source PDFs) — with
+three closures required before merge.
+
+### RC-D1 A capitalized run in front of an address is not an identity
+
+**Finding.** `_issuer` published whatever capitalized run preceded the return
+address. The reviewer constructed `Statement.bank = "Member FDIC Equal Housing
+Lender"` and `"Notices to Smith and Jones LLP"` from ordinary boilerplate, and
+the docstring's "will not name a bank the page does not" was an overclaim. This
+registration is slated to generalize across ~20 issuers, so a blocklist was
+explicitly not an acceptable close.
+
+**Close.** The name is published only when the document's **own web address
+spells it** — `_spells(label, name)`: the domain's letters appear in the name in
+order and both begin with the same letter. That is one structural rule covering
+all three ways this platform's issuers name themselves, none of them enumerated:
+
+| printed as | domain | name | why it passes |
+|---|---|---|---|
+| directory row | `altabank.com` | Altabank | the name written out |
+| Regulation E notice | `ches.bank` | Chesapeake Bank | the name shortened |
+| directory row | `fsbmsla.com` | First Security Bank of Missoula | the name abbreviated |
+
+The shared first letter is load-bearing: `ches` is a subsequence of "Notices to
+Smith and Jones LLP" *as letters*, and is rejected because that phrase does not
+begin with a `c`. Otherwise, and when two names are corroborated at once,
+`bank=None` — the capital_one precedent, None over a guess.
+
+**An unnamed issuer no longer refuses the document.** The arithmetic does not
+depend on the label, so refusing would have discarded a provable statement and
+mis-reported the guard as a parse failure in telemetry. Over the whole extracted
+archive **0 documents actually take that path** — every document this parser
+publishes still carries a corroborated issuer — so `bank=None` is a safety net,
+not a new class of unlabelled output.
+
+Fixtures: the reviewer's three constructions publish None; three synthetic
+issuers, one per row of the table above, still publish
+(`tests/test_fiserv_premier.py`, D1 block).
+
+### RC-D2 A zero-amount row has no sign to read a direction from
+
+**Finding.** The count gate partitioned by `amount > 0` / `amount < 0`, so a
+`$0.00` row fell out of both counts while still riding in `transactions` — a
+four-row document passing a three-row count check, with the row published as a
+zero-amount credit. The platform's rule is direction-not-sign.
+
+**Close.** The gate now partitions by `Transaction.direction`. In the split
+sections the heading fixes the direction, so a zero row is kept and counted. In
+the running grid the direction lives in a Debits/Credits column the flattened
+text layer has destroyed, so there is nothing to derive it from and the row is
+refused outright rather than filed under a guessed side. Both halves fixtured on
+the reviewer's four-row shape.
+
+### RC-D3 Records
+
+* **"Coastal States" struck** from §UB4.2. It was read off the same unverified
+  furniture that section is about — the standard §UB5 applies to card 8, applied
+  inconsistently one section earlier. The 4 documents are described, not named,
+  and their refusal is noted as **over-determined**: all 4 also lack the period
+  line, so they are refused before the issuer is consulted.
+* **The 18-document coexistence figure is a floor**, covering only what this
+  cell extracted; the reviewer's superset puts it at **40**, byte-identical
+  throughout. Recorded at §UB4.1 as the figure to quote.
+
+### RC-Proofs
+
+```
+$ python -m pytest tests/test_fifth_third.py tests/test_fiserv_premier.py -q
+50 passed in 0.47s
+EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+      tests/test_no_parser_helper_clones.py -q
+100 passed in 3.17s
+EXIT=0
+
+$ python -m pytest tests/test_parser_conformance.py tests/test_parser_registry_entries.py \
+      tests/test_parser_detection_markers.py -q
+733 passed in 2.07s
+EXIT=0
+
+$ python -m pytest -q
+3087 passed, 18 deselected, 1 warning in 231.80s (0:03:51)
+SUITE_EXIT=0
+```
+
+Re-measured after the closures, unchanged: Fifth Third **13 validated**; Fiserv
+**10 parsed, 6 validated**; the stratified probe **0 claims / 0 changes / 0
+ambiguous** over 679 documents and 65 strata; the archive-wide differential
+**27 movers, all `(none) → new`, 0 outside the two families, 0 ambiguous** over
+1,563 distinct documents.
+
 ## UB10. Commits
 
 | Commit | Contents |
@@ -8929,4 +9047,5 @@ in SEMANTICS table: False
 | `95d6226` | card 2 — the Fiserv Premier parenthesised-counts issue, behind the measured anti-collision clause |
 | `38a02fb` | the printed order is kept where the rows carry running balances |
 | `b8d7006` | a custodian disclosure naming the bank is not a claim |
-| (this one) | §UNID-B UB0–UB10 |
+| `13c8e1d` | §UNID-B UB0–UB10 |
+| (this one) | §UNID-B UB-RC — Ocean's three review closures |
