@@ -359,3 +359,63 @@ MONTHLY PLAN FEE 10.00 FEB01
 """))
     assert _amounts(stmt) == [40.0, -10.0]
     assert stmt.ending_balance is None
+
+
+# ---------------------------------------------------------------------------
+# C1 - three more of TD's own structural codes
+# ---------------------------------------------------------------------------
+
+class TestC1AdditiveCreditCodes:
+    """TD prints these three; the parser read none of them as credits.
+
+    Each has a sibling printed in the same position by the same channel and
+    meaning the opposite, which is what makes the code — and not the wording
+    around it — the evidence. The group below is deliberately underdetermined
+    (`{30}` and `{10, 20}` both reproduce the printed balance), because that is
+    the only place a transaction code decides anything: where the grid can
+    answer, it outranks the code, and the last test pins that it still does.
+    """
+
+    LEDGER = """
+BALANCE FORWARD JAN31 100.00
+FIRST UNCODED ROW 10.00 FEB01
+SECOND UNCODED ROW 20.00 FEB01
+{row} 30.00 FEB01 100.00
+"""
+
+    def _read(self, row: str):
+        return _amounts(parse_native_td_canada_statement(
+            _statement(self.LEDGER.format(row=row))
+        ))
+
+    def test_an_incoming_e_transfer_is_a_credit(self):
+        # `SEND E-TFR ...` leaves the account; a bare `E-TFR ...` arrives in
+        # it. Only the spelled-out `E-TRANSFER` was ever read.
+        assert self._read("E-TFR ***a1B EPAY") == [-10.0, -20.0, 30.0]
+
+    def test_an_outgoing_e_transfer_is_still_a_debit(self):
+        assert self._read("SEND E-TFR ***a1B") == [-10.0, -20.0, -30.0]
+
+    def test_a_deposit_at_a_td_machine_is_a_credit(self):
+        assert self._read("TD ATM DEP 000000") == [-10.0, -20.0, 30.0]
+
+    def test_a_withdrawal_at_the_same_machine_is_not(self):
+        assert self._read("TD ATM W/D 000000") == [-10.0, -20.0, -30.0]
+
+    def test_a_deposit_channel_row_is_a_credit(self):
+        assert self._read("GC 0000-DEPOSIT") == [-10.0, -20.0, 30.0]
+
+    def test_the_same_channels_cash_withdrawal_is_not(self):
+        # The unit number is statement data, so the marker cannot contain it;
+        # the direction is the printed suffix, and this is the other suffix.
+        assert self._read("GC 0000-CASH WITHDRA") == [-10.0, -20.0, -30.0]
+
+    def test_the_printed_balance_still_outranks_the_new_codes(self):
+        # 100.00 - 40.00 - 10.00 = 50.00. The grid says the incoming-transfer
+        # row left the account, and the grid wins.
+        stmt = parse_native_td_canada_statement(_statement("""
+BALANCE FORWARD JAN31 100.00
+E-TFR ***a1B EPAY 40.00 FEB01
+MONTHLY PLAN FEE 10.00 FEB01 50.00
+"""))
+        assert _amounts(stmt) == [-40.0, -10.0]
