@@ -122,6 +122,13 @@ FIXTURES: dict[str, str] = {
         "THE TORONTO-DOMINION BANK\n"
         "DESCRIPTION CHEQUE/DEBIT DEPOSIT/CREDIT DATE BALANCE\n"
     ),
+    # The Quebec issue of the same grid. Both markers are issuer furniture: the
+    # bank's own column legend and the statement's own issuer footer. The bank
+    # name alone is not evidence here any more than it is on the English side.
+    "td_canada_french": (
+        "DESCRIPTION RETRAITS DEPOTS DATE SOLDE\n"
+        "Comptes émis par : LA BANQUE TORONTO-DOMINION\n"
+    ),
     "td_us": "TD Bank, N.A.\nSTATEMENT OF ACCOUNT\n",
     "texas_bank": "Texas Bank and Trust\nWITHDRAWALS AND OTHER DEBITS (CONTINUED)\n",
     "truist": "TRUIST\nAccount summary Your previous balance\n",
