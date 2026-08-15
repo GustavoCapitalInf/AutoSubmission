@@ -21620,3 +21620,44 @@ Verdicts: 6 review / 100 validated / 3 withheld
 RESULT: GREEN
 GATE_EXIT=0
 ```
+
+```
+# the corpus-marked slice (mandatory since batch 3), 25/25, all named
+$ python -m pytest -m corpus -q -rA
+25 passed, 4279 deselected, 1 warning in 3190.68s (0:53:10)
+CORPUS_EXIT=0
+   test_corpus_gate_is_green
+   test_corpus_gate_outcomes: the verdict check green on the committed
+     expectation, and its six red-turning mutations (moved outcome class, lost
+     integrity flag, gained integrity flag, moved risk level, moved
+     possible_document_issue, changed integrity note) + the unanalysable
+     document is red not skipped
+   test_dry_run_reproduces_known_truth
+   test_the_pinned_statement_recovers_its_printed_descriptions_and_nothing_else
+   test_parser_parity: unclaimed / wrong parser / ambiguous / recorded parser /
+     highest-ranked claimant / three promoted sub-dispatches / expectations
+     cover the pinned manifest / detect-sweep prepares each document once /
+     entry points strip the filename comment once / detect sweep stays
+     affordable / detection invariant to the filename echo
+   test_telemetry_reproduces_the_gate_outcome_split
+   test_withheld_diagnostics_reproduce_the_documented_diagnosis
+   test_no_corpus_document_is_flagged_through_the_real_ladder
+```
+
+**Nothing in the pinned corpus moved**, in either direction: the gate's
+per-document verdict check is green on the committed expectation, and the
+corpus-marked slice — which is what catches review↔validated movement inside
+the gate's PASS bucket — is 25/25. Both were run on a machine carrying several
+other batch-5 cells at once, which is the only reason the two runtimes are
+1218.8s and 3190.68s rather than the usual figures.
+
+## FI7. Commits
+
+| Commit | Contents |
+|---|---|
+| `aff641a` | the module docstring naming the third issue and both causes; the two tests (claimed-and-refused-twice-over, and the issuer is not the refusal); both mutation-killed |
+| `5d361ad` | review of own text: the strip is identical in the REQUIRED markers, not in every clause |
+| `f132be9` | the claim assertion's message aligned with the marker it rests on |
+| `42e4055` | this section, FI0–FI5 |
+| `c536dbf` | the corpus gate proof |
+| (this one) | the corpus-marked slice proof, the no-movement statement, and this table |
