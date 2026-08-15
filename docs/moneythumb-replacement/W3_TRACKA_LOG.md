@@ -15183,7 +15183,23 @@ $ python -m pytest -m corpus -q
 exit 1
   FAILED tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run
   AssertionError: slowest full-registry detect sweep was 472.5 ms
+
+$ python corpus_gate.py
+[PASS] source_integrity: 109/109 pinned source PDFs match their pinned SHA-256
+[PASS] balance_audit / adb_audit: 109 statements reproduce every audited field
+[PASS] balance_outcomes: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes:     106 pass, 3 withheld, same three statements
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR; no live OCR, no model calls
+[PASS] exclusions: 0   [PASS] oracle_independence
+Outcomes: 106 PASS / 3 WITHHELD    Runtime: 681.3s
+RESULT: GREEN
+exit 0
 ```
+
+The thirteen other corpus-marked tests pass, including
+`test_telemetry_reproduces_the_gate_outcome_split` — so the review↔validated
+partition the gate is blind to is confirmed unmoved as well. The one failure is
+diagnosed below and is not this branch's.
 
 ### WF7.1 The corpus-slice failure is pre-existing — §HUNT's prediction landing
 
