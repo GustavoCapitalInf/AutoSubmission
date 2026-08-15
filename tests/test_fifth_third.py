@@ -19,7 +19,13 @@ adversarial twin asserting that the corroborating printing still bites.
 """
 from __future__ import annotations
 
-from analysis.fifth_third import detect, parse_fifth_third_statement
+from analysis.fifth_third import (
+    _SUMMARY_RE,
+    _SUMMARY_SPAN,
+    _summary,
+    detect,
+    parse_fifth_third_statement,
+)
 
 PRINT_STREAM = "FTCSTMT000 000 00000000 UDSPDFSTMT 0000000000000000000 DDA"
 PERIOD = (
@@ -471,6 +477,74 @@ def test_the_scanned_layout_reads_end_to_end():
     assert stmt.stated_total_debits == 50.00
     assert stmt.stated_credit_count == 2
     assert len(stmt.transactions) == 5
+
+
+def test_a_foreign_ending_balance_is_refused_by_the_closing_identity():
+    """The span DOES reach a foreign close, and instrument 1 is what stops it.
+
+    Recorded because the obvious reading of the bound is wrong, and this cell
+    recorded the wrong reading first. A scan can lose the statement's own
+    ending-balance line; the summary span then runs on to a later block's close
+    in 188 characters — well inside the bound, with every component printed
+    exactly once, so the duplicate-label refusal never fires and `_summary`
+    returns this beginning balance paired with someone else's ending balance.
+    What refuses the document is the walked closing identity: 100 + 150 - 30 -
+    20 is 200, not 77,777.
+
+    Instrument 4's terminal check reads the same close a second way, and
+    measured against this fixture either one alone is sufficient: with
+    instrument 1 deleted it is still refused, with instrument 4's terminal
+    check deleted it is still refused, and with BOTH deleted the foreign
+    pairing publishes with `ending_balance` 77,777.00. Two independent
+    readings of one close, and neither of them is the duplicate-label refusal.
+
+    The three assertions below are the corrected reasoning, each of them
+    falsifiable: the pairing IS read (so the bound is not the fence), every
+    component appears exactly once (so the duplicate-label refusal is not the
+    fence), the span is inside the bound (so the bound was never consulted) —
+    and the document is refused anyway.
+    """
+    lost_close = scanned_document().replace(
+        "03/31 Ending Balance $200.00",
+        "Analysis Period: 02/01/26 - 02/28/26\n"
+        "Standard Monthly Service Charge $0.00\n"
+        "PAPER ACCOUNT STATEMENT FEE $3.00\n"
+        "03/31 Ending Balance $77,777.00",
+    )
+    read = _summary(lost_close)
+    assert read is not None, "the span is expected to reach the foreign close"
+    beginning, _, ending, components = read
+    assert (beginning, ending) == (100.00, 77777.00)
+    assert sorted(components) == ["Checks", "Deposits / Credits", "Withdrawals / Debits"]
+    assert len(_SUMMARY_RE.search(lost_close).group(4)) < _SUMMARY_SPAN
+    # ... and the document is still refused, by the identity rather than the span.
+    assert parse_fifth_third_statement(lost_close) is None
+
+
+def test_a_printed_day_printed_twice_is_refused_rather_than_averaged():
+    """The daily walk corroborates every tolerance this parser now grants, so
+    the list it walks against has to be a function of the day.
+
+    A scan can print one day twice — a row photographed across a fold, an OCR
+    pass that emits a line and then re-emits it. `by_day` is built with `dict`,
+    so the LAST copy silently wins the walk and a bogus FIRST copy costs the
+    walk nothing at all. It does not cost `stated_daily_balances` nothing:
+    both copies are published, and the phantom lands in the balances the
+    average daily balance is computed from.
+
+    Measured with the uniqueness guard deleted, on this exact fixture: five
+    printed days published instead of four, `999,999.99` among them, and the
+    mean of the published closes 200,112.00 instead of 140.00. Every other
+    instrument passes — the walk still reaches the printed ending balance —
+    which is why this is pinned here rather than left to them.
+    """
+    duplicated = scanned_document(
+        daily=("03/02 140.00 03/03 999999.99 03/03 120.00 03/04 100.00", "03/05 200.00")
+    )
+    assert parse_fifth_third_statement(duplicated) is None
+    # The same document with the day printed once is read, so it is the
+    # duplication being refused and not the fixture being malformed.
+    assert parse_fifth_third_statement(scanned_document()) is not None
 
 
 def test_the_summary_span_is_bounded_so_it_cannot_reach_a_foreign_close():

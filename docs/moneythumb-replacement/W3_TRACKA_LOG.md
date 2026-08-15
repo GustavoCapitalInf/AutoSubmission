@@ -14808,9 +14808,22 @@ beginning balance pair with an ending balance printed further down the
 document — a different account's, or a different period's. Measured, the widest
 summary the archive prints is 140 characters (13 electronic: 110–140; 4
 scanned: 114–133), so 400 is roughly three times the observed need and far
-short of the distance to any second summary block. A span that did reach a
-second block would additionally hit `_summary`'s existing duplicate-label
-refusal, which is a second, independent guard on the same failure.
+short of the distance to any second summary block.
+
+**Correction, from the adversarial review (SA10.1): the duplicate-label
+refusal is NOT what fences a foreign close, and this section said it was.** A
+scan can lose the statement's own ending-balance line, and the span then
+reaches a later block's close in 188 characters — inside the bound, every
+component printed exactly once, no label repeated. `_summary` pairs this
+beginning balance with someone else's ending balance and returns it happily.
+The fence is **instrument 1**, the walked closing identity: 100 + 150 − 30 − 20
+is 200, not 77,777. Instrument 4's terminal check reads the same close a second
+way, and measured on that fixture either one alone refuses the document —
+deleting BOTH is what lets the foreign pairing publish, with `ending_balance`
+77,777.00. Widening this bound therefore does not open a door the
+duplicate-label refusal guards; it leans harder on the closing identity, which
+is what anyone arguing for a wider bound is really arguing about. Pinned by
+`test_a_foreign_ending_balance_is_refused_by_the_closing_identity`.
 
 **3 — OCR speckle welds itself to printed numbers.** Two shapes, one per
 document:
@@ -15136,3 +15149,91 @@ compiled-regex search to one registration, and the numbers above are what that c
 5. **No `ANALYSIS_STAGE_VERSION` implication of its own.** This cell publishes
    four documents that previously published nothing and leaves thirteen
    byte-identical. The bump is Ocean's at merge as always.
+
+## SA10. Review closures
+
+Ocean's verdict SHIP, with three required closures. All three landed in
+`0e4c1cd`; suite, conformance and this file's own tests re-run below.
+
+**1 — the wrong-guard comment (`fifth_third.py` `_SUMMARY_SPAN`, and SA1).**
+The reviewer paired a real beginning balance with a FOREIGN ending balance at
+under 200 characters with no duplicate label anywhere in the span, which is the
+counter-example to the reasoning this cell recorded. The code was right and the
+justification was wrong — a bad combination to leave behind, because the next
+person widening the bound would have checked the wrong guard and concluded they
+were safe. Reproduced here at **188 characters** on a fixture built from the
+scanned document with its own ending-balance line lost, which is exactly what a
+scan does to it.
+
+Corrected in both places, naming instrument 1. One honest addition the review
+did not ask for: instrument 4's terminal check reads the same close a second
+way, so the separation was measured rather than asserted —
+
+```
+instrument 1 deleted             -> REFUSED
+instrument 4 terminal deleted    -> REFUSED
+BOTH closing-identity checks off -> PUBLISHED ending=77777.0 begin=100.0 txns=5
+```
+
+Either reading alone holds; the foreign pairing only escapes when both are
+gone. `test_a_foreign_ending_balance_is_refused_by_the_closing_identity` pins
+the corrected reasoning in three falsifiable pieces: the pairing IS read (so
+the bound is not the fence), every component appears exactly once (so the
+duplicate-label refusal is not the fence), the span is inside the bound (so the
+bound was never consulted) — and the document is refused anyway. Narrowing
+`_SUMMARY_SPAN` to 150 kills it.
+
+**2 — the X3 fixture (the printed-days uniqueness guard).** Pre-existing guard,
+but this cell made instrument 4 the load-bearing corroborator for both new
+tolerances, so a hole in the list it walks against is now this cell's problem.
+The reviewer's exact fixture — one printed day emitted twice, the FIRST copy
+bogus — added and measured:
+
+```
+HEAD                         -> REFUSED
+uniqueness guard deleted     -> PUBLISHED 5 printed days instead of 4:
+   [('2026-03-02', 140.0), ('2026-03-03', 999999.99), ('2026-03-03', 120.0),
+    ('2026-03-04', 100.0),  ('2026-03-05', 200.0)]
+   mean of the published closes: 200,112.00  (140.00 with the day printed once)
+```
+
+`by_day` is a `dict`, so the LAST copy wins the walk and the walk still reaches
+the printed ending balance — every other instrument passes. What the phantom
+reaches is `stated_daily_balances`, and through it the average daily balance,
+which on this branch is the published figure a scanned overdrawn month turns
+on. `test_a_printed_day_printed_twice_is_refused_rather_than_averaged` pins the
+refusal and asserts the same document with the day printed once IS read, so it
+is the duplication being refused and not the fixture being malformed. Deleting
+the guard kills it.
+
+**3 — the `Account Type: 5/3` nit, recorded.** `5/3` is also an ordinary
+fraction and an ordinary date, so the pattern can fire on a rate table or a
+schedule printing an account-type column. It is never asked to identify the
+issuer alone: `issuer_domain` is a separate *required* marker and this
+pattern's false positives are documents that do not carry Fifth Third's domain.
+The dependency is now explicit in the marker comment, in the form that matters
+— **loosen the domain marker and this pattern stops being safe** — which is the
+same conclusion SA1 reached from the archive census, arrived at from the other
+direction.
+
+### Re-run at `0e4c1cd`
+
+```
+$ python -m pytest tests/test_fifth_third.py -q
+38 passed in 0.56s
+EXIT=0
+
+$ python -m pytest tests/test_parser_conformance.py tests/test_parser_registry.py       tests/test_parser_registry_entries.py -q
+872 passed in 4.94s
+EXIT=0
+
+$ python -m pytest -q                                   # full default suite
+3784 passed, 18 deselected, 1 warning in 346.68s (0:05:46)
+EXIT=0
+```
+
+Family byte-identity is unaffected by definition: the three closures touch two
+comments and add two fixtures, and `analysis/fifth_third.py`'s executable lines
+are unchanged from the swept tree (`git diff 339b6a3..HEAD -- analysis/` is
+comment-only). The blast radius is likewise unchanged — no marker predicate
+moved.

@@ -80,6 +80,14 @@ _PRINT_STREAM_RE = re.compile(
 #: written in the issuer's own brand shorthand: ``Account Type: 5/3 BUSINESS
 #: CKG``. Unlike the print-stream header this is *printed on the page*, so it
 #: survives being scanned — which is the whole reason it is here.
+#:
+#: It is a weaker sentinel than the header it stands in for: ``5/3`` is also an
+#: ordinary fraction and an ordinary date, so this pattern can fire on a rate
+#: table or a schedule that happens to print an account-type column. That is
+#: tolerable only because it is never asked to identify the issuer on its own —
+#: ``issuer_domain`` is a separate *required* marker, and this one's false
+#: positives are documents that do not carry Fifth Third's domain. Loosen the
+#: domain marker and this pattern stops being safe.
 _PRODUCT_LINE_RE = re.compile(r"ACCOUNT TYPE:\s*5/3\b")
 
 #: `$(1,234.56)` / `$1,234.56` / `(1,234.56)` / `1,234.56`.
@@ -93,11 +101,25 @@ _LABEL_ALT = "|".join(re.escape(label) for label in _LABELS)
 #: How far the summary's middle span may run. The electronic PDF flattens the
 #: components onto one line and the scan prints one per line, so the span has to
 #: cross printed lines — but it must not be free to run the length of the
-#: document and pair this block's beginning balance with a *later* block's
-#: ending balance. The widest summary the archive prints is 140 characters, so
-#: this is roughly three times the observed need and far short of the distance
-#: to any second summary (which the duplicate-label refusal in `_summary`
-#: catches independently).
+#: document. The widest summary the archive prints is 140 characters, so this is
+#: roughly three times the observed need.
+#:
+#: **What fences a foreign close is instrument 1, not this bound and not the
+#: duplicate-label refusal below.** A document whose own ending-balance line is
+#: lost — which is exactly what a scan does — lets this span reach a *later*
+#: block's close in under 200 characters, with every component printed once and
+#: no label repeated. `_summary` therefore returns a beginning balance paired
+#: with someone else's ending balance, and returns it happily. The reading is
+#: refused a few lines further on, where `beginning + deposits - checks -
+#: withdrawals` is walked against that close and does not meet it.
+#:
+#: Instrument 4's terminal check is an independent second reading of the same
+#: close, and measurement says either one alone is sufficient: delete instrument
+#: 1 and the document is still refused, delete instrument 4's terminal check and
+#: it is still refused, delete both and the foreign pairing publishes with
+#: `ending_balance` 77,777.00. So widening this bound does not open the door the
+#: duplicate-label refusal guards; it leans harder on the closing identity,
+#: which is the thing to argue about.
 _SUMMARY_SPAN = 400
 
 _SUMMARY_RE = re.compile(
