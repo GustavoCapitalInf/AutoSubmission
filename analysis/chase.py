@@ -98,6 +98,32 @@ def _parse_chase_business_export(markdown: str) -> Statement | None:
         re.IGNORECASE,
     )
 
+    # The export flattens a five-column grid — Date | Description | Type |
+    # Amount | Balance — into text, so a logical row already spans two physical
+    # lines: date and description on the first, type and the amount pair on the
+    # second. The type cell is what sits in front of the amounts, and it is the
+    # description this parser publishes.
+    #
+    # A LONG type cell does not fit beside the amounts and wraps onto a line of
+    # its own, leaving the amount pair with nothing in front of it:
+    #
+    #     Incoming wire transfer
+    #     $20,000.00 $22,760.05
+    #
+    # `if not description: continue` then dropped the row outright — a whole
+    # transaction gone, silently, from a ledger the platform goes on to
+    # reconcile against a printed balance. That is the residual W3 §MG7
+    # measured as `sum check off by -20000.00`, and the sole reason the three
+    # corrected-sign exports still withheld.
+    #
+    # The recovery is SHAPE-based, not a list of the type strings that happen
+    # to be long: the wrapped cell is the last physical line that carried text
+    # and no amount at all, which is where the grid put it. A line carrying an
+    # amount is a row in its own right — complete, or pending with a `—` for a
+    # balance — so it CONSUMES the carry instead of passing it on, and a
+    # pending row can never lend its type to the row beneath it. (W3 §MG-C1.)
+    wrapped_cell = ""
+
     for raw_line in markdown.splitlines():
         line = raw_line.strip()
         if not line or line.startswith("---") or line.lower().startswith("pending "):
@@ -106,14 +132,17 @@ def _parse_chase_business_export(markdown: str) -> Statement | None:
         if date_match:
             raw_month, raw_day, raw_year, line = date_match.groups()
             current_date = date(int(raw_year), _EXPORT_MONTHS[raw_month[:3].title()], int(raw_day))
-        if current_date is None:
-            continue
         money_matches = list(re.finditer(_EXPORT_AMOUNT_RE, line))
+        if current_date is None:
+            wrapped_cell = "" if money_matches else line
+            continue
         if len(money_matches) < 2:
+            wrapped_cell = "" if money_matches else line
             continue
         amount_match = money_matches[-2]
         balance_match = money_matches[-1]
-        description = line[:amount_match.start()].strip()
+        description = line[:amount_match.start()].strip() or wrapped_cell
+        wrapped_cell = ""
         if not description:
             continue
         amount = _money_required(amount_match.group(0))
