@@ -14703,3 +14703,650 @@ and pins, and they are the more important half:
    106 PASS / 3 WITHHELD and both classes sit inside PASS. The gate proves
    audited values reproduce; only the corpus-marked slice proves the outcome
    class did.
+
+# §COUNTSP3 — five stated-count candidates, re-measured; three promoted, one split, one refused
+
+| | |
+|---|---|
+| Cell | COUNTS-P3 (batch 4, card 4) — `wave4-countsp3`, base `707ba9e` |
+| Cells worked | `analysis/count_semantics.py` (new entries only), `tests/test_count_semantics.py` |
+| Candidates | `chase_savings`, `td_canada_french`, `burke_herbert`, `first_citizens`, `capital_one:debit` |
+| Result | 3 registrations promoted in both directions · 1 split (credit comparable, debit incomparable with the mapping) · 1 REFUSED, with the measured cost of the alternative |
+| Movement | **4 flag movers, 0 outcome movers**, measured over all 2,448 documents with a cached payload |
+| Table integrity | all 54 pre-existing direction entries field-identical; `UNSURVEYED`, `SECTION_LEVEL_ORACLES`, `DIRECTIONS` untouched; the check stays advisory |
+
+## CP0. Summary
+
+Five candidates arrived with evidence from batches 2 and 3. Every one was
+re-measured from scratch against the current archive before anything was
+written into the table, and the re-measurement changed two of the five
+answers — not because the old evidence was wrong, but because **three of the
+five family populations were being under-counted by the instrument that
+produced the old numbers.**
+
+That is the finding worth reading first.
+
+## CP1. The instrument, and the population defect it had to fix first
+
+Run of record `discovery_reports/2026-08-14T214345.671986-0000-d5c75ff6`
+(v11), read from the MAIN checkout. Cached OCR and analysis artifacts were
+addressed **arithmetically** — `cache_key(stage, input_sha, settings_key)` →
+`webapp_data/artifacts/<stage>/<key[:2]>/<key>.json`
+(`webapp/artifact_cache.py:295`, `:410`) — across the three OCR settings
+partitions. **The sqlite index was never opened.** Zero OCR, zero model calls,
+**$0.00**.
+
+**The population defect.** The run's `rows.csv` leaves `parser_id` EMPTY on
+every analysis-cache hit — 119 distinct documents (110 `validated`, 6
+`review`, 3 `withheld`). This is the known H-3 cache-hit hole, already named
+in §DB1 and in the batch-2 coverage-metric note; what this cell adds is that
+it silently shortens FAMILY POPULATIONS, which is exactly what a
+counterfactual's denominator is made of. Three of the five candidate families
+were short:
+
+| family | population from `rows.csv` | true population |
+|---|---|---|
+| `capital_one` | 18 | **22** |
+| `first_citizens` | 34 | **35** |
+| `td_canada_french` | 12 | **13** |
+| `chase_savings` | 10 | 10 |
+| `burke_herbert` | 3 | 3 |
+
+**`model_used` cannot recover the identity** and the attempt is recorded so
+nobody repeats it: it is the slugged BANK LABEL, not the parser id, so it
+disagrees with `parser_id` on 1,590 of 2,329 documents and collapses three
+BMO registrations onto one string.
+
+Identity was recovered instead by **replaying `parser_registry.resolve` over
+the reconstructed markdown**. Fidelity was proven before the results were
+believed: on all 77 documents of the five families that DO carry a
+`parser_id`, the replay reproduced it, **77 of 77**. Enriched, all three short
+families land exactly on their historical figures — `capital_one` 22 (§DB8's
+22), `first_citizens` 35 (§FI14.3's 35), `td_canada_french` 13 (TD-FRENCH's
+"13 claimed / 9 validated / 4 withheld"). The agreement is the proof that the
+enrichment recovered the right documents rather than merely more of them.
+
+## CP2. The five candidates, measured fresh
+
+Per direction: the bank's printed count against the rows we captured, keyed on
+`Transaction.direction`, exactly as `analysis/reconcile.py:242-257` computes
+it.
+
+| candidate | credit | debit | verdict |
+|---|---|---|---|
+| `chase_savings` | 10/10 match | 6/6 match, 4 `not_printed` | **PROMOTED** both |
+| `td_canada_french` | 9 of 13 match, 4 mismatch | 9 of 13 match, 4 mismatch | **PROMOTED** both |
+| `burke_herbert` | 3/3 match | 3/3 match | **PROMOTED** both, disclosed tautological |
+| `first_citizens` | 35/35 match | 26 exact + 9 off by +1 | **SPLIT** — credit comparable, debit incomparable |
+| `capital_one:debit` | (already comparable) | 10 exact + 12 off by +1 | **REFUSED** — see CP4 |
+
+### CP2.1 `chase_savings` — promoted, with the denominator stated honestly
+
+The handoff's pointer read "10/10 exact both directions". The underlying
+record (CHASE-CLOSURE) says "chase_savings 10/10 with counts equal to printed
+instance counts", which is a statement about ten DOCUMENTS. Measured per
+direction, the debit side has **six** comparisons, not ten: four of the ten
+savings statements posted no debit category at all and
+`stated_debit_count = debit_count or None` (`analysis/chase_savings.py:216`)
+maps that to absent, so they report `not_printed`. Six of six agree, zero
+disagree.
+
+Six is still a counterfactual, which is what separates this from
+`chase_export:debit` — held incomparable precisely because 4 of 4 print
+nothing. The entry records the denominator rather than inheriting the
+compressed one.
+
+The credit figure is a printed whole-direction count (`:198-203`); the debit
+figure is a SUM over a closed label list (`:130-137`, summed `:207-216`), the
+`chase:debit` construction, and carries the `chase:debit` caveat unchanged.
+`Fees` is INSIDE the summed labels (`:214-215`), which is what keeps this bank
+out of the capital_one class.
+
+### CP2.2 `td_canada_french` — the one promotion that buys information
+
+On this layout the PDF text layer collapses the RETRAITS and DEPOTS columns
+into a single token, so **which column a row was printed in does not survive
+extraction**; the parser solves it back out of the running balance the bank
+prints at the end of each date group (`_resolve_directions`,
+`analysis/td_canada_french.py:468`, direction assigned `:474`). The printed
+per-page `CREDITS <n>` / `DEBITS <n>` footers (`:92`, accumulated `:401-408`)
+are therefore an ORACLE ON THAT SOLVE, read off the page. Independence is
+strict: the solver takes the rows, the groups and the opening balance, and
+never reads `stated_credit_count` — the module writes those two fields and
+reads them nowhere.
+
+All 13 documents, per direction:
+
+```
+  9 documents  credit +0 / debit +0   all `validated`
+  1 document   credit -1 / debit +1   withheld  4DE22E685A04...
+  1 document   credit -2 / debit +2   withheld  59BD662C0D4F...
+  1 document   credit -2 / debit +2   withheld  654AB29A910A...   [recovered]
+  1 document   credit -6 / debit +6   withheld  A3A50C108B7F...
+```
+
+The four disagreements are **SYMMETRIC** — the credit direction is short by
+exactly what the debit direction is long by — which is the solver putting n
+rows in the wrong column, and is precisely the defect class this check exists
+to name. All four are already `withheld/withheld_adb` and already carry
+`ledger_sum_mismatch`; `withheld` is decided before flags are read
+(`telemetry/record.py:296-297`), so promotion adds two flags to four withheld
+documents and moves no outcome. The handoff asked whether "the withheld 4 stay
+inert": they do, in OUTCOME. They are not inert in FLAGS, and that is the
+promotion working rather than failing — one of the four (`4DE22E685A04...`,
+-1/+1) carries no coverage flag at all, so its misplaced row is currently
+invisible.
+
+### CP2.3 `burke_herbert` — promoted, and the entry says the agreement is a tautology
+
+3 of 3 agree in both directions, and the entry's main job is to say out loud
+that this carries no information: `_validate` refuses any document whose row
+count in either direction differs from the printed count
+(`analysis/burke_herbert.py:200-203`), so a CLAIMED burke_herbert document has
+matching counts by construction. §H8.5 asked for the entry on the grounds that
+"the stated-count check fires on it from its first day" — that premise is
+wrong (UNSURVEYED emits nothing), but the conclusion is right for a different
+reason: "examined and structurally silent" and "not yet examined" are
+different facts, and the table is where the difference is recorded.
+
+Two things are written into the entry rather than left for a future reader:
+
+1. **The control arm does not exist.** The printed label is the capital_one /
+   texas_bank label — `<N> CHECKS/DEBITS` beside a SEPARATE `SERVICE CHARGE`
+   line (`:61-62`) — and all 3 archive documents bill a ZERO charge. The
+   archive therefore cannot distinguish "whole direction" from "service-charge
+   excluded" here, the same indistinguishability §DB8 found in COUNTS-P1's 12
+   all-charged capital_one documents. What closes it is not evidence but the
+   gate: the parser also requires the negative rows to SUM to the printed
+   `CHECKS/DEBITS` total (`:194-195`), so a Burke statement whose billed charge
+   sat outside that figure goes UNCLAIMED rather than mis-flagged. Fail-closed,
+   not proven-absent.
+2. **A `$0.00` row would make this direction lie.** The gate counts `a > 0` /
+   `a < 0` — the SIGN — while this check counts `Transaction.direction`, which
+   the parser sets at `amount > 0` (`:277`). A genuine zero-amount row is
+   counted by NEITHER side of the gate and as a DEBIT by this check: the exact
+   divergence §JHA-CELL found on `community_section`. No document of this
+   family has one (0 zero-amount rows over 3 documents). If one appears, the
+   remedy is the gate, not the entry.
+
+### CP2.4 `first_citizens` — the split, and why the credit side is worth little
+
+§FI14.3 corrected its own §FI10 recommendation from COMPARABLE to "a
+capital_one-class MAPPING entry" and left the table untouched for this cell.
+The fresh measurement reproduces §FI14.3 exactly on the current archive, over
+all 35 documents:
+
+```
+  counts agree exactly : 26   every one with a ZERO service charge
+  counts off by +1     :  9   every one with a BILLED service charge
+  credit direction     : 35/35
+```
+
+**The debit direction is the capital_one class and stays incomparable.** The
+expected side is `checks + other debits` — the two GATED sections
+(`analysis/first_citizens.py:611`) — while the published debit rows are those
+two sections PLUS `billed`, the monthly service charge, which the bank prints
+outside the four section totals and the parser recovers from its own
+itemisation (`:476-479`, `:486-523`) and appends at `:597`, `:614`.
+
+The mapping this bank wants is **`stated_debit_count + 1 where the billed
+service charge was RECOVERED AS A POSTING`**. Note the second clause, which
+the capital_one entry does not need: `_service_charge_posting` returns nothing
+when the itemisation cannot be located (`:523`; the module docstring names it
+as the one path that can still fail reconciliation), so a charged document
+whose charge was not found is `+0`, and a naive "+1 iff charged" mapping would
+manufacture a mismatch on it. All 9 charged documents in the archive were
+located.
+
+**The credit direction IS promoted, and the entry discloses that its 35/35 is
+also a tautology**: `_matches` refuses the document unless each section's
+parsed posting count equals the printed one (`:526-531`, applied `:584-589`),
+and both credit sections publish `direction='credit'` uniformly (`:417`,
+`:444`). Its falsifier is the debit direction's own shape — an interest credit
+recovered outside the gated sections the way `billed` is would make the credit
+direction disagree by +1 on correct rows.
+
+## CP3. What promoting the two mapping directions would actually cost — measured
+
+Not argued. Run end to end, with the flag emission replicated from
+`analysis/pipeline.py:335-339` and the outcome from
+`telemetry.record.classify_outcome`:
+
+| counterfactual table | flag movers | outcome movers | totals |
+|---|---|---|---|
+| `first_citizens:debit` → comparable | 9 | **9 `validated/approved` → `review/integrity_flags`** | validated 2,357 → 2,348 |
+| `capital_one:debit` → comparable | 12 | **11 `validated/approved` → `review/integrity_flags`** (the 12th is already withheld) | validated 2,357 → 2,346 |
+
+Twenty manufactured review cases on ledgers that reconcile to the cent. Both
+figures are recorded in the table with their document counts so the next
+reader cannot re-derive the promotion from the documents where the two sides
+happen to agree.
+
+## CP4. `capital_one:debit` — REFUSED, on four independent grounds
+
+The fresh measurement **confirms §DB8 exactly** on the enriched population of
+22: 12 charged documents at `+1`, 10 zero-charge documents at `0`, credit
+22/22. The mapping `stated_debit_count + (1 if stated_service_charge else 0)`
+is 22 of 22. The disagreement is therefore NOT with the evidence. It is with
+what the table can express and what this cell may touch:
+
+1. **The schema has no mapping.** `CountSemantics` is
+   `(comparable, scope, reason)`. The shipped check compares
+   `stated_debit_count` by EQUALITY (`analysis/reconcile.py:253-257`). There is
+   no field, and no code path, that could apply "+1 iff charged". Flipping
+   `comparable` to `True` does not install the mapping — it installs the
+   equality test the mapping exists to avoid, and CP3 measures the result: 11
+   regressions.
+2. **Installing it needs modules this cell does not own.** A mapping needs
+   `reconcile.py` or `pipeline.py`, both outside the handoff's ownership list,
+   and the existing entry's own argument is that the mapping belongs to a
+   parser card because "asserting it at the platform level would change the
+   expected side, which is a parser's job and not this table's."
+3. **`capital_one:debit` is an EXISTING entry** and the handoff's ownership
+   line is "new entries + their pins ONLY — no existing entry may flip."
+4. **It would move four PINNED corpus documents** from `validated` to `review`
+   with `corpus_gate.py` still GREEN over the move — see CP7.
+
+The candidate as written and the ownership rule are in direct conflict; the
+rule wins, and the conflict is reported rather than resolved unilaterally.
+
+### CP4.1 One stale sentence in the existing `capital_one:debit` entry — NOT edited
+
+The entry reads: *"Measured: 12 of 12 capital_one documents disagree by
+EXACTLY +1 with a non-zero stated_service_charge on every one."* On the
+current archive the family is 22, of which 12 are charged and disagree by +1
+and 10 are unbilled and agree exactly. The sentence is true of the population
+it was measured on and misleading about the family today — §DB8 already
+supplied the control arm and proposed the correction. **Not edited here**: the
+ownership line permits new entries and their pins only. Ocean's call.
+
+## CP5. Non-interference, measured over the whole archive
+
+The movement instrument was validated before it was believed: under `main`'s
+table it reproduces the count flags actually present in the cached payloads on
+**2,448 of 2,448** documents, and reproduces the run of record's outcome split
+exactly (`validated 2,357 / review 22 / withheld 69`).
+
+With the committed table, over every distinct document of the run — not only
+the five families:
+
+```
+flag movers    4   all `td_canada_french`, all already withheld/withheld_adb
+                   59BD662C0D4F...  [] -> credit_count_mismatch, debit_count_mismatch
+                   654AB29A910A...  [] -> credit_count_mismatch, debit_count_mismatch
+                   A3A50C108B7F...  [] -> credit_count_mismatch, debit_count_mismatch
+                   4DE22E685A04...  [] -> credit_count_mismatch, debit_count_mismatch
+outcome movers 0
+outcome split  validated 2,357 / review 22 / withheld 69   (unchanged)
+```
+
+Zero movement outside the named populations. `burke_herbert`, `chase_savings`
+and `first_citizens` add no flag to any document, because every one of their
+comparisons agrees.
+
+## CP6. The named populations, by `content_sha256`
+
+**`td_canada_french` — the 4 flag movers** (all `withheld/withheld_adb`, all
+gaining `credit_count_mismatch` + `debit_count_mismatch`):
+
+```
+4DE22E685A04F9D709C6916AF720F7A8553B1854D3F36CDAC5C5152E957951B1  credit -1 / debit +1
+59BD662C0D4FE1A704E6C6533938FB10C43A265DF79B2A5C8ACCC4634B51546E  credit -2 / debit +2
+654AB29A910A5DB918035D93E065C6D1CF61C6C4C1739269BCE95E8B9F46C99F  credit -2 / debit +2   [recovered]
+A3A50C108B7F4646212A2B8BEE09BEFB7BC9462547261E995CDFD17EE2747B8F  credit -6 / debit +6
+```
+
+**`first_citizens` — the 9 documents a COMPARABLE debit entry would have
+flagged** (every one `validated/approved` today, every one with a billed
+service charge, every one off by exactly +1):
+
+```
+33C8E0FDF2540862CC9A3DBEACA72E0EEE48D675C710B6115B1373E0FEF9126B
+5F58ADF60077E09BC3F913EBAA41C2301B433EE852230EA512EC8A3EAC417C00
+6C86D090BE64E53D98CCDACEA48AC328B19DECA3BDF46D66F7AD6BD1DF8B9EC8
+881EEB9AA64495B0B46D273B09AD051D2102C468C15B55E92B124D177C872167
+A4E1F3B8567F3754B9E74AE2CC01B3D3890F718876AB41253939B5618C915F91
+AEFD0161608B45EFEEAEEED6C70453FB8E8E338E5F6B3BA82CB5BAB54A41FA95
+E32A8C5D6A6683B14EFC59915DB5096E77A2B65D0DBD3F0C49BB2C6A7D20F9A6
+EB6C700D4089E0FFFF5D44E1A9C9D08BB8DDF3D59958AC4E1CE343FBE3118BF9
+FD4B797225342B43B803D2A0AD5E05A5AB5DAAAF58C22FF2E022F8745A90A193
+```
+
+**`capital_one` — the 12 charged documents** a COMPARABLE debit entry would
+have flagged (11 `validated`, 1 already `withheld`; 4 of the 12 are visible
+only after the identity replay):
+
+```
+393547C0407F1A87CB11542BF476B1CC6B29CCC0DF3F5775E079DE0F6D9911D7  [recovered]
+4FC7799B53D746E89FDDEF60E08C4BD5E58B96757CFC4E969033C537F13DAF16  [recovered]
+538375B8A6BD9D8FCD7ED203610DCE3A66DC2DA2964FC1D82D14C6A678307280  withheld
+5E465F9123AAAC754EF5FF4A6A63B17998A20DFA83EC6FCE2BF2C4D4EFE61139
+651D64B499E54CC6042330758DC22A5449B3BDFACF3ED6B7BDE543A3FDF889C3
+8E8086218E393E4712535083E9D0A56926B64D81E82F89AB581D43AC817F4484
+B9B0CC7E07E9FB068868B53138CDFE814FA52ABE76669ECC93D721D815A39816
+BDC3CF8F8BE2EB575D5E46C893D733F3A656D9E9A55F6226EE15091B49CC2265
+C5C39D466437059F8F4D64D79F3B9A3E5924F8BB23A23F9E788D8E4A5A67AC22  [recovered]
+C6D4DAC2278D866F7DB8D05C71EF6573A9A973FA8557423123F0B7542C8DC8C0  [recovered]
+D2A8160721E494DCA9C3C8A5968A5DEF047CD99CD3482E11196E0BD078D23FA5
+F891180AE8C70EC509EE4470B573E27CF2B691E2E92D6A057C0B7477EF24A59F
+```
+
+## CP7. The pinned corpus — and the fourth ground for refusing `capital_one:debit`
+
+The 109-path manifest was hashed and joined to the run. **Five of the 83
+candidate-family documents are pinned corpus documents, and all five are
+PASS** — and every one of the five is a document the identity replay
+recovered, invisible in `rows.csv`:
+
+```
+393547C0407F...  capital_one     PASS  validated  service charge 15.00  debit +1
+4FC7799B53D7...  capital_one     PASS  validated  service charge 15.00  debit +1
+C5C39D466437...  capital_one     PASS  validated  service charge 15.00  debit +1
+C6D4DAC2278D...  capital_one     PASS  validated  service charge 15.00  debit +1
+57058C69B871...  first_citizens  PASS  validated  service charge  0.00  debit +0
+```
+
+Read that twice. **Four of the pinned 109 are charged capital_one documents**,
+and a plain COMPARABLE `capital_one:debit` moves all four from
+`validated/approved` to `review/integrity_flags`. `corpus_gate.py` would report
+GREEN over it: validated and review both sit inside the gate's PASS bucket, so
+its 106/3 partition cannot see the move. That is precisely the blindness
+§PIPEFIX P4b proved and the reason the corpus-marked slice is now mandatory —
+and here it arrives as a live, pinned-document consequence rather than a
+hypothetical.
+
+`first_citizens`'s single pinned document bills a zero service charge, sits in
+the 26-document exact arm, and is unaffected in either direction.
+
+**None of the three promoted registrations touches a pinned document at all** —
+no `chase_savings`, `td_canada_french` or `burke_herbert` `content_sha256`
+appears in the manifest — so the committed table cannot move a pinned document,
+and the gate plus the corpus-marked slice are run as the proof of that rather
+than as its argument.
+
+The enrichment is what made this visible: unenriched, the counterfactual would
+have missed four PINNED documents.
+
+## CP8. The table diff, exactly
+
+Four parsers added; **zero existing entries touched.** Proven by value, not by
+eyeball: `main`'s module was loaded beside the branch's and compared
+field-by-field.
+
+```
+pre-existing direction entries : 54    drifted: []
+UNSURVEYED                     : identical
+SECTION_LEVEL_ORACLES          : identical
+DIRECTIONS                     : identical
+table size                     : 27 parsers / 54 entries  ->  31 parsers / 62 entries
+comparable added   : burke_herbert:credit, burke_herbert:debit,
+                     chase_savings:credit, chase_savings:debit,
+                     first_citizens:credit,
+                     td_canada_french:credit, td_canada_french:debit
+comparable removed : (none)
+incomparable added : first_citizens:debit
+```
+
+`git diff` on `analysis/count_semantics.py` is **240 insertions, 0 deletions**.
+
+### The pinned-set edit, both sides
+
+`tests/test_count_semantics.py::test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental`
+pins BOTH sets by equality and asserts they cover the table exactly, so an
+entry cannot be moved from one to the other without two deliberate edits. Both
+were made: seven keys added to `comparable`, one added to `incomparable`, and
+the `len(comparable) + len(incomparable) == 2 * len(SEMANTICS)` invariant still
+holds at 62.
+
+Seven tests were added beside the pins (the last two closing review findings
+D2 and D5):
+
+| test | the job it does |
+|---|---|
+| `test_a_tautological_entry_says_so_rather_than_reading_as_evidence` | the three gate-immune directions must SAY they are immune |
+| `test_the_countsp3_promotions_each_carry_a_falsifier` | the `first_community` / BofA idiom, now standing for this cell too — and it ENUMERATES all seven promoted directions with one NAMED exemption, rather than sampling a list it can silently fall out of (D1) |
+| `test_a_service_charge_entry_says_whether_its_control_arm_was_exercised` | D2 — both `Checks/Debits`-shaped debit entries must disclose that no charged document exists to test the scope against |
+| `test_the_first_citizens_debit_entry_carries_the_mapping_and_its_cost` | the mapping, the 26/9 split, the `RECOVERED AS A POSTING` clause, and the measured price of promoting anyway |
+| `test_the_td_canada_french_promotion_argues_its_own_independence` | the solver must not be able to read the count it is checked against |
+| `test_the_observer_version_moves_when_the_table_does` | D5 — pins `OBSERVER_VERSION` against the table's SHAPE, so the observer's own bump-on-change contract stops depending on someone remembering it |
+| `test_an_incomparable_direction_can_never_flag[first_citizens-debit]` | the structural prohibition, on the new incomparable direction |
+
+Suite **3,769 → 3,780**. The +11 is fully accounted: 6 new test functions, 1
+new `incomparable` parametrization, and 4 new parser parametrizations in
+`tests/test_stated_counts.py::test_an_incomparable_direction_can_never_emit_mismatch`,
+which iterates the table.
+
+## CP9. Proofs
+
+Exit codes verbatim. Every long proof was run as a single sequential command.
+
+```
+$ python -m pytest -q
+3778 passed, 18 deselected, 1 warning in 184.23s (0:03:04)
+EXIT=0
+
+$ python -m pytest -m corpus \
+    tests/test_telemetry_corpus.py::test_telemetry_reproduces_the_gate_outcome_split \
+    tests/test_telemetry_corpus.py::test_withheld_diagnostics_reproduce_the_documented_diagnosis
+2 passed, 1 warning in 991.27s (0:16:31)
+EXIT=0
+
+$ python corpus_gate.py
+[PASS] oracle_independence: 4 audit modules import no production financial mathematics
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  992.7s
+RESULT: GREEN
+EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+    tests/test_no_parser_helper_clones.py -q
+104 passed in 15.79s
+EXIT=0
+
+$ python -m pytest tests/test_parser_conformance.py tests/test_parser_registry_entries.py \
+    tests/test_parser_detection_markers.py -q
+889 passed in 10.68s
+EXIT=0
+
+$ python -m pytest tests/test_analysis.py tests/test_filename_boundary.py \
+    tests/test_pipeline_registry_dispatch.py tests/test_structurer_pipeline.py \
+    tests/test_parser_crash_shapes.py tests/test_diagnostics.py -q
+368 passed, 1 warning in 133.97s (0:02:13)
+EXIT=0
+```
+
+The corpus-marked slice is the one that matters most for a table change: the
+gate's partition is 106 PASS / 3 WITHHELD and `validated` and `review` both
+live inside PASS, so a pinned document moving `validated` → `review` on a new
+count flag would leave the gate GREEN. CP7 shows this is not hypothetical for
+this cell's refused candidate — four pinned documents sit in exactly that
+position under a COMPARABLE `capital_one:debit`.
+
+Cost: **$0.00.** No OCR, no model call, no write to the archive or to either
+cache.
+
+## CP10. Commits
+
+| Commit | Contents |
+|---|---|
+| `54dfa74` | the four entries + both sides of the pinned set + five tests |
+| `e0a2fcc` | one line citation corrected (`:490` → `:523`), prose only |
+| `090e8f4` | §COUNTSP3 — the measurement, the refusals and the proofs |
+| (this one) | adversarial-review closures D1, D2, D3, D5, D6 |
+
+## CP11. Carried findings and questions for Ocean
+
+1. **`ANALYSIS_STAGE_VERSION` needs its bump at merge.** Four documents'
+   published integrity flags change (the `td_canada_french` withheld four), so
+   their cached payloads are stale. `webapp/` is untouched here; the brief
+   reserves the bump to you.
+2. **`capital_one:debit` — the candidate cannot be executed as written, and
+   the reason is structural.** CP4. The evidence is confirmed (22 of 22 under
+   the mapping); what is missing is a table that can express a mapping and a
+   cell that owns `reconcile.py`. Recommended shape: a `mapping` field on
+   `CountSemantics` applied in `reconcile.py` where the expected side is read,
+   landed by a cell that owns both — at which point `capital_one:debit`,
+   `first_citizens:debit` and possibly `texas_bank:debit` all promote together
+   on evidence already measured (22/22, 35/35, 1 document). Until then a plain
+   COMPARABLE on any of them is a regression, and CP3 gives the numbers.
+3. **The `capital_one:debit` entry carries one now-stale sentence** (CP4.1).
+   Not edited — outside "new entries + their pins ONLY". Yours.
+4. **The H-3 cache-hit hole is not just a coverage-metric artifact.** CP1. It
+   shortens family populations by 119 documents archive-wide, and in this cell
+   it hid 4 of the 22 `capital_one` documents — **all four of them pinned
+   corpus PASS documents**. Any cell measuring a family from `rows.csv` alone
+   is measuring a subset and will not know it. The existing backlog card
+   ("project parser identity from the cached payload into discovery rows")
+   should note that `model_used` is NOT that identity — it is the slugged bank
+   label and collapses `bmo_ca_business`, `bmo_ca_business_french` and
+   `bmo_us_activity` onto one string. The identity has to come from the
+   dispatch.
+5. **`chase_savings:debit` rests on 6 comparisons, not 10.** Recorded in the
+   entry rather than smoothed over. If you would rather hold a direction until
+   its denominator is larger, this is the one to hold; nothing else in the cell
+   changes if you do.
+6. **The `td_canada_french` column solver has a measured failure rate.** 4 of
+   13 documents place n rows in the wrong column (n = 1, 2, 2, 6). All four are
+   already withheld, so nothing is published wrong today, but the defect is in
+   the SOLVER (`analysis/td_canada_french.py:468` → `td_can`'s
+   `_resolve_directions`) and is worth a card: three of the four are
+   `credit_detail_coverage_mismatch` documents where the money is also wrong,
+   but `4DE22E685A04...` is a clean -1/+1 with no coverage flag, which is the
+   solver failing quietly.
+7. **`burke_herbert` and `first_citizens:credit` are tautologies and the table
+   now says so.** If you would rather the table not carry information-free
+   comparable entries at all, the alternative is to leave them UNSURVEYED and
+   record the reasoning here instead. This cell chose disclosure over silence
+   on the `community_section` precedent.
+
+   **CORRECTED (review D6).** The first draft of this paragraph said the
+   choice "costs nothing either way, since neither can ever raise a flag."
+   That is true of `burke_herbert:credit` and of `first_citizens:credit`, and
+   **false of `burke_herbert:debit`** — this cell's own entry states the
+   exception two sections up. The gate counts `a < 0`; this check counts
+   `direction == 'debit'`, which the parser sets on `amount <= 0`; a genuine
+   `$0.00` row therefore passes the gate and raises a `debit_count_mismatch`
+   on a complete ledger. Zero such rows exist in the family today, and the
+   platform demonstrably posts `$0.00` rows elsewhere (§JHA-CELL found three).
+   So the accurate statement of the trade is: leaving these UNSURVEYED costs
+   nothing and forecloses that one false positive; registering them costs
+   nothing today, discloses the silence, and accepts a named, bounded,
+   fail-loud-not-fail-wrong exposure on one direction of one three-document
+   family. The remedy if it ever fires is the parser's gate — direction-keyed,
+   the way §JHA-CELL re-keyed `community_section` — not a table edit.
+
+   Recorded rather than quietly fixed because it is the paragraph you read for
+   the reversibility question, and a summary that contradicts the entry it
+   summarises is worse than no summary.
+
+## CP12. Adversarial review — the six findings and their closures
+
+Verdict: **SHIP**, conditional on the `ANALYSIS_STAGE_VERSION` bump, which is
+Ocean's at merge.
+
+**D1 — the falsifier test sampled a list instead of enumerating the set.**
+Its docstring claimed every promoted direction states a falsifier while
+`chase_savings:credit` and `burke_herbert:credit` were silently absent from
+its iteration. The docstring was the thing that was wrong, and the reason it
+could be wrong is that the list was hand-written.
+
+Closed two ways. `chase_savings:credit` **now carries a falsifier** — it is a
+plain printed-figure entry with no gate behind it, so it can genuinely be
+wrong, and the way you would find out is a savings layout printing a COUNT
+beside a second credit category (the parser already reads `Interest Paid This
+Period` for its amount and no count, `analysis/chase_savings.py:219-222`); the
+tell is a captured credit count exceeding the printed one by exactly the rows
+of the unnamed category. `burke_herbert:credit` stays exempt because it cannot
+be wrong — the gate counts `a > 0` and the parser sets `direction='credit'` on
+exactly `amount > 0`, so the two sets are provably identical — but the
+exemption is now **named in code** (`FALSIFIER_EXEMPT`) with its argument
+attached, and the test asserts the exemption list is exactly that one key. The
+iteration list is now the enumerated set of all seven promoted directions, so
+a future promotion cannot fall out of it by omission.
+
+**D2 — the cell's own standard, applied asymmetrically. The one that matters.**
+`chase_savings:debit` asserted flatly that this bank "folds its service charge
+INSIDE the printed debit count, which is what keeps it out of the capital_one
+class", while `burke_herbert:debit` disclosed at length that its equivalent
+claim had no control arm. Re-measured: **0 of the 10 archive documents print a
+`Fees` row at all** — `stated_service_charge` is unset on every one — so the
+folded-charge arm is exactly as unexercised as burke's, and the entry was
+stating a construction as though it were a measurement.
+
+The entry now says so, in burke's own idiom: `Fees` IS one of the summed
+labels (`:135`, `:207-216`) so the fold holds BY CONSTRUCTION, the control arm
+is empty, construction is the stronger of the two here because the count and
+the money come off the same printed line and the parser cannot take one
+without the other — and it is still not evidence. The falsifier was widened
+with it: any debit category the label list does not name, *including a fee
+line spelled anything other than `Fees`*, under-counts the expected side, and
+if that category proves to be a charge printed outside the summed labels this
+bank joins the capital_one class.
+
+`test_a_service_charge_entry_says_whether_its_control_arm_was_exercised` pins
+the disclosure on **both** `Checks/Debits`-shaped entries, so the asymmetry
+cannot come back.
+
+**D3 — an over-general sentence about the burke gate.**
+`burke_herbert:credit` said the gate "refuses any document whose row count in
+either direction differs from the printed count". Exactly true for credit,
+FALSE in general for debit: the gate counts by SIGN (`a > 0` / `a < 0`) and
+this check counts `Transaction.direction`. The credit sentence is now precise
+— it names the `a > 0` set, names `direction='credit'` on `amount > 0`, says
+the two are the same set, and points at the debit entry for where they
+diverge. The debit entry was already right and is untouched.
+
+**D4 — `ANALYSIS_STAGE_VERSION`.** Noted and left alone: without the bump the
+four `td_canada_french` flags are silently inert, because their payloads are
+served from a cache keyed on a stage version that did not move. The composed
+bump at merge covers it. `webapp/` untouched here.
+
+**D5 — `OBSERVER_VERSION` was stale by its own contract** (scope granted).
+Bumped **2 → 3**, with the comment extended to enumerate what a v3 rollup
+reports differently from a v2 one over the same archive: the three both-
+direction promotions, the `first_citizens` split, the `capital_one:debit`
+refusal and its measured cost, and the concrete consequence — 61 documents
+across the four families leave `unsurveyed_parser`, and four
+`td_canada_french` documents start reporting `mismatch` where v2 reported them
+silent. One integer and its comment; nothing else in `telemetry/`.
+
+The contract itself was the deeper problem — "bump when the table changes" was
+a sentence, not a mechanism, which is how it went stale in the first place.
+`test_the_observer_version_moves_when_the_table_does` now pins
+`(OBSERVER_VERSION, len(SEMANTICS), comparable_directions)` as one tuple, so
+any table edit fails the suite until the version is deliberately moved and its
+comment says what moved.
+
+**D6 — CP11.7 contradicted this cell's own entry.** It said of the tautologies
+"neither can ever raise a flag"; `burke_herbert:debit` can, on a `$0.00` row,
+which the entry two sections up states plainly. Corrected in place with the
+correction marked rather than silently overwritten, and the trade restated
+accurately: the exposure is named, bounded to one direction of one
+three-document family, fails loud rather than wrong, and its remedy is the
+parser's gate — direction-keyed, the way §JHA-CELL re-keyed
+`community_section` — not a table edit.
+
+### CP12.1 Re-run after the closures
+
+```
+$ python -m pytest tests/test_count_semantics.py tests/test_stated_counts.py -q
+108 passed, 1 warning in 3.27s
+EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+    tests/test_no_parser_helper_clones.py -q
+104 passed in 2.56s
+EXIT=0
+
+$ python -m pytest -q
+3780 passed, 18 deselected, 1 warning in 285.86s (0:04:45)
+EXIT=0
+```
+
+No measured result moved: D1, D2, D3 and D6 are disclosure edits inside
+`reason` strings and one log paragraph, D5 is one integer in an observer that
+`analysis/` does not import. The comparable set, the incomparable set and the
+4-flag / 0-outcome movement of CP5 are unchanged, and the pre-existing 54
+direction entries remain field-identical.

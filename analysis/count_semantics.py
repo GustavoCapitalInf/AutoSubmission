@@ -97,6 +97,72 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
         "credit": _whole("a credit count and a debit count in one summary block", "analysis/atb.py:121-122"),
         "debit": _whole("a credit count and a debit count in one summary block", "analysis/atb.py:121-122"),
     },
+    # W3 §COUNTSP3. Surveyed on a fresh counterfactual over all 3 archive
+    # documents of the family; the entry exists mostly to say out loud that
+    # the agreement is a TAUTOLOGY, because a live check that cannot fail is
+    # worse undisclosed than disclosed.
+    "burke_herbert": {
+        "credit": CountSemantics(
+            comparable=True,
+            scope="whole_direction",
+            reason=(
+                "prints '<N> DEPOSITS/CREDITS <total>' — one printed figure "
+                "per direction (analysis/burke_herbert.py:60, assigned :267). "
+                "Measured over all 3 archive documents of the family: 3/3 "
+                "agree, 0 disagreements, 0 flags raised. DISCLOSURE, in the "
+                "idiom of the `community_section` comment below: that 3/3 is "
+                "a TAUTOLOGY and carries no information — and it is a tautology "
+                "EXACTLY here, which the debit direction cannot say. The "
+                "parser's acceptance gate refuses any document whose count of "
+                "POSITIVE-amount rows differs from the printed credit figure "
+                "(`a > 0`, analysis/burke_herbert.py:200-201), and this parser "
+                "sets `direction='credit'` on exactly `amount > 0` (:277), so "
+                "the gate's set and this check's set are the same set and a "
+                "claimed document agrees by construction. The gate keys on the "
+                "SIGN, not on `Transaction.direction`; the two coincide on this "
+                "side and DIVERGE on the debit side, where the gate's `a < 0` "
+                "omits a $0.00 row this check counts — see that entry's "
+                "falsifier. The entry is written "
+                "anyway because the alternative — UNSURVEYED — reads as 'not "
+                "yet examined' when the truth is 'examined, and structurally "
+                "silent'. The independent oracle for this bank is the "
+                "row-by-row running-balance chain (:186, module docstring), "
+                "which no summary figure can reproduce."
+            ),
+        ),
+        "debit": CountSemantics(
+            comparable=True,
+            scope="whole_direction",
+            reason=(
+                "prints '<N> CHECKS/DEBITS <total>' "
+                "(analysis/burke_herbert.py:61, assigned :268); 3/3 agree "
+                "over the whole family, and tautologically, for the reason "
+                "the credit direction states. TWO THINGS RECORDED so nobody "
+                "re-derives them. (1) The printed label is the capital_one / "
+                "texas_bank label — 'CHECKS/DEBITS' beside a SEPARATE "
+                "'SERVICE CHARGE' line (:62) — and all 3 archive documents "
+                "bill a ZERO charge, so the archive cannot distinguish "
+                "'whole direction' from 'service-charge excluded' here any "
+                "more than COUNTS-P1's 12 all-charged capital_one documents "
+                "could distinguish '+1 always' from '+1 iff charged'. What "
+                "closes it is not evidence but the gate: the parser also "
+                "requires the negative rows to SUM to the printed "
+                "'CHECKS/DEBITS' total (:194-195), so a Burke statement whose "
+                "billed charge sat outside that figure would go UNCLAIMED "
+                "rather than mis-flagged. Fail-closed, not proven-absent. "
+                "(2) FALSIFIER: the gate counts `a > 0` / `a < 0` — the SIGN "
+                "— while this check counts `Transaction.direction`, and the "
+                "parser sets `direction` at `amount > 0` (:277), so a "
+                "genuine $0.00 row is counted by NEITHER side of the gate and "
+                "as a DEBIT by this check. That is the exact divergence W3 "
+                "§JHA-CELL found on `community_section`. No archive document "
+                "of this family has one (0 zero-amount rows over 3 "
+                "documents); if one appears, this direction manufactures a "
+                "flag on a complete ledger and the remedy is the gate, not "
+                "this entry."
+            ),
+        ),
+    },
     "capital_one": {
         # "N Deposits/Credits" is a whole-direction figure and cheques ARE
         # inside the printed debit figure by the bank's own label — folded on
@@ -166,9 +232,160 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
             ),
         ),
     },
+    # W3 §COUNTSP3. The savings product reads its own summary block, not
+    # `chase`'s (`SAVINGS SUMMARY`, analysis/chase_savings.py:185), so it is
+    # surveyed in its own right rather than inheriting either sibling's entry.
+    "chase_savings": {
+        "credit": CountSemantics(
+            comparable=True,
+            scope="whole_direction",
+            reason=(
+                "prints 'Deposits and Additions  N  $x' in the SAVINGS SUMMARY "
+                "block; one printed figure per direction "
+                "(analysis/chase_savings.py:198-203). Measured over all 10 "
+                "archive documents of the family: 10/10 agree, 0 "
+                "disagreements. Unlike the debit sibling this is a single "
+                "printed label, not a sum, and unlike `burke_herbert:credit` "
+                "it is NOT gated — `parse_chase_savings_statement` compares no "
+                "count against anything (:317-350), so the agreement is "
+                "measured rather than construed. FALSIFIER, and it is a real "
+                "one because a savings product is where a second credit "
+                "category would appear: if a layout prints a COUNT beside any "
+                "credit line other than 'Deposits and Additions' — an interest "
+                "or bonus category, say; the parser already reads 'Interest "
+                "Paid This Period' for its AMOUNT and no count (:219-222) — "
+                "the expected side under-counts and this entry manufactures a "
+                "mismatch on correct rows. The tell is a captured credit count "
+                "that exceeds the printed one by exactly the rows of the "
+                "unnamed category."
+            ),
+        ),
+        "debit": CountSemantics(
+            comparable=True,
+            scope="category_subtotal_sum_proven_complete",
+            reason=(
+                "PROMOTED to comparable on measured evidence, and on the same "
+                "construction as `chase:debit`: the debit figure is a SUM over "
+                "a closed label list (_SUMMARY_DEBIT_LABELS, "
+                "analysis/chase_savings.py:130-137; summed and assigned at "
+                ":207-216) rather than a printed whole-direction count. "
+                "Measured over all 10 archive documents of the family: 6 print "
+                "a debit count and 6 of 6 agree; the other 4 print none and "
+                "report `not_printed`. 0 disagreements. STATE THE DENOMINATOR "
+                "HONESTLY: the debit direction rests on 6 comparisons, not 10 "
+                "— the family is savings statements, and four of them posted "
+                "no debit category at all. That is still a counterfactual, "
+                "which is what separates this from `chase_export:debit`, held "
+                "incomparable precisely because 4 of 4 print nothing and there "
+                "is no counterfactual to promote on. TWO CAVEATS. (1) The "
+                "label-list caveat `chase:debit` carries applies unchanged: a "
+                "new savings layout printing a debit category the list does "
+                "not name under-counts the EXPECTED side and surfaces here as "
+                "a mismatch on correct rows — a flag, never a withholding. "
+                "(2) `stated_debit_count = debit_count or None` (:216) maps a "
+                "genuine ZERO to absent, so a period with no debits reports "
+                "`not_printed` rather than `0`; the check can therefore never "
+                "raise a false mismatch from a zero, and can never confirm a "
+                "true one either. (3) THE FOLDED-CHARGE ARM IS UNEXERCISED, "
+                "stated with the same candour as `burke_herbert:debit`: `Fees` "
+                "IS one of the summed labels and its count is added to the "
+                "expected side (:135, :207-216), so BY CONSTRUCTION this bank "
+                "folds its service charge inside the printed debit figure and "
+                "cannot be in the capital_one class — but 0 of the 10 archive "
+                "documents print a `Fees` row at all "
+                "(`stated_service_charge` is unset on every one), so the claim "
+                "rests on `_SUMMARY_DEBIT_LABELS` construction and NOT on a "
+                "measured control arm. Construction is the stronger of the two "
+                "here, because the count and the money come off the same "
+                "printed line and the parser cannot take one without the "
+                "other; it is still not evidence, and the distinction is the "
+                "one COUNTS-P1's 12 all-charged capital_one documents taught. "
+                "FALSIFIER: a savings layout printing a debit category the "
+                "label list does not name — including a fee line spelled "
+                "anything other than `Fees` — under-counts the EXPECTED side; "
+                "the tell is a captured debit count exceeding the printed one "
+                "by exactly the rows of the unnamed category, and if that "
+                "category proves to be a charge printed OUTSIDE the summed "
+                "labels this bank joins the capital_one class and the "
+                "direction goes back to incomparable."
+            ),
+        ),
+    },
     "farmers_merchants": {
         "credit": _whole("a credit count in the printed account summary", "analysis/farmers_merchants.py:56-57"),
         "debit": _whole("a debit count in the printed account summary", "analysis/farmers_merchants.py:56-57"),
+    },
+    # W3 §COUNTSP3, on the correction §FI14.3 made to its own §FI10
+    # recommendation. A MIXED entry: the credit direction is comparable, the
+    # debit direction is the capital_one class and stays incomparable with the
+    # mapping written down. Promoting the debit direction as a plain
+    # COMPARABLE was measured and is a REGRESSION — see the entry.
+    "first_citizens": {
+        "credit": CountSemantics(
+            comparable=True,
+            scope="multi_category_sum_proven_complete",
+            reason=(
+                "the expected side is `deposits + other credits` — a two-way "
+                "sum of the printed section counts in `Your Account(s) At A "
+                "Glance` (analysis/first_citizens.py:610). Measured over all "
+                "35 archive documents of the family: 35/35 agree, 0 "
+                "disagreements, 0 flags raised. DISCLOSURE, and it is the "
+                "whole of what this direction is worth: that 35/35 is a "
+                "TAUTOLOGY. `_matches` refuses the document unless each "
+                "section's parsed posting count equals the count the bank "
+                "printed for it (:526-531, applied :584-589), and both credit "
+                "sections publish `direction='credit'` uniformly (:417, :444), "
+                "so a claimed document agrees by construction. Written down "
+                "rather than left UNSURVEYED for the reason the "
+                "`community_section` comment gives: 'examined and "
+                "structurally silent' and 'not yet examined' are different "
+                "facts and the table is where the difference is recorded. "
+                "FALSIFIER: this holds only while every credit-direction row "
+                "comes from a gated section. The debit direction already "
+                "breaks that pattern — `billed`, the service-charge posting, "
+                "is appended OUTSIDE the four gated sections (:594-597, :614) "
+                "— so an interest credit recovered the same way would make "
+                "this direction disagree by +1 on correct rows."
+            ),
+        ),
+        "debit": CountSemantics(
+            comparable=False,
+            scope="service_charge_excluded_from_printed_debit_count",
+            reason=(
+                "the capital_one class, and the parser proves it on itself. "
+                "The expected side is `checks + other debits` "
+                "(analysis/first_citizens.py:611) — the two GATED debit "
+                "sections — while the published debit rows are those two "
+                "sections PLUS `billed`, the monthly service charge, which "
+                "the bank prints outside the four section totals and the "
+                "parser recovers from its own itemisation (:476-479, "
+                ":486-523) and appends at :597, :614. Same money, different "
+                "scope: the printed count enumerates a strict subset of the "
+                "parser's debit rows. MEASURED FRESH over all 35 archive "
+                "documents of the family (the run of record's `parser_id` "
+                "column is empty on analysis-cache hits, so the population is "
+                "34 rows plus 1 recovered by replaying dispatch): "
+                "26 agree exactly, every one with a ZERO service charge; 9 "
+                "disagree by exactly +1, every one with a BILLED service "
+                "charge; credit direction 35/35. This reproduces §FI14.3's "
+                "26/9 split on the current archive, and it is why a plain "
+                "COMPARABLE entry is not the answer: measured end to end, it "
+                "moves 9 documents from `validated/approved` to "
+                "`review/integrity_flags` — 9 manufactured flags on ledgers "
+                "that reconcile. The mapping a parser card should encode is "
+                "`stated_debit_count + 1 where the billed service charge was "
+                "RECOVERED AS A POSTING`. Note the second clause, which the "
+                "capital_one entry does not need: `_service_charge_posting` "
+                "returns nothing when the itemisation cannot be found (:523, "
+                "and the module docstring names it as the one path that can "
+                "still fail reconciliation), so a charged document whose "
+                "charge was not located is +0, and a naive '+1 iff charged' "
+                "would manufacture a mismatch on it. All 9 charged documents "
+                "in the archive were located. Asserting any of this at the "
+                "platform level would change the EXPECTED side, which is a "
+                "parser's job and not this table's."
+            ),
+        ),
     },
     "first_community": {
         "credit": _whole("a credit count in the printed summary line", "analysis/first_community.py:150-151"),
@@ -232,6 +449,70 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
     "td_canada": {
         "credit": _whole("'CREDITS  N  $x'", "analysis/td_can.py:449-453"),
         "debit": _whole("'DEBITS  N  $x'", "analysis/td_can.py:454-457"),
+    },
+    # W3 §COUNTSP3. The one entry in this table whose comparison is neither a
+    # tautology nor a restatement: on this layout the printed per-direction
+    # counts are the ONLY independent check on which column a row was in.
+    "td_canada_french": {
+        "credit": CountSemantics(
+            comparable=True,
+            scope="whole_direction",
+            reason=(
+                "PROMOTED to comparable on measured evidence. The French "
+                "layout prints a per-page `CREDITS <n> <total>` footer and the "
+                "parser accumulates them (_PAGE_TOTAL_RE, "
+                "analysis/td_canada_french.py:92; assigned :401-405) — the "
+                "`td_canada_native` idiom, one whole-direction figure per "
+                "printed block, summed because a statement can print the "
+                "block per page. WHY THIS DIRECTION IS WORTH MORE THAN MOST: "
+                "the PDF text layer collapses the RETRAITS and DEPOTS columns "
+                "into one token, so which column an amount was printed in does "
+                "NOT survive extraction; the parser solves it back out of the "
+                "running balance the bank prints at the end of each date group "
+                "(`_resolve_directions`, :468, direction assigned :474). The "
+                "printed count is therefore an oracle on the solver, read off "
+                "the page, and independence is strict — the solver takes the "
+                "rows, the groups and the opening balance, and never reads "
+                "`stated_credit_count`, which this module writes and nothing "
+                "here reads back. MEASURED FRESH over all 13 archive documents "
+                "of the family (12 rows plus 1 recovered by replaying "
+                "dispatch, the run of record's `parser_id` column being empty "
+                "on analysis-cache hits): 9 of 13 agree, 4 of 13 disagree. "
+                "All 9 agreeing "
+                "are the family's `validated` documents; all 4 disagreeing are "
+                "already `withheld/withheld_adb` and already carry "
+                "`ledger_sum_mismatch`, so promoting this direction adds two "
+                "flags to four withheld documents and moves NO outcome — "
+                "measured end to end over the whole archive, 4 flag movers, 0 "
+                "outcome movers. Those 4 are not noise: each disagrees "
+                "SYMMETRICALLY (credit −n, debit +n for n = 1, 2, 2, 6), which "
+                "is the solver putting n rows in the wrong column and is "
+                "exactly the defect class this check exists to name. "
+                "FALSIFIER: if a French statement is found whose per-page "
+                "footers are REPRINTED rather than per-page, the accumulation "
+                "doubles the expected side and this entry manufactures a "
+                "mismatch on correct rows — the tell is an expected side that "
+                "is an exact integer multiple of the captured one. The "
+                "`td_canada_native` entry records the same hazard for the "
+                "same reason."
+            ),
+        ),
+        "debit": CountSemantics(
+            comparable=True,
+            scope="whole_direction",
+            reason=(
+                "PROMOTED with the credit direction and on the same evidence "
+                "and the same argument: the per-page `DEBITS <n> <total>` "
+                "footer (analysis/td_canada_french.py:92, assigned :407-408), "
+                "accumulated, checked against a column the parser SOLVED "
+                "rather than read. 9 of 13 agree, the same 4 withheld "
+                "documents disagree, by +1/+2/+2/+6 against their credit "
+                "direction's −1/−2/−2/−6. FALSIFIER: the credit direction's, "
+                "unchanged — a REPRINTED rather than per-page footer doubles "
+                "the expected side, and the tell is an expected side that is "
+                "an exact integer multiple of the captured one."
+            ),
+        ),
     },
     "td_canada_native": {
         # Accumulated across every printed summary line (`(or 0) + n`,

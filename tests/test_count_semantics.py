@@ -132,6 +132,13 @@ def test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental():
         # enumerate the service-charge row the parser records as a debit
         "capital_one:debit",
         "texas_bank:debit",
+        # W3 §COUNTSP3. The third member of that class, and the one whose cost
+        # was measured before it was declined: promoting it moves 9 documents
+        # from `validated/approved` to `review/integrity_flags`, every one of
+        # them a ledger that reconciles to the cent. Its credit sibling IS
+        # comparable, which is why this entry is pinned here by name rather
+        # than the whole parser being absent from the table.
+        "first_citizens:debit",
         # printed counts gated equal to LABEL-MATCHED rows, both directions
         "altana:credit",
         "altana:debit",
@@ -158,10 +165,21 @@ def test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental():
         "atb:debit",
         "bank_of_america:credit",
         "bank_of_america:debit",
+        # W3 §COUNTSP3. Comparable and TAUTOLOGICAL: the parser's acceptance
+        # gate already refuses a document whose row count contradicts the
+        # printed count, so a claimed one agrees by construction. Surveyed
+        # rather than left UNSURVEYED so the silence is a recorded fact.
+        "burke_herbert:credit",
+        "burke_herbert:debit",
         "capital_one:credit",
         "chase:credit",
         "chase:debit",
         "chase_export:credit",
+        # W3 §COUNTSP3. The savings product reads its own SAVINGS SUMMARY
+        # block; credit 10/10, debit 6/6 with 4 documents printing no debit
+        # count at all. The debit denominator is 6, and the entry says so.
+        "chase_savings:credit",
+        "chase_savings:debit",
         # W3 §JHA-CELL. Comparable, and immune by construction: the parser's
         # claim gate now counts by the same `Transaction.direction` key this
         # check does, which is disclosed in the SEMANTICS entry rather than
@@ -174,6 +192,9 @@ def test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental():
         "demo_national:debit",
         "farmers_merchants:credit",
         "farmers_merchants:debit",
+        # W3 §COUNTSP3. Only the credit direction: `first_citizens:debit` is
+        # pinned incomparable above, on the measured cost of the alternative.
+        "first_citizens:credit",
         "first_community:credit",
         "first_community:debit",
         "first_farmers:credit",
@@ -196,6 +217,12 @@ def test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental():
         "southside_scanned:debit",
         "td_canada:credit",
         "td_canada:debit",
+        # W3 §COUNTSP3. The one promotion in that cell that buys real
+        # information: the French text layer loses the column, the parser
+        # SOLVES it from the printed running balance, and the printed count is
+        # the only independent oracle on that solve.
+        "td_canada_french:credit",
+        "td_canada_french:debit",
         "td_canada_native:credit",
         "td_canada_native:debit",
         "texas_bank:credit",
@@ -219,11 +246,129 @@ def test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental():
 def test_a_promoted_entry_records_the_evidence_that_promoted_it():
     for key in ("chase:debit", "us_bank:credit", "us_bank:debit",
                 "wilson_muir:credit", "wilson_muir:debit",
-                "bank_of_america:debit"):
+                "bank_of_america:debit",
+                # W3 §COUNTSP3
+                "chase_savings:debit",
+                "td_canada_french:credit", "td_canada_french:debit"):
         parser_id, direction = key.split(":")
         reason = SEMANTICS[parser_id][direction].reason
         assert "PROMOTED" in reason, key
         assert re.search(r"\d+ of \d+|\d+/\d+", reason), key
+
+
+def test_a_tautological_entry_says_so_rather_than_reading_as_evidence():
+    """W3 §COUNTSP3. Three parsers agree with their printed counts because
+    their own acceptance gate already required it. A run of `match` there is
+    information-free, and an entry that let a reader mistake it for a measured
+    agreement would be worse than no entry at all — which is the argument the
+    `community_section` comment makes and this pins for the two cells that
+    joined that class since."""
+    for key in ("burke_herbert:credit", "burke_herbert:debit",
+                "first_citizens:credit"):
+        parser_id, direction = key.split(":")
+        semantics = SEMANTICS[parser_id][direction]
+        assert semantics.comparable is True, key
+        assert "TAUTOLOG" in semantics.reason.upper(), key
+
+
+#: Every direction W3 §COUNTSP3 made comparable. Enumerated rather than
+#: sampled, so the falsifier test below cannot silently skip one — which is
+#: exactly what it did on review (§COUNTSP3 D1) before the enumeration existed.
+COUNTSP3_COMPARABLE = (
+    "burke_herbert:credit", "burke_herbert:debit",
+    "chase_savings:credit", "chase_savings:debit",
+    "first_citizens:credit",
+    "td_canada_french:credit", "td_canada_french:debit",
+)
+
+#: The ONE exclusion from the falsifier rule, and the argument for it: this
+#: direction cannot be wrong, so there is nothing to state how you would find
+#: out about. The parser's gate counts `a > 0` and the parser sets
+#: `direction='credit'` on exactly `amount > 0`, so the gate's set and the
+#: check's set are provably the same set — no document, real or constructed,
+#: can make this direction disagree. Its DEBIT sibling gets no such exemption:
+#: there the two keys diverge on a $0.00 row, so it carries a falsifier.
+FALSIFIER_EXEMPT = ("burke_herbert:credit",)
+
+
+def test_the_countsp3_promotions_each_carry_a_falsifier():
+    """The idiom `first_community` established and `bank_of_america:debit`
+    made standing: an entry that can be wrong has to say how you would find
+    out.
+
+    Every direction COUNTS-P3 made comparable states one, with a single
+    exemption that is NAMED rather than omitted — `FALSIFIER_EXEMPT` above
+    carries the argument. The exemption list is asserted to be exactly that
+    one key, so exempting a second direction is a deliberate edit here.
+    """
+    assert FALSIFIER_EXEMPT == ("burke_herbert:credit",)
+    assert set(FALSIFIER_EXEMPT) <= set(COUNTSP3_COMPARABLE)
+    for key in COUNTSP3_COMPARABLE:
+        parser_id, direction = key.split(":")
+        semantics = SEMANTICS[parser_id][direction]
+        assert semantics.comparable is True, key
+        if key in FALSIFIER_EXEMPT:
+            continue
+        assert "FALSIFIER" in semantics.reason, key
+
+
+def test_a_service_charge_entry_says_whether_its_control_arm_was_exercised():
+    """W3 §COUNTSP3 D2. Two of the promoted debit directions print the
+    capital_one-shaped `Checks/Debits` label, and NEITHER has a charged
+    document in the archive to test the scope against: `burke_herbert` bills
+    zero on all 3, `chase_savings` prints no `Fees` row on any of 10. Both
+    entries are therefore resting on construction rather than on a control
+    arm, and both must say so — the asymmetry the review caught was one entry
+    disclosing it and the other asserting the conclusion flat.
+
+    The standard is COUNTS-P1's: `+1 always` and `+1 iff charged` were
+    indistinguishable on 12 all-charged capital_one documents, and an
+    unexercised arm is the same hazard wearing the opposite sign.
+    """
+    for key in ("burke_herbert:debit", "chase_savings:debit"):
+        parser_id, direction = key.split(":")
+        reason = SEMANTICS[parser_id][direction].reason
+        assert "capital_one" in reason, key
+        # the population that does NOT exist, stated as a number
+        assert re.search(r"all 3 archive documents bill a ZERO charge"
+                         r"|0 of the 10 archive\s+documents print a `Fees` row",
+                         reason), key
+        # ... and the word for what is carrying the claim instead
+        assert "construction" in reason or "not evidence" in reason, key
+
+
+def test_the_first_citizens_debit_entry_carries_the_mapping_and_its_cost():
+    """W3 §COUNTSP3. §FI14.3 recommended a COMPARABLE entry off one pinned
+    document and then corrected itself; the correction is what this pins. The
+    entry must carry the mapping AND the measured price of ignoring it, so the
+    next reader cannot re-derive the promotion from the 26 documents where the
+    two sides happen to agree."""
+    reason = SEMANTICS["first_citizens"]["debit"].reason
+    assert SEMANTICS["first_citizens"]["debit"].comparable is False
+    assert "stated_debit_count + 1" in reason
+    # the two arms, and which one each is
+    assert "26 agree exactly" in reason and "9 disagree by exactly +1" in reason
+    # the measured consequence of promoting it anyway
+    assert "review/integrity_flags" in reason
+    # ... and the clause the capital_one entry does not need: a billed charge
+    # whose itemisation could not be found is +0, not +1.
+    assert "RECOVERED AS A POSTING" in reason
+
+
+def test_the_td_canada_french_promotion_argues_its_own_independence():
+    """The expected side is an oracle on a SOLVED column, so independence is
+    the whole of the argument: the solver must not be able to read the count
+    it is being checked against."""
+    for direction in DIRECTIONS:
+        semantics = SEMANTICS["td_canada_french"][direction]
+        assert semantics.comparable is True
+    reason = SEMANTICS["td_canada_french"]["credit"].reason
+    assert "_resolve_directions" in reason
+    assert "never reads" in reason
+    # the four disagreeing documents are disclosed as already-withheld rather
+    # than quietly omitted from the denominator
+    assert "13 archive documents" in reason
+    assert "9 of 13 agree, 4 of 13 disagree" in reason
 
 
 def test_the_bofa_debit_promotion_carries_its_falsifier():
@@ -275,6 +420,26 @@ def test_the_observer_and_the_check_read_one_table():
     assert observer.UNSURVEYED is production.UNSURVEYED
     assert observer.semantics_for is production.semantics_for
     assert observer.SECTION_LEVEL_ORACLES is production.SECTION_LEVEL_ORACLES
+
+
+def test_the_observer_version_moves_when_the_table_does():
+    """W3 §COUNTSP3 D5. `OBSERVER_VERSION`'s own contract is "bumped when the
+    vocabulary, the evaluation order or the semantics table changes", so that
+    two measurement runs over one archive can be told apart. Nothing enforced
+    it, and COUNTS-P2's table change reached production with the version
+    already stale by the time COUNTS-P3 read it.
+
+    Pinning the version against the table's SHAPE is what makes the contract
+    self-enforcing: adding, removing or re-classifying an entry fails here
+    until the version is deliberately moved and its comment says what moved.
+    """
+    import telemetry.stated_counts as observer
+
+    comparable = sum(
+        1 for table in SEMANTICS.values()
+        for semantics in table.values() if semantics.comparable
+    )
+    assert (observer.OBSERVER_VERSION, len(SEMANTICS), comparable) == (3, 31, 56)
 
 
 # ---------------------------------------------------------------------------
