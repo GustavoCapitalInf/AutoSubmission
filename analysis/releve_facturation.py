@@ -55,6 +55,14 @@ def _fold(text: str) -> str:
     every amount unreadable.
     """
     repaired = normalize_sign_glyphs(normalize_mojibake(text))
+    # The accent fold is a per-character Python loop, and a full registry
+    # sweep runs this over every one of ~3,500 discovery documents. Almost all
+    # of them are ASCII, where NFKD is the identity and no character combines,
+    # so the fold is exactly `.upper()` there and `str.isascii` (a C-level
+    # flag check) is what says so. Same answer, and the sweep budget this
+    # wave is watching does not pay for a French reader on English documents.
+    if repaired.isascii():
+        return repaired.upper()
     decomposed = unicodedata.normalize("NFKD", repaired)
     return "".join(c for c in decomposed if not unicodedata.combining(c)).upper()
 

@@ -367,6 +367,36 @@ def test_accents_are_folded_so_an_unaccented_extraction_still_detects():
     assert parse(stripped) is not None
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "PLAIN ASCII STATEMENT\n1,234.56\n",
+        "Relevé de compte\nFACTURATION DÉTAILLÉE\n",
+        "MIXED é and ascii\n",
+        "",
+        "a−b c",  # a minus glyph and an NBSP, both normalized first
+    ],
+)
+def test_the_ascii_fast_path_is_the_same_fold(text):
+    """`_fold` short-circuits on ASCII to keep the registry sweep affordable.
+
+    That is only allowed because it is the SAME answer: NFKD is the identity
+    on ASCII and no ASCII character combines. The check runs after the sign
+    and mojibake normalizations, which are what could introduce a non-ASCII
+    character in the first place.
+    """
+    import unicodedata
+
+    from analysis.money import normalize_sign_glyphs
+    from analysis.releve_facturation import _fold
+    from analysis.td_can import normalize_mojibake
+
+    repaired = normalize_sign_glyphs(normalize_mojibake(text))
+    decomposed = unicodedata.normalize("NFKD", repaired)
+    general = "".join(c for c in decomposed if not unicodedata.combining(c)).upper()
+    assert _fold(text) == general
+
+
 def test_the_registration_publishes_no_bank_and_its_label_names_the_template():
     """`Registration.bank` is our constant and must name the template;
     `Statement.bank` is what we publish about the document and must be None.
