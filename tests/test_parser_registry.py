@@ -155,6 +155,94 @@ def test_detection_is_pure_and_repeatable():
 
 
 # ===========================================================================
+# Prepared text (the sweep seam)
+# ===========================================================================
+
+def test_a_prepared_document_strips_the_filename_comment_once():
+    prepared = pr.prepare("<!-- SOURCE: chase.pdf -->\nSTATEMENT")
+    assert "chase.pdf" not in prepared.admissible
+    assert prepared.preparations == 1
+
+
+def test_each_distinct_normalization_runs_once_per_document():
+    """The property the budget rests on. Two registrations sharing a
+    normalizer share its output; a third with its own pays for its own."""
+    calls = {"shared": 0, "own": 0}
+
+    def shared(text: str) -> str:
+        calls["shared"] += 1
+        return text.upper()
+
+    def own(text: str) -> str:
+        calls["own"] += 1
+        return text.lower()
+
+    a = make("a", pr.required("m", contains("X")), normalize=shared)
+    b = make("b", pr.required("m", contains("X")), normalize=shared)
+    c = make("c", pr.required("m", contains("x")), normalize=own)
+    d = make("d", pr.required("m", contains("X")))
+
+    prepared = pr.prepare("x")
+    detections = [reg.detect_prepared(prepared) for reg in (a, b, c, d)]
+
+    assert calls == {"shared": 1, "own": 1}
+    assert prepared.preparations == 3  # admissible + the two normalizations
+    assert [det.claims for det in detections] == [True, True, True, False]
+
+
+def test_a_prepared_sweep_detects_exactly_as_an_unprepared_one():
+    registrations = [
+        make("upper", pr.required("m", contains("BANK")), normalize=str.upper),
+        make("raw", pr.required("m", contains("bank"))),
+        make("excluded", pr.required("m", contains("bank")),
+             pr.excluding("no", contains("void"))),
+    ]
+    document = "<!-- SOURCE: x.pdf -->\nbank statement, not void"
+    prepared = pr.prepare(document)
+    for registration in registrations:
+        assert registration.detect_prepared(prepared) == registration.detect(document)
+
+
+def test_a_marker_two_registrations_share_is_evaluated_once_per_text():
+    """The measured case: `glyph_damaged` is an excluding marker on three
+    registrations, and costs 13 ms of a 150 ms sweep each time it runs."""
+    calls = []
+
+    def expensive(text: str) -> bool:
+        calls.append(text)
+        return "DAMAGED" in text
+
+    marker = pr.excluding("damage", expensive)
+    a = make("a", marker, pr.required("m", contains("X")))
+    b = make("b", marker, pr.required("m", contains("X")))
+
+    prepared = pr.prepare("X")
+    assert a.detect_prepared(prepared).claims
+    assert b.detect_prepared(prepared).claims
+    assert len(calls) == 1
+
+
+def test_a_marker_that_raises_is_not_memoized_and_still_reaches_the_guard():
+    def explodes(_text: str) -> bool:
+        raise ValueError("cannot handle this document")
+
+    registration = make("boom", pr.required("m", explodes))
+    prepared = pr.prepare("anything")
+    failures: list[pr.ParserFailure] = []
+
+    assert pr.safe_detect(registration, prepared, failures).score == 0.0
+    assert pr.safe_detect(registration, prepared, failures).score == 0.0
+    assert [f.exception for f in failures] == ["ValueError", "ValueError"]
+
+
+def test_preparing_a_document_never_mutates_it():
+    document = "<!-- SOURCE: x.pdf -->\nBank Statement"
+    prepared = pr.prepare(document)
+    make("a", pr.required("m", contains("BANK")), normalize=str.upper).detect_prepared(prepared)
+    assert document == "<!-- SOURCE: x.pdf -->\nBank Statement"
+
+
+# ===========================================================================
 # Registry data
 # ===========================================================================
 

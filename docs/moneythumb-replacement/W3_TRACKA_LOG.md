@@ -14703,3 +14703,257 @@ and pins, and they are the more important half:
    106 PASS / 3 WITHHELD and both classes sit inside PASS. The gate proves
    audited values reproduce; only the corpus-marked slice proves the outcome
    class did.
+
+
+# §DETBUDGET — the sweep prepared every document sixty-eight times
+
+Central triage of the batch-4 STOP-THE-LINE. Three cells read
+`test_detect_sweep_stays_affordable_for_the_discovery_run` red on an
+**unmodified base** while ten agents shared the machine, and each spent an hour
+proving the red was not theirs. The unit of work is `analysis/parser_registry.py`
+— the sweep path — and the affordability test's MEASUREMENT DESIGN. The
+constant is not touched: the budget is still a quarter-second per document.
+
+## D0. Summary
+
+The red was real, and it was two separate defects wearing one symptom.
+
+| # | defect | fix | measured |
+|---|---|---|---|
+| 1 | **The sweep prepared each document's text once per registration.** `admissible_text` ran 68 times and 36 normalizations ran, per document, to produce five distinct strings. Four fifths of the sweep. | `PreparedDocument`: `admissible_text` once, each *distinct* normalizer once, results interned so a marker two registrations share over the same text runs once. | worst pinned sweep **267.7 → 128.6 ms**; largest pinned document **241.7 → 142.2 ms**; text preparations per document **104 → 33** |
+| 2 | **The test timed a loop no caller runs, and read one sample of it.** It called `Registration.detect(markdown)` 68 times — which is the per-registration preparation, i.e. defect 1 measured deliberately — and took a single wall-clock sample on a shared machine. | Time the production seam (`_surviving_claimants`); take the **minimum** of five samples; assert against the cost **projected to 80 registrations**; and add a load-immune structural assertion in OPERATIONS. | the assertion is now **strictly harsher** than the one it replaces and passes with 30% margin |
+
+`0` documents change behaviour. Full-archive claim-set equivalence over every
+archive sha that has text offline — 3,367 of 3,380 — is byte-identical:
+claimant sets, scores, matched marker ids and `excluded_by`, for all 68
+registrations on every document, digest
+`9A7DEAA1468033FA0966B429742660C2F9023EEAE4707ECEDEFF67C0C1672B15` on both
+arms. The 13 documents with no offline text are the deferred visual-OCR set;
+there is no text to sweep and they are excluded rather than assumed.
+
+`analysis/parser_registry_entries.py` and all 58 parser modules carry a
+**zero-line diff**. `ANALYSIS_STAGE_VERSION` is deliberately NOT bumped —
+nothing published changes, and the bump is Ocean's at merge in any case.
+
+## D1. The instrument
+
+Two checkouts, one markdown store, one process per arm.
+
+* **base arm** — `git archive 229a3cd analysis ocr telemetry discovery`
+  extracted to a directory outside the worktree. Production code is imported
+  from the arm's own checkout and the harness asserts
+  `Path(pr.__file__).is_relative_to(CHECKOUT)` before measuring anything; the
+  first draft of this harness silently measured the branch twice and the
+  assertion is what caught it.
+* **the documents** — the run of record `d5c75ff6`'s 3,380 distinct shas,
+  resolved out of the D-3 artifact store **by direct file path** under the
+  run's OCR settings key. The sqlite index was never opened. 3,367 have text;
+  62,715,801 characters in total. Both arms read one pickled store, so the two
+  arms provably sweep identical bytes.
+* **the pinned corpus** — the 109-path manifest, resolved exactly as
+  `tests/test_parser_parity.py` resolves it.
+* **the timing method** — best-of-N per document, paired, arms alternating.
+  Every wall-clock number below was taken on a machine running roughly ten
+  parallel cells. They are therefore upper bounds; quiet-machine numbers come
+  at the train.
+
+## D2. Where the cost was
+
+Decomposed on the largest pinned document (`Others/Altana/Altana june 26.pdf`,
+62,702 chars), base arm, best-of-5:
+
+| stage | calls per document | cost | share |
+|---|---|---|---|
+| `admissible_text` | **68** — one per registration | 116 ms | 48% |
+| parser normalization | **36** — one per registration that has one | 77 ms | 32% |
+| markers | 68 registrations, 189 marker slots | 82 ms | 34% |
+| *(measured whole sweep)* | | *242 ms* | |
+
+The first two rows are the finding. `admissible_text` is a pure function of
+the document; a parser's `normalize` is a pure function of the document and of
+the parser's own preprocessing. Neither depends on which registration is
+asking, and the sweep asks 68 times. The 104 preparations produced, on that
+document, **five distinct strings**: 32 registrations have no normalizer, 30
+normalizers agreed on `admissible.upper()`, and three more stood alone.
+
+That is why HUNT-CELL's prediction landed at 55 registrations and why shaving
+could not save it: the dominant term grew with the registry, and removing the
+ninth-most-expensive registration entirely still left ~254 ms.
+
+## D3. The fix — prepare once per document, not once per registration
+
+`PreparedDocument` in `analysis/parser_registry.py`. Three memos, each of them
+exact rather than approximate:
+
+1. **`admissible_text` once.** Whatever the registry's size.
+2. **Each distinct normalizer once.** Keyed on the callable itself, so the two
+   Chase entries, the two Found entries and the two scanned small banks share
+   one output apiece. 36 calls → 32.
+3. **Each distinct resulting text interned**, so two registrations whose
+   normalizations happen to agree on *this* document hold the same string —
+   and a marker they also share is then evaluated once. Worth 8.5 ms of a
+   157 ms sweep.
+
+Nothing here decides a registration cannot claim. Every registration still
+runs every one of its markers over exactly the text it ran them over before,
+in the same order, and still produces a `Detection` — including the near-miss
+scores telemetry publishes for registrations that did not claim. The seam is
+threaded through `_surviving_claimants`, `detection_report`, `safe_detect`
+(which now accepts a `PreparedDocument` or a string), `Registration.detect`
+(now `detect_prepared` over a prepared document of one) and `make_detector`.
+Public behaviour of every one of them is unchanged.
+
+**No global cache.** A prepared document lives exactly as long as the sweep
+that asked for it. Caching the last document's prepared texts in a module
+global would halve the discovery run's detection cost again — see D9.1 — but
+it would also leave five copies of a customer's statement in a module-level
+variable for as long as the process lives, and this codebase does not do that
+(`ParserFailure` refuses to keep an exception *message* for the same reason).
+
+## D4. The two candidates that were NOT taken, and why
+
+**Candidate 1, the two-tier prescan, is incompatible with the binding
+equivalence requirement.** A prescan is sound as a claim gate — a registration
+whose required markers cannot all be present can never claim — but skipping a
+registration does not merely withhold a claim. `detection_report` publishes a
+`Detection` for **every** registration on every document, and telemetry's
+near-miss vector (`telemetry/collect.score_vector`) records every non-zero
+score. A skipped registration would lose its partial score and its `matched`
+marker ids, which is a behaviour change outside sweep cost on documents that
+nothing claims — 815 of the 3,367 swept here. To keep the near-miss vector the
+prescan would have to run the markers anyway, at which point it has saved
+nothing. Recorded, not attempted.
+
+**Candidate 2, per-registration shaving, is real work but it is not this
+cell's and it cannot close the gap alone.** The handoff's own arithmetic holds.
+What the profile adds is *where* the remaining cost is, so the cards can be
+written against evidence — D9.2.
+
+## D5. The measurement was wrong in two ways, and only one of them was load
+
+The shipped test read:
+
+```python
+for registration in registrations:
+    registration.detect(markdown)
+```
+
+That is not a sweep. It is the per-registration preparation of defect 1,
+performed deliberately, and **no caller has run detection that way since R-3**:
+`resolve` goes through `_surviving_claimants` and telemetry goes through
+`detection_report`, both of which sweep the registry once over one document.
+The test was measuring a shape production does not have, and it was the most
+expensive shape available.
+
+Second, one wall-clock sample on a shared machine is the wrong instrument for
+an absolute cost contract. Contention can only ever make a sample *slower*, so
+the minimum of several samples is the reading least contaminated by load and
+the one that converges on what a quiet machine pays.
+
+The replacement keeps the constant and states three things:
+
+| clause | what it asserts | instrument |
+|---|---|---|
+| `test_the_detect_sweep_prepares_each_document_once` | every pinned document costs exactly `1 + (distinct normalizers)` text preparations — 33 today | **operations. Deterministic; a busy machine and a quiet one cannot read it differently.** |
+| `test_the_sweep_entry_points_strip_the_filename_comment_once` | `_surviving_claimants` and `detection_report` — the two real entry points — strip the filename comment once per document, not once per registration | operations |
+| `test_detect_sweep_stays_affordable_for_the_discovery_run` | the **best of five** sweeps of the worst pinned document, through the production seam, **projected to 80 registrations**, is under **250 ms** | wall clock, absolute ceiling, load-robust estimator |
+
+The projection is what turns "the budget holds today" into "the budget holds at
+the size the coverage wave is heading for". At 68 registrations it requires the
+sweep to come in under 212.5 ms, which is **stricter than the 250 ms the
+shipped test asked for** — the base fails it by a wider margin than it failed
+the old one, and the branch passes it with 30% margin.
+
+## D6. Results
+
+Paired, same machine, same load, best-of-5, production seam
+(`_surviving_claimants`):
+
+| measurement | base | branch | |
+|---|---|---|---|
+| worst pinned document | 267.7 ms | **128.6 ms** | 2.08× |
+| largest pinned document (62,702 chars) | 241.7 ms | **142.2 ms** | 1.70× |
+| one pass over all 109 pinned documents | 8.14 s | **4.57 s** | 1.78× |
+| 40 largest archive documents, worst (139,737 chars) | 591.4 ms | **318.9 ms** | 1.85× |
+| 40 largest archive documents, median | 320.4 ms | **170.6 ms** | 1.88× |
+| text preparations per document | 104 | **33** | — |
+| full-archive equivalence pass (3,367 docs × 2 sweeps) | ~400 s | **~135 s** | ~3.0× |
+
+Projected to 80 registrations from the worst pinned reading: base 315 ms
+(over), branch **151 ms** (40% margin under the 250 ms ceiling).
+
+**All wall-clock figures above are loaded-machine figures** — roughly ten cells
+running. They are upper bounds on the quiet-machine cost.
+
+## D7. The equivalence proof
+
+For every archive sha with text offline, both arms recorded, per document:
+
+* the surviving claimant set after `supersedes` pruning, with scores;
+* the **complete** `detection_report` — all 68 registrations' `(score,
+  matched marker ids, excluded_by)`.
+
+3,367 documents, 3,367 identical records, one identical digest per arm:
+`9A7DEAA1468033FA0966B429742660C2F9023EEAE4707ECEDEFF67C0C1672B15`.
+Documents differing: **0**. Claim-set composition, unchanged on both arms:
+2,552 single-claimant · 0 ambiguous · 815 unclaimed.
+
+This is strictly more than the binding proof asked for — it pins the near-miss
+vector telemetry publishes, not only the winner and the claimants.
+
+## D8. Proofs
+
+## D9. Carried findings and questions for Ocean
+
+1. **The discovery run sweeps every document TWICE, and the second sweep can
+   now be made free.** `analysis/pipeline.analyze_markdown` calls `resolve`,
+   and `telemetry/collect.score_vector` then calls `detection_report` on the
+   same markdown — a second full sweep, correctly justified in its own
+   docstring as admissible because `detect` is pure. With this seam in place
+   the first sweep's `PreparedDocument` could be handed to the second and the
+   second would cost almost nothing, halving the discovery run's detection
+   cost again. Not done here: it needs `analysis/pipeline.py` and
+   `telemetry/collect.py`, both outside this cell's ownership, and both live
+   in batch 4.
+2. **Where the remaining 149 ms is, so the shaving cards can be written against
+   evidence.** On the largest pinned document, after this cell:
+
+   | | cost | owner |
+   |---|---|---|
+   | `community_section._clean` | 10.6 ms | `analysis/community_section.py` |
+   | `td_canada_french.detection_text` | 10.5 ms | `analysis/td_canada_french.py` |
+   | `chase_savings.detection_text` | 7.4 ms | `analysis/chase_savings.py` |
+   | `square_checking.detection_text` | 6.6 ms | `analysis/square_checking.py` |
+   | `regions.detection_text` | 3.7 ms | `analysis/regions.py` |
+   | `glyph_damaged` markers (`rbc`, `rbc_french`, `cibc`) | 15.8 + 8.8 + 10.9 ms | `analysis/tables.py` |
+   | `symitar` markers | 8.2 ms | `analysis/symitar.py` |
+
+   Five normalizers are 39 ms of the 67 ms normalization stage; `glyph_damaged`
+   is 35 ms of the 83 ms marker stage and is two `re.findall` over the whole
+   document. Each is a small card in the owning module.
+3. **`glyph_damaged` is wired to three registrations and the fourth
+   over-threshold document is unprotected.** Not new — `analysis/tables.py`
+   says so itself and W3 §RBCCIBC carded it as RC8.7 — but this cell is the
+   first to price it: platform-wide wiring at today's cost would add ~12 ms per
+   registration per document, which the budget cannot absorb 68 times. The memo
+   in `PreparedDocument` makes it affordable *if* the registrations reading it
+   share a normalized text; they do not today (`.upper()` vs
+   `normalize_mojibake().upper()` vs CIBC's own). Wiring it platform-wide
+   should be costed together with a shared normalizer.
+4. **The projection constant, `PLANNED_REGISTRATIONS = 80`.** Chosen from the
+   handoff's "headroom at 80+". It is the one new number in the test and it is
+   a policy statement about how big the registry is allowed to get before the
+   sweep has to be made cheaper again. Yours to set.
+5. **`test_detect_sweep_stays_affordable_for_the_discovery_run` is still a
+   wall-clock test, and wall-clock tests still flake.** Best-of-5 through the
+   production seam with a 40% margin is a very different proposition from one
+   sample with none, but if the batch sees another red the load-immune clause
+   (`test_the_detect_sweep_prepares_each_document_once`) is the one to read
+   first: if it is green, the structure is intact and the red is the machine.
+6. **The pinned corpus under-represents the archive's document sizes.** The
+   largest pinned document is 62,702 chars; the largest archive document is
+   139,737, and the branch sweeps it in 319 ms — over the 250 ms ceiling, on a
+   loaded machine, for a document the budget test cannot see. The ceiling is
+   honest about the corpus it measures and silent about the tail. Options are a
+   per-character ceiling or pinning a large document; both are decisions about
+   the contract, not fixes, so they are put here rather than taken.
