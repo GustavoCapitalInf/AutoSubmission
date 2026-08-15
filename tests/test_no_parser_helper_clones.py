@@ -186,9 +186,14 @@ def test_the_minus_sign_class_lives_only_in_the_shared_money_module():
 
 def test_the_minus_sign_guard_fires_on_the_copy_it_was_written_for(tmp_path):
     """A guard that has never been seen to fail is a guard nobody has tested.
-    Both real offenders are replayed here — the private class `wealthsimple`
-    carried and the inline pattern shape a parser would write instead — along
-    with the two things that must NOT trip it."""
+    Both real offender shapes are replayed here — the private glyph string
+    `wealthsimple` carried, and the inline interpolated pattern a parser would
+    write instead — alongside the three shapes that must NOT trip it: a
+    docstring, a comment, and a paragraph of provenance prose held as data.
+
+    Scope note: `_modules()` is `analysis/*.py`. `ocr/column_grid.py` carries a
+    fourth private opinion about dash glyphs and is outside this scan by the
+    same boundary every other guard in this file uses (W3 §MGD MGD10.4)."""
     module = tmp_path / "fake_parser.py"
     module.write_text(
         '"""A docstring may say charges − waivers freely."""\n'

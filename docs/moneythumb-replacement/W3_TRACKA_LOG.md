@@ -21365,15 +21365,24 @@ without noticing them would have quietly narrowed two PERIOD patterns, and
 would have left the platform's fifth sign class still reading an em dash as a
 minus.
 
-What each family actually PRINTS, measured over the archive:
+What each family actually PRINTS. The populations are derived by LIVE
+detection replay — the sweep's own `DispatchCollector` over every document —
+and never from `rows.csv`'s `parser_id`, which is empty on the run's 991
+analysis-cache hits (W3 #COUNTSP3). Both bases were computed and agree here,
+6/31/12/16 either way, so the rule cost nothing this time and is recorded
+because it is the rule:
 
 ```
-                money SIGN position                    period RANGE separator
-brex            U+002D 135                             U+002D 6/6
-mercury         U+2212 1,202 · U+2013 687 · U+002D 13  U+002D 31/31
-found_lead      U+002D 1,611                           (no period class)
-wealthsimple    U+2013 2,140                           U+002D 16/16
+                LIVE   rows.csv   money SIGN position                    period RANGE
+brex               6          6   U+002D 135                             U+002D 6/6
+mercury           31         31   U+2212 1,202 · U+2013 687 · U+002D 13  U+002D 31/31
+found_lead        12         12   U+002D 1,611                           (no period class)
+wealthsimple      16         16   U+2013 2,140                           U+002D 16/16
 ```
+
+Stronger than "no em dash in a sign position": **not one of those 65 documents
+contains U+2014 anywhere in its text at all.** The four families this cell
+changes cannot be reached by the change, before any pipeline is run.
 
 **Zero em dashes in a sign position in any of the four families**, and the
 ASCII hyphen is load-bearing in two of them (brex 135, found_lead 1,611) —
@@ -21576,11 +21585,13 @@ document stays byte-identical, which was the specific thing the ruling had to
 protect.
 
 The measurement has a containment argument behind it, and the two agree. The
-change can only reach a document whose text contains U+2014 — 265 documents
-store-wide — because `MINUS_CLASS` is byte-identical, `normalize_sign_glyphs`
-is identical over the BMP, and the three period patterns are member-identical.
-Of those 265, exactly **1** carries an em dash in a sign position and it is
-claimed by no parser.
+change can only reach a document whose text contains U+2014, because
+`MINUS_CLASS` is byte-identical, `normalize_sign_glyphs` is identical over the
+BMP, and the three period patterns are member-identical. **265** documents
+carry an em dash somewhere; **1** carries one in a sign position, and it is
+claimed by no parser. None of the 65 documents in the four families that read
+a printed sign glyph contains the character at all. The sweep is the proof and
+the argument is why the proof came out the way it did.
 
 ## MGD10. Carried findings for Ocean
 
@@ -21604,17 +21615,28 @@ claimed by no parser.
    a balance column would not have it. Zero attested inputs today, which is
    why a refusal rule was NOT added: an unattested refusal is the same
    over-reach as an unattested sign glyph.
-3. **`analysis/regions.py:40` re-implements half of `normalize_sign_glyphs`** —
+3. **`balance_by_date._PERIOD_RE` is a FOURTH date range built out of the
+   sign class** — `mm/dd/yyyy {MINUS_CLASS} mm/dd/yyyy`, at
+   `analysis/balance_by_date.py:369`. Inert under this cell (`MINUS_CLASS` is
+   byte-identical), and deliberately NOT repointed: `PERIOD_DASH` is one glyph
+   WIDER, so moving it could claim documents the family does not claim today.
+   Widening is a coverage change with its own sweep, not a canon change. The
+   module's other three `MINUS_CLASS` uses are genuine sign reads (the printed
+   `+`/`-` operator that opens a term line) and are correct as they stand.
+   `tests/test_shared_parser_utils.py` states the exclusion explicitly so the
+   repointing test is not read as a claim about the whole platform.
+4. **`analysis/regions.py:40` re-implements half of `normalize_sign_glyphs`** —
    `value.strip().replace("–", "-")` handles U+2013 and misses U+2212, so a
    Regions cell set with a true minus sign loses its sign. Not caught by
    card 4's guard, which keys on U+2212 by design (the whole point is that its
    ABSENCE here is the bug). Regions is offline-inexecutable per §WIRING, so
    this could not be measured end to end; recorded rather than touched.
-4. **`ocr/column_grid.py:62`** admits U+2212 in its money-cell class and not
+5. **`ocr/column_grid.py:62`** admits U+2212 in its money-cell class and not
    U+2013 or the em dash — a fourth private opinion about dash glyphs, in the
-   geometry layer, outside `analysis/` and outside card 4's scan. Named for
-   the geometry cell rather than taken.
-5. **`ANALYSIS_STAGE_VERSION` needs NO bump for this cell.** Zero archive
+   geometry layer, outside `analysis/` and outside card 4's scan (whose
+   boundary is `analysis/`, the same one every other guard in that file uses).
+   Named for the geometry cell rather than taken.
+6. **`ANALYSIS_STAGE_VERSION` needs NO bump for this cell.** Zero archive
    documents change output. Ocean's call at merge, as always, but nothing here
    forces it.
 

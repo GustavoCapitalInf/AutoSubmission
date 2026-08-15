@@ -223,10 +223,18 @@ def test_the_period_dash_is_strictly_wider_than_the_money_sign_class():
     assert period - sign == {"—"}
 
 
-def test_no_parser_builds_a_date_range_out_of_the_money_sign_class():
-    """The coupling itself, made unrepresentable. `MINUS_GLYPHS` is a SIGN
-    class; a parser that imports it to separate two dates will inherit whatever
-    the sign class is narrowed to next."""
+def test_the_three_repointed_period_patterns_keep_their_em_dash():
+    """The coupling, pinned where it was broken. `MINUS_GLYPHS` is a SIGN
+    class; a parser that imports it to separate two dates inherits whatever the
+    sign class is narrowed to next, which is what happened to these three.
+
+    NOT a claim about the whole platform, and the difference matters:
+    `balance_by_date._PERIOD_RE` still builds a `mm/dd/yyyy - mm/dd/yyyy` range
+    out of `money.MINUS_CLASS` and is deliberately left alone. Repointing it
+    would WIDEN it by one glyph, which can claim documents it does not claim
+    today — a movement this cell has no evidence for and no mandate to make.
+    Carried at W3 §MGD MGD10.
+    """
     from analysis import brex, mercury, wealthsimple
 
     for module in (brex, mercury, wealthsimple):
