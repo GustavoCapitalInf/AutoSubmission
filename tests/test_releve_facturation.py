@@ -148,6 +148,28 @@ def test_a_reference_numbers_tail_is_not_a_thousands_group():
     assert stmt.transactions[0].description == "TRF DT INTERNET D77100000001337"
 
 
+def test_the_money_token_cannot_begin_inside_a_digit_run():
+    """The left boundary, pinned AT THE PATTERN rather than by its effect.
+
+    This guard is defence-in-depth, not load-bearing for any archive document:
+    with `_amount_from_chain` in place the printed balance recovers the right
+    figure even when the token is misread, and all 16 documents parse either
+    way. That is exactly why it needs its own test — a guard whose removal
+    changes no outcome is a guard nothing else will notice being deleted, and
+    what it prevents (reading `...D77100000001337 150,00` as `337 150,00`) is
+    a wrong figure reaching the resolver in the first place.
+    """
+    import re as _re
+
+    from analysis.releve_facturation import _MONEY
+
+    pattern = _re.compile(_MONEY)
+    assert [m.group() for m in pattern.finditer("D77100000001337 150,00")] == ["150,00"]
+    assert [m.group() for m in pattern.finditer("00105958482 224,65")] == ["224,65"]
+    # and it still reads a genuine space-thousands figure whole
+    assert [m.group() for m in pattern.finditer("SOLDE 4 113,92")] == ["4 113,92"]
+
+
 def test_a_detached_minus_signs_the_balance_and_not_the_amount():
     """An overdrawn balance prints its sign as its own token. The two money
     columns are magnitudes; the direction is the column, read off the chain."""
@@ -245,6 +267,73 @@ def test_the_same_token_is_read_as_thousands_when_the_chain_says_so():
     assert stmt.transactions[0].description == "C/ACHAT 00000000000 PETRO-CANADA"
 
 
+def test_a_leading_zero_group_is_one_number_and_not_an_ambiguity():
+    """The invariant this reader used to assert and did not have.
+
+    `_amount_from_chain` claimed its candidate readings were necessarily
+    distinct numbers, so at most one could ever fit. A group of zeroes breaks
+    that: `000 100,00` reads as 100.00 whether the leading group is thousands
+    or description, two candidates fit the same movement, and `!= 1` refused a
+    row whose amount was never ambiguous. Deduplicating by VALUE is the fix -
+    same number, no ambiguity about the money.
+    """
+    ledger = (
+        "03 31 SOLDE PRECEDENT 1 000,00 "
+        "04 01 COMPTE DIVERS EXEMPLE 000 100,00 1 100,00 "
+        "04 02 DPA ENTREPRISE EXEMPLE 100,00 1 000,00"
+    )
+    stmt = parse(document(
+        ledger, credit_count=1, credit_total="100,00",
+        debit_count=1, debit_total="100,00",
+    ))
+    assert stmt is not None
+    assert [t.amount for t in stmt.transactions] == [100.0, -100.0]
+    # The whole money cell is the amount, so none of it is left in the text.
+    assert stmt.transactions[0].description == "COMPTE DIVERS EXEMPLE"
+
+
+def test_a_genuine_ambiguity_still_needs_the_balance_to_pick_one():
+    """The control for the dedupe: two readings that are DIFFERENT numbers are
+    still a real ambiguity, and are still resolved by the printed balance
+    rather than by preferring either end."""
+    from analysis.releve_facturation import _amount_from_chain
+
+    assert _amount_from_chain("000 100,00", 100.0) == (100.0, 0)
+    assert _amount_from_chain("13 100,00", 100.0) == (100.0, 3)
+    assert _amount_from_chain("13 100,00", 13100.0) == (13100.0, 0)
+    assert _amount_from_chain("13 100,00", 999.0) is None
+
+
+def test_a_zero_movement_row_reads_as_a_credit_and_refuses_when_the_bank_counted_a_debit():
+    """D2, pinned in BOTH fee-table directions.
+
+    A zero-amount row moves no balance, so it has no movement direction, and
+    the printed COLUMN that would settle it does not survive flattening. This
+    reader breaks the tie as a credit. Where the bank counted such a row on
+    the credit side the document publishes; where it counted a debit, both
+    printed counts disagree and the document is REFUSED. Fail-closed, and the
+    refusal is the point - it is not silently republished on the wrong side.
+    """
+    ledger = (
+        "03 31 SOLDE PRECEDENT 1 000,00 "
+        "04 01 COMPTE DIVERS EXEMPLE 0,00 1 000,00 "
+        "04 02 DPA ENTREPRISE EXEMPLE 250,00 750,00"
+    )
+    counted_as_credit = parse(document(
+        ledger, credit_count=1, credit_total="0,00",
+        debit_count=1, debit_total="250,00",
+    ))
+    assert counted_as_credit is not None
+    assert [t.direction for t in counted_as_credit.transactions] == ["credit", "debit"]
+    assert counted_as_credit.transactions[0].amount == 0.0
+
+    counted_as_debit = parse(document(
+        ledger, credit_count=0, credit_total="0,00",
+        debit_count=2, debit_total="250,00",
+    ))
+    assert counted_as_debit is None
+
+
 def test_a_row_no_reading_of_which_fits_the_chain_refuses_the_document():
     """The ambiguity is resolved by the document or not at all. Where the
     balance demands a figure the printed amount cannot spell, the row has been
@@ -290,22 +379,6 @@ def test_every_one_of_the_four_printed_figures_is_load_bearing(field, wrong):
     misread amount and a total check cannot see a dropped zero-value row."""
     assert parse(document(LEDGER)) is not None, "the control must pass"
     assert parse(document(LEDGER, **wrong)) is None, f"{field} is not checked"
-
-
-def test_the_counts_are_keyed_on_the_column_and_not_on_the_sign():
-    """A zero-movement row is on one of the bank's two counts and on neither
-    side of a sign test — the rule `reconcile` and `count_semantics` state."""
-    ledger = (
-        "03 31 SOLDE PRECEDENT 1 000,00 "
-        "04 01 COMPTE DIVERS EXEMPLE 0,00 1 000,00 "
-        "04 02 DPA ENTREPRISE EXEMPLE 250,00 750,00"
-    )
-    stmt = parse(document(
-        ledger, credit_count=1, credit_total="0,00",
-        debit_count=1, debit_total="250,00",
-    ))
-    assert stmt is not None
-    assert [t.direction for t in stmt.transactions] == ["credit", "debit"]
 
 
 # ===========================================================================

@@ -14828,7 +14828,7 @@ question is what every consumer does with the absence. Swept, and named:
 | `analysis/pipeline.py:176` `_registration_for` | `by_bank_label(stmt.bank)` | never reached for these: the dispatch claimed, so the claiming registration is returned. `by_bank_label(None)` returns `None` anyway (`if not bank`) |
 | `analysis/bank_repairs.py` (8 repairs) | `(stmt.bank or "").upper()` | none fire; each is None-safe already |
 | `discovery/runner.py:494` | `statement.get("bank")` | field is `str \| None`; stored as null |
-| `discovery/report.py:27` `folder_agreement` | `if row.statement_bank` | None-safe. **All 21 sit in folders whose normalised label is `unidentified` or is not matched anyway, and `unidentified` is in the function's own exempt set, so the agreement rollup gains no `label_unmatched` noise** |
+| `discovery/report.py:27` `folder_agreement` | `if row.statement_bank` | None-safe, but see D3 below — **6 of the 21 will surface as `label_unmatched`**, and the first version of this table said otherwise |
 | `telemetry/record.py` | — | deliberately never carries the extracted bank label (H3_SCHEMA I1) |
 | `webapp/app.py:831,:864` | `statement.get("bank")` | passed through as null |
 | `webapp/static/app.js:269` | report field | renders **"Bank Name: N/A"** |
@@ -14914,9 +14914,29 @@ group and a $100.00 purchase at store 13 if it is part of the merchant's
 name. Both readings are well-formed French money and no grammar separates
 them. **The bank's own printed running balance does:** 2499.30 − 100.00 =
 2399.30. So the candidates are the token and each of its suffixes at a group
-boundary, the movement the printed balances demand selects one, and a row
-that no reading fits refuses the document rather than publishing a guess.
-The readings are distinct numbers, so at most one can ever fit.
+boundary, the movement the printed balances demand selects among them, and a
+row that no reading fits refuses the document rather than publishing a guess.
+
+**Correction, from Ocean's adversarial review (closure 1).** This section
+first claimed "the readings are distinct numbers, so at most one can ever
+fit". That is false, and the code asserted it: a group of zeroes makes two
+readings the SAME number — `000 100,00` is 100.00 whether the leading group
+is thousands or description — so two candidates fit, the `!= 1` guard fired,
+and a row whose amount was never ambiguous was refused. Candidates are now
+deduplicated **by value**, keeping the longest (the whole money cell); a
+genuine ambiguity still yields two DIFFERENT numbers and still refuses unless
+the balance picks one. Measured over the family: **0 of 2,905 rows need the
+dedupe**, so this is a latent-correctness fix and moves nothing in the
+archive — all 21 payloads are byte-identical across it. The zero-group shape
+is now a fixture, and `_amount_from_chain` is unit-tested directly on all
+four of its cases.
+
+**How often the resolver is actually load-bearing.** Of the 2,905 published
+rows, 604 carry a space-grouped amount that offers more than one distinct
+reading, and on **6** of them the reading the balance selects is a suffix —
+i.e. six rows in the family would be published with a wrong four- or
+five-figure amount without it. Ocean's reviewer independently found the same
+six.
 
 This is not amount-from-balance. The printed amount is still read and still
 has to match; that is what keeps the chain a check rather than a tautology
@@ -15039,14 +15059,46 @@ precedence rule.
 **Published `bank=None`:** 0 claimed documents before, 21 after — card 1 five,
 card 2 sixteen, other zero.
 
-## U6. Two regex guards, proven load-bearing by mutation
+## U6. The two regex guards — which one is load-bearing (D1)
 
-Not argued — removed, and the cell suite re-run:
+The first version of this section reported both guards as load-bearing, on
+mutation counts taken before the dedupe of closure 1 existed. Ocean's review
+called that out and it is wrong. Re-measured over the 16 real documents, on
+the shipped tree:
 
 ```
-remove (?<!\d) from the money token      : 19 of 30 cell tests fail
-remove (?=[A-Z]) from the row anchor     : 22 of 30 cell tests fail
+both guards present              : 16 / 16 documents reconcile
+without the money left boundary  : 16 / 16      <- defence-in-depth
+without the following-capital    :  0 / 16      <- load-bearing
+without either                   :  0 / 16
 ```
+
+**`(?=[A-Z])` is the guard that carries the family.** Without the
+following-capital anchor a row start is found inside the seam between two
+figures and not one of the sixteen survives.
+
+**`(?<!\d)` is defence-in-depth**, and only became so when
+`_amount_from_chain` shipped: the resolver recovers the right figure from a
+token the missing boundary misread, so removing the boundary now changes no
+outcome. It is kept because preventing a wrong figure from reaching the
+resolver is better than recovering from one, and because the resolver's
+refusal branch is the only thing standing behind it.
+
+That created a real gap, which Ocean's framing predicts and this cell closed:
+after the dedupe, **the whole cell suite passed with the boundary removed** —
+a guard nothing would notice being deleted. It now has its own unit test
+against the pattern rather than against a downstream outcome.
+
+Mutation, re-run on the shipped tree (38 cell tests):
+
+```
+remove (?<!\d) from the money token   :  1 of 38 fail   (its own pattern test)
+remove (?=[A-Z]) from the row anchor  : 23 of 38 fail
+```
+
+The historical claim in U4.2 stands and is a different statement: in the
+PRE-resolver prototype, the missing boundary is what made 10 of the 16 look
+chain-broken.
 
 ## U7. Carried findings and questions for Ocean
 
@@ -15122,7 +15174,7 @@ $ git status --short
 (clean)
 
 $ python -m pytest -q
-3818 passed, 18 deselected, 1 warning in 242.00s (0:04:02)
+3821 passed, 18 deselected, 1 warning in 187.94s (0:03:07)      # post-closure
 SUITE_EXIT=0
 
 $ python -m pytest -m corpus -q -rA                          # 14/14, all named
@@ -15154,10 +15206,24 @@ $ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.
 241 passed, 1 warning in 6.87s
 GUARDS_EXIT=0
 
-$ python -m pytest tests/test_parser_conformance.py tests/test_parser_registry_entries.py       tests/test_releve_facturation.py tests/test_community_section_layouts.py -q
-929 passed in 3.33s                    # cross-product now 69 x 68 = 4,692
-EXIT=0
+$ python -m pytest tests/test_parser_conformance.py tests/test_parser_registry_entries.py -q
+856 passed in 1.42s                    # cross-product now 69 x 68 = 4,692
+CONFORMANCE_EXIT=0
+
+$ python -m pytest tests/test_releve_facturation.py tests/test_community_section_layouts.py -q
+76 passed in 0.49s
+CELL_EXIT=0
 ```
+
+The corpus-marked slice and `corpus_gate.py` above were run before the review
+closures and were not re-run. The reason is measured rather than assumed:
+`analysis/community_section.py`'s closure change is **AST-identical after
+docstring removal** (D5 is a comment), and the closure-1 dedupe moves nothing
+— **0 of 2,905 archive rows need it**, and all 21 movers re-instrument
+**byte-identical** to the pre-closure payload sweep (21/21). Neither change is
+reachable from a pinned document: the 109-document corpus holds no member of
+either population, and `releve_facturation`'s detection markers were not
+touched, so its claim set is still exactly the 16.
 
 **`test_detect_sweep_stays_affordable_for_the_discovery_run` PASSED on this
 branch**, at 69 registrations, during a run in which eleven other Python
@@ -15165,9 +15231,17 @@ processes were competing for the machine — the "under load" condition the
 batch-level STOP-THE-LINE describes. No A/B was needed and the constant was
 not touched. The registration was written to the JHA clean-once precedent
 (one normalization registered as registry data, compiled patterns) and given
-an ASCII fast path (U6b); measured over 196 archive documents it is 4.0% of
-the sweep, below `community_section` 8.1%, `cibc` 6.9%, `rbc_french` 6.5%,
-`rbc` 5.7% and `td_canada_french` 5.6%.
+an ASCII fast path (U6b).
+
+**Its share of the sweep, both measurements.** This cell, best of 3 reps over
+196 archive documents: **4.3%, rank 7 of 69**, behind `community_section`
+9.2%, `rbc` 6.6%, `td_canada_french` 6.6%, `cibc` 5.3%, `square_checking`
+5.2% and `rbc_french` 5.1%. Ocean's reviewer, independently: **~6%, rank
+2–4**. The figures differ with the sample and the machine load and neither is
+the "true" one; the conclusion both support, and the one that matters for the
+budget, is that this registration sits **in the same band as the other
+accent-folding readers and is not an outlier**. The earlier single-rep 4.0%
+is superseded by the best-of-3 number above.
 
 ### U6b. The ASCII fast path
 
@@ -15196,3 +15270,75 @@ above remain exact and the branch does not overlap them. Files touched:
 `tests/test_releve_facturation.py` (new), `tests/test_community_section_layouts.py`,
 `tests/test_parser_conformance.py` and `tests/test_parser_registry_entries.py`
 (the 68 -> 69 pins). `analysis/desjardins.py`: zero diff.
+
+## U10. Closures from Ocean's adversarial review (verdict: SHIP)
+
+The reviewer attacked the split resolver directly and it held — six live
+suffix-rows in 2,905, every failure a refusal — and re-derived `desjardins`
+6/6 and the 110 byte-identical on their own sweep. Five closures were
+required and all five are in this branch. Closure 1 is in U4.3, closure 5's
+D1 is in U6; the rest are here.
+
+**D2 — a zero-movement row's direction is the balance's, not the column's,
+and the docstring said otherwise.** `_transactions` derives direction from
+`new_balance >= balance`, so a zero-amount row is always a CREDIT, while
+`_oracle_disagrees` claimed to count "the column the row was printed in" —
+the rule `reconcile` and `count_semantics` actually use. Worse, the test
+named for the property only exercised the credit case and so passed for the
+wrong reason.
+
+Fixed by stating the rule as implemented rather than by inventing a column:
+`DÉBIT ($)` and `CRÉDIT ($)` are two columns on the page and one string in
+flattened text, so the column is not recoverable, and **deriving the zero
+row's direction from the fee table was considered and rejected** — assigning
+the row to whichever side the printed counts need would let the count check
+supply the value it then verifies, which is the tautology
+`count_semantics` exists to disclose. The consequence is now named: where the
+bank counted such a row as a DEBIT, both printed counts disagree and **the
+document is refused**. Fail-closed, and pinned in BOTH fee-table directions
+(the credit case publishes, the debit case refuses). Measured: **0 of the
+2,905 rows in this family carry a zero amount**, so nothing is lost today.
+
+**D3 — six of the 16 will read as `label_unmatched` in the folder-agreement
+rollup, and that is correct.** They sit in `Desjardins/`; the parser is
+`releve_facturation` and `Statement.bank` is `None`, so neither candidate
+label matches the folder and `folder_agreement` returns `label_unmatched`.
+The other ten are in `Unidentified/`, which is in the function's own exempt
+set, and land in `unlabelled_folder`. The U3 table originally claimed all 21
+were exempt; that was wrong and is corrected above.
+
+**This bucket must not be "fixed".** The obvious way to make six
+disagreements disappear is to name the registration after the folder it is
+filed under — which is precisely what §U4.1's evidence forbids, and what
+`tests/test_parser_detection_markers.py` exists to prevent. The rollup is
+reporting a true fact: six statements are filed under a bank name that
+appears nowhere in them. A `label_unmatched` entry here is the honest
+outcome, not a regression, and it should be read the way §J9.5 asks the
+`community_section` entries to be read.
+
+**D4 — the five `community_section` movers publish `currency='USD'` with no
+printed evidence.** They take the schema default (`analysis/schema.py`:
+`currency: str = "USD"`), because for a non-null default "we did not read
+this" and "we read USD" are the same value. That is the exact assertion card
+2 refuses to make one file away: `releve_facturation` publishes CAD only from
+the printed product line and declines a document whose product line it cannot
+read. The asymmetry is recorded rather than resolved — it is pre-existing on
+all 110 documents of that template, not this cell's to change, and the fix is
+a platform decision about whether `currency` should be nullable. **Joins the
+currency-evidence platform card**, alongside the `rbc` `currency='USD'`
+ceremony already on Gustavo's reserved list; it is the same class of question.
+
+**D5 — a note for the next editor of the masthead scope**, written into
+`_masthead_lines`. The masthead is the top of the document, which is also
+where the OCR layer's `<!-- source: <filename> ... -->` comment sits, and
+`_ISSUER_RE` would read a domain out of a filename like
+`Visit bankname.com statement.pdf`. Nothing is wrong today: every production
+path reaches a parser through `analyze_markdown`, which applies
+`admissible_text` at its single parse seam (W3 FILENAME-BOUNDARY). The point
+of the note is that this function's safety is guaranteed ELSEWHERE, so a
+direct call with raw markdown is outside it, and widening either the scope or
+the label widens that exposure.
+
+**Records corrected.** The detector profile is restated in U8 with both
+measurements rather than only this cell's. The mutation denominators are 38,
+not 30. The D1 narrative is rewritten in U6.

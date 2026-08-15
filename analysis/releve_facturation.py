@@ -247,25 +247,38 @@ def _amount_from_chain(token: str, movement: float) -> tuple[float, int] | None:
     them - four of these sixteen documents turn on it.
 
     **The document decides, not this reader.** The balance beside the row is
-    printed by the bank, and only one reading satisfies
-    `previous + amount == balance`. So the candidates are the token and each
-    of its suffixes at a group boundary, the movement the balances demand
-    selects one, and a row where NONE fits is a row we have misread - which
-    refuses the document rather than publishing a guess. The readings are
-    distinct numbers, so at most one can ever fit; `!= 1` is written out
-    anyway, because "exactly one reading survived" is the claim being made.
+    printed by the bank. So the candidates are the token and each of its
+    suffixes at a group boundary, the movement the balances demand selects
+    among them, and a row where NONE fits is a row we have misread - which
+    refuses the document rather than publishing a guess.
+
+    Candidates are deduplicated BY VALUE, and that is a correctness fix rather
+    than tidying. An earlier version of this docstring claimed the readings
+    were necessarily distinct numbers, so at most one could ever fit. That is
+    false where a group is all zeroes: `000 100,00` reads as `100.00` whether
+    the leading group is taken as thousands or as description, so two
+    candidates fit, `!= 1` refused the row, and a document whose amount was
+    never ambiguous at all was declined. Two readings that are the same NUMBER
+    are not an ambiguity about the money - only about where the description
+    ends - so they collapse to one, the longest, which is the whole money cell.
+    A genuine ambiguity (`13 100,00` as 13100.00 or 100.00) still yields two
+    DIFFERENT numbers and still refuses unless the balance picks one.
 
     Returns `(value, offset)` - the value and where inside `token` the reading
     began, so the digits that turned out to be description can be given back
     to it.
     """
     groups = token.split(" ")
-    fitting = []
+    fitting: list[tuple[float, int]] = []
+    seen: set[float] = set()
     for index in range(len(groups)):
         value = _money(" ".join(groups[index:]))
-        if value is not None and abs(value - abs(movement)) <= 0.01:
-            offset = len(" ".join(groups[:index])) + (1 if index else 0)
-            fitting.append((value, offset))
+        if value is None or abs(value - abs(movement)) > 0.01:
+            continue
+        if round(value, 2) in seen:
+            continue
+        seen.add(round(value, 2))
+        fitting.append((value, len(" ".join(groups[:index])) + (1 if index else 0)))
     return fitting[0] if len(fitting) == 1 else None
 
 
@@ -319,6 +332,12 @@ def _transactions(
             return None
         if not start <= posted <= end:
             return None
+        # Direction is the direction the printed balance MOVED, which is the
+        # only direction evidence flattened text carries: the DÉBIT and CRÉDIT
+        # columns are two columns on the page and one string here, so which
+        # column an amount sat in is not recoverable. A zero-movement row
+        # therefore reads as a credit, because `>=` has to break the tie
+        # somewhere - see `_oracle_disagrees` for what that costs.
         signed = value if new_balance >= balance else -value
         txns.append(
             Transaction(
@@ -336,11 +355,34 @@ def _transactions(
 def _oracle_disagrees(oracle: _Oracle, txns: list[Transaction]) -> bool:
     """Do the bank's own four printed figures disagree with what we read?
 
-    Counted by `Transaction.direction` - the column the row was printed in -
-    and not by the sign of the amount, the rule `reconcile` and
-    `analysis/count_semantics.py` state for the same reason: a zero-movement
-    row belongs to one of the bank's two counts and to neither side of a sign
-    test. Both counts AND both totals must agree; three out of four is a
+    Counted by `Transaction.direction`. **On this template that is the
+    direction the printed balance MOVED, not the column the row was printed
+    in** - and the distinction is worth stating exactly, because the two are
+    the same thing on every row except one shape.
+
+    `reconcile` and `analysis/count_semantics.py` key on the printed COLUMN,
+    for a reason this reader cannot honour: a zero-amount row moves no balance
+    and so has no movement direction, while the bank still printed it in one
+    of its two columns and still counted it there. Flattened text does not
+    carry the column - `DÉBIT ($)` and `CRÉDIT ($)` are two columns on the
+    page and one string here - so `_transactions` breaks the tie with `>=` and
+    a zero-movement row reads as a CREDIT.
+
+    The consequence is named rather than hidden: where the bank counted such a
+    row as a DEBIT, our credit count is one too many and its debit count one
+    too few, both printed figures disagree, and **the document is refused**.
+    That is the fail-closed direction - a document we cannot read correctly
+    publishes nothing - and it is pinned in both directions by
+    `test_a_zero_movement_row_reads_as_a_credit_and_refuses_when_the_bank_
+    counted_a_debit`. No archive document of this family prints a zero-amount
+    row at all (measured: 0 of 2,905 rows), so nothing here is lost today.
+
+    Deriving the zero row's direction from the fee table instead - assigning
+    it to whichever side needs it - was considered and rejected: it would let
+    the count check supply the value it then verifies, which is exactly the
+    tautology `count_semantics` exists to disclose.
+
+    Both counts AND both totals must agree; three out of four is a
     disagreement.
     """
     credits = [t for t in txns if t.direction == "credit"]

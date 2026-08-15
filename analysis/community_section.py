@@ -733,6 +733,23 @@ def _masthead_lines(markdown: str) -> list[str]:
     same line is part of the evidence (see `_ISSUER_RE`). The page-header
     scrub `_clean` performs is not needed here - a page header cannot be in
     the masthead, which ends before the first account.
+
+    NOTE FOR THE NEXT EDITOR OF THIS SCOPE (D5). The masthead is the TOP of
+    the document, so it is also where the OCR layer's
+    `<!-- source: <filename> ... -->` comment sits. A filename is
+    operator-supplied metadata and on this archive a folder-derived guess, and
+    `_ISSUER_RE` would happily read one: a file called
+    `Visit bankname.com statement.pdf` puts a label and a domain on one line
+    inside this scope. Nothing is wrong today, because every production path
+    reaches a parser through `analysis.pipeline.analyze_markdown`, which
+    applies `parser_registry.admissible_text` at its single parse seam (W3
+    FILENAME-BOUNDARY) - the comment is gone before this function ever sees
+    it. What that means in practice: this function's safety depends on a
+    guarantee made ELSEWHERE, so a direct call to
+    `parse_community_section_statement` with raw markdown - a test, a script,
+    a future caller that bypasses the pipeline - is outside it. Widening the
+    masthead scope, or relaxing `_ISSUER_RE`'s label, widens that exposure
+    too; strip the comment here as well if this ever grows a direct caller.
     """
     end = _MASTHEAD_END_RE.search(markdown)
     return (markdown[:end.start()] if end else markdown).splitlines()
