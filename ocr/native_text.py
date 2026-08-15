@@ -3,52 +3,159 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 from statistics import median
-from typing import TypedDict
+from typing import NamedTuple, TypedDict
 
 from .column_grid import find_columns, page_words, read_rows
 from .document import StatementMarkdown
 
 
+class _UnreadableTextLayer(Exception):
+    """A page's text layer could not be extracted at all.
+
+    MuPDF raises out of ``page.get_text(...)`` on structurally malformed
+    documents — `FzErrorFormat: code=7: cycle in resources` is the class GEOM-1
+    found on four archive documents, and on one and the same corrupt page
+    `get_text("text")`/`("dict")` raise a builtin `RuntimeError` while
+    `("blocks")`/`("words")` raise `pymupdf.mupdf.FzErrorFormat`, which does NOT
+    descend from RuntimeError. Every `page.get_text` call IN THIS MODULE goes
+    through `_page_text`, which converts those into THIS exception; each rung
+    catches it and returns None.
+
+    "In this module" is the exact scope and not a whole-path guarantee:
+    `parse_native_woodforest` reaches MuPDF through
+    `ocr/column_grid.py::page_words`, which is outside this guard and answers an
+    unreadable page with an empty word list rather than a refusal (W3 §RUNGSEAM
+    RS6.3). It is unreachable for this class today only because that rung gates
+    on `_native_pages` first.
+
+    Two properties matter and are the reason the conversion is a distinct class
+    rather than a bare `except Exception` around each rung:
+
+    * a rung refuses ONLY because the document's text layer is unreadable — a
+      defect in a rung's own row logic, and a mistake in how a rung CALLS
+      `get_text` (a misspelled keyword raises `TypeError`, an unknown mode
+      raises `AssertionError`), still escape, loudly. `_page_text` catches only
+      the classes MuPDF was measured to raise;
+    * a refusal is whole-document. A partial read (skip the bad page, keep the
+      rest) would hand a parser a statement with pages silently missing, and
+      `parse_native_pdf_text`'s quorum gate would happily accept it.
+    """
+
+
+@lru_cache(maxsize=1)
+def _mupdf_text_errors() -> tuple[type[BaseException], ...]:
+    """The exception classes MuPDF raises out of `page.get_text`.
+
+    Measured on the four crash documents rather than guessed (W3 §RUNGSEAM
+    RS3.2): `RuntimeError` plus the `FzErrorBase` family, which is a sibling of
+    RuntimeError and not a subclass, so both have to be named. Resolved lazily
+    because this module deliberately imports PyMuPDF inside functions.
+
+    If the `FzErrorBase` attribute ever moves, this returns the `RuntimeError`
+    alone and the guard silently narrows — so
+    `tests/test_native_text_unreadable.py` asserts the family IS resolved here
+    instead of letting that pass unnoticed.
+    """
+    errors: list[type[BaseException]] = [RuntimeError]
+    base = None
+    for module_name in ("pymupdf.mupdf", "fitz.mupdf"):
+        try:
+            module = __import__(module_name, fromlist=["FzErrorBase"])
+        except Exception:  # noqa: BLE001 - absence is the only thing that matters
+            continue
+        candidate = getattr(module, "FzErrorBase", None)
+        if isinstance(candidate, type) and issubclass(candidate, BaseException):
+            base = candidate
+            break
+    if base is not None and not issubclass(base, RuntimeError):
+        errors.append(base)
+    return tuple(errors)
+
+
+def _page_text(page, *args, **kwargs):
+    """``page.get_text(...)``, with MuPDF's failure made into a refusal."""
+    try:
+        return page.get_text(*args, **kwargs)
+    except _mupdf_text_errors() as exc:
+        raise _UnreadableTextLayer(f"{type(exc).__name__}: {exc}") from exc
+
+
+class _PageRead(NamedTuple):
+    """What the block extraction produced, and why it produced nothing.
+
+    `refusal` is set only when MuPDF could not read the text layer, and it is
+    the reason string, not a flag: without it a structurally corrupt PDF is
+    indistinguishable from an ordinary scan everywhere downstream, which is the
+    diagnostic the pre-guard crash used to supply by escaping.
+    """
+
+    pages: tuple[str, ...] | None
+    refusal: str | None
+
+
 @lru_cache(maxsize=4)
-def _native_pages_cached(pdf_bytes: bytes) -> tuple[str, ...] | None:
+def _native_pages_cached(pdf_bytes: bytes) -> _PageRead:
     """The block extraction itself, memoised on the document's own bytes.
 
-    The ladder in `ocr/pipeline.py` asks several extractors in turn and most of
+    The ladder in `native_statement` asks several extractors in turn and most of
     them start by reading the same page text, so an un-memoised
     `_native_pages` is re-extracted once per rung the document falls through —
     on every native-text document in the archive, every discovery run. Four
-    entries is enough: the ladder works one document at a time.
+    entries is enough: the ladder works one document at a time. It is also what
+    makes `text_layer_refusal` free: a caller asking why the ladder returned
+    nothing hits this cache rather than re-reading the document.
 
-    A TUPLE is returned, and `_native_pages` copies it into a fresh list per
-    call. `parse_native_navy_federal` and this module's Woodforest reader both
-    append their structured block to `pages[0]`, and handing out the cached
-    object would let one caller's edit become the next caller's input.
+    A TUPLE is returned inside `_PageRead`, and `_native_pages` copies it into a
+    fresh list per call. `parse_native_navy_federal` and this module's Woodforest
+    reader both append their structured block to `pages[0]`, and handing out the
+    cached object would let one caller's edit become the next caller's input.
     """
     try:
         import fitz
     except Exception:
-        return None
+        return _PageRead(None, None)
 
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception:
-        return None
+        return _PageRead(None, None)
 
     pages: list[str] = []
-    for page in doc:
-        lines: list[str] = []
-        blocks = sorted(page.get_text("blocks"), key=lambda b: (round(b[1], 1), round(b[0], 1)))
-        for block in blocks:
-            text = " ".join(part.strip() for part in str(block[4]).splitlines() if part.strip())
-            if text:
-                lines.append(text)
-        pages.append("\n".join(lines))
-    return tuple(pages)
+    try:
+        for number, page in enumerate(doc, start=1):
+            lines: list[str] = []
+            blocks = sorted(
+                _page_text(page, "blocks"), key=lambda b: (round(b[1], 1), round(b[0], 1))
+            )
+            for block in blocks:
+                text = " ".join(part.strip() for part in str(block[4]).splitlines() if part.strip())
+                if text:
+                    lines.append(text)
+            pages.append("\n".join(lines))
+    except _UnreadableTextLayer as refused:
+        return _PageRead(None, f"page {number} {refused}")
+    return _PageRead(tuple(pages), None)
 
 
 def _native_pages(pdf_bytes: bytes) -> list[str] | None:
-    pages = _native_pages_cached(pdf_bytes)
+    pages = _native_pages_cached(pdf_bytes).pages
     return None if pages is None else list(pages)
+
+
+def text_layer_refusal(pdf_bytes: bytes) -> str | None:
+    """Why MuPDF could not read this PDF's text layer, or None if it could.
+
+    The ladder answers `None` for a document it cannot read and for a document
+    with nothing to read, which is correct — both mean "no native text" — but
+    it makes a structurally corrupt PDF look like an ordinary scan. This is the
+    channel for the difference: a caller that got `None` from
+    `native_statement` and wants to say WHY asks here, and the answer is served
+    from the same memoised read the ladder already did.
+
+    A refusal is only ever raised by the extraction itself; a PDF that fails to
+    open, or a missing PyMuPDF, answers None here as it always did.
+    """
+    return _native_pages_cached(pdf_bytes).refusal
 
 
 _NAVY_ROW_DATE_RE = re.compile(r"^(\d{2}-\d{2})\s+(.*)$")
@@ -104,7 +211,7 @@ def _navy_transaction_rows(doc, account: str) -> tuple[list[str], list[str]]:
         pending = None
 
     for page in doc:
-        for raw_line in page.get_text("text", sort=True).splitlines():
+        for raw_line in _page_text(page, "text", sort=True).splitlines():
             line = re.sub(r"\s+", " ", raw_line).strip()
             if not line:
                 continue
@@ -189,7 +296,10 @@ def parse_native_navy_federal(
     except Exception:
         return None
 
-    full_text = "\n".join(page.get_text("text", sort=True) or "" for page in doc)
+    try:
+        full_text = "\n".join(_page_text(page, "text", sort=True) or "" for page in doc)
+    except _UnreadableTextLayer:
+        return None
     upper = full_text.upper()
     if (
         "NAVY FEDERAL" not in upper
@@ -201,7 +311,10 @@ def parse_native_navy_federal(
     if account_match is None:
         return None
 
-    rows, source_dates = _navy_transaction_rows(doc, account_match.group(1))
+    try:
+        rows, source_dates = _navy_transaction_rows(doc, account_match.group(1))
+    except _UnreadableTextLayer:
+        return None
     pages = _native_pages(pdf_bytes)
     if not pages or not rows:
         return None
@@ -556,7 +669,7 @@ def _fc_bands(page) -> list[list[tuple[float, float, float, str, float]]]:
     row pitch (`_fc_rows`).
     """
     cells: list[tuple[float, float, float, str, float]] = []
-    for block in page.get_text("dict").get("blocks", []):
+    for block in _page_text(page, "dict").get("blocks", []):
         if block.get("type") != 0:
             continue
         for line in block.get("lines", []):
@@ -713,8 +826,11 @@ def parse_native_first_citizens(
         return None
 
     rows: list[str] = []
-    for page in doc:
-        rows.extend(_fc_rows(page))
+    try:
+        for page in doc:
+            rows.extend(_fc_rows(page))
+    except _UnreadableTextLayer:
+        return None
     if not rows:
         return None
 
@@ -747,7 +863,10 @@ def parse_native_desjardins(pdf_bytes: bytes, source_file: str = "") -> Statemen
     except Exception:
         return None
 
-    pages = [page.get_text("text", sort=True) or "" for page in doc]
+    try:
+        pages = [_page_text(page, "text", sort=True) or "" for page in doc]
+    except _UnreadableTextLayer:
+        return None
     full_text = "\n".join(pages).upper()
     if (
         "CAISSE DESJARDINS" not in full_text
@@ -791,32 +910,40 @@ def parse_native_wells_fargo(pdf_bytes: bytes, source_file: str = "") -> Stateme
     except Exception:
         return None
 
-    full_text = "\n".join(page.get_text("text") or "" for page in doc).upper()
+    try:
+        full_text = "\n".join(_page_text(page, "text") or "" for page in doc).upper()
+    except _UnreadableTextLayer:
+        return None
     if "WELLS FARGO" not in full_text or "TRANSACTION HISTORY" not in full_text:
         return None
 
     pages: list[str] = []
-    for page in doc:
-        lines: list[str] = []
-        blocks = sorted(page.get_text("blocks"), key=lambda b: (round(b[1], 1), round(b[0], 1)))
-        for block in blocks:
-            text = " ".join(part.strip() for part in str(block[4]).splitlines() if part.strip())
-            if text:
-                lines.append(text)
+    try:
+        for page in doc:
+            lines: list[str] = []
+            blocks = sorted(
+                _page_text(page, "blocks"), key=lambda b: (round(b[1], 1), round(b[0], 1))
+            )
+            for block in blocks:
+                text = " ".join(part.strip() for part in str(block[4]).splitlines() if part.strip())
+                if text:
+                    lines.append(text)
 
-        rows = _wells_rows(page)
-        if rows:
-            lines.append("WF_NATIVE_TRANSACTIONS")
-            lines.extend(rows)
-            lines.append("WF_NATIVE_TRANSACTIONS_END")
-        pages.append("\n".join(lines))
+            rows = _wells_rows(page)
+            if rows:
+                lines.append("WF_NATIVE_TRANSACTIONS")
+                lines.extend(rows)
+                lines.append("WF_NATIVE_TRANSACTIONS_END")
+            pages.append("\n".join(lines))
+    except _UnreadableTextLayer:
+        return None
     return StatementMarkdown(source_file=source_file, model="native-pdf-text+wells", pages=pages)
 
 
 def _wells_rows(page) -> list[str]:
     import re
 
-    words = page.get_text("words")
+    words = _page_text(page, "words")
     cutoff_y = 735.0
     for x0, y0, x1, y1, text, *_ in words:
         if text.lower() in {"items", "account", "important", "totals", "the", "summary", "monthly"}:
@@ -893,3 +1020,50 @@ def _wells_rows(page) -> list[str]:
                 current["balance"] = balance
     flush()
     return rows
+
+
+# ---------------------------------------------------------------------------
+# The native-text rung ladder — the one copy
+# ---------------------------------------------------------------------------
+
+
+def native_statement(pdf_bytes: bytes, source_file: str = "") -> StatementMarkdown | None:
+    """The native-text rung: bank-specific layouts first, generic text last.
+
+    THIS IS THE LADDER. Every consumer imports this function; none composes its
+    own. `ocr/pipeline.py` binds it as `_native_statement`, and the five
+    oracle/cache consumers (`adb_debug.py`, `adb_forensic_audit.py`,
+    `balance_forensic_audit.py`, `build_corpus_cache.py`,
+    `deterministic_coverage_audit.py`) bind it under the names their call sites
+    already used. `tests/test_native_rung_parity.py` asserts all six names are
+    THIS object and that no module composes rungs itself.
+
+    Why one copy, in the words of the two drifts that paid for it:
+
+    * O-1: the ladder existed twice — inline in `ocr/pipeline.py` and privately
+      in `webapp/worker.py` — and the two had drifted in rung ORDER.
+    * GEOM-1 (batch 4): production gained `parse_native_woodforest` while the
+      five oracle copies did not, so the forensic oracles would have read
+      Woodforest documents with the generic rung while production read
+      geometry. An oracle that reads different bytes than production is not an
+      oracle. Batch 4 wired all six by hand and pinned them with an AST drift
+      guard; this function removes the thing the guard was watching.
+
+    Order is behaviour, not taste: each bank-specific rung claims only the
+    documents whose printed markers it recognises, and the generic rung claims
+    everything with enough native text — so it must stay last. The extractors
+    are called, never modified.
+
+    Returns None when no rung claims the document, INCLUDING when the PDF's
+    text layer cannot be read at all (`_UnreadableTextLayer`); the caller's
+    next stage — local Tesseract, then visual OCR — decides what happens next.
+    """
+    return (
+        parse_native_navy_federal(pdf_bytes, source_file=source_file)
+        or parse_native_td_canada(pdf_bytes, source_file=source_file)
+        or parse_native_wells_fargo(pdf_bytes, source_file=source_file)
+        or parse_native_woodforest(pdf_bytes, source_file=source_file)
+        or parse_native_desjardins(pdf_bytes, source_file=source_file)
+        or parse_native_first_citizens(pdf_bytes, source_file=source_file)
+        or parse_native_pdf_text(pdf_bytes, source_file=source_file)
+    )

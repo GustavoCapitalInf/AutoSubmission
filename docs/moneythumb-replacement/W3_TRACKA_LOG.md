@@ -25570,3 +25570,545 @@ confirmation.
 | `5b18337` | the filename-boundary negative for both new readers (+2 tests) |
 | `464f492` | the measured proof block, §CUR4.2 blast radius, §CUR2's filename paragraph |
 | (this one) | Ocean's review round: D-5 (the account-name contradiction, fixed), D-1/D-2 (mailing-header anchor + literal spelling table), D-4 (discriminating filename negatives through `admissible_text`, +Desjardins), D-3 (the inadmissible-ISO residual carded), and five record corrections — the false "no production reader" claim, "four pinned" -> one, §CUR2's inverted filename story, the `_ADMISSIBLE_CURRENCIES` name, and the artifact-preference ±1 |
+# §RUNGSEAM — six copies of one ladder, and the crash the ladder could not survive
+
+Cell RUNG-SEAM, batch 5, branch `wave5-rungseam`, base `b524f72` (v12, OCR v3,
+registry 71, suite 4,240, corpus-marked 25). Two cards: consolidate the six
+native-rung ladder copies into ONE shared ladder, and guard the `FzErrorFormat`
+crash class GEOM-1 found in the intake path.
+
+## RS0. Summary
+
+| | |
+|---|---|
+| Ladder copies before / after | **6 / 1.** `ocr/native_text.py::native_statement` is the ladder; `ocr/pipeline.py` and the five oracle/cache consumers BIND that function object |
+| Rung order | unchanged — navy · td_canada · wells · woodforest · desjardins · first_citizens · generic |
+| Documents whose markdown changed | **0.** 555-document archive sample, 13,949,964 chars of markdown, byte-identical through the production entry point |
+| Documents whose behaviour changed | **4**, all in the crash class, all named in RS4 |
+| Production outcomes moved | **0** — measured, not assumed (RS4) |
+| Oracle outcomes moved | **4**, crash → structured refusal. Honest improvement, named |
+| Archive census of the crash class | 3,615 PDFs swept; **exactly 4** raise; 0 fail to open |
+| Statement-specific constants added | none |
+| Protected modules touched | none |
+| Files changed | `ocr/native_text.py`, `ocr/pipeline.py`, `adb_debug.py`, `adb_forensic_audit.py`, `balance_forensic_audit.py`, `build_corpus_cache.py`, `deterministic_coverage_audit.py`, `tests/test_native_rung_parity.py` (rewritten), `tests/test_native_text_unreadable.py` (new), this log |
+| Cache-version bumps owed | **none** — reasoning in RS6.5 |
+
+## RS1. Card 1 — the seam
+
+### RS1.1 What was actually there
+
+Batch 4 wired `parse_native_woodforest` into all six copies by hand and pinned
+them with an AST drift guard. Measured on the base tree, the six copies were
+not merely equivalent — they were one computation written six times:
+
+```
+ocr/pipeline.py                 _native_statement  ['pdf_bytes', 'source_file']
+adb_debug.py                    _native_statement  ['pdf_bytes', 'source_file']
+adb_forensic_audit.py           native_statement   ['pdf_bytes', 'source_file']
+balance_forensic_audit.py       native_document    ['pdf_bytes', 'source_file']
+build_corpus_cache.py           native_document    ['pdf_bytes', 'source_file']
+deterministic_coverage_audit.py native_statement   ['pdf_bytes', 'source_file']
+
+distinct base ladder bodies (docstrings stripped): 1 over 6 modules
+```
+
+That measurement is load-bearing twice over. It says the batch-4 guard was
+green for the right reason, and it says a byte-identity sweep through ONE of
+the six entry points covers all six: they call the same seven module-level
+functions from `ocr.native_text`, in the same order, with the same keyword.
+
+### RS1.2 What it is now
+
+`ocr/native_text.py::native_statement` holds the ordered ladder — the natural
+home, because every copy already imported its rungs from there. The six
+consumers **bind** it:
+
+```python
+from .native_text import native_statement as _native_statement      # ocr/pipeline.py
+from ocr.native_text import native_statement as _native_statement   # adb_debug.py
+from ocr.native_text import native_statement                        # adb_forensic_audit.py
+from ocr.native_text import native_statement as native_document     # balance_forensic_audit.py
+from ocr.native_text import native_statement as native_document     # build_corpus_cache.py
+from ocr.native_text import native_statement                        # deterministic_coverage_audit.py
+```
+
+Binding rather than a delegating wrapper, deliberately. A wrapper is a body,
+and a body can drift — someone adds a rung to one wrapper and the AST guard is
+back. There is now no body to drift, and the six call sites keep the names they
+already used, so nothing below the import changed: `parse_statement` still
+calls `_native_statement`, `tests/test_pipeline.py` and five other test modules
+still monkeypatch `ocr.pipeline._native_statement`, and
+`tests/test_corpus_gate.py` still monkeypatches
+`adb_forensic_audit.native_statement` / `balance_forensic_audit.native_document`.
+
+### RS1.3 The drift guard, retired into a single-source assertion
+
+`tests/test_native_rung_parity.py` no longer compares six extracted call lists.
+It asserts the thing the comparison was approximating:
+
+1. **identity** — every consumer's ladder name *is*
+   `ocr.native_text.native_statement`, checked at runtime on the imported
+   modules, not by AST similarity;
+2. **the completeness scan, rekeyed** — no module outside `ocr/native_text.py`
+   calls a rung at all, so a seventh copy cannot appear. The old scan keyed on
+   the literal text `or parse_native_pdf_text(`, which a delegating consumer no
+   longer contains; the new one keys on the rung names the ladder itself calls,
+   read out of `native_statement`'s AST, so a new rung is covered automatically
+   and `analysis/`'s unrelated `_parse_native_summary` family is not swept up;
+3. **the other half of the GEOM-1 drift** — every `parse_native_*` the module
+   defines is wired into the ladder (7 of 7), no rung is called twice, and the
+   generic rung is still last. Batch 4's failure was a rung in one copy and not
+   the others; with one copy that is impossible, and the remaining failure mode
+   is a rung added to the module and never put in the ladder at all, which
+   looks like working code and reads nothing.
+
+## RS2. Byte-identity
+
+### RS2.1 The sample, and why it is this sample
+
+The card asked for the pinned 109 (the gate is their proof) plus a 100-document
+sample including all woodforest / first_citizens / navy / td / wells documents.
+The sample is built by detection rather than by folder name, over all 3,615
+archive PDFs, reading the same block-joined text the rungs read — two of the
+markers (`DATE CREDITS DEBITS BALANCE DESCRIPTION`,
+`DESCRIPTION CHEQUE/DEBIT DEPOSIT/CREDIT DATE BALANCE`) only exist once MuPDF's
+per-block lines are joined with spaces, so a raw-text scan finds zero of both
+families and would have silently shipped a sample with neither in it.
+
+**555 documents**, 5.5x the ask: every document carrying any bank-specific
+rung's markers, plus every 30th archive document for generic-rung coverage,
+plus the four crash documents. 22 of the pinned 109 fall inside it by name; the
+other 87 are covered by the gate.
+
+### RS2.2 The result
+
+Both trees swept through `ocr.pipeline._native_statement` — the production
+entry point, which RS1.1 shows stands for all six. Digest is sha256 over the
+markdown the ladder produced.
+
+| Selected by | Documents | Byte-identical |
+|---|---|---|
+| `wells` | 238 | 238 |
+| `td_canada` | 78 | 78 |
+| `navy` | 52 | 52 |
+| `first_citizens` | 51 | 51 |
+| `woodforest` | 20 | 20 |
+| `desjardins` | 7 | 7 |
+| spread (every 30th) | 121 | 120 (the 121st is a crash document) |
+| crash class | 4 | 0 — the whole point of card 2 |
+| **distinct documents** | **555** | **551**, 13,949,964 chars |
+
+The claim histogram is identical on both trees except where card 2 acts:
+
+```
+                                        base   branch
+native-pdf-text+wells                     238      238
+native-pdf-text                           186      186
+native-pdf-text+navy-federal-layout        52       52
+native-pdf-text+first-citizens-layout      37       37
+native-pdf-text+woodforest-columns         19       19
+native-pdf-text+desjardins-layout           7        7
+(no rung claimed)                          12       16
+EXCEPTION ESCAPED THE LADDER                4        0
+```
+
+The 19 woodforest claims reproduce GEOM-1's count exactly (20 marker documents,
+one refused — `Unidentified/e96144ab_Royalty3.pdf`, the split-cell refusal its
+review found).
+
+## RS3. Card 2 — the crash class, and GEOM-1's attribution corrected
+
+### RS3.1 The card's premise is measurably incomplete
+
+The card says: *"`fitz.open` guarded; the `get_text('blocks')` loop is not.
+Guard the loop."* Measured per rung on all four documents, at base:
+
+```
+navy_federal     -> RAISES FzErrorFormat: code=7: cycle in resources
+td_canada        -> RAISES FzErrorFormat
+wells_fargo      -> RAISES RuntimeError
+woodforest       -> RAISES FzErrorFormat
+desjardins       -> RAISES FzErrorFormat
+first_citizens   -> RAISES FzErrorFormat
+pdf_text         -> RAISES FzErrorFormat
+```
+
+**Every rung raises, and `_native_pages` is not the first one to.**
+`parse_native_navy_federal` is rung 1 and extracts the whole document's text
+itself, before `_native_pages` is ever called, so guarding only the
+`get_text("blocks")` loop would have left the escape exactly where it was.
+GEOM-1's attribution is not wrong, it is scoped to its own sweep harness, which
+called `_native_pages` directly; through the ladder the exception comes out of
+rung 1.
+
+### RS3.2 The class cannot be caught by exception class
+
+Same page, same defect, different extraction mode:
+
+```
+p1 get_text('text')   -> RuntimeError:   code=7: cycle in resources
+p1 get_text('blocks') -> FzErrorFormat:  code=7: cycle in resources
+p1 get_text('words')  -> FzErrorFormat:  code=7: cycle in resources
+p1 get_text('dict')   -> RuntimeError:   code=7: cycle in resources
+```
+
+`FzErrorFormat` is also not reachable as an attribute of `fitz` or `pymupdf` in
+this build (PyMuPDF 1.27.2.3), so it cannot be named in an `except` clause at
+all. A guard written against the class named in the card would have missed the
+two `text` call sites and been unwritable besides.
+
+### RS3.3 The guard
+
+One helper, `_page_text(page, *args, **kwargs)`, wraps every `page.get_text`
+call in the module and converts whatever MuPDF raised into
+`_UnreadableTextLayer`. Each rung catches that one class and returns None. Two
+properties, both deliberate:
+
+* **narrow.** A rung refuses only because the document's text layer is
+  unreadable. A defect in a rung's own row logic still escapes, loudly — a bare
+  `except Exception` around each rung would have turned a broken row reader
+  into a silent fall-through to the generic rung, which is a bank-specific
+  extractor quietly switching itself off, and is exactly the failure a coverage
+  wave cannot see. `test_a_rung_defect_is_not_swallowed` pins it.
+* **whole-document.** One unreadable page refuses the document. A partial read
+  would hand a parser a statement with pages silently missing, and
+  `parse_native_pdf_text`'s quorum gate (half the pages carry text) would
+  accept it. `test_one_unreadable_page_refuses_the_whole_document` pins it.
+
+Seven call sites routed: `_native_pages_cached` (`blocks`),
+`_navy_transaction_rows` and `parse_native_navy_federal` (`text`+sort),
+`parse_native_desjardins` (`text`+sort), `parse_native_wells_fargo`
+(`text`, `blocks`), `_wells_rows` (`words`), `_fc_bands` (`dict`). The eighth
+path, `parse_native_woodforest`, reaches MuPDF through
+`ocr/column_grid.py::page_words`, which already swallows the failure — see
+RS6.3.
+
+## RS4. The four documents, named, with their outcomes
+
+All four are the same account, `Unidentified/c3f27791_3 BUSINESS CHECKING
+X3774-*.PDF`. `fitz.open` succeeds and reports the page count; every page then
+raises in every mode.
+
+| content_sha256 | statement | pages | pages raising |
+|---|---|---|---|
+| `6f57be0899494df11bafb67741430a5a3537c623421d2a746232ea02b93af7bc` | 2026-01-31 | 4 | 4 |
+| `64a4958471c2e1625b1918eadb97c4b491520bef5a560ab5e8ba94835a3c7645` | 2026-02-28 | 4 | 4 |
+| `53906d0efdb5a5362d29af88a5d773882cbf19b40f7832ec43a6a2a9d3304035` | 2026-03-31 | 2 | 2 |
+| `cdb8a6cc9f8efb5fac151979bfa9141697595f9b46a88a623a2db1d380df8629` | 2026-04-30 | 2 | 2 |
+
+Outcomes, measured on both trees, identical for all four:
+
+| Reader | Before | After |
+|---|---|---|
+| `parse_statement` (production, offline — what discovery calls) | `None` | `None` — **UNCHANGED** |
+| `inspect_pdf` profile | `valid_pdf=True`, `classification=scanned`, `native_text_total_chars=0`, `malformed_pages=[all]` | identical |
+| `deterministic_coverage_audit.audit_file` | `native_status=error`, `deterministic_status=error`, `error=FzErrorFormat: code=7: cycle in resources`, no quality/integrity fields | `native_status=no_native_text`, `deterministic_status=not_attempted`, `quality=needs_review`, `integrity_risk=review`, `integrity_flags=text_unavailable` |
+| `build_corpus_cache.native_document` | raises — **aborts the whole cache build** | `None`, falls to local OCR |
+| the native ladder itself | `FzErrorFormat` escapes | `None` |
+
+**Production is unchanged, and not by luck.** `parse_statement`'s profile-driven
+skip fires first: `native_text_total_chars == 0` on a valid PDF means no native
+extractor can match, so the ladder is never called. `ocr/inspect.py::_page_texts`
+has had the per-page guard all along, which is why the preflight can measure
+zero characters on a document the ladder cannot survive. The crash class
+therefore only ever bit the offline oracles, which call the ladder with no
+profile gate — see RS6.2.
+
+**Nothing became readable.** Every page raises in every mode, so the generic
+rung cannot read what the crash previously killed; there is no coverage
+movement to claim and none is claimed. The honest improvement is the oracle
+rows above: an unhandled crash class became the module's own structured
+`text_unavailable` refusal, and a cache build that aborted now completes.
+
+## RS5. Nothing else moves — the archive census
+
+All **3,615** archive PDFs (3,409 distinct content hashes), each page probed in
+`text`, `blocks` and `words`:
+
+```
+documents where fitz.open failed                              0
+documents where any text extraction RAISED                    4
+  Unidentified/c3f27791_3 BUSINESS CHECKING X3774-2026-01-31.PDF   4/4 pages
+  Unidentified/c3f27791_3 BUSINESS CHECKING X3774-2026-02-28.PDF   4/4 pages
+  Unidentified/c3f27791_3 BUSINESS CHECKING X3774-2026-03-31.PDF   2/2 pages
+  Unidentified/c3f27791_3 BUSINESS CHECKING X3774-2026-04-30.PDF   2/2 pages
+exception classes observed             {FzErrorFormat, RuntimeError}
+```
+
+`text`+sort and `dict` were not probed archive-wide and the omission is
+deliberate: every mode runs the same MuPDF structured-text extraction and
+differs only in serialisation, they were confirmed to raise on all four known
+documents, and they cost 10-16x the other three (measured on 250 documents:
+`text`+sort 141.6 s and `dict` 201.6 s against `text` 11.8 s, `blocks` 12.5 s,
+`words` 16.2 s). The 555-document ladder sweep in RS2 exercises `text`+sort and
+`dict` for real on the families that use them and found no other mover.
+
+Since the guard fires only where MuPDF raises, and MuPDF raises on exactly four
+documents, the behaviour change is confined to those four by construction as
+well as by measurement.
+
+## RS6. Findings for Ocean
+
+1. **The card's attribution needed correcting with measurement** (RS3.1).
+   Guarding only `_native_pages`, as written, would have shipped a card that
+   changed nothing: rung 1 raises first. Named here because the next reader of
+   GEOM-1's note will otherwise inherit the same scoping.
+
+2. **The oracles have no preflight and production does.** `parse_statement`
+   routes on a `DocumentProfile`; `deterministic_coverage_audit`,
+   `build_corpus_cache`, `adb_forensic_audit` and `balance_forensic_audit` call
+   the ladder on raw bytes with no profile gate at all. That asymmetry is why a
+   crash class could sit in the intake path for a whole wave while production
+   never saw it — and it is a second-order oracle-fidelity gap of the same
+   family as the one this card closed: the oracles do not run the routing
+   production runs, only the rung production runs. Not fixed here (outside the
+   named populations, and giving the oracles a profile skip would change what
+   they measure). Worth a card.
+
+3. **`ocr/column_grid.py::page_words` swallows the same failure into `[]`.** Its
+   docstring says "Never raises", and an unreadable page therefore reads as a
+   page with no words rather than as a refusal. It is unreachable for this class
+   today (`parse_native_woodforest` gates on `_native_pages`, which now refuses
+   first) and the module is not mine, so it is recorded rather than changed. It
+   is the same hole one layer down.
+
+4. **The finding was in the code before it was in a card.**
+   `ocr/inspect.py::_page_texts` carries the comment "*duplicated by reference —
+   that helper has no per-page error isolation*", naming `_native_pages` as the
+   unguarded twin. The guard existed on one side of a deliberately duplicated
+   pair for a full wave.
+
+5. **No `OCR_STAGE_VERSION` bump is owed.** The rule in
+   `webapp/artifact_cache.py` is "bump when the OCR ladder's output changes for
+   unchanged settings". The ladder's output is byte-identical on 551 of 555
+   sampled documents, and on the other four it produced nothing before (the
+   call raised, so nothing was ever cached) and produces nothing now. No cached
+   artifact can be stale. Stated explicitly because a v3 → v4 bump costs the
+   whole archive a re-read.
+
+6. **Possible merge point.** PREPARED-HANDOFF owns "the pipeline resolve-seam
+   hunk"; if that is `ocr/pipeline.py` rather than `analysis/pipeline.py` it
+   meets this branch's import-block rewrite at the top of the file. No other
+   batch-5 handoff names any file this cell owns.
+
+## RS7. Proofs
+
+```
+All timings on a heavily shared host: ~20 concurrent python processes from
+other batch-5 worktrees (`mt5-mgd`, the DISCOBS and COUNTSMAP review sweeps, an
+8-shard archive diff) were running alongside. The gate's 1201.4 s against the
+726.2 s §SCANB recorded is that load, not this branch — the branch changes no
+extraction and adds no registration.
+
+# full default suite
+4257 passed, 33 skipped, 29 deselected in 403.98s          exit 0
+   (base b524f72: 4,240. +17 = 16 new unreadable-text tests + 1 net in the
+    rewritten seam guard, which goes from 2 assertions to 3.)
+
+# this cell
+tests/test_native_rung_parity.py       3 passed              exit 0
+tests/test_native_text_unreadable.py  16 passed              exit 0
+
+# guards
+239 passed in 20.57s                                         exit 0
+   test_no_statement_hardcodes · test_no_parser_helper_clones ·
+   test_r1_hardcodes · test_experiments_are_not_wired · test_filename_boundary
+
+# conformance cross-product + registry
+1084 passed, 33 skipped in 5.56s                             exit 0
+   test_parser_conformance (71 x 70 detection-negative) ·
+   test_parser_registry_entries · test_parser_detection_markers ·
+   test_parser_registry · test_parser_crash_shapes ·
+   test_parser_exception_boundary · test_count_semantics
+
+# corpus gate (python corpus_gate.py), 1201.4s
+[PASS] inventory · foreign_files · source_integrity (109/109 SHA-256) ·
+       balance_audit · adb_audit · exclusions · oracle_independence
+[PASS] balance_outcomes: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes:     106 pass, 3 withheld, same three statements
+[PASS] outcome_classes:  109 statements publish their pinned verdict
+                         (outcome class + the whole integrity block)
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR, no live OCR, no model calls
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 6 review / 100 validated / 3 withheld
+RESULT: GREEN                                                exit 0
+
+# corpus-marked (pytest -m corpus)
+25 passed, 4294 deselected in 3433.42s (0:57:13)      exit 0
+   every corpus-marked test, including
+   test_detect_sweep_stays_affordable_for_the_discovery_run — green even
+   under the shared-host load described above
+
+# archive census (3,615 PDFs, read-only, by direct file path)
+4 documents raise · 0 fail to open · exception classes {FzErrorFormat, RuntimeError}
+
+# byte-identity sweep (555 documents, base vs branch, same entry point)
+551/555 records identical · 539 claimed markdowns byte-identical
+4 records differ, all crash class: escaped exception -> None
+```
+
+## RS8. Commits
+
+| Commit | Contents |
+|---|---|
+| `2302533` | card 2 — `_page_text` + `_UnreadableTextLayer`, seven call sites routed, 16 tests |
+| `fbeb3a7` | card 1 — `native_statement`, six consumers bound to it, the drift guard retired into the single-source assertion |
+| `(this one)` | this log section |
+
+## RS9. Adversarial-review closures (Ocean, SHIP with four documentation-strength items)
+
+All four are addressed in code rather than prose where code was possible; two
+of them turned out to be real defects rather than wording, and one of the new
+tests found a third. Byte-identity re-proven after the closures: the same 555
+documents swept again, **0 records differ from the reviewed branch**, 0 escaped
+exceptions, and the only difference from base is still the same 4 crash
+documents.
+
+### RS9.1 Clause 2 was overclaiming, and the binding list was unpinned
+
+"A seventh copy cannot appear without failing here" was false. The scan matched
+`ast.Name` calls only — the same blind spot as the batch-4 guard it replaced —
+so an ALIASED import (`from ocr.native_text import parse_native_pdf_text as
+generic`) or an ATTRIBUTE call (`native_text.parse_native_pdf_text(...)`) would
+have walked straight past it.
+
+Both holes are now closed rather than merely disclosed: the scan flags any
+module outside the ladder home that *imports* a rung under any alias, and any
+call by plain name **or** attribute. What remains open is dynamic access
+(`getattr`, `importlib`), which no AST scan can see, and the module docstring
+now says exactly that instead of claiming completeness. Clause 1 (object
+identity) is named as the one that holds regardless, because it checks objects
+rather than text.
+
+`LADDER_BINDINGS` is no longer hand-maintained on trust. A new test derives the
+consumer set FROM THE REPOSITORY — every module importing `native_statement`
+from the ladder home, absolute or relative, plus the name each binds it under —
+and asserts it equals the dict. A seventh consumer, or a renamed binding, now
+fails there instead of silently sitting outside the identity check.
+
+**A finding from writing the negative tests.** The three new scans are exercised
+against synthetic sources that SHOULD trip them (plain call, aliased import,
+attribute call) and sources that should not (`_parse_native_summary`, an
+unrelated import). Doing that caught a bug in my own `_is_ladder_home`: a
+relative `from .native_text import native_statement` in a module OUTSIDE the
+`ocr` package was being credited to the ladder home, because the level check
+fell through to the absolute-name branch. Fixed, and the case is pinned. A
+guard whose failure path is never exercised is a guard nobody has tested.
+
+### RS9.2 The diagnostic loss — restored, not carded
+
+Correct and worth fixing: `_UnreadableTextLayer` carried MuPDF's message and
+every rung dropped it, so the oracle traded `FzErrorFormat: cycle in resources`
+for a generic `no_native_text` — archive-wide, a structurally corrupt PDF
+became indistinguishable from an ordinary scan.
+
+`_native_pages_cached` now returns `_PageRead(pages, refusal)` and the module
+exposes `text_layer_refusal(pdf_bytes) -> str | None`. It is a reason channel,
+not a second reader: the answer comes from the ladder's own memoised read, so a
+caller that got `None` and wants to know why pays nothing and re-reads nothing.
+Only the extraction sets a refusal — a PDF that fails to open, or a missing
+PyMuPDF, answers `None` exactly as before.
+
+Wired into the coverage oracle (in scope, and where the regression actually
+showed). For the four documents:
+
+```
+error           native PDF text layer unreadable: page 1 FzErrorFormat: code=7: cycle in resources
+integrity_notes native text unavailable and local OCR did not produce usable
+                statement text; text layer unreadable: page 1 FzErrorFormat: ...
+```
+
+`native_status`, `deterministic_status`, `quality`, `integrity_risk` and
+`integrity_flags` are **unchanged** — the reason is added, no classification
+moves — and a document with a readable-but-empty text layer keeps its previous
+row verbatim, which is pinned by a test.
+
+Note for the record: production never lost this diagnostic. `inspect_pdf`
+already records `malformed_pages` for these documents (all pages, on all four),
+and production routes on that profile rather than on the ladder. The loss was
+confined to the oracle row, and so is the repair.
+
+### RS9.3 `_page_text`'s catch — narrowed, because the docstring's promise is
+the valuable half
+
+The reviewer's `srot=` demo was right: `except Exception` meant a mistake in how
+a rung CALLS `get_text` became a silent whole-document refusal, contradicting
+the docstring two lines above it. Measured, rather than reasoned about:
+
+```
+corrupt page:  get_text("text")   -> builtins.RuntimeError
+               get_text("dict")   -> builtins.RuntimeError
+               get_text("blocks") -> pymupdf.mupdf.FzErrorFormat
+               get_text("words")  -> pymupdf.mupdf.FzErrorFormat
+   FzErrorFormat mro: FzErrorFormat -> FzErrorBase -> Exception
+   i.e. the two families are SIBLINGS; catching RuntimeError does not catch
+   FzErrorFormat, which is why both have to be named
+
+our own mistakes: get_text("text", srot=True) -> TypeError
+                  get_text("nonsense-mode")   -> AssertionError
+```
+
+So the catch is now `(RuntimeError, FzErrorBase)`, resolved lazily via
+`_mupdf_text_errors()` because this module imports PyMuPDF inside functions.
+`TypeError`, `AssertionError` and anything else propagate — pinned by test.
+
+The resolver has a failure mode of its own: if `FzErrorBase` ever moves it
+would fall back to `RuntimeError` alone and the guard would silently re-open
+for `blocks`/`words`. A test asserts the family IS resolved here rather than
+letting that pass, and the test's own `FzErrorFormat` stand-in is derived from
+the REAL `FzErrorBase` so it exercises that half of the tuple for real instead
+of being caught as a RuntimeError subclass by accident.
+
+Narrowing moves nothing: the archive census found no third exception class on
+3,615 documents, and the 555-document sweep re-run after the change escapes
+nothing and differs from the reviewed branch in 0 records.
+
+### RS9.4 Prose
+
+`ocr/pipeline.py` now reads "It is bound here under `_native_statement` — the
+name `parse_statement` has always called and the suite monkeypatches —". The
+`_UnreadableTextLayer` docstring's "every text extraction in this module" is
+qualified to "every `page.get_text` call IN THIS MODULE", with
+`ocr/column_grid.py::page_words` named inline as the path outside the guard
+that answers `[]` rather than refusing, cross-referenced to RS6.3, and with the
+note that it is unreachable for this class only because woodforest gates on
+`_native_pages` first.
+
+### RS9.5 Closure proofs
+
+```
+# tests/test_native_rung_parity.py
+6 passed                                                     exit 0
+   +3: the repository pin on LADDER_BINDINGS, and the two negative tests that
+   exercise the scans (one of which found the relative-import bug)
+
+# tests/test_native_text_unreadable.py
+24 passed                                                    exit 0
+   +8: the resolver pin, three caller-mistake propagation cases, the refusal
+   reason surviving the ladder, its absence on a readable document, and the
+   oracle row both with and without a reason
+
+# guards
+239 passed                                                   exit 0
+
+# full default suite
+4268 passed, 33 skipped, 29 deselected                       exit 0
+   (4,257 at review -> 4,268; +11 new closure tests)
+
+# byte-identity, re-run after the closures (555 documents)
+reviewed branch vs closure tree: 0 records differ
+escaped exceptions on the closure tree: 0
+base vs closure tree: 4 records differ, all crash class
+
+# the four documents, re-measured end to end
+production offline: None -> None (unchanged) · cache builder: None
+oracle: native_status/deterministic_status/quality/integrity_risk/
+        integrity_flags unchanged; error and integrity_notes now name
+        "page 1 FzErrorFormat: code=7: cycle in resources"
+```
+
+### RS9.6 Closure commit
+
+| Commit | Contents |
+|---|---|
+| `238fc8f` | the four review closures and this section |

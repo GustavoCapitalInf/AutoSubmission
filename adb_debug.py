@@ -19,32 +19,14 @@ from pathlib import Path
 from analysis.adb import compute_average_daily_balance
 from analysis.pipeline import analyze_markdown
 from analysis.schema import Statement
-from ocr.document import StatementMarkdown
 from ocr.local_tesseract import parse_local_tesseract
-from ocr.native_text import (
-    parse_native_desjardins,
-    parse_native_first_citizens,
-    parse_native_navy_federal,
-    parse_native_pdf_text,
-    parse_native_td_canada,
-    parse_native_wells_fargo,
-    parse_native_woodforest,
-)
+# The production native-text ladder itself — see
+# `ocr/native_text.py::native_statement`. This oracle reads exactly the bytes
+# production reads because it calls the same function, not a copy of it.
+from ocr.native_text import native_statement as _native_statement
 
 _PDF_SUFFIXES = {".pdf"}
 _TEXT_SUFFIXES = {".md", ".markdown", ".txt"}
-
-
-def _native_statement(pdf_bytes: bytes, source_file: str = "") -> StatementMarkdown | None:
-    return (
-        parse_native_navy_federal(pdf_bytes, source_file=source_file)
-        or parse_native_td_canada(pdf_bytes, source_file=source_file)
-        or parse_native_wells_fargo(pdf_bytes, source_file=source_file)
-        or parse_native_woodforest(pdf_bytes, source_file=source_file)
-        or parse_native_desjardins(pdf_bytes, source_file=source_file)
-        or parse_native_first_citizens(pdf_bytes, source_file=source_file)
-        or parse_native_pdf_text(pdf_bytes, source_file=source_file)
-    )
 
 
 def _statement_from_path(

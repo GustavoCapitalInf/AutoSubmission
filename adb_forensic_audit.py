@@ -21,15 +21,10 @@ from analysis.pipeline import analyze_markdown
 from analysis.serialization import report_to_dict
 from corpus_artifacts import ArtifactError, cached_markdown
 from ocr.local_tesseract import parse_local_tesseract
-from ocr.native_text import (
-    parse_native_desjardins,
-    parse_native_first_citizens,
-    parse_native_navy_federal,
-    parse_native_pdf_text,
-    parse_native_td_canada,
-    parse_native_wells_fargo,
-    parse_native_woodforest,
-)
+# The production native-text ladder itself — see
+# `ocr/native_text.py::native_statement`. This oracle reads exactly the bytes
+# production reads because it calls the same function, not a copy of it.
+from ocr.native_text import native_statement
 from webapp.app import _package_analysis
 from webapp.jobs import Job
 
@@ -106,18 +101,6 @@ def formatted(value: Decimal | float | None) -> str:
     if value is None:
         return ""
     return f"{money(value):.2f}"
-
-
-def native_statement(pdf_bytes: bytes, source_file: str):
-    return (
-        parse_native_navy_federal(pdf_bytes, source_file=source_file)
-        or parse_native_td_canada(pdf_bytes, source_file=source_file)
-        or parse_native_wells_fargo(pdf_bytes, source_file=source_file)
-        or parse_native_woodforest(pdf_bytes, source_file=source_file)
-        or parse_native_desjardins(pdf_bytes, source_file=source_file)
-        or parse_native_first_citizens(pdf_bytes, source_file=source_file)
-        or parse_native_pdf_text(pdf_bytes, source_file=source_file)
-    )
 
 
 def source_markdown(

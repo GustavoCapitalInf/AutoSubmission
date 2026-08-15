@@ -26,15 +26,10 @@ from analysis.pipeline import analyze_markdown
 from analysis.serialization import report_to_dict
 from corpus_artifacts import ArtifactError, cached_markdown
 from ocr.local_tesseract import parse_local_tesseract
-from ocr.native_text import (
-    parse_native_desjardins,
-    parse_native_first_citizens,
-    parse_native_navy_federal,
-    parse_native_pdf_text,
-    parse_native_td_canada,
-    parse_native_wells_fargo,
-    parse_native_woodforest,
-)
+# The production native-text ladder itself — see
+# `ocr/native_text.py::native_statement`. This oracle reads exactly the bytes
+# production reads because it calls the same function, not a copy of it.
+from ocr.native_text import native_statement as native_document
 from ocr.rasterize import pdf_page_count
 from webapp.app import (
     _analysis_csv,
@@ -139,18 +134,6 @@ def difference(actual: Any, expected: Decimal | None) -> str:
     if actual is None or expected is None:
         return ""
     return formatted(money(actual) - expected)
-
-
-def native_document(pdf_bytes: bytes, source_file: str):
-    return (
-        parse_native_navy_federal(pdf_bytes, source_file=source_file)
-        or parse_native_td_canada(pdf_bytes, source_file=source_file)
-        or parse_native_wells_fargo(pdf_bytes, source_file=source_file)
-        or parse_native_woodforest(pdf_bytes, source_file=source_file)
-        or parse_native_desjardins(pdf_bytes, source_file=source_file)
-        or parse_native_first_citizens(pdf_bytes, source_file=source_file)
-        or parse_native_pdf_text(pdf_bytes, source_file=source_file)
-    )
 
 
 def source_markdown(path: Path, *, ocr_cache: Path | None = None) -> tuple[str, str, bytes]:
