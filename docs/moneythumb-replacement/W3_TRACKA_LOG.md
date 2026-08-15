@@ -23031,3 +23031,350 @@ taking the near-miss out of the telemetry record). And the
 `_surviving_claimants` is a public-signature change, now recorded as PH9.6b:
 swept the repo, no caller passes them by keyword today, so nothing breaks —
 but a keyword call written after this merge is a `TypeError`, not a rename.
+# §PIPE5 — the repair seam, and an honest model label (batch 5)
+
+Two pinned hunks in `analysis/pipeline.py`, one protected module, one cell.
+Card 1 (REPAIR-GUARD) was drafted by MG-C at `docs/agent-handoffs/REPAIR-GUARD.md`
+and is implemented as drafted. Card 2 (MODEL-LABEL) is the queued
+`bank-deterministic` item.
+
+## PIPE5.1 The repair seam was outside the promise
+
+`analysis/parser_registry` states the law for the deterministic branch, in its
+module docstring: *"The seam is total: no code path from `resolve` through
+`parse` raises."* Every `detect` and every `parse` runs behind `_guarded`,
+which reduces a crash to a `ParserFailure` — registration id, stage, and the
+exception's CLASS NAME. `ParserFailure`'s docstring states why the message is
+excluded: it *"routinely quotes the fragment of the document that provoked it
+… The message is not stored anywhere, not even locally."*
+
+`apply_statement_repairs` runs AFTER dispatch, at `:542`. It was the one line
+in that branch standing outside the promise. A repair that raised propagated
+out of `analyze_markdown` as a bare exception, and `webapp/worker.py:321` does
+`store.set_error(job_id, str(e))` — so the quoted cell landed in the durable
+job store and in front of a user. MG-C2 closed the loudest SOURCE
+(`money.read_money` names the reader and the refusal class, never the token);
+this closes the SEAM, which is the part that generalises to an `int()` on a
+mangled cell or a `KeyError` on a mis-shaped grid.
+
+**What the guard does.** The repair stage is discarded ATOMICALLY: the
+UNREPAIRED statement stands, which is exactly what this branch published
+before repairs existed, and the crash survives as a class name. Recovering
+WHICH step raised would mean running the ten repairs, the year assignment and
+the normalization independently — that changes what the stage DOES (today the
+first raise stops the rest), which the card puts out of scope. For the same
+reason the class is NOT attributed to `dispatch.registration`: only the keyed
+summary repair belongs to the claiming parser, so naming it as the author of
+one of the nine unconditional repairs' crashes would be exactly the
+misattribution the seam exists to prevent.
+
+**Scope boundary, stated rather than discovered.** The guard is NOT applied to
+the two LLM-branch repair calls. `extract_statement` on those branches is
+itself an unguarded call that raises out of `analyze_markdown`, so guarding
+one line inside a branch that makes no totality promise buys nothing; the
+escalation call already reduces any crash to `type(e).__name__` in its own
+`except`. The deterministic branch is the one that promises totality, and it
+now keeps it. Carried to Ocean as a question, not taken silently (§PIPE5.6).
+
+**The flag.** A swallowed repair may not be silent: `repair_exception` is a
+review cause with a named class, beside `parser_exception`. `classify_outcome`
+already routes any integrity flag to `review`, so `telemetry/record.py` needed
+no change. `telemetry/diagnostics.py` gains the flag and classes it
+**`extraction_failure`** — a PRODUCTION stage that did not complete, which is
+what that class already means for `recon:escalation_extraction_failed`. Not
+`check_unavailable` (a repair yields no finding, so no diagnosis is partial)
+and not advisory like `parser_exception` (a parser that crashed produced no
+claim and its document never reached the checks; THIS document reached every
+check with figures the platform knows are uncorrected). It ranks above the
+financial classes on W3-2b's own argument: a repair rewrites published
+balances and stated totals, so a `summary_identity` or `ledger_identity`
+finding taken on unrepaired figures may be the crash's symptom.
+
+## PIPE5.2 MODEL-LABEL — 41 documents, four parsers, one label
+
+`(stmt.bank or "bank").lower()` published `bank-deterministic` for every
+document whose parser publishes no issuer: the honest-unknown-issuer
+registrations (UNKNOWN-ISSUER) and the issuer-agnostic core-processor
+templates, which claim on a PLATFORM's paper and cannot name the bank without
+inventing one. Four parsers' output aggregated under a label naming none of
+them — in the field the coverage audits, the ADB forensic audit and the
+balance forensic audit all carry as `parser`.
+
+The claiming registration's id is the honest name. NARROW BY CONSTRUCTION:
+`stmt.bank is None` is required, so a document carrying a bank label takes the
+byte-identical old expression. `is None` and not falsiness — a parser
+publishing an EMPTY label would be saying something different from "this paper
+names no issuer", and this hunk does not adjudicate that; the live census
+proves the question is currently vacant (all 41 are `None`). The
+`-deterministic` suffix is unchanged, which is load-bearing:
+`telemetry.record.model_calls_for` reads `endswith("-deterministic")` to mean
+"no model call was made", so cost and call accounting are untouched.
+
+## PIPE5.3 The census, measured live
+
+Derived by LIVE REPLAY of the archive, not from `rows.csv` `parser_id` (the
+W3 #COUNTSP3 cache-hit hole): OCR artifacts read by DIRECT file path
+(`webapp_data/artifacts/ocr/<key[:2]>/<key>.json`, key recomputed from
+`cache_key("ocr", content_sha256, ocr_settings_key(...))`), never the sqlite
+index; `analyze_markdown(..., parse_mode="deterministic")`, $0 vendor.
+
+The harness reproduces the run of record `c924d751` exactly:
+
+```
+replayed distinct content_sha256                 3,380
+outcome-class agreement with the run of record   3,367 / 3,380
+the 13 disagreements                             exactly the 13 DEFERRED docs
+                                                 (a fact about the RUN, which a
+                                                 replay has no notion of)
+ok (published a payload)                         2,495  = validated 2,405
+                                                        + review 25
+                                                        + withheld 65
+```
+
+`bank-deterministic` population, live: **41**, every one `Statement.bank is
+None`, every one `validated`. Exactly the shape the card predicted;
+`fifth_third`/`fiserv_premier` are **zero**, not applicable.
+
+| claiming parser | docs | new label |
+|---|---|---|
+| `releve_facturation` | 16 | `releve_facturation-deterministic` |
+| `balance_by_date` | 11 | `balance_by_date-deterministic` |
+| `core_processor_sectioned` | 9 | `core_processor_sectioned-deterministic` |
+| `community_section` | 5 | `community_section-deterministic` |
+
+All 41 named by `content_sha256` in the PIPE5 report to Ocean. The
+`core_processor_sectioned` documents NOT in the mover set are the subset whose
+`_issuer(markdown)` did name an issuer — the card's "bank=None subset" is 9,
+measured rather than assumed.
+
+The pinned 109-document corpus contains **zero** movers: both audit CSVs pin a
+named bank and a named parser for all 109 (44 distinct), so no pinned
+document's `parser` field can move.
+
+## PIPE5.4 Movement
+
+Full-archive differential, base `b524f72` vs this branch, same 3,380 shas:
+
+```
+state changes                                        0
+payload-digest movers                               41
+  ...changing model_used                            41
+  ...changing any other field                        0
+outcome movers                                       0
+integrity-flag movers                                0
+documents carrying repair_exception                  0
+```
+
+`repair_exception` on zero documents confirms MG-C's measurement: no repair
+stage raises anywhere in the archive today, so card 1 ships INERT and card 2
+owns every one of the 41 movers.
+
+## PIPE5.5 Composition with WIRING-2, and the two named populations
+
+`discovery/runner.py::_analyse` does not pass `sheets` today — WIRING-2 is the
+cell that wires the three call sites — so the sweep above replays the pipeline
+production actually runs. The composition was then measured directly by
+replaying with `sheets` ON (the post-WIRING-2 shape) over the union of the two
+named sensitive populations, the 41 movers and a 500-document random control
+(554 documents), base vs branch:
+
+```
+sheets-ON, base vs branch: digest movers            41
+  ...changing model_used                            41
+  ...changing any other field                        0
+  set identical to the sheets-OFF mover set        yes
+```
+
+The two hunks are independent of the sheets wiring; the effects compose
+additively.
+
+**The three chase movers (§PIPEFIX P2.4)** — byte-identical base vs branch
+under BOTH wirings, all three still `validated`:
+
+```
+C8B06DE4D04B71470F3D65DB70667F03E17B3389EF874A78D04E8875E678827D
+863F7845AEB27BD46E3120CBAD4AD64DC2C2DD1FCE08320ADB04DD8916556BD6
+61BDA531117B7BBBC1B842C6FDA6EDB7E1C1BB64344A1CF234DB314471A54082
+```
+
+**The page-declaration population (§PIPEFIX card 2, the 114)** — re-measured
+here rather than quoted, counterfactually over every archive document with an
+OCR artifact (regex only, so `failed` documents are included where a pipeline
+replay cannot reach them):
+
+```
+documents with an OCR artifact                          3,351
+carry missing_declared_statement_page with sheets OFF     157
+  ...flag WITHDRAWN once sheets are wired                 114   ← §PIPEFIX's 114
+       by published outcome: failed 93 · withheld 11 · review 10
+  ...flag GAINED by wiring sheets                            0   ← restriction-only
+                                                                   property holds
+```
+
+§PIPEFIX recorded the same **114** with the split `failed 101 / review 3 /
+withheld 10`; the split has since shifted (batch 3–4 moved documents out of
+`failed`) and the total has not. 21 of the 114 publish a payload today, and
+those 21 are exactly the sheets-ON flag/outcome movers measured above.
+
+Against that population this cell is byte-identical base vs branch under BOTH
+wirings: the 30 published carriers of the flag show a zero-field diff with
+`sheets` off and with `sheets` on, and the 21 withdrawals and 10 outcome moves
+that `sheets` causes happen IDENTICALLY on both sides. That movement is
+WIRING-2's; none of it is this cell's.
+
+## PIPE5.6 Carried to Ocean
+
+1. **The LLM-branch repair calls are still unguarded** (`:565` and the
+   escalation call). The escalation one already reduces a crash to a class
+   name in its own `except`; `:565` does not, but it sits in a branch whose
+   `extract_statement` raises out of the function anyway, so the branch makes
+   no totality promise to keep. Guarding it is a one-line change if Ocean
+   wants the property unconditional; it is unmeasurable at $0 vendor and was
+   NOT taken inside a pinned two-hunk card.
+2. **`tests/test_structurer_pipeline.py`'s module docstring quotes the old
+   `bank_label` line** in an illustrative historical diff of the W3-3c cell.
+   It is a record of that cell, not a live guard, so it was left alone — but
+   it is now a stale quotation and Ocean may prefer it annotated.
+3. **The 41 movers change a cached analysis payload**, so the artifact cache
+   must not serve pre-merge entries for them. `ANALYSIS_STAGE_VERSION` is part
+   of `analysis_settings_key`, and the bump is Ocean's at merge, which closes
+   it; recorded here because this cell's movement is invisible to the corpus
+   gate and would otherwise be a silent warm-cache trap.
+4. **`repair_exception` gets the GENERIC outcome reason, not a named one.**
+   The card is explicit that `classify_outcome` needs no change, and it does
+   not: any integrity flag already routes to `review`. But the flag therefore
+   lands as `("review", "integrity_flags")` while `parser_exception` and
+   `integrity_check_exception` each get their own named reason, on the stated
+   argument that *"the crash cluster it belongs to is what ranks the
+   underlying defect"* — an argument that reads as applying identically to a
+   crashed repair. Behaviour was pinned as-drafted
+   (`test_classify_outcome_routes_the_flag_to_review`) rather than widened
+   inside a pinned card; promoting it to a named reason is a two-line change
+   in `telemetry/record.py` if Ocean wants the third crash flag rankable, and
+   is free of movement while the flag fires on zero documents.
+
+## PIPE5.7 Ocean's BLOCK (narrow), and what it corrected
+
+Verdict: behaviour clean (41 movers reproduced, census closed archive-wide,
+inertness verified on 768 replays with four constructed firing shapes), both
+design choices affirmed, five conditions. All five are closed here. Three of
+them are findings about HONESTY OF DESCRIPTION rather than behaviour, which is
+the class of defect a movement proof cannot catch.
+
+**D1 — `DIAGNOSTICS_VERSION` 3 → 4 (the blocker).** This cell added
+`integrity:repair_exception` to a closed vocabulary and left the version at 3.
+`telemetry/diagnostics.py:37-38`'s own contract is "bumped when a code is
+added, removed or re-classed", and COUNTS-P2 bumped 2 → 3 for the identical
+shape one wave earlier. The version travels in every record so a rollup over
+mixed runs can tell which vocabulary produced a row — and it matters MOST
+here, because the new code fires on zero documents, so the version is the only
+observable difference between a v3 rollup and a v4 one. Bumped, with the v4
+entry inline and the full §11 v4 changelog in `W3_2_TAXONOMY.md`.
+
+The instructive half is WHY it happened: nothing enforced the contract.
+`test_the_diagnostics_version_moves_when_the_vocabulary_does` now pins
+`(DIAGNOSTICS_VERSION, len(VOCABULARY), len(CLASS_OF), len(ADVISORY_CODES),
+len(DIAGNOSABLE_CLASSES))` to `(4, 59, 53, 6, 2)`, mirroring the mechanism
+COUNTS-P3 built for `OBSERVER_VERSION` after COUNTS-P2 made the same omission.
+It earned its keep immediately: it caught a transcription error in its own
+first pinned tuple. One consequential update followed —
+`test_a_mixed_vocabulary_rollup_says_so` pins the current version literally
+(now `{"1": 1, "4": 1}`), which is the intended behaviour of that test.
+
+**D3 — the note misnamed the stage.** The note said *"a bank-summary repair
+raised"*. `apply_statement_repairs` is TWELVE steps and exactly ONE is a
+bank-summary repair; the other eleven are nine further bank-specific repairs,
+`assign_transaction_years` and `normalize_statement`. The wording was wrong
+twice: it misdescribes the eleven, and in the raise-after-success case the
+bank-summary repair had already SUCCEEDED and was being discarded with the
+rest. Now:
+
+```
+a statement-repair stage raised (<ExceptionClass>) and was discarded whole;
+the unrepaired statement stands, including any date, sign or summary
+correction the stage would have made, so the document is routed to review
+rather than reported as clear
+```
+
+Reworded in all three places (the pipeline note, the `INTEGRITY_FLAGS` gloss,
+`W3_2_TAXONOMY.md` §3.2) and pinned by
+`test_the_note_names_the_STAGE_and_not_one_repair`, which asserts the note
+says `statement-repair stage` and `discarded whole` and does NOT say
+`bank-summary`.
+
+**D2 — the `extraction_failure` gloss had one occupant.**
+`W3_2_TAXONOMY.md` §4 read "the escalation extraction itself failed". The
+class now has two occupants; the row reads "a stage that PRODUCES the
+statement did not complete: the escalation extraction failed, or a
+statement-repair stage raised and was discarded whole".
+
+**D4 — what the discard actually costs, disclosed and measured.**
+`assign_transaction_years` is inside the discarded stage. On a statement whose
+period crosses a year boundary, parsers stamp one year on every `MM/DD` row and
+that step is what re-derives it — so the discard path publishes **wrong
+transaction DATES**, not merely uncorrected summary figures, and dates feed the
+dated ledger, the daily-balance series and the ADB. That is a strictly larger
+blast radius than the first write-up implied, and asserting it without
+measuring it would have repeated the same error, so it is pinned:
+`test_the_discard_publishes_uncorrected_dates_on_a_year_boundary` runs a
+Dec→Jan statement twice and shows the January row moving `2026-01-09`
+(stage runs) → `2025-01-09` (stage discarded), with the flag present and the
+document routed to `review`.
+
+Why it is still the right trade, stated at the seam rather than assumed: the
+alternatives are a half-repaired statement nobody can characterise (an unknown
+mixture of corrected and uncorrected figures) or an escaped exception carrying
+the document's text into the durable job store. The discard is the only option
+that is both fail-closed and honest, and it is never silent — the flag routes
+the document to `review`, so a human reads it before the numbers are used.
+
+**D5 — the label-collision hazard, guarded.** MODEL-LABEL publishes
+`<registration.id>-deterministic` while every other document publishes
+`<hyphenated bank label>-deterministic`. Eleven hyphenated labels in the live
+registry are also parser ids (`chase`, `bmo`, `truist`, `cibc`, `bluevine`,
+`brex`, `desjardins`, `linkbank`, `mercury`, `scotiabank`, `wealthsimple`), so
+a bank=None publisher whose id landed on one would re-create exactly the
+ambiguity this hunk removed. None of the four does today.
+`test_the_new_label_cannot_collide_with_a_hyphenated_bank_label` forbids the
+fifth. LIMITATION stated in the test rather than hidden: "publishes bank=None"
+cannot be decided statically (`core_processor_sectioned` decides it per
+document), so the four are pinned by name and the guard catches a RENAME, not
+an unlisted newcomer.
+
+**D6 — the fixtures were passing fields that do not exist.** Both wrote
+`statement_period_start` / `statement_period_end`; the real fields are
+`period_start` / `period_end`, and `Statement` does not forbid extras, so
+pydantic silently DROPPED them and the fixtures carried no period at all —
+while every test still passed. Fixed in both files with the reason recorded at
+the call site. (Whether `Statement` should forbid extras is a schema question,
+not this cell's: `analysis/schema.py` carries a zero-line diff.)
+
+**Recorded, not changed:** `quality.corporate_use` is computed from
+reconciliation, not from the integrity flags, so a document whose repair stage
+crashed can read `approved` in `quality` while `integrity.risk_level` says
+`review`. The asymmetry is PRE-EXISTING and symmetric — `parser_exception` and
+`integrity_check_exception` behave identically — and the published outcome is
+still `review`, because `classify_outcome` reads the flags. Pinned as a
+recorded property by `test_the_flag_does_not_by_itself_block_corporate_approval`;
+changing it would be a decision about every crash flag, not about this one.
+
+**Claim 6 (the `str(e)` sink itself) is Ocean's WORKER-PRIVACY batch-6 card**
+— `webapp/worker.py:81-82` and `:321` storing exception messages in the
+durable job store, class names only — with this cell's guard as its cheap
+first hunk. Not taken here.
+
+**Re-proof after the five conditions.** Movement is unchanged by construction:
+D1/D2/D3/D6 touch a version integer, prose and test fixtures; D4 and D5 add
+tests only. The one behavioural surface that moved is the note STRING on a
+flag that fires on zero archive documents.
+
+```
+tests/test_repair_guard.py + test_model_label.py + test_diagnostics.py
+                                            85 passed          EXIT=0
+full default suite            4,261 passed, 33 skipped, 29 deselected
+                                                               EXIT=0
+negative control vs the blocked state (pipeline.py + diagnostics.py
+reverted): 3 failed / 18 passed  — exactly the version guard and the two
+note-wording guards, i.e. the three conditions with a code surface
+                                                               EXIT=1
+```

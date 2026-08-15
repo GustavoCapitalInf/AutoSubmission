@@ -126,6 +126,7 @@ withheld, and letting it choose a class would misdirect remediation.
 | `parser_ambiguous` | *advisory* (a dispatch fact; `dispatch.outcome` carries it) |
 | `parser_exception` | *advisory* (W3-1: a parser raised; `dispatch.exceptions` carries who and what) |
 | `integrity_check_exception` | **`check_unavailable`** (W3-2b) |
+| `repair_exception` | **`extraction_failure`** (REPAIR-GUARD/PIPE5: a statement-repair stage raised and was discarded whole, so the published statement is the unrepaired one — a production stage that did not complete, upstream of every financial class. The stage is twelve steps, only one of which is a bank-summary repair; see the v4 changelog for what the discard costs) |
 | anything else | `integrity:unmapped` → **unmapped** |
 
 **The two W3-1 crash flags are treated differently, and the difference is the
@@ -234,7 +235,7 @@ present:
 |---|---|---|
 | 1 | `no_analysis_payload` | reserved: nothing to diagnose (see §5 on scope) |
 | 2 | `adb_not_computable` | the ADB engine returned before it could validate |
-| 3 | `extraction_failure` | the escalation extraction itself failed |
+| 3 | `extraction_failure` | a stage that PRODUCES the statement did not complete: the escalation extraction failed, or a statement-repair stage raised and was discarded whole |
 | 4 | `check_unavailable` | a registered integrity check raised: this diagnosis is INCOMPLETE, and must not present as a confident lower class |
 | 5 | `source_contradiction` | a registration integrity check proved the document contradicts itself |
 | 6 | `period_integrity` | the period the whole average is divided by is wrong |
@@ -470,6 +471,64 @@ existing diagnosis and changes no class.
 `analysis/count_semantics.py`, the per-bank table of what a printed count
 denotes, whose default for an unsurveyed parser is *not comparable*. A parser
 that starts publishing a printed count without a table entry emits nothing.
+
+---
+
+### v4 — REPAIR-GUARD/PIPE5 (2026-08-15): `integrity:repair_exception`
+
+**One new code.** `integrity:repair_exception`, classed **`extraction_failure`**
+(rank 3, §3.2, §4). `analysis/pipeline.py::apply_statement_repairs` runs after
+dispatch and was therefore outside the guarded seam every `detect` and `parse`
+runs behind; a repair that raised left `analyze_markdown` as a bare exception
+and `webapp/worker.py` stored `str(exc)` — an exception message that routinely
+quotes the cell of the document that provoked it — as the durable job error.
+The stage is now discarded WHOLE and the crash survives as a class name.
+
+**Why `extraction_failure` and not the two neighbouring crash classes.** Not
+`check_unavailable`: a repair produces no finding, so no diagnosis is left
+partial. Not advisory like `parser_exception`: a parser that crashed produced
+no claim and its document never reached the checks, whereas this document
+reached every check with figures the platform knows are uncorrected. It shares
+`extraction_failure` with `recon:escalation_extraction_failed` because both
+mean *a stage that produces the statement did not complete* — and it ranks
+above the financial classes on W3-2b's own argument, since a repair rewrites
+published balances and stated totals and so a `summary_identity` or
+`ledger_identity` finding taken on unrepaired figures may be the crash's
+symptom rather than its cause.
+
+**What the discard actually costs — stated, not implied.** The stage is
+TWELVE steps and only ONE of them is a bank-summary repair: nine further
+bank-specific repairs, `assign_transaction_years`, and a final
+`normalize_statement`. Two consequences follow that the flag's first wording
+hid, and both are why the note now says *statement-repair stage … discarded
+whole* rather than *bank-summary repair*:
+
+* A raise late in the stage discards the work of every step that had already
+  SUCCEEDED, including a bank-summary repair that did its job.
+* `assign_transaction_years` is inside the discarded stage. On a statement
+  whose period crosses a year boundary (Dec→Jan), parsers stamp one year on
+  every `MM/DD` row and this step re-derives it. Discarding it publishes
+  **wrong transaction DATES**, not merely uncorrected summary figures — and
+  dates feed the dated ledger, the daily-balance series and the ADB. This is
+  a strictly larger blast radius than "the summary is uncorrected", and it is
+  pinned by `test_the_discard_publishes_uncorrected_dates_on_a_year_boundary`.
+
+**Why the trade is still right.** The alternative to discarding is either
+publishing a half-repaired statement (an unknown mixture of corrected and
+uncorrected figures, with no way to say which) or letting the exception escape
+and take the document's text into the job store with it. The discard is the
+only option that is both fail-closed and honest, and it is never silent: the
+flag routes the document to `review`, so a human sees it before the numbers
+are used. What the flag must therefore NOT claim is that only summaries are
+affected — hence the wording, and hence this paragraph.
+
+**Blast radius.** Zero documents. The code fires nowhere in the 3,380-document
+archive (measured: PIPE5 §4), and no outcome, flag or field moves. That is
+precisely the state in which `DIAGNOSTICS_VERSION` is the only way to tell a
+v3 rollup from a v4 one, which is why the bump is not optional — and why the
+v4 entry ships with the guard test that makes the contract self-enforcing
+(`test_the_diagnostics_version_moves_when_the_vocabulary_does`, mirroring the
+mechanism COUNTS-P3 built for `OBSERVER_VERSION` after the same omission).
 
 ---
 

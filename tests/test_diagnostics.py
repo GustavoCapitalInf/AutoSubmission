@@ -599,9 +599,12 @@ def test_a_mixed_vocabulary_rollup_says_so():
     old["diagnostics"]["diagnostics_version"] = 1
     new = _record(_payload(integrity={"flags": ["summary_math_inconsistent"]}))
     rollup = diagnostics_rollup([old, new])
-    # v3 is COUNTS-P2: two new codes AND a widened diagnosable scope, so a
-    # rollup spanning the boundary is doubly non-comparable and must say so.
-    assert rollup["diagnostics_versions"] == {"1": 1, "3": 1}
+    # `new` is emitted at whatever the CURRENT vocabulary is, so this literal
+    # moves with every bump — which is the point: a rollup spanning versions
+    # must name them. v4 is REPAIR-GUARD/PIPE5 (`integrity:repair_exception`
+    # added, classed `extraction_failure`); v3 was COUNTS-P2 (two new codes AND
+    # a widened diagnosable scope, doubly non-comparable).
+    assert rollup["diagnostics_versions"] == {"1": 1, "4": 1}
     assert "WARNING mixed taxonomy versions" in render_diagnostics(rollup)
 
 
