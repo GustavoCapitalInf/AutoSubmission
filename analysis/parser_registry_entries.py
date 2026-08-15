@@ -43,6 +43,7 @@ from . import (
     columbia_bank,
     community_section,
     consumers,
+    core_processor_daily,
     core_processor_sectioned,
     demo_national,
     desjardins,
@@ -129,6 +130,16 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     # inventing one would be the hardcode this registration exists to avoid.
     ("community_section", "Core Statement Platform", community_section, "PLATFORM_DETECTION_MARKERS", "detection_text", "parse_community_section_statement"),
     ("consumers", "Consumers Credit Union", consumers, "DETECTION_MARKERS", None, "parse_consumers_statement"),
+    # A THIRD core processor's template (W3 §LCPERIOD), registered the same
+    # way and for the same reason - the archive prints it under four issuers,
+    # one of which already has its own reader. It is NOT a printed variant of
+    # the sectioned template below: it shares that template's period VOCABULARY
+    # and not one of its grammars (sentence case, long-form dates, totals with
+    # no counts, `mm-dd` rows, its own section names). The label names the
+    # PLATFORM because this template prints no institution FIELD at all -
+    # `Statement.bank` is None on every document it publishes, under the
+    # honest-unknown-issuer ruling.
+    ("core_processor_daily", "Core Processor Daily Balances Platform", core_processor_daily, "DETECTION_MARKERS", None, "parse_core_processor_daily_statement"),
     # A SECOND core processor's template, registered the way W3 §JHA-CELL
     # established for the first: on the template's own furniture, with the
     # issuer read out of each document and published as `Statement.bank`. The
@@ -270,6 +281,23 @@ _OVERRIDES: dict[str, dict] = {
     # accident. The general reader also declines the running-balance issue at
     # parse, so the edge cannot strand a document either.
     "first_farmers": {"band": 10, "supersedes": frozenset({"core_processor_sectioned"})},
+    # The same relationship a THIRD template over (W3 §LCPERIOD). `b1` reads
+    # ONE issuer's running-balance issue of the third core-processor template;
+    # `core_processor_daily` registers that template generically and claims it
+    # on the period furniture BOTH printed issues share, so it claims all 3 of
+    # this issuer's archive documents too. Without this edge those 3 - all
+    # validated today - resolve `ambiguous` and go to review, which is a
+    # regression.
+    #
+    # The edge is safe in the strong sense, not the observed one: the general
+    # reader consults nothing that identifies an issuer at all (it publishes
+    # `bank=None` by construction), and `b1` requires this issuer's own name,
+    # which the general reader never looks for - so neither can shadow the
+    # other by accident. The general reader also declines the running-balance
+    # issue at parse, because that issue prints no `Total additions` summary,
+    # so the edge cannot strand a document either. The pinned corpus holds no
+    # document of this template.
+    "b1": {"band": 10, "supersedes": frozenset({"core_processor_daily"})},
     # BMO prints a second summary block; where the two disagree the document
     # contradicts itself. Registered here so the orchestrator never names BMO.
     "bmo": {"integrity_checks": (bmo.summary_contradictions,)},
