@@ -255,3 +255,204 @@ def test_a_grid_whose_columns_arrive_out_of_order_fails_closed():
 def test_a_document_with_no_summary_row_fails_closed():
     text = HEADER + GRID + "03-02 200.00 800.00 POS DB ONE\n"
     assert parse_woodforest_statement(text) is None
+
+
+# ------------------------------------------- direction from the printed column
+#
+# GEOM-1. When the intake layer could read the grid's word boxes it appends a
+# block naming the column the bank printed each posting in. Direction then
+# stops being an inference from the balance chain, and the chain becomes an
+# independent check instead of the source of the reading.
+
+from ocr.column_grid import GridWord                       # noqa: E402
+from ocr.native_text import _wf_grid_rows, _wf_summary_rows  # noqa: E402
+
+
+def with_block(base: str, *lines: str) -> str:
+    return base + "\n<!--\nWOODFOREST_GEOMETRY_BEGIN\n" + "\n".join(lines) + \
+        "\nWOODFOREST_GEOMETRY_END\n-->\n"
+
+
+def test_the_printed_column_decides_direction_not_the_balance_movement():
+    """The same three rows as SIMPLE, but read by column. Same answer — which
+    is the point: the two readings agree where both can see, and only one of
+    them can see a $0.00 row or a document whose balances do not all read."""
+    text = with_block(
+        SIMPLE,
+        "WOODFOREST_TX|03-02||200.00|800.00|POS DB ONE",
+        "WOODFOREST_TX|03-03|500.00||1,300.00|POS CR TWO",
+        "WOODFOREST_TX|03-04||100.00|1,200.00|POS DB THREE",
+    )
+    stmt = parse_woodforest_statement(text)
+    assert [t.amount for t in stmt.transactions] == [-200.00, 500.00, -100.00]
+    assert [t.direction for t in stmt.transactions] == ["debit", "credit", "debit"]
+    assert [t.description for t in stmt.transactions] == \
+        ["POS DB ONE", "POS CR TWO", "POS DB THREE"]
+
+
+def test_a_zero_amount_row_takes_the_column_it_was_printed_in():
+    """A $0.00 posting moves no balance, so a sign rule can only guess at it —
+    J9.9 records the same row class being published as a credit by convention
+    on another template. Where the bank printed a column there is nothing to
+    guess."""
+    text = with_block(
+        document(
+            "Business Simple Checking 1205009515 1,000.00 0.00 0.00 1,000.00",
+            "03-02 0.00 1,000.00 FEE WAIVED",
+        ),
+        "WOODFOREST_TX|03-02||0.00|1,000.00|FEE WAIVED",
+    )
+    stmt = parse_woodforest_statement(text)
+    assert stmt.transactions[0].amount == 0.0
+    assert stmt.transactions[0].direction == "debit"
+
+
+def test_the_column_read_recovers_a_summary_row_the_text_layer_broke_in_half():
+    """Two archive documents print the summary row whole and the text layer
+    emits CLOSING BALANCE on a line of its own, so the four figures never meet
+    and the document is declined for having no account at all."""
+    broken = (
+        HEADER
+        + "Second Chance Checking 1358422002 165,309.24 12,757.47 41,175.75\n"
+        + "193,663.14\n"
+        + GRID
+    )
+    assert parse_woodforest_statement(broken + "03-02 200.00 165,109.24 POS DB ONE\n") is None
+    stmt = parse_woodforest_statement(with_block(
+        broken,
+        "WOODFOREST_SUMMARY|Second Chance Checking 1358422002 "
+        "165,309.24 12,757.47 41,175.75 193,663.14",
+        "WOODFOREST_TX|03-02||200.00|165,109.24|POS DB ONE",
+    ))
+    assert stmt.beginning_balance == 165309.24
+    assert stmt.ending_balance == 193663.14
+    assert stmt.stated_total_debits == 12757.47
+
+
+def test_a_block_naming_two_accounts_still_fails_closed():
+    """The recovered summary feeds the SAME single-account guard. A guard that
+    counted only what it found first would fail open on the one document
+    class it exists for."""
+    text = with_block(
+        HEADER + GRID,
+        "WOODFOREST_SUMMARY|Checking 1205009515 1,000.00 0.00 0.00 1,000.00",
+        "WOODFOREST_SUMMARY|Savings 1205009516 500.00 0.00 0.00 500.00",
+        "WOODFOREST_TX|03-02||200.00|800.00|POS DB ONE",
+    )
+    assert parse_woodforest_statement(text) is None
+
+
+def test_a_posting_line_missing_a_money_column_publishes_nothing():
+    """Not the row — the document. A ledger with a hole in it would still
+    reconcile against nothing in particular."""
+    text = with_block(
+        SIMPLE,
+        "WOODFOREST_TX|03-02||200.00|800.00|POS DB ONE",
+        "WOODFOREST_TX|03-03|||1,300.00|POS CR TWO",
+    )
+    assert parse_woodforest_statement(text) is None
+
+
+def test_a_document_without_a_block_reads_exactly_as_before():
+    """The 40-odd documents whose pages already flatten cleanly are not
+    touched by any of this."""
+    assert parse_woodforest_statement(SIMPLE) == parse_woodforest_statement(SIMPLE)
+    stmt = parse_woodforest_statement(SIMPLE)
+    assert [t.direction for t in stmt.transactions] == ["debit", "credit", "debit"]
+
+
+# ------------------------------------------- what the intake layer refuses to read
+
+
+def wf_page(rows, *, header_y=100.0, pitch=12.8, height=9.0):
+    """A Woodforest page: the printed header, then rows keyed by column."""
+    edges = {"date": 66.0, "credits": 140.0, "debits": 211.0,
+             "balance": 284.0, "description": 340.0}
+    words: list[GridWord] = []
+
+    def place(text, right, y):
+        words.append(GridWord(text, right - len(text) * height * 0.5, y, right, y + height))
+
+    for name, right in edges.items():
+        place(name.capitalize(), right, header_y)
+    for index, cells in enumerate(rows):
+        y = header_y + pitch * (index + 1)
+        for name, text in cells.items():
+            if name == "description":
+                x = edges["description"] + height
+                for token in text.split():
+                    words.append(GridWord(token, x, y, x + len(token) * height * 0.5, y + height))
+                    x += len(token) * height * 0.5 + height * 0.4
+            else:
+                place(text, edges[name], y)
+    return words
+
+
+def test_a_row_printed_in_both_money_columns_is_refused():
+    rows, refusals = _wf_grid_rows([wf_page([
+        {"date": "03-02", "credits": "100.00", "debits": "50.00",
+         "balance": "1,050.00", "description": "AMBIGUOUS"},
+    ])])
+    assert rows == []
+    assert refusals and "amount_column_undecided" in refusals[0]
+    assert "both" in refusals[0]
+
+
+def test_a_row_with_a_balance_and_no_amount_cell_is_refused():
+    """The grid prints an amount beside every balance. A balance with no
+    movement under it is a row the reader cannot explain, and it says so
+    rather than publishing the balance and dropping the posting."""
+    _rows, refusals = _wf_grid_rows([wf_page([
+        {"date": "03-02", "credits": "100.00", "balance": "1,100.00", "description": "ONE"},
+        {"date": "03-03", "balance": "1,100.00", "description": "TWO"},
+    ])])
+    assert any("amount_column_undecided" in item and "neither" in item for item in refusals)
+
+
+def test_a_dated_line_carrying_no_money_at_all_is_not_a_posting():
+    """The `Checks Cleared` table prints a date in the Date column and an
+    amount whose right edge lands in Debits, with no balance. Its own printed
+    heading ends the grid before the reader reaches it; a stray dated line
+    inside the grid is simply not a row."""
+    rows, refusals = _wf_grid_rows([wf_page([
+        {"date": "03-02", "credits": "100.00", "balance": "1,100.00", "description": "ONE"},
+        {"date": "03-03", "description": "A NOTE, NOT A POSTING"},
+    ])])
+    assert [row.split("|")[1] for row in rows] == ["03-02"]
+    assert refusals == []
+
+
+def test_the_summary_region_is_bounded_by_the_bank_printed_labels():
+    height = 9.0
+
+    def line(text, y, x=47.0):
+        out = []
+        for token in text.split():
+            out.append(GridWord(token, x, y, x + len(token) * height * 0.5, y + height))
+            x += len(token) * height * 0.5 + height * 0.4
+        return out
+
+    words = (line("Summary of Accounts", 50.0)
+             + line("Checking 1205009515 1,000.00 300.00 500.00 1,200.00", 70.0)
+             + line("Transactions", 90.0)
+             + line("Savings 9999999999 1.00 2.00 3.00 4.00", 110.0))
+    assert _wf_summary_rows([words]) == \
+        ["Checking 1205009515 1,000.00 300.00 500.00 1,200.00"]
+
+
+def test_one_unreadable_cell_withdraws_the_whole_block():
+    """`parse_native_woodforest` emits the block only when every posting
+    placed. A ledger half read by column and half by text order would be a
+    reading no instrument could check, so a single refusal returns the
+    document to the text reader — which fails closed on its own terms."""
+    import fitz
+    from ocr.native_text import parse_native_woodforest
+
+    page_bytes = fitz.open()
+    page = page_bytes.new_page()
+    page.insert_text((50, 50), "WOODFOREST NATIONAL BANK")
+    page.insert_text((50, 70), "Date Credits Debits Balance Description")
+    page.insert_text((50, 90), "03-02 100.00 50.00 1,050.00 AMBIGUOUS")
+    raw = page_bytes.tobytes()
+    page_bytes.close()
+    assert parse_native_woodforest(raw, source_file="x.pdf") is None
