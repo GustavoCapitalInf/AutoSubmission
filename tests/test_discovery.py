@@ -372,7 +372,7 @@ def test_cached_rows_do_not_count_as_unclaimed():
     }
     rendered = render_report(summary)
     assert "served from cache" in rendered
-    assert "parser identity, by how it was established" in rendered
+    assert "routing verdict provenance (parser_id_source)" in rendered
 
 
 def test_a_row_that_never_reached_analysis_is_not_reported_as_cache_served():

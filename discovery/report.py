@@ -340,7 +340,10 @@ def render_report(summary: dict) -> str:
             lines.append(_bar(key, count, total))
 
     if summary.get("parser_id_source"):
-        lines.append("parser identity, by how it was established")
+        # "routing verdict", not "parser identity": a live `unclaimed` is a
+        # verdict too, and it is an observation like any other. The column is
+        # named `parser_id_source` because that is the field it explains.
+        lines.append("routing verdict provenance (parser_id_source)")
         for key, count in summary["parser_id_source"].items():
             lines.append(_bar(key, count, processed))
 
