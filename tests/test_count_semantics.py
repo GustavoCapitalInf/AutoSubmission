@@ -386,6 +386,21 @@ def test_the_first_citizens_debit_entry_carries_the_mapping_and_its_cost():
     assert "0 documents exercise the" in reason
 
 
+def test_the_capital_one_entry_records_the_money_side_and_its_correction():
+    """W3 §COUNTSMAP. The entry inherited an unmeasured sentence from COUNTS-P1
+    — that the charge's money sits INSIDE the printed debit total — and the
+    measurement says the opposite on 12 of 12 billed documents. It matters
+    twice: it is the argument that count scope and money scope agree here
+    (BofA's defect was that they did not), and the platform's own
+    `_debit_coverage_target` has been applying the identical `+ service_charge`
+    adjustment to the TOTAL since before this table existed, which is the
+    precedent the count mapping stands on."""
+    reason = SEMANTICS["capital_one"]["debit"].reason
+    assert "_debit_coverage_target" in reason
+    assert "OUTSIDE the printed" in reason and "12 of 12" in reason
+    assert "corrected here" in reason
+
+
 def test_the_td_canada_french_promotion_argues_its_own_independence():
     """The expected side is an oracle on a SOLVED column, so independence is
     the whole of the argument: the solver must not be able to read the count
@@ -519,6 +534,16 @@ def test_the_mapped_set_is_pinned_and_every_mapping_is_a_closed_lookup():
         # the sentence the mapping is making, in the bank's own vocabulary
         assert "service charge" in mapping.excluded_row_class, key
         assert not any(callable(getattr(mapping, f.name)) for f in fields(mapping)), key
+
+
+def test_a_rule_cannot_be_named_without_being_implemented():
+    """`RULES` is DERIVED from the arithmetic rather than restated beside it,
+    so a second rule cannot be added to the vocabulary while `adjustment`
+    silently keeps applying the first one."""
+    from analysis.count_semantics import _RULE_ADJUSTMENTS
+
+    assert RULES == tuple(_RULE_ADJUSTMENTS)
+    assert all(callable(fn) for fn in _RULE_ADJUSTMENTS.values())
 
 
 def test_a_mapping_can_only_be_built_out_of_the_closed_vocabulary():

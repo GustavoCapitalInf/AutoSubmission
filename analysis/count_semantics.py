@@ -94,16 +94,27 @@ from typing import Any
 #: the row in, never the sign of the amount.
 DIRECTIONS = ("credit", "debit")
 
-#: The CLOSED set of adjustments this schema can express. One entry today, and
-#: the list is short on purpose: every rule here is a sentence a reviewer has
-#: to be able to check against a printed page, so it is added by the cell that
-#: measured a bank needing it and never "in case".
+def _plus_one_when_billed(value: float | None) -> int:
+    """The bank prints a count for one named subset of the direction and bills
+    ONE further row of that direction on its own printed line, outside the
+    counted subset. Expected = printed + 1 exactly when that line is billed.
+    """
+    return 1 if value is not None and value > 0 else 0
+
+
+#: The CLOSED set of adjustments this schema can express, as name -> arithmetic.
+#: One entry today, and the list is short on purpose: every rule is a sentence
+#: a reviewer has to be able to check against a printed page, so it is added by
+#: the cell that measured a bank needing it and never "in case".
 #:
-#: ``plus_one_when_billed``
-#:     the bank prints a count for one named subset of the direction and bills
-#:     ONE further row of that direction on its own printed line, outside the
-#:     counted subset. Expected = printed + 1 exactly when that line is billed.
-RULES = ("plus_one_when_billed",)
+#: A dict rather than a tuple beside a hand-written `if`, so a rule cannot be
+#: NAMED without being IMPLEMENTED: :data:`RULES` is derived from it, and
+#: `CountMapping.adjustment` dispatches through it rather than assuming there
+#: is only ever one.
+_RULE_ADJUSTMENTS = {"plus_one_when_billed": _plus_one_when_billed}
+
+#: The rule names an entry may use. Derived, never restated.
+RULES = tuple(_RULE_ADJUSTMENTS)
 
 #: The ONLY `Statement` fields a mapping may read. Bank-printed evidence, and
 #: nothing else: these are figures a parser lifted off the printed summary, so
@@ -164,16 +175,16 @@ class CountMapping:
             raise ValueError("a mapping must name the row class the printed count excludes")
 
     def adjustment(self, source: Any) -> int:
-        """+1 when the bank BILLED the excluded row, else 0.
+        """How many rows the printed count leaves out of THIS document.
 
-        `> 0`, not truthiness of a signed number: `stated_service_charge` is
-        documented as a POSITIVE magnitude (`analysis/schema.py`), and a
-        negative one would be a refund — a CREDIT row, which adds nothing to
-        the debit side. Fail-closed: anything that is not a positive number
-        adjusts by nothing.
+        For the one rule that exists: +1 when the bank BILLED the excluded row,
+        else 0 — `> 0`, not truthiness of a signed number, because
+        `stated_service_charge` is documented as a POSITIVE magnitude
+        (`analysis/schema.py`) and a negative one would be a refund, a CREDIT
+        row, which adds nothing to the debit side. Fail-closed: anything that
+        is not a positive number adjusts by nothing.
         """
-        value = printed_evidence(source, self.printed_field)
-        return 1 if value is not None and value > 0 else 0
+        return _RULE_ADJUSTMENTS[self.rule](printed_evidence(source, self.printed_field))
 
     def expected(self, printed_count: int, source: Any) -> int:
         """The printed count, in the scope our rows are counted in."""
@@ -325,12 +336,26 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
                 "a LIST of lines — 'N Checks/Debits ($x)' AND a separate "
                 "'Service Charges ($y)' (analysis/capital_one.py:81-108 native, "
                 ":337-343 grid). The service charge is its own printed line "
-                "with no count, its money is inside the printed debit TOTAL, "
-                "and the parser records it as a debit ROW. So the printed debit "
-                "count enumerates a strict subset of the parser's debit rows: "
-                "same money, different scope — and the mapping is the whole of "
-                "that difference, `printed + 1 exactly when the bank billed a "
+                "with no count, and the parser records it as a debit ROW, so "
+                "the printed debit count enumerates a strict subset of the "
+                "parser's debit rows. The mapping is the whole of that "
+                "difference: `printed + 1 exactly when the bank billed a "
                 "charge`. "
+                "THE PLATFORM ALREADY MAPS THIS BANK'S DEBIT TOTAL THE SAME "
+                "WAY, which is the precedent and was also the correction. "
+                "`_debit_coverage_target` (analysis/reconcile.py:53-74) adds "
+                "`stated_service_charge` back to the printed debit TOTAL "
+                "whenever the summary's own arithmetic says the charge sits "
+                "outside it — the money analogue of this mapping, keyed on the "
+                "same printed field, shipping since before COUNTS-P1. Measured "
+                "on all 12 billed documents: `beginning + credits - printed "
+                "debits` misses `ending` by the charge and closes only with it "
+                "subtracted separately, so the charge is OUTSIDE the printed "
+                "debit total on 12 of 12 and that adjustment fires on every "
+                "one. This entry used to assert the opposite — 'its money is "
+                "inside the printed debit TOTAL' — inherited from COUNTS-P1 "
+                "and never measured; it is corrected here. Count scope and "
+                "money scope agree on this bank, and both exclude the charge. "
                 "MEASURED FRESH over all 22 archive documents of the family "
                 "(18 rows plus 4 recovered by replaying dispatch, the run of "
                 "record's `parser_id` column being empty on analysis-cache "
@@ -371,11 +396,16 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
                 "but the GRID reader publishes `abs(value)` (:343) and keeps "
                 "the sign only for the cycle-date guard (:320-323, :392-394) — "
                 "so a refunded cycle read through the grid would map +1 while "
-                "the refund is a CREDIT row. No archive document of the family "
-                "prints a negative Service Charges cell (22 of 22 non-negative, "
-                "10 of them zero), and the remedy if one appears is the grid "
-                "reader making the refusal the native reader already makes, not "
-                "a table edit. "
+                "the refund is a CREDIT row. The archive contains no such "
+                "cycle: on all 12 billed documents every row whose magnitude "
+                "equals the printed charge posts as an OUTFLOW, and the other "
+                "10 bill zero, so the family has no refund to test the hazard "
+                "against. Note what that evidence cannot be: `stated_service_"
+                "charge` is a magnitude, so the FIELD THE MAPPING READS cannot "
+                "tell a charge from a refund at all, and the bound comes "
+                "entirely from the two readers. The remedy if one appears is "
+                "the grid reader making the refusal the native reader already "
+                "makes, not a table edit. "
                 "WHAT THE MAPPING DELIBERATELY DOES NOT HIDE: a billed cycle "
                 "whose charge ROW the parser failed to record reads "
                 "`captured == printed` against an expected `printed + 1` and "
@@ -576,7 +606,14 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
                 "hits): 26 agree exactly, every one with a ZERO service charge; "
                 "9 disagree by exactly +1, every one with a BILLED charge; "
                 "UNDER THE MAPPING 35 of 35 agree, 0 disagree. Credit direction "
-                "35/35. `sum_delta` is 0.00 on all 35. This reproduces "
+                "35/35. `sum_delta` is 0.00 on all 35, and the charge is "
+                "measurably OUTSIDE the printed section totals on all 9 billed "
+                "documents — `beginning + credits - printed debits` closes on "
+                "`ending` only with the charge subtracted separately — so "
+                "count scope and money scope agree and both exclude it. Every "
+                "row whose magnitude equals the printed charge posts as an "
+                "OUTFLOW on all 9, so the family carries no refunded cycle. "
+                "This reproduces "
                 "§FI14.3's 26/9 split on the current archive, and §COUNTSP3 CP3 "
                 "measured what promoting it WITHOUT the mapping costs: 9 "
                 "documents `validated/approved` -> `review/integrity_flags`, 9 "
