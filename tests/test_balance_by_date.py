@@ -28,6 +28,8 @@ document's own declaration rather than a constant in the reader.
 """
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from analysis import balance_by_date as bbd
@@ -311,6 +313,102 @@ def test_two_counted_terms_on_one_side_are_refused_rather_than_added_up():
     assert parse(document(summary=two_credit_terms)) is None
 
 
+#: The two mutants below both survived every other test in this file, which is
+#: why they are here: the module's claim to have NO stop list for the summary's
+#: right-hand statistics rests entirely on one invariant - a summary term OPENS
+#: ITS PRINTED LINE WITH AN OPERATOR - and an invariant nothing pins is a
+#: comment, not a contract.
+#:
+#: Both fixtures are payload-inert today: the statistic is ignored and the
+#: published statement is identical to the base one, which is asserted field by
+#: field rather than by "it parsed". Under either mutant the statistic becomes
+#: an uncounted term, the identity stops closing, and the document is refused -
+#: so each fixture fails loudly the moment its half of the invariant is relaxed.
+_STATISTIC_ON_ITS_OWN_LINE = (
+    "Checking Account Summary\n"
+    "PREVIOUS BALANCE 100.00\n"
+    "AVERAGE BALANCE 150.00\n"
+    "+ 2 CREDITS 300.00\n"
+    "- 3 DEBITS 210.00\n"
+    "YTD INTEREST PAID 12.00\n"
+    "- SERVICE CHARGES 5.00\n"
+    "+ INTEREST PAID .50\n"
+    "ENDING BALANCE 185.50\n"
+)
+
+#: The same, with the statistics bulleted by an EM DASH. `analysis/money.py`
+#: keeps U+2014 out of `MINUS_CLASS` deliberately - "it is punctuation, not a
+#: sign" - and this is the document that makes that exclusion load-bearing here
+#: rather than incidental.
+_STATISTIC_BULLETED = _STATISTIC_ON_ITS_OWN_LINE.replace(
+    "AVERAGE BALANCE 150.00", "— AVERAGE BALANCE 150.00"
+).replace("YTD INTEREST PAID 12.00", "— YTD INTEREST PAID 12.00")
+
+
+@pytest.mark.parametrize(
+    "summary", [_STATISTIC_ON_ITS_OWN_LINE, _STATISTIC_BULLETED],
+    ids=["bare-statistic-line", "em-dash-bulleted-statistic"],
+)
+def test_an_undated_statistic_is_excluded_by_the_operator_and_not_by_a_name(summary):
+    """A statistic printed on its own line is not a term, and no list says so.
+
+    `AVERAGE BALANCE` and `YTD INTEREST PAID` are balances by name and would
+    wreck the identity if summed into it: this document's would be out by
+    150.00 and 12.00. They are excluded because they print no `+` or `-` at
+    the head of their line - the platform's own notation for "this is a term
+    of the arithmetic" - and for no other reason.
+    """
+    baseline = parse(document())
+    with_statistics = parse(document(summary=summary))
+    assert with_statistics is not None
+    assert with_statistics.model_dump() == baseline.model_dump()
+
+
+def test_the_operator_is_read_as_the_sign_and_not_assumed_from_the_label():
+    """The direction of a term is the operator the bank printed on it.
+
+    Flipping the two uncounted terms' operators - charges credited, interest
+    levied - and re-deriving the closing balance produces a document that is
+    just as internally consistent as the original and means something
+    different. A reader that assumed "SERVICE CHARGES subtract" from the words
+    would publish the first statement's arithmetic for the second one.
+    """
+    flipped = (
+        "Checking Account Summary\n"
+        "PREVIOUS BALANCE 100.00\n"
+        "+ 2 CREDITS 300.00\n"
+        "- 3 DEBITS 210.00\n"
+        "+ SERVICE CHARGES 5.00\n"
+        "- INTEREST PAID .50\n"
+        "ENDING BALANCE 194.50\n"
+    )
+    summary = _summary(document(summary=flipped))
+    assert summary is not None
+    assert summary.identity_holds
+    assert summary.uncounted_credit == 5.00 and summary.uncounted_debit == 0.50
+
+
+def test_a_sub_dollar_figure_cannot_be_read_out_of_a_longer_number():
+    """`-25.00` is twenty-five dollars, or it is nothing - never 25 cents.
+
+    The sub-dollar branch exists for the `.00` this platform prints with no
+    integer part, and unbounded it also matched the HEAD of a longer number.
+    Every position the reader takes a figure from is checked against the
+    printed oracle, so the misread failed documents closed rather than
+    publishing them - but a misread one check away from a published figure is
+    a defect waiting for the check to move.
+    """
+    from analysis.balance_by_date import _FIGURE, _figure
+
+    found = re.compile(_FIGURE)
+    assert found.search("-25.00").group() == "25.00"
+    assert _figure("25.00") == 25.00
+    # The forms the platform really prints still read as themselves.
+    for token, value in ((".00", 0.0), ("-00", 0.0), (".50", 0.5), ("1,234.56", 1234.56)):
+        assert found.search(token).group() == token
+        assert _figure(token) == value
+
+
 def test_the_printed_counts_are_not_comparable_to_the_rows_this_reader_builds():
     """A pin, not a formality.
 
@@ -364,6 +462,140 @@ def test_the_same_line_is_read_when_the_grid_declares_three_columns():
 def test_a_row_read_twice_is_refused():
     duplicated = CREDITS + "03/02 100.00 SYNTHETIC CREDIT ONE\n"
     assert parse(document(credits=duplicated)) is None
+
+
+def test_two_identical_rows_the_bank_really_printed_are_published():
+    """The counterpart, and the reason this reader has no "no two rows may be
+    alike" rule.
+
+    Six of the eleven documents in the measured population post a pair of rows
+    identical in date, amount AND description - two $377.27 insurance premiums
+    on one day, two $5,000.00 transfers on another. A rule refusing repeated
+    rows would refuse every one of them. What certifies the pair is the
+    printed TOTAL, which accounts for both: an echo of one of them would push
+    the captured total past the printed one, which is `test_a_row_read_twice_
+    is_refused` above.
+    """
+    summary = (
+        "Checking Account Summary\n"
+        "PREVIOUS BALANCE 100.00\n"
+        "+ 2 CREDITS 200.00\n"
+        "- 0 DEBITS .00\n"
+        "- SERVICE CHARGES .00\n"
+        "+ INTEREST PAID .00\n"
+        "ENDING BALANCE 300.00\n"
+    )
+    twice = (
+        "e Deposits and Other Credits\n"
+        "Date Amount Description Date Amount Description\n"
+        "03/02 100.00 SYNTHETIC CREDIT 03/02 100.00 SYNTHETIC CREDIT\n"
+    )
+    daily = (
+        "e Balance By Date\n"
+        "Date Balance Date Balance Date Balance\n"
+        "02/28 100.00 03/02 300.00\n"
+    )
+    stmt = parse(document(summary=summary, credits=twice, checks="", debits="", daily=daily))
+    assert stmt is not None
+    same_day = [t for t in stmt.transactions if t.date == "2026-03-02"]
+    assert len(same_day) == 2
+    assert same_day[0].amount == same_day[1].amount == 100.00
+    assert same_day[0].description == same_day[1].description
+
+
+#: A zero-amount row is the one row no printed figure on this template is a
+#: witness to: it moves no total, no daily balance, and the count it moves can
+#: be matched by the excluded side growing to meet it. These two documents are
+#: the constructions that proved it, and they are refused by the rule that a
+#: zero-amount row may not be one of the EXCLUDED.
+_ZERO_ROW_ADDED = (
+    "e Deposits and Other Credits\n"
+    "Date Amount Description Date Amount Description\n"
+    "03/02 100.00 SYNTHETIC CREDIT ONE 03/05 200.00 SYNTHETIC CREDIT TWO\n"
+    "03/07 .00 SYNTHETIC ZERO CREDIT\n"
+    "03/31 .50 SYNTHETIC INTEREST\n"
+)
+
+#: The daily grid the document above prints: a zero-amount row still posts on
+#: a day, and the day it posts on carries the balance it did not change. The
+#: grid is included so the WALK agrees and the partition is the only thing
+#: left that can refuse - a fixture refused by two checks proves neither.
+_DAILY_WITH_ZERO_DAY = (
+    "e Balance By Date\n"
+    "Date Balance Date Balance Date Balance\n"
+    "02/28 100.00 03/04 90.00 03/07 190.00\n"
+    "03/02 200.00 03/05 290.00 03/31 185.50\n"
+    "03/03 190.00 03/06 190.00\n"
+)
+
+#: The same summary with the zero row COUNTED by the bank: three credits, and
+#: the same 300.00 total, because the row is worth nothing.
+_COUNTS_THE_ZERO_ROW = (
+    "Checking Account Summary\n"
+    "PREVIOUS BALANCE 100.00 AVERAGE BALANCE\n"
+    "+ 3 CREDITS 300.00 150.00\n"
+    "- 3 DEBITS 210.00 YTD INTEREST PAID\n"
+    "- SERVICE CHARGES 5.00 .00\n"
+    "+ INTEREST PAID .50\n"
+    "ENDING BALANCE 185.50\n"
+)
+
+
+def test_a_zero_amount_row_the_bank_did_not_count_is_refused():
+    """Eight rows published against the seven the document accounts for.
+
+    The summary is untouched, so it still counts two credits and one uncounted
+    interest row; the reader captured four. Every aggregate agrees - the
+    captured credit total is 300.50 either way, the identity closes, and the
+    daily grid agrees day for day, because the extra row is worth nothing.
+    Only the rule that the excluded side is made of rows the printed lump can
+    account for refuses it.
+    """
+    invented = document(credits=_ZERO_ROW_ADDED, daily=_DAILY_WITH_ZERO_DAY)
+    summary = _summary(invented)
+    assert summary is not None and summary.identity_holds
+    # Isolated: the walk and the totals are satisfied, the partition is not.
+    assert not _partition_holds([100.00, 200.00, 0.00, 0.50], counted=2,
+                                total=300.00, uncounted=0.50)
+    assert parse(invented) is None
+    # And it is the ZERO that does it. Give the same invented row an amount
+    # and the TOTAL catches it instead, so neither check stands in for the
+    # other and neither is redundant.
+    assert not _partition_holds([100.00, 200.00, 7.00, 0.50], counted=2,
+                                total=300.00, uncounted=0.50)
+
+
+def test_a_zero_amount_row_the_bank_counted_is_published():
+    """The other side of the same rule, and the reason it is not "refuse every
+    zero-amount row".
+
+    This platform posts genuine zero-amount rows - a returned ACH of $0.00
+    that the bank counts as one credit - and `analysis/community_section.py`
+    and `analysis/reconcile.py` both state the same rule for the same reason.
+    Counted, the row lands on the side the printed count vouches for, and it
+    publishes.
+    """
+    stmt = parse(document(summary=_COUNTS_THE_ZERO_ROW, credits=_ZERO_ROW_ADDED,
+                          daily=_DAILY_WITH_ZERO_DAY))
+    assert stmt is not None
+    assert stmt.stated_credit_count == 3
+    zero_rows = [t for t in stmt.transactions if t.amount == 0.0]
+    assert len(zero_rows) == 1 and zero_rows[0].direction == "credit"
+
+
+def test_a_zero_amount_row_read_twice_is_refused():
+    """The echo the review constructed: the bank counted one zero row and the
+    reader captured two. The pair moves no total and no daily balance, and the
+    count it moves would be absorbed by the excluded side growing to meet it.
+    """
+    echoed = _ZERO_ROW_ADDED.replace(
+        "03/07 .00 SYNTHETIC ZERO CREDIT\n",
+        "03/07 .00 SYNTHETIC ZERO CREDIT\n03/07 .00 SYNTHETIC ZERO CREDIT\n",
+    )
+    assert not _partition_holds([100.00, 200.00, 0.00, 0.00, 0.50], counted=3,
+                                total=300.00, uncounted=0.50)
+    assert parse(document(summary=_COUNTS_THE_ZERO_ROW, credits=echoed,
+                          daily=_DAILY_WITH_ZERO_DAY)) is None
 
 
 def test_a_grid_whose_legend_this_reader_cannot_resolve_is_refused():

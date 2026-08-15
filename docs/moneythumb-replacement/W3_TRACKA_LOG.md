@@ -14722,8 +14722,17 @@ period, it **partitions** it:
 
 with two-column `Date Amount Description` grids under `Deposits and Other
 Credits` / `Checks` / `Other Debits`, and a `Balance By Date` grid that walks
-the period day by day. Seven independent constraints on one ledger, and the
-reader publishes nothing unless every one of them holds.
+the period day by day. What the reader must reproduce is SIX printed
+figures - a count, a total and an uncounted lump on each side - plus the daily
+walk, and it publishes nothing unless every one of them holds.
+
+**The balance identity is a fail-fast, not a seventh constraint.** Ocean's
+review is right and the earlier wording here was double-counting. Once the
+partition holds on both sides the captured rows come to `C + I` and `D + S`,
+and once the walk holds the running balance carries `b0` to `b1` over exactly
+those rows - so `b0 + C - D - S + I == b1` follows from the two. It is kept,
+and checked FIRST, because it is one line of arithmetic on figures already in
+hand and it rejects a mis-read summary before any grid is parsed.
 
 **11 documents claimed; 11 move `failed` → `validated`; nothing moves down.**
 Detection was swept over the whole archive: **11 claims out of 3,367 documents
@@ -14961,10 +14970,10 @@ Four land to the cent and none is off by more than $2.23 on periods running to
 $360k of activity — the residual is a day-convention/collected-balance
 difference, and it is a carried question rather than a claim (SC8).
 
-**Month-to-month chaining across documents.** Three accounts, eleven
-statements, and six consecutive-month joins where one statement's ending
-balance is the next one's previous balance. Nothing inside a single document
-constrains this:
+**Month-to-month chaining across documents.** Four accounts across three
+holders, eleven statements, and six consecutive-month joins where one
+statement's ending balance is the next one's previous balance. Nothing inside
+a single document constrains this:
 
 * account **A** (four consecutive months): Mar `DCB80E04B8ED` → 21,028.86 → Apr `1106E3FDD20A` → 6,830.83 →
   May `749CDCE460CB` → 12,313.67 → Jun `FA59082D6A74`. **3 joins, exact.**
@@ -14973,6 +14982,10 @@ constrains this:
   the archive; `F8FC1D8B3ECD` is May.)
 * account **C**: Mar `B8B2136D2B41` → 1,064.05 → Apr `E4F5802ECAFE`. **1 join,
   exact.**
+* account **D** is the money-market account of account **B**'s holder, and
+  `F7BD156A7C86` is its only statement in the archive - so it joins to
+  nothing, and it is not the missing April of account **B**. Three holders,
+  four accounts; the joins run across three of them.
 
 ## SC6. DEVIATION — `F7BD156A7C86` is published, not refused
 
@@ -14986,7 +14999,7 @@ cannot match a figure with no integer part. This statement opens
 `PREVIOUS BALANCE .00`, so v1 reported SUMMARY-UNREADABLE. The summary is
 printed in full and reads cleanly.
 
-**The document is complete and it reconciles seven ways.** It prints
+**The document is complete and every printed figure reproduces.** It prints
 `Page: 1 of 1`, `Images: 0` and `*ZERO CHECKS*` (the second PDF page is the
 back-of-form disclosures every document in this family carries). Read:
 
@@ -15122,8 +15135,10 @@ both numbers recorded, constant NOT raised.
 | BASE-equivalent (68, this branch minus `balance_by_date`) | **252.1 ms** | 51.9 ms | 7,449 ms |
 | BRANCH (69) | **258.8 ms** | 48.6 ms | 7,116 ms |
 
-**BASE is already over the 250 ms limit**, which is the pre-existing failure.
-The wall clock is also load-dominated right now — across three runs of the
+Ocean's reviewer measured BASE at **244.5 ms** on a quiet box, so the honest
+statement is NOT "BASE is already over" - it is that BASE sits within a few
+percent of the limit and which side of it any single run lands on is decided
+by machine load rather than by this branch. The wall clock is load-dominated — across three runs of the
 same A/B, BASE measured 293 / 314 / 252 ms and BRANCH 322 / 247 / 259 ms, and
 in two of the three the BRANCH *total* came out BELOW the BASE total, which is
 impossible in expectation. Ten sibling python processes were resident
@@ -15183,3 +15198,75 @@ the already-admissible text would take ~40% off the sweep without touching a
 single marker, and it does not change what any registration sees — detection
 already runs on stripped text today. Offered as evidence, not as a change:
 `analysis/parser_registry.py` is not this cell's file.
+
+## SC10. Review closures (Ocean, adversarial review of `wave4-scanc`)
+
+Verdict SHIP with four closures. All four are landed; each carries the
+measurement that decided how.
+
+**D1 - a zero-amount row was unprovable, and the remedy is not the one asked
+for.** The review asked for a "no two captured rows share date+amount+
+description" guard. Measured before writing it: **six of the eleven documents
+post a pair of rows identical in all three fields** - two $377.27 insurance
+premiums on one day, two $5,000.00 transfers on another, two $36.00 stop-pay
+charges, two $20.00 wire fees. Every one is genuine, and the proof is the
+printed TOTAL, which accounts for both; an echo of one of them pushes the
+captured total past the printed one and is already refused. That guard would
+therefore have refused 6 of the 11 - more than half this cell's coverage - for
+a defect none of them has.
+
+Measuring the escape instead showed it is also WIDER than duplication: any
+spurious zero-amount row is absorbed, duplicated or not, because `0.00` joins
+any excluded subset without changing its sum. It moves no total, no daily
+balance, and the count it moves is matched by the excluded side growing to
+meet it.
+
+So the equivalent structural refusal lands at that exact place: **a
+zero-amount row may not be one of the EXCLUDED.** A zero-amount row the bank
+COUNTED still publishes - the printed count is its witness - and a
+zero-amount row the bank did not count is refused, because no printed figure
+on the statement is a witness to it. Three fixtures pin the three cases
+(uncounted / counted / echoed), and the refuted `_grid_rows` comment now
+states what the column bound is worth and what it is not: a non-zero
+duplicate is caught by the total, a zero one is caught here, and neither
+guard covers the other.
+
+**D6 - the operator invariant is now pinned.** The no-stop-list argument
+rested on "a summary term opens its printed line with an operator" and nothing
+tested it; the review's operator-optional and operator-class-widened mutants
+both survived all 36 tests. Two fixtures now carry an undated statistic on its
+own line - bare, and bulleted with an EM DASH, the glyph `analysis/money.py`
+keeps out of `MINUS_CLASS` on purpose. Both are payload-inert (the published
+statement is asserted equal field-for-field to the base one) and both mutants
+now die. A third fixture pins the other half of the same claim: the operator
+is read as the SIGN, so a summary that credits its charges and levies its
+interest is read as what it says rather than as what the labels suggest.
+
+**D5 - `_SUB_DOLLAR` is bounded on both sides.** Unbounded it read `-25.00` as
+**$0.25** and `1.234.50` as `$0.50`. It failed closed at every publishing
+position, as the review says, but a silent misread one check away from a
+published figure is a defect waiting for the check to move. Bounded, `-25.00`
+reads through the `_CENTS` branch as the magnitude `25.00`, which is what
+"a leading minus is never a sign on this template" means applied consistently.
+
+**Mutation-kill, all four, each by its own named test and nothing else:**
+
+| mutant | result |
+|---|---|
+| operator OPTIONAL | 1 failed - `..._excluded_by_the_operator_and_not_by_a_name[bare-statistic-line]` |
+| operator class widened to the em dash | 1 failed - `..._excluded_by_the_operator_and_not_by_a_name[em-dash-bulleted-statistic]` |
+| zero rows admitted to the excluded subset (pre-fix) | 2 failed - `..._the_bank_did_not_count_is_refused`, `..._read_twice_is_refused` |
+| `_SUB_DOLLAR` unbounded (pre-fix) | 1 failed - `..._cannot_be_read_out_of_a_longer_number` |
+
+**Unchanged by all four: the eleven documents publish byte-identical
+payloads** - same outcomes, same transaction counts, same ADBs.
+
+### SC10.1 Proofs after the closures
+
+| proof | result | exit |
+|---|---|---|
+| `python -m pytest tests/test_balance_by_date.py -q` | **44 passed** | 0 |
+| guards (hardcodes, R-1, clones, detection markers) | **149 passed** | 0 |
+| conformance cross-product | **640 passed** | 0 |
+| `python -m pytest -q` (full default suite) | **3,825 passed**, 18 deselected | 0 |
+| the eleven end to end | 11 `validated/approved`, 0 flags, payloads unchanged | 0 |

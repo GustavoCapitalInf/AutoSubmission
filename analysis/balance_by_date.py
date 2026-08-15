@@ -2,8 +2,9 @@
 
 The template prints a six-row summary grid, two-column transaction grids under
 its own section names, and a `Balance By Date` grid that walks the period day
-by day.  Read together those are seven independent constraints on one ledger,
-and this reader publishes nothing unless every one of them holds::
+by day.  What the reader must reproduce is SIX printed figures - a count, a
+total and an uncounted lump on each side - plus the daily walk, and it
+publishes nothing unless every one of them holds::
 
       PREVIOUS BALANCE      b0
     + N CREDITS       C          rows the bank counted as deposits
@@ -11,6 +12,16 @@ and this reader publishes nothing unless every one of them holds::
     - SERVICE CHARGES S          rows the bank did NOT count
     + INTEREST PAID   I          rows the bank did NOT count
       ENDING BALANCE  b1         and b0 + C - D - S + I == b1
+
+**The identity is a fail-fast, not a seventh constraint.**  Worth saying
+plainly, because an earlier version of this docstring counted it as one.  Once
+the partition holds on both sides the captured rows come to `C + I` and
+`D + S`, and once the walk holds the running balance carries `b0` to `b1` over
+exactly those rows - so `b0 + C - D - S + I == b1` follows from the two and
+proves nothing on its own.  It is checked first because it is one line of
+arithmetic on figures already in hand, and it rejects a mis-read summary
+before any grid is parsed.  Keeping it is cheap; counting it as independent
+evidence would be double-counting.
 
 **The trap is the partition.**  `S` and `I` are not summaries of `D` and `C` —
 they are the money the printed COUNTS deliberately exclude, while the printed
@@ -75,7 +86,17 @@ _CENTS = r"\d[\d,]{0,15}\.\d{2}"
 #: statistic does), so `_figure` admits no leading sign at all and an
 #: overdrawn summary balance is refused rather than guessed.  No document in
 #: the measured population prints one on a figure this reader publishes.
-_SUB_DOLLAR = r"[.\-]\d{2}"
+#:
+#: BOUNDED ON BOTH SIDES, and that is not decoration.  Unbounded, this branch
+#: reads the head of a longer number: `-25.00` matches `-25` and becomes
+#: **$0.25**, and `1.234.50` yields `$0.50`.  Every position this reader takes
+#: a figure from is checked against the printed oracle, so such a misread
+#: failed the document closed rather than publishing - but a silent misread
+#: sitting one check away from a published figure is a defect waiting for the
+#: check to move.  With the bounds, `-25.00` is read by the `_CENTS` branch as
+#: the magnitude `25.00`, which is what "a leading minus is never a sign here"
+#: means when it is applied consistently.
+_SUB_DOLLAR = r"(?<![\d.,])[.\-]\d{2}(?![\d.,])"
 
 _FIGURE = rf"(?:{_CENTS}|{_SUB_DOLLAR})"
 _SUB_DOLLAR_RE = re.compile(rf"^{_SUB_DOLLAR}$")
@@ -300,9 +321,18 @@ def _grid_rows(body: str, kind: str, columns: int) -> list[tuple[str, float, str
     section as one blob has no way to tell a row it has already read from one
     it has not.  A line yielding more rows than the grid has columns means the
     line was mis-segmented, and this returns None rather than publishing the
-    duplicate: a duplicated row keeps the balance chain closing only if its
-    amount is zero, but it moves the COUNT, which is exactly the constraint
-    this template prints and the reason the count is checked at all.
+    duplicate.
+
+    What that guard is worth is worth stating exactly, because an earlier
+    version of this comment overstated it.  A duplicated row with a NON-ZERO
+    amount is caught downstream anyway: it moves the captured total and the
+    printed total does not move with it.  A duplicated row with a ZERO amount
+    moves no total, no daily balance, and - on its own - no check at all; the
+    count moves, but `_partition_holds` could absorb the movement until it was
+    taught that a zero-amount row may not be one of the EXCLUDED.  So the two
+    guards divide the work: this bound catches a mis-segmented line where it
+    happens, and the zero-row restriction in `_partition_holds` is what makes
+    a zero-amount row provable or refused.  Neither one covers the other.
 
     A row's description is the text between its own amount and the START OF
     THE NEXT ROW ON THE SAME LINE, and deliberately no more.  This platform
@@ -412,9 +442,28 @@ def _partition_holds(values: list[float], *, counted: int, total: float,
     printed on it, so the partition is a CHECK on the capture rather than an
     output of it.  Insisting the subset be unique would refuse documents whose
     published payload is not in question - two $18.00 fees are two $18.00
-    fees.  What the check does establish is the distribution, not just the
-    sum: where the bank left out one row, exactly one captured row must equal
-    the excluded figure to the cent.
+    fees, and on the measured population six of the eleven documents post a
+    pair of rows identical in date, amount and description, every one of them
+    a genuine pair the printed totals account for twice.  What the check does
+    establish is the distribution, not just the sum: where the bank left out
+    one row, exactly one captured row must equal the excluded figure to the
+    cent.
+
+    **A ZERO-amount row may not be one of the excluded.**  That single
+    restriction is what stops the freedom above from becoming a hole, and it
+    was a real one: `0.00` joins ANY subset without changing its sum, so a
+    zero-amount row this reader invented - an OCR echo of a line, or a
+    mis-segmentation - could always slip into the excluded side and be
+    absorbed.  It moves no total, so the sum check is blind to it; it moves
+    the count, but the excluded side would grow by one to match; and it moves
+    no daily balance, so the walk is blind to it too.  Every other spurious
+    row is caught by the total, and this was the one that was not.
+
+    Refusing it costs nothing the document could have proven: a zero-amount
+    row the bank COUNTED is unaffected and still publishes, because it lands
+    on the counted side where the printed count vouches for it.  What is
+    refused is a zero-amount row the bank did NOT count - a row no printed
+    figure on the statement is a witness to.
     """
     excluded = len(values) - counted
     if excluded < 0:
@@ -424,6 +473,8 @@ def _partition_holds(values: list[float], *, counted: int, total: float,
     reachable: dict[int, set[float]] = {0: {0.0}}
     states = 1
     for value in values:
+        if not value:
+            continue
         for size in sorted(reachable, reverse=True):
             if size + 1 > excluded:
                 continue
@@ -513,8 +564,9 @@ def _walk_agrees(txns: list[Transaction], grid: dict[date, float], *,
 #:
 #: The second is the daily grid, matched by its own printed heading.  It is
 #: required rather than corroborating because the reader will not publish
-#: without it: the walk is one of the seven constraints, and a document that
-#: does not print the grid cannot satisfy them all.
+#: without it: the walk is the reader's second opinion and one of the checks
+#: the identity is IMPLIED by, so a document that does not print the grid
+#: cannot satisfy what this reader requires.
 #:
 #: The two term patterns are told apart by ONE character - whether a digit or
 #: a letter follows the operator - which is the same structural distinction
@@ -602,7 +654,8 @@ def parse_balance_by_date_statement(markdown: str) -> Statement | None:
     """Any issuer's statement on this template, or None.
 
     Declines - rather than guesses - whenever the document's own printed
-    evidence does not close: an unreadable summary grid, a grid whose legend
+    evidence does not close: a summary whose balance identity does not hold
+    (the fail-fast), an unreadable summary grid, a grid whose legend
     this reader does not know, a printed line carrying more rows than its grid
     has columns, a count or total that the captured rows do not reproduce, a
     balance identity that does not hold, or a daily grid that disagrees with
