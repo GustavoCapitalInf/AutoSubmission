@@ -18,7 +18,7 @@ import pytest
 import corpus_gate
 from analysis.pipeline import analyze_markdown
 from analysis.serialization import report_to_dict
-from corpus_artifacts import cached_markdown
+from corpus_artifacts import cached_markdown, cached_pages
 from ocr.inspect import inspect_pdf
 from telemetry import (
     VOCABULARY,
@@ -82,9 +82,12 @@ WITHHELD_REQUIRED_CODES = {
         "adb:ledger_reconciles_to_closing",
         "adb:final_balance_matches_statement_closing",
     },
+    # `integrity:missing_declared_statement_page` was here until WIRING-2's
+    # approved ceremony withdrew it: the statement supplies 2 text-bearing
+    # sheets for the 2 pages it declares, so no page was ever absent. The
+    # document stays withheld on the contradiction its other codes carry.
     "BMO_Statement_January_2026 Final-1-2 (1).pdf": {
         "integrity:conflicting_statement_summaries",
-        "integrity:missing_declared_statement_page",
         "recon:running_balance_break",
         "recon:credit_coverage_short",
         "recon:debit_coverage_short",
@@ -104,6 +107,12 @@ WITHHELD_REQUIRED_CODES = {
 #: counted because this is the anchor that says phase 2 moved nothing: every
 #: one of them is in `review` for a reason that predates the count check, and
 #: none of them carries a count code.
+#
+# Six until WIRING-2's approved ceremony: Texas Bank and Regions were diagnosed
+# `page_coverage` on a flag that was FALSE — their pages are present as
+# unlabelled sheets — and both now publish as validated with no diagnosis at
+# all. The three that remain keep theirs, each because a page really is
+# unaccounted for.
 REVIEW_DIAGNOSIS = {
     # a transaction export, not a bank statement — a document class, which is
     # why its evidence is all advisory
@@ -112,8 +121,6 @@ REVIEW_DIAGNOSIS = {
     "Builder June 2026.pdf": "page_coverage",
     "Columbia May 26 complete.pdf": "page_coverage",
     "Link Bank April statement.pdf": "page_coverage",
-    "Texas Bank.pdf": "page_coverage",
-    "Regions.pdf": "page_coverage",
 }
 
 #: The count check's entire footprint on the pinned 109: ONE code, on a
@@ -138,6 +145,14 @@ def _telemetry_for(rel: str) -> tuple[dict, dict | None]:
     produces different markdown for those four banks). Image-only statements
     fall through to their committed OCR artifact, which is what keeps this
     offline and deterministic.
+
+    The intake page list is supplied exactly when production supplies it, read
+    off `corpus_gate.PRODUCTION_SUPPLIES_SHEETS` rather than restated here.
+    This anchor is a harness like the gate's, and it carries the same trap: one
+    that analyses differently from production pins an outcome production never
+    publishes, and one that stays unwired after production is wired goes
+    silently blind on the flag it exists to watch. There is exactly one
+    declaration of what the callers do, and both harnesses read it.
     """
     from ocr.pipeline import parse_statement
 
@@ -153,12 +168,17 @@ def _telemetry_for(rel: str) -> tuple[dict, dict | None]:
             allow_local_ocr=False,
             allow_visual_ocr=False,
         )
-        markdown = doc.to_markdown() if doc is not None else cached_markdown(raw, CACHE)
+        if doc is not None:
+            markdown, pages = doc.to_markdown(), list(doc.pages)
+        else:
+            markdown, pages = cached_markdown(raw, CACHE), cached_pages(raw, CACHE)
+    sheets = pages if corpus_gate.PRODUCTION_SUPPLIES_SHEETS else None
     payload, error_type, escalated = None, None, False
     try:
         with timer.time("analysis", "miss"):
             report = analyze_markdown(
-                markdown, parse_mode="deterministic", on_dispatch=collector
+                markdown, parse_mode="deterministic", on_dispatch=collector,
+                sheets=sheets,
             )
         payload = report_to_dict(report)
         escalated = report.escalated
@@ -240,10 +260,13 @@ def test_withheld_diagnostics_reproduce_the_documented_diagnosis():
     COUNTS-P2 widened the diagnosable scope from `withheld` to
     `withheld | review`, so the property changed shape and is restated rather
     than relaxed: it was "the 106 produce empty diagnostics" and it is now
-    "the 100 VALIDATED produce empty diagnostics", with the 6 review documents
+    "the VALIDATED produce empty diagnostics", with the review documents
     enumerated in `REVIEW_DIAGNOSIS`. The gate's own 106 PASS / 3 WITHHELD is
-    untouched — 106 PASS = 100 validated + 6 review — and this test asserts
-    that identity directly so the two vocabularies stay tied together.
+    untouched by WIRING-2's ceremony — 106 PASS = 102 validated + 4 review,
+    where it was 100 + 6 — and this test asserts that identity directly so the
+    two vocabularies stay tied together. The split moving inside PASS while the
+    oracles' own number does not is precisely the blindness the gate's verdict
+    check was added to close.
     """
     manifest = _manifest()
     records = [_telemetry_for(rel)[0] for rel in manifest]
@@ -261,7 +284,7 @@ def test_withheld_diagnostics_reproduce_the_documented_diagnosis():
             assert section == empty_diagnostics(), rel
             quiet += 1
 
-    assert quiet == 100
+    assert quiet == 102
     assert quiet + len(review) == corpus_gate.EXPECTED_PASS == 106
     assert set(diagnosed) == WITHHELD
 
@@ -299,10 +322,11 @@ def test_withheld_diagnostics_reproduce_the_documented_diagnosis():
     # The rollup answers the W3-2 question in one call over the same records.
     rollup = diagnostics_rollup(records)
     assert rollup["total"] == 109
-    assert rollup["diagnosed"] == 9  # the 3 withheld + the 6 review
+    assert rollup["diagnosed"] == 7  # the 3 withheld + the 4 review
     assert rollup["classes"] == {
         "source_contradiction": 1, "summary_identity": 1, "detail_coverage": 1,
-        "page_coverage": 5, "advisory_only": 1,
+        # 5 until the ceremony withdrew two FALSE page_coverage diagnoses.
+        "page_coverage": 3, "advisory_only": 1,
     }
     # One count code in the whole pinned corpus, on the document whose debit
     # detail the gate already refuses.

@@ -486,7 +486,13 @@ def test_dry_run_reproduces_known_truth():
     assert summary["dispatched"] == 109
     assert summary["deterministic_coverage"] == 1.0
     assert summary["dispatch"] == {"claimed": 109}
-    assert summary["outcome"] == {"validated": 100, "review": 6, "withheld": 3}
+    # 100/6/3 until WIRING-2's approved ceremony moved Texas Bank and Regions
+    # review -> validated on withdrawn FALSE page flags. Regions is one of the
+    # six image-only statements, and it only became executable offline once the
+    # committed artifacts carried their intake page lists — this runner reads
+    # them on the committed-artifact rung, so its agreement with the gate is
+    # evidence that both halves of that artifact are in play.
+    assert summary["outcome"] == {"validated": 102, "review": 4, "withheld": 3}
     # Nothing can defer on the pinned set: the six image-only statements are
     # served from their committed OCR artifacts.
     assert "deferred" not in summary["outcome"]

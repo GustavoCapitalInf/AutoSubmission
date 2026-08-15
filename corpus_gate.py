@@ -75,6 +75,7 @@ from corpus_artifacts import (
     DEFAULT_CACHE,
     ArtifactError,
     cached_markdown,
+    cached_pages,
     manifest_entries,
 )
 
@@ -110,9 +111,10 @@ WITHHELD_STATEMENTS = {
 #    the gate reported GREEN over it (W3 §PIPEFIX P4b.5).
 # 2. A pinned statement can change a PUBLISHED integrity flag without changing
 #    class at all — a withheld document that loses a flag is still withheld.
-#    Measured on this branch: wiring the page-declaration check withdraws
+#    Not hypothetical either: activating the page-declaration check withdrew
 #    `missing_declared_statement_page` from the pinned BMO January statement,
-#    whose class does not move.
+#    whose class did not move. A check on the outcome CLASS alone would have
+#    seen nothing, and that movement is why WIRING-1 stopped.
 # 3. `risk_level` and `possible_document_issue` move INDEPENDENTLY of the flag
 #    list, so pinning the class and the flags is still not enough.
 #    `possible_document_issue` keys on `recon.continuity_breaks >= 3`
@@ -139,11 +141,11 @@ WITHHELD_STATEMENTS = {
 #
 # The expectation is total over all 109 without enumerating all 109: this map
 # holds every document that is NOT plainly published, and every pinned path
-# absent from it must equal `PUBLISHED_OUTCOME`. Measured: all 100 validated
+# absent from it must equal `PUBLISHED_OUTCOME`. Measured: all 102 validated
 # documents share exactly one published state, so "absent" is a real
-# expectation and not a gap. Recorded from the current tree, PRE-ceremony;
-# moving an entry is truth-set movement and needs the same ceremony as an
-# audit CSV.
+# expectation and not a gap. Recorded from the tree at WIRING-2, POST-ceremony
+# (102 validated / 4 review / 3 withheld); moving an entry is truth-set
+# movement and needs the same ceremony as an audit CSV.
 
 
 class _Verdict(NamedTuple):
@@ -173,12 +175,17 @@ PINNED_OUTCOMES: dict[str, _Verdict] = {
         risk_level="review",
         possible_document_issue=False,
     ),
-    # The five page_coverage documents. All five carry the flag today; W3
-    # §PIPEFIX P4b.5 measured that two of them (Texas Bank, Regions) carry it
-    # FALSELY — the pages are present as unlabelled sheets — and Gustavo
-    # approved their review->validated ceremony on 2026-08-14. The ceremony is
-    # NOT executed here: it needs the wiring card, which is stopped. See the
-    # §WIRING section of W3_TRACKA_LOG.md.
+    # Three of the five page_coverage documents. The other two — Texas Bank and
+    # Regions — were carrying `missing_declared_statement_page` FALSELY: their
+    # pages are present as unlabelled sheets, which W3 §PIPEFIX P4b.5 measured
+    # and Gustavo approved as a review->validated ceremony (approved
+    # 2026-08-14, re-scoped to three movements 2026-08-15). WIRING-2 executed
+    # it, so both now publish `PUBLISHED_OUTCOME` and live outside this map.
+    #
+    # These three keep their flags, and they are the reason the fix is not
+    # blunt: Builder supplies 4 sheets for 5 declared pages, Columbia labels
+    # every one of its 4 sheets while declaring 5, and Link Bank labels 19 of
+    # 20. In each a page really is unaccounted for.
     "Misc/Builder June 2026.pdf": _Verdict(
         "review",
         flags=("missing_declared_statement_page",),
@@ -206,24 +213,29 @@ PINNED_OUTCOMES: dict[str, _Verdict] = {
         risk_level="review",
         possible_document_issue=False,
     ),
-    "Misc/Texas Bank.pdf": _Verdict(
-        "review",
-        flags=("missing_declared_statement_page",),
-        notes=(
-            "statement declares 4 bank page(s), but page label(s) 1, 2, 3 are absent from the supplied PDF",
-        ),
-        risk_level="review",
-        possible_document_issue=False,
-    ),
-    "Regions/Regions.pdf": _Verdict(
-        "review",
-        flags=("missing_declared_statement_page",),
-        notes=(
-            "statement declares 3 bank page(s), but page label(s) 1, 2 are absent from the supplied PDF",
-        ),
-        risk_level="review",
-        possible_document_issue=False,
-    ),
+    # CEREMONY, executed 2026-08-15 (WIRING-2, Gustavo's OPTION A):
+    #
+    #   Misc/Texas Bank.pdf   744D6E04AFCB1B0C6F91F6AC4E4B1A4976CBFA8C18D4F4E2950CD50723DA6110
+    #   Regions/Regions.pdf   98D069AF2A41CC6F4A6E6B6DD94FA2E8C294E18438D817BBBB05CCE1B55E849F
+    #
+    # both moved review -> validated on a WITHDRAWN FALSE FLAG (flags
+    # ['missing_declared_statement_page'] -> [], notes 1 -> 0, risk_level
+    # review -> clear, possible_document_issue unchanged), so both left this map
+    # for `PUBLISHED_OUTCOME`. Their pages were never absent: Texas Bank
+    # supplies 4 text-bearing sheets for 4 declared pages and Regions 3 for 3,
+    # with the labels simply not printed on all of them. Every audited balance
+    # and ADB field is byte-identical — the two forensic oracles above prove
+    # that on every gate run, and neither reads a flag.
+    #
+    # This is the exact movement the gate could not see before WIRING-1's
+    # verdict check: `validated` and `review` are BOTH inside the audits' PASS
+    # class, so at `b8013d5` two pinned documents made this same move with the
+    # gate reporting GREEN over it. It is recorded here because the map is the
+    # only place that now watches it.
+    #
+    # The third approved movement is the BMO January statement below: withheld
+    # before and after, one false flag withdrawn from its published evidence.
+    #
     # The three withheld. Same three as WITHHELD_STATEMENTS, here with the
     # evidence they publish rather than only their names.
     "Misc/Ace_Auto_Final_Cut.pdf": _Verdict(
@@ -243,6 +255,23 @@ PINNED_OUTCOMES: dict[str, _Verdict] = {
         risk_level="review",
         possible_document_issue=False,
     ),
+    # CEREMONY, executed 2026-08-15 (WIRING-2, Gustavo's OPTION A, movement 3):
+    # sha256 E86143101E28E198EC5278B065E8BA967DD73E9AB735A1CAC4A0FE7CB46CB83F.
+    # WITHHELD before and after — the refusal is a reconciliation one and does
+    # not move — while its PUBLISHED EVIDENCE does: flags 7 -> 6 and notes
+    # 8 -> 7, dropping `missing_declared_statement_page` and its note. The
+    # document supplies 2 text-bearing sheets for the 2 pages it declares and
+    # prints the label on one of them, so nothing was ever shown to be absent.
+    # `risk_level` (high) and `possible_document_issue` (True) are unchanged:
+    # they are carried by the reconciliation findings, not by this flag.
+    #
+    # WIRING-1 STOPPED the activation over exactly this document (W3 §WIRING
+    # W1): §PIPEFIX P4b.5 enumerated the pinned page_coverage documents by
+    # DIAGNOSIS and this one is diagnosed `source_contradiction`, so a sixth
+    # pinned flag-carrier went uncounted and the two-document ceremony would
+    # have moved a third. Withdrawing a false accusation from a withheld
+    # document's published evidence is still truth-set movement, which is why
+    # it waited for Gustavo's re-scope rather than being adjusted here.
     "Others/BMO/BMO_Statement_January_2026 Final-1-2 (1).pdf": _Verdict(
         "withheld",
         flags=(
@@ -252,7 +281,6 @@ PINNED_OUTCOMES: dict[str, _Verdict] = {
             "debit_detail_coverage_mismatch",
             "transaction_detail_not_corporate_reliable",
             "conflicting_statement_summaries",
-            "missing_declared_statement_page",
         ),
         notes=(
             "transaction sum does not reconcile to the printed ending balance",
@@ -262,7 +290,6 @@ PINNED_OUTCOMES: dict[str, _Verdict] = {
             "summary figures may be usable, but transaction-level detail is not reliable enough for corporate approval",
             "conflicting bank-stated deposit totals across summary sections",
             "secondary bank-stated summary does not reconcile to the opening and final balances",
-            "statement declares 2 bank page(s), but page label(s) 1 are absent from the supplied PDF",
         ),
         risk_level="high",
         possible_document_issue=True,
@@ -287,21 +314,23 @@ PINNED_OUTCOMES: dict[str, _Verdict] = {
 #: Do production's analysis callers hand `analyze_markdown` the intake object's
 #: page list yet?
 #:
-#: `assess_document_integrity` accepts `sheets=` and fail-closes without it, and
-#: since W3 §PIPEFIX card 2 the parameter exists while NO production caller
-#: passes it — the page-declaration fix ships inert. `production_verdict` below
-#: must reproduce whatever the callers actually do, because a harness that
-#: analyses differently from production pins a verdict production never
-#: publishes, and a harness that stays unwired while production gets wired goes
-#: silently blind on the one flag this whole check was added to watch.
+#: `assess_document_integrity` accepts `sheets=` and fail-closes without it.
+#: W3 §PIPEFIX card 2 added the parameter with no production caller passing it —
+#: the page-declaration fix shipped inert — and WIRING-2 wired all three callers
+#: and flipped this in the same commit as the approved truth-set ceremony.
+#: `production_verdict` below must reproduce whatever the callers actually do,
+#: because a harness that analyses differently from production pins a verdict
+#: production never publishes, and a harness that stays unwired while production
+#: gets wired goes silently blind on the one flag this whole check was added to
+#: watch.
 #:
 #: `tests/test_corpus_gate_outcomes.py` holds this declaration to the real call
 #: sites and sweeps the repository for callers that appear in neither list, so
 #: flipping production without flipping this is a red test rather than a blind
-#: gate. Flipping it to True then moves pinned verdicts, which is a truth-set
-#: ceremony: `PINNED_OUTCOMES` moves in the same commit or the gate goes RED.
-#: Both steps are deliberate, which is the point.
-PRODUCTION_SUPPLIES_SHEETS = False
+#: gate. Flipping it moves pinned verdicts, which is a truth-set ceremony:
+#: `PINNED_OUTCOMES` moves in the same commit or the gate goes RED. Both steps
+#: are deliberate, which is the point.
+PRODUCTION_SUPPLIES_SHEETS = True
 
 #: The production analysis call sites this declaration describes, as
 #: (module path, enclosing function). Every one of them must pass `sheets=` when
@@ -680,11 +709,14 @@ def production_verdict(path: Path, cache: Path) -> _Verdict:
     The page list is supplied to the analysis exactly when production supplies
     it — see `PRODUCTION_SUPPLIES_SHEETS`, which a test holds to the real call
     sites. It is never recovered by re-splitting the markdown: page content is
-    untrusted and can print a separator line (W3 §PIPEFIX P4b.1). A committed
-    OCR artifact resolves to markdown alone, its page list having been
-    discarded when the artifact was committed, so those six statements can only
-    ever be analysed with `sheets=None` here and the check fail-closes for them
-    exactly as it does for any caller that cannot prove page structure.
+    untrusted and can print a separator line (W3 §PIPEFIX P4b.1). The six
+    image-only statements resolve to a committed OCR artifact rather than to an
+    intake object, and since WIRING-2 that artifact carries the same intake
+    run's page list (`corpus_artifacts.cached_pages`, proven to re-join to the
+    committed markdown byte for byte) — which is what makes the approved
+    Regions ceremony executable offline at all. An artifact with no committed
+    page list still yields None, and the check fail-closes for it exactly as it
+    does for any caller that cannot prove page structure.
     """
     # Imported here rather than at module scope so the two audit oracles above
     # keep loading without the production analysis stack: this check reads the
@@ -709,7 +741,8 @@ def production_verdict(path: Path, cache: Path) -> _Verdict:
         markdown = document.to_markdown()
         sheets = list(document.pages) if PRODUCTION_SUPPLIES_SHEETS else None
     else:
-        markdown, sheets = cached_markdown(raw, cache), None
+        markdown = cached_markdown(raw, cache)
+        sheets = cached_pages(raw, cache) if PRODUCTION_SUPPLIES_SHEETS else None
         if markdown is None:
             raise ArtifactError(
                 f"{path} has no native text and no committed OCR artifact in "

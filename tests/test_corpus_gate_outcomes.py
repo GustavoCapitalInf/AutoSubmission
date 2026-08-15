@@ -9,9 +9,10 @@ three kinds of truth-set movement, and all three are real:
   audits' single PASS class (W3 §PIPEFIX P4b.5: two pinned documents made that
   move at `b8013d5` with the gate reporting GREEN over it);
 * a pinned statement gaining or losing a PUBLISHED integrity flag without
-  changing class — measured on this branch, where wiring the page-declaration
-  check withdraws `missing_declared_statement_page` from the pinned BMO January
-  statement, which is withheld before and withheld after;
+  changing class — measured when the page-declaration check was activated, which
+  withdrew `missing_declared_statement_page` from the pinned BMO January
+  statement, withheld before and withheld after (the movement that stopped
+  WIRING-1, since a class-only check would have seen nothing);
 * `risk_level` / `possible_document_issue` moving with class, reason and flags
   all byte-identical, because they key on `continuity_breaks >= 3` while the
   `running_balance_breaks` flag keys on the same counter being non-zero.
@@ -203,15 +204,53 @@ def test_the_pinned_withheld_three_agree_with_the_audit_gate():
 
 
 def test_the_expected_split_is_the_documented_one():
-    """100 validated / 6 review / 3 withheld, derived rather than restated."""
+    """102 validated / 4 review / 3 withheld, derived rather than restated.
+
+    100/6/3 until WIRING-2 executed the approved ceremony: Texas Bank and
+    Regions moved review -> validated on withdrawn FALSE
+    `missing_declared_statement_page` flags. The audits' PASS class is
+    unchanged at 106, which is exactly why this split has to be pinned
+    separately — the two oracles cannot see the movement.
+    """
     manifest = corpus_gate.manifest_paths(corpus_gate.read_csv(corpus_gate.BALANCE_CSV))
     counts: dict[str, int] = {}
     for rel in manifest:
         verdict = corpus_gate.PINNED_OUTCOMES.get(rel, corpus_gate.PUBLISHED_OUTCOME)
         counts[verdict.outcome] = counts.get(verdict.outcome, 0) + 1
-    assert counts == {"validated": 100, "review": 6, "withheld": 3}
+    assert counts == {"validated": 102, "review": 4, "withheld": 3}
     assert counts["validated"] + counts["review"] == corpus_gate.EXPECTED_PASS
     assert counts["withheld"] == corpus_gate.EXPECTED_WITHHELD
+
+
+def test_the_ceremony_documents_publish_no_integrity_flag():
+    """The three approved movements, pinned as expectations rather than prose.
+
+    Texas Bank and Regions are `PUBLISHED_OUTCOME` — no flag, no note, risk
+    clear — and the BMO January statement is still withheld while no longer
+    accusing itself of a missing page. Anything else on these three is
+    unapproved truth-set movement.
+    """
+    for rel in ("Misc/Texas Bank.pdf", "Regions/Regions.pdf"):
+        assert rel not in corpus_gate.PINNED_OUTCOMES, (
+            f"{rel} moved to validated in the approved ceremony, so it must "
+            f"publish PUBLISHED_OUTCOME rather than carry an entry"
+        )
+    bmo = corpus_gate.PINNED_OUTCOMES["Others/BMO/BMO_Statement_January_2026 Final-1-2 (1).pdf"]
+    assert bmo.outcome == "withheld"
+    assert "missing_declared_statement_page" not in bmo.flags
+    assert not any("are absent from the supplied PDF" in note for note in bmo.notes)
+    assert len(bmo.flags) == 6 and len(bmo.notes) == 7
+    assert bmo.risk_level == "high" and bmo.possible_document_issue is True
+
+    # ...and the other three flag-carriers keep theirs: the fix is not blunt.
+    for rel in (
+        "Misc/Builder June 2026.pdf",
+        "Misc/Columbia May 26 complete.pdf",
+        "Misc/Link Bank April statement.pdf",
+    ):
+        assert corpus_gate.PINNED_OUTCOMES[rel].flags == (
+            "missing_declared_statement_page",
+        ), rel
 
 
 def test_every_map_entry_is_a_state_the_product_can_actually_reach():
@@ -287,8 +326,17 @@ def test_the_outcome_reason_adds_no_discrimination_over_class_and_flags():
 #
 # Each drives `check_outcome_classes` over ONE pinned document with a mutated
 # expectation, so the proof costs one analysis rather than 109.
+#
+# The probe has to be a document that still publishes a non-empty integrity
+# block, or the "lost flag" and "changed note" mutations would have nothing to
+# mutate. It was Texas Bank until WIRING-2's approved ceremony moved that one to
+# `validated` with no flags at all. Builder June 2026 has the identical shape
+# Texas Bank had — review, one `missing_declared_statement_page`, one note
+# naming the pages — and keeps it honestly: it supplies 4 sheets for the 5 pages
+# it declares, so a page really is unaccounted for. It also resolves through a
+# committed OCR artifact, so these proofs exercise the page-list read as well.
 
-PROBE = "Misc/Texas Bank.pdf"
+PROBE = "Misc/Builder June 2026.pdf"
 
 
 def _run(expectations: dict) -> corpus_gate.Check:
@@ -366,7 +414,7 @@ def test_a_moved_risk_level_turns_the_gate_red(expectations):
     `running_balance_breaks` flag keys on the same counter being non-zero, so a
     document can go 2 breaks -> 3 with class, reason and flags byte-identical
     while risk_level goes review -> high. It is served to users, and the
-    approved Texas Bank ceremony moves it too, so it is pinned.
+    approved Texas Bank ceremony moved it review -> clear, so it is pinned.
     """
     expectations[PROBE] = expectations[PROBE]._replace(risk_level="high")
     check = _run(expectations)
@@ -390,7 +438,7 @@ def test_a_changed_integrity_note_turns_the_gate_red(expectations):
     share one (class, flags) state while publishing five different notes. The
     old triple could not tell them apart; this can."""
     expectations[PROBE] = expectations[PROBE]._replace(
-        notes=("statement declares 4 bank page(s), but page label(s) 2 are absent "
+        notes=("statement declares 5 bank page(s), but page label(s) 2 are absent "
                "from the supplied PDF",)
     )
     check = _run(expectations)
