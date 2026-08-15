@@ -21478,10 +21478,34 @@ own comment gave the reason it existed ("`analysis/money.py` is growing a
 shared class for this in a parallel cell; this reader deliberately does not
 depend on it"), and that reason had expired.
 
-**This commit exceeds the letter of MG-D's declared file ownership and is
-isolated so it can be dropped alone.** It is offered because the ruling is
-"canonicalize to ONE definition consumed by every consumer", and this was a
-consumer of the concept if not of the constant.
+**FILE-OWNERSHIP DISCLOSURE, in full.** MG-D was scoped to
+`analysis/money.py`, `tests/test_money.py` and the W3 log. What it actually
+touches is wider, and the whole of it belongs here rather than only card 3's
+half:
+
+| file | card | forced by |
+|---|---|---|
+| `analysis/money.py` | 1 | in scope |
+| `tests/test_money.py` | 1 | in scope |
+| `analysis/date_tokens.py` | 2 | the new constant has to live somewhere, and the period line is a DATE token |
+| `analysis/brex.py`, `analysis/mercury.py` | 2 | they import the constant being narrowed; leaving them would silently narrow two required period patterns |
+| `tests/test_shared_parser_utils.py` | 2 | `date_tokens`' test home |
+| `tests/test_fintech_layouts.py` | 2 | three em-dash pins had to be rewritten to the measured truth |
+| `analysis/wealthsimple.py`, `tests/test_wealthsimple.py` | 3 | NOT forced — the judgement call below |
+| `tests/test_no_parser_helper_clones.py` | 4 | the guard's home |
+
+Cards 2 and 4 are forced footprint: card 2's four files are the direct
+consequence of narrowing a constant those files import, and refusing to touch
+them would have shipped the regression rather than avoided it. Card 3 is the
+only genuine judgement call.
+
+**Card 3 exceeds the scope on purpose and is isolated so it can be dropped —
+but it must be dropped TOGETHER WITH card 4 (`f5d255c`).** Reverting it alone
+restores `wealthsimple._SIGN_GLYPHS = "–−—-"`, which card 4's guard exists to
+forbid: the suite would go red on a test that is doing its job. The pair is
+the unit. It is offered because the ruling is "canonicalize to ONE definition
+consumed by every consumer", and this was a consumer of the concept if not of
+the constant.
 
 **What it costs, stated exactly rather than optimistically.** Narrowing the
 class does NOT make the row refuse: the sign group is optional, so an em dash
@@ -21504,7 +21528,31 @@ mercury       `Vendor Co ⟨mark⟩ACH Pull —$10.00 $130.00`
 Both fail closed at the DOCUMENT, through the arithmetic rather than through
 the grammar. Both are pinned as such — the tests say what actually happens,
 including the mis-read, rather than claiming a refusal the parsers do not
-make. Carried as MGD-C2.
+make.
+
+**And the backstop has a hole, which the claim above would otherwise paper
+over.** It holds for NON-ZERO amounts only. At zero the sign collapses —
+`-0.00` and `+0.00` are the same number — so the balance walk still reaches
+the printed balance and the document **VALIDATES**, publishing the em dash the
+bank set as a sign as DESCRIPTION TEXT:
+
+```
+wealthsimple  `Coop —$0.00 $497.27` (with a normal row after it)
+  -> amount 0.00, description "Coop —", recon.ok True, ADB 484.27  → VALIDATED
+```
+
+Nothing financial is wrong on that document; the record of what the bank
+printed is. A claim is worth what its narrowest case is worth, so it is pinned
+as its own test rather than folded into the one above.
+
+A THIRD shape exists and is a different mechanism again. `— $10.00` (spaced)
+is not `—$10.00` (welded), because `SIGNED_MONEY_TOKEN` carries an optional
+space: welded, the whole cell is swallowed by mercury's `type` group and the
+BALANCE column becomes the amount (+130.00); spaced, only the dash is
+swallowed and the amount cell is still read, unsigned (+10.00). Both are a
+debit booked as a credit, both are caught, but by different arithmetic and at
+different magnitudes. Pinned separately so the second is never assumed from
+the first. All three carried as MGD-C2.
 
 ## MGD7. Card 4 — no parser may spell its own sign class (`f5d255c`)
 
@@ -21520,6 +21568,21 @@ claiming to know what a minus is. The en and em dashes cannot serve — they hav
 legitimate non-sign readings and three modules print them as separators today
 (`regions`, `scanned_small_bank`, `td_can`'s mojibake table), so a guard on
 them would need an allowlist, and an allowlist is the thing that decays.
+
+**SCOPE, corrected on review.** `_modules()` was `analysis/*.py` —
+NON-RECURSIVE — so it had never seen `analysis/structurer/`'s six modules, and
+neither had the three older guards in that file. It is `analysis/**/*.py` now:
+83 modules become 89, there are no basename collisions (the allowlist's
+`ANALYSIS_DIR / filename` lookups are unaffected), and all four guards pass
+over the wider set with **no new exemptions**.
+
+Ocean's prescription asked for an allowlist entry for `structurer/tokens.py`
+alongside the recursion. Measurement says none is needed, and WHY is the
+useful part: `tokens.py` carries no U+2212 at all. Its defect is the ABSENCE
+of the glyph, not its presence — which is precisely what a presence-guard
+cannot detect. The guard is blind to that whole class by construction, and the
+test now says so rather than letting a passing run imply coverage it does not
+have. `regions.py:40` is the same shape.
 
 **The allowlist is empty and passes with no exemptions.** Prose is excluded
 twice: the glyph is read from the AST's string CONSTANTS with docstrings
@@ -21553,12 +21616,21 @@ New behavioural pins, in `tests/test_money.py` §3b:
 
 | test | what it makes unrepresentable |
 |---|---|
-| `..._binds_each_exported_name_exactly_once` | the defect itself, by AST, for every module-scope name |
+| `..._binds_each_exported_name_exactly_once` | the HISTORICAL SHAPE of the defect, by AST (see the honesty note below) |
 | `..._minus_class_is_derived_from_the_canon_and_not_re_spelled` | a re-spelled class, and an ASCII hyphen moved out of first position (where `[−-–]` becomes a codepoint RANGE) |
 | `..._sign_table_and_the_class_cover_the_same_glyphs` | table/class disagreement, over the whole BMP |
 | `..._finder_and_the_parser_read_the_same_sign_class` | a finder wider than its parser (hands over tokens the parser must decline) or narrower (drops rows silently) |
 | `..._em_dash_is_not_a_sign_and_the_cell_declines` | the ruling |
 | `..._two_exported_parsers_no_longer_answer_one_token_two_ways` | the measured symptom |
+
+**Honesty note on the first of those, corrected on review.** It counts
+`Assign` and `AnnAssign` nodes with a bare `Name` target in `Module.body`, so
+it makes the shape this cell found unrepresentable — and no more than that.
+Five rebinding forms escape it: an assignment nested in an `if`/`try`,
+`globals()[...] = ...`, augmented assignment, a `for` target, and tuple
+unpacking. None has ever occurred in this module and each is conspicuous on
+sight, which is why the cheap check is the right one; the earlier wording
+("for every module-scope name") claimed a guarantee it does not give.
 
 `tests/test_balance_by_date.py`'s em-dash-bulleted statistic document already
 pinned the exclusion from `MINUS_CLASS` independently, and is untouched —
@@ -21595,28 +21667,53 @@ the argument is why the proof came out the way it did.
 
 ## MGD10. Carried findings for Ocean
 
-1. **MGD-C1 — the raising family quotes the token it refuses.**
-   `parse_decimal`, `parse_decimal_mixed_separator`, `parse_grouped_float`,
-   `parse_trailing_minus_dropped` and `parse_french_amount` all
-   `raise ValueError(value)` with the printed token as the message.
-   `webapp/worker.py` returns `str(exc)` as the job error, so statement
-   content can cross the exception boundary — the law batch 4 closed for
-   `read_money` (§MG-C2 D1) is still open one layer down, in the same module.
-   `parse_signed_decimal`'s new em-dash refusal reaches a user through exactly
-   this path. Not fixed here: it changes exception messages across a dozen
-   parsers and wants its own card and its own sweep.
-2. **MGD-C2 — the fintech row grammars absorb an unread sign glyph rather
-   than refusing the row.** Measured in MGD6. `mercury._ROW_RE`'s `type` group
-   and `wealthsimple._ROW_TAIL_RE`'s `description` group are lazy
-   any-character groups, so a glyph the sign class does not admit is swallowed
-   and the NEXT money cell becomes the amount. Both fail closed at the
-   document through the balance walk, so nothing publishes — but the guarantee
-   rests on the arithmetic, not on the grammar, and a future row shape without
-   a balance column would not have it. Zero attested inputs today, which is
-   why a refusal rule was NOT added: an unattested refusal is the same
-   over-reach as an unattested sign glyph.
-3. **`balance_by_date._PERIOD_RE` is a FOURTH date range built out of the
-   sign class** — `mm/dd/yyyy {MINUS_CLASS} mm/dd/yyyy`, at
+**The private-opinions ledger, ranked by blast radius rather than by the order
+they were found.** Every reader below holds its own opinion about what a dash
+means; the canon this cell built is only as good as the readers that consult
+it, and these four do not.
+
+1. **THE FIRST ONE THAT MATTERS — `analysis/structurer/tokens.py` inverts BOTH
+   attested sign glyphs, generically, on a live path.** `money_value` (:139)
+   tests `text.startswith("-")` for ASCII only, then ends
+   `return -abs(value) if negative else abs(value)`. `parse_money` had already
+   recovered the sign correctly; the `abs()` throws it away:
+
+   ```
+   token          money_value      parse_money
+   -1,234.56        -1234.56          -1234.56    agree
+   −1,234.56 (U+2212) +1234.56          -1234.56    INVERTED
+   –1,234.56 (U+2013) +1234.56          -1234.56    INVERTED
+   ```
+
+   `MONEY_RE` (:65) admits ASCII and parentheses only, so the tokenizer path
+   inverts identically. This is worse than a stale private class: it CALLS the
+   shared grammar and then discards its answer, so fixing the canon cannot
+   reach it. And it is not one issuer's layout — the structurer is the
+   generic unclaimed-layout reader, so this is the sign rule for every
+   document no registration claims. Blast radius TODAY is small (the
+   structurer is opt-in off, and the one archive document in reach already
+   fails), which is exactly why it should be fixed before the path is turned
+   on rather than after. Not taken here: `analysis/structurer/` is not this
+   cell's file, and the fix wants a differential against the shared grammar,
+   which is a reader-by-reader job.
+2. **`analysis/structurer/summary.py:127` is a FOURTH date-range class** —
+   `(?:-|–|—|to|through|thru|au|until)` in `_RANGE_RE`, an alternation mixing
+   dashes with words. Carries U+2013 and U+2014 but not U+2212, so card 4's
+   guard is silent on it by design. Not repointed: `PERIOD_DASH` is
+   dash-only and this needs the word alternatives, so it is a genuine local
+   superset rather than a copy — recorded for completeness of the ledger.
+3. **`analysis/regions.py:40` re-implements half of `normalize_sign_glyphs`** —
+   `value.strip().replace("–", "-")` handles U+2013 and misses U+2212, so a
+   Regions cell set with a true minus sign loses its sign. Same ABSENCE shape
+   as finding 1 and equally invisible to card 4's guard. Regions is
+   offline-inexecutable per §WIRING, so this could not be measured end to end;
+   recorded rather than touched.
+4. **`ocr/column_grid.py:62`** admits U+2212 in its money-cell class and not
+   U+2013 or the em dash — the opposite half-opinion, in the geometry layer,
+   outside `analysis/` and so outside card 4's scan (whose boundary is the one
+   every other guard in that file uses). Named for the geometry cell.
+5. **`balance_by_date._PERIOD_RE` is a date range built out of the SIGN
+   class** — `mm/dd/yyyy {MINUS_CLASS} mm/dd/yyyy`, at
    `analysis/balance_by_date.py:369`. Inert under this cell (`MINUS_CLASS` is
    byte-identical), and deliberately NOT repointed: `PERIOD_DASH` is one glyph
    WIDER, so moving it could claim documents the family does not claim today.
@@ -21625,26 +21722,60 @@ the argument is why the proof came out the way it did.
    `+`/`-` operator that opens a term line) and are correct as they stand.
    `tests/test_shared_parser_utils.py` states the exclusion explicitly so the
    repointing test is not read as a claim about the whole platform.
-4. **`analysis/regions.py:40` re-implements half of `normalize_sign_glyphs`** —
-   `value.strip().replace("–", "-")` handles U+2013 and misses U+2212, so a
-   Regions cell set with a true minus sign loses its sign. Not caught by
-   card 4's guard, which keys on U+2212 by design (the whole point is that its
-   ABSENCE here is the bug). Regions is offline-inexecutable per §WIRING, so
-   this could not be measured end to end; recorded rather than touched.
-5. **`ocr/column_grid.py:62`** admits U+2212 in its money-cell class and not
-   U+2013 or the em dash — a fourth private opinion about dash glyphs, in the
-   geometry layer, outside `analysis/` and outside card 4's scan (whose
-   boundary is `analysis/`, the same one every other guard in that file uses).
-   Named for the geometry cell rather than taken.
-6. **`ANALYSIS_STAGE_VERSION` needs NO bump for this cell.** Zero archive
+
+**And the two this branch owns:**
+
+6. **MGD-C1 — the raising family quotes the token it refuses, and THIS BRANCH
+   WIDENED IT.** `parse_decimal`, `parse_decimal_mixed_separator`,
+   `parse_grouped_float`, `parse_trailing_minus_dropped` and
+   `parse_french_amount` all `raise ValueError(value)` with the printed token
+   as the message, and `webapp/worker.py` returns `str(exc)` as the job error
+   — so statement content can cross the exception boundary. The law batch 4
+   closed for `read_money` (§MG-C2 D1) is still open one layer down, in the
+   same module.
+
+   The priority is higher than "inherited", and the correction matters:
+   card 1 did not merely leave this open, it ADDED a caller. Before this
+   branch `parse_signed_decimal("—$500.00")` returned a number and reached no
+   raise at all; now it raises `ValueError("— 500.00")`, carrying the
+   document's own text to a user-visible job error. The em-dash path is
+   unreachable on today's archive, so nothing leaks today — but this branch
+   converted a dormant boundary defect into one with a live caller, and that
+   is the argument for taking the card next rather than eventually. Not fixed
+   here: it changes exception messages across a dozen parsers and wants its
+   own sweep.
+7. **MGD-C2 — the fintech row grammars absorb an unread sign glyph rather
+   than refusing the row, and the arithmetic backstop has a hole at zero.**
+   Measured in MGD6, in three shapes. `mercury._ROW_RE`'s `type` group and
+   `wealthsimple._ROW_TAIL_RE`'s `description` group are lazy any-character
+   groups, so a glyph the sign class does not admit is swallowed and a
+   neighbouring money cell becomes the amount — welded (`—$10.00`) the BALANCE
+   column is read as the amount, spaced (`— $10.00`) the amount cell is read
+   unsigned. Both are a debit booked as a credit; both are caught by the
+   balance walk.
+
+   **At an amount of ZERO they are not caught.** `-0.00` and `+0.00` are the
+   same number, so the walk still reaches the printed balance, the document
+   VALIDATES, and the glyph the bank set as a sign is published as description
+   text (`"Coop —"`). The financial figures are right and the record of what
+   the bank printed is wrong. So the guarantee is "fails closed for non-zero
+   amounts", never the unqualified version, and it rests on arithmetic rather
+   than on grammar — a future row shape without a balance column would have
+   neither. All three shapes are pinned. Zero attested inputs today, which is
+   why a refusal rule was NOT added: an unattested refusal is the same
+   over-reach as an unattested sign glyph.
+8. **`ANALYSIS_STAGE_VERSION` needs NO bump for this cell.** Zero archive
    documents change output. Ocean's call at merge, as always, but nothing here
    forces it.
 
 ## MGD11. Proofs (branch `wave5-mgd`, base `e935f98`)
 
 ```
-# full default suite (baseline 4,240; this cell adds 13)
-4253 passed, 33 skipped, 29 deselected                    276.64s  EXIT=0
+# full default suite (baseline 4,240; this cell adds 15)
+4255 passed, 33 skipped, 29 deselected                    332.98s  EXIT=0
+
+# test_money + the four family files, re-run at review close
+397 passed                                                  2.72s  EXIT=0
 
 # corpus-marked slice (MANDATORY) — unchanged at 25; this cell adds no
 # corpus-marked test, and the slice is the check the gate is blind to
@@ -21662,7 +21793,8 @@ tests/test_parser_conformance.py + test_parser_detection_markers.py
   + test_pipeline_registry_dispatch.py + test_no_statement_hardcodes.py
   + test_r1_hardcodes.py + test_no_parser_helper_clones.py
   + test_no_fail_open_money_reads.py
-1147 passed, 33 skipped                                     15.47s  EXIT=0
+1147 passed, 33 skipped                                     13.23s  EXIT=0
+# (unchanged count over the WIDENED recursive scan: 83 modules -> 89)
 
 # archive-wide byte-identity sweep, 3,380 distinct shas
 byte-identical payloads : 3367 / 3367   movers 0
@@ -21682,6 +21814,17 @@ The corpus gate and the corpus slice were run on a machine carrying five
 other cells' corpus runs at the same time; the runtimes above are contended
 and are not a reading of anything but wall clock.
 
+**Why the sweep, the gate and the corpus slice were NOT re-run after the
+review closures.** The only production file the closures touch is
+`analysis/wealthsimple.py`, and only its module docstring and one comment.
+That is asserted as a measurement rather than as a reading of the diff: both
+revisions were parsed, their docstrings stripped, the ASTs unparsed and
+hashed, and the digests are equal (`66870f29…` both sides). No other file
+under `analysis/`, `ocr/`, `webapp/`, `telemetry/` or `discovery/` differs at
+all. A tree that is behaviourally identical to the swept tree cannot move a
+document, so the 3,367/3,367 result stands as measured. Everything the
+closures DID change — four test files and this log — is re-run above.
+
 ## MGD12. Commits
 
 | Commit | Contents |
@@ -21692,4 +21835,5 @@ and are not a reading of anything but wall clock.
 | `f5d255c` | card 4 — the structural guard against a sixth private sign class |
 | `3e24f94` | §MGD MGD0–MGD12 |
 | `ab6528c` | self-review: live-derived family populations, the fourth range dash, guard wording |
-| (this one) | the completed proof block |
+| `987bece` | the completed proof block |
+| (this one) | adversarial-review closures 1–4: the guard scan made recursive, both guards' scopes stated honestly, the zero-amount and spaced-em-dash shapes pinned, the ownership disclosure completed, the ledger re-ranked with `structurer/tokens.py` first |

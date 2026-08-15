@@ -754,11 +754,22 @@ EMDASH = "—"  # U+2014 — punctuation, not a sign
 
 
 def test_the_module_binds_each_exported_name_exactly_once():
-    """THE STRUCTURAL FIX. A second binding of an exported name is invisible at
-    the import site and silently shadows the first for every importer, while
-    anything already derived from the first keeps the old value — which is
-    precisely the state this cell found. An AST count is what makes that
-    unrepresentable rather than merely fixed once.
+    """THE STRUCTURAL FIX, and exactly as far as it goes.
+
+    A second binding of an exported name is invisible at the import site and
+    silently shadows the first for every importer, while anything already
+    derived from the first keeps the old value — precisely the state this cell
+    found. An AST count makes that HISTORICAL SHAPE unrepresentable.
+
+    It is not a proof that no module-scope name can ever be rebound, and the
+    difference is worth stating rather than leaving to be discovered. This
+    counts `Assign` and `AnnAssign` nodes with a bare `Name` target in
+    `Module.body`. Five rebinding forms escape it: an assignment nested in an
+    `if`/`try` block, `globals()[...] = ...`, augmented assignment (`+=`),
+    a `for` loop target, and tuple unpacking. None of them has ever occurred
+    in this module and each is conspicuous on sight, which is why the cheap
+    check is the right one — but a reader must not take a pass here as a
+    guarantee against all five.
     """
     import ast
     import pathlib

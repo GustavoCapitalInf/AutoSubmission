@@ -86,8 +86,27 @@ MINUS_SIGN_CODEPOINT = "−"
 SIGN_CLASS_MAX_CHARS = 60
 
 
+def _rel(path: Path) -> str:
+    """`structurer/tokens.py`, not `tokens.py` — the scan is recursive now, so
+    a bare filename would name the wrong file for six of the 89 modules."""
+    return path.relative_to(ANALYSIS_DIR).as_posix()
+
+
 def _modules():
-    return sorted(p for p in ANALYSIS_DIR.glob("*.py") if p.name != "__init__.py")
+    """Every module under `analysis/`, RECURSIVELY.
+
+    It was `glob` until W3 §MGD, which is to say it silently stopped at the
+    directory's own level and never saw `analysis/structurer/`'s six modules —
+    including `structurer/tokens.py`, a GENERIC money reader on the
+    unclaimed-layout path. Four guards in this file were reading a scope
+    narrower than the one their names claim.
+
+    Widening it costs nothing measurable: 83 modules become 89, there are no
+    basename collisions (so the allowlist's `ANALYSIS_DIR / filename` lookups
+    are unaffected), and all four guards pass over the wider set with no new
+    exemptions.
+    """
+    return sorted(p for p in ANALYSIS_DIR.rglob("*.py") if p.name != "__init__.py")
 
 
 def _functions(path: Path):
@@ -127,7 +146,7 @@ def test_no_two_functions_in_analysis_share_a_body():
             if len(statements) < MIN_BODY_STATEMENTS:
                 continue
             source = ast.unparse(ast.Module(body=statements, type_ignores=[]))
-            bodies[hashlib.sha1(source.encode()).hexdigest()].append(f"{path.name}:{node.name}")
+            bodies[hashlib.sha1(source.encode()).hexdigest()].append(f"{_rel(path)}:{node.name}")
 
     clones = {digest: names for digest, names in bodies.items() if len(names) > 1}
     assert not clones, "duplicated function bodies in analysis/: " + str(list(clones.values()))
@@ -140,7 +159,7 @@ def test_money_cleaning_lives_only_in_the_shared_money_module():
             continue
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if MONEY_CLEAN_RE.search(line):
-                offenders.append(f"{path.name}:{number}: {line.strip()}")
+                offenders.append(f"{_rel(path)}:{number}: {line.strip()}")
     assert not offenders, (
         "money cleaning outside analysis/money.py — use parse_amount/parse_money "
         f"or add the new format there: {offenders}"
@@ -158,8 +177,21 @@ def test_the_minus_sign_class_lives_only_in_the_shared_money_module():
     `wealthsimple._SIGN_GLYPHS`. Both had drifted the same way, and neither was
     visible to any test until a document printed the glyph they disagreed on.
 
-    The allowlist is empty on purpose. If a layout genuinely prints a sign
-    glyph the canon lacks, the fix is to attest it and add it there — once.
+    The allowlist is empty on purpose, and stays empty over the RECURSIVE
+    scan — `analysis/structurer/`'s six modules carry no U+2212 either. If a
+    layout genuinely prints a sign glyph the canon lacks, the fix is to attest
+    it and add it there — once.
+
+    WHAT THIS GUARD CANNOT DO, stated because the gap is not obvious and two
+    real defects live in it: it detects the PRESENCE of a private sign class,
+    so it is structurally blind to a reader whose bug is the ABSENCE of one.
+    `structurer/tokens.py::money_value` and `regions.py:40` each handle ASCII
+    and U+2013 and miss U+2212 — `tokens.py` goes further and `abs()`-es away
+    the sign the shared grammar had already recovered, so `money_value` of a
+    U+2212 or U+2013 amount is POSITIVE where `parse_money` is negative. No
+    presence-guard can see that; only a differential against the shared
+    grammar can, and that is a reader-by-reader job. Both are carried at
+    W3 §MGD MGD10, `tokens.py` first.
 
     Prose is not code, and the test says so twice. The glyph is read out of the
     AST's string CONSTANTS with docstrings excluded, so a comment or a
@@ -177,7 +209,7 @@ def test_the_minus_sign_class_lives_only_in_the_shared_money_module():
             continue
         for node, line in _code_strings(path):
             if MINUS_SIGN_CODEPOINT in node and len(node) <= SIGN_CLASS_MAX_CHARS:
-                offenders.append(f"{path.name}:{line}: {node!r}")
+                offenders.append(f"{_rel(path)}:{line}: {node!r}")
     assert not offenders, (
         "U+2212 MINUS SIGN outside the shared money grammar — import "
         f"money.MINUS_GLYPHS / money.MINUS_CLASS instead: {offenders}"
@@ -191,9 +223,9 @@ def test_the_minus_sign_guard_fires_on_the_copy_it_was_written_for(tmp_path):
     write instead — alongside the three shapes that must NOT trip it: a
     docstring, a comment, and a paragraph of provenance prose held as data.
 
-    Scope note: `_modules()` is `analysis/*.py`. `ocr/column_grid.py` carries a
-    fourth private opinion about dash glyphs and is outside this scan by the
-    same boundary every other guard in this file uses (W3 §MGD MGD10.4)."""
+    Scope note: `_modules()` is now `analysis/**/*.py`. `ocr/column_grid.py`
+    carries another private opinion about dash glyphs and is outside this scan
+    by the same boundary every other guard in this file uses (W3 §MGD MGD10)."""
     module = tmp_path / "fake_parser.py"
     module.write_text(
         '"""A docstring may say charges − waivers freely."""\n'
@@ -222,7 +254,7 @@ def test_no_parser_imports_a_private_helper_from_another_parser():
                     continue
                 if (path.name, module, name) in ALLOWED_PRIVATE_IMPORTS:
                     continue
-                offenders.append(f"{path.name} imports {name} from .{module}")
+                offenders.append(f"{_rel(path)} imports {name} from .{module}")
     assert not offenders, (
         "private cross-module imports — promote the helper into a shared "
         f"module under analysis/ instead: {offenders}"

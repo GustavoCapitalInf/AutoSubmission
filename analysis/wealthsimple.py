@@ -7,8 +7,9 @@ Two things about this layout decide the shape of the parser.
 its money at all. So the sign is read as an explicit class of printed
 sign glyphs standing immediately before the amount's currency symbol — the
 position that makes it this cell's sign rather than punctuation belonging to
-the description before it. (`analysis/money.py` is growing a shared class for
-this in a parallel cell; this reader deliberately does not depend on it.)
+the description before it. That class is `money.MINUS_GLYPHS`, the platform's
+one canon; this reader spelled a private copy of it until W3 §MGD, and the
+copy had drifted.
 
 **A row is opened by its two dates and closed by its Balance cell.** The
 Balance column is the row's last, so reading the row as "everything from the
@@ -47,15 +48,14 @@ from .schema import Statement, Transaction
 #: class is admitted so a sibling issue set with a true U+2212 or an ASCII
 #: hyphen reads identically rather than silently losing its sign.
 #:
-#: Now the SHARED class rather than a private copy of it. The module docstring
-#: above says this reader "deliberately does not depend on it" — that was true
-#: when the shared class was being built in a parallel cell and the two could
-#: not be proven to agree; it is no longer. The private copy had drifted in
-#: exactly the way a copy does: it admitted U+2014 EM DASH, which the canon
-#: rules out on the archive's own evidence (the one document that prints an em
-#: dash before a bare figure prints it as a COLUMN PLACEHOLDER on a positive
-#: balance, so reading it as a sign would flip a printed positive — W3 §MGD).
-#: A parser is now unable to disagree with the grammar about what a minus is.
+#: Now the SHARED class rather than a private copy of it. The copy was written
+#: while the shared class was being built in a parallel cell and the two could
+#: not yet be proven to agree; it then drifted in exactly the way a copy does,
+#: admitting U+2014 EM DASH, which the canon rules out on the archive's own
+#: evidence (the one document that prints an em dash before a bare figure
+#: prints it as a COLUMN PLACEHOLDER on a positive balance, so reading it as a
+#: sign would flip a printed positive — W3 §MGD). A parser is now unable to
+#: disagree with the grammar about what a minus is.
 _SIGN_GLYPHS = MINUS_GLYPHS
 
 #: The product line and the activity grid's own printed column header. Both

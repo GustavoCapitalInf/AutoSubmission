@@ -125,6 +125,34 @@ def test_an_em_dash_is_not_a_sign_and_the_balance_walk_is_what_refuses_it():
                            trust_running_balances=recon.ok).average_daily_balance is None
 
 
+def test_a_zero_amount_collapses_the_sign_and_the_misread_reaches_publication():
+    """THE HOLE IN THE BACKSTOP, pinned rather than left to be discovered.
+
+    The test above rests on the balance walk catching a mis-signed row. At an
+    amount of ZERO that backstop cannot fire: -0.00 and +0.00 are the same
+    number, the walk still reaches the printed balance, the document
+    VALIDATES — and the em dash the bank set as a sign is published as
+    DESCRIPTION TEXT. Nothing financial is wrong; the record of what the bank
+    printed is.
+
+    So "the arithmetic refuses it" is true for non-zero amounts and false
+    here, and the claim is worth only what its narrowest case is worth.
+    Carried at W3 §MGD MGD-C2. Zero archive documents print the shape.
+    """
+    from analysis.reconcile import reconcile
+
+    stmt = parse_wealthsimple_statement(
+        HEAD
+        + "2026-03-01 2026-03-01 Coop \u2014$0.00 $497.27\n"
+        + "2026-03-31 2026-03-31 Rent \u2013$403.00 $94.27\n"
+        + FOOT
+    )
+    assert stmt is not None
+    assert stmt.transactions[0].amount == 0.0
+    assert stmt.transactions[0].description == "Coop \u2014"   # the leak
+    assert reconcile(stmt).ok                                  # and it publishes
+
+
 def test_a_dash_inside_a_description_is_not_a_sign():
     """Only the glyph standing immediately before the amount's currency symbol
     is this cell's sign; the address line and the merchant name print dashes

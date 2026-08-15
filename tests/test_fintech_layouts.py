@@ -204,6 +204,35 @@ def test_an_em_dash_is_not_a_sign_and_the_document_declines():
                            trust_running_balances=recon.ok).average_daily_balance is None
 
 
+def test_the_spaced_em_dash_is_a_third_shape_with_its_own_mechanism():
+    """`— $10.00` is not the same defect as `—$10.00`, and reading one
+    test as covering both would be wrong.
+
+    ``SIGNED_MONEY_TOKEN`` carries an optional space between sign and symbol,
+    so the two shapes fail differently once the em dash leaves the class:
+
+      welded  `—$10.00`   the whole cell is swallowed by ``type``; the
+                            BALANCE column becomes the amount   -> +130.00
+      spaced  `— $10.00`  only the dash is swallowed; the amount cell is
+                            still read, unsigned                -> +10.00
+
+    Both are a debit booked as a credit and both are caught by the balance
+    walk, but by different arithmetic, and the magnitudes differ. Pinned so
+    the second is not assumed from the first.
+    """
+    from analysis.metrics import compute_metrics
+
+    statement = mercury.parse_mercury_statement(_two_row_document(
+        debit_sign="\u2014 "))
+    assert statement is not None
+    assert statement.transactions[1].amount == 10.00        # not 130.00
+    assert statement.transactions[1].direction == "credit"  # the mis-read
+    recon = reconcile(statement)
+    assert not recon.ok
+    assert compute_metrics(statement, trust_stated_summary=recon.summary_ok,
+                           trust_running_balances=recon.ok).average_daily_balance is None
+
+
 def test_mercury_takes_direction_from_the_sign_and_never_from_the_type_column():
     """The trap this parser exists to avoid. Three rows whose Type cell points
     the OTHER way from the printed sign, all read from the sign:
