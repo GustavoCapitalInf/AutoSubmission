@@ -32,6 +32,7 @@ from webapp.artifact_cache import (
     STAGE_ANALYSIS,
     STAGE_OCR,
     STAGE_REPORT,
+    analysis_input_sha,
     analysis_settings_key,
     cache_key,
     cached_analysis,
@@ -41,6 +42,7 @@ from webapp.artifact_cache import (
     ocr_settings_key,
     open_cache,
     report_settings_key,
+    sheets_sha256,
     text_sha256,
 )
 from webapp.jobs import JobStore
@@ -411,6 +413,120 @@ def test_cached_analysis_computes_once_and_partitions_on_settings(cache):
         analysis_settings=_AnalysisSettings(model="gemini-other"),
     )
     assert third.cached is False and len(calls) == 2
+
+
+def test_the_sheet_partition_is_analysis_key_material(cache):
+    """The collision W3 §WIRING W3 demonstrated, refused.
+
+    Two page lists of the SAME LENGTH that render to the SAME admissible
+    markdown, with opposite answers on `missing_declared_statement_page`: the
+    second sheet of A carries a forged separator line, so splitting the text
+    puts the boundary somewhere the intake object never had one. Keying on the
+    text — or on the text plus a sheet COUNT — serves A's cached answer for B.
+    """
+    separator = "--- Page 2 ---"
+    a = ["Page 2 of 2\nalpha", f"Page 2 of 2\nbeta\n\n{separator}\n\ngamma"]
+    b = [f"Page 2 of 2\nalpha\n\n{separator}\n\nPage 2 of 2\nbeta", "gamma"]
+    markdown = StatementMarkdown(source_file="s.pdf", model="m", pages=a).to_markdown()
+    assert markdown == StatementMarkdown(
+        source_file="s.pdf", model="m", pages=b
+    ).to_markdown(), "the fixture must render both partitions to one string"
+    assert len(a) == len(b), "the fixture must hold the sheet COUNT equal"
+
+    calls = []
+
+    def compute():
+        calls.append(1)
+        return {"sheets": len(calls)}
+
+    first = cached_analysis(
+        markdown, compute=compute, cache=cache, parse_mode="deterministic",
+        analysis_settings=_AnalysisSettings(), sheets=a,
+    )
+    second = cached_analysis(
+        markdown, compute=compute, cache=cache, parse_mode="deterministic",
+        analysis_settings=_AnalysisSettings(), sheets=b,
+    )
+    assert first.cached is False and second.cached is False, (
+        "two partitions of one markdown must not share an analysis entry"
+    )
+    assert len(calls) == 2
+    assert analysis_input_sha(markdown, a) != analysis_input_sha(markdown, b)
+    assert sheets_sha256(a) != sheets_sha256(b)
+
+
+def test_no_sheet_list_is_a_different_key_from_a_sheet_list(cache):
+    """Absence is a fact, not an empty partition.
+
+    A caller with no intake object gets the fail-closed analysis, and that
+    answer must never be served to a caller that proved page structure — nor
+    the other way round.
+    """
+    markdown = StatementMarkdown(
+        source_file="s.pdf", model="m", pages=["one"]
+    ).to_markdown()
+    assert sheets_sha256(None) is None
+    assert sheets_sha256([]) is not None
+    keys = {
+        analysis_input_sha(markdown, None),
+        analysis_input_sha(markdown, []),
+        analysis_input_sha(markdown, ["one"]),
+    }
+    assert len(keys) == 3
+
+
+def test_passing_the_document_text_as_the_sheet_list_is_refused_by_the_cache():
+    """The same call-site footgun `assess_document_integrity` refuses.
+
+    `str` is a `Sequence[str]`, so `sheets=markdown` type-checks and then
+    iterates one character per sheet. In the analysis it clears a
+    fraud-relevant flag; here it would partition the cache on nonsense while
+    looking like evidence.
+    """
+    with pytest.raises(TypeError, match="not the document text"):
+        sheets_sha256("--- Page 1 ---\nrows")
+
+
+def test_a_one_shot_iterable_of_sheets_is_refused():
+    """Hashing consumes it, and the caller then analyses an empty sequence.
+
+    The analysis fail-closes on that, so the ANSWER is conservative — but it is
+    stored under the key of a partition that was proven, so a later caller
+    supplying the same pages properly is served the fail-closed result. Nothing
+    in the payload looks wrong, which is exactly why this is a refusal and not
+    a docstring note.
+    """
+    pages = ["Page 1 of 2\nalpha", "beta"]
+    for one_shot in ((page for page in pages), iter(pages), map(str, pages)):
+        with pytest.raises(TypeError, match="one-shot iterable"):
+            sheets_sha256(one_shot)
+    # ...and the sequences a real caller has keep working.
+    assert sheets_sha256(pages) == sheets_sha256(tuple(pages))
+
+
+def test_a_non_string_sheet_is_refused_by_name():
+    """An `AttributeError` from inside the digest names nothing; this names the
+    index, which is the only thing that identifies the offending call site."""
+    with pytest.raises(TypeError, match=r"sheets\[1\] is int"):
+        sheets_sha256(["Page 1 of 2\nalpha", 2])
+
+
+def test_sheet_order_is_key_material_and_that_is_deliberate():
+    """Over-partitioning, in the direction this module's contract calls safe.
+
+    Three sheets have six permutations and six keys for one answer. It costs a
+    recompute and never serves a stale artifact, and it is unreachable in
+    production anyway: the markdown is rendered from the same ordered list that
+    is hashed here.
+    """
+    pages = ["one", "two", "three"]
+    permutations = [
+        [pages[i], pages[j], pages[k]]
+        for i in range(3) for j in range(3) for k in range(3)
+        if len({i, j, k}) == 3
+    ]
+    assert len(permutations) == 6
+    assert len({sheets_sha256(order) for order in permutations}) == 6
 
 
 def test_cached_analysis_never_caches_a_failure(cache):

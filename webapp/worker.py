@@ -64,13 +64,23 @@ def _analyze_doc(
     _note_cache(store, job_id, rendered, timer)
     try:
         with _timed(timer, "analysis"):
+            # `doc.pages` is the intake object's own page list, and it goes to
+            # both the analysis and the cache. `assess_document_integrity` reads
+            # it to tell an unlabelled sheet apart from an absent page, and it
+            # refuses to recover that structure from `markdown` because a page
+            # can print the separator line (W3 §PIPEFIX P4b.1); the cache keys
+            # on it for the same reason (W3 §WIRING W3).
             analyzed = cached_analysis(
                 markdown,
                 compute=lambda: report_to_json(
-                    analyze_markdown(markdown, parse_mode=parse_mode, on_dispatch=collector)
+                    analyze_markdown(
+                        markdown, parse_mode=parse_mode, on_dispatch=collector,
+                        sheets=doc.pages,
+                    )
                 ),
                 cache=cache,
                 parse_mode=parse_mode,
+                sheets=doc.pages,
             )
         _note_cache(store, job_id, analyzed, timer)
         # Copy before stamping: on a cache hit the payload came straight out

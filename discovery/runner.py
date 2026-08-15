@@ -61,7 +61,7 @@ from pathlib import Path
 
 from analysis.pipeline import analyze_markdown
 from analysis.serialization import report_to_dict
-from corpus_artifacts import cached_markdown
+from corpus_artifacts import cached_markdown, cached_pages
 from ocr.inspect import inspect_pdf
 from telemetry import (
     DispatchCollector,
@@ -204,7 +204,15 @@ class DiscoveryRunner:
     # -- resolution ---------------------------------------------------------
 
     def _read(self, raw: bytes, source_file: str, profile):
-        """(document, markdown, note). Production ladder, offline rungs only.
+        """(document, markdown, sheets, note). Production ladder, offline rungs only.
+
+        `sheets` is the intake object's own page list, carried out beside the
+        markdown because `analyze_markdown` needs it and it cannot be recovered
+        from the string (W3 §PIPEFIX P4b.1). On the committed-artifact rung
+        there is no intake object, so it comes from the artifact's committed
+        page list — the other half of the same artifact — and is None when that
+        artifact has none, which fail-closes the page-declaration check exactly
+        as an unwired caller would.
 
         Served through D-3's content-addressed cache, so identical bytes under
         identical settings are never re-read across tranches or re-runs. The
@@ -242,12 +250,12 @@ class DiscoveryRunner:
             document, cached = result.value, result.cached
         self._last_ocr_cached = cached
         if document is not None:
-            return document, document.to_markdown(), None
+            return document, document.to_markdown(), list(document.pages), None
         if self.allow_artifacts:
             markdown = cached_markdown(raw, ARTIFACT_CACHE)
             if markdown is not None:
-                return None, markdown, "committed_artifact"
-        return None, None, (
+                return None, markdown, cached_pages(raw, ARTIFACT_CACHE), "committed_artifact"
+        return None, None, None, (
             "deferred_scanned" if self.allow_local_ocr else "deferred_offline_rungs"
         )
 
@@ -305,11 +313,20 @@ class DiscoveryRunner:
             return None, None, None
         return document, document.to_markdown(), None
 
-    def _analyse(self, markdown: str, collector):
-        """(payload, error_type, cached). Deterministic mode; never raises."""
+    def _analyse(self, markdown: str, collector, sheets=None):
+        """(payload, error_type, cached). Deterministic mode; never raises.
+
+        `sheets` is the intake object's page list for the markdown being
+        analysed, and it goes to BOTH the analysis and the cache: it is part of
+        the analysis input hash, so handing the cache one partition and the
+        pipeline another would store an answer under a key that does not
+        describe it. None fail-closes, exactly as this call site did before the
+        page-declaration check was activated.
+        """
         def analyse():
             return report_to_dict(analyze_markdown(
-                markdown, parse_mode="deterministic", on_dispatch=collector
+                markdown, parse_mode="deterministic", on_dispatch=collector,
+                sheets=sheets,
             ))
 
         try:
@@ -319,7 +336,7 @@ class DiscoveryRunner:
 
             result = cached_analysis(
                 markdown, compute=analyse, cache=self.cache,
-                parse_mode="deterministic",
+                parse_mode="deterministic", sheets=sheets,
             )
             return result.value, None, result.cached
         except Exception as exc:
@@ -394,7 +411,7 @@ class DiscoveryRunner:
 
         name = Path(relative_path).name
         with timer.time("ocr"):
-            document, markdown, note = self._read(raw, name, profile)
+            document, markdown, sheets, note = self._read(raw, name, profile)
 
         if markdown is None and not self.allow_visual_ocr:
             # Recorded, never skipped: real work this tranche deliberately did
@@ -417,6 +434,7 @@ class DiscoveryRunner:
             # no longer be deferred — it either reads or it fails, explicitly.
             with timer.time("visual_ocr"):
                 document, markdown, visual_error = self._read_visual(raw, name, profile)
+            sheets = list(document.pages) if document is not None else None
             timer.set_cache("visual_ocr", _disposition(self.cache, self._last_visual_cached))
             row.cache_visual = timer.as_dict()["visual_ocr"]["cache"]
             if markdown is None:
@@ -441,7 +459,7 @@ class DiscoveryRunner:
         row.truncated_pages = source["truncation"]["truncated_page_count"]
 
         with timer.time("analysis"):
-            payload, error_type, analysis_cached = self._analyse(markdown, collector)
+            payload, error_type, analysis_cached = self._analyse(markdown, collector, sheets)
 
         if self._needs_visual_upgrade(document, collector, payload):
             # UPGRADE (discovery class 5): Tesseract produced text and no parser
@@ -457,13 +475,15 @@ class DiscoveryRunner:
             row.visual_rung = VISUAL_FAILED if visual_error else VISUAL_NO_UPGRADE
             if visual_md is not None:
                 visual_collector = DispatchCollector()
+                visual_sheets = list(visual_doc.pages) if visual_doc is not None else None
                 with timer.time("visual_analysis"):
                     visual_payload, visual_error_type, visual_cached = self._analyse(
-                        visual_md, visual_collector
+                        visual_md, visual_collector, visual_sheets
                     )
                 if visual_payload is not None:
                     row.visual_rung = VISUAL_UPGRADED
                     document, markdown, collector = visual_doc, visual_md, visual_collector
+                    sheets = visual_sheets
                     payload, error_type, analysis_cached = (
                         visual_payload, visual_error_type, visual_cached
                     )

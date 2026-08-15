@@ -245,7 +245,17 @@ def main() -> None:
             with timer.time("read"):
                 markdown, doc, profile, byte_size = _read_source(path)
             with timer.time("analysis"):
-                report = analyze_markdown(markdown, on_dispatch=collector)
+                # The intake object's page list when this input was a PDF, and
+                # nothing when it was already-extracted markdown — a .md file
+                # carries no evidence of how many sheets its source had, and
+                # `assess_document_integrity` fail-closes on that silence rather
+                # than re-splitting the text (W3 §PIPEFIX P4b.1). This CLI
+                # publishes an outcome class derived from these flags into its
+                # telemetry JSONL, so it is a production caller (W3 §WIRING W4).
+                report = analyze_markdown(
+                    markdown, on_dispatch=collector,
+                    sheets=doc.pages if doc is not None else None,
+                )
             rows.append(_row(path, report))
             _emit(sink, run_id, path, markdown, doc, profile, byte_size,
                   collector, timer, seen_hashes, report=report)

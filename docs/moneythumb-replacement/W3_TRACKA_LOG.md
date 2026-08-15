@@ -21270,3 +21270,482 @@ synthetic registry, so they exercise the rule and not any bank's markers.
 | `5e82e18` | the crash arm of the equivalence proof (Ocean's addendum) and the prescan finding |
 | `095901d` | quiet-machine readings, the DT8 proof block, section renumbered DT to clear the earlier §D |
 | (this one) | adversarial-review closures: the interning guard and its conformance assertion, the corrected selection pass, the projection stated as a floor |
+
+# §WIRING2 — the activation, the ceremony, and the key that had to carry a partition
+
+| | |
+|---|---|
+| Cell | WIRING-2 (batch 5, card 1) — `wave5-wiring2`, base main `b524f72` (+ the batch-5 handoffs commit `e935f98`) |
+| Cards | A the three call sites + the declaration flip · B the analysis input hash · C the committed artifacts' page lists · the APPROVED three-movement ceremony |
+| Result | all four landed together; **exactly the three approved pinned movements, measured before a line was written** |
+| Pinned split | 100 validated / 6 review / 3 withheld → **102 / 4 / 3**; the audits' own 106 PASS / 3 WITHHELD unchanged |
+| Archive | 157 flag carriers / 114 withdrawn / 43 kept / **0 raised** — §PIPEFIX P3.4 reproduced to the document |
+
+W3 §PIPEFIX shipped the page-declaration fix INERT and W3 §WIRING stopped its
+activation on a sixth pinned document nobody had counted. Gustavo re-scoped the
+ceremony to three movements and approved it as OPTION A. This cell executes
+that scope and nothing else.
+
+## W2-0. The ceremony, enumerated BEFORE anything ran
+
+The card's own rule is that any additional pinned movement is a hard stop, so
+the enumeration is the first measurement rather than a summary of the last one.
+Every pinned statement was resolved through the production ladder with both OCR
+rungs off, analysed TWICE — `sheets=None` and with its authentic intake page
+list — and the complete serialized payloads compared.
+
+```
+pinned documents                              109
+outcome split   unwired   100 validated /  6 review / 3 withheld
+                wired     102 validated /  4 review / 3 withheld
+payload movers (any byte)                       3
+byte-identical                                106
+pinned documents carrying the flag before       6   withdrawn 3 · kept 3
+```
+
+The three movers, field by field:
+
+| # | document | field | before | after |
+|---|---|---|---|---|
+| 1 | `Misc/Texas Bank.pdf`  `744D6E04…DA6110` | outcome | `review` | `validated` |
+| | | reason | `integrity_flags` | `approved` |
+| | | flags | `['missing_declared_statement_page']` | `[]` |
+| | | notes | `['statement declares 4 bank page(s), but page label(s) 1, 2, 3 are absent from the supplied PDF']` | `[]` |
+| | | risk_level | `review` | `clear` |
+| | | possible_document_issue | `False` | `False` |
+| 2 | `Regions/Regions.pdf`  `98D069AF…B55E849F` | outcome | `review` | `validated` |
+| | | reason | `integrity_flags` | `approved` |
+| | | flags | `['missing_declared_statement_page']` | `[]` |
+| | | notes | `['statement declares 3 bank page(s), but page label(s) 1, 2 are absent from the supplied PDF']` | `[]` |
+| | | risk_level | `review` | `clear` |
+| | | possible_document_issue | `False` | `False` |
+| 3 | `Others/BMO/BMO_Statement_January_2026 Final-1-2 (1).pdf`  `E8614310…B46CB83F` | outcome | `withheld` | `withheld` |
+| | | reason | `withheld_adb` | `withheld_adb` |
+| | | flags | 7 | **6** (drops `missing_declared_statement_page`) |
+| | | notes | 8 | **7** (drops the page note) |
+| | | risk_level | `high` | `high` |
+| | | possible_document_issue | `True` | `True` |
+
+Nothing else on those three moved: the comparison is over the WHOLE payload,
+so every audited balance, ADB, metric and transaction field is byte-identical
+on all three, and the two forensic oracles re-prove that independently on every
+gate run (neither reads a flag).
+
+**The other three flag-carriers keep theirs, and they are why the rule is not
+blunt.** Builder June 2026 supplies 4 text-bearing sheets for the 5 pages it
+declares; Columbia May 26 supplies 4 and prints a label on every one; Link Bank
+April supplies 20 and labels 19. In each a page really is unaccounted for.
+
+| pinned document | declares | missing labels | text-bearing sheets | wired |
+|---|---|---|---|---|
+| `Misc/Texas Bank.pdf` | 4 | 1, 2, 3 | 4 | **withdrawn** |
+| `Regions/Regions.pdf` | 3 | 1, 2 | 3 | **withdrawn** |
+| `Others/BMO/BMO_Statement_January_2026 Final-1-2 (1).pdf` | 2 | 1 | 2 | **withdrawn** |
+| `Misc/Builder June 2026.pdf` | 5 | 1, 2, 3 | 4 | flag stands |
+| `Misc/Columbia May 26 complete.pdf` | 5 | 5 | 4 | flag stands |
+| `Misc/Link Bank April statement.pdf` | 20 | 20 | 20 | flag stands |
+
+## W2-1. Card C — the committed artifacts carry their page list
+
+§WIRING W2 found half the approved ceremony inexecutable: `Regions/Regions.pdf`
+is one of the six image-only pinned statements, every offline harness resolves
+those from a committed markdown STRING, and the intake object's page list was
+discarded when the artifact was committed. Offline, Regions could only ever be
+analysed with `sheets=None`, and the check fail-closes — so the flag stood for
+want of evidence rather than because a page was absent.
+
+The remedy is the one §WIRING named: give the committed artifacts their page
+list. **No OCR ran.** The D-3 archive store still holds one for all six, read by
+direct file path (the sqlite index was never opened), and each was refused
+unless it re-joins:
+
+```
+statement                              pages  D-3 model             re-joins byte-identical
+Chase/Chase Business.pdf                   8  local-tesseract-ocr   True
+Misc/Builder June 2026.pdf                 4  local-tesseract-ocr   True
+Misc/Columbia May 26 complete.pdf          4  local-tesseract-ocr   True
+Misc/First Farmers 2026 01-document.pdf    3  local-tesseract-ocr   True
+Misc/KLR.May 31,2026 (1).pdf               7  local-tesseract-ocr   True
+Regions/Regions.pdf                        3  local-tesseract-ocr   True
+```
+
+"Re-joins" means `StatementMarkdown(source_file, model, pages).to_markdown()`
+equals the committed `.md` byte for byte, so the two halves provably come from
+one intake run. `test_the_committed_page_list_rejoins_to_the_committed_markdown`
+keeps that true, and `test_every_committed_artifact_carries_its_page_list`
+asserts the presence of the list — necessary precisely because its ABSENCE is
+fail-closed and would otherwise leave the gate green while the check stayed
+blind.
+
+The manifest is extended additively: existing fields untouched, each entry gains
+`pages` and `pages_sha256`, and `build_corpus_cache.py` writes both halves so a
+future rebuild cannot produce a one-sided artifact. `cached_pages` fail-closes on
+absence and **raises** on alteration — silence weakens nothing, but a wrong page
+list could clear a genuine finding. `.gitattributes` pins the new files against
+CRLF rewriting for the same reason the markdown artifacts are pinned.
+
+## W2-2. Card B — the count was not enough; the key carries the partition
+
+§PIPEFIX P4b.5 prescribed adding "the sheet count" to the analysis key.
+§WIRING W3 demonstrated that is quantitatively wrong, and this cell ships the
+respecified form. `analysis_input_sha(markdown, sheets)` is now the stage's
+input hash:
+
+```python
+def analysis_input_sha(markdown, sheets=None):
+    return text_sha256(_canonical_json({
+        "text": text_sha256(admissible_text(markdown)),
+        "sheets": sheets_sha256(sheets),
+    }))
+
+def sheets_sha256(sheets):
+    if sheets is None:
+        return None
+    if isinstance(sheets, str):
+        raise TypeError(...)
+    return text_sha256(_canonical_json([text_sha256(sheet) for sheet in sheets]))
+```
+
+Three properties, each deliberate:
+
+* **Per-sheet digests, not the concatenation.** The whole point is the
+  BOUNDARIES — `["ab", "c"]` and `["a", "bc"]` must not collide, and joining
+  them makes them identical. §WIRING's own counterexample is now a test:
+  two page lists of the same LENGTH rendering to the same admissible markdown
+  with opposite answers on `missing_declared_statement_page`
+  (`test_the_sheet_partition_is_analysis_key_material`).
+* **`None` and `[]` hash differently.** No evidence of page structure is not
+  the same fact as a document with no sheets, and only the first fail-closes.
+* **`str` is refused.** The same footgun `assess_document_integrity` refuses:
+  `sheets=markdown` type-checks and iterates one character per sheet. In the
+  analysis it would clear a fraud-relevant flag; in the cache it would
+  partition on nonsense while looking like evidence.
+
+It lives in the INPUT hash, not in `analysis_settings_key`: the settings key is
+a per-RUN constant and the telemetry observer's read-only artifact join indexes
+the whole artifact table on one value of it, so a per-document value there
+would blind that instrument while it reported nothing wrong.
+
+**The second copy of the derivation is gone rather than updated.** The
+observer's join used to recompose `text_sha256(admissible_text(markdown))`
+itself — the copy the FILENAME-BOUNDARY lesson warned about, which had already
+gone stale once. It now imports `analysis_input_sha` and supplies the page list
+it was already reconstructing. Repo-wide grep for `admissible_text` /
+`text_sha256` / `analysis_settings_key` finds no third copy in repo code; the
+one outside the repo (WIRING-1's scratchpad `keys.py`, §WIRING W6.5) is now
+stale as predicted.
+
+**This invalidates the whole v12 analysis cache by construction** — every
+document's input hash changes, whether or not its caller supplies a page list.
+Expected and chosen; Ocean's composed stage bump covers the re-measurement.
+
+**And here is the consequence, stated so nobody reads it as a defect.** On
+merge, all ~23,598 analysis entries in the store resolve under the OLD
+text-only key and **0** under the new one, so the stated-counts observer's
+`_ArtifactJoin` resolves **nothing**: `observe_run` reports
+`REASON_PAYLOAD_ABSENT` on every row, archive-wide, and its rollup is empty.
+That is the cache invalidation showing through the instrument that reads the
+cache — not a broken join. It fails safe (an unresolvable payload is never
+guessed) and it **self-heals at the train's cold run**, when the archive is
+re-analyzed at the bumped stage version and every key is written in the new
+form. No action is needed, and none should be taken on the strength of an empty
+rollup measured before that run.
+
+Worth one more sentence because it is the reason this needs saying at all: the
+join's own tests seed their fixture through `cached_analysis`, so they write
+and read the same (new) key and **stay green straight through the blindness**.
+Nothing in CI can warn about it; only an empty rollup over the real archive
+shows it, and that is exactly what an unwarned reader would misdiagnose.
+
+### The `sheets_sha256` contract, and why it is a guard rather than a note
+
+Ocean's review asked for the real contract to be stated or enforced. It is
+ENFORCED, because two of the three failure modes are silent:
+
+* **`str`** — refused already, the `assess_document_integrity` footgun one
+  layer down.
+* **a one-shot iterable** (generator, `map`, a bare iterator) — now refused.
+  Hashing CONSUMES it and the caller then hands the analysis an empty sequence:
+  the analysis fail-closes, so the answer is conservative, but it is stored
+  under the key of a partition that WAS proven, and a later caller supplying
+  the same pages properly is served that fail-closed answer. Nothing in the
+  payload looks wrong. A note would not have caught it; the guard does.
+* **non-`str` members** — now refused *by index*, because the alternative is an
+  `AttributeError` raised inside `text_sha256` that names neither the sheet nor
+  the call site.
+
+The accepted type is therefore a re-iterable `Sequence[str]`, checked with
+`collections.abc.Sequence` rather than the typing alias so the check is real at
+runtime. Every production caller already passes a list (`document.pages`,
+`cached_pages`). Only a call site can reach any of these — no document's
+content can — so raising costs nothing at runtime and fails a mis-wiring
+loudly. Pinned by `test_a_one_shot_iterable_of_sheets_is_refused` and
+`test_a_non_string_sheet_is_refused_by_name`.
+
+**Order is key material, and that is deliberate conservatism.** `["a", "b"]`
+and `["b", "a"]` hash differently, so three sheets have six permutations and
+six keys for one answer — over-partitioning, which this module's contract has
+always called the safe direction: it costs a recompute and never returns a
+stale artifact. It is also unreachable in production, since the markdown is
+rendered from the same ordered list that is hashed, so the cost is theoretical.
+Recorded rather than removed, and pinned by
+`test_sheet_order_is_key_material_and_that_is_deliberate`.
+
+## W2-3. Card A — the three call sites, and the flip in the same commit
+
+| file | function | what it passes |
+|---|---|---|
+| `discovery/runner.py` | `_analyse` | `sheets=` to both `analyze_markdown` and `cached_analysis`; `_read` now returns the page list beside the markdown, and on the committed-artifact rung it is the artifact's own committed list |
+| `webapp/worker.py` | `_analyze_doc` | `doc.pages`, to the analysis and to the cache |
+| `batch.py` | `main` | `doc.pages` for a PDF, `None` for an already-extracted `.md` — which carries no evidence of how many sheets its source had |
+
+`PRODUCTION_SUPPLIES_SHEETS` flips to `True` in the same commit, because the AST
+test requires the declaration and the call sites to agree; and `PINNED_OUTCOMES`
+moves in that same commit, because flipping the declaration alone reds the gate.
+Activation and ceremony are one atomic change, which is exactly the property
+§WIRING built the declaration to enforce.
+
+The same commit tracks the two HARNESSES, and both read the ONE declaration
+rather than restating it: `corpus_gate.production_verdict` (which now also reads
+the committed page lists) and the telemetry corpus anchor `_telemetry_for`. The
+anchor carries the identical drift trap and had no AST test watching it — the
+repository sweep excludes `tests/` — so it is keyed off
+`corpus_gate.PRODUCTION_SUPPLIES_SHEETS` and cannot diverge.
+
+The forge-fixture family (`test_page_content_cannot_forge_a_sheet_boundary`,
+`test_padding_the_pdf_with_a_blank_sheet_does_not_clear_the_flag`,
+`test_no_sheet_list_leaves_the_check_exactly_as_it_was`,
+`test_passing_the_document_text_as_the_sheet_list_is_refused`) is green at every
+commit — `analysis/pipeline.py` carries a zero-line diff on this branch.
+
+## W2-4. The archive: the census reproduced, and eight more publishing movers
+
+Measured over the run of record
+`discovery_reports/2026-08-15T111704.195314-0000-c924d751`, resolving each
+document's OCR artifact from the D-3 store by direct file path.
+
+```
+distinct content_sha256 in the run                      3,380
+  resolved from the artifact store                      3,351
+  no artifact under any settings key                       29   = 16 invalid_pdf + 13 deferred
+                                                                  (no text was ever produced, so no
+                                                                   page declaration can exist)
+documents carrying missing_declared_statement_page        157
+  flag WITHDRAWN when wired                               114
+  flag KEPT                                                43
+  flag RAISED                                               0
+```
+
+**157 / 114 / 43 / 0 reproduces §PIPEFIX P3.4 exactly**, two waves and two OCR
+stage versions later. The OUTCOME split inside it has moved, and that is the
+finding:
+
+```
+                 §PIPEFIX P3.4 (88be9dd3)      this cell (c924d751)
+outcome        CARRY  WITHDRAWN  KEPT        CARRY  WITHDRAWN  KEPT
+failed           137        101    36          127         93    34
+review             9          3     6           18         10     8
+withheld          11         10     1           12         11     1
+TOTAL            157        114    43          157        114    43
+```
+
+The set of 114 is the same population; batches 3 and 4 gave several of them
+parsers, so they moved out of `failed` and into the publishing classes. **The
+publishing movers are therefore 21, not P3.5's 13**, and every one is named:
+
+| outcome (run) | document | content_sha256 | wired |
+|---|---|---|---|
+| review | `Apex Bank/48417524_KLR.Apr_30__2026 (2).pdf` | `B279C19D…` | **validated** |
+| review | `Huntington Bank/b516e436_6768-2026-Apr-10562142.pdf` | `5895EC7D…` | **validated** |
+| review | `Huntington Bank/b516e436_6768-2026-Mar-10341102.pdf` | `F1F36B2F…` | **validated** |
+| review | `Huntington Bank/b516e436_6768-2026-May-10736620.pdf` | `58FD4660…` | **validated** |
+| review | `Regions Bank/5a02e151_CHECKINGSTATEMENT_04-28-2026.pdf` | `98D069AF…` | **validated** |
+| review | `Unidentified/17e8ceec_DOC_6350705.pdf` | `744D6E04…` | **validated** |
+| review | `Unidentified/65a7d9a6_8891-2026-Feb-fsb.pdf` | `1939E158…` | **validated** |
+| review | `Unidentified/65a7d9a6_8891-2026-Mar-fsb.pdf` | `D96D6C92…` | **validated** |
+| review | `Unidentified/7816f0bc_0483-2026-Mar-21983845.pdf` | `B1F649CC…` | **validated** |
+| review | `Unidentified/7816f0bc_0548-2026-Mar-21523367 (1).pdf` | `83E4ACAE…` | **validated** |
+| withheld | `BMO/00ce1330_BMO_Statement_April_2026 3-1-3.pdf` | `72D259CA…` | withheld, flags 7→6 |
+| withheld | `BMO/00ce1330_BMO_Statement_February_2026 Final-1-3.pdf` | `009BCF10…` | withheld, flags 6→5 |
+| withheld | `BMO/00ce1330_BMO_Statement_January_2026 Final-1-2 (1).pdf` | `E8614310…` | withheld, flags 7→6 |
+| withheld | `BMO/00ce1330_BMO_Statement_March_2026 2-1-3 (1).pdf` | `AE953B1A…` | withheld, flags 7→6 |
+| withheld | `Citizens Bank/9033ffb9_Feb 28.pdf` | `675EB439…` | withheld, flags 5→4 |
+| withheld | `PNC Bank/294407ef_February_2026 monthly_statement pnc(1).pdf` | `5684857C…` | withheld, flags 5→4 |
+| withheld | `Regions Bank/5a02e151_CHECKINGSTATEMENT_02-25-2026.pdf` | `B4855A59…` | withheld, flags 4→3 |
+| withheld | `TD Bank/b1d8892d_01 Apr TD Statement.pdf` | `D3396D14…` | withheld, flags 4→3 |
+| withheld | `TD Bank/b1d8892d_01 Dec TD Statement.pdf` | `2A0B516B…` | withheld, flags 4→3 |
+| withheld | `TD Bank/b1d8892d_01 Jan TD Statement.pdf` | `1A8B92DC…` | withheld, flags 4→3 |
+| withheld | `TD Bank/b1d8892d_01 Mar TD Statement.pdf` | `BDA1DE2F…` | withheld, flags 4→3 |
+
+All 13 documents §PIPEFIX P3.5 named are here. Seven of the 8 additions are
+not a surprise, they are §PIPEFIX's own prediction arriving: **3 Burke &
+Herbert + 4 Fiserv Premier are exactly the "enabling movers" P0/P3.3 said would
+materialise once their registrations landed**, and they did, in batch 3. (The
+three Burke & Herbert documents sit in the `Huntington Bank/` folder and are
+claimed by `burke_herbert` — the folder label is not the issuer, which is the
+HUNT-CELL finding. They are not card 1's five Huntington documents; those are a
+separate population that moved with card 1 itself.) The eighth,
+`Citizens Bank/9033ffb9_Feb 28.pdf`, is genuinely new to the publishing set — a
+document batch 3's citizens container fix started claiming.
+
+**Three of the 21 are the ceremony documents themselves**, under their archive
+paths and the identical content hashes: `98D069AF…` is `Regions/Regions.pdf`,
+`744D6E04…` is `Misc/Texas Bank.pdf`, and `E8614310…` is the BMO January
+statement. The archive-side and pinned-side measurements agree byte for byte,
+which is the independent cross-check on both.
+
+### Why 157 is a complete enumeration, not a sample
+
+`sheets` reaches exactly one block of `analysis/pipeline.py` — the
+`if declared_pages:` branch of `assess_document_integrity` — where it decides
+one flag and one note. Without a page list `accounted_for` is False, so the
+UNWIRED flag set is a superset of the wired one: a document that does not carry
+the flag today cannot gain it. The carriers are therefore every document whose
+payload can differ.
+
+Measured anyway, both ways, whole payload:
+
+```
+carriers analysed unwired + wired                 157
+  no payload in either mode (deterministic refusal) 127
+  produced a payload                                 30
+  payload movers                                     21
+  top-level sections differing, on all 21     ['integrity']   (nothing else, ever)
+  outcome transitions          review->validated 10 · withheld->withheld 11
+CONTROL: every 30th non-carrier                   107
+  produced a payload                                 81
+  payload movers                                      0
+```
+
+## W2-5. Proofs
+
+```
+$ python -m pytest -q
+4252 passed, 33 skipped, 29 deselected, 1 warning in 338.90s      EXIT=0
+   (base 4,240 + 12 new unmarked; corpus-marked still 25.
+    Was 4,249 before the review closures added the three
+    sheets_sha256 contract tests.)
+
+$ python -m pytest -m corpus -q
+25 passed, 4286 deselected, 1 warning in 2767.04s (0:46:07)       EXIT=0
+   (all 25 green, including
+    test_detect_sweep_stays_affordable_for_the_discovery_run — the single
+    red §WIRING carried, closed structurally by DETECT-BUDGET in batch 4;
+    the telemetry anchors and the dry run all move to 102/4/3 together)
+
+$ python corpus_gate.py
+[PASS] inventory: 109 pinned corpus PDFs, all on disk and audited by both oracles
+[PASS] foreign_files: no non-corpus PDFs under the corpus root
+[PASS] source_integrity: 109/109 pinned source PDFs match their pinned SHA-256
+[PASS] balance_audit: 109 statements reproduce every audited balance field
+       across backend, API, dashboard, CSV, XLSX, and package surfaces
+[PASS] adb_audit: 109 statements reproduce every audited ADB field across
+       backend, API, and dashboard-package surfaces
+[PASS] balance_outcomes: balance: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes: adb: 106 pass, 3 withheld, same three statements
+[PASS] outcome_classes: 109 statements publish their pinned verdict
+       (outcome class and the whole integrity block):
+       4 review / 102 validated / 3 withheld
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR = 109 statements
+       resolved offline; no live OCR, no model calls
+[PASS] exclusions: 0 named exclusions
+[PASS] oracle_independence: 4 audit modules import no production financial mathematics
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 4 review / 102 validated / 3 withheld
+Runtime:  1209.7s
+RESULT: GREEN                                                     EXIT=0
+
+`balance_audit` and `adb_audit` are the independent evidence the ceremony did
+not touch a number: both re-derive every audited field on all 109 from the
+source PDFs and compare them to the committed CSVs, and neither reads a flag.
+The ceremony's three documents reproduce their audits exactly.
+
+$ python -m pytest tests/test_corpus_gate_outcomes.py -q -m ""
+16 passed                                                         EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+    tests/test_parser_conformance.py tests/test_parser_parity.py \
+    tests/test_native_rung_parity.py tests/test_filename_boundary.py -q
+893 passed, 11 deselected                                         EXIT=0
+   (conformance cross-product 659 at registry 71, unchanged)
+
+$ python -m pytest \
+    tests/test_analysis.py::test_page_content_cannot_forge_a_sheet_boundary \
+    tests/test_analysis.py::test_padding_the_pdf_with_a_blank_sheet_does_not_clear_the_flag \
+    tests/test_analysis.py::test_no_sheet_list_leaves_the_check_exactly_as_it_was \
+    tests/test_analysis.py::test_passing_the_document_text_as_the_sheet_list_is_refused \
+    tests/test_filename_boundary.py::test_a_page_label_filename_cannot_fabricate_a_page_declaration \
+    tests/test_filename_boundary.py::test_a_page_label_filename_cannot_suppress_the_missing_page_flag -q
+6 passed                                                          EXIT=0
+```
+
+Ocean's review closures (the `sheets_sha256` guards, the observer disclosure,
+the W2-4 correction) re-ran the six changed test files and the forge family:
+
+```
+$ python -m pytest tests/test_artifact_cache.py tests/test_corpus_gate.py \
+    tests/test_corpus_gate_outcomes.py tests/test_discovery.py \
+    tests/test_stated_counts.py tests/test_telemetry_corpus.py -q
+193 passed, 12 deselected                                         EXIT=0
+
+$ python -m pytest <the forge family + the two FILENAME-BOUNDARY tests> -q
+6 passed                                                          EXIT=0
+```
+
+Neither the gate nor the corpus-marked slice was re-run for the closures, and
+neither needed to be: the guards add refusals on input shapes no production
+caller produces (every one passes a list), and the rest of the closure is
+prose. `sheets_sha256`'s behaviour on a `Sequence[str]` — the only shape either
+harness reaches — is byte-identical, which the 193 above include.
+
+The gate's 1,209.7s is a CONTENDED figure — batch 5 runs several cells on this
+box and eight other Python processes were live for most of it. Nothing about
+the verdict depends on the clock; §WIRING measured the verdict check's own
+cost at +222s on top of the ~430s base and this cell did not change either.
+
+## W2-6. Commits
+
+| Commit | Contents |
+|---|---|
+| `87a2e75` | card C — the committed OCR artifacts carry their intake page list |
+| `81568c8` | card C — the page-list artifacts pinned against CRLF rewriting |
+| `3e37139` | card B — the analysis input hash carries the sheet partition |
+| `f35b28b` | card A + the APPROVED ceremony — the fix goes live |
+| (this one) | §WIRING2 |
+
+## W2-7. Carried findings
+
+1. **The publishing footprint is 21, not 13.** Adjudicated in principle already
+   — §PIPEFIX P7.1 put the wider footprint to Ocean and it was accepted, and 7
+   of the 8 additions are that cell's own named enabling population. Recorded
+   here because the NUMBER in the handoff (101 non-publishing / 13 publishing)
+   is a `88be9dd3` measurement and the correct figures at `c924d751` are 93 and
+   21. No document outside the 114 moves.
+2. **`ANALYSIS_STAGE_VERSION` needs its bump at merge**, and card B makes it
+   more than a formality: the input hash changed for every document, so the
+   whole analysis cache is unreachable by construction. The next archive run is
+   cold on that stage whatever the integer says.
+3. **The 8-doc scanned-side table the handoff cites could not be located.**
+   §WIRING's record carries SCAN-SCOUT's Regions reproduction (W2) and its
+   mangled-declaration finding (W6.4: 23 of 179 scanned documents print
+   declarations `_PAGE_DECLARATION_RE` cannot read), but no 8-document table.
+   The cross-check was performed instead against §PIPEFIX P3.5's named 13,
+   which reproduce completely.
+4. **`_PAGE_DECLARATION_RE` is still the narrow pattern**, so §WIRING W6.4's 23
+   mangled scanned declarations and §PIPEFIX P4b.4's CONTINUED-footer
+   composition remain latent, unchanged and unmeasured by this cell.
+5. **The `.md` input path of `batch.py` is honestly unwired.** An
+   already-extracted markdown file carries no record of its source's sheets, so
+   that path passes `None` and keeps the pre-cell behaviour. It is the one
+   production entry point where the check stays fail-closed by nature rather
+   than by omission.
+6. **The stated-counts observer resolves NOTHING until the next archive run,
+   and that is the cache invalidation showing through rather than a defect.**
+   All ~23,598 analysis entries in the store were written under the pre-card-B
+   text-only key and 0 under the new one, so `payload_for` misses on every
+   document and `observe_run` reports `REASON_PAYLOAD_ABSENT` archive-wide.
+   Fails safe; self-heals at the train's cold run. Its own tests seed their
+   fixture through `cached_analysis` and so stay green throughout, which means
+   nothing in CI can warn about it — worth stating because "the instrument
+   reads zero" and "the instrument is broken" look identical from outside, and
+   this is the first. Recorded in W2-2 and in the join's docstring.

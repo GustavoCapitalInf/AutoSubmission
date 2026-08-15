@@ -91,10 +91,90 @@ def test_committed_ocr_artifacts_cover_every_scanned_statement():
         assert sha256_hex(artifact.read_text(encoding="utf-8").encode("utf-8")) == (
             entry["artifact_sha256"]
         ), entry["path"]
+        pages = CACHE / entry["pages"]
+        assert sha256_hex(pages.read_text(encoding="utf-8").encode("utf-8")) == (
+            entry["pages_sha256"]
+        ), entry["path"]
+
+
+def test_every_committed_artifact_carries_its_page_list():
+    """No image-only statement may be left analysable only with `sheets=None`.
+
+    A missing page list is fail-closed, not an error — which is exactly why it
+    needs a test: the gate would stay GREEN with the page-declaration check
+    silently keeping a flag for want of evidence, as it did for all six before
+    WIRING-2. The presence of the list is the thing that has to be asserted.
+    """
+    entries = corpus_artifacts.manifest_entries(CACHE)
+    assert entries, "no committed artifacts"
+    missing = sorted(
+        entry["path"] for entry in entries.values() if not entry.get("pages")
+    )
+    assert not missing, f"committed artifacts with no page list: {missing}"
+
+
+def test_the_committed_page_list_rejoins_to_the_committed_markdown():
+    """The two halves of an artifact are one intake run, proven byte for byte.
+
+    `cached_markdown` and `cached_pages` are separate files with separate
+    digests, so nothing structural stops them drifting apart — and a page list
+    that does not describe the markdown is worse than none, because
+    `assess_document_integrity` would count sheets that are not the sheets the
+    text came from. Re-rendering the committed list must reproduce the committed
+    markdown exactly.
+    """
+    from ocr.document import StatementMarkdown
+
+    for entry in corpus_artifacts.manifest_entries(CACHE).values():
+        source = (corpus_gate.CORPUS / entry["path"]).read_bytes()
+        pages = corpus_artifacts.cached_pages(source, CACHE)
+        assert pages, entry["path"]
+        rejoined = StatementMarkdown(
+            source_file=entry["statement"], model=entry["ocr_model"], pages=pages
+        ).to_markdown()
+        assert rejoined == cached_markdown(source, CACHE), entry["path"]
 
 
 def test_cached_markdown_returns_none_for_an_unknown_document():
     assert cached_markdown(b"%PDF-not-in-the-corpus", CACHE) is None
+
+
+def test_cached_pages_returns_none_for_an_unknown_document():
+    assert corpus_artifacts.cached_pages(b"%PDF-not-in-the-corpus", CACHE) is None
+
+
+def test_cached_pages_returns_none_when_an_artifact_has_no_page_list(tmp_path):
+    """Fail-closed on absence: an older artifact simply proves no structure."""
+    entry = dict(next(iter(corpus_artifacts.manifest_entries(CACHE).values())))
+    source = (corpus_gate.CORPUS / entry["path"]).read_bytes()
+    entry.pop("pages", None)
+    entry.pop("pages_sha256", None)
+    (tmp_path / corpus_artifacts.MANIFEST_NAME).write_text(
+        json.dumps({"artifacts": [entry]}), encoding="utf-8"
+    )
+    assert corpus_artifacts.cached_pages(source, tmp_path) is None
+
+
+def test_cached_pages_rejects_an_altered_page_list(tmp_path):
+    """A page list we cannot trust raises; it is never downgraded to silence.
+
+    Silence weakens nothing — the check fail-closes — but a WRONG page list can
+    clear a genuine missing-page finding, so it must never be treated as merely
+    absent.
+    """
+    entry = next(iter(corpus_artifacts.manifest_entries(CACHE).values()))
+    source = (corpus_gate.CORPUS / entry["path"]).read_bytes()
+
+    (tmp_path / "pages").mkdir()
+    (tmp_path / entry["pages"]).write_text(
+        json.dumps({"pages": ["a forged sheet"]}), encoding="utf-8"
+    )
+    (tmp_path / corpus_artifacts.MANIFEST_NAME).write_text(
+        json.dumps({"artifacts": [entry]}), encoding="utf-8"
+    )
+
+    with pytest.raises(ArtifactError, match="has been altered"):
+        corpus_artifacts.cached_pages(source, tmp_path)
 
 
 def test_cached_markdown_rejects_an_altered_artifact(tmp_path):
