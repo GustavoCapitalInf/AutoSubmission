@@ -21340,10 +21340,11 @@ where the match runs on a folded copy (`td_canada_french`, which prints
 
 `analysis/metrics.py` gains `bank_reported_average_variance` (signed,
 ours minus theirs), `_variance_pct`, and `bank_reported_average_hypothesis`
-over a closed six-value vocabulary. Each discriminator is an exact identity
+over a closed seven-value vocabulary. Each discriminator is an exact identity
 against the same ledger and each is stated in the code; `agrees` is tested
 first so a coincidental alternate match can never be reported in place of the
-plain fact.
+plain fact, and a FLAT ledger suppresses the two alternate-equality tests
+outright (AS10.3).
 
 ## AS2. Card 2 — the gate and the audit pins
 
@@ -21370,6 +21371,18 @@ two exemptions that make them equal by arithmetic rather than by substitution,
 both checked from the published ledger rather than asserted. Both were written
 in because a flat-balance statement is a real counterexample to the naive form
 of the rule.
+
+**Skips are not exemptions, and the count is now printed.** A document that
+publishes no ADB has no canonical figure to be distinct from, so there is
+nothing for this clause to assert and it is skipped - while still being held to
+the basis stamp. On the pinned corpus that is the three withheld documents, and
+the arithmetic reads `distinct 106 + skipped 3 + exemptions 0 = 109`. The
+earlier phrasing of this record let "3" read as an exemption; it is not, and
+`distinct + exemptions + skipped` is now in the summary line so the difference
+cannot be inferred wrongly again. A second skip case exists and the corpus does
+not contain one: a period holding no banking day at all - a weekend-only or
+holiday-weekend statement - for which the engine reports None rather than a
+mean over an empty day set. It is named in the check's docstring.
 
 ## AS3. Card 3 — H1, reproduced
 
@@ -21448,6 +21461,21 @@ Per-gate, on the real documents through the real pipeline:
 | variance / pct | **-242.63** / -0.9466% | **+200.25** / +7.696% |
 | hypothesis | `n_plus_1_zero_forward` | `n_plus_1_zero_forward` |
 | outcome | withheld to **validated** | withheld to **validated** |
+
+**What "every other gate passes" is worth, stated honestly.** Four of the
+prover's eight gates - G1 (forward is zero), G2 (dated the day immediately
+before, nothing after), G3 (every declared posting a positive credit) and G4
+(the ledger closes with them and not without) - are re-checked by the engine as
+the fold's own PRECONDITION. Citing them afterwards as independent corroboration
+is double counting: the fold could not have happened had they failed. The
+genuinely independent evidence that these two rows opened these two accounts is
+**G6** (the bank's own `Daily Closing Balance Summary` prints a closing balance
+for that day), **G7** (`Number of Days in Cycle` equals the printed period, so
+the period the evidence is measured against is the one the bank printed) and
+**G8** (the bank's printed average is reproduced to the cent over
+`[period_start - 1 .. period_end]` by the platform's own engine). G5 sits
+between the two groups - its leading-rows half is subsumed by G4, and its walk
+became falsifiable only when GEOM-1 landed. Three independent gates, not seven.
 
 The hypothesis is not decoration: it reproduces the (N+1)/N gap WF8.6 recorded
 as unexplained-by-that-cell. On both documents
@@ -21539,7 +21567,8 @@ $ python corpus_gate.py --ocr-cache tests/corpus_cache
 [PASS] balance_outcomes / adb_outcomes: 106 pass, 3 withheld, same three
 [PASS] outcome_classes: 6 review / 100 validated / 3 withheld
 [PASS] adb_doctrine: 109/109 publish 'calendar_day_printed_period';
-       banking-day alternate distinct on 106
+       banking-day alternate distinct on 106, skipped 3 unpublished
+       (0 all-banking-day periods, 0 flat ledgers)
 [PASS] ocr_coverage / exclusions / oracle_independence
 Outcomes: 106 PASS / 3 WITHHELD    Runtime: 632.7s
 RESULT: GREEN
@@ -21581,8 +21610,13 @@ the whole gate were both re-run at `5a6bde1` and are green there.
 2. **The telemetry diagnostic field name moved.** `SUMMARY_FIELDS` must hold
    real `Statement.model_fields` (a contract test enforces it), so
    `summary_fields_absent` now reports `bank_reported_average_balance` where it
-   used to report `stated_average_balance`. Telemetry only; no payload effect.
-   A rollup spanning the merge is comparing two field vocabularies.
+   used to report `stated_average_balance`. Telemetry only; no payload effect,
+   but it IS vocabulary drift: a rollup spanning the merge is comparing two
+   field vocabularies and must not treat the rename as a population change.
+   This cell also ADDS entries - one warning anchor and one advisory code - so
+   the union code tuple grows as well as shifts. The composed
+   `DIAGNOSTICS_VERSION` bump is Ocean's at the train; this cell does not move
+   it, because a per-cell bump would be overwritten by the next one.
 3. **A new ADB warning anchor** (`account-opening posting(s) dated before the`)
    is registered as `adb_state:initialization_event_folded` and classed
    ADVISORY — it is a disclosure on a document that passed every required
@@ -21607,3 +21641,139 @@ the whole gate were both re-run at `5a6bde1` and are green there.
    `test_no_parser_helper_clones.py` forbids reaching for `_money` across
    modules. Promoting the name was the alternative to a second implementation
    of a financial decision.
+
+## AS10. Ocean's adversarial review — closures
+
+Verdict SHIP, with one code fix in a protected module and four hardenings.
+Everything below was reproduced before it was changed.
+
+### AS10.1 The `:466` clause — the engine tested the sign, not the column
+
+The fold's comment said "all declared postings credits". The gate tested
+`txn.amount > 0` and nothing else, so the reviewer folded a `+1000.00` row
+carrying `direction="debit"` — a positive amount the producer described as
+money LEAVING. The prover checks both halves; the engine did not, and the whole
+reason this layer re-enforces the day-before boundary rather than inheriting it
+is that it does not get to assume the declaring parser checked anything.
+
+    -            and all(txn.amount > 0 for _, txn in outside)
+    +            and all(
+    +                txn.direction == "credit" and txn.amount > 0
+    +                for _, txn in outside
+    +            )
+
+One term, and the invariant the comment already claimed. Fixtured at the engine
+layer on the reviewer's exact construction
+(`test_a_declared_posting_labelled_a_debit_is_refused_by_the_engine`), built on
+the STATEMENT rather than the markdown so it pins the engine's refusal of any
+producer, not the prover's refusal to declare. The same fixture asserts the
+unmodified statement still publishes, so it pins the direction term rather than
+incidental breakage. **Both movers re-verified unchanged** after the fix.
+
+### AS10.2 The gate's skip line
+
+The distinctness clause silently dropped documents with no canonical or no
+banking-day figure. Three today, and the summary line's `106` against a
+manifest of `109` invited exactly the misreading it produced. The count is now
+printed — `distinct on 106, skipped 3 unpublished (0 all-banking-day periods,
+0 flat ledgers)` — so `distinct + exemptions + skipped = 109` is visible rather
+than inferred. The all-weekend / holiday-weekend skip case, which the pinned
+corpus does not contain, is named in the check's docstring.
+
+### AS10.3 The hypothesis flat guard
+
+Reproduced first, on the TD NARROW shape — a ONE-DAY period, where the "balance
+entering each day" is just the opening balance:
+
+    period 2026-02-28 .. 2026-02-28, opening 100.00, closing 500.00
+    daily            [('2026-02-28', 500.0)]        <- one distinct balance
+    beginning_of_day 100.00
+    bank printed     100.00
+    HYPOTHESIS       beginning_of_day_alignment     <- from one coincidence
+
+A bank that simply printed its opening balance was being reported as evidence
+of an off-by-one-day averaging convention. The guard mirrors the gate's
+`exempt_flat` test — one distinct end-of-day balance across the period — and
+suppresses the two ALTERNATE-EQUALITY discriminators, `credit_only_floored` and
+`beginning_of_day_alignment`. A new `indeterminate_flat` reading replaces
+`unexplained` on a flat series, because "unexplained" implies evidence was
+weighed and found wanting when in fact the evidence cannot exist.
+
+**Deviation from the prescription, stated.** Ocean's note said a flat series
+should report `agrees`/`indeterminate_flat` and nothing else. Two
+discriminators are kept reachable there, because neither degenerates and
+suppressing them would lose real answers:
+
+* `collected_or_float` reads the bank's printed heading and never touches the
+  series at all.
+* `n_plus_1_zero_forward` is a different identity over different terms —
+  `(daily_sum + opening) / (days + 1)`, reachable only on a printed zero
+  balance forward. On a flat series it equals the constant only when the
+  opening equals it too, in which case the variance is zero and `agrees` has
+  already returned. Suppressing it would silence the mid-cycle
+  account-opening class on exactly the shape that class produces: an account
+  funded on day one and then static is FLAT, and `n_plus_1_zero_forward` is
+  the true explanation of its printed average. Fixtured
+  (`test_the_flat_guard_suppresses_only_the_two_degenerate_discriminators`).
+
+### AS10.4 The export triple-print — the alias row is dropped, not relabelled
+
+The flat exports printed the bank's figure three times: `statement`'s canonical
+row, `statement`'s alias row, and the long-standing `metrics` echo. **Dropped**
+rather than relabelled, and the reason is what the alias is FOR. It exists so a
+JSON consumer of the old name does not break, and it stays in the payload where
+that contract lives. A CSV or XLSX sheet is not that contract — it is a flat
+sheet a human reads, and a relabelled duplicate ("stated_average_balance
+(alias)") still asks the reader to work out which of three identical numbers is
+authoritative. Suppression is one named entry, `_EXPORT_SUPPRESSED_KEYS` in
+`webapp/app.py`, with the argument attached; the canonical row and the `metrics`
+echo both remain, so nothing an analyst reads is lost. Fixtured
+(`test_the_export_prints_the_bank_figure_once_per_section_not_three_times`),
+which asserts the alias is still in the payload and no longer in the rows.
+
+### AS10.5 Records
+
+The four record corrections are applied in place above: the honest statement of
+which prover gates are independent of the fold's own precondition (AS5 — three,
+G6/G7/G8, not seven); skips distinguished from exemptions with the arithmetic
+printed (AS2); the vocabulary count (AS1); and the telemetry entry rewritten as
+vocabulary drift that both shifts and GROWS the union code tuple, with the
+composed `DIAGNOSTICS_VERSION` bump left to Ocean at the train (AS9.2).
+
+### AS10.6 Re-run after the closures
+
+```
+$ python -m pytest tests/test_adb_doctrine.py -q
+26 passed in 1.43s
+exit 0
+
+$ python -m pytest tests/test_adb.py tests/test_woodforest.py -q
+111 passed in 1.59s
+exit 0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py \
+      tests/test_no_parser_helper_clones.py tests/test_parser_conformance.py \
+      tests/test_diagnostics.py -q
+769 passed in 1.76s
+exit 0
+
+$ python -m pytest -q
+4270 passed, 33 skipped, 29 deselected, 1 warning in 98.10s
+exit 0
+
+$ python corpus_gate.py --ocr-cache tests/corpus_cache
+[PASS] adb_doctrine: 109/109 statements publish the canonical basis
+       'calendar_day_printed_period'; banking-day alternate distinct on 106,
+       skipped 3 unpublished (0 all-banking-day periods, 0 flat ledgers)
+Outcomes: 106 PASS / 3 WITHHELD    Runtime: 358.5s
+RESULT: GREEN
+exit 0
+```
+
+Both movers end to end, unchanged by the direction term and the flat guard:
+`D9EF1A8C` divisor 18, opening 30,000.00 `initialization_event`, ADB 25,390.04,
+variance -242.63, `n_plus_1_zero_forward`, validated; `823DCE7F` divisor 8,
+opening 1,000.00 `initialization_event`, ADB 2,802.26, variance +200.25,
+`n_plus_1_zero_forward`, validated. Family sweep re-run: 22 documents naming
+Woodforest, 20 claimed, 2 declared, **2 moved**, the other 17 analysed
+documents additive-only.

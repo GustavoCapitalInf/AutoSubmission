@@ -161,6 +161,7 @@ BANK_REPORTED_AVERAGE_HYPOTHESES = (
     "collected_or_float",
     "beginning_of_day_alignment",
     "n_plus_1_zero_forward",
+    "indeterminate_flat",
     "unexplained",
 )
 
@@ -196,21 +197,50 @@ def _bank_reported_average_hypothesis(
         a collected, available or float basis - money the posted ledger cannot
         see. The label is the discriminator here precisely because the
         arithmetic cannot be.
+    `indeterminate_flat`
+        The daily series carries ONE distinct end-of-day balance, so the
+        alternates that re-slice that series cannot discriminate anything and
+        must not be allowed to appear to. See below.
     `unexplained`
         None of the above. The honest answer, and the one worth investigating.
+
+    THE FLAT-LEDGER GUARD, and why the two alternate-equality tests are the
+    only ones it suppresses
+    -----------------------------------------------------------------------
+    When every day of the period closes on the same balance, `credit_only` and
+    `beginning_of_day` stop being different computations: over a constant
+    series they are that constant, exactly as the canonical figure is. The
+    degenerate case is a ONE-DAY period, where "the mean of the balances
+    ENTERING each day" is just the opening balance - so a bank that simply
+    printed its opening balance was being reported as evidence of an
+    off-by-one-day averaging convention. Reproduced on a one-day statement
+    before this guard existed, which is why it exists.
+
+    The guard suppresses those two and nothing else, because the other two
+    discriminators do not degenerate. `n_plus_1_zero_forward` is a different
+    identity over different terms - `(daily_sum + opening) / (days + 1)`,
+    reachable only on a printed zero balance forward - and on a flat series it
+    equals the constant only when the opening equals it too, in which case the
+    variance is zero and `agrees` has already returned. `collected_or_float`
+    reads the bank's own printed heading and does not touch the series at all.
+    Suppressing either would lose the one explanation the mid-cycle
+    account-opening class actually needs.
     """
     reported = _money(stmt.bank_reported_average_balance)
     if variance == 0.0:
         return "agrees"
 
     alternates = adb.underwriting_adb_alternates or {}
-    for name, hypothesis in (
-        ("credit_only", "credit_only_floored"),
-        ("beginning_of_day", "beginning_of_day_alignment"),
-    ):
-        value = alternates.get(name)
-        if value is not None and _money(value) == reported:
-            return hypothesis
+    # One distinct end-of-day balance across the period - see the guard above.
+    flat = len({entry.ending_balance for entry in adb.daily_balances}) <= 1
+    if not flat:
+        for name, hypothesis in (
+            ("credit_only", "credit_only_floored"),
+            ("beginning_of_day", "beginning_of_day_alignment"),
+        ):
+            value = alternates.get(name)
+            if value is not None and _money(value) == reported:
+                return hypothesis
 
     if (
         stmt.beginning_balance is not None
@@ -228,7 +258,9 @@ def _bank_reported_average_hypothesis(
     label = (stmt.bank_reported_average_label or "").lower()
     if any(word in label for word in ("collect", "avail", "float")):
         return "collected_or_float"
-    return "unexplained"
+    # Nothing matched. On a flat series say so, rather than calling a gap
+    # "unexplained" when the evidence that would explain it cannot exist.
+    return "indeterminate_flat" if flat else "unexplained"
 
 
 def _summary_debits_with_service_charge(stmt: Statement) -> float | None:

@@ -258,6 +258,91 @@ def test_hypothesis_unexplained_is_the_honest_answer_and_a_finding():
     assert compute_metrics(stmt).bank_reported_average_hypothesis == "unexplained"
 
 
+def test_a_one_day_period_never_reports_an_alignment_it_cannot_evidence():
+    """The TD NARROW shape. Over a single calendar day the "balance entering
+    each day" IS the opening balance, so a bank that simply printed its opening
+    balance was being reported as evidence of an off-by-one-day averaging
+    convention. Reproduced before the guard existed; pinned here."""
+    stmt = _statement(
+        [("2026-02-28", "DEP", 400.0)],
+        start="2026-02-28", end="2026-02-28", opening=100.0, closing=500.0,
+        average=100.0, label="Average Balance",
+    )
+    result = compute_average_daily_balance(stmt)
+    assert len({entry.ending_balance for entry in result.daily_balances}) == 1
+    assert result.underwriting_adb_alternates["beginning_of_day"] == 100.0
+    metrics = compute_metrics(stmt)
+    assert metrics.bank_reported_average_variance == 400.0
+    assert metrics.bank_reported_average_hypothesis == "indeterminate_flat"
+
+
+def test_a_flat_ledger_reports_indeterminate_rather_than_unexplained():
+    """Every basis over a constant series is that constant, so the alternates
+    cannot discriminate. Saying so is more honest than `unexplained`, which
+    implies evidence was weighed and found wanting."""
+    stmt = _statement(
+        [], start="2026-02-02", end="2026-02-06", opening=750.0, closing=750.0,
+        average=900.0, label="Average Balance",
+    )
+    assert compute_metrics(stmt).bank_reported_average_hypothesis == "indeterminate_flat"
+
+
+def test_a_flat_ledger_that_agrees_still_says_so():
+    stmt = _statement(
+        [], start="2026-02-02", end="2026-02-06", opening=750.0, closing=750.0,
+        average=750.0, label="Average Balance",
+    )
+    assert compute_metrics(stmt).bank_reported_average_hypothesis == "agrees"
+
+
+def test_the_flat_guard_suppresses_only_the_two_degenerate_discriminators():
+    """`collected_or_float` reads the printed heading and never touches the
+    series, and `n_plus_1_zero_forward` is a different identity over different
+    terms. Neither degenerates on a flat ledger, so neither is suppressed -
+    suppressing the second would lose the mid-cycle account-opening class."""
+    collected = _statement(
+        [], start="2026-02-02", end="2026-02-06", opening=750.0, closing=750.0,
+        average=900.0, label="Average Collected Balance",
+    )
+    assert compute_metrics(collected).bank_reported_average_hypothesis == "collected_or_float"
+
+    # A zero-forward period funded on day one and then static: flat, and the
+    # bank divides by one more day than it printed.
+    opening_day = _statement(
+        [("2026-03-02", "OPENING DEPOSIT", 1200.0)],
+        start="2026-03-02", end="2026-03-05", opening=0.0, closing=1200.0,
+        average=960.0, label="Average Balance",
+    )
+    result = compute_average_daily_balance(opening_day)
+    assert len({entry.ending_balance for entry in result.daily_balances}) == 1
+    # ours 1200.00 over 4 days; theirs (4800 + 0) / 5 = 960.00
+    assert compute_metrics(opening_day).bank_reported_average_hypothesis == (
+        "n_plus_1_zero_forward"
+    )
+
+
+def test_the_export_prints_the_bank_figure_once_per_section_not_three_times():
+    """The alias stays in the JSON payload, where a consumer of the old name
+    would otherwise break, and is suppressed from the flat analyst exports,
+    where three identical numbers read as an extraction fault."""
+    from webapp.app import _analysis_rows
+
+    stmt = _statement(
+        [("2026-01-02", "DEP", 300.0)],
+        start="2026-01-01", end="2026-01-03", opening=0.0, closing=300.0,
+        average=250.0, label="Average Ledger Balance",
+    )
+    payload = {"statement": stmt.model_dump(), "metrics": _metrics_dict(compute_metrics(stmt))}
+    assert payload["statement"]["stated_average_balance"] == 250.0
+
+    rows = _analysis_rows(payload)
+    printed = [(section, key) for section, key, value in rows if value == 250.0]
+    assert printed == [
+        ("statement", "bank_reported_average_balance"),
+        ("metrics", "stated_average_balance"),
+    ]
+
+
 def test_the_hypothesis_vocabulary_is_closed():
     assert set(BANK_REPORTED_AVERAGE_HYPOTHESES) == {
         "agrees",
@@ -265,6 +350,7 @@ def test_the_hypothesis_vocabulary_is_closed():
         "collected_or_float",
         "beginning_of_day_alignment",
         "n_plus_1_zero_forward",
+        "indeterminate_flat",
         "unexplained",
     }
 

@@ -770,10 +770,27 @@ def check_adb_doctrine(result: Result, payloads: dict[str, dict]) -> None:
     sets), or the daily series is flat (every basis over a constant series is
     that constant). Both exemptions are checked from the published daily
     ledger, not asserted.
+
+    **The distinctness clause SKIPS documents it cannot examine, and the count
+    is published so the arithmetic is visible.** A statement with no published
+    ADB has no canonical figure to compare against, so there is nothing to
+    assert - the three withheld documents are skipped here while still being
+    held to the basis stamp above, and `distinct + exemptions + skipped` must
+    account for all 109. A skip is not an exemption: an exemption is a document
+    that WAS examined and whose equality was explained, a skip is a document
+    that published nothing to examine.
+
+    One further skip case, which the pinned corpus does not currently contain:
+    `alternates["banking_day"]` is None when the period holds no banking day at
+    all - a Saturday-to-Sunday statement, or a short period wholly inside a
+    holiday weekend. The engine reports None there rather than a mean over an
+    empty day set, and such a document lands in the skipped count for the same
+    reason: there is no alternate figure to be distinct from.
     """
     details: list[str] = []
     stamped = 0
     distinct = 0
+    skipped = 0
     exempt_same_days = 0
     exempt_flat = 0
     for rel in sorted(payloads):
@@ -799,6 +816,7 @@ def check_adb_doctrine(result: Result, payloads: dict[str, dict]) -> None:
         banking = alternates.get("banking_day")
         daily = adb.get("daily_balances") or []
         if canonical is None or banking is None or not daily:
+            skipped += 1
             continue
         days = [date.fromisoformat(entry["date"]) for entry in daily]
         non_banking = any(day.weekday() >= 5 or _is_holiday(day) for day in days)
@@ -821,7 +839,8 @@ def check_adb_doctrine(result: Result, payloads: dict[str, dict]) -> None:
         "adb_doctrine",
         not details,
         f"{stamped}/{len(payloads)} statements publish the canonical basis "
-        f"{EXPECTED_ADB_BASIS!r}; banking-day alternate distinct on {distinct} "
+        f"{EXPECTED_ADB_BASIS!r}; banking-day alternate distinct on {distinct}, "
+        f"skipped {skipped} unpublished "
         f"({exempt_same_days} all-banking-day periods, {exempt_flat} flat ledgers)",
         details,
     )

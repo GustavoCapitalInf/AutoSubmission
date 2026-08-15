@@ -462,8 +462,20 @@ def compute_average_daily_balance(
             # An account is opened by money ARRIVING. Without this a debit
             # dated the day before a zero-forward statement folds a NEGATIVE
             # opening balance in and publishes it as an account opening.
+            #
+            # BOTH halves, and the direction half is not redundant. The sign of
+            # `amount` and the column the bank printed the row in are two
+            # different statements, and a row can carry one without the other:
+            # a `+1000.00` posting labelled `direction="debit"` satisfies the
+            # amount test and is still a row the producer described as money
+            # LEAVING. This layer does not get to assume the declaring parser
+            # checked - that is the whole reason it re-checks the boundary too
+            # - so it holds the invariant its own comment states.
             and seeded > Decimal("0")
-            and all(txn.amount > 0 for _, txn in outside)
+            and all(
+                txn.direction == "credit" and txn.amount > 0
+                for _, txn in outside
+            )
             # The event is REQUIRED: the whole printed ledger closes on the
             # printed closing balance with it, and does not close without it.
             and _money(seeded + in_period) == _money(stmt.ending_balance)

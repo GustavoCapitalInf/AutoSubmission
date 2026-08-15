@@ -716,6 +716,40 @@ def test_an_undeclared_pre_period_row_is_still_refused():
     assert result.out_of_period_transaction_count == 1
 
 
+def test_a_declared_posting_labelled_a_debit_is_refused_by_the_engine():
+    """The engine's own credit test, not the prover's.
+
+    Ocean's review fed a `+1000.00` row carrying `direction="debit"` — a
+    positive AMOUNT the producer described as money LEAVING. The engine gate
+    tested only the sign, so the row folded, even though the comment beside it
+    said "all declared postings credits" and the prover checks both. A
+    consuming layer that trusts its caller has no check, which is the same
+    reason the day-before boundary is re-enforced here rather than inherited.
+
+    Constructed on the STATEMENT rather than the markdown on purpose: the point
+    is that the engine refuses this shape from any producer, including one that
+    never ran `initialization_postings`."""
+    stmt = parse_woodforest_statement(OPENING)
+    assert stmt.initialization_transaction_count == 1
+    assert stmt.transactions[0].amount == 1000.00
+    assert stmt.transactions[0].direction == "credit"
+
+    # Everything else about the ledger is untouched: same amount, same date,
+    # same balances, same declaration. Only the printed column changes.
+    mislabelled = stmt.model_copy(deep=True)
+    mislabelled.transactions[0].direction = "debit"
+    result = compute_average_daily_balance(mislabelled)
+    assert result.ok is False
+    assert result.validations["transactions_within_period"] is False
+    assert result.out_of_period_transaction_count == 1
+    assert result.opening_balance_source != "initialization_event"
+    assert not any("folded into the opening balance" in w for w in result.warnings)
+
+    # And the unmodified statement still publishes, so the fixture is pinning
+    # the direction term rather than some incidental breakage.
+    assert compute_average_daily_balance(stmt).ok is True
+
+
 def test_a_declaration_larger_than_the_pre_period_rows_is_refused():
     """The engine requires the declared COUNT to equal the pre-period rows it
     actually sees, so a parser that over-declares cannot have anything folded
