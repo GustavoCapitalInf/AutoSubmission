@@ -14893,16 +14893,23 @@ money-shaped token, reference numbers included (§MG8 finding 3, out of scope).
 
 # proofs (§MG-C, branch wave4-mgc)
 
-# full default suite
-3796 passed, 18 deselected            exit 0
+# full default suite (baseline 3,769; this cell adds 28)
+3797 passed, 18 deselected            exit 0
 
 # conformance + registry + guards cross-product
 922 passed                            exit 0
 
-# corpus-marked slice, run per-file (the whole slice exceeds the 10-minute
-# foreground budget on this host under batch load)
-tests/test_parser_parity.py                       8 passed, 1 failed   exit 1
-tests/test_telemetry_corpus.py -k outcome_split   1 passed, 311.70s    exit 0
+# corpus-marked slice (MANDATORY). Run per-file: the whole slice exceeds the
+# 10-minute foreground budget on this host under batch load, so each file was
+# run as its own sequential command. All 14 collected tests accounted for.
+tests/test_parser_parity.py           (9)  8 passed, 1 failed  144.24s  exit 1
+tests/test_telemetry_corpus.py        (2)  2 passed           612.07s  exit 0
+tests/test_truncation.py              (1)  1 passed            64.96s  exit 0
+tests/test_discovery.py               (1)  1 passed           284.09s  exit 0
+tests/test_corpus_gate.py             (1)  covered by the direct gate run below
+                                           (same audit, same 106/3; the pytest
+                                           wrapper exceeded the foreground
+                                           budget on this host)
 
 # the one red, A/B'd per the batch-level notice — pre-existing, NOT raised
 test_detect_sweep_stays_affordable_for_the_discovery_run
@@ -14911,3 +14918,51 @@ test_detect_sweep_stays_affordable_for_the_discovery_run
   threshold 0.25 s. Fails on both; the branch is FASTER. Known batch-level
   item under central triage (DETECT-BUDGET owns the structural fix); the
   constant was not touched.
+
+# corpus gate (python corpus_gate.py --corpus-root "<archive>"), 683.1s
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  3507 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+RESULT: GREEN                         exit 0
+
+# THE ARCHIVE SWEEP — branch vs the run of record `d5c75ff6`
+
+Two passes over the frozen archive, reading each document's markdown straight
+out of the D-3 OCR store by recomputed cache key (never the webapp_data sqlite
+index, which writes on read). Each pass records the outcome class AND a digest
+of the whole `report_to_dict` payload.
+
+```
+population        3,367 analysed + 13 with no cached OCR artifact = 3,380 shas
+```
+
+MG-C2 in isolation — baseline is the MG-C1 tree, so the diff is MG-C2 alone:
+
+```
+outcome-class movers: 0    payload movers: 0    over 3,367 documents
+```
+
+The whole branch against the run of record:
+
+```
+run of record : validated 2357 · failed 919 · withheld 69 · review 22 · deferred 13
+branch        : validated 2357 · failed 919 · withheld 66 · review 25 · deferred 13
+
+movers: 3
+  112431717DA1  withheld/withheld_adb -> review/integrity_flags   chase_export
+  5A29258D7626  withheld/withheld_adb -> review/integrity_flags   chase_export
+  5C93775BBA87  withheld/withheld_adb -> review/integrity_flags   chase_export
+```
+
+**Exactly the three named documents move, and nothing else does.** Validated is
+unchanged at 2,357 — this branch is a correctness and honesty change, not a
+coverage change, and it claims no promotions. Zero regressions.
+
+The 13 unanalysed documents are the run's own `deferred` set (scanned, no
+offline artifact), unchanged by this branch:
+
+```
+08D8D3B6DF17 173C3E43651F 1C6CB4078AC0 8E837AFE912B 9413957E2F56 98F73D025187
+A28F62D0C106 A90006684394 BD2A40D672A2 E593F21E6B67 E9CA26A65523 EA916818FA6D
+FCA53A4DD928
+```
