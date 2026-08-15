@@ -246,8 +246,27 @@ class PreparedDocument:
 
     Not shared between documents and not cached anywhere global: a document's
     text is the sensitive thing this codebase is careful never to leave lying
-    around (see `ParserFailure`), so the prepared texts live exactly as long as
-    the sweep that asked for them.
+    around (see `ParserFailure`).
+
+    **How long the prepared texts live, exactly (W3 #PREPHAND).** They used to
+    live for the sweep that asked for them. They now live as long as the
+    `Dispatch` that sweep produced, because `resolve` publishes this object as
+    `Dispatch.prepared` so a second sweep over the same document can replay it
+    instead of rebuilding it — so in the discovery run that is one document's
+    whole analysis and its telemetry record, not the sweep alone. What is held
+    is real: on the largest pinned document (62,702 chars) the five distinct
+    prepared texts are 312,342 characters, five times the document, plus a
+    190-entry marker memo.
+
+    That is safe for the reason the rest of this file is safe, and the reason
+    is structural rather than a promise: **nothing retains a `Dispatch`.** It
+    is deliberately not a field on `Report` (see `analysis.pipeline.
+    analyze_markdown`, which explains why), `telemetry.record.dispatch_section`
+    projects named fields and never the object, no code path serializes a
+    `Dispatch` generically, and the collector that holds one is rebuilt per
+    document. So the texts are released with the document that produced them,
+    one document at a time, exactly as before — later than before, but no
+    wider and never written anywhere.
     """
 
     __slots__ = ("_admissible", "_texts", "_interned", "_marker_results", "_preparations")
