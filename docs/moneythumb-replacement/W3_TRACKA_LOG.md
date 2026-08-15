@@ -21581,4 +21581,76 @@ summary.json written before this cell.
 | `tests/test_discovery.py` | 11 new tests (9 default, 2 corpus-marked) and 3 existing ones extended. |
 | everything else | zero-line diff. |
 
-## DO9. Operations
+## DO9. Proofs
+
+All on the final tree (`93b0818` + the log commit), one machine shared with
+the rest of batch 5, so the wall clocks are loaded rather than representative.
+
+```
+# full default suite
+4248 passed, 33 skipped, 30 deselected in 399.29s         exit 0
+   (base b524f72: 4,240 / 29 deselected. +8 default tests and +1
+    corpus-marked test, all this cell's.)
+
+# this cell (tests/test_discovery.py)
+40 passed, 2 deselected in 144.94s                        exit 0
+
+# guards
+239 passed in 30.89s                                      exit 0
+   test_no_statement_hardcodes . test_no_parser_helper_clones .
+   test_r1_hardcodes . test_experiments_are_not_wired . test_filename_boundary
+
+# conformance cross-product + registry (71 registrations)
+1084 passed, 33 skipped in 8.55s                          exit 0
+   test_parser_conformance 659 . test_parser_registry_entries .
+   test_parser_detection_markers . test_parser_registry .
+   test_parser_crash_shapes . test_parser_exception_boundary .
+   test_count_semantics
+
+# corpus gate (python corpus_gate.py), 1205.6s
+[PASS] inventory . foreign_files . source_integrity . balance_audit . adb_audit
+[PASS] balance_outcomes: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes:     106 pass, 3 withheld, same three statements
+[PASS] outcome_classes: 109 statements publish their pinned verdict (outcome
+       class and the whole integrity block): 6 review / 100 validated / 3 withheld
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR, no live OCR, no model calls
+[PASS] exclusions: 0 named exclusions
+[PASS] oracle_independence
+Outcomes: 106 PASS / 3 WITHHELD                           exit 0
+RESULT: GREEN
+
+# corpus-marked slice (pytest -m corpus), 3215.41s
+26 passed, 4285 deselected                                exit 0
+   (base b524f72: 25. The new one is
+    test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered.)
+   incl. test_corpus_gate_is_green . the seven verdict-check reds .
+   test_dry_run_reproduces_known_truth .
+   test_parser_parity (all 8, incl. the detect-sweep budget) .
+   test_telemetry_corpus (both) . test_truncation
+
+# archive warm re-run (python -m discovery --scanned, run b7b40c73)
+3,506 documents, outcome split identical to c924d751, 0 movers   exit 0
+```
+
+**One test was changed rather than added, and it is the interesting one.**
+`tests/test_visual_rung.py::test_a_cached_analysis_does_not_trigger_a_spurious_escalation`
+asserted `second.dispatch_outcome is None` as its way of writing "no verdict
+was observed this run". That line was a red on the first full-suite run of the
+final tree, and it was a TRUE red about a superseded mechanism, not a defect:
+the row now carries a reconstructed verdict, so `dispatch_outcome is None` no
+longer separates "nothing observed" from "nothing known". It was replaced by
+the assertion that does separate them — `parser_id_source == live_detect` on
+the warm pass and `live_dispatch` on the cold one — plus `parser_id` equality
+across the two passes. **The escalation guard itself is untouched**:
+`_needs_visual_upgrade` reads `collector.seen` and the payload and has never
+read the row, and `_forbid_visual` still fails the test outright if the GPU
+rung runs. That is the last line of the test, and it still passes.
+
+## DO10. Commits
+
+| Commit | Contents |
+|---|---|
+| `f63cd3a` | the projection, the provenance vocabulary, `template_claim`, the two report lines, 11 tests |
+| `577adb6` | the rendered heading named for what it reports |
+| `93b0818` | the escalation-guard test moved to the sharper assertion; DO0-DO8 |
+| (this one) | DO9-DO10, the archive figures and the proof block |
