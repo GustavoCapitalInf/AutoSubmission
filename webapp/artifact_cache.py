@@ -318,7 +318,20 @@ OCR_STAGE_VERSION = 3
 # (inert; adb wiring awaits ruling); gate outcome-block check +
 # PreparedDocument detect seam (behavior-identical, proven). Registry
 # 68 -> 71. One composed bump before the round's measurement.
-ANALYSIS_STAGE_VERSION = 12
+# 12 -> 13: composed — coverage-wave batch 5 (eleven reviewed merges):
+# sheets activation + the APPROVED Option-A ceremony (Texas Bank + Regions
+# review->validated, BMO January flag withdrawal) + the partition-digest
+# input key (also rotates every analysis entry by construction); the
+# ratified ADB doctrine (underwriting_adb split + basis literal gate-
+# pinned + H1 required + the two Woodforest initialization movers);
+# CountMapping promotions (21 stated_debit_count_matches false->true);
+# repair seam (discard+flag) + honest model_used for bank=None (54 docs
+# with LOWERCASE-PERIOD's); minus-glyph canon; evidence-based currency
+# (9 movers); core_processor_daily (+13); parser_id cache-hit projection;
+# PreparedDocument across both sweeps; one shared native ladder + the
+# unreadable-text-layer reason channel. Registry 71 -> 72. One composed
+# bump before the round's measurement.
+ANALYSIS_STAGE_VERSION = 13
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 
