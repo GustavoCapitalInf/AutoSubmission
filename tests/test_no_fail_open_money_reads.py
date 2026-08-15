@@ -24,6 +24,28 @@ section the document does not have. Telling the two apart is the whole point —
 `None`, so the `or 0.0` that remains means only what it should.
 
 The guard fails on the SHAPE, before anyone has to notice the wrong number.
+
+WHAT THIS GUARD DOES NOT CATCH (W3 §MG-C2 D4)
+---------------------------------------------
+Recorded so nobody mistakes it for a proof of absence:
+
+1. **It is a NAME allowlist, so it is evaded by renaming.** `MONEY_READERS`
+   lists the readers that exist today. A parser that adds `_amt` or
+   `_read_cell`, or that calls a reader through an attribute
+   (`self._money(x) or 0.0`, `mod._money(x) or 0.0`), is invisible here. The
+   companion defence is `test_no_parser_helper_clones.py`, which makes a new
+   private money reader hard to add in the first place.
+2. **Two-operand `or` only.** `a or b or 0.0` parses as one `BoolOp` with
+   three values and is skipped, as is `parse_money(x) if y else 0.0` and
+   `float(parse_money(x) or 0)` written with an int zero inside another call.
+   The attested census contained none of these; they are gaps, not decisions.
+3. **It cannot see the ARGUMENT's provenance beyond one syntactic tell.**
+   `read_money` is correct only for a token a pattern has already matched. A
+   raw container cell is the D2 defect and is caught below by its `Subscript`
+   shape, but a raw cell passed through a local variable is not.
+4. **It says nothing about non-zero fail-opens** — a refusal collapsing to
+   `1.0`, to `None` where `None` is later coerced, or to a dropped row (the
+   `continue` class, W3 §MG-C2 carried finding 2).
 """
 from __future__ import annotations
 
@@ -33,7 +55,10 @@ from pathlib import Path
 import pytest
 
 from analysis.bofa import _native_money_after, repair_bofa_summary
+from analysis.money import read_money
+from analysis.regions import _money as _regions_money
 from analysis.schema import Statement
+from analysis.tables import table_rows
 
 ANALYSIS_DIR = Path(__file__).resolve().parent.parent / "analysis"
 
@@ -198,3 +223,136 @@ def test_the_native_reader_separates_an_absent_label_from_a_refused_amount():
     assert _native_money_after(NO_CHECKS_LINE, r"Service fees") == 120.43
     with pytest.raises(ValueError, match="refused a printed token"):
         _native_money_after(UNREADABLE_CHECKS_LINE, r"Checks")
+
+
+# ===========================================================================
+# D4 — the one provenance tell that IS cheap to check
+# ===========================================================================
+
+#: `read_money` raises on a refusal, which is right only when a pattern has
+#: already guaranteed the token. Handed a RAW container cell it turns "this
+#: cell is not money" into a dead document — the D2 defect, found by review at
+#: `regions.py:219` (`read_money(cells[3], _money)`, where the cell can be
+#: `N/A` or `--`). A subscript argument is that shape's signature.
+def _raw_cell_reads(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    found = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+            continue
+        if node.func.id != "read_money" or not node.args:
+            continue
+        if isinstance(node.args[0], ast.Subscript):
+            found.append(f"{path.name}:{node.lineno}  read_money({ast.unparse(node.args[0])}, ...)")
+    return found
+
+
+def test_read_money_is_never_handed_a_raw_container_cell():
+    """A probe must be answered, not raised at.
+
+    `read_money` is for refusal-propagation on a token a regex already
+    matched. Over a raw cell it is the wrong tool: the correct reading of a
+    non-money cell there is ABSENCE, and a reader that returns `None` is what
+    belongs in that position (`regions._money`).
+    """
+    offenders = []
+    for path in sorted(ANALYSIS_DIR.glob("*.py")):
+        offenders.extend(_raw_cell_reads(path))
+    assert offenders == [], (
+        "read_money is being handed a raw container cell at:\n  "
+        + "\n  ".join(offenders)
+        + "\nA non-money cell there is absence, not a refusal: use a reader "
+          "that returns None."
+    )
+
+
+def test_the_raw_cell_guard_can_see_the_shape_it_bans():
+    """The D2 line as it was written, put back in front of the guard."""
+    source = (
+        "def f(cells, m, _money):\n"
+        "    a = abs(read_money(cells[3], _money) or 0.0)\n"
+        "    b = read_money(m.group(1), _money)\n"
+        "    return a, b\n"
+    )
+    tree = ast.parse(source)
+    caught = [
+        ast.unparse(node.args[0])
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "read_money"
+        and node.args
+        and isinstance(node.args[0], ast.Subscript)
+    ]
+    assert caught == ["cells[3]"]
+
+
+# ===========================================================================
+# D2 / D3 — the probe must be answered, not raised at (analysis/regions.py)
+# ===========================================================================
+
+
+@pytest.mark.parametrize(
+    "cell",
+    ["N/A", "n/a", "--", "—", "", "   ", "DEPOSIT", "Balance", "1.5", "1.2.3",
+     "1" * 14 + ".00"],
+)
+def test_the_regions_cell_probe_answers_none_and_never_raises(cell):
+    """W3 §MG-C2 D3. `_parse_section` walks a row's cells right-to-left asking
+    "is this the amount column?", so it is handed dates, descriptions and
+    `N/A` BY DESIGN. A cell that is not money is an answer, not an error —
+    raising here would let one unreadable cell in one row kill a document that
+    otherwise parses perfectly."""
+    assert _regions_money(cell) is None
+
+
+@pytest.mark.parametrize(
+    "cell, expected",
+    [("1,234.56", 1234.56), ("1,234.56-", -1234.56), ("-45.00", -45.0), ("0.00", 0.0)],
+)
+def test_the_regions_probe_still_reads_the_cells_that_are_money(cell, expected):
+    assert _regions_money(cell) == expected
+
+
+def test_a_refused_regions_cell_is_none_and_not_a_zero():
+    """The probe answers None rather than raising — but it must not answer
+    0.0 either, which is what `abs(parse_money(...) or 0.0)` did. Under that
+    idiom a refused cell reported itself as a valid 0.00 amount, the probe
+    accepted it as the amount column, and the row published a zero."""
+    assert _regions_money("1.5") is None          # one decimal: §MG3 refuses it
+    assert _regions_money("1.50") == 1.5          # two decimals: genuinely money
+
+
+#: A Regions summary grid that prints the Average Balance LABEL with no
+#: figure beside it — the shape `read_money(cells[3], _money)` turned into a
+#: dead document.
+REGIONS_AVERAGE_BALANCE_NOT_PRINTED = (
+    "<table>"
+    "<tr><td>Beginning Balance</td><td>1,000.00</td>"
+    "<td>Average Balance</td><td>N/A</td></tr>"
+    "</table>"
+)
+
+
+def test_a_non_money_average_balance_cell_is_absence_not_a_dead_document():
+    """W3 §MG-C2 D2. `cells[3]` is a RAW grid cell, not a regex-guaranteed
+    token: a statement can print the Average Balance label with `N/A` beside
+    it. That is absence — the field stays unset. It may not raise (killing a
+    document over an optional figure) and it may not publish 0.00 (an average
+    balance nobody printed)."""
+    rows = [
+        cells for cells in table_rows(REGIONS_AVERAGE_BALANCE_NOT_PRINTED)
+        if len(cells) >= 4 and "average balance" in cells[2].lower()
+    ]
+    assert len(rows) == 1, "fixture did not produce the average-balance row"
+    cell = rows[0][3]
+    assert cell == "N/A"
+
+    # The shape D2 removed: `read_money` treats a present-but-unreadable token
+    # as a refusal and raises, which over a RAW cell kills the whole document.
+    with pytest.raises(ValueError, match="refused a printed token"):
+        read_money(cell, _regions_money)
+
+    # What replaced it: the probe answers absence, the field stays unset, and
+    # the document survives to publish everything the bank DID print.
+    assert _regions_money(cell) is None

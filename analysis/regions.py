@@ -22,12 +22,29 @@ _NATIVE_HEADINGS = (
 
 
 def _money(value: str) -> float | None:
+    """Read one Regions cell as money, or answer None. NEVER raises.
+
+    This is a PROBE as well as a reader. `_parse_section` walks a row's cells
+    right-to-left asking "is this the amount column?" — so it is handed dates,
+    check numbers, descriptions and `N/A` by design, and a cell that is not
+    money is an ANSWER, not an error. Raising here would let one unreadable
+    cell in one row kill a document that parses perfectly. (W3 §MG-C2 D3.)
+
+    A refusal still does not become `0.0`: it becomes `None`, which is what
+    the probe's `is not None` test needs and what the old
+    `abs(parse_money(...) or 0.0)` destroyed — under that idiom a refused cell
+    answered 0.0, the probe accepted it as the amount column, and the row
+    published a zero. Refusal propagates; it just propagates as None here
+    rather than as an exception.
+    """
     text = value.strip().replace("–", "-")
     if not re.search(r"\d+(?:\.\d{2})?", text):
         return None
     neg = text.endswith("-") or text.startswith("-")
-    amount = abs(read_money(re.sub(r"[^0-9,.-]", "", text)) or 0.0)
-    return -amount if neg else amount
+    amount = parse_money(re.sub(r"[^0-9,.-]", "", text))
+    if amount is None:
+        return None
+    return -abs(amount) if neg else abs(amount)
 
 
 def _plain_text(markdown: str) -> str:
@@ -216,7 +233,16 @@ def parse_regions_statement(markdown: str) -> Statement | None:
         elif "ending balance" in label:
             stmt.ending_balance = amount
         if len(cells) >= 4 and "average balance" in cells[2].lower():
-            stmt.stated_average_balance = abs(read_money(cells[3], _money) or 0.0)
+            # A RAW table cell, not a regex-guaranteed token: the label in
+            # cells[2] is what was matched, and cells[3] is whatever the grid
+            # put beside it — `N/A`, `--`, or nothing at all on a statement
+            # that prints the row but not the figure. That is ABSENCE, and
+            # absence leaves the field unset rather than either raising (which
+            # would kill the document over an optional figure) or publishing a
+            # 0.00 average balance nobody printed. (W3 §MG-C2 D2.)
+            average = _money(cells[3])
+            if average is not None:
+                stmt.stated_average_balance = abs(average)
     if stmt.stated_total_debits is not None:
         stmt.stated_total_debits = round(stmt.stated_total_debits + fees + checks, 2)
 

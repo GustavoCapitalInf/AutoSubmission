@@ -1132,11 +1132,48 @@ def test_read_money_raises_on_a_token_the_grammar_refuses(token):
         m.read_money(token)
 
 
-def test_read_money_names_the_token_it_refused():
-    """A refusal that does not say what it refused costs an OCR round trip to
-    diagnose. The message carries the token verbatim."""
-    with pytest.raises(ValueError, match=r"refused a printed token: '34\.9'"):
-        m.read_money("34.9")
+@pytest.mark.parametrize(
+    "token, expected_class",
+    [
+        ("34.9", "decimal places are neither two nor three"),
+        ("0.000668276", "decimal places are neither two nor three"),
+        ("1" * 14 + ".00", "integer run longer than the 13-digit bound"),
+        ("N/A", "no digits in the cell"),
+        ("no digits here", "no digits in the cell"),
+    ],
+)
+def test_read_money_reports_the_refusal_class_and_never_the_token(token, expected_class):
+    """W3 §MG-C2 D1 — the privacy seam.
+
+    This exception crosses an exception boundary: a repair-stage refusal
+    escapes `analyze_markdown`, and `webapp/worker.py` returns `str(exc)` as
+    the job error a user can see. The exception-boundary law is registry ids
+    and class names only, so the message may name the READER and the refusal
+    CLASS and must never echo the statement's own text — an account-number-
+    shaped run, a balance, or anything else the cell happened to hold.
+    """
+    with pytest.raises(ValueError) as excinfo:
+        m.read_money(token)
+    message = str(excinfo.value)
+    assert expected_class in message
+    assert "reader=parse_money" in message
+    assert token not in message
+    assert token.strip() not in message
+
+
+def test_the_refusal_message_leaks_nothing_from_an_account_shaped_token():
+    """The reviewer's own example, pinned: a long digit run must not survive
+    into the message in any form, whole or in fragments."""
+    token = "-$,123456789012345.99"
+    with pytest.raises(ValueError) as excinfo:
+        m.read_money(token)
+    message = str(excinfo.value)
+    assert "123456789012345" not in message
+    assert not any(run in message for run in ("1234", "2345", "99"))
+    assert message == (
+        "money grammar refused a printed token "
+        "(integer run longer than the 13-digit bound; reader=parse_money)"
+    )
 
 
 def test_read_money_uses_the_callers_own_reader():
@@ -1166,7 +1203,7 @@ def test_read_money_absence_short_circuits_before_the_reader_runs():
 
 
 def test_a_money_token_may_not_begin_part_way_through_a_reference_number():
-    """The left digit boundary, pinned because a sibling grammar lacked it.
+    r"""The left digit boundary, pinned because a sibling grammar lacked it.
 
     W3 §UNKNOWN-ISSUER hit this in a parser-local French grammar: with no
     left boundary, `…D77100000001337 150,00` matched from part-way inside the
