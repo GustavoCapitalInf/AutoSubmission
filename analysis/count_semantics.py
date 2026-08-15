@@ -181,9 +181,19 @@ class CountMapping:
         For the one rule that exists: +1 when the bank BILLED the excluded row,
         else 0 — `> 0`, not truthiness of a signed number, because
         `stated_service_charge` is documented as a POSITIVE magnitude
-        (`analysis/schema.py`) and a negative one would be a refund, a CREDIT
-        row, which adds nothing to the debit side. Fail-closed: anything that
-        is not a positive number adjusts by nothing.
+        (`analysis/schema.py`) and a negative one would be a refund. A refund
+        adds nothing to the DEBIT side under either mapped parser, and they
+        differ in how: `first_citizens` emits no row at all
+        (`_service_charge_posting` returns None on `charge <= 0`,
+        analysis/first_citizens.py:506-507), while `capital_one` reads its
+        detail rows and would record the refund in the column the document
+        printed it in. Fail-closed: anything that is not a positive number
+        adjusts by nothing.
+
+        The threshold is `> 0` and not `>= 0.01`, so a printed sub-cent charge
+        would adjust by one. Stated rather than guarded: no bank in the archive
+        prints one, and rounding money to the cent is the reader's job
+        (`analysis/reconcile.py` holds the tolerances), not this table's.
         """
         return _RULE_ADJUSTMENTS[self.rule](printed_evidence(source, self.printed_field))
 
@@ -418,7 +428,21 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
                 "`captured == printed` against an expected `printed + 1` and "
                 "FLAGS. That is the finding, not a false positive — the ledger "
                 "really is short a row the bank printed on the same page as the "
-                "figure it is being checked against."
+                "figure it is being checked against. "
+                "AND THE DISCRIMINATOR, because those two cases present the "
+                "IDENTICAL observable: a future layout that FOLDED the charge "
+                "into the printed `Checks/Debits` count would also read "
+                "`captured == printed` on a complete ledger, and this direction "
+                "would flag it. What separates the finding from the false "
+                "positive is the MONEY scope, which is measured per document "
+                "and not assumed: `_debit_coverage_target` "
+                "(analysis/reconcile.py:63-84) fires only where "
+                "`beginning + credits - printed debits` misses `ending` by the "
+                "charge — i.e. only where the charge is OUTSIDE the printed "
+                "total — and it fires on 12 of 12 today. A document that flags "
+                "here while that adjustment does NOT fire is a folded layout "
+                "and this entry is wrong about it; one that flags while it DOES "
+                "fire is a ledger missing a row."
             ),
         ),
     },
@@ -1139,7 +1163,7 @@ def expected_count(
     a flag population production does not emit.
 
     Returns `printed_count` unchanged for every parser without a mapping —
-    which is 30 of the 31 in the table and everything outside it — so this is
+    which is 29 of the 31 in the table and everything outside it — so this is
     an identity for all of them and nothing about their comparison moved when
     the field arrived.
 

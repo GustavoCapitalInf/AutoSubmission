@@ -21354,10 +21354,22 @@ for everything outside it, which is what
 `test_expected_count_is_the_identity_wherever_there_is_no_mapping` says out
 loud rather than leaving to the absence of a failing test.
 
-**`> 0`, not truthiness.** `stated_service_charge` is documented as a
-POSITIVE magnitude; a negative reading would be a refund, which is a CREDIT
-row and adds nothing to the debit side. Zero, `None`, a string, a bool and a
-negative all adjust by nothing — fail-closed in every direction.
+**`> 0`, not truthiness.** `stated_service_charge` is documented as a POSITIVE
+magnitude; a negative reading would be a refund, and a refund is never a DEBIT
+row under either mapped parser — `first_citizens` emits **no row at all**
+(`_service_charge_posting` returns None on `charge <= 0`,
+`analysis/first_citizens.py:506-507`), and `capital_one` reads its detail rows
+and would record the refund in the column the document printed it in. (The
+first draft of both the entry and this paragraph said "a CREDIT row", which is
+true of at most one of the two and false of the one whose parser declines to
+post it at all — review D4.) Zero, `None`, a string, a bool and a negative all
+adjust by nothing: fail-closed in every direction.
+
+**And the threshold is `> 0`, not `>= 0.01`** — a printed sub-cent charge
+would adjust by one. Stated rather than guarded, because no bank in the
+archive prints one and rounding money to the cent belongs to
+`analysis/reconcile.py`, which owns the tolerances, rather than to this table.
+Immaterial today; on the record so it is a known limit and not a discovery.
 
 ## CM2. Why the naive promotion is the wrong tool, in numbers already measured
 
@@ -21543,15 +21555,21 @@ the defect BOFA-COUNTS was spent removing. The cost is two keys on every
 payload's reconciliation block, and the precedent is COUNTS-P2, which added
 four.
 
-**The pipeline change is three lines and closes a drift hazard rather than
-opening one.** `reconcile` APPLIES a table row's mapping and
-`assess_document_integrity` decides whether the result may be flagged; two
-copies of "which parser claimed this" could send them to different rows —
-applying capital_one's adjustment and judging it under nobody's semantics, or
-the reverse. Both now come from `count_semantics.claiming_parser_id`, and
-`test_the_reconciler_and_the_flag_gate_key_on_the_same_claim` asserts that
-the pipeline derives both keys from it and that every `reconcile(` call site
-names one.
+**The pipeline change is three lines, and the drift hazard it closes is one
+this cell CREATED.** Stated as what it is rather than as a free win: before
+this cell `reconcile` had no parser key at all, so there was nothing to drift.
+Keying it is what makes two derivations of "which parser claimed this"
+possible — `reconcile` now APPLIES a table row's mapping and
+`assess_document_integrity` decides whether the result may be flagged, and two
+copies of that expression could send them to different rows (applying
+capital_one's adjustment and judging it under nobody's semantics, or the
+reverse). Single-sourcing the key through
+`count_semantics.claiming_parser_id` closes the hazard the same commit opened,
+which is a good outcome and not a virtue. What makes it stay closed is the
+test, not the intention:
+`test_the_reconciler_and_the_flag_gate_key_on_the_same_claim` asserts that the
+pipeline derives BOTH keys from that one function and that every `reconcile(`
+call site names one.
 
 **The observer applies the same function.** `OBSERVER_VERSION` 3 → 4, its
 contract being "bumped when the vocabulary, the evaluation order or the
@@ -21560,6 +21578,19 @@ same legibility reason as the payload; and the sign-keyed counterfactual now
 runs against `expected` rather than `stated`, because that counterfactual
 changes ONE thing — the key the captured side is counted on — and must not
 silently change the expected side too.
+
+**What a v4 rollup will actually print, which is not 57** (review D2). The
+version note says 57 documents leave `semantics_incomparable` for `match`, and
+that is the population WITH PARSER IDENTITY AVAILABLE — the number this cell
+measured, using the dispatch replay. The SHIPPED runner reads `parser_id` off
+`rows.csv`, so on a bare pre-projection run it reports **52**: the
+analysis-cache-hit hole leaves the column empty on 4 billed `capital_one` and
+1 `first_citizens` document, and an unknown parser is `unsurveyed_parser`,
+never compared. The gap closes when DISCOVERY-OBS's projection lands in the
+same train. Until then the instrument under-reports and **fails closed**,
+which is the right direction for it to be wrong in, and the version note now
+carries both numbers so a reader diffing two rollups is not left to discover
+the difference.
 
 ## CM6. The constructed genuine mismatch — and what it says about the field
 
@@ -21870,4 +21901,69 @@ cache.
 | `38ec73b` | self-review: `RULES` derived from the arithmetic; the money-scope claim measured and corrected in both entries; the refund falsifier given its control |
 | `819bc40` | citation line numbers corrected in both entries (prose only) |
 | `7377c5f` | both mapped entries state that they are not restating an acceptance gate, and the falsifier test enumerates the mapped set |
-| (this one) | §COUNTSMAP — the measurement, the design argument and the proofs |
+| `3411af2` | §COUNTSMAP — the measurement, the design argument and the proofs |
+| (this one) | adversarial-review closures D1–D4 and the framing correction |
+
+## CM13. Adversarial review — the closures
+
+Verdict: **SHIP**, with the pipeline exception ACCEPTED — the review proved
+the alternatives worse and the `by_bank_label` hazard live. D5, the
+`ANALYSIS_STAGE_VERSION` bump, is Ocean's at the train as planned. The other
+four findings and the framing correction are all documentation-grade, and all
+are closed; none moved a line of executable code, so the proof floor of CM10
+stands unchanged and the two owned test files plus the guards were re-run over
+the closures.
+
+**D1 — an off-by-one in the module's own prose.** `expected_count`'s docstring
+said the mapping is the identity for "30 of the 31" parsers in the table. It
+is 29 of 31: two are mapped. This log had it right and the module did not,
+which is the wrong way round for a table whose whole value is that a reviewer
+can read it. Corrected.
+
+**D2 — "57 documents" is the number this CELL can see, not the number the
+runner prints.** The `OBSERVER_VERSION = 4` note forecast the v3 → v4
+population shift as 57 documents leaving `semantics_incomparable`. That is the
+identity-complete figure, obtained here by replaying dispatch; the shipped
+runner reads `parser_id` off `rows.csv` and reports **52**, because the
+analysis-cache-hit hole hides 4 billed `capital_one` and 1 `first_citizens`.
+A forecast that no run can reproduce is a forecast that will be read as a bug
+in the runner. The note now carries both numbers, names DISCOVERY-OBS's
+projection as what closes the gap, and says which way the instrument is wrong:
+an unknown parser is never compared, so it under-reports and fails CLOSED.
+
+**D3 — the falsifier named the hazard and not the discriminator. The one that
+matters.** The `capital_one:debit` entry already disclosed that a billed cycle
+whose charge row was never recorded reads `captured == printed` and flags, and
+argued that this is a finding rather than a false positive. What it did not
+say is that a FUTURE LAYOUT FOLDING THE CHARGE INTO THE PRINTED COUNT presents
+the **identical observable** — same equality, same flag, complete ledger — so
+the entry as written gave a reader no way to tell its true positive from its
+false one.
+
+The discriminator is measured and this cell had already measured it: the MONEY
+scope. `_debit_coverage_target` (`analysis/reconcile.py:63-84`) fires only
+where `beginning + credits - printed debits` misses `ending` by the charge —
+only where the charge is OUTSIDE the printed total — and it fires on 12 of 12
+today. So: **flag + that adjustment firing = a ledger missing a row; flag +
+that adjustment silent = a folded layout, and this entry is wrong about the
+document.** Written into the entry, where the next person to see the flag will
+be reading.
+
+**D4 — "a refund is a CREDIT row" is true of at most one of the two parsers.**
+`_service_charge_posting` returns None on `charge <= 0`
+(`analysis/first_citizens.py:506-507`), so first_citizens emits **no row at
+all** for a refund; only `capital_one`, which reads detail rows, would post one
+— in whichever column the document printed it. The conclusion the sentence was
+supporting is unchanged (the DEBIT side gains nothing either way) and the
+sentence is now accurate about how. Recorded with it, since the same paragraph
+is where a reader checks the arithmetic: the test is `> 0`, not `>= 0.01`, so a
+printed sub-cent charge would adjust by one — immaterial, no bank in the
+archive prints one, and stated rather than guarded because the money
+tolerances belong to `analysis/reconcile.py`.
+
+**FRAMING — "closes a drift hazard rather than opening one" was self-serving.**
+Before this cell `reconcile` had no parser key, so there was no key to drift.
+Keying it is what creates the possibility of two derivations disagreeing;
+single-sourcing through `claiming_parser_id` closes the hazard the same commit
+opened. That is a good outcome and it is not a virtue, and CM5 now says so.
+The property survives on the test that asserts it, not on the intention.

@@ -150,7 +150,15 @@ from analysis.count_semantics import (  # noqa: F401
 #:     order are untouched, and so is every other entry. TWO things move
 #:     between a v3 and a v4 rollup. (1) 57 documents across the two families
 #:     report `match` on the debit direction where v3 reported
-#:     `semantics_incomparable`; none reports `mismatch`. (2) The comparison
+#:     `semantics_incomparable`; none reports `mismatch`. That 57 is the
+#:     population WITH PARSER IDENTITY AVAILABLE (the DISCOVERY-OBS projection,
+#:     merging in the same train, supplies it); this runner reads `parser_id`
+#:     off `rows.csv`, so on a bare pre-projection run it reports 52 — the
+#:     other 5 (4 billed `capital_one`, 1 `first_citizens`) are hidden by the
+#:     documented analysis-cache-hit hole, which leaves the column EMPTY and
+#:     therefore reports them `unsurveyed_parser`. The difference fails
+#:     CLOSED: a document whose parser is unknown is never compared. (2) The
+#:     comparison
 #:     itself now runs through `expected_count`, the same function
 #:     `analysis/reconcile.py` uses, so `stated` and `captured` can legitimately
 #:     differ on a `match` — `expected` is the field that says by how much, and
