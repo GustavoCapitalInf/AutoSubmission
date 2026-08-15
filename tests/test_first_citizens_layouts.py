@@ -453,3 +453,78 @@ def test_the_report_is_not_mistaken_for_statement_text():
     assert stmt.stated_total_credits == 500.00 + 1000.00
     assert stmt.stated_total_debits == 250.00 + 750.00
     assert len(stmt.transactions) == 7
+
+
+def test_the_report_is_cut_out_before_any_reader_scans_the_document():
+    """Every row repeats the heading it was printed under.
+
+    `_section_blocks` splits the document on those headings and
+    `_service_charge_posting` scans it for a charge itemisation, so a report
+    left in place would be a SECOND printing of `Other Debits From Your
+    Account` — five of them here — inside the text both of them read. The
+    report is removed at the parse seam, so the document those readers see is
+    the document, and this asserts the property rather than the symptom.
+    """
+    from analysis.first_citizens import _OTHER_DEBITS, _report, _section_blocks
+
+    with_report = flattened(rows=REPORTED)
+    assert with_report.count("Other Debits From Your Account") == 4
+    reported, document = _report(with_report)
+    assert len(reported) == 5
+    assert document == flattened()
+    assert document.count("Other Debits From Your Account") == 1
+    assert len(_section_blocks(document, _OTHER_DEBITS)) == len(
+        _section_blocks(flattened(), _OTHER_DEBITS)
+    ) == 1
+
+
+def test_a_malformed_report_is_still_cut_out():
+    reported, document = _report_of(flattened(rows=REPORTED.replace("FC_TX|", "X|")))
+    assert reported == []
+    assert document == flattened()
+
+
+def _report_of(markdown):
+    from analysis.first_citizens import _report
+
+    return _report(markdown)
+
+
+def test_a_recovered_description_cannot_redate_the_billed_service_charge():
+    """A merchant memo ending in `Service Charge` is text, not an itemisation.
+
+    `_service_charge_posting` looks for the charge's own printed table, and one
+    of its two patterns is `<Word> Service Charge` at end of line. A row report
+    scanned as document text could offer that shape with a different date
+    beside it, and the charge would be dated by a merchant name.
+    """
+    billed = flattened().replace(
+        "+ 1 + 2 500.00+ 1 250.00- 3 750.00- 0.00", "+ 1 + 2 500.00+ 1 250.00- 3 750.00- 5.00-"
+    )
+    billed = billed.replace("Ending  Balance", "Ending  Balance", 1)
+    billed = billed.replace("\n1,500.00\n", "\n1,495.00\n").replace(
+        "Checking Balance\n+\n1,500.00", "Checking Balance\n+\n1,495.00"
+    )
+    billed = billed.replace(
+        "Daily Balance Summary",
+        "April Service Charge\n04-30 5.00\nDaily Balance Summary",
+    )
+    honest = parse_first_citizens_statement(billed)
+    assert honest is not None
+    charge = [t for t in honest.transactions if t.description == "Monthly Service Charge"]
+    assert len(charge) == 1 and charge[0].date == "2026-04-30" and charge[0].amount == -5.00
+
+    trap = "\n".join(
+        [
+            REPORTED,
+            "FC_TX|Other Debits From Your Account|04-01|1.00|Acme April Service Charge",
+        ]
+    )
+    with_trap = billed.replace(
+        "Daily Balance Summary",
+        "FC_NATIVE_TRANSACTIONS\n" + trap + "\nFC_NATIVE_TRANSACTIONS_END\nDaily Balance Summary",
+    )
+    trapped = parse_first_citizens_statement(with_trap)
+    assert trapped is not None
+    charge = [t for t in trapped.transactions if t.description == "Monthly Service Charge"]
+    assert len(charge) == 1 and charge[0].date == "2026-04-30" and charge[0].amount == -5.00

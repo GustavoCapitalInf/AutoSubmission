@@ -534,32 +534,46 @@ def _service_charge_posting(
 
 #: The layout extractor's report, delimited so a document that never went
 #: through it is simply a document with no rows (`ocr/native_text.py`).
+#: The leading `\n?` is not cosmetic: it makes the excision exact, so the
+#: document a reader below sees is the document it would have seen had the
+#: intake never reported anything.
 _ROWS_RE = re.compile(
-    r"^FC_NATIVE_TRANSACTIONS$(?P<body>.*?)^FC_NATIVE_TRANSACTIONS_END$",
+    r"\n?^FC_NATIVE_TRANSACTIONS$(?P<body>.*?)^FC_NATIVE_TRANSACTIONS_END$",
     re.MULTILINE | re.DOTALL,
 )
 
 
-def _printed_rows(markdown: str) -> list[tuple[str, str, str, str]]:
-    """`(section, MM-DD, amount, description)` for every row the intake reported.
+def _report(markdown: str) -> tuple[list[tuple[str, str, str, str]], str]:
+    """The intake's rows, and the document with the report REMOVED.
 
-    A malformed block yields nothing at all rather than a partial reading: the
-    overlay is keyed on the rows reproducing a whole section, so half a report
-    would fail that check anyway, and failing it here is cheaper and louder.
+    Removed, not merely ignored. Every row repeats the section heading it was
+    printed under, so a report left in place is a second printing of
+    `Other Debits From Your Account` inside the text that `_section_blocks`
+    splits on and `_service_charge_posting` scans. Cutting it out at this one
+    seam is a property of the module; asking each reader to skip it would be a
+    promise renewed at every future edit.
+
+    A malformed block yields no rows rather than a partial reading — the
+    overlay is keyed on reproducing a whole section, so half a report fails
+    that check anyway, and failing here is cheaper and louder. The report is
+    still cut out: it is not statement text whether or not it parses.
+
+    Rows: `(section, MM-DD, amount, description)`.
     """
     match = _ROWS_RE.search(markdown)
     if match is None:
-        return []
+        return [], markdown
+    printed = markdown[: match.start()] + markdown[match.end():]
     rows: list[tuple[str, str, str, str]] = []
     for line in _lines(match.group("body")):
         fields = line.split("|", 4)
         if len(fields) != 5 or fields[0] != "FC_TX":
-            return []
+            return [], printed
         _prefix, section, mmdd, amount, description = fields
         if _MMDD_RE.fullmatch(mmdd) is None or _MONEY_RE.fullmatch(amount) is None:
-            return []
+            return [], printed
         rows.append((section, mmdd, amount, description))
-    return rows
+    return rows, printed
 
 
 def _described(
@@ -640,6 +654,11 @@ def parse_first_citizens_statement(markdown: str) -> Statement | None:
     if not detect(markdown).claims:
         return None
 
+    # Detection has run on exactly the bytes dispatch scored. From here down
+    # `markdown` is the DOCUMENT: the intake's row report is evidence about the
+    # statement, not part of it, and nothing below can read it as printing.
+    reported, markdown = _report(markdown)
+
     period = _parse_period(markdown)
     account = _account(markdown)
     summary = _summary(markdown)
@@ -673,13 +692,12 @@ def parse_first_citizens_statement(markdown: str) -> Statement | None:
     # are the printed descriptions laid over the two sections that have one.
     # This changes text and nothing else: same dates, same amounts, same counts,
     # same balances, and the gate above has already run either way.
-    rows = _printed_rows(markdown)
-    if rows:
+    if reported:
         other_credits = _described(
-            other_credits, rows, _OTHER_CREDITS, start=start, end=end
+            other_credits, reported, _OTHER_CREDITS, start=start, end=end
         )
         other_debits = _described(
-            other_debits, rows, _OTHER_DEBITS, start=start, end=end
+            other_debits, reported, _OTHER_DEBITS, start=start, end=end
         )
 
     # The service charge is billed outside the four section totals, so it is
