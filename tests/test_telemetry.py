@@ -373,6 +373,30 @@ def test_a_collector_from_another_document_is_ignored():
     assert score_vector(claimed_markdown(), foreign) == score_vector(claimed_markdown())
 
 
+def test_a_str_subclass_cannot_talk_its_way_into_another_documents_preparation():
+    """The `Sticky` hazard `PreparedDocument.text_for` documents, one level out.
+
+    A `str` subclass that compares equal to everything would pass a naive
+    guard and be handed a foreign document's prepared texts — a near-miss
+    vector describing the wrong document. It cannot: both sides of the
+    comparison are values `admissible_text` returned, and `re.sub` produces an
+    exact `str` whatever it was given.
+    """
+    from analysis.parser_registry import prepare, resolve
+
+    class Sticky(str):
+        def __eq__(self, other):
+            return True
+
+        def __hash__(self):
+            return 0
+
+    foreign = DispatchCollector()
+    foreign(resolve(prepare("<!-- SOURCE: x.pdf -->\nnothing any parser here has heard of")))
+
+    assert score_vector(Sticky(claimed_markdown()), foreign) == score_vector(claimed_markdown())
+
+
 def test_a_collector_that_never_saw_a_dispatch_is_ignored():
     """The D-3 analysis cache hit: nothing dispatched, so nothing to reuse."""
     assert score_vector(claimed_markdown(), DispatchCollector()) == score_vector(

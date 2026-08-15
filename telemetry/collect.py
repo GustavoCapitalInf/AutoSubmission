@@ -140,11 +140,20 @@ def score_vector(
     prepared = collector.prepared if collector is not None else None
     if prepared is not None:
         admissible = getattr(prepared, "admissible", None)
-        # `is` first: the pipeline hands `resolve` a document prepared from
-        # this very string, so the fast path is the production path. The
-        # equality is what makes the guard sound rather than merely quick —
-        # and it costs one `admissible_text`, which is one preparation
-        # against the thirty-three it decides whether to skip.
+        # The identity check is an early-out for a caller that hands over the
+        # admissible text itself; it does NOT fire on the production path,
+        # because `re.sub` allocates even when it substitutes nothing, so a
+        # preparation's admissible text is never the caller's own string
+        # object. The production path therefore pays the `admissible_text`
+        # below — one preparation, against the thirty-four the guard decides
+        # whether to skip, and the price of the vector describing this
+        # document rather than whichever one the collector last saw.
+        #
+        # Both sides of that `==` are values `admissible_text` returned, i.e.
+        # exact `str`s whatever the caller handed in, so a `str` subclass
+        # carrying its own `__eq__` cannot talk its way into another
+        # document's preparation — the hazard `PreparedDocument.text_for`
+        # documents, one level out.
         if admissible is markdown or admissible == admissible_text(markdown):
             document = prepared
 
