@@ -28,8 +28,10 @@ this layout prints no opening row inside the grid.
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, timedelta
 
+from .adb import compute_average_daily_balance
+from .dates import parse_date
 from .money import parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -86,6 +88,20 @@ _ACCOUNT_SUMMARY_RE = re.compile(
     r"Average\s+Balance\s*\$?\s*(%s)" % _MONEY, re.IGNORECASE
 )
 _DAYS_RE = re.compile(r"Number\s+of\s+Days\s+in\s+Cycle\s+(\d+)", re.IGNORECASE)
+
+#: The `Daily Closing Balance Summary` block. It prints one dated balance per
+#: day the account had activity — and on a mid-cycle account opening it prints
+#: the OPENING day, which the statement's own printed period excludes. Read as
+#: evidence only: the table is PARTIAL on most documents in this family, so it
+#: is deliberately never published as `stated_daily_balances` (§UNID-A UA2).
+_DAILY_SUMMARY_RE = re.compile(
+    r"Daily\s+Closing\s+Balance\s+Summary(?P<body>.*?)"
+    r"(?=ACCOUNT\s+RECONCILIATION|Account\s+Item\s+Images|\Z)",
+    re.IGNORECASE | re.DOTALL,
+)
+#: One row of that table: a date and the day's closing balance. Unlike the
+#: posting grid this table prints ONE money cell per date.
+_DAILY_ROW_RE = re.compile(r"(?<![\d-])(\d{2})-(\d{2})\s+(%s)(?![\d.,])" % _MONEY)
 
 _BANK_RE = re.compile(r"WOODFOREST", re.IGNORECASE)
 
@@ -350,3 +366,150 @@ def parse_woodforest_statement(markdown: str, base: Statement | None = None) -> 
         for row in rows
     ]
     return stmt
+
+
+def _daily_closing_balances(
+    markdown: str, *, start: date, end: date
+) -> dict[str, float]:
+    """Every dated balance the `Daily Closing Balance Summary` prints.
+
+    The grid prints no year, so each date is resolved the same way a posting
+    row's is — against the period the statement states, nearest-wins.
+    """
+    flat = re.sub(r"\s+", " ", markdown)
+    found: dict[str, float] = {}
+    for block in _DAILY_SUMMARY_RE.finditer(flat):
+        for row in _DAILY_ROW_RE.finditer(block.group("body")):
+            posted = _row_date(
+                int(row.group(1)), int(row.group(2)), start=start, end=end
+            )
+            balance = _money(row.group(3))
+            if posted is not None and balance is not None:
+                found[posted] = balance
+    return found
+
+
+def initialization_postings(markdown: str, stmt: Statement) -> list[Transaction]:
+    """The account-opening postings this document PROVES, or an empty list.
+
+    An account opened mid-cycle can have its funding deposit posted the day
+    BEFORE the period the statement prints, while the bank still counts it in
+    its own printed totals and prints a closing balance for that day. Such a
+    posting is not period activity — it is what the period's first day opens
+    WITH — and the platform's ADB engine, which requires every transaction to
+    fall inside the period, refuses the document today.
+
+    This function is the EVIDENCE half of the narrow exception. It answers one
+    question and publishes nothing: does the document itself prove, in print,
+    that its out-of-period rows opened the account? Every condition below must
+    hold; any one of them failing returns an empty list and the document stays
+    withheld. It is deliberately not a rule about out-of-period transactions in
+    general, and there is no threshold, tolerance or per-document constant in
+    it — each condition is an identity the document either satisfies exactly or
+    does not.
+
+    G1  The bank prints `BALANCE FORWARD` of zero: the account carried nothing
+        into the period, which is what an account that did not yet exist does.
+    G2  Every out-of-period posting is dated the day IMMEDIATELY before the
+        printed period, and no posting is dated after it. A row two days early,
+        or any row after the period end, is not an opening and refuses here.
+    G3  Those postings are the LEADING rows of the grid and their walk from
+        `BALANCE FORWARD` reproduces each printed running balance exactly, so
+        the account's balance history begins with them and nothing else.
+    G4  They are REQUIRED: the whole printed ledger closes on the printed
+        closing balance WITH them, and does not close without them.
+    G5  The bank's own `Daily Closing Balance Summary` prints a balance for
+        that day equal to the last opening posting's printed balance — the
+        bank's independent statement that the day belongs to this account's
+        balance history.
+    G6  `Number of Days in Cycle` equals the printed period's calendar length,
+        so the period this evidence is measured against is the one the bank
+        printed and was read correctly.
+    G7  The bank's own printed `Average Balance` is reproduced EXACTLY, to the
+        cent, by the platform's own daily-balance engine run over the window
+        that starts on the opening day — and that run reconciles the full
+        ledger. This is the strongest of the seven and the least forgeable: it
+        is an independent printed figure that the parser did not use to build
+        the ledger, and it moves if either the opening posting's DATE or its
+        AMOUNT is wrong. Measured over the whole family, the two account
+        openings reproduce it with a residual of exactly 0.00 while every
+        ongoing statement in the family misses its own printed average by
+        0.38–0.50 (the collected-funds convention `adb.py` already warns
+        about) — so this identity is not something Woodforest statements
+        satisfy by accident.
+
+    The window in G7 is EVIDENCE ONLY. Nothing here widens the statement
+    period, moves a row to a boundary day, or changes what the ADB is computed
+    over: the consumer of this list folds the postings into the opening balance
+    so the published ADB basis stays exactly the printed period.
+
+    Deliberately NOT wired into `parse_woodforest_statement`. Consuming it
+    requires the ADB engine to accept the folded opening, and `analysis/adb.py`
+    is protected (MASTER_PLAN §4) — that half is Ocean's ruling to make. Until
+    it does, the two documents this proves stay withheld, which is the
+    fail-closed default the ruling asks for.
+    """
+    start = parse_date(stmt.period_start)
+    end = parse_date(stmt.period_end)
+    if start is None or end is None:
+        return []
+
+    dated = [(parse_date(txn.date), txn) for txn in stmt.transactions]
+    if any(day is None for day, _ in dated):
+        return []
+    before = [txn for day, txn in dated if day < start]
+    after = [txn for day, txn in dated if day > end]
+    if not before or after:
+        return []
+
+    # G2 — immediately before the printed activity period.
+    opening_day = start - timedelta(days=1)
+    if any(parse_date(txn.date) != opening_day for txn in before):
+        return []
+
+    # G3 — the leading rows, walking from the printed BALANCE FORWARD.
+    if stmt.transactions[: len(before)] != before:
+        return []
+    if stmt.beginning_balance is None or stmt.ending_balance is None:
+        return []
+    # G1 — nothing was carried into the period.
+    if round(stmt.beginning_balance, 2) != 0:
+        return []
+    carry = round(stmt.beginning_balance, 2)
+    for txn in before:
+        carry = round(carry + txn.amount, 2)
+        if txn.running_balance is None or round(txn.running_balance, 2) != carry:
+            return []
+
+    # G4 — required: the ledger closes with them and not without them.
+    inside = round(
+        sum(txn.amount for day, txn in dated if start <= day <= end), 2
+    )
+    closing = round(stmt.ending_balance, 2)
+    if round(carry + inside, 2) != closing:
+        return []
+    if round(stmt.beginning_balance + inside, 2) == closing:
+        return []
+
+    # G5 — the bank prints that day in its own daily balance history.
+    printed = _daily_closing_balances(markdown, start=start, end=end)
+    if printed.get(opening_day.isoformat()) != carry:
+        return []
+
+    # G6 — the printed cycle length is the printed period.
+    if stmt.days_in_period != (end - start).days + 1:
+        return []
+
+    # G7 — the bank's own printed average, reproduced exactly over the
+    # opening-extended window by the platform's own engine. The probe is a
+    # throwaway copy; `stmt` is not touched and nothing computed here is
+    # published.
+    probe = stmt.model_copy(deep=True)
+    probe.period_start = opening_day.isoformat()
+    probed = compute_average_daily_balance(probe)
+    if not probed.ok:
+        return []
+    if not probed.validations.get("agrees_with_bank_stated_average"):
+        return []
+
+    return before
