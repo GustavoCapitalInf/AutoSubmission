@@ -94,6 +94,7 @@ from typing import Any
 #: the row in, never the sign of the amount.
 DIRECTIONS = ("credit", "debit")
 
+
 def _plus_one_when_billed(value: float | None) -> int:
     """The bank prints a count for one named subset of the direction and bills
     ONE further row of that direction on its own printed line, outside the
@@ -334,7 +335,7 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
             reason=(
                 "PROMOTED to comparable WITH A MAPPING. The printed summary is "
                 "a LIST of lines — 'N Checks/Debits ($x)' AND a separate "
-                "'Service Charges ($y)' (analysis/capital_one.py:81-108 native, "
+                "'Service Charges ($y)' (analysis/capital_one.py:79-113 native, "
                 ":337-343 grid). The service charge is its own printed line "
                 "with no count, and the parser records it as a debit ROW, so "
                 "the printed debit count enumerates a strict subset of the "
@@ -343,7 +344,7 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
                 "charge`. "
                 "THE PLATFORM ALREADY MAPS THIS BANK'S DEBIT TOTAL THE SAME "
                 "WAY, which is the precedent and was also the correction. "
-                "`_debit_coverage_target` (analysis/reconcile.py:53-74) adds "
+                "`_debit_coverage_target` (analysis/reconcile.py:63-84) adds "
                 "`stated_service_charge` back to the printed debit TOTAL "
                 "whenever the summary's own arithmetic says the charge sits "
                 "outside it — the money analogue of this mapping, keyed on the "
@@ -632,7 +633,7 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
                 "was RECOVERED AS A POSTING`, because `_service_charge_posting` "
                 "returns nothing when the itemisation cannot be located (:532; "
                 "the module docstring names it as the one path that can still "
-                "fail reconciliation, :20-28), so a charged document whose "
+                "fail reconciliation, :24-28), so a charged document whose "
                 "charge was not found is +0. That clause is DELIBERATELY "
                 "ABSENT: 'was it recovered as a posting' is a fact about OUR "
                 "ROWS, and an expected side that reads the captured side lets "
