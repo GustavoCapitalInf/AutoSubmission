@@ -14731,7 +14731,7 @@ registrations on every document, digest
 arms. The 13 documents with no offline text are the deferred visual-OCR set;
 there is no text to sweep and they are excluded rather than assumed.
 
-`analysis/parser_registry_entries.py` and all 58 parser modules carry a
+`analysis/parser_registry_entries.py` and all 59 parser modules carry a
 **zero-line diff**. `ANALYSIS_STAGE_VERSION` is deliberately NOT bumped —
 nothing published changes, and the bump is Ocean's at merge in any case.
 
@@ -14793,6 +14793,27 @@ exact rather than approximate:
    normalizations happen to agree on *this* document hold the same string —
    and a marker they also share is then evaluated once. Worth 8.5 ms of a
    157 ms sweep.
+
+**Interning trusts the value a normalizer returns, and that trust is now
+guarded rather than assumed** (review finding, `text_for`). Two things go
+wrong if the return is not an exact `str`. An unhashable one cannot be a dict
+key, so the intern raises where the base merely handed the object to the
+markers — fail-closed, but a `ParserFailure` that did not exist before, on a
+registration that used to score. A `str` subclass carrying its own
+`__eq__`/`__hash__` can compare equal to another normalizer's text, and
+`setdefault` then hands this registration a *different* string to run its
+markers over — silent. `type(produced) is str` is the guard: anything else
+takes the base path, run per call and never interned, and the marker memo
+carries the same guard one level on because it keys on the text too. The
+purity contract this rests on is now written on `text_for` itself rather than
+left to the module docstring. That is the fallback; the assertion that no
+registered normalizer ever needs it is
+`test_each_registrations_normalization_returns_an_exact_str`, which runs the
+36 normalizations over five probe documents. It lives in the registry test and
+not in `validate_registry` deliberately: the check needs a document to run on,
+and `validate_registry` runs at import — putting every parser's normalization
+on the import path of `analysis` to satisfy a type contract is the worse
+trade.
 
 Nothing here decides a registration cannot claim. Every registration still
 runs every one of its markers over exactly the text it ran them over before,
@@ -14866,12 +14887,32 @@ The replacement keeps the constant and states three things:
 |---|---|---|
 | `test_the_detect_sweep_prepares_each_document_once` | every pinned document costs exactly `1 + (distinct normalizers)` text preparations — 33 today | **operations. Deterministic; a busy machine and a quiet one cannot read it differently.** |
 | `test_the_sweep_entry_points_strip_the_filename_comment_once` | `_surviving_claimants` and `detection_report` — the two real entry points — strip the filename comment once per document, not once per registration | operations |
-| `test_detect_sweep_stays_affordable_for_the_discovery_run` | the **best of five** sweeps of the worst pinned document, through the production seam, **projected to 80 registrations**, is under **250 ms** | wall clock, absolute ceiling, load-robust estimator |
+| `test_detect_sweep_stays_affordable_for_the_discovery_run` | **every** pinned document read as the best of five sweeps through the production seam; the worst of those, **projected to 80 registrations**, is under **250 ms** | wall clock, absolute ceiling, load-robust estimator |
 
 The projection is what turns "the budget holds today" into "the budget holds at
 the size the coverage wave is heading for". At 68 registrations it requires the
 sweep to come in under 212.5 ms, which is **stricter than the 250 ms the
 shipped test asked for.**
+
+**It is a floor on the cost at 80, not a bound, and the record should not read
+otherwise.** `worst × 80/68` scales by the mean cost of today's registrations,
+and that mean is diluted by the 32 that have no normalization at all. Review
+measured projection ÷ actual at **1.00** for a growth shape resembling today's
+mix and **0.79** for one where every new registration brings its own
+normalizer — so the real cost at 80 can exceed the projection by a quarter.
+The projection earns its place by being harsher than asserting at 68 and
+honest about direction; it does not predict. Note also what the first clause
+does and does not cover: it is the **exact** guard for the quadratic class
+this cell removed — per-registration preparation cannot come back without
+turning it red — while other superlinear shapes (a marker whose cost grows
+with the registry, say) are caught by neither clause. Carried in DT9.
+
+Selection is done the same way as the reading, for the same reason. The first
+revision picked the worst document from a single sample and only then applied
+best-of-five to it; review measured that selection finding the true worst
+**0 times in 7** and understating the reading by up to **44%**, because a
+document that draws one unlucky sample wins a selection it should not and then
+has that very sample discarded. Both are now the minimum of five.
 
 Be precise about what is red where, because it matters for reading the next
 red. The wall-clock clause is red on base **under load** (267.7 ms → projects
@@ -14927,6 +14968,24 @@ under the ceiling in the worst regime measured, and 4.2× in the best.
 The gap between the two regimes is the whole argument for the estimator: the
 same quantity has been read anywhere from 50 ms to 310 ms on this machine
 depending on nothing but what else was running.
+
+And the shipped assertion's own computation, run on both arms after the
+selection pass was corrected — min-of-five for **every** pinned document, the
+worst of those, projected to 80 — twice each, alternating, on a quiet machine:
+
+```
+base    worst=  87.4 ms  Others/Altana/Altana june 26.pdf   projected@80= 102.8 ms  PASS
+branch  worst=  50.5 ms  Others/Altana/Altana june 26.pdf   projected@80=  59.4 ms  PASS
+base    worst=  89.8 ms  BofA/eStmt_2026-03-31 (3) (1).pdf  projected@80= 105.7 ms  PASS
+branch  worst=  51.1 ms  Others/Altana/Altana june 26.pdf   projected@80=  60.1 ms  PASS
+```
+
+Two things worth keeping. The branch picks the same document both times — the
+largest one, which is what a correct selection should pick — while the base
+wobbles between two of near-equal cost, which is the noise the old
+single-sample selection used to amplify into a 44% understatement. And both
+arms PASS quiet, which is the DT5 point restated: the wall-clock clause is not
+the one that carries the red on base.
 
 ## DT7. The equivalence proof
 
@@ -14989,21 +15048,23 @@ their own `ParserFailure`.
 
 ## DT8. Proofs
 
-All at `5e82e18`, on a machine still running other cells.
+All re-run at HEAD after the review closures (the `:296` guard, the corrected
+selection pass, the conformance assertion).
 
 ```
 $ python -m pytest -q
-3775 passed, 20 deselected, 1 warning in 212.16s (0:03:32)
+3813 passed, 32 skipped, 20 deselected, 1 warning in 101.16s (0:01:41)
 EXIT=0
 
 $ python -m pytest -m corpus -q
-16 passed, 3779 deselected, 1 warning in 1304.60s (0:21:44)
+16 passed, 3849 deselected, 1 warning in 689.58s (0:11:29)
 EXIT=0
 
 $ python corpus_gate.py
 Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
 Outcomes: 106 PASS / 3 WITHHELD
-Runtime:  534.6s
+Runtime:  244.1s
 RESULT: GREEN
 EXIT=0
 
@@ -15011,16 +15072,35 @@ $ python -m pytest tests/test_parser_conformance.py tests/test_parser_registry.p
     tests/test_parser_registry_entries.py tests/test_parser_exception_boundary.py \
     tests/test_parser_crash_shapes.py tests/test_no_statement_hardcodes.py \
     tests/test_filename_boundary.py tests/test_pipeline_registry_dispatch.py -q
-1108 passed, 1 warning in 15.83s
+1146 passed, 32 skipped, 1 warning in 8.03s
+EXIT=0
+
+$ python -m pytest -m corpus -q \
+    "tests/test_parser_parity.py::test_the_detect_sweep_prepares_each_document_once" \
+    "tests/test_parser_parity.py::test_the_sweep_entry_points_strip_the_filename_comment_once" \
+    "tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run"
+3 passed, 1 warning in 35.99s
 EXIT=0
 ```
 
-Suite 3,769 → **3,775** (six new unit tests) and the corpus-marked slice
-14 → **16**. The corpus-marked slice is in this list because the gate is
-structurally blind to review↔validated movement inside its PASS bucket; it is
-also the only place the two new corpus assertions live.
+The last one is the three budget clauses alone: 36 s, of which the best-of-five
+selection pass over all 109 documents is about 24 s. That is the whole price of
+closure 2, against the 11.5 minutes the slice takes.
 
-### The eight new tests, by the job each does
+The equivalence sweeps (DT7, DT7.1) were run before the closures and were not
+re-run: the guard added since is unreachable on this registry — the
+conformance assertion proves all 36 normalizations return an exact `str`, so
+every document takes the interning path the sweeps measured, byte for byte.
+
+Suite 3,769 → **3,813 passed / 32 skipped** and the corpus-marked slice
+14 → **16**. The 32 skips are the new normalization-conformance test on the 32
+registrations that declare no normalization; it is parametrized over all 68 so
+that adding one cannot quietly escape the check. The corpus-marked slice is in
+this list because the gate is structurally blind to review↔validated movement
+inside its PASS bucket; it is also the only place the two new corpus
+assertions live.
+
+### The eleven new tests, by the job each does
 
 **The budget, restated (2, corpus-marked, `tests/test_parser_parity.py`).**
 
@@ -15029,7 +15109,10 @@ also the only place the two new corpus assertions live.
 | `test_the_detect_sweep_prepares_each_document_once` | 33 preparations per document, not 104. **Load-immune**; cannot run on base, which has no `PreparedDocument`. |
 | `test_the_sweep_entry_points_strip_the_filename_comment_once` | both real sweep entry points strip once. **Load-immune AND red on base** — 68 calls there, 1 here (DT5). |
 
-**The seam (6, `tests/test_parser_registry.py`).** All six run against a
+Review proved both load-bearing by mutation rather than taking the assertion's
+word for it.
+
+**The seam (8, `tests/test_parser_registry.py`).** All eight run against a
 synthetic registry, so they exercise the rule and not any bank's markers.
 
 | test | job |
@@ -15039,7 +15122,15 @@ synthetic registry, so they exercise the rule and not any bank's markers.
 | `test_a_prepared_sweep_detects_exactly_as_an_unprepared_one` | **the equivalence property at unit scale**, across a normalizer, no normalizer, and an excluding marker |
 | `test_a_marker_two_registrations_share_is_evaluated_once_per_text` | the memo fires, and only for the same text |
 | `test_a_marker_that_raises_is_not_memoized_and_still_reaches_the_guard` | **the W3-1 guard**: two consecutive `safe_detect` calls each record their own `ParserFailure`, so a crash is never cached as a result |
+| `test_an_unhashable_normalization_result_takes_the_base_path_not_a_crash` | **review finding, the fatal half**: red before the guard — the intern raised and it surfaced as a `ParserFailure` where the base scored |
+| `test_a_str_subclass_result_is_never_swapped_for_another_registrations_text` | **review finding, the silent half**: a `Sticky` subclass equal to everything would hand the second registration the first one's text; each keeps its own |
 | `test_preparing_a_document_never_mutates_it` | the document is untouched |
+
+**The conformance side (1, `tests/test_parser_registry_entries.py`).**
+
+| test | job |
+|---|---|
+| `test_each_registrations_normalization_returns_an_exact_str` | parametrized over all 68 registrations, 36 running and 32 skipping: no registered normalizer ever needs the fallback above. Not in `validate_registry`, because the check needs a document and `validate_registry` runs at import — see DT3 |
 
 ## DT9. Carried findings and questions for Ocean
 
@@ -15078,10 +15169,15 @@ synthetic registry, so they exercise the rule and not any bank's markers.
    share a normalized text; they do not today (`.upper()` vs
    `normalize_mojibake().upper()` vs CIBC's own). Wiring it platform-wide
    should be costed together with a shared normalizer.
-4. **The projection constant, `PLANNED_REGISTRATIONS = 80`.** Chosen from the
-   handoff's "headroom at 80+". It is the one new number in the test and it is
-   a policy statement about how big the registry is allowed to get before the
-   sweep has to be made cheaper again. Yours to set.
+4. **`PLANNED_REGISTRATIONS = 80` — ratified, and its limits recorded.** It is
+   a floor on the cost at 80, not a bound (DT5): review measured
+   projection ÷ actual at 1.00 and 0.79 for two growth shapes, the mean being
+   diluted by the 32 registrations with no normalization. **Superlinear growth
+   shapes other than the quadratic one this cell removed are caught by
+   neither clause** — the load-independent clause is exact for
+   per-registration preparation and silent about, say, a marker whose cost
+   grows with the registry. If the registry passes ~80, the honest move is to
+   re-measure rather than to trust the projection.
 5. **`test_detect_sweep_stays_affordable_for_the_discovery_run` is still a
    wall-clock test, and wall-clock tests still flake.** Best-of-5 through the
    production seam with a 40% margin is a very different proposition from one
@@ -15114,4 +15210,5 @@ synthetic registry, so they exercise the rule and not any bank's markers.
 |---|---|
 | `f1da551` | the `PreparedDocument` seam, the redesigned budget contract, six unit tests, DT0–DT9 |
 | `5e82e18` | the crash arm of the equivalence proof (Ocean's addendum) and the prescan finding |
-| (this one) | quiet-machine readings, the DT8 proof block at HEAD, section renumbered DT to clear the earlier §D |
+| `095901d` | quiet-machine readings, the DT8 proof block, section renumbered DT to clear the earlier §D |
+| (this one) | adversarial-review closures: the interning guard and its conformance assertion, the corrected selection pass, the projection stated as a floor |

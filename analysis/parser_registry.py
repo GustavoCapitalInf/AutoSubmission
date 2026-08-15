@@ -281,8 +281,22 @@ class PreparedDocument:
     def text_for(self, normalize: Callable[[str], str] | None) -> str:
         """The text `normalize` sees on this document, computed at most once.
 
-        An unhashable normalizer cannot be memoized and is simply run — the
-        registry has none, and a correctness seam must not depend on that.
+        **Interning trusts the value a normalizer returns, so it is applied
+        only to an exact `str`.** Two things go wrong otherwise, and both are
+        silent or newly-fatal rather than merely slow. An unhashable return
+        cannot be a dict key, so the intern would raise where the base merely
+        handed the object to the markers — a `ParserFailure` that did not
+        exist before, fail-closed but a NEW failure mode. And a `str` subclass
+        carrying its own `__eq__`/`__hash__` can compare equal to a text
+        another normalizer produced, so `setdefault` would hand this
+        registration a *different* string to run its markers over. A
+        non-conforming normalizer therefore takes the base path — run per
+        call, never interned, never memoized — which costs nothing, because
+        the registry has none and
+        `tests/test_parser_registry_entries.py` is what keeps it that way.
+
+        An unhashable normalizer *callable* is handled the same way, for the
+        same reason.
         """
         try:
             return self._texts[normalize]
@@ -293,6 +307,8 @@ class PreparedDocument:
 
         produced = normalize(self._admissible)  # type: ignore[misc]
         self._preparations += 1
+        if type(produced) is not str:
+            return produced
         text = self._interned.setdefault(produced, produced)
         self._texts[normalize] = text
         return text
@@ -350,9 +366,14 @@ def _score(
     order: a memo hit is the value the call would have returned, because
     `Marker.test` is pure by contract. A test that raises is not memoized and
     propagates exactly as before, to the `_guarded` seam that owns it.
+
+    The memo keys on the text, so it is used only for an exact `str` — the
+    same hazard `PreparedDocument.text_for` describes, one level on: a `str`
+    subclass with its own `__eq__`/`__hash__` could otherwise collide with
+    another registration's text and return that registration's marker outcome.
     """
     markers = tuple(markers)
-    if prepared is None:
+    if prepared is None or type(markdown) is not str:
         def fired(marker: Marker) -> bool:
             return bool(marker.test(markdown))
     else:

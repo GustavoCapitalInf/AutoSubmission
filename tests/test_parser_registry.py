@@ -235,6 +235,50 @@ def test_a_marker_that_raises_is_not_memoized_and_still_reaches_the_guard():
     assert [f.exception for f in failures] == ["ValueError", "ValueError"]
 
 
+def test_an_unhashable_normalization_result_takes_the_base_path_not_a_crash():
+    """Interning trusts the normalizer's return value, so it is guarded.
+
+    Before the guard this raised inside `text_for` and surfaced as a
+    `ParserFailure` — fail-closed, but a failure mode the or-chain did not
+    have, on a registration that used to score normally.
+    """
+    class Unhashable(str):
+        __hash__ = None  # type: ignore[assignment]
+
+    registration = make("a", pr.required("m", contains("X")),
+                        normalize=lambda text: Unhashable(text.upper()))
+    prepared = pr.prepare("x")
+
+    assert registration.detect_prepared(prepared).claims
+    assert registration.detect_prepared(prepared) == registration.detect("x")
+
+
+def test_a_str_subclass_result_is_never_swapped_for_another_registrations_text():
+    """The silent half of the same hazard.
+
+    `Sticky` compares equal to everything, so interning it would hand the
+    second registration the FIRST one's text to run its markers over. The
+    guard keeps each registration on the text its own normalizer produced.
+    """
+    class Sticky(str):
+        def __eq__(self, other):
+            return True
+
+        def __hash__(self):
+            return 0
+
+    first = make("first", pr.required("m", contains("AAA")),
+                 normalize=lambda text: Sticky("AAA"))
+    second = make("second", pr.required("m", contains("BBB")),
+                  normalize=lambda text: Sticky("BBB"))
+    prepared = pr.prepare("anything")
+
+    assert first.detect_prepared(prepared).claims
+    assert second.detect_prepared(prepared).claims, (
+        "second registration was handed the first one's interned text"
+    )
+
+
 def test_preparing_a_document_never_mutates_it():
     document = "<!-- SOURCE: x.pdf -->\nBank Statement"
     prepared = pr.prepare(document)

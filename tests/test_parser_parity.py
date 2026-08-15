@@ -161,13 +161,24 @@ def test_expectations_cover_the_pinned_manifest(documents):
     assert {row["path"] for row in documents} == pinned
 
 
-#: The registry size the budget is required to hold at. The sweep's cost is
-#: very nearly linear in the number of registrations — a registration's own
-#: markers are all it adds, now that the text is prepared once per document —
-#: so a budget measured at today's size says nothing on its own about the size
-#: the coverage wave is heading for. The affordability assertion is therefore
-#: made against the cost PROJECTED to this many registrations, which is
-#: strictly harsher than the same assertion at today's 68.
+#: The registry size the budget is required to hold at (ratified by Ocean,
+#: batch 4). Now that the text is prepared once per document, a registration
+#: adds its own markers and — if it brings one nobody else has — its own
+#: normalization, so a budget measured at today's size says nothing on its own
+#: about the size the coverage wave is heading for. The affordability
+#: assertion is therefore made against the cost PROJECTED to this many
+#: registrations, `worst * 80 / 68`.
+#:
+#: **That projection is a FLOOR on the cost at 80, not a bound.** It scales by
+#: the mean cost of today's registrations, and that mean is diluted by the 32
+#: which have no normalization at all: review measured projection/actual at
+#: 1.00 for a growth shape resembling today's mix and 0.79 for one where every
+#: new registration brings its own normalizer — i.e. the real cost can exceed
+#: this projection by a quarter. It is used because it is strictly harsher
+#: than asserting at today's 68 and it is honest about direction, not because
+#: it predicts. The load-independent clause above is the exact guard for the
+#: quadratic class this cell removed; other superlinear growth shapes are not
+#: caught by either, and are carried in W3 §DETBUDGET DT9.
 PLANNED_REGISTRATIONS = 80
 
 #: The absolute ceiling, unchanged since R-3 risk 7: no document may cost the
@@ -267,19 +278,27 @@ def test_detect_sweep_stays_affordable_for_the_discovery_run(sources):
       survives a shared machine.
 
     And the assertion is made against the cost projected to
-    `PLANNED_REGISTRATIONS`, so the budget it protects is the one the registry
-    is growing into rather than the one it happens to have today.
+    `PLANNED_REGISTRATIONS` — a FLOOR on the cost at that size, not a bound;
+    see the note on the constant.
+
+    **Every document is read the same way the winner is.** The first revision
+    of this test picked the worst document from one noisy sample and only then
+    applied best-of-N to it, which is the same instrument error one level up:
+    review measured that selection finding the true worst 0 times in 7 and
+    understating the reading by up to 44%, because a document that got one
+    unlucky sample wins a selection it should not and then has that sample
+    thrown away. Selection and reading are now the same quantity — the minimum
+    of `SWEEP_SAMPLES` — so an unlucky sample can neither win nor mislead. It
+    costs `SWEEP_SAMPLES` passes over the corpus instead of one, which is
+    seconds against the twenty minutes the corpus-marked slice already takes.
     """
     registrations = pr.registrations()
     worst, worst_doc = 0.0, ""
     for path, markdown in sources.items():
-        elapsed = _sweep_seconds(markdown)
+        elapsed = min(_sweep_seconds(markdown) for _ in range(SWEEP_SAMPLES))
         if elapsed > worst:
             worst, worst_doc = elapsed, path
 
-    # Re-read the worst document alone: one pass over 109 documents finds it,
-    # and the minimum of several passes says what it costs.
-    worst = min(_sweep_seconds(sources[worst_doc]) for _ in range(SWEEP_SAMPLES))
     projected = worst * PLANNED_REGISTRATIONS / len(registrations)
 
     assert projected < SWEEP_BUDGET_SECONDS, (

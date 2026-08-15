@@ -194,6 +194,38 @@ def test_each_registration_detects_the_same_way_its_module_does(registration):
 
 
 @pytest.mark.parametrize("registration", pr.registrations(), ids=lambda r: r.id)
+def test_each_registrations_normalization_returns_an_exact_str(registration):
+    """The conformance side of the sweep's interning contract.
+
+    `PreparedDocument` interns each normalization's output so that two
+    registrations agreeing on a document share one string — which trusts the
+    value the normalizer returns. An unhashable return would raise where the
+    or-chain merely handed the object to the markers, and a `str` subclass
+    carrying its own `__eq__`/`__hash__` could compare equal to another
+    normalizer's text and be silently swapped for it. The seam already refuses
+    to intern anything that is not an exact `str`, so neither can happen; this
+    is the assertion that says no registered normalizer ever needs that
+    fallback, which is the stronger and more useful statement.
+
+    Checked here rather than in `validate_registry` deliberately: the check
+    needs a document to run the normalizer on, and `validate_registry` runs at
+    import of `analysis.parser_registry_entries` — putting every parser's
+    normalization on the import path of `analysis` to satisfy a type contract
+    is a worse trade than a test that runs in milliseconds.
+    """
+    if registration.normalize is None:
+        pytest.skip("no normalization")
+    for document in ("", "nothing here", "Statement of account",
+                     "BANK OF AMERICA ACCOUNT SUMMARY", "<!-- SOURCE: x.pdf -->\nAccount"):
+        produced = registration.normalize(document)
+        assert type(produced) is str, (
+            f"{registration.id}: normalize returned {type(produced).__name__}, "
+            "not an exact str — the sweep cannot intern it (see "
+            "PreparedDocument.text_for)"
+        )
+
+
+@pytest.mark.parametrize("registration", pr.registrations(), ids=lambda r: r.id)
 def test_each_registration_declares_at_least_one_required_marker(registration):
     kinds = {marker.kind for marker in registration.markers}
     assert "required" in kinds or "exclusive" in kinds, (
