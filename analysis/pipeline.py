@@ -354,18 +354,41 @@ def assess_document_integrity(
             + "); routed to review rather than reported as unrecognised"
         )
     # A swallowed repair may not be silent. `analyze_markdown` discards a
-    # repair stage that raised and publishes the UNREPAIRED statement, so the
-    # summary figures a repair exists to correct are knowingly uncorrected —
-    # that is a review cause with a named class, in the same family as
-    # `parser_exception` above. `repair_failure` is a CLASS NAME (the seam that
-    # produced it keeps nothing else), so interpolating it here cannot carry a
-    # fragment of the document into the payload. (W3 §REPAIR-GUARD / §PIPE5.)
+    # repair stage that raised and publishes the UNREPAIRED statement — a
+    # review cause with a named class, in the same family as `parser_exception`
+    # above. `repair_failure` is a CLASS NAME (the seam that produced it keeps
+    # nothing else), so interpolating it here cannot carry a fragment of the
+    # document into the payload. (W3 §REPAIR-GUARD / §PIPE5.)
+    #
+    # THE NOTE NAMES THE STAGE, NOT ONE REPAIR, and the precision is the point.
+    # `apply_statement_repairs` is TWELVE steps and only ONE is a bank-summary
+    # repair; the other eleven are nine further bank-specific repairs,
+    # `assign_transaction_years` and `normalize_statement`. Saying "a
+    # bank-summary repair raised" would be wrong twice over: it misnames the
+    # eleven, and on a raise late in the stage the bank-summary repair had
+    # already SUCCEEDED and is being discarded with everything else.
+    #
+    # WHAT THE DISCARD COSTS, disclosed rather than implied: because
+    # `assign_transaction_years` is inside the stage, a statement whose period
+    # crosses a year boundary publishes WRONG TRANSACTION DATES, not merely
+    # uncorrected summary figures — parsers stamp one year on every MM/DD row
+    # and that step is what re-derives it, so the dated ledger, the daily
+    # balance series and the ADB are all downstream of the discard. That is a
+    # strictly larger blast radius than the summary, and it is why the note
+    # below does not promise the statement is merely "unrepaired" in the
+    # summary sense. It is still the right trade: the alternative is either a
+    # half-repaired statement nobody can characterise, or an escaped exception
+    # carrying the document's text into the durable job store. The discard is
+    # the only fail-closed option, and the flag makes it loud — the document
+    # routes to `review`, so a human reads it before the numbers are used.
+    # Pinned by `test_the_discard_publishes_uncorrected_dates_on_a_year_boundary`.
     if repair_failure is not None:
         flags.append("repair_exception")
         notes.append(
-            f"a bank-summary repair raised ({repair_failure}) and was discarded; "
-            "the unrepaired statement stands, so the document is routed to "
-            "review rather than reported as clear"
+            f"a statement-repair stage raised ({repair_failure}) and was "
+            "discarded whole; the unrepaired statement stands, including any "
+            "date, sign or summary correction the stage would have made, so "
+            "the document is routed to review rather than reported as clear"
         )
     contradictions: list[str] = []
     if markdown and registration is not None:
