@@ -243,3 +243,213 @@ def test_missing_deposits_section_is_not_fatal():
     assert stmt.beginning_balance == 2000.00
     assert len(stmt.transactions) == 3
     assert reconcile(stmt).ok
+
+
+# ---------------------------------------------------------------------------
+# FCX — the printed descriptions, overlaid on the postings already read
+# ---------------------------------------------------------------------------
+#
+# `ocr/native_text.py::parse_native_first_citizens` recovers this bank's
+# description column from the printed table's geometry and reports one row per
+# posting at the end of the document. The parser lays those rows over the
+# postings it read positionally out of the flattened column, and only where the
+# two readings agree on every date and every amount of the section, in printed
+# order. These fixtures pin both halves: the recovery, and every way it refuses.
+
+
+def flattened(
+    *,
+    rows: str | None = None,
+    credit_run: str = "Acme Supply Payout Zeta Logistics",
+    debit_run: str = "Beta Freight Co Delta Utilities Epsilon Fuel",
+) -> str:
+    """A statement whose described sections hold more than one posting each.
+
+    beginning 1,000.00 + deposits 1,000.00 + other credits 500.00
+        - cheques 250.00 - other debits 750.00 = ending 1,500.00
+
+    The description column arrives welded exactly as the generic native reader
+    delivers it; `rows` is the layout extractor's report, appended where the
+    intake appends it.
+    """
+    body = "\n".join(
+        [
+            "Central Bank Operations - DAC02 P.O. Box 27131 Raleigh, NC 27611-7131",
+            "Your Account(s) At A Glance",
+            "Checking Balance",
+            "+",
+            "1,500.00",
+            "Statement Period: April 1 , 2026     Thru April 30, 2026 "
+            "Account Number : 000111222333",
+            "Business Banking",
+            "Account Number :   000111222333 Enclosures In Statement:   0",
+            "Statement Period Days Average Ledger Balance",
+            "+ 1 + 2 500.00+ 1 250.00- 3 750.00- 0.00",
+            "30",
+            "1,000.00",
+            "Beginning Balance",
+            "Deposits Other Credits Checks Other Debits Monthly Service Charge",
+            "1,000.00",
+            "1,800.00+",
+            "+",
+            "1,500.00",
+            "Ending  Balance",
+            "Deposits To Your Account",
+            "Date Amount Date Amount Date Amount",
+            "04             1,000.00",
+            "-05",
+            "Other Credits To Your Account",
+            f"Date Description Amount {credit_run}",
+            "04-08 04-10",
+            "200.00 300.00",
+            "Total",
+            "500.00",
+            "Checks Paid From Your Account",
+            "Check No. Date Amount Check No. Date Amount Check No. Date Amount",
+            "1001 04-12 250.00",
+            "*Prior Check Number(s) Not Included or Out of Sequence.",
+            "Other Debits From Your Account",
+            f"Date Description Amount {debit_run}",
+            "04-18 04-20 04-22",
+            "100.00 250.00 400.00",
+            "Total",
+            "750.00",
+            "Daily Balance Summary",
+            "Date Balance Date Balance Date Balance",
+            "04             1,500.00+",
+            "-20",
+            "An updated Master Treasury Management Services Agreement (MSA) is available.",
+        ]
+    )
+    if rows is not None:
+        body += "\nFC_NATIVE_TRANSACTIONS\n" + rows + "\nFC_NATIVE_TRANSACTIONS_END"
+    return body + "\n"
+
+
+REPORTED = "\n".join(
+    [
+        "FC_TX|Other Credits To Your Account|04-08|200.00|Acme Supply Payout",
+        "FC_TX|Other Credits To Your Account|04-10|300.00|Zeta Logistics",
+        "FC_TX|Other Debits From Your Account|04-18|100.00|Beta Freight Co",
+        "FC_TX|Other Debits From Your Account|04-20|250.00|Delta Utilities",
+        "FC_TX|Other Debits From Your Account|04-22|400.00|Epsilon Fuel",
+    ]
+)
+
+LABELLED = [
+    "Deposit",
+    "Other Credit",
+    "Other Credit",
+    "Check #1001",
+    "Other Debit",
+    "Other Debit",
+    "Other Debit",
+]
+
+PRINTED = [
+    "Deposit",
+    "Acme Supply Payout",
+    "Zeta Logistics",
+    "Check #1001",
+    "Beta Freight Co",
+    "Delta Utilities",
+    "Epsilon Fuel",
+]
+
+
+def described(markdown: str) -> list[str]:
+    stmt = parse_first_citizens_statement(markdown)
+    assert stmt is not None
+    return [t.description for t in stmt.transactions]
+
+
+def test_a_document_without_the_extractor_report_is_labelled_exactly_as_before():
+    """The floor: everything the batch-3 parser did on flat text, it still does."""
+    stmt = parse_first_citizens_statement(flattened())
+    assert stmt is not None
+    assert [t.description for t in stmt.transactions] == LABELLED
+    assert reconcile(stmt).ok
+
+
+def test_the_printed_descriptions_are_published_when_both_readings_agree():
+    assert described(flattened(rows=REPORTED)) == PRINTED
+
+
+def test_the_overlay_moves_no_money_no_date_and_no_count():
+    """It is text and nothing else; the gates above it have already run."""
+    plain = parse_first_citizens_statement(flattened())
+    overlaid = parse_first_citizens_statement(flattened(rows=REPORTED))
+    assert plain is not None and overlaid is not None
+    assert [(t.date, t.amount, t.direction) for t in plain.transactions] == [
+        (t.date, t.amount, t.direction) for t in overlaid.transactions
+    ]
+    assert plain.model_dump(exclude={"transactions"}) == overlaid.model_dump(
+        exclude={"transactions"}
+    )
+    assert reconcile(overlaid).ok
+
+
+def test_a_section_whose_amounts_disagree_keeps_its_labels():
+    damaged = REPORTED.replace("|04-20|250.00|", "|04-20|251.00|")
+    # The credits section still agrees and publishes; the debits section does not.
+    assert described(flattened(rows=damaged)) == PRINTED[:4] + LABELLED[4:]
+
+
+def test_a_section_whose_dates_disagree_keeps_its_labels():
+    damaged = REPORTED.replace("|04-18|100.00|", "|04-19|100.00|")
+    assert described(flattened(rows=damaged)) == PRINTED[:4] + LABELLED[4:]
+
+
+def test_a_section_reported_with_the_wrong_number_of_rows_keeps_its_labels():
+    short = "\n".join(line for line in REPORTED.splitlines() if "Epsilon" not in line)
+    assert described(flattened(rows=short)) == PRINTED[:4] + LABELLED[4:]
+
+
+def test_a_date_the_printed_period_cannot_place_keeps_the_labels():
+    outside = REPORTED.replace("|04-18|", "|11-18|")
+    assert described(flattened(rows=outside)) == PRINTED[:4] + LABELLED[4:]
+
+
+def test_rows_cannot_describe_a_section_they_were_not_printed_under():
+    """Credit rows may not name debit postings, nor the reverse."""
+    swapped = REPORTED.replace(
+        "Other Credits To Your Account", "Other Debits From Your Account"
+    )
+    assert described(flattened(rows=swapped)) == LABELLED
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        ("FC_TX|Other Credits To Your Account|04-08|200.00|", "junk "),
+        ("|04-08|200.00|", "|04-08|"),
+        ("|200.00|", "|two hundred|"),
+        ("|04-08|", "|2026-04-08|"),
+    ],
+)
+def test_a_malformed_report_is_read_as_no_report_at_all(damage):
+    assert described(flattened(rows=REPORTED.replace(*damage))) == LABELLED
+
+
+def test_a_row_the_bank_printed_with_no_description_keeps_its_label():
+    blank = REPORTED.replace("|04-10|300.00|Zeta Logistics", "|04-10|300.00|")
+    assert described(flattened(rows=blank))[1:3] == ["Acme Supply Payout", "Other Credit"]
+
+
+def test_a_renamed_debits_section_is_still_described():
+    """The bank renames the section when it bills a service charge."""
+    renamed = flattened(rows=REPORTED).replace(
+        "Other Debits From Your Account", "Other Debits And Monthly Service Charge"
+    )
+    assert described(renamed) == PRINTED
+
+
+def test_the_report_is_not_mistaken_for_statement_text():
+    """It sits after everything the document prints and is not part of it."""
+    stmt = parse_first_citizens_statement(flattened(rows=REPORTED))
+    assert stmt is not None
+    assert stmt.beginning_balance == 1000.00
+    assert stmt.ending_balance == 1500.00
+    assert stmt.stated_total_credits == 500.00 + 1000.00
+    assert stmt.stated_total_debits == 250.00 + 750.00
+    assert len(stmt.transactions) == 7

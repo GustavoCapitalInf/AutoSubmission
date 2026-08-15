@@ -36,19 +36,28 @@ of any particular statement's figures, dates, or counterparties. Every section
 is optional: a month with no deposits prints no deposits section, and the
 printed count for that section is then zero.
 
-Intake note (`ocr/native_text.py`): the generic native-text extractor flattens
+Intake note (`ocr/native_text.py`): the GENERIC native-text extractor flattens
 this bank's description column — every description in a section arrives
 concatenated onto one line, while the dates and amounts arrive as separate
-positional runs on the lines beneath it. Dates and amounts are therefore
-recoverable per posting and free-text descriptions are not, except where the
-section prints a structured row (checks) or holds a single posting. Rather
-than guess boundaries from a list of remembered merchant names — which is what
-tied the previous parser to one document — postings from a flattened column
-are labelled by the section that printed them. A layout-aware extractor for
-this bank (the `+wells` / `+desjardins-layout` pattern already in
-`ocr/native_text.py`) would restore per-posting descriptions for the whole
-family; it is not done here because that module also feeds the forensic
-oracles.
+positional runs on the lines beneath it. Everything below still reads that
+flattened form and still works on it, because it is what a document extracted
+before `+first-citizens-layout` existed looks like, and because it is the
+honest floor: from a flattened column, dates and amounts are recoverable per
+posting and free-text descriptions are not, except where the section prints a
+structured row (checks) or holds a single posting. The previous parser split
+that column on a list of ~25 remembered merchant names, which is what tied it
+to one document; nothing here guesses a boundary.
+
+`parse_native_first_citizens` now recovers the column properly, from the
+printed table's own geometry, and reports one row per posting at the end of
+the document. `_described` OVERLAYS those rows onto the postings this module
+already read, and it is a cross-check before it is a convenience: a section
+takes the printed descriptions only when the extractor's rows reproduce that
+section's parsed dates and amounts exactly, in order, one for one. Two
+independent readings of the same table therefore have to agree before any
+description is published, and where they do not the section keeps its label.
+No amount, date, count or balance depends on the overlay — it is text only,
+and a document extracted without the rows parses exactly as it did before.
 """
 from __future__ import annotations
 
@@ -523,6 +532,77 @@ def _service_charge_posting(
     return None
 
 
+#: The layout extractor's report, delimited so a document that never went
+#: through it is simply a document with no rows (`ocr/native_text.py`).
+_ROWS_RE = re.compile(
+    r"^FC_NATIVE_TRANSACTIONS$(?P<body>.*?)^FC_NATIVE_TRANSACTIONS_END$",
+    re.MULTILINE | re.DOTALL,
+)
+
+
+def _printed_rows(markdown: str) -> list[tuple[str, str, str, str]]:
+    """`(section, MM-DD, amount, description)` for every row the intake reported.
+
+    A malformed block yields nothing at all rather than a partial reading: the
+    overlay is keyed on the rows reproducing a whole section, so half a report
+    would fail that check anyway, and failing it here is cheaper and louder.
+    """
+    match = _ROWS_RE.search(markdown)
+    if match is None:
+        return []
+    rows: list[tuple[str, str, str, str]] = []
+    for line in _lines(match.group("body")):
+        fields = line.split("|", 4)
+        if len(fields) != 5 or fields[0] != "FC_TX":
+            return []
+        _prefix, section, mmdd, amount, description = fields
+        if _MMDD_RE.fullmatch(mmdd) is None or _MONEY_RE.fullmatch(amount) is None:
+            return []
+        rows.append((section, mmdd, amount, description))
+    return rows
+
+
+def _described(
+    postings: list[Transaction],
+    rows: list[tuple[str, str, str, str]],
+    header: str,
+    *,
+    start: date,
+    end: date,
+) -> list[Transaction]:
+    """The same postings, carrying the descriptions the bank printed for them.
+
+    Fail-closed by section. The extractor read the table by geometry and this
+    module read it positionally out of the flattened column; the printed text is
+    published only where those two readings agree on every date and every amount
+    of the section, in printed order. Any disagreement — a row count that
+    differs, a date that resolves elsewhere, a cent out — returns the postings
+    untouched, so the section keeps the honest label it has today. A row the
+    bank printed with an empty description column leaves that one posting
+    labelled; nothing is synthesised for it.
+    """
+    section = [row for row in rows if re.fullmatch(header, row[0], re.IGNORECASE)]
+    if len(section) != len(postings):
+        return postings
+    described: list[Transaction] = []
+    for posting, (_name, mmdd, amount, description) in zip(postings, section):
+        when = _resolve(int(mmdd[:2]), int(mmdd[3:]), start, end)
+        if when is None or when.isoformat() != posting.date:
+            return postings
+        if abs(_money(amount) - abs(posting.amount)) >= 0.005:
+            return postings
+        text = compact_whitespace(description)
+        described.append(
+            Transaction(
+                date=posting.date,
+                description=text or posting.description,
+                amount=posting.amount,
+                direction=posting.direction,
+            )
+        )
+    return described
+
+
 def _matches(printed: tuple[int, float], postings: list[Transaction]) -> bool:
     """A parsed section agrees with the count AND the total the bank printed."""
     count, total = printed
@@ -588,6 +668,19 @@ def parse_first_citizens_statement(markdown: str) -> Statement | None:
         and _matches(summary.other_debits, other_debits)
     ):
         return None
+
+    # Only now, with every section closed against the record the bank printed,
+    # are the printed descriptions laid over the two sections that have one.
+    # This changes text and nothing else: same dates, same amounts, same counts,
+    # same balances, and the gate above has already run either way.
+    rows = _printed_rows(markdown)
+    if rows:
+        other_credits = _described(
+            other_credits, rows, _OTHER_CREDITS, start=start, end=end
+        )
+        other_debits = _described(
+            other_debits, rows, _OTHER_DEBITS, start=start, end=end
+        )
 
     # The service charge is billed outside the four section totals, so it is
     # recovered from its own itemisation rather than counted against them.
