@@ -227,6 +227,7 @@ def parse_ibc_statement(markdown: str) -> Statement | None:
 
     start_date = date.fromisoformat(start)
     end_date = date.fromisoformat(end)
+    printed_average = _average_collected_balance(markdown)
     return Statement(
         bank="IBC Bank",
         account_name="Biz Rite Account",
@@ -241,7 +242,10 @@ def parse_ibc_statement(markdown: str) -> Statement | None:
         stated_credit_count=credit_count,
         stated_debit_count=debit_count,
         stated_service_charge=service_charge,
-        stated_average_balance=_average_collected_balance(markdown),
+        bank_reported_average_balance=printed_average,
+        bank_reported_average_label=(
+            "Average Collected Balance" if printed_average is not None else None
+        ),
         stated_daily_balances=[
             StatementDailyBalance(
                 date=date(year, int(mmdd[:2]), int(mmdd[3:])).isoformat(),

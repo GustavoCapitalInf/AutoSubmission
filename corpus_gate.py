@@ -66,6 +66,7 @@ import io
 import json
 import time
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -691,7 +692,19 @@ def check_outcomes(result: Result, label: str, rows: list[dict[str, str]],
     )
 
 
-def production_verdict(path: Path, cache: Path) -> _Verdict:
+#: The one Average Daily Balance basis the platform publishes, as a literal.
+#:
+#: Built from parts and compared as a string rather than imported from
+#: `analysis.adb`: this file is one of the four `INDEPENDENT_SOURCES` that may
+#: not import the production financial modules, and the whole point of the
+#: check is that the gate holds its OWN copy of the doctrine. If the engine's
+#: constant is ever edited, this string does not move with it and the gate
+#: goes red - which is exactly the ceremony a basis change should need.
+EXPECTED_ADB_BASIS = "calendar_day_printed_period"
+EXPECTED_ADB_POLICY = "canonical_v1"
+
+
+def production_verdict(path: Path, cache: Path) -> tuple[_Verdict, dict]:
     """The published verdict for one pinned statement, resolved as production does.
 
     The PRODUCTION intake ladder with both OCR rungs disabled, which is the
@@ -753,7 +766,7 @@ def production_verdict(path: Path, cache: Path) -> _Verdict:
     )
     outcome, _reason = classify_outcome(payload)
     integrity = payload.get("integrity") or {}
-    return _Verdict(
+    verdict = _Verdict(
         outcome,
         # Published ORDER, not sorted: the block is pinned as it is served.
         flags=tuple(integrity.get("flags") or ()),
@@ -761,10 +774,140 @@ def production_verdict(path: Path, cache: Path) -> _Verdict:
         risk_level=str(integrity.get("risk_level") or ""),
         possible_document_issue=bool(integrity.get("possible_document_issue")),
     )
+    # The payload rides along so `check_adb_doctrine` can read the published
+    # ADB basis without a THIRD full analysis pass over the manifest.
+    return verdict, payload
+
+
+def check_adb_doctrine(result: Result, payloads: dict[str, dict]) -> None:
+    """One user-facing ADB, on one basis, on every pinned document.
+
+    Two things are enforced, and the difference between them matters.
+
+    **The basis and policy stamps are pinned as TOTAL assertions.** Every
+    pinned document must publish `underwriting_adb_basis ==
+    "calendar_day_printed_period"` and `underwriting_adb_policy ==
+    "canonical_v1"` - all 109, including the three withheld ones, because a
+    refused ledger still has to say which methodology refused it. That is the
+    doctrine made mechanical: no code path can substitute another denominator
+    convention without turning this gate red.
+
+    **The alternates are NOT pinned per document, deliberately.** Pinning five
+    more numbers per statement would make every future ledger improvement a
+    truth-set ceremony for figures nobody publishes. What is pinned instead is
+    the property that makes them meaningful: an alternate basis must actually
+    be a different computation. So for every pinned document that publishes a
+    validated ADB, `alternates["banking_day"]` must differ from the canonical
+    figure UNLESS one of two things makes them equal by arithmetic rather than
+    by substitution - the period contains no non-banking day (identical day
+    sets), or the daily series is flat (every basis over a constant series is
+    that constant). Both exemptions are checked from the published daily
+    ledger, not asserted.
+
+    **The distinctness clause SKIPS documents it cannot examine, and the count
+    is published so the arithmetic is visible.** A statement with no published
+    ADB has no canonical figure to compare against, so there is nothing to
+    assert - the three withheld documents are skipped here while still being
+    held to the basis stamp above, and `distinct + exemptions + skipped` must
+    account for all 109. A skip is not an exemption: an exemption is a document
+    that WAS examined and whose equality was explained, a skip is a document
+    that published nothing to examine.
+
+    One further skip case, which the pinned corpus does not currently contain:
+    `alternates["banking_day"]` is None when the period holds no banking day at
+    all - a Saturday-to-Sunday statement, or a short period wholly inside a
+    holiday weekend. The engine reports None there rather than a mean over an
+    empty day set, and such a document lands in the skipped count for the same
+    reason: there is no alternate figure to be distinct from.
+    """
+    details: list[str] = []
+    stamped = 0
+    distinct = 0
+    skipped = 0
+    exempt_same_days = 0
+    exempt_flat = 0
+    for rel in sorted(payloads):
+        metrics = (payloads[rel].get("metrics") or {})
+        adb = metrics.get("adb") or {}
+        basis = adb.get("underwriting_adb_basis")
+        policy = adb.get("underwriting_adb_policy")
+        if basis != EXPECTED_ADB_BASIS:
+            details.append(
+                f"{rel}: publishes underwriting_adb_basis {basis!r}, and the only "
+                f"basis this platform publishes is {EXPECTED_ADB_BASIS!r}"
+            )
+        else:
+            stamped += 1
+        if policy != EXPECTED_ADB_POLICY:
+            details.append(
+                f"{rel}: publishes underwriting_adb_policy {policy!r}, expected "
+                f"{EXPECTED_ADB_POLICY!r}"
+            )
+
+        canonical = metrics.get("average_daily_balance")
+        alternates = adb.get("underwriting_adb_alternates") or {}
+        banking = alternates.get("banking_day")
+        daily = adb.get("daily_balances") or []
+        if canonical is None or banking is None or not daily:
+            skipped += 1
+            continue
+        days = [date.fromisoformat(entry["date"]) for entry in daily]
+        non_banking = any(day.weekday() >= 5 or _is_holiday(day) for day in days)
+        balances = {entry["ending_balance"] for entry in daily}
+        if banking != canonical:
+            distinct += 1
+        elif not non_banking:
+            exempt_same_days += 1
+        elif len(balances) == 1:
+            exempt_flat += 1
+        else:
+            details.append(
+                f"{rel}: the banking-day alternate equals the canonical ADB "
+                f"({canonical}) over a period that contains a non-banking day and "
+                f"a moving balance - an alternate basis that is not a different "
+                f"computation is a substituted one"
+            )
+
+    result.add(
+        "adb_doctrine",
+        not details,
+        f"{stamped}/{len(payloads)} statements publish the canonical basis "
+        f"{EXPECTED_ADB_BASIS!r}; banking-day alternate distinct on {distinct}, "
+        f"skipped {skipped} unpublished "
+        f"({exempt_same_days} all-banking-day periods, {exempt_flat} flat ledgers)",
+        details,
+    )
+
+
+#: The gate's own federal-bank-holiday test, kept independent of
+#: `analysis.adb`'s: this file may not import the production financial modules,
+#: and a check that borrowed the engine's calendar could not detect the engine
+#: getting the calendar wrong. Only the observed-Monday rule is reproduced here,
+#: which is all the exemption above needs.
+def _is_holiday(day: date) -> bool:
+    year = day.year
+    fixed = [(1, 1), (7, 4), (11, 11), (12, 25)] + ([(6, 19)] if year >= 2021 else [])
+    for month, dom in fixed:
+        observed = date(year, month, dom)
+        if observed.weekday() == 6:
+            observed = observed + timedelta(days=1)
+        elif observed.weekday() == 5:
+            continue
+        if observed == day:
+            return True
+    for month, weekday, nth in ((1, 0, 3), (2, 0, 3), (9, 0, 1), (10, 0, 2), (11, 3, 4)):
+        first = date(year, month, 1)
+        candidate = first + timedelta(
+            days=(weekday - first.weekday()) % 7 + 7 * (nth - 1)
+        )
+        if candidate == day:
+            return True
+    may_last = date(year, 6, 1) - timedelta(days=1)
+    return day == may_last - timedelta(days=(may_last.weekday() - 0) % 7)
 
 
 def check_outcome_classes(result: Result, corpus: Path, manifest: list[str],
-                          cache: Path) -> dict[str, int]:
+                          cache: Path) -> tuple[dict[str, int], dict[str, dict]]:
     """Every pinned document's published verdict is the one that is pinned.
 
     See `PINNED_OUTCOMES` for why this exists: the audit oracles compare
@@ -776,15 +919,17 @@ def check_outcome_classes(result: Result, corpus: Path, manifest: list[str],
     """
     details: list[str] = []
     counts: dict[str, int] = {}
+    payloads: dict[str, dict] = {}
     for rel in manifest:
         expected = PINNED_OUTCOMES.get(rel, PUBLISHED_OUTCOME)
         try:
-            actual = production_verdict(corpus / Path(rel), cache)
+            actual, payload = production_verdict(corpus / Path(rel), cache)
         except Exception as exc:  # a document we cannot verdict is a failure
             details.append(f"{rel}: could not be analysed: {type(exc).__name__}: {exc}")
             counts["error"] = counts.get("error", 0) + 1
             continue
         counts[actual.outcome] = counts.get(actual.outcome, 0) + 1
+        payloads[rel] = payload
         if actual == expected:
             continue
         if actual.outcome != expected.outcome:
@@ -826,7 +971,7 @@ def check_outcome_classes(result: Result, corpus: Path, manifest: list[str],
         f"(outcome class and the whole integrity block): {split}",
         details,
     )
-    return counts
+    return counts, payloads
 
 
 def check_oracle_independence(result: Result) -> None:
@@ -934,7 +1079,8 @@ def run_gate(corpus: Path, cache: Path) -> Result:
 
     check_outcomes(result, "balance", fresh_balance, "PASS", "WITHHELD_SOURCE_CONTRADICTION")
     check_outcomes(result, "adb", fresh_adb, "PASS", "WITHHELD")
-    verdicts = check_outcome_classes(result, corpus, manifest, cache)
+    verdicts, payloads = check_outcome_classes(result, corpus, manifest, cache)
+    check_adb_doctrine(result, payloads)
     check_ocr_coverage(result, source_types, manifest, cache)
     check_exclusions(result)
     check_oracle_independence(result)

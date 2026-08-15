@@ -433,7 +433,8 @@ def _parse_native_td_canada(markdown: str, base: Statement | None = None) -> Sta
     stmt.stated_total_debits = None
     stmt.stated_credit_count = None
     stmt.stated_debit_count = None
-    stmt.stated_average_balance = None
+    stmt.bank_reported_average_balance = None
+    stmt.bank_reported_average_label = None
     rows: list[_NativeRow] = []
     #: (row indices, the balance printed at the end of those rows).
     groups: list[tuple[list[int], float]] = []
@@ -463,7 +464,8 @@ def _parse_native_td_canada(markdown: str, base: Statement | None = None) -> Sta
         if upper.startswith("MONTHLY AVER. CR. BAL."):
             avg = parse_money(line)
             if avg is not None:
-                stmt.stated_average_balance = abs(avg)
+                stmt.bank_reported_average_balance = abs(avg)
+                stmt.bank_reported_average_label = "MONTHLY AVER. CR. BAL."
         if upper.startswith("CREDITS "):
             credit = _parse_summary_count_amount(line)
             if credit:
@@ -566,7 +568,8 @@ def parse_td_canada_statement(markdown: str, base: Statement | None = None) -> S
     stmt.stated_total_debits = None
     stmt.stated_credit_count = None
     stmt.stated_debit_count = None
-    stmt.stated_average_balance = None
+    stmt.bank_reported_average_balance = None
+    stmt.bank_reported_average_label = None
     transactions: list[Transaction] = []
     pending_credit: tuple[float, str] | None = None
 
@@ -599,7 +602,8 @@ def parse_td_canada_statement(markdown: str, base: Statement | None = None) -> S
             if upper.startswith("MONTHLY AVER. CR. BAL."):
                 avg = next((parse_money(c) for c in cells if parse_money(c) is not None), None)
                 if avg is not None:
-                    stmt.stated_average_balance = abs(avg)
+                    stmt.bank_reported_average_balance = abs(avg)
+                    stmt.bank_reported_average_label = "MONTHLY AVER. CR. BAL."
                 credit = _summary_count_amount(cells, "CREDITS")
                 if credit:
                     stmt.stated_credit_count = (stmt.stated_credit_count or 0) + credit[0]

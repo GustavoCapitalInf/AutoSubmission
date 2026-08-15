@@ -248,7 +248,8 @@ def parse_wells_statement(markdown: str, base: Statement | None = None) -> State
 
     avg = _AVG_RE.search("\n".join(section))
     if avg:
-        stmt.stated_average_balance = parse_money(avg.group(1))
+        stmt.bank_reported_average_balance = parse_money(avg.group(1))
+        stmt.bank_reported_average_label = "Average ledger balance"
 
     txns: list[Transaction] = []
     for mmdd, description, credit, debit, balance in _transaction_rows(section):

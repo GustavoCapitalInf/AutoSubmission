@@ -57,7 +57,11 @@ def _parse_summary(markdown: str, stmt: Statement) -> None:
     stmt.stated_debit_count = int(m.group("debit_count"))
     stmt.stated_total_credits = _amount(m.group("credits"))
     stmt.stated_total_debits = _amount(m.group("debits"))
-    stmt.stated_average_balance = _amount(m.group("avg"))
+    printed_average = _amount(m.group("avg"))
+    stmt.bank_reported_average_balance = printed_average
+    stmt.bank_reported_average_label = (
+        "Average Ledger" if printed_average is not None else None
+    )
     stmt.stated_service_charge = _amount(m.group("service"))
     stmt.stated_interest_paid = _amount(m.group("interest"))
 

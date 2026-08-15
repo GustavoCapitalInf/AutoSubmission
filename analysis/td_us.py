@@ -41,16 +41,18 @@ def _summary(markdown: str, stmt: Statement) -> Statement:
     # the document. `_money` has parsed a leading minus all along.
     fields = {
         "beginning_balance": r"Beginning Balance\s+(-?[\d,]+\.\d{2})",
-        "stated_average_balance": r"Average Collected Balance\s+(-?[\d,]+\.\d{2})",
+        "bank_reported_average_balance": r"Average Collected Balance\s+(-?[\d,]+\.\d{2})",
         "days_in_period": r"Days in Period\s+(\d+)",
         "ending_balance": r"Ending Balance\s+(-?[\d,]+\.\d{2})",
     }
-    updates: dict[str, float | int] = {}
+    updates: dict[str, float | int | str] = {}
     for key, pattern in fields.items():
         m = re.search(pattern, text, re.IGNORECASE)
         if not m:
             continue
         updates[key] = int(m.group(1)) if key == "days_in_period" else (read_money(m.group(1), _money) or 0.0)
+        if key == "bank_reported_average_balance":
+            updates["bank_reported_average_label"] = "Average Collected Balance"
 
     credits = 0.0
     debits = 0.0

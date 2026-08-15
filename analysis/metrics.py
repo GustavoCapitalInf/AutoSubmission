@@ -9,7 +9,15 @@ audit trail. This module consumes that result and exposes it on `Metrics`
 from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
-from .adb import AverageDailyBalanceResult, compute_average_daily_balance
+from decimal import Decimal
+# `money_to_cents` is imported rather than reimplemented: cent rounding is a
+# financial decision and this package keeps exactly one of it (R-2's
+# shared-utility rule), so the variance rounds exactly as the ADB does.
+from .adb import (
+    AverageDailyBalanceResult,
+    compute_average_daily_balance,
+    money_to_cents as _money,
+)
 from .schema import Statement
 from .transaction_classifier import (
     TransactionClassification,
@@ -28,6 +36,14 @@ class Metrics:
     # collected, available, credit-only, rounded, or ledger balance.
     stated_average_balance: float | None = None
     average_daily_balance: float | None = None
+    # How far the canonical underwriting ADB sits from the bank's own printed
+    # average, and the best available reading of WHY. Diagnostic: never
+    # authoritative, never a second ADB, and never a reason to move the first.
+    # All three are None unless a validated ADB and a printed average both
+    # exist - there is nothing to compare otherwise.
+    bank_reported_average_variance: float | None = None
+    bank_reported_average_variance_pct: float | None = None
+    bank_reported_average_hypothesis: str | None = None
     # Full underwriting-grade ADB working: the daily ledger, its sum, the
     # calendar-day divisor, and every validation that was run. See analysis/adb.py.
     adb: AverageDailyBalanceResult | None = None
@@ -136,6 +152,117 @@ def daily_closing_balances(stmt: Statement) -> dict[date, float]:
     return {date.fromisoformat(d.date): d.ending_balance for d in result.daily_balances}
 
 
+#: Every reading `_bank_reported_average_hypothesis` can return. Closed set:
+#: an unrecognised gap is `unexplained`, which is a finding, not a gap in the
+#: vocabulary.
+BANK_REPORTED_AVERAGE_HYPOTHESES = (
+    "agrees",
+    "credit_only_floored",
+    "collected_or_float",
+    "beginning_of_day_alignment",
+    "n_plus_1_zero_forward",
+    "indeterminate_flat",
+    "unexplained",
+)
+
+
+def _bank_reported_average_hypothesis(
+    stmt: Statement, adb: AverageDailyBalanceResult, variance: float
+) -> str:
+    """Why the bank's printed average differs from the canonical ADB.
+
+    DIAGNOSTIC, NEVER AUTHORITATIVE. Nothing selects a figure on the strength
+    of this string; it exists so an analyst reading a variance is told what
+    was already ruled in or out. Each discriminator is an exact identity
+    against the same validated ledger, tested in this order, first match wins:
+
+    `agrees`
+        The variance is exactly zero. Tested first, so a coincidental match
+        below can never be reported instead of the plain fact.
+    `credit_only_floored`
+        The printed figure equals this ledger's mean with every overdrawn day
+        floored at zero - the "average credit balance" convention.
+    `beginning_of_day_alignment`
+        The printed figure equals this ledger's mean valued at the balance
+        ENTERING each day rather than leaving it: an off-by-one-day alignment,
+        not a different set of transactions.
+    `n_plus_1_zero_forward`
+        On a statement whose printed balance forward is zero, the printed
+        figure equals the daily sum plus the opening balance, divided by ONE
+        MORE day than the printed period. The bank counted the day the account
+        opened; the printed period does not. Woodforest's observed convention,
+        recorded as the bank's, never adopted as ours.
+    `collected_or_float`
+        No arithmetic identity holds, but the bank's own printed heading names
+        a collected, available or float basis - money the posted ledger cannot
+        see. The label is the discriminator here precisely because the
+        arithmetic cannot be.
+    `indeterminate_flat`
+        The daily series carries ONE distinct end-of-day balance, so the
+        alternates that re-slice that series cannot discriminate anything and
+        must not be allowed to appear to. See below.
+    `unexplained`
+        None of the above. The honest answer, and the one worth investigating.
+
+    THE FLAT-LEDGER GUARD, and why the two alternate-equality tests are the
+    only ones it suppresses
+    -----------------------------------------------------------------------
+    When every day of the period closes on the same balance, `credit_only` and
+    `beginning_of_day` stop being different computations: over a constant
+    series they are that constant, exactly as the canonical figure is. The
+    degenerate case is a ONE-DAY period, where "the mean of the balances
+    ENTERING each day" is just the opening balance - so a bank that simply
+    printed its opening balance was being reported as evidence of an
+    off-by-one-day averaging convention. Reproduced on a one-day statement
+    before this guard existed, which is why it exists.
+
+    The guard suppresses those two and nothing else, because the other two
+    discriminators do not degenerate. `n_plus_1_zero_forward` is a different
+    identity over different terms - `(daily_sum + opening) / (days + 1)`,
+    reachable only on a printed zero balance forward - and on a flat series it
+    equals the constant only when the opening equals it too, in which case the
+    variance is zero and `agrees` has already returned. `collected_or_float`
+    reads the bank's own printed heading and does not touch the series at all.
+    Suppressing either would lose the one explanation the mid-cycle
+    account-opening class actually needs.
+    """
+    reported = _money(stmt.bank_reported_average_balance)
+    if variance == 0.0:
+        return "agrees"
+
+    alternates = adb.underwriting_adb_alternates or {}
+    # One distinct end-of-day balance across the period - see the guard above.
+    flat = len({entry.ending_balance for entry in adb.daily_balances}) <= 1
+    if not flat:
+        for name, hypothesis in (
+            ("credit_only", "credit_only_floored"),
+            ("beginning_of_day", "beginning_of_day_alignment"),
+        ):
+            value = alternates.get(name)
+            if value is not None and _money(value) == reported:
+                return hypothesis
+
+    if (
+        stmt.beginning_balance is not None
+        and _money(stmt.beginning_balance) == Decimal("0.00")
+        and adb.daily_balance_sum is not None
+        and adb.opening_balance is not None
+        and adb.calendar_day_count
+    ):
+        extended = (
+            Decimal(str(adb.daily_balance_sum)) + Decimal(str(adb.opening_balance))
+        ) / Decimal(adb.calendar_day_count + 1)
+        if _money(extended) == reported:
+            return "n_plus_1_zero_forward"
+
+    label = (stmt.bank_reported_average_label or "").lower()
+    if any(word in label for word in ("collect", "avail", "float")):
+        return "collected_or_float"
+    # Nothing matched. On a flat series say so, rather than calling a gap
+    # "unexplained" when the evidence that would explain it cannot exist.
+    return "indeterminate_flat" if flat else "unexplained"
+
+
 def _summary_debits_with_service_charge(stmt: Statement) -> float | None:
     if stmt.stated_total_debits is None:
         return None
@@ -175,7 +302,7 @@ def compute_metrics(
         )
     m = Metrics()
     m.withholding_denominator_mode = withholding_denominator_mode
-    m.stated_average_balance = stmt.stated_average_balance
+    m.stated_average_balance = stmt.bank_reported_average_balance
     m.stated_nsf_count = stmt.stated_nsf_count
     records = classifications if classifications is not None else classify_statement_transactions(stmt)
     if len(records) != len(stmt.transactions):
@@ -328,7 +455,7 @@ def compute_metrics(
     if balances:
         vals = list(balances.values())
         m.days_in_period = adb.calendar_day_count or len(vals)
-        m.average_daily_balance = adb.average_daily_balance
+        m.average_daily_balance = adb.underwriting_adb
         m.min_balance = round(min(vals), 2)
         m.max_balance = round(max(vals), 2)
         m.negative_days = sum(1 for v in vals if v < 0)
@@ -342,6 +469,28 @@ def compute_metrics(
 
     if stmt.days_in_period is not None and m.days_in_period is None:
         m.days_in_period = stmt.days_in_period
+
+    # The bank-reported-average comparison. Only when there is a publishable
+    # ADB and a printed figure to compare it against - a withheld ledger has
+    # no defensible left-hand side and gets no variance rather than a
+    # misleading one.
+    if (
+        m.average_daily_balance is not None
+        and stmt.bank_reported_average_balance is not None
+    ):
+        variance = _money(
+            Decimal(str(m.average_daily_balance))
+            - Decimal(str(stmt.bank_reported_average_balance))
+        )
+        m.bank_reported_average_variance = float(variance)
+        reported = _money(stmt.bank_reported_average_balance)
+        if reported:
+            m.bank_reported_average_variance_pct = float(
+                (variance / abs(reported) * Decimal("100")).quantize(Decimal("0.0001"))
+            )
+        m.bank_reported_average_hypothesis = _bank_reported_average_hypothesis(
+            stmt, adb, m.bank_reported_average_variance
+        )
 
     if trust_stated_summary is True:
         if stmt.stated_total_credits is not None:

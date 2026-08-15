@@ -363,7 +363,8 @@ def parse_td_canada_french_statement(
     stmt.stated_total_debits = None
     stmt.stated_credit_count = None
     stmt.stated_debit_count = None
-    stmt.stated_average_balance = None
+    stmt.bank_reported_average_balance = None
+    stmt.bank_reported_average_label = None
 
     rows: list[_FrenchRow] = []
     #: (row indices, the balance printed at the end of those rows).
@@ -386,11 +387,14 @@ def parse_td_canada_french_statement(
         if account:
             stmt.account_number = account.group(1)
         average = _AVERAGE_BALANCE_RE.match(line)
-        if average and stmt.stated_average_balance is None:
+        if average and stmt.bank_reported_average_balance is None:
             # Reprinted identically on every page, so the first reading is the
             # figure; accumulating it would multiply it by the page count.
             value = parse_french_amount(average.group(1))
-            stmt.stated_average_balance = -value if average.group(2) else value
+            stmt.bank_reported_average_balance = -value if average.group(2) else value
+            # The heading as PRINTED - `line` is the ASCII-folded copy the
+            # matching runs on, `printed` still carries the bank's accents.
+            stmt.bank_reported_average_label = " ".join(printed[:4])
         totals = _PAGE_TOTAL_RE.match(line)
         if totals:
             # Printed per page, so these DO accumulate. The count is the first

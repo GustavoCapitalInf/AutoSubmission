@@ -161,7 +161,10 @@ def parse_wilson_muir_statement(markdown: str) -> Statement | None:
         stated_total_debits=stated_debits,
         stated_credit_count=int(deposit_count) + int(automatic_deposit_count),
         stated_debit_count=int(debit_count) + int(automatic_withdrawal_count) + int(card_count),
-        stated_average_balance=average,
+        bank_reported_average_balance=average,
+        bank_reported_average_label=(
+            "Average Balance (Ledger)" if average is not None else None
+        ),
         transactions=txns,
     )
     return stmt

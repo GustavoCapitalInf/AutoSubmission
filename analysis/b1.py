@@ -115,7 +115,8 @@ def parse_b1_statement(markdown: str) -> Statement | None:
         stmt.account_number = acct.group(1)
     avg = re.search(r"Average balance\s+\$([\d,]+\.\d{2})", markdown, re.IGNORECASE)
     if avg:
-        stmt.stated_average_balance = _money(avg.group(1))
+        stmt.bank_reported_average_balance = _money(avg.group(1))
+        stmt.bank_reported_average_label = "Average balance"
 
     txns = _transactions(markdown, year=int(period_end[:4]), beginning_balance=stmt.beginning_balance or 0.0)
     if not txns:

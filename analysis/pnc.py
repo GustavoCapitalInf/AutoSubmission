@@ -302,6 +302,7 @@ def parse_pnc_statement(markdown: str) -> Statement | None:
         return None
     year = int(period[1][:4])
     beginning, credits, debits, ending = summary
+    printed_average = _average_balance(markdown)
     stmt = Statement(
         bank="PNC Bank",
         account_name="Business Checking",
@@ -311,7 +312,10 @@ def parse_pnc_statement(markdown: str) -> Statement | None:
         ending_balance=ending,
         stated_total_credits=credits,
         stated_total_debits=debits,
-        stated_average_balance=_average_balance(markdown),
+        bank_reported_average_balance=printed_average,
+        bank_reported_average_label=(
+            "Average ledger" if printed_average is not None else None
+        ),
     )
     acct = re.search(r"Primary Account Number:\s*([X0-9-]+)", markdown, re.IGNORECASE)
     if acct:

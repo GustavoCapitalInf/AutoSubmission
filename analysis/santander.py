@@ -147,7 +147,10 @@ def parse_santander_statement(markdown: str) -> Statement | None:
         ending_balance=ending,
         stated_total_credits=credits,
         stated_total_debits=debits,
-        stated_average_balance=average,
+        bank_reported_average_balance=average,
+        bank_reported_average_label=(
+            "Average Daily Balance" if average is not None else None
+        ),
     )
     acct = re.search(r"Primary Account #:\s*([0-9]+)", markdown, re.IGNORECASE)
     if acct:

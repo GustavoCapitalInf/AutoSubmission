@@ -99,7 +99,35 @@ def _primary_result(mt: MTSet, filename: str) -> MTResultRow | None:
 
 
 def _mt_activity_mean_note(mt: MTSet, summary: MTStatementRow | None) -> str:
-    """Document MT's ADB basis when it provably averages activity days only."""
+    """Document MT's ADB basis when its own series reproduces its own average.
+
+    CORRECTED (ADB-SPLIT card 4). This note used to say "activity-day basis",
+    which was wrong and, worse, was undocumented MoneyThumb behaviour stated as
+    if it were a specification. What is REPRODUCED, and all that is claimed
+    here, was re-measured over `moneythumbResults/results` on 2026-08-15:
+
+      * **11 of 11** MT daily-balance series are exactly the BANKING DAYS of
+        their own span - Monday to Friday minus observed US federal Reserve
+        Bank holidays. Not activity days: several of those days carry no
+        posting at all, and every weekday holiday in range is absent.
+      * **10 of 11** rows have `avg_balance` equal, to the cent, to the plain
+        mean of that series (the eleventh differs by 0.01, a rounding
+        presentation difference).
+      * **6 of 6** documents where our own ledger validates AND MT prints an
+        average reproduce MT's figure EXACTLY from our ledger under the
+        banking-day denominator. Under a weekday-only denominator only 1 of
+        those 6 reproduces, so the federal-holiday calendar is load-bearing.
+      * **0 of 11** match a calendar-day mean over the same span.
+
+    None of that makes the banking-day basis correct, and none of it is a
+    specification: MT documents no basis, and this is inference from output.
+    It is recorded so an analyst reading an `adb` row knows the two systems
+    are answering different questions rather than one of them being wrong.
+    Our published figure remains the canonical calendar-day underwriting ADB;
+    `metrics.adb.underwriting_adb_alternates["banking_day"]` computes MT's
+    construction over our ledger for exactly this comparison, and is never
+    published as an ADB.
+    """
     if summary is None or summary.avg_balance is None:
         return ""
     series = mt.daily_balances(summary.account_last4)
@@ -108,8 +136,10 @@ def _mt_activity_mean_note(mt: MTSet, summary: MTStatementRow | None) -> str:
     mean = round(statistics.mean(series.values()), 2)
     if values_match(mean, summary.avg_balance):
         return (
-            f"MT's avg_balance equals the mean of its {len(series)} "
-            "activity-day balances (activity-day basis), not a calendar-day ADB."
+            f"MT's avg_balance equals the mean of its {len(series)} reported "
+            "daily balances, which are the banking days of the span "
+            "(weekdays minus federal bank holidays), not calendar days. "
+            "Definition-relative difference, not an error by either system."
         )
     return ""
 
@@ -381,6 +411,30 @@ def build_statement_rows(
     # --- balance analytics ----------------------------------------------
     adb_withheld = metrics.get("adb_ok") is not True
     adb_note_parts = [_mt_activity_mean_note(mt, mt_summary)]
+    # DEFINITION-RELATIVE FRAMING (ADB-SPLIT card 4). An `adb` row that comes
+    # back OUR_SYSTEM_CORRECT says our figure matches OUR audited expectation
+    # and MoneyThumb's does not. That is true and it is worth knowing, but on
+    # its own it reads as "MT computed the ADB wrongly", which the measurement
+    # does not support: MT reproduces its own banking-day figure exactly (see
+    # `_mt_activity_mean_note`), and on six benchmark documents our OWN ledger
+    # reproduces MT's number under that denominator. The disagreement is about
+    # which days the denominator counts, and our answer is authoritative
+    # because it is the platform's ratified definition - not because MT's
+    # arithmetic failed. Every adb verdict here carries that qualification.
+    adb_alternates = (metrics.get("adb") or {}).get("underwriting_adb_alternates") or {}
+    if not adb_withheld and mt_summary is not None and mt_summary.avg_balance is not None:
+        banking = adb_alternates.get("banking_day")
+        adb_note_parts.append(
+            "DEFINITION-RELATIVE: ours is the canonical calendar-day "
+            "underwriting ADB over the printed period; a verdict here is "
+            "against that definition, not a finding that MoneyThumb "
+            "miscalculated."
+            + (
+                f" Our own ledger on MT's banking-day denominator = {banking}."
+                if banking is not None
+                else ""
+            )
+        )
     if exp.printed_adb is not None:
         adb_note_parts.append(
             f"Bank prints '{exp.printed_adb_label}' = {exp.printed_adb} "
@@ -885,13 +939,13 @@ def build_daily_series_row(
             "Our daily ledger is withheld (fail-closed) because the source's "
             "running-balance evidence conflicts (audit: "
             f"{exp.adb_status}: {exp.adb_root_cause}); MoneyThumb surfaced an "
-            "activity-day series anyway - recorded as commentary, not as correct."
+            "banking-day series anyway - recorded as commentary, not as correct."
             if exp.source_contradiction else None
         )
         return classify(
             set_name, f"{prefix}daily_balance_series",
             "withheld (fail-closed daily ledger)",
-            f"{len(series)} activity-day balances",
+            f"{len(series)} banking-day balances",
             ours_withheld=True,
             contradiction=contradiction,
         )
@@ -913,14 +967,14 @@ def build_daily_series_row(
         "mismatches": dict(list(mismatches.items())[:10]),
     }
     ours_desc = f"validated calendar-day ledger ({len(ledger)} days)"
-    mt_desc = f"{len(series)} activity-day balances, {len(matches)} match"
+    mt_desc = f"{len(series)} banking-day balances, {len(matches)} match"
     if not mismatches:
         return ComparisonRow(
             set_name=set_name, field=f"{prefix}daily_balance_series",
             outcome=Outcome.BOTH_MATCH_EXPECTED,
             ours=ours_desc, mt=mt_desc, evidence=evidence,
-            rationale="Every MT activity-day balance matches our independently "
-            "validated per-day ledger. Note MT's series covers activity days "
+            rationale="Every MT banking-day balance matches our independently "
+            "validated per-day ledger. Note MT's series covers banking days "
             "only (FIELD_MAPPING s5: gaps make its ADB unverifiable from its "
             "own output).",
         )
@@ -929,7 +983,7 @@ def build_daily_series_row(
             set_name=set_name, field=f"{prefix}daily_balance_series",
             outcome=Outcome.OUR_SYSTEM_CORRECT,
             ours=ours_desc, mt=mt_desc, evidence=evidence,
-            rationale=f"{len(mismatches)} MT activity-day balances disagree with "
+            rationale=f"{len(mismatches)} MT banking-day balances disagree with "
             "the independently validated ledger.",
         )
     return ComparisonRow(

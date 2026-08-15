@@ -106,7 +106,8 @@ def _native_summary(markdown: str, stmt: Statement) -> tuple[Statement, float | 
         "stated_total_credits": total_credits,
         "stated_debit_count": int(debit_count),
         "stated_total_debits": total_debits,
-        "stated_average_balance": _money(avg),
+        "bank_reported_average_balance": _money(avg),
+        "bank_reported_average_label": "Average Collected Balance",
         "stated_service_charge": service_charge,
         "ending_balance": _money(ending),
     }), charge
@@ -346,7 +347,9 @@ def parse_capital_one_statement(markdown: str) -> Statement | None:
             elif "number of days" in low and value is not None:
                 stmt.days_in_period = int(abs(value))
             elif "average collected balance" in low:
-                stmt.stated_average_balance = value
+                stmt.bank_reported_average_balance = value
+                # The printed cell, not the pattern that matched it.
+                stmt.bank_reported_average_label = label.strip() or None
             continue
 
         if len(cells) >= 5 and [c.lower() for c in cells[:5]] == [

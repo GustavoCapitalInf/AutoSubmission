@@ -267,6 +267,7 @@ def parse_banco_popular_statement(markdown: str) -> Statement | None:
         ))
     if not txns:
         return None
+    printed_average = _average_balance(markdown)
     stmt = Statement(
         bank="Banco Popular",
         account_name="FlexiChecking",
@@ -279,7 +280,10 @@ def parse_banco_popular_statement(markdown: str) -> Statement | None:
         stated_total_credits=credits,
         stated_total_debits=debits,
         stated_service_charge=service_charge,
-        stated_average_balance=_average_balance(markdown),
+        bank_reported_average_balance=printed_average,
+        bank_reported_average_label=(
+            "Average balance during this cycle" if printed_average is not None else None
+        ),
         stated_daily_balances=_daily_book_balances(markdown, start, end),
         transactions=txns,
     )

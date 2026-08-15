@@ -22,6 +22,7 @@ documents exactly as the parser-local code did?
 """
 from __future__ import annotations
 
+import json
 import re
 
 import pytest
@@ -351,8 +352,33 @@ def test_chase_check_rows_reads_every_block_as_the_frozen_oracle_did(block):
     assert chase._check_rows(block) == _legacy_chase_check_rows(block)
 
 
+#: Fields the frozen oracles below CANNOT carry, because they did not exist
+#: when the oracles were frozen. Excluded rather than back-filled: an oracle
+#: whose body is edited is no longer "verbatim as of <sha>", and the whole
+#: value of these tests is that their right-hand side has not been touched.
+#: Each is proved independently, by name, elsewhere:
+#:   `bank_reported_average_label`      tests/test_td_french_layouts.py,
+#:                                      tests/test_analysis.py (per parser)
+#:   `initialization_transaction_count` tests/test_woodforest.py
+_FIELDS_NEWER_THAN_THE_ORACLES = (
+    "bank_reported_average_label",
+    "initialization_transaction_count",
+)
+
+
 def _statement_json(stmt: Statement | None) -> str | None:
-    return None if stmt is None else stmt.model_dump_json()
+    """The statement as JSON, minus fields postdating the frozen oracles."""
+    if stmt is None:
+        return None
+    return json.dumps(
+        {
+            key: value
+            for key, value in stmt.model_dump().items()
+            if key not in _FIELDS_NEWER_THAN_THE_ORACLES
+        },
+        sort_keys=True,
+        default=str,
+    )
 
 
 @pytest.mark.parametrize("markdown", CHASE_DOCUMENTS)

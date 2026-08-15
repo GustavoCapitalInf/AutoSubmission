@@ -24065,3 +24065,509 @@ Keying it is what creates the possibility of two derivations disagreeing;
 single-sourcing through `claiming_parser_id` closes the hazard the same commit
 opened. That is a good outcome and it is not a virtue, and CM5 now says so.
 The property survives on the test that asserts it, not on the intention.
+# §ADBSPLIT — the ratified ADB doctrine, implemented: one basis, stamped; five alternates, internal; two Woodforest openings, published
+
+Base main `bbe5cf1` (v12, OCR v3, registry 71), branch `wave5-adbsplit`. Run of
+record `discovery_reports/2026-08-15T111704.195314-0000-c924d751`.
+
+## AS0. Summary
+
+Gustavo's 2026-08-15 doctrine, in code. One statement yields ONE user-facing
+Average Daily Balance and it is always the canonical calendar-day underwriting
+figure over the printed period; the basis is a frozen literal stamped on every
+result rather than a knob; five alternate denominators are computed for audit
+and published nowhere; the bank's own printed average is preserved as evidence
+with a signed variance and a named hypothesis for the gap.
+
+| | |
+|---|---|
+| Suite | 4,240 to **4,264 passed**, 33 skipped, 29 deselected, exit 0 |
+| Pinned corpus | 106 PASS / 3 WITHHELD, **every existing audit column byte-identical on all 109 rows of both CSVs** |
+| Archive movers | **exactly 2**, both named, both Woodforest account openings |
+| Archive non-movers | 2,492 of 2,494 analysed payloads byte-identical once the additive fields are stripped |
+| H1 | **0 movers**, reproduced on the current tree, with the one near-miss named |
+| Coverage | validated 2,403 to **2,405** (distinct shas); withheld 66 to 64; review 25 unchanged; failed 873 unchanged |
+
+## AS1. Card 1 — the additive split
+
+`analysis/adb.py`. `average_daily_balance` becomes `underwriting_adb`; the old
+name survives as a read/write `@property`. That choice is load-bearing rather
+than stylistic: `analysis/serialization.py` pops the ADB value out of the
+nested `metrics.adb` object so the payload offers exactly one ADB number, and
+`dataclasses.asdict` does not see properties — a second real field would have
+leaked a second ADB into every payload. Both names are popped now, so a future
+rename cannot reopen the hole.
+
+`underwriting_adb_basis = "calendar_day_printed_period"` and
+`underwriting_adb_policy = "canonical_v1"` are dataclass DEFAULTS, not
+assignments. A result object therefore cannot exist without declaring its
+basis, including on the two paths where `compute_average_daily_balance`
+returns before building any ledger. Measured over the archive: **2,494 of
+2,494** analysed documents publish the canonical basis, the three with no
+ledger at all (`Ace Auto` Sept/Oct/Nov 2025) included.
+
+`underwriting_adb_alternates` computes five denominators in one pass over the
+ledger the canonical ADB already built — `banking_day`, `weekday_only`,
+`posting_day`, `credit_only`, `beginning_of_day`. Internal only: no dashboard
+card, no export row (`webapp/app.py::_adb_rows` keeps its whitelist, so the
+nested stamps and alternates never reach CSV/XLSX), and every value is nulled
+alongside the canonical figure at publication when the required checks fail —
+an unvalidated ledger yields no valid figure on any basis. The basis and policy
+STAMPS stay on a refused document, because an auditor needs to know which
+methodology refused it.
+
+`analysis/schema.py`. `stated_average_balance` becomes
+`bank_reported_average_balance`, with the old name kept as a serialized
+`@computed_field` alias plus a `validation_alias`, so constructor kwargs,
+attribute assignment, and payload consumers of the old name all keep working.
+**Four parsers had to change key, not just name**: `model_copy(update={...})`
+bypasses both validation and the property setter, so pydantic silently drops an
+alias key there. Reproduced before fixing, then fixed in `capital_one.py`,
+`regions.py`, `bofa.py`, `td_us.py`.
+
+`bank_reported_average_label` is captured at all 28 sites that already read a
+printed average, across 26 parsers plus the structurer — the printed heading
+verbatim, and captured from the live cell where the parser matches one
+(`capital_one` table path, `regions` table path) or from the printed tokens
+where the match runs on a folded copy (`td_canada_french`, which prints
+`Solde créditeur mens moyen`). Sixteen distinct headings over the pinned 109.
+
+`analysis/metrics.py` gains `bank_reported_average_variance` (signed,
+ours minus theirs), `_variance_pct`, and `bank_reported_average_hypothesis`
+over a closed seven-value vocabulary. Each discriminator is an exact identity
+against the same ledger and each is stated in the code; `agrees` is tested
+first so a coincidental alternate match can never be reported in place of the
+plain fact, and a FLAT ledger suppresses the two alternate-equality tests
+outright (AS10.3).
+
+## AS2. Card 2 — the gate and the audit pins
+
+Both CSVs gain the same four columns, APPENDED. The additive proof is the
+identity of everything above them: **109 rows, 38 to 42 and 53 to 57 columns,
+zero drift on any pre-existing column in either file**, and
+`docs/adb-forensic-audit.md` regenerates byte-identical.
+
+`adb-audit-results.csv` deliberately now carries TWO label columns.
+`printed_adb_label` is the audit script's own after-the-fact guess from the
+bank name and the markdown; `bank_reported_average_label` is what the parser
+read off the page. Keeping both means the day they disagree is a finding
+rather than a silent overwrite.
+
+`corpus_gate.check_adb_doctrine` is new. `production_verdict` now returns its
+payload so the check costs no third analysis pass. It holds the gate's OWN copy
+of the doctrine literals — this file may not import `analysis.adb`, and a check
+that borrowed the engine's constant could not detect the engine changing it.
+
+The alternates are NOT pinned per document. What is pinned is the property that
+makes them meaningful: `banking_day` must differ from the canonical figure
+unless the period contains no non-banking day, or the daily series is flat —
+two exemptions that make them equal by arithmetic rather than by substitution,
+both checked from the published ledger rather than asserted. Both were written
+in because a flat-balance statement is a real counterexample to the naive form
+of the rule.
+
+**Skips are not exemptions, and the count is now printed.** A document that
+publishes no ADB has no canonical figure to be distinct from, so there is
+nothing for this clause to assert and it is skipped - while still being held to
+the basis stamp. On the pinned corpus that is the three withheld documents, and
+the arithmetic reads `distinct 106 + skipped 3 + exemptions 0 = 109`. The
+earlier phrasing of this record let "3" read as an exemption; it is not, and
+`distinct + exemptions + skipped` is now in the summary line so the difference
+cannot be inferred wrongly again. A second skip case exists and the corpus does
+not contain one: a period holding no banking day at all - a weekend-only or
+holiday-weekend statement - for which the engine reports None rather than a
+mean over an empty day set. It is named in the check's docstring.
+
+## AS3. Card 3 — H1, reproduced
+
+Promoting `opening_balance_matches_statement` into the required set moved
+**nothing**, and this is the direct reproduction rather than an inference from
+the outcome totals. Over all 2,494 analysed archive documents, the count that
+pass every OTHER required check and fail only the promoted one is **0**:
+
+| population | count | `opening_balance_matches_statement` |
+|---|---|---|
+| validated | 2,405 | True |
+| review | 25 | True |
+| withheld, failing other checks | 60 | True |
+| withheld, no ledger at all | 3 | not evaluated |
+| withheld, failing this one too | 1 | False |
+
+`opening_balance_source` across the archive: `stated` 2,488,
+`initialization_event` 2, `derived_from_closing` **1**, none 3. That single
+derived opening is the whole exposure and it is named:
+`A4E41C80` (`Wells Fargo/4487f692_June Document-.pdf`), which was already
+withheld before this promotion because it also fails
+`running_balances_support_daily_ledger`. The promotion did not withhold it; it
+stopped a check that cannot pass from being optional.
+
+## AS4. Card 4 — H2, corrected against re-measurement
+
+`benchmark/compare.py::_mt_activity_mean_note` claimed MoneyThumb averages
+"activity days". That was wrong, and it stated undocumented vendor behaviour as
+if it were a specification. Re-measured over `moneythumbResults/results` on
+2026-08-15, reproduced here rather than carried over:
+
+* **11 of 11** MT daily-balance series are exactly the BANKING days of their
+  span — weekdays minus observed federal Reserve Bank holidays. Not activity
+  days: those series carry days with no posting, and every weekday holiday in
+  range is absent.
+* **10 of 11** `avg_balance` figures equal the plain mean of that series to the
+  cent; the eleventh (`chase_dec` account 9362) differs by 0.01.
+* **6 of 6** benchmark documents where our ledger validates AND MT prints an
+  average reproduce MT's figure EXACTLY from OUR ledger on the banking-day
+  denominator — `chase_dec`, the three `chase_jan_feb_mar` months,
+  `field_trucking_nov`, `wmb_may`. Under a weekday-only denominator only 1 of
+  the 6 reproduces, so the federal-holiday calendar is load-bearing rather than
+  incidental.
+* **0 of 11** match a calendar-day mean over the same span.
+
+PARITY_MATRIX rows 9 and 10 corrected: MT's average IS recomputable, from its
+own published series. The verdict on row 9 stays, on defensibility — ours is
+Decimal, validated, fail-closed and declares its basis — but the earlier reason
+given for it was false. Every `adb` comparison row now carries an explicit
+definition-relative qualification and, where our ledger validates, our own
+banking-day figure beside it, so an `OUR_SYSTEM_CORRECT` verdict reads as "our
+figure matches our audited expectation under our ratified definition" and not
+as "MoneyThumb miscalculated".
+
+## AS5. Card 5 — Woodforest under the doctrine
+
+WF4's corrected diff applied, with the schema field, the parser declaration and
+the engine hunks in ONE commit (WF4 is explicit that the hunks are not
+standalone-inert). The consuming layer re-enforces the day-immediately-before
+boundary itself and requires a positive fold; the divisor never changes.
+
+Per-gate, on the real documents through the real pipeline:
+
+| | `D9EF1A8C` (`c183e584_Feb.pdf`) | `823DCE7F` (`fad3db75_document.PDF`) |
+|---|---|---|
+| printed period | 2026-02-11 .. 2026-02-28 | 2026-01-24 .. 2026-01-31 |
+| prover output | `[('2026-02-10', 30000.00, credit)]` | `[('2026-01-23', 1000.00, credit)]` |
+| declared count | 1 | 1 |
+| `beginning_balance` (published) | 0.00, unchanged | 0.00, unchanged |
+| engine `opening` / source | 30,000.00 / `initialization_event` | 1,000.00 / `initialization_event` |
+| ADB divisor | **18** — the printed period | **8** — the printed period |
+| `out_of_period_transaction_count` | 1 to **0** | 1 to **0** |
+| `opening_balance_matches_statement` | **True** (H1's promoted check) | **True** |
+| `underwriting_adb` | 25,390.04 | 2,802.26 |
+| bank's printed average | 25,632.67 (`Average Balance`) | 2,602.01 (`Average Balance`) |
+| variance / pct | **-242.63** / -0.9466% | **+200.25** / +7.696% |
+| hypothesis | `n_plus_1_zero_forward` | `n_plus_1_zero_forward` |
+| outcome | withheld to **validated** | withheld to **validated** |
+
+**What "every other gate passes" is worth, stated honestly.** Four of the
+prover's eight gates - G1 (forward is zero), G2 (dated the day immediately
+before, nothing after), G3 (every declared posting a positive credit) and G4
+(the ledger closes with them and not without) - are re-checked by the engine as
+the fold's own PRECONDITION. Citing them afterwards as independent corroboration
+is double counting: the fold could not have happened had they failed. The
+genuinely independent evidence that these two rows opened these two accounts is
+**G6** (the bank's own `Daily Closing Balance Summary` prints a closing balance
+for that day), **G7** (`Number of Days in Cycle` equals the printed period, so
+the period the evidence is measured against is the one the bank printed) and
+**G8** (the bank's printed average is reproduced to the cent over
+`[period_start - 1 .. period_end]` by the platform's own engine). G5 sits
+between the two groups - its leading-rows half is subsumed by G4, and its walk
+became falsifiable only when GEOM-1 landed. Three independent gates, not seven.
+
+The hypothesis is not decoration: it reproduces the (N+1)/N gap WF8.6 recorded
+as unexplained-by-that-cell. On both documents
+`(daily_sum + opening) / (days + 1)` equals the printed average to the cent —
+the bank counted the day the account opened and the printed period does not.
+
+Family sweep, all 22 archive documents whose text names WOODFOREST: 20 claimed
+by the registration (2 are other issuers naming it in a payee line and remain
+correctly unclaimed), **2 declared an initialization event, 2 moved**, 2 parser
+declines unchanged (`44100846`, `D2548844`), 1 withheld unchanged (`FBDB971C`),
+and the other 17 analysed documents byte-identical once the additive fields are
+stripped.
+
+`initialization_postings`'s docstring is re-qualified for GEOM-1 per WF8.12(b):
+G5's walk has left the unfalsifiable list, because the geometry read supplies
+the amount from the printed money column and does not call
+`_sign_from_balances`. Both subject documents route through that read.
+
+## AS6. The additive-field diff shape, stated for the instrument
+
+Every analysed payload changes, additively and only in these places. Nothing is
+removed and no pre-existing value moves.
+
+    payload["statement"]        + bank_reported_average_balance
+                                + bank_reported_average_label
+                                + initialization_transaction_count
+                                  (stated_average_balance is re-emitted at the
+                                   end of the object as a computed alias, same
+                                   value - a position change, not a removal)
+    payload["metrics"]          + bank_reported_average_variance
+                                + bank_reported_average_variance_pct
+                                + bank_reported_average_hypothesis
+    payload["metrics"]["adb"]   average_daily_balance -> underwriting_adb
+                                  (both popped; neither is ever in the payload)
+                                + underwriting_adb_basis
+                                + underwriting_adb_policy
+                                + underwriting_adb_alternates
+
+Whole-archive differential, base `bbe5cf1` vs this branch, over all 3,380
+distinct content shas resolved by direct artifact path (the sqlite index was
+never opened), both passes run through the production deterministic path,
+zero vendor cost:
+
+```
+base   : analysed 2494 / RuntimeError 873 / no-markdown 13
+branch : analysed 2494 / RuntimeError 873 / no-markdown 13
+base   outcomes: validated 2403, withheld 66, review 25
+branch outcomes: validated 2405, withheld 64, review 25
+
+branch payload == base payload with the additive fields stripped : 2492
+movers                                                           :    2
+  823DCE7F  Unidentified/fad3db75_document.PDF   withheld -> validated
+  D9EF1A8C  Unidentified/c183e584_Feb.pdf        withheld -> validated
+```
+
+The base pass was taken on this worktree BEFORE any edit, and it self-checks
+clean: on base, stripping the additive fields is a no-op, so the full and
+stripped payload hashes must be equal on every record, and they are on all
+2,494.
+
+## AS7. Alternates spot-audit
+
+Ten documents, one per family, five bases each — 50 values — recomputed from
+the PUBLISHED per-day ledger by a second implementation that imports nothing
+from `analysis.adb`, including a federal-bank-holiday calendar written
+independently from the statute. **10 agree / 0 disagree.** `banking_day`
+differs from the canonical figure on all ten, and `weekday_only` differs from
+`banking_day` on six, so the holiday calendar is doing real work rather than
+duplicating the weekday rule.
+
+## AS8. Proofs
+
+Exit codes verbatim. Every command run in the worktree; the machine was shared
+with sibling batch-5 sessions throughout, which inflates the wall clocks and
+nothing else.
+
+```
+$ python -m pytest -q
+4264 passed, 33 skipped, 29 deselected, 1 warning in 160.36s
+exit 0
+
+$ python -m pytest -m corpus -q
+25 passed, 4301 deselected, 1 warning in 1951.48s (0:32:31)
+exit 0
+
+$ python corpus_gate.py --ocr-cache tests/corpus_cache
+[PASS] inventory / foreign_files / source_integrity
+[PASS] balance_audit / adb_audit: 109 statements reproduce every audited field
+[PASS] balance_outcomes / adb_outcomes: 106 pass, 3 withheld, same three
+[PASS] outcome_classes: 6 review / 100 validated / 3 withheld
+[PASS] adb_doctrine: 109/109 publish 'calendar_day_printed_period';
+       banking-day alternate distinct on 106, skipped 3 unpublished
+       (0 all-banking-day periods, 0 flat ledgers)
+[PASS] ocr_coverage / exclusions / oracle_independence
+Outcomes: 106 PASS / 3 WITHHELD    Runtime: 632.7s
+RESULT: GREEN
+exit 0
+
+$ python adb_forensic_audit.py "Bank Statements" --ocr-cache tests/corpus_cache
+Wrote 109 rows: {'PASS': 106, 'WITHHELD': 3, 'FAIL': 0}
+exit 0
+
+$ python balance_forensic_audit.py "Bank Statements" --ocr-cache tests/corpus_cache
+Wrote 109 rows: {'PASS': 106, 'WITHHELD_SOURCE_CONTRADICTION': 3, 'FAIL': 0}
+exit 0
+```
+
+**`pytest -m corpus` is fully GREEN, which it was not at §WFINIT.** That cell
+recorded `1 failed, 13 passed` on
+`test_detect_sweep_stays_affordable_for_the_discovery_run` (WF7.1/WF8.11, the
+detect-sweep budget crossed on main). The slice is now 25 passed / 0 failed,
+so the STOP-THE-LINE candidate WFINIT carried does not reproduce here —
+batch 4's detect-sweep re-scope (104 preparations per document down to 33)
+closed it. Recorded because that item was carried open.
+
+The gate was run twice: once at `44a5f4a` and again at `5a6bde1` after the
+label-pairing hardening. Both GREEN, check for check, and the second run is
+what proves the hardening inert on the corpus rather than an argument that it
+must be.
+
+**Scope note on the corpus slice.** It was run at `44a5f4a`. The only later
+change is `5a6bde1`, two parsers hoisting a value expression into a variable
+and pairing the label to it — provably identical output wherever the value is
+not None, which the CSV audit shows is every one of the 109. The full suite and
+the whole gate were both re-run at `5a6bde1` and are green there.
+
+## AS9. Carried findings for Ocean
+
+1. **`ANALYSIS_STAGE_VERSION` must bump in the merge commit.** Every payload
+   changes additively and two outcomes move; the cached analysis payloads are
+   all invalidated. Ocean's at merge, per the handoff.
+2. **The telemetry diagnostic field name moved.** `SUMMARY_FIELDS` must hold
+   real `Statement.model_fields` (a contract test enforces it), so
+   `summary_fields_absent` now reports `bank_reported_average_balance` where it
+   used to report `stated_average_balance`. Telemetry only; no payload effect,
+   but it IS vocabulary drift: a rollup spanning the merge is comparing two
+   field vocabularies and must not treat the rename as a population change.
+   This cell also ADDS entries - one warning anchor and one advisory code - so
+   the union code tuple grows as well as shifts. The composed
+   `DIAGNOSTICS_VERSION` bump is Ocean's at the train; this cell does not move
+   it, because a per-cell bump would be overwritten by the next one.
+3. **A new ADB warning anchor** (`account-opening posting(s) dated before the`)
+   is registered as `adb_state:initialization_event_folded` and classed
+   ADVISORY — it is a disclosure on a document that passed every required
+   check, so it must never decide a failure class.
+4. **CSV/XLSX exports gain exactly six rows** (three `statement`, three
+   `metrics`), because `_analysis_rows` walks those sections generically. The
+   nested `adb` whitelist is untouched, so no basis, policy or alternate
+   reaches an export. No dashboard card was added: `webapp/` is untouched and
+   contains none of the new field names.
+5. **The Juneteenth limitation is deliberate and stated.** The banking-day
+   calendar counts Juneteenth in every year rather than carrying an
+   effective-date constant, because a literal year in the parser layer is what
+   `test_no_statement_hardcodes.py` exists to refuse. The consequence is
+   bounded to a pre-2021 period containing June 19, on an internal diagnostic.
+6. **The frozen TD oracles in `tests/test_row_grouping.py` now compare a
+   scoped statement.** `bank_reported_average_label` and
+   `initialization_transaction_count` postdate them; back-filling the oracle
+   bodies would have destroyed the "verbatim as of `8ce6abc`" property that is
+   their whole value. Both fields are pinned by name elsewhere.
+7. **`money_to_cents` is now public on `analysis/adb.py`.** `metrics.py` needs
+   the same cent rounding for the variance, and
+   `test_no_parser_helper_clones.py` forbids reaching for `_money` across
+   modules. Promoting the name was the alternative to a second implementation
+   of a financial decision.
+
+## AS10. Ocean's adversarial review — closures
+
+Verdict SHIP, with one code fix in a protected module and four hardenings.
+Everything below was reproduced before it was changed.
+
+### AS10.1 The `:466` clause — the engine tested the sign, not the column
+
+The fold's comment said "all declared postings credits". The gate tested
+`txn.amount > 0` and nothing else, so the reviewer folded a `+1000.00` row
+carrying `direction="debit"` — a positive amount the producer described as
+money LEAVING. The prover checks both halves; the engine did not, and the whole
+reason this layer re-enforces the day-before boundary rather than inheriting it
+is that it does not get to assume the declaring parser checked anything.
+
+    -            and all(txn.amount > 0 for _, txn in outside)
+    +            and all(
+    +                txn.direction == "credit" and txn.amount > 0
+    +                for _, txn in outside
+    +            )
+
+One term, and the invariant the comment already claimed. Fixtured at the engine
+layer on the reviewer's exact construction
+(`test_a_declared_posting_labelled_a_debit_is_refused_by_the_engine`), built on
+the STATEMENT rather than the markdown so it pins the engine's refusal of any
+producer, not the prover's refusal to declare. The same fixture asserts the
+unmodified statement still publishes, so it pins the direction term rather than
+incidental breakage. **Both movers re-verified unchanged** after the fix.
+
+### AS10.2 The gate's skip line
+
+The distinctness clause silently dropped documents with no canonical or no
+banking-day figure. Three today, and the summary line's `106` against a
+manifest of `109` invited exactly the misreading it produced. The count is now
+printed — `distinct on 106, skipped 3 unpublished (0 all-banking-day periods,
+0 flat ledgers)` — so `distinct + exemptions + skipped = 109` is visible rather
+than inferred. The all-weekend / holiday-weekend skip case, which the pinned
+corpus does not contain, is named in the check's docstring.
+
+### AS10.3 The hypothesis flat guard
+
+Reproduced first, on the TD NARROW shape — a ONE-DAY period, where the "balance
+entering each day" is just the opening balance:
+
+    period 2026-02-28 .. 2026-02-28, opening 100.00, closing 500.00
+    daily            [('2026-02-28', 500.0)]        <- one distinct balance
+    beginning_of_day 100.00
+    bank printed     100.00
+    HYPOTHESIS       beginning_of_day_alignment     <- from one coincidence
+
+A bank that simply printed its opening balance was being reported as evidence
+of an off-by-one-day averaging convention. The guard mirrors the gate's
+`exempt_flat` test — one distinct end-of-day balance across the period — and
+suppresses the two ALTERNATE-EQUALITY discriminators, `credit_only_floored` and
+`beginning_of_day_alignment`. A new `indeterminate_flat` reading replaces
+`unexplained` on a flat series, because "unexplained" implies evidence was
+weighed and found wanting when in fact the evidence cannot exist.
+
+**Deviation from the prescription, stated.** Ocean's note said a flat series
+should report `agrees`/`indeterminate_flat` and nothing else. Two
+discriminators are kept reachable there, because neither degenerates and
+suppressing them would lose real answers:
+
+* `collected_or_float` reads the bank's printed heading and never touches the
+  series at all.
+* `n_plus_1_zero_forward` is a different identity over different terms —
+  `(daily_sum + opening) / (days + 1)`, reachable only on a printed zero
+  balance forward. On a flat series it equals the constant only when the
+  opening equals it too, in which case the variance is zero and `agrees` has
+  already returned. Suppressing it would silence the mid-cycle
+  account-opening class on exactly the shape that class produces: an account
+  funded on day one and then static is FLAT, and `n_plus_1_zero_forward` is
+  the true explanation of its printed average. Fixtured
+  (`test_the_flat_guard_suppresses_only_the_two_degenerate_discriminators`).
+
+### AS10.4 The export triple-print — the alias row is dropped, not relabelled
+
+The flat exports printed the bank's figure three times: `statement`'s canonical
+row, `statement`'s alias row, and the long-standing `metrics` echo. **Dropped**
+rather than relabelled, and the reason is what the alias is FOR. It exists so a
+JSON consumer of the old name does not break, and it stays in the payload where
+that contract lives. A CSV or XLSX sheet is not that contract — it is a flat
+sheet a human reads, and a relabelled duplicate ("stated_average_balance
+(alias)") still asks the reader to work out which of three identical numbers is
+authoritative. Suppression is one named entry, `_EXPORT_SUPPRESSED_KEYS` in
+`webapp/app.py`, with the argument attached; the canonical row and the `metrics`
+echo both remain, so nothing an analyst reads is lost. Fixtured
+(`test_the_export_prints_the_bank_figure_once_per_section_not_three_times`),
+which asserts the alias is still in the payload and no longer in the rows.
+
+### AS10.5 Records
+
+The four record corrections are applied in place above: the honest statement of
+which prover gates are independent of the fold's own precondition (AS5 — three,
+G6/G7/G8, not seven); skips distinguished from exemptions with the arithmetic
+printed (AS2); the vocabulary count (AS1); and the telemetry entry rewritten as
+vocabulary drift that both shifts and GROWS the union code tuple, with the
+composed `DIAGNOSTICS_VERSION` bump left to Ocean at the train (AS9.2).
+
+### AS10.6 Re-run after the closures
+
+```
+$ python -m pytest tests/test_adb_doctrine.py -q
+26 passed in 1.43s
+exit 0
+
+$ python -m pytest tests/test_adb.py tests/test_woodforest.py -q
+111 passed in 1.59s
+exit 0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py \
+      tests/test_no_parser_helper_clones.py tests/test_parser_conformance.py \
+      tests/test_diagnostics.py -q
+769 passed in 1.76s
+exit 0
+
+$ python -m pytest -q
+4270 passed, 33 skipped, 29 deselected, 1 warning in 98.10s
+exit 0
+
+$ python corpus_gate.py --ocr-cache tests/corpus_cache
+[PASS] adb_doctrine: 109/109 statements publish the canonical basis
+       'calendar_day_printed_period'; banking-day alternate distinct on 106,
+       skipped 3 unpublished (0 all-banking-day periods, 0 flat ledgers)
+Outcomes: 106 PASS / 3 WITHHELD    Runtime: 358.5s
+RESULT: GREEN
+exit 0
+```
+
+Both movers end to end, unchanged by the direction term and the flat guard:
+`D9EF1A8C` divisor 18, opening 30,000.00 `initialization_event`, ADB 25,390.04,
+variance -242.63, `n_plus_1_zero_forward`, validated; `823DCE7F` divisor 8,
+opening 1,000.00 `initialization_event`, ADB 2,802.26, variance +200.25,
+`n_plus_1_zero_forward`, validated. Family sweep re-run: 22 documents naming
+Woodforest, 20 claimed, 2 declared, **2 moved**, the other 17 analysed
+documents additive-only.

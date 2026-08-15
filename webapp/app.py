@@ -183,12 +183,30 @@ def _adb_rows(metrics: dict) -> list[tuple[str, str, object]]:
     return rows
 
 
+#: Payload keys that exist for API compatibility and must NOT be flattened into
+#: the analyst-facing exports.
+#:
+#: `statement.stated_average_balance` is the deprecated alias of
+#: `statement.bank_reported_average_balance` and carries the identical number.
+#: It stays in the JSON payload, where a consumer of the old name would
+#: otherwise break — that is the whole point of the alias. A CSV or XLSX sheet
+#: is not that contract: it is a flat sheet a human reads, and printing the
+#: bank's figure on three rows (statement canonical, statement alias, metrics
+#: echo) reads as an extraction fault rather than as a compatibility shim. The
+#: canonical row and the long-standing `metrics` echo both remain, so nothing
+#: an analyst needs is lost and no reader has to work out which of three
+#: identical numbers is authoritative.
+_EXPORT_SUPPRESSED_KEYS = {("statement", "stated_average_balance")}
+
+
 def _analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
     rows: list[tuple[str, str, object]] = []
     for section in ("statement", "metrics", "quality", "integrity", "reconciliation"):
         value = analysis.get(section)
         if isinstance(value, dict):
             for key, item in value.items():
+                if (section, key) in _EXPORT_SUPPRESSED_KEYS:
+                    continue
                 if section == "metrics" and key == "adb":
                     continue  # emitted as its own section below
                 if isinstance(item, (dict, list)):

@@ -268,7 +268,8 @@ def parse_burke_herbert_statement(markdown: str) -> Statement | None:
         stated_debit_count=int(debits.group(1)),
         stated_service_charge=_figure(service.group(1)) if service else None,
         stated_interest_paid=_figure(interest.group(1)) if interest else None,
-        stated_average_balance=_figure(average.group(1)) if average else None,
+        bank_reported_average_balance=_figure(average.group(1)) if average else None,
+        bank_reported_average_label="AVERAGE LEDGER BALANCE" if average else None,
         transactions=[
             Transaction(
                 date=posted.isoformat(),

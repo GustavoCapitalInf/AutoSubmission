@@ -61,8 +61,8 @@ _FIELD_LABELS: dict[str, tuple[str, ...]] = {
                              "DEPOSITS/CREDITS"),
     "stated_total_debits": ("TOTAL WITHDRAWALS", "TOTAL DEBITS", "WITHDRAWALS AND OTHER DEBITS",
                             "CHECKS AND OTHER DEBITS"),
-    "stated_average_balance": ("AVERAGE DAILY BALANCE", "AVERAGE LEDGER BALANCE",
-                               "AVERAGE COLLECTED BALANCE"),
+    "bank_reported_average_balance": ("AVERAGE DAILY BALANCE", "AVERAGE LEDGER BALANCE",
+                                      "AVERAGE COLLECTED BALANCE"),
     "stated_service_charge": ("SERVICE CHARGE", "TOTAL FEES"),
     "stated_interest_paid": ("INTEREST PAID", "INTEREST EARNED"),
 }

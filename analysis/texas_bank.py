@@ -128,7 +128,8 @@ def parse_texas_bank_statement(markdown: str) -> Statement | None:
         stated_total_debits=debits,
         stated_credit_count=int(credit_count),
         stated_debit_count=int(debit_count),
-        stated_average_balance=average,
+        bank_reported_average_balance=average,
+        bank_reported_average_label="Average Ledger" if average is not None else None,
         stated_service_charge=service_charge,
         transactions=txns,
     )

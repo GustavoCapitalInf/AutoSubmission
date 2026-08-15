@@ -6,7 +6,7 @@ metrics, detection) that do all the math. Amounts are always signed: negative =
 money leaving the account (debit), positive = money entering (credit).
 """
 from __future__ import annotations
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, computed_field
 
 
 class Transaction(BaseModel):
@@ -27,6 +27,10 @@ class StatementDailyBalance(BaseModel):
 
 
 class Statement(BaseModel):
+    # `populate_by_name` so a caller may use either the canonical field name or
+    # a deprecated alias declared below; both resolve to the same storage.
+    model_config = ConfigDict(populate_by_name=True)
+
     bank: str | None = Field(default=None, description="Bank name, e.g. 'Chase'.")
     account_name: str | None = Field(default=None, description="Account holder / product name.")
     account_number: str | None = Field(default=None, description="Account number as printed.")
@@ -44,9 +48,26 @@ class Statement(BaseModel):
     stated_total_debits: float | None = Field(default=None, description="Bank-stated total of checks/debits, as a POSITIVE magnitude.")
     stated_credit_count: int | None = Field(default=None, description="Bank-stated number of deposits/credits.")
     stated_debit_count: int | None = Field(default=None, description="Bank-stated number of checks/debits.")
-    stated_average_balance: float | None = Field(
+    # The bank's OWN printed average. It is evidence to preserve, never the
+    # platform's Average Daily Balance: the canonical underwriting ADB is
+    # computed in `analysis/adb.py` over the printed period's calendar days and
+    # no bank's convention redefines it. The two are published side by side and
+    # `analysis/metrics.py` records their signed variance and a diagnostic
+    # hypothesis for it.
+    bank_reported_average_balance: float | None = Field(
         default=None,
+        validation_alias=AliasChoices(
+            "bank_reported_average_balance", "stated_average_balance"
+        ),
         description="Bank-printed average balance if shown ('Average Ledger', 'Average Collected', 'Average Daily Balance'). Prefer the ledger/daily figure.",
+    )
+    bank_reported_average_label: str | None = Field(
+        default=None,
+        description=(
+            "The heading the bank printed the average under, verbatim - the "
+            "basis it claims for its own figure. Set only by a parser that "
+            "actually read the printed average."
+        ),
     )
     stated_service_charge: float | None = Field(
         default=None, description="Bank-stated total service charge / fees for the period, as a POSITIVE magnitude.")
@@ -62,4 +83,35 @@ class Statement(BaseModel):
             "evidence, not averages; missing calendar dates carry the prior balance."
         ),
     )
+    #: How many LEADING transactions this parser proved, from the document's
+    #: own printed evidence, to be account-opening postings dated before the
+    #: printed period. Zero everywhere except where a parser has declared it;
+    #: `analysis/adb.py` re-checks every condition itself before folding them
+    #: into the opening balance, and never changes the ADB divisor.
+    initialization_transaction_count: int = Field(
+        default=0,
+        description=(
+            "Number of leading transactions the parser proved are "
+            "account-opening postings dated before the statement period."
+        ),
+    )
+
     transactions: list[Transaction] = Field(default_factory=list)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def stated_average_balance(self) -> float | None:
+        """DEPRECATED alias for `bank_reported_average_balance`.
+
+        Serialized as well as readable so that payload consumers of the old
+        name keep working: the rename is additive on the wire, not a removal.
+        Writable so the parsers that assign it keep working unchanged. Note
+        that `model_copy(update={...})` bypasses attribute assignment, so the
+        four parsers that build their statement that way use the canonical
+        key - pydantic would silently drop the alias there.
+        """
+        return self.bank_reported_average_balance
+
+    @stated_average_balance.setter
+    def stated_average_balance(self, value: float | None) -> None:
+        self.bank_reported_average_balance = value

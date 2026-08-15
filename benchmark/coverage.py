@@ -277,7 +277,7 @@ def _rules() -> tuple[CoverageRule, ...]:
     add(CoverageRule(sc + "daily_balances[].balances[].true_balance", "skipped_by_verdict", "ADOPT",
                      "True-balance daily series - planned derivation (s5)."))
     add(CoverageRule(sc + "daily_balances", "compared", "-",
-                     "Feeds the daily_balance_series row: MT activity-day balances checked against our "
+                     "Feeds the daily_balance_series row: MT banking-day balances checked against our "
                      "validated per-calendar-day ledger (s5)."))
     for path in ("daily_cash_flows", "monthly_cash_flows"):
         add(CoverageRule(sc + path, "skipped_by_verdict", "DERIVE",

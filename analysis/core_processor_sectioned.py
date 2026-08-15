@@ -786,7 +786,10 @@ def parse_core_processor_sectioned_statement(markdown: str) -> Statement | None:
         stated_total_debits=summary.debits,
         stated_credit_count=summary.credit_count,
         stated_debit_count=summary.debit_count,
-        stated_average_balance=summary.average,
+        bank_reported_average_balance=summary.average,
+        bank_reported_average_label=(
+            "AVERAGE BALANCE" if summary.average is not None else None
+        ),
         stated_daily_balances=printed_grid,
         transactions=sorted(rows, key=lambda row: row.date),
     )
