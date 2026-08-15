@@ -126,6 +126,7 @@ withheld, and letting it choose a class would misdirect remediation.
 | `parser_ambiguous` | *advisory* (a dispatch fact; `dispatch.outcome` carries it) |
 | `parser_exception` | *advisory* (W3-1: a parser raised; `dispatch.exceptions` carries who and what) |
 | `integrity_check_exception` | **`check_unavailable`** (W3-2b) |
+| `repair_exception` | **`extraction_failure`** (REPAIR-GUARD/PIPE5: a bank-summary repair raised, so the published statement is the unrepaired one — a production stage that did not complete, upstream of every financial class) |
 | anything else | `integrity:unmapped` → **unmapped** |
 
 **The two W3-1 crash flags are treated differently, and the difference is the

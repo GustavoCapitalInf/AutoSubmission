@@ -122,6 +122,11 @@ INTEGRITY_FLAGS: frozenset[str] = frozenset({
     # no diagnosis to be incomplete). See CLASS_OF and ADVISORY_CODES.
     "parser_exception",
     "integrity_check_exception",
+    # REPAIR-GUARD (W3 §MG-C2 D1 / §PIPE5). The third crash flag, and the one
+    # that is neither of the other two: a bank-summary repair raised, so the
+    # published statement is the UNREPAIRED one. See CLASS_OF for why it is
+    # classed rather than advisory.
+    "repair_exception",
     "conflicting_statement_summaries",
     "missing_declared_statement_page",
     # COUNTS-P2. The captured rows did not reproduce the bank's own printed
@@ -257,6 +262,18 @@ CLASS_OF: dict[str, str] = {
     "adb_state:period_unresolvable": "adb_not_computable",
     "adb_state:opening_balance_underivable": "adb_not_computable",
     "recon:escalation_extraction_failed": "extraction_failure",
+    # REPAIR-GUARD (W3 §PIPE5). A repair that raised is a PRODUCTION stage that
+    # did not complete, which is what `extraction_failure` already means for
+    # the escalation code above it — not `check_unavailable`, because a repair
+    # yields no finding and so leaves no diagnosis partial, and not advisory
+    # like `parser_exception`, because a parser that crashed produced no claim
+    # and its document never reached the checks at all, while THIS document
+    # reached every check with figures the platform knows are uncorrected.
+    # Ranking it above the financial classes is the same argument W3-2b made
+    # for `check_unavailable`: a repair rewrites published balances and stated
+    # totals, so a `summary_identity` or `ledger_identity` finding taken on the
+    # unrepaired figures may be the crash's symptom rather than the cause.
+    "integrity:repair_exception": "extraction_failure",
     # W3-2b. A registered integrity check RAISED, so its finding is UNKNOWN -
     # not clean. It ranks above every financial class deliberately: the check
     # that crashed is typically the one that would have produced

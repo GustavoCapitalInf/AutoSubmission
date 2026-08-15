@@ -265,6 +265,7 @@ def assess_document_integrity(
     markdown: str = "",
     dispatch: Dispatch | None = None,
     sheets: Sequence[str] | None = None,
+    repair_failure: str | None = None,
 ) -> DocumentIntegrity:
     # `str` is itself a `Sequence[str]`, so `sheets=markdown` type-checks, then
     # iterates to one CHARACTER per "sheet": thousands of unlabelled sheets, and
@@ -351,6 +352,20 @@ def assess_document_integrity(
             "a deterministic parser raised on this document ("
             + ", ".join(dispatch.crashed)
             + "); routed to review rather than reported as unrecognised"
+        )
+    # A swallowed repair may not be silent. `analyze_markdown` discards a
+    # repair stage that raised and publishes the UNREPAIRED statement, so the
+    # summary figures a repair exists to correct are knowingly uncorrected —
+    # that is a review cause with a named class, in the same family as
+    # `parser_exception` above. `repair_failure` is a CLASS NAME (the seam that
+    # produced it keeps nothing else), so interpolating it here cannot carry a
+    # fragment of the document into the payload. (W3 §REPAIR-GUARD / §PIPE5.)
+    if repair_failure is not None:
+        flags.append("repair_exception")
+        notes.append(
+            f"a bank-summary repair raised ({repair_failure}) and was discarded; "
+            "the unrepaired statement stands, so the document is routed to "
+            "review rather than reported as clear"
         )
     contradictions: list[str] = []
     if markdown and registration is not None:
@@ -538,12 +553,81 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         if deterministic_stmt is None and dispatch.outcome == "unclaimed"
         else None
     )
+    repair_failure: str | None = None
     if deterministic_stmt is not None:
-        stmt = apply_statement_repairs(
-            markdown, normalize_statement(deterministic_stmt), dispatch=dispatch
-        )
-        bank_label = (stmt.bank or "bank").lower().replace(" ", "-")
-        model_used = f"{bank_label}-deterministic"
+        normalized = normalize_statement(deterministic_stmt)
+        # THE REPAIR SEAM (W3 §MG-C2 D1 / §REPAIR-GUARD / §PIPE5).
+        #
+        # `parser_registry` states the law for the deterministic branch: "no
+        # code path from `resolve` through `parse` raises". Every `detect` and
+        # every `parse` runs behind `_guarded`, which reduces a crash to a
+        # `ParserFailure` — registration id, stage, and the exception's CLASS
+        # NAME, never its message, because a message routinely quotes the cell
+        # of the document that provoked it (H3_SCHEMA I1). The repairs run
+        # AFTER dispatch, so they were the one line in this branch standing
+        # outside that promise: a repair that raised propagated out of
+        # `analyze_markdown` as a bare exception, and `webapp/worker.py` does
+        # `store.set_error(job_id, str(exc))` — putting the quoted cell in the
+        # durable job store and in front of a user.
+        #
+        # MG-C closed the leak at its loudest SOURCE (`money.read_money` names
+        # the reader and the refusal class, never the token). This closes the
+        # SEAM, which is the part that generalises: an `int()` on a mangled
+        # cell or a `KeyError` on a mis-shaped grid quotes the document too.
+        #
+        # The repair stage is discarded ATOMICALLY — the unrepaired statement
+        # stands, which is exactly what this branch published before repairs
+        # existed. Deliberately not per-repair: recovering WHICH step of the
+        # stage raised would mean running the ten repairs, the year assignment
+        # and the normalization independently, and that changes what the stage
+        # DOES — today the first raise stops the rest — which this card is
+        # explicit is out of scope. For the same reason the
+        # class name is NOT attributed to `dispatch.registration`: only the
+        # keyed summary repair belongs to the claiming parser, so naming it as
+        # the author of any of the nine unconditional repairs' crashes would
+        # be the misattribution this seam exists to prevent.
+        #
+        # NOT applied to the two LLM-branch repair calls below, and that is a
+        # boundary rather than an omission: `extract_statement` on those
+        # branches is itself an unguarded call that raises out of this
+        # function, so guarding one line inside a branch that makes no
+        # totality promise would buy nothing. The escalation call already
+        # reduces any crash to `type(e).__name__` in its own `except`.
+        try:
+            stmt = apply_statement_repairs(markdown, normalized, dispatch=dispatch)
+        except Exception as exc:
+            stmt = normalized
+            repair_failure = type(exc).__name__
+        # MODEL-LABEL (W3 §PIPE5). `(stmt.bank or "bank")` published the single
+        # label `bank-deterministic` for every document whose parser publishes
+        # no issuer — the honest-unknown-issuer registrations (UNKNOWN-ISSUER)
+        # and the issuer-agnostic core-processor templates, which claim on a
+        # PLATFORM's paper and so cannot name the bank without inventing one.
+        # Collapsing them into one bucket makes the aggregation dishonest in
+        # the one direction that matters: it reads as a single parser having
+        # produced 41 documents that four different parsers produced, and it
+        # is the label the coverage audits and the forensic audits carry.
+        #
+        # The claiming registration's id is the honest name. It is what
+        # actually dispatched, it is already the key every other consequence in
+        # this module is drawn on (`_registration_for`), and it is a registry
+        # id rather than anything read out of the document.
+        #
+        # NARROW BY CONSTRUCTION: `stmt.bank is None` is required, so a
+        # document that carries a bank label takes the byte-identical old
+        # expression and cannot move. `is None` and not falsiness — a parser
+        # that published an empty label would be stating something different
+        # from "this paper names no issuer", and this hunk does not adjudicate
+        # that. The suffix is unchanged, which is load-bearing:
+        # `telemetry.record.model_calls_for` reads `endswith("-deterministic")`
+        # to mean "no model call was made", so cost and call accounting are
+        # untouched.
+        owner = _registration_for(stmt, dispatch)
+        if stmt.bank is None and owner is not None:
+            model_used = f"{owner.id}-deterministic"
+        else:
+            bank_label = (stmt.bank or "bank").lower().replace(" ", "-")
+            model_used = f"{bank_label}-deterministic"
     elif structured_stmt is not None:
         # No `apply_statement_repairs`: its repairs are bank-specific and this
         # branch is where no bank was identified. The one correction the
@@ -611,7 +695,8 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
             if note not in metrics.notes:
                 metrics.notes.append(note)
     integrity = assess_document_integrity(
-        stmt, recon, quality, markdown=markdown, dispatch=dispatch, sheets=sheets
+        stmt, recon, quality, markdown=markdown, dispatch=dispatch, sheets=sheets,
+        repair_failure=repair_failure,
     )
     if integrity.possible_document_issue and quality.corporate_use != "approved":
         quality = Quality(
