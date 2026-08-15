@@ -265,6 +265,51 @@ def test_the_sweep_entry_points_strip_the_filename_comment_once(sources, monkeyp
     assert len(calls) == 1, f"the near-miss sweep stripped the comment {len(calls)} times"
 
 
+def test_the_double_sweep_prepares_each_document_once(documents, sources, monkeypatch):
+    """...and that the two entry points, together, prepare it once (#PREPHAND).
+
+    Every document on the production path is swept TWICE: `analyze_markdown`
+    routes it through `resolve`, and telemetry's near-miss vector re-scores it
+    through `detection_report` (H3_SCHEMA §4 — admissible because `detect` is
+    pure). Purity is what makes the second sweep honest; it is not what makes
+    it cheap. Before this seam the second sweep paid the whole preparation
+    again: 33 text preparations per document, to recompute character for
+    character the texts the first sweep had just produced.
+
+    Stated in operations, so a busy machine and a quiet one read it the same
+    way. Cannot run on base at all — `score_vector` there takes no collector —
+    which is the same shape as the clause above it.
+    """
+    from telemetry import DispatchCollector, score_vector
+
+    expected = 1 + len({reg.normalize for reg in pr.registrations() if reg.normalize})
+    real_prepare = pr.prepare
+
+    for row in documents:
+        markdown = sources[row["path"]]
+
+        # Sweep one, as `analysis.pipeline.analyze_markdown` performs it.
+        prepared = pr.prepare(markdown)
+        collector = DispatchCollector()
+        collector(pr.resolve(prepared))
+        assert collector.prepared is prepared, f"{row['path']}: preparation not published"
+
+        # Sweep two, as the three telemetry emitters perform it.
+        second: list[str] = []
+        monkeypatch.setattr(pr, "prepare", lambda md: second.append(md) or real_prepare(md))
+        vector = score_vector(markdown, collector)
+        monkeypatch.setattr(pr, "prepare", real_prepare)
+
+        assert second == [], f"{row['path']}: the near-miss sweep re-prepared the document"
+        assert prepared.preparations == expected, (
+            f"{row['path']}: {prepared.preparations} text preparations across both "
+            f"sweeps; expected {expected}"
+        )
+        assert vector == score_vector(markdown), (
+            f"{row['path']}: the reused preparation changed the near-miss vector"
+        )
+
+
 def test_detect_sweep_stays_affordable_for_the_discovery_run(sources):
     """RFC risk 7: the full-registry sweep is per-document overhead on 3,506
     discovery documents, so it must stay far below the cost of one parse.

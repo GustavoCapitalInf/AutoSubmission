@@ -26,8 +26,8 @@ from .parser_registry import (
     Dispatch,
     ParserCrashError,
     Registration,
-    admissible_text,
     by_bank_label,
+    prepare,
     resolve,
     run_integrity_checks,
 )
@@ -506,10 +506,22 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
     # keys off an absolute markdown line index (the structurer derives its own
     # indices from the text it is handed, and `DocumentGeometry` is built from
     # OCR word boxes, not from this string).
-    markdown = admissible_text(markdown)
+    #
+    # The rebind is taken FROM the detect sweep's own preparation rather than
+    # computed beside it (W3 #PREPHAND). `PreparedDocument` begins by computing
+    # exactly `admissible_text(markdown)` — the same function on the same
+    # string, so the boundary is where it was and says what it said — and then
+    # holds each parser's normalization of that text for the sweep. Passing the
+    # object to `resolve` instead of the string is what makes one document cost
+    # one preparation: `resolve` sweeps on it and publishes it as
+    # `Dispatch.prepared`, and telemetry's near-miss vector — a SECOND full
+    # sweep over the same document, per H3_SCHEMA §4 — reuses it instead of
+    # preparing everything a second time.
+    prepared = prepare(markdown)
+    markdown = prepared.admissible
 
     model_used = settings.model
-    dispatch = resolve(markdown)
+    dispatch = resolve(prepared)
     if on_dispatch is not None:
         # H-3 telemetry seam: write-only side-band, nothing here is read back.
         # The callback's contract is "must not raise, must not mutate", and it

@@ -624,6 +624,18 @@ class Dispatch:
     #: apart.
     exceptions: tuple[ParserFailure, ...] = ()
     statement: Statement | None = field(default=None, compare=False)
+    #: The text this routing was decided on, prepared once (see
+    #: `PreparedDocument`). Published so that a SECOND sweep over the same
+    #: document — telemetry's near-miss vector runs one, per H3_SCHEMA §4 —
+    #: can reuse the preparation instead of repeating it. Reuse is the
+    #: consumer's decision and is guarded on this text: nothing here obliges
+    #: anyone to take it.
+    #:
+    #: `compare=False`, like `statement`: two dispatches are equal when they
+    #: routed the same way, and which document object they were decided on is
+    #: not part of that. `repr=False` because a `PreparedDocument` has no
+    #: readable repr — it would print an address, not a fact.
+    prepared: PreparedDocument | None = field(default=None, compare=False, repr=False)
 
     @property
     def parser_id(self) -> str | None:
@@ -663,13 +675,17 @@ def safe_detect(
 
 
 def _surviving_claimants(
-    markdown: str, failures: list | None = None
+    document: str | PreparedDocument, failures: list | None = None
 ) -> list[tuple[Registration, Detection]]:
     """Claimants after `supersedes` pruning. `failures` is optional so that the
     diagnostic callers (the corpus parity tests) keep their pre-W3-1 signature:
-    they ask what claimed a document, not what broke doing it."""
+    they ask what claimed a document, not what broke doing it.
+
+    `document` may be a `PreparedDocument`, exactly as in `safe_detect`: a
+    caller that has already prepared this document's text hands it over rather
+    than paying for the preparation twice."""
     failures = failures if failures is not None else []
-    prepared = prepare(markdown)
+    prepared = document if isinstance(document, PreparedDocument) else prepare(document)
     claimants = [
         (registration, detection)
         for registration in registrations()
@@ -679,7 +695,7 @@ def _surviving_claimants(
     return [(reg, det) for reg, det in claimants if reg.id not in dominated]
 
 
-def resolve(markdown: str) -> Dispatch:
+def resolve(document: str | PreparedDocument) -> Dispatch:
     """Route one document. Never raises.
 
     Detection first, for every registration; then `supersedes` pruning; then
@@ -698,15 +714,34 @@ def resolve(markdown: str) -> Dispatch:
 
     `ambiguous` still outranks it: two claimants is a resolvable registry fact
     that a human acts on, and it is already routed to review.
+
+    `document` may be a `PreparedDocument` (`safe_detect`'s convention), and
+    the `Dispatch` carries the preparation back out either way, so the sweep a
+    document costs is paid once no matter how many sweeps read it.
+
+    **The text `parse` receives is unchanged in both cases and that is
+    deliberate.** A caller that passes a string gets exactly today's
+    behaviour: detection scores the admissible text, `parse` receives the
+    string as given. A caller that passes a `PreparedDocument` has already
+    decided what the admissible text is, and `parse` receives that — which is
+    the same bytes detection scored, and the same bytes
+    `analysis.pipeline.analyze_markdown` has passed since FILENAME-BOUNDARY.
+    Neither path may quietly re-strip the other's text: that would move the
+    admissibility boundary from the one seam that states it.
     """
+    if isinstance(document, PreparedDocument):
+        prepared, markdown = document, document.admissible
+    else:
+        prepared, markdown = prepare(document), document
     failures: list[ParserFailure] = []
-    survivors = _surviving_claimants(markdown, failures)
+    survivors = _surviving_claimants(prepared, failures)
     candidates = tuple(
         sorted(((reg.id, det.score) for reg, det in survivors), key=lambda item: (-item[1], item[0]))
     )
 
     if len(survivors) > 1:
-        return Dispatch("ambiguous", candidates=candidates, exceptions=tuple(failures))
+        return Dispatch("ambiguous", candidates=candidates, exceptions=tuple(failures),
+                        prepared=prepared)
 
     ranked = sorted(survivors, key=lambda item: (-item[1].score, item[0].id))
     attempted: list[str] = []
@@ -722,6 +757,7 @@ def resolve(markdown: str) -> Dispatch:
                 attempted=tuple(attempted),
                 exceptions=tuple(failures),
                 statement=statement,
+                prepared=prepared,
             )
         if len(failures) == crashes_before:
             # Declined, rather than broke: an `attempted` entry (§4.3).
@@ -736,6 +772,7 @@ def resolve(markdown: str) -> Dispatch:
         candidates=candidates,
         attempted=tuple(attempted),
         exceptions=tuple(failures),
+        prepared=prepared,
     )
 
 
@@ -763,15 +800,23 @@ def run_integrity_checks(
     return notes, tuple(failures)
 
 
-def detection_report(markdown: str) -> tuple[tuple[str, Detection], ...]:
+def detection_report(document: str | PreparedDocument) -> tuple[tuple[str, Detection], ...]:
     """Every registration's `Detection` for one document, best first.
 
     Diagnostic only — used by the conformance tests, by telemetry's near-miss
     vector and by discovery adjudication when a document resolved unexpectedly.
     Guarded like `resolve`: a diagnostic sweep must not be the thing that
     aborts a run.
+
+    `document` may be a `PreparedDocument` — `resolve` publishes the one it
+    swept on, and this is the second sweep it is published for. Reusing it is
+    exact, not an approximation: a `PreparedDocument` holds `admissible_text`
+    and each normalizer's output, both pure functions of the text, and a memo
+    of marker outcomes over those texts, and `Marker.test` is pure by
+    contract. A registration that raised is never memoized (see `_score`), so
+    the guard is entered on this sweep exactly as it was on the first.
     """
-    prepared = prepare(markdown)
+    prepared = document if isinstance(document, PreparedDocument) else prepare(document)
     scored = [
         (registration.id, safe_detect(registration, prepared)) for registration in registrations()
     ]

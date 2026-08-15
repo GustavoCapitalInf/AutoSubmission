@@ -287,6 +287,146 @@ def test_preparing_a_document_never_mutates_it():
 
 
 # ===========================================================================
+# The double sweep: one preparation, two sweeps (#PREPHAND)
+# ===========================================================================
+#
+# A document is swept twice on the production path — `resolve` routes it, then
+# `detection_report` builds telemetry's near-miss vector over the same text —
+# and before this seam the second sweep prepared everything again. `resolve`
+# now publishes the preparation it swept on, and the second sweep may take it.
+
+def test_resolve_publishes_the_document_it_swept():
+    make("a", pr.required("m", contains("BANK")), normalize=str.upper)
+    dispatch = pr.resolve("<!-- SOURCE: x.pdf -->\nbank statement")
+
+    assert dispatch.outcome == "claimed"
+    assert isinstance(dispatch.prepared, pr.PreparedDocument)
+    assert dispatch.prepared.admissible == "\nbank statement"
+
+
+@pytest.mark.parametrize("outcome", ["claimed", "ambiguous", "unclaimed", "parser_exception"])
+def test_every_outcome_publishes_its_preparation(outcome):
+    """All four verdicts, because a near-miss vector is built for all four —
+    the unclaimed ones are the whole point of the vector."""
+    def explodes(_md):
+        raise ValueError("boom")
+
+    if outcome == "claimed":
+        make("a", pr.required("m", contains("X")))
+    elif outcome == "ambiguous":
+        make("a", pr.required("m", contains("X")))
+        make("b", pr.required("m", contains("X")))
+    elif outcome == "unclaimed":
+        make("a", pr.required("m", contains("absent")))
+    else:
+        pr.register(pr.Registration(id="a", bank="A",
+                                    markers=(pr.required("m", contains("X")),),
+                                    parse=explodes))
+
+    dispatch = pr.resolve("X")
+    assert dispatch.outcome == outcome
+    assert isinstance(dispatch.prepared, pr.PreparedDocument)
+
+
+def test_resolve_sweeps_the_document_it_is_handed_and_prepares_nothing_more():
+    make("a", pr.required("m", contains("BANK")), normalize=str.upper)
+    make("b", pr.required("m", contains("bank")))
+
+    prepared = pr.prepare("<!-- SOURCE: x.pdf -->\nbank statement")
+    assert prepared.preparations == 1
+    dispatch = pr.resolve(prepared)
+
+    assert dispatch.prepared is prepared
+    assert prepared.preparations == 2  # admissible + the one normalization
+
+
+def test_a_second_sweep_over_the_published_document_prepares_nothing():
+    """The handoff, stated as the operation count it exists to remove."""
+    make("a", pr.required("m", contains("BANK")), normalize=str.upper)
+    make("b", pr.required("m", contains("bank")))
+
+    dispatch = pr.resolve("<!-- SOURCE: x.pdf -->\nbank statement")
+    after_first = dispatch.prepared.preparations
+    pr.detection_report(dispatch.prepared)
+
+    assert after_first == 2
+    assert dispatch.prepared.preparations == after_first, (
+        "the second sweep prepared text the first sweep had already prepared"
+    )
+
+
+def test_the_published_document_reports_exactly_what_a_fresh_sweep_reports():
+    """The equivalence property at unit scale: normalization, no
+    normalization, an excluding marker and a near-miss that never claims."""
+    make("upper", pr.required("m", contains("BANK")), normalize=str.upper)
+    make("raw", pr.required("m", contains("bank")))
+    make("excluded", pr.required("m", contains("bank")), pr.excluding("no", contains("void")))
+    make("near", pr.required("m", contains("bank")), pr.required("other", contains("absent")))
+
+    document = "<!-- SOURCE: x.pdf -->\nbank statement, not void"
+    dispatch = pr.resolve(document)
+
+    assert pr.detection_report(dispatch.prepared) == pr.detection_report(document)
+
+
+def test_the_text_parse_receives_is_the_text_the_caller_supplied():
+    """The admissibility boundary is the caller's, and stays the caller's.
+
+    A string caller gets exactly the pre-#PREPHAND behaviour — detection on
+    the admissible text, `parse` on the string as given. A caller that hands
+    over a `PreparedDocument` has already decided what the admissible text is,
+    and `parse` sees that. Neither path re-strips the other's text: moving the
+    boundary silently is the failure this pins.
+    """
+    seen: list[str] = []
+    pr.register(pr.Registration(
+        id="a", bank="A", markers=(pr.required("m", contains("bank")),),
+        parse=lambda md: seen.append(md) or statement("A"),
+    ))
+
+    document = "<!-- SOURCE: x.pdf -->\nbank statement"
+    pr.resolve(document)
+    pr.resolve(pr.prepare(document))
+
+    assert seen == [document, "\nbank statement"]
+
+
+def test_a_crash_reaches_the_guard_on_the_second_sweep_as_well():
+    """DT7.1's point, one sweep later: a raise is never memoized, so reusing
+    the preparation cannot turn a crash into a cached score."""
+    raises = []
+
+    def explodes(_text: str) -> bool:
+        raises.append(1)
+        raise ValueError("cannot handle this document")
+
+    pr.register(pr.Registration(id="boom", bank="Boom",
+                                markers=(pr.required("m", explodes),),
+                                parse=lambda md: None))
+    make("healthy", pr.required("m", contains("X")))
+
+    dispatch = pr.resolve("X")
+    assert dispatch.outcome == "claimed"
+    assert [f.parser_id for f in dispatch.exceptions] == ["boom"]
+    assert len(raises) == 1
+
+    report = dict(pr.detection_report(dispatch.prepared))
+    assert report["boom"] == pr.Detection(0.0)
+    assert len(raises) == 2, "the reused preparation swallowed the second raise"
+
+
+def test_the_prepared_document_is_not_part_of_dispatch_equality():
+    """`Dispatch` equality is about how a document routed, not about which
+    text object it routed on — `test_parser_exception_boundary` compares
+    dispatches to literals and must keep working."""
+    make("a", pr.required("m", contains("nothing here")))
+    document = "some statement"
+
+    assert pr.resolve(document) == pr.Dispatch("unclaimed")
+    assert pr.resolve(document) == pr.resolve(pr.prepare(document))
+
+
+# ===========================================================================
 # Registry data
 # ===========================================================================
 

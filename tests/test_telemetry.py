@@ -306,6 +306,90 @@ def test_score_vector_is_capped_and_says_so():
     assert dispatch_section(None, long_vector[:2], 46, source="live")["scores_capped"] is False
 
 
+# --- the double sweep: the near-miss vector reuses the analysis sweep -------
+#
+# `analyze_markdown` sweeps the registry to route the document and this module
+# sweeps it again to record what nearly claimed it. The second sweep is
+# admissible because `detect` is pure — but purity made it correct, not free,
+# and it was re-preparing text the first sweep had just produced (#PREPHAND).
+
+
+def _analysed_collector() -> DispatchCollector:
+    collector = DispatchCollector()
+    analyze_markdown(claimed_markdown(), parse_mode="deterministic", on_dispatch=collector)
+    return collector
+
+
+def test_the_collector_publishes_the_preparation_the_analysis_swept():
+    collector = _analysed_collector()
+    from analysis.parser_registry import PreparedDocument, admissible_text
+
+    assert isinstance(collector.prepared, PreparedDocument)
+    assert collector.prepared.admissible == admissible_text(claimed_markdown())
+    assert collector.prepared.preparations > 1, (
+        "the real registry normalizes; a document that cost one preparation "
+        "would make the reuse assertions vacuous"
+    )
+
+
+def test_the_near_miss_sweep_prepares_nothing_when_given_the_collector(monkeypatch):
+    """The handoff, in operations: no second preparation of any text."""
+    from analysis import parser_registry as pr
+
+    collector = _analysed_collector()
+    swept = collector.prepared.preparations
+
+    prepares: list[str] = []
+    real = pr.prepare
+    monkeypatch.setattr(pr, "prepare", lambda md: prepares.append(md) or real(md))
+
+    scores, registrations = score_vector(claimed_markdown(), collector)
+
+    assert prepares == [], "the near-miss sweep prepared the document a second time"
+    assert collector.prepared.preparations == swept, (
+        "the near-miss sweep re-ran a normalization the analysis had already run"
+    )
+    assert scores and registrations >= 43
+
+
+def test_the_near_miss_vector_is_identical_with_and_without_the_collector():
+    """The equivalence the reuse has to earn, on a real claimed document."""
+    assert score_vector(claimed_markdown(), _analysed_collector()) == score_vector(
+        claimed_markdown()
+    )
+
+
+def test_a_collector_from_another_document_is_ignored():
+    """The guard, and the proof it is not vacuous: the foreign preparation
+    really would have produced a different vector."""
+    from analysis.parser_registry import prepare, resolve
+
+    foreign_text = "<!-- SOURCE: x.pdf -->\nnothing any parser here has heard of"
+    foreign = DispatchCollector()
+    foreign(resolve(prepare(foreign_text)))
+    assert foreign.prepared is not None
+
+    assert score_vector(foreign_text)[0] != score_vector(claimed_markdown())[0]
+    assert score_vector(claimed_markdown(), foreign) == score_vector(claimed_markdown())
+
+
+def test_a_collector_that_never_saw_a_dispatch_is_ignored():
+    """The D-3 analysis cache hit: nothing dispatched, so nothing to reuse."""
+    assert score_vector(claimed_markdown(), DispatchCollector()) == score_vector(
+        claimed_markdown()
+    )
+
+
+def test_the_collector_offers_no_preparation_when_handed_nonsense():
+    """The collector's contract is that it keeps what it was given; reading a
+    preparation off it must not become a new way for telemetry to raise."""
+    collector = DispatchCollector()
+    for value in (None, object(), 42, "not-a-dispatch"):
+        collector(value)
+        assert collector.prepared is None
+    assert collector.errors == 0
+
+
 # --- cost -------------------------------------------------------------------
 
 

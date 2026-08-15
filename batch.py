@@ -185,7 +185,9 @@ def _emit(
         )
         duplicate = content_hash in seen_hashes
         seen_hashes.add(content_hash)
-        scores, registration_count = score_vector(markdown) if markdown else ([], 0)
+        # Reuse the analysis sweep's prepared text for the near-miss sweep
+        # (#PREPHAND); guarded on the text inside `score_vector`.
+        scores, registration_count = score_vector(markdown, collector) if markdown else ([], 0)
         sink.write(build_record(
             run_id=run_id,
             emitter="batch",
