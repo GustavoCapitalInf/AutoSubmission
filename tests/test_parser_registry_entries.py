@@ -42,6 +42,7 @@ EXPECTED_ORDER = [
     "apex_scanned",
     "atb",
     "b1",
+    "balance_by_date",
     "banco_popular",
     "bank_of_america",
     "bluevine",
@@ -151,10 +152,11 @@ def test_registration_count_matches_the_documented_decision_points():
     (W3 §UNID-PACK-A); and the Fifth Third commercial print stream and
     the Fiserv Premier parenthesised-counts issue (W3 §UNID-B); and the issuer-agnostic core-processor template
     (W3 §JHA-CELL); the French-language `Relevé de compte` template whose
-    documents name no institution at all (W3 §UNKISSUER, UB5); and the
-    second core processor's sectioned template, likewise issuer-agnostic
-    (W3 §SCANB)."""
-    assert len(pr.registrations()) == 70
+    documents name no institution at all (W3 §UNKISSUER, UB5); the second
+    core processor's sectioned template, likewise issuer-agnostic
+    (W3 §SCANB); and the four-way partitioned-summary core-processor
+    template (W3 §SCANC)."""
+    assert len(pr.registrations()) == 71
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():

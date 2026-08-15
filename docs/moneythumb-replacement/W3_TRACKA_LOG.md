@@ -20196,3 +20196,569 @@ the period label without its dates — is carded at S9.9.
 | `cfeac68` | the issuer read anchored on the masthead's first printed line |
 | `f0f448a` | §SCANB S0–S10 and the first proof block |
 | (this one) | the review closures: the attestation-scoped issuer read, its fixtures, and the four corrected records |
+# §SCANC — the four-way partitioned summary, and why the counts are the check
+
+## SC0. Summary
+
+A core processor's statement template whose summary does not merely total the
+period, it **partitions** it:
+
+```
+  PREVIOUS BALANCE      b0
++ N CREDITS       C          rows the bank counted as deposits
+- M DEBITS        D          rows the bank counted as withdrawals
+- SERVICE CHARGES S          rows the bank did NOT count
++ INTEREST PAID   I          rows the bank did NOT count
+  ENDING BALANCE  b1         and b0 + C - D - S + I == b1
+```
+
+with two-column `Date Amount Description` grids under `Deposits and Other
+Credits` / `Checks` / `Other Debits`, and a `Balance By Date` grid that walks
+the period day by day. What the reader must reproduce is SIX printed
+figures - a count, a total and an uncounted lump on each side - plus the daily
+walk, and it publishes nothing unless every one of them holds.
+
+**The balance identity is a fail-fast, not a seventh constraint.** Ocean's
+review is right and the earlier wording here was double-counting. Once the
+partition holds on both sides the captured rows come to `C + I` and `D + S`,
+and once the walk holds the running balance carries `b0` to `b1` over exactly
+those rows - so `b0 + C - D - S + I == b1` follows from the two. It is kept,
+and checked FIRST, because it is one line of arithmetic on figures already in
+hand and it rejects a mis-read summary before any grid is parsed.
+
+**11 documents claimed; 11 move `failed` → `validated`; nothing moves down.**
+Detection was swept over the whole archive: **11 claims out of 3,367 documents
+with cached OCR text, zero co-claimants, zero ambiguity, no `supersedes` edge
+needed.** Registry 68 → 69. 1,227 transactions published.
+
+| | before (run `d5c75ff6`) | after |
+|---|---|---|
+| validated | 0 | **11** |
+| failed | 11 | **0** |
+
+Statement-specific constants added: **none**. Protected modules touched:
+**none**. Truth-set movement: **none**. Vendor spend: **$0**.
+
+## SC1. The trap, and why it is the counts that catch it
+
+The card named the service-charge/interest partition as the proven trap, and
+the measurement says exactly why.
+
+`S` and `I` are money the printed COUNTS exclude and the printed TOTALS
+exclude, which the identity then puts back. Fold a fee row into the debit
+total and you get a statement that **still closes to the cent**:
+
+```
+b0 + C - (D + S) - 0 + I == b1        is true whenever
+b0 + C -  D      - S + I == b1        is true
+```
+
+So the balance identity — the check every reader has — cannot see the mistake.
+The only printed evidence that can is `M`, and it disagrees by exactly the
+number of fee rows. `tests/test_balance_by_date.py::test_the_folded_summary_
+still_closes_but_the_count_refuses_it` is that document written out: the test
+asserts `_summary(...).identity_holds` is True and asserts the document is
+refused anyway, so the fixture cannot rot into one that is refused for some
+other reason.
+
+The scout's v2 prototype (`proto_gulf.py`) modelled the partition with a fee
+VOCABULARY, and that is the second half of the finding: **no vocabulary can
+express this partition.** Measured over these 11 documents, the rows the bank
+excluded from its counts are printed
+
+* `SERVICE CHARGE`, `CASH ITEM CHARGES`, `CASHITEMCHARGES — IH`,
+  `ANALYSIS SERVICE CHG`, `ITEM FEE IL`
+
+while these, on the SAME statements, are ordinary counted debits:
+
+* `OVERDRAFT CHARGE` (≈20 rows on one document), `NSF CHARGE`,
+  `STOP PAY CHARGE`, `WIRE TFR FEE`, `USD WIRE TFR FEE`
+
+`OVERDRAFT CHARGE` and `SERVICE CHARGE` share a head noun and land on opposite
+sides. `ITEM FEE` and `WIRE TFR FEE` share a head noun and land on opposite
+sides. A list that got these 11 right would be a memorised list of one
+archive's wordings, and it is what the scout's prototype tripped on.
+
+**So the partition is read from the arithmetic, not from the words.** The bank
+prints how many rows it counted; the rows it did not count are the remainder;
+their number and their total are both fixed by figures already on the page:
+
+* `excluded = captured_rows − printed_count` must be ≥ 0;
+* the captured rows must come to `total + uncounted`;
+* some `excluded` of them must come to exactly `uncounted`.
+
+Which rows those are is deliberately **not** decided. Every row is published
+either way with the date, description and amount the bank printed on it, so
+the partition is a CHECK on the capture rather than an output of it, and
+demanding a unique subset would refuse documents whose payload is not in
+question (two $18.00 fees are two $18.00 fees). What the check does establish
+is the DISTRIBUTION and not merely the sum: where the bank left one row out,
+exactly one captured row must equal the excluded figure to the cent.
+`test_the_partition_checks_the_distribution_and_not_only_the_total` pins that
+with a summary whose every aggregate matches and whose split cannot.
+
+Measured `excluded` over the population: 0 on five documents, 1 on three, 2 on
+four (one document excludes on both sides). The search is bounded by the
+excluded count and by the target figure, and additionally by a state cap, so
+`parse` is cheap and total rather than a subset-sum that a pathological
+document could hang.
+
+### SC1.1 There is no list of summary labels either
+
+A summary term that prints a COUNT enumerates rows; a term that prints no
+count is a lump the counts exclude; and the `+` or `-` the bank prints in
+front of a term is its direction. `_summary` reads the grid that way, so the
+words `CREDITS`, `DEBITS`, `SERVICE CHARGES` and `INTEREST PAID` appear
+**nowhere in the module**. The identity is then walked with the operators the
+bank printed rather than with a hardcoded `b0 + C - D - S + I`.
+
+Two consequences worth stating, both tested:
+
+* a bank that counts its own interest row (`+ 3 CREDITS 300.50` beside
+  `+ INTEREST PAID .00`) is read that way too — that is a different printing
+  convention, not a defect, and the reader publishes it;
+* two counted terms on one side is a grid this reader has not been shown, and
+  it is refused rather than added up, because adding them would be a guess
+  about which rows each enumerates and the count check is what the guess would
+  silently disable.
+
+The right-hand statistics column (`AVERAGE BALANCE`, `YTD INTEREST PAID`,
+whose figures land on the following line — the two-column arrangement
+`analysis/community_section.py` documents) is excluded STRUCTURALLY: a
+statistic prints no operator, and the term pattern is anchored to a line that
+opens with one. No stop list.
+
+## SC2. Two-column grids and the duplication guard
+
+Each grid prints a legend that is its column unit repeated once per column:
+
+```
+Date Amount Description Date Amount Description          (2 columns)
+Date Serial Amount Date Serial Amount                    (2 columns)
+Date Balance Date Balance Date Balance                   (3 columns)
+```
+
+Census over the 11: 46 / 10 / 13 printings, and no other legend.
+
+OCR flattens those columns into lines that each carry several rows plus the
+continuation text of the rows above them. A reader scanning a section as one
+blob has no way to tell a row it has already read from one it has not — and a
+duplicated row is precisely the defect a TOTAL can hide when its amount is
+zero, while still moving the COUNT this template prints.
+
+So the legend is parsed, not assumed, and it does two jobs: it says what a row
+is, and it bounds how many rows a printed line may yield. A line yielding more
+is a mis-segmented line and the document is refused. The paired tests run the
+SAME three rows on one line under a two-column legend (refused) and under a
+three-column legend (published), so what is under test is the document's own
+declaration rather than a constant in the reader. A legend this reader cannot
+resolve refuses the document outright rather than guessing a shape.
+
+The cheque grid is the reason the legend matters beyond duplication:
+`Date Serial Amount` puts the serial BETWEEN the date and the money, so a
+reader applying the `Date Amount Description` grammar to it reads the serial
+as the amount and gets the debit total wrong by every cheque on the statement.
+(The scout's prototype carried a `serial date amount` cheque pattern, which
+matches nothing on this template — one of the two reasons its debit counts
+came up short.)
+
+## SC3. The `Balance By Date` grid as the independent walk
+
+The grid is printed by the posting engine rather than derived from the rows
+above it, so it catches a row read on the wrong day or into the wrong
+direction even where the direction totals come out right. Four things must
+hold:
+
+* it opens on the day BEFORE the period, carrying the previous balance printed
+  a second time;
+* it lists EXACTLY the days the ledger posted on — a grid day the ledger never
+  touched, or a posting day the grid never printed, means one of the two is
+  incomplete;
+* the running balance equals the printed balance on every one of those days;
+* the last of them equals the ending balance.
+
+**The overdrawn marker.** The grid prints magnitudes; `OD` beside a figure is
+how it prints the sign (`03/09 1,817.37 OD`). Three of the 11 documents need
+it — two of them print it on most of their days. Reading it cannot manufacture
+agreement: the magnitude still has to match on every day, and a reader that
+ignored the marker turns a −50.00 day into a +50.00 one and the walk refuses.
+Both directions are pinned.
+
+The grid's opening entry is dated OUTSIDE the period on purpose, and it is
+therefore **not** published as a `stated_daily_balances` snapshot — the ADB
+engine would have to reject it as out of period and warn. It has already done
+its work as evidence.
+
+## SC4. Honest-unknown-issuer — `bank=None` on all 11
+
+The card allowed the honest-unknown-issuer policy if identification did not
+meet the masthead/corroboration bar. It does not, and the reason is a fact
+about the template rather than a gap in the reader:
+
+1. **The masthead names no issuer in text.** The wordmark is a GRAPHIC;
+   tesseract renders it as `Secon tf *FbE`. What the masthead prints in text is
+   a post-office box, a city and `Electronic Service Requested`.
+2. **The only issuer name in text is in the back-page billing-rights fine
+   print** (`write to us at <NAME> Lending Services, P.O. Box ...`). That is
+   exactly the region `analysis/community_section.py` proved can name an
+   institution the statement merely cites — its own lesson was a state
+   regulator's website in the fine print of the same kind of document.
+   A second apparent printing (`We must hear from <NAME>` at a line end) is
+   not printed that way at all: it is the OCR join of a left-hand paragraph
+   (`We must hear from you no later than 60 days...`) and a right-hand address
+   block, so a label-plus-name read there would be reading a column artifact.
+3. **The one labelled masthead domain is a monthly marketing message, not
+   template furniture.** It appears on 6 of the 11; the other 5 print a
+   different message in the same slot. Keying identity on it would make the
+   published issuer depend on which advertisement the bank ran that month, and
+   would publish an issuer for six statements of an account and none for the
+   other five of the same account.
+
+So nothing is published, the registry label names the TEMPLATE
+(`Balance By Date Statement Platform`), and the figures stand on the document's
+own arithmetic. Carried as a card in SC8.
+
+## SC5. Result over the population — 11 documents, named
+
+Every document is instrumented rather than merely claimed: six printed
+figures, the balance identity, both printed counts, both printed totals, both
+uncounted lumps, and the daily walk, all to the cent.
+
+| content_sha256 (12) | period | product | N / C | M / D | S | I | b0 → b1 | rows c/d | grid | txns | outcome |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `1106E3FDD20A` | 2026-04 | Checking | 9 / 80,572.24 | 20 / 94,770.27 | .00 | .00 | 21,028.86 → 6,830.83 | 9 / 20 | 16 | 29 | failed → **validated** |
+| `5AFC66416A66` | 2026-01 | Checking | 58 / 126,967.92 | 92 / 120,831.34 | 29.75 | .00 | 11,292.32 → 17,399.15 | 58 / 94 | 21 | 152 | failed → **validated** |
+| `6F907373781E` | 2026-03 | Checking | 54 / 198,930.41 | 128 / 197,974.10 | 24.50 | .00 | 12,502.97 → 13,434.78 | 54 / 130 | 23 | 184 | failed → **validated** |
+| `749CDCE460CB` | 2026-05 | Checking | 6 / 188,102.00 | 26 / 182,619.16 | .00 | .00 | 6,830.83 → 12,313.67 | 6 / 26 | 16 | 32 | failed → **validated** |
+| `B8B2136D2B41` | 2026-03 | Checking | 72 / 43,058.01 | 182 / 44,916.94 | 69.00 | .00 | 2,991.98 → 1,064.05 | 72 / 183 | 23 | 255 | failed → **validated** |
+| `DC3881234577` | 2026-02 | Checking | 53 / 111,074.42 | 88 / 115,952.60 | 18.00 | .00 | 17,399.15 → 12,502.97 | 53 / 89 | 21 | 142 | failed → **validated** |
+| `DCB80E04B8ED` | 2026-03 | Checking | 10 / 361,826.32 | 26 / 355,314.38 | .00 | .00 | 14,516.92 → 21,028.86 | 10 / 26 | 17 | 36 | failed → **validated** |
+| `E4F5802ECAFE` | 2026-04 | Checking | 54 / 26,066.78 | 150 / 26,925.38 | 45.50 | .00 | 1,064.05 → 159.95 | 54 / 151 | 23 | 205 | failed → **validated** |
+| `F7BD156A7C86` | 2026-04 | Money Market Demand | 2 / 35,300.00 | 2 / 28,325.00 | 325.00 | 12.99 | .00 → 6,662.99 | 3 / 4 | 7 | 7 | failed → **validated** (deviation, SC6) |
+| `F8FC1D8B3ECD` | 2026-05 | Checking | 53 / 82,225.77 | 87 / 99,934.54 | 22.50 | .00 | 18,394.82 → 663.55 | 53 / 89 | 21 | 142 | failed → **validated** |
+| `FA59082D6A74` | 2026-06 | Checking | 15 / 118,674.23 | 28 / 119,528.37 | .00 | .00 | 12,313.67 → 11,459.53 | 15 / 28 | 19 | 43 | failed → **validated** |
+
+### SC5.1 Two corroborations the reader does not use, and could not fake
+
+**The bank's own printed AVERAGE BALANCE** is a statistic this reader
+deliberately does not read. The ADB the platform computes from the published
+ledger lands on it:
+
+| doc | computed ADB | printed AVERAGE BALANCE | delta |
+|---|---|---|---|
+| `1106E3FDD20A` | 10,831.53 | 10,831.53 | **0.00** |
+| `749CDCE460CB` | 30,583.23 | 30,583.22 | 0.01 |
+| `DCB80E04B8ED` | 25,233.97 | 25,233.96 | 0.01 |
+| `FA59082D6A74` | 15,163.30 | 15,163.29 | 0.01 |
+| `F7BD156A7C86` | 8,416.27 | 8,417.09 | 0.82 |
+| `6F907373781E` | 22,231.46 | 22,232.25 | 0.79 |
+| `DC3881234577` | 14,260.13 | 14,261.41 | 1.28 |
+| `E4F5802ECAFE` | −499.28 | −497.76 | 1.52 |
+| `5AFC66416A66` | 14,158.24 | 14,160.16 | 1.92 |
+| `F8FC1D8B3ECD` | 6,976.74 | 6,978.92 | 2.18 |
+| `B8B2136D2B41` | −250.97 | −248.74 | 2.23 |
+
+Four land to the cent and none is off by more than $2.23 on periods running to
+$360k of activity — the residual is a day-convention/collected-balance
+difference, and it is a carried question rather than a claim (SC8).
+
+**Month-to-month chaining across documents.** Four accounts across three
+holders, eleven statements, and six consecutive-month joins where one
+statement's ending balance is the next one's previous balance. Nothing inside
+a single document constrains this:
+
+* account **A** (four consecutive months): Mar `DCB80E04B8ED` → 21,028.86 → Apr `1106E3FDD20A` → 6,830.83 →
+  May `749CDCE460CB` → 12,313.67 → Jun `FA59082D6A74`. **3 joins, exact.**
+* account **B**: Jan `5AFC66416A66` → 17,399.15 → Feb `DC3881234577` → 12,502.97
+  → Mar `6F907373781E`. **2 joins, exact.** (April of this account is not in
+  the archive; `F8FC1D8B3ECD` is May.)
+* account **C**: Mar `B8B2136D2B41` → 1,064.05 → Apr `E4F5802ECAFE`. **1 join,
+  exact.**
+* account **D** is the money-market account of account **B**'s holder, and
+  `F7BD156A7C86` is its only statement in the archive - so it joins to
+  nothing, and it is not the missing April of account **B**. Three holders,
+  four accounts; the joins run across three of them.
+
+## SC6. DEVIATION — `F7BD156A7C86` is published, not refused
+
+The card said: *"(F7BD156A7C86: 2 pages, unreadable summary — MUST stay
+refused, named.)"* This cell publishes it, and the reason the card gave is
+refutable from the document.
+
+**The stated reason is not a fact about the document.** The scout's v1
+prototype (`proto_two.py::GF_SUM`) matches money as `\d[\d,]*\.\d{2}`, which
+cannot match a figure with no integer part. This statement opens
+`PREVIOUS BALANCE .00`, so v1 reported SUMMARY-UNREADABLE. The summary is
+printed in full and reads cleanly.
+
+**The document is complete and every printed figure reproduces.** It prints
+`Page: 1 of 1`, `Images: 0` and `*ZERO CHECKS*` (the second PDF page is the
+back-of-form disclosures every document in this family carries). Read:
+
+```
+PREVIOUS BALANCE      .00
++ 2 CREDITS      35,300.00     rows 300.00 + 35,000.00      = 35,300.00  exact
+- 2 DEBITS       28,325.00     rows 5,000.00 + 23,325.00    = 28,325.00  exact
+- SERVICE CHARGES   325.00     rows 300.00 + 25.00          =    325.00  exact
++ INTEREST PAID      12.99     row  12.99                   =     12.99  exact
+ENDING BALANCE    6,662.99     identity closes              =  6,662.99  exact
+```
+
+and the 7-entry `Balance By Date` grid walks to the cent on every day,
+including the overdrawn `04/13 300.00 OD`. The computed ADB is within $0.82 of
+the bank's own printed average balance. This is the ONLY document in the
+population that exercises the uncounted-CREDIT branch (`INTEREST PAID` ≠ 0),
+so refusing it would also leave that branch of the partition unexercised by
+any real document.
+
+**What would be required to refuse it.** The only check it would fail is the
+daily walk, and only if the reader stopped reading the `OD` marker — which
+would also refuse `B8B2136D2B41` and `E4F5802ECAFE`, two documents nothing in
+the card questions. There is no honest rule that refuses this one and keeps
+those two.
+
+Ocean's call. If the ruling stands, the change is to drop `_OVERDRAWN_RE` and
+its two tests and re-measure at 8 of 11 — this cell will not write a rule that
+refuses a document it can prove.
+
+## SC7. Non-interference, measured over the whole archive
+
+A detection sweep of every archive document with cached OCR text
+(`scanc-cell-5fb5b603/sweep.py`, direct file paths, the sqlite index never
+opened, $0):
+
+```
+documents with cached OCR text: 3367 (no text: 13)
+balance_by_date CLAIMS: 11
+of which PARSE to a Statement: 11
+co-claimants (registered parsers claiming the same document):
+    11  ('balance_by_date',)
+```
+
+Eleven claims, all of them the named population, **zero** documents claimed by
+`balance_by_date` and by anything else — so no `supersedes` edge is needed and
+no document can resolve `ambiguous` because of this registration. Nothing
+outside the named population moves.
+
+## SC8. Carried findings and questions for Ocean
+
+1. **`count_semantics` entry — deliberate omission, carded.** This parser's
+   printed counts enumerate a strict SUBSET of the rows it publishes, which is
+   the `capital_one:debit` scope class. It is left UNSURVEYED, so the platform
+   count check is silent about it, and `analysis/count_semantics.py` is another
+   cell's file. Promoting it is a measured decision with a table entry;
+   `test_the_printed_counts_are_not_comparable_to_the_rows_this_reader_builds`
+   pins the current silence so the promotion cannot be incidental. What the
+   payload DOES carry is `reconciliation.stated_credit_count_matches` and
+   `stated_debit_count_matches` set to `false` on any document with a non-zero
+   uncounted term, beside `captured_*_count` figures that are larger by exactly
+   the excluded rows. That is `reconcile` reporting two different scopes
+   honestly, not a defect, and it raises no flag and moves no outcome - but a
+   reader of the payload should know why the pair disagrees.
+2. **The issuer, if a masthead wordmark ever reaches text.** `bank=None` is a
+   statement about the OCR available today (SC4). If a visual rung ever reads
+   the wordmark, this template becomes issuer-identifiable and the honest
+   answer changes. No code change is needed to keep it honest meanwhile.
+3. **`account_number` on `F7BD156A7C86` is `None`.** Ten documents print
+   `Account Number: <digits>` on their cheque-image sheet; this one has no
+   cheque images (`*ZERO CHECKS*`) and its number reaches OCR glued to the
+   holder-name line by the two-column masthead. Publishing it would mean
+   reading a number off a line the layout put it on by accident. Carded.
+4. **An overdrawn summary balance would be refused.** A negative figure prints
+   its minus on the RIGHT on this template (observed on the average-balance
+   statistic, `248.74-`), and a LEADING minus is always a mis-read `.` — so the
+   summary token admits no leading sign and a genuinely overdrawn
+   `PREVIOUS BALANCE` or `ENDING BALANCE` fails the document closed. None
+   occurs in the population. Widening it needs a document that attests the
+   spelling.
+5. **The average-balance residual.** Eleven documents, four exact and none
+   worse than $2.23 (SC5.1). The pattern — exact where the account had no
+   overdrawn days, small where it did — suggests the bank averages a
+   collected/available balance. Worth a look if per-bank ADB accuracy is ever
+   scored; not a defect in this reader, which does not read the figure.
+6. **The scout's prototypes are superseded.** `proto_gulf.py` /
+   `proto_two.py` are measurement instruments and both mis-model this family
+   in ways this cell measured: v1's money pattern cannot read a printed `.00`
+   (SC6), v2's cheque pattern is `serial date amount` where the template prints
+   `date serial amount`, and v2's fee VOCABULARY cannot express the partition
+   at all (SC1). The finding is not "the prototypes were sloppy" — it is that
+   both defects are invisible to a balance identity and visible only to the
+   printed counts, which is the whole card.
+7. **The daily walk requires the grid's day set to EQUAL the ledger's.** Every
+   document in the population prints an activity-days-only grid, and equality
+   is the stronger check: a grid day the ledger never touched and a posting day
+   the grid never printed are both caught. A sibling issuer whose grid printed
+   EVERY calendar day would be refused by it, which is the fail-closed
+   direction but is a false refusal all the same. Relaxing it to "every grid
+   day agrees and every posting day appears" would read both conventions and
+   is a one-line change; it needs a document that attests the other
+   convention, and none exists today.
+## SC9. Proofs
+
+Branch `wave4-scanc`, base `main` `ea8d8e8` (worktree HEAD `ba13ec3`, the
+batch-4 handoff commit). Every figure below was read off the run, not copied.
+
+| proof | result | exit |
+|---|---|---|
+| `python -m pytest -q` (full default suite) | **3,817 passed**, 18 deselected, 246.10s | 0 |
+| `python -m pytest -m corpus -q` (the mandatory slice) | **13 passed / 1 failed**, 3,821 deselected, 1927.69s — the one red is the batch-level item, see SC9.1 | 0 |
+| `python corpus_gate.py` | **RESULT: GREEN** — 106 PASS / 3 WITHHELD, 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions, 0 ignored, 680.2s | 0 |
+| guards (`test_no_statement_hardcodes`, `test_r1_hardcodes`, `test_no_parser_helper_clones`, `test_parser_detection_markers`) | **149 passed** | 0 |
+| conformance cross-product (`test_parser_conformance`) | **640 passed** (69 x 68 negative pairs) | 0 |
+| whole-archive detection sweep (`scanc-cell-5fb5b603/sweep.py`) | 11 claims / 3,367 documents with cached OCR, 11 parse, **0 co-claimants** | 0 |
+| end-to-end over the 11 (`harness.py`) | 11 `failed` -> `validated/approved`, 0 flags, ADB on every one | 0 |
+
+Suite trajectory: 3,769 (batch-3 base) -> **3,817**. The +48 are this cell's
+36 unit tests and the 12 parametrised conformance cases a 69th registration
+adds.
+
+### SC9.1 The corpus-marked slice, and the one red
+
+The slice reds on exactly one test, `test_parser_parity.py::
+test_detect_sweep_stays_affordable_for_the_discovery_run`, which is the
+batch-level item under central triage (Ocean's batch-wide notice; a dedicated
+DETECT-BUDGET cell owns the structural fix). Per that instruction: A/B run,
+both numbers recorded, constant NOT raised.
+
+**A/B over the 109 pinned documents, same process, min-of-3 per document:**
+
+| registry | worst single document | median | total over 109 |
+|---|---|---|---|
+| BASE-equivalent (68, this branch minus `balance_by_date`) | **252.1 ms** | 51.9 ms | 7,449 ms |
+| BRANCH (69) | **258.8 ms** | 48.6 ms | 7,116 ms |
+
+Ocean's reviewer measured BASE at **244.5 ms** on a quiet box, so the honest
+statement is NOT "BASE is already over" - it is that BASE sits within a few
+percent of the limit and which side of it any single run lands on is decided
+by machine load rather than by this branch. The wall clock is load-dominated — across three runs of the
+same A/B, BASE measured 293 / 314 / 252 ms and BRANCH 322 / 247 / 259 ms, and
+in two of the three the BRANCH *total* came out BELOW the BASE total, which is
+impossible in expectation. Ten sibling python processes were resident
+throughout. So the whole-sweep wall clock is not a usable signal today; the
+DELTA is, because branch = base + one registration and that registration can
+be timed on its own.
+
+### SC9.2 This registration's detection cost
+
+Measured in isolation over the same 109 documents, min-of-N:
+
+| | total over 109 | per document |
+|---|---|---|
+| `balance_by_date` `Registration.detect` | **72-77 ms** | **0.66-0.71 ms** |
+| ...of which `admissible_text`, the strip EVERY registration pays | 43 ms | 0.39 ms |
+| ...of which this registration's own two markers | **35 ms** | **0.32 ms** |
+| worst single document (62,702 chars, 732 lines) | — | **2.9 ms** |
+
+Against the branch sweep's 7,116 ms over 69 registrations — 103 ms per
+registration on average — this one costs 72 ms, about **70% of the average**.
+The worst single document adds 2.9 ms to a 250 ms budget, 1.2%.
+
+Three things keep it there, and each is in the module:
+
+1. **No `normalize`.** 36 of the 69 registrations declare one, and a
+   normalization rewrites the whole document once per document. This
+   registration declares none: its markers read the text as it stands.
+2. **Line-local whitespace.** Every pattern that means "at the start of a
+   printed line" uses `[ \t]`, not `\s`. `^\s*` lets the engine backtrack
+   across blank lines, and on a 732-line document that is the difference
+   between a linear scan and a quadratic one. (It is also the correct reading:
+   with `\s+`, a label whose figure was missing could take the figure printed
+   on the line below it.)
+3. **Two prefilters that are accelerators, not evidence.** Each is a strictly
+   necessary condition taken from the literal text of the pattern it guards -
+   `Balance By Date` for the daily marker, the phrase `PREVIOUS BALANCE` for
+   the summary one - so neither can change an outcome, and
+   `test_the_detection_prefilters_change_no_outcome` runs both computations
+   against every registration's conformance fixture to keep that true. Both
+   words matter in the second one: 53 of the 109 documents contain `previous`
+   in prose and only 17 contain the phrase, so the word alone measured 48.8 ms
+   against 47.9 ms unfiltered - no gain at all - while the phrase measured 34.4
+   ms.
+
+### SC9.3 A measurement for the DETECT-BUDGET cell
+
+`admissible_text` is **43 ms of the 72 ms** this registration's `detect`
+costs, and it is not this registration's: `Registration.detect` calls it, so
+the same idempotent strip of the same document is recomputed **69 times per
+document**. At 0.39 ms per call that is ~3.3 s of the branch sweep's 7.1 s
+over the 109 pinned documents — **about 40% of the whole sweep, spent
+producing 69 identical strings.**
+
+`admissible_text` is documented as idempotent and `resolve()` already holds
+the document. Hoisting the strip to the sweep's entry and handing registrations
+the already-admissible text would take ~40% off the sweep without touching a
+single marker, and it does not change what any registration sees — detection
+already runs on stripped text today. Offered as evidence, not as a change:
+`analysis/parser_registry.py` is not this cell's file.
+
+## SC10. Review closures (Ocean, adversarial review of `wave4-scanc`)
+
+Verdict SHIP with four closures. All four are landed; each carries the
+measurement that decided how.
+
+**D1 - a zero-amount row was unprovable, and the remedy is not the one asked
+for.** The review asked for a "no two captured rows share date+amount+
+description" guard. Measured before writing it: **six of the eleven documents
+post a pair of rows identical in all three fields** - two $377.27 insurance
+premiums on one day, two $5,000.00 transfers on another, two $36.00 stop-pay
+charges, two $20.00 wire fees. Every one is genuine, and the proof is the
+printed TOTAL, which accounts for both; an echo of one of them pushes the
+captured total past the printed one and is already refused. That guard would
+therefore have refused 6 of the 11 - more than half this cell's coverage - for
+a defect none of them has.
+
+Measuring the escape instead showed it is also WIDER than duplication: any
+spurious zero-amount row is absorbed, duplicated or not, because `0.00` joins
+any excluded subset without changing its sum. It moves no total, no daily
+balance, and the count it moves is matched by the excluded side growing to
+meet it.
+
+So the equivalent structural refusal lands at that exact place: **a
+zero-amount row may not be one of the EXCLUDED.** A zero-amount row the bank
+COUNTED still publishes - the printed count is its witness - and a
+zero-amount row the bank did not count is refused, because no printed figure
+on the statement is a witness to it. Three fixtures pin the three cases
+(uncounted / counted / echoed), and the refuted `_grid_rows` comment now
+states what the column bound is worth and what it is not: a non-zero
+duplicate is caught by the total, a zero one is caught here, and neither
+guard covers the other.
+
+**D6 - the operator invariant is now pinned.** The no-stop-list argument
+rested on "a summary term opens its printed line with an operator" and nothing
+tested it; the review's operator-optional and operator-class-widened mutants
+both survived all 36 tests. Two fixtures now carry an undated statistic on its
+own line - bare, and bulleted with an EM DASH, the glyph `analysis/money.py`
+keeps out of `MINUS_CLASS` on purpose. Both are payload-inert (the published
+statement is asserted equal field-for-field to the base one) and both mutants
+now die. A third fixture pins the other half of the same claim: the operator
+is read as the SIGN, so a summary that credits its charges and levies its
+interest is read as what it says rather than as what the labels suggest.
+
+**D5 - `_SUB_DOLLAR` is bounded on both sides.** Unbounded it read `-25.00` as
+**$0.25** and `1.234.50` as `$0.50`. It failed closed at every publishing
+position, as the review says, but a silent misread one check away from a
+published figure is a defect waiting for the check to move. Bounded, `-25.00`
+reads through the `_CENTS` branch as the magnitude `25.00`, which is what
+"a leading minus is never a sign on this template" means applied consistently.
+
+**Mutation-kill, all four, each by its own named test and nothing else:**
+
+| mutant | result |
+|---|---|
+| operator OPTIONAL | 1 failed - `..._excluded_by_the_operator_and_not_by_a_name[bare-statistic-line]` |
+| operator class widened to the em dash | 1 failed - `..._excluded_by_the_operator_and_not_by_a_name[em-dash-bulleted-statistic]` |
+| zero rows admitted to the excluded subset (pre-fix) | 2 failed - `..._the_bank_did_not_count_is_refused`, `..._read_twice_is_refused` |
+| `_SUB_DOLLAR` unbounded (pre-fix) | 1 failed - `..._cannot_be_read_out_of_a_longer_number` |
+
+**Unchanged by all four: the eleven documents publish byte-identical
+payloads** - same outcomes, same transaction counts, same ADBs.
+
+### SC10.1 Proofs after the closures
+
+| proof | result | exit |
+|---|---|---|
+| `python -m pytest tests/test_balance_by_date.py -q` | **44 passed** | 0 |
+| guards (hardcodes, R-1, clones, detection markers) | **149 passed** | 0 |
+| conformance cross-product | **640 passed** | 0 |
+| `python -m pytest -q` (full default suite) | **3,825 passed**, 18 deselected | 0 |
+| the eleven end to end | 11 `validated/approved`, 0 flags, payloads unchanged | 0 |
