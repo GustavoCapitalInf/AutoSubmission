@@ -1,12 +1,29 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
+from statistics import median
 from typing import TypedDict
 
+from .column_grid import find_columns, page_words, read_rows
 from .document import StatementMarkdown
 
 
-def _native_pages(pdf_bytes: bytes) -> list[str] | None:
+@lru_cache(maxsize=4)
+def _native_pages_cached(pdf_bytes: bytes) -> tuple[str, ...] | None:
+    """The block extraction itself, memoised on the document's own bytes.
+
+    The ladder in `ocr/pipeline.py` asks several extractors in turn and most of
+    them start by reading the same page text, so an un-memoised
+    `_native_pages` is re-extracted once per rung the document falls through —
+    on every native-text document in the archive, every discovery run. Four
+    entries is enough: the ladder works one document at a time.
+
+    A TUPLE is returned, and `_native_pages` copies it into a fresh list per
+    call. `parse_native_navy_federal` and this module's Woodforest reader both
+    append their structured block to `pages[0]`, and handing out the cached
+    object would let one caller's edit become the next caller's input.
+    """
     try:
         import fitz
     except Exception:
@@ -26,7 +43,12 @@ def _native_pages(pdf_bytes: bytes) -> list[str] | None:
             if text:
                 lines.append(text)
         pages.append("\n".join(lines))
-    return pages
+    return tuple(pages)
+
+
+def _native_pages(pdf_bytes: bytes) -> list[str] | None:
+    pages = _native_pages_cached(pdf_bytes)
+    return None if pages is None else list(pages)
 
 
 _NAVY_ROW_DATE_RE = re.compile(r"^(\d{2}-\d{2})\s+(.*)$")
@@ -198,6 +220,240 @@ def parse_native_navy_federal(
     return StatementMarkdown(
         source_file=source_file,
         model="native-pdf-text+navy-federal-layout",
+        pages=pages,
+    )
+
+
+#: Woodforest's activity grid, by the names the bank prints above it.
+_WF_GRID_LABELS = ("date", "credits", "debits", "balance", "description")
+#: `MM-DD`, the only thing the Date column carries.
+_WF_ANCHOR_RE = re.compile(r"\d{2}-\d{2}")
+#: A printed money cell. The layout sets a trailing minus on overdrawn figures.
+_WF_MONEY_RE = re.compile(r"-?[\d,]+\.\d{2}-?")
+#: The printed headings that close the activity table. Each opens a different
+#: block — cleared cheques, the account's own statistics, the daily balance
+#: ladder, the reconciliation worksheet — and none of them is a posting row.
+#: `Checks Cleared` is here because its rows DO look like postings: a date in
+#: the Date column and an amount whose right edge lands in the Debits column,
+#: with no balance beside it. The grid must end where the bank says it ends.
+_WF_GRID_END = (
+    "checks cleared",
+    "account summary",
+    "daily closing balance summary",
+    "account reconciliation",
+)
+#: The `Summary of Accounts` region: its printed heading, and the two printed
+#: labels that close it.
+_WF_SUMMARY_OPEN = "summary of accounts"
+_WF_SUMMARY_CLOSE = ("transactions",)
+#: One account's summary row as the bank prints it: a product label ending in
+#: the account number, then BALANCE FORWARD, TOTAL DEBITS, TOTAL CREDITS and
+#: CLOSING BALANCE in that printed order.
+_WF_SUMMARY_ROW_RE = re.compile(
+    r"^(?P<label>.*?\d{6,})\s+(?P<figures>-?[\d,]+\.\d{2}(?:\s+-?[\d,]+\.\d{2}){3})$"
+)
+
+_WF_BEGIN = "WOODFOREST_GEOMETRY_BEGIN"
+_WF_END = "WOODFOREST_GEOMETRY_END"
+
+
+def _wf_lines(words) -> list[tuple[float, str]]:
+    """Words grouped into visual lines, as `(baseline, text)`, top to bottom.
+
+    Used only to find the printed labels that OPEN and CLOSE a region — the
+    grid header, `Summary of Accounts`, `Checks Cleared`. Postings are read by
+    `read_rows`, which does not group into lines at all, because on this
+    layout a row and a visual line are not the same thing.
+    """
+    if not words:
+        return []
+    tolerance = max(1.0, median(word.height for word in words) * 0.6)
+    ordered = sorted(words, key=lambda w: (w.mid_y, w.x0))
+    groups: list[list] = [[ordered[0]]]
+    for word in ordered[1:]:
+        if abs(word.mid_y - groups[-1][-1].mid_y) <= tolerance:
+            groups[-1].append(word)
+        else:
+            groups.append([word])
+    lines: list[tuple[float, str]] = []
+    for group in groups:
+        group.sort(key=lambda w: w.x0)
+        lines.append((group[0].mid_y, " ".join(w.text for w in group)))
+    return lines
+
+
+def _wf_summary_rows(pages_words: list[list]) -> list[str]:
+    """The `Summary of Accounts` rows, recovered as whole printed lines.
+
+    Flattening splits this row: on three archive documents the CLOSING BALANCE
+    is emitted on a line of its own, so a reader that requires the four
+    figures together finds no account at all and the document is declined —
+    not because the bank printed nothing, but because the text layer broke one
+    printed line into two.
+
+    Every row in the region is returned, never just the first. The
+    single-account guard downstream exists to fail CLOSED on a multi-account
+    document, and a guard that counts only what it happened to find first
+    fails open instead.
+    """
+    rows: list[str] = []
+    # `inside` deliberately survives the page boundary. `_accounts` says why in
+    # its own docstring: a summary block whose rows are split by a page break
+    # is exactly the case the single-account guard exists for, and a reader
+    # that closed the region at the end of a page would see one account on a
+    # two-account document and let it through. A guard that fails open is
+    # worse than no guard. The region is closed only by the labels the bank
+    # prints to close it.
+    inside = False
+    for words in pages_words:
+        for _y, text in _wf_lines(words):
+            line = re.sub(r"\s+", " ", text).strip()
+            lowered = line.lower()
+            if not inside:
+                if lowered.startswith(_WF_SUMMARY_OPEN):
+                    inside = True
+                continue
+            if lowered in _WF_SUMMARY_CLOSE or lowered.startswith("date credits debits balance"):
+                inside = False
+                continue
+            match = _WF_SUMMARY_ROW_RE.match(line)
+            if match:
+                rows.append(f"{match.group('label')} {match.group('figures')}")
+    return rows
+
+
+def _wf_grid_rows(pages_words: list[list]) -> tuple[list[str], list[str]]:
+    """Every posting row with the money column the bank printed it in.
+
+    Returns `(rows, refusals)`. A non-empty refusal list means some part of
+    the grid did not read unambiguously, and the caller emits nothing at all:
+    a partially geometry-read ledger mixed with a text-read one would be a
+    reading no instrument could check.
+    """
+    rows: list[str] = []
+    refusals: list[str] = []
+    for number, words in enumerate(pages_words, start=1):
+        headers = find_columns(words, _WF_GRID_LABELS)
+        if not headers:
+            continue
+        columns = headers[0]
+        stop_y = None
+        for baseline, text in _wf_lines(words):
+            if baseline <= columns.y:
+                continue
+            lowered = re.sub(r"\s+", " ", text).strip().lower()
+            if any(lowered.startswith(marker) for marker in _WF_GRID_END):
+                stop_y = baseline if stop_y is None else min(stop_y, baseline)
+        page_rows, page_refusals = read_rows(
+            words,
+            columns,
+            page=number,
+            anchor="date",
+            anchor_pattern=_WF_ANCHOR_RE,
+            cell_pattern=_WF_MONEY_RE,
+            cell_columns=("credits", "debits", "balance"),
+            free_text="description",
+            stop_y=stop_y,
+        )
+        refusals.extend(f"p{item.page} {item.reason}: {item.detail}" for item in page_refusals)
+        for row in page_rows:
+            credit = row.one("credits")
+            debit = row.one("debits")
+            balance = row.one("balance")
+            if balance is None:
+                # Not a posting row: the grid prints a balance on every one.
+                # `Checks Cleared` is already excluded by its printed heading;
+                # anything else reaching here is skipped, and the ledger then
+                # answers to the bank's own totals either way.
+                continue
+            if (credit is None) == (debit is None):
+                refusals.append(
+                    f"p{row.page} amount_column_undecided: row {row.anchor!r} prints "
+                    f"{'both' if credit is not None else 'neither'} money column"
+                )
+                continue
+            rows.append("WOODFOREST_TX|{date}|{credit}|{debit}|{balance}|{description}".format(
+                date=row.anchor,
+                credit=credit or "",
+                debit=debit or "",
+                balance=balance,
+                description=re.sub(r"\s+", " ", row.free_text).replace("|", "/").strip(),
+            ))
+    return rows, refusals
+
+
+def parse_native_woodforest(pdf_bytes: bytes, source_file: str = "") -> StatementMarkdown | None:
+    """Woodforest native text, plus the two facts flattening destroys.
+
+    The grid prints `Date Credits Debits Balance Description`, and which of
+    the two adjacent money columns a magnitude stood in is written NOWHERE
+    else in the row — `analysis/woodforest.py` says so in its own docstring and
+    recovers direction from the running balance instead, which works only
+    while every balance reads. On three archive documents from one account the
+    text layer emits each row's cells out of column order (description,
+    balance, date, amount, and not consistently), so the row reader finds
+    almost nothing; on two of those it also breaks the summary row in half.
+
+    This extractor adds a structured block carrying (a) the summary rows as
+    single printed lines and (b) each posting with its printed money column.
+    The flattened page text is left exactly as it was, so detection — which
+    reads the markdown, not this block — is unchanged, and a parser that
+    ignores the block reads what it read before.
+
+    Nothing here is published on its own: the block is evidence for
+    `analysis/woodforest.py`, which still has to reconcile it against the
+    bank's printed totals and balance chain before anything reaches a report.
+    """
+    try:
+        import fitz
+    except Exception:
+        return None
+
+    # The cheap test first, and it matters: this rung sits in the ladder every
+    # native-text document passes through, so reading word boxes before
+    # knowing whose statement it is would add a second full text extraction to
+    # all ~3,300 of them for the sake of 18.
+    pages = _native_pages(pdf_bytes)
+    if not pages:
+        return None
+    upper = "\n".join(pages).upper()
+    if "WOODFOREST" not in upper or "DATE CREDITS DEBITS BALANCE DESCRIPTION" not in upper:
+        return None
+
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception:
+        return None
+    try:
+        pages_words = [page_words(page) for page in doc]
+    except Exception:
+        return None
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
+    grid_rows, refusals = _wf_grid_rows(pages_words)
+    if refusals or not grid_rows:
+        return None
+    summary_rows = _wf_summary_rows(pages_words)
+    if not summary_rows:
+        return None
+
+    block = [
+        "<!--",
+        _WF_BEGIN,
+        *(f"WOODFOREST_SUMMARY|{row}" for row in summary_rows),
+        *grid_rows,
+        _WF_END,
+        "-->",
+    ]
+    pages = list(pages)
+    pages[0] = pages[0] + "\n" + "\n".join(block)
+    return StatementMarkdown(
+        source_file=source_file,
+        model="native-pdf-text+woodforest-columns",
         pages=pages,
     )
 

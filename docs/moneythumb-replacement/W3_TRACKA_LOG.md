@@ -16884,3 +16884,582 @@ this assertion reports machine load rather than registry cost.
 | `b71fc07` | `_report` excises the block from the document; the service-charge redating trap fixtured |
 | `365ba91` | `model_copy` instead of a four-field rebuild; the continuation pitch bound fixtured in both of its states |
 | (this one) | §FCX |
+---
+
+# GEOM-1 — geometry, evidence-ranked (batch 4, card 7)
+
+Branch `wave4-geom`, base `ea8d8e8`. Run of record
+`discovery_reports/2026-08-14T214345.671986-0000-d5c75ff6`.
+
+Gustavo's ruling is the whole shape of this cell: **geometry only where word
+boxes restore information the flattened text PROVABLY destroyed**, and every
+geometry-read value through the existing gates unchanged. So the deliverable is
+two things — one family closed, and a ranking of the rest with the proof
+attached to each rather than the impression.
+
+## GEOM1.1 What already existed, characterized before anything was built
+
+| Fact | Anchor |
+|---|---|
+| A word-geometry producer exists and works | `analysis/structurer/geometry.py:135` |
+| Nothing in production computes it | its only caller is `tools/measure_structurer.py` |
+| Per-bank geometry readers are precedented in the intake layer | `ocr/native_text.py::_navy_transaction_rows`, `::_wells_rows` |
+| `ocr/` does not import `analysis/` | verified; `geometry.py`'s own docstring calls the separation deliberate |
+| A full design for the wiring already exists | `DESIGN_GEOMETRY_INTEGRATION.md` (PLATFORM-PROPOSALS, DESIGN status, no code) |
+
+That design's §3.3 recommends the per-bank `ocr/` route for the class where
+rows are intact and column identity was discarded, and defers the
+`analysis/`-side wiring (`document_geometry` through the pipeline, the
+registry, and `analysis_settings_key`) to its own card. This cell took the
+first and did not touch the second: no protected-module change, no new
+registration, detect-sweep budget untouched at 68.
+
+**`_wells_rows` is the anti-pattern the new module is built against.** It reads
+its bands from the literals `395`, `452`, `520` and bins rows at
+`round(y0 / 3.0) * 3.0`. W3 §W7.2 already named that as the defect rather than
+the fix: "geometry read as constants rather than as the page's own column
+positions". `ocr/column_grid.py` derives every band from the header's own word
+boxes, and `test_the_same_layout_at_another_scale_reads_identically` pins the
+property that constants cannot have.
+
+## GEOM1.2 The population, re-derived at `d5c75ff6`
+
+The card named "woodforest: 3 scrambled-reading-order docs, one account". The
+re-derivation splits them across two outcome buckets, which matters because
+only one of the three was countable as a withheld:
+
+| sha | file | outcome at `d5c75ff6` |
+|---|---|---|
+| `FBDB971C999A` | `Unidentified/e96144ab_Royalty2.pdf` | withheld / withheld_adb |
+| `4410084695A0` | `Unidentified/e96144ab_Royalty3.pdf` | failed / parser_declined |
+| `D2548844593B` | `Unidentified/e96144ab_Royalty4.pdf` | failed / parser_declined |
+
+The other two woodforest withhelds at `d5c75ff6` (`D9EF1A8C452F`
+`c183e584_Feb.pdf`, `823DCE7FFCC9` `fad3db75_document.PDF`) are the
+out-of-period opening-deposit class and belong to WOODFOREST-INIT. **They were
+not touched and their outcome is unchanged**, which the side-by-side below
+records by name.
+
+## GEOM1.3 The proof that flattening destroyed printed information
+
+`analysis/woodforest.py`'s own docstring is the first witness: "Credits and
+debits stand in two ADJACENT columns and the text layer destroys the column of
+origin". The parser has been recovering direction from the running balance
+instead, which works only while every balance reads.
+
+Measured on `Royalty2`, page 1. What the flattened `_native_pages` emits:
+
+```
+POS CR CASH APP*RICHARD SMITH Oakland CA 000000000309404
+120,237.77
+03-04
+1,000.00
+```
+
+— description, balance, date, amount; and the order is not even stable, later
+rows arriving balance-first. What the word boxes carry on the same page:
+
+```
+y=341.2 | Date@47 Credits@112 Debits@185 Balance@253 Description@292
+y=356.6 | 03-04@47 1,000.00@109 120,237.77@245 POS CR CASH APP*RICHARD SMITH ...
+y=421.1 | 03-05@47 198.32@186 125,479.95@245 POS DB SAM'S CLUB #529 HOUSTON TX ...
+```
+
+The printed header is byte-identical on all seven documents sampled across the
+family (`date[47-66] credits[112-140] debits[185-211] balance[253-284]
+description[292-337]`) and money cells right-align to it: credits at right
+edge 138-141, debits 207-211, balance 281-284, against column gaps of 71 and
+73 points. Nothing here is close to ambiguous.
+
+On `Royalty3` and `Royalty4` flattening destroys a second thing — the summary
+row. The bank prints
+`Second Chance Checking 1358422002 165,309.24 12,757.47 41,175.75 193,663.14`
+as one line; the text layer emits the CLOSING BALANCE on a line of its own, so
+`_SUMMARY_ROW_RE` matches nothing, `_accounts` returns zero, and the parser
+declines a document whose oracle is printed perfectly well.
+
+## GEOM1.4 Two measurement defects found while building, both in the tolerances
+
+Recorded because both produced plausible-looking wrong answers rather than
+errors, which is the failure mode this class is prone to.
+
+1. **A page-median line tolerance read every balance one row late.** The
+   balance cell sits ~0.8pt ABOVE its row's date on the same printed row. With
+   the tolerance taken from the whole page's median type height — dragged down
+   by the small print in the footer — that 0.8 exceeded it and each balance
+   fell to the row above. Totals still looked plausible. Fixed by deriving the
+   tolerance from the GRID's own type size and row pitch.
+2. **Sorting a row's words by x interleaved wrapped descriptions.** A
+   continuation line's words merged into the line above by x position
+   (`ATM 000000000565054 WDL 2406 ...`). Fixed by reading line by line, then
+   left to right.
+
+A third, subtler one: bounding the last row at exactly one pitch dropped a
+reference number printed exactly one pitch below (`000000000565054`). The row's
+floor is now reached by chaining at the grid's own line spacing, so a
+continuation survives and a block printed further down does not.
+
+## GEOM1.5 Result, old module against new in one process, all 20 archive files
+
+**This section was rewritten after adversarial review. The first version
+overstated the result and misdiagnosed one document; both corrections are kept
+visible rather than edited away, in GEOM1.5a.**
+
+| document | before | after |
+|---|---|---|
+| `e96144ab_Royalty2.pdf` | withheld / withheld_adb (16 of 33 rows) | **validated** |
+| `e96144ab_Royalty4.pdf` | failed / no parser matched | **validated** |
+| `e96144ab_Royalty3.pdf` | failed / no parser matched | failed / no parser matched |
+| `c183e584_Feb.pdf` | withheld | withheld (unchanged — WOODFOREST-INIT's) |
+| `fad3db75_document.PDF` | withheld | withheld (unchanged — WOODFOREST-INIT's) |
+| the other 15 | validated | validated |
+
+**Net: +2 validated, 0 regressions.**
+
+Both recovered documents reproduce the bank's own printed evidence
+independently — nothing was padded to get there:
+
+```
+Royalty2  credits 49,025.50 (delta +0.00)  debits  2,954.03 (delta +0.00)
+          chain breaks 0   119,237.77 - 2,954.03 + 49,025.50 = 165,309.24 = printed closing
+Royalty4  credits 49,275.25 (delta +0.00)  debits 10,935.96 (delta +0.00)
+          chain breaks 0   193,663.14 - 10,935.96 + 49,275.25 = 232,002.43 = printed closing
+```
+
+**`Royalty3` publishes nothing, and the rung now declines to read it at all.**
+One of its printed debit cells is emitted as TWO word boxes — `1,` at
+x[179.3, 185.7] and `682.89` — so the grid does not present a whole cell
+there. The reader refuses the block on that evidence and the document falls
+back to the text reader, which declines it exactly as before. Its outcome is
+unchanged by this branch.
+
+Measured separately, so the document's own state is on the record: reading
+that cell whole, the debit cells sum to **12,821.85** against a stated TOTAL
+DEBITS of **12,757.47** — a genuine defect of **64.38**, the same 64.38 by
+which its printed summary identity fails to close (165,309.24 − 12,757.47 +
+41,175.75 = 193,727.52 against a printed closing of 193,663.14). The document
+is internally inconsistent and would withhold on that even if the split cell
+were joined. Joining it is deliberately NOT implemented: this module's
+contract is that it never repairs a row, and stitching two boxes into a number
+the page did not print as one is a repair.
+
+On the 17 documents that already read and still read the same: every scalar
+field identical (bank, account number and name, period, both balances, both
+stated totals, days, average), and every amount, direction and running balance
+identical. **9 are byte-identical. 8 differ in exactly one transaction each**,
+always the last, and always because the new read stops at the grid's printed
+end instead of absorbing a trailing `Checks Cleared` or overdraft-fee table
+into that row's description. Those eight descriptions are strictly cleaner; no
+financial field moves.
+
+### GEOM1.5a Two claims this section made that were wrong
+
+Kept because the way they were wrong is the point.
+
+1. **"the reader reads all 24 of 24" was false.** It read 24 rows and silently
+   truncated one of them: `1,` was skipped as a non-matching token and
+   `682.89` was booked as the whole cell, losing exactly 1,000.00. The ledger
+   still had 24 rows, still had a balance on every one, and still looked like
+   a ledger — which is why the row count read as completeness. A count of rows
+   is not a count of cells.
+2. **The 935.62 diagnosis was the sum of the reader's error and the
+   document's.** 935.62 = 1,000.00 lost by the reader − 64.38 the document
+   genuinely over-prints. Attributing all of it to "rows missing from the text
+   objects" put this cell's own defect on the bank's side of the ledger. The
+   document's real defect is 64.38 and it over-prints debits rather than
+   under-printing them.
+
+The reader-side cause is fixed (`cell_split_across_word_boxes`, GEOM1.7). The
+lesson recorded: an instrument that agrees with the printed totals on two
+documents can still be silently lossy on a third, and "totals match" is
+evidence about the documents where they match and about nothing else.
+
+## GEOM1.6 Why the printed column is better evidence, not just different
+
+Worth stating because it is the argument for the whole class. Today direction
+is derived from the movement between two printed balances, so the balance chain
+is not an independent check of that ledger — it is its source. Read by column,
+direction is what the bank printed and the chain becomes a second, separate
+statement that either agrees or does not. On `Royalty2` and `Royalty4` it
+agrees on every row.
+
+It also closes, for this family, the row class J9.9 named on another template:
+a $0.00 posting moves no balance, so a sign rule can only guess at it. Where
+the bank printed a column there is nothing to guess, and the test is pinned.
+
+## GEOM1.7 Fail-closed, and the refusal classes fixtured
+
+The block is emitted only when EVERY posting placed unambiguously. One cell
+that lands in no printed column, or a row printed in both money columns or in
+neither, withdraws the whole block and the document reads exactly as it did
+before — which for a defective page means failing closed on the existing
+terms. A ledger half read by column and half by text order would be a reading
+no instrument could check.
+
+Fixtured refusals: a cell whose right edge matches no printed column; two
+cells in one column; a page printing no header; a row the page never anchored;
+a row in both money columns; a row with a balance and no amount; a whole
+document withdrawn for one unplaceable cell.
+
+Three more were added after adversarial review, and the first is the one that
+mattered:
+
+* **`cell_split_across_word_boxes`** — a money-SHAPED token standing inside a
+  money column that is not a whole cell. The module's contract said it never
+  drops anything silently and it had exactly one code path that did: a token
+  failing the money pattern was skipped, so a printed `1,682.89` emitted as
+  two boxes published as `682.89`. A right-edge test cannot see the fragment
+  (it sits well left of the edge), so membership is now the column's REGION,
+  bounded by whatever column the header prints before it. Live on `Royalty3`.
+* **`columns_not_separated`** — two printed columns closer together than the
+  distance a cell is allowed to miss its edge by. No per-cell rule can recover
+  from that, so the grid is refused whole rather than read with a tie-break
+  standing in for evidence.
+* **`cell_admitted_by_two_columns`** — assignment was an ordered scan that
+  booked a cell against whichever column was DECLARED first; on overlapping
+  spans the reviewer got a Debits cell published as a CREDIT with zero
+  refusals. Assignment is now by nearest edge, and a cell two columns both
+  admit is refused.
+
+Both of the last two are latent on Woodforest, whose columns are 45–71pt apart
+against a ~7pt tolerance. They are not latent for GEOM1.10: that ranking aims
+this module at six more families, and the Desjardins entry there already needs
+the alignment work that makes overlap possible.
+
+A fourth, at the parser rather than the grid: **a printed money cell whose
+SIGN contradicts the column it stands in** is refused. This layout sets a
+trailing minus on overdrawn figures, so a Credits cell can arrive saying both
+"this increased the balance" and "this did not"; publishing it produced
+`direction="credit"` with a negative amount, which breaks the platform's own
+direction rule, and `abs`-ing it would pick a winner silently. J9.6 refuses
+the same contradiction at the summary level for the same reason.
+
+## GEOM1.8 Cost stated: `OCR_STAGE_VERSION` 2 -> 3 is global
+
+The block is the only place the printed column survives, so a v2 cache entry
+would keep serving the pre-fix markdown and the change would be invisible on a
+warm cache rather than visibly wrong. The bump is one integer for the whole
+ladder: it invalidates every cached OCR artifact in the archive and the next
+full discovery run pays the wall clock again. Vendor cost stays $0.00 — the
+native rung makes no model calls. `DESIGN_GEOMETRY_INTEGRATION.md` §5.1 raised
+this as an open question for Ocean; this branch is the first to pay it.
+
+**Correction after review: the corpus gate does NOT demonstrate that the
+invalidation is safe.** The gate reads no artifact cache — it resolves the
+pinned 109 from cold on every run, before and after this change alike — so its
+874.4s runtime and its GREEN are evidence that the 109 still reproduce, and
+say nothing whatever about cache invalidation. The first version of this
+section claimed otherwise. What actually stands behind the bump is
+`test_the_ocr_stage_version_bump_invalidates_pre_o3_entries`, which exercises
+the version key directly, plus the module's own doctrine at
+`artifact_cache.py:92-93`.
+
+**Per-document extraction cost, stated rather than waved at.** This rung sits
+in the ladder every native-text document passes through, and both it and the
+`parse_native_pdf_text` rung below it start by calling `_native_pages`. Adding
+a rung therefore added a whole second block-extraction to every native-text
+document in the archive — ~3,300 of them, on every discovery run, for the sake
+of 20. `_native_pages` is now memoised on the document's own bytes
+(`lru_cache(maxsize=4)`, returning a tuple that each caller copies, because
+two extractors in this file append their block to `pages[0]` and handing out
+the cached object would let one caller's edit become the next caller's input).
+The ladder works one document at a time, so four entries is enough, and the
+extraction is paid once per document rather than once per rung.
+
+**Composition note for Ocean at the train.** WOODFOREST-INIT owns
+`c183e584_Feb.pdf` and `823DCE7FFCC9 fad3db75_document.PDF`, and both now
+carry a geometry block, so their postings arrive through `_geometry_postings`
+rather than `_postings`. Their outcome is unchanged on this branch (both still
+withheld, by name, in GEOM1.5) — but the initialization-event mechanism that
+cell is building has to compose with the geometry path, not only the
+text-order one. Whichever lands second should re-measure those two documents
+against both readers.
+
+**Composition note for Ocean:** if another batch-4 cell also bumps
+`OCR_STAGE_VERSION`, resolve to a single 2 -> 3 rather than 2 -> 4. The
+integer's meaning is "the ladder's output changed since v2", not a count of
+the cells that changed it.
+
+## GEOM1.9 Proofs
+
+Re-run in full after adversarial review, at `53ba736`. The one later commit is
+a comment in `column_grid.py` and this section.
+
+```
+python -m pytest -q
+    3803 passed, 18 deselected, 1 warning in 352.15s          exit 0
+    (3,769 at base + 34 new: 18 column-grid, 16 woodforest)
+
+python -m pytest -m corpus -q
+    14 passed, 3807 deselected, 1 warning in 1830.02s         exit 0
+
+python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+                 tests/test_parser_conformance.py -q
+    730 passed in 3.97s                                       exit 0
+
+python corpus_gate.py
+    106 PASS / 3 WITHHELD   RESULT: GREEN   Runtime 514.7s    exit 0
+```
+
+The corpus-marked slice is GREEN this run, including
+`test_detect_sweep_stays_affordable_for_the_discovery_run`, which had failed on
+the pre-review run. That is the same test behaving both ways on the same
+branch, which is the clearest available statement of what it measures.
+
+### What the gate does and does not prove here
+
+An earlier draft of this section claimed the gate demonstrated that the
+`OCR_STAGE_VERSION` bump invalidates safely. **It does not, and the claim is
+withdrawn.** `corpus_gate.py` reads no artifact cache — it resolves the pinned
+109 from cold on every run, before and after this change alike. Its GREEN is
+evidence that all 109 still reproduce every audited balance and ADB field, and
+evidence of nothing whatever about cache invalidation. (The runtimes bear that
+out: 874.4s on the first run and 514.7s here, on the same code, because the
+number tracks machine load rather than anything about a cache.)
+
+What actually stands behind the bump is
+`test_the_ocr_stage_version_bump_invalidates_pre_o3_entries`, which exercises
+the version key directly, plus the module's own doctrine at
+`artifact_cache.py:92-93`.
+
+### The one red on the pre-review run, A/B'd against base
+
+`test_detect_sweep_stays_affordable_for_the_discovery_run` is a wall-clock
+budget (`worst < 0.25s` for a full-registry detect sweep over one document).
+
+| tree | measured | result |
+|---|---|---|
+| base `707ba9e` | **304.7 ms** | fail |
+| branch `bc478ec` | **311.6 ms** | fail |
+| branch `53ba736`, this run | under budget | **pass** |
+
+6.9 ms apart between base and branch, and `len(pr.registrations())` is **68 on
+both**. Pre-existing and load-dependent, matching Ocean's batch-wide notice; a
+dedicated DETECT-BUDGET cell owns the structural fix and **the constant was not
+raised**. The base measurement was taken from a `git archive` of `707ba9e` into
+the scratchpad — no worktree added, no git metadata touched.
+
+Independently of the timing, this branch cannot move that number: it adds no
+registration, changes nothing in the detect path, and changes the markdown of
+no pinned document — the test's input is the 109 corpus sources, and no
+woodforest document is pinned.
+
+### Non-interference over the whole archive, re-run after the review fixes
+
+The new rung sits above `parse_native_desjardins` and `parse_native_pdf_text`,
+so every native-text document in the archive passes through it. Swept over all
+**3,615** archive PDFs by direct file path:
+
+```
+documents the rung CLAIMS (block emitted)                    19
+  ...all 19 woodforest
+flattened page text byte-identical, block appended           19
+documents whose original text was REWRITTEN                   0
+
+woodforest-marker documents the rung REFUSED                  1
+  Unidentified/e96144ab_Royalty3.pdf
+    p1 cell_split_across_word_boxes: '1,' at x[179.3, 185.7] stands inside
+       the 'debits' column but is not a whole cell
+refusal reasons across the whole archive   {'cell_split_across_word_boxes': 1}
+```
+
+The claim set moved 20 -> 19 against the pre-review sweep, and the one document
+that left is `Royalty3`: the refuse-not-drop change withdrew the block it
+should never have been given. **No other document in the archive is affected by
+any of the four new refusals** — the split-cell census Ocean asked for returns
+exactly one document, and it is the one the review found.
+
+The sweep also runs 1,027s -> 210s, which is the `_native_pages` memoisation
+(D4) measured rather than asserted: the ladder was extracting the same page
+text once per rung.
+
+**4 documents raise `FzErrorFormat` out of `_native_pages`**
+(`Unidentified/c3f27791_3 BUSINESS CHECKING X3774-*.PDF`). Confirmed identical
+on base `707ba9e` — `_native_pages` guards `fitz.open` but not the
+`page.get_text("blocks")` loop — so it is pre-existing and not this branch's.
+Recorded as a finding rather than fixed: it is outside this cell's named
+populations, the discovery runner catches it (all four appear as
+`no_parser_matched`, not `ocr_failed`), and an unguarded crash class in the
+intake ladder is worth a card of its own.
+
+### The seams the design named, checked rather than assumed
+
+`DESIGN_GEOMETRY_INTEGRATION.md` §3.2 property 1 — geometry must never reach
+detection — holds structurally rather than by discipline: the block is appended
+to the markdown AFTER the flattened text, detection reads markers that were
+already present, and the claim set over 3,615 documents is the measured 19
+above.
+
+`admissible_text` strips only `<!-- SOURCE: ... -->`, so the block survives to
+the parser (the `NFCU_NATIVE_TRANSACTIONS` precedent relies on the same thing)
+AND sits inside the text `cached_analysis` hashes. The analysis cache therefore
+partitions on it with no key change — which is why §4.3's mandatory cache-key
+work was not needed on this branch. It remains needed for the `analysis/`-side
+wiring card, where geometry would arrive as a parameter rather than inside the
+markdown.
+
+## GEOM1.10 The ranking, with the proof attached to each
+
+Ranked by the card's own criteria: (a) proof that flattening destroyed printed
+information, (b) volume, (c) reader risk. Every row below was measured at
+`d5c75ff6` with `ocr/column_grid.find_columns`, not inferred from the earlier
+logs — where a measurement contradicts a prior entry, it is said so.
+
+**A structural note that applies to items 3-7.** The pinned 109 contains 5 PNC,
+4 Wells Fargo, 4 RBC and 9 TD documents (`docs/adb-audit-results.csv`). No
+woodforest document is pinned, which is why this cell's change could be proven
+by the gate alone. **Every remaining item touches pinned corpus documents**, so
+each needs the corpus-marked slice AND, if any pinned document moves,
+Gustavo's ceremony. `DESIGN_GEOMETRY_INTEGRATION.md` §6.3 said this; the
+composition above is the current confirmation of it.
+
+### Rank 1 — DONE. Woodforest Royalty, 3 documents. +2 validated.
+
+Recorded in GEOM1.2-GEOM1.8.
+
+### Rank 2 — Desjardins inside a Java envelope, 16 documents. BLOCKED.
+
+The fifth evidence item, from SCAN-SCOUT, and on proof quality it is the
+strongest in the queue. Measured on the scout's 16 unwrapped payloads
+(read-only, in its scratchpad; nothing written back to the archive):
+
+* **Flattening does not merely lose the column, it detaches every amount from
+  every row.** The whole page's money arrives as one run of tokens:
+  `347.67 2.75 344.92 1.50 343.42 303.00 40.42 1.50 38.92 25.00 13.92 …`,
+  with the descriptions in a separate blob. There is no rule over that text
+  that recovers a ledger.
+* **The word boxes are a clean four-money-column grid.** The printed header is
+  `Date Code Description Frais Retrait Dépôt Solde`, found on nearly every page
+  of all 16 documents, and at byte-identical positions across all of them
+  (`frais[338-357] retrait[388-413] dépôt[461-484] solde[533-555]`) — one
+  layout, not sixteen.
+* **The cells cluster into three tight disjoint bands** on every document:
+  right edges 434-437 (Retrait), 506 (Dépôt), 570-581 (Solde), with counts
+  that add up as a ledger should (110 + 31 against 145 balances on the first).
+
+Reader risk today: **zero**. These publish nothing — they are `invalid_pdf`.
+And measured here: even once unwrapped they stay at zero, because all 16 fall
+through `parse_native_desjardins` (its markers do not match) to
+`native-pdf-text` and then to `no_parser_matched`. **So the intake unwrap card
+recovers nothing by itself; it needs this reader, and this reader needs it.**
+They should be scheduled as a pair or not at all.
+
+**One primitive extension is required, and it is the same one items 6 and 7
+need.** `read_rows` snaps a cell to the header LABEL's right edge, which is
+correct for Woodforest and Wells (label and cells both right-aligned) and
+wrong here: Desjardins left-aligns the label over a right-aligned number
+column, so the cells' right edge sits ~20pt beyond the label's. The fix is to
+infer each column's alignment edge by clustering the cells that fall within
+the header's x-span, rather than assuming the label's own edge. Bounded, and
+it generalises the module to every layout in the queue.
+
+### Rank 3 — TD Canada T-F4, 6 withheld (+3 td_canada_french to measure).
+
+§T6.1 measured geometry closing **all 24** underdetermined groups. Confirmed
+independently here: `CHEQUE/DEBIT` at x[212,284] and `DEPOSIT/CREDIT` at
+x[309,389] are printed on every page — exactly the bands §T6.1 named, still
+there at `d5c75ff6`. `find_columns` misses them today only because the labels
+are compound (`CHEQUE/DEBIT` is one word to PyMuPDF), which is an entry in a
+label list, not an architecture change.
+
+Best oracle set in the queue: the bank's own per-page `Credits <count> <total>`
+and `Debits <count> <total>` blocks AND the running BALANCE — a count and a
+total and a chain, three independent statements. §T6.1's ruling that the
+balance solver should stay either way holds: it becomes the check rather than
+the source, exactly as it did for Woodforest here.
+
+Shape is identical to what this cell just built (a `parse_native_td_canada`
+that appends a block). The 3 `td_canada_french` withhelds are worth measuring
+first — if they share the layout the population is 9.
+
+### Rank 4 — Wells Fargo W-F7, 5 withheld. Highest leverage, highest risk.
+
+This is the only item that **deletes constants** rather than adding a reader.
+`_wells_rows` reads bands from `395`, `452`, `520` and bins rows at
+`round(y0 / 3.0) * 3.0`; §W7.2 already named that as the defect. Measured
+here: the printed `credits/debits/balance` header IS found on all 5 documents,
+and the money cells land on it — 37, 37, 39, 38, 39 on-column against 0, 0, 0,
+2, 4 off. The layout is readable; the reader is what is wrong.
+
+`test_the_same_layout_at_another_scale_reads_identically` already pins the
+property the fix would deliver.
+
+**Risk is real and larger than the others:** `wells_fargo` claims 219 archive
+documents and 4 are pinned. The 18-document side-by-side discipline used here
+would have to be run over all 219 before it could be believed.
+
+### Rank 5 — community_section J-B, 2 documents. Needs its identities first.
+
+J9.3's evidence is specific and good: the ledger prints `Debits Credits
+Balance` and fills the balance column on no row, so direction survives only as
+column position. It would also close J9.9 (the $0.00 row signed by convention)
+for that template, exactly as this cell closed it for Woodforest.
+
+**But the pair could not be located.** None of the 7 withheld or 2 review
+`community_section` documents at `d5c75ff6` prints a `Debits Credits Balance`
+header on one baseline. Either the pair moved in batch 3, or the header is
+printed in a form the probe does not match. **This card cannot be costed until
+the JHA cell names the two content_sha256 values.** Recorded as an open
+question rather than an estimate.
+
+### Rank 6 — PNC P-F5, 3 of 4 withheld.
+
+`Additions Deductions Balance` header found on 3 of the 4, but only 4 cells
+land on it — the same alignment-inference gap as Desjardins, so item 2's
+extension is a prerequisite. §3.4's separate finding still stands on top of
+that: the Date column is emitted as its own block (`04 04 04` on one line,
+`/08 /10 /10` on the next), so rows need rebuilding, not just labelling. 5 PNC
+documents are pinned.
+
+### Rank 7 — RBC F11, 6 withheld. Lowest expected yield; do not promise 6.
+
+Two measurements, both discouraging. The ledger header IS printed
+(`Debits Deposits Credits Balance`) but **zero** money cells align to it on any
+of the 6, and the header's own x position MOVES between pages of one document
+(x=357 on page 1, x=331 on page 2) — so bands must be re-derived per page,
+which the module already does but which removes the cross-page consistency
+every other family here provides.
+
+More decisively, §5.7 measured one document's 129 stated rows yielding at most
+118 recoverable cells. A cell absent from the text objects has no box either —
+which is precisely what `Royalty3` demonstrated in this cell, and it is why
+that document is still withheld. **The target should be agreed as "close as
+many as the text objects permit and prove the rest unrecoverable"** before any
+work starts, per `DESIGN_GEOMETRY_INTEGRATION.md` open question 5.
+
+### Rank 8 — fiserv F2, 4 review. Geometry is not what is holding these.
+
+Named in the card, and the measurement does not support it. Two of the four
+(`B1F649CC9396`, `83E4ACAE0CF1`) are geometrically pristine — `debit@387
+credit@466 balance@544` printed, 81 and 80 of 82 rows carrying exactly two
+cells that land on those bands. They are not withheld for a column they lost;
+they are `review / integrity_flags`. The other two (`1939E158D964`,
+`D96D6C92F990`) show a different shape again (`balance@129 credit@241`, most
+rows single-celled). **Recommend removing this from the geometry queue** and
+re-filing the first two against whatever raised their integrity flag.
+
+### Carded but not schedulable this wave — the registration budget
+
+Both are strong geometry customers and neither can be built while the
+detect-sweep budget is held at 68 registrations, because each needs a new one:
+
+* **American Savings Bank D2, 10 documents** (§C6.5) — the largest carded
+  geometry population. The printed column ORDER differs between page 1 and
+  page 2 of the same document, descriptions arrive token-reversed, and
+  money-cells-per-row runs 1/2/3/4/6/13. Per-page bands are exactly what the
+  new module does; this is its natural second customer after Desjardins.
+* **First Carolina G5, 2 documents** (§G5) — small, but the argument is the
+  sharpest statement of why this whole class matters: without the printed
+  column, direction would have to be derived FROM the reconciliation, and the
+  gate stops being evidence and becomes a tautology. Geometry is precisely
+  what restores the independent check. §G5 declined to register a parser that
+  could never validate; with the column read it could.
+
+### What this cell did not touch
+
+`DESIGN_GEOMETRY_INTEGRATION.md` §4.4's disclosed defect is still open:
+`GENERIC_STRUCTURER_ENABLED` is read from the environment at call time and
+appears nowhere in `analysis_settings_key`, so the first measured structurer
+run is invalid unless the cache is partitioned or bypassed first. Nothing here
+made it worse — no `analysis/` cache-key change was needed, because the block
+travels inside the markdown the analysis key already hashes.

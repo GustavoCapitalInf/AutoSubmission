@@ -206,7 +206,17 @@ CACHE_FORMAT_VERSION = 1
 
 #: Bump when the OCR ladder's output changes for unchanged settings.
 #: v2 (D-3b): O-3's ``page_integrity`` joined the cached OCR artifact.
-OCR_STAGE_VERSION = 2
+#: v3 (GEOM-1): the native rung gained ``parse_native_woodforest``, which
+#: appends a column-read block to that family's markdown. The block is the
+#: only place the printed Credits/Debits column survives, so a v2 entry would
+#: keep serving the pre-fix flattened markdown — and the change would be
+#: invisible on a warm cache rather than wrong-looking. This bump is GLOBAL by
+#: construction (one integer for the whole ladder): it invalidates every
+#: cached OCR artifact in the archive, and the next full discovery run re-reads
+#: it. Vendor cost stays $0.00 — the native rung makes no model calls — but the
+#: wall clock is paid again. Recorded here because the cost is real and was
+#: chosen, not overlooked.
+OCR_STAGE_VERSION = 3
 #: Bump when the analysis pipeline's output changes for unchanged settings.
 # 1 -> 2: Track A cell 1 (chase variant completeness, merge of b70496c)
 # changed chase extraction output for unchanged settings — cached chase

@@ -14,16 +14,29 @@ running balance, with nothing in the row itself saying which of the two
 columns it stood in. `POS DB` and `POS CR` prefixes appear in some
 descriptions and not others, so the description is not an oracle either.
 
-What the bank does print on every row is the balance AFTER the posting. The
-movement between two printed balances IS the signed amount, so direction is
-read from the bank's own arithmetic and magnitude from the bank's own printed
-cell. Where the two disagree the row keeps a debit reading and the document
-then fails the platform's ledger and coverage checks: the sign is never
-invented to make the arithmetic close. That is the standard `analysis/scotia.py`
-established and `analysis/cibc.py` applies to the same problem.
+There are therefore two readings here, and which one runs depends on what the
+intake layer could recover — never on which produces a better answer.
 
-The opening balance for that walk is the summary's `BALANCE FORWARD`, because
-this layout prints no opening row inside the grid.
+**The printed column, when the page gave one up.**
+`ocr/native_text.py::parse_native_woodforest` reads the grid from the word
+boxes and appends a block naming, for each posting, the money column the bank
+printed it in. Then direction is evidence rather than inference, and the
+balance chain below becomes an INDEPENDENT check of the ledger instead of its
+source. The block appears only when every posting placed unambiguously; one
+cell the page could not resolve and there is no block at all.
+
+**The running balance, when it did not.** Flattened text still has the balance
+AFTER each posting, and the movement between two printed balances IS the
+signed amount. Where movement and printed magnitude disagree the row keeps a
+debit reading and the document then fails the platform's ledger and coverage
+checks: the sign is never invented to make the arithmetic close. That is the
+standard `analysis/scotia.py` established and `analysis/cibc.py` applies to
+the same problem.
+
+Both readings answer to the same instruments — the summary's printed identity
+and the printed balance chain — and neither publishes anything the bank did
+not print. The opening balance for the walk is the summary's `BALANCE
+FORWARD`, because this layout prints no opening row inside the grid.
 """
 from __future__ import annotations
 
@@ -81,6 +94,18 @@ _SUMMARY_CLOSE_RE = re.compile(r"^Transactions\s*$", re.IGNORECASE)
 #: `03-05` printed inside a description from opening a row — a description
 #: does not print two money cells in the grid's order.
 _ROW_RE = re.compile(r"(?<![\d-])(\d{2})-(\d{2})\s+(%s)\s+(%s)(?![\d.,])" % (_MONEY, _MONEY))
+
+#: The intake layer's column read (`ocr/native_text.py::parse_native_woodforest`).
+#: Present only when every posting placed unambiguously in a printed column;
+#: absent means the page did not read that way and this module falls back to
+#: the text-order reader below, which fails closed on its own terms.
+_GEOM_BEGIN_RE = re.compile(r"^WOODFOREST_GEOMETRY_BEGIN\s*$")
+_GEOM_END_RE = re.compile(r"^WOODFOREST_GEOMETRY_END\s*$")
+_GEOM_TX_RE = re.compile(
+    r"^WOODFOREST_TX\|(?P<date>\d{2}-\d{2})\|(?P<credit>[^|]*)\|(?P<debit>[^|]*)"
+    r"\|(?P<balance>[^|]*)\|(?P<description>.*)$"
+)
+_GEOM_SUMMARY_RE = re.compile(r"^WOODFOREST_SUMMARY\|(?P<row>.*)$")
 
 _ACCOUNT_SUMMARY_RE = re.compile(
     r"Average\s+Balance\s*\$?\s*(%s)" % _MONEY, re.IGNORECASE
@@ -249,6 +274,84 @@ def _postings(text: str, *, start: date, end: date) -> list[dict] | None:
     return rows
 
 
+def _geometry_block(markdown: str) -> tuple[list[str], list[str]] | None:
+    """The intake layer's column read: `(summary rows, posting rows)`.
+
+    None when the block is absent. An empty posting list is returned as None
+    too — a block that carries no row is not evidence of anything.
+    """
+    summary: list[str] = []
+    postings: list[str] = []
+    inside = False
+    for raw in markdown.splitlines():
+        line = raw.strip()
+        if not inside:
+            if _GEOM_BEGIN_RE.match(line):
+                inside = True
+            continue
+        if _GEOM_END_RE.match(line):
+            break
+        found = _GEOM_SUMMARY_RE.match(line)
+        if found:
+            summary.append(found.group("row"))
+            continue
+        if _GEOM_TX_RE.match(line):
+            postings.append(line)
+    if not postings:
+        return None
+    return summary, postings
+
+
+def _geometry_postings(lines: list[str], *, start: date, end: date) -> list[dict] | None:
+    """Postings whose direction is the column the bank printed them in.
+
+    This is the difference the geometry read buys, and it is worth naming
+    precisely. The text-order reader below cannot see a column, so it derives
+    direction from the movement between two printed balances — which means the
+    balance chain is not an independent check of that ledger, it is its
+    source. Here direction is the printed column and magnitude is the printed
+    cell, so the chain becomes what it is supposed to be: a second, separate
+    statement by the bank that either agrees or does not.
+
+    Nothing is inferred. A row missing either cell returns None for the whole
+    document rather than a ledger with a hole in it.
+    """
+    rows: list[dict] = []
+    for line in lines:
+        match = _GEOM_TX_RE.match(line)
+        if match is None:
+            return None
+        month, day = match.group("date").split("-")
+        posted = _row_date(int(month), int(day), start=start, end=end)
+        balance = _money(match.group("balance"))
+        credit = _money(match.group("credit")) if match.group("credit") else None
+        debit = _money(match.group("debit")) if match.group("debit") else None
+        if posted is None or balance is None:
+            return None
+        if (credit is None) == (debit is None):
+            return None
+        # The printed column and the printed sign are two statements by the
+        # bank about the same cell, and where they contradict each other this
+        # parser has no basis for preferring one. A magnitude in the Credits
+        # column carrying the trailing minus this layout uses for overdrawn
+        # figures says both "this increased the balance" and "this did not";
+        # normalising it with `abs` would pick a winner silently. J9.6 refuses
+        # the same contradiction at the summary level, for the same reason.
+        printed = credit if credit is not None else debit
+        if printed is not None and printed < 0:
+            return None
+        amount = credit if credit is not None else -abs(debit)
+        rows.append({
+            "date": posted,
+            "abs_amount": abs(amount),
+            "amount": amount,
+            "direction": "credit" if credit is not None else "debit",
+            "balance": balance,
+            "description": match.group("description").strip(),
+        })
+    return rows or None
+
+
 def _sign_from_balances(rows: list[dict], opening: float | None) -> None:
     """Direction from the statement's own running balances.
 
@@ -298,7 +401,27 @@ def parse_woodforest_statement(markdown: str, base: Statement | None = None) -> 
     if end < start:
         return None
 
+    geometry = _geometry_block(markdown)
+
     accounts = _accounts(markdown)
+    if geometry is not None:
+        # The two readings of the summary region are two counts of the same
+        # thing, and the guard below must see the LARGER of them.
+        #
+        # Consulting geometry only when the flattened count is zero was a hole
+        # with a document shape behind it: the text layer breaks this summary
+        # row (three archive documents print it whole and the flattened text
+        # emits CLOSING BALANCE on a line of its own), and it can break ONE
+        # row of two. Text then reads 1, geometry reads 2, and a rule that
+        # trusts text whenever text found something publishes both accounts'
+        # postings under one account's oracle. The guard exists to fail closed
+        # on exactly that document.
+        recovered = [
+            match for match in (_SUMMARY_ROW_RE.match(row) for row in geometry[0])
+            if match is not None
+        ]
+        if len(recovered) > len(accounts):
+            accounts = recovered
     # Zero: the summary block did not read, so there is no oracle. More than
     # one: a multi-account document the single-account schema cannot carry.
     if len(accounts) != 1:
@@ -312,7 +435,10 @@ def parse_woodforest_statement(markdown: str, base: Statement | None = None) -> 
     if None in (forward, debits, credits, closing):
         return None
 
-    rows = _postings(_activity_text(markdown), start=start, end=end)
+    if geometry is not None:
+        rows = _geometry_postings(geometry[1], start=start, end=end)
+    else:
+        rows = _postings(_activity_text(markdown), start=start, end=end)
     if not rows:
         return None
 
@@ -338,13 +464,18 @@ def parse_woodforest_statement(markdown: str, base: Statement | None = None) -> 
     if average:
         stmt.stated_average_balance = _money(average.group(1))
 
-    _sign_from_balances(rows, forward)
+    if geometry is None:
+        _sign_from_balances(rows, forward)
     stmt.transactions = [
         Transaction(
             date=row["date"],
             description=row["description"],
             amount=row["amount"],
-            direction="credit" if row["amount"] > 0 else "debit",
+            # Where the bank printed a column, that column IS the direction —
+            # including on a $0.00 row, which moves no balance and which a
+            # sign rule can therefore only guess at. Where it did not, the
+            # sign recovered from the balance chain is all there is.
+            direction=row.get("direction") or ("credit" if row["amount"] > 0 else "debit"),
             running_balance=row["balance"],
         )
         for row in rows

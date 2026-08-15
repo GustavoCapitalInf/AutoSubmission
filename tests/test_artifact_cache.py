@@ -717,10 +717,21 @@ def test_a_document_shaped_object_without_the_o3_field_still_stores(cache):
 def test_the_ocr_stage_version_bump_invalidates_pre_o3_entries(cache, monkeypatch):
     """The standing stage-version criterion, exercised: an artifact written
     under the pre-O-3 shape (v1) must MISS under v2 rather than be served
-    without its truncation flags."""
+    without its truncation flags.
+
+    The two versions below stay 1 and 2 deliberately — that pair is the
+    historical case the criterion was written for, and re-pointing it at
+    whatever the current version happens to be would test a moving target
+    instead of a known one. The assertion on the live constant is separate,
+    and is what makes a bump land here for a decision rather than silently.
+    """
     import webapp.artifact_cache as module
 
-    assert OCR_STAGE_VERSION == 2  # pinned: D-3b bumped it from 1
+    # Pinned. 1 -> 2: D-3b, O-3's page_integrity joined the OCR artifact.
+    # 2 -> 3: GEOM-1, the native rung's Woodforest column read appends a block
+    # to that family's markdown, and a v2 entry would keep serving the
+    # flattened text the block exists to replace.
+    assert OCR_STAGE_VERSION == 3
     calls = []
 
     def compute():
