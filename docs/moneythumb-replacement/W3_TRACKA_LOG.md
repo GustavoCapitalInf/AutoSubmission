@@ -21462,3 +21462,15 @@ of it is this cell's.
    of `analysis_settings_key`, and the bump is Ocean's at merge, which closes
    it; recorded here because this cell's movement is invisible to the corpus
    gate and would otherwise be a silent warm-cache trap.
+4. **`repair_exception` gets the GENERIC outcome reason, not a named one.**
+   The card is explicit that `classify_outcome` needs no change, and it does
+   not: any integrity flag already routes to `review`. But the flag therefore
+   lands as `("review", "integrity_flags")` while `parser_exception` and
+   `integrity_check_exception` each get their own named reason, on the stated
+   argument that *"the crash cluster it belongs to is what ranks the
+   underlying defect"* — an argument that reads as applying identically to a
+   crashed repair. Behaviour was pinned as-drafted
+   (`test_classify_outcome_routes_the_flag_to_review`) rather than widened
+   inside a pinned card; promoting it to a named reason is a two-line change
+   in `telemetry/record.py` if Ocean wants the third crash flag rankable, and
+   is free of movement while the flag fires on zero documents.
