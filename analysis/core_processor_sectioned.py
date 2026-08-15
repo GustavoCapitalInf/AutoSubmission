@@ -199,6 +199,15 @@ _CONTACT_FURNITURE_RE = re.compile(r"\bTELEPHONE\s*:", re.IGNORECASE)
 _ISSUER_WORD = r"[A-Za-z][A-Za-z&'.-]*,?"
 _ISSUER_RE = re.compile(r"^\s*(" + _ISSUER_WORD + r"(?: " + _ISSUER_WORD + r")*)")
 
+#: A masthead line that opens with a LABEL is the platform's furniture, not the
+#: issuer's name. This is the rule that keeps a folio (`Page: 1 of 2`) or a
+#: header field (`Statement Date: ...`, `Primary Account: ...`) from being
+#: published as a bank — and it is what several of this archive's issuers leave
+#: at the top of the page, because their own name is printed only inside a logo.
+_LABEL_LINE_RE = re.compile(r"^\s*[A-Za-z][A-Za-z ]{0,30}:")
+#: The page separator the OCR layer inserts between pages. Not printed text.
+_PAGE_MARKER_RE = re.compile(r"^\s*-{2,}\s*Page \b", re.IGNORECASE)
+
 
 def _masthead(markdown: str) -> str:
     """Everything the statement prints before it names the account.
@@ -216,38 +225,49 @@ def _masthead(markdown: str) -> str:
 def _issuer(markdown: str) -> str | None:
     """The issuer this document names as its own, or None.
 
-    On this template the issuer's contact block opens the page, and the
-    platform's own `PAGE:` furniture is printed immediately after it on the
-    same line — so the name is bounded by the template rather than by a guess
-    about how long a bank's name is. Two guards, and it is worth being exact
-    about which does the work:
+    On this template the issuer's own contact block opens the page: its name,
+    then its address, then the `TELEPHONE:` line, with the platform's routing
+    codes and `PAGE:` furniture printed across the same first line. So the name
+    is the run of words that OPENS that line, and every bound on it is the
+    template's own rather than a guess about how long a bank's name is. Four
+    guards, and it is worth being exact about what each one does:
 
-    * the FURNITURE is the guard. The name is the run of words before `PAGE:`
-      on the line that carries it, and the block is corroborated by the
-      `TELEPHONE:` line beneath it. A page that opens with anything else — a
-      folio, a statement date, the holder's own address — yields no name;
-    * the DIGIT rule is what ends it. The platform prints its routing and batch
-      codes between the name and `PAGE:`, and a token carrying a digit is one
-      of those, never part of a name.
+    * the SCOPE. Only the masthead is read, so the merchant domains and the
+      counterparty bank names in the ledger below it are out of range — four of
+      this archive's documents print one, and the first core-processor cell had
+      `walmart.com` published as an issuer when its own scope slipped;
+    * the CONTACT BLOCK corroborates. Without the platform's `TELEPHONE:`
+      furniture the run of words at the top of a page is not evidence of
+      anything, and no name is published;
+    * the LABEL rule. A first line that opens `Something:` is furniture — a
+      folio, a statement date, an account field — and yields nothing. This is
+      the rule that matters most in practice, because the issuers who print no
+      name in the text layer are exactly the ones whose page opens with a
+      folio;
+    * the DIGIT rule ends the name. The platform prints its routing and batch
+      codes beside the name, and a token carrying a digit is one of those.
 
-    A document that prints no such block gets None, not a guess. The arithmetic
+    A document that satisfies none of it gets None, not a guess. The arithmetic
     does not depend on the name, so an unnamed issuer costs a label rather than
     a document — the honest-unknown-issuer ruling of 2026-08-14. Several
-    issuers on this template print their name only inside the logo, which is an
+    issuers on this template print their name only inside a logo, which is an
     image, and inventing one from the holder's address would be a fabrication.
     """
     masthead = _masthead(markdown)
     if not _CONTACT_FURNITURE_RE.search(masthead):
         return None
-    page = _PAGE_FURNITURE_RE.search(masthead)
-    if not page:
-        return None
-    line_start = masthead.rfind("\n", 0, page.start()) + 1
-    name = _ISSUER_RE.match(masthead[line_start : page.start()])
-    if not name:
-        return None
-    printed = re.sub(r"\s+", " ", name.group(1)).strip().strip(",")
-    return printed or None
+    for line in masthead.splitlines():
+        if not line.strip() or _PAGE_MARKER_RE.match(line):
+            continue
+        if _LABEL_LINE_RE.match(line):
+            return None
+        page = _PAGE_FURNITURE_RE.search(line)
+        name = _ISSUER_RE.match(line[: page.start()] if page else line)
+        if not name:
+            return None
+        printed = re.sub(r"\s+", " ", name.group(1)).strip().strip(",")
+        return printed or None
+    return None
 
 
 # ---------------------------------------------------------------------------

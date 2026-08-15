@@ -152,15 +152,38 @@ def test_a_counterparty_in_the_ledger_is_not_published_as_the_issuer():
     assert parse(document).bank == "FIRST EXAMPLE BANK, N.A."
 
 
-def test_a_document_whose_masthead_names_no_issuer_publishes_without_one():
+def test_a_masthead_that_opens_with_a_header_field_names_no_issuer():
     """Several issuers on this template print their name only inside the logo,
-    which is an image. `bank=None` is the honest answer and the arithmetic does
-    not depend on it — an unnamed issuer costs a label, not a document."""
-    document = "Page: 1 of 2\nStatement Date: 03/31/2026\n" + SUMMARY + LEDGER
+    which is an image, so the text layer opens on the folio instead. A label is
+    furniture, not a bank — and this document carries the contact block, so the
+    LABEL rule is the only thing refusing it.
+
+    `bank=None` is the honest answer and the arithmetic does not depend on it:
+    an unnamed issuer costs a label, not a document."""
+    document = (
+        "Statement Date: 03/31/2026\nPrimary Account: XXXXXXXXXX4321\n"
+        "TELEPHONE: 800-000-0000\n"
+        + SUMMARY + LEDGER
+    )
     statement = parse(document)
     assert statement is not None
     assert statement.bank is None
     assert statement.ending_balance == 1900.0
+
+
+def test_a_contact_block_in_the_small_print_does_not_corroborate_the_top_line():
+    """The masthead SCOPE, isolated. The name at the top of this page has no
+    contact block under it; the only telephone number on the statement is in
+    the fine print at the foot, beside somebody else's disclosure. Read over
+    the whole document that number would corroborate the top line."""
+    document = (
+        "SECOND EXAMPLE BANK 000 00002 PAGE: 1\n"
+        + SUMMARY + LEDGER
+        + "FOR CLAIMS UNDER THE CARD NETWORK RULES TELEPHONE: 800-111-1111\n"
+    )
+    statement = parse(document)
+    assert statement is not None
+    assert statement.bank is None
 
 
 def test_the_issuer_name_stops_at_the_platforms_own_routing_codes():
@@ -169,25 +192,12 @@ def test_the_issuer_name_stops_at_the_platforms_own_routing_codes():
     )
 
 
-def test_a_bank_named_in_a_later_page_header_is_not_this_documents_issuer():
-    """The masthead SCOPE, isolated. This document prints its own issuer only
-    inside the logo — an image, so the text layer has no name for it — and a
-    correspondent bank's name reaches the text layer in the header of a later
-    page. A read that ran over the whole document would publish that name;
-    scoped to the masthead there is no contact block, and the honest answer is
-    no name at all."""
-    document = (
-        "Statement Date: 03/31/2026\n"
-        "Primary Account: XXXXXXXXXX4321\n"
-        "HOLDER COMPANY LLC\n"
-        + SUMMARY + LEDGER
-        + "--- Page 2 ---\n"
-        "SECOND EXAMPLE BANK 000 00002 PAGE: 2\n"
-        "TELEPHONE: 800-111-1111\n"
-    )
-    statement = parse(document)
-    assert statement is not None
-    assert statement.bank is None
+def test_the_page_separator_the_ocr_layer_inserts_is_not_printed_text():
+    """The markdown the pipeline builds opens with `--- Page 1 ---`. It is our
+    own separator, not something the bank printed, and a reader that took it
+    for the first printed line would find no issuer on any document."""
+    document = "--- Page 1 ---\n\n" + DOCUMENT
+    assert parse(document).bank == "FIRST EXAMPLE BANK, N.A."
 
 
 def test_the_contact_block_is_what_makes_the_top_line_an_issuer():
