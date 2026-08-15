@@ -389,9 +389,36 @@ def test_a_row_that_never_reached_analysis_is_not_reported_as_cache_served():
     summary = summarize(rows, mode=MODE_DIGITAL, run_id="r")
     assert summary["dispatch_cached"] == 0
     assert summary["dispatch_unavailable"] == 1
+    assert summary["dispatch_inconclusive"] == 0
     rendered = render_report(summary)
     assert "served from cache" not in rendered
     assert "no dispatch record" in rendered
+    assert "identity refused" not in rendered
+
+
+def test_a_refused_identity_is_not_reported_as_never_analysed():
+    """The two verdict-less shapes are different findings and only one of them
+    is a document we know nothing about. A projection-refused row WAS analysed
+    (its payload is in the cache and its outcome is published); what is missing
+    is the parser's name. Folding it under "the analysis stage never ran for
+    these" would print a false sentence about it. Zero on every run so far —
+    a non-zero here is the REGFP card arriving."""
+    rows = [
+        _row(outcome_class="failed", outcome_reason="invalid_pdf"),
+        _row(outcome_class="validated", outcome_reason="approved",
+             cache_analysis="hit", statement_bank="Some Bank",
+             parser_id_source=PARSER_ID_UNAVAILABLE),
+    ]
+    summary = summarize(rows, mode=MODE_DIGITAL, run_id="r")
+    assert summary["dispatch_unavailable"] == 1     # the invalid PDF, alone
+    assert summary["dispatch_inconclusive"] == 1    # the refused projection
+    assert summary["parser_id_source"] == {PARSER_ID_UNAVAILABLE: 1}
+    rendered = render_report(summary)
+    assert "no dispatch record" in rendered
+    assert "identity refused" in rendered
+    # processed = dispatched + never-analysed + refused, with no double count.
+    assert (summary["dispatched"] + summary["dispatch_unavailable"]
+            + summary["dispatch_inconclusive"]) == summary["processed"]
 
 
 # ---------------------------------------------------------------------------
@@ -731,6 +758,7 @@ def test_dry_run_reproduces_known_truth():
     assert summary["parser_id_source"] == {PARSER_ID_LIVE_DISPATCH: 109}
     assert summary["dispatch_cached"] == 0
     assert summary["dispatch_unavailable"] == 0
+    assert summary["dispatch_inconclusive"] == 0
 
 
 @pytest.mark.corpus
@@ -778,8 +806,11 @@ def test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered(tmp_path: 
     for key in ("outcome", "reasons", "dispatch", "dispatched",
                 "deterministic_coverage", "parsers", "folder_agreement",
                 "label_unmatched_pairs", "template_claim_pairs",
-                "unknown_layout_clusters", "declined_clusters"):
+                "unknown_layout_clusters", "declined_clusters",
+                "dispatch_unavailable", "dispatch_inconclusive"):
         assert warm[key] == cold[key], key
+    # Every one of the 109 was reconstructed; none was refused.
+    assert warm["dispatch_inconclusive"] == 0
     assert warm["outcome"] == {"validated": 100, "review": 6, "withheld": 3}
     assert warm["deterministic_coverage"] == 1.0
 

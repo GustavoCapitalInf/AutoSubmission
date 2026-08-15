@@ -281,11 +281,32 @@ def _project_identity(row: "DocumentRow", scores, payload: dict) -> str:
     FAIL-CLOSED, twice. The generic structurer (W3-3c, opt-in, off) is the one
     branch that can publish a payload with no parser behind it, so a
     structurer payload projects nothing. And if the sweep does NOT name exactly
-    one survivor while a payload exists, the invariant above has been broken —
-    the only way it can be is a cached artifact that outlived a registry change
-    without an `ANALYSIS_STAGE_VERSION` bump — and this refuses to name a
-    parser rather than pick one. Both cases mark `unavailable`, which is a
-    finding, not a blank.
+    one survivor while a payload exists, this refuses to name a parser rather
+    than pick one. Both cases mark `unavailable`, which is a finding, not a
+    blank.
+
+    WHAT THE FAIL-CLOSED BRANCH DOES NOT CATCH, stated plainly because the
+    honest version of this argument is narrower than the tidy one. The
+    reasoning above holds *within one registry composition*. It does not hold
+    across a registry change that a warm cache outlived, and in this repository
+    that window is real: `webapp/artifact_cache.py` states the rule ("bump
+    ANALYSIS_STAGE_VERSION in the same commit"), but the wave process COMPOSES
+    the bump at merge, so mid-wave commits that add `supersedes` edges ship
+    without one. Inside such a window a cached payload can have been authored
+    by a parser that TODAY loses a supersedes contest — and today's sweep then
+    names exactly one survivor, the new winner, confidently and wrongly. One
+    survivor is not a symptom here, so `unavailable` never fires; only the
+    zero-survivor and multi-survivor shapes reach it.
+
+    That is a **stale-cache corruption this projection inherits, not one it
+    creates.** Before it, the same warm run served the same stale payload and
+    published the same outcome; the row simply carried no `parser_id` at all,
+    which is blank rather than right. Naming today's winner and marking it
+    `live_detect` is strictly more visible than naming nobody. The structural
+    fix is a registry fingerprint in the analysis cache key (or a guard tying
+    registry composition to the stage version) — carried as the REGFP card and
+    deliberately NOT taken here: cache-key material is not this cell's to
+    change.
 
     NOT reconstructed, deliberately: `parser_exceptions`. A detect-stage crash
     in some *other* registration is part of the observed `Dispatch` and is not

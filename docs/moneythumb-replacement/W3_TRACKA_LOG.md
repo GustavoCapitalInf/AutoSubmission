@@ -21346,11 +21346,45 @@ Three properties make the reproduction exact rather than approximate:
    produce is already six-decimal exact (`round(..., 6)`, or the literals `0.5`
    and `1.0`), so the rounding is the identity and cannot move a registration
    across the threshold. Zeros are dropped; a claimant is never a zero.
-3. The registry that answers today is the registry that produced the artifact,
-   because a registry change is an analysis-output change and bumps
-   `ANALYSIS_STAGE_VERSION`, which invalidates the artifact. When that
-   invariant is broken — the only way it can be — the sweep will not name one
-   survivor, and the projection **refuses** (DO3).
+3. **The registry that answers today is the registry that produced the
+   artifact — within one registry composition, and not across a mid-wave
+   change.** The first draft of this property said the composition is
+   guaranteed, "because a registry change bumps `ANALYSIS_STAGE_VERSION`,
+   which invalidates the artifact." That is `webapp/artifact_cache.py`'s
+   stated rule and it is **false about this repository's process**, which
+   composes the bump at wave end. Measured: the three commits that added
+   `supersedes` edges — `6bcaf85` (SCANB), `c59f98a` (community_section),
+   `50bd704` (chase_savings) — each touched
+   `analysis/parser_registry_entries.py` and none of them touched
+   `webapp/artifact_cache.py`. The window is real and it is the normal case
+   mid-wave, not an accident.
+
+   What that costs, stated precisely. Inside such a window a warm run can hold
+   a payload authored by a parser that TODAY loses a `supersedes` contest.
+   Today's sweep then names exactly one survivor — the new narrow winner —
+   confidently and wrongly, and the row reads that parser with `live_detect`
+   provenance while the financial content came from the superseded one.
+   **One survivor is not a symptom, so DO3's fail-closed branch never fires
+   for this shape**; it catches the zero-survivor and multi-survivor cases
+   only. Saying otherwise would be exactly the kind of tidy-but-false
+   invariant this log exists to catch.
+
+   What it does NOT cost: this is a **stale-cache corruption the projection
+   inherits, not one it creates.** Before this cell, that same warm run served
+   that same stale payload and published that same outcome; the row simply
+   carried no `parser_id`, which is blank rather than right. Naming today's
+   winner and marking it a reconstruction is strictly more visible than naming
+   nobody, and the outcome — the thing the wave measures — is identical either
+   way.
+
+   **REGFP, carried card, deliberately not implemented here.** The structural
+   fix is to make the registry composition part of the analysis cache key: a
+   registry fingerprint component in `analysis_settings_key` (ids + bands +
+   `supersedes` edges), or, cheaper, a guard test that ties any change to the
+   registry composition to an `ANALYSIS_STAGE_VERSION` change in the same
+   commit. Cache-key material is WIRING/Ocean territory and outside this
+   cell's ownership, so it is named and left. `dispatch_inconclusive` (DO6) is
+   the instrument that would show the other half of it arriving.
 
 **Measured, not argued.** All 109 pinned documents, projection vs `resolve`
 itself: identical `parser_id` and identical score, **109/109, zero
@@ -21407,13 +21441,24 @@ Measured on the run of record `c924d751`, over its 3,291 dispatched rows:
 | `community_section` | 5 | 5 `unlabelled_folder` |
 | **total** | **41** | 35 exempt already, 6 filed as disagreements |
 
-**All 41 come from the four template registrations; not one bank-specific
-parser publishes `bank=None`.** So the fact the rule keys on ("the claim
-published no issuer") and the class it names ("this is a template claim")
-coincide exactly on the archive, which is why the rule is stated as the fact
-rather than as a name-sniffing test on the registry label. The pairs are still
-ranked and printed, so a bank-specific parser that ever lands here is on the
-page instead of inside a bucket total.
+All 41 come from those four template registrations, and no bank-specific
+parser appears among them — **but that is a census of today's data, not a
+structural guarantee, and the review was right to make me say so.** At least
+**five** registrations can publish `bank=None` by design: the four above plus
+`fiserv_premier`, which deliberately declines to publish a capitalized run in
+front of an address as an identity ("a capitalized run in front of an address
+is not an identity" — its own `_issuer` docstring). It is absent from the 41
+only because **all ten documents it claimed happened to print a readable
+issuer** — a fact about this archive, not about the registry. It is registered
+under a platform name too ("Fiserv Premier"), so the class would still be
+right for it; the point is that nothing here ENFORCES the coincidence, and a
+bank-specific parser that simply failed to set `bank` would land in this
+bucket and be described as a template claim.
+
+Two things keep that honest rather than hidden, and neither is a name-sniffing
+test on the registry label: the pairs are ranked and printed, so such a parser
+is on the page instead of inside a bucket total; and the real fix is a
+registry-side "this label is not an issuer claim" fact, carried as DO7#4.
 
 Rollup movement, whole archive: `label_unmatched` **103 → 97**, new
 `template_claim` **6**; `agree` 1,907, `no_claim` 915 and `unlabelled_folder`
@@ -21470,6 +21515,15 @@ reconstruction is byte-identical to the observation it replaces, on 2,376
 archive documents, including the six-decimal score and the `candidates`
 formatting.
 
+**Two of those six columns carry no information about the reconstruction, and
+should not be read as if they did.** On the 2,376 reconstructed rows
+`attempted` and `parser_exceptions` are empty on BOTH arms by construction —
+DO2 proves `attempted` was empty for a single-survivor claim, and DO3 says
+`parser_exceptions` is deliberately not reconstructed at all. Zero difference
+there is a consistency check that the projection wrote nothing it should not
+have, not evidence that it reproduced anything. The load-bearing columns are
+`parser_id`, `parser_score`, `dispatch_outcome` and `candidates`.
+
 **The previously blank rows.** 215 rows carried no verdict in the run of
 record. 185 of them — every single analysis-cache hit — are now populated,
 all `claimed`, all marked `live_detect`. The other 30 are the `bypass` rows
@@ -21520,6 +21574,14 @@ bucket does not move at all:
 | `template_claim` | — | 6 | the six `Desjardins -> releve_facturation` |
 | `no_claim` | 915 | 915 | unchanged: these are the live `unclaimed`, and nothing about them changed |
 
+**The run is RETAINED**, not just reproducible: `b7b40c73` sits beside the run
+of record in the gitignored `discovery_reports/` of the main checkout, with
+its `rows.csv`, `summary.json`, `report.txt`, `hash_map.csv` and
+`telemetry.jsonl` intact. The first version of this cell left it in a
+session scratchpad, which is the wrong place for the evidence behind a
+published number — the next archive proof has to be able to diff against this
+one without re-running it.
+
 ## DO6. Two report lines that were saying something untrue
 
 `dispatch_cached` was `len(processed) - len(dispatched)`, printed as
@@ -21532,8 +21594,21 @@ is worse than before rather than better.
 
 * `dispatch_cached` now counts rows marked `live_detect`. The name is exact:
   it is the analysis-cache-served set and nothing else.
-* `dispatch_unavailable` is new and names the rest — processed documents with
-  no verdict at all, because nothing analysed them.
+* `dispatch_unavailable` is new and names processed documents the analysis
+  stage never ran for.
+* `dispatch_inconclusive` is new **and was a review catch on this cell's own
+  standard**: the first version swept projection-refused rows into
+  `dispatch_unavailable` and then printed "the analysis stage never ran for
+  these" over both. That sentence is false for a refused row — it WAS
+  analysed, its payload is in the cache, its outcome is published, and the
+  only thing missing is the parser's name. Fixing a gloss on one bucket by
+  writing a false gloss on another is not an improvement. **The split is a
+  no-op on the published numbers**: re-counted over the retained `b7b40c73`
+  rows, `parser_id_source` across its 3,493 processed rows is `live_detect`
+  2,561 / `live_dispatch` 915 / empty 17, so inconclusive is 0, the
+  never-analysed count stays 17, and the new line does not print. A non-zero
+  here is the DO2 REGFP window arriving, which is exactly why it needs its own
+  name rather than a shared one.
 * `parser_id_source` is a new summary rollup, printed as its own block.
 * `template_claim_pairs` is a new ranked list, printed under its own heading
   and never folded into the unmatched one.
@@ -21569,34 +21644,53 @@ summary.json written before this cell.
    issuer".** Both (3) and the name-sniffing this cell declined to write would
    be closed by one optional registry flag. Recorded as a platform card, not
    taken: it is a change to `analysis/parser_registry.py`, which this cell is
-   forbidden from touching, and the fact-based rule is exact on today's
-   archive.
+   forbidden from touching. Note the softened claim behind it (DO4): the
+   fact-based rule is exact on today's archive, and `fiserv_premier` is a
+   fifth registration that can publish `bank=None` by design and simply did
+   not on this data.
+5. **REGFP — the registry composition is not in the analysis cache key, and
+   this repository's process makes that window routine.** Stated in full at
+   DO2 property 3, with the three measured commits. The fix is a registry
+   fingerprint component in `analysis_settings_key` (ids + bands +
+   `supersedes` edges), or the cheaper guard that ties a registry-composition
+   change to an `ANALYSIS_STAGE_VERSION` change in the same commit. **Not
+   implemented here** — cache-key material is WIRING/Ocean territory, and
+   WIRING-2 is already carrying a cache-key digest item this would sit beside.
+   The projection does not create the exposure and does not widen it; it
+   inherits it, names today's winner instead of nobody, and marks the naming
+   a reconstruction. `dispatch_inconclusive` (DO6) is the instrument for the
+   half of it that IS detectable.
 
 ## DO8. What changed, file by file
 
 | file | change |
 |---|---|
 | `discovery/runner.py` | `DocumentRow.parser_id_source`; the `PARSER_ID_*` vocabulary; `_sole_surviving_claimant`; `_project_identity`; `score_vector` hoisted three lines so the near-miss vector and the projection share one sweep; the `elif payload is not None` branch in `process`. **`_emit` is untouched** — the H-3 record shape is unchanged and telemetry is byte-identical. |
-| `discovery/report.py` | `TEMPLATE_CLAIM`; the `folder_agreement` class and its ordering; `dispatch_cached` redefined and `dispatch_unavailable` added; `parser_id_source` and `template_claim_pairs` rollups; three new rendered blocks; `parser_id_source` in `ROW_FIELDS`. |
-| `tests/test_discovery.py` | 11 new tests (9 default, 2 corpus-marked) and 3 existing ones extended. |
+| `discovery/report.py` | `TEMPLATE_CLAIM`; the `folder_agreement` class and its ordering; `dispatch_cached` redefined, `dispatch_unavailable` and `dispatch_inconclusive` added; `parser_id_source` and `template_claim_pairs` rollups; four new rendered blocks; `parser_id_source` in `ROW_FIELDS`. |
+| `tests/test_visual_rung.py` | No new tests (32 -> 32); one existing test moved to the sharper assertion (DO9). |
+| `tests/test_discovery.py` | **10 new tests (9 default, 1 corpus-marked)** and 3 existing ones extended: 33 test functions -> 43. The first draft of this row said "11 (9 + 2)", which was a hand count and wrong in both halves; the number here and in DO9 are now one mechanical tally (`def test_` over base `b524f72` vs the branch) rather than two independent guesses. Nine of the ten predate the review; the tenth is `test_a_refused_identity_is_not_reported_as_never_analysed`, added for the DO6 split. |
 | everything else | zero-line diff. |
 
 ## DO9. Proofs
 
-All on the final tree (`93b0818` + the log commit), one machine shared with
-the rest of batch 5, so the wall clocks are loaded rather than representative.
+One machine shared with the rest of batch 5, so the wall clocks are loaded
+rather than representative. The four marked **[closure]** were re-run on the
+review-closure tree; the rest are carried from the pre-closure tree
+(`1bccead`) and the reason each needs no re-run is stated below it.
 
 ```
-# full default suite
-4248 passed, 33 skipped, 30 deselected in 399.29s         exit 0
-   (base b524f72: 4,240 / 29 deselected. +8 default tests and +1
-    corpus-marked test, all this cell's.)
+# full default suite                                       [closure]
+4249 passed, 33 skipped, 30 deselected in 296.42s         exit 0
+   (base b524f72: 4,240 / 29 deselected. +9 default tests and +1
+    corpus-marked, matching the mechanical tally in DO8. Pre-closure
+    this line read 4,248/+8; the tenth test is the DO6 split's.)
 
-# this cell (tests/test_discovery.py)
-40 passed, 2 deselected in 144.94s                        exit 0
+# this cell's two files                                    [closure]
+76 passed, 2 deselected in 82.22s                         exit 0
+   tests/test_discovery.py + tests/test_visual_rung.py
 
-# guards
-239 passed in 30.89s                                      exit 0
+# guards                                                   [closure]
+239 passed in 25.79s                                      exit 0
    test_no_statement_hardcodes . test_no_parser_helper_clones .
    test_r1_hardcodes . test_experiments_are_not_wired . test_filename_boundary
 
@@ -21606,8 +21700,14 @@ the rest of batch 5, so the wall clocks are loaded rather than representative.
    test_parser_detection_markers . test_parser_registry .
    test_parser_crash_shapes . test_parser_exception_boundary .
    test_count_semantics
+   Carried, and re-executed anyway: every one of these is a DEFAULT test, so
+   the [closure] suite above ran all 1,084 again inside its 4,249.
 
 # corpus gate (python corpus_gate.py), 1205.6s
+   Carried. `corpus_gate.py` imports no `discovery` module (checked, not
+   assumed: its import block is argparse/csv/hashlib/io/json/time/pathlib +
+   the two forensic audits + corpus_artifacts), and the closure diff is
+   confined to `discovery/`, `tests/` and this log. The gate cannot see it.
 [PASS] inventory . foreign_files . source_integrity . balance_audit . adb_audit
 [PASS] balance_outcomes: 106 pass, 3 withheld, same three statements
 [PASS] adb_outcomes:     106 pass, 3 withheld, same three statements
@@ -21627,9 +21727,28 @@ RESULT: GREEN
    test_dry_run_reproduces_known_truth .
    test_parser_parity (all 8, incl. the detect-sweep budget) .
    test_telemetry_corpus (both) . test_truncation
+   Carried for 24 of the 26 — none of them imports `discovery` (checked:
+   the only hits in the parity and gate files are the word "discovery" in
+   prose), and the closure diff is confined to `discovery/`, `tests/` and
+   this log.
+
+# the two corpus-marked tests the closure EDITED             [closure]
+2 passed, 41 deselected in 820.95s                        exit 0
+   PASSED tests/test_discovery.py::test_dry_run_reproduces_known_truth
+   PASSED tests/test_discovery.py::test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered
+   Re-run because the closure added `dispatch_inconclusive` assertions
+   INSIDE both of them, and the review's re-run list ("your two test files")
+   executed with the default marker expression, which DESELECTS them —
+   `76 passed, 2 deselected` above is exactly those two going unrun. An
+   edited assertion that no run has executed is not a proof, so the slice
+   was re-entered for them specifically rather than carried.
 
 # archive warm re-run (python -m discovery --scanned, run b7b40c73)
 3,506 documents, outcome split identical to c924d751, 0 movers   exit 0
+   Carried, and the closure provably cannot move it: re-counted over the
+   RETAINED rows (DO6), the DO6 split is a no-op on this run — 17
+   never-analysed, 0 inconclusive, unchanged from what it published — and
+   the rest of the closure is docstrings and this log.
 ```
 
 **One test was changed rather than added, and it is the interesting one.**
@@ -21653,4 +21772,5 @@ rung runs. That is the last line of the test, and it still passes.
 | `f63cd3a` | the projection, the provenance vocabulary, `template_claim`, the two report lines, 11 tests |
 | `577adb6` | the rendered heading named for what it reports |
 | `93b0818` | the escalation-guard test moved to the sharper assertion; DO0-DO8 |
-| (this one) | DO9-DO10, the archive figures and the proof block |
+| `1bccead` | DO9-DO10, the archive figures and the proof block |
+| (this one) | **review closures**: DO2 property 3 rewritten honestly + the REGFP card (DO7#5); the `dispatch_inconclusive` split; the DO4 fiserv_premier softening; the DO5 `attempted`/`parser_exceptions` and DO8 tally corrections; `b7b40c73` retained |

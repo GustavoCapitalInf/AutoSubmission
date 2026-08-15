@@ -54,11 +54,24 @@ def folder_agreement(row) -> str:
     claim that names no issuer cannot agree or disagree with a folder's bank
     label; there is nothing on the claim side to compare. Measured on the run
     of record (`c924d751`): 41 claims publish no issuer, and all 41 come from
-    the four template registrations — no bank-specific parser is in the set —
-    so the fact ("the claim carries no issuer") and the class ("this is a
-    template claim") coincide exactly. The pairs are still ranked and printed,
-    so a bank-specific parser arriving in this bucket is visible rather than
-    absorbed.
+    four template registrations.
+
+    **That census measures today's data; it is not a structural guarantee, and
+    the difference matters here.** At least five registrations can publish
+    `bank=None` by design — the four in the census plus `fiserv_premier`,
+    which deliberately declines to publish a capitalized run in front of an
+    address as an identity. It is absent from the 41 only because all ten
+    documents it claimed happened to print a readable issuer, which is a fact
+    about this archive and not about the registry. (It is registered under a
+    platform name too, so the class would still be right for it — but nothing
+    here ENFORCES that, and a bank-specific parser that failed to set `bank`
+    would land in this bucket and be described as a template claim.)
+
+    Two things keep that honest rather than hidden: the pairs are ranked and
+    printed, so such a parser is on the page instead of inside a bucket total;
+    and the real fix is a registry-side "this label is not an issuer claim"
+    fact, carried as a card (§DISCOBS DO7#4) rather than approximated here by
+    sniffing registration names for "Platform" or "Template".
 
     **THIS BUCKET MUST NOT BE "FIXED" (§U D3, verbatim in substance).** The
     obvious way to make the six `Desjardins -> releve_facturation` entries
@@ -107,7 +120,7 @@ def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
     # (as it owns `visual_rung`'s), and pulling `analysis.pipeline` in behind
     # every `import discovery.report` to read one string constant is a cost the
     # rollups do not need to impose on their readers.
-    from .runner import PARSER_ID_LIVE_DETECT
+    from .runner import PARSER_ID_LIVE_DETECT, PARSER_ID_UNAVAILABLE
 
     total = len(rows)
     processed = [r for r in rows if r.outcome_class != DEFERRED_CLASS]
@@ -129,17 +142,30 @@ def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
     #   `dispatch_cached`      — verdicts reconstructed, not observed. The name
     #                            is now exact: it is the analysis-cache-served
     #                            set and nothing else.
-    #   `dispatch_unavailable` — processed documents with NO verdict at all,
-    #                            because the analysis stage never ran for them
-    #                            (invalid PDF, OCR failure). These were
+    #   `dispatch_unavailable` — processed documents the analysis stage never
+    #                            ran for (invalid PDF, OCR failure). These were
     #                            previously counted as "served from cache",
     #                            which they never were.
+    #   `dispatch_inconclusive`— processed documents the analysis stage DID run
+    #                            for, served from cache, whose identity the
+    #                            projection refused to reconstruct (structurer
+    #                            payload, or a sweep that named no single
+    #                            survivor). Split out rather than folded into
+    #                            the line above, because "never analysed" and
+    #                            "analysed, identity refused" are different
+    #                            findings and only the first is a document we
+    #                            know nothing about. Zero on every run so far;
+    #                            a non-zero here is the REGFP card arriving.
     dispatched = [r for r in processed if r.dispatch_outcome]
     cached_dispatch = sum(
         1 for r in dispatched
         if getattr(r, "parser_id_source", "") == PARSER_ID_LIVE_DETECT
     )
-    unavailable_dispatch = len(processed) - len(dispatched)
+    inconclusive_dispatch = sum(
+        1 for r in processed
+        if getattr(r, "parser_id_source", "") == PARSER_ID_UNAVAILABLE
+    )
+    unavailable_dispatch = len(processed) - len(dispatched) - inconclusive_dispatch
     identity_source = Counter(
         getattr(r, "parser_id_source", "") for r in processed
         if getattr(r, "parser_id_source", "")
@@ -224,6 +250,7 @@ def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
         "dispatched": len(dispatched),
         "dispatch_cached": cached_dispatch,
         "dispatch_unavailable": unavailable_dispatch,
+        "dispatch_inconclusive": inconclusive_dispatch,
         "parser_id_source": dict(identity_source.most_common()),
         "deterministic_coverage": (claimed / len(dispatched)) if dispatched else 0.0,
         "dispatch": dict(dispatch),
@@ -309,6 +336,11 @@ def render_report(summary: dict) -> str:
         lines.append(
             f"  no dispatch record      {summary['dispatch_unavailable']:>7}"
             "   (the analysis stage never ran for these)"
+        )
+    if summary.get("dispatch_inconclusive"):
+        lines.append(
+            f"  identity refused        {summary['dispatch_inconclusive']:>7}"
+            "   (analysed and cached; detect named no single parser)"
         )
     for key in ("ambiguous", "unclaimed", "parser_exception") if not profile_only else ():
         if key in summary["dispatch"]:
