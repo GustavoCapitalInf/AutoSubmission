@@ -14,6 +14,9 @@
 # without this they would check out with CRLF on Windows and hash differently
 # there than in CI — the same defect as above, one layer up.
 tests/corpus_cache/ocr/*.md -text
+# The other half of the same artifact — the intake page list — is pinned and
+# verified the same way, so it needs the same protection.
+tests/corpus_cache/pages/*.json -text
 
 # Other binary evidence and export formats.
 *.png binary
