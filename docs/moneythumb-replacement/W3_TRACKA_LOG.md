@@ -15442,10 +15442,21 @@ $ python corpus_gate.py
 [PASS] adb_outcomes:     106 pass, 3 withheld, same three statements
 [PASS] ocr_coverage: 103 native-text + 6 committed-OCR; no live OCR, no model calls
 [PASS] exclusions: 0   [PASS] oracle_independence
-Outcomes: 106 PASS / 3 WITHHELD    Runtime: 681.3s
+Outcomes: 106 PASS / 3 WITHHELD    Runtime: 638.3s   (first version: 681.3s)
 RESULT: GREEN
 exit 0
 ```
+
+Byte-identity re-verified after every code change of the second version, by
+loading the base parser out of git as a second module and comparing
+`parse_woodforest_statement` field for field over the whole archive family:
+**20 claimed, 20 identical, 0 differing.** The prover still fires on exactly
+`823DCE7F` and `D9EF1A8C` and returns `[]` on the other 18 and on all four
+foreign out-of-period documents. The patched-engine simulation still moves
+exactly those two and leaves the other 16 bit-identical, now with eight
+adversarial probes rather than six — A7 (the day-before posting is a DEBIT) and
+A8 (the declared posting is `start − 2`) added for the two diff corrections,
+**0 leaks**.
 
 The thirteen other corpus-marked tests pass, including
 `test_telemetry_reproduces_the_gate_outcome_split` — so the review↔validated
