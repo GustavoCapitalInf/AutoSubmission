@@ -21,6 +21,8 @@ from discovery.runner import (
     MODE_DIGITAL,
     MODE_SCANNED,
     MODE_SCANNED_VISUAL,
+    PARSER_ID_LIVE_DETECT,
+    PARSER_ID_LIVE_DISPATCH,
     DiscoveryRunner,
 )
 from ocr.availability import DEFAULT_PROBE_TIMEOUT, VisualOcrStatus, probe_visual_ocr
@@ -517,8 +519,18 @@ def test_identical_content_and_settings_are_never_re_ocrd(
 def test_a_cached_analysis_does_not_trigger_a_spurious_escalation(
     scan_tree: Path, monkeypatch, tmp_path
 ):
-    """On a D-3 analysis hit there is no dispatch this run. Guessing 'unclaimed'
-    there would escalate the entire archive to the GPU on every re-run."""
+    """On a D-3 analysis hit no dispatch is OBSERVED this run. Guessing
+    'unclaimed' there would escalate the entire archive to the GPU on every
+    re-run — `_needs_visual_upgrade` reads `collector.seen` and the payload,
+    never the row.
+
+    Updated at §DISCOBS. The row now carries a RECONSTRUCTED verdict, so
+    `dispatch_outcome is None` is no longer the way to say "nothing was
+    observed" — `parser_id_source` is, and it is the sharper assertion: it
+    distinguishes the two states the old line conflated. The escalation guard
+    is unchanged and is what the last line still proves; `_forbid_visual`
+    would fail the test outright if the rung ran.
+    """
     from webapp.artifact_cache import open_cache
 
     cache = open_cache(tmp_path / "data")
@@ -527,11 +539,14 @@ def test_a_cached_analysis_does_not_trigger_a_spurious_escalation(
 
     first = _runner(scan_tree, cache=cache).process("BankZ/scan.pdf", "BankZ")
     assert first.cache_analysis == "miss" and first.parser_id == "columbia_bank"
+    assert first.parser_id_source == PARSER_ID_LIVE_DISPATCH
 
     second = _runner(scan_tree, cache=cache).process("BankZ/scan.pdf", "BankZ")
     assert second.cache_analysis == "hit"
-    assert second.dispatch_outcome is None       # no verdict this run...
-    assert second.visual_rung == "not_attempted"  # ...and no guess either
+    assert second.parser_id_source == PARSER_ID_LIVE_DETECT   # nothing observed...
+    assert second.dispatch_outcome == "claimed"               # ...but not unknown
+    assert second.parser_id == first.parser_id
+    assert second.visual_rung == "not_attempted"              # ...and no guess either
 
 
 # ---------------------------------------------------------------------------

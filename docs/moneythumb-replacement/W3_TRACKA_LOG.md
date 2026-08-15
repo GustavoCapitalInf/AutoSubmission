@@ -21270,3 +21270,315 @@ synthetic registry, so they exercise the rule and not any bank's markers.
 | `5e82e18` | the crash arm of the equivalence proof (Ocean's addendum) and the prescan finding |
 | `095901d` | quiet-machine readings, the DT8 proof block, section renumbered DT to clear the earlier §D |
 | (this one) | adversarial-review closures: the interning guard and its conformance assertion, the corrected selection pass, the projection stated as a floor |
+
+# §DISCOBS — the row that forgot which parser answered it
+
+Measurement infrastructure only. `analysis/`, `ocr/`, `telemetry/` and
+`webapp/` carry a **zero-line diff**; no published payload changes; no document
+moves. `ANALYSIS_STAGE_VERSION` is deliberately untouched — nothing this cell
+does can change a cached artifact's contents, which is the property the whole
+projection depends on.
+
+Two blind spots in `rows.csv`, both named in the batch-2 and batch-4 logs and
+both left open until now.
+
+## DO0. Summary
+
+| # | blind spot | what it cost | fix |
+|---|---|---|---|
+| 1 | **A cache-served row carried no parser identity at all.** On a D-3 analysis cache hit `analyze_markdown` never runs, so no `Dispatch` exists and `parser_id` / `parser_score` / `dispatch_outcome` / `candidates` were all blank. `discovery/report.py` then dropped the document from the coverage denominator. | On a fully warm run this is not a rounding error — it is an inversion. The analysis cache stores **successes only** (a refusal raises and nothing is cached), so the rows that lose their verdict are exactly the CLAIMED ones, while every unclaimed document re-dispatches live and stays in the denominator. Coverage tends to **0%** as the cache warms. The −11.9% printed in batch 2 was this at partial warmth, and COUNTS-P3's counterfactual denominators were short by the same set. | Re-resolve the identity from the detection sweep the row already pays for, and **mark it** `parser_id_source=live_detect` so an observation and a reconstruction are never confused. |
+| 2 | **The folder-agreement rollup filed template claims as label disagreements.** The honest-unknown-issuer registrations (§U) claim a document TEMPLATE and publish `Statement.bank = None`; the matcher then had only the registration's template name to compare against a folder's bank name. | Six documents printed as `Desjardins -> releve_facturation` in the one ranking a human works through — an invitation to rename the parser after the folder, which §U4.1's evidence forbids and `tests/test_parser_detection_markers.py` exists to prevent. | Its own rollup class, `template_claim`, with its own ranked pairs and the §U D3 warning in the code. |
+
+## DO1. The survey: what a cached analysis payload actually holds
+
+The card said "project parser identity into the row from the cached payload".
+The payload cannot supply it. Surveyed field by field
+(`analysis/serialization.py:report_to_dict`):
+
+| field | holds | usable as parser identity? |
+|---|---|---|
+| `detection` | `analysis.detect.DetectionResult` — known funders, potential lenders, insurance providers, recurring debits, evidence lists | **No.** This is the FINANCIAL detection layer. The name collision with parser detection is the trap; there is not one parser fact in it. |
+| `model_used` | `f"{bank_label}-deterministic"`, built from the extracted `Statement.bank` (`analysis/pipeline.py:545`) | **No.** A bank label, lower-cased and hyphenated — not a parser id, and not unique to one parser: several registrations share a bank label, and the §U registrations publish `bank=None`, which renders as the literal `bank-deterministic`. |
+| `statement.bank` | the extracted issuer | **No**, and already on the row as `statement_bank`. |
+| `quality`, `integrity` | flags, notes, risk level | **No.** A parser reaches them only as English inside a note. |
+| `classifications`, `reconciliation`, `metrics`, `escalated` | financial output | No. |
+
+So identity is **genuinely absent**, and the card's own fallback applies:
+re-resolve detection live and mark the provenance. That is also the option
+`H3_SCHEMA.md §5.3` pre-ranked — *"`detection_report()` alone, no seam …
+insufficient [for telemetry] — but it is the right fallback for cache hits
+(§5.4)"* — and it avoids the alternative §5.4 explicitly recommends against:
+persisting the dispatch INTO the cached artifact, which changes the payload
+shape and needs an `ANALYSIS_STAGE_VERSION` bump. This cell's binding
+constraint was byte-identical payloads, so that door was closed anyway.
+
+## DO2. Why one detection sweep names the parser exactly
+
+The projection is not a guess dressed up as a measurement. In
+`parse_mode="deterministic"` — the only mode discovery uses —
+`analyze_markdown` produces a payload on **exactly one path**: a claiming
+parser returned a statement. Every other `resolve` outcome raises before a
+payload exists:
+
+| `resolve` outcome | deterministic mode | payload? |
+|---|---|---|
+| `ambiguous` (>1 survivor after `supersedes`) | `AmbiguousParserError` | no |
+| `parser_exception` | `ParserCrashError` | no |
+| `unclaimed` (0 survivors, or the sole survivor declined) | `RuntimeError` | no |
+| `claimed` | returns | **yes** |
+
+And `resolve` decides `ambiguous` **before any parse runs**. So a cached
+payload is itself the evidence that the sweep had exactly one survivor, that
+its `parse` succeeded, that `attempted` was empty and that the outcome was
+`claimed`. `_sole_surviving_claimant` reproduces that survivor from the score
+vector: claimants are `score >= CLAIM_THRESHOLD`, `dominated` is computed over
+all claimants before pruning (exactly as `_surviving_claimants` does), and one
+survivor is required — never "the best of several".
+
+Three properties make the reproduction exact rather than approximate:
+
+1. `telemetry.score_vector` is `detection_report`, i.e. the same `safe_detect`
+   sweep over the same `PreparedDocument` that `resolve` runs, and `detect` is
+   pure and total by the R-3 protocol contract. This is `score_vector`'s own
+   documented argument for why it may re-sweep where re-calling `resolve` was
+   inadmissible.
+2. `score_vector` rounds to six decimals, and every score the registry can
+   produce is already six-decimal exact (`round(..., 6)`, or the literals `0.5`
+   and `1.0`), so the rounding is the identity and cannot move a registration
+   across the threshold. Zeros are dropped; a claimant is never a zero.
+3. The registry that answers today is the registry that produced the artifact,
+   because a registry change is an analysis-output change and bumps
+   `ANALYSIS_STAGE_VERSION`, which invalidates the artifact. When that
+   invariant is broken — the only way it can be — the sweep will not name one
+   survivor, and the projection **refuses** (DO3).
+
+**Measured, not argued.** All 109 pinned documents, projection vs `resolve`
+itself: identical `parser_id` and identical score, **109/109, zero
+mismatches**. The archive arm is DO5.
+
+**No second sweep is paid for.** `score_vector` already ran on every row for
+the near-miss vector; the call was hoisted three lines and read twice.
+
+## DO3. Fail-closed, twice, and one thing deliberately not reconstructed
+
+* **The generic structurer** (W3-3c, opt-in, off) is the one branch that
+  publishes a payload with no parser behind it. A `model_used ==
+  STRUCTURER_MODEL` payload projects nothing.
+* **An inconclusive sweep** — zero survivors, or more than one, while a payload
+  exists — means the DO2 invariant has been broken by a stale artifact. The
+  projection names nobody and marks `unavailable`. A finding, not a blank, and
+  never a pick.
+* **`parser_exceptions` is NOT reconstructed.** A detect-stage crash in some
+  other registration is part of the observed `Dispatch` and is unrecoverable
+  from a score vector — a crashed detect scores 0.0 and 0.0 is dropped. The
+  column stays empty and says nothing, rather than saying "no parser crashed".
+  `attempted` is empty because DO2 proves it was.
+
+The vocabulary, so the instrument can tell:
+
+| `parser_id_source` | meaning |
+|---|---|
+| `live_dispatch` | `analyze_markdown` ran and the runner observed its `Dispatch`. The verdict is an observation — including `unclaimed`, where the observation is that nobody claimed. |
+| `live_detect` | analysis served from the D-3 cache; identity re-derived from a live detection sweep. |
+| `unavailable` | analysis served from cache and the sweep could not name one parser (or the structurer produced the payload). |
+| `""` | the analysis stage never ran for this document (deferred, invalid PDF, OCR failure). Not a provenance, an absence. |
+
+There is no `cache` value because DO1 found nothing in the payload to source
+one from. An enum member that can never be emitted is worse than a documented
+absence.
+
+## DO4. The second hole: `template_claim`
+
+`folder_agreement` compares the parser's claim against the analyst's folder
+label. For a §U registration there is nothing on the claim side to compare:
+the registration is named after a document TEMPLATE ("Releve de Compte
+Statement Template", "Core Processor Sectioned Platform") and it publishes
+`Statement.bank = None` **on purpose**, because the paper names no issuer.
+Comparing a template name to a bank name is a category error, not a
+disagreement.
+
+Measured on the run of record `c924d751`, over its 3,291 dispatched rows:
+
+| parser | no-issuer claims | where they landed before |
+|---|---|---|
+| `releve_facturation` | 16 | 10 `unlabelled_folder` (`Unidentified/`), **6 `label_unmatched` (`Desjardins/`)** |
+| `balance_by_date` | 11 | 11 `unlabelled_folder` |
+| `core_processor_sectioned` | 9 | 9 `unlabelled_folder` |
+| `community_section` | 5 | 5 `unlabelled_folder` |
+| **total** | **41** | 35 exempt already, 6 filed as disagreements |
+
+**All 41 come from the four template registrations; not one bank-specific
+parser publishes `bank=None`.** So the fact the rule keys on ("the claim
+published no issuer") and the class it names ("this is a template claim")
+coincide exactly on the archive, which is why the rule is stated as the fact
+rather than as a name-sniffing test on the registry label. The pairs are still
+ranked and printed, so a bank-specific parser that ever lands here is on the
+page instead of inside a bucket total.
+
+Rollup movement, whole archive: `label_unmatched` **103 → 97**, new
+`template_claim` **6**; `agree` 1,907, `no_claim` 915 and `unlabelled_folder`
+366 all unchanged. The change is a strict split of one bucket.
+
+Two ordering decisions, both load-bearing:
+
+* `unlabelled_folder` is still tested **first**. It is a statement about the
+  REFERENCE side and it already exempts the 35 `Unidentified/` documents; the
+  card scoped this to the `label_unmatched` noise, and moving 35 rows between
+  two "not comparable" buckets is churn, not information.
+* `template_claim` is tested **before** the containment match. A template name
+  that happened to be contained in a folder name would otherwise be reported
+  as `agree` — manufacturing a detection-accuracy datum out of a coincidence,
+  which is the same fiction the docstring opens with, running the other way.
+  No archive row is affected today (all 41 fall outside `agree`), so the
+  ordering is free and correct rather than free and convenient.
+
+**And the warning is in the code, not only here.** The obvious way to make six
+disagreements disappear is to name the registration after the folder it is
+filed under. Never. §U D3 recorded why: the other ten documents of that same
+template sit in `Unidentified/` and are not that bank's paper at all. The
+rollup is reporting a true fact — statements filed under a bank name that
+appears nowhere in them — and renaming a parser to silence a rollup writes the
+folder's guess into the registry as if it were evidence.
+
+## DO5. The archive proof — a warm re-run of the run of record
+
+The branch, over the frozen archive, through the run of record's own D-3
+caches (`WEBAPP_DATA_DIR` pointed at the main checkout; OCR v3 and analysis
+v12 unchanged, so every key matches and the run reads without writing an
+artifact). Run `b7b40c73`, mode `scanned`, 3,506 documents.
+
+**The outcome split is reproduced exactly. Zero movers.**
+
+| | `c924d751` (run of record, cold) | `b7b40c73` (branch, warm) |
+|---|---|---|
+| validated | 2,470 | **2,470** |
+| review | 25 | **25** |
+| withheld | 66 | **66** |
+| failed | 932 | **932** |
+| deferred | 13 | **13** |
+
+Field-by-field over all 3,506 rows, keyed on `relative_path`: `outcome_class`,
+`outcome_reason`, `error_type`, `statement_bank`, `account_last4`,
+`source_path` and `truncated_pages` **differ on 0 rows**.
+
+**Rows that already had identity keep it byte-identical.** The 3,291 rows the
+run of record dispatched live: `parser_id`, `parser_score`,
+`dispatch_outcome`, `candidates`, `attempted` and `parser_exceptions` all
+**differ on 0 rows** — and note that 2,376 of those 3,291 are now
+RECONSTRUCTED rather than observed, because the warm cache serves them. The
+reconstruction is byte-identical to the observation it replaces, on 2,376
+archive documents, including the six-decimal score and the `candidates`
+formatting.
+
+**The previously blank rows.** 215 rows carried no verdict in the run of
+record. 185 of them — every single analysis-cache hit — are now populated,
+all `claimed`, all marked `live_detect`. The other 30 are the `bypass` rows
+the analysis stage never ran for (17 invalid PDFs + 13 `deferred_visual_ocr`)
+and they stay blank, which is the correct answer. Parsers newly named on those
+185: chase 42, bank_of_america 17, wells_fargo 14, bmo_ca_business 12, rbc 7,
+scotiabank 7, td_canada_native 7, pnc 5, regions 5, capital_one 4, citizens 4,
+navy_federal 4, american_express 3, bmo_us_activity 3, cibc_french 3, …
+
+**An independent oracle for those 185.** 64 of them are byte-duplicates of a
+document the run of record dispatched LIVE elsewhere in the same run. The
+projected parser must equal that live one: **64 checkable, 0 mismatches.** (The
+other 121 are not byte-duplicates — the analysis key is the text hash, so two
+different PDFs that read to identical markdown share one artifact.)
+
+**Provenance over the whole warm run: `live_detect` 2,561 · `live_dispatch`
+915.** Read that pair carefully, because it is the finding: *every* live
+dispatch on a warm run is an UNCLAIMED document, and *every* claim is
+cache-served. The analysis cache stores successes only.
+
+**The counterfactual, computed on this very run.** Take `b7b40c73`'s rows,
+blank the reconstructed verdicts exactly as the pre-DISCOBS runner would have
+left them, and re-run the old rollup:
+
+| | pre-DISCOBS on this warm run | branch |
+|---|---|---|
+| dispatched (coverage denominator) | 915 | **3,476** |
+| claimed | **0** | **2,561** |
+| deterministic coverage | **0.0%** | **73.7%** |
+| `dispatch_cached` | 2,578 (incl. 17 that were never cached) | 2,561 (exact) |
+| parsers ranked | **0** | 71-registration ranking, populated |
+| "unknown-layout clusters" | 60 folders | the same 60, now the only thing in the bucket |
+
+The run of record printed 72.2% because its caches were cold and only 185 rows
+fell in the hole. **A fully warm run printed 0.0%** — coverage does not degrade
+gracefully here, it inverts, and the printed number is a fiction whose size is
+a function of cache temperature rather than of the platform. That is the whole
+case for this cell, measured rather than argued.
+
+**Folder agreement moves by exactly the recovered set**, and the `no_claim`
+bucket does not move at all:
+
+| bucket | record | warm | why |
+|---|---|---|---|
+| `agree` | 1,907 | 2,046 | +139 of the 185 recovered rows |
+| `unlabelled_folder` | 366 | 411 | +45 of them |
+| `label_unmatched` | 103 | 98 | −6 to `template_claim`, +1 recovered (`TD Bank -> td_canada_french` 12 → 13) |
+| `template_claim` | — | 6 | the six `Desjardins -> releve_facturation` |
+| `no_claim` | 915 | 915 | unchanged: these are the live `unclaimed`, and nothing about them changed |
+
+## DO6. Two report lines that were saying something untrue
+
+`dispatch_cached` was `len(processed) - len(dispatched)`, printed as
+`served from cache … --no-cache to re-dispatch`. That set is not the
+cache-served set: it also swept in every document the analysis stage never ran
+for — **17 invalid PDFs on the run of record**, which were never in the cache
+and which re-dispatching cannot help. With the projection landed, the old
+formula would have printed those 17 and nothing else under that label, which
+is worse than before rather than better.
+
+* `dispatch_cached` now counts rows marked `live_detect`. The name is exact:
+  it is the analysis-cache-served set and nothing else.
+* `dispatch_unavailable` is new and names the rest — processed documents with
+  no verdict at all, because nothing analysed them.
+* `parser_id_source` is a new summary rollup, printed as its own block.
+* `template_claim_pairs` is a new ranked list, printed under its own heading
+  and never folded into the unmatched one.
+
+`render_report` reads all four through `.get`, so it still renders a
+summary.json written before this cell.
+
+## DO7. Findings recorded, not fixed (out of this cell's ownership)
+
+1. **`H3_SCHEMA.md §5.4`'s claim that "the deterministic-coverage rate
+   therefore stays computable on re-runs" is false, and was false for both
+   rollups.** `telemetry/report.py` computes `claimed / total` where `claimed`
+   comes from `dispatch.outcome`, which is null on a cache hit while `total`
+   counts every record — so its numerator collapses exactly as discovery's
+   did. Discovery's is now fixed; telemetry's is not, because this cell owns
+   `discovery/runner.py`'s row projection only and the H-3 record shape is
+   deliberately not extended by discovery.
+2. **Telemetry records still carry `dispatch.source = "unavailable"` and a null
+   `parser_id` on cache hits.** `rows.csv` is now self-sufficient; the H-3
+   JSONL is not, and `discovery.evidence.parser_index` (`--enrich`) remains
+   the bridge for W3-4. Projecting into the record would mean touching
+   `_emit`, which the card scoped out. **Card:** pass a truthful
+   `dispatch.source` (and the reconstructed ids) into `dispatch_section` and
+   retire the enrichment join.
+3. **`discovery/evidence.py`'s label check has the same template blind spot**,
+   one layer over. `registration_labels()` answers with the registry id and
+   the registry bank label, which for a §U registration are both template
+   names, so a `Desjardins/` document reads as a label disagreement there too.
+   It cannot use `Statement.bank` (H3_SCHEMA I1 forbids the extracted label in
+   that artifact), so the fix is a registry-side "this label is not an issuer
+   claim" fact rather than a matcher change. **Card.**
+4. **`Registration` has no way to say "my `bank` is a template, not an
+   issuer".** Both (3) and the name-sniffing this cell declined to write would
+   be closed by one optional registry flag. Recorded as a platform card, not
+   taken: it is a change to `analysis/parser_registry.py`, which this cell is
+   forbidden from touching, and the fact-based rule is exact on today's
+   archive.
+
+## DO8. What changed, file by file
+
+| file | change |
+|---|---|
+| `discovery/runner.py` | `DocumentRow.parser_id_source`; the `PARSER_ID_*` vocabulary; `_sole_surviving_claimant`; `_project_identity`; `score_vector` hoisted three lines so the near-miss vector and the projection share one sweep; the `elif payload is not None` branch in `process`. **`_emit` is untouched** — the H-3 record shape is unchanged and telemetry is byte-identical. |
+| `discovery/report.py` | `TEMPLATE_CLAIM`; the `folder_agreement` class and its ordering; `dispatch_cached` redefined and `dispatch_unavailable` added; `parser_id_source` and `template_claim_pairs` rollups; three new rendered blocks; `parser_id_source` in `ROW_FIELDS`. |
+| `tests/test_discovery.py` | 11 new tests (9 default, 2 corpus-marked) and 3 existing ones extended. |
+| everything else | zero-line diff. |
+
+## DO9. Operations
