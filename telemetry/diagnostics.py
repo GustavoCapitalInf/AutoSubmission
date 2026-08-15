@@ -56,6 +56,12 @@ from __future__ import annotations
 #:     `test_the_diagnostics_version_moves_when_the_vocabulary_does` is what
 #:     makes this contract self-enforcing; it did not exist when this entry
 #:     was written, and its absence is why the bump was initially missed.
+#:     COMPOSED at the batch-5 train: v4 also carries ADB-SPLIT's advisory
+#:     `adb_state:initialization_event_folded` (a disclosure on a passing
+#:     document) and the `summary_fields_absent` vocabulary shift
+#:     (`stated_average_balance` -> `bank_reported_average_balance`). One
+#:     train, one bump — the ANALYSIS_STAGE_VERSION composed-bump policy
+#:     applied to this constant.
 DIAGNOSTICS_VERSION = 4
 
 #: The explicit label for a document whose claiming parser could not be

@@ -305,7 +305,11 @@ def test_the_diagnostics_version_moves_when_the_vocabulary_does():
         len(CLASS_OF),
         len(ADVISORY_CODES),
         len(diagnostics.DIAGNOSABLE_CLASSES),
-    ) == (4, 59, 53, 6, 2)
+    ) == (4, 60, 53, 7, 2)
+    # 60/7, not 59/6: the batch-5 train composed TWO vocabulary changes into
+    # the one v4 bump — this cell's `integrity:repair_exception` and
+    # ADB-SPLIT's advisory `adb_state:initialization_event_folded` — the same
+    # composed-bump policy ANALYSIS_STAGE_VERSION follows at every train.
 
 
 def test_the_new_label_cannot_collide_with_a_hyphenated_bank_label():
