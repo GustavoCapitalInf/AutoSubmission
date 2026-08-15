@@ -8,7 +8,14 @@ direction comes from the running balance the bank prints beside it.
 """
 from __future__ import annotations
 
-from analysis.woodforest import detect, parse_woodforest_statement
+from datetime import date, timedelta
+
+from analysis.adb import compute_average_daily_balance
+from analysis.woodforest import (
+    detect,
+    initialization_postings,
+    parse_woodforest_statement,
+)
 
 HEADER = (
     "00131374040126102556\n"
@@ -564,3 +571,357 @@ def test_the_memoised_page_text_cannot_be_mutated_by_one_caller_for_another():
     second = _native_pages(raw)
     assert second[0] == original
     assert first is not second
+
+
+# ------------------------------------- the account-opening initialization event
+#
+# Two archive statements (`c183e584_Feb`, `fad3db75_document`) are mid-cycle
+# account openings: BALANCE FORWARD is 0.00 and the funding deposit posts the
+# day BEFORE the period the bank prints, while the bank's own TOTAL CREDITS
+# counts it and its own daily balance table prints a closing balance for that
+# day. Every printed figure on both matches the published ledger; the ADB
+# engine refuses them because it requires every transaction to fall inside the
+# period. `initialization_postings` is the EVIDENCE half of the narrow
+# exception — it proves the interpretation from the document's own print and
+# publishes nothing. See §WFINIT in `W3_TRACKA_LOG.md`.
+
+OPENING_PERIOD = "Statement Period: January 24  - January 31, 2026"
+
+
+def opening_document(
+    summary_row: str,
+    rows: str,
+    *,
+    average: str | None = "966.11",
+    cycle_days: str = "8",
+    daily: str = "01-23 1,000.00 01-24 985.00 01-31 800.00",
+    period: str = OPENING_PERIOD,
+) -> str:
+    """A mid-cycle opening, reduced to the blocks the evidence rests on."""
+    printed_average = (
+        f"Average Balance ${average} Average Collected Balance ${average} "
+        if average is not None
+        else ""
+    )
+    return (
+        document(summary_row, rows).replace(
+            "Statement Period: March 01  - March 31, 2026", period
+        )
+        + "Account Summary\n"
+        + printed_average
+        + f"Number of Days in Cycle {cycle_days}\n"
+        + "Daily Closing Balance Summary\n"
+        + "Date Balance\n"
+        + daily
+        + "\nACCOUNT RECONCILIATION\n"
+    )
+
+
+def printed_average(text: str) -> str:
+    """What Woodforest itself would print as `Average Balance` here.
+
+    The family divides by (cycle days + 1) on a zero-forward statement,
+    counting the day before the period — see G8 in `initialization_postings`.
+
+    Fixtures use this so that a document built to break exactly ONE condition
+    stays internally consistent in every other respect. Without it the printed
+    average stops matching the mutated ledger, G8b refuses first, and the
+    condition actually under test is never reached — which is precisely how an
+    earlier version of this file came to have thirteen refusal fixtures of
+    which only three pinned anything.
+    """
+    stmt = parse_woodforest_statement(text)
+    assert stmt is not None, "fixture does not parse"
+    probe = stmt.model_copy(deep=True)
+    year, month, day = (int(part) for part in stmt.period_start.split("-"))
+    probe.period_start = (date(year, month, day) - timedelta(days=1)).isoformat()
+    value = compute_average_daily_balance(probe).average_daily_balance
+    assert value is not None, "fixture has no computable average"
+    return f"{value:,.2f}"
+
+
+def consistent_document(summary_row: str, rows: str, **kwargs) -> str:
+    """`opening_document` carrying the average the bank would have printed."""
+    draft = opening_document(summary_row, rows, average="0.00", **kwargs)
+    return opening_document(
+        summary_row, rows, average=printed_average(draft), **kwargs
+    )
+
+
+OPENING_SUMMARY = "Business Simple Checking 1205009515 0.00 200.00 1,000.00 800.00"
+OPENING_ROWS = (
+    "01-23 1,000.00 1,000.00 "
+    "01-24 15.00 985.00 DEBIT CARD SETUP FEE "
+    "01-31 185.00 800.00 POS DB ONE"
+)
+OPENING = opening_document(OPENING_SUMMARY, OPENING_ROWS)
+
+
+def test_the_opening_deposit_is_proven_by_the_documents_own_print():
+    stmt = parse_woodforest_statement(OPENING)
+    proven = initialization_postings(OPENING, stmt)
+    assert [(t.date, t.amount) for t in proven] == [("2026-01-23", 1000.00)]
+
+
+def test_the_row_prints_no_description_and_is_proven_anyway():
+    """`fad3db75_document`'s opening row prints a date, an amount and a
+    balance and NOTHING else — there is no 'opening deposit' wording to key
+    on, which is why the evidence is the arithmetic the bank prints around
+    it rather than the words it does not."""
+    stmt = parse_woodforest_statement(OPENING)
+    assert stmt.transactions[0].description == ""
+
+
+def test_proving_the_event_changes_nothing_the_parser_publishes():
+    """The prover is deliberately not wired: `analysis/adb.py` is protected,
+    so until Ocean rules the two documents stay withheld. Pinned so a wiring
+    change cannot land silently."""
+    stmt = parse_woodforest_statement(OPENING)
+    assert stmt.period_start == "2026-01-24"
+    assert stmt.beginning_balance == 0.00
+    assert stmt.transactions[0].date == "2026-01-23"
+    result = compute_average_daily_balance(stmt)
+    assert result.ok is False
+    assert result.validations["transactions_within_period"] is False
+    assert result.out_of_period_transaction_count == 1
+
+
+def test_a_document_with_no_out_of_period_row_proves_nothing():
+    assert initialization_postings(SIMPLE, parse_woodforest_statement(SIMPLE)) == []
+
+
+# --- what DISCRIMINATES an opening: each condition pinned on its own --------
+#
+# Every fixture in this block carries, via `consistent_document`, the average
+# the bank would itself print for the document AS MUTATED. That is what makes
+# the named condition the only one that can refuse — and it is verified rather
+# than asserted: deleting the named guard from `initialization_postings` turns
+# that fixture red on its own.
+
+
+def test_a_non_zero_balance_forward_is_not_an_account_opening():
+    """G1. An account that carried a balance into the period already existed,
+    so nothing it posted before the period is initial funding."""
+    text = consistent_document(
+        "Business Simple Checking 1205009515 100.00 200.00 1,000.00 900.00",
+        "01-23 1,000.00 1,100.00 "
+        "01-24 15.00 1,085.00 DEBIT CARD SETUP FEE "
+        "01-31 185.00 900.00 POS DB ONE",
+        daily="01-23 1,100.00 01-24 1,085.00 01-31 900.00",
+    )
+    assert initialization_postings(text, parse_woodforest_statement(text)) == []
+
+
+def test_a_debit_dated_the_day_before_is_not_an_account_opening():
+    """G3, and the reason G3 exists.
+
+    An NSF charge posted the day before a zero-forward statement satisfies
+    every other condition here: the forward is zero, the row is dated the day
+    immediately before, it leads the grid, its walk reproduces the printed
+    balance, the bank's daily table prints that day, the cycle length matches,
+    the ledger closes with it and not without it, and the bank's own printed
+    average is reproduced exactly over the n+1 window. Without G3 this
+    publishes — an opening balance of -50.00, an ADB computed on top of it,
+    and the whole thing described as an account opening.
+
+    An account is opened by money ARRIVING.
+    """
+    text = consistent_document(
+        "Business Simple Checking 1205009515 0.00 200.00 1,000.00 800.00",
+        "01-23 50.00 -50.00 NSF CHARGE "
+        "01-24 1,000.00 950.00 DEPOSIT "
+        "01-31 150.00 800.00 POS DB ONE",
+        daily="01-23 -50.00 01-24 950.00 01-31 800.00",
+    )
+    stmt = parse_woodforest_statement(text)
+    row = stmt.transactions[0]
+    assert (row.date, row.amount, row.direction) == ("2026-01-23", -50.00, "debit")
+    assert initialization_postings(text, stmt) == []
+
+
+def test_a_debit_beside_the_opening_deposit_is_still_refused():
+    """G3's direction half, isolated.
+
+    Two postings on the day before: the funding deposit AND a 50.00 charge.
+    The carry they leave is +950.00, so the "opening balance must be positive"
+    half of G3 is satisfied and only the "every declared posting is a credit"
+    half can refuse.
+
+    Refusing is the fail-closed reading and it is deliberate. The deposit is
+    initial funding; the charge is not, and nothing printed here proves the
+    charge belongs to the opening rather than being ordinary activity the bank
+    happened to post early. A rule that admits "the opening deposit and
+    whatever else shares its date" is a wider rule than the one that was
+    approved.
+    """
+    text = consistent_document(
+        "Business Simple Checking 1205009515 0.00 250.00 1,000.00 750.00",
+        "01-23 1,000.00 1,000.00 DEPOSIT "
+        "01-23 50.00 950.00 NSF CHARGE "
+        "01-24 15.00 935.00 DEBIT CARD SETUP FEE "
+        "01-31 185.00 750.00 POS DB ONE",
+        daily="01-23 950.00 01-24 935.00 01-31 750.00",
+    )
+    stmt = parse_woodforest_statement(text)
+    assert [t.amount for t in stmt.transactions[:2]] == [1000.00, -50.00]
+    assert initialization_postings(text, stmt) == []
+
+
+def test_the_daily_balance_summary_must_print_the_opening_day():
+    """G6. The bank's independent statement that the day is this account's."""
+    text = consistent_document(
+        OPENING_SUMMARY, OPENING_ROWS, daily="01-24 985.00 01-31 800.00"
+    )
+    assert initialization_postings(text, parse_woodforest_statement(text)) == []
+
+
+def test_the_printed_cycle_length_must_be_the_printed_period():
+    """G7. If the bank's own day count does not match the period we read, the
+    period is not established and nothing may be measured against it."""
+    text = consistent_document(OPENING_SUMMARY, OPENING_ROWS, cycle_days="9")
+    assert initialization_postings(text, parse_woodforest_statement(text)) == []
+
+
+def test_the_printed_average_must_confirm_the_read():
+    """G8b. `961.88` is the mean over the printed period once the deposit is
+    folded into the opening balance — the answer a reader gets when the
+    opening day is not counted. Woodforest prints the nine-day figure.
+
+    Note what this does and does not prove: it confirms the READ, not the
+    interpretation. See G8 in `initialization_postings` — the same n+1
+    identity holds on a zero-forward statement with no pre-period row at all.
+    """
+    text = opening_document(OPENING_SUMMARY, OPENING_ROWS, average="961.88")
+    assert initialization_postings(text, parse_woodforest_statement(text)) == []
+
+
+def test_the_printed_average_pins_the_opening_amount():
+    """G8b as a mutation test. Every figure on this document is internally
+    consistent for a 2,000.00 opening — the summary identity, the walk, the
+    daily table and the closing balance all agree — and the ONE printed figure
+    that did not move refuses it."""
+    text = opening_document(
+        "Business Simple Checking 1205009515 0.00 200.00 2,000.00 1,800.00",
+        "01-23 2,000.00 2,000.00 "
+        "01-24 15.00 1,985.00 DEBIT CARD SETUP FEE "
+        "01-31 185.00 1,800.00 POS DB ONE",
+        daily="01-23 2,000.00 01-24 1,985.00 01-31 1,800.00",
+    )
+    stmt = parse_woodforest_statement(text)
+    assert stmt.transactions[0].amount == 2000.00
+    assert initialization_postings(text, stmt) == []
+
+
+def test_a_document_that_prints_no_average_proves_nothing():
+    """G8b. No oracle, no exception."""
+    text = opening_document(OPENING_SUMMARY, OPENING_ROWS, average=None)
+    stmt = parse_woodforest_statement(text)
+    assert stmt.stated_average_balance is None
+    assert initialization_postings(text, stmt) == []
+
+
+# --- defence in depth: refusals another condition also catches --------------
+#
+# These documents are refused, and each names the condition it is aimed at —
+# but deleting that condition alone leaves the suite green, because a stronger
+# one catches the same document. They are kept because they are the shapes a
+# reader will ask about, and they are labelled honestly rather than counted as
+# independent evidence. The subsumption is reasoned in `initialization_postings`.
+
+
+def test_a_row_two_days_before_the_period_is_not_an_opening():
+    """G2 (also caught by G8a: the probe window starts at period_start - 1, so
+    a start-2 posting fails the probe's own `transactions_within_period`)."""
+    text = opening_document(
+        OPENING_SUMMARY,
+        "01-22 1,000.00 1,000.00 "
+        "01-24 15.00 985.00 DEBIT CARD SETUP FEE "
+        "01-31 185.00 800.00 POS DB ONE",
+        daily="01-22 1,000.00 01-24 985.00 01-31 800.00",
+    )
+    assert initialization_postings(text, parse_woodforest_statement(text)) == []
+
+
+def test_a_row_after_the_period_is_never_an_opening():
+    """G2, the adversarial half of the ruling's gate 6: a stray row dated
+    outside the period that is NOT the initialization event must leave the
+    document withheld, even with a genuine opening deposit beside it.
+    (Also caught by G8a.)"""
+    text = opening_document(
+        "Business Simple Checking 1205009515 0.00 250.00 1,000.00 750.00",
+        "01-23 1,000.00 1,000.00 "
+        "01-24 15.00 985.00 DEBIT CARD SETUP FEE "
+        "01-31 185.00 800.00 POS DB ONE "
+        "02-03 50.00 750.00 POS DB STRAY",
+        daily="01-23 1,000.00 01-24 985.00 01-31 800.00",
+    )
+    stmt = parse_woodforest_statement(text)
+    assert stmt.transactions[-1].date == "2026-02-03"
+    assert initialization_postings(text, stmt) == []
+
+
+def test_an_opening_row_that_is_not_the_leading_row_is_refused():
+    """G5 (also caught by G4a: this parser derives each amount from the
+    balance movement, so out-of-order rows break the ledger as well)."""
+    text = opening_document(
+        OPENING_SUMMARY,
+        "01-24 15.00 985.00 DEBIT CARD SETUP FEE "
+        "01-23 1,000.00 1,000.00 "
+        "01-31 185.00 800.00 POS DB ONE",
+        daily="01-23 1,000.00 01-24 985.00 01-31 800.00",
+    )
+    assert initialization_postings(text, parse_woodforest_statement(text)) == []
+
+
+def test_an_event_the_ledger_does_not_need_is_refused():
+    """G4a (which IS the probe's `ledger_reconciles_to_closing`, so G8a catches
+    it too). The bank's own totals here exclude the pre-period deposit, so a
+    document claiming it as the opening would not reach the printed closing
+    balance."""
+    text = opening_document(
+        "Business Simple Checking 1205009515 0.00 200.00 0.00 -200.00",
+        "01-23 1,000.00 1,000.00 "
+        "01-24 15.00 985.00 DEBIT CARD SETUP FEE "
+        "01-31 185.00 800.00 POS DB ONE",
+    )
+    assert initialization_postings(text, parse_woodforest_statement(text)) == []
+
+
+def test_a_pre_period_row_that_moves_nothing_is_not_an_opening():
+    """G4b (now subsumed by G3: with a zero forward and a positive opening
+    carry, `forward + in-period` cannot equal the closing balance that
+    `carry + in-period` equals). A pre-period row netting to zero establishes
+    no opening balance, and is refused either way."""
+    text = opening_document(
+        "Business Simple Checking 1205009515 0.00 200.00 0.00 -200.00",
+        "01-23 0.00 0.00 "
+        "01-24 15.00 -15.00 DEBIT CARD SETUP FEE "
+        "01-31 185.00 -200.00 POS DB ONE",
+        daily="01-23 0.00 01-24 -15.00 01-31 -200.00",
+    )
+    stmt = parse_woodforest_statement(text)
+    assert stmt.transactions[0].date == "2026-01-23"
+    assert initialization_postings(text, stmt) == []
+
+
+def test_a_zero_forward_statement_with_no_pre_period_row_proves_nothing():
+    """The shape that disproves the old story about G8.
+
+    `E0A4A5DB` in the archive is exactly this: `BALANCE FORWARD` 0.00, a
+    mid-cycle period, and NO out-of-period row — and the bank's printed
+    average is still reproduced exactly over `[period_start - 1 .. period_end]`
+    with a phantom 0.00 day, because that n+1 divisor is the family's
+    convention on zero-forward statements rather than a signature of an
+    opening. There is nothing to declare here and nothing is declared.
+    """
+    text = consistent_document(
+        "Business Simple Checking 1205009515 0.00 200.00 1,000.00 800.00",
+        "01-24 1,000.00 1,000.00 DEPOSIT "
+        "01-25 15.00 985.00 DEBIT CARD SETUP FEE "
+        "01-31 185.00 800.00 POS DB ONE",
+        daily="01-24 1,000.00 01-25 985.00 01-31 800.00",
+    )
+    stmt = parse_woodforest_statement(text)
+    assert stmt.beginning_balance == 0.00
+    assert all(t.date >= stmt.period_start for t in stmt.transactions)
+    assert initialization_postings(text, stmt) == []

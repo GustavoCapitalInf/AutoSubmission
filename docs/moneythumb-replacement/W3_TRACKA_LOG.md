@@ -17463,3 +17463,958 @@ appears nowhere in `analysis_settings_key`, so the first measured structurer
 run is invalid unless the cache is partitioned or bypassed first. Nothing here
 made it worse — no `analysis/` cache-key change was needed, because the block
 travels inside the markdown the analysis key already hashes.
+# §WFINIT — the two Woodforest account openings: what the documents print, and the one line of protected code that stands between them and publication
+
+## WF0. Summary
+
+The two withheld Woodforest statements (§UNID-A UA4.1, carried finding UA6.1)
+are mid-cycle **account openings**. Both are fully readable — every figure the
+bank prints matches the published ledger exactly — and both are withheld
+because their single funding deposit is dated the day BEFORE the period the
+bank prints, which `analysis/adb.py` refuses.
+
+The narrow ruling's six evidence gates **can all be met generically**, from
+each document's own print, with no per-document constant and no generic
+out-of-period tolerance. What cannot be done inside this cell's ownership is
+CONSUME that evidence: every admissible design requires `analysis/adb.py`,
+which is protected (MASTER_PLAN §4). Per the handoff this cell therefore
+**stopped after characterization**. Shipped: the evidence prover
+(`analysis.woodforest.initialization_postings`, deliberately unwired), eighteen
+fixtures, and the exact patch Ocean would apply, with its effect measured end
+to end.
+
+**This packet is the SECOND version.** Ocean's adversarial review blocked the
+first as "code safe, evidence not accurate enough to rule on", and it was
+right on every count. What changed, all of it verified here before being
+acted on:
+
+* **A real defect, not just a wording problem.** Nothing required the folded
+  amount to be positive, so a `−50.00 NSF CHARGE` dated the day before a
+  zero-forward statement passed both layers and published a NEGATIVE opening
+  balance as an "account opening". Reproduced, then fixed in the prover (G3)
+  and independently in the pinned diff, and fixtured at both. **WF4.1.**
+* **The oracle meant something weaker than claimed.** The n+1 zero residual is
+  Woodforest's divisor convention on zero-forward statements, not a signature
+  of an opening: `E0A4A5DB` satisfies the complete identity with a phantom
+  0.00 day and has no out-of-period row at all. The baseline was 12 of 15, not
+  13, with two ongoing statements at exactly 0.00 over their own periods.
+  **WF1.6.**
+* **The fixtures were weaker than claimed.** "Thirteen fixtures killing one
+  condition at a time" was false: mutation testing killed 3 of 14 guards.
+  Rebuilt to 5 of 16 pinned with every survivor explained. **WF5.1.**
+* **Two diff corrections and a merge-order hazard.** The boundary is now
+  enforced at the consuming layer, and the hunks are NOT standalone-inert.
+  **WF4.**
+* **Two numbers that did not reproduce.** The census intermediates and the
+  538375B8 gate count. **WF5.**
+
+**Nothing moves on this branch. Both documents stay withheld.** All 20 claimed
+Woodforest documents are byte-identical to the base: the base parser was loaded
+out of git as a second module and its `parse_woodforest_statement` compared
+field for field against this branch's over every claimed archive document —
+**20 claimed, 20 identical, 0 differing** (base `707ba9e`, whose `analysis/`
+and `tests/` are unchanged from `ea8d8e8`).
+
+| | |
+|---|---|
+| Documents | `823DCE7F…` (`fad3db75_document.PDF`), `D9EF1A8C…` (`c183e584_Feb.pdf`) |
+| Today | `withheld` / `withheld_adb` — both |
+| If Ocean rules yes | `validated` — both, +2 |
+| Family sweep | 20 claimed; 2 declared, 16 ADB-result bit-identical, 2 parser-declines unchanged |
+| Corpus census | 3,315 readable shas / 2,468 claimed; **6** documents in the whole archive carry ANY out-of-period posting; the loosest form of the rule fires on exactly these 2 |
+
+## WF1. The printed evidence, verbatim
+
+Both markdowns were rehydrated from the D-3 OCR artifact store **by direct file
+path** (`webapp_data/artifacts/ocr/<2>/<cache_key>.json`, `input_sha256`
+matched); the sqlite index was never opened. Both are `native-pdf-text`; each
+resolves to two artifacts (two settings keys) with identical pages.
+
+### `D9EF1A8C…` — `c183e584_Feb.pdf`, CARTER & SONS TRANSPORT, LLC
+
+    Statement Period: February 11  - February 28, 2026 Page 1 of 3
+    Summary of Accounts
+    ACCOUNT TYPE AND NUMBER BALANCE FORWARD TOTAL DEBITS TOTAL CREDITS CLOSING BALANCE
+    Second Chance Business 8206009527 0.00 10,322.27 30,000.00 19,677.73
+    Transactions
+    Date Credits Debits Balance Description
+    02-10 30,000.00 30,000.00 DEPOSIT 02-11 15.00 29,985.00 ACCOUNT SETUP FEE
+    02-11 15.00 29,970.00 DEBIT CARD SETUP FEE 02-16 170.00 29,800.00 Online Transfer Debit …
+    …
+    Account Summary
+    Average Balance $25,632.67 Average Collected Balance $25,632.67 Minimum Balance on 02/28/2026 $19,677.73 Number of Days in Cycle 18
+    Daily Closing Balance Summary
+    Date Balance
+    02-10 30,000.00 02-11 29,970.00 02-16 29,600.00 02-17 29,395.00 02-18 25,712.62
+    …
+    Account Item Images Total of 1
+    02/10/2026 Deposit $30,000.00
+
+### `823DCE7F…` — `fad3db75_document.PDF`, FAITH REMODELING & LIGHTING LLC
+
+    Statement Period: January 24  - January 31, 2026 Page 1 of 2
+    ACCOUNT TYPE AND NUMBER BALANCE FORWARD TOTAL DEBITS TOTAL CREDITS CLOSING BALANCE
+    Business Simple Checking 1168006326 0.00 7,247.60 10,085.01 2,837.41
+    Transactions
+    Date Credits Debits Balance Description
+    01-23 1,000.00 1,000.00 01-24 15.00 985.00 DEBIT CARD SETUP FEE
+    01-25 108.68 876.32 POS DB WAL-MART #4405 AURORA IL 000000000430807 …
+    Account Summary
+    Average Balance $2,602.01 Average Collected Balance $2,602.01 Minimum Balance on 01/26/2026 $745.14 Number of Days in Cycle 8
+    Daily Closing Balance Summary
+    Date Balance
+    01-23 1,000.00 01-24 985.00 01-25 861.32
+    …
+
+### What that print does and does not give us
+
+**There is no opening-deposit wording to key on.** `D9EF1A8C`'s row says
+`DEPOSIT`; `823DCE7F`'s row prints **no description at all** — a date, an
+amount and a balance, nothing else. Any rule keyed on wording would fail on one
+of the two documents. This is the single most important characterization
+finding: the evidence has to be the arithmetic the bank prints AROUND the row,
+not the words it does not print.
+
+Common to both, and each an identity rather than a heuristic:
+
+1. **`BALANCE FORWARD` is `0.00`.** The account carried nothing into the
+   period. The bank's own summary identity closes on that zero *including* the
+   pre-period row: `0.00 − 10,322.27 + 30,000.00 = 19,677.73` and
+   `0.00 − 7,247.60 + 10,085.01 = 2,837.41`. The bank counts the row.
+2. **The row is dated the day IMMEDIATELY before `period_start`** — 02-10 for a
+   Feb 11 start, 01-23 for a Jan 24 start. Not a window; the day before.
+3. **It is the LEADING row and the balance history starts from zero:** its
+   printed running balance equals its own amount (30,000.00 / 1,000.00).
+4. **The bank's own `Daily Closing Balance Summary` prints a closing balance
+   for that day** — `02-10 30,000.00`, `01-23 1,000.00` — a day the statement's
+   own printed period excludes. (This is also why §UNID-A UA2 refused to
+   publish the table as `stated_daily_balances`: `adb.py` treats an
+   out-of-period snapshot as invalid.)
+5. **`Number of Days in Cycle` equals the printed period's calendar length**
+   (18 = Feb 11–28, 8 = Jan 24–31), so the cycle the bank names IS the period
+   we read.
+6. **The bank's own printed `Average Balance` is reproduced EXACTLY, to the
+   cent, only over the window that starts on the opening day.** This is the
+   oracle the design rests on, and it was found by measurement, not assumed:
+
+   | doc | printed | mean over printed period | mean over [opening day .. period end] |
+   |---|---|---|---|
+   | `D9EF1A8C` | **25,632.67** | −4,609.96 (18d) | **25,632.67** (19d) — residual 0.00 |
+   | `823DCE7F` | **2,602.01** | 1,802.26 (8d) | **2,602.01** (9d) — residual 0.00 |
+
+   **CORRECTED — what this identity actually means.** The first version of
+   this packet called the n+1 identity the strongest and least forgeable
+   evidence that the row opened the account. That was wrong, and Ocean's
+   review was right to block on it. Re-measured over all 17 claimed documents
+   that print an average, with the platform's own engine run twice per
+   document:
+
+   | | residual over the printed period | residual over `[start-1 .. end]` |
+   |---|---|---|
+   | `D9EF1A8C` (opening) | −30,242.63 | **0.00** |
+   | `823DCE7F` (opening) | −799.75 | **0.00** |
+   | **`E0A4A5DB` (zero forward, NO pre-period row)** | +60.08 | **0.00** |
+   | 12 ongoing statements | −0.38 … −0.50 | −152.91 … +275.79 |
+   | `38D42B6A`, `BA0B55C6` (ongoing) | **0.00** | −2.21, −33.44 |
+
+   Three corrections fall out of that table. **(a)** The zero residual is not a
+   signature of an opening: it is Woodforest's divisor convention on
+   ZERO-FORWARD statements. `E0A4A5DB` prints a zero forward, has no
+   out-of-period row at all, and satisfies the complete identity — probe
+   reconciles, `agrees_with_bank_stated_average` true — over `[start-1 .. end]`
+   with a **phantom 0.00 day**. It holds on all three zero-forward documents
+   and on none of the other fourteen. **(b)** The baseline is **12** of 15
+   validated documents in the 0.38–0.50 band, not 13; two ongoing statements
+   (`38D42B6A`, `BA0B55C6`) sit at exactly 0.00 over their own printed periods,
+   so "exactly zero" is not rare in this family either. **(c)** What the
+   identity does establish is that the forward really is zero and that the
+   ledger READ is right — every amount and date, the declared posting's
+   included, reproducing a printed figure the parser never used to build it.
+   That is why it remains the sharpest mutation check available (a 2,000.00
+   opening with every other figure made consistent is still refused by it), and
+   why it cannot carry the interpretation on its own.
+
+   **The evidence that actually discriminates an opening** is therefore G1
+   (forward is 0.00), G2 (the posting is dated the day immediately before, and
+   nothing is dated after), G3 (every declared posting is a CREDIT leaving a
+   positive balance) and G4 (the ledger closes with them and not without).
+   G5–G8 confirm the read.
+7. Corroboration, recorded but NOT required: both print account-opening
+   furniture on the first in-period day — `ACCOUNT SETUP FEE` and
+   `DEBIT CARD SETUP FEE` on `D9EF1A8C`, `DEBIT CARD SETUP FEE` on
+   `823DCE7F` — and `D9EF1A8C` prints `Account Item Images Total of 1 /
+   02/10/2026 Deposit $30,000.00`, the bank's own image index for that one
+   deposit. Requiring the setup-fee wording would hold on both today; it is
+   left as corroboration because it is wording, and wording is exactly what the
+   other six conditions were chosen to avoid depending on.
+
+**Corroboration from outside the documents:** the archive also holds each
+account's NEXT statement, and both open where these close —
+`F60EDE2E` (Mar 2026) prints `BALANCE FORWARD 19,677.73`, `1023E395` (Feb 2026)
+prints `BALANCE FORWARD 2,837.41`. Not used as evidence (a single document must
+stand alone), but it confirms the reading.
+
+## WF2. What actually fails today — four checks, not one
+
+UA6.1 named `transactions_within_period`. Measured on the real documents
+through the real pipeline, **four** required ADB checks fail, and `reconcile`
+passes cleanly:
+
+```
+D9EF1A8C  reconcile.ok=True  summary_ok=True  breaks=0  credit_cov=1.0  debit_cov=1.0
+          adb.ok=False   adb=-4609.96  days=18  out_of_period=1
+            FAIL transactions_within_period
+            FAIL final_balance_matches_statement_closing
+            FAIL ledger_reconciles_to_closing
+            FAIL running_balances_support_daily_ledger
+          OUTCOME withheld / withheld_adb
+823DCE7F  reconcile.ok=True  summary_ok=True  breaks=0  credit_cov=1.0  debit_cov=1.0
+          adb.ok=False   adb=1802.26   days=8   out_of_period=1
+            (same four)
+          OUTCOME withheld / withheld_adb
+```
+
+The cause is one thing seen four ways: `adb.py` computes the period total over
+in-period rows only, so the deposit is dropped from the ledger while
+`beginning_balance` stays at the printed `0.00`, and everything downstream is
+off by exactly the deposit.
+
+## WF3. Why no parser-only design is admissible — measured, not argued
+
+The tension is structural. `reconcile` needs the deposit INSIDE
+`stmt.transactions` (its coverage check compares captured credits against the
+bank's `TOTAL CREDITS`, which includes it, and its summary identity is seeded
+from the printed `0.00`). `adb.py` needs it OUTSIDE the period. Only a
+component that can tell "in the ledger" from "in the period" can satisfy both,
+and `adb.py` is the only such component.
+
+Every lever a parser has was tried against the REAL `reconcile` and the REAL
+`compute_average_daily_balance`:
+
+| design | reconcile | adb | result |
+|---|---|---|---|
+| D0 today: forward 0.00, row in `transactions` | ok | fail | withheld |
+| D1 forward := post-init, row dropped, printed totals kept | **fail** (summary off by the deposit; credit coverage 0% / 90%) | ok | withheld |
+| D2 …and the printed totals SUPPRESSED | ok | ok | **publishes — inadmissible** |
+| D3 forward omitted, row dropped | **fail** (sum check, continuity, coverage) | ok | withheld |
+| D4 forward omitted, row kept | ok | fail | withheld |
+| D5 row moved to `period_start` | ok | ok | **publishes — forbidden** |
+| D6 period widened to the opening day | ok | ok | **publishes — forbidden** |
+
+* **D2 is the only parser-only design that publishes, and it buys publication
+  by DELETING the bank's two printed totals from the payload.** Gate 5 requires
+  the stated totals to remain *independently satisfied*; suppressing the
+  oracle so the check cannot run is the opposite of satisfying it, and it
+  silently drops `TOTAL DEBITS` / `TOTAL CREDITS` from what we publish.
+  Rejected.
+* **D5** moves a row to a boundary day — the thing `adb.py`'s own warning text
+  says it will not do, and §UNID-A already refused.
+* **D6** invents a period the document does not state, and the ruling requires
+  the ADB basis to remain the printed period. (Recorded because it is
+  arithmetically seductive: D6 reproduces the bank's printed average exactly,
+  25,632.67 and 2,602.01, residual 0.00. That is the same fact WF1.6 uses as
+  EVIDENCE — the difference is that evidence informs a fold into the opening
+  balance, while D6 would publish an ADB over a period the bank did not print.)
+
+## WF4. The design, and what it does to published fields
+
+Two halves, deliberately separated.
+
+**Half A — the parser proves it (shipped, unwired).**
+`analysis.woodforest.initialization_postings(markdown, stmt)` returns the
+postings the document PROVES are account opening, or an empty list. Eight
+conditions, each exact, none carrying a threshold or a tolerance, any one
+failing returning `[]` — and they are NOT equal in what they establish.
+**G1–G4 discriminate an opening** (forward is zero; dated the day immediately
+before with nothing after; every declared posting a CREDIT leaving a positive
+balance; the ledger closes with them and not without). **G5–G8 confirm the
+read** (leading rows and the walk; the daily table prints that day; the cycle
+length is the printed period; the n+1 average identity). G8 runs the platform's
+OWN engine over a throwaway copy whose `period_start` is the opening day and
+requires both `result.ok` (the full ledger reconciles over that window — the
+ruling's gate 4) and the engine's own `agrees_with_bank_stated_average`
+(residual exactly 0.00 — the ruling's gate 5). The extended window is EVIDENCE
+ONLY: nothing is published from it, and per WF1.6 it evidences the READ rather
+than the interpretation.
+
+**Half B — the engine consumes it (NOT shipped; `analysis/adb.py`, protected).**
+`Statement` gains `initialization_transaction_count: int = 0`
+(`analysis/schema.py`, not protected), the parser sets it to
+`len(initialization_postings(...))`, and `adb.py` folds exactly those postings
+into the opening balance.
+
+### Consequences for published fields — stated before implementing
+
+* **`transactions`: the initialization posting IS published, with its true
+  printed date.** It is a real row on a real ledger; hiding it would break
+  `reconcile`'s coverage against the bank's own `TOTAL CREDITS` and would
+  publish a ledger the bank did not print. It is initialization CONTEXT for the
+  *period arithmetic*, not a row we pretend does not exist.
+* **`period_start` / `period_end`: unchanged**, exactly as printed.
+* **ADB day count: unchanged** — 18 and 8, the printed periods. The opening day
+  never becomes a calendar day of the ADB, never appears in `daily_balances`,
+  and contributes no `transaction_count` to any day.
+* **`beginning_balance`: unchanged** — the printed `0.00`. What changes is the
+  ADB engine's internal `opening`, which becomes `0.00 + the event`, reported
+  as `opening_balance_source="initialization_event"` and disclosed in a
+  warning. `opening_balance_matches_statement` still compares against the
+  PRINTED figure (the patch subtracts what was folded in), so it stays a
+  truthful check rather than being quietly satisfied.
+* **`stated_*`: unchanged**, every printed figure published as printed.
+* **The published ADB will differ from the bank's printed average by
+  −242.63 and +200.25.** This is disclosed, not hidden: the two figures answer
+  different questions. Ours is "the mean end-of-day balance over the statement
+  period", which is what the platform defines and what the ruling requires;
+  the bank's is the mean over the account's life to date, which begins a day
+  earlier. Both are published side by side (`average_daily_balance` and
+  `stated_average_balance`), and `adb.py`'s existing
+  `agrees_with_bank_stated_average` warning fires. **Ocean should decide
+  explicitly whether a gap of that size is acceptable to publish** — it is an
+  order of magnitude larger than the family's usual 0.38–0.50, and the reason
+  is fully understood rather than mysterious.
+
+### The exact patch (`analysis/adb.py`, +55 / −1)
+
+Five hunks. Reproduced in full at the end of this section; the substance is:
+
+1. after `outside` is computed, a guarded branch that empties `outside` and
+   zeroes `out_of_period_transaction_count` when — and only when — the parser
+   declared exactly this many pre-period rows, nothing is dated after the
+   period, `beginning_balance` is `0.00`, the event is non-zero, the whole
+   printed ledger closes on the printed closing balance WITH it, and does not
+   close without it. A warning names the folded dates.
+2. `opening = _money(opening + seeded_total)` with
+   `opening_source = "initialization_event"`.
+3–4. `seeded_total` threaded into `_validate` as a keyword with a
+   `Decimal("0")` default.
+5. `opening_balance_matches_statement` compares the printed figure against
+   `opening − seeded_total`.
+
+**THE HUNKS ARE NOT STANDALONE-INERT — they must land in the SAME COMMIT as
+the schema field.** Hunk 1 reads `stmt.initialization_transaction_count`
+unconditionally. Applied to `analysis/adb.py` on its own, against today's
+`Statement`, every call to `compute_average_daily_balance` raises
+`AttributeError` — that is the whole platform, not this family. This is a
+same-commit requirement on `analysis/schema.py`, not a footnote, and it is
+stated here because the earlier draft's "inert by construction" invited exactly
+the wrong merge order.
+
+**Inert WHEN the field exists.** With the field present and
+`initialization_transaction_count == 0`, every new line is behind
+`if declared and …` and `seeded_total` is `Decimal("0")`, so hunk 5 reduces to
+the original comparison and the patched function is the production function.
+Measured, not just argued: over the 18 parsed Woodforest documents the patched
+engine's `AverageDailyBalanceResult` is **bit-identical**
+(`dataclasses.asdict` equality) on all 16 undeclared ones, and the two declared
+ones move.
+
+**Two corrections the review forced into the diff itself**, both now in the
+text below. (1) The day-before boundary is re-enforced at the CONSUMING layer —
+`all(day == start - timedelta(days=1) …)`, not `day < start`. The reviewer fed
+a `start − 2` posting to the original hunk and it was accepted, because the
+hunk trusted the declaring parser to have checked. A consuming layer that
+trusts its caller has no check. (2) The folded amount must be POSITIVE
+(`seeded > 0` and every declared posting `> 0`) — see WF4.1.
+
+```diff
+--- a/analysis/adb.py
++++ b/analysis/adb.py
+@@ -221,6 +221,63 @@
+     ordered = [(day, txn) for day, txn in all_ordered if start <= day <= end]
+     outside = [(day, txn) for day, txn in all_ordered if not start <= day <= end]
+     result.out_of_period_transaction_count = len(outside)
++
++    # ACCOUNT-OPENING INITIALIZATION EVENT — narrow, declared, fail-closed.
++    #
++    # An account opened mid-cycle can have its funding deposit posted the day
++    # before the period the statement prints, counted in the bank's own printed
++    # totals and printed in the bank's own daily balance history, while the
++    # printed period still begins the next day. That posting is not period
++    # activity: it is what day one opens WITH. It is folded into the opening
++    # balance, so it never becomes a period day, the ADB divisor stays the
++    # printed period's calendar length, and no row is moved to a boundary day.
++    #
++    # This is NOT a general tolerance for out-of-period transactions. It is
++    # reachable only when the parser has DECLARED, from the document's own
++    # printed evidence, exactly how many leading postings opened the account
++    # (`Statement.initialization_transaction_count`), and only when every
++    # condition below also holds of the ledger itself. Any row after the
++    # period, any pre-period row beyond the declared count, a non-zero stated
++    # opening balance, or a ledger that closes either without the event or not
++    # at all with it, leaves `out_of_period_transaction_count` intact and the
++    # document withheld.
++    initialization: list[tuple[date, Any]] = []
++    declared = stmt.initialization_transaction_count
++    # The boundary is re-enforced HERE, not inherited from the declaring
++    # parser: `day == start - 1`, not `day < start`. A consuming layer that
++    # trusts its caller to have checked is a consuming layer with no check.
++    if (
++        declared
++        and len(outside) == declared
++        and all(day == start - timedelta(days=1) for day, _ in outside)
++    ):
++        seeded = sum((_decimal(txn.amount) for _, txn in outside), Decimal("0"))
++        in_period = sum((_decimal(txn.amount) for _, txn in ordered), Decimal("0"))
++        if (
++            stmt.beginning_balance is not None
++            and _money(stmt.beginning_balance) == Decimal("0.00")
++            and stmt.ending_balance is not None
++            # An account is opened by money ARRIVING. Without this a debit
++            # dated the day before a zero-forward statement folds a NEGATIVE
++            # opening balance in and publishes it as an account opening.
++            and seeded > Decimal("0")
++            and all(txn.amount > 0 for _, txn in outside)
++            # The event is REQUIRED: the whole printed ledger closes on the
++            # printed closing balance with it, and does not close without it.
++            and _money(seeded + in_period) == _money(stmt.ending_balance)
++            and _money(in_period) != _money(stmt.ending_balance)
++        ):
++            initialization = outside
++            outside = []
++            result.out_of_period_transaction_count = 0
++            result.warnings.append(
++                f"{len(initialization)} account-opening posting(s) dated before the "
++                f"statement period ("
++                + ", ".join(day.isoformat() for day, _ in initialization)
++                + ") were folded into the opening balance as initialization "
++                "context; the ADB basis remains the printed period"
++            )
++
+     if outside:
+         shown = ", ".join(day.isoformat() for day, _ in outside[:6])
+         more = f" (+{len(outside) - 6} more)" if len(outside) > 6 else ""
+@@ -242,6 +299,10 @@
+     result.total_debits = float(_money(debits))
+ 
+     opening, opening_source = _resolve_opening(stmt, ordered, total)
++    seeded_total = sum((_decimal(txn.amount) for _, txn in initialization), Decimal("0"))
++    if initialization and opening is not None:
++        opening = _money(opening + seeded_total)
++        opening_source = "initialization_event"
+     result.opening_balance = float(opening) if opening is not None else None
+     result.opening_balance_source = opening_source
+     result.closing_balance = (
+@@ -322,6 +383,7 @@
+         undated=undated,
+         snapshot_dates_valid=snapshot_dates_valid,
+         source_markdown=source_markdown,
++        seeded_total=seeded_total,
+     )
+     return result
+ 
+@@ -339,6 +401,7 @@
+     undated: int,
+     snapshot_dates_valid: bool,
+     source_markdown: str | None = None,
++    seeded_total: Decimal = Decimal("0"),
+ ) -> None:
+     daily = result.daily_balances
+     checks: dict[str, bool] = {}
+@@ -413,8 +476,10 @@
+             )
+ 
+     if stmt.beginning_balance is not None:
++        # `opening` carries any initialization event; the printed figure is the
++        # balance BEFORE it, so the comparison subtracts what was folded in.
+         checks["opening_balance_matches_statement"] = (
+-            _money(stmt.beginning_balance) == opening
++            _money(stmt.beginning_balance) == _money(opening - seeded_total)
+         )
+     else:
+         checks["opening_balance_matches_statement"] = False
+```
+
+### WF4.1 The sign defect — the review's worst finding, and it was real
+
+Nothing in the first version required the folded amount to be POSITIVE. The
+reviewer constructed a `−50.00 NSF CHARGE` dated the day before a zero-forward
+statement and it passed `initialization_postings` AND the patched engine,
+publishing `opening = −50.00` and an ADB computed on top of it, described as an
+account opening. I reproduced it before changing anything:
+
+```
+parsed rows: [('2026-01-23', -50.0, -50.0), ('2026-01-24', 1000.0, 950.0), ...]
+initialization_postings -> [('2026-01-23', -50.0)]
+*** PROVER ACCEPTS A NEGATIVE 'OPENING': True ***
+```
+
+It satisfied every other condition honestly: forward zero, dated the day
+immediately before, leading row, walk reproducing the printed balance, the
+bank's daily table printing that day, cycle length matching, the ledger closing
+with it and not without it, and the n+1 average identity holding exactly. That
+is a compact demonstration of why G8 could not be allowed to carry the
+interpretation — the arithmetic was all correct; the READING was absurd.
+
+The fix is one idea in two places, because the two layers must not depend on
+each other for it: **an account is opened by money arriving.**
+`initialization_postings` now requires every declared posting to be a credit
+and the balance they leave to be positive (G3); the pinned diff independently
+requires `seeded > 0` and every declared posting `> 0`. Fixtured at both
+layers: `test_a_debit_dated_the_day_before_is_not_an_account_opening` (the
+reviewer's exact construction) and simulation probe A7.
+
+## WF5. The adversarial gate (ruling gate 6)
+
+**In the archive, not only in fixtures.** A census over the whole D-3 OCR
+artifact store — 6,773 `ocr` artifacts over **3,409 distinct content shas**, of
+which **13** hold only a cached NEGATIVE preflight and **3,396 hold readable
+markdown** — run through dispatch + parse + repairs on the deterministic path
+only, $0 vendor. **2,477** of the 3,396 are claimed by a registration, and
+among them **six** documents in the entire corpus carry any out-of-period
+posting:
+
+**CORRECTED accounting.** The first pass reported 94 negatives / 3,315 readable
+/ 2,468 claimed. Those intermediates were wrong and the review caught it: each
+PDF has TWO artifacts (two settings keys) and my pass took whichever sorted
+first per sha, so 81 documents whose other artifact carried the markdown were
+recorded as negatives. Preferring the artifact that carries a document — which
+is what the sha means — reproduces the reviewer's 13 / 3,396 / 2,477 exactly.
+The headline was unaffected (those 81 resolve through their readable artifact
+either way), but an intermediate that does not reproduce is not evidence, and
+the corrected pass is the one recorded here.
+
+```
+1B6768E8  atb          pre=0  post=514  2026-01-01..2026-01-31
+7F2B71AF  atb          pre=0  post=444  2026-01-01..2026-01-31
+538375B8  capital_one  pre=1  post=0    2026-05-01..2026-05-29
+4D7CD4EB  relay        pre=0  post=1    2026-05-01..2026-05-31
+823DCE7F  woodforest   pre=1  post=0    2026-01-24..2026-01-31
+D9EF1A8C  woodforest   pre=1  post=0    2026-02-11..2026-02-28
+```
+
+`538375B8` is the real-world adversary the ruling asks for: a genuine
+pre-period row — `2026-04-30 −35.00 'NSF charge DR AMT 1,976.21 …'` — on a
+statement whose `BALANCE FORWARD` is 83.51. It stays withheld, and Woodforest's
+prover returns `[]` on it and on all four foreign out-of-period documents.
+
+**CORRECTED, and it matters for the recommendation.** The first version said it
+"fails on three independent counts". It fails **one**. Of the undeclared rule's
+conditions it satisfies "all out-of-period rows are pre-period", "the event is
+non-zero" and "does not close without it"; it fails `forward == 0.00`; and its
+apparent second failure — "does not close WITH it" — is a pure consequence of
+the first, since that comparison omits the forward and
+`83.51 + (−35.00) + 397.25 = 445.76` is exactly the printed closing balance.
+So the undeclared form's real-world margin on the only natural adversary in
+3,396 documents is **a single gate**, not three. Note also what it is NOT
+excluded by: it is a −35.00 DEBIT, so under the corrected rule G3 excludes it
+too — but G3 came from the review, not from this document. That thinness is
+the strongest argument for the declared form, where the parser must prove
+account-opening from printed evidence before the engine will look at all.
+
+### WF5.1 Fixture strength, measured by mutation
+
+The first version claimed "thirteen fixtures killing it one condition at a
+time". That claim was false and the review was right to reject it. Every
+fixture DID refuse — but mostly for the wrong reason: each mutated the ledger
+without recomputing the printed average, so G8b refused first and the condition
+under test was never reached.
+
+Measured properly, by deleting each guard in turn and re-running
+`tests/test_woodforest.py`: **3 of 14 guards were killed. Eleven survived** —
+worse than the review's estimate of eight.
+
+The fix was to make every discriminating fixture internally consistent. A
+`consistent_document` helper computes the average Woodforest itself would print
+for the document AS MUTATED (its n+1 convention), so the named condition is the
+only one that can refuse. After that, plus the new G3 and a fixture built so
+that G3's two halves cannot mask each other:
+
+| guard | killed by its own fixture? |
+|---|---|
+| G1 `BALANCE FORWARD` is zero | **yes** |
+| G3 every declared posting is a credit | **yes** |
+| G6 the daily table prints that day | **yes** |
+| G7 `Number of Days in Cycle` = printed period | **yes** |
+| G8b the printed average is reproduced | **yes** |
+| G2 day-immediately-before / nothing after | no — G8a also catches it |
+| G4a the ledger closes WITH the event | no — it IS G8a's `ledger_reconciles_to_closing` |
+| G4b the ledger does not close WITHOUT it | no — G3 already excludes the shape |
+| G5 leading rows | no — G4a also catches it |
+| G5 the walk reproduces printed balances | no — unfalsifiable from this parser |
+| G3's `carry > 0` half | no — unreachable while every posting must be a credit |
+| the four `None`-input guards | no — unreachable from this parser |
+
+**5 killed / 11 surviving, and every survivor is now explained** in
+`initialization_postings`'s docstring rather than counted as evidence: three
+classes — conditions written twice (G4a ≡ G8a), conditions subsumed by a
+stronger one (G2, G4b, G5-leading), and defensive guards this parser's own
+output cannot violate. Only the five pinned conditions are load-bearing for the
+claim, and only G1–G4 discriminate an opening at all.
+
+Two fixtures are worth naming individually.
+`test_the_printed_average_pins_the_opening_amount` mutates the opening to
+2,000.00 with the summary identity, the walk, the daily table and the closing
+balance ALL made consistent with it — the one printed figure that did not move
+refuses the document. And
+`test_a_zero_forward_statement_with_no_pre_period_row_proves_nothing` pins the
+`E0A4A5DB` shape that disproved the original G7 story, so the corrected
+understanding cannot quietly regress.
+
+## WF5.2 GEOM-1 composition: the gates hold on the geometry read — verified
+
+GEOM-1 adds a column read to the same parser
+(`ocr/native_text.py::parse_native_woodforest` appends a
+`WOODFOREST_GEOMETRY_BEGIN/END` block; `_geometry_postings` consumes it and
+`_sign_from_balances` is then NOT called). Ocean's flag is right that after it
+merges **both of this cell's documents route through `_geometry_postings`**.
+Verified rather than assumed, by composing the two branches in a scratch module
+without merging either — GEOM-1's worktree supplying `ocr/native_text.py` and
+its `analysis/woodforest.py`, this branch's two functions appended — and
+reading both PDFs by direct path:
+
+```
+D9EF1A8C  geometry block: 44 posting rows, 1 summary row
+          first row 2026-02-10 +30000.00 dir=credit bal=30000.0 'DEPOSIT'
+          initialization_postings -> [('2026-02-10', 30000.0, 'credit')]
+          reconcile.ok=True  adb.ok=False  out_of_period=1   (unchanged)
+823DCE7F  geometry block: 33 posting rows, 1 summary row
+          first row 2026-01-23 +1000.00 dir=credit bal=1000.0 ''
+          initialization_postings -> [('2026-01-23', 1000.0, 'credit')]
+          reconcile.ok=True  adb.ok=False  out_of_period=1   (unchanged)
+```
+
+44 and 33 rows, matching the reviewer's measurement exactly. **All eight gates
+hold on the geometry-read rows**, which is what should happen — they read the
+same printed facts — but two of them change CHARACTER, and both changes are
+improvements worth stating:
+
+* **G3 gets stronger.** On the text path `direction` is inferred from the sign
+  of an amount that was itself derived from the balance movement. On the
+  geometry path it is the money COLUMN the bank printed the row in. "Every
+  declared posting is a credit" stops being an inference about arithmetic and
+  becomes the bank's own column heading. Both documents' opening deposits read
+  `dir=credit` from the printed Credits column.
+* **G5's walk stops being unfalsifiable, and becomes load-bearing.** The
+  docstring's mutation note says the walk cannot be violated by this parser's
+  own output, because `_sign_from_balances` derives each amount FROM the
+  printed balance movement. That reasoning holds ONLY on the text path. Under
+  the geometry read the amount is the printed column cell and the balance
+  chain is an independent second statement by the bank — exactly as GEOM-1's
+  own docstring argues — so the walk becomes a real check that can fail. **The
+  mutation note must be re-qualified at the train**, and this is recorded as
+  WF8.12 so it is not lost between two branches.
+
+**Expected textual merge points** (base-file line numbers, unambiguous for a
+three-way merge). This cell's three hunks: `@@ -28` (imports — `timedelta`,
+`.adb`, `.dates`), `@@ -87` (the two `_DAILY_*` regexes after `_DAYS_RE`), and
+`@@ -350` (both new functions appended at end of file). GEOM-1's hunks:
+`@@ -14` (module docstring), `@@ -82` (the `_GEOM_*` regexes), `@@ -249`
+(`_geometry_block` / `_geometry_postings`), and three inside
+`parse_woodforest_statement` (`@@ -298`, `@@ -312`, `@@ -338`). **Only one pair
+is adjacent**: GEOM-1 inserts its `_GEOM_*` regexes immediately BEFORE
+`_ACCOUNT_SUMMARY_RE` (base 85–88) while this cell inserts `_DAILY_*`
+immediately AFTER `_DAYS_RE` (base 88). Distinct insertion points a few lines
+apart, so a clean auto-merge is likely and a context conflict is possible;
+nothing else overlaps, and the two functions this cell appends touch none of
+GEOM-1's code. In the merged file that region lands around lines 422–466, which
+is the region Ocean named.
+
+**Train-time re-verification, deliberately not run now.** The "18 documents
+bit-identical / 2 movers" baseline in WF4 was taken against `707ba9e`. After
+GEOM-1 composes, the family's ROWS change source for at least the documents
+that get a geometry block, so that baseline is measured against a moving
+target and re-running it here would produce a number that is stale by the time
+it is read. **Ocean should re-take it at train composition**, using this cell's
+`byte_identity.py` and `end_to_end.py` against the composed tree. What can be
+said now, and is: on the composed pair, both documents still parse, still
+reconcile, still fail ADB for the same single reason, and still prove exactly
+one initialization posting each.
+
+## WF6. Family sweep
+
+All 20 documents the `woodforest` registration claims in the archive (22
+artifacts name WOODFOREST; 2 are other issuers' statements naming it in a payee
+line and are correctly unclaimed):
+
+* 15 `validated` — unchanged, byte-identical;
+* 2 `failed` — `44100846`, `D2548844`, the scrambled-reading-order Royalty
+  documents; parser declines, unchanged;
+* 1 `withheld` — `FBDB971C`, the Royalty document whose rows contradict the
+  balance movement; unchanged;
+* 2 `withheld` — this cell's subjects; unchanged on this branch.
+
+`E0A4A5DB` is worth naming: it is a THIRD mid-cycle opening in the family
+(`BALANCE FORWARD 0.00`, period `2026-02-10..2026-02-24`) that publishes fine
+today, because on that one the bank printed the period as starting ON the
+opening day. Same event, different printing — which is the clearest statement
+of what this card is actually about.
+
+**The new `Daily Closing Balance Summary` reader was swept over the family too**
+(it is new code, even though only the prover calls it). On 17 of the 18 parsed
+documents every dated balance it reads agrees with that day's last printed
+running balance, **zero conflicts**, table sizes 9–31 days, and the two block
+terminators (`ACCOUNT RECONCILIATION`, `Account Item Images`) both occur in the
+family and both bound correctly.
+
+The one document that reads badly is `FBDB971C`, and the honest description is
+**a reader limitation meeting a document defect**, not the document alone as
+the first version said. Its daily table is emitted in scrambled reading order —
+every balance first, then every date:
+
+    Daily Closing Balance Summary Date Balance Date Balance Date Balance
+    163,946.83 166,746.83 165,524.83 165,309.24 03-10 03-12 03-13 03-15
+    03-16 127,047.46 130,158.79 133,833.79 ...
+
+`_DAILY_ROW_RE` pairs a date with the money cell printed next to it, so on this
+layout it finds 2 rows for a 31-day period and both "pairings" are accidental
+adjacencies rather than real days. That is the same scrambled-text-layer defect
+that makes this document's posting grid unreadable (§UNID-A UA2's Royalty
+class, a visual-rung candidate) — but the reader's inability to reassemble it
+is a real limitation of an adjacency-based rule, and it should be recorded as
+such. It changes nothing here: the document is withheld anyway, and nothing
+consumes the daily table on it.
+
+## WF7. Proofs
+
+Exit codes verbatim; every command run in the worktree against the final tree.
+
+All re-run on the corrected tree (the first-version numbers are kept beside
+them where they differ, since the fixture count changed).
+
+```
+$ python -m pytest -q
+3787 passed, 18 deselected, 1 warning in 262.32s          (was 3,785)
+exit 0
+
+$ python -m pytest tests/test_woodforest.py -q
+36 passed in 0.33s                                         (was 34)
+exit 0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py -q
+40 passed in 1.83s
+exit 0
+
+$ python -m pytest tests/test_parser_conformance.py -q
+631 passed in 1.42s
+exit 0
+
+$ python -m pytest -m corpus -q
+1 failed, 13 passed, 3789 deselected, 1 warning in 2622.40s (0:43:42)
+exit 1
+  FAILED tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run
+  AssertionError: slowest full-registry detect sweep was 472.5 ms
+
+$ python corpus_gate.py
+[PASS] source_integrity: 109/109 pinned source PDFs match their pinned SHA-256
+[PASS] balance_audit / adb_audit: 109 statements reproduce every audited field
+[PASS] balance_outcomes: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes:     106 pass, 3 withheld, same three statements
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR; no live OCR, no model calls
+[PASS] exclusions: 0   [PASS] oracle_independence
+Outcomes: 106 PASS / 3 WITHHELD    Runtime: 638.3s   (first version: 681.3s)
+RESULT: GREEN
+exit 0
+```
+
+Byte-identity re-verified after every code change of the second version, by
+loading the base parser out of git as a second module and comparing
+`parse_woodforest_statement` field for field over the whole archive family:
+**20 claimed, 20 identical, 0 differing.** The prover still fires on exactly
+`823DCE7F` and `D9EF1A8C` and returns `[]` on the other 18 and on all four
+foreign out-of-period documents. The patched-engine simulation still moves
+exactly those two and leaves the other 16 bit-identical, now with eight
+adversarial probes rather than six — A7 (the day-before posting is a DEBIT) and
+A8 (the declared posting is `start − 2`) added for the two diff corrections,
+**0 leaks**.
+
+The thirteen other corpus-marked tests pass, including
+`test_telemetry_reproduces_the_gate_outcome_split` — so the review↔validated
+partition the gate is blind to is confirmed unmoved as well. The one failure is
+diagnosed below and is not this branch's.
+
+**The corpus-marked slice was NOT re-run for the second version.** Its 43-minute
+cost is the same run whose only failure is the pre-existing detect-sweep timing
+(WF7.1), and the second version's diff touches `initialization_postings` — a
+function nothing calls — plus fixtures and this log. The corpus-relevant
+property, that all 20 claimed Woodforest documents remain byte-identical, was
+re-verified directly against the base parser after every code change (20
+claimed / 20 identical / 0 differing) and the gate was re-run in full. Stated
+plainly rather than quietly: if Ocean wants the slice green on the exact final
+SHA, it needs another 43 minutes and it will still red on the detect sweep.
+
+### WF7.1 The corpus-slice failure is pre-existing — §HUNT's prediction landing
+
+`test_detect_sweep_stays_affordable_for_the_discovery_run` caps the worst
+per-document full-registry detect sweep at 250 ms. It failed at 472.5 ms.
+**It is not this branch.** Three independent lines say so, and the third
+settles it.
+
+**1. The detect path has a zero diff.** Parsed to AST and compared against
+`707ba9e`, the six statements that constitute this registration's detection —
+`_MONEY`, `_SUMMARY_HEADER_RE`, `_GRID_RE`, `_BANK_RE`, `DETECTION_MARKERS`,
+`detect` — are **identical**, and `analysis/parser_registry_entries.py` is
+byte-identical. The whole diff to `analysis/woodforest.py` is additive: one
+import widened, two imports added, two module-level regexes compiled at import,
+two new functions. `parse_woodforest_statement` is untouched and neither new
+function is on the detect path.
+
+**2. In-process A/B of this parser's own `detect`.** Base and branch modules
+loaded into ONE interpreter and timed alternately, ten rounds each, over all
+109 corpus documents — no cross-process or machine-drift noise. Verdicts
+identical on all 109. Base median **141.9 ms** (129.0–171.3), branch median
+**146.0 ms** (128.6–175.5): +0.038 ms per document, inside a ±20 ms spread.
+
+**3. The base fails the same test by the same margin, on the same machine,
+minutes apart.** Five rounds each of the test's exact loop:
+
+| | min | median | max |
+|---|---|---|---|
+| branch | 275.5 | **306.4** | 322.3 ms |
+| base `707ba9e` | 286.0 | **310.0** | 317.5 ms |
+
+The base is if anything marginally SLOWER. Reverting this branch does not make
+the test pass.
+
+**What is actually going on — and §HUNT called it.** Best-of-three on the worst
+pinned document (`Others/Altana/Altana june 26.pdf`, 62,702 chars, the largest)
+is **259.8 ms**: over budget before any contention, with the machine only
+moderately loaded. The 472.5 ms in the slice was that plus ~20 concurrent
+python processes from other batch-4 cells saturating all 16 cores.
+
+§HUNT-CELL item 11 measured **195.2 ms at 55 registrations** one batch ago and
+wrote: *"at ~13 ms a cell the cap is four merges away … Worth deciding at the
+batch level, before the merge train, rather than by whichever cell happens to
+cross the line."* Batch 3 merged eleven cells and took the registry to 68. The
+line has now been crossed: 195.2 → 259.8 ms for +13 registrations, about 5 ms
+each, exactly the trajectory §HUNT projected. Batch 3's record that the test
+"HELD at 68 registrations" is not contradicted — on a quiet machine it evidently
+did — and that IS the finding: **the margin is now thin enough that the verdict
+depends on who else is running.**
+
+No single parser is the cause, which is why shaving one cannot fix it:
+
+| registration | ms | share |
+|---|---|---|
+| community_section | 17.56 | 8.6% |
+| rbc_french | 9.92 | 4.8% |
+| square_checking | 9.83 | 4.8% |
+| cibc | 9.55 | 4.7% |
+| td_canada_french | 9.23 | 4.5% |
+| … | | |
+| **woodforest (9th)** | **5.76** | **2.8%** |
+| the other 53 registrations | 96.2 | 47% |
+
+The worst single registration is 8.6% of the sweep; the top fifteen are 53%.
+**Deleting this registration outright would leave ~254 ms and the test would
+still fail.**
+
+**Nothing was done about it here, deliberately.** The budget constant is not
+this cell's to move, and raising it to make a red test green is the one
+response that would be wrong. Carried to Ocean as WF8.11.
+
+## WF8. Carried findings and questions for Ocean
+
+1. **THE RULING. `analysis/adb.py` is protected and the mechanism needs it.**
+   The patch is WF4, +55/−1, five hunks, inert with `declared == 0` by
+   construction and measured bit-identical on 16 documents. It also needs one
+   new optional field on `Statement` (`analysis/schema.py`, not protected) and
+   two lines in `parse_woodforest_statement`. **Two documents turn on it.**
+2. **`initialization_postings` is shipped UNWIRED and is dead code until the
+   ruling lands.** That is deliberate — it is the half this cell owns, it is
+   fully fixture-covered, and it makes the ruling a wiring change rather than a
+   new cell. If the ruling is NO, delete it: one function, one commit.
+3. **Adding the schema field changes every payload.** `initialization_transaction_count`
+   would serialize as `0` on all 3,380 documents, which invalidates every
+   cached analysis payload and requires the `ANALYSIS_STAGE_VERSION` bump in
+   the same commit (Ocean's at merge). If that blast radius is unwanted, the
+   alternative in item 4 avoids it entirely.
+4. **The alternative — no declaration at all — is now clearly the worse one,
+   and the count-based declaration is the design to keep.** `adb.py` could
+   infer the event from the Statement alone; measured over the whole corpus
+   that undeclared form fires on **exactly the same two documents and nothing
+   else**, and it needs no schema field, no version bump and no parser change.
+   Against that: its real-world margin on the only natural adversary in 3,396
+   documents is **one gate**, not the three the first packet claimed
+   (WF5), its only printed evidence is `BALANCE FORWARD == 0.00`, it is
+   reachable by every parser and by the LLM path rather than by one declaring
+   parser, and the printed-average oracle goes unused. The declaration also
+   carries its own check — the engine requires the pre-period row COUNT to
+   equal what the parser declared, so a parser that proves one posting cannot
+   have a second one folded in silently. **Recommended: the declared form,
+   with the count.**
+5. **The published ADB will disagree with the bank's printed average by
+   −242.63 / +200.25.** WF4 explains why and both figures are published. Ocean
+   should say explicitly that this is acceptable, because it is a much larger
+   gap than the family's usual sub-dollar one.
+6. **`Number of Days in Cycle` is not what the bank divides its own average
+   by.** `D9EF1A8C` prints 18 and divides by 19; `823DCE7F` prints 8 and
+   divides by 9. Recorded so it is not later rediscovered as an extraction
+   defect: the printed cycle length is the printed period, and the printed
+   average is over the account's life to date.
+7. **`analysis/woodforest.py` now imports `analysis/adb.py`, and COUPLES to a
+   named validation inside a protected module.** A parser calling the
+   deterministic math layer read-only is new here; it is what makes G8 the
+   platform's own answer rather than a second daily-balance walk inside a
+   parser, and duplicating that walk is the worse option. No import cycle:
+   `adb` imports only `dates` and `schema`. But the dependency is finer than
+   "imports a module" and the review was right to ask for it in writing: the
+   prover reads
+   `probed.validations["agrees_with_bank_stated_average"]` — a KEY NAME and a
+   SEMANTIC (printed average vs computed ADB, compared to the cent) that live
+   in `analysis/adb.py`. Two failure modes, and they are not symmetric.
+   **Renaming or removing that check fails CLOSED** (`.get` returns None, the
+   prover declares nothing, the documents stay withheld). **Loosening its
+   comparison to a tolerance fails OPEN** — G8b would stop pinning the amount
+   and the mutation fixture would be the only thing standing. Anyone editing
+   that check must know this reader exists; the coupling is commented at the
+   call site as well as recorded here.
+8. **The prover is O(one ADB run) and only on documents with a pre-period
+   row** — 2 of 20 in this family, 6 in 3,396 corpus-wide. It is not on the
+   detect-sweep path, so it costs the registry budget nothing.
+9. **G8b will refuse a future opening whose printed average carries the
+   family's usual offset, and that refusal will not be about its opening.**
+   **Twelve** of the fifteen validated Woodforest statements miss their own
+   printed average by 0.38–0.50 (two more sit at exactly 0.00 over their own
+   printed periods); the two openings hit theirs at exactly 0.00 on the n+1
+   window. If a third opening arrives carrying the offset, it stays withheld —
+   fail-closed, correct, and for a reason that has nothing to do with whether
+   it is an opening. That is the price of using the sharpest oracle the
+   document prints, and it is the right price to pay first; loosening G8b to a
+   tolerance would be a tuned constant and should not be done without new
+   evidence. **Do not loosen it to make a future document pass** — and note
+   from WF8.7 that loosening the check it reads inside `adb.py` would have the
+   same effect from the other side.
+10. **Why the residual is exactly zero on these two and 0.38–0.50 elsewhere is
+    NOT explained by this cell.** UA6.8 established the difference is a
+    convention in how Woodforest averages (its `Average Collected Balance` is
+    printed equal to its `Average Balance`, and reproducing the figure from the
+    bank's own complete daily table gives the platform's answer, not the
+    bank's). This cell measured that the two openings sit at 0.00 and used it;
+    it did not learn why. Recorded rather than dressed up in a story: a
+    plausible reading is that a days-old account funded by one deposit has no
+    uncollected float, but nothing here proves that.
+11. **STOP-THE-LINE CANDIDATE, and it is not this branch's: the detect-sweep
+    budget has been crossed on `main`.** `test_detect_sweep_stays_affordable_
+    for_the_discovery_run` fails at 472.5 ms under batch-4 load and at
+    **259.8 ms best-of-three on a quiet-ish machine**, against a 250 ms cap.
+    Base `707ba9e` measures 310.0 ms median where this branch measures 306.4 ms;
+    the detect path here is AST-identical to base. Full proof in WF7.1. This is
+    §HUNT-CELL item 11's prediction arriving on schedule — it measured 195.2 ms
+    at 55 registrations, warned the cap was "four merges away", and asked for a
+    batch-level decision "rather than by whichever cell happens to cross the
+    line." Batch 3 merged eleven cells and the registry is now 68.
+    Three things follow. (a) **Triage it once, centrally.** Every cell in this
+    batch will hit this red and each will have to spend an hour proving it is
+    not theirs, as this one did. (b) **Do not raise the constant** — the check
+    is measuring something real about discovery throughput, since the sweep is
+    per-document overhead on all 3,506 documents. (c) The structural fix UA6.6
+    named is now due: a cheap pre-filter, or markers compiled into one
+    alternation, instead of 68 whole-document scans per document. The WF7.1
+    breakdown shows why shaving parsers cannot substitute for it — the worst
+    single registration is 8.6% of the sweep and 53 of the 68 make up 47%.
+12. **TRAIN-TIME, for the GEOM-1 composition (WF5.2).** Two items, both
+    verified on a scratch composition of the two branches rather than assumed.
+    (a) The initialization gates HOLD on the geometry-read rows for both
+    documents — 44 and 33 posting rows, one declared credit each, outcomes
+    unchanged — and G3 gets STRONGER there, because direction becomes the money
+    column the bank printed rather than a sign inferred from the balance
+    movement. (b) **One line of `initialization_postings`'s docstring becomes
+    wrong at the merge**: the mutation note says G5's walk cannot be falsified
+    by this parser's output, which holds only while `_sign_from_balances`
+    derives amounts from the balance chain. On the geometry path that function
+    does not run, the amount is the printed column cell, and the walk becomes
+    an independent check that can genuinely fail — a strengthening, but the
+    note must be re-qualified when the two branches land together. Also: the
+    WF4 "18 bit-identical / 2 movers" baseline was taken against `707ba9e` and
+    should be RE-TAKEN at train composition with this cell's `byte_identity.py`
+    and `end_to_end.py`; re-running it here would measure a moving target.
