@@ -85,27 +85,73 @@ __all__ = [
 # Small shared primitives
 # ---------------------------------------------------------------------------
 
-#: The glyphs a statement can print for a minus sign, besides ASCII ``-``.
+#: THE MINUS SIGN CLASS — every glyph a statement prints where a minus sign
+#: belongs, ASCII hyphen-minus included, stated ONCE and derived from nowhere.
+#:
+#: This is the whole class rather than "the non-ASCII part of it", and that is
+#: the load-bearing choice. Three of its four consumers — `MINUS_CLASS`,
+#: `SIGNED_MONEY_TOKEN` and `parse_signed_decimal` — must admit ASCII ``-``,
+#: and the fourth, `_MINUS_TABLE`, is indifferent to it (mapping ``-`` to
+#: ``-`` is the identity). A canon that omitted ASCII would force each of the
+#: three to add it back by hand, which is exactly how this module came to
+#: carry TWO definitions of this name: a second, four-glyph ``MINUS_GLYPHS``
+#: was bound at module scope beside `parse_signed_decimal` to re-supply the
+#: ASCII hyphen, and it silently shadowed this one for every importer while
+#: `MINUS_CLASS` and `_MINUS_TABLE` — already evaluated — kept the narrow
+#: value. Two exported parsers then read one token with opposite signs:
+#: ``parse_money("—$500.00")`` was ``+500.0`` and
+#: ``parse_signed_decimal("—$500.00")`` was ``-500.00``. One definition, and
+#: `tests/test_money.py` fails the build if a second is ever bound (W3 §MGD).
 #:
 #: ``U+2212 MINUS SIGN`` is the typographically correct character and is what
 #: a web export emits when it renders a negative amount; ``U+2013 EN DASH`` is
-#: what OCR and several producers' font maps put in its place. To a reader all
-#: three are the same mark, so a grammar that knows only ``-`` does not merely
-#: refuse the token — the strict engine returns ``None`` and drops the field,
-#: while the tolerant parsers match the digits *after* the glyph and return
-#: the amount POSITIVE. That is the dangerous half: a debit booked as a credit.
-#: The class is exactly these two, on attestation. ``U+2010 HYPHEN``,
-#: ``U+2011 NON-BREAKING HYPHEN`` and ``U+FF0D FULLWIDTH HYPHEN-MINUS`` are
-#: plausible siblings and are deliberately NOT here: no archive document
-#: prints one, and a sign class is the last place to add unattested members —
-#: each one silently flips the sign of anything that carries it. They are
-#: carried candidates, to be added the day a document attests one.
-#: ``U+2014 EM DASH`` stays out on purpose: it is punctuation, not a sign.
-MINUS_GLYPHS = "−–"
+#: what OCR and several producers' font maps put in its place. This is not
+#: tolerance for OCR noise — these are native-text PDFs, and the layout engine
+#: picks a dash by WIDTH rather than by meaning. One issuer's generator prints
+#: U+2212 on one statement and U+2013 on the next month's, with ASCII hyphen
+#: in the summary block of the same document (measured over Mercury's 31
+#: statements: 1,202 U+2212, 687 U+2013, 13 U+002D immediately before a
+#: currency symbol; Brex prints 135 ASCII and nothing else, Found 1,611 ASCII,
+#: Wealthsimple 2,140 U+2013). To a reader they are the same mark, so a
+#: grammar that knows only one does not merely refuse the token — the strict
+#: engine returns ``None`` and drops the field, while the tolerant parsers
+#: match the digits *after* the glyph and return the amount POSITIVE. That is
+#: the dangerous half: a debit booked as a credit.
+#:
+#: ``U+2010 HYPHEN``, ``U+2011 NON-BREAKING HYPHEN`` and
+#: ``U+FF0D FULLWIDTH HYPHEN-MINUS`` are plausible siblings and are
+#: deliberately NOT here: no archive document prints one, and a sign class is
+#: the last place to add unattested members — each one silently flips the sign
+#: of anything that carries it. They are carried candidates, to be added the
+#: day a document attests one.
+#:
+#: ``U+2014 EM DASH`` stays out on the archive's own evidence, and the
+#: evidence is worth stating because the shadow admitted it. Across all 3,396
+#: documents with offline text, an em dash stands in a sign position exactly
+#: TWICE, both on documents that fail to parse:
+#:
+#: * ``88AAC06119FC`` (Columbia) prints ``03-16 — 39,692.35`` in its Daily
+#:   Balances block, between two balances of 56,767.53 and 34,167.30. The dash
+#:   is the empty-column placeholder of a three-column grid, and the figure it
+#:   precedes is a POSITIVE running balance — admitting the glyph would flip a
+#:   number the bank printed positive. It is the only document in the archive
+#:   where an em dash precedes a bare money figure at all.
+#: * ``FFEBAF819F74`` (TD) prints ``S2 -—ps/25/2zet —— $4812.39]``, which is
+#:   OCR wreckage, not a sign.
+#:
+#: Zero documents in the four families that read a printed sign glyph (brex,
+#: mercury, found_lead, wealthsimple) print an em dash in a sign position. An
+#: em dash between two DATES is a different mark with the opposite risk
+#: profile — punctuation that can never flip a figure — and has its own,
+#: deliberately wider class at `analysis.date_tokens.PERIOD_DASH`.
+MINUS_GLYPHS = "-−–"
+
 #: The same class as a regex fragment, for consumers that find money tokens
 #: with their own pattern before handing them here. Use this rather than a
 #: bare ``-`` so a finder cannot match past a sign its parser would honour.
-MINUS_CLASS = r"[-−–]"
+#: Derived, never re-spelled: the ASCII hyphen leads the class, where it is a
+#: literal rather than a range.
+MINUS_CLASS = "[" + MINUS_GLYPHS + "]"
 
 _MINUS_TABLE = str.maketrans({glyph: "-" for glyph in MINUS_GLYPHS})
 
@@ -596,18 +642,6 @@ def parse_decimal(value: str) -> Decimal:
         raise ValueError(value) from exc
 
 
-#: Every glyph the surveyed statements print where a minus sign belongs.
-#:
-#: ASCII hyphen-minus, the typographic MINUS SIGN (U+2212) and the en/em
-#: dashes. This is not tolerance for OCR noise: these are native-text PDFs, and
-#: the layout engine picks a dash by WIDTH rather than by meaning. One issuer's
-#: generator prints U+2212 on one statement and U+2013 on the next month's,
-#: with ASCII hyphen in the summary block of the same document (measured over
-#: 31 statements: 1,202 U+2212, 687 U+2013, 13 U+002D immediately before a
-#: currency symbol). A parser that reads only one of them sign-flips whichever
-#: rows the typesetter set with another.
-MINUS_GLYPHS = "-−–—"
-
 #: One money cell with an optional printed sign: ``$0.69``, ``-$1,234.56``,
 #: ``− $1,234.56``, ``+ $3.57``. A SUB-PATTERN — no anchors and no capturing
 #: groups, so a parser can compose it into a row pattern without its group
@@ -616,6 +650,11 @@ MINUS_GLYPHS = "-−–—"
 #: The space is optional because the sign and the figure are two CELLS: layouts
 #: that set the sign in the label column print it one space away, and the same
 #: issuer prints it welded to the symbol elsewhere. Both are the same column.
+#:
+#: The sign half is `MINUS_GLYPHS` and is not re-spelled here — this pattern
+#: is the finder for `parse_signed_decimal`, and a finder that admits a glyph
+#: its parser refuses hands the parser a token it must then decline. Keeping
+#: them one class is what makes the two agree by construction.
 SIGNED_MONEY_TOKEN = r"[" + MINUS_GLYPHS + r"+]?\s?\$[\d,]+\.\d{2}"
 
 
@@ -630,6 +669,17 @@ def parse_signed_decimal(value: str) -> Decimal:
     Delegates the numeric conversion to `parse_decimal`, so what is added here
     is the sign reading and nothing else; anything that is not money still
     raises rather than being guessed at.
+
+    The sign is read from `MINUS_GLYPHS`, the one class this module states, so
+    a glyph outside it is not a sign HERE either. ``—$500.00`` therefore
+    RAISES rather than resolving: the em dash survives into `parse_decimal`,
+    which declines a token it cannot convert. That is the fail-closed answer
+    and the deliberate one — the alternative readings are ``+500.00`` (the
+    tolerant parsers' answer, a debit booked as a credit) and ``-500.00`` (the
+    shadowed class's answer, which would have flipped the one archive document
+    that prints the shape, where the em dash is a column placeholder on a
+    positive balance). A document that genuinely prints an em-dash sign
+    declines instead of publishing a figure nobody printed.
     """
     text = value.strip()
     negative = bool(text) and text[0] in MINUS_GLYPHS

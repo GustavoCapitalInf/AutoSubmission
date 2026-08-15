@@ -74,14 +74,83 @@ def test_an_amount_with_no_sign_glyph_is_a_deposit():
 
 
 def test_the_whole_dash_class_reads_as_a_minus():
-    """U+2013 is what the family prints; the rest of the class is admitted so a
-    sibling issue set with a true minus sign reads identically rather than
-    silently losing its sign."""
-    for glyph in ("–", "−", "—", "-"):
+    """U+2013 is what the family prints (2,140 occurrences over the 16 archive
+    documents, and no other glyph in a sign position at all); the rest of the
+    class is admitted so a sibling issue set with a true minus sign or an ASCII
+    hyphen reads identically rather than silently losing its sign.
+
+    The class is now ``money.MINUS_GLYPHS`` rather than a private copy of it,
+    so this parser and the shared grammar cannot disagree about what a minus
+    is. The copy HAD disagreed: it admitted U+2014, which the canon rules out
+    (W3 §MGD). The em dash is the test below.
+    """
+    from analysis.money import MINUS_GLYPHS
+
+    assert set(MINUS_GLYPHS) == {"\u2013", "\u2212", "-"}
+    for glyph in MINUS_GLYPHS:
         stmt = parse_wealthsimple_statement(
             HEAD + "2026-03-01 2026-03-01 Coop %s$403.00 $94.27\n" % glyph + FOOT
         )
         assert stmt.transactions[0].amount == -403.00, glyph
+
+
+def test_an_em_dash_is_not_a_sign_and_the_balance_walk_is_what_refuses_it():
+    """THE RULING (W3 §MGD), and its cost stated exactly.
+
+    U+2014 used to sign an amount here, through a private four-glyph class
+    this reader spelled for itself. It no longer does, on the archive's own
+    evidence: an em dash stands in a sign position on two documents in 3,396,
+    both failing, and on one of them it is an empty-column placeholder in
+    front of a POSITIVE balance, so reading it as a sign would flip a printed
+    positive.
+
+    What the row does instead is NOT a refusal at the pattern — the sign
+    group is optional, so the glyph falls into the description and the amount
+    publishes positive. The module docstring already names the backstop for
+    exactly this: "a row published with the wrong amount breaks the balance
+    walk the summary block is checked against". It does. Nothing publishes.
+    """
+    from analysis.metrics import compute_metrics
+    from analysis.reconcile import reconcile
+
+    stmt = parse_wealthsimple_statement(
+        HEAD + "2026-03-01 2026-03-01 Coop \u2014$403.00 $94.27\n" + FOOT
+    )
+    assert stmt is not None
+    assert stmt.transactions[0].amount == 403.00      # the mis-read, named
+    assert stmt.transactions[0].description == "Coop \u2014"
+    recon = reconcile(stmt)
+    assert not recon.ok and recon.continuity_breaks == 1
+    assert compute_metrics(stmt, trust_stated_summary=recon.summary_ok,
+                           trust_running_balances=recon.ok).average_daily_balance is None
+
+
+def test_a_zero_amount_collapses_the_sign_and_the_misread_reaches_publication():
+    """THE HOLE IN THE BACKSTOP, pinned rather than left to be discovered.
+
+    The test above rests on the balance walk catching a mis-signed row. At an
+    amount of ZERO that backstop cannot fire: -0.00 and +0.00 are the same
+    number, the walk still reaches the printed balance, the document
+    VALIDATES — and the em dash the bank set as a sign is published as
+    DESCRIPTION TEXT. Nothing financial is wrong; the record of what the bank
+    printed is.
+
+    So "the arithmetic refuses it" is true for non-zero amounts and false
+    here, and the claim is worth only what its narrowest case is worth.
+    Carried at W3 §MGD MGD-C2. Zero archive documents print the shape.
+    """
+    from analysis.reconcile import reconcile
+
+    stmt = parse_wealthsimple_statement(
+        HEAD
+        + "2026-03-01 2026-03-01 Coop \u2014$0.00 $497.27\n"
+        + "2026-03-31 2026-03-31 Rent \u2013$403.00 $94.27\n"
+        + FOOT
+    )
+    assert stmt is not None
+    assert stmt.transactions[0].amount == 0.0
+    assert stmt.transactions[0].description == "Coop \u2014"   # the leak
+    assert reconcile(stmt).ok                                  # and it publishes
 
 
 def test_a_dash_inside_a_description_is_not_a_sign():

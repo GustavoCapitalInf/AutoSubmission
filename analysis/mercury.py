@@ -47,8 +47,8 @@ from __future__ import annotations
 import re
 from decimal import Decimal
 
-from .date_tokens import MONTH_NAME_ALT, iso_from_named_month_day
-from .money import MINUS_GLYPHS, SIGNED_MONEY_TOKEN, parse_signed_decimal
+from .date_tokens import MONTH_NAME_ALT, PERIOD_DASH, iso_from_named_month_day
+from .money import SIGNED_MONEY_TOKEN, parse_signed_decimal
 from .parser_registry import corroborating, make_detector, required
 from .schema import Statement, Transaction
 from .tables import compact_lines, compact_whitespace, unique_line
@@ -67,10 +67,15 @@ from .tables import compact_lines, compact_whitespace, unique_line
 _TYPE_MARK_RE = re.compile("[-]")
 
 #: "April 2026 statement April 1, 2026-April 30, 2026 (30 days) All dates in UTC"
+#:
+#: The separator is `PERIOD_DASH`, the date-range class, not the money sign
+#: class this line used to borrow: a dash between two dates is punctuation and
+#: may be read widely, where the same width in a sign position would invert an
+#: amount (W3 §MGD). All 31 archive documents print the ASCII hyphen.
 _PERIOD_RE = re.compile(
     r"^(?:" + MONTH_NAME_ALT + r")\s+\d{4}\s+statement\s+"
     r"(?P<start_month>" + MONTH_NAME_ALT + r")\s+(?P<start_day>\d{1,2}),\s+(?P<start_year>\d{4})"
-    r"\s*[" + MINUS_GLYPHS + r"]\s*"
+    r"\s*" + PERIOD_DASH + r"\s*"
     r"(?P<end_month>" + MONTH_NAME_ALT + r")\s+(?P<end_day>\d{1,2}),\s+(?P<end_year>\d{4})"
     r"\s*\((?P<days>\d{1,3})\s+days?\)",
     re.IGNORECASE,

@@ -7,8 +7,9 @@ Two things about this layout decide the shape of the parser.
 its money at all. So the sign is read as an explicit class of printed
 sign glyphs standing immediately before the amount's currency symbol — the
 position that makes it this cell's sign rather than punctuation belonging to
-the description before it. (`analysis/money.py` is growing a shared class for
-this in a parallel cell; this reader deliberately does not depend on it.)
+the description before it. That class is `money.MINUS_GLYPHS`, the platform's
+one canon; this reader spelled a private copy of it until W3 §MGD, and the
+copy had drifted.
 
 **A row is opened by its two dates and closed by its Balance cell.** The
 Balance column is the row's last, so reading the row as "everything from the
@@ -36,14 +37,26 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .date_tokens import PERIOD_DASH
+from .money import MINUS_GLYPHS
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
 #: The printed sign glyphs this layout can set before a money cell. U+2013 is
-#: the one the family actually prints; the other three are the rest of the
-#: dash/minus class, admitted so a sibling issue set with a true U+2212 or an
-#: ASCII hyphen reads identically rather than silently losing its sign.
-_SIGN_GLYPHS = "–−—-"
+#: the one the family actually prints (2,140 occurrences over the 16 archive
+#: documents, and no other glyph in a sign position at all); the rest of the
+#: class is admitted so a sibling issue set with a true U+2212 or an ASCII
+#: hyphen reads identically rather than silently losing its sign.
+#:
+#: Now the SHARED class rather than a private copy of it. The copy was written
+#: while the shared class was being built in a parallel cell and the two could
+#: not yet be proven to agree; it then drifted in exactly the way a copy does,
+#: admitting U+2014 EM DASH, which the canon rules out on the archive's own
+#: evidence (the one document that prints an em dash before a bare figure
+#: prints it as a COLUMN PLACEHOLDER on a positive balance, so reading it as a
+#: sign would flip a printed positive — W3 §MGD). A parser is now unable to
+#: disagree with the grammar about what a minus is.
+_SIGN_GLYPHS = MINUS_GLYPHS
 
 #: The product line and the activity grid's own printed column header. Both
 #: are required: a statement from ANOTHER bank can name Wealthsimple in a
@@ -75,9 +88,16 @@ _MONTHS = {
 }
 
 #: `Jun 1 - Jun 30, 2025`. Only the closing year is printed.
+#:
+#: The separator is `PERIOD_DASH`, not the sign class this line used to
+#: borrow. A dash between two dates is punctuation: it carries no value, so
+#: admitting a wide class costs nothing, while failing to match costs the
+#: document its period. A dash before a FIGURE is the opposite bet. Same four
+#: glyphs as before the split, so this pattern is unchanged; all 16 archive
+#: documents print the ASCII hyphen here (W3 §MGD).
 _PERIOD_RE = re.compile(
-    r"([A-Za-z]{3})[a-z]*\s+(\d{1,2})\s*[%s]\s*([A-Za-z]{3})[a-z]*\s+(\d{1,2}),\s*(\d{4})"
-    % _SIGN_GLYPHS
+    r"([A-Za-z]{3})[a-z]*\s+(\d{1,2})\s*" + PERIOD_DASH
+    + r"\s*([A-Za-z]{3})[a-z]*\s+(\d{1,2}),\s*(\d{4})"
 )
 
 #: `Your June summary JUN 1 BALANCE JUN 30 BALANCE $0.00 $0.00` — the two

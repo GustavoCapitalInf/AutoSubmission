@@ -191,6 +191,58 @@ def test_iso_from_month_day_year_rejects_unknown_century_mode():
         dt.iso_from_month_day_year("1/15/26", century="pivot-1970")
 
 
+# ---------------------------------------------------------------------------
+# PERIOD_DASH — the range dash, and why it is not the sign class (W3 §MGD)
+# ---------------------------------------------------------------------------
+#
+# Three parsers built their period pattern out of `money.MINUS_GLYPHS`, because
+# it was the only dash class the platform exported. That coupling is how U+2014
+# EM DASH came to sit in a SIGN class: the period line legitimately needs it,
+# and the sign class inherited it. The two are now separate constants with
+# opposite widths, and these tests pin the asymmetry in both directions.
+
+def test_the_period_dash_admits_every_dash_a_date_range_is_printed_with():
+    compiled = re.compile(dt.PERIOD_DASH)
+    for glyph in "-−–—":
+        assert compiled.fullmatch(glyph), hex(ord(glyph))
+    assert re.compile(dt.PERIOD_DASH).groups == 0
+
+
+def test_the_period_dash_is_strictly_wider_than_the_money_sign_class():
+    """The em dash is the whole of the difference, and it is deliberate: a dash
+    between two DATES carries no value and cannot invert one, so admitting it
+    costs nothing and refusing it costs the document its period. A dash before
+    a FIGURE is the opposite bet — see `analysis/money.py::MINUS_GLYPHS`."""
+    from analysis import money
+
+    period = {chr(c) for c in range(0x20, 0x3000)
+              if re.fullmatch(dt.PERIOD_DASH, chr(c))}
+    sign = {chr(c) for c in range(0x20, 0x3000)
+            if re.fullmatch(money.MINUS_CLASS, chr(c))}
+    assert sign < period
+    assert period - sign == {"—"}
+
+
+def test_the_three_repointed_period_patterns_keep_their_em_dash():
+    """The coupling, pinned where it was broken. `MINUS_GLYPHS` is a SIGN
+    class; a parser that imports it to separate two dates inherits whatever the
+    sign class is narrowed to next, which is what happened to these three.
+
+    NOT a claim about the whole platform, and the difference matters:
+    `balance_by_date._PERIOD_RE` still builds a `mm/dd/yyyy - mm/dd/yyyy` range
+    out of `money.MINUS_CLASS` and is deliberately left alone. Repointing it
+    would WIDEN it by one glyph, which can claim documents it does not claim
+    today — a movement this cell has no evidence for and no mandate to make.
+    Carried at W3 §MGD MGD10.
+    """
+    from analysis import brex, mercury, wealthsimple
+
+    for module in (brex, mercury, wealthsimple):
+        pattern = module._PERIOD_RE.pattern
+        assert "—" in pattern, module.__name__
+        assert dt.PERIOD_DASH in pattern, module.__name__
+
+
 # ===========================================================================
 # tables
 # ===========================================================================
