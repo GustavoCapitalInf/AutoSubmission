@@ -49,6 +49,16 @@ __all__ = [
 #: Characters a printed money cell is made of. A token built only from these
 #: that is NOT a whole cell is a FRAGMENT of one — the shape a page takes when
 #: it splits a single printed number across two word boxes.
+#:
+#: Deliberately admits a token with no digit in it (a lone `-`, `(`, `$`).
+#: Narrowing it to "must contain a digit" would read better and would lose the
+#: case that matters most: a cell split as `1,682.89` + `-` would book the
+#: magnitude and drop the sign, silently, which is the exact class this
+#: constant exists to prevent. The cost is that a layout printing a bare dash
+#: for an empty money cell will refuse until someone teaches this module about
+#: it. That is the fail-closed direction, and it is a decision rather than an
+#: oversight: measured over the archive it costs nothing today (one refusal in
+#: 3,615 documents, and it is a real split cell).
 _FRAGMENT_RE = re.compile(r"[\d.,()$−+-]+")
 
 

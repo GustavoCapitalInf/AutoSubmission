@@ -15002,34 +15002,47 @@ the cells that changed it.
 
 ## GEOM1.9 Proofs
 
-Run at `bc478ec`. The one later commit, `59cb55c`, is this document.
+Re-run in full after adversarial review, at `53ba736`. The one later commit is
+a comment in `column_grid.py` and this section.
 
 ```
 python -m pytest -q
-    3794 passed, 18 deselected, 1 warning in 381.38s          exit 0
-    (3,769 at base + 25 new: 13 column-grid, 12 woodforest)
+    3803 passed, 18 deselected, 1 warning in 352.15s          exit 0
+    (3,769 at base + 34 new: 18 column-grid, 16 woodforest)
 
 python -m pytest -m corpus -q
-    1 failed, 13 passed, 3798 deselected in 1974.26s          exit 1
-    the one failure is the known batch-level item below
+    14 passed, 3807 deselected, 1 warning in 1830.02s         exit 0
 
 python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
                  tests/test_parser_conformance.py -q
-    730 passed in 4.88s                                       exit 0
+    730 passed in 3.97s                                       exit 0
 
 python corpus_gate.py
-    106 PASS / 3 WITHHELD   RESULT: GREEN   Runtime 874.4s    exit 0
+    106 PASS / 3 WITHHELD   RESULT: GREEN   Runtime 514.7s    exit 0
 ```
 
-The gate matters more than usual on this branch. `OCR_STAGE_VERSION` 2 -> 3
-invalidated every cached OCR artifact, so the gate re-read the pinned 109 from
-cold — 103 native text, 6 committed OCR artifacts, no live OCR and no model
-calls — and every audited balance and ADB field on all 109 reproduced. A
-global cache invalidation with zero financial drift is the thing that had to be
-shown, and it was shown from cold rather than from a warm cache that could
-have hidden it.
+The corpus-marked slice is GREEN this run, including
+`test_detect_sweep_stays_affordable_for_the_discovery_run`, which had failed on
+the pre-review run. That is the same test behaving both ways on the same
+branch, which is the clearest available statement of what it measures.
 
-### The one red, A/B'd against base
+### What the gate does and does not prove here
+
+An earlier draft of this section claimed the gate demonstrated that the
+`OCR_STAGE_VERSION` bump invalidates safely. **It does not, and the claim is
+withdrawn.** `corpus_gate.py` reads no artifact cache — it resolves the pinned
+109 from cold on every run, before and after this change alike. Its GREEN is
+evidence that all 109 still reproduce every audited balance and ADB field, and
+evidence of nothing whatever about cache invalidation. (The runtimes bear that
+out: 874.4s on the first run and 514.7s here, on the same code, because the
+number tracks machine load rather than anything about a cache.)
+
+What actually stands behind the bump is
+`test_the_ocr_stage_version_bump_invalidates_pre_o3_entries`, which exercises
+the version key directly, plus the module's own doctrine at
+`artifact_cache.py:92-93`.
+
+### The one red on the pre-review run, A/B'd against base
 
 `test_detect_sweep_stays_affordable_for_the_discovery_run` is a wall-clock
 budget (`worst < 0.25s` for a full-registry detect sweep over one document).
@@ -15038,53 +15051,68 @@ budget (`worst < 0.25s` for a full-registry detect sweep over one document).
 |---|---|---|
 | base `707ba9e` | **304.7 ms** | fail |
 | branch `bc478ec` | **311.6 ms** | fail |
+| branch `53ba736`, this run | under budget | **pass** |
 
-6.9 ms apart, and `len(pr.registrations())` is **68 on both**. Pre-existing and
-load-dependent, matching Ocean's batch-wide notice; a dedicated DETECT-BUDGET
-cell owns the structural fix and **the constant was not raised**. The base
-measurement was taken from a `git archive` of `707ba9e` into the scratchpad —
-no worktree added, no git metadata touched.
+6.9 ms apart between base and branch, and `len(pr.registrations())` is **68 on
+both**. Pre-existing and load-dependent, matching Ocean's batch-wide notice; a
+dedicated DETECT-BUDGET cell owns the structural fix and **the constant was not
+raised**. The base measurement was taken from a `git archive` of `707ba9e` into
+the scratchpad — no worktree added, no git metadata touched.
 
 Independently of the timing, this branch cannot move that number: it adds no
 registration, changes nothing in the detect path, and changes the markdown of
 no pinned document — the test's input is the 109 corpus sources, and no
 woodforest document is pinned.
 
-### Non-interference over the whole archive
+### Non-interference over the whole archive, re-run after the review fixes
 
 The new rung sits above `parse_native_desjardins` and `parse_native_pdf_text`,
-so every native-text document in the archive now passes through it. Swept over
-all **3,615** archive PDFs by direct file path:
+so every native-text document in the archive passes through it. Swept over all
+**3,615** archive PDFs by direct file path:
 
 ```
-documents the new rung claims                                20
-  ...all 20 woodforest: the 18 the run of record attributes to that parser,
-     plus Royalty3 and Royalty4, which it had declined
-flattened page text byte-identical, block appended           20
+documents the rung CLAIMS (block emitted)                    19
+  ...all 19 woodforest
+flattened page text byte-identical, block appended           19
 documents whose original text was REWRITTEN                   0
+
+woodforest-marker documents the rung REFUSED                  1
+  Unidentified/e96144ab_Royalty3.pdf
+    p1 cell_split_across_word_boxes: '1,' at x[179.3, 185.7] stands inside
+       the 'debits' column but is not a whole cell
+refusal reasons across the whole archive   {'cell_split_across_word_boxes': 1}
 ```
 
-Zero documents outside the family, and nothing rewritten — the block is added,
-never a substitution. (4 documents raised while being read; the archive
-profile records 33 malformed/encrypted, and the sweep's baseline read raises
-on the same ones with or without this change.)
+The claim set moved 20 -> 19 against the pre-review sweep, and the one document
+that left is `Royalty3`: the refuse-not-drop change withdrew the block it
+should never have been given. **No other document in the archive is affected by
+any of the four new refusals** — the split-cell census Ocean asked for returns
+exactly one document, and it is the one the review found.
 
-Two commits landed after that sweep and neither can widen its result: the
-marker test is unchanged and only moved earlier, and carrying the summary
-region across a page break can only add rows to a document that already passed
-the same marker test.
+The sweep also runs 1,027s -> 210s, which is the `_native_pages` memoisation
+(D4) measured rather than asserted: the ladder was extracting the same page
+text once per rung.
 
-### The seam the design named, checked rather than assumed
+**4 documents raise `FzErrorFormat` out of `_native_pages`**
+(`Unidentified/c3f27791_3 BUSINESS CHECKING X3774-*.PDF`). Confirmed identical
+on base `707ba9e` — `_native_pages` guards `fitz.open` but not the
+`page.get_text("blocks")` loop — so it is pre-existing and not this branch's.
+Recorded as a finding rather than fixed: it is outside this cell's named
+populations, the discovery runner catches it (all four appear as
+`no_parser_matched`, not `ocr_failed`), and an unguarded crash class in the
+intake ladder is worth a card of its own.
+
+### The seams the design named, checked rather than assumed
 
 `DESIGN_GEOMETRY_INTEGRATION.md` §3.2 property 1 — geometry must never reach
-detection — holds here structurally rather than by discipline: the block is
-appended to the markdown AFTER the flattened text, detection reads markers
-that were already present, and the claim set over 3,615 documents is the
-measured 20 above.
+detection — holds structurally rather than by discipline: the block is appended
+to the markdown AFTER the flattened text, detection reads markers that were
+already present, and the claim set over 3,615 documents is the measured 19
+above.
 
 `admissible_text` strips only `<!-- SOURCE: ... -->`, so the block survives to
 the parser (the `NFCU_NATIVE_TRANSACTIONS` precedent relies on the same thing)
-AND is inside the text `cached_analysis` hashes. The analysis cache therefore
+AND sits inside the text `cached_analysis` hashes. The analysis cache therefore
 partitions on it with no key change — which is why §4.3's mandatory cache-key
 work was not needed on this branch. It remains needed for the `analysis/`-side
 wiring card, where geometry would arrive as a parameter rather than inside the
