@@ -40,6 +40,22 @@ FIXTURES: dict[str, str] = {
     ),
     "atb": "ATB Financial\nDeposit Account Statement\n",
     "b1": "B1Bank\nDAILY ACTIVITY\n",
+    # A platform template with no issuer in it at all, which is the point:
+    # `balance_by_date` recognises a CORE PROCESSOR's four-way summary
+    # partition — a grid whose terms carry printed COUNTS beside terms that
+    # carry none — plus the daily grid that walks the period. Both markers are
+    # the template's own furniture, so this fixture carries no bank name, no
+    # domain and nothing an issuer could change between statements.
+    "balance_by_date": (
+        "Checking Account Summary\n"
+        "PREVIOUS BALANCE .00\n"
+        "+ 0 CREDITS .00\n"
+        "- 0 DEBITS .00\n"
+        "- SERVICE CHARGES .00\n"
+        "+ INTEREST PAID .00\n"
+        "ENDING BALANCE .00\n"
+        "e Balance By Date\n"
+    ),
     "banco_popular": "Banco Popular\nFLEXICUENTA DE NEGOCIOS\n",
     "bank_of_america": "BANK OF AMERICA\nACCOUNT SUMMARY\nbankofamerica.com\n",
     "bluevine": "Bluevine Inc.\nActivity summary\n",

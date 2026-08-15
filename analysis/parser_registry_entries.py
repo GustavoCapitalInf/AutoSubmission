@@ -25,6 +25,7 @@ from . import (
     amex,
     atb,
     b1,
+    balance_by_date,
     banco_popular,
     bluevine,
     bmo,
@@ -95,6 +96,12 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("apex_scanned", "Apex Bank", scanned_small_bank, "APEX_DETECTION_MARKERS", "detection_text", "parse_apex_scanned_statement"),
     ("atb", "ATB Financial", atb, "DETECTION_MARKERS", None, "parse_atb_statement"),
     ("b1", "B1Bank", b1, "DETECTION_MARKERS", None, "parse_b1_statement"),
+    # Not a bank: a core processor's statement template, recognised by the
+    # four-way summary partition and the daily grid it prints and by nothing
+    # else (W3 §SCANC). The issuer is deliberately not published — this
+    # template prints its wordmark as a graphic — so the label here names the
+    # TEMPLATE, and `Statement.bank` stays None rather than carrying a guess.
+    ("balance_by_date", "Balance By Date Statement Platform", balance_by_date, "DETECTION_MARKERS", None, "parse_balance_by_date_statement"),
     ("banco_popular", "Banco Popular", banco_popular, "DETECTION_MARKERS", None, "parse_banco_popular_statement"),
     ("bank_of_america", "Bank of America", bofa, "DETECTION_MARKERS", "detection_text", "parse_bofa_statement"),
     ("bluevine", "Bluevine", bluevine, "DETECTION_MARKERS", None, "parse_bluevine_statement"),
