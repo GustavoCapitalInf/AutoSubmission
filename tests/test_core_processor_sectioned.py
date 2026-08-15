@@ -16,13 +16,19 @@ it broke.
 """
 from __future__ import annotations
 
+import re
+from unittest import mock
+
 import pytest
 
+from analysis import core_processor_sectioned as module
 from analysis import parser_registry as pr
 from analysis import parser_registry_entries  # noqa: F401  — populates the registry
 from analysis.core_processor_sectioned import (
     _CREDITS_RE,
+    _SECTION_RE,
     _counts,
+    _sections,
     detect,
     parse_core_processor_sectioned_statement as parse,
 )
@@ -192,6 +198,99 @@ def test_the_issuer_name_stops_at_the_platforms_own_routing_codes():
     )
 
 
+# --- the constructions the adversarial review published a non-issuer with ---
+#
+# Every one of these carries the platform's contact block, so the corroboration
+# guard cannot be what refuses them. `None` is the required answer in all of
+# them: a wrong name is worse than no name, and no figure depends on either.
+
+REVIEW_CONSTRUCTIONS = {
+    "a program manager's banner above a contact block": (
+        "ACME PAY INC\n1 COMMERCE WAY\nTELEPHONE: 800-555-0000\n"
+    ),
+    "a label longer than the old rule's bound": (
+        "Return Service Requested Immediately: yes\nTELEPHONE: 800-000-0000\n"
+    ),
+    "a label carrying a digit": (
+        "Statement 2 Date: 03/31/2026\nTELEPHONE: 800-000-0000\n"
+    ),
+    "a label carrying a hyphen": (
+        "Return-Service-Requested: 12345\nTELEPHONE: 800-000-0000\n"
+    ),
+    "a name broken across two printed lines": (
+        "FIRST NATIONAL BANK 101 00031 O1 PAGE: 1\n"
+        "OF EXAMPLETOWN\nTELEPHONE: 800-000-0000\n"
+    ),
+    "a banner with no institution field under it": (
+        "LA BANQUE\nTELEPHONE: 800-000-0000\n"
+    ),
+    "the template's own heading, inside the slot": (
+        "STATEMENT OF ACCOUNT 101 00031 O1 PAGE: 1\n"
+        "P O BOX 1 ACCOUNT: XXXXXXXXXX4321\nTELEPHONE: 800-000-0000\n"
+    ),
+    "the wrapped-field arrangement, deliberately unread": (
+        "FIRST EXAMPLE BANK PO BOX 2537\n"
+        "000 00010 02 PAGE: 1 ACCOUNT: XXXXXXXXXX4321\nTELEPHONE: 800-000-0000\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("masthead", REVIEW_CONSTRUCTIONS.values(),
+                         ids=list(REVIEW_CONSTRUCTIONS))
+def test_no_construction_of_the_review_publishes_a_name(masthead):
+    statement = parse(masthead + SUMMARY + LEDGER)
+    assert statement is not None, "the figures must still publish; only the label is at issue"
+    assert statement.bank is None
+
+
+def test_the_wrapped_field_arrangement_is_unread_because_its_name_has_no_right_edge():
+    """Why the arrangement above is refused rather than read.
+
+    The archive prints it twice and both separate cleanly — but only because
+    OCR happened to put a digit in the first token of the address. Give the
+    same arrangement an address that does not, and the name absorbs it. The
+    template bounds that name on the left only, so this reader does not read
+    it at all: the read is attestation-scoped to the arrangement in which the
+    platform's own `PAGE:` field closes the slot."""
+    absorbed = (
+        "FIRST EXAMPLE BANK PO BOX 2537\n"
+        "000 00010 02 PAGE: 1 ACCOUNT: XXXXXXXXXX4321\nTELEPHONE: 800-000-0000\n"
+    )
+    lucky = (
+        "FIRST EXAMPLE BANK 0BOX 2537\n"
+        "000 00010 02 PAGE: 1 ACCOUNT: XXXXXXXXXX4321\nTELEPHONE: 800-000-0000\n"
+    )
+    assert parse(absorbed + SUMMARY + LEDGER).bank is None
+    assert parse(lucky + SUMMARY + LEDGER).bank is None
+
+
+def test_an_ampersand_is_a_word_of_a_legal_name():
+    """`FIRST FARMERS BANK & TRUST` is one institution. A rule that stops at
+    the ampersand does not publish a shorter version of that name — it
+    publishes a different institution's name."""
+    document = swap(
+        "FIRST EXAMPLE BANK, N.A. 101 00031 O1 PAGE: 1",
+        "FIRST FARMERS BANK & TRUST 101 00031 O1 PAGE: 1",
+    )
+    assert parse(document).bank == "FIRST FARMERS BANK & TRUST"
+
+
+def test_a_name_the_document_prints_in_the_institution_field_is_published():
+    """The boundary of this read, stated as a test rather than left implicit.
+
+    A name printed inside the platform's own institution field — between the
+    left edge of the page and the routing codes that close the slot — is what
+    the DOCUMENT says the institution is. Deciding that some such name is a
+    program manager rather than a bank is not a parser's judgement to make, and
+    the only way to make it would be a list of institutions, which is the
+    hardcode this registration exists to avoid."""
+    document = swap(
+        "FIRST EXAMPLE BANK, N.A. 101 00031 O1 PAGE: 1",
+        "ACME PAY INC 101 00031 O1 PAGE: 1",
+    )
+    assert parse(document).bank == "ACME PAY INC"
+
+
 def test_the_page_separator_the_ocr_layer_inserts_is_not_printed_text():
     """The markdown the pipeline builds opens with `--- Page 1 ---`. It is our
     own separator, not something the bank printed, and a reader that took it
@@ -252,6 +351,39 @@ def test_a_day_the_ledger_posts_on_must_appear_in_the_grid():
 
 def test_a_day_the_grid_prints_that_the_ledger_never_reached_is_refused():
     assert parse(swap("03/20 1,900.00\n", "03/20 1,900.00 03/25 1,900.00\n")) is None
+
+
+def test_the_gates_are_blind_to_a_same_day_same_direction_redistribution():
+    """The known limit of this gate set, pinned so it is a recorded fact and
+    not a discovery someone makes later.
+
+    Move value between two rows that share a date AND a direction and every
+    printed figure still holds: the counts do not change, the totals do not
+    change, and no end-of-day balance moves, so the daily-balance grid agrees
+    too. Both ledgers below publish, and they are different ledgers.
+
+    This is not a reason to withhold. It is the signature of a FORGERY, not of
+    a scan: OCR corruption drops a row or mangles a digit, which breaks a count
+    or a total — and does, on all 14 of the archive's refusing scans. No
+    printing this template carries can separate the two, and the honest record
+    is to say so rather than to imply the gates are exhaustive."""
+    two_rows = swap(
+        "DEPOSITS REF # DATE AMOUNT REF # DATE AMOUNT\n03/05 1,000.00\n",
+        "DEPOSITS REF # DATE AMOUNT REF # DATE AMOUNT\n03/05 600.00 03/05 400.00\n",
+    )
+    two_rows = swap("2 CREDITS 1,500.00", "3 CREDITS 1,500.00", two_rows)
+    redistributed = swap("03/05 600.00 03/05 400.00", "03/05 700.00 03/05 300.00", two_rows)
+
+    first, second = parse(two_rows), parse(redistributed)
+    assert first is not None and second is not None
+    amounts = lambda s: sorted(row.amount for row in s.transactions)
+    assert amounts(first) != amounts(second), "the two ledgers really do differ"
+    for statement in (first, second):
+        assert statement.stated_credit_count == 3
+        assert statement.stated_total_credits == 1500.0
+        assert [entry.balance for entry in statement.stated_daily_balances] == [
+            2000.0, 2500.0, 2400.0, 1900.0
+        ]
 
 
 # ===========================================================================
@@ -350,22 +482,56 @@ def test_a_summary_that_prints_its_closing_balance_twice_differently_is_refused(
     assert parse(document) is None
 
 
-def test_the_section_headings_are_the_ones_the_platform_printed_in_capitals():
-    """Thirteen archive documents print a section's name in lower-case prose as
-    well — the funds-availability notice says `deposits`, the interest
-    disclosure says `average daily balance`. Case is the only thing that tells
-    the heading from the sentence, and a case-insensitive split turns the
-    sentence into a section whose contents become rows."""
+def test_lower_case_prose_between_the_heading_and_the_summary_is_not_a_section():
+    """Where the case-sensitive section scan is load-bearing: the SUMMARY.
+
+    `_summary_region` cuts the strip at the first section heading after the
+    account heading, so a lower-case section word in the prose between the two
+    ends the region before the strip begins, and the document publishes
+    nothing. Thirteen archive documents print such prose — the funds-
+    availability notice says `deposits`, the interest disclosure says
+    `average daily balance` — and case is the only thing that tells the heading
+    from the sentence.
+
+    On the LEDGER path the same mis-split is neutralised by something else, and
+    the test below says which, so the two are not confused."""
     document = swap(
-        "HOLDER COMPANY LLC 30\n",
-        "HOLDER COMPANY LLC 30\n"
+        "BUSINESS CHECKING ACCOUNT XXXXXXXXXX4321\n",
+        "BUSINESS CHECKING ACCOUNT XXXXXXXXXX4321\n"
         "We have updated our funds availability policy so that more of your "
-        "deposits clear sooner. Effective 03/25 1,000.00 of each cheque is now "
-        "available the next business day.\n",
+        "deposits clear sooner.\n",
     )
     statement = parse(document)
     assert statement is not None
+    assert statement.beginning_balance == 1000.0
     assert len(statement.transactions) == 4
+
+
+def test_on_the_ledger_path_the_exact_uppercase_key_is_what_holds_prose_out():
+    """The honest account of the ledger path, recorded because the first
+    version of this cell claimed the case-sensitive scan was doing this work.
+
+    `_sections` keys its blocks by the text it matched, and `parse` looks those
+    blocks up by the template's exact UPPER-CASE names. So even a section scan
+    that matched lower-case prose would file it under a key nothing reads, and
+    no row would come of it. Both guards are real; only this one guards the
+    ledger."""
+    document = swap(
+        "OTHER DEBITS DESCRIPTION DATE AMOUNT CARD PURCHASE HARDWARE CO 03/20 500.00\n",
+        "OTHER DEBITS DESCRIPTION DATE AMOUNT CARD PURCHASE HARDWARE CO 03/20 500.00\n"
+        "our deposits policy changed: see the notice of 03/25 1,000.00 for details\n",
+    )
+    assert "deposits" not in _sections(document), "the scan itself is case-sensitive"
+
+    # Take that guard away and the ledger is unaffected, because the block is
+    # filed under `deposits` and `parse` asks for `DEPOSITS`.
+    insensitive = re.compile(_SECTION_RE.pattern, re.IGNORECASE)
+    with mock.patch.object(module, "_SECTION_RE", insensitive):
+        assert "deposits" in _sections(document), "now the prose IS matched"
+        statement = parse(document)
+    assert statement is not None
+    assert len(statement.transactions) == 4
+    assert all(name.isupper() for name, _credit, _default in module._LEDGER_SECTIONS)
 
 
 def test_the_account_name_cannot_begin_inside_the_figure_printed_before_it():

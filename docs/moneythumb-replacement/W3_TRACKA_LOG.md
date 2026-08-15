@@ -14796,39 +14796,91 @@ neither publishes.
 
 ## S3. Reading the issuer out of the document
 
+**This section is the post-review form of the read.** The first version was
+defeated four ways by the adversarial review, and the record of what it got
+wrong is in S11; what follows describes what the branch actually does.
+
 | issuer evidence | coverage of the 39 |
 |---|---|
-| a name opening the masthead's first printed line, with the platform's contact block under it | **23**, in 2 distinct spellings |
+| a name in the platform's INSTITUTION SLOT (below) | **14**, in 2 distinct spellings |
 | a labelled domain (the §JHA rule) | 7 — all of them the running-balance issue |
-| anything at all, on the remaining 9 | **none** |
+| the wrapped-field arrangement, deliberately not read | 8 |
+| anything at all, on the remaining 10 | **none** |
 
-The 9 are one issuer whose name reaches the page only inside a **logo**, which
-is an image: the text layer opens on the folio. `Statement.bank` is
-`str | None` and the honest-unknown-issuer ruling of 2026-08-14 applies — those
-9 publish with `bank=None`. The arithmetic does not depend on the name, so an
-unnamed issuer costs a label rather than a document. 6 of the 10 new validated
-documents are in that group.
+`Statement.bank` is `str | None` and the honest-unknown-issuer ruling of
+2026-08-14 applies: 25 of the 39 publish no name. The arithmetic does not
+depend on it, so an unnamed issuer costs a label rather than a document —
+**9 of the 10 newly validated documents publish `bank=None`**, and the tenth
+is `ADE55A5BADF4DE8C`.
 
-Four bounds, all the template's own, and it is worth being exact about which
-does the work:
+**The institution slot.** The name is not "the text at the top of the page":
+proximity is not a role, and the review published a program manager's banner
+by putting one above a contact block. The slot is the field the template
+itself reserves, bounded on BOTH sides by the template:
+
+```
+UNITED COMMUNITY (204) 000 00016 02 PAGE: 1
+SOUTHSTATE BANK, N.A. 101 00031 O1 PAGE: 1
+^ left edge: the line opens   ^ codes    ^ right edge: the platform's own field
+```
+
+Five guards, and it is worth being exact about which does the work, because
+the first version of this section was wrong about that:
 
 * the **scope** — only the masthead is read. This archive's ledgers print
   `amazon.com` and two other banks' names as counterparties, and §JHA's
   reviewer got `walmart.com` published as an issuer when a comparable scope
   slipped;
-* the **contact block** corroborates. No `TELEPHONE:` furniture in the
-  masthead, no name;
-* the **label rule** — a first line opening `Something:` is furniture. This is
-  the one that does the work in practice, because the issuers who print no
-  name in the text layer are exactly the ones whose page opens with a folio;
-  without it `Statement Date` publishes as a bank, and the test suite pins that
-  construction;
-* the **digit rule** ends the name where the platform's routing and batch codes
-  begin (`UNITED COMMUNITY (204) 000 00016 02 PAGE: 1` yields `UNITED
-  COMMUNITY`).
+* the **contact block** corroborates, and **this is the guard that actually
+  fires**: it is what declines all 25 unnamed documents. Measured, not assumed
+  — the label rule below fires on ZERO archive documents;
+* the **institution slot** binds the name to the ROLE. A banner with no
+  routing codes and no `PAGE:` field after it is not in the slot;
+* the **label rule** — ANY colon-terminated opening field is furniture, with no
+  bound on its length and no exclusion of digits or hyphens. The review escaped
+  all three of those bounds in the earlier form, one of them with
+  `Return-Service-Requested`, which this template really does print in that
+  slot as `Return Service Requested`. It reaches no archive document because
+  the contact-block guard declines them first; it is there for the layout that
+  carries a contact block AND opens on a label, which the review built;
+* the **furniture rule** — a candidate made only of words this template prints
+  as its own headings is the template talking about itself, so
+  `STATEMENT OF ACCOUNT` in the slot yields nothing. The list is the
+  TEMPLATE's vocabulary, not a list of banks: it names no institution, and a
+  bank whose name contains one of those words still publishes, because the
+  test is that EVERY word matches.
+
+The **digit rule** ends the name where the routing codes begin, and a
+standalone `&` is a name word — without it `FIRST FARMERS BANK & TRUST`
+publishes as `FIRST FARMERS BANK`, which is not a shorter version of that name
+but a different institution's.
+
+**The read is ATTESTATION-SCOPED, and that costs two archive documents their
+label.** The archive prints a second arrangement in which the header field
+wraps and the rest of the first line is the issuer's address:
+
+```
+UNITED COMMUNITY (10( POB0X 2537
+000 00010 02 PAGE: 1 ACCOUNT: XXXXXXXXXXX3311
+```
+
+The branch does not read it. There the template bounds the name on the left
+only, and the archive's documents of that arrangement separate cleanly just
+because OCR happened to put a digit in the first address token; the same rule
+on `FIRST EXAMPLE BANK PO BOX 2537` publishes `FIRST EXAMPLE BANK PO BOX`.
+A wrong name is worse than no name, so 8 documents — including the publisher
+`E069F856CA1BECEC`, which an earlier form of this cell named — go unnamed.
 
 Published as printed. Nothing is transformed, expanded or title-cased: turning
 a printed masthead into a bank's legal name would be an invention.
+
+**The boundary of the read, stated rather than left implicit.** A name printed
+INSIDE the institution slot is published, whoever it belongs to. If a program
+manager's name is what the document prints between the left edge of the page
+and the routing codes, that is what the document says the institution is, and
+separating a program manager from a bank there would take a list of
+institutions — the hardcode this registration exists to avoid. Pinned as
+`test_a_name_the_document_prints_in_the_institution_field_is_published`.
 
 ## S4. What a document has to prove, and what the archive did to it
 
@@ -14963,7 +15015,35 @@ printed AVERAGE BALANCE  35,931.75    computed ADB 35,931.75
 printed MINIMUM BALANCE   8,344.23    the grid's lowest day, 06/05  8,344.23
 ```
 
-Seven printings, all agreeing. The card's expectation was that the scanned
+**Seven printings, of which FIVE are independent and two are derived.** The
+distinction matters and the first version of this section did not draw it:
+
+* independent — both counts, both totals, and the `DAILY BALANCE` grid. Each
+  is a separate thing the bank printed about the period;
+* derived — the summary identity is a function of the four summary figures
+  already checked, and the printed `AVERAGE BALANCE` is a function of the grid
+  already matched. They corroborate the SUMMARY's internal consistency; they
+  add no independent evidence about the ledger. (`MINIMUM BALANCE` agreeing
+  with the grid's lowest day is a third derived one.)
+
+**And the gate set has a blind spot, named here rather than left to be
+found.** Move value between two rows that share a date AND a direction, and
+every one of the five independent printings still holds: the counts do not
+change, the totals do not change, and no end-of-day balance moves. The review
+demonstrated it with a two-byte edit, and
+`test_the_gates_are_blind_to_a_same_day_same_direction_redistribution` now pins
+it as a known limit.
+
+**This does not weaken the publication, and the reason is specific.** A
+same-day same-direction redistribution that preserves both sums is the
+signature of a FORGERY. OCR corruption is not compensating: it drops a row or
+mangles a digit, which breaks a count or a total — and does, on all 14 of the
+archive's refusing scans, including the one where a single amount is wrong by
+640.00 with both counts exactly right. No printing this template carries can
+separate a forged ledger from an honest one, and claiming otherwise would be
+the overstatement this record exists to avoid.
+
+The card's expectation was that the scanned
 population refuses; the measurement is that 14 of 15 do, and the one that does
 not is corroborated seven ways. It is put to Ocean as a measurement rather than
 smuggled in as a rounding of the card (S9.1).
@@ -14975,25 +15055,50 @@ registration can only change another document's dispatch by claiming it — so
 the sweep is total: **all 3,396 documents with offline text, before and
 after.**
 
+Two different things are measured here and the first version of this section
+ran them together. **Detection** says who CLAIMS a document; **dispatch** says
+what the document RESOLVES to, which is not the same, because a registration
+that detects a document and then declines it leaves it `unclaimed`. The table
+below is the dispatch one — `pr.resolve` over the markdown the pipeline itself
+builds, page separators included, which is also what makes it comparable with
+S0.
+
 ```
-dispatch outcome transitions
-   2581  claimed   -> claimed
-    783  unclaimed -> unclaimed
-     32  unclaimed -> claimed
+DISPATCH OUTCOME transitions
+   2477  claimed   -> claimed
+    909  unclaimed -> unclaimed
+     10  unclaimed -> claimed
 
 ambiguous, after : 0      ambiguous, before : 0
+```
+
+```
+DETECTION, the other measurement
 core_processor_sectioned detects     : 39
 the measured template cohort         : 39
    detected but OUTSIDE the cohort   : 0
    in the cohort but NOT detected    : 0
-winning parser changed               : 0
 claimant set changed                 : 39, and no other document
+winning parser changed               : 0
 near-miss vector, one required marker: 113 documents at score 0.125
 ```
+
+**32 documents are newly DETECTED and 10 newly CLAIMED.** The other 22 are
+detected, attempted and declined — they are the refusals of S6, and their
+`attempted` vector now reads `('core_processor_sectioned',)` where before this
+cell it was empty. That is the visible form of a fail-closed refusal and it is
+the intended outcome, not a shortfall.
 
 The 7 documents whose claimant set grew are the running-balance issue, and
 their WINNER did not change: `first_farmers` outranks the new registration on
 every one.
+
+The before-side of the dispatch table is derived rather than re-swept, and the
+licence for that is the detection sweep above: `resolve` is a pure function of
+the claimant set and the supersedes graph, so a document whose claimant set is
+byte-identical before and after cannot change outcome. Only the 39 changed
+claimants; the other 3,357 are carried across unchanged, and the 39 are taken
+from the base run document by document.
 
 Sibling population, replayed through the real pipeline:
 
@@ -15059,11 +15164,22 @@ would add a phantom grid day and the document would REFUSE. Fail-closed, and
 carded rather than patched, because every candidate boundary measured here (the
 column header, a line anchor) also lost real sections on the scanned issues.
 
-**S9.3 — the section split is case-sensitive, and that is load-bearing.**
-Thirteen of the 39 print a section's name in lower-case prose as well (the
-funds-availability notice says `deposits`; the interest disclosure says
-`average daily balance`). Case is the only thing that separates the heading
-from the sentence. Pinned.
+**S9.3 — the section split is case-sensitive, and it is load-bearing on the
+SUMMARY path, not the ledger path.** The first version of this entry claimed
+the case-sensitive scan was what kept lower-case prose out of the ledger. It is
+not. `parse` looks its blocks up by the template's exact UPPER-CASE names, so a
+scan that matched `deposits` would file the prose under a key nothing reads and
+no row would come of it — that key lookup is the ledger's guard, and
+`test_on_the_ledger_path_the_exact_uppercase_key_is_what_holds_prose_out`
+proves it by taking the case-sensitivity away and watching the ledger not move.
+
+Where case-sensitivity IS load-bearing is `_summary_region`, which cuts the
+summary strip at the first section heading after the account heading: a
+lower-case section word in prose printed between the two ends the region before
+the strip begins, and the document publishes nothing. Thirteen of the 39 print
+such prose (the funds-availability notice says `deposits`; the interest
+disclosure says `average daily balance`). Both guards are now pinned, each
+where it actually acts.
 
 **S9.4 — `count_semantics` is deliberately not extended.** This registration
 gates on the printed counts, so a `comparable` entry would make the
@@ -15089,6 +15205,24 @@ also an ADB input, so it is named here rather than left to be discovered: the
 by the printed period. Same class as the Woodforest initialization-event card,
 one document, no gate depends on it.
 
+**S9.9 — the recall follow-up: 22 documents print the period LABEL and not the
+line.** Measured over the store, outside the 39: 22 documents print
+`Total days in statement period` WITHOUT the `mm/dd/yy THROUGH mm/dd/yy` dates
+this registration requires — the period is printed as a bare day count. 19 are
+`failed`, 3 are `validated` by other means; 18 digital, 4 scanned. **20 of the
+22 also print both summary-balance labels** and 15 print at least one of this
+template's exact upper-case section headings (12 `DAILY BALANCE`, 2 with
+`CHECKS`, 1 `CHECKS` alone). They sit in four folders — Enterprise Bank &
+Trust 8, City Bank 5, El Dorado Savings Bank 5, Unidentified 3, plus 1 — so
+they are a related PRINTED VARIANT of this platform rather than a different
+platform.
+
+This cell did not widen to them, deliberately: the dated period line is what
+makes the current marker pair exact at 39/39 with zero near misses, and the
+undated variant would need its own period grammar and its own measurement.
+**Carded as the recall follow-up for this template — the largest named block
+of remaining value on it, ahead of the 7 geometry documents in S9.5.**
+
 **S9.8 — the detect budget is spent, on base.** The affordability test fails
 at 68 registrations before this cell exists (348 ms against a 250 ms bound,
 load-controlled). This branch adds 12 ms of that. It is named here because
@@ -15098,30 +15232,32 @@ parser card, and no card should raise the constant to get itself green.
 
 ## S10. Proofs
 
-All figures below were produced on `cfeac68` plus a docstring reflow, proven
-AST-identical to it once docstrings are blanked; the commit below adds only
-this section and that reflow.
+Re-run on the review-closure tree. The suite, guards, conformance and cell
+figures are from that tree; the corpus gate and the corpus-marked slice are
+carried from `f0f448a`, and the reason they need no re-run is stated below them.
 
 ```
 # full default suite
-3890 passed, 18 deselected in 261.61s                     exit 0
-   (base ba13ec3: 3,769. The 121 new tests are this cell's 109 plus the
+3903 passed, 18 deselected in 186.99s                     exit 0
+   (base ba13ec3: 3,769. The 134 new tests are this cell's 122 plus the
     12 conformance parametrizations a 69th registration adds.)
 
+# this cell
+122 passed in 0.53s                                       exit 0
+
 # guards
-239 passed in 23.71s                                      exit 0
+239 passed in 17.49s                                      exit 0
    test_no_statement_hardcodes · test_no_parser_helper_clones ·
    test_r1_hardcodes · test_experiments_are_not_wired · test_filename_boundary
 
-# conformance cross-product + registry + this cell
-1115 passed in 5.97s                                      exit 0
+# conformance cross-product + registry
+1006 passed in 3.68s                                      exit 0
    test_parser_conformance (69 x 68 detection-negative) ·
    test_parser_registry_entries · test_parser_detection_markers ·
    test_parser_registry · test_parser_crash_shapes ·
-   test_parser_exception_boundary · test_count_semantics ·
-   test_core_processor_sectioned
+   test_parser_exception_boundary · test_count_semantics
 
-# corpus gate (python corpus_gate.py), 726.2s
+# corpus gate (python corpus_gate.py), 726.2s — carried from f0f448a
 [PASS] source_integrity · balance_audit · adb_audit
 [PASS] balance_outcomes: 106 pass, 3 withheld, same three statements
 [PASS] adb_outcomes:     106 pass, 3 withheld, same three statements
@@ -15130,7 +15266,7 @@ this section and that reflow.
 Outcomes: 106 PASS / 3 WITHHELD
 RESULT: GREEN                                             exit 0
 
-# corpus-marked (pytest -m corpus), 1871.08s
+# corpus-marked (pytest -m corpus), 1871.08s — carried from f0f448a
 PASSED tests/test_corpus_gate.py::test_corpus_gate_is_green
 PASSED tests/test_discovery.py::test_dry_run_reproduces_known_truth
 PASSED tests/test_parser_parity.py::test_no_corpus_document_is_left_unclaimed
@@ -15147,6 +15283,16 @@ PASSED tests/test_truncation.py::test_no_corpus_document_is_flagged_through_the_
 FAILED tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run
 1 failed, 13 passed, 3894 deselected in 1871.08s          exit 1
 ```
+
+**Why the two carried proofs need no re-run.** The review closure changes one
+function, `_issuer`, and `_issuer` runs in exactly one place: inside
+`parse_core_processor_sectioned_statement`, after this registration has won
+dispatch. Over the pinned 109 it never wins — it claims one of them, the
+`first_farmers` document, and `first_farmers` supersedes it, so the parse
+function is never entered. The gate audits published fields on those 109 and
+the corpus-marked slice audits their outcomes; neither can see a change to a
+function that does not run. The full suite, which DOES exercise `_issuer`
+through 122 cell tests, was re-run above.
 
 **The one red is the batch-level detect-budget item, and it fails on BASE.**
 `test_detect_sweep_stays_affordable_for_the_discovery_run` asserts that the
@@ -15180,38 +15326,94 @@ are substring probes.
 ### S10.1 Mutation check
 
 Every gate in this reader was disabled in turn, in-process, and the cell's own
-tests re-run against the mutant. All 17 mutants die, each to a test that names
-the rule it broke:
+tests re-run against the mutant. **All 22 mutants die**, each to a test that
+names the rule it broke — the seven issuer guards added by the review closure
+included:
 
 ```
-grid check always passes                     killed by  3
-summary check always passes                  killed by  2
-token boundary dropped                       killed by  2
-unicode digits admitted                      killed by  1
-bare cents rejected in a row                 killed by  1
-zero-count rule relaxed                      killed by  1
-issuer read over the whole document          killed by  1
-issuer needs no contact block                killed by  2
-label lines admitted as issuers              killed by  1
-page markers taken for printed text          killed by  1
-summary strip unbounded                      killed by  1
-one reading is enough (no uniqueness)        killed by  1
-the section split is case-insensitive        killed by  1
-runs concatenated instead of kept apart      killed by  1
-the account heading may start with a number  killed by  1
-the period is not validated as a date        killed by  1
-the issuer digit rule dropped                killed by  4
+grid check always passes                       killed by  4
+summary check always passes                    killed by  3
+token boundary dropped                         killed by  3
+unicode digits admitted                        killed by  2
+bare cents rejected in a row                   killed by  2
+zero-count rule relaxed                        killed by  2
+issuer read over the whole document            killed by  1
+issuer needs no contact block                  killed by  3
+label rule dropped                             killed by  1
+institution slot: any first line will do       killed by  9
+institution slot: the wrapped field readmitted killed by  3
+name continuation ignored                      killed by  2
+furniture vocabulary ignored                   killed by  2
+ampersand is not a name word                   killed by  2
+the issuer digit rule dropped                  killed by  7
+page markers taken for printed text            killed by  2
+summary strip unbounded                        killed by  2
+one reading is enough (no uniqueness)          killed by  2
+the section split is case-insensitive          killed by  3
+runs concatenated instead of kept apart        killed by  2
+the account heading may start with a number    killed by  2
+the period is not validated as a date          killed by  2
 ```
 
-Three of those tests exist only because the first pass of this check found the
-mutant surviving: the uniqueness rule, the case-sensitive section split and the
-zero-count rule were all covered only by their neighbours until the mutation
-run said so.
+Three of these tests exist only because the first pass of this check found the
+mutant surviving — the uniqueness rule, the case-sensitive section split and
+the zero-count rule were covered only by their neighbours until the mutation
+run said so. **And the mutation check is not sufficient on its own: it kills
+mutants of the code that exists, and every one of the issuer defects in
+S11 was a hole in the code's SHAPE, which no mutant of that shape can find.
+The adversarial review found all five. That is the lesson worth carrying, not
+the 22.**
 
-## S11. Commits
+## S11. Amendments from adversarial review
+
+Verdict SHIP, with three closures. The review reproduced +10/0, ambiguous 0/0,
+the supersedes counterfactual line for line, and all 29 refusals including the
+640.00 total-only case. What it also did was defeat the issuer read five ways
+and catch four claims in this record that were wrong.
+
+**S11.1 — the issuer read published a non-issuer five ways, and is now
+structurally scoped.** Every construction below carries the platform's contact
+block, so corroboration could not be what refused them, and every one is now
+fixtured in `tests/test_core_processor_sectioned.py`:
+
+| the review's construction | why the old read published it | what refuses it now |
+|---|---|---|
+| a program manager's banner above a contact block | proximity was read as a role | the INSTITUTION SLOT: no routing codes, no `PAGE:` field, no name |
+| a label over 31 characters | the LABEL rule was length-bounded | the bound is gone — any colon-terminated opening field is furniture |
+| a label carrying a digit | the rule's class excluded digits | the class is `[^:]*` |
+| `Return-Service-Requested:` | the class excluded hyphens | same — and this template really prints that phrase in that slot |
+| `FIRST NATIONAL BANK` over `OF EXAMPLETOWN` | the name was taken from one line | a continuation line under the slot refuses the whole read |
+| `STATEMENT OF ACCOUNT` in the slot | nothing said furniture is not a name | the FURNITURE rule: every word is template vocabulary |
+| `FIRST FARMERS BANK & TRUST` | a standalone `&` ended the name | `&` is a name word |
+
+The deepest change is the last one in the list of guards rather than the
+table: the read is now **attestation-scoped**. It reads only the arrangement in
+which the template bounds the name on BOTH sides, and it declines the wrapped-
+field arrangement that the archive prints 8 times — because those 8 separate
+cleanly only by an OCR accident, and the same rule on a plainer address
+publishes `FIRST EXAMPLE BANK PO BOX`. **The cost is measured: named issuers
+fall from 23 to 14, and one of the ten publishers (`E069F856CA1BECEC`) loses
+the label the pre-review branch gave it. No document's figures change.**
+
+**S11.2 — four claims in this record were wrong and are corrected in place.**
+S7's transition table counted DETECTION survivors and called them claims (S7
+now carries the dispatch-outcome table); S3 said 6 of 10 publishers were
+unnamed when it was 8, and after the hardening it is 9; S3 said the label rule
+"does the work in practice" when it fires on ZERO archive documents and the
+contact-block guard declines all of them first; S9.3 credited the case-
+sensitive section split with guarding the ledger, which the exact upper-case
+key lookup does.
+
+**S11.3 — the gate set's blind spot is now named beside the publication ruling
+rather than implied away**, and the seven printings are separated into five
+independent and two derived (S6). The recall follow-up — 22 documents printing
+the period label without its dates — is carded at S9.9.
+
+## S12. Commits
 
 | commit | what |
 |---|---|
 | `6bcaf85` | the reader, the issuer-agnostic registration and the `first_farmers` supersedes edge |
 | `cfeac68` | the issuer read anchored on the masthead's first printed line |
-| (this one) | §SCANB S0–S11, and one docstring reflow (AST-identical) |
+| `f0f448a` | §SCANB S0–S10 and the first proof block |
+| (this one) | the review closures: the attestation-scoped issuer read, its fixtures, and the four corrected records |

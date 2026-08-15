@@ -185,28 +185,51 @@ _ACCOUNT_HEADING_RE = re.compile(
     r"ACCOUNT\s+([Xx0-9]{4,})(?![0-9])"
 )
 
-#: The platform's own page furniture, which is where the issuer's contact block
-#: stops and the routing and batch codes begin.
-_PAGE_FURNITURE_RE = re.compile(r"\bPAGE\s*:", re.IGNORECASE)
+#: The platform's own page field. It CLOSES the institution slot: the routing
+#: and batch codes stand between the institution's name and this, and the
+#: name's right-hand bound is therefore the template's rather than a guess.
+_PAGE_FIELD_RE = re.compile(r"\bPAGE\s*:", re.IGNORECASE)
 #: The rest of that contact block. Required as corroboration: it is what says
 #: the run of words at the top of the page is the issuer's own address block
 #: and not something the page happens to open with.
 _CONTACT_FURNITURE_RE = re.compile(r"\bTELEPHONE\s*:", re.IGNORECASE)
 
-#: A word of an issuer's name: letters, and the punctuation a bank's legal name
-#: carries. A token containing a DIGIT ends the name, which is what separates
-#: the name from the routing and batch codes the platform prints beside it.
-_ISSUER_WORD = r"[A-Za-z][A-Za-z&'.-]*,?"
+#: A word of an institution's name: letters and the punctuation a legal name
+#: carries, plus a STANDALONE `&` — `FIRST FARMERS BANK & TRUST` is one name,
+#: and a rule that stops at the ampersand publishes a DIFFERENT institution's
+#: name rather than a shorter version of this one.
+_ISSUER_WORD = r"(?:[A-Za-z][A-Za-z'.-]*,?|&)"
 _ISSUER_RE = re.compile(r"^\s*(" + _ISSUER_WORD + r"(?: " + _ISSUER_WORD + r")*)")
 
-#: A masthead line that opens with a LABEL is the platform's furniture, not the
-#: issuer's name. This is the rule that keeps a folio (`Page: 1 of 2`) or a
-#: header field (`Statement Date: ...`, `Primary Account: ...`) from being
-#: published as a bank — and it is what several of this archive's issuers leave
-#: at the top of the page, because their own name is printed only inside a logo.
-_LABEL_LINE_RE = re.compile(r"^\s*[A-Za-z][A-Za-z ]{0,30}:")
+#: A colon-terminated opening field is a LABEL, and a label is furniture, not a
+#: name. Deliberately unbounded in length, and admitting digits and hyphens: an
+#: earlier form of this rule bounded all three and the review escaped it three
+#: ways, including with `Return-Service-Requested` — which this template really
+#: does print, in the same slot, as `Return Service Requested`.
+#:
+#: Applied to the text BEFORE the platform's own `PAGE:` field (see
+#: `_institution_slot`), because that field is a colon too and a rule that saw
+#: it would call every masthead line furniture.
+_LABEL_RE = re.compile(r"^[^:\n]*:")
 #: The page separator the OCR layer inserts between pages. Not printed text.
 _PAGE_MARKER_RE = re.compile(r"^\s*-{2,}\s*Page \b", re.IGNORECASE)
+#: A routing or batch code. The platform prints a GROUP of them between the
+#: institution's name and its `PAGE:` field, and a token carrying a digit is
+#: one of those — never part of a name.
+_CODE_TOKEN_RE = re.compile(r"^\S*[0-9]\S*$")
+
+#: Words this TEMPLATE prints as its own furniture. A candidate name made only
+#: of these is the template talking about itself, however it is positioned —
+#: `STATEMENT OF ACCOUNT` is a heading, not an institution. This is a list of
+#: the TEMPLATE's vocabulary, not a list of banks: nothing here names, excludes
+#: or privileges any institution, and a bank whose name happens to contain one
+#: of these words still publishes because the test is that EVERY word matches.
+_FURNITURE_WORDS = frozenset(
+    """ACCOUNT ACCOUNTS AMOUNT AVAILABLE AVERAGE AVG BALANCE CHECK CHECKS
+    CREDIT CREDITS DAILY DATE DAYS DEBIT DEBITS DEPOSIT DEPOSITS DESCRIPTION
+    DOCUMENTS IN LAST MINIMUM OF OTHER PAGE PERIOD REF REQUESTED RETURN
+    SERVICE STATEMENT STATEMENTS SUMMARY TELEPHONE THIS THROUGH TOTAL""".split()
+)
 
 
 def _masthead(markdown: str) -> str:
@@ -222,30 +245,100 @@ def _masthead(markdown: str) -> str:
     return markdown[: heading.start()] if heading else markdown
 
 
-def _issuer(markdown: str) -> str | None:
-    """The issuer this document names as its own, or None.
+def _printed_lines(masthead: str) -> list[str]:
+    """The masthead's PRINTED lines. The OCR layer's own `--- Page N ---`
+    separator is ours, not the bank's, and a reader that counted it as the
+    first line would find no issuer on any document."""
+    return [line for line in masthead.splitlines()
+            if line.strip() and not _PAGE_MARKER_RE.match(line)]
 
-    On this template the issuer's own contact block opens the page: its name,
-    then its address, then the `TELEPHONE:` line, with the platform's routing
-    codes and `PAGE:` furniture printed across the same first line. So the name
-    is the run of words that OPENS that line, and every bound on it is the
-    template's own rather than a guess about how long a bank's name is. Four
-    guards, and it is worth being exact about what each one does:
+
+#: The platform's masthead FIELDS. A line carrying one of them is the
+#: template's own header row; a line carrying none of them, opening with a
+#: word, directly under the institution slot is the institution's name
+#: CONTINUING onto a second line.
+_MASTHEAD_FIELD_RE = re.compile(r"\b(?:PAGE|ACCOUNT|TELEPHONE|DOCUMENTS)\s*:", re.IGNORECASE)
+
+
+def _continues_the_name(lines: list[str]) -> bool:
+    """Whether the line under the institution slot carries the rest of a name.
+
+    `FIRST NATIONAL BANK` over `OF EXAMPLETOWN` is one institution printed on
+    two lines, and a reader that takes the first line publishes a DIFFERENT
+    bank's name — the failure mode this whole read exists to avoid, because a
+    wrong name is worse than no name. There is no rule that says where such a
+    name ends, so the honest answer is to publish none of it.
+    """
+    if len(lines) < 2:
+        return False
+    following = lines[1].lstrip()
+    return following[:1].isalpha() and not _MASTHEAD_FIELD_RE.search(following)
+
+
+def _institution_slot(lines: list[str]) -> str | None:
+    """The text of the platform's INSTITUTION SLOT, or None.
+
+    The slot is not "the top of the page" — proximity is not a role, and the
+    review published a program manager's banner by sitting one above a contact
+    block. It is the field the platform itself reserves, and the ONE arrangement
+    this read accepts is the one in which the template bounds the name on BOTH
+    sides:
+
+        UNITED COMMUNITY (204) 000 00016 02 PAGE: 1
+        SOUTHSTATE BANK, N.A. 101 00031 O1 PAGE: 1
+        ^ the name opens the line   ^ codes  ^ the platform's own field closes it
+
+    Left edge: the start of the first printed line. Right edge: the platform's
+    `PAGE:` field, with every token between it and the name a routing or batch
+    code. Neither edge is a guess about how long a name is.
+
+    **This is an ATTESTATION-SCOPED read.** The archive prints a second
+    arrangement in which the header field wraps to the next line and the rest
+    of the first line is the issuer's ADDRESS:
+
+        UNITED COMMUNITY (10( POB0X 2537
+        000 00010 02 PAGE: 1 ACCOUNT: XXXXXXXXXXX3311
+
+    It is deliberately NOT read. There the template bounds the name on the left
+    only, and where it ends is unknowable: the two archive documents of that
+    arrangement separate cleanly just because OCR happened to put a digit in
+    the first address token, and a constructed `FIRST EXAMPLE BANK PO BOX 2537`
+    publishes `FIRST EXAMPLE BANK PO BOX` under the same rule. A wrong name is
+    worse than no name, so that arrangement yields None. It costs two archive
+    documents their label and no document its figures.
+    """
+    if _continues_the_name(lines):
+        return None
+    page = _PAGE_FIELD_RE.search(lines[0])
+    return lines[0][: page.start()] if page else None
+
+
+def _issuer(markdown: str) -> str | None:
+    """The institution this document names as its own, or None.
+
+    Five guards, and it is worth being exact about what each one does, because
+    the review defeated an earlier form of this read four different ways:
 
     * the SCOPE. Only the masthead is read, so the merchant domains and the
       counterparty bank names in the ledger below it are out of range — four of
       this archive's documents print one, and the first core-processor cell had
       `walmart.com` published as an issuer when its own scope slipped;
     * the CONTACT BLOCK corroborates. Without the platform's `TELEPHONE:`
-      furniture the run of words at the top of a page is not evidence of
-      anything, and no name is published;
-    * the LABEL rule. A first line that opens `Something:` is furniture — a
-      folio, a statement date, an account field — and yields nothing. This is
-      the rule that matters most in practice, because the issuers who print no
-      name in the text layer are exactly the ones whose page opens with a
-      folio;
-    * the DIGIT rule ends the name. The platform prints its routing and batch
-      codes beside the name, and a token carrying a digit is one of those.
+      furniture nothing is published. Measured over the archive this is the
+      guard that actually fires: it is what declines all 16 of the documents
+      that publish no name;
+    * the INSTITUTION SLOT binds the name to the ROLE rather than to a position
+      (`_institution_slot`). A banner above a contact block is not in the slot;
+    * the LABEL rule. Any colon-terminated opening field is furniture — a
+      folio, a statement date, an account field, a `Return-Service-Requested`.
+      No archive document reaches it, because the contact-block guard declines
+      them first; it is here for the layout that carries a contact block AND
+      opens on a label, which the review built and this archive has not;
+    * the FURNITURE rule. A candidate made only of words this template prints
+      as its own headings is the template talking about itself.
+
+    The DIGIT rule inside `_ISSUER_WORD` ends the name where the platform's
+    routing and batch codes begin.
 
     A document that satisfies none of it gets None, not a guess. The arithmetic
     does not depend on the name, so an unnamed issuer costs a label rather than
@@ -256,18 +349,25 @@ def _issuer(markdown: str) -> str | None:
     masthead = _masthead(markdown)
     if not _CONTACT_FURNITURE_RE.search(masthead):
         return None
-    for line in masthead.splitlines():
-        if not line.strip() or _PAGE_MARKER_RE.match(line):
-            continue
-        if _LABEL_LINE_RE.match(line):
-            return None
-        page = _PAGE_FURNITURE_RE.search(line)
-        name = _ISSUER_RE.match(line[: page.start()] if page else line)
-        if not name:
-            return None
-        printed = re.sub(r"\s+", " ", name.group(1)).strip().strip(",")
-        return printed or None
-    return None
+    lines = _printed_lines(masthead)
+    if not lines:
+        return None
+    opening = _institution_slot(lines)
+    if opening is None or _LABEL_RE.match(opening):
+        return None
+    name = _ISSUER_RE.match(opening)
+    if not name:
+        return None
+    codes = opening[name.end():].split()
+    if not codes or not all(_CODE_TOKEN_RE.match(token) for token in codes):
+        return None
+    printed = re.sub(r"\s+", " ", name.group(1)).strip().strip(",")
+    if not printed:
+        return None
+    words = [word.strip(",.&'-").upper() for word in printed.split()]
+    if all(not word or word in _FURNITURE_WORDS for word in words):
+        return None
+    return printed
 
 
 # ---------------------------------------------------------------------------
