@@ -581,11 +581,11 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         # stage raised would mean running the ten repairs, the year assignment
         # and the normalization independently, and that changes what the stage
         # DOES — today the first raise stops the rest — which this card is
-        # explicit is out of scope. For the same reason the
-        # class name is NOT attributed to `dispatch.registration`: only the
-        # keyed summary repair belongs to the claiming parser, so naming it as
-        # the author of any of the nine unconditional repairs' crashes would
-        # be the misattribution this seam exists to prevent.
+        # explicit is out of scope. For the same reason the class name is NOT
+        # attributed to `dispatch.registration`: only the keyed summary repair
+        # belongs to the claiming parser, so naming it as the author of one of
+        # the nine unconditional repairs' crashes would be exactly the
+        # misattribution this seam exists to prevent.
         #
         # NOT applied to the two LLM-branch repair calls below, and that is a
         # boundary rather than an omission: `extract_statement` on those
