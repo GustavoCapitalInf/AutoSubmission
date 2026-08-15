@@ -46,6 +46,12 @@ __all__ = [
 ]
 
 
+#: Characters a printed money cell is made of. A token built only from these
+#: that is NOT a whole cell is a FRAGMENT of one — the shape a page takes when
+#: it splits a single printed number across two word boxes.
+_FRAGMENT_RE = re.compile(r"[\d.,()$−+-]+")
+
+
 @dataclass(frozen=True)
 class GridWord:
     """One word as printed, box in PDF points, origin top-left.
@@ -281,6 +287,31 @@ def read_rows(
     # and the right edge does not.
     snap = grid_height * 0.8
 
+    # Columns must be far enough apart that "which one is this in" has an
+    # answer. Two edges closer than the snap distance admit the same cell, and
+    # no per-cell rule can recover from that — so the grid is refused whole
+    # rather than read with a tie-break standing in for evidence.
+    ordered = sorted(cell_columns, key=lambda name: edges[name])
+    for left, right in zip(ordered, ordered[1:]):
+        if edges[right] - edges[left] < snap:
+            refusals.append(GridRefusal(
+                page, "columns_not_separated",
+                f"printed columns {left!r} and {right!r} are "
+                f"{edges[right] - edges[left]:.1f}pt apart, closer than the {snap:.1f}pt "
+                f"cell tolerance — no cell between them can be attributed",
+            ))
+            return [], refusals
+
+    # Each money column's cell region runs from whatever column the header
+    # prints before it to its own right edge. Needed because a cell SPLIT
+    # across two word boxes leaves a fragment well left of the right edge,
+    # where a right-edge test cannot see it.
+    label_edges = sorted(word.x1 for word in columns.labels.values())
+    region_left = {}
+    for name in ordered:
+        prior = [x for x in label_edges if x < edges[name] - 0.5]
+        region_left[name] = max(prior) if prior else float("-inf")
+
     for word in below:
         if id(word) in anchor_ids:
             continue
@@ -296,17 +327,42 @@ def read_rows(
         if word.x0 >= free_left - grid_height * 0.5:
             bucket["free"].append(word)
             continue
-        if not cell_pattern.fullmatch(word.text):
+
+        if cell_pattern.fullmatch(word.text):
+            # Nearest edge, not the first one that happens to fit: an ordered
+            # scan books a cell against whichever column is declared first,
+            # which on overlapping spans is not the column it was printed in.
+            admitting = [name for name in ordered if abs(word.x1 - edges[name]) <= snap]
+            if len(admitting) > 1:
+                refusals.append(GridRefusal(
+                    page, "cell_admitted_by_two_columns",
+                    f"{word.text!r} right edge {word.x1:.1f} is within {snap:.1f}pt of "
+                    f"{admitting} — the page does not say which",
+                ))
+            elif admitting:
+                bucket["cells"][admitting[0]].append(word)
+            else:
+                refusals.append(GridRefusal(
+                    page, "cell_in_no_column",
+                    f"{word.text!r} right edge {word.x1:.1f} matches no printed column",
+                ))
             continue
-        for name in cell_columns:
-            if abs(word.x1 - edges[name]) <= snap:
-                bucket["cells"][name].append(word)
+
+        # Not a whole cell. If it is money-SHAPED and standing inside a money
+        # column, the page has split one printed cell across two word boxes
+        # (`1,` + `682.89`), and skipping it silently books 682.89 as the
+        # amount and loses a thousand dollars without a word. Nothing inside a
+        # money column is ever dropped in silence.
+        if not _FRAGMENT_RE.fullmatch(word.text):
+            continue
+        for name in ordered:
+            if word.x0 >= region_left[name] - 0.5 and word.x1 <= edges[name] + snap:
+                refusals.append(GridRefusal(
+                    page, "cell_split_across_word_boxes",
+                    f"{word.text!r} at x[{word.x0:.1f}, {word.x1:.1f}] stands inside the "
+                    f"{name!r} column but is not a whole cell",
+                ))
                 break
-        else:
-            refusals.append(GridRefusal(
-                page, "cell_in_no_column",
-                f"{word.text!r} right edge {word.x1:.1f} matches no printed column",
-            ))
 
     rows: list[GridRow] = []
     for bucket in buckets:

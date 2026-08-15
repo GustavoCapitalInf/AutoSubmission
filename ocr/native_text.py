@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from statistics import median
 from typing import TypedDict
 
@@ -8,7 +9,21 @@ from .column_grid import find_columns, page_words, read_rows
 from .document import StatementMarkdown
 
 
-def _native_pages(pdf_bytes: bytes) -> list[str] | None:
+@lru_cache(maxsize=4)
+def _native_pages_cached(pdf_bytes: bytes) -> tuple[str, ...] | None:
+    """The block extraction itself, memoised on the document's own bytes.
+
+    The ladder in `ocr/pipeline.py` asks several extractors in turn and most of
+    them start by reading the same page text, so an un-memoised
+    `_native_pages` is re-extracted once per rung the document falls through —
+    on every native-text document in the archive, every discovery run. Four
+    entries is enough: the ladder works one document at a time.
+
+    A TUPLE is returned, and `_native_pages` copies it into a fresh list per
+    call. `parse_native_navy_federal` and this module's Woodforest reader both
+    append their structured block to `pages[0]`, and handing out the cached
+    object would let one caller's edit become the next caller's input.
+    """
     try:
         import fitz
     except Exception:
@@ -28,7 +43,12 @@ def _native_pages(pdf_bytes: bytes) -> list[str] | None:
             if text:
                 lines.append(text)
         pages.append("\n".join(lines))
-    return pages
+    return tuple(pages)
+
+
+def _native_pages(pdf_bytes: bytes) -> list[str] | None:
+    pages = _native_pages_cached(pdf_bytes)
+    return None if pages is None else list(pages)
 
 
 _NAVY_ROW_DATE_RE = re.compile(r"^(\d{2}-\d{2})\s+(.*)$")

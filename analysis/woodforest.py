@@ -330,6 +330,16 @@ def _geometry_postings(lines: list[str], *, start: date, end: date) -> list[dict
             return None
         if (credit is None) == (debit is None):
             return None
+        # The printed column and the printed sign are two statements by the
+        # bank about the same cell, and where they contradict each other this
+        # parser has no basis for preferring one. A magnitude in the Credits
+        # column carrying the trailing minus this layout uses for overdrawn
+        # figures says both "this increased the balance" and "this did not";
+        # normalising it with `abs` would pick a winner silently. J9.6 refuses
+        # the same contradiction at the summary level, for the same reason.
+        printed = credit if credit is not None else debit
+        if printed is not None and printed < 0:
+            return None
         amount = credit if credit is not None else -abs(debit)
         rows.append({
             "date": posted,
@@ -394,18 +404,24 @@ def parse_woodforest_statement(markdown: str, base: Statement | None = None) -> 
     geometry = _geometry_block(markdown)
 
     accounts = _accounts(markdown)
-    if not accounts and geometry is not None:
-        # The flattened region yielded no account. On this family that is not
-        # always the bank printing none: three archive documents print the
-        # summary row whole and the text layer breaks the CLOSING BALANCE onto
-        # a line of its own, which `_SUMMARY_ROW_RE` cannot match. The column
-        # read recovers the printed line. Every row the region carries is
-        # taken, so the guard below still counts accounts rather than finding
-        # the first one and stopping.
-        accounts = [
+    if geometry is not None:
+        # The two readings of the summary region are two counts of the same
+        # thing, and the guard below must see the LARGER of them.
+        #
+        # Consulting geometry only when the flattened count is zero was a hole
+        # with a document shape behind it: the text layer breaks this summary
+        # row (three archive documents print it whole and the flattened text
+        # emits CLOSING BALANCE on a line of its own), and it can break ONE
+        # row of two. Text then reads 1, geometry reads 2, and a rule that
+        # trusts text whenever text found something publishes both accounts'
+        # postings under one account's oracle. The guard exists to fail closed
+        # on exactly that document.
+        recovered = [
             match for match in (_SUMMARY_ROW_RE.match(row) for row in geometry[0])
             if match is not None
         ]
+        if len(recovered) > len(accounts):
+            accounts = recovered
     # Zero: the summary block did not read, so there is no oracle. More than
     # one: a multi-account document the single-account schema cannot carry.
     if len(accounts) != 1:

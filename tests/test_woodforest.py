@@ -480,3 +480,87 @@ def test_the_summary_region_survives_a_page_break():
         "Checking 1205009515 1,000.00 300.00 500.00 1,200.00",
         "Savings 1205009516 500.00 0.00 0.00 500.00",
     ]
+
+
+def test_geometry_wins_the_account_count_when_the_text_layer_breaks_one_row():
+    """CLAIM-5. The earlier rule consulted geometry only when the flattened
+    region yielded NOTHING, and that has a document shape behind it: the text
+    layer breaks this summary row, and it can break one row of two. Text then
+    reads 1, geometry reads 2, and trusting text whenever text found something
+    publishes both accounts' postings under one account's oracle.
+
+    The guard exists for exactly that document, so the larger count wins.
+    """
+    partly_broken = (
+        HEADER
+        + "Checking 1205009515 1,000.00 300.00 500.00 1,200.00\n"   # this one reads
+        + "Savings 1205009516 500.00 0.00 0.00\n500.00\n"           # this one does not
+        + GRID
+    )
+    # The flattened region finds exactly one account, and on its own would publish.
+    from analysis.woodforest import _accounts
+    assert len(_accounts(partly_broken)) == 1
+    assert parse_woodforest_statement(
+        partly_broken + "03-02 200.00 800.00 POS DB ONE\n"
+    ) is not None
+
+    # With the column read seeing both, the document fails closed.
+    assert parse_woodforest_statement(with_block(
+        partly_broken,
+        "WOODFOREST_SUMMARY|Checking 1205009515 1,000.00 300.00 500.00 1,200.00",
+        "WOODFOREST_SUMMARY|Savings 1205009516 500.00 0.00 0.00 500.00",
+        "WOODFOREST_TX|03-02||200.00|800.00|POS DB ONE",
+    )) is None
+
+
+def test_a_credit_carrying_the_overdrawn_minus_is_refused_not_normalised():
+    """The printed column and the printed sign are two statements about one
+    cell. This layout sets a trailing minus on overdrawn figures, so a Credits
+    cell can arrive saying both "this increased the balance" and "this did
+    not". Publishing it as a credit with a negative amount breaks the
+    platform's direction rule; `abs`-ing it picks a winner silently. J9.6
+    refuses the same contradiction at the summary level."""
+    text = with_block(
+        SIMPLE,
+        "WOODFOREST_TX|03-02|200.00-||800.00|CONTRADICTORY",
+    )
+    assert parse_woodforest_statement(text) is None
+
+
+def test_an_unsigned_credit_in_the_same_shape_still_reads():
+    """The control for the test above: it is the SIGN that refuses, not the
+    column or the row shape."""
+    text = with_block(
+        document(
+            "Business Simple Checking 1205009515 1,000.00 0.00 200.00 1,200.00",
+            "03-02 200.00 1,200.00 FINE",
+        ),
+        "WOODFOREST_TX|03-02|200.00||1,200.00|FINE",
+    )
+    stmt = parse_woodforest_statement(text)
+    assert stmt.transactions[0].amount == 200.00
+    assert stmt.transactions[0].direction == "credit"
+
+
+def test_the_memoised_page_text_cannot_be_mutated_by_one_caller_for_another():
+    """`_native_pages` is memoised because every rung of the ladder calls it
+    and an un-memoised one re-extracts per rung, on every native document in
+    the archive. Two extractors in that file — Navy Federal's and this one —
+    append their structured block to `pages[0]`, so the cache must hand out a
+    fresh list each time or the first caller's edit becomes the second
+    caller's input."""
+    import fitz
+    from ocr.native_text import _native_pages
+
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((50, 50), "A PAGE OF TEXT")
+    raw = doc.tobytes()
+    doc.close()
+
+    first = _native_pages(raw)
+    original = first[0]
+    first[0] = "MUTATED BY THE FIRST CALLER"
+    second = _native_pages(raw)
+    assert second[0] == original
+    assert first is not second
