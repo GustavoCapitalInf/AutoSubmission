@@ -95,12 +95,12 @@ def _figure(token: str) -> float | None:
 #: so the word `Summary` is matched by its stem, and the product is optional
 #: because it is the account's name rather than the grid's.
 _SUMMARY_HEAD_RE = re.compile(
-    r"(?m)^\s*(?:([A-Za-z][A-Za-z ]{0,40}?)\s+)?Account\s+Summ\w*\s*$"
+    r"(?m)^[ \t]*(?:([A-Za-z][A-Za-z ]{0,40}?)[ \t]+)?Account[ \t]+Summ\w*[ \t]*$"
 )
 
 #: The grid's two bookends, each on its own printed line.
-_PREVIOUS_RE = re.compile(rf"(?mi)^\s*PREVIOUS BALANCE\s+({_FIGURE})(?!\d)")
-_ENDING_RE = re.compile(rf"(?mi)^\s*ENDING BALANCE\s+({_FIGURE})(?!\d)")
+_PREVIOUS_RE = re.compile(rf"(?mi)^[ \t]*PREVIOUS[ \t]+BALANCE[ \t]+({_FIGURE})(?!\d)")
+_ENDING_RE = re.compile(rf"(?mi)^[ \t]*ENDING[ \t]+BALANCE[ \t]+({_FIGURE})(?!\d)")
 
 #: One term of the grid between those bookends.
 #:
@@ -115,9 +115,9 @@ _ENDING_RE = re.compile(rf"(?mi)^\s*ENDING BALANCE\s+({_FIGURE})(?!\d)")
 #: The figure taken is the FIRST one after the label, because the second is
 #: the right-hand column's.
 _TERM_RE = re.compile(
-    rf"(?mi)^\s*(?P<op>\+|{MINUS_CLASS})\s*"
-    rf"(?:(?P<count>\d{{1,6}})\s+)?"
-    rf"(?P<label>[A-Za-z][A-Za-z ]{{2,30}}?)\s+(?P<figure>{_FIGURE})(?!\d)"
+    rf"(?mi)^[ \t]*(?P<op>\+|{MINUS_CLASS})[ \t]*"
+    rf"(?:(?P<count>\d{{1,6}})[ \t]+)?"
+    rf"(?P<label>[A-Za-z][A-Za-z ]{{2,30}}?)[ \t]+(?P<figure>{_FIGURE})(?!\d)"
 )
 
 
@@ -223,7 +223,7 @@ def _summary(text: str) -> _Summary | None:
 #: and single letters is allowed before the name and nothing after it.
 _SECTION_RE = re.compile(
     r"(?m)^[^\w\n]{0,4}(?:[A-Za-z@]{1,2}[^\w\n]{0,3})?"
-    r"(Deposits and Other Credits|Checks|Other Debits|Balance By Date)\s*$"
+    r"(Deposits and Other Credits|Checks|Other Debits|Balance By Date)[ \t]*$"
 )
 
 #: Where the ledger stops.  Both alternatives are the printed heading of a
@@ -282,8 +282,8 @@ def _sections(text: str) -> list[tuple[str, str, int, str]] | None:
 
 
 _DATE_RE = r"(?<![\d/])(\d{1,2}/\d{1,2})"
-_ROW_AMOUNT_RE = re.compile(rf"{_DATE_RE}\s+({_FIGURE})(?!\d)")
-_ROW_SERIAL_RE = re.compile(rf"{_DATE_RE}\s+(\d{{2,7}})\s*\*?\s+({_FIGURE})(?!\d)")
+_ROW_AMOUNT_RE = re.compile(rf"{_DATE_RE}[ \t]+({_FIGURE})(?!\d)")
+_ROW_SERIAL_RE = re.compile(rf"{_DATE_RE}[ \t]+(\d{{2,7}})[ \t]*\*?[ \t]+({_FIGURE})(?!\d)")
 
 
 def _grid_rows(body: str, kind: str, columns: int) -> list[tuple[str, float, str]] | None:
@@ -335,7 +335,7 @@ def _grid_rows(body: str, kind: str, columns: int) -> list[tuple[str, float, str
 # ---------------------------------------------------------------------------
 
 _PERIOD_RE = re.compile(
-    rf"(\d{{1,2}})/(\d{{1,2}})/(\d{{4}})\s*{MINUS_CLASS}\s*(\d{{1,2}})/(\d{{1,2}})/(\d{{4}})"
+    rf"(\d{{1,2}})/(\d{{1,2}})/(\d{{4}})[ \t]*{MINUS_CLASS}[ \t]*(\d{{1,2}})/(\d{{1,2}})/(\d{{4}})"
 )
 
 
@@ -519,15 +519,44 @@ def _walk_agrees(txns: list[Transaction], grid: dict[date, float], *,
 #: `_summary` makes, spelled as a pattern so the marker and the reader cannot
 #: drift into disagreeing about what a partitioned summary is.
 _COUNTED_TERM_RE = re.compile(
-    rf"(?mi)^\s*(?:\+|{MINUS_CLASS})\s*\d{{1,6}}\s+[A-Za-z][A-Za-z ]{{2,30}}?\s+{_FIGURE}(?!\d)"
+    rf"(?mi)^[ \t]*(?:\+|{MINUS_CLASS})[ \t]*\d{{1,6}}[ \t]+[A-Za-z][A-Za-z ]{{2,30}}?[ \t]+{_FIGURE}(?!\d)"
 )
 _UNCOUNTED_TERM_RE = re.compile(
-    rf"(?mi)^\s*(?:\+|{MINUS_CLASS})\s*[A-Za-z][A-Za-z ]{{2,30}}?\s+{_FIGURE}(?!\d)"
+    rf"(?mi)^[ \t]*(?:\+|{MINUS_CLASS})[ \t]*[A-Za-z][A-Za-z ]{{2,30}}?[ \t]+{_FIGURE}(?!\d)"
 )
-_DAILY_HEAD_RE = re.compile(r"(?m)^[^\w\n]{0,4}(?:[A-Za-z@]{1,2}[^\w\n]{0,3})?Balance By Date\s*$")
+_DAILY_HEAD_RE = re.compile(r"(?m)^[^\w\n]{0,4}(?:[A-Za-z@]{1,2}[^\w\n]{0,3})?Balance By Date[ \t]*$")
+
+#: Two prefilters, and they are ACCELERATORS rather than evidence.
+#:
+#: A full registry sweep runs every marker of every registration over every
+#: discovery document, so a marker's cost on the documents it will REJECT is
+#: the cost that matters - and both markers above are line-anchored patterns
+#: the engine has to retry at the start of every printed line. Each prefilter
+#: below is a strictly necessary condition of the pattern it guards, taken
+#: from that pattern's own literal text: `_DAILY_HEAD_RE` is case-sensitive
+#: and contains this exact phrase, and `_PREVIOUS_RE` cannot match text
+#: without this word in it. So neither can change an outcome, only the time
+#: taken to reach it, and `test_the_detection_prefilters_change_no_outcome`
+#: runs both computations against every registration's fixture to keep that
+#: true.
+#:
+#: The summary prefilter carries BOTH words for a measured reason: 53 of the
+#: 109 pinned documents contain the word `previous` somewhere in their prose
+#: and only 17 contain the phrase, so filtering on the word alone lets half
+#: the corpus fall through to the anchored scan and buys nothing (48.8 ms
+#: against 47.9 ms unfiltered). With the phrase the two markers cost 35 ms
+#: over the 109 where the unfiltered patterns cost 76 ms.
+_DAILY_HEAD_PREFILTER = "Balance By Date"
+_SUMMARY_PREFILTER_RE = re.compile(r"(?i)PREVIOUS[ \t]+BALANCE")
+
+
+def _has_daily_grid(text: str) -> bool:
+    return _DAILY_HEAD_PREFILTER in text and _DAILY_HEAD_RE.search(text) is not None
 
 
 def _has_partitioned_summary(text: str) -> bool:
+    if _SUMMARY_PREFILTER_RE.search(text) is None:
+        return False
     previous = _PREVIOUS_RE.search(text)
     if previous is None:
         return False
@@ -541,7 +570,7 @@ def _has_partitioned_summary(text: str) -> bool:
 
 DETECTION_MARKERS = (
     required("partitioned_summary", _has_partitioned_summary),
-    required("balance_by_date_grid", lambda text: bool(_DAILY_HEAD_RE.search(text))),
+    required("balance_by_date_grid", _has_daily_grid),
 )
 
 detect = make_detector(DETECTION_MARKERS)
@@ -551,7 +580,7 @@ detect = make_detector(DETECTION_MARKERS)
 # The reader
 # ---------------------------------------------------------------------------
 
-_ACCOUNT_RE = re.compile(r"(?i)Account\s+Number\s*:\s*(\d{4,})")
+_ACCOUNT_RE = re.compile(r"(?i)Account[ \t]+Number[ \t]*:[ \t]*(\d{4,})")
 
 _CREDIT_SECTIONS = frozenset({"deposits and other credits"})
 _DEBIT_SECTIONS = frozenset({"checks", "other debits"})

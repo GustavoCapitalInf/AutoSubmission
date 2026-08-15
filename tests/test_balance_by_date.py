@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import pytest
 
+from analysis import balance_by_date as bbd
 from analysis.balance_by_date import (
     _partition_holds,
     _summary,
@@ -529,3 +530,36 @@ def test_documents_that_are_not_this_template_are_not_claimed(text):
 
 def test_parse_rechecks_detection_and_never_trusts_the_caller():
     assert parse("a lease agreement, not a bank statement") is None
+
+
+def test_the_detection_prefilters_change_no_outcome():
+    """Both markers are guarded by a cheap literal prefilter so the sweep does
+    not pay a line-anchored scan on documents it will reject. Each prefilter
+    is a strictly necessary condition of the pattern behind it, so it may only
+    make the marker faster - never quieter. Run against every registration's
+    conformance fixture, this cell's own documents, and the mutants above.
+    """
+    from tests.data.parser_conformance_fixtures import ALTERNATE_FIXTURES, FIXTURES
+
+    corpus = [
+        *FIXTURES.values(),
+        *(doc for docs in ALTERNATE_FIXTURES.values() for doc in docs),
+        document(),
+        document(summary=FOLDED_SUMMARY),
+        document(daily=""),
+        OVERDRAWN,
+        "PREVIOUS BALANCE 1.00\nENDING BALANCE 1.00\nBalance By Date\n",
+        "balance by date\nprevious balance 1.00\n",
+        "",
+    ]
+    for text in corpus:
+        assert bbd._has_daily_grid(text) == bool(bbd._DAILY_HEAD_RE.search(text))
+        gated = bbd._has_partitioned_summary(text)
+        previous = bbd._PREVIOUS_RE.search(text)
+        ending = previous and bbd._ENDING_RE.search(text, previous.end())
+        ungated = bool(
+            ending
+            and bbd._COUNTED_TERM_RE.search(text[previous.end():ending.start()])
+            and bbd._UNCOUNTED_TERM_RE.search(text[previous.end():ending.start()])
+        )
+        assert gated == ungated, text[:60]
