@@ -241,6 +241,41 @@ def test_dispatch_section_never_carries_the_parsed_statement():
     assert "statement" not in json.dumps(section)
 
 
+def test_dispatch_section_never_carries_the_prepared_document():
+    """`Dispatch.prepared` is the document's text, so it is the same class of
+    thing as `Dispatch.statement` and gets the same treatment (#PREPHAND).
+
+    The key-set assertion above would already fail on a new key; this says
+    which key and why, and checks the text itself is absent rather than
+    trusting that no field spells it.
+    """
+    collector = DispatchCollector()
+    analyze_markdown(claimed_markdown(), parse_mode="deterministic", on_dispatch=collector)
+    assert collector.prepared is not None, "vacuous unless something was published"
+
+    section = dispatch_section(collector.dispatch, [], 46, source="live")
+    assert "prepared" not in section
+    snippet = collector.prepared.admissible[500:600]
+    assert snippet.strip(), "vacuous unless the snippet is real document text"
+    assert snippet not in json.dumps(section)
+
+
+def test_the_report_never_carries_the_prepared_document():
+    """The retention question, structurally: what outlives the analysis.
+
+    `Dispatch.prepared` holds ~5x the document's characters and now lives as
+    long as its `Dispatch`, which is safe only because nothing retains a
+    `Dispatch` — it is deliberately not a `Report` field, and the collector is
+    rebuilt per document. That is the fact this pins.
+    """
+    from analysis.parser_registry import Dispatch, PreparedDocument
+
+    report = analyze_markdown(claimed_markdown(), parse_mode="deterministic")
+    held = list(vars(report).values())
+    assert not any(isinstance(value, (PreparedDocument, Dispatch)) for value in held)
+    assert "prepared" not in json.dumps(report_to_dict(report), sort_keys=True, default=str)
+
+
 # --- parser crashes (W3-1) --------------------------------------------------
 
 
@@ -304,6 +339,191 @@ def test_score_vector_is_capped_and_says_so():
     assert len(section["scores"]) == SCORE_CAP
     assert section["scores_capped"] is True
     assert dispatch_section(None, long_vector[:2], 46, source="live")["scores_capped"] is False
+
+
+# --- the double sweep: the near-miss vector reuses the analysis sweep -------
+#
+# `analyze_markdown` sweeps the registry to route the document and this module
+# sweeps it again to record what nearly claimed it. The second sweep is
+# admissible because `detect` is pure — but purity made it correct, not free,
+# and it was re-preparing text the first sweep had just produced (#PREPHAND).
+
+
+def _analysed_collector() -> DispatchCollector:
+    collector = DispatchCollector()
+    analyze_markdown(claimed_markdown(), parse_mode="deterministic", on_dispatch=collector)
+    return collector
+
+
+def test_the_collector_publishes_the_preparation_the_analysis_swept():
+    collector = _analysed_collector()
+    from analysis.parser_registry import PreparedDocument, admissible_text
+
+    assert isinstance(collector.prepared, PreparedDocument)
+    assert collector.prepared.admissible == admissible_text(claimed_markdown())
+    assert collector.prepared.preparations > 1, (
+        "the real registry normalizes; a document that cost one preparation "
+        "would make the reuse assertions vacuous"
+    )
+
+
+def test_the_near_miss_sweep_prepares_nothing_when_given_the_collector(monkeypatch):
+    """The handoff, in operations: no second preparation of any text."""
+    from analysis import parser_registry as pr
+
+    collector = _analysed_collector()
+    swept = collector.prepared.preparations
+
+    prepares: list[str] = []
+    real = pr.prepare
+    monkeypatch.setattr(pr, "prepare", lambda md: prepares.append(md) or real(md))
+
+    scores, registrations = score_vector(claimed_markdown(), collector)
+
+    assert prepares == [], "the near-miss sweep prepared the document a second time"
+    assert collector.prepared.preparations == swept, (
+        "the near-miss sweep re-ran a normalization the analysis had already run"
+    )
+    assert scores and registrations >= 43
+
+
+def test_the_near_miss_vector_is_identical_with_and_without_the_collector():
+    """The equivalence the reuse has to earn, on a real claimed document."""
+    assert score_vector(claimed_markdown(), _analysed_collector()) == score_vector(
+        claimed_markdown()
+    )
+
+
+def test_a_collector_from_another_document_is_ignored():
+    """The guard, and the proof it is not vacuous: the foreign preparation
+    really would have produced a different vector."""
+    from analysis.parser_registry import prepare, resolve
+
+    foreign_text = "<!-- SOURCE: x.pdf -->\nnothing any parser here has heard of"
+    foreign = DispatchCollector()
+    foreign(resolve(prepare(foreign_text)))
+    assert foreign.prepared is not None
+
+    assert score_vector(foreign_text)[0] != score_vector(claimed_markdown())[0]
+    assert score_vector(claimed_markdown(), foreign) == score_vector(claimed_markdown())
+
+
+def test_a_str_subclass_cannot_talk_its_way_into_another_documents_preparation():
+    """The `Sticky` hazard `PreparedDocument.text_for` documents, one level out.
+
+    A `str` subclass that compares equal to everything would pass a naive
+    guard and be handed a foreign document's prepared texts — a near-miss
+    vector describing the wrong document. It cannot: both sides of the
+    comparison are values `admissible_text` returned, and `re.sub` produces an
+    exact `str` whatever it was given.
+    """
+    from analysis.parser_registry import prepare, resolve
+
+    class Sticky(str):
+        def __eq__(self, other):
+            return True
+
+        def __hash__(self):
+            return 0
+
+    foreign = DispatchCollector()
+    foreign(resolve(prepare("<!-- SOURCE: x.pdf -->\nnothing any parser here has heard of")))
+
+    assert score_vector(Sticky(claimed_markdown()), foreign) == score_vector(claimed_markdown())
+
+
+class _Sticky(str):
+    """A `str` that claims to equal anything it is compared with."""
+
+    def __eq__(self, other):
+        return True
+
+    def __hash__(self):
+        return 0
+
+
+class _NotAPreparation:
+    """Duck-typed: it has the attribute the guard reads, and nothing else."""
+
+    admissible = _Sticky("anything at all")
+
+
+class _FakeDispatch:
+    prepared = _NotAPreparation()
+
+
+def test_a_duck_typed_preparation_is_ignored_rather_than_swept():
+    """The type half of the guard, and why it is not belt-and-braces.
+
+    `detection_report` PREPARES anything that is not a `PreparedDocument`, so
+    an object that merely compared equal would be handed to `admissible_text`
+    as a non-string and raise — out of `score_vector`, through
+    `discovery/runner.py`'s one call site that is not inside a `try`, aborting
+    a document over a telemetry detail. The hazard is real (asserted below);
+    the `isinstance` is what makes it unreachable.
+    """
+    from analysis.parser_registry import detection_report
+
+    with pytest.raises(TypeError):
+        detection_report(_NotAPreparation())
+
+    collector = DispatchCollector()
+    collector(_FakeDispatch())
+    assert collector.prepared is not None
+
+    assert score_vector(claimed_markdown(), collector) == score_vector(claimed_markdown())
+
+
+def test_the_guard_is_free_when_the_document_carries_no_source_comment(monkeypatch):
+    """Both branches of the guard, and which one production takes.
+
+    `re.sub` returns the string it was given when it substitutes nothing, so a
+    document with no source comment IS its own admissible text and the
+    identity branch decides it for free. Production takes the other branch —
+    the OCR and native-text layers write a `<!-- SOURCE: ... -->` header on
+    every document they produce — and pays exactly one `admissible_text` for
+    the equality.
+    """
+    from analysis import parser_registry as pr
+
+    raw = claimed_markdown()
+    stripped = pr.admissible_text(raw)
+    assert stripped != raw, "vacuous unless the corpus document carries the header"
+
+    bare = DispatchCollector()
+    analyze_markdown(stripped, parse_mode="deterministic", on_dispatch=bare)
+    assert bare.prepared.admissible is stripped, "re.sub no longer returns its input"
+    header = _analysed_collector()  # built BEFORE the counter, or it counts itself
+
+    calls: list[str] = []
+    real = pr.admissible_text
+    monkeypatch.setattr(pr, "admissible_text", lambda text: calls.append(text) or real(text))
+    free = score_vector(stripped, bare)
+    assert calls == [], "the identity branch should decide this without a strip"
+
+    paid = score_vector(raw, header)
+    assert len(calls) == 1, f"the header path should cost exactly one strip, not {len(calls)}"
+
+    monkeypatch.setattr(pr, "admissible_text", real)
+    assert free == score_vector(stripped)
+    assert paid == score_vector(raw)
+
+
+def test_a_collector_that_never_saw_a_dispatch_is_ignored():
+    """The D-3 analysis cache hit: nothing dispatched, so nothing to reuse."""
+    assert score_vector(claimed_markdown(), DispatchCollector()) == score_vector(
+        claimed_markdown()
+    )
+
+
+def test_the_collector_offers_no_preparation_when_handed_nonsense():
+    """The collector's contract is that it keeps what it was given; reading a
+    preparation off it must not become a new way for telemetry to raise."""
+    collector = DispatchCollector()
+    for value in (None, object(), 42, "not-a-dispatch"):
+        collector(value)
+        assert collector.prepared is None
+    assert collector.errors == 0
 
 
 # --- cost -------------------------------------------------------------------

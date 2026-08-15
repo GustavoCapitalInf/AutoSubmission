@@ -141,7 +141,11 @@ def _emit(
     """
     try:
         sink = open_sqlite_sink(getattr(store, "storage", None))
-        scores, registration_count = score_vector(markdown) if markdown else ([], 0)
+        # The collector holds this job's dispatch, so the near-miss sweep
+        # reuses its prepared text instead of preparing the document a second
+        # time (#PREPHAND). Guarded on the text inside `score_vector`: on a
+        # D-3 analysis cache hit nothing dispatched and the sweep runs whole.
+        scores, registration_count = score_vector(markdown, collector) if markdown else ([], 0)
         dispatch = dispatch_section(
             collector.dispatch,
             scores,

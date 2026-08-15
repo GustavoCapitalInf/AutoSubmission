@@ -657,7 +657,12 @@ class DiscoveryRunner:
         # would otherwise have carried. Hoisted above the projection because
         # both consumers need it; `score_vector` is pure, so where it is called
         # changes nothing it returns.
-        scores, registration_count = score_vector(markdown)
+        # `collector` is the dispatch of record for THIS markdown — rebound
+        # above when a visual re-read was adopted — so the near-miss sweep
+        # reuses the preparation the analysis already paid for (#PREPHAND).
+        # It is a hint, not an instruction: `score_vector` re-derives the
+        # admissible text and ignores anything that does not match it.
+        scores, registration_count = score_vector(markdown, collector)
 
         dispatch = collector.dispatch
         if dispatch is not None:
@@ -733,7 +738,7 @@ class DiscoveryRunner:
             return
         try:
             if scores is None:
-                scores = score_vector(markdown) if markdown else ([], 0)
+                scores = score_vector(markdown, collector) if markdown else ([], 0)
             vector, registration_count = scores
             self.sink.write(build_record(
                 run_id=self.run_id,

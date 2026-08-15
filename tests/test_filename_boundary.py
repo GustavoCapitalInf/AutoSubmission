@@ -277,6 +277,38 @@ def test_the_boundary_is_idempotent_at_the_parse_seam(parser_id):
     assert left == right
 
 
+def test_the_boundary_is_the_detect_sweeps_own_preparation(monkeypatch):
+    """Where the rebind comes from, now that it comes from `prepare` (#PREPHAND).
+
+    `PreparedDocument`'s first act is `admissible_text(markdown)` — the same
+    function this module has always pinned — and the pipeline takes its
+    admissible text from there rather than computing it alongside. The risk
+    that buys the second sweep's preparation is that the boundary quietly
+    becomes something else, so this asserts the three facts that would move:
+    the document is prepared ONCE, from the raw text; the sweep runs on that
+    preparation; and the text it exposes is `admissible_text` of the input,
+    character for character.
+    """
+    from analysis import pipeline as pipeline_module
+    from analysis.parser_registry import PreparedDocument
+
+    raw = _markdown(FIXTURES["chase"], "some operator name 2020.pdf")
+    prepared_from: list[str] = []
+    swept: list[object] = []
+    real_prepare, real_resolve = pipeline_module.prepare, pipeline_module.resolve
+    monkeypatch.setattr(pipeline_module, "prepare",
+                        lambda md: prepared_from.append(md) or real_prepare(md))
+    monkeypatch.setattr(pipeline_module, "resolve",
+                        lambda doc: swept.append(doc) or real_resolve(doc))
+
+    report = analyze_markdown(raw, parse_mode="deterministic")
+
+    assert prepared_from == [raw], "the analysis prepared its document more than once"
+    assert len(swept) == 1 and isinstance(swept[0], PreparedDocument)
+    assert swept[0].admissible == admissible_text(raw)
+    assert report.statement.transactions, "vacuous: the fixture must still parse"
+
+
 # ---------------------------------------------------------------------------
 # The two non-parser consumers of the raw markdown (SC-FILENAME survey)
 # ---------------------------------------------------------------------------

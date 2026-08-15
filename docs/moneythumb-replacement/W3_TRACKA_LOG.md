@@ -22252,3 +22252,782 @@ rung runs. That is the last line of the test, and it still passes.
 | `93b0818` | the escalation-guard test moved to the sharper assertion; DO0-DO8 |
 | `1bccead` | DO9-DO10, the archive figures and the proof block |
 | (this one) | **review closures**: DO2 property 3 rewritten honestly + the REGFP card (DO7#5); the `dispatch_inconclusive` split; the DO4 fiserv_premier softening; the DO5 `attempted`/`parser_exceptions` and DO8 tally corrections; `b7b40c73` retained |
+# §PREPHAND — the second sweep prepared the whole document all over again
+
+## PH0. Summary
+
+Every document on the production path is swept TWICE. `analysis.pipeline.
+analyze_markdown` sweeps the registry through `resolve` to route it, and
+`telemetry/collect.score_vector` sweeps it again through `detection_report` to
+record what nearly claimed it. The second sweep is honest — H3_SCHEMA §4
+admits it because `detect` is pure and total, so re-running it reproduces the
+run of record rather than re-enacting it — but purity is what made it
+*correct*, not what made it *cheap*. DETECT-BUDGET reduced ONE sweep from 104
+text preparations to 33 and carried the rest as DT9.1: the second sweep was
+still paying the whole preparation again, recomputing character for character
+the texts the first sweep had just produced.
+
+It is fixed by publication, not by caching. `resolve` now returns the
+`PreparedDocument` it swept on as `Dispatch.prepared`; the `DispatchCollector`
+that already crosses the analysis/telemetry seam exposes it; and
+`score_vector` takes it **only when its admissible text is this document's
+admissible text**, which is exactly the condition under which the two sweeps
+are the same computation. The pipeline's admissibility rebind is taken from
+that same preparation, so one document now costs one preparation instead of
+two plus a spare strip.
+
+| | base | branch |
+|---|---|---|
+| text preparations per document, both sweeps (largest pinned and largest archive document alike) | **71** (3 strips + 68 normalizations) | **36** (2 strips + 34 normalizations) |
+| worst pinned document, best of five, double sweep | 325.4 ms | **166.6 ms** |
+| largest pinned document (62,702 chars) | 301.2 ms | **135.0 ms** |
+| one pass over the 109 pinned | 10.44 s | **4.94 s** |
+| 40 largest archive documents, worst (139,737 chars) | 758.8 ms | **366.5 ms** |
+| 40 largest archive documents, median | 430.6 ms | **188.1 ms** |
+| the same seven readings, arms measured in the opposite order an hour later | | **1.63x-2.62x, PH6** |
+| full-archive equivalence pass (3,351 docs, sweep + parse + serialize) | 10 min 52 s | **7 min 3 s** |
+
+Equivalence: 3,351 archive documents, every registration's `(score, matched
+marker ids, excluded_by)`, the near-miss vector as `discovery/runner.py`
+formats it, the dispatch of record, the SHA-256 of the text `parse` was handed
+and of the parsed `Statement` — one digest per arm,
+`75871FEEC01AC72E994C8D9D44C96D5C2E46BC092D6F501020FFFD3BD08EDC4F`, documents
+differing **0**. Re-run with six crash injections: digest
+`9B73F75DCF8698C3A3A93841A646E9DF00F03F6DAA97862537DB93C8D4DDC3F6`, documents
+differing **0**, **27,544 raise events per arm** — each detect crasher raising
+exactly twice per document, once per sweep, which is the number that would
+have dropped if the reused preparation had served a cached score in place of
+entering the guard.
+
+## PH1. What the double sweep is, and why it is not removable
+
+The two sweeps answer different questions and neither is redundant:
+
+* `resolve` decides the outcome. It runs `detect` for every registration,
+  prunes by `supersedes`, refuses on ambiguity, then parses the survivors.
+* `detection_report` describes the field. It keeps every registration's
+  `Detection` including the ones that scored zero-point-something — the
+  near-miss vector, which is how a coverage wave learns that 164 documents sit
+  at `bmo:0.166667` and which parser cell to write next.
+
+`Dispatch` carries only the claimants; the near-misses are gone by the time it
+is built, and `dispatch_section` cannot reconstruct them (H3_SCHEMA §4 states
+exactly this, and rejected "recover them from `Dispatch`" for that reason). So
+the second sweep stays. What was removable is that it re-derived the *inputs*
+to detection, which are a property of the document, not of the sweep asking.
+
+## PH2. The seam
+
+Three facts make the reuse exact rather than approximate, and all three are
+DETECT-BUDGET's, one consumer further on:
+
+1. `PreparedDocument` holds `admissible_text(markdown)` and each distinct
+   normalizer's output. Both are pure functions of the text (the module
+   contract for `normalize`, and `tests/test_parser_registry_entries.py::
+   test_each_registrations_normalization_returns_an_exact_str` keeps the
+   interning path total over all 71 registrations).
+2. It holds a memo of `(marker test, text) -> outcome`. `Marker.test` is pure,
+   total and cheap by contract, so a memo hit is the value the call would have
+   returned.
+3. A marker that RAISES is never memoized (`_score`), and neither is a
+   normalizer that raises (`text_for` stores nothing until it has a value), so
+   the second sweep enters `_guarded` exactly as the first did.
+
+Therefore: **two sweeps over prepared documents with equal admissible text
+produce equal reports.**
+
+**And say what that makes the second sweep, because "reuses the preparation"
+undersells it (D5).** Fact 2 means the memo covers the MARKERS, not only the
+texts, so the second sweep is not a cheaper sweep — it is a replay. Measured
+on the largest pinned document, with one counting wrapper per distinct marker
+test so the instrument shares exactly what the memo shares:
+
+| | base | branch |
+|---|---|---|
+| `Marker.test` calls, sweep one | 190 | 190 |
+| `Marker.test` calls, sweep two | 190 | **0** |
+| memo entries retained | — | 190 |
+
+Zero. Every `Detection` the near-miss vector publishes with a collector is
+assembled from values the first sweep computed. H3_SCHEMA §4 admits this sweep
+on the grounds that "re-running `detect` reproduces the run of record"; with a
+collector the record is reproduced by **not** re-running it. That is the same
+value for the same reason — `Marker.test` and the normalizers are pure by
+contract, which is what §4's argument rests on too — but it is a different
+mechanism from the one §4 describes, and it belongs in the record as such
+rather than inside a sentence about preparation counts. The one thing that is
+never replayed is a crash (fact 3), and the crash arm is the evidence that the
+guard path stays live rather than the argument that it should: 2 raises per
+crashing registration per document, 27,544 in all, identical on both arms
+(PH5.1).
+
+The seam is built so that "equal admissible text" is checked rather than
+assumed:
+
+* `resolve(document)` accepts a `str` or a `PreparedDocument` — `safe_detect`'s
+  existing convention — and publishes what it swept as `Dispatch.prepared`
+  (`compare=False`, so `Dispatch` equality is unchanged; `repr=False`, because
+  a `PreparedDocument` has no readable repr).
+* `DispatchCollector.prepared` reads it with `getattr`, because the collector's
+  standing contract is that it keeps whatever object it was handed, including
+  something that is not a `Dispatch`.
+* `score_vector(markdown, collector)` takes the preparation only when it **is
+  a `PreparedDocument`** (D4) and its admissible text is this document's:
+  `prepared.admissible is markdown` or `prepared.admissible ==
+  admissible_text(markdown)`. Anything else — a collector from another
+  document, a D-3 analysis cache hit that never dispatched, a visual re-read
+  that was not adopted, a duck-typed stand-in — is ignored and the sweep runs
+  whole. Passing nothing is always correct; passing the wrong thing is
+  ignored.
+
+  The type half is not belt-and-braces: `detection_report` PREPARES whatever
+  is not a `PreparedDocument`, so an object that only *compared* equal would
+  reach `admissible_text` as a non-string and raise, out through
+  `discovery/runner.py`'s one call site that is not inside a `try`. The
+  identity half is not decoration either: `re.sub` returns the string it was
+  handed when it substitutes nothing, so a document with no source comment IS
+  its own admissible text and the guard is free on it. Production takes the
+  other branch, because the OCR and native-text layers write a `<!-- SOURCE:
+  … -->` header on every document they produce — which is the only reason the
+  cost table below says one strip and not zero.
+
+The guard costs one `admissible_text` (one of the 36 remaining preparations,
+against the 34 it decides whether to skip). It is kept, at that price, because
+the alternative is a near-miss vector that could describe a different
+document, and near-miss vectors are what rank the next parser cells.
+
+## PH3. The hunks
+
+**`analysis/pipeline.py`** — the resolve seam, lines 509→520-521 and 512→524 of
+the base file (**PIPELINE-5 works :542 and :545 of the base, which this hunk
+moves to :554 and :557 — twelve lines down, thirty lines away from anything it
+touches**):
+
+```python
+-    markdown = admissible_text(markdown)
++    #
++    # The rebind is taken FROM the detect sweep's own preparation rather than
++    # computed beside it (W3 #PREPHAND). `PreparedDocument` begins by computing
++    # exactly `admissible_text(markdown)` — the same function on the same
++    # string, so the boundary is where it was and says what it said — and then
++    # holds each parser's normalization of that text for the sweep. Passing the
++    # object to `resolve` instead of the string is what makes one document cost
++    # one preparation: `resolve` sweeps on it and publishes it as
++    # `Dispatch.prepared`, and telemetry's near-miss vector — a SECOND full
++    # sweep over the same document, per H3_SCHEMA §4 — reuses it instead of
++    # preparing everything a second time.
++    prepared = prepare(markdown)
++    markdown = prepared.admissible
+
+     model_used = settings.model
+-    dispatch = resolve(markdown)
++    dispatch = resolve(prepared)
+```
+
+with `admissible_text` swapped for `prepare` in the `parser_registry` import
+list. The rebind is the same computation on the same string:
+`PreparedDocument.__init__` is `self._admissible = admissible_text(markdown)`.
+
+**`analysis/parser_registry.py`** — four additive hunks, no behaviour change:
+
+```python
+ class Dispatch:
+     ...
+     statement: Statement | None = field(default=None, compare=False)
++    prepared: PreparedDocument | None = field(default=None, compare=False, repr=False)
+
+ def _surviving_claimants(
+-    markdown: str, failures: list | None = None
++    document: str | PreparedDocument, failures: list | None = None
+ ) -> list[tuple[Registration, Detection]]:
+-    prepared = prepare(markdown)
++    prepared = document if isinstance(document, PreparedDocument) else prepare(document)
+
+-def resolve(markdown: str) -> Dispatch:
++def resolve(document: str | PreparedDocument) -> Dispatch:
++    if isinstance(document, PreparedDocument):
++        prepared, markdown = document, document.admissible
++    else:
++        prepared, markdown = prepare(document), document
+     failures: list[ParserFailure] = []
+-    survivors = _surviving_claimants(markdown, failures)
++    survivors = _surviving_claimants(prepared, failures)
+     ...                                   # + `prepared=prepared` on all three returns
+
+-def detection_report(markdown: str) -> tuple[tuple[str, Detection], ...]:
+-    prepared = prepare(markdown)
++def detection_report(document: str | PreparedDocument) -> tuple[tuple[str, Detection], ...]:
++    prepared = document if isinstance(document, PreparedDocument) else prepare(document)
+```
+
+**`telemetry/collect.py`** — the collector exposes the preparation, and
+`score_vector` guards the reuse:
+
+```python
++    @property
++    def prepared(self) -> Any | None:
++        return getattr(self.dispatch, "prepared", None)
+
+-def score_vector(markdown: str) -> tuple[list[tuple[str, float]], int]:
++def score_vector(
++    markdown: str, collector: DispatchCollector | None = None
++) -> tuple[list[tuple[str, float]], int]:
+-    from analysis.parser_registry import detection_report, registrations
++    from analysis.parser_registry import admissible_text, detection_report, registrations
++
++    document: Any = markdown
++    prepared = collector.prepared if collector is not None else None
++    if prepared is not None:
++        admissible = getattr(prepared, "admissible", None)
++        if admissible is markdown or admissible == admissible_text(markdown):
++            document = prepared
+     scored = [
+         (parser_id, round(detection.score, 6))
+-        for parser_id, detection in detection_report(markdown)
++        for parser_id, detection in detection_report(document)
+         if detection.score > 0.0
+     ]
+```
+
+**The three emitters** — one argument each, at the line that already sits
+beside the collector they already hold (`discovery/runner.py` :489 and :544,
+`webapp/worker.py` :134, `batch.py` :188, base numbering):
+
+```python
+-        scores, registration_count = score_vector(markdown)
++        scores, registration_count = score_vector(markdown, collector)
+```
+
+## PH4. Two designs not taken
+
+**A module-level "last prepared document" slot in `telemetry/collect.py`,**
+consumed by an unchanged `score_vector(markdown)`. It needs no call-site
+change at all, which is why it was considered: the ownership line for this
+cell names `analysis/pipeline.py` and `telemetry/collect.py`, and the three
+emitters belong to WIRING-2 and DISCOVERY-OBS. It was rejected anyway. It
+couples two call sites through hidden mutable state, it needs a thread-local
+to be safe in the webapp's job thread, and it silently loses the optimization
+in exactly the case the explicit version gets right (the discovery runner's
+visual re-read that analysed and was NOT adopted, where the last dispatch and
+the markdown being recorded are different documents). Four one-argument edits,
+declared to Ocean with their line numbers, is the smaller price. **This is the
+one place this cell went outside its named files; the diff there is one
+argument per site and no logic.**
+
+**Having the emitters build the `PreparedDocument` and pass it INTO
+`analyze_markdown`.** Symmetric-looking, and strictly worse: a caller could
+then hand the pipeline a preparation of a DIFFERENT document, and detection
+would score document A while `parse` read document B. The direction chosen —
+the preparation flows OUT of the analysis and never in — makes that
+unrepresentable, and leaves the only mis-pairing risk on the telemetry side,
+where the text guard closes it.
+
+## PH5. The equivalence proof
+
+`prephand-5fb5b603/` in the session scratchpad, descended from DETECT-BUDGET's
+harness (DT9.7) and rebuilt for this wave's run of record: `ph_harness.py`
+(arm-selected production import, with the assertion that catches measuring the
+wrong arm; the OCR artifact index rebuilt by tail-reading every envelope, by
+DIRECT file path, never the sqlite index), `archive_md_v3.pkl` (**3,351 of the
+run of record's 3,380 shas**, 62.9 M chars, one pickle, so two arms provably
+sweep identical bytes), `ph_equiv.py`, `ph_crash.py`, `ph_compare.py`,
+`ph_measure.py`, `ph_ops.py`.
+
+**The 29 shas not in the store are the 29 that have no text at all** — 16
+`failed/invalid_pdf` and 13 `deferred/deferred_visual_ocr` in the run of
+record's own `rows.csv`, each with a null document in the D-3 store. Detection
+never runs on them, in either arm, so the corpus below is not a sample of the
+archive: it is every archive document a detect sweep can be performed on.
+
+Both arms run the production shape, per document:
+
+```
+BASE    dispatch = resolve(admissible_text(markdown))    # what the pipeline passes today
+        vector   = score_vector(markdown)                # a second, whole sweep
+BRANCH  prepared = prepare(markdown)                     # the pipeline's rebind
+        dispatch = resolve(prepared)
+        vector   = score_vector(markdown, collector)     # reuses the preparation
+```
+
+and record, per document: the outcome, parser id, winning score, candidates,
+attempted, exceptions; the SHA-256 of the text handed to `parse`; the SHA-256
+of the parsed `Statement` (`model_dump_json`); the whole score vector; the
+near-miss field exactly as `discovery/runner.py` formats it; and the COMPLETE
+detection report — all 71 registrations' score, matched marker ids and
+`excluded_by`.
+
+```
+documents: base 3351  branch 3351  shared 3351
+base   digest 75871FEEC01AC72E994C8D9D44C96D5C2E46BC092D6F501020FFFD3BD08EDC4F
+branch digest 75871FEEC01AC72E994C8D9D44C96D5C2E46BC092D6F501020FFFD3BD08EDC4F
+documents whose record differs: 0
+outcomes (branch): {'claimed': 2495, 'unclaimed': 856}
+claimed with a statement: 2495
+documents with a non-empty near-miss vector: 3188
+recorded parser failures: {}
+```
+
+The parsed `Statement` digest is in there deliberately: this is the
+zero-payload-movement claim at archive scale, not only the detection claim,
+and it is the same 2,495 statements byte for byte. `claimed` is not
+`validated` — the run of record validates 2,405 of 3,380 — and no outcome
+class is being asserted here, only that neither arm moved one.
+
+### PH5.1 The crash arm — the guard exercised on purpose
+
+`recorded parser failures: {}` is the whole reason this section exists. Not
+one of the 71 registrations raised on any of the 3,351 documents, so the sweep
+above never entered `_guarded` and proves nothing about it — DT7.1's caveat,
+which applies with more force here, because the second sweep is now reading a
+memo somebody else filled in. A memo that cached a crash as a score would be
+invisible in a proof made of documents where nothing crashes.
+
+Six synthetic registrations, covering every place a registration's own code
+runs, and one that is healthy:
+
+| injected | raises in |
+|---|---|
+| `zz_boom_required` | a REQUIRED marker |
+| `zz_boom_excluding` | an EXCLUDING marker — the first loop, before any other kind runs |
+| `zz_boom_exclusive` | an EXCLUSIVE marker |
+| `zz_boom_normalize` | the parser's own normalization — i.e. inside `PreparedDocument.text_for`, the memo itself |
+| `zz_boom_parse` | `parse`, claiming every document, so `resolve`'s parse loop is entered on all 3,351 |
+| `zz_shares_a_marker` | nothing; it shares a marker TEST OBJECT with three crashing siblings, so the prepared-text memo runs alongside the guard, and it cannot claim, so it does not disturb the routing |
+
+77 registrations × 3,351 documents, both arms, recording everything above plus
+the `ParserFailure` list and **a per-document count of how many times each
+injected registration actually raised, across both sweeps** — the number that
+falls if reuse ever swallows a crash:
+
+```
+base   digest 9B73F75DCF8698C3A3A93841A646E9DF00F03F6DAA97862537DB93C8D4DDC3F6
+branch digest 9B73F75DCF8698C3A3A93841A646E9DF00F03F6DAA97862537DB93C8D4DDC3F6
+documents whose record differs: 0
+
+raises, both arms, 27,544 each:
+   zz_boom_excluding  6702   = 2 x 3351   (once per sweep, per document)
+   zz_boom_exclusive  6702   = 2 x 3351
+   zz_boom_normalize  6702   = 2 x 3351
+   zz_boom_required   6702   = 2 x 3351
+   zz_boom_parse       736               (the parse loop, where it was sole claimant)
+
+recorded ParserFailures, both arms, 14,140 each:
+   ('zz_boom_excluding', 'detect', 'KeyError')    3351
+   ('zz_boom_exclusive', 'detect', 'IndexError')  3351
+   ('zz_boom_normalize', 'detect', 'TypeError')   3351
+   ('zz_boom_required',  'detect', 'ValueError')  3351
+   ('zz_boom_parse',     'parse',  'RuntimeError') 736
+outcomes: ambiguous 2615 / parser_exception 736
+scores the four crashing registrations received: 0.0, on all 3,351
+crashing registrations that ever claimed: 0
+```
+
+`6702 = 2 × 3351` is the assertion in one number: the reused preparation
+re-entered the guard on the second sweep for every crashing registration on
+every document, exactly as the base arm's fresh preparation did. The unit-scale
+statement of the same property is
+`test_a_crash_reaches_the_guard_on_the_second_sweep_as_well`.
+
+## PH6. Cost
+
+Paired, one arm per process, minimum of five samples per document (contention
+can only make a sample slower, so the minimum is the reading least
+contaminated by load — DETECT-BUDGET DT5), every document read the way the
+winner is. The timed region is everything the two sweeps cost in text
+preparation and detection, before any parse: the pipeline's rebind,
+`_surviving_claimants`, and `score_vector`. Machine moderately loaded
+throughout; the ratios are the durable part, the absolutes are this machine
+today.
+
+**Two rounds, with the arms in OPPOSITE ORDER**, because a single ordering
+cannot tell a speedup from the machine getting busier between the two arms.
+Round 1 ran base then branch on a moderately loaded machine; round 2 ran
+branch then base an hour later, with roughly two dozen Python processes
+sharing the box (the rest of batch 5 running its own proofs). The absolutes
+move by a factor of one and a half between rounds. The ratios do not.
+
+| measurement | round 1 base | round 1 branch | r1 | round 2 base | round 2 branch | r2 |
+|---|---|---|---|---|---|---|
+| worst pinned document, best of 5 | 325.39 ms | **166.62 ms** | 1.95x | 475.03 ms | **214.60 ms** | 2.21x |
+| largest pinned document (62,702 chars) | 301.20 ms | **134.96 ms** | 2.23x | 434.45 ms | **210.37 ms** | 2.07x |
+| one pass over the 109 pinned | 10.44 s | **4.94 s** | 2.11x | 17.96 s | **6.85 s** | 2.62x |
+| the 109, summed best-of-five | 9.33 s | **4.25 s** | 2.19x | 14.10 s | **6.54 s** | 2.15x |
+| 40 largest archive docs, worst (139,737 chars) | 758.80 ms | **366.46 ms** | 2.07x | 972.30 ms | **594.85 ms** | 1.63x |
+| 40 largest archive docs, median | 430.60 ms | **188.14 ms** | 2.29x | 572.67 ms | **282.71 ms** | 2.03x |
+| 40 largest archive docs, total | 18.30 s | **8.40 s** | 2.18x | 24.39 s | **12.27 s** | 1.99x |
+
+The honest summary is **about 2x on the double sweep, in both load regimes and
+in both orderings** — which is what halving the number of preparations should
+buy, and the reason to state it in preparations as well.
+
+And the load-independent reading, which a busy machine cannot move — measured
+on the largest pinned document and the largest archive document, identical on
+both because it counts operations and not characters:
+
+| | base | branch |
+|---|---|---|
+| `admissible_text` calls per document | 3 | **2** |
+| normalizer calls per document | 68 | **34** |
+| `PreparedDocument`s built per document | 2 | **1** |
+| total text preparations | **71** | **36** |
+
+The remaining second strip is `score_vector`'s equality guard (PH2). The
+detect-sweep affordability contract is untouched: it measures ONE sweep
+through `_surviving_claimants`, which costs what it always did.
+
+## PH7. Tests
+
+Twenty-three, all green, suite 4,240 → **4,263**; corpus-marked slice 25 →
+**26**. (Nineteen at first submission; four more from the review closures,
+marked ★ below.)
+
+**The seam (10, `tests/test_parser_registry.py`, synthetic registry).**
+
+| test | job |
+|---|---|
+| `test_resolve_publishes_the_document_it_swept` | the base case |
+| `test_every_outcome_publishes_its_preparation` (x4) | claimed, ambiguous, unclaimed, parser_exception — a near-miss vector is built for all four |
+| `test_resolve_sweeps_the_document_it_is_handed_and_prepares_nothing_more` | handing a preparation in costs nothing extra |
+| `test_a_second_sweep_over_the_published_document_prepares_nothing` | **the handoff, in operations** |
+| `test_the_published_document_reports_exactly_what_a_fresh_sweep_reports` | **the equivalence property at unit scale** — normalizer, no normalizer, excluding marker, never-claiming near-miss |
+| `test_the_text_parse_receives_is_the_text_the_caller_supplied` | **the admissibility boundary**: string caller unchanged, prepared caller gets its own admissible text, neither re-strips the other's |
+| `test_a_crash_reaches_the_guard_on_the_second_sweep_as_well` | **the W3-1 guard**: the raise count is 2, not 1 |
+| `test_the_prepared_document_is_not_part_of_dispatch_equality` | `Dispatch` comparisons keep working |
+
+**The telemetry side (11, `tests/test_telemetry.py`, real Chase document).**
+
+| test | job |
+|---|---|
+| `test_the_collector_publishes_the_preparation_the_analysis_swept` | end to end through `analyze_markdown`, with a vacuity guard on the preparation count |
+| `test_the_near_miss_sweep_prepares_nothing_when_given_the_collector` | no `prepare` call, no new normalization |
+| `test_the_near_miss_vector_is_identical_with_and_without_the_collector` | the equivalence, on a real claimed document |
+| `test_a_collector_from_another_document_is_ignored` | **the guard, with its own vacuity proof** — the foreign vector really is different |
+| `test_a_str_subclass_cannot_talk_its_way_into_another_documents_preparation` | the `Sticky` hazard `PreparedDocument.text_for` documents, one level out: both sides of the guard's `==` are values `admissible_text` returned, and `re.sub` yields an exact `str` whatever it was given |
+| `test_a_collector_that_never_saw_a_dispatch_is_ignored` | the D-3 cache-hit path |
+| `test_the_collector_offers_no_preparation_when_handed_nonsense` | reading a preparation is not a new way for telemetry to raise |
+| ★ `test_a_duck_typed_preparation_is_ignored_rather_than_swept` | **D4**: the raise is real, and the `isinstance` makes it unreachable |
+| ★ `test_the_guard_is_free_when_the_document_carries_no_source_comment` | **D3**: both guard branches — 0 strips bare, exactly 1 with the header |
+| ★ `test_dispatch_section_never_carries_the_prepared_document` | **D1**: no `prepared` key, and no document text in the projection |
+| ★ `test_the_report_never_carries_the_prepared_document` | **D1**: nothing retains a `Dispatch`, which is why the longer lifetime is safe |
+
+**The boundary (1, `tests/test_filename_boundary.py`).**
+`test_the_boundary_is_the_detect_sweeps_own_preparation` — the document is
+prepared ONCE, from the raw text; the sweep runs on that preparation; the text
+it exposes is `admissible_text` of the input, character for character.
+
+**The budget, extended (1, corpus-marked, `tests/test_parser_parity.py`).**
+`test_the_double_sweep_prepares_each_document_once` — for every one of the 109
+pinned documents: the preparation is published, the second sweep prepares
+nothing, the total is `1 + distinct normalizers` (35 today, not 70), and the
+near-miss vector is identical to the one a fresh sweep produces. Load-immune,
+and it cannot run on base at all, which is the same shape as DETECT-BUDGET's
+first clause.
+
+## PH8. Proofs
+
+All at HEAD, exit codes verbatim. The machine was shared with a dozen to two
+dozen other Python processes throughout — the rest of batch 5 running its own
+proofs — which is why every runtime here is well above the batch-4 record for
+the same command, and why PH6 is paired, best-of-N and measured in both
+orderings.
+
+**Exit codes are the command's own** (`cmd > file; echo $?`), not a pipeline's
+— the first submission of this block reported `$?` after a `| tail`, which is
+`tail`'s status and would have read 0 through a failing suite. Every line
+below was re-run after the review closures and captured properly.
+
+```
+$ python -m pytest -q
+4263 passed, 33 skipped, 30 deselected, 1 warning in 255.32s (0:04:15)
+EXIT=0
+
+$ python -m pytest -m corpus -q tests/test_parser_parity.py
+12 passed, 1 warning in 148.52s (0:02:28)
+EXIT=0
+
+$ python -m pytest -m corpus -q tests/test_corpus_gate.py tests/test_corpus_gate_outcomes.py
+9 passed, 28 deselected, 1 warning in 858.51s (0:14:18)
+EXIT=0
+
+$ python -m pytest -m corpus -q tests/test_discovery.py \
+    tests/test_first_citizens_native_layout.py tests/test_telemetry_corpus.py \
+    tests/test_truncation.py
+5 passed, 88 deselected, 1 warning in 676.10s (0:11:16)
+EXIT=0
+
+$ python corpus_gate.py
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 6 review / 100 validated / 3 withheld
+Runtime:  1536.4s
+RESULT: GREEN
+EXIT=0
+
+$ python -m pytest tests/test_parser_conformance.py tests/test_parser_registry.py \
+    tests/test_parser_registry_entries.py tests/test_parser_exception_boundary.py \
+    tests/test_parser_crash_shapes.py tests/test_no_statement_hardcodes.py \
+    tests/test_filename_boundary.py tests/test_pipeline_registry_dispatch.py \
+    tests/test_telemetry.py -q
+1246 passed, 33 skipped, 1 warning in 50.20s
+EXIT=0
+
+$ python -m pytest -m corpus -q \
+    "tests/test_parser_parity.py::test_the_detect_sweep_prepares_each_document_once" \
+    "tests/test_parser_parity.py::test_the_sweep_entry_points_strip_the_filename_comment_once" \
+    "tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run" \
+    "tests/test_parser_parity.py::test_the_double_sweep_prepares_each_document_once"
+4 passed, 1 warning in 122.46s (0:02:02)
+EXIT=0
+```
+
+The last block is DETECT-BUDGET's three budget clauses plus this cell's fourth,
+re-run together at Ocean's request: the affordability ceiling still measures
+ONE sweep and is untouched, and the two load-immune clauses hold at 35
+preparations per sweep and 35 across both.
+
+The corpus-marked slice is 26 tests over three commands because a single
+`pytest -m corpus` runs past the ten-minute ceiling on this machine under this
+load; the three together are the whole slice (12 + 9 + 5 = 26 collected = 26
+run). `python corpus_gate.py` is the run from before the review closures — the
+closures changed a docstring, a comment, an `isinstance` and four tests, and
+the gate's own 9-test corpus command was re-run after them (858.51s, exit 0)
+over the same 109 documents and the same published integrity blocks. The conformance cross-product in the last block is the full 71 x 70 =
+4,970 detection-negative assertions plus the registry, entries, exception
+boundary, crash shapes, hardcode and filename-boundary guards.
+
+The two archive sweeps (PH5, PH5.1) are 4 x 3,351 documents on top of that:
+`equiv` 10 min 52 s base / 7 min 3 s branch, `crash` 11 min 18 s base / 6 min
+48 s branch, both arms digest-identical.
+
+`python -m discovery --dry-run` is exercised inside the slice as
+`tests/test_discovery.py::test_dry_run_reproduces_known_truth`, which is the
+end-to-end proof of the three emitter call sites: the real runner, the real
+collector, the real `score_vector(markdown, collector)`, over the pinned 109.
+
+## PH9. Carried findings and questions for Ocean
+
+1. **This cell touched four files it does not own, one argument each — and
+   ONE of those lines is a merge landmine no test on either branch can catch.**
+   *(Rewritten at Ocean's review: the first version of this item said the
+   collision "resolves by keeping both changes on the one line", which is
+   wrong, and wrong in the direction that ships a silent regression.)*
+
+   The three emitters (`discovery/runner.py` :489 and :544,
+   `webapp/worker.py` :134, `batch.py` :188, base numbering) belong to
+   WIRING-2 and DISCOVERY-OBS, and `analysis/parser_registry.py` — where
+   `Dispatch.prepared`, the two `str | PreparedDocument` widenings and
+   `resolve`'s two-line preamble live — belongs to nobody in batch 5. PH4 says
+   why the alternative (hidden module-level state, zero foreign edits) was
+   refused. WIRING-2's three call sites are `_analyse` (runner :308-326),
+   `_analyze_doc` and batch's `analyze_markdown` call: none of them a line
+   this cell touches.
+
+   **DISCOVERY-OBS is the landmine.** It does not edit runner :489 — it
+   DELETES it and re-creates the call about thirteen lines earlier, hoisted
+   above the dispatch projection because its cache-hit identity recovery
+   (`_project_identity`) needs `scores` before the projection runs. On
+   `wave5-discobs` the call is at :640, immediately after the visual-upgrade
+   block and before `dispatch = collector.dispatch`, with `row.near_miss` left
+   behind at :662. Against a base where PREPHAND MODIFIED the line it deleted,
+   the three-way merge is a delete-vs-modify conflict, and **both plausible
+   resolutions are silently wrong**:
+
+   * *take DISCOVERY-OBS' side* — the hoisted call has no `collector`, so the
+     reuse is gone at the ONLY site that sweeps the archive. Every test on
+     both branches still passes, the gate is green, and the discovery run
+     quietly pays two full sweeps per document again.
+   * *keep both* — the hoisted call and PREPHAND's block both run, so the
+     document is swept THREE times and `scores` is computed twice, the second
+     assignment winning.
+
+   **The resolution, verbatim:** delete PREPHAND's block at the old site
+   entirely (comment included — `row.near_miss` keeps DISCOVERY-OBS's
+   position), and add `, collector` to DISCOVERY-OBS's hoisted call:
+
+   ```python
+           # One detection sweep, read twice: for the near-miss vector (H-3) and,
+           # on a cache-served row, for the parser identity the absent `Dispatch`
+           # would otherwise have carried. Hoisted above the projection because
+           # both consumers need it; `score_vector` is pure, so where it is called
+           # changes nothing it returns.
+   -       scores, registration_count = score_vector(markdown)
+   +       scores, registration_count = score_vector(markdown, collector)
+   ```
+
+   That position is correct for the reuse as well as for DISCOVERY-OBS: it is
+   after the visual-upgrade rebinding of `document, markdown, collector`, so
+   the collector and the markdown are the adopted pair, which is exactly the
+   pairing the guard checks. The post-merge assertion is
+   `test_the_double_sweep_prepares_each_document_once` plus one live check
+   that `discovery` still reuses: run the dry run and confirm the near-miss
+   column is unchanged.
+
+   **The fourth site is dead today, and should be recorded as dead rather than
+   quietly kept.** Runner :544 (`_emit`'s `if scores is None:` fallback) cannot
+   execute: of the four `self._emit(...)` call sites, the three early ones
+   (:390, :409, :430) pass `markdown=None` positionally, so the `if markdown
+   else ([], 0)` arm takes it, and the one site that does supply markdown
+   (:519) always passes `scores=` explicitly. The argument added there is
+   inert — correct if the site is ever reached, worth nothing until then.
+2. **`Dispatch` now holds the document's prepared texts for as long as the
+   `Dispatch` lives.** A deliberate widening of what the routing object
+   carries, and the same class of thing `Dispatch.statement` already is —
+   which is why `dispatch_section` projects named fields and never the object,
+   and why nothing walks a `Dispatch` generically (checked repo-wide: there is
+   no `asdict(dispatch)` anywhere, and `analysis/serialization.py` never sees
+   one, because `Report` deliberately has no dispatch field). The lifetime is
+   one document's analysis — the same window the caller's own `markdown`
+   string is alive for — and the collector is rebuilt per document. If Ocean
+   would rather the publication were opt-in (`resolve(document,
+   publish=False)`), that is a one-line change that costs the whole
+   optimization at the three emitters, so it is put here rather than taken.
+3. **The guard costs one `admissible_text` per document and buys 34.** It
+   could be made free by having `PreparedDocument` remember the string it was
+   built from, so the guard could be an identity check — `re.sub` allocates
+   even when it substitutes nothing, so today's identity fast path never fires
+   on the production path. Not taken: that is a new slot on DETECT-BUDGET's
+   class holding a second reference to the raw text, for ~1.7 ms on the
+   largest pinned document against the ~150 ms the reuse saves there.
+   Recorded so nobody re-derives it.
+4. **A fourth strip is still out there, and it is not this cell's.**
+   `webapp/artifact_cache.py:677` computes the analysis cache key as
+   `text_sha256(admissible_text(markdown))` — a full pass over the document
+   before the pipeline runs at all, on every cached path. WIRING-2 owns that
+   region this batch (the input-hash digest hunk). Nothing to do today; the
+   next cost card should know it exists.
+5. **On a D-3 analysis cache hit nothing dispatches, so nothing is reused.**
+   `dispatch_cached = 202` in the run of record: those documents pay the
+   near-miss sweep whole, exactly as before, and pay no first sweep at all.
+   The optimization applies to the ~3,289 documents that dispatch live.
+6. **`score_vector` is `detection_report`'s only production caller, and now
+   its only reusing one.** *(Corrected at review: the first version of this
+   item said discovery adjudication calls `detection_report`. It does not —
+   `discovery/adjudication.py` clusters and routes from the recorded rows, and
+   `discovery/evidence.py` reads the near-miss straight out of the telemetry
+   record's `dispatch.scores`. The only other callers are the conformance and
+   registry tests, which pass strings and prepare their own text, correctly,
+   because they run outside a dispatch. `detection_report`'s own docstring
+   names adjudication as a consumer; that sentence predates this cell and is
+   about the diagnostic, not about a call site.)* Noted so the next cell does
+   not read the reuse as a rule about `detection_report`.
+6b. **Three public signatures changed their parameter NAME**, which is an API
+   change even though every in-repo caller is positional: `resolve(markdown)`
+   → `resolve(document)`, `detection_report(markdown)` →
+   `detection_report(document)`, and the private `_surviving_claimants`
+   likewise. Swept the repo: no caller anywhere passes them by keyword, in
+   production or in tests, so nothing breaks today — but a `resolve(markdown=…)`
+   written after this merge will not be a rename away from working, it will
+   be a `TypeError`. The name changed because the parameter no longer denotes
+   markdown.
+7. **`claimed` on the archive is 2,495 against the run of record's 2,405
+   validated.** Detection replay, not an outcome census: `claimed` is a
+   routing fact and validation is decided downstream. Recorded because both
+   numbers appear in this section and they are not the same quantity (W3
+   #COUNTSP3's standing warning).
+8. **No stage bump is needed for correctness.** Every published byte is
+   identical — the gate's whole integrity block on 109, the parsed
+   `Statement` digest on 2,495 archive documents, the near-miss vector on
+   3,351 — so this cell does not invalidate the analysis cache. Ocean's
+   composed `ANALYSIS_STAGE_VERSION` bump at merge is unaffected either way.
+9. **The harness is reusable and is now rebuilt for v12 / OCR v3.**
+   `prephand-5fb5b603/` holds `ph_harness.py` (OCR index by envelope
+   tail-read, store build for THIS run of record), `archive_md_v3.pkl`,
+   `ph_equiv.py`, `ph_crash.py` (six injections including the parse-stage one,
+   with raise counting), `ph_compare.py`, `ph_measure.py`, `ph_ops.py`, and a
+   base arm at `.claude/worktrees/mt5-prephand-base` (a plain `git archive`
+   extract of `e935f98`, invisible to `git worktree list`). Any cell needing a
+   full-archive equivalence or a registry-wide cost can reuse them by changing
+   the arms.
+
+## PH10. Commits
+
+| Commit | Contents |
+|---|---|
+| `def3deb` | the seam: `Dispatch.prepared`, `resolve`/`_surviving_claimants`/`detection_report` accepting a `PreparedDocument`, the pipeline's rebind folded into it, `DispatchCollector.prepared`, `score_vector`'s guarded reuse, the four emitter arguments, 18 tests |
+| `a16f2af` | the `str`-subclass guard on the equality, its test, the corrected note about the identity fast path, and PH0-PH7 |
+| `5c28525` | PH5's null-document accounting, PH6's second measurement round in the opposite order, PH8-PH10 |
+| (this one) | review closures: the `isinstance` guard (D4), the `PreparedDocument` lifetime docstring (D1), the corrected identity-branch comment (D3), the memo-replay disclosure (D5), four tests, and the rewritten PH9.1 merge instruction |
+
+## PH11. Closures from Ocean's adversarial review (verdict: SHIP conditional)
+
+The review reproduced parity, the crash arm, the cost, the memory and the
+serialization behaviour on its own arms (287 documents, both digests
+identical, the 2x raise count reproduced). Six closures, all landed here. Two
+of them are corrections to things this record ASSERTED and got wrong, which is
+the part worth reading twice.
+
+**PH9.1 — the merge landmine (required).** The collision characterization was
+wrong: DISCOVERY-OBS does not edit runner :489, it deletes that line and
+hoists the call thirteen lines up, so the merge is delete-vs-modify and both
+obvious resolutions ship a silent defect — take-DISCOBS loses the reuse at the
+only site that sweeps the archive, keep-both sweeps every document three
+times. PH9.1 is rewritten with the resolution stated verbatim (delete
+PREPHAND's block at the site; add `, collector` to the hoisted call, which
+sits after the visual-upgrade rebinding and is therefore the correct pairing),
+plus the observation that the fourth site — runner :544 — is **dead today**:
+three of the four `_emit` call sites pass `markdown=None` and the fourth
+always passes `scores=`, so the argument added there is inert.
+
+**D1 — a protected-surface docstring this cell made false.** `PreparedDocument`
+said the prepared texts "live exactly as long as the sweep that asked for
+them". With `Dispatch.prepared` they live as long as the `Dispatch` — one
+document's whole analysis and its telemetry record. The docstring now states
+the real lifetime, the measured size (five distinct texts, 312,342 chars on a
+62,702-char document — **5x**, plus a 190-entry memo) and the structural
+reason it is safe: nothing retains a `Dispatch`. Two tests pin that rather
+than asserting it —
+`test_dispatch_section_never_carries_the_prepared_document` (no `prepared`
+key, and a 100-character slice of the document is absent from the projected
+section) and `test_the_report_never_carries_the_prepared_document` (no
+`PreparedDocument` and no `Dispatch` among the `Report`'s fields). A weakref
+no-retention assertion was considered and NOT added: `PreparedDocument`
+declares `__slots__` without `__weakref__`, so it cannot be weakly referenced,
+and adding the slot to make a test possible is a change to a protected class
+for a test's convenience.
+
+**D3 — a guard comment that asserted a falsehood.** The comment claimed the
+identity branch never fires because "`re.sub` allocates even when it
+substitutes nothing". It does not: on CPython 3.14 `re.sub` returns the object
+it was given when nothing matched, so a document with no source comment IS its
+own admissible text and the identity branch decides it for free. (The original
+measurement that produced the wrong conclusion used a `str` SUBCLASS, which
+does force a copy — the instrument, not the language.) The conclusion in the
+cost table survives, but only for a stated reason: the OCR and native-text
+layers write a `<!-- SOURCE: … -->` header on every document they produce, so
+production always takes the equality branch and pays one strip.
+`test_the_guard_is_free_when_the_document_carries_no_source_comment` now
+covers both branches — 0 strips for the bare document, exactly 1 for the
+header one.
+
+**D4 — "cannot be wrong twice" was not true.** The guard read
+`getattr(prepared, "admissible", None)` and compared it, so a duck-typed
+object whose `.admissible` compared equal would be passed to
+`detection_report`, which prepares anything that is not a `PreparedDocument`
+— reaching `admissible_text` as a non-string and raising, out of
+`score_vector`, through `discovery/runner.py`'s one un-`try`'d call site,
+aborting a document over a telemetry detail. **Guarded rather than softened:**
+the reuse now requires `isinstance(prepared, PreparedDocument)`.
+`test_a_duck_typed_preparation_is_ignored_rather_than_swept` asserts both
+halves — that the raise is real (`pytest.raises(TypeError)` on
+`detection_report(duck)`) and that the guard makes it unreachable.
+
+**D5 — disclosure: the second sweep is a total memo replay.** Not merely
+"prepares nothing": `Marker.test` is called 190 times in sweep one and **0**
+times in sweep two, so every published `Detection` is assembled from the first
+sweep's values. H3_SCHEMA §4 admits the second sweep because re-running
+`detect` reproduces the run of record; with a collector, the record is
+reproduced by not re-running it. Same value, same purity argument, different
+mechanism — stated in PH2 and in `score_vector`'s docstring, with the crash
+arm as the evidence that the guard path stays live (a raising marker is never
+memoized, so it re-raises on both sweeps: 2 per crashing registration per
+document, 27,544 in all).
+
+**D6 — a wrong sentence and an unrecorded API change.** `discovery/adjudication.py`
+never calls `detection_report`; PH9.6 said it did. Corrected, with what the
+discovery side actually reads (recorded rows, and `discovery/evidence.py`
+taking the near-miss out of the telemetry record). And the
+`markdown` → `document` parameter rename on `resolve`, `detection_report` and
+`_surviving_claimants` is a public-signature change, now recorded as PH9.6b:
+swept the repo, no caller passes them by keyword today, so nothing breaks —
+but a keyword call written after this merge is a `TypeError`, not a rename.
