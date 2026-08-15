@@ -467,8 +467,11 @@ def parse_apex_scanned_statement(markdown: str) -> Statement | None:
     stmt.stated_debit_count = int(sm.group("debit_count"))
     stmt.stated_total_credits = _money(sm.group("credits"))
     stmt.stated_total_debits = _money(sm.group("debits"))
-    stmt.bank_reported_average_balance = _money(sm.group("avg"))
-    stmt.bank_reported_average_label = "Average Balance"
+    printed_average = _money(sm.group("avg"))
+    stmt.bank_reported_average_balance = printed_average
+    stmt.bank_reported_average_label = (
+        "Average Balance" if printed_average is not None else None
+    )
     stmt.stated_interest_paid = _money(sm.group("interest"))
     deposits = _section(
         source,
