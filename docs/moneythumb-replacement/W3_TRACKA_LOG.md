@@ -21754,8 +21754,8 @@ tree.
 Outcomes: 106 PASS / 3 WITHHELD
 RESULT: GREEN                                               exit 0
 
-# corpus-marked (pytest -m corpus), 2750.4s
-25 passed, 4345 deselected                                  exit 0
+# corpus-marked (pytest -m corpus), FINAL TREE, 3250.8s
+25 passed, 4346 deselected                                  exit 0
    test_corpus_gate_is_green ·
    test_corpus_gate_outcomes (all 8, incl. the per-document verdict check) ·
    test_dry_run_reproduces_known_truth ·
@@ -21769,17 +21769,16 @@ RESULT: GREEN                                               exit 0
    test_telemetry_reproduces_the_gate_outcome_split · and the rest
 ```
 
-The corpus-marked slice above is the one figure not taken from the final tree:
-it started before L5.3's cheque-serial fix landed. It needs no re-run, and the
-reason is measured rather than argued. The fix is inside
-`core_processor_daily._rows`, which runs only when this registration WINS
-dispatch, and no pinned document reaches it: three of the 109 print this
-template (`Others/B1/`), and on all three the supersedes edge prunes this
-registration before any parse, leaving the claimant set exactly `['b1']`. The
-other 106 do not detect at all. Everything else changed since that run is a
-comment or a non-corpus test. (The slice is being re-run on the final tree for
-the record; this note stands whatever it returns, because the reachability
-argument is the load-bearing part.)
+The slice was run TWICE: once at 2750.4s on the tree that predated L5.3's
+cheque-serial fix, and again at 3250.8s on the final tree, both 25 passed,
+both exit 0. The second run is the one recorded. The first is mentioned
+because the reachability argument that would have justified carrying it is
+worth keeping: the fix lives inside `core_processor_daily._rows`, which runs
+only when this registration WINS dispatch, and no pinned document reaches it —
+three of the 109 print this template (`Others/B1/`) and on all three the
+supersedes edge prunes this registration before any parse, leaving the
+claimant set exactly `['b1']`, while the other 106 do not detect at all. The
+two runs agreeing is what that argument predicted.
 
 Store-wide non-interference, all 3,396 documents with offline text, before
 (`b524f72`, extracted with `git archive`) and after:
