@@ -432,12 +432,27 @@ def test_the_printed_product_line_alone_is_still_not_enough():
     ).claims
 
 
-def test_a_scan_of_another_issuer_naming_a_five_thirds_product_is_not_a_claim():
-    """`Account Type: 5/3 ...` inside someone else's statement is a mention."""
+def test_the_issuers_domain_is_what_holds_the_widened_marker_set_together():
+    """Someone else's statement carrying BOTH of the other two markers.
+
+    It prints `Account Summary` as its own heading and its ledger names Fifth
+    Third — and the product — as the counterparty of a payment. The only thing
+    withholding the claim is the issuer's own domain, which is why the product
+    line was added as a second branch of `print_product` rather than as a
+    loosening of `issuer_domain`.
+
+    Not hypothetical: 55 documents in the discovery archive name Fifth Third
+    without carrying `53.com`, and nine of those also print `Account Summary`
+    (eight Bank of America statements and one Bluevine). Accepting the bank's
+    NAME as issuer evidence would leave every one of them a single marker away
+    from a wrong-parser claim.
+    """
     foreign = (
         "--- Page 1 ---\n\nCOMMUNITY TRUST BANK\nStatement of Account\n"
-        "Account Summary\n03/04 250.00 ACH DEBIT TO Account Type: 5/3 BUSINESS CKG\n"
+        "Account Summary\n"
+        "03/04 250.00 ACH DEBIT TO FIFTH THIRD BANK Account Type: 5/3 BUSINESS CKG\n"
     )
+    assert "53.com" not in foreign.lower()
     assert not detect(foreign).claims
 
 
@@ -506,14 +521,50 @@ def test_a_cheque_flag_the_scan_misread_still_yields_its_row():
     assert sum(t.amount for t in cheques) == -30.00
 
 
+#: A third cheque whose number is separated from its paid date by a run far
+#: longer than any flag cluster. Everything else about this document is
+#: consistent WITH the row read: the summary closes, both printings of the
+#: cheque count and total say three and $35.00, and the daily walk lands on
+#: every printed close. So the only thing that can refuse it is the shape of
+#: the gap — which is what makes this a test of the bound rather than a test
+#: of some other instrument catching the fallout.
+_THREE_CHEQUES = dict(
+    summary_components=(
+        "3 Checks $(35.00)\n"
+        "1 Withdrawals / Debits $(20.00)\n"
+        "2 Deposits / Credits $150.00"
+    ),
+    ending="03/31 Ending Balance $195.00",
+    checks_head="Checks 3 checks totaling $35.00",
+    daily=("03/02 140.00 03/03 120.00 03/04 95.00", "03/05 195.00"),
+)
+
+
 def test_the_glyph_tolerance_is_a_bounded_shape_not_an_open_gap():
     """Two glyphs is the flag cluster the layout prints. A longer run between
-    the number and the date is not a flag, so the row is not admitted — and
-    the section's own printed count then refuses the document."""
+    the number and its paid date is not a flag, so the row is not admitted —
+    and the section's own printed count then refuses the whole document."""
     assert parse_fifth_third_statement(scanned_document(
-        checks_head="Checks 3 checks totaling $35.00",
-        check_rows="1001 i 03/02 10.00 1002%i 03/03 20.00 1003 abc 03/06 5.00",
+        check_rows="1001 i 03/02 10.00 1002%i 03/03 20.00 1003 abc 03/04 5.00",
+        **_THREE_CHEQUES,
     )) is None
+
+
+def test_the_bounded_shape_is_what_refuses_it_and_nothing_else():
+    """The twin of the test above, and the reason it can be trusted: with the
+    same third cheque printed with a real two-glyph flag cluster, every
+    instrument agrees and the document is read. Without this, a bound that had
+    been quietly widened would still look tested."""
+    stmt = parse_fifth_third_statement(scanned_document(
+        check_rows="1001 i 03/02 10.00 1002%i 03/03 20.00 1003*i 03/04 5.00",
+        **_THREE_CHEQUES,
+    ))
+    assert stmt is not None
+    assert [t.description for t in stmt.transactions if t.description.startswith("Check ")] == [
+        "Check 1001",
+        "Check 1002",
+        "Check 1003",
+    ]
 
 
 def test_a_misread_cheque_row_that_breaks_the_section_total_is_refused():
