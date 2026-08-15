@@ -9,6 +9,7 @@ Two independent checks:
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
+from .count_semantics import expected_count
 from .schema import Statement
 
 # Money is compared to the cent; allow a hair of float slop.
@@ -48,6 +49,15 @@ class ReconResult:
     stated_debit_count_matches: bool | None = None
     captured_credit_count: int | None = None
     captured_debit_count: int | None = None
+    # The printed count RESTATED in the scope the captured side is counted in
+    # (`analysis/count_semantics.py`). Equal to the printed figure for every
+    # bank without a mapping, which is nearly all of them. Published rather
+    # than left implicit because the alternative is a payload reading
+    # `stated_debit_count 12 / captured_debit_count 13 / matches true`, which
+    # is only not a contradiction if the reader knows the table — one field
+    # with two meanings, the defect BOFA-COUNTS was spent removing.
+    expected_credit_count: int | None = None
+    expected_debit_count: int | None = None
 
 
 def _debit_coverage_target(
@@ -81,7 +91,15 @@ def _coverage_mismatch(captured: float, target: float | None) -> bool:
     return coverage < 0.98 or coverage > 1.02
 
 
-def reconcile(stmt: Statement) -> ReconResult:
+def reconcile(stmt: Statement, *, parser_id: str | None = None) -> ReconResult:
+    """Reconcile one statement.
+
+    `parser_id` is the CLAIMING parser (`count_semantics.claiming_parser_id`),
+    and it is used for exactly one thing: applying that parser's declared count
+    mapping to the printed per-direction counts. Omitting it is the fail-closed
+    default — no mapping, the raw printed figure, which is what every caller
+    got before mappings existed and what every unmapped bank gets now.
+    """
     issues: list[str] = []
     summary_ok: bool | None = None
 
@@ -239,8 +257,15 @@ def reconcile(stmt: Statement) -> ReconResult:
     # metrics.py:313), so an issue here would withhold the document. The
     # consequence of a count mismatch is decided in
     # pipeline.assess_document_integrity, one layer up, where it can be a flag.
+    #
+    # The EXPECTED side is the printed figure put through this parser's
+    # declared mapping (`analysis/count_semantics.expected_count`), which is
+    # the identity for every bank that has none. A mapping is a closed
+    # adjustment over BANK-PRINTED fields only, so the expected side is still
+    # evidence off the page and never a restatement of the rows it is checking.
     credit_count_matches = debit_count_matches = None
     captured_credit_count = captured_debit_count = None
+    expected_credit_count = expected_debit_count = None
     aggregate_backed = any(
         "UNCAPTURED" in t.description.upper() for t in stmt.transactions
     )
@@ -249,12 +274,18 @@ def reconcile(stmt: Statement) -> ReconResult:
             captured_credit_count = sum(
                 1 for t in stmt.transactions if t.direction == "credit"
             )
-            credit_count_matches = captured_credit_count == stmt.stated_credit_count
+            expected_credit_count = expected_count(
+                parser_id, "credit", stmt.stated_credit_count, stmt
+            )
+            credit_count_matches = captured_credit_count == expected_credit_count
         if stmt.stated_debit_count is not None:
             captured_debit_count = sum(
                 1 for t in stmt.transactions if t.direction == "debit"
             )
-            debit_count_matches = captured_debit_count == stmt.stated_debit_count
+            expected_debit_count = expected_count(
+                parser_id, "debit", stmt.stated_debit_count, stmt
+            )
+            debit_count_matches = captured_debit_count == expected_debit_count
 
     ok = not issues
     return ReconResult(
@@ -278,4 +309,6 @@ def reconcile(stmt: Statement) -> ReconResult:
         stated_debit_count_matches=debit_count_matches,
         captured_credit_count=captured_credit_count,
         captured_debit_count=captured_debit_count,
+        expected_credit_count=expected_credit_count,
+        expected_debit_count=expected_debit_count,
     )

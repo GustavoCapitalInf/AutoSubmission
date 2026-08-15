@@ -19,6 +19,7 @@ structures is pinned here:
 from __future__ import annotations
 
 import re
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
@@ -27,10 +28,17 @@ from analysis import parser_registry as pr
 from analysis import parser_registry_entries  # noqa: F401  — populates the registry
 from analysis.count_semantics import (
     DIRECTIONS,
+    PRINTED_EVIDENCE_FIELDS,
+    RULES,
     SECTION_LEVEL_ORACLES,
     SEMANTICS,
     UNSURVEYED,
+    CountMapping,
+    CountSemantics,
+    claiming_parser_id,
     counts_comparable,
+    expected_count,
+    printed_evidence,
     semantics_for,
 )
 from analysis.metrics import compute_metrics
@@ -90,7 +98,10 @@ def integrity_for(stmt: Statement, parser_id: str | None, *, outcome: str = "cla
     dispatch = (
         pr.Dispatch(outcome, registration=pr.by_id(parser_id)) if parser_id else None
     )
-    recon = reconcile(stmt)
+    # `analysis/pipeline.py` derives the reconciler's key and the flag gate's
+    # key from ONE function, so this helper does too — a fixture that reconciled
+    # without the claim would test a comparison production never runs.
+    recon = reconcile(stmt, parser_id=claiming_parser_id(dispatch))
     return recon, assess_document_integrity(stmt, recon, quality(), markdown="x", dispatch=dispatch)
 
 
@@ -128,17 +139,14 @@ def test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental():
         if not semantics.comparable
     }
     assert incomparable == {
-        # the service-charge scope class — a printed debit count that cannot
-        # enumerate the service-charge row the parser records as a debit
-        "capital_one:debit",
+        # The last member of the service-charge scope class still without a
+        # mapping. W3 §COUNTSMAP promoted the other two on the `mapping` field
+        # and deliberately did not touch this one: it was outside that cell's
+        # named populations, and an entry is promoted by the cell that measured
+        # it. Its counterfactual is recorded there (1 document, +1, and 1 of 1
+        # under the same `plus_one_when_billed` mapping) so the decision is one
+        # line of Ocean's rather than a re-derivation.
         "texas_bank:debit",
-        # W3 §COUNTSP3. The third member of that class, and the one whose cost
-        # was measured before it was declined: promoting it moves 9 documents
-        # from `validated/approved` to `review/integrity_flags`, every one of
-        # them a ledger that reconciles to the cent. Its credit sibling IS
-        # comparable, which is why this entry is pinned here by name rather
-        # than the whole parser being absent from the table.
-        "first_citizens:debit",
         # printed counts gated equal to LABEL-MATCHED rows, both directions
         "altana:credit",
         "altana:debit",
@@ -172,6 +180,12 @@ def test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental():
         "burke_herbert:credit",
         "burke_herbert:debit",
         "capital_one:credit",
+        # W3 §COUNTSMAP. Comparable ONLY through its mapping: the printed
+        # 'N Checks/Debits' figure excludes the separately-printed service
+        # charge the parser records as a debit row, and the mapping is that
+        # one row. 22 of 22 under it; a plain COMPARABLE was measured at 11
+        # `validated` -> `review`, four of them pinned corpus documents.
+        "capital_one:debit",
         "chase:credit",
         "chase:debit",
         "chase_export:credit",
@@ -192,9 +206,12 @@ def test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental():
         "demo_national:debit",
         "farmers_merchants:credit",
         "farmers_merchants:debit",
-        # W3 §COUNTSP3. Only the credit direction: `first_citizens:debit` is
-        # pinned incomparable above, on the measured cost of the alternative.
+        # W3 §COUNTSP3 promoted the credit direction (a tautology, disclosed);
+        # W3 §COUNTSMAP promoted the debit direction on its mapping, 35 of 35.
+        # The debit direction is the informative one of the pair: it is the
+        # only per-document check that the service-charge posting was recovered.
         "first_citizens:credit",
+        "first_citizens:debit",
         "first_community:credit",
         "first_community:debit",
         "first_farmers:credit",
@@ -249,7 +266,9 @@ def test_a_promoted_entry_records_the_evidence_that_promoted_it():
                 "bank_of_america:debit",
                 # W3 §COUNTSP3
                 "chase_savings:debit",
-                "td_canada_french:credit", "td_canada_french:debit"):
+                "td_canada_french:credit", "td_canada_french:debit",
+                # W3 §COUNTSMAP
+                "capital_one:debit", "first_citizens:debit"):
         parser_id, direction = key.split(":")
         reason = SEMANTICS[parser_id][direction].reason
         assert "PROMOTED" in reason, key
@@ -338,21 +357,33 @@ def test_a_service_charge_entry_says_whether_its_control_arm_was_exercised():
 
 
 def test_the_first_citizens_debit_entry_carries_the_mapping_and_its_cost():
-    """W3 §COUNTSP3. §FI14.3 recommended a COMPARABLE entry off one pinned
-    document and then corrected itself; the correction is what this pins. The
-    entry must carry the mapping AND the measured price of ignoring it, so the
-    next reader cannot re-derive the promotion from the 26 documents where the
-    two sides happen to agree."""
-    reason = SEMANTICS["first_citizens"]["debit"].reason
-    assert SEMANTICS["first_citizens"]["debit"].comparable is False
-    assert "stated_debit_count + 1" in reason
+    """W3 §COUNTSP3, then §COUNTSMAP. §FI14.3 recommended a COMPARABLE entry
+    off one pinned document and then corrected itself; COUNTS-P3 recorded the
+    mapping in prose because the schema could not hold it; this cell installed
+    the schema and promoted the direction ON the mapping.
+
+    The entry must still carry both arms AND the measured price of promoting it
+    with the mapping blind, so the next reader cannot re-derive a plain
+    equality entry from the 26 documents where the two sides happen to agree.
+    """
+    semantics = SEMANTICS["first_citizens"]["debit"]
+    reason = semantics.reason
+    assert semantics.comparable is True
+    assert semantics.mapping is not None
+    assert semantics.mapping.rule == "plus_one_when_billed"
+    assert semantics.mapping.printed_field == "stated_service_charge"
     # the two arms, and which one each is
     assert "26 agree exactly" in reason and "9 disagree by exactly +1" in reason
-    # the measured consequence of promoting it anyway
+    # the measured consequence of promoting it WITHOUT the mapping
     assert "review/integrity_flags" in reason
-    # ... and the clause the capital_one entry does not need: a billed charge
-    # whose itemisation could not be found is +0, not +1.
+    # ... and the clause §FI14.3 asked for, which is deliberately NOT in the
+    # mapping: "was the charge recovered as a posting" is a fact about OUR
+    # rows, and an expected side that reads the captured side is not
+    # independent of it. The entry has to say so rather than omit it.
     assert "RECOVERED AS A POSTING" in reason
+    assert "DELIBERATELY" in reason and "ABSENT" in reason
+    # the arm that does not exist, stated as a number rather than smoothed over
+    assert "0 documents exercise the" in reason
 
 
 def test_the_td_canada_french_promotion_argues_its_own_independence():
@@ -412,7 +443,10 @@ def test_an_unknown_direction_is_an_error_rather_than_a_default():
 
 def test_the_observer_and_the_check_read_one_table():
     """The instrument that PREDICTS the flag population and the code that
-    EMITS it must not be able to disagree."""
+    EMITS it must not be able to disagree — about the table OR about the
+    arithmetic it is applied with. W3 §COUNTSMAP added the second half: one
+    shared table and two different adjustments is the same defect wearing a
+    different hat."""
     import analysis.count_semantics as production
     import telemetry.stated_counts as observer
 
@@ -420,6 +454,7 @@ def test_the_observer_and_the_check_read_one_table():
     assert observer.UNSURVEYED is production.UNSURVEYED
     assert observer.semantics_for is production.semantics_for
     assert observer.SECTION_LEVEL_ORACLES is production.SECTION_LEVEL_ORACLES
+    assert observer.expected_count is production.expected_count
 
 
 def test_the_observer_version_moves_when_the_table_does():
@@ -432,6 +467,12 @@ def test_the_observer_version_moves_when_the_table_does():
     Pinning the version against the table's SHAPE is what makes the contract
     self-enforcing: adding, removing or re-classifying an entry fails here
     until the version is deliberately moved and its comment says what moved.
+
+    W3 §COUNTSMAP widened the shape to include the MAPPED count, because a
+    mapping changes which documents report `match` just as surely as a
+    promotion does — `capital_one:debit` alone moves 12 documents from
+    `semantics_incomparable` to `match` and would have moved them to `mismatch`
+    without it.
     """
     import telemetry.stated_counts as observer
 
@@ -439,7 +480,254 @@ def test_the_observer_version_moves_when_the_table_does():
         1 for table in SEMANTICS.values()
         for semantics in table.values() if semantics.comparable
     )
-    assert (observer.OBSERVER_VERSION, len(SEMANTICS), comparable) == (3, 31, 56)
+    mapped = sum(
+        1 for table in SEMANTICS.values()
+        for semantics in table.values() if semantics.mapping is not None
+    )
+    assert (observer.OBSERVER_VERSION, len(SEMANTICS), comparable, mapped) == (4, 31, 58, 2)
+
+
+# ---------------------------------------------------------------------------
+# The mapping (W3 §COUNTSMAP)
+# ---------------------------------------------------------------------------
+
+#: Every direction the table MAPS, enumerated rather than discovered — the
+#: idiom §COUNTSP3 D1 established after a hand-written list silently lost two
+#: entries. A new mapping is a deliberate edit here before any test below can
+#: cover it.
+MAPPED = ("capital_one:debit", "first_citizens:debit")
+
+
+def test_the_mapped_set_is_pinned_and_every_mapping_is_a_closed_lookup():
+    """A mapping changes the EXPECTED side of a live integrity check, so it is
+    pinned exactly like a promotion — and it has to be auditable by reading the
+    table, which means data and never a callable."""
+    mapped = {
+        f"{parser_id}:{direction}"
+        for parser_id, table in SEMANTICS.items()
+        for direction, semantics in table.items()
+        if semantics.mapping is not None
+    }
+    assert mapped == set(MAPPED)
+    for key in MAPPED:
+        parser_id, direction = key.split(":")
+        semantics = SEMANTICS[parser_id][direction]
+        mapping = semantics.mapping
+        assert semantics.comparable is True, key
+        assert mapping.rule in RULES, key
+        assert mapping.printed_field in PRINTED_EVIDENCE_FIELDS, key
+        # the sentence the mapping is making, in the bank's own vocabulary
+        assert "service charge" in mapping.excluded_row_class, key
+        assert not any(callable(getattr(mapping, f.name)) for f in fields(mapping)), key
+
+
+def test_a_mapping_can_only_be_built_out_of_the_closed_vocabulary():
+    """Checked in the dataclass, not at the call site: an entry that could not
+    be applied must not be writable in the first place."""
+    ok = dict(rule="plus_one_when_billed", printed_field="stated_service_charge",
+              excluded_row_class="the monthly service charge")
+    assert CountMapping(**ok).adjustment({"stated_service_charge": 1.0}) == 1
+    for broken in (
+        dict(ok, rule="plus_two_when_it_feels_right"),
+        dict(ok, printed_field="transactions"),
+        dict(ok, printed_field="captured_debit_count"),
+        dict(ok, excluded_row_class=""),
+    ):
+        with pytest.raises(ValueError):
+            CountMapping(**broken)
+
+
+def test_a_mapping_may_read_bank_printed_evidence_only():
+    """Independence, structurally rather than by good manners. The expected
+    side may be adjusted only by figures a parser lifted off the printed
+    summary; the moment it can read something derived from `transactions`, a
+    parser satisfies the check with its own output — which is the one property
+    this whole check exists to have."""
+    for name in PRINTED_EVIDENCE_FIELDS:
+        assert name in Statement.model_fields, name
+        assert name.startswith("stated_"), name
+        assert "Transaction" not in str(Statement.model_fields[name].annotation), name
+    assert "transactions" not in PRINTED_EVIDENCE_FIELDS
+    with pytest.raises(ValueError):
+        printed_evidence({"transactions": []}, "transactions")
+
+
+def test_a_mapping_requires_a_comparable_direction():
+    """An entry that declares an adjustment and then refuses to compare leaves
+    the adjustment unreachable — a decision that has not been made, wearing the
+    costume of one."""
+    with pytest.raises(ValueError):
+        CountSemantics(
+            comparable=False,
+            scope="service_charge_excluded_from_printed_debit_count",
+            reason="x" * 60,
+            mapping=CountMapping(
+                rule="plus_one_when_billed",
+                printed_field="stated_service_charge",
+                excluded_row_class="the monthly service charge",
+            ),
+        )
+
+
+def test_expected_count_is_the_identity_wherever_there_is_no_mapping():
+    """29 of the 31 parsers in the table, and everything outside it. The field
+    arrived without moving any of them, and this is what says so — rather than
+    the absence of a failing test."""
+    billed = {"stated_service_charge": 25.0}  # a mapping WOULD fire on this
+    for parser_id, table in SEMANTICS.items():
+        for direction, semantics in table.items():
+            if semantics.mapping is not None:
+                continue
+            assert expected_count(parser_id, direction, 7, billed) == 7, f"{parser_id}:{direction}"
+    for parser_id in (None, "", "a_parser_nobody_surveyed", UNSURVEYED_REGISTRATION):
+        for direction in DIRECTIONS:
+            assert expected_count(parser_id, direction, 7, billed) == 7, parser_id
+
+
+def test_a_zero_or_refunded_charge_adjusts_by_nothing():
+    """`> 0`, not truthiness of a signed number. `stated_service_charge` is a
+    MAGNITUDE, so a refund can only ever arrive as a sign or not at all — and
+    a refund is a CREDIT row, which adds nothing to the debit side. Everything
+    unreadable fails closed the same way."""
+    mapping = SEMANTICS["capital_one"]["debit"].mapping
+    assert mapping.adjustment({"stated_service_charge": 15.0}) == 1
+    for absent in ({"stated_service_charge": 0.0}, {"stated_service_charge": None},
+                   {"stated_service_charge": -15.0}, {"stated_service_charge": True},
+                   {"stated_service_charge": "15.00"}, {}):
+        assert mapping.adjustment(absent) == 0, absent
+
+
+@pytest.mark.parametrize("key", MAPPED)
+def test_the_mapping_reads_a_statement_and_a_serialized_one_identically(key):
+    """`reconcile` holds a `Statement`; the phase-1 count observer holds the
+    payload the artifact cache stored. Two shapes, one answer, or the
+    instrument and the emitter disagree about which documents are clean."""
+    parser_id, direction = key.split(":")
+    stmt = statement(rows=[txn(-25.0, "debit")], credit=None, debit=1,
+                     stated_service_charge=15.0)
+    assert expected_count(parser_id, direction, 1, stmt) == 2
+    assert expected_count(parser_id, direction, 1, stmt.model_dump()) == 2
+
+
+@pytest.mark.parametrize("key", MAPPED)
+def test_a_billed_charge_is_the_one_row_the_printed_count_does_not_carry(key):
+    """The measured arm: 12 of 22 capital_one and 9 of 35 first_citizens
+    documents, every one a ledger that reconciles to the cent, every one +1."""
+    parser_id, _direction = key.split(":")
+    rows = [txn(100.0, "credit"), txn(-40.0, "debit"), txn(-30.0, "debit"),
+            txn(-15.0, "debit", "SERVICE CHARGE")]
+    stmt = statement(rows=rows, credit=1, debit=2, stated_service_charge=15.0)
+    recon, integrity = integrity_for(stmt, parser_id)
+    assert (recon.captured_debit_count, recon.expected_debit_count) == (3, 3)
+    assert recon.stated_debit_count_matches is True
+    assert integrity.flags == []
+    # the credit direction is untouched: a mapping applies to the ONE direction
+    # it is declared on.
+    assert (recon.captured_credit_count, recon.expected_credit_count) == (1, 1)
+
+
+@pytest.mark.parametrize("key", MAPPED)
+def test_a_zero_charge_document_is_compared_against_the_printed_figure(key):
+    """The control arm — 10 of 22 and 26 of 35 — and the reason '+1 always' and
+    '+1 iff charged' are distinguishable on this archive at all."""
+    parser_id, _direction = key.split(":")
+    rows = [txn(100.0, "credit"), txn(-40.0, "debit"), txn(-30.0, "debit")]
+    stmt = statement(rows=rows, credit=1, debit=2, stated_service_charge=0.0)
+    recon, integrity = integrity_for(stmt, parser_id)
+    assert (recon.captured_debit_count, recon.expected_debit_count) == (2, 2)
+    assert recon.stated_debit_count_matches is True
+    assert integrity.flags == []
+
+
+@pytest.mark.parametrize("key", MAPPED)
+def test_the_mapping_catches_a_dropped_row_the_equality_test_is_blind_to(key):
+    """THE CONSTRUCTED GENUINE MISMATCH, and the whole argument for the field.
+
+    The bank printed `Checks/Debits (2)` and billed a charge, so a complete
+    ledger carries THREE debit rows. This one carries two: the charge row is
+    there and one printed row was dropped. Captured is off by two errors that
+    cancel.
+
+    The unmapped equality test compares 2 against the printed 2 and reports
+    MATCH — a ledger missing a posting, called clean. The mapping compares 2
+    against 3 and flags. So the field is not only a false-positive suppressor:
+    it is what makes this class visible at all, and the money is silent
+    throughout, which is the entire point of a count check.
+    """
+    parser_id, _direction = key.split(":")
+    rows = [txn(100.0, "credit"), txn(-40.0, "debit"), txn(-15.0, "debit", "SERVICE CHARGE")]
+    stmt = statement(rows=rows, credit=1, debit=2, stated_service_charge=15.0)
+    recon, integrity = integrity_for(stmt, parser_id)
+    assert (recon.captured_debit_count, recon.expected_debit_count) == (2, 3)
+    assert recon.stated_debit_count_matches is False
+    assert integrity.flags == ["debit_count_mismatch"]
+    assert integrity.risk_level == "review"
+    # the money says nothing at all — only the count can speak here
+    assert recon.ok is True and recon.issues == []
+    # ... and advisory to the end: a flag, never a withholding.
+    assert integrity.possible_document_issue is False
+    assert classify_outcome({
+        "metrics": {"average_daily_balance": 1234.56},
+        "quality": {"corporate_use": "approved"},
+        "integrity": {"flags": list(integrity.flags)},
+    }) == ("review", "integrity_flags")
+    # THE COUNTERFACTUAL: the promotion these two entries would have had
+    # without the field. It sees nothing.
+    blind = reconcile(stmt)
+    assert (blind.expected_debit_count, blind.stated_debit_count_matches) == (2, True)
+
+
+@pytest.mark.parametrize("key", MAPPED)
+def test_a_caller_that_does_not_name_the_parser_gets_the_raw_printed_figure(key):
+    """Fail-closed by default. `reconcile(stmt)` is what every caller outside
+    the pipeline does, and it must behave exactly as it did before mappings
+    existed: no claim, no adjustment."""
+    parser_id, _direction = key.split(":")
+    rows = [txn(100.0, "credit"), txn(-40.0, "debit"), txn(-30.0, "debit"),
+            txn(-15.0, "debit", "SERVICE CHARGE")]
+    stmt = statement(rows=rows, credit=1, debit=2, stated_service_charge=15.0)
+    assert reconcile(stmt).expected_debit_count == 2
+    assert reconcile(stmt, parser_id=parser_id).expected_debit_count == 3
+    # an unclaimed dispatch is the same as no dispatch
+    recon, integrity = integrity_for(stmt, parser_id, outcome="ambiguous")
+    assert recon.expected_debit_count == 2
+    assert not [flag for flag in integrity.flags if flag in COUNT_FLAGS]
+
+
+def test_the_reconciler_and_the_flag_gate_key_on_the_same_claim():
+    """The drift hazard the shared helper closes: `reconcile` APPLIES a table
+    row's mapping and `assess_document_integrity` decides whether its result
+    may be flagged. Two copies of "which parser claimed this" could send those
+    two to different rows — applying capital_one's adjustment and judging it
+    under nobody's semantics, or the reverse."""
+    assert claiming_parser_id(None) is None
+    assert claiming_parser_id(pr.Dispatch("unclaimed")) is None
+    assert claiming_parser_id(
+        pr.Dispatch("ambiguous", candidates=(("rbc", 1.0), ("capital_one", 1.0)))
+    ) is None
+    assert claiming_parser_id(
+        pr.Dispatch("claimed", registration=pr.by_id("capital_one"))
+    ) == "capital_one"
+    source = (ROOT / "analysis" / "pipeline.py").read_text(encoding="utf-8")
+    # BOTH keys are derived by the helper, and every reconcile call names one.
+    assert source.count("claiming_parser_id(dispatch)") == 2
+    calls = re.findall(r"\breconcile\((?!\s*$)[^)\n]*\)", source)
+    assert calls, "the pipeline must call reconcile"
+    for call in calls:
+        assert "parser_id=" in call, call
+
+
+def test_a_mapped_direction_still_appends_no_reconciliation_issue():
+    """The phase-1 invariant, on the new arm: `ok` gates the ADB, so an issue
+    here would WITHHOLD a document over a count. Compared against the same
+    statement with the printed counts removed."""
+    rows = [txn(100.0, "credit"), txn(-40.0, "debit"), txn(-15.0, "debit", "SERVICE CHARGE")]
+    flagged = reconcile(statement(rows=rows, credit=1, debit=2, stated_service_charge=15.0),
+                        parser_id="capital_one")
+    silent = reconcile(statement(rows=rows, credit=None, debit=None, stated_service_charge=15.0),
+                       parser_id="capital_one")
+    assert flagged.issues == silent.issues == []
+    assert flagged.ok is silent.ok is True
 
 
 # ---------------------------------------------------------------------------
