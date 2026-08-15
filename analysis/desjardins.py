@@ -157,14 +157,21 @@ def _transactions(markdown: str, *, year: int, beginning_balance: float) -> list
 #: currency word on the page — the column headers print bare `Charges`,
 #: `Withdrawal`, `Deposit`, `Balance` with no unit at all.
 #:
-#: `_ADMISSIBLE` is a closed set on purpose. The token immediately before the
-#: product name is a three-letter code either way (`PCA` is the account-type
-#: mark that precedes it in the same header row), so a matcher that published
-#: whatever three letters it captured would publish `PCA` as a currency the
-#: first time the caisse set that row without a denomination. The same class of
-#: defect is live elsewhere in the archive: a scanned deposit slip OCRs as
-#: `Af 'CURRENCY KLR Enterpriees`, and a labelled-code reader without a closed
-#: set would publish `KLR`.
+#: `_ADMISSIBLE_CURRENCIES` is a closed set on purpose. The token immediately
+#: before the product name is a three-letter code either way (`PCA` is the
+#: account-type mark that precedes it in the same header row), so a matcher
+#: that published whatever three letters it captured would publish `PCA` as a
+#: currency the first time the caisse set that row without a denomination. The
+#: same class of defect is live elsewhere in the archive: a scanned deposit
+#: slip OCRs as `Af 'CURRENCY KLR Enterpriees`, and a labelled-code reader
+#: without a closed set would publish `KLR`.
+#:
+#: The set's cost is recorded rather than hidden: a REAL but unattested ISO
+#: code (a EUR issue of this product) is not admitted, falls into the same
+#: "prints nothing" branch as `PCA`, and publishes the USD default beside a
+#: page that says otherwise. That residual is named in W3 §CUR6; the rule for
+#: closing it is that a newly attested code extends THIS SET, never the
+#: fallback.
 _PRODUCT_CURRENCY_RE = re.compile(
     r"\b([A-Z]{3})\s+DESJARDINS CORPORATE BUILD-UP ACCOUNT\b")
 _ADMISSIBLE_CURRENCIES = frozenset({"CAD", "USD"})

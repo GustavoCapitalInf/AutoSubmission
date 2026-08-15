@@ -1399,6 +1399,35 @@ def test_desjardins_publishes_cad_when_the_product_line_prints_cad():
     assert stmt.currency == "CAD"
 
 
+def test_desjardins_source_filename_cannot_set_the_currency():
+    """W3 FILENAME-BOUNDARY / F-PROVENANCE. This reader's anchor is the product
+    name, not a line position, so a file named after the product carries the
+    exact token: on a Canadian-dollar issue, `USD DESJARDINS CORPORATE BUILD-UP
+    ACCOUNT.pdf` in the source comment is a live counterfeit. `admissible_text`
+    — the seam every parser sits behind — removes the comment first. The
+    pinned Desjardins statement really is named `USD FEB 2026.pdf`, so this is
+    the one family where the operator's name and the page say the same thing
+    for reasons that have nothing to do with each other."""
+    from analysis.parser_registry import admissible_text
+    from analysis.desjardins import _printed_currency
+
+    comment = (
+        "<!-- source: USD DESJARDINS CORPORATE BUILD-UP ACCOUNT.pdf "
+        "| pages: 1 | model: x | empty: 0 -->\n\n"
+    )
+    cad = _DESJ_HEAD.format(code="CAD ")
+    assert _printed_currency(comment + cad) is None  # counterfeit -> two codes
+    assert _printed_currency(admissible_text(comment + cad)) == "CAD"
+
+    silent = _DESJ_HEAD.format(code="")
+    assert _printed_currency(comment + silent) == "USD"  # the name alone decides
+    assert _printed_currency(admissible_text(comment + silent)) is None
+
+    stmt = parse_desjardins_statement(admissible_text(comment + cad))
+    assert stmt is not None
+    assert stmt.currency == "CAD"
+
+
 def test_desjardins_does_not_publish_the_account_type_mark_as_a_currency():
     """`PCA` is the three-letter account-type mark printed immediately before
     the product name. A reader that published whatever three letters it

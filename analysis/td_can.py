@@ -436,6 +436,30 @@ def _native_printed_currency(markdown: str) -> str | None:
     return found.pop()
 
 
+def _native_product_name(printed_currency: str | None) -> str:
+    """The account name, carrying the suffix the DOCUMENT printed and no other.
+
+    This name and `Statement.currency` are derived from the same match on
+    purpose. They were not: the name was the fixed string
+    `BUSINESS CHEQUING ACCOUNT - CAD` written whenever the header printed
+    `BUSINESS CHEQUING`, so reading the denomination off the page without
+    reading the name off the same line would have published
+    `currency="USD"` beside a name asserting `- CAD` on the three U.S.-dollar
+    statements of this layout — a contradiction inside one payload, from one
+    printed line, which is exactly what the currency-evidence invariant exists
+    to prevent.
+
+    The plan token the column also carries (`EVERY DAY B`) is deliberately NOT
+    appended: it is printed, but adding it would move the published name on all
+    73 documents of this layout including six pinned ones, on a field
+    (`account`) that IS an audited column, for no correctness gain. The suffix
+    is the only part of this string the currency work makes wrong.
+    """
+    if printed_currency is None:
+        return "BUSINESS CHEQUING ACCOUNT"
+    return f"BUSINESS CHEQUING ACCOUNT - {printed_currency}"
+
+
 NATIVE_DETECTION_MARKERS = (
     required("bank_name", lambda t: "THE TORONTO-DOMINION BANK" in t),
     required("native_header", lambda t: "DESCRIPTION CHEQUE/DEBIT DEPOSIT/CREDIT DATE BALANCE" in t),
@@ -457,8 +481,11 @@ def _parse_native_td_canada(markdown: str, base: Statement | None = None) -> Sta
     stmt.bank = "TD Canada Trust"
     # The product line states the denomination where the product has one; CAD
     # remains the layout's default where it does not, and the residual is
-    # named rather than inferred from the branch address.
-    stmt.currency = _native_printed_currency(markdown) or "CAD"
+    # named rather than inferred from the branch address. Read once here and
+    # used for BOTH the currency and the account name below, so the two can
+    # never disagree about the same printed line.
+    printed_currency = _native_printed_currency(markdown)
+    stmt.currency = printed_currency or "CAD"
     stmt.beginning_balance = None
     stmt.ending_balance = None
     stmt.stated_total_credits = None
@@ -491,7 +518,7 @@ def _parse_native_td_canada(markdown: str, base: Statement | None = None) -> Sta
         if account:
             stmt.account_number = account.group(0)
         if "BUSINESS CHEQUING" in upper:
-            stmt.account_name = "BUSINESS CHEQUING ACCOUNT - CAD"
+            stmt.account_name = _native_product_name(printed_currency)
         if upper.startswith("MONTHLY AVER. CR. BAL."):
             avg = parse_money(line)
             if avg is not None:

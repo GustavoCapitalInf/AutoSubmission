@@ -55,42 +55,57 @@ _SUMMARY_MONEY = r"((?:-\s*)?\$?(?:-\s*)?[\d,]+\.\d{2})"
 #: header set both words on one line, so the title is optional here and the
 #: line is anchored at both ends — an unanchored search would reach the words
 #: `funds` and `U.S.` wherever a transaction description happens to print them
-#: (`Funds transfer credit TT KM CAPITAL C` is a posting on four of the pinned
-#: RBC statements, and it is a transfer TYPE, not a denomination).
+#: (`Funds transfer credit TT KM CAPITAL C` is a posting on one of the four
+#: pinned RBC statements, and it is a transfer TYPE, not a denomination).
 _US_FUNDS_RE = re.compile(
     r"^[ \t]*(?:Business Account Statement[ \t]+)?U\.S\. Funds[ \t]*$",
     re.IGNORECASE | re.MULTILINE,
 )
 
-#: The account's own product name, printed in the mailing header between the
-#: holder's name and the mailing address: `... 2424647 ALBERTA INC. CAD
-#: CHEQUING ACCOUNT 113 TAMARACK WAY ...`. RBC names the currency in the
-#: product on the two products that have one, and prints no currency word at
-#: all on the packages that do not (`RBC Digital Choice Business`, `RBC
-#: Ultimate Business`, `Business Current Account`, `RBC Advantage Banking`).
+#: The mailing header: the line RBC opens with its own print-control code,
+#: `RBBDA30000_5081501 E D 07489 00380 2424647 ALBERTA INC. CAD CHEQUING
+#: ACCOUNT 113 TAMARACK WAY FORT MCMURRAY AB T9K 1A2`. 157 of the 169 archive
+#: documents carry one, and all twelve that name a currency carry it there.
 #:
-#: The two spellings are the whole admissible set, measured over every RBC
-#: document in the archive: `CAD CHEQUING ACCOUNT` and `US BUSINESS ACCOUNT`.
-#: A bare `CAD`/`USD` token scan is deliberately NOT used — this layout prints
-#: e-Transfer reference codes of the shape `CAxxxxxx` in its ledger
-#: (`e-Transfer received PHILIPPESEGUIN CADWKEFS`), and a looser matcher would
-#: read a customer's reference as the account's denomination.
-_PRODUCT_CURRENCY_RE = re.compile(
-    r"\b(CAD|US)\s+(?:CHEQUING|BUSINESS)\s+ACCOUNT\b")
+#: THE PRODUCT NAME IS READ FROM THIS LINE AND NOWHERE ELSE. The reason is the
+#: ledger: this family prints 88 postings that name an account — `Online
+#: Transfer to Deposit Account-5887`, `ACCOUNT TRANSFER 06032-1122647` — so a
+#: document-wide search for the product spelling is one customer-named account
+#: away from a counterfeit (`Online Transfer to CAD Chequing Account-1718`
+#: reads as a CAD denomination, on a statement that may be neither). Measured
+#: today: twelve product-spelling hits, twelve of them on this line and none
+#: outside it, so the anchor costs nothing and closes the shape.
+_MAILING_HEADER_RE = re.compile(r"^RBBDA\d+_\d+\b.*$", re.MULTILINE)
 
-#: What each printed product word denominates. `US` is the product's spelling;
-#: the published code is the ISO one.
-_PRODUCT_CURRENCY = {"CAD": "CAD", "US": "USD"}
+#: The product spellings that name a currency, and what each denominates.
+#: These two and no others are attested — measured over every RBC document in
+#: the archive: `CAD CHEQUING ACCOUNT` 6, `US BUSINESS ACCOUNT` 6. This is a
+#: literal table rather than an alternation over `(CAD|US)` and
+#: `(CHEQUING|BUSINESS)`, which would have admitted two spellings
+#: (`CAD BUSINESS ACCOUNT`, `US CHEQUING ACCOUNT`) that no document prints and
+#: that nothing here has measured.
+#:
+#: RBC prints no currency word at all in the packages that have none
+#: (`RBC Digital Choice Business`, `RBC Ultimate Business`, `Business Current
+#: Account`, `RBC Advantage Banking`), which is why 151 documents state
+#: nothing. A bare `CAD`/`USD` token scan is deliberately NOT used either —
+#: this layout prints e-Transfer reference codes of the shape `CAxxxxxx` in its
+#: ledger (`e-Transfer received PHILIPPESEGUIN CADWKEFS`).
+_PRODUCT_CURRENCY = {
+    "CAD CHEQUING ACCOUNT": "CAD",
+    "US BUSINESS ACCOUNT": "USD",
+}
 
 
 def _printed_currency(markdown: str) -> str | None:
     """The currency this document PRINTS, or None when it prints none.
 
-    Two independent evidence sites, both of them the layout's own furniture:
-    the `U.S. Funds` denomination line and the product name in the mailing
-    header. Where they disagree the document contradicts itself and this
-    returns None — the caller then leaves the schema default standing rather
-    than picking a winner, which is the fail-closed reading of an ambiguity.
+    Two independent evidence sites, both of them the layout's own furniture and
+    both positionally anchored: the `U.S. Funds` denomination line, and the
+    product name inside the mailing header. Where they disagree the document
+    contradicts itself and this returns None — the caller then leaves the
+    schema default standing rather than picking a winner, which is the
+    fail-closed reading of an ambiguity.
 
     Returning None is the ordinary case, not an error: 151 of the 169 RBC
     documents in the archive print no denomination anywhere, and the honest
@@ -99,8 +114,10 @@ def _printed_currency(markdown: str) -> str | None:
     found: set[str] = set()
     if _US_FUNDS_RE.search(markdown):
         found.add("USD")
-    for match in _PRODUCT_CURRENCY_RE.finditer(markdown.upper()):
-        found.add(_PRODUCT_CURRENCY[match.group(1)])
+    for line in _MAILING_HEADER_RE.findall(markdown.upper()):
+        for spelling, code in _PRODUCT_CURRENCY.items():
+            if spelling in line:
+                found.add(code)
     if len(found) != 1:
         return None
     return found.pop()
