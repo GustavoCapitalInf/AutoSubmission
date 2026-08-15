@@ -21644,7 +21644,25 @@ the argument is why the proof came out the way it did.
 
 ```
 # full default suite (baseline 4,240; this cell adds 13)
-4253 passed, 33 skipped, 29 deselected           exit 0
+4253 passed, 33 skipped, 29 deselected                    276.64s  EXIT=0
+
+# corpus-marked slice (MANDATORY) — unchanged at 25; this cell adds no
+# corpus-marked test, and the slice is the check the gate is blind to
+25 passed, 4290 deselected                               2517.50s  EXIT=0
+
+# corpus gate
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 6 review / 100 validated / 3 withheld
+Runtime:  1224.7s
+RESULT: GREEN                                                      EXIT=0
+
+# conformance cross-product (71 x 70 = 4,970 assertions) + registry + guards
+tests/test_parser_conformance.py + test_parser_detection_markers.py
+  + test_parser_registry.py + test_parser_registry_entries.py
+  + test_pipeline_registry_dispatch.py + test_no_statement_hardcodes.py
+  + test_r1_hardcodes.py + test_no_parser_helper_clones.py
+  + test_no_fail_open_money_reads.py
+1147 passed, 33 skipped                                     15.47s  EXIT=0
 
 # archive-wide byte-identity sweep, 3,380 distinct shas
 byte-identical payloads : 3367 / 3367   movers 0
@@ -21652,7 +21670,17 @@ outcome transitions     : none — no class moved anywhere
 
 # instrument soundness, against run of record c924d751, BEFORE any edit
 outcome_class 3367 / 3367 agree · parser_id 2376 / 2376 agree · 0 disagreements
+
+# compiled-pattern differential against a git-archive of the base tree
+MINUS_CLASS                                   byte-identical
+brex/mercury _PERIOD_RE                       byte-identical
+wealthsimple _PERIOD_RE                       member-identical (order only)
+SIGNED_MONEY_TOKEN + every pattern built from it   U+2014 removed, as intended
 ```
+
+The corpus gate and the corpus slice were run on a machine carrying five
+other cells' corpus runs at the same time; the runtimes above are contended
+and are not a reading of anything but wall clock.
 
 ## MGD12. Commits
 
@@ -21662,4 +21690,6 @@ outcome_class 3367 / 3367 agree · parser_id 2376 / 2376 agree · 0 disagreement
 | `00727c8` | card 2 — `date_tokens.PERIOD_DASH`; a date range is not a sign |
 | `384d992` | card 3 — `wealthsimple` consumes the canon (SEPARABLE) |
 | `f5d255c` | card 4 — the structural guard against a sixth private sign class |
-| (this one) | §MGD MGD0–MGD12 |
+| `3e24f94` | §MGD MGD0–MGD12 |
+| `ab6528c` | self-review: live-derived family populations, the fourth range dash, guard wording |
+| (this one) | the completed proof block |
