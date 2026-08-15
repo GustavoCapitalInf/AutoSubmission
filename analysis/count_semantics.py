@@ -111,11 +111,18 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
                 "Measured over all 3 archive documents of the family: 3/3 "
                 "agree, 0 disagreements, 0 flags raised. DISCLOSURE, in the "
                 "idiom of the `community_section` comment below: that 3/3 is "
-                "a TAUTOLOGY and carries no information. The parser's own "
-                "acceptance gate refuses any document whose row count in "
-                "either direction differs from the printed count "
-                "(analysis/burke_herbert.py:200-203), so a claimed document "
-                "has matching counts by construction. The entry is written "
+                "a TAUTOLOGY and carries no information — and it is a tautology "
+                "EXACTLY here, which the debit direction cannot say. The "
+                "parser's acceptance gate refuses any document whose count of "
+                "POSITIVE-amount rows differs from the printed credit figure "
+                "(`a > 0`, analysis/burke_herbert.py:200-201), and this parser "
+                "sets `direction='credit'` on exactly `amount > 0` (:277), so "
+                "the gate's set and this check's set are the same set and a "
+                "claimed document agrees by construction. The gate keys on the "
+                "SIGN, not on `Transaction.direction`; the two coincide on this "
+                "side and DIVERGE on the debit side, where the gate's `a < 0` "
+                "omits a $0.00 row this check counts — see that entry's "
+                "falsifier. The entry is written "
                 "anyway because the alternative — UNSURVEYED — reads as 'not "
                 "yet examined' when the truth is 'examined, and structurally "
                 "silent'. The independent oracle for this bank is the "
@@ -229,10 +236,29 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
     # `chase`'s (`SAVINGS SUMMARY`, analysis/chase_savings.py:185), so it is
     # surveyed in its own right rather than inheriting either sibling's entry.
     "chase_savings": {
-        "credit": _whole(
-            "'Deposits and Additions  N  $x' in the SAVINGS SUMMARY block",
-            "analysis/chase_savings.py:198-203; measured 10/10 agreeing over "
-            "all 10 archive documents of the family, 0 disagreements",
+        "credit": CountSemantics(
+            comparable=True,
+            scope="whole_direction",
+            reason=(
+                "prints 'Deposits and Additions  N  $x' in the SAVINGS SUMMARY "
+                "block; one printed figure per direction "
+                "(analysis/chase_savings.py:198-203). Measured over all 10 "
+                "archive documents of the family: 10/10 agree, 0 "
+                "disagreements. Unlike the debit sibling this is a single "
+                "printed label, not a sum, and unlike `burke_herbert:credit` "
+                "it is NOT gated — `parse_chase_savings_statement` compares no "
+                "count against anything (:317-350), so the agreement is "
+                "measured rather than construed. FALSIFIER, and it is a real "
+                "one because a savings product is where a second credit "
+                "category would appear: if a layout prints a COUNT beside any "
+                "credit line other than 'Deposits and Additions' — an interest "
+                "or bonus category, say; the parser already reads 'Interest "
+                "Paid This Period' for its AMOUNT and no count (:219-222) — "
+                "the expected side under-counts and this entry manufactures a "
+                "mismatch on correct rows. The tell is a captured credit count "
+                "that exceeds the printed one by exactly the rows of the "
+                "unnamed category."
+            ),
         ),
         "debit": CountSemantics(
             comparable=True,
@@ -260,13 +286,28 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
                 "genuine ZERO to absent, so a period with no debits reports "
                 "`not_printed` rather than `0`; the check can therefore never "
                 "raise a false mismatch from a zero, and can never confirm a "
-                "true one either. FALSIFIER: a savings document printing a "
-                "named debit category whose count the grid contradicts, with "
-                "`Fees` included in the sum (:214-215) — this bank folds its "
-                "service charge INSIDE the printed debit count, which is what "
-                "keeps it out of the capital_one class; a layout that printed "
-                "`Fees` outside the summed labels would put it there and this "
-                "entry would stop being true."
+                "true one either. (3) THE FOLDED-CHARGE ARM IS UNEXERCISED, "
+                "stated with the same candour as `burke_herbert:debit`: `Fees` "
+                "IS one of the summed labels and its count is added to the "
+                "expected side (:135, :207-216), so BY CONSTRUCTION this bank "
+                "folds its service charge inside the printed debit figure and "
+                "cannot be in the capital_one class — but 0 of the 10 archive "
+                "documents print a `Fees` row at all "
+                "(`stated_service_charge` is unset on every one), so the claim "
+                "rests on `_SUMMARY_DEBIT_LABELS` construction and NOT on a "
+                "measured control arm. Construction is the stronger of the two "
+                "here, because the count and the money come off the same "
+                "printed line and the parser cannot take one without the "
+                "other; it is still not evidence, and the distinction is the "
+                "one COUNTS-P1's 12 all-charged capital_one documents taught. "
+                "FALSIFIER: a savings layout printing a debit category the "
+                "label list does not name — including a fee line spelled "
+                "anything other than `Fees` — under-counts the EXPECTED side; "
+                "the tell is a captured debit count exceeding the printed one "
+                "by exactly the rows of the unnamed category, and if that "
+                "category proves to be a charge printed OUTSIDE the summed "
+                "labels this bank joins the capital_one class and the "
+                "direction goes back to incomparable."
             ),
         ),
     },

@@ -15098,17 +15098,20 @@ were made: seven keys added to `comparable`, one added to `incomparable`, and
 the `len(comparable) + len(incomparable) == 2 * len(SEMANTICS)` invariant still
 holds at 62.
 
-Five tests were added beside the pins:
+Seven tests were added beside the pins (the last two closing review findings
+D2 and D5):
 
 | test | the job it does |
 |---|---|
 | `test_a_tautological_entry_says_so_rather_than_reading_as_evidence` | the three gate-immune directions must SAY they are immune |
-| `test_the_countsp3_promotions_each_carry_a_falsifier` | the `first_community` / BofA idiom, now standing for this cell too |
+| `test_the_countsp3_promotions_each_carry_a_falsifier` | the `first_community` / BofA idiom, now standing for this cell too — and it ENUMERATES all seven promoted directions with one NAMED exemption, rather than sampling a list it can silently fall out of (D1) |
+| `test_a_service_charge_entry_says_whether_its_control_arm_was_exercised` | D2 — both `Checks/Debits`-shaped debit entries must disclose that no charged document exists to test the scope against |
 | `test_the_first_citizens_debit_entry_carries_the_mapping_and_its_cost` | the mapping, the 26/9 split, the `RECOVERED AS A POSTING` clause, and the measured price of promoting anyway |
 | `test_the_td_canada_french_promotion_argues_its_own_independence` | the solver must not be able to read the count it is checked against |
+| `test_the_observer_version_moves_when_the_table_does` | D5 — pins `OBSERVER_VERSION` against the table's SHAPE, so the observer's own bump-on-change contract stops depending on someone remembering it |
 | `test_an_incomparable_direction_can_never_flag[first_citizens-debit]` | the structural prohibition, on the new incomparable direction |
 
-Suite **3,769 → 3,778**. The +9 is fully accounted: 4 new test functions, 1
+Suite **3,769 → 3,780**. The +11 is fully accounted: 6 new test functions, 1
 new `incomparable` parametrization, and 4 new parser parametrizations in
 `tests/test_stated_counts.py::test_an_incomparable_direction_can_never_emit_mismatch`,
 which iterates the table.
@@ -15170,7 +15173,8 @@ cache.
 |---|---|
 | `54dfa74` | the four entries + both sides of the pinned set + five tests |
 | `e0a2fcc` | one line citation corrected (`:490` → `:523`), prose only |
-| (this one) | §COUNTSP3 — the measurement, the refusals and the proofs |
+| `090e8f4` | §COUNTSP3 — the measurement, the refusals and the proofs |
+| (this one) | adversarial-review closures D1, D2, D3, D5, D6 |
 
 ## CP11. Carried findings and questions for Ocean
 
@@ -15215,5 +15219,134 @@ cache.
    now says so.** If you would rather the table not carry information-free
    comparable entries at all, the alternative is to leave them UNSURVEYED and
    record the reasoning here instead. This cell chose disclosure over silence
-   on the `community_section` precedent; the choice is reversible and costs
-   nothing either way, since neither can ever raise a flag.
+   on the `community_section` precedent.
+
+   **CORRECTED (review D6).** The first draft of this paragraph said the
+   choice "costs nothing either way, since neither can ever raise a flag."
+   That is true of `burke_herbert:credit` and of `first_citizens:credit`, and
+   **false of `burke_herbert:debit`** — this cell's own entry states the
+   exception two sections up. The gate counts `a < 0`; this check counts
+   `direction == 'debit'`, which the parser sets on `amount <= 0`; a genuine
+   `$0.00` row therefore passes the gate and raises a `debit_count_mismatch`
+   on a complete ledger. Zero such rows exist in the family today, and the
+   platform demonstrably posts `$0.00` rows elsewhere (§JHA-CELL found three).
+   So the accurate statement of the trade is: leaving these UNSURVEYED costs
+   nothing and forecloses that one false positive; registering them costs
+   nothing today, discloses the silence, and accepts a named, bounded,
+   fail-loud-not-fail-wrong exposure on one direction of one three-document
+   family. The remedy if it ever fires is the parser's gate — direction-keyed,
+   the way §JHA-CELL re-keyed `community_section` — not a table edit.
+
+   Recorded rather than quietly fixed because it is the paragraph you read for
+   the reversibility question, and a summary that contradicts the entry it
+   summarises is worse than no summary.
+
+## CP12. Adversarial review — the six findings and their closures
+
+Verdict: **SHIP**, conditional on the `ANALYSIS_STAGE_VERSION` bump, which is
+Ocean's at merge.
+
+**D1 — the falsifier test sampled a list instead of enumerating the set.**
+Its docstring claimed every promoted direction states a falsifier while
+`chase_savings:credit` and `burke_herbert:credit` were silently absent from
+its iteration. The docstring was the thing that was wrong, and the reason it
+could be wrong is that the list was hand-written.
+
+Closed two ways. `chase_savings:credit` **now carries a falsifier** — it is a
+plain printed-figure entry with no gate behind it, so it can genuinely be
+wrong, and the way you would find out is a savings layout printing a COUNT
+beside a second credit category (the parser already reads `Interest Paid This
+Period` for its amount and no count, `analysis/chase_savings.py:219-222`); the
+tell is a captured credit count exceeding the printed one by exactly the rows
+of the unnamed category. `burke_herbert:credit` stays exempt because it cannot
+be wrong — the gate counts `a > 0` and the parser sets `direction='credit'` on
+exactly `amount > 0`, so the two sets are provably identical — but the
+exemption is now **named in code** (`FALSIFIER_EXEMPT`) with its argument
+attached, and the test asserts the exemption list is exactly that one key. The
+iteration list is now the enumerated set of all seven promoted directions, so
+a future promotion cannot fall out of it by omission.
+
+**D2 — the cell's own standard, applied asymmetrically. The one that matters.**
+`chase_savings:debit` asserted flatly that this bank "folds its service charge
+INSIDE the printed debit count, which is what keeps it out of the capital_one
+class", while `burke_herbert:debit` disclosed at length that its equivalent
+claim had no control arm. Re-measured: **0 of the 10 archive documents print a
+`Fees` row at all** — `stated_service_charge` is unset on every one — so the
+folded-charge arm is exactly as unexercised as burke's, and the entry was
+stating a construction as though it were a measurement.
+
+The entry now says so, in burke's own idiom: `Fees` IS one of the summed
+labels (`:135`, `:207-216`) so the fold holds BY CONSTRUCTION, the control arm
+is empty, construction is the stronger of the two here because the count and
+the money come off the same printed line and the parser cannot take one
+without the other — and it is still not evidence. The falsifier was widened
+with it: any debit category the label list does not name, *including a fee
+line spelled anything other than `Fees`*, under-counts the expected side, and
+if that category proves to be a charge printed outside the summed labels this
+bank joins the capital_one class.
+
+`test_a_service_charge_entry_says_whether_its_control_arm_was_exercised` pins
+the disclosure on **both** `Checks/Debits`-shaped entries, so the asymmetry
+cannot come back.
+
+**D3 — an over-general sentence about the burke gate.**
+`burke_herbert:credit` said the gate "refuses any document whose row count in
+either direction differs from the printed count". Exactly true for credit,
+FALSE in general for debit: the gate counts by SIGN (`a > 0` / `a < 0`) and
+this check counts `Transaction.direction`. The credit sentence is now precise
+— it names the `a > 0` set, names `direction='credit'` on `amount > 0`, says
+the two are the same set, and points at the debit entry for where they
+diverge. The debit entry was already right and is untouched.
+
+**D4 — `ANALYSIS_STAGE_VERSION`.** Noted and left alone: without the bump the
+four `td_canada_french` flags are silently inert, because their payloads are
+served from a cache keyed on a stage version that did not move. The composed
+bump at merge covers it. `webapp/` untouched here.
+
+**D5 — `OBSERVER_VERSION` was stale by its own contract** (scope granted).
+Bumped **2 → 3**, with the comment extended to enumerate what a v3 rollup
+reports differently from a v2 one over the same archive: the three both-
+direction promotions, the `first_citizens` split, the `capital_one:debit`
+refusal and its measured cost, and the concrete consequence — 61 documents
+across the four families leave `unsurveyed_parser`, and four
+`td_canada_french` documents start reporting `mismatch` where v2 reported them
+silent. One integer and its comment; nothing else in `telemetry/`.
+
+The contract itself was the deeper problem — "bump when the table changes" was
+a sentence, not a mechanism, which is how it went stale in the first place.
+`test_the_observer_version_moves_when_the_table_does` now pins
+`(OBSERVER_VERSION, len(SEMANTICS), comparable_directions)` as one tuple, so
+any table edit fails the suite until the version is deliberately moved and its
+comment says what moved.
+
+**D6 — CP11.7 contradicted this cell's own entry.** It said of the tautologies
+"neither can ever raise a flag"; `burke_herbert:debit` can, on a `$0.00` row,
+which the entry two sections up states plainly. Corrected in place with the
+correction marked rather than silently overwritten, and the trade restated
+accurately: the exposure is named, bounded to one direction of one
+three-document family, fails loud rather than wrong, and its remedy is the
+parser's gate — direction-keyed, the way §JHA-CELL re-keyed
+`community_section` — not a table edit.
+
+### CP12.1 Re-run after the closures
+
+```
+$ python -m pytest tests/test_count_semantics.py tests/test_stated_counts.py -q
+108 passed, 1 warning in 3.27s
+EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+    tests/test_no_parser_helper_clones.py -q
+104 passed in 2.56s
+EXIT=0
+
+$ python -m pytest -q
+3780 passed, 18 deselected, 1 warning in 285.86s (0:04:45)
+EXIT=0
+```
+
+No measured result moved: D1, D2, D3 and D6 are disclosure edits inside
+`reason` strings and one log paragraph, D5 is one integer in an observer that
+`analysis/` does not import. The comparable set, the incomparable set and the
+4-flag / 0-outcome movement of CP5 are unchanged, and the pre-existing 54
+direction entries remain field-identical.

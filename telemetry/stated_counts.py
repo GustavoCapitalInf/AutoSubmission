@@ -124,7 +124,23 @@ from analysis.count_semantics import (  # noqa: F401
 #:     production semantics rather than a copy of them, so a v1 rollup and a
 #:     v2 rollup report different `semantics_incomparable` populations for the
 #:     same archive.
-OBSERVER_VERSION = 2
+#:
+#: 3 - COUNTS-P3: four registrations left the UNSURVEYED default and entered
+#:     `analysis/count_semantics.py`, so the same archive partitions
+#:     differently again. `burke_herbert`, `chase_savings` and
+#:     `td_canada_french` became comparable in BOTH directions;
+#:     `first_citizens` split — credit comparable, debit INCOMPARABLE with the
+#:     capital_one-class mapping recorded on it. `capital_one:debit` was
+#:     re-measured and deliberately NOT promoted: the mapping is 22 of 22 but
+#:     the table has no field to express it, and a plain comparable entry was
+#:     measured to move 11 documents `validated` -> `review`, four of them
+#:     pinned. The vocabulary and the evaluation order are untouched; what
+#:     moves between a v2 and a v3 rollup is which directions report
+#:     `semantics_incomparable` versus `match`/`mismatch`: 61 documents across
+#:     the four families leave `unsurveyed_parser` behind, and four
+#:     `td_canada_french` documents start reporting `mismatch` where a v2
+#:     rollup reported them silent.
+OBSERVER_VERSION = 3
 
 # ----------------------------------------------------------------------
 # the closed vocabulary

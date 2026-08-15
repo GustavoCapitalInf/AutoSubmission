@@ -271,15 +271,70 @@ def test_a_tautological_entry_says_so_rather_than_reading_as_evidence():
         assert "TAUTOLOG" in semantics.reason.upper(), key
 
 
+#: Every direction W3 §COUNTSP3 made comparable. Enumerated rather than
+#: sampled, so the falsifier test below cannot silently skip one — which is
+#: exactly what it did on review (§COUNTSP3 D1) before the enumeration existed.
+COUNTSP3_COMPARABLE = (
+    "burke_herbert:credit", "burke_herbert:debit",
+    "chase_savings:credit", "chase_savings:debit",
+    "first_citizens:credit",
+    "td_canada_french:credit", "td_canada_french:debit",
+)
+
+#: The ONE exclusion from the falsifier rule, and the argument for it: this
+#: direction cannot be wrong, so there is nothing to state how you would find
+#: out about. The parser's gate counts `a > 0` and the parser sets
+#: `direction='credit'` on exactly `amount > 0`, so the gate's set and the
+#: check's set are provably the same set — no document, real or constructed,
+#: can make this direction disagree. Its DEBIT sibling gets no such exemption:
+#: there the two keys diverge on a $0.00 row, so it carries a falsifier.
+FALSIFIER_EXEMPT = ("burke_herbert:credit",)
+
+
 def test_the_countsp3_promotions_each_carry_a_falsifier():
     """The idiom `first_community` established and `bank_of_america:debit`
     made standing: an entry that can be wrong has to say how you would find
-    out. Every direction COUNTS-P3 made comparable states one."""
-    for key in ("burke_herbert:debit", "chase_savings:debit",
-                "td_canada_french:credit", "td_canada_french:debit",
-                "first_citizens:credit"):
+    out.
+
+    Every direction COUNTS-P3 made comparable states one, with a single
+    exemption that is NAMED rather than omitted — `FALSIFIER_EXEMPT` above
+    carries the argument. The exemption list is asserted to be exactly that
+    one key, so exempting a second direction is a deliberate edit here.
+    """
+    assert FALSIFIER_EXEMPT == ("burke_herbert:credit",)
+    assert set(FALSIFIER_EXEMPT) <= set(COUNTSP3_COMPARABLE)
+    for key in COUNTSP3_COMPARABLE:
         parser_id, direction = key.split(":")
-        assert "FALSIFIER" in SEMANTICS[parser_id][direction].reason, key
+        semantics = SEMANTICS[parser_id][direction]
+        assert semantics.comparable is True, key
+        if key in FALSIFIER_EXEMPT:
+            continue
+        assert "FALSIFIER" in semantics.reason, key
+
+
+def test_a_service_charge_entry_says_whether_its_control_arm_was_exercised():
+    """W3 §COUNTSP3 D2. Two of the promoted debit directions print the
+    capital_one-shaped `Checks/Debits` label, and NEITHER has a charged
+    document in the archive to test the scope against: `burke_herbert` bills
+    zero on all 3, `chase_savings` prints no `Fees` row on any of 10. Both
+    entries are therefore resting on construction rather than on a control
+    arm, and both must say so — the asymmetry the review caught was one entry
+    disclosing it and the other asserting the conclusion flat.
+
+    The standard is COUNTS-P1's: `+1 always` and `+1 iff charged` were
+    indistinguishable on 12 all-charged capital_one documents, and an
+    unexercised arm is the same hazard wearing the opposite sign.
+    """
+    for key in ("burke_herbert:debit", "chase_savings:debit"):
+        parser_id, direction = key.split(":")
+        reason = SEMANTICS[parser_id][direction].reason
+        assert "capital_one" in reason, key
+        # the population that does NOT exist, stated as a number
+        assert re.search(r"all 3 archive documents bill a ZERO charge"
+                         r"|0 of the 10 archive\s+documents print a `Fees` row",
+                         reason), key
+        # ... and the word for what is carrying the claim instead
+        assert "construction" in reason or "not evidence" in reason, key
 
 
 def test_the_first_citizens_debit_entry_carries_the_mapping_and_its_cost():
@@ -365,6 +420,26 @@ def test_the_observer_and_the_check_read_one_table():
     assert observer.UNSURVEYED is production.UNSURVEYED
     assert observer.semantics_for is production.semantics_for
     assert observer.SECTION_LEVEL_ORACLES is production.SECTION_LEVEL_ORACLES
+
+
+def test_the_observer_version_moves_when_the_table_does():
+    """W3 §COUNTSP3 D5. `OBSERVER_VERSION`'s own contract is "bumped when the
+    vocabulary, the evaluation order or the semantics table changes", so that
+    two measurement runs over one archive can be told apart. Nothing enforced
+    it, and COUNTS-P2's table change reached production with the version
+    already stale by the time COUNTS-P3 read it.
+
+    Pinning the version against the table's SHAPE is what makes the contract
+    self-enforcing: adding, removing or re-classifying an entry fails here
+    until the version is deliberately moved and its comment says what moved.
+    """
+    import telemetry.stated_counts as observer
+
+    comparable = sum(
+        1 for table in SEMANTICS.values()
+        for semantics in table.values() if semantics.comparable
+    )
+    assert (observer.OBSERVER_VERSION, len(SEMANTICS), comparable) == (3, 31, 56)
 
 
 # ---------------------------------------------------------------------------
