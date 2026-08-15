@@ -2,7 +2,9 @@
 
 This is a maintenance tool, not part of the gate. It runs a live local Tesseract
 pass over every corpus PDF that has no native text and writes the resulting
-markdown into ``tests/corpus_cache``, keyed by the SHA-256 of the source PDF.
+markdown into ``tests/corpus_cache``, keyed by the SHA-256 of the source PDF,
+together with that run's intake page list (``pages/<pdf_sha>.json``) — the two
+halves of one artifact, both hash-pinned in the manifest.
 
 It does not regenerate the audit truth set. ``docs/adb-audit-results.csv`` and
 ``docs/balance-metrics-audit-results.csv`` are never written here; after a
@@ -59,6 +61,7 @@ def main() -> None:
     corpus = Path(args.corpus)
     cache = Path(args.cache)
     (cache / "ocr").mkdir(parents=True, exist_ok=True)
+    (cache / "pages").mkdir(parents=True, exist_ok=True)
 
     artifacts: list[dict[str, str]] = []
     drifted: list[str] = []
@@ -78,6 +81,19 @@ def main() -> None:
             if not args.allow_drift:
                 continue
         artifact.write_text(markdown, encoding="utf-8", newline="\n")
+        # The intake object's own page list, committed beside the markdown it
+        # renders to. It is the ONLY offline record of how many sheets the PDF
+        # actually has: `analysis.pipeline.assess_document_integrity` refuses to
+        # re-derive page structure by splitting the markdown, because the
+        # separator is an unescaped text convention and page content is OCR
+        # output (W3 §PIPEFIX P4b.1). Without this the six image-only
+        # statements fail-close on `missing_declared_statement_page` offline —
+        # keeping the flag for want of evidence rather than because a page is
+        # absent.
+        pages_text = json.dumps({"pages": list(document.pages)}, indent=2) + "\n"
+        (cache / "pages" / f"{pdf_digest}.json").write_text(
+            pages_text, encoding="utf-8", newline="\n"
+        )
         artifacts.append(
             {
                 "statement": path.name,
@@ -86,6 +102,8 @@ def main() -> None:
                 "artifact": f"ocr/{pdf_digest}.md",
                 "artifact_sha256": sha256_hex(markdown.encode("utf-8")),
                 "ocr_model": document.model,
+                "pages": f"pages/{pdf_digest}.json",
+                "pages_sha256": sha256_hex(pages_text.encode("utf-8")),
             }
         )
 
@@ -100,9 +118,9 @@ def main() -> None:
 
     manifest = {
         "description": (
-            "Committed OCR source text for the image-only corpus statements, so the "
-            "corpus gate runs offline and deterministically. Keyed by the SHA-256 of "
-            "the source PDF."
+            "Committed OCR source text and intake page list for the image-only corpus "
+            "statements, so the corpus gate runs offline and deterministically. Keyed "
+            "by the SHA-256 of the source PDF."
         ),
         "generator": "build_corpus_cache.py",
         "ocr": "ocr.local_tesseract.parse_local_tesseract (dpi=200, tesseract --psm 6)",
