@@ -42,6 +42,7 @@ from . import (
     columbia_bank,
     community_section,
     consumers,
+    core_processor_sectioned,
     demo_national,
     desjardins,
     farmers_merchants,
@@ -120,6 +121,14 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     # inventing one would be the hardcode this registration exists to avoid.
     ("community_section", "Core Statement Platform", community_section, "PLATFORM_DETECTION_MARKERS", "detection_text", "parse_community_section_statement"),
     ("consumers", "Consumers Credit Union", consumers, "DETECTION_MARKERS", None, "parse_consumers_statement"),
+    # A SECOND core processor's template, registered the way W3 §JHA-CELL
+    # established for the first: on the template's own furniture, with the
+    # issuer read out of each document and published as `Statement.bank`. The
+    # label here names the PLATFORM - the archive prints this template under
+    # five different issuers, several of which print their name only inside a
+    # logo, and inventing one would be the hardcode this registration exists to
+    # avoid.
+    ("core_processor_sectioned", "Core Processor Sectioned Platform", core_processor_sectioned, "DETECTION_MARKERS", "detection_text", "parse_core_processor_sectioned_statement"),
     ("dakota_west", "Dakota West Credit Union", community_section, "DAKOTA_WEST_DETECTION_MARKERS", None, "parse_dakota_west_statement"),
     ("demo_national", "Demo National Bank", demo_national, "DETECTION_MARKERS", None, "parse_demo_national_statement"),
     ("desjardins", "Desjardins", desjardins, "DETECTION_MARKERS", None, "parse_desjardins_statement"),
@@ -229,6 +238,20 @@ _OVERRIDES: dict[str, dict] = {
     "dakota_west": {"band": 10, "supersedes": frozenset({"community_section"})},
     "midflorida": {"band": 10, "supersedes": frozenset({"community_section"})},
     "first_community": {"band": 10, "supersedes": frozenset({"community_section"})},
+    # The same relationship one template over (W3 §SCANB). `first_farmers`
+    # reads ONE issuer's running-balance issue of the second core-processor
+    # template; `core_processor_sectioned` registers that template generically
+    # and claims it on the furniture both printed issues share, so it claims
+    # all 7 of this issuer's archive documents too. Without this edge the 6
+    # that publish today would resolve `ambiguous` and go to review.
+    #
+    # The edge is safe in the strong sense, not the observed one: the general
+    # reader consults nothing that identifies an issuer, and `first_farmers`
+    # requires this issuer's own tele-banking domain and product name, which
+    # the general reader cannot reach - so neither can shadow the other by
+    # accident. The general reader also declines the running-balance issue at
+    # parse, so the edge cannot strand a document either.
+    "first_farmers": {"band": 10, "supersedes": frozenset({"core_processor_sectioned"})},
     # BMO prints a second summary block; where the two disagree the document
     # contradicts itself. Registered here so the orchestrator never names BMO.
     "bmo": {"integrity_checks": (bmo.summary_contradictions,)},
