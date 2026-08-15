@@ -292,15 +292,48 @@ def test_the_platform_is_read_without_naming_the_issuer():
     assert reconcile(stmt).ok
 
 
-def test_a_document_that_names_no_issuer_is_declined_rather_than_guessed():
-    """Five archive documents print no labelled domain, and four of those do
-    print MERCHANT domains in their transaction descriptions. Reading "the
-    first domain in the document" would publish a merchant as the bank."""
-    no_issuer = (
-        "Statement Ending 01/30/2026\nSummary of Accounts\n"
-        + SIMPLE_BODY.replace("BRANCH DEPOSIT", "PURCHASE AT WWW.EXAMPLE-MERCHANT.COM")
-    )
-    assert parse_community_section_statement(no_issuer) is None
+NO_ISSUER = (
+    "Statement Ending 01/30/2026\nSummary of Accounts\n"
+    + SIMPLE_BODY.replace("BRANCH DEPOSIT", "PURCHASE AT WWW.EXAMPLE-MERCHANT.COM")
+)
+
+
+def test_a_document_that_names_no_issuer_publishes_an_absent_bank():
+    """The honest-unknown-issuer ruling (Gustavo 2026-08-14, W3 §JHA J9.2).
+
+    Five archive documents are on this template, reconcile against every
+    figure their summary grid prints, and name no issuer. The reader used to
+    refuse them outright. It now publishes them with `bank=None`: the ledger
+    is a fact we checked, the issuer is a fact the document does not state,
+    and reporting the second as absent is not a reason to withhold the first.
+    """
+    stmt = parse_community_section_statement(NO_ISSUER)
+    assert stmt is not None
+    assert stmt.bank is None
+    assert [t.amount for t in stmt.transactions] == [10.0, -5.0]
+    assert reconcile(stmt).ok
+
+
+def test_the_absent_bank_is_never_filled_in_from_a_merchant_domain():
+    """The trap this must not fall into, pinned as its own assertion.
+
+    Four of the five real documents print MERCHANT domains in their
+    transaction descriptions - `walmart.com`, `apple.com`, `gosq.com`. An
+    unknown issuer must publish as nothing at all; "the first domain in the
+    document" would publish the shop the customer bought lunch at as the bank.
+    """
+    stmt = parse_community_section_statement(NO_ISSUER)
+    assert stmt is not None
+    assert stmt.bank is None
+    assert "MERCHANT" in stmt.transactions[0].description
+
+
+def test_an_unknown_issuer_does_not_relax_the_arithmetic_gate():
+    """`bank=None` is a statement about the ISSUER and about nothing else. A
+    document that names no issuer AND does not reconcile is still refused."""
+    broken = NO_ISSUER.replace("1 Credit(s) This Period $10.00",
+                               "1 Credit(s) This Period $11.00")
+    assert parse_community_section_statement(broken) is None
 
 
 def test_the_issuer_is_read_from_the_masthead_not_from_a_cited_regulator():
@@ -326,6 +359,13 @@ def test_a_label_ending_a_line_does_not_adopt_the_domain_on_the_next_one():
     holder's address block is inside the masthead, so the LABEL alone was
     never the guard it was described as; the issuer's real contact block
     prints label and domain on ONE line, and that is now required.
+
+    The property being pinned is that **`walmart.com` is not published as the
+    bank**. It used to be pinned as `parse(...) is None`, because before the
+    honest-unknown-issuer ruling a document with no readable issuer was
+    refused outright, and the refusal was the only observable. It is now a
+    document whose issuer is absent and whose ledger is published, so the
+    assertion says what it always meant.
     """
     md = (
         "Statement Ending 01/30/2026\n"
@@ -335,7 +375,9 @@ def test_a_label_ending_a_line_does_not_adopt_the_domain_on_the_next_one():
         "Account Type Account Number Ending Balance Business Checking XXXXXX1234 $105.00\n"
         + SIMPLE_BODY
     )
-    assert parse_community_section_statement(md) is None
+    stmt = parse_community_section_statement(md)
+    assert stmt is not None
+    assert stmt.bank is None
 
 
 def test_the_issuer_is_still_read_when_such_a_line_break_is_present():
@@ -356,6 +398,16 @@ def test_the_issuer_is_still_read_when_such_a_line_break_is_present():
 
 
 def test_two_different_issuers_in_the_masthead_is_declined():
+    """Still a refusal, and deliberately NOT the honest-unknown case above.
+
+    Printing no issuer is a gap in the document; printing two labelled domains
+    in the masthead is a gap in our reading of it - the likeliest cause is
+    that `_MASTHEAD_END_RE` missed this layout's first account and the scope
+    ran on into the fine print, where the state regulator is cited. Publishing
+    `bank=None` there would file our own defect as the document's honest
+    silence. No archive document is in this class (measured: 0 of 115), so
+    there is nothing to prove a publication rule against either.
+    """
     md = PLATFORM_HEAD.replace(
         "Online Access www.examplecommunitybank.com",
         "Online Access www.examplecommunitybank.com\nWebsite www.otherbank.com",
