@@ -377,9 +377,9 @@ def _period_dates(printed_start: str, printed_end: str) -> tuple[str, str] | Non
 
     The pattern proves the SHAPE of a date and nothing more: a thirteenth
     month has that shape and is not a day. `iso_from_month_day_year` raises on
-    such a token, and a raise
-    inside `parse` is recorded as a crash of ours rather than as the decline it
-    should be (`parser_registry.ParserFailure`), so it is caught here.
+    such a token, and a raise inside `parse` is recorded as a crash of ours
+    rather than as the decline it should be (`parser_registry.ParserFailure`),
+    so it is caught here.
     """
     try:
         return (iso_from_month_day_year(printed_start),

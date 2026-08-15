@@ -14703,3 +14703,515 @@ and pins, and they are the more important half:
    106 PASS / 3 WITHHELD and both classes sit inside PASS. The gate proves
    audited values reproduce; only the corpus-marked slice proves the outcome
    class did.
+# §SCANB — the second core processor's template, and the sibling it had to be told about
+
+## S0. Summary
+
+`analysis/first_farmers.py` already read this template, for one issuer, under
+one product name. It is not that bank's layout: it is a **core processor's**,
+and the archive prints it under **five** issuers in two printed issues — a
+sectioned ledger and a running-balance one — over the same summary strip and
+the same period line.
+
+So it is registered once, on the **template's own furniture**, with the
+**issuer read out of each document**, and the issuer-specific reader that came
+first now supersedes it. That is §JHA-CELL's pattern applied one template over,
+and this cell is the second instance of it rather than a new idea.
+
+**39 documents print the template; 10 move `failed` → `validated`; nothing
+moves down.** The card was scoped digital-first and that is how it paid: 9 of
+the 10 are digital, and of the 15 scanned documents this reader could have
+reached, 14 keep refusing — correctly, and each is named in S6.
+
+| | before (run `d5c75ff6`) | after |
+|---|---|---|
+| validated | 6 | **16** |
+| failed | 33 | **23** |
+| withheld | 0 | 0 |
+| review | 0 | 0 |
+
+All 10 are instrumented per document rather than merely claimed: both printed
+counts equal the published counts, both printed totals equal the published
+totals, the summary's own identity closes, and the printed `DAILY BALANCE`
+grid agrees with the walked ledger on every day, in both directions.
+**625 transactions** published across the 10.
+
+The 7 documents of the running-balance issue are **7/7 byte-identical**, and
+the pinned corpus holds one of them.
+
+## S1. The instrument
+
+Every figure below comes from replaying the archive markdown through the real
+pipeline (`analyze_markdown(parse_mode="deterministic", sheets=...)` +
+`telemetry.record.classify_outcome`), resolved from the D-3 OCR artifact store
+**by direct file path** — the sqlite index was never opened, and the archive
+and the caches were never written to.
+
+Population re-derived from the artifact STORE rather than from the run's rows,
+which is §JHA J11.5's lesson taken as a starting condition instead of as a
+correction: every one of the 6,773 OCR artifacts was read, its payload
+envelope's own `input_sha256` taken as the document identity, and the longest
+offline text kept. **3,396 distinct documents have offline text**, of which
+3,367 are in the run of record `d5c75ff6` (3,380 distinct shas; the 13 without
+are the `deferred_visual_ocr` documents) and **29 are in the store but outside
+the run**. Base commit `ba13ec3`.
+
+## S2. The cohort, characterized before any code was written
+
+The scout's decisive signature was the period line
+
+    TOTAL DAYS IN STATEMENT PERIOD mm/dd/yy THROUGH mm/dd/yy: N
+
+and the measurement confirms it exactly:
+
+| probe | documents, store-wide |
+|---|---|
+| the period line, with its dates | **39** |
+| `LAST STATEMENT` **and** `THIS STATEMENT` | 152 |
+| `AVG AVAILABLE BALANCE` | 39 |
+| `TOTAL DAYS IN STATEMENT PERIOD`, label only | 61 |
+
+The period line alone hits 39 documents and **every one is this platform: zero
+near misses**. It is nonetheless registered as a CONJUNCTION with the two
+summary-balance labels, because a single phrase is a claim about this archive
+and a conjunction is a claim about the template — and because the
+two-required-marker invariant (R4-3) exists for exactly that reason. Composed,
+the pair reaches the same 39: nothing added, nothing lost. The period
+statistic is registered as CORROBORATING rather than as a third requirement:
+it is coextensive with the period line on this archive, and an issuer that
+suppresses a statistic still prints the template.
+
+Of the 39: **6 already claimed** (`first_farmers`, all validated), **1 claimed
+and declined by `first_farmers` itself**, and **32 `failed`, every one
+`no_parser_matched` with an EMPTY `attempted`.** Nothing had ever claimed them.
+
+Printed issues: 32 sectioned, 7 running-balance. Classification: 21 scanned,
+17 digital, 1 mixed. **Every document prints exactly ONE account**, so this
+template costs nothing to L-1 — which is the one thing that makes it cheaper
+than the first core-processor template, where L-1 cost 7 documents. Two scanned
+documents read their masked account number two ways across pages (a different
+number of `X`s, and in one of them a misread digit), which is OCR variance in
+the mask rather than a second account; both refuse for other reasons and
+neither publishes.
+
+## S3. Reading the issuer out of the document
+
+| issuer evidence | coverage of the 39 |
+|---|---|
+| a name opening the masthead's first printed line, with the platform's contact block under it | **23**, in 2 distinct spellings |
+| a labelled domain (the §JHA rule) | 7 — all of them the running-balance issue |
+| anything at all, on the remaining 9 | **none** |
+
+The 9 are one issuer whose name reaches the page only inside a **logo**, which
+is an image: the text layer opens on the folio. `Statement.bank` is
+`str | None` and the honest-unknown-issuer ruling of 2026-08-14 applies — those
+9 publish with `bank=None`. The arithmetic does not depend on the name, so an
+unnamed issuer costs a label rather than a document. 6 of the 10 new validated
+documents are in that group.
+
+Four bounds, all the template's own, and it is worth being exact about which
+does the work:
+
+* the **scope** — only the masthead is read. This archive's ledgers print
+  `amazon.com` and two other banks' names as counterparties, and §JHA's
+  reviewer got `walmart.com` published as an issuer when a comparable scope
+  slipped;
+* the **contact block** corroborates. No `TELEPHONE:` furniture in the
+  masthead, no name;
+* the **label rule** — a first line opening `Something:` is furniture. This is
+  the one that does the work in practice, because the issuers who print no
+  name in the text layer are exactly the ones whose page opens with a folio;
+  without it `Statement Date` publishes as a bank, and the test suite pins that
+  construction;
+* the **digit rule** ends the name where the platform's routing and batch codes
+  begin (`UNITED COMMUNITY (204) 000 00016 02 PAGE: 1` yields `UNITED
+  COMMUNITY`).
+
+Published as printed. Nothing is transformed, expanded or title-cased: turning
+a printed masthead into a bank's legal name would be an invention.
+
+## S4. What a document has to prove, and what the archive did to it
+
+Five printed figures and one printed grid, all of them, exactly. They are
+independent printings of one period, so a dropped row, a duplicated row or a
+mis-read amount breaks at least two:
+
+1. the row count in each direction equals the printed count;
+2. the row total in each direction equals the printed total;
+3. `opening + credits - debits == closing`, the summary's own identity, checked
+   in the parser where it is cheap and local (§JHA J9.8's card, taken up here);
+4. every day in the printed `DAILY BALANCE` grid equals the walked end-of-day
+   balance, **and** every day the ledger posts on appears in the grid.
+
+A **sixth** printing is not used as a gate and is therefore free evidence: the
+bank prints its own `AVERAGE BALANCE`, published as `stated_average_balance`,
+and the platform's computed ADB is compared against it downstream. Over the 10:
+
+```
+computed ADB == printed AVERAGE BALANCE exactly : 7
+                                differs by 0.01 : 2   (rounding convention)
+                              differs by 524.14 : 1
+```
+
+The tenth is an account **opened during the period**: the opening balance is
+`.00`, the first deposit lands on day 5, and the bank averages from the day the
+account was funded while the platform averages over the period it printed. Our
+figure is arithmetically right for the printed period; the disagreement is
+visible precisely BECAUSE the bank's figure is published, and it is the same
+initialization-event class Gustavo approved narrowly for another issuer. The
+document validates either way; nothing here depends on the resolution.
+
+## S5. Look-alike glyphs, refused rather than absorbed
+
+The card named one document carrying a Cyrillic `U+0415` inside `DATE`.
+Measured, **8 of the 39 carry Cyrillic look-alikes** — 7 in a column header,
+one in the transaction descriptions and cheque serials of the same document.
+And the scanned issues carry a second, commoner substitution: a leading zero
+read as a lower-case letter inside the DATE column.
+
+Both are guarded structurally rather than repaired, and the guard is two
+things, each load-bearing:
+
+* every date and money token is matched with an explicit ASCII digit class.
+  `\d` is Unicode-aware in Python and admits digits from other scripts, and a
+  money grammar that reads a look-alike as a digit publishes a figure the bank
+  never printed;
+* every token must begin at a boundary that is not a letter, a digit, a dot or
+  a slash. Without it a corrupted date matches ONE CHARACTER IN, as a
+  single-digit month, and the row is published on a day the bank never printed.
+  This is not hypothetical: the scout's prototype did exactly that on one
+  archive document, absorbing a corrupted date in the deposit grid while
+  dropping the identically-corrupted row in the debit section — the same
+  corruption read two ways in one document.
+
+With the boundary the corrupted row is invisible instead, and the count check
+refuses the document. That is the honest outcome for a scan we cannot read,
+and it is why the scanned population stays refused.
+
+## S6. The refusals, named
+
+29 of the 39 publish nothing. Every one is named here with what the document
+did, because "the oracle refused" is not a finding unless it says why.
+
+**The running-balance issue — 7, and none of them this reader's business.**
+Detection claims them (same platform, same furniture) and `parse` declines: the
+sectioned summary strip they would need is not what they print. Six are claimed
+and published by `first_farmers` under the supersedes edge; the seventh
+(`8035EE1A5453C75D`) is claimed and declined by `first_farmers` itself, exactly
+as before this cell.
+
+```
+433B622CF3C07FE5  4FD3B1A8A71D58BA  58CB0DCC7460A445  8F755C593D63C6C5
+9CCB4FB2BB2F8F27  B60DDD2DBC06A151     (validated by first_farmers, unchanged)
+8035EE1A5453C75D                       (first_farmers claims and declines)
+```
+
+**The summary strip is not readable — 8.** Seven are one issuer's digital
+statements whose text layer interleaves the summary's labels and its figures in
+column order rather than in reading order (`LAST STATEMENT 03/31/26` on one
+line, then two figures belonging to two different labels on the next). One
+printed its figures without their decimal point (`CREDITS 00`), which is not
+money. All 8 are structurally unreadable without geometry.
+
+```
+29CA4402F172B7B9  4BE815516A392B34  4D806D550CFD5A5A  6BC052E9B49DB281
+A3427B2BE24EB245  D03F4D27CC73202B  D59DE10944242B1E
+EF1C5806D1A584BD  (the decimal point lost)
+```
+
+**The ledger does not reproduce the printed summary — 14, all scanned.** These
+are the glyph-corrupted scans, and the table gives each one's own disagreement
+rather than a class label:
+
+| document | rows read | printed | first disagreement |
+|---|---|---|---|
+| `0808DD1E79FAE74B` | 2c/76d | 2c/76d | debit total 114,955.49 vs 115,775.51 |
+| `337FE9AA2F7750D6` | 5c/19d | 16c/107d | counts, both directions |
+| `3E1F4145F82144AC` | 3c/92d | 3c/92d | debit total 83,142.88 vs 83,346.93 |
+| `3E907CEFE6B6F4B4` | 12c/46d | 18c/81d | counts, both directions |
+| `586B9481FFE276BD` | 6c/13d | 6c/16d | debit count (a section heading OCR left mixed-case) |
+| `627D9AE36DD28FB7` | 25c/24d | 27c/27d | counts, both directions |
+| `7088F5912CF22515` | 0c/1d | 11c/99d | counts, both directions |
+| `8AD1943146C53176` | 1c/73d | 2c/80d | counts, both directions |
+| `8CC1F233682E5B79` | 2c/67d | 2c/67d | debit total 58,481.61 vs 58,943.65 |
+| `8CC3F4922CCB87A0` | 9c/31d | 23c/87d | counts, both directions |
+| `95246AAF1A2D7F59` | 416c/85d | 416c/85d | **credit total 227,173.07 vs 226,533.07** |
+| `9AACD0850F64A893` | 26c/23d | 27c/24d | one credit and one debit, both dated `o2/11` |
+| `9FD4C16EA7364D5F` | 12c/78d | 18c/101d | counts, both directions |
+| `DCF3A85ECE6CB67F` | 8c/54d | 15c/87d | counts, both directions |
+
+Two of these are worth naming apart. `95246AAF1A2D7F59` reads **416 credits
+and 85 debits, exactly as printed, and still refuses**: one amount was scanned
+wrong by 640.00 and only the TOTAL can see it. That is the case a count check
+is structurally blind to, and it is why the totals are gates rather than
+corroboration. `9AACD0850F64A893` is the whole scanned class in one document:
+two rows carry a corrupted date where the bank printed a valid one, and both
+are invisible to a grammar that will not start a date inside a token.
+
+**The 15th scanned document publishes.** `ADE55A5BADF4DE8C` is 20 pages,
+434 credits and 101 debits, and it satisfies every printing this template
+carries:
+
+```
+printed 434 CREDITS 223,094.68        read 434 credits, 223,094.68
+printed 101 DEBITS  214,299.18        read 101 debits,  214,299.18
+printed LAST STATEMENT   55,763.38    + 223,094.68 - 214,299.18
+printed THIS STATEMENT   64,558.88    = 64,558.88            identity closes
+printed DAILY BALANCE, 21 days        every day equals the walked balance,
+                                      and the ledger posts on no other day
+printed AVERAGE BALANCE  35,931.75    computed ADB 35,931.75
+printed MINIMUM BALANCE   8,344.23    the grid's lowest day, 06/05  8,344.23
+```
+
+Seven printings, all agreeing. The card's expectation was that the scanned
+population refuses; the measurement is that 14 of 15 do, and the one that does
+not is corroborated seven ways. It is put to Ocean as a measurement rather than
+smuggled in as a rounding of the card (S9.1).
+
+## S7. Non-interference, measured over the whole store
+
+Detection is the entire risk surface for a document outside the cohort — a new
+registration can only change another document's dispatch by claiming it — so
+the sweep is total: **all 3,396 documents with offline text, before and
+after.**
+
+```
+dispatch outcome transitions
+   2581  claimed   -> claimed
+    783  unclaimed -> unclaimed
+     32  unclaimed -> claimed
+
+ambiguous, after : 0      ambiguous, before : 0
+core_processor_sectioned detects     : 39
+the measured template cohort         : 39
+   detected but OUTSIDE the cohort   : 0
+   in the cohort but NOT detected    : 0
+winning parser changed               : 0
+claimant set changed                 : 39, and no other document
+near-miss vector, one required marker: 113 documents at score 0.125
+```
+
+The 7 documents whose claimant set grew are the running-balance issue, and
+their WINNER did not change: `first_farmers` outranks the new registration on
+every one.
+
+Sibling population, replayed through the real pipeline:
+
+```
+first_farmers payloads byte-identical : 7 / 7
+payload changed 0    moved UP 0    moved DOWN 0
+```
+
+Detect-sweep cost, measured the §JHA J11.3 way (300 sampled archive documents,
+one process, best of three):
+
+```
+68 other registrations        21.113s
+core_processor_sectioned       0.169s   share 0.8%   0.565 ms/document
+projected over 3,396 documents 1.92s
+```
+
+The normalization is registry data (`detection_text`, one upper-casing per
+document rather than one per marker), the period line is a compiled pattern
+and the other two markers are substring probes.
+
+## S8. The supersedes edge, proven rather than asserted
+
+The edge is mandatory and the counterfactual says so in one line. With
+`first_farmers.supersedes` emptied and nothing else changed:
+
+```
+433B622CF3C07FE5  ambiguous  candidates=['core_processor_sectioned','first_farmers']
+4FD3B1A8A71D58BA  ambiguous  candidates=['core_processor_sectioned','first_farmers']
+58CB0DCC7460A445  ambiguous  candidates=['core_processor_sectioned','first_farmers']
+8035EE1A5453C75D  ambiguous  candidates=['core_processor_sectioned','first_farmers']
+8F755C593D63C6C5  ambiguous  candidates=['core_processor_sectioned','first_farmers']
+9CCB4FB2BB2F8F27  ambiguous  candidates=['core_processor_sectioned','first_farmers']
+B60DDD2DBC06A151  ambiguous  candidates=['core_processor_sectioned','first_farmers']
+```
+
+Six of those seven are validated today. Without the edge all seven resolve
+`ambiguous` and go to review — a six-document regression from a registration
+that publishes ten.
+
+The edge is safe in the STRONG sense rather than the observed one:
+`first_farmers` identifies its issuer by a tele-banking domain and a product
+name that the general reader does not consult at all, so the general reader can
+never shadow it and it can never reach an issuer it was not registered for. And
+the general reader declines the running-balance issue at `parse`, so the edge
+cannot strand a document either.
+
+## S9. Carried findings and questions for Ocean
+
+**S9.1 — the card said the 15 scanned members must keep refusing; 14 do, and
+the 15th is the one the card also named as a publisher.** The handoff states
+both things (§Evidence bullets 5 and 7), and the measurement resolves them the
+only way the evidence allows: `ADE55A5BADF4DE8C` clears all five printed gates,
+the two-directional grid walk, and the bank's own printed average to the cent.
+**Ruling wanted:** publish it (this branch), or hold the whole scanned
+classification back and lose it.
+
+**S9.2 — the ledger's last section runs to the end of the document.** The
+`DAILY BALANCE` grid is the last section the template prints, and nothing marks
+where it stops, so the disclosures below it are inside its block. No archive
+document prints a dated amount there — measured over all 39 — but one that did
+would add a phantom grid day and the document would REFUSE. Fail-closed, and
+carded rather than patched, because every candidate boundary measured here (the
+column header, a line anchor) also lost real sections on the scanned issues.
+
+**S9.3 — the section split is case-sensitive, and that is load-bearing.**
+Thirteen of the 39 print a section's name in lower-case prose as well (the
+funds-availability notice says `deposits`; the interest disclosure says
+`average daily balance`). Case is the only thing that separates the heading
+from the sentence. Pinned.
+
+**S9.4 — `count_semantics` is deliberately not extended.** This registration
+gates on the printed counts, so a `comparable` entry would make the
+stated-count check a tautology on it — the same disclosure §JHA J9.1 made for
+three other ids. The table's default is UNSURVEYED and therefore silent, which
+is the correct outcome and needs no entry. Recorded so the absence is a
+decision.
+
+**S9.5 — one issuer's digital statements are unreadable without geometry.**
+Seven documents (S6, second group) print their summary strip in column order,
+so the labels and the figures they belong to are on different lines. Their
+ledgers are perfectly readable; only the summary is lost. A real customer for
+the geometry rung, and the largest single block of remaining value on this
+template.
+
+**S9.6 — `stated_daily_balances` is now populated by this reader.** The printed
+grid is published as source evidence, which is what the field is for. It is
+also an ADB input, so it is named here rather than left to be discovered: the
+10 documents' ADB figures in S4 are computed WITH it.
+
+**S9.7 — the account-opening average.** One publisher's printed
+`AVERAGE BALANCE` divides by the days since the account was funded rather than
+by the printed period. Same class as the Woodforest initialization-event card,
+one document, no gate depends on it.
+
+**S9.8 — the detect budget is spent, on base.** The affordability test fails
+at 68 registrations before this cell exists (348 ms against a 250 ms bound,
+load-controlled). This branch adds 12 ms of that. It is named here because
+§JHA recorded the budget as HELD at 68 and this is the entry that says it no
+longer is — the structural fix belongs to the DETECT-BUDGET cell, not to a
+parser card, and no card should raise the constant to get itself green.
+
+## S10. Proofs
+
+All figures below were produced on `cfeac68` plus a docstring reflow, proven
+AST-identical to it once docstrings are blanked; the commit below adds only
+this section and that reflow.
+
+```
+# full default suite
+3890 passed, 18 deselected in 261.61s                     exit 0
+   (base ba13ec3: 3,769. The 121 new tests are this cell's 109 plus the
+    12 conformance parametrizations a 69th registration adds.)
+
+# guards
+239 passed in 23.71s                                      exit 0
+   test_no_statement_hardcodes · test_no_parser_helper_clones ·
+   test_r1_hardcodes · test_experiments_are_not_wired · test_filename_boundary
+
+# conformance cross-product + registry + this cell
+1115 passed in 5.97s                                      exit 0
+   test_parser_conformance (69 x 68 detection-negative) ·
+   test_parser_registry_entries · test_parser_detection_markers ·
+   test_parser_registry · test_parser_crash_shapes ·
+   test_parser_exception_boundary · test_count_semantics ·
+   test_core_processor_sectioned
+
+# corpus gate (python corpus_gate.py), 726.2s
+[PASS] source_integrity · balance_audit · adb_audit
+[PASS] balance_outcomes: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes:     106 pass, 3 withheld, same three statements
+[PASS] exclusions: 0 named exclusions
+[PASS] oracle_independence
+Outcomes: 106 PASS / 3 WITHHELD
+RESULT: GREEN                                             exit 0
+
+# corpus-marked (pytest -m corpus), 1871.08s
+PASSED tests/test_corpus_gate.py::test_corpus_gate_is_green
+PASSED tests/test_discovery.py::test_dry_run_reproduces_known_truth
+PASSED tests/test_parser_parity.py::test_no_corpus_document_is_left_unclaimed
+PASSED tests/test_parser_parity.py::test_no_corpus_document_resolves_to_the_wrong_parser
+PASSED tests/test_parser_parity.py::test_no_corpus_document_is_ambiguous
+PASSED tests/test_parser_parity.py::test_every_corpus_document_resolves_to_the_recorded_parser
+PASSED tests/test_parser_parity.py::test_the_recorded_parser_is_always_the_highest_ranked_claimant
+PASSED tests/test_parser_parity.py::test_the_three_promoted_sub_dispatches_claim_their_documents
+PASSED tests/test_parser_parity.py::test_expectations_cover_the_pinned_manifest
+PASSED tests/test_parser_parity.py::test_detection_is_invariant_to_the_filename_echo
+PASSED tests/test_telemetry_corpus.py::test_telemetry_reproduces_the_gate_outcome_split
+PASSED tests/test_telemetry_corpus.py::test_withheld_diagnostics_reproduce_the_documented_diagnosis
+PASSED tests/test_truncation.py::test_no_corpus_document_is_flagged_through_the_real_ladder
+FAILED tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run
+1 failed, 13 passed, 3894 deselected in 1871.08s          exit 1
+```
+
+**The one red is the batch-level detect-budget item, and it fails on BASE.**
+`test_detect_sweep_stays_affordable_for_the_discovery_run` asserts that the
+worst single document's full-registry sweep stays under 250 ms. Wall-clock
+runs of it are dominated by machine load and are not comparable to each other
+(this branch measured 268.2 ms inside the slice and 733.9 ms on its own; base
+measured 357.0 ms), so the A/B that decides ownership is the load-controlled
+one — the same 109 pinned documents, swept with 68 registrations and with 69,
+in ONE process, alternating, best of five:
+
+```
+worst-document sweep, 68 registrations (BASE)   :  348.0 ms
+worst-document sweep, 69 registrations (BRANCH) :  360.0 ms
+delta attributable to this registration         :   12.0 ms   (3.4%)
+the test's bound                                :  250.0 ms
+```
+
+Base is already 98 ms over the bound before this cell exists. This
+registration is not the cause and cannot be the fix: it is 3.4% of a figure
+that is 39% over. **Known batch-level item under central triage (the
+DETECT-BUDGET cell owns the structural fix); the constant is NOT raised
+here.** Every other corpus-marked test passes, including all seven parity
+tests, the gate, the dry run, both telemetry tests and truncation.
+
+This registration's own contribution to the sweep is measured in S7 and is
+0.8% of it on a 300-document archive sample: the normalization is registry
+data, so the upper-casing runs once per document rather than once per marker
+(§JHA J11.3), the period line is a compiled pattern and the other two markers
+are substring probes.
+
+### S10.1 Mutation check
+
+Every gate in this reader was disabled in turn, in-process, and the cell's own
+tests re-run against the mutant. All 17 mutants die, each to a test that names
+the rule it broke:
+
+```
+grid check always passes                     killed by  3
+summary check always passes                  killed by  2
+token boundary dropped                       killed by  2
+unicode digits admitted                      killed by  1
+bare cents rejected in a row                 killed by  1
+zero-count rule relaxed                      killed by  1
+issuer read over the whole document          killed by  1
+issuer needs no contact block                killed by  2
+label lines admitted as issuers              killed by  1
+page markers taken for printed text          killed by  1
+summary strip unbounded                      killed by  1
+one reading is enough (no uniqueness)        killed by  1
+the section split is case-insensitive        killed by  1
+runs concatenated instead of kept apart      killed by  1
+the account heading may start with a number  killed by  1
+the period is not validated as a date        killed by  1
+the issuer digit rule dropped                killed by  4
+```
+
+Three of those tests exist only because the first pass of this check found the
+mutant surviving: the uniqueness rule, the case-sensitive section split and the
+zero-count rule were all covered only by their neighbours until the mutation
+run said so.
+
+## S11. Commits
+
+| commit | what |
+|---|---|
+| `6bcaf85` | the reader, the issuer-agnostic registration and the `first_farmers` supersedes edge |
+| `cfeac68` | the issuer read anchored on the masthead's first printed line |
+| (this one) | §SCANB S0–S11, and one docstring reflow (AST-identical) |
