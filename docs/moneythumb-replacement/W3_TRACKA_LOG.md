@@ -21602,3 +21602,21 @@ True
    head                                     20,706 bytes
 ```
 
+```
+# corpus gate (python corpus_gate.py), 1218.8s under a loaded machine
+[PASS] inventory · foreign_files · source_integrity · balance_audit · adb_audit
+[PASS] balance_outcomes: balance: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes:     adb:     106 pass, 3 withheld, same three statements
+[PASS] outcome_classes: 109 statements publish their pinned verdict (outcome
+       class and the whole integrity block): 6 review / 100 validated / 3 withheld
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR = 109 resolved offline;
+       no live OCR, no model calls
+[PASS] exclusions: 0 named exclusions
+[PASS] oracle_independence: 4 audit modules import no production financial mathematics
+
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 6 review / 100 validated / 3 withheld
+
+RESULT: GREEN
+GATE_EXIT=0
+```
