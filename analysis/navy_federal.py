@@ -409,6 +409,7 @@ def parse_navy_federal_statement(markdown: str) -> Statement | None:
 
     start_date = date.fromisoformat(start)
     end_date = date.fromisoformat(end)
+    printed_average = _average_balance(section)
     stmt = Statement(
         bank="Navy Federal Credit Union",
         account_name=product,
@@ -420,7 +421,10 @@ def parse_navy_federal_statement(markdown: str) -> Statement | None:
         ending_balance=ending_balance,
         stated_total_credits=credits,
         stated_total_debits=debits,
-        stated_average_balance=_average_balance(section),
+        bank_reported_average_balance=printed_average,
+        bank_reported_average_label=(
+            "Average Daily Balance - Current Cycle" if printed_average is not None else None
+        ),
         transactions=txns,
     )
     return stmt

@@ -434,7 +434,10 @@ def parse_fiserv_premier_statement(markdown: str) -> Statement | None:
         stated_total_debits=abs(summary["debits"]),
         stated_credit_count=summary["credit_count"],
         stated_debit_count=summary["debit_count"],
-        stated_average_balance=summary["average"],
+        bank_reported_average_balance=summary["average"],
+        bank_reported_average_label=(
+            "Average Ledger" if summary["average"] is not None else None
+        ),
         stated_service_charge=abs(summary["service_charge"]),
         stated_interest_paid=abs(summary["interest"]),
         transactions=transactions,

@@ -478,7 +478,8 @@ def parse_woodforest_statement(markdown: str, base: Statement | None = None) -> 
         stmt.days_in_period = int(days.group(1))
     average = _ACCOUNT_SUMMARY_RE.search(markdown)
     if average:
-        stmt.stated_average_balance = _money(average.group(1))
+        stmt.bank_reported_average_balance = _money(average.group(1))
+        stmt.bank_reported_average_label = "Average Balance"
 
     if geometry is None:
         _sign_from_balances(rows, forward)
@@ -496,6 +497,12 @@ def parse_woodforest_statement(markdown: str, base: Statement | None = None) -> 
         )
         for row in rows
     ]
+    # The DECLARATION. `initialization_postings` proves, from this document's
+    # own print, how many leading rows opened the account; the engine re-checks
+    # every condition itself before folding them into the opening balance and
+    # never widens the period. Zero on every document that proves nothing,
+    # which is all but two in the archive.
+    stmt.initialization_transaction_count = len(initialization_postings(markdown, stmt))
     return stmt
 
 
@@ -621,32 +628,34 @@ def initialization_postings(markdown: str, stmt: Statement) -> list[Transaction]
       positive carry, `forward + in-period` cannot equal the closing balance
       that `carry + in-period` equals, so G3 already excludes it).
     * **Unreachable from this parser.** The `None` period, `None` date and
-      `None` balance guards, `carry <= 0` (unreachable while every declared
-      posting must be a credit), and G5's walk — `_sign_from_balances` derives
-      each amount FROM the printed balance movement, so the printed balance
-      and the walk cannot disagree in output this parser produced. These guard
-      a future producer of `Statement`, not this one.
+      `None` balance guards, and `carry <= 0` (unreachable while every declared
+      posting must be a credit). These guard a future producer of `Statement`,
+      not this one.
 
-      **The walk's entry in that list expires when GEOM-1 lands.** Its column
-      read supplies the amount from the money column the bank printed and does
-      NOT call `_sign_from_balances`, so on a geometry-read document the
-      balance chain becomes an independent second statement and the walk
-      becomes a check that can genuinely fail. Verified on both archive
-      documents against a scratch composition of the two branches: the gates
-      hold, and G3 strengthens for the same reason — direction stops being
-      inferred from arithmetic and becomes the printed column. Re-qualify this
-      paragraph at the merge; recorded as §WFINIT WF8.12.
+      **G5's walk has left that list — GEOM-1 landed** (§WFINIT WF8.12(b),
+      re-qualified here as that item required). On the TEXT path the entry was
+      correct: `_sign_from_balances` derives each amount FROM the printed
+      balance movement, so the printed balance and the walk cannot disagree.
+      The geometry read does not call it — the amount is the money column the
+      bank printed, and the balance chain is then an independent second
+      statement by the bank — so on a geometry-read document the walk is a
+      check that can genuinely fail. G3 strengthens for the same reason:
+      direction stops being inferred from arithmetic and becomes the printed
+      column heading. Both archive documents route through the geometry read.
 
     None of that makes them deletable on the strength of a green suite. It
     makes them defence in depth, which is a different thing from evidence: only
     the five pinned conditions are load-bearing for the claim this function
     makes, and only G1, G2, G3 and G4 discriminate an opening at all.
 
-    Deliberately NOT wired into `parse_woodforest_statement`. Consuming it
-    requires the ADB engine to accept the folded opening, and `analysis/adb.py`
-    is protected (MASTER_PLAN §4) — that half is Ocean's ruling to make. Until
-    it does, the two documents this proves stay withheld, which is the
-    fail-closed default the ruling asks for.
+    WIRED. `parse_woodforest_statement` sets
+    `Statement.initialization_transaction_count` to the length of this list,
+    and `analysis/adb.py` folds exactly that many pre-period postings into the
+    opening balance — after independently re-checking every condition that
+    matters to it, including the day-immediately-before boundary and the
+    positive-credit requirement. Neither layer trusts the other: this one
+    proves the document says so, that one proves the ledger says so, and the
+    document stays withheld unless both agree.
     """
     start = parse_date(stmt.period_start)
     end = parse_date(stmt.period_end)

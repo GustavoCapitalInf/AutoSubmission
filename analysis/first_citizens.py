@@ -718,7 +718,10 @@ def parse_first_citizens_statement(markdown: str) -> Statement | None:
         stated_total_debits=summary.total_debits,
         stated_credit_count=summary.deposits[0] + summary.other_credits[0],
         stated_debit_count=summary.checks[0] + summary.other_debits[0],
-        stated_average_balance=summary.average,
+        bank_reported_average_balance=summary.average,
+        bank_reported_average_label=(
+            "Average Ledger Balance" if summary.average is not None else None
+        ),
         stated_service_charge=summary.service_charge,
         transactions=deposits + other_credits + checks + other_debits + billed,
     )

@@ -149,7 +149,8 @@ def parse_first_community_statement(markdown: str) -> Statement | None:
         stated_total_debits=_money(summary.group("debits")),
         stated_credit_count=int(summary.group("credit_count")),
         stated_debit_count=int(summary.group("debit_count")),
-        stated_average_balance=_money(avg.group(1)) if avg else None,
+        bank_reported_average_balance=_money(avg.group(1)) if avg else None,
+        bank_reported_average_label="Average Daily Balance" if avg else None,
         stated_service_charge=_money(service.group(1)) if service else None,
         transactions=_parse_activity_rows(block, year=year),
     )

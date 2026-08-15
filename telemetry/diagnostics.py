@@ -181,6 +181,7 @@ ADB_WARNING_ANCHORS: tuple[tuple[str, str], ...] = (
     ("statement period is inverted", "adb_state:period_inverted"),
     ("cannot determine a statement period", "adb_state:period_unresolvable"),
     ("fall outside the statement period", "adb_state:out_of_period_transactions"),
+    ("account-opening posting(s) dated before the", "adb_state:initialization_event_folded"),
     ("no opening balance and none derivable", "adb_state:opening_balance_underivable"),
     ("does not provide a valid, ordered start and end date", "adb_state:period_dates_invalid"),
     ("bank daily balance has invalid or out-of-period date", "adb_state:daily_balance_date_invalid"),
@@ -218,7 +219,10 @@ SUMMARY_FIELDS: tuple[str, ...] = (
     "stated_debit_count",
     "stated_service_charge",
     "stated_interest_paid",
-    "stated_average_balance",
+    # The canonical name; `stated_average_balance` remains in the payload as a
+    # deprecated alias, but only a real model field belongs in this tuple (a
+    # contract test holds it to `Statement.model_fields`).
+    "bank_reported_average_balance",
     "stated_daily_balances",
 )
 
@@ -341,6 +345,11 @@ CLASS_OF: dict[str, str] = {
 ADVISORY_CODES: frozenset[str] = frozenset({
     "adb:agrees_with_bank_stated_average",
     "adb_state:stated_average_disagrees",
+    # The narrow account-opening fold. It is a DISCLOSURE, not a failure:
+    # the engine states that it folded proven pre-period openings into the
+    # opening balance and left the divisor alone. A document carrying it has
+    # passed every required check, so it must never decide a failure class.
+    "adb_state:initialization_event_folded",
     "integrity:transaction_detail_not_corporate_reliable",
     "integrity:not_a_formal_statement",
     "integrity:parser_ambiguous",

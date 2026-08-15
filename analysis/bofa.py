@@ -430,7 +430,8 @@ def _parse_native_summary(text: str, stmt: Statement) -> bool:
         stmt.stated_service_charge = service
     avg = _native_money_after(text, r"Average ledger balance:")
     if avg is not None:
-        stmt.stated_average_balance = avg
+        stmt.bank_reported_average_balance = avg
+        stmt.bank_reported_average_label = "Average ledger balance"
     days = re.search(r"# of days in cycle:\s*(\d+)", text, re.IGNORECASE)
     if days:
         stmt.days_in_period = int(days.group(1))
@@ -574,7 +575,8 @@ def parse_bofa_statement(markdown: str) -> Statement | None:
                 stmt.stated_debit_count = int(count.group(1))
             avg = re.search(r"Average ledger balance:\s*(\$?[\d,]+\.\d{2})", extra, re.IGNORECASE)
             if avg:
-                stmt.stated_average_balance = abs(read_money(avg.group(1)) or 0.0)
+                stmt.bank_reported_average_balance = abs(read_money(avg.group(1)) or 0.0)
+                stmt.bank_reported_average_label = "Average ledger balance"
     elif not _parse_native_summary(text, stmt):
         return None
 
@@ -660,7 +662,8 @@ def repair_bofa_summary(markdown: str, stmt: Statement) -> Statement:
     if debit_count is not None:
         updates["stated_debit_count"] = debit_count
     if avg is not None:
-        updates["stated_average_balance"] = avg
+        updates["bank_reported_average_balance"] = avg
+        updates["bank_reported_average_label"] = "Average ledger balance"
     if service is not None:
         updates["stated_service_charge"] = None
 

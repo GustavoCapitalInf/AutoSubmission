@@ -672,17 +672,58 @@ def test_the_row_prints_no_description_and_is_proven_anyway():
     assert stmt.transactions[0].description == ""
 
 
-def test_proving_the_event_changes_nothing_the_parser_publishes():
-    """The prover is deliberately not wired: `analysis/adb.py` is protected,
-    so until Ocean rules the two documents stay withheld. Pinned so a wiring
-    change cannot land silently."""
+def test_proving_the_event_changes_only_the_opening_state():
+    """The prover IS wired now (ADB-SPLIT card 5), and this pins the exact
+    shape of what the ruling bought: the opening state moves and NOTHING else
+    does. The divisor stays the printed period's calendar length, the printed
+    period is unchanged, the pre-period row is still published with its true
+    printed date, and `beginning_balance` is still the bank's printed 0.00.
+    A change that widened the period or moved the row to a boundary day would
+    turn this red even though the ADB would still 'work'."""
     stmt = parse_woodforest_statement(OPENING)
     assert stmt.period_start == "2026-01-24"
+    assert stmt.period_end == "2026-01-31"
     assert stmt.beginning_balance == 0.00
+    assert stmt.initialization_transaction_count == 1
+    # Published, with its real date. Not hidden, not moved.
     assert stmt.transactions[0].date == "2026-01-23"
+
+    result = compute_average_daily_balance(stmt)
+    assert result.ok is True
+    assert result.validations["transactions_within_period"] is True
+    assert result.validations["opening_balance_matches_statement"] is True
+    assert result.out_of_period_transaction_count == 0
+    # The divisor is the PRINTED period, unchanged by the fold.
+    assert result.calendar_day_count == 8
+    assert result.period_start == "2026-01-24"
+    assert [entry.date for entry in result.daily_balances][0] == "2026-01-24"
+    # The opening carries the event; the printed figure did not move.
+    assert result.opening_balance_source == "initialization_event"
+    assert result.opening_balance == 1000.00
+    assert stmt.beginning_balance == 0.00
+    assert any("folded into the opening balance" in w for w in result.warnings)
+
+
+def test_an_undeclared_pre_period_row_is_still_refused():
+    """The fold is reachable only through the parser's DECLARATION. Strip the
+    declaration and the same ledger is withheld again, which is what makes
+    this a narrow exception rather than a tolerance for out-of-period rows."""
+    stmt = parse_woodforest_statement(OPENING)
+    stmt.initialization_transaction_count = 0
     result = compute_average_daily_balance(stmt)
     assert result.ok is False
     assert result.validations["transactions_within_period"] is False
+    assert result.out_of_period_transaction_count == 1
+
+
+def test_a_declaration_larger_than_the_pre_period_rows_is_refused():
+    """The engine requires the declared COUNT to equal the pre-period rows it
+    actually sees, so a parser that over-declares cannot have anything folded
+    in that it did not prove."""
+    stmt = parse_woodforest_statement(OPENING)
+    stmt.initialization_transaction_count = 2
+    result = compute_average_daily_balance(stmt)
+    assert result.ok is False
     assert result.out_of_period_transaction_count == 1
 
 

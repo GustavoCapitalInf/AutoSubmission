@@ -184,6 +184,7 @@ def parse_citizens_statement(markdown: str) -> Statement | None:
     start, end = period
     year = int(end[:4])
     beginning, debits, credits, ending = summary
+    printed_average = _average_balance(markdown)
     stmt = Statement(
         bank="Citizens Bank",
         account_name="Business Advisor Checking",
@@ -195,7 +196,12 @@ def parse_citizens_statement(markdown: str) -> Statement | None:
         ending_balance=ending,
         stated_total_credits=credits,
         stated_total_debits=debits,
-        stated_average_balance=_average_balance(markdown),
+        bank_reported_average_balance=printed_average,
+        bank_reported_average_label=(
+            "average daily checking balance used to qualify this statement period is"
+            if printed_average is not None
+            else None
+        ),
     )
     debits_text = _debits_section(markdown)
     credits_text = section_between(markdown, r"Deposits & Credits.*?Date Amount Description\s+", r"Current Balance\s+Daily Balance")

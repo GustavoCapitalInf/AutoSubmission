@@ -311,7 +311,15 @@ class MTSet:
         return lenders
 
     def daily_balances(self, account_last4: str | None) -> dict[str, float]:
-        """MT activity-day balances for one account, ISO date -> balance."""
+        """MT daily balances for one account, ISO date -> balance.
+
+        Measured over `moneythumbResults/results`, the dates MT reports are
+        the BANKING days of the span (weekdays minus observed US federal
+        bank holidays), not the days that carry activity: 11 of 11 series
+        are exactly that set. See `benchmark.compare._mt_activity_mean_note`
+        for the full measurement and for why it is reproduced behaviour
+        rather than a specification.
+        """
         series: dict[str, float] = {}
         for day in self.scorecard.get("daily_balances") or []:
             iso = parse_date_any(day.get("event_date"))

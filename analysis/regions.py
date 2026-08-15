@@ -242,7 +242,9 @@ def parse_regions_statement(markdown: str) -> Statement | None:
             # 0.00 average balance nobody printed. (W3 §MG-C2 D2.)
             average = _money(cells[3])
             if average is not None:
-                stmt.stated_average_balance = abs(average)
+                stmt.bank_reported_average_balance = abs(average)
+                # The heading the grid actually printed, verbatim.
+                stmt.bank_reported_average_label = cells[2].strip() or None
     if stmt.stated_total_debits is not None:
         stmt.stated_total_debits = round(stmt.stated_total_debits + fees + checks, 2)
 
@@ -277,9 +279,11 @@ def repair_regions_summary(markdown: str, stmt: Statement) -> Statement:
     returned = _money_after(r"Total Returned Checks", text) or _money_after(r"Returned Checks", text)
     checks = _money_after(r"Total Checks", text) or _money_after(r"(?<!Returned )Checks", text)
     ending = _money_after(r"Ending Balance", text)
-    avg = _money_after(r"Average Monthly Statement Balance", text)
+    average_label = "Average Monthly Statement Balance"
+    avg = _money_after(average_label, text)
     if avg is None:
-        avg = _money_after(r"Average Balance", text)
+        average_label = "Average Balance"
+        avg = _money_after(average_label, text)
 
     updates = {}
     if beginning is not None:
@@ -294,5 +298,6 @@ def repair_regions_summary(markdown: str, stmt: Statement) -> Statement:
         updates["stated_total_debits"] = round(total_debits, 2)
         updates["stated_service_charge"] = None
     if avg is not None:
-        updates["stated_average_balance"] = abs(avg)
+        updates["bank_reported_average_balance"] = abs(avg)
+        updates["bank_reported_average_label"] = average_label
     return stmt.model_copy(update=updates) if updates else stmt

@@ -1,8 +1,9 @@
 """Deterministic Average Daily Balance reconstruction.
 
-The authoritative calculation is:
+The authoritative calculation — the CANONICAL UNDERWRITING ADB — is:
 
     ADB = sum(each calendar day's ending ledger balance) / calendar days
+          of the printed statement period
 
 Every day in the inclusive statement period contributes exactly once. Missing
 activity days carry the previous ending balance, and negative balances remain
@@ -12,6 +13,24 @@ replace the ledger reconstructed from the opening balance and signed postings.
 When a statement prints a dated daily book/ledger balance history, those explicit
 end-of-day snapshots outrank transaction-date reconstruction. Missing dates
 between snapshots still carry or reconstruct normally.
+
+THE DOCTRINE THIS MODULE IMPLEMENTS (ratified 2026-08-15)
+---------------------------------------------------------
+One statement or package yields exactly ONE user-facing "Average Daily
+Balance", and it is always the figure above: uniform across every bank,
+country, parser family, weekend and holiday. A bank's own printed average is
+EVIDENCE to preserve, never a definition to adopt, and no bank's proprietary
+convention may redefine it. `underwriting_adb_basis` and
+`underwriting_adb_policy` are frozen literals stamped on every result rather
+than knobs, so no code path can substitute another basis without the corpus
+gate going red.
+
+`underwriting_adb_alternates` computes the same ledger under five other
+denominator conventions. They exist for audit, diagnostics and provenance
+only: nothing selects between them, no dashboard renders them, and an
+unvalidated ledger yields no valid figure on ANY basis. They are the evidence
+that would be needed before a funder-policy profile could ever be argued for,
+not a policy profile.
 """
 from __future__ import annotations
 
@@ -26,14 +45,162 @@ from .schema import Statement
 
 _CENT = Decimal("0.01")
 
+#: The one basis every published Average Daily Balance is computed on. Frozen:
+#: the corpus gate asserts this exact string on all 109 pinned documents.
+UNDERWRITING_ADB_BASIS = "calendar_day_printed_period"
+
+#: The revision of the canonical rule the basis belongs to. A future rule
+#: change is a new policy name plus a ceremony, never a silent redefinition.
+UNDERWRITING_ADB_POLICY = "canonical_v1"
+
+#: Internal-only alternate denominators, in the order they are reported.
+UNDERWRITING_ADB_ALTERNATE_BASES = (
+    "banking_day",
+    "weekday_only",
+    "posting_day",
+    "credit_only",
+    "beginning_of_day",
+)
+
 
 def _decimal(value: float | int | str | Decimal) -> Decimal:
     return value if isinstance(value, Decimal) else Decimal(str(value))
 
 
-def _money(value: float | int | str | Decimal) -> Decimal:
-    """Round currency to cents using conventional financial half-up rounding."""
+def money_to_cents(value: float | int | str | Decimal) -> Decimal:
+    """Round currency to cents using conventional financial half-up rounding.
+
+    Public because `analysis/metrics.py` computes the bank-reported-average
+    variance to the cent and must round it the same way this module rounds
+    the ADB. One implementation of a financial decision, reached by its name
+    rather than by importing a private helper across modules.
+    """
     return _decimal(value).quantize(_CENT, rounding=ROUND_HALF_UP)
+
+
+#: This module's own short name for it; every call site below uses this.
+_money = money_to_cents
+
+
+def _nth_weekday(year: int, month: int, weekday: int, nth: int) -> date:
+    """The nth (1-based) `weekday` of a month; nth=-1 means the last one."""
+    if nth > 0:
+        first = date(year, month, 1)
+        offset = (weekday - first.weekday()) % 7
+        return first + timedelta(days=offset + 7 * (nth - 1))
+    following = date(year + (month == 12), (month % 12) + 1, 1)
+    last = following - timedelta(days=1)
+    return last - timedelta(days=(last.weekday() - weekday) % 7)
+
+
+def _federal_bank_holidays(year: int) -> set[date]:
+    """US federal holidays as BANK closures, observed.
+
+    The calendar assumption is stated explicitly because it is the only place
+    an alternate basis could smuggle in an undisclosed convention: this is the
+    Federal Reserve Bank holiday schedule, not the OPM federal-employee one.
+    The eleven statutory holidays, with the Reserve Banks' observance rule —
+    a holiday falling on a SUNDAY closes the following Monday; a holiday
+    falling on a SATURDAY closes nothing, because the Reserve Banks stay open
+    the preceding Friday.
+
+    ONE STATED LIMITATION. Juneteenth National Independence Day became a
+    federal holiday in June 2021, and this calendar counts it in every year
+    rather than carrying an effective-date constant. For a statement period
+    that both predates the enactment AND contains June 19, the `banking_day`
+    alternate would divide by one day too few. That is bounded and it is
+    internal: the alternates are diagnostics, never published, and the
+    canonical calendar-day ADB does not consult this calendar at all. It is
+    written this way on purpose — a literal year in the parser layer is
+    exactly what `tests/test_no_statement_hardcodes.py` exists to refuse, and
+    an honest limitation in a diagnostic is a better trade than an exemption
+    carved into that guard.
+    """
+    fixed = [
+        date(year, 1, 1),    # New Year's Day
+        date(year, 6, 19),   # Juneteenth National Independence Day
+        date(year, 7, 4),    # Independence Day
+        date(year, 11, 11),  # Veterans Day
+        date(year, 12, 25),  # Christmas Day
+    ]
+    holidays = {
+        _nth_weekday(year, 1, 0, 3),    # Birthday of Martin Luther King, Jr.
+        _nth_weekday(year, 2, 0, 3),    # Washington's Birthday
+        _nth_weekday(year, 5, 0, -1),   # Memorial Day
+        _nth_weekday(year, 9, 0, 1),    # Labor Day
+        _nth_weekday(year, 10, 0, 2),   # Columbus Day
+        _nth_weekday(year, 11, 3, 4),   # Thanksgiving Day
+    }
+    for day in fixed:
+        if day.weekday() == 6:
+            holidays.add(day + timedelta(days=1))
+        elif day.weekday() != 5:
+            holidays.add(day)
+    return holidays
+
+
+def _is_banking_day(day: date, holidays: dict[int, set[date]]) -> bool:
+    calendar = holidays.setdefault(day.year, _federal_bank_holidays(day.year))
+    return day.weekday() < 5 and day not in calendar
+
+
+def _mean_cents(values: list[Decimal]) -> float | None:
+    if not values:
+        return None
+    return float(_money(sum(values, Decimal("0")) / Decimal(len(values))))
+
+
+def _alternate_bases(
+    daily: list[DailyBalance], opening: Decimal
+) -> dict[str, float | None]:
+    """The same validated ledger under five other denominator conventions.
+
+    INTERNAL ONLY. One pass over the daily series the canonical ADB already
+    built, so nothing here can disagree with it about what a day's balance is —
+    they differ only in which days are counted, or in what a "balance" is taken
+    to mean. Every basis whose day set is empty reports None rather than a
+    number computed over nothing.
+
+      banking_day       Monday-Friday excluding observed federal bank
+                        holidays. MoneyThumb's observable construction; a
+                        benchmark, never ground truth.
+      weekday_only      Monday-Friday, holidays counted. The difference from
+                        `banking_day` is exactly the holiday question.
+      posting_day       Only days that carry at least one posting. What a
+                        bank that averages "activity days" reports.
+      credit_only       Every calendar day, each overdrawn day floored at
+                        zero. Banks printing an "average credit balance" or
+                        "average positive balance" answer this question.
+      beginning_of_day  Every calendar day, valued at the balance ENTERING
+                        the day: the opening balance on day one and the prior
+                        day's close after that.
+    """
+    holidays: dict[int, set[date]] = {}
+    banking: list[Decimal] = []
+    weekday: list[Decimal] = []
+    posting: list[Decimal] = []
+    credit: list[Decimal] = []
+    beginning: list[Decimal] = []
+    carry = opening
+    for entry in daily:
+        day = date.fromisoformat(entry.date)
+        balance = _decimal(entry.ending_balance)
+        if _is_banking_day(day, holidays):
+            banking.append(balance)
+        if day.weekday() < 5:
+            weekday.append(balance)
+        if entry.transaction_count:
+            posting.append(balance)
+        credit.append(balance if balance > 0 else Decimal("0"))
+        beginning.append(carry)
+        carry = balance
+    return {
+        "banking_day": _mean_cents(banking),
+        "weekday_only": _mean_cents(weekday),
+        "posting_day": _mean_cents(posting),
+        "credit_only": _mean_cents(credit),
+        "beginning_of_day": _mean_cents(beginning),
+    }
 
 
 @dataclass
@@ -51,7 +218,9 @@ class DailyBalance:
 
 @dataclass
 class AverageDailyBalanceResult:
-    average_daily_balance: float | None = None
+    #: The canonical underwriting ADB. `average_daily_balance` below is the
+    #: deprecated alias for this exact value and nothing else.
+    underwriting_adb: float | None = None
     daily_balance_sum: float | None = None
     calendar_day_count: int | None = None
     daily_balances: list[DailyBalance] = field(default_factory=list)
@@ -60,7 +229,7 @@ class AverageDailyBalanceResult:
     period_end: str | None = None
     opening_balance: float | None = None
     closing_balance: float | None = None
-    # stated | derived_from_closing | first_printed_balance
+    # stated | derived_from_closing | first_printed_balance | initialization_event
     opening_balance_source: str | None = None
     computed_closing_balance: float | None = None
     total_credits: float = 0.0
@@ -76,6 +245,39 @@ class AverageDailyBalanceResult:
     missing_posting_dates: list[str] = field(default_factory=list)
     out_of_period_transaction_count: int = 0
     stated_daily_balance_count: int = 0
+
+    # ------------------------------------------------------------------
+    # The doctrine stamps. Defaults rather than assignments on purpose: a
+    # result object cannot exist without declaring the basis it was computed
+    # on, so no early return and no future branch can publish a figure whose
+    # basis is unknown. Neither is a knob - `UNDERWRITING_ADB_BASIS` is the
+    # only value the corpus gate accepts on any of the 109 pinned documents.
+    # ------------------------------------------------------------------
+    underwriting_adb_basis: str = UNDERWRITING_ADB_BASIS
+    underwriting_adb_policy: str = UNDERWRITING_ADB_POLICY
+    #: Internal-only: the same ledger under the alternate denominators named
+    #: in `UNDERWRITING_ADB_ALTERNATE_BASES`. Diagnostics and provenance, never
+    #: a published metric and never a selectable policy. Empty until the daily
+    #: ledger exists; nulled alongside the canonical value at publication when
+    #: the required checks fail, because an unvalidated ledger yields no valid
+    #: figure on any basis.
+    underwriting_adb_alternates: dict[str, float | None] = field(default_factory=dict)
+
+    @property
+    def average_daily_balance(self) -> float | None:
+        """DEPRECATED alias for `underwriting_adb`; identical value.
+
+        Retained so no consumer of the pre-doctrine name breaks. It is a
+        property rather than a second field on purpose: `dataclasses.asdict`
+        does not see properties, so the nested ADB object cannot start
+        carrying a second ADB number into the payload behind
+        `analysis/serialization.py`'s single-public-value rule.
+        """
+        return self.underwriting_adb
+
+    @average_daily_balance.setter
+    def average_daily_balance(self, value: float | None) -> None:
+        self.underwriting_adb = value
 
     @property
     def posting_days(self) -> int:
@@ -221,6 +423,63 @@ def compute_average_daily_balance(
     ordered = [(day, txn) for day, txn in all_ordered if start <= day <= end]
     outside = [(day, txn) for day, txn in all_ordered if not start <= day <= end]
     result.out_of_period_transaction_count = len(outside)
+
+    # ACCOUNT-OPENING INITIALIZATION EVENT - narrow, declared, fail-closed.
+    #
+    # An account opened mid-cycle can have its funding deposit posted the day
+    # before the period the statement prints, counted in the bank's own printed
+    # totals and printed in the bank's own daily balance history, while the
+    # printed period still begins the next day. That posting is not period
+    # activity: it is what day one opens WITH. It is folded into the opening
+    # balance, so it never becomes a period day, the ADB divisor stays the
+    # printed period's calendar length, and no row is moved to a boundary day.
+    #
+    # This is NOT a general tolerance for out-of-period transactions. It is
+    # reachable only when the parser has DECLARED, from the document's own
+    # printed evidence, exactly how many leading postings opened the account
+    # (`Statement.initialization_transaction_count`), and only when every
+    # condition below also holds of the ledger itself. Any row after the
+    # period, any pre-period row beyond the declared count, a non-zero stated
+    # opening balance, or a ledger that closes either without the event or not
+    # at all with it, leaves `out_of_period_transaction_count` intact and the
+    # document withheld.
+    initialization: list[tuple[date, Any]] = []
+    declared = stmt.initialization_transaction_count
+    # The boundary is re-enforced HERE, not inherited from the declaring
+    # parser: `day == start - 1`, not `day < start`. A consuming layer that
+    # trusts its caller to have checked is a consuming layer with no check.
+    if (
+        declared
+        and len(outside) == declared
+        and all(day == start - timedelta(days=1) for day, _ in outside)
+    ):
+        seeded = sum((_decimal(txn.amount) for _, txn in outside), Decimal("0"))
+        in_period = sum((_decimal(txn.amount) for _, txn in ordered), Decimal("0"))
+        if (
+            stmt.beginning_balance is not None
+            and _money(stmt.beginning_balance) == Decimal("0.00")
+            and stmt.ending_balance is not None
+            # An account is opened by money ARRIVING. Without this a debit
+            # dated the day before a zero-forward statement folds a NEGATIVE
+            # opening balance in and publishes it as an account opening.
+            and seeded > Decimal("0")
+            and all(txn.amount > 0 for _, txn in outside)
+            # The event is REQUIRED: the whole printed ledger closes on the
+            # printed closing balance with it, and does not close without it.
+            and _money(seeded + in_period) == _money(stmt.ending_balance)
+            and _money(in_period) != _money(stmt.ending_balance)
+        ):
+            initialization = outside
+            outside = []
+            result.out_of_period_transaction_count = 0
+            result.warnings.append(
+                f"{len(initialization)} account-opening posting(s) dated before the "
+                f"statement period ("
+                + ", ".join(day.isoformat() for day, _ in initialization)
+                + ") were folded into the opening balance as initialization "
+                "context; the ADB basis remains the printed period"
+            )
+
     if outside:
         shown = ", ".join(day.isoformat() for day, _ in outside[:6])
         more = f" (+{len(outside) - 6} more)" if len(outside) > 6 else ""
@@ -242,6 +501,12 @@ def compute_average_daily_balance(
     result.total_debits = float(_money(debits))
 
     opening, opening_source = _resolve_opening(stmt, ordered, total)
+    seeded_total = sum(
+        (_decimal(txn.amount) for _, txn in initialization), Decimal("0")
+    )
+    if initialization and opening is not None:
+        opening = _money(opening + seeded_total)
+        opening_source = "initialization_event"
     result.opening_balance = float(opening) if opening is not None else None
     result.opening_balance_source = opening_source
     result.closing_balance = (
@@ -306,9 +571,13 @@ def compute_average_daily_balance(
     result.daily_balances = daily
     daily_sum = sum((_decimal(entry.ending_balance) for entry in daily), Decimal("0"))
     result.daily_balance_sum = float(_money(daily_sum))
-    result.average_daily_balance = float(
+    result.underwriting_adb = float(
         _money(daily_sum / Decimal(calendar_days))
     )
+    # One pass over the ledger just built. Computed always so the audit trail
+    # is complete even on documents nobody will ever ask about; published
+    # never, and nulled with the canonical value when validation fails.
+    result.underwriting_adb_alternates = _alternate_bases(daily, opening)
 
     _validate(
         result,
@@ -322,6 +591,7 @@ def compute_average_daily_balance(
         undated=undated,
         snapshot_dates_valid=snapshot_dates_valid,
         source_markdown=source_markdown,
+        seeded_total=seeded_total,
     )
     return result
 
@@ -339,6 +609,7 @@ def _validate(
     undated: int,
     snapshot_dates_valid: bool,
     source_markdown: str | None = None,
+    seeded_total: Decimal = Decimal("0"),
 ) -> None:
     daily = result.daily_balances
     checks: dict[str, bool] = {}
@@ -413,8 +684,10 @@ def _validate(
             )
 
     if stmt.beginning_balance is not None:
+        # `opening` carries any initialization event; the printed figure is the
+        # balance BEFORE it, so the comparison subtracts what was folded in.
         checks["opening_balance_matches_statement"] = (
-            _money(stmt.beginning_balance) == opening
+            _money(stmt.beginning_balance) == _money(opening - seeded_total)
         )
     else:
         checks["opening_balance_matches_statement"] = False
@@ -474,6 +747,13 @@ def _validate(
         "covers_opening_day",
         "covers_closing_day",
         "final_balance_matches_statement_closing",
+        # H1. The day the period opens with is the seed of every later day, so
+        # a ledger whose opening is inferred rather than printed cannot support
+        # a reportable ADB no matter how well the rest of it reconciles. This
+        # was measured before it was promoted: the opening is bank-stated on
+        # every document in the archive that publishes an ADB, so promoting it
+        # moved nothing - the check simply stopped being able to fail silently.
+        "opening_balance_matches_statement",
     ]
     if "ledger_reconciles_to_closing" in checks:
         required.append("ledger_reconciles_to_closing")
@@ -485,18 +765,18 @@ def _validate(
 
     if (
         result.ok
-        and stmt.stated_average_balance is not None
-        and result.average_daily_balance is not None
+        and stmt.bank_reported_average_balance is not None
+        and result.underwriting_adb is not None
     ):
         gap = abs(
-            _money(stmt.stated_average_balance)
-            - _money(result.average_daily_balance)
+            _money(stmt.bank_reported_average_balance)
+            - _money(result.underwriting_adb)
         )
         checks["agrees_with_bank_stated_average"] = gap == Decimal("0.00")
         if gap:
             result.warnings.append(
-                f"computed ADB {result.average_daily_balance:,.2f} differs from the bank-printed "
-                f"average {stmt.stated_average_balance:,.2f} by {float(gap):,.2f}; the printed "
+                f"computed ADB {result.underwriting_adb:,.2f} differs from the bank-printed "
+                f"average {stmt.bank_reported_average_balance:,.2f} by {float(gap):,.2f}; the printed "
                 "figure may use collected/available balances or another disclosed basis"
             )
 

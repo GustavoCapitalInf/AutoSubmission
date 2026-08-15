@@ -86,6 +86,15 @@ FIELDS = [
     "status",
     "root_cause",
     "confidence",
+    # ADB-doctrine columns, APPENDED so every column above stays byte-for-byte
+    # what it was. `printed_adb_label` above is this script's own after-the-fact
+    # guess at the heading; `bank_reported_average_label` is what the PARSER
+    # read off the page. They are deliberately both here: the day they disagree
+    # is a finding, and neither is allowed to quietly become the other.
+    "underwriting_adb_basis",
+    "underwriting_adb_policy",
+    "bank_reported_average_label",
+    "bank_reported_average_variance",
 ]
 
 
@@ -471,11 +480,13 @@ def audit_one(path: Path, root: Path, markdown: str) -> dict[str, Any]:
         status = "WITHHELD" if matches else "FAIL"
 
     printed_value = (
-        money(stmt.stated_average_balance)
-        if stmt.stated_average_balance is not None
+        money(stmt.bank_reported_average_balance)
+        if stmt.bank_reported_average_balance is not None
         else None
     )
-    label = printed_label(str(stmt.bank or ""), markdown, stmt.stated_average_balance)
+    label = printed_label(
+        str(stmt.bank or ""), markdown, stmt.bank_reported_average_balance
+    )
     printed_gap = (
         money(independent.candidate_adb - printed_value)
         if independent.candidate_adb is not None and printed_value is not None
@@ -544,6 +555,20 @@ def audit_one(path: Path, root: Path, markdown: str) -> dict[str, Any]:
         "status": status,
         "root_cause": explanation,
         "confidence": "high" if independent.valid or status == "WITHHELD" else "medium",
+        # The doctrine stamps, read off the product exactly as `backend_adb` is.
+        # The gate asserts the basis is the canonical literal on all 109, so a
+        # code path that substituted another basis would go red here rather
+        # than publish a figure whose meaning had quietly changed.
+        "underwriting_adb_basis": report.metrics.adb.underwriting_adb_basis
+        if report.metrics.adb is not None
+        else "",
+        "underwriting_adb_policy": report.metrics.adb.underwriting_adb_policy
+        if report.metrics.adb is not None
+        else "",
+        "bank_reported_average_label": stmt.bank_reported_average_label or "",
+        "bank_reported_average_variance": formatted(
+            report.metrics.bank_reported_average_variance
+        ),
     }
 
 

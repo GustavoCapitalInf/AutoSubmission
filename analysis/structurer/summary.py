@@ -61,9 +61,9 @@ STATEMENT_LABELS: tuple[tuple[str, str], ...] = (
     ("TOTAL DEBITS", "stated_total_debits"),
     ("WITHDRAWALS AND OTHER DEBITS", "stated_total_debits"),
     ("CHECKS AND OTHER DEBITS", "stated_total_debits"),
-    ("AVERAGE DAILY BALANCE", "stated_average_balance"),
-    ("AVERAGE LEDGER BALANCE", "stated_average_balance"),
-    ("AVERAGE COLLECTED BALANCE", "stated_average_balance"),
+    ("AVERAGE DAILY BALANCE", "bank_reported_average_balance"),
+    ("AVERAGE LEDGER BALANCE", "bank_reported_average_balance"),
+    ("AVERAGE COLLECTED BALANCE", "bank_reported_average_balance"),
     ("SERVICE CHARGE", "stated_service_charge"),
     ("TOTAL FEES", "stated_service_charge"),
     ("INTEREST PAID", "stated_interest_paid"),
@@ -72,7 +72,7 @@ STATEMENT_LABELS: tuple[tuple[str, str], ...] = (
 
 #: Fields whose printed value is a magnitude, never a direction.
 _ABSOLUTE_FIELDS = frozenset({
-    "stated_total_credits", "stated_total_debits", "stated_average_balance",
+    "stated_total_credits", "stated_total_debits", "bank_reported_average_balance",
     "stated_service_charge", "stated_interest_paid",
 })
 

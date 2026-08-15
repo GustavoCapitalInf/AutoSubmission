@@ -150,6 +150,13 @@ def structure_document(
             for row in sorted(row_set.rows, key=lambda row: (row.date, row.line_index))
         ],
         **{name: value.value for name, value in summary.items()},
+        # The heading the structurer matched is already a first-class
+        # value here, so the printed basis travels with the figure.
+        bank_reported_average_label=(
+            summary["bank_reported_average_balance"].label
+            if "bank_reported_average_balance" in summary
+            else None
+        ),
     )
     # Row dates carry one year; a period that crosses a year boundary makes some
     # of them wrong. The platform already owns that correction, so it runs here

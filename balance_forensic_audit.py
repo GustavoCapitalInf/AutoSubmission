@@ -114,6 +114,14 @@ FIELDS = [
     "fix_applied",
     "regression_risk",
     "confidence",
+    # ADB-doctrine columns, APPENDED so every column above stays
+    # byte-for-byte what it was. This audit computes no average of its
+    # own; these are the product's own declarations, recorded here so the
+    # two committed audits pin the same doctrine over the same 109 paths.
+    "underwriting_adb_basis",
+    "underwriting_adb_policy",
+    "bank_reported_average_label",
+    "bank_reported_average_variance",
 ]
 
 
@@ -587,6 +595,16 @@ def audit_source(
         "fix_applied": fix_applied,
         "regression_risk": "Medium" if detail else "Low",
         "confidence": "High",
+        "underwriting_adb_basis": report.metrics.adb.underwriting_adb_basis
+        if report.metrics.adb is not None
+        else "",
+        "underwriting_adb_policy": report.metrics.adb.underwriting_adb_policy
+        if report.metrics.adb is not None
+        else "",
+        "bank_reported_average_label": statement.bank_reported_average_label or "",
+        "bank_reported_average_variance": formatted(
+            report.metrics.bank_reported_average_variance
+        ),
     }
     job = Job(
         id=row["sha256"][:16],

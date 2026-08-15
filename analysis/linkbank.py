@@ -73,7 +73,8 @@ def parse_linkbank_statement(markdown: str) -> Statement | None:
     )
     average = re.search(r"Average Ledger\s+(" + number + r")", markdown, re.IGNORECASE)
     if average:
-        stmt.stated_average_balance = _money(average.group(1))
+        stmt.bank_reported_average_balance = _money(average.group(1))
+        stmt.bank_reported_average_label = "Average Ledger"
     start = markdown.find("Activity in Date Order")
     end = markdown.find("Checks in Number Order", start)
     if start == -1 or end == -1 or stmt.beginning_balance is None:

@@ -151,6 +151,7 @@ def parse_first_farmers_statement(markdown: str) -> Statement | None:
         stated_total_debits=float(total_debits),
         stated_credit_count=credit_count,
         stated_debit_count=debit_count,
-        stated_average_balance=float(average_balance),
+        bank_reported_average_balance=float(average_balance),
+        bank_reported_average_label="AVERAGE BALANCE",
         transactions=transactions,
     )

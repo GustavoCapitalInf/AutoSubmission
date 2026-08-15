@@ -112,14 +112,24 @@ def _metrics_dict(metrics) -> dict:
         data["daily_balance_sum"] = None
     if isinstance(adb, dict):
         # `metrics.average_daily_balance` is the sole public ADB field. The
-        # nested object carries validation evidence, not a second value.
+        # nested object carries validation evidence, not a second value. Both
+        # the canonical name and its deprecated alias are removed so the
+        # doctrine's one-user-facing-ADB rule cannot be broken by a rename.
         adb.pop("average_daily_balance", None)
+        adb.pop("underwriting_adb", None)
         adb["ok"] = validated
         if not validated:
             # Candidate working remains available on the in-process result for
             # forensic review, but rejected numbers are never API/export data.
             adb["daily_balance_sum"] = None
             adb["daily_balances"] = []
+            # An unvalidated ledger yields no valid figure on ANY basis, so the
+            # internal alternates are nulled alongside the canonical value.
+            # The basis and policy STAMPS remain: they describe the methodology
+            # that was refused, which is exactly what an auditor needs to see.
+            adb["underwriting_adb_alternates"] = {
+                name: None for name in adb.get("underwriting_adb_alternates") or {}
+            }
     return data
 
 

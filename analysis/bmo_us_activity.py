@@ -184,7 +184,8 @@ def parse_bmo_us_activity_statement(markdown: str) -> Statement | None:
 
     average = _AVERAGE_LEDGER.search(text)
     if average:
-        stmt.stated_average_balance = _amount(average.group(1))
+        stmt.bank_reported_average_balance = _amount(average.group(1))
+        stmt.bank_reported_average_label = "AVERAGE LEDGER BALANCE"
 
     lines = [compact_whitespace(raw) for raw in text.splitlines()]
     body = _ledger_lines([line for line in lines if line])

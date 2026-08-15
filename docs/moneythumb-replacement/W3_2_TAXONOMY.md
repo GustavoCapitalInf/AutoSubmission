@@ -187,6 +187,7 @@ text can reach these strings.
 | `statement period is inverted` | `period_inverted` | period_integrity |
 | `does not provide a valid, ordered start and end date` | `period_dates_invalid` | period_integrity |
 | `fall outside the statement period` | `out_of_period_transactions` | period_integrity |
+| `account-opening posting(s) dated before the` | `initialization_event_folded` | *advisory* |
 | `cannot determine a statement period` | `period_unresolvable` | **adb_not_computable** |
 | `no opening balance and none derivable` | `opening_balance_underivable` | **adb_not_computable** |
 | `statement prints no beginning balance` | `beginning_balance_absent` | summary_field_missing |
