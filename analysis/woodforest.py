@@ -496,6 +496,16 @@ def initialization_postings(markdown: str, stmt: Statement) -> list[Transaction]
       and the walk cannot disagree in output this parser produced. These guard
       a future producer of `Statement`, not this one.
 
+      **The walk's entry in that list expires when GEOM-1 lands.** Its column
+      read supplies the amount from the money column the bank printed and does
+      NOT call `_sign_from_balances`, so on a geometry-read document the
+      balance chain becomes an independent second statement and the walk
+      becomes a check that can genuinely fail. Verified on both archive
+      documents against a scratch composition of the two branches: the gates
+      hold, and G3 strengthens for the same reason — direction stops being
+      inferred from arithmetic and becomes the printed column. Re-qualify this
+      paragraph at the merge; recorded as §WFINIT WF8.12.
+
     None of that makes them deletable on the strength of a green suite. It
     makes them defence in depth, which is a different thing from evidence: only
     the five pinned conditions are load-bearing for the claim this function
