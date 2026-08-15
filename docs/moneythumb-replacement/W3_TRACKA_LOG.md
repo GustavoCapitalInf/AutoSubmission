@@ -14903,3 +14903,169 @@ corpus gate re-read the pinned 109 from cold in 874.4s and came back GREEN
 `OCR_STAGE_VERSION`, resolve to a single 2 -> 3 rather than 2 -> 4. The
 integer's meaning is "the ladder's output changed since v2", not a count of
 the cells that changed it.
+
+## GEOM1.10 The ranking, with the proof attached to each
+
+Ranked by the card's own criteria: (a) proof that flattening destroyed printed
+information, (b) volume, (c) reader risk. Every row below was measured at
+`d5c75ff6` with `ocr/column_grid.find_columns`, not inferred from the earlier
+logs — where a measurement contradicts a prior entry, it is said so.
+
+**A structural note that applies to items 3-7.** The pinned 109 contains 5 PNC,
+4 Wells Fargo, 4 RBC and 9 TD documents (`docs/adb-audit-results.csv`). No
+woodforest document is pinned, which is why this cell's change could be proven
+by the gate alone. **Every remaining item touches pinned corpus documents**, so
+each needs the corpus-marked slice AND, if any pinned document moves,
+Gustavo's ceremony. `DESIGN_GEOMETRY_INTEGRATION.md` §6.3 said this; the
+composition above is the current confirmation of it.
+
+### Rank 1 — DONE. Woodforest Royalty, 3 documents. +2 validated.
+
+Recorded in GEOM1.2-GEOM1.8.
+
+### Rank 2 — Desjardins inside a Java envelope, 16 documents. BLOCKED.
+
+The fifth evidence item, from SCAN-SCOUT, and on proof quality it is the
+strongest in the queue. Measured on the scout's 16 unwrapped payloads
+(read-only, in its scratchpad; nothing written back to the archive):
+
+* **Flattening does not merely lose the column, it detaches every amount from
+  every row.** The whole page's money arrives as one run of tokens:
+  `347.67 2.75 344.92 1.50 343.42 303.00 40.42 1.50 38.92 25.00 13.92 …`,
+  with the descriptions in a separate blob. There is no rule over that text
+  that recovers a ledger.
+* **The word boxes are a clean four-money-column grid.** The printed header is
+  `Date Code Description Frais Retrait Dépôt Solde`, found on nearly every page
+  of all 16 documents, and at byte-identical positions across all of them
+  (`frais[338-357] retrait[388-413] dépôt[461-484] solde[533-555]`) — one
+  layout, not sixteen.
+* **The cells cluster into three tight disjoint bands** on every document:
+  right edges 434-437 (Retrait), 506 (Dépôt), 570-581 (Solde), with counts
+  that add up as a ledger should (110 + 31 against 145 balances on the first).
+
+Reader risk today: **zero**. These publish nothing — they are `invalid_pdf`.
+And measured here: even once unwrapped they stay at zero, because all 16 fall
+through `parse_native_desjardins` (its markers do not match) to
+`native-pdf-text` and then to `no_parser_matched`. **So the intake unwrap card
+recovers nothing by itself; it needs this reader, and this reader needs it.**
+They should be scheduled as a pair or not at all.
+
+**One primitive extension is required, and it is the same one items 6 and 7
+need.** `read_rows` snaps a cell to the header LABEL's right edge, which is
+correct for Woodforest and Wells (label and cells both right-aligned) and
+wrong here: Desjardins left-aligns the label over a right-aligned number
+column, so the cells' right edge sits ~20pt beyond the label's. The fix is to
+infer each column's alignment edge by clustering the cells that fall within
+the header's x-span, rather than assuming the label's own edge. Bounded, and
+it generalises the module to every layout in the queue.
+
+### Rank 3 — TD Canada T-F4, 6 withheld (+3 td_canada_french to measure).
+
+§T6.1 measured geometry closing **all 24** underdetermined groups. Confirmed
+independently here: `CHEQUE/DEBIT` at x[212,284] and `DEPOSIT/CREDIT` at
+x[309,389] are printed on every page — exactly the bands §T6.1 named, still
+there at `d5c75ff6`. `find_columns` misses them today only because the labels
+are compound (`CHEQUE/DEBIT` is one word to PyMuPDF), which is an entry in a
+label list, not an architecture change.
+
+Best oracle set in the queue: the bank's own per-page `Credits <count> <total>`
+and `Debits <count> <total>` blocks AND the running BALANCE — a count and a
+total and a chain, three independent statements. §T6.1's ruling that the
+balance solver should stay either way holds: it becomes the check rather than
+the source, exactly as it did for Woodforest here.
+
+Shape is identical to what this cell just built (a `parse_native_td_canada`
+that appends a block). The 3 `td_canada_french` withhelds are worth measuring
+first — if they share the layout the population is 9.
+
+### Rank 4 — Wells Fargo W-F7, 5 withheld. Highest leverage, highest risk.
+
+This is the only item that **deletes constants** rather than adding a reader.
+`_wells_rows` reads bands from `395`, `452`, `520` and bins rows at
+`round(y0 / 3.0) * 3.0`; §W7.2 already named that as the defect. Measured
+here: the printed `credits/debits/balance` header IS found on all 5 documents,
+and the money cells land on it — 37, 37, 39, 38, 39 on-column against 0, 0, 0,
+2, 4 off. The layout is readable; the reader is what is wrong.
+
+`test_the_same_layout_at_another_scale_reads_identically` already pins the
+property the fix would deliver.
+
+**Risk is real and larger than the others:** `wells_fargo` claims 219 archive
+documents and 4 are pinned. The 18-document side-by-side discipline used here
+would have to be run over all 219 before it could be believed.
+
+### Rank 5 — community_section J-B, 2 documents. Needs its identities first.
+
+J9.3's evidence is specific and good: the ledger prints `Debits Credits
+Balance` and fills the balance column on no row, so direction survives only as
+column position. It would also close J9.9 (the $0.00 row signed by convention)
+for that template, exactly as this cell closed it for Woodforest.
+
+**But the pair could not be located.** None of the 7 withheld or 2 review
+`community_section` documents at `d5c75ff6` prints a `Debits Credits Balance`
+header on one baseline. Either the pair moved in batch 3, or the header is
+printed in a form the probe does not match. **This card cannot be costed until
+the JHA cell names the two content_sha256 values.** Recorded as an open
+question rather than an estimate.
+
+### Rank 6 — PNC P-F5, 3 of 4 withheld.
+
+`Additions Deductions Balance` header found on 3 of the 4, but only 4 cells
+land on it — the same alignment-inference gap as Desjardins, so item 2's
+extension is a prerequisite. §3.4's separate finding still stands on top of
+that: the Date column is emitted as its own block (`04 04 04` on one line,
+`/08 /10 /10` on the next), so rows need rebuilding, not just labelling. 5 PNC
+documents are pinned.
+
+### Rank 7 — RBC F11, 6 withheld. Lowest expected yield; do not promise 6.
+
+Two measurements, both discouraging. The ledger header IS printed
+(`Debits Deposits Credits Balance`) but **zero** money cells align to it on any
+of the 6, and the header's own x position MOVES between pages of one document
+(x=357 on page 1, x=331 on page 2) — so bands must be re-derived per page,
+which the module already does but which removes the cross-page consistency
+every other family here provides.
+
+More decisively, §5.7 measured one document's 129 stated rows yielding at most
+118 recoverable cells. A cell absent from the text objects has no box either —
+which is precisely what `Royalty3` demonstrated in this cell, and it is why
+that document is still withheld. **The target should be agreed as "close as
+many as the text objects permit and prove the rest unrecoverable"** before any
+work starts, per `DESIGN_GEOMETRY_INTEGRATION.md` open question 5.
+
+### Rank 8 — fiserv F2, 4 review. Geometry is not what is holding these.
+
+Named in the card, and the measurement does not support it. Two of the four
+(`B1F649CC9396`, `83E4ACAE0CF1`) are geometrically pristine — `debit@387
+credit@466 balance@544` printed, 81 and 80 of 82 rows carrying exactly two
+cells that land on those bands. They are not withheld for a column they lost;
+they are `review / integrity_flags`. The other two (`1939E158D964`,
+`D96D6C92F990`) show a different shape again (`balance@129 credit@241`, most
+rows single-celled). **Recommend removing this from the geometry queue** and
+re-filing the first two against whatever raised their integrity flag.
+
+### Carded but not schedulable this wave — the registration budget
+
+Both are strong geometry customers and neither can be built while the
+detect-sweep budget is held at 68 registrations, because each needs a new one:
+
+* **American Savings Bank D2, 10 documents** (§C6.5) — the largest carded
+  geometry population. The printed column ORDER differs between page 1 and
+  page 2 of the same document, descriptions arrive token-reversed, and
+  money-cells-per-row runs 1/2/3/4/6/13. Per-page bands are exactly what the
+  new module does; this is its natural second customer after Desjardins.
+* **First Carolina G5, 2 documents** (§G5) — small, but the argument is the
+  sharpest statement of why this whole class matters: without the printed
+  column, direction would have to be derived FROM the reconciliation, and the
+  gate stops being evidence and becomes a tautology. Geometry is precisely
+  what restores the independent check. §G5 declined to register a parser that
+  could never validate; with the column read it could.
+
+### What this cell did not touch
+
+`DESIGN_GEOMETRY_INTEGRATION.md` §4.4's disclosed defect is still open:
+`GENERIC_STRUCTURER_ENABLED` is read from the environment at call time and
+appears nowhere in `analysis_settings_key`, so the first measured structurer
+run is invalid unless the cache is partitioned or bypassed first. Nothing here
+made it worse — no `analysis/` cache-key change was needed, because the block
+travels inside the markdown the analysis key already hashes.
