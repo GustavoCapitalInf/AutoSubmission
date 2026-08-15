@@ -15112,7 +15112,9 @@ compiled-regex search to one registration, and the numbers above are what that c
 |---|---|
 | `a0c86f7` | the scanned issue — detection, the bounded summary span, the two speck tolerances, and the scanned-layout fixtures |
 | `339b6a3` | mutation-kill the two fixtures that were passing for the wrong reason |
-| (this one) | §SCANA SA0–SA9 |
+| `ae22d5f` | §SCANA SA0–SA9 |
+| `bd09a77` | Ocean's three review closures (SA10) |
+| (this one) | the closures' own SHA, recorded |
 
 ## SA9. Carried findings for Ocean
 
@@ -15153,7 +15155,7 @@ compiled-regex search to one registration, and the numbers above are what that c
 ## SA10. Review closures
 
 Ocean's verdict SHIP, with three required closures. All three landed in
-`0e4c1cd`; suite, conformance and this file's own tests re-run below.
+`bd09a77`; suite, conformance and this file's own tests re-run below.
 
 **1 — the wrong-guard comment (`fifth_third.py` `_SUMMARY_SPAN`, and SA1).**
 The reviewer paired a real beginning balance with a FOREIGN ending balance at
@@ -15216,7 +15218,7 @@ The dependency is now explicit in the marker comment, in the form that matters
 same conclusion SA1 reached from the archive census, arrived at from the other
 direction.
 
-### Re-run at `0e4c1cd`
+### Re-run at `bd09a77`
 
 ```
 $ python -m pytest tests/test_fifth_third.py -q
