@@ -21655,3 +21655,161 @@ RESULT: GREEN                                                exit 0
 | `2302533` | card 2 — `_page_text` + `_UnreadableTextLayer`, seven call sites routed, 16 tests |
 | `fbeb3a7` | card 1 — `native_statement`, six consumers bound to it, the drift guard retired into the single-source assertion |
 | `(this one)` | this log section |
+
+## RS9. Adversarial-review closures (Ocean, SHIP with four documentation-strength items)
+
+All four are addressed in code rather than prose where code was possible; two
+of them turned out to be real defects rather than wording, and one of the new
+tests found a third. Byte-identity re-proven after the closures: the same 555
+documents swept again, **0 records differ from the reviewed branch**, 0 escaped
+exceptions, and the only difference from base is still the same 4 crash
+documents.
+
+### RS9.1 Clause 2 was overclaiming, and the binding list was unpinned
+
+"A seventh copy cannot appear without failing here" was false. The scan matched
+`ast.Name` calls only — the same blind spot as the batch-4 guard it replaced —
+so an ALIASED import (`from ocr.native_text import parse_native_pdf_text as
+generic`) or an ATTRIBUTE call (`native_text.parse_native_pdf_text(...)`) would
+have walked straight past it.
+
+Both holes are now closed rather than merely disclosed: the scan flags any
+module outside the ladder home that *imports* a rung under any alias, and any
+call by plain name **or** attribute. What remains open is dynamic access
+(`getattr`, `importlib`), which no AST scan can see, and the module docstring
+now says exactly that instead of claiming completeness. Clause 1 (object
+identity) is named as the one that holds regardless, because it checks objects
+rather than text.
+
+`LADDER_BINDINGS` is no longer hand-maintained on trust. A new test derives the
+consumer set FROM THE REPOSITORY — every module importing `native_statement`
+from the ladder home, absolute or relative, plus the name each binds it under —
+and asserts it equals the dict. A seventh consumer, or a renamed binding, now
+fails there instead of silently sitting outside the identity check.
+
+**A finding from writing the negative tests.** The three new scans are exercised
+against synthetic sources that SHOULD trip them (plain call, aliased import,
+attribute call) and sources that should not (`_parse_native_summary`, an
+unrelated import). Doing that caught a bug in my own `_is_ladder_home`: a
+relative `from .native_text import native_statement` in a module OUTSIDE the
+`ocr` package was being credited to the ladder home, because the level check
+fell through to the absolute-name branch. Fixed, and the case is pinned. A
+guard whose failure path is never exercised is a guard nobody has tested.
+
+### RS9.2 The diagnostic loss — restored, not carded
+
+Correct and worth fixing: `_UnreadableTextLayer` carried MuPDF's message and
+every rung dropped it, so the oracle traded `FzErrorFormat: cycle in resources`
+for a generic `no_native_text` — archive-wide, a structurally corrupt PDF
+became indistinguishable from an ordinary scan.
+
+`_native_pages_cached` now returns `_PageRead(pages, refusal)` and the module
+exposes `text_layer_refusal(pdf_bytes) -> str | None`. It is a reason channel,
+not a second reader: the answer comes from the ladder's own memoised read, so a
+caller that got `None` and wants to know why pays nothing and re-reads nothing.
+Only the extraction sets a refusal — a PDF that fails to open, or a missing
+PyMuPDF, answers `None` exactly as before.
+
+Wired into the coverage oracle (in scope, and where the regression actually
+showed). For the four documents:
+
+```
+error           native PDF text layer unreadable: page 1 FzErrorFormat: code=7: cycle in resources
+integrity_notes native text unavailable and local OCR did not produce usable
+                statement text; text layer unreadable: page 1 FzErrorFormat: ...
+```
+
+`native_status`, `deterministic_status`, `quality`, `integrity_risk` and
+`integrity_flags` are **unchanged** — the reason is added, no classification
+moves — and a document with a readable-but-empty text layer keeps its previous
+row verbatim, which is pinned by a test.
+
+Note for the record: production never lost this diagnostic. `inspect_pdf`
+already records `malformed_pages` for these documents (all pages, on all four),
+and production routes on that profile rather than on the ladder. The loss was
+confined to the oracle row, and so is the repair.
+
+### RS9.3 `_page_text`'s catch — narrowed, because the docstring's promise is
+the valuable half
+
+The reviewer's `srot=` demo was right: `except Exception` meant a mistake in how
+a rung CALLS `get_text` became a silent whole-document refusal, contradicting
+the docstring two lines above it. Measured, rather than reasoned about:
+
+```
+corrupt page:  get_text("text")   -> builtins.RuntimeError
+               get_text("dict")   -> builtins.RuntimeError
+               get_text("blocks") -> pymupdf.mupdf.FzErrorFormat
+               get_text("words")  -> pymupdf.mupdf.FzErrorFormat
+   FzErrorFormat mro: FzErrorFormat -> FzErrorBase -> Exception
+   i.e. the two families are SIBLINGS; catching RuntimeError does not catch
+   FzErrorFormat, which is why both have to be named
+
+our own mistakes: get_text("text", srot=True) -> TypeError
+                  get_text("nonsense-mode")   -> AssertionError
+```
+
+So the catch is now `(RuntimeError, FzErrorBase)`, resolved lazily via
+`_mupdf_text_errors()` because this module imports PyMuPDF inside functions.
+`TypeError`, `AssertionError` and anything else propagate — pinned by test.
+
+The resolver has a failure mode of its own: if `FzErrorBase` ever moves it
+would fall back to `RuntimeError` alone and the guard would silently re-open
+for `blocks`/`words`. A test asserts the family IS resolved here rather than
+letting that pass, and the test's own `FzErrorFormat` stand-in is derived from
+the REAL `FzErrorBase` so it exercises that half of the tuple for real instead
+of being caught as a RuntimeError subclass by accident.
+
+Narrowing moves nothing: the archive census found no third exception class on
+3,615 documents, and the 555-document sweep re-run after the change escapes
+nothing and differs from the reviewed branch in 0 records.
+
+### RS9.4 Prose
+
+`ocr/pipeline.py` now reads "It is bound here under `_native_statement` — the
+name `parse_statement` has always called and the suite monkeypatches —". The
+`_UnreadableTextLayer` docstring's "every text extraction in this module" is
+qualified to "every `page.get_text` call IN THIS MODULE", with
+`ocr/column_grid.py::page_words` named inline as the path outside the guard
+that answers `[]` rather than refusing, cross-referenced to RS6.3, and with the
+note that it is unreachable for this class only because woodforest gates on
+`_native_pages` first.
+
+### RS9.5 Closure proofs
+
+```
+# tests/test_native_rung_parity.py
+6 passed                                                     exit 0
+   +3: the repository pin on LADDER_BINDINGS, and the two negative tests that
+   exercise the scans (one of which found the relative-import bug)
+
+# tests/test_native_text_unreadable.py
+24 passed                                                    exit 0
+   +8: the resolver pin, three caller-mistake propagation cases, the refusal
+   reason surviving the ladder, its absence on a readable document, and the
+   oracle row both with and without a reason
+
+# guards
+239 passed                                                   exit 0
+
+# full default suite
+4268 passed, 33 skipped, 29 deselected                       exit 0
+   (4,257 at review -> 4,268; +11 new closure tests)
+
+# byte-identity, re-run after the closures (555 documents)
+reviewed branch vs closure tree: 0 records differ
+escaped exceptions on the closure tree: 0
+base vs closure tree: 4 records differ, all crash class
+
+# the four documents, re-measured end to end
+production offline: None -> None (unchanged) · cache builder: None
+oracle: native_status/deterministic_status/quality/integrity_risk/
+        integrity_flags unchanged; error and integrity_notes now name
+        "page 1 FzErrorFormat: code=7: cycle in resources"
+```
+
+### RS9.6 Closure commit
+
+| Commit | Contents |
+|---|---|
+| `RS_COMMIT_4` | the four review closures and this section |

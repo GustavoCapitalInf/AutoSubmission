@@ -17,7 +17,8 @@ from ocr.local_tesseract import parse_local_tesseract
 # The production native-text ladder itself — see
 # `ocr/native_text.py::native_statement`. This oracle reads exactly the bytes
 # production reads because it calls the same function, not a copy of it.
-from ocr.native_text import native_statement
+# `text_layer_refusal` is the ladder's reason channel, not a second reader.
+from ocr.native_text import native_statement, text_layer_refusal
 
 
 FIELDS = [
@@ -107,6 +108,14 @@ def audit_file(
             if doc is not None:
                 source_status = "local_ocr"
         if doc is None:
+            # WHY there is no text, when the reader knows. The ladder answers
+            # None both for a document with nothing to read and for one whose
+            # text layer MuPDF cannot read at all, and without this the second
+            # is indistinguishable from an ordinary scan in the coverage CSV —
+            # the diagnostic the pre-guard crash used to supply by escaping
+            # (W3 §RUNGSEAM RS6.2). Served from the ladder's own memoised read,
+            # so it costs nothing and re-reads nothing.
+            refusal = text_layer_refusal(pdf_bytes)
             return {
                 **base,
                 "native_status": "no_native_text",
@@ -115,9 +124,16 @@ def audit_file(
                 "corporate_use": "manual_review_required",
                 "integrity_risk": "review",
                 "integrity_flags": "text_unavailable",
-                "integrity_notes": "native text unavailable and local OCR did not produce usable statement text",
+                "integrity_notes": (
+                    "native text unavailable and local OCR did not produce usable statement text"
+                    + (f"; text layer unreadable: {refusal}" if refusal else "")
+                ),
                 "quality_notes": "document cannot be processed deterministically from available text",
-                "error": "native PDF text unavailable or too sparse",
+                "error": (
+                    f"native PDF text layer unreadable: {refusal}"
+                    if refusal
+                    else "native PDF text unavailable or too sparse"
+                ),
             }
 
         markdown = doc.to_markdown()

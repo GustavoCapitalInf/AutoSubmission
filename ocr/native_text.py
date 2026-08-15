@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 from statistics import median
-from typing import TypedDict
+from typing import NamedTuple, TypedDict
 
 from .column_grid import find_columns, page_words, read_rows
 from .document import StatementMarkdown
@@ -14,58 +14,115 @@ class _UnreadableTextLayer(Exception):
 
     MuPDF raises out of ``page.get_text(...)`` on structurally malformed
     documents — `FzErrorFormat: code=7: cycle in resources` is the class GEOM-1
-    found on four archive documents, and `get_text("text")` raises a bare
-    `RuntimeError` for the same defect while `"blocks"`/`"words"` raise the
-    typed one, so the failure cannot be recognised by exception class. Every
-    text extraction in this module goes through `_page_text`, which converts
-    whatever MuPDF raised into THIS exception; each rung catches it and returns
-    None. Two properties matter and are the reason the conversion is a distinct
-    class rather than a bare `except Exception` around each rung:
+    found on four archive documents, and on one and the same corrupt page
+    `get_text("text")`/`("dict")` raise a builtin `RuntimeError` while
+    `("blocks")`/`("words")` raise `pymupdf.mupdf.FzErrorFormat`, which does NOT
+    descend from RuntimeError. Every `page.get_text` call IN THIS MODULE goes
+    through `_page_text`, which converts those into THIS exception; each rung
+    catches it and returns None.
+
+    "In this module" is the exact scope and not a whole-path guarantee:
+    `parse_native_woodforest` reaches MuPDF through
+    `ocr/column_grid.py::page_words`, which is outside this guard and answers an
+    unreadable page with an empty word list rather than a refusal (W3 §RUNGSEAM
+    RS6.3). It is unreachable for this class today only because that rung gates
+    on `_native_pages` first.
+
+    Two properties matter and are the reason the conversion is a distinct class
+    rather than a bare `except Exception` around each rung:
 
     * a rung refuses ONLY because the document's text layer is unreadable — a
-      defect in a rung's own row logic still escapes, loudly, as it does today;
+      defect in a rung's own row logic, and a mistake in how a rung CALLS
+      `get_text` (a misspelled keyword raises `TypeError`, an unknown mode
+      raises `AssertionError`), still escape, loudly. `_page_text` catches only
+      the classes MuPDF was measured to raise;
     * a refusal is whole-document. A partial read (skip the bad page, keep the
       rest) would hand a parser a statement with pages silently missing, and
       `parse_native_pdf_text`'s quorum gate would happily accept it.
     """
 
 
+@lru_cache(maxsize=1)
+def _mupdf_text_errors() -> tuple[type[BaseException], ...]:
+    """The exception classes MuPDF raises out of `page.get_text`.
+
+    Measured on the four crash documents rather than guessed (W3 §RUNGSEAM
+    RS3.2): `RuntimeError` plus the `FzErrorBase` family, which is a sibling of
+    RuntimeError and not a subclass, so both have to be named. Resolved lazily
+    because this module deliberately imports PyMuPDF inside functions.
+
+    If the `FzErrorBase` attribute ever moves, this returns the `RuntimeError`
+    alone and the guard silently narrows — so
+    `tests/test_native_text_unreadable.py` asserts the family IS resolved here
+    instead of letting that pass unnoticed.
+    """
+    errors: list[type[BaseException]] = [RuntimeError]
+    base = None
+    for module_name in ("pymupdf.mupdf", "fitz.mupdf"):
+        try:
+            module = __import__(module_name, fromlist=["FzErrorBase"])
+        except Exception:  # noqa: BLE001 - absence is the only thing that matters
+            continue
+        candidate = getattr(module, "FzErrorBase", None)
+        if isinstance(candidate, type) and issubclass(candidate, BaseException):
+            base = candidate
+            break
+    if base is not None and not issubclass(base, RuntimeError):
+        errors.append(base)
+    return tuple(errors)
+
+
 def _page_text(page, *args, **kwargs):
     """``page.get_text(...)``, with MuPDF's failure made into a refusal."""
     try:
         return page.get_text(*args, **kwargs)
-    except Exception as exc:  # noqa: BLE001 - any MuPDF failure means the same
+    except _mupdf_text_errors() as exc:
         raise _UnreadableTextLayer(f"{type(exc).__name__}: {exc}") from exc
 
 
+class _PageRead(NamedTuple):
+    """What the block extraction produced, and why it produced nothing.
+
+    `refusal` is set only when MuPDF could not read the text layer, and it is
+    the reason string, not a flag: without it a structurally corrupt PDF is
+    indistinguishable from an ordinary scan everywhere downstream, which is the
+    diagnostic the pre-guard crash used to supply by escaping.
+    """
+
+    pages: tuple[str, ...] | None
+    refusal: str | None
+
+
 @lru_cache(maxsize=4)
-def _native_pages_cached(pdf_bytes: bytes) -> tuple[str, ...] | None:
+def _native_pages_cached(pdf_bytes: bytes) -> _PageRead:
     """The block extraction itself, memoised on the document's own bytes.
 
-    The ladder in `ocr/pipeline.py` asks several extractors in turn and most of
+    The ladder in `native_statement` asks several extractors in turn and most of
     them start by reading the same page text, so an un-memoised
     `_native_pages` is re-extracted once per rung the document falls through —
     on every native-text document in the archive, every discovery run. Four
-    entries is enough: the ladder works one document at a time.
+    entries is enough: the ladder works one document at a time. It is also what
+    makes `text_layer_refusal` free: a caller asking why the ladder returned
+    nothing hits this cache rather than re-reading the document.
 
-    A TUPLE is returned, and `_native_pages` copies it into a fresh list per
-    call. `parse_native_navy_federal` and this module's Woodforest reader both
-    append their structured block to `pages[0]`, and handing out the cached
-    object would let one caller's edit become the next caller's input.
+    A TUPLE is returned inside `_PageRead`, and `_native_pages` copies it into a
+    fresh list per call. `parse_native_navy_federal` and this module's Woodforest
+    reader both append their structured block to `pages[0]`, and handing out the
+    cached object would let one caller's edit become the next caller's input.
     """
     try:
         import fitz
     except Exception:
-        return None
+        return _PageRead(None, None)
 
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception:
-        return None
+        return _PageRead(None, None)
 
     pages: list[str] = []
     try:
-        for page in doc:
+        for number, page in enumerate(doc, start=1):
             lines: list[str] = []
             blocks = sorted(
                 _page_text(page, "blocks"), key=lambda b: (round(b[1], 1), round(b[0], 1))
@@ -75,14 +132,30 @@ def _native_pages_cached(pdf_bytes: bytes) -> tuple[str, ...] | None:
                 if text:
                     lines.append(text)
             pages.append("\n".join(lines))
-    except _UnreadableTextLayer:
-        return None
-    return tuple(pages)
+    except _UnreadableTextLayer as refused:
+        return _PageRead(None, f"page {number} {refused}")
+    return _PageRead(tuple(pages), None)
 
 
 def _native_pages(pdf_bytes: bytes) -> list[str] | None:
-    pages = _native_pages_cached(pdf_bytes)
+    pages = _native_pages_cached(pdf_bytes).pages
     return None if pages is None else list(pages)
+
+
+def text_layer_refusal(pdf_bytes: bytes) -> str | None:
+    """Why MuPDF could not read this PDF's text layer, or None if it could.
+
+    The ladder answers `None` for a document it cannot read and for a document
+    with nothing to read, which is correct — both mean "no native text" — but
+    it makes a structurally corrupt PDF look like an ordinary scan. This is the
+    channel for the difference: a caller that got `None` from
+    `native_statement` and wants to say WHY asks here, and the answer is served
+    from the same memoised read the ladder already did.
+
+    A refusal is only ever raised by the extraction itself; a PDF that fails to
+    open, or a missing PyMuPDF, answers None here as it always did.
+    """
+    return _native_pages_cached(pdf_bytes).refusal
 
 
 _NAVY_ROW_DATE_RE = re.compile(r"^(\d{2}-\d{2})\s+(.*)$")

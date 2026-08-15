@@ -8,9 +8,9 @@ from .local_tesseract import parse_local_tesseract
 from .truncation import assess_pages
 # The native-text rung ladder, defined ONCE in `ocr/native_text.py` (see
 # `native_statement` there for the rung order and the two drifts that paid for
-# consolidating it). Bound under the name `parse_statement` has always called
-# and the suite monkeypatches, so the only thing that changed here is where
-# the ladder lives.
+# consolidating it). It is bound here under `_native_statement` — the name
+# `parse_statement` has always called and the suite monkeypatches — so the only
+# thing that changed is where the ladder lives.
 from .native_text import native_statement as _native_statement
 
 
