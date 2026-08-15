@@ -1,4 +1,4 @@
-"""The Fifth Third commercial print stream (W3 §UNID-B, card 5).
+"""The Fifth Third commercial print stream (W3 §UNID-B card 5; §SCAN-A).
 
 Every fixture here is synthetic. The layout is reproduced faithfully — the
 page-repeated print-stream header, the flattened one-line account summary, the
@@ -10,6 +10,12 @@ The tests are organised around the four instruments the parser requires to
 agree, one adversarial fixture per instrument, plus the summary grammar itself:
 a component whose count and amount are both absent means the component is
 absent, and that reading is only accepted when the detail section is absent too.
+
+The last section covers the **scanned** issue of the same statement (§SCAN-A),
+which is the same layout photographed rather than printed to PDF: no print
+stream, the account summary broken one component per line, and OCR speckle
+welded to the printed numbers. Each tolerance introduced for it has an
+adversarial twin asserting that the corroborating printing still bites.
 """
 from __future__ import annotations
 
@@ -78,8 +84,13 @@ def test_detects_the_print_stream():
     assert detect(document()).claims
 
 
-def test_does_not_claim_without_the_print_stream_header():
-    assert not detect(document().replace(PRINT_STREAM, "")).claims
+def test_does_not_claim_without_either_printing_of_the_print_product():
+    """This fixture's product line does not name a `5/3` product, so removing
+    the print-stream header leaves the document with neither printing of the
+    evidence the `print_product` marker accepts."""
+    stripped = document().replace(PRINT_STREAM, "")
+    assert "Account Type: SYNTHETIC BUS CKG" in stripped
+    assert not detect(stripped).claims
 
 
 def test_does_not_claim_without_the_issuer_domain():
@@ -343,3 +354,194 @@ def test_reprinted_page_furniture_never_leaks_into_a_section():
         "--- Page 2 ---\n\n" + PRINT_STREAM + "\n" + PERIOD + "\n9999 i 03/09 99.00",
     )
     assert parse_fifth_third_statement(noisy) is not None
+
+
+# ===========================================================================
+# The scanned issue of the same statement (§SCAN-A)
+# ===========================================================================
+
+#: The scan's page furniture. There is no print stream: what identifies the
+#: document is the product the statement itself names, printed on the page and
+#: therefore photographable. The leading `3` is the speck OCR habitually reads
+#: off the logo block, and it is left in because the real scans carry it.
+SCAN_PRODUCT = "3 Account Type: 5/3 SYNTHETIC CKG"
+SCAN_PERIOD = "Statement Period Date: 3/1/2026 - 3/31/2026"
+SCAN_ACCOUNT = "FIFTH THIRD Account Number: 1234567890"
+
+
+def scanned_document(
+    *,
+    beginning: str = "03/01 Beginning Balance $100.00 Number of Days in Period 31",
+    summary_components: str = (
+        "2 Checks $(30.00)\n"
+        "1 Withdrawals / Debits $(20.00)\n"
+        "2 Deposits / Credits $150.00"
+    ),
+    ending: str = "03/31 Ending Balance $200.00",
+    checks_head: str = "Checks 2 checks totaling $30.00",
+    check_rows: str = "1001 i 03/02 10.00 1002%i 03/03 20.00",
+    credits_head: str = "Deposits / Credits 2 items totaling $150.00",
+    daily: tuple[str, ...] = ("03/02 140.00 03/03 120.00 03/04 100.00", "03/05 200.00"),
+) -> str:
+    """The same statement photographed: no print stream, and the account
+    summary broken one component per printed line."""
+    page_one = [
+        SCAN_PERIOD,
+        SCAN_PRODUCT,
+        SCAN_ACCOUNT,
+        "P.O. BOX 000000 SYNTHETIC CITY OH 00000-0000 Banking Center: Synthetic",
+        "Account Summary - 1234567890",
+        beginning,
+        summary_components,
+        ending,
+        checks_head,
+        CHECK_LEGEND,
+        check_rows,
+        "Withdrawals / Debits 1 items totaling $20.00",
+        "Date Amount Description",
+        "03/04 20.00 SYNTHETIC DEBIT",
+        FOOTER + " Page 1 of 2",
+    ]
+    page_two = [
+        "FIFTH THIRD",
+        credits_head,
+        "Date Amount Description",
+        "03/02 50.00 SYNTHETIC DEPOSIT",
+        "03/05 100.00 SYNTHETIC DEPOSIT TWO",
+        "Daily Balance Summary",
+        "Date Amount Date Amount Date Amount",
+        *daily,
+        "Page 2 of 2",
+    ]
+    return (
+        "<!-- source: synthetic-scan.pdf | pages: 2 | model: local-tesseract-ocr | empty: 0 -->\n\n"
+        "--- Page 1 ---\n\n" + "\n".join(page_one) + "\n\n"
+        "--- Page 2 ---\n\n" + "\n".join(page_two) + "\n"
+    )
+
+
+def test_the_printed_product_line_identifies_a_scan_that_has_no_print_stream():
+    assert PRINT_STREAM not in scanned_document()
+    assert detect(scanned_document()).claims
+
+
+def test_the_printed_product_line_alone_is_still_not_enough():
+    """The product line replaces one marker, not the requirement for three."""
+    assert not detect(
+        f"--- Page 1 ---\n\n{SCAN_PERIOD}\n{SCAN_PRODUCT}\n{SCAN_ACCOUNT}\n"
+    ).claims
+
+
+def test_a_scan_of_another_issuer_naming_a_five_thirds_product_is_not_a_claim():
+    """`Account Type: 5/3 ...` inside someone else's statement is a mention."""
+    foreign = (
+        "--- Page 1 ---\n\nCOMMUNITY TRUST BANK\nStatement of Account\n"
+        "Account Summary\n03/04 250.00 ACH DEBIT TO Account Type: 5/3 BUSINESS CKG\n"
+    )
+    assert not detect(foreign).claims
+
+
+def test_the_scanned_layout_reads_end_to_end():
+    """One summary component per printed line, and every instrument agreeing."""
+    stmt = parse_fifth_third_statement(scanned_document())
+    assert stmt is not None
+    assert stmt.bank == "Fifth Third Bank"
+    assert stmt.account_number == "1234567890"
+    # The scan prints `Account Number:` on the NEXT line, in the next column,
+    # so the account-type field has no terminator to read up to. None is the
+    # honest reading; the alternative would splice in the logo block's text.
+    assert stmt.account_name is None
+    assert stmt.beginning_balance == 100.00
+    assert stmt.ending_balance == 200.00
+    assert stmt.stated_total_debits == 50.00
+    assert stmt.stated_credit_count == 2
+    assert len(stmt.transactions) == 5
+
+
+def test_the_summary_span_is_bounded_so_it_cannot_reach_a_foreign_close():
+    """The middle of the summary may cross printed lines. It may not run far
+    enough to pair this block's beginning balance with a later block's ending
+    balance — which is the failure an unbounded `[\\s\\S]*?` would allow."""
+    filler = "\n".join(f"03/{day:02d} 1.00 SYNTHETIC FILLER ROW {day}" for day in range(1, 20))
+    assert len(filler) > 400
+    padded = scanned_document().replace(
+        "03/31 Ending Balance $200.00", filler + "\n03/31 Ending Balance $200.00"
+    )
+    assert parse_fifth_third_statement(padded) is None
+
+
+def test_a_full_stop_welded_to_a_component_count_is_absorbed():
+    """`13. Deposits / Credits` — the speck loses the count, and with it the
+    document, even though the same count is printed again at the section head."""
+    stmt = parse_fifth_third_statement(scanned_document(
+        summary_components=(
+            "2 Checks $(30.00)\n"
+            "1 Withdrawals / Debits $(20.00)\n"
+            "2. Deposits / Credits $150.00"
+        ),
+    ))
+    assert stmt is not None
+    assert stmt.stated_credit_count == 2
+
+
+def test_the_absorbed_count_is_still_read_off_the_summary_not_the_heading():
+    """The tolerance absorbs a speck; it never completes the summary from the
+    section heading. A count that disagrees with its second printing refuses."""
+    assert parse_fifth_third_statement(scanned_document(
+        summary_components=(
+            "2 Checks $(30.00)\n"
+            "1 Withdrawals / Debits $(20.00)\n"
+            "3. Deposits / Credits $150.00"
+        ),
+    )) is None
+
+
+def test_a_cheque_flag_the_scan_misread_still_yields_its_row():
+    """`1002%i` is a sequence-gap asterisk photographed badly. Losing the row
+    would silently drop a cheque from a total the document also prints."""
+    stmt = parse_fifth_third_statement(scanned_document())
+    assert stmt is not None
+    cheques = [t for t in stmt.transactions if t.description.startswith("Check ")]
+    assert [t.description for t in cheques] == ["Check 1001", "Check 1002"]
+    assert sum(t.amount for t in cheques) == -30.00
+
+
+def test_the_glyph_tolerance_is_a_bounded_shape_not_an_open_gap():
+    """Two glyphs is the flag cluster the layout prints. A longer run between
+    the number and the date is not a flag, so the row is not admitted — and
+    the section's own printed count then refuses the document."""
+    assert parse_fifth_third_statement(scanned_document(
+        checks_head="Checks 3 checks totaling $35.00",
+        check_rows="1001 i 03/02 10.00 1002%i 03/03 20.00 1003 abc 03/06 5.00",
+    )) is None
+
+
+def test_a_misread_cheque_row_that_breaks_the_section_total_is_refused():
+    assert parse_fifth_third_statement(
+        scanned_document(check_rows="1001 i 03/02 10.00 1002%i 03/03 21.00")
+    ) is None
+
+
+def test_an_overdrawn_scan_publishes_the_printed_daily_balances_it_averages():
+    """The archive's scanned months run overdrawn, and one of them publishes a
+    NEGATIVE average daily balance. That figure is only ever as good as the
+    printed daily balances behind it, so the parser publishes those alongside
+    it — after the day-by-day walk has had to agree with every one of them.
+
+    Here the printed closes are read as overdrawn, and their own average is
+    negative, exactly as it is on the archive document."""
+    stmt = parse_fifth_third_statement(scanned_document(
+        beginning="03/01 Beginning Balance $(100.00) Number of Days in Period 31",
+        ending="03/31 Ending Balance $0.00",
+        daily=("03/02 (60.00) 03/03 (80.00) 03/04 (100.00)", "03/05 0.00"),
+    ))
+    assert stmt is not None
+    assert stmt.beginning_balance == -100.00
+    printed = [(d.date, d.balance) for d in stmt.stated_daily_balances]
+    assert printed == [
+        ("2026-03-02", -60.00),
+        ("2026-03-03", -80.00),
+        ("2026-03-04", -100.00),
+        ("2026-03-05", 0.00),
+    ]
+    assert sum(balance for _, balance in printed) / len(printed) < 0

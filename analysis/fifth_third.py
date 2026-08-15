@@ -40,6 +40,24 @@ flags, and the three detail sections interleave across pages: a page can end
 mid-cheque-grid and the next page resumes it under a ``- continued`` heading
 after reprinting the whole address block. Sections are therefore gathered
 globally (`_sections`) rather than sliced between a start and an end offset.
+
+**The same statement also arrives scanned** (W3 §SCAN-A), and three of this
+reader's assumptions were assumptions about the electronic PDF rather than
+about the statement:
+
+* the print stream's own header is furniture the *file* carries, not something
+  the *page* prints, so a scan of the identical statement has no trace of it.
+  The scan does print the issuer's product line — ``Account Type: 5/3 …`` — and
+  either printing now satisfies the same marker;
+* the electronic PDF flattens the whole account summary onto one line; the scan
+  prints one component per line. The summary's middle span may therefore cross
+  printed lines, **bounded**, so that a beginning balance can never be paired
+  with an ending balance belonging to some later block;
+* OCR speckle lands between a printed number and the token after it — a full
+  stop welded to a component's count (``13. Deposits / Credits``), a stray
+  glyph where a cheque flag was (``1229%i``). Both are tolerated only where a
+  second printing of the same figure has to agree: the count against its own
+  section heading, the cheque against the section total and the daily walk.
 """
 from __future__ import annotations
 
@@ -58,6 +76,12 @@ _PRINT_STREAM_RE = re.compile(
     r"FTCSTMT\d+\s+\d+\s+\d{8}\s+UDSPDFSTMT\s+\d+\s+[A-Z]+"
 )
 
+#: The product the statement itself names in its ``Account Type:`` field,
+#: written in the issuer's own brand shorthand: ``Account Type: 5/3 BUSINESS
+#: CKG``. Unlike the print-stream header this is *printed on the page*, so it
+#: survives being scanned — which is the whole reason it is here.
+_PRODUCT_LINE_RE = re.compile(r"ACCOUNT TYPE:\s*5/3\b")
+
 #: `$(1,234.56)` / `$1,234.56` / `(1,234.56)` / `1,234.56`.
 _MONEY = r"\$?\(?[\d,]+\.\d{2}\)?"
 
@@ -66,13 +90,27 @@ _MONEY = r"\$?\(?[\d,]+\.\d{2}\)?"
 _LABELS = ("Checks", "Withdrawals / Debits", "Deposits / Credits")
 _LABEL_ALT = "|".join(re.escape(label) for label in _LABELS)
 
+#: How far the summary's middle span may run. The electronic PDF flattens the
+#: components onto one line and the scan prints one per line, so the span has to
+#: cross printed lines — but it must not be free to run the length of the
+#: document and pair this block's beginning balance with a *later* block's
+#: ending balance. The widest summary the archive prints is 140 characters, so
+#: this is roughly three times the observed need and far short of the distance
+#: to any second summary (which the duplicate-label refusal in `_summary`
+#: catches independently).
+_SUMMARY_SPAN = 400
+
 _SUMMARY_RE = re.compile(
     r"(\d{2}/\d{2})\s+Beginning Balance\s+(" + _MONEY + r")\s+"
-    r"Number of Days in Period\s+(\d+)\s+(.*?)"
+    r"Number of Days in Period\s+(\d+)\s+([\s\S]{0," + str(_SUMMARY_SPAN) + r"}?)"
     r"(\d{2}/\d{2})\s+Ending Balance\s+(" + _MONEY + r")"
 )
+#: ``13. Deposits / Credits`` — a scan welds a speck to the component's count.
+#: The full stop is absorbed; the count itself is still read off this printing
+#: and then has to agree with the section heading's independent printing of it,
+#: so a misread count refuses the document rather than reaching a result.
 _COMPONENT_RE = re.compile(
-    r"(?:(\d+)\s+)?(" + _LABEL_ALT + r")(?:\s+(" + _MONEY + r"))?"
+    r"(?:(\d+)\.?\s+)?(" + _LABEL_ALT + r")(?:\s+(" + _MONEY + r"))?"
 )
 _SECTION_HEAD_RE = re.compile(
     r"^(" + _LABEL_ALT + r")\s+(\d+)\s+(?:checks|items)\s+totaling\s+(" + _MONEY + r")",
@@ -93,9 +131,16 @@ _CONTINUED_RE = re.compile(r"^(" + _LABEL_ALT + r")\s+- continued\s*(.*)$")
 _DAILY_RE = re.compile(r"^Daily Balance Summary\s*(.*)$")
 
 #: ``32099*i 02/02 894.33`` — number, optional sequence-gap and image flags,
-#: posting date, amount. The flags are optional independently of each other.
+#: posting date, amount. The flags are optional independently of each other,
+#: and on a scan they are the least legible marks on the page: ``1229%i`` is a
+#: sequence-gap asterisk the OCR read as a percent sign. What separates the
+#: cheque number from its paid date is therefore *up to two glyphs that are
+#: neither digits nor the date's own separator* — a shape, not a list of the
+#: substitutions one OCR engine happens to make. Nothing is taken on trust: a
+#: row admitted here still has to be corroborated by the section's printed
+#: count, its printed total and the printed daily-balance walk.
 _CHECK_ROW_RE = re.compile(
-    r"(?<![\d.,])(\d{3,})(?:\s*\*)?(?:\s*[is])?\s+(\d{1,2}/\d{2})\s+([\d,]+\.\d{2})(?![\d.,])"
+    r"(?<![\d.,])(\d{3,})(?:\s*[^\s\d/]){0,2}\s+(\d{1,2}/\d{2})\s+([\d,]+\.\d{2})(?![\d.,])"
 )
 #: ``02/02 50.00 DEBIT CARD PURCHASE AT ...`` — the description runs to the next
 #: row's date, which is why rows are located first and sliced afterwards.
@@ -115,9 +160,20 @@ def detection_text(markdown: str) -> str:
 
 
 DETECTION_MARKERS = (
-    # The print stream's header line: template furniture, and the one piece of
-    # evidence no other issuer's document carries.
-    required("print_stream", lambda t: _PRINT_STREAM_RE.search(t) is not None),
+    # The statement's own print product, in whichever of its two printings the
+    # document in hand carries. The print-stream header line is template
+    # furniture no other issuer's document carries — but it belongs to the
+    # electronic PDF, and a SCAN of the identical statement cannot have it. What
+    # the scan does have is the product named in the statement's own
+    # `Account Type:` field, in the issuer's brand shorthand. Nine of the
+    # thirteen electronic documents print both; the four that do not print a
+    # `5/3` product name are held by the print stream, and the scans are held by
+    # the product line, so neither branch is redundant.
+    required(
+        "print_product",
+        lambda t: _PRINT_STREAM_RE.search(t) is not None
+        or _PRODUCT_LINE_RE.search(t) is not None,
+    ),
     # The issuer, read off the document rather than off the folder it was filed
     # in: every page footer carries Fifth Third's own domain. The bank's name is
     # spelled out on only one document of the family, so the domain is what
