@@ -14734,7 +14734,7 @@ Woodforest documents are byte-identical to `ea8d8e8`.**
 | Today | `withheld` / `withheld_adb` — both |
 | If Ocean rules yes | `validated` — both, +2 |
 | Family sweep | 20 claimed; 2 declared, 16 ADB-result bit-identical, 2 parser-declines unchanged |
-| Corpus census | 3,315 distinct shas; **6** documents in the whole archive carry ANY out-of-period posting; the loosest form of the rule fires on exactly these 2 |
+| Corpus census | 3,315 readable shas / 2,468 claimed; **6** documents in the whole archive carry ANY out-of-period posting; the loosest form of the rule fires on exactly these 2 |
 
 ## WF1. The printed evidence, verbatim
 
@@ -15078,10 +15078,12 @@ ones move.
 
 ## WF5. The adversarial gate (ruling gate 6)
 
-**In the archive, not only in fixtures.** A census over all 3,315 distinct
-content shas in the artifact store — dispatch + parse + repairs, deterministic
-path only, $0 vendor — finds **six** documents in the entire corpus with any
-out-of-period posting:
+**In the archive, not only in fixtures.** A census over the whole D-3 OCR
+artifact store — 3,409 distinct content shas, of which 94 hold a cached
+NEGATIVE preflight (no document) and **3,315 hold readable markdown** — run
+through dispatch + parse + repairs on the deterministic path only, $0 vendor.
+2,468 of the 3,315 are claimed by a registration, and among them **six**
+documents in the entire corpus carry any out-of-period posting:
 
 ```
 1B6768E8  atb          pre=0  post=514  2026-01-01..2026-01-31
@@ -15204,3 +15206,22 @@ exit 0
 8. **The prover is O(one ADB run) and only on documents with a pre-period
    row** — 2 of 20 in this family, 6 in 3,315 corpus-wide. It is not on the
    detect-sweep path, so it costs the registry budget nothing.
+9. **G7 will refuse a future opening whose printed average carries the family's
+   usual offset, and that refusal will not be about its opening.** Thirteen of
+   the fifteen validated Woodforest statements miss their own printed average
+   by 0.38–0.50; the two openings hit theirs at exactly 0.00 on the extended
+   window. If a third opening arrives carrying the offset, it stays withheld —
+   fail-closed, correct, and for a reason that has nothing to do with whether
+   it is an opening. That is the price of using the strongest oracle the
+   document prints, and it is the right price to pay first; loosening G7 to a
+   tolerance would be a tuned constant and should not be done without new
+   evidence. **Do not loosen it to make a future document pass.**
+10. **Why the residual is exactly zero on these two and 0.38–0.50 elsewhere is
+    NOT explained by this cell.** UA6.8 established the difference is a
+    convention in how Woodforest averages (its `Average Collected Balance` is
+    printed equal to its `Average Balance`, and reproducing the figure from the
+    bank's own complete daily table gives the platform's answer, not the
+    bank's). This cell measured that the two openings sit at 0.00 and used it;
+    it did not learn why. Recorded rather than dressed up in a story: a
+    plausible reading is that a days-old account funded by one deposit has no
+    uncollected float, but nothing here proves that.
