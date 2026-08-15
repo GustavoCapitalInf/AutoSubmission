@@ -62,6 +62,7 @@ from . import (
     rbc,
     regions,
     relay,
+    releve_facturation,
     santander,
     scanned_small_bank,
     scotia,
@@ -153,6 +154,16 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("rbc_french", "Banque Royale du Canada", rbc, "FRENCH_DETECTION_MARKERS", "french_detection_text", "parse_rbc_french_statement"),
     ("regions", "Regions Bank", regions, "DETECTION_MARKERS", "detection_text", "parse_regions_statement"),
     ("relay", "Thread Bank (Relay)", relay, "DETECTION_MARKERS", "detection_text", "parse_relay_statement"),
+    # Not a bank, and not a platform we can name either: a French-language
+    # statement template whose 16 archive documents name NO institution
+    # anywhere (W3 §UNID-B UB5; honest-unknown-issuer ruling 2026-08-14). The
+    # label here describes the printed template, because there is nothing else
+    # honest to put in this column - and `Statement.bank` is `None` on every
+    # document it publishes. Deliberately carries no institution word: this
+    # string is normalised into `discovery.evidence.registered_bank_tokens`
+    # and matched against folder labels by containment, so a label containing
+    # "Unidentified" would report that folder as a bank we support.
+    ("releve_facturation", "Releve de Compte Statement Template", releve_facturation, "DETECTION_MARKERS", "detection_text", "parse_releve_facturation_statement"),
     ("santander", "Santander Bank", santander, "DETECTION_MARKERS", None, "parse_santander_statement"),
     ("scotiabank", "Scotiabank", scotia, "DETECTION_MARKERS", "detection_text", "parse_scotiabank_statement"),
     ("secu", "SECU Maryland", secu, "DETECTION_MARKERS", None, "parse_secu_statement"),

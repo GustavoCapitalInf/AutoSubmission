@@ -96,15 +96,16 @@ def test_no_fixture_names_a_registration_that_does_not_exist():
 
 
 def test_the_registry_holds_the_documented_number_of_registrations():
-    assert len(REGISTRATIONS) == 68, (
+    assert len(REGISTRATIONS) == 69, (
         "43 registry entry points, the three promoted sub-dispatches, the "
         "three BMO layouts, the Square Checking layout, the Chase savings "
         "product, the TD Canada Trust French layout, the English CIBC "
         "layout, plus the batch-3 train: Huntington, Burke & Herbert, "
         "Shopify Balance, CitiBusiness, Zions, Mercury, Brex, Found's "
         "closed statement and month-to-date view, Woodforest, Wealthsimple "
-        "Symitar, the Fifth Third commercial print stream, Fiserv Premier and "
-        "the issuer-agnostic core-processor template; "
+        "Symitar, the Fifth Third commercial print stream, Fiserv Premier, "
+        "the issuer-agnostic core-processor template and the French "
+        "`Relevé de compte` template that names no institution; "
         "update this count and the docs together"
     )
 
