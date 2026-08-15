@@ -468,14 +468,17 @@ def test_an_observation_carries_only_ids_codes_and_integers():
 
 # --- the artifact join: the observer's one integration point ----------------
 #
-# `_ArtifactJoin` reimplements the analysis cache key. That is a second copy of
-# a computation that lives in `webapp/artifact_cache.py`, and copies drift: W3
-# FILENAME-BOUNDARY changed the analysis stage to key on
+# `_ArtifactJoin` resolves the analysis cache key. It used to REIMPLEMENT it —
+# a second copy of a computation that lives in `webapp/artifact_cache.py`, and
+# copies drift: W3 FILENAME-BOUNDARY changed the analysis stage to key on
 # `text_sha256(admissible_text(markdown))` and this copy kept hashing the raw
 # reconstruction, which misses on EVERY document — `payload_for` returns None
 # for all of them and `observe_run` emits `payload_absent` on 100% of rows. The
 # instrument fails safe and measures nothing, which is the worst kind of green.
-# These are the tests that catch it.
+# W3 §WIRING would have done it a second time by adding the sheet partition to
+# the key, so the copy is gone: the join imports `analysis_input_sha`. What it
+# still owns is the SHAPE it hands that function — markdown plus page list —
+# and these are the tests that catch that.
 
 
 def _seed_one_document(data_dir, *, cached_under: str, pages=("LEDGER PAGE",)):
@@ -510,6 +513,10 @@ def _seed_one_document(data_dir, *, cached_under: str, pages=("LEDGER PAGE",)):
         compute=lambda: payload,
         cache=cache,
         parse_mode="deterministic",
+        # As a WIRED production caller writes it: the page partition is part of
+        # the analysis input hash, so a fixture that omitted it would seed a key
+        # no archive document can ever have (W3 §WIRING W3).
+        sheets=document.pages,
     )
     assert not result.cached, "fixture must have WRITTEN the analysis entry"
     return content_sha256(pdf_bytes), payload
@@ -545,22 +552,32 @@ def test_the_artifact_join_survives_a_rename_of_the_document(tmp_path):
 
 
 def test_the_artifact_join_computes_the_same_key_the_analysis_cache_writes(tmp_path):
-    """Pins the two copies of the key together, so a future change to one is a
-    failure here rather than a blind instrument in production."""
+    """Pins the join to the cache's own derivation, so a future change to the
+    key material is a failure here rather than a blind instrument in production.
+
+    There is no longer a second copy to drift — the join imports
+    `analysis_input_sha` — but the SHAPE it feeds that function is still its
+    own: it must reconstruct the page list as well as the markdown. Hashing the
+    text alone, or the raw reconstruction with its filename header, misses on
+    every document.
+    """
     from analysis.parser_registry import admissible_text
     from ocr.document import StatementMarkdown
-    from webapp.artifact_cache import text_sha256
+    from webapp.artifact_cache import analysis_input_sha, text_sha256
     from telemetry.stated_counts import _ArtifactJoin
 
     data_dir = tmp_path / "data"
     _seed_one_document(data_dir, cached_under="s.pdf")
     join = _ArtifactJoin(data_dir)
 
+    pages = ["LEDGER PAGE"]
     markdown = StatementMarkdown(
-        source_file="s.pdf", model="fake-ocr", pages=["LEDGER PAGE"]
+        source_file="s.pdf", model="fake-ocr", pages=pages
     ).to_markdown()
     assert "<!-- source:" in markdown, "fixture must carry the header"
-    # The key the cache wrote is the admissible-text key, and it is the only one
-    # the join's index knows.
-    assert text_sha256(admissible_text(markdown)) in join._analysis_index
+    # The key the cache wrote is over the admissible text AND the page
+    # partition, and it is the only one the join's index knows.
+    assert analysis_input_sha(markdown, pages) in join._analysis_index
+    assert analysis_input_sha(markdown, None) not in join._analysis_index
+    assert text_sha256(admissible_text(markdown)) not in join._analysis_index
     assert text_sha256(markdown) not in join._analysis_index

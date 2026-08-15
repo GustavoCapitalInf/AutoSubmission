@@ -680,40 +680,46 @@ class _ArtifactJoin:
 
     The two caches are keyed on different things by design
     (`webapp/artifact_cache.py`): the OCR stage on the PDF's `content_sha256`,
-    the ANALYSIS stage on `text_sha256` of the ADMISSIBLE text of the markdown
-    analyzed — the document with its `<!-- source: ... -->` header removed. So
-    the join is: PDF hash -> cached OCR artifact -> rebuild the
-    `StatementMarkdown` -> `to_markdown()` -> `admissible_text` -> markdown hash
-    -> cached analysis artifact. Every step is a read; nothing is computed that
-    was not already computed, no OCR runs, no model is called, and `compute` is
-    never invoked because we go through the cache's typed getters rather than
-    the memoizing wrappers.
+    the ANALYSIS stage on `analysis_input_sha` — a digest over the ADMISSIBLE
+    text of the markdown analyzed (the document with its `<!-- source: ... -->`
+    header removed) AND over the intake page partition the analysis also reads.
+    So the join is: PDF hash -> cached OCR artifact -> rebuild the
+    `StatementMarkdown` -> `to_markdown()` + its page list -> analysis input
+    hash -> cached analysis artifact. Every step is a read; nothing is computed
+    that was not already computed, no OCR runs, no model is called, and
+    `compute` is never invoked because we go through the cache's typed getters
+    rather than the memoizing wrappers.
 
     The markdown header carries the source FILENAME (`ocr/document.py:38-41`),
     and the filename is deliberately NOT load-bearing for the hash: since W3
-    FILENAME-BOUNDARY the analysis stage keys on `admissible_text(markdown)`, so
-    a rename cannot change the answer and must not change the key either. This
-    class MUST apply the same strip, or the join silently misses every document
-    and the instrument goes blind — failing safe (`REASON_PAYLOAD_ABSENT` on
-    every row) while measuring nothing. `source_file` is still passed in and
-    stamped onto the reconstructed document, because `to_markdown()` requires
-    one and the reconstruction must be faithful; it simply cannot reach the
-    hash. It never leaves this class: what a caller gets back is a payload and
-    a hash.
+    FILENAME-BOUNDARY the analysis stage keys on the admissible text, so a
+    rename cannot change the answer and must not change the key either. This
+    class MUST derive the hash exactly as the cache does, or the join silently
+    misses every document and the instrument goes blind — failing safe
+    (`REASON_PAYLOAD_ABSENT` on every row) while measuring nothing. That is why
+    it IMPORTS `analysis_input_sha` instead of recomposing it: the private copy
+    that used to live here would have survived W3 §WIRING's key change looking
+    perfectly healthy. `source_file` is still passed in and stamped onto the
+    reconstructed document, because `to_markdown()` requires one and the
+    reconstruction must be faithful; it simply cannot reach the hash. It never
+    leaves this class: what a caller gets back is a payload and a hash.
     """
 
     def __init__(self, data_dir: str | Path):
         from webapp.artifact_cache import (  # imported lazily: telemetry must
-            analysis_settings_key,            # not drag in webapp plumbing on
-            ocr_settings_key,                 # `import telemetry` (T12).
-            text_sha256,
+            analysis_input_sha,               # not drag in webapp plumbing on
+            analysis_settings_key,            # `import telemetry` (T12).
+            ocr_settings_key,
         )
-        # The other half of the analysis key, imported beside it so the two
-        # halves of `cached_analysis`'s computation cannot drift apart again.
-        from analysis.parser_registry import admissible_text
 
-        self._text_sha256 = text_sha256
-        self._admissible_text = admissible_text
+        # THE analysis input hash, imported rather than recomposed. This class
+        # used to hold its own copy of the derivation (`text_sha256` of
+        # `admissible_text`), which is precisely the second copy the
+        # FILENAME-BOUNDARY lesson warned about: when W3 §WIRING added the sheet
+        # partition to the key material, a private copy would have gone on
+        # hashing the text alone, missed on every document, and reported
+        # `REASON_PAYLOAD_ABSENT` across the archive while looking healthy.
+        self._analysis_input_sha = analysis_input_sha
         self._root = Path(data_dir) / "artifacts"
         # sqlite3 direct, `mode=ro`, rather than `webapp.storage.Storage`:
         # constructing a Storage runs `_ensure_schema`, which WRITES (a
@@ -782,16 +788,18 @@ class _ArtifactJoin:
             document = (payload.get("artifact") or {}).get("document")
             if not isinstance(document, Mapping):
                 continue
+            pages = list(document.get("pages") or [])
             markdown = StatementMarkdown(
                 source_file=source_file,
                 model=str(document.get("model") or ""),
-                pages=list(document.get("pages") or []),
+                pages=pages,
             ).to_markdown()
-            # `admissible_text` exactly as `cached_analysis` applies it: the
-            # stage is keyed on the filename-free text, so hashing the raw
-            # reconstruction here would miss on every document.
+            # The stage's own input hash, over BOTH halves of what the analysis
+            # read: the filename-free text and the page partition. The
+            # reconstruction supplies the same page list a wired production
+            # caller supplied, which is why the join still resolves.
             analysis_path = self._analysis_index.get(
-                self._text_sha256(self._admissible_text(markdown))
+                self._analysis_input_sha(markdown, pages)
             )
             if not analysis_path:
                 continue

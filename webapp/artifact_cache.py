@@ -42,13 +42,29 @@ hex SHA-256 — the one convention established by ``ocr/inspect.py``
 ``input`` per stage:
 
 * ``ocr``      — ``content_sha256(pdf_bytes)``: the raw PDF bytes, nothing else.
-* ``analysis`` — ``text_sha256(admissible_text(markdown))``: the UTF-8 bytes of
-  the markdown that will be analyzed, with the source-filename comment removed
-  — exactly the text ``analyze_markdown`` works from (W3 FILENAME-BOUNDARY), so
-  the key partitions on what the answer depends on and not on the filename.
+* ``analysis`` — :func:`analysis_input_sha`: a digest over BOTH inputs the
+  analysis reads — ``text_sha256(admissible_text(markdown))``, the markdown with
+  the source-filename comment removed (W3 FILENAME-BOUNDARY), and
+  :func:`sheets_sha256`, a digest over the intake object's page PARTITION.
+  ``admissible_text`` strips the ``<!-- source: … | pages: N | … -->`` header,
+  so before WIRING-2 the page structure was not in the key material at all —
+  and ``to_markdown`` is not injective over that text, so an honest three-sheet
+  document and a forged one-sheet document that prints the separators render to
+  the same string, take the same key, and have DIFFERENT correct answers on
+  ``missing_declared_statement_page``. The COUNT is not enough either: two
+  two-sheet lists can render to one string with opposite answers, so the
+  partition is what the key carries (W3 §WIRING W3). The header is not
+  re-admitted, because it also carries the filename.
 * ``report``   — ``text_sha256(markdown)``: the WHOLE markdown, filename comment
   included. The rendered artifact is not the analysis: it can show provenance,
   so the filename stays key material here.
+
+The sheet evidence deliberately lives in the analysis stage's INPUT hash and
+not in :func:`analysis_settings_key`: the settings key is a per-RUN constant,
+and the telemetry observer's read-only artifact join (under ``telemetry/``)
+indexes the whole artifact table on one value of it. A per-document value there
+would silently blind that join — it would report nothing wrong while measuring
+nothing.
 
 ``settings`` per stage — every knob that can change that stage's output, and
 nothing else (surveyed from ``webapp/worker.py`` and the functions it calls,
@@ -155,9 +171,17 @@ Module-level API for CLI consumers (discovery runner / batch.py)
 
     result = cached_analysis(
         doc.to_markdown(),
-        compute=lambda: report_to_dict(analyze_markdown(md, parse_mode="auto")),
-        cache=cache, parse_mode="auto",
+        compute=lambda: report_to_dict(
+            analyze_markdown(md, parse_mode="auto", sheets=doc.pages)
+        ),
+        cache=cache, parse_mode="auto", sheets=doc.pages,
     )
+
+``sheets`` is the intake object's page list, and it must be the SAME list the
+``compute`` call analyzes — it is key material, so handing the cache one
+partition and the analysis another would store an answer under a key that does
+not describe it. A caller with no intake object passes nothing and gets the
+fail-closed behaviour end to end.
 
 ``compute`` is a zero-argument callable invoked ONLY on a miss; passing
 ``cache=None`` disables caching entirely (compute always runs), which is how a
@@ -171,7 +195,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Sequence, TypeVar
 
 from analysis.parser_registry import admissible_text
 from ocr.document import StatementMarkdown
@@ -190,6 +214,7 @@ __all__ = [
     "STAGE_OCR",
     "STAGE_ANALYSIS",
     "STAGE_REPORT",
+    "analysis_input_sha",
     "analysis_settings_key",
     "cached_analysis",
     "cached_ocr",
@@ -198,6 +223,7 @@ __all__ = [
     "ocr_settings_key",
     "open_cache",
     "report_settings_key",
+    "sheets_sha256",
     "text_sha256",
 ]
 
@@ -314,6 +340,56 @@ def text_sha256(text: str) -> str:
 
 def _fingerprint(settings: dict[str, Any]) -> str:
     return text_sha256(_canonical_json(settings))
+
+
+def sheets_sha256(sheets: Sequence[str] | None) -> str | None:
+    """A digest over the intake page PARTITION, or ``None`` for no page list.
+
+    ``None`` and ``[]`` are different facts and hash differently: no evidence of
+    page structure is not the same as a document with no sheets, and the
+    analysis fail-closes on the first while the second is a real (if degenerate)
+    partition.
+
+    Per-sheet digests rather than the concatenated text, because the whole point
+    is the BOUNDARIES: ``["ab", "c"]`` and ``["a", "bc"]`` must not collide, and
+    joining them would make them identical. Sheet text is hashed rather than
+    embedded so that key material stays bounded whatever the document's size.
+
+    ``str`` is refused for the same reason ``assess_document_integrity`` refuses
+    it: ``str`` is itself a ``Sequence[str]``, so ``sheets=markdown``
+    type-checks and then iterates one CHARACTER per sheet. There it would clear
+    a fraud-relevant flag; here it would silently partition the cache by
+    something meaningless. A caller that believes it is supplying page structure
+    while supplying none is a defect either way, and only a call site can reach
+    this — no document's content can.
+    """
+    if sheets is None:
+        return None
+    if isinstance(sheets, str):
+        raise TypeError(
+            "sheets must be the intake object's page list, not the document "
+            "text: a str is a Sequence[str] of single characters"
+        )
+    return text_sha256(_canonical_json([text_sha256(sheet) for sheet in sheets]))
+
+
+def analysis_input_sha(markdown: str, sheets: Sequence[str] | None = None) -> str:
+    """The analysis stage's input hash: the admissible text AND the page partition.
+
+    THE one place this is derived. The telemetry observer (under ``telemetry/``)
+    reconstructs the same document out of the OCR artifact and must resolve the
+    same key, and a second copy of this composition is exactly the drift the
+    FILENAME-BOUNDARY lesson warned about — an instrument that goes blind while
+    reporting nothing wrong. Import this; do not re-derive it.
+    """
+    return text_sha256(
+        _canonical_json(
+            {
+                "text": text_sha256(admissible_text(markdown)),
+                "sheets": sheets_sha256(sheets),
+            }
+        )
+    )
 
 
 def cache_key(stage: str, input_sha256: str, settings_key: str) -> str:
@@ -661,8 +737,15 @@ def cached_analysis(
     cache: ArtifactCache | None = None,
     parse_mode: str = "auto",
     analysis_settings: Any | None = None,
+    sheets: Sequence[str] | None = None,
 ) -> CacheResult:
     """Memoize extraction+analysis over the EXACT markdown being analyzed.
+
+    ``sheets`` is the intake object's page list, which ``analyze_markdown``
+    reads as well as the markdown — so it is key material, and it must be the
+    same list ``compute`` passes down. Omit it only where the caller genuinely
+    has no intake object; the analysis then fail-closes and the key records
+    that it did.
 
     Only successful results are cached — ``compute`` raising propagates
     untouched, because an extraction failure (a transient model error as much
@@ -670,11 +753,13 @@ def cached_analysis(
     """
     if cache is None:
         return CacheResult(compute(), False, STAGE_ANALYSIS, None)
-    # Key on the text the analysis actually reads, not on the bytes we were
-    # handed: `analyze_markdown` strips the source-filename comment at its parse
-    # seam (W3 FILENAME-BOUNDARY), so two uploads of one statement under two
-    # filenames are the same analysis input and must share one cache entry.
-    input_sha = text_sha256(admissible_text(markdown))
+    # Key on what the analysis actually reads, not on the bytes we were handed:
+    # `analyze_markdown` strips the source-filename comment at its parse seam
+    # (W3 FILENAME-BOUNDARY), so two uploads of one statement under two
+    # filenames are the same analysis input and must share one cache entry —
+    # and it also reads the intake page list, which that same strip removes from
+    # the text, so the partition is carried explicitly (W3 §WIRING W3).
+    input_sha = analysis_input_sha(markdown, sheets)
     settings_key = analysis_settings_key(
         parse_mode=parse_mode, analysis_settings=analysis_settings
     )
