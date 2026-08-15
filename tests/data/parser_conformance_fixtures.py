@@ -271,6 +271,13 @@ FIXTURES: dict[str, str] = {
 ALTERNATE_FIXTURES: dict[str, tuple[str, ...]] = {
     "banco_popular": ("TeleBanco Comercial\nFLEXICUENTA DE NEGOCIOS\n",),
     "farmers_merchants": ("BUSINESS/COMMERCIAL\nCHECKS/DEBITS\nDEPOSITS AND CREDITS\n",),
+    # The scanned issue of the Fifth Third statement. The print stream belongs
+    # to the electronic PDF and a photograph of the page cannot carry it; what
+    # the page itself prints is the product named in its `Account Type:` field.
+    "fifth_third": (
+        "Account Type: 5/3 BUSINESS CKG\n"
+        "Account Summary\nwww.53.com/businessbanking\n",
+    ),
     # RBC prints its French grid under two product names, as it does in English.
     "rbc_french": ("BANQUE ROYALE\nDate Description Retraits ($)\n",),
     "bmo": ("BANK OF MONTREAL\nAccount Summary Totals\n",),
