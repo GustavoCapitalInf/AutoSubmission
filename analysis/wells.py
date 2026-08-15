@@ -45,7 +45,7 @@ import re
 from datetime import date
 
 from .date_tokens import iso_from_month_day
-from .money import parse_money
+from .money import parse_money, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
@@ -260,7 +260,7 @@ def parse_wells_statement(markdown: str, base: Statement | None = None) -> State
             # inferred from the description — the row is dropped and
             # reconciliation decides whether what remains is publishable.
             continue
-        amount = abs(parse_money(credit if credit else debit) or 0.0)
+        amount = abs(read_money(credit if credit else debit) or 0.0)
         signed = amount if credit else -amount
         txns.append(Transaction(
             date=iso_from_month_day(mmdd, year=year),

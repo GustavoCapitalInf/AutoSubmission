@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from .money import parse_money
+from .money import parse_money, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
 
@@ -65,7 +65,7 @@ def _summary(markdown: str) -> tuple[float, float, float, float, float, float]:
     beginning = _money(beginning_m.group(1))
     credits = _money(credits_m.group(2))
     debits = _money(debits_m.group(2))
-    misc = _money(misc_m.group(1) if misc_m else None) or 0.0
+    misc = read_money(misc_m.group(1) if misc_m else None, _money) or 0.0
     service = _money(service_m.group(1))
     end = _money(ending_m.group(1))
     if beginning is None or credits is None or debits is None or service is None or end is None:

@@ -4,7 +4,7 @@ import re
 from datetime import date
 
 from .date_tokens import iso_from_month_day_strict
-from .money import PARENS_OR_LEADING_MINUS, parse_amount
+from .money import PARENS_OR_LEADING_MINUS, parse_amount, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
@@ -50,7 +50,7 @@ def _summary(markdown: str, stmt: Statement) -> Statement:
         m = re.search(pattern, text, re.IGNORECASE)
         if not m:
             continue
-        updates[key] = int(m.group(1)) if key == "days_in_period" else (_money(m.group(1)) or 0.0)
+        updates[key] = int(m.group(1)) if key == "days_in_period" else (read_money(m.group(1), _money) or 0.0)
 
     credits = 0.0
     debits = 0.0
@@ -58,11 +58,11 @@ def _summary(markdown: str, stmt: Statement) -> Statement:
         label_pattern = r"(?<!Electronic )\bDeposits\b" if label == "Deposits" else re.escape(label)
         m = re.search(rf"{label_pattern}\s+([\d,]+\.\d{{2}})", text, re.IGNORECASE)
         if m:
-            credits += abs(_money(m.group(1)) or 0.0)
+            credits += abs(read_money(m.group(1), _money) or 0.0)
     for label in ("Checks Paid", "Electronic Payments", "Other Withdrawals", "Service Charges"):
         m = re.search(rf"\b{re.escape(label)}\s+([\d,]+\.\d{{2}})", text, re.IGNORECASE)
         if m:
-            amount = abs(_money(m.group(1)) or 0.0)
+            amount = abs(read_money(m.group(1), _money) or 0.0)
             debits += amount
             if label == "Service Charges":
                 updates["stated_service_charge"] = amount
@@ -83,7 +83,7 @@ def _section(markdown: str, heading: str) -> tuple[str, float | None]:
     m = pattern.search(markdown)
     if not m:
         return "", None
-    return m.group("body"), abs(_money(m.group("total")) or 0.0)
+    return m.group("body"), abs(read_money(m.group("total"), _money) or 0.0)
 
 
 def _line_items(section_text: str, *, year: int, sign: int) -> list[Transaction]:
@@ -162,7 +162,7 @@ def _checks(section_text: str, *, year: int) -> list[Transaction]:
         txns.append(Transaction(
             date=txn_date,
             description=f"Check {serial}",
-            amount=round(-abs(_money(amount) or 0.0), 2),
+            amount=round(-abs(read_money(amount, _money) or 0.0), 2),
             direction="debit",
             running_balance=None,
         ))

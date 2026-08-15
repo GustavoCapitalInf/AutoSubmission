@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from .money import parse_french_amount, parse_money
+from .money import parse_french_amount, parse_money, read_money
 from .parser_registry import excluding, make_detector, required
 from .schema import Statement, Transaction
 from .tables import glyph_damaged, read_grid_rows
@@ -260,7 +260,7 @@ detect_en = make_detector(EN_DETECTION_MARKERS, en_detection_text)
 
 
 def _en_amount(token: str) -> float:
-    return parse_money(token) or 0.0
+    return read_money(token) or 0.0
 
 
 def _en_summary_amount(token: str) -> float | None:

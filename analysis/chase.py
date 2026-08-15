@@ -4,7 +4,7 @@ import re
 from datetime import date
 
 from .date_tokens import iso_from_month_day, period_from_long_dates
-from .money import MINUS_CLASS, parse_digit_scrubbed
+from .money import MINUS_CLASS, parse_digit_scrubbed, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import clean_cell, compact_whitespace, group_rows, table_rows, tables_after
@@ -98,22 +98,77 @@ def _parse_chase_business_export(markdown: str) -> Statement | None:
         re.IGNORECASE,
     )
 
+    # The export flattens a five-column grid — Date | Description | Type |
+    # Amount | Balance — into text, so a logical row already spans two physical
+    # lines: date and description on the first, type and the amount pair on the
+    # second. The type cell is what sits in front of the amounts, and it is the
+    # description this parser publishes.
+    #
+    # A LONG type cell does not fit beside the amounts and wraps onto a line of
+    # its own, leaving the amount pair with nothing in front of it:
+    #
+    #     Incoming wire transfer
+    #     $20,000.00 $22,760.05
+    #
+    # `if not description: continue` then dropped the row outright — a whole
+    # transaction gone, silently, from a ledger the platform goes on to
+    # reconcile against a printed balance. That is the residual W3 §MG7
+    # measured as `sum check off by -20000.00`, and the sole reason the three
+    # corrected-sign exports still withheld.
+    #
+    # The recovery is SHAPE-based, not a list of the type strings that happen
+    # to be long, and it is ANCHORED so that shape cannot be counterfeited by
+    # whatever furniture happens to sit above an amount pair. Four rules, each
+    # of which the 14 attested wraps satisfy and a fabricated row does not:
+    #
+    #   ADJACENCY   the carry is the IMMEDIATELY preceding surviving line.
+    #               Anything else between kills it — a page separator, a
+    #               `Pending` row, or a line carrying an amount of its own.
+    #               Blank lines alone do not break adjacency.
+    #   SINGLE      exactly one line is ever carried. Text lines do not
+    #               accumulate into a description, and an older text line is
+    #               never retained once a newer one arrives; only the last one
+    #               before the amount pair can be the wrapped cell.
+    #   SAME DATE   the carry dies at a date boundary. A row's type cell
+    #               belongs to that row's date, so a carry set under one date
+    #               may never describe an amount pair posted under another.
+    #   CONSUMED    the carry is single-use and cleared on read, so a dangling
+    #               carry at the end of a section is discarded, never applied
+    #               to whatever comes next.
+    #
+    # Measured on the three archive documents: all 14 genuine wraps have their
+    # type cell immediately before the amount pair, and none crosses a date
+    # boundary. NOTE for review: the run of text-only lines before a genuine
+    # wrap is 2 lines (x10), 5 (x2) or 6 (x2) — never 1 — because the export
+    # also prints the row's descriptive text and, across a page break, its
+    # header furniture. A rule that REFUSED a carry as soon as a second
+    # text-only line appeared would therefore discard all 14 recoveries; SINGLE
+    # (last-one-wins, no accumulation) plus ADJACENCY is what makes the
+    # furniture unreachable instead. (W3 §MG-C1.)
+    wrapped_cell = ""
+    wrapped_cell_date: date | None = None
+
     for raw_line in markdown.splitlines():
         line = raw_line.strip()
-        if not line or line.startswith("---") or line.lower().startswith("pending "):
+        if not line:
+            continue
+        if line.startswith("---") or line.lower().startswith("pending "):
+            wrapped_cell = ""
             continue
         date_match = row_date_re.match(line)
         if date_match:
             raw_month, raw_day, raw_year, line = date_match.groups()
             current_date = date(int(raw_year), _EXPORT_MONTHS[raw_month[:3].title()], int(raw_day))
-        if current_date is None:
-            continue
         money_matches = list(re.finditer(_EXPORT_AMOUNT_RE, line))
-        if len(money_matches) < 2:
+        if current_date is None or len(money_matches) < 2:
+            wrapped_cell = "" if money_matches else line
+            wrapped_cell_date = current_date
             continue
         amount_match = money_matches[-2]
         balance_match = money_matches[-1]
-        description = line[:amount_match.start()].strip()
+        carried = wrapped_cell if wrapped_cell_date == current_date else ""
+        description = line[:amount_match.start()].strip() or carried
+        wrapped_cell = ""
         if not description:
             continue
         amount = _money_required(amount_match.group(0))
@@ -271,7 +326,7 @@ def _row_amount(lines: list[str]) -> tuple[float, int, int] | None:
     for index, line in enumerate(lines[1:], start=1):
         match = _AMOUNT_CELL_RE.match(line)
         if match:
-            return _money(match.group(1)) or 0.0, index, match.start(1)
+            return read_money(match.group(1), _money) or 0.0, index, match.start(1)
     for index, line in enumerate(lines):
         match = _AMOUNT_AT_LINE_END_RE.search(line)
         if match:
@@ -440,7 +495,7 @@ def _parse_native_summary(text: str, stmt: Statement) -> bool:
         stmt.ending_balance = _money(ending.group(1))
     if deposits:
         stmt.stated_credit_count = int(deposits.group(1))
-        stmt.stated_total_credits = abs(_money(deposits.group(2)) or 0.0)
+        stmt.stated_total_credits = abs(read_money(deposits.group(2), _money) or 0.0)
 
     debit_total = 0.0
     debit_count = 0
@@ -449,7 +504,7 @@ def _parse_native_summary(text: str, stmt: Statement) -> bool:
         if not m:
             continue
         debit_count += int(m.group(1))
-        amount = abs(_money(m.group(2)) or 0.0)
+        amount = abs(read_money(m.group(2), _money) or 0.0)
         debit_total += amount
         if label == "Fees":
             stmt.stated_service_charge = amount

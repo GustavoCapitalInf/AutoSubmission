@@ -40,6 +40,7 @@ replaced, over a shared matrix of positive, negative and malformed inputs.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
@@ -51,6 +52,7 @@ __all__ = [
     "parse_amount",
     "parse_money",
     "parse_money_tokens",
+    "read_money",
     "parse_decimal",
     "parse_signed_decimal",
     "parse_decimal_mixed_separator",
@@ -488,6 +490,92 @@ def parse_money_tokens(value: str | None) -> list[float]:
             amount *= -1
         out.append(round(amount, 2))
     return out
+
+
+def _refusal_class(text: str) -> str:
+    """WHY the grammar refused, as a category — never the text itself.
+
+    A refusal message crosses an exception boundary and can be surfaced to a
+    user (`webapp/worker.py` returns `str(exc)` as the job error), so it may
+    carry no statement content whatsoever: the exception-boundary law is
+    registry ids and class names only. These categories are derived FROM the
+    token and describe only its shape, which is what a diagnosis actually
+    needs — the token itself is in the document, and the document is where it
+    stays. (W3 §MG-C2 D1.)
+    """
+    stripped = strip_currency(normalize_sign_glyphs(text)).strip()
+    if not any(ch.isdigit() for ch in stripped):
+        return "no digits in the cell"
+    integer_part = re.split(r"[.,]", stripped.lstrip("-+"), maxsplit=1)[0]
+    if len(integer_part) > MAX_INTEGER_DIGITS:
+        return f"integer run longer than the {MAX_INTEGER_DIGITS}-digit bound"
+    decimals = re.search(r"\.(\d+)\b", stripped)
+    if decimals and len(decimals.group(1)) not in (2, 3):
+        return "decimal places are neither two nor three"
+    return "not a money token"
+
+
+def read_money(
+    token: str | None,
+    reader: Callable[[str], float | None] = parse_money,
+) -> float | None:
+    """Read `token` as money, telling ABSENCE apart from a REFUSAL.
+
+    Use this where the token is REGEX-GUARANTEED — a capture group, a cell a
+    pattern already matched — so that a `None` from the reader can only mean
+    the grammar refused. Do NOT use it as a column-finding PROBE over
+    arbitrary cells: a probe asks "is this money?" and must be answered, not
+    raised at. Those callers keep a reader that returns `None` (W3 §MG-C2
+    D2/D3, `regions._money`).
+
+    The idiom this exists to replace is ``parse_money(x) or 0.0`` (and its
+    kin ``abs(_money(x) or 0.0)``), which cannot tell the two apart. Under it
+    a token the grammar REFUSED was published as a hard ``0.00`` — a figure
+    the bank printed, replaced by a number it did not, silently, on a document
+    the platform then went on to reconcile and approve. Cards §MG3 and §MG4
+    deliberately WIDENED what the grammar refuses (one-decimal tokens,
+    dot-adjacent tokens, runs past the 13-digit bound), so every one of those
+    refusals had a fail-open waiting for it. That is the shape this kills.
+
+    ABSENCE is not a refusal. No token at all — ``None``, or whitespace —
+    means the statement does not print that figure, and the answer stays
+    ``None`` so the caller's ``or 0.0`` can still supply the arithmetic
+    identity for a section the document genuinely does not have. Only a token
+    that is THERE and that the grammar declines is an error.
+
+    A refusal raises ``ValueError``: the documented contract of the raising
+    family (§MG4), the convention ``chase._money_required`` and
+    ``banco_popular`` already follow, and fail-closed at the pipeline — the
+    document declines instead of publishing a number nobody printed.
+
+    **The message never quotes the token.** It names the reader and the
+    refusal CLASS, because this exception can reach a user through
+    ``webapp/worker.py``'s ``str(exc)`` job error and statement content may not
+    cross that boundary. See :func:`_refusal_class`.
+
+    `reader` is the caller's own money reader, because the grammar is shared
+    but the FORMAT is local: a parser that anchors with its own guard passes
+    that guard's reader here rather than reimplementing this check.
+
+    Measured over the frozen archive (W3 §MG-C2): **zero** refusals of a
+    present token at any call site, over the 3,367 documents that have a
+    cached artifact (of 3,380 distinct shas; the other 13 are the run's
+    deferred set). Every ``None`` the archive produces today is an absence,
+    which is why closing the fail-open moves nothing and is worth doing before
+    something does.
+    """
+    if token is None:
+        return None
+    text = token if isinstance(token, str) else str(token)
+    if not text.strip():
+        return None
+    amount = reader(text)
+    if amount is None:
+        raise ValueError(
+            f"money grammar refused a printed token "
+            f"({_refusal_class(text)}; reader={getattr(reader, '__name__', 'reader')})"
+        )
+    return amount
 
 
 # ---------------------------------------------------------------------------

@@ -2594,6 +2594,193 @@ def test_chase_export_reads_every_spelling_of_the_minus_it_prints(minus):
     assert report.reconciliation.ok
 
 
+def _chase_export_with_wrapped_type_cell(type_cell: str) -> str:
+    """An export whose long `type_cell` wrapped onto a line of its own.
+
+    The amount pair is then alone on the next physical line, exactly as the
+    archive prints it on all three chase_export documents.
+    """
+    return f"""
+CHASE & for BUSINESS
+Printed from Chase for Business
+BUS COMPLETE CHK (...7350)
+BUS COMPLETE CHK (...7350)
+SEA WONDERS LLC
+Transactions
+Date Description Type Amount Balance
+May 14, 2026 BOOK TRANSFER CREDIT B/O: ACME LLC TRN: 3426966198ES
+{type_cell}
+$20,000.00 $20,095.00
+May 13, 2026 SAMPLE Card −$5.00 $95.00
+Apr 13,2026 REMOTE ONLINE Deposit $100.00 $100.00
+JPMorgan Chase Bank, N.A. Member FDIC
+"""
+
+
+def test_chase_export_recovers_a_row_whose_type_cell_wrapped_onto_its_own_line():
+    """W3 §MG-C1. A long type cell does not fit beside the amounts and wraps,
+    leaving the amount pair with no text in front of it. `if not description`
+    then dropped the whole transaction — silently, from a ledger the platform
+    goes on to reconcile against a printed balance.
+
+    Measured on the base tree this fixture kept 2 rows with the $20,000.00
+    wire missing, which is below the parser's 3-row floor, so it returned None
+    and the document died with `RuntimeError: no deterministic parser matched
+    this statement`. It is the same shape W3 §MG7 measured on the archive as
+    `sum check off by -20000.00`.
+    """
+    report = analyze_markdown(
+        _chase_export_with_wrapped_type_cell("Incoming wire transfer"),
+        parse_mode="deterministic",
+    )
+    wires = [t for t in report.statement.transactions if t.description == "Incoming wire transfer"]
+    assert len(wires) == 1
+    assert wires[0].amount == 20000.0
+    assert wires[0].direction == "credit"
+    assert wires[0].date == "2026-05-14"
+    assert wires[0].running_balance == 20095.0
+    assert len(report.statement.transactions) == 3
+    assert report.statement.ending_balance == 20095.0
+    assert report.reconciliation.ok
+
+
+@pytest.mark.parametrize(
+    "type_cell",
+    ["Incoming wire transfer", "Outgoing wire transfer", "ACH vendor payment", "Zelle payment sent"],
+)
+def test_chase_export_wrapped_recovery_is_shape_based_not_a_list_of_type_strings(type_cell):
+    """Only three type cells are long enough to wrap in today's archive, and
+    hardcoding those three would be a statement-specific constant that the
+    next long cell defeats. The rule is structural — the last text-only line —
+    so a type cell nobody has surveyed recovers identically."""
+    report = analyze_markdown(
+        _chase_export_with_wrapped_type_cell(type_cell), parse_mode="deterministic"
+    )
+    rows = [t for t in report.statement.transactions if t.description == type_cell]
+    assert len(rows) == 1
+    assert rows[0].amount == 20000.0
+    assert report.reconciliation.ok
+
+
+def test_chase_export_a_pending_row_never_lends_its_type_to_the_row_below():
+    """The carry is consumed by any line that carries an amount, complete row
+    or pending one. A pending row (`−$43.00 —`, no balance) is a row in its
+    own right that already used the type cell above it, so the amount-only
+    line beneath must NOT inherit it and invent a labelled transaction. It
+    stays dropped: fail-closed beats a borrowed description."""
+    md = """
+CHASE & for BUSINESS
+Printed from Chase for Business
+BUS COMPLETE CHK (...7350)
+BUS COMPLETE CHK (...7350)
+SEA WONDERS LLC
+Transactions
+Date Description Type Amount Balance
+May 15, 2026 POS DEBIT FRESHBOOKS 866-303-6061 DE 0019 (...5129)
+Outgoing wire transfer
+−$50.00 —
+$100.00 $200.00
+May 14, 2026 ANOTHER Card −$10.00 $85.00
+May 13, 2026 SAMPLE Card −$5.00 $95.00
+Apr 13,2026 REMOTE ONLINE Deposit $100.00 $100.00
+JPMorgan Chase Bank, N.A. Member FDIC
+"""
+    report = analyze_markdown(md, parse_mode="deterministic")
+    descriptions = [t.description for t in report.statement.transactions]
+    assert "Outgoing wire transfer" not in descriptions
+    assert descriptions == ["REMOTE ONLINE Deposit", "SAMPLE Card", "ANOTHER Card"]
+
+
+#: W3 §MG-C1 anchoring. `head` is spliced in above three rows that always
+#: parse, so every fixture below differs ONLY in what sits between the type
+#: cell and the amount pair. Recovered, the ledger is
+#: 0 -> 100 -> 95 -> 85 -> 20,085; dropped, it is 0 -> 100 -> 95 -> 85.
+def _chase_export_anchoring(head: str) -> str:
+    return f"""
+CHASE & for BUSINESS
+Printed from Chase for Business
+BUS COMPLETE CHK (...7350)
+BUS COMPLETE CHK (...7350)
+SEA WONDERS LLC
+Transactions
+Date Description Type Amount Balance
+{head}
+May 14, 2026 ANOTHER Card −$10.00 $85.00
+May 13, 2026 SAMPLE Card −$5.00 $95.00
+Apr 13,2026 REMOTE ONLINE Deposit $100.00 $100.00
+JPMorgan Chase Bank, N.A. Member FDIC
+"""
+
+
+def _descriptions(md: str) -> list[str]:
+    return [t.description for t in analyze_markdown(md, parse_mode="deterministic").statement.transactions]
+
+
+#: The attested shape: descriptive text, then the type cell, then the amounts.
+GENUINE_WRAP = """May 15, 2026 BOOK TRANSFER CREDIT B/O: ACME LLC TRN: 3426966198ES
+Incoming wire transfer
+$20,000.00 $20,085.00"""
+
+
+def test_chase_export_carry_is_the_last_text_line_and_never_an_accumulation():
+    """SINGLE. Every genuine wrap in the archive is preceded by TWO or more
+    text-only lines (measured: 2 x10, 5 x2, 6 x2 — never one), because the
+    export prints the row's descriptive text above its type cell and, across a
+    page break, its header furniture too. So the carry must be last-one-wins:
+    the earlier lines are neither concatenated into the description nor
+    retained once the type cell arrives."""
+    descriptions = _descriptions(_chase_export_anchoring(GENUINE_WRAP))
+    assert "Incoming wire transfer" in descriptions
+    assert not any("BOOK TRANSFER" in d for d in descriptions)
+    assert not any("ACME" in d for d in descriptions)
+    report = analyze_markdown(_chase_export_anchoring(GENUINE_WRAP), parse_mode="deterministic")
+    assert len(report.statement.transactions) == 4
+    assert report.statement.ending_balance == 20085.0
+    assert report.reconciliation.ok
+
+
+@pytest.mark.parametrize(
+    "intervening, why",
+    [
+        ("--- Page 2 ---", "a page separator"),
+        ("Pending authorization", "a pending row"),
+        ("Misc. debit −$43.00 —", "a row carrying an amount of its own"),
+    ],
+)
+def test_chase_export_anything_between_the_type_cell_and_the_amounts_kills_the_carry(intervening, why):
+    """ADJACENCY. In all 14 attested wraps the type cell is IMMEDIATELY before
+    the amount pair. Anything else in between means this is not that shape, and
+    guessing would attach a real amount to a description it never had."""
+    head = GENUINE_WRAP.replace("\n$20,000.00", f"\n{intervening}\n$20,000.00")
+    descriptions = _descriptions(_chase_export_anchoring(head))
+    assert "Incoming wire transfer" not in descriptions, why
+    assert descriptions == ["REMOTE ONLINE Deposit", "SAMPLE Card", "ANOTHER Card"]
+
+
+def test_chase_export_a_carry_never_crosses_a_date_boundary():
+    """SAME DATE. A row's type cell belongs to that row's date. Here the amount
+    pair posts under May 14 while the carry was set under May 15, so the carry
+    is refused rather than describing a transaction on the wrong day."""
+    head = """May 15, 2026 BOOK TRANSFER CREDIT B/O: ACME LLC TRN: 3426966198ES
+Outgoing wire transfer
+May 12, 2026 $20,000.00 $20,085.00"""
+    descriptions = _descriptions(_chase_export_anchoring(head))
+    assert "Outgoing wire transfer" not in descriptions
+    assert descriptions == ["REMOTE ONLINE Deposit", "SAMPLE Card", "ANOTHER Card"]
+
+
+def test_chase_export_a_dangling_carry_at_the_end_is_discarded():
+    """CONSUMED. A type cell with no amount pair after it describes nothing.
+    It must not survive to be applied to whatever the next section prints."""
+    md = _chase_export_anchoring(GENUINE_WRAP).replace(
+        "JPMorgan Chase Bank, N.A. Member FDIC",
+        "Outgoing wire transfer\nJPMorgan Chase Bank, N.A. Member FDIC",
+    )
+    descriptions = _descriptions(md)
+    assert "Outgoing wire transfer" not in descriptions
+    assert descriptions == ["REMOTE ONLINE Deposit", "SAMPLE Card", "ANOTHER Card", "Incoming wire transfer"]
+
+
 def test_southside_scanned_statement_reconciles_with_daily_balances():
     md = """
 SOUTHSIDE STATEMENT OF ACCOUNT

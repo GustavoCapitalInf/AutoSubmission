@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from .money import LEADING_MINUS_DROPPED, parse_amount
+from .money import LEADING_MINUS_DROPPED, parse_amount, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
@@ -41,12 +41,12 @@ def _summary(markdown: str) -> dict[str, float | int] | None:
     if not (beginning and debits and credits and ending):
         return None
     return {
-        "beginning": _money(beginning.group(1)) or 0.0,
+        "beginning": read_money(beginning.group(1), _money) or 0.0,
         "debit_count": int(debits.group(1)),
-        "debits": abs(_money(debits.group(2)) or 0.0),
+        "debits": abs(read_money(debits.group(2), _money) or 0.0),
         "credit_count": int(credits.group(1)),
-        "credits": abs(_money(credits.group(2)) or 0.0),
-        "ending": _money(ending.group(1)) or 0.0,
+        "credits": abs(read_money(credits.group(2), _money) or 0.0),
+        "ending": read_money(ending.group(1), _money) or 0.0,
     }
 
 

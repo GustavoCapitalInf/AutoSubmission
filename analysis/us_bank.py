@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from .money import EITHER_MINUS_SPACED, parse_amount
+from .money import EITHER_MINUS_SPACED, parse_amount, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import compact_whitespace, group_rows
@@ -263,7 +263,7 @@ def _summary(markdown: str) -> dict | None:
     interest = re.search(r"Interest Earned this Period\s+\$\s*([\d,]+\.\d{2})", markdown)
     categories: list[tuple[str, int | None, float]] = []
     for c in _SUMMARY_CATEGORY_RE.finditer(m.group("categories")):
-        amount = _money(c.group("amount")) or 0.0
+        amount = read_money(c.group("amount"), _money) or 0.0
         count = c.group("count")
         categories.append(
             (
@@ -275,8 +275,8 @@ def _summary(markdown: str) -> dict | None:
     if not categories:
         return None
     return {
-        "beginning": _money(m.group("open")) or 0.0,
-        "ending": _money(m.group("close")) or 0.0,
+        "beginning": read_money(m.group("open"), _money) or 0.0,
+        "ending": read_money(m.group("close"), _money) or 0.0,
         "days": int(days.group(1)) if days else None,
         "categories": categories,
         # Interest is an OPTIONAL summary line, exactly like the optional
@@ -285,7 +285,7 @@ def _summary(markdown: str) -> dict | None:
         # dereferencing the unmatched regex raised AttributeError out of the
         # parser. No printed interest is zero interest — the same reading the
         # categories take, and one reconciliation independently checks.
-        "interest": (_money(interest.group(1)) or 0.0) if interest else 0.0,
+        "interest": (read_money(interest.group(1), _money) or 0.0) if interest else 0.0,
     }
 
 
@@ -377,7 +377,7 @@ def _rows(lines: list[str], *, year: int, sign: int) -> list[Transaction]:
         if cell is None:
             continue
         amount_text, cut = cell
-        amount = abs(_money(amount_text) or 0.0) * sign
+        amount = abs(read_money(amount_text, _money) or 0.0) * sign
         if number is not None:
             # A numbered row's own number is the description the bank printed
             # for it; the Ref Number that follows is the bank's internal

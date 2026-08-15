@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 from contextlib import contextmanager
+from copy import deepcopy
 
 import pytest
 
@@ -460,19 +461,24 @@ def test_the_guard_admits_every_shape_the_finder_finds():
     assert refused == [], f"the finder finds these and the guard refuses them: {refused}"
 
 
-def test_a_detached_sign_summary_row_published_zero_before_card_c():
-    """The defect, reproduced against the pre-card-C guard.
+def test_a_detached_sign_summary_row_refuses_rather_than_publishing_zero():
+    """The defect, reproduced against the pre-card-C guard — and no longer
+    expressible as a silent number.
 
-    Not a description of a bug: the fixture is run through the shipped parser
-    twice, and the pre-card-C reading is asserted to be the wrong number.
+    Card C widened the guard so the shipped parser reads `- $0.75` correctly.
+    W3 §MG-C2 then closed the second half: with the guard narrowed back to its
+    pre-card-C form the parser now RAISES, where it used to publish
+    `stated_service_charge == 0.0` and `stated_total_debits == 200.00` — the
+    bank's printed fee replaced by a number it never printed.
+
+    Both halves are load-bearing and this test asserts both. Card C makes the
+    reading right; MG-C2 makes a future drift in the same guard fail loudly
+    instead of quietly, so the class of defect cannot come back silently even
+    if the specific regex regresses.
     """
     with pre_card_c_guard():
-        before = parse_chase_statement(DETACHED_SIGN_FEE)
-    assert before is not None
-    # The bank printed $0.75. The parser published nothing at all for it, and
-    # the fee's absence from the debit total is the same silent zero.
-    assert before.stated_service_charge == 0.0
-    assert before.stated_total_debits == 200.00
+        with pytest.raises(ValueError, match="refused a printed token"):
+            parse_chase_statement(DETACHED_SIGN_FEE)
 
     after = parse_chase_statement(DETACHED_SIGN_FEE)
     assert after is not None
@@ -488,6 +494,13 @@ def test_the_misread_fee_hid_inside_the_reconciliation_tolerance():
     left the document reconciling — and shipping — with a stated service
     charge and a stated debit total that were both wrong. The fix does not
     move the tolerance; it removes the error that was hiding under it.
+
+    The pre-card-C statement is reconstructed by hand now rather than parsed,
+    because after W3 §MG-C2 the parser can no longer BE that wrong: a refused
+    token raises instead of becoming a zero. The hand-built statement is the
+    exact object the old parser produced, so what it demonstrates about the
+    tolerance is unchanged — and the reason it can no longer arise is the
+    subject of the test above.
     """
     from analysis.reconcile import reconcile
 
@@ -496,9 +509,13 @@ def test_the_misread_fee_hid_inside_the_reconciliation_tolerance():
         base = stmt.beginning_balance + stmt.stated_total_credits - stmt.stated_total_debits
         return round(base - (stmt.stated_service_charge or 0.0) - stmt.ending_balance, 2)
 
-    with pre_card_c_guard():
-        wrong = parse_chase_statement(DETACHED_SIGN_FEE)
-        before = reconcile(wrong)
+    right = parse_chase_statement(DETACHED_SIGN_FEE)
+    assert right is not None
+
+    wrong = deepcopy(right)
+    wrong.stated_service_charge = 0.0
+    wrong.stated_total_debits = 200.00
+    before = reconcile(wrong)
     # The document does not close — it is off by exactly the fee that was
     # read as zero — and nothing says so, because 0.75 is inside the window.
     assert residual(wrong) == 0.75
@@ -506,7 +523,6 @@ def test_the_misread_fee_hid_inside_the_reconciliation_tolerance():
     assert before.ok is True
     assert before.issues == []
 
-    right = parse_chase_statement(DETACHED_SIGN_FEE)
     after = reconcile(right)
     assert residual(right) == -0.75  # the charge is now counted in both terms
     assert after.summary_ok is True

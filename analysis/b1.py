@@ -4,7 +4,7 @@ import re
 from datetime import date, timedelta
 
 from .date_tokens import iso_from_month_day
-from .money import LEADING_MINUS_PADDED, parse_amount
+from .money import LEADING_MINUS_PADDED, parse_amount, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
@@ -45,9 +45,9 @@ def _ending_totals(markdown: str) -> tuple[float, float, float] | None:
     )
     if not m:
         return None
-    credits = abs(_money(m.group(1)) or 0.0)
-    debits = abs(_money(m.group(2)) or 0.0)
-    ending = _money(m.group(3)) or 0.0
+    credits = abs(read_money(m.group(1), _money) or 0.0)
+    debits = abs(read_money(m.group(2), _money) or 0.0)
+    ending = read_money(m.group(3), _money) or 0.0
     return credits, debits, ending
 
 

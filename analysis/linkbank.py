@@ -4,7 +4,7 @@ import re
 from datetime import date
 
 from .date_tokens import iso_from_month_day
-from .money import EITHER_MINUS_PADDED, parse_amount
+from .money import EITHER_MINUS_PADDED, parse_amount, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
@@ -69,7 +69,7 @@ def parse_linkbank_statement(markdown: str) -> Statement | None:
         stated_total_debits=_money(debits),
         stated_credit_count=int(credit_count),
         stated_debit_count=int(debit_count),
-        stated_service_charge=abs(_money(service_charge) or 0.0),
+        stated_service_charge=abs(read_money(service_charge, _money) or 0.0),
     )
     average = re.search(r"Average Ledger\s+(" + number + r")", markdown, re.IGNORECASE)
     if average:
