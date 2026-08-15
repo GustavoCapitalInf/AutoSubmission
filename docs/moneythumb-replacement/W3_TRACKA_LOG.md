@@ -21543,7 +21543,7 @@ product (`Optima Business`, `Bb Enhanced Checking`), 5 publish None. A
 whole-line rule, not a repeated-word one — `Business Business Checking` would
 publish.
 
-## L5. Three defects found before merge, and what was done about them
+## L5. Four findings before merge, and what was done about each
 
 ### L5.1 The calendar-literal guard reads docstrings
 
@@ -21570,21 +21570,68 @@ documents plus `b1`'s 3 — is byte-identical in its full published payload,
 **0 of 42 rows differing**, and the store-wide dispatch sweep is unchanged.
 Six new unit tests, and two mutants aimed at the lifted bodies, both killed.
 
-### L5.3 A latent defect the review of my own code found
+### L5.3 Two latent defects in the cheque-serial read
 
-The cheque section prints `<serial> <date> <amount>` and the serial is read
-from the text before the row. The first form of `_rows` started that text at
-the previous row's DATE, so it still held the previous row's amount — and
-`_SERIAL_RE`, which anchors at the end, would hand back that amount's cents.
-A cheque the bank printed no serial for would have published `Check 00`: a
-number the statement does not carry, invented out of another row's money.
+**The first, found by reviewing my own code.** The serial is read from the
+text before the row, and that text started at the previous row's DATE, so it
+still held the previous row's amount. A cheque the bank printed no serial for
+would have published `Check 00` — a number the statement does not carry,
+invented out of another row's money. The gap now starts at the previous row's
+AMOUNT.
 
-The gap now starts at the previous row's AMOUNT, which is the form §SCANB
-uses. No archive document was affected — all 13 published payloads are
-byte-identical before and after the fix, and the archive's one cheque row is
-serialled — so this is a latent defect closed rather than a movement. Pinned
-as `test_a_cheque_the_bank_printed_no_serial_for_does_not_borrow_the_last_one`,
-and the old form is killed by it.
+**The second, found by Ocean's review, and the same class one level up.** That
+fix left the read END-ANCHORED over the whole gap, so ANY trailing digits
+still fabricate a serial. Three constructions, all now fixtured:
+
+| the gap carries | the old read publishes |
+|---|---|
+| `Continued on page 27` | `Check 27` |
+| masked account furniture `XXXXXXXXXXXX0000` | `Check 0000` |
+| furniture longer than the 200-char description truncation, ending `7654321` | `Check 765432` — a WRONG serial, not a missing one |
+
+The third is the worst of the three and the one an end-anchored read makes
+inevitable: truncation splits a token and the remainder is still digits.
+
+The fix is structural rather than another anchor. The cheque section prints a
+three-column grid — `Number Date Amount` — so the serial is the row's LEADING
+CELL, read as the WHOLE of what the bank printed to the left of the date **on
+that row's own line** (`_row_lead` + `fullmatch`). Furniture printed above the
+row is a different line and cannot reach it however it ends; furniture a
+flattened layer put ON the row's line is not a bare digit run and fails the
+fullmatch. The gap's start stays load-bearing even so, because this platform
+prints two rows on one line — pinned by
+`test_two_cheque_rows_on_one_line_each_keep_their_own_serial`, which the
+old date-anchored gap fails.
+
+Neither defect is reachable on today's archive — the family prints ONE cheque
+row and it is serialled — and all 13 published payloads are byte-identical
+across both fixes. Four mutants, four killed.
+
+### L5.4 The surviving mutants, measured rather than accepted
+
+The review named three mutants its harness could not kill. Re-measured on this
+tree, one of them IS killed and two survive, and reporting the count I was
+given rather than the count I measured would have been the same substitution
+this cell already had to correct once:
+
+* **the ASCII right boundary — KILLED.** `_FIGURE_END` narrowed to `[0-9.,]`
+  fails `test_an_amount_run_onto_a_word_is_refused`, which is one of this
+  round's additions. The review saw it survive because it ran before that pin
+  existed. Recorded as closed, not as inert.
+* **the equivalent-mutant sign — survives, and cannot not.** Admitting a sign
+  into `_FIGURE_TOKEN` changes nothing while `_magnitude` is `STRICT_UNSIGNED`;
+  widening `_magnitude` to a signed format changes nothing while the regex
+  stays unsigned. The two guards are redundant BY DESIGN, so no single-point
+  mutant can be killed and a test that killed one would be pinning the other.
+  A signed section figure refuses under every combination tried.
+* **the unbounded summary strip — survives, and is belt rather than braces
+  here.** Letting `_summary_region` run to the end of the document changes no
+  outcome on any document measured, because this template does not reprint its
+  summary labels in its disclosures the way the second core processor's does —
+  which is exactly why §SCANB needs that boundary and this module's is
+  precautionary. Kept, because the next issuer to print a disclosure block is
+  not obliged to be as tidy, and named so nobody mistakes it for a proven
+  guard.
 
 ## L6. Two corrections to §SCANB's glyph rationale
 
@@ -21673,6 +21720,29 @@ These are also where the branch-name evidence of L4 comes from: `Orange CO
 Airport Office` is what these documents print under `Contact us:` and in their
 closing courtesy sentence.
 
+**And a FOURTH arrangement, 3 documents, 2 of them unclaimed** — the review
+found it and the measurement confirms it. `2E667295DFCB16BA` and
+`88AAC06119FC0B7D` are unclaimed; `0CBD2AD897B90137` is claimed by
+`columbia_bank`. All three print this cell's sentence-case period PAIR and
+`Beginning balance $` / `Ending balance $`, and none prints `Total days in
+statement period` — so this registration's second required marker declines
+them, correctly. Their summary is a fifth grammar again:
+
+```
+Account number XXXXXX4166   Beginning balance          $59,347.32
+Low balance     $21,464.92  Deposits/Additions        $129,016.40
+Average balance $42,172.07  Withdrawals/Subtractions  $156,005.07
+Interest earned      $0.00  Ending balance             $32,358.65
+```
+
+with sections `Deposits/Additions` and `ACH and Electronic Payments/
+Subtractions`, each closed by its own `Total Additions $...` row. All three
+are `local-tesseract-ocr` scans, which is the harder half of the problem.
+Carded with the 8: the same platform under a fourth masthead, and the reason
+this cell's day-count marker is worth keeping REQUIRED rather than
+corroborating — dropping it would have claimed these three on the period pair
+alone and then declined all three at parse.
+
 **L7.4 — the grid is required, and that is a deliberate strictness.** Three of
 the four refusing scans print `DALY BALANCES` where the template prints
 `DAILY BALANCES`. With the grid optional they would still refuse — their
@@ -21710,7 +21780,12 @@ defect of the statement (`bank_daily_balance_dates_valid`). Publishing it
 would have withheld all 13. Named because it is a silent-looking choice with a
 loud consequence.
 
-**L7.9 — the detect budget.** This registration adds two cheap required
+**L7.9 — for PIPELINE-5's composition.** The 13 documents this cell publishes
+all carry `bank=None`, so they join PIPELINE-5's `model_used` population and
+the composed train's mover count grows accordingly. Named here because the two
+cells cannot see each other; the arithmetic is Ocean's to verify at merge.
+
+**L7.10 — the detect budget.** This registration adds two cheap required
 markers and one substring, with NO normalization (case is load-bearing), which
 is the cheapest shape a registration can have. Registry 71 to 72; the
 affordability test projects to `PLANNED_REGISTRATIONS=80` and is green on this
@@ -21720,12 +21795,15 @@ tree.
 
 ```
 # full default suite
-4308 passed, 34 skipped, 29 deselected in 331.30s          exit 0
-   (base b524f72: 4,240. +68 = this cell's 47, the shared helpers' 7,
+4320 passed, 34 skipped, 29 deselected in 236.24s          exit 0
+   (base b524f72: 4,240. +80 = this cell's 59, the shared helpers' 7,
     and the 14 per-registration parametrizations a 72nd registration adds.)
 
 # this cell
-47 passed in 0.98s                                          exit 0
+59 passed in 0.53s                                          exit 0
+
+# the sectioned family, re-proven after the shared-helper lift
+125 passed in 0.62s                                         exit 0
 
 # guards
 239 passed in 23.00s                                        exit 0
@@ -21739,8 +21817,14 @@ tree.
    test_parser_registry . test_parser_crash_shapes .
    test_parser_exception_boundary . test_count_semantics
 
-# mutation harness (session scratchpad, not committed)
-19 mutants, 19 killed, 0 survivors                          exit 0
+# registry + conformance + shared utils
+1002 passed, 34 skipped in 2.18s                            exit 0
+
+# mutation harnesses (session scratchpad, not committed)
+26 mutants, 26 killed                                       exit 0
+   18 structural + 4 on the cheque-serial read + 4 on the review's
+   unpinned paths. Two further mutants survive by design and are named
+   in L5.4; a third the review reported as surviving is now killed.
 
 # corpus gate (python corpus_gate.py), 1159.6s
 [PASS] balance_outcomes: 106 pass, 3 withheld, same three statements
@@ -21830,11 +21914,20 @@ makes the edge safe in the strong sense: it cannot strand a document.
 **All three are also in the PINNED corpus** (`Others/B1/`), which makes the
 edge load-bearing on the gate rather than only on the archive. Measured both
 ways: with the edge the claimant set is exactly `['b1']` on each of the three
-and the gate is GREEN with its verdicts unchanged; with the edge removed all
-three resolve `ambiguous`, which is `review`, which the gate's per-document
-verdict check — new in batch 4, and the thing PIPELINE-FIX-2 proved was
-missing — would show as red. This cell is the first to exercise that check as
-a live safety net rather than as a regression pin.
+and the gate is GREEN with its verdicts unchanged.
+
+With the edge removed, and stated precisely rather than approximately — the
+first version of this paragraph said "`review`", and that is not what happens.
+`resolve` returns `ambiguous`, and in deterministic mode
+`analyze_markdown` then RAISES `AmbiguousParserError`
+(`ambiguous statement: core_processor_daily (1.00), b1 (0.50)`). The document
+therefore reds the gate through the **cannot-be-analysed** path — the
+`outcome_classes` check and `test_a_document_that_cannot_be_analysed_is_red_not_skipped`
+— and `classify_outcome` calls it `failed / exception`, not `review`. The
+verdict check catches it either way; naming the wrong mechanism would have
+sent the next reader looking in the wrong place. Note also the scores: the
+general reader outranks `b1` 1.00 to 0.50, so the edge and not the ranking is
+what keeps these three where they belong.
 
 **The 4 that refuse**, each with what the document did:
 
@@ -21858,9 +21951,11 @@ unchanged and unclaimed (L2.1, L7.2).
 |---|---|
 | `31cfda3` | the shared-helper lift into `analysis/tables.py`, proven pure over the 42-document family |
 | `fd547c4` | `analysis/core_processor_daily.py`, the registration, the `b1` supersedes edge, 46 tests, the conformance fixture |
-| (this one) | §LCPERIOD L0–L10, the proof block, the cheque-serial fix of L5.3, and one CORRECTION to `fd547c4`'s message |
+| `d10e412` | §LCPERIOD L0–L10, the proof block, the first cheque-serial fix, and one CORRECTION to `fd547c4`'s message |
+| `059697b` | the corpus-marked slice re-run on the final tree |
+| (this one) | Ocean's review closures: the structural serial read, four new pins, L5.4 re-measured, the Columbia cohort, and three record corrections |
 
-**The correction, stated plainly rather than left in the history.**
+**Two corrections, stated plainly rather than left in the history.**
 `fd547c4`'s message says "The pinned corpus holds no document of this
 template." It does: all three `Others/B1/` statements print it, which is
 better evidence than the message claimed and not worse — the edge is
@@ -21869,3 +21964,10 @@ from reasoning about the template rather than from measuring the manifest,
 which is the exact substitution this wave's process exists to catch; it was
 caught by measuring, before merge, and the code comment and the
 supersedes-map comment now carry the measured fact both ways.
+
+The second is smaller and the same shape: `d10e412`'s message and the first
+form of L9 said an ambiguous pinned document would show as `review`. It shows
+as `failed / exception` — `analyze_markdown` RAISES `AmbiguousParserError` in
+deterministic mode, so the gate reds through the cannot-be-analysed path, not
+through a verdict class. Corrected in L9. Both corrections came from measuring
+a thing I had reasoned about; both were caught before merge.

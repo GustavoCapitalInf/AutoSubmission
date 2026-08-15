@@ -214,6 +214,28 @@ def test_a_document_that_prints_no_grid_at_all_refuses():
     assert parse(document(grid="")) is None
 
 
+def test_a_grid_cell_the_scan_left_unreadable_refuses_rather_than_being_skipped():
+    """The `_grid` REFUSAL path, which the two tests above do not reach: they
+    go through the empty-run path, where the walked set does the refusing.
+
+    Here the grid is present and complete for every day the ledger posts on,
+    and carries one extra date whose balance the scan lost. A reader that
+    skipped the unreadable cell would find its printed set equal to the walked
+    set and publish; this one refuses, because a cell we could not read is not
+    a cell that is not there.
+    """
+    assert parse(document(grid=GRID.rstrip("\n") + " 04-04\n")) is None
+
+
+def test_the_grid_refusal_is_the_contract_of_the_reader_not_of_the_caller():
+    """The same thing pinned at the seam, so the refusal cannot be reduced to
+    the walked-set comparison by a later edit."""
+    assert cpd._grid(["\n03-31 100.00 04-02\n"], seed=date(2026, 3, 31),
+                     end=date(2026, 4, 30)) is None
+    assert cpd._grid(["\n05-15 100.00\n"], seed=date(2026, 3, 31),
+                     end=date(2026, 4, 30)) is None
+
+
 def test_a_summary_whose_own_identity_does_not_close_refuses():
     """`beginning + additions - subtractions == ending`, checked against the
     printed closing balance rather than against the walked one."""
@@ -279,6 +301,24 @@ def test_a_row_that_prints_no_amount_before_the_next_row_refuses():
     still looking complete."""
     lost = DEBITS.replace("04-02 ' ACH Debit 250.00", "04-02 ' ACH Debit")
     assert parse(document(debits=lost)) is None
+
+
+def test_a_dated_row_with_no_amount_refuses_even_when_the_totals_still_close():
+    """The discriminating form of the test above. There the lost amount also
+    broke the debit total, so the document would have refused either way; here
+    the readable rows still reproduce both printed totals and the grid, and
+    only the dateful row the scan left amountless is unaccounted for. A reader
+    that skipped it publishes a document that looks complete."""
+    stray = DEBITS + "04-02\n"
+    assert parse(document(debits=stray)) is None
+
+
+def test_the_missing_amount_refusal_is_the_contract_of_the_reader():
+    """Pinned at the seam as well, for the same reason as the grid's: an
+    outcome test cannot distinguish `_rows` refusing from `_rows` returning a
+    short list that some later gate happens to catch."""
+    assert cpd._rows(["04-02 ' ACH Debit\n"], credit=False, start=date(2026, 4, 1),
+                     end=date(2026, 4, 30), default="Debit") is None
 
 
 def test_a_row_the_period_cannot_place_refuses_its_whole_section():
@@ -392,8 +432,8 @@ def test_the_cheque_section_reads_its_serial_from_the_text_before_the_row():
 
 def test_a_cheque_the_bank_printed_no_serial_for_does_not_borrow_the_last_one():
     """The gap a serial is read from starts at the PREVIOUS ROW'S AMOUNT, not
-    at its date. A gap that still held `250.00` would hand `_SERIAL_RE` the
-    cents `00` and publish `Check 00` for a cheque the bank printed no serial
+    at its date. A gap that still held `250.00` would put that amount on this
+    row's line and publish `Check 00` for a cheque the bank printed no serial
     for — a number the statement does not carry, invented out of another
     row's money."""
     checks = ("CHECKS\nNumber Date Amount\n"
@@ -406,16 +446,90 @@ def test_a_cheque_the_bank_printed_no_serial_for_does_not_borrow_the_last_one():
     ]
 
 
+@pytest.mark.parametrize("furniture", [
+    # the review's three constructions, each of which an end-anchored search
+    # over the whole gap turns into a serial the statement does not carry
+    "Continued on page 27\n",
+    "XXXXXXXXXXXX0000\n",
+    # a gap longer than the description truncation: an end-anchored read that
+    # first truncated to 200 characters would split `7654321` mid-token and
+    # publish `765432` — a WRONG number rather than a missing one
+    ("MERCHANT PURCHASE TERMINAL 00000000 EXAMPLE FURNITURE LINE " * 5) + "7654321\n",
+])
+def test_page_furniture_between_cheque_rows_never_becomes_a_serial(furniture):
+    """The serial is the LEADING cell of the printed `Number Date Amount`
+    grid, read as the whole of what the bank printed on that row's own line.
+    Furniture printed above the row is a different line and cannot reach it,
+    however it ends."""
+    checks = ("CHECKS\nNumber Date Amount\n"
+              "1001 04-02 150.00\n"
+              + furniture +
+              "04-02 100.00\n")
+    statement = parse(document(debits=checks))
+    assert statement is not None
+    assert [row.description for row in statement.transactions] == [
+        "Check 1001", "Check", "Deposit",
+    ]
+
+
+def test_furniture_sharing_a_cheque_rows_line_is_not_a_serial_either():
+    """The line-scoped read is a `fullmatch`, so furniture that a flattened
+    text layer put on the ROW's line is refused too — a serial is a bare digit
+    run and nothing else."""
+    checks = ("CHECKS\nNumber Date Amount\n"
+              "Continued on page 27 04-02 250.00\n")
+    statement = parse(document(debits=checks))
+    assert statement is not None
+    assert [row.description for row in statement.transactions] == ["Check", "Deposit"]
+
+
+def test_two_cheque_rows_on_one_line_each_keep_their_own_serial():
+    """This platform prints two rows on one line, and that is what makes the
+    gap's START load-bearing even under the line-scoped read: a gap that began
+    at the previous row's DATE would carry that row's amount onto this row's
+    line and lose a serial the bank did print."""
+    checks = "CHECKS\nNumber Date Amount\n1001 04-02 150.00 1002 04-02 100.00\n"
+    statement = parse(document(debits=checks))
+    assert statement is not None
+    assert [row.description for row in statement.transactions] == [
+        "Check 1001", "Check 1002", "Deposit",
+    ]
+
+
+def test_a_serial_the_platform_marked_as_a_sequence_break_is_still_read():
+    """The platform prints `*` after a serial where the sequence broke."""
+    checks = "CHECKS\nNumber Date Amount\n1001 * 04-02 250.00\n"
+    statement = parse(document(debits=checks))
+    assert [row.description for row in statement.transactions] == ["Check 1001", "Deposit"]
+
+
 def test_a_described_row_publishes_the_text_between_its_date_and_its_amount():
     statement = parse(document())
     assert [row.description for row in statement.transactions] == ["ACH Debit", "Deposit"]
 
 
-def test_the_section_split_is_case_sensitive():
-    """The template prints its section names in capitals and the disclosures
-    below print the same words in prose."""
+def test_case_sensitivity_is_load_bearing_where_it_cuts_the_summary_strip():
+    """Prose printed BETWEEN the account field and the summary is where the
+    case-sensitive split earns its keep, and the first form of this test did
+    not put it there — it put the prose in the footer, where a case-folding
+    split cuts a block nothing reads and the document publishes either way.
+
+    Here a case-folding split would end the summary region before the strip
+    begins and the document would publish nothing. Same lesson as §SCANB S9.3,
+    which had to correct itself about which of its two guards was acting.
+    """
+    prose = "your deposits clear sooner than your debits do\n"
+    assert parse(document(account=ACCOUNT + prose)) is not None
+
+
+def test_prose_below_the_ledger_is_held_out_by_the_exact_upper_case_key():
+    """The ledger path's guard is not the case-sensitive scan — it is the
+    lookup, which asks for the template's exact upper-case names. Prose in the
+    footer is filed, if at all, under a key nothing reads."""
     prose = "\nyour deposits and credits clear sooner than your debits\n"
-    assert parse(document(footer=prose + FOOTER)) is not None
+    statement = parse(document(footer=prose + FOOTER))
+    assert statement is not None
+    assert len(statement.transactions) == 2
 
 
 def test_the_blocks_printed_after_the_grid_stop_it():
@@ -516,14 +630,12 @@ def test_the_issuer_specific_reader_supersedes_this_one():
 def test_the_gates_are_blind_to_a_same_day_same_direction_redistribution():
     """Move value between two rows that share a date AND a direction and every
     printing still holds: neither total changes and no end-of-day balance
-    moves. Splitting one row into two on the same day and direction is
-    likewise invisible — this platform prints no count, so there is nothing
-    that could see it.
+    moves.
 
-    Both are FORGERY signatures rather than OCR ones: a scan drops a row or
-    mangles a digit, which moves a total and every grid day after it. The
-    limit is pinned so that no future reader of this module mistakes the five
-    gates for a proof of authenticity.
+    A FORGERY signature rather than an OCR one: a scan drops a row or mangles
+    a digit, which moves a total and every grid day after it. Pinned so that
+    no future reader of this module mistakes the five gates for a proof of
+    authenticity.
     """
     two_debits = (
         "DEBITS\nDate Description Subtractions\n"
@@ -536,4 +648,30 @@ def test_the_gates_are_blind_to_a_same_day_same_direction_redistribution():
     assert first is not None and second is not None
     assert [row.amount for row in first.transactions] != [
         row.amount for row in second.transactions
+    ]
+
+
+def test_the_gates_are_blind_to_a_row_split_in_two_on_the_same_day():
+    """The second half of the same limit, EXERCISED rather than asserted in
+    prose — the first version of this file claimed it in the docstring above
+    and tested only the redistribution.
+
+    Splitting one row into two on the same day and direction changes the row
+    COUNT and nothing else, and this platform prints no count for anything to
+    compare against. On the second core processor's template the printed count
+    catches exactly this; here nothing can, and that difference is the price
+    of a platform that prints totals and a grid but no counts.
+    """
+    split = (
+        "DEBITS\nDate Description Subtractions\n"
+        "04-02 ' ACH Debit 100.00\n"
+        "04-02 ' ACH Debit 150.00\n"
+    )
+    whole = parse(document())
+    halves = parse(document(debits=split))
+    assert whole is not None and halves is not None
+    assert len(whole.transactions) == 2 and len(halves.transactions) == 3
+    assert whole.stated_total_debits == halves.stated_total_debits
+    assert [entry.balance for entry in whole.stated_daily_balances] == [
+        entry.balance for entry in halves.stated_daily_balances
     ]

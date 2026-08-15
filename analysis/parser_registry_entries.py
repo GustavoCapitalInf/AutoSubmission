@@ -289,13 +289,20 @@ _OVERRIDES: dict[str, dict] = {
     # validated today - resolve `ambiguous` and go to review, which is a
     # regression.
     #
-    # The edge is safe in the strong sense, not the observed one: the general
+    # The edge is safe in one direction in the STRONG sense and in the other
+    # in the OBSERVED one, and the difference is worth stating: the general
     # reader consults nothing that identifies an issuer at all (it publishes
     # `bank=None` by construction), and `b1` requires this issuer's own name,
     # which the general reader never looks for - so neither can shadow the
-    # other by accident. The general reader also declines the running-balance
-    # issue at parse, because that issue prints no `Total additions` summary,
-    # so the edge cannot strand a document either.
+    # other by accident.
+    #
+    # Stranding is the observed half. Every archive document `b1` claims is
+    # the running-balance issue, which the general reader declines at parse
+    # anyway (it prints no `Total additions` summary), so no document is lost
+    # today. A document carrying `b1`'s markers AND a sectioned summary would
+    # be routed to `b1` and never offered to the reader that could publish it
+    # - the archive holds none, and the same is true of every supersedes edge
+    # already shipped. Named, not claimed away.
     #
     # The PINNED CORPUS holds all three, and the edge is load-bearing there:
     # with it the claimant set is exactly `['b1']` on each; without it all

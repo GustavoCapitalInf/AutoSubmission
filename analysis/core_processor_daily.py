@@ -459,11 +459,28 @@ def _summary(markdown: str) -> _Summary | None:
 # (`04-21 Withdrawal 3,000.00 04-21 ' Outgoing Wire-Olb 10,000.00`) and a
 # line-anchored pattern would silently halve.
 
-#: A cheque's serial number, at the end of the text printed BEFORE its row —
-#: the cheque section prints `<serial> <date> <amount>`, with nothing between
-#: the date and the amount to describe. The platform marks a break in the
-#: serial sequence with a trailing `*`.
-_SERIAL_RE = re.compile(r"(?<![0-9])([0-9]{2,8})\s*\*?\s*$")
+#: A cheque's serial number. The cheque section prints a three-column grid —
+#: `Number Date Amount` — so the serial is the row's LEADING token, and it is
+#: read as the WHOLE of what the bank printed to the left of the date on that
+#: row's own line. `fullmatch`, not a search anchored at the end.
+#:
+#: The difference is not stylistic. An end-anchored search over the whole gap
+#: takes any trailing digits as a serial, and the review found three
+#: constructions that do exactly that:
+#:
+#: * `Continued on page 27` between two rows publishes `Check 27`;
+#: * a masked account number in the page furniture publishes `Check 0000`;
+#: * a gap longer than the description truncation splits a serial mid-token
+#:   and publishes `765432` where the bank printed `7654321` — a WRONG number
+#:   rather than a missing one, which is the worst of the three.
+#:
+#: None of them is reachable on today's archive (the family prints one cheque
+#: row, and it is serialled), and all three are pinned below. The structural
+#: read costs nothing and cannot be reached by furniture at all, because
+#: furniture is never a bare digit run alone on a row's line.
+#:
+#: The platform marks a break in the serial sequence with a trailing `*`.
+_SERIAL_RE = re.compile(r"([0-9]{2,8})\s*\*?")
 
 #: The ledger's sections, with the direction each one's rows are postings in —
 #: which is the COLUMN the bank printed the row in, never the sign of the
@@ -495,6 +512,18 @@ def _described(gap: str) -> str:
     return re.sub(r"\s+", " ", gap).strip(" '.-|*")[:200].strip()
 
 
+def _row_lead(gap: str) -> str:
+    """What the bank printed to the left of a row's date on that row's OWN
+    line — the leading cell of the printed grid, and nothing above it.
+
+    Everything before the last newline is a different printed line: a column
+    header, a page break's furniture, the previous row. Scoping to the line is
+    what makes `_SERIAL_RE`'s `fullmatch` a structural read of a grid cell
+    rather than a hunt for digits in a gap.
+    """
+    return gap[gap.rfind("\n") + 1:].strip(" |\t")
+
+
 def _rows(runs: list[str], *, credit: bool | None, start: date, end: date,
           default: str) -> list[Transaction] | None:
     """Every posting a section printed, or None if one of them is unreadable.
@@ -519,13 +548,12 @@ def _rows(runs: list[str], *, credit: bool | None, start: date, end: date,
             if iso is None or amount is None:
                 return None
             # Everything printed since the PREVIOUS row's amount, not since its
-            # date: the cheque section's serial is the last thing before this
-            # row's date, and a gap that still held the previous row's amount
-            # would offer `_SERIAL_RE` that amount's cents as a serial for a
-            # cheque the bank printed none for.
+            # date: the cheque section's serial is the leading cell of this
+            # row, and a gap that still held the previous row's amount would
+            # put that amount on this row's line.
             gap, cursor = run[cursor : found.start()], found.end() + amount_at.end()
             if credit is None:
-                serial = _SERIAL_RE.search(_described(gap))
+                serial = _SERIAL_RE.fullmatch(_row_lead(gap))
                 description = f"{default} {serial.group(1)}" if serial else default
             else:
                 description = _described(after[: amount_at.start()]) or default
