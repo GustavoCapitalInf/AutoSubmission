@@ -475,7 +475,7 @@ def test_the_third_printed_issue_is_claimed_and_refused_twice_over():
     this module matches.
     """
     document = issue_three_document()
-    assert detect(document).claims, "the summary strip is the same; it must claim"
+    assert detect(document).claims, "all three required markers are printed"
     assert parse_fiserv_premier_statement(document) is None
 
     period_only = document.replace(ISSUE_THREE_PERIOD, READ_PERIOD)
