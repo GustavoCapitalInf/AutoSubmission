@@ -7,12 +7,20 @@ unchanged and compares their output, field by field, with
 `docs/adb-audit-results.csv` and `docs/balance-metrics-audit-results.csv`.
 
 One check is deliberately NOT oracle-independent. `check_outcome_classes` reads
-the product's own per-document verdict — outcome class, reason and published
-integrity flags — and holds it to `PINNED_OUTCOMES`. It exists because the two
-financial oracles are structurally blind to two kinds of truth-set movement:
-a statement moving review<->validated inside the audits' single PASS class, and
-a statement gaining or losing a published integrity flag without changing class
-at all. Both have happened; see `PINNED_OUTCOMES`.
+the product's own per-document verdict — the outcome class plus the WHOLE
+published integrity block (flags, notes, risk_level, possible_document_issue) —
+and holds it to `PINNED_OUTCOMES`. It exists because the two financial oracles
+are structurally blind to three kinds of truth-set movement: a statement moving
+review<->validated inside the audits' single PASS class; a statement gaining or
+losing a published integrity flag without changing class; and risk_level or
+possible_document_issue moving independently of the flags. All three are real;
+see `PINNED_OUTCOMES`.
+
+**That check runs only in the gate.** `pytest -q` does not verify the 109-entry
+map — the unmarked tests check its shape and prove the mechanism by mutation on
+a single document, and only `python corpus_gate.py` (or `pytest -m corpus`)
+compares all 109 against the product. A green default suite is not a verified
+truth set.
 
     python corpus_gate.py                     # the gate
     python corpus_gate.py --json report.json  # plus a machine-readable report
@@ -59,7 +67,7 @@ import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import adb_forensic_audit
 import balance_forensic_audit
@@ -90,87 +98,191 @@ WITHHELD_STATEMENTS = {
 # ----------------------------------------------------------------------
 #
 # `check_outcomes` above proves 106 PASS / 3 WITHHELD from the audit CSVs, and
-# both audits are financial: neither carries `flags`, `notes` or `risk_level`
-# in a single column (see their `FIELDS`). Two consequences, both measured
-# rather than argued, and both of them defects this check exists to close:
+# both audits are financial: neither has a `flags`, `notes`, `risk_level` or
+# `possible_document_issue` column (see their `FIELDS`). Three consequences,
+# each measured rather than argued, and each a defect this check exists to
+# close:
 #
 # 1. `validated` and `review` are a FINER partition of the gate's PASS, so a
 #    pinned statement moving review<->validated is invisible to every check
-#    above while all of them stay green. That is not hypothetical: at
-#    PIPELINE-FIX-2's first revision (`b8013d5`) two pinned documents made
-#    exactly that move and the gate reported GREEN over it (W3 §PIPEFIX P4b.5).
-# 2. A pinned statement can also change a PUBLISHED integrity flag without
-#    changing class at all — a withheld document that loses a flag is still
-#    withheld. Measured on this branch: wiring the page-declaration check
-#    withdraws `missing_declared_statement_page` from the pinned BMO January
-#    statement, whose class does not move. Pinning the class alone would have
-#    stayed green over it, so the FLAG SET is pinned too.
+#    above while all of them stay green. Not hypothetical: at PIPELINE-FIX-2's
+#    first revision (`b8013d5`) two pinned documents made exactly that move and
+#    the gate reported GREEN over it (W3 §PIPEFIX P4b.5).
+# 2. A pinned statement can change a PUBLISHED integrity flag without changing
+#    class at all — a withheld document that loses a flag is still withheld.
+#    Measured on this branch: wiring the page-declaration check withdraws
+#    `missing_declared_statement_page` from the pinned BMO January statement,
+#    whose class does not move.
+# 3. `risk_level` and `possible_document_issue` move INDEPENDENTLY of the flag
+#    list, so pinning the class and the flags is still not enough.
+#    `possible_document_issue` keys on `recon.continuity_breaks >= 3`
+#    (`analysis/pipeline.py`), while the `running_balance_breaks` flag keys on
+#    the same counter being non-zero — so 2 breaks -> 3 leaves class, reason and
+#    flags byte-identical and flips `possible_document_issue` False -> True and
+#    `risk_level` review -> high. The whole block is served to users
+#    (`webapp/app.py`), and the approved Texas Bank ceremony itself moves
+#    `risk_level` review -> clear.
+#
+# So what is pinned is the ENTIRE published integrity block, plus the outcome
+# class. Measured over the 109: the old (class, reason, flags) triple failed to
+# determine (risk_level, possible_document_issue, notes) on 4 of them — the
+# page_coverage documents share one triple while their notes name different
+# page numbers.
+#
+# The outcome REASON is deliberately not pinned. Over every state the pinned
+# corpus reaches (6 distinct `(class, flags)` pairs, 0 collisions) the reason is
+# a total function of `(class, flags)`, which `classify_outcome`'s own structure
+# explains: `withheld` always carries `withheld_adb` here, `validated` always
+# `approved`, and each `review` reason is selected by a named flag or by their
+# absence. It is recorded here rather than silently dropped, because a future
+# reason that is NOT so determined would be a real change worth pinning.
 #
 # The expectation is total over all 109 without enumerating all 109: this map
 # holds every document that is NOT plainly published, and every pinned path
-# absent from it must be `validated` / `approved` carrying NO integrity flag —
-# which is what `classify_outcome` means by validated. Recorded from the
-# current tree, pre-ceremony; moving an entry is a truth-set movement and needs
-# the same ceremony as an audit CSV.
-#
-#: corpus-relative path -> (outcome class, outcome reason, sorted integrity flags)
-PINNED_OUTCOMES: dict[str, tuple[str, str, tuple[str, ...]]] = {
-    # a transaction export rather than a bank statement — a document class
-    "Chase/Chase Business.pdf": (
-        "review", "integrity_flags", ("not_a_formal_statement",),
+# absent from it must equal `PUBLISHED_OUTCOME`. Measured: all 100 validated
+# documents share exactly one published state, so "absent" is a real
+# expectation and not a gap. Recorded from the current tree, PRE-ceremony;
+# moving an entry is truth-set movement and needs the same ceremony as an
+# audit CSV.
+
+
+class _Verdict(NamedTuple):
+    """One pinned document's published verdict: the class plus the whole
+    integrity block, field order exactly as the payload serialises it."""
+
+    outcome: str
+    flags: tuple[str, ...]
+    notes: tuple[str, ...]
+    risk_level: str
+    possible_document_issue: bool
+
+
+#: What every pinned path ABSENT from `PINNED_OUTCOMES` must publish.
+PUBLISHED_OUTCOME = _Verdict("validated", (), (), "clear", False)
+
+#: corpus-relative path -> the published verdict.
+PINNED_OUTCOMES: dict[str, _Verdict] = {
+    # A transaction export rather than a bank statement — a document class,
+    # which is why its evidence is advisory.
+    "Chase/Chase Business.pdf": _Verdict(
+        "review",
+        flags=("not_a_formal_statement",),
+        notes=(
+            "document is a Chase online transaction export, not a complete bank statement",
+        ),
+        risk_level="review",
+        possible_document_issue=False,
     ),
     # The five page_coverage documents. All five carry the flag today; W3
     # §PIPEFIX P4b.5 measured that two of them (Texas Bank, Regions) carry it
     # FALSELY — the pages are present as unlabelled sheets — and Gustavo
     # approved their review->validated ceremony on 2026-08-14. The ceremony is
-    # NOT executed here: activating it needs the wiring card, which is stopped.
-    # See the #WIRING section of W3_TRACKA_LOG.md.
-    "Misc/Builder June 2026.pdf": (
-        "review", "integrity_flags", ("missing_declared_statement_page",),
+    # NOT executed here: it needs the wiring card, which is stopped. See the
+    # §WIRING section of W3_TRACKA_LOG.md.
+    "Misc/Builder June 2026.pdf": _Verdict(
+        "review",
+        flags=("missing_declared_statement_page",),
+        notes=(
+            "statement declares 5 bank page(s), but page label(s) 1, 2, 3 are absent from the supplied PDF",
+        ),
+        risk_level="review",
+        possible_document_issue=False,
     ),
-    "Misc/Columbia May 26 complete.pdf": (
-        "review", "integrity_flags", ("missing_declared_statement_page",),
+    "Misc/Columbia May 26 complete.pdf": _Verdict(
+        "review",
+        flags=("missing_declared_statement_page",),
+        notes=(
+            "statement declares 5 bank page(s), but page label(s) 5 are absent from the supplied PDF",
+        ),
+        risk_level="review",
+        possible_document_issue=False,
     ),
-    "Misc/Link Bank April statement.pdf": (
-        "review", "integrity_flags", ("missing_declared_statement_page",),
+    "Misc/Link Bank April statement.pdf": _Verdict(
+        "review",
+        flags=("missing_declared_statement_page",),
+        notes=(
+            "statement declares 20 bank page(s), but page label(s) 20 are absent from the supplied PDF",
+        ),
+        risk_level="review",
+        possible_document_issue=False,
     ),
-    "Misc/Texas Bank.pdf": (
-        "review", "integrity_flags", ("missing_declared_statement_page",),
+    "Misc/Texas Bank.pdf": _Verdict(
+        "review",
+        flags=("missing_declared_statement_page",),
+        notes=(
+            "statement declares 4 bank page(s), but page label(s) 1, 2, 3 are absent from the supplied PDF",
+        ),
+        risk_level="review",
+        possible_document_issue=False,
     ),
-    "Regions/Regions.pdf": (
-        "review", "integrity_flags", ("missing_declared_statement_page",),
+    "Regions/Regions.pdf": _Verdict(
+        "review",
+        flags=("missing_declared_statement_page",),
+        notes=(
+            "statement declares 3 bank page(s), but page label(s) 1, 2 are absent from the supplied PDF",
+        ),
+        risk_level="review",
+        possible_document_issue=False,
     ),
     # The three withheld. Same three as WITHHELD_STATEMENTS, here with the
     # evidence they publish rather than only their names.
-    "Misc/Ace_Auto_Final_Cut.pdf": (
-        "withheld", "withheld_adb",
-        (
-            "debit_count_mismatch",
-            "debit_detail_coverage_mismatch",
+    "Misc/Ace_Auto_Final_Cut.pdf": _Verdict(
+        "withheld",
+        flags=(
             "ledger_sum_mismatch",
+            "debit_detail_coverage_mismatch",
             "transaction_detail_not_corporate_reliable",
+            "debit_count_mismatch",
         ),
+        notes=(
+            "transaction sum does not reconcile to the printed ending balance",
+            "line-item debits do not match the bank-stated debit total",
+            "summary figures may be usable, but transaction-level detail is not reliable enough for corporate approval",
+            "captured debit rows do not match the bank-stated debit count",
+        ),
+        risk_level="review",
+        possible_document_issue=False,
     ),
-    "Others/BMO/BMO_Statement_January_2026 Final-1-2 (1).pdf": (
-        "withheld", "withheld_adb",
-        (
-            "conflicting_statement_summaries",
+    "Others/BMO/BMO_Statement_January_2026 Final-1-2 (1).pdf": _Verdict(
+        "withheld",
+        flags=(
+            "ledger_sum_mismatch",
+            "running_balance_breaks",
             "credit_detail_coverage_mismatch",
             "debit_detail_coverage_mismatch",
-            "ledger_sum_mismatch",
-            "missing_declared_statement_page",
-            "running_balance_breaks",
             "transaction_detail_not_corporate_reliable",
+            "conflicting_statement_summaries",
+            "missing_declared_statement_page",
         ),
+        notes=(
+            "transaction sum does not reconcile to the printed ending balance",
+            "36 printed running-balance continuity break(s) detected",
+            "line-item credits do not match the bank-stated credit total",
+            "line-item debits do not match the bank-stated debit total",
+            "summary figures may be usable, but transaction-level detail is not reliable enough for corporate approval",
+            "conflicting bank-stated deposit totals across summary sections",
+            "secondary bank-stated summary does not reconcile to the opening and final balances",
+            "statement declares 2 bank page(s), but page label(s) 1 are absent from the supplied PDF",
+        ),
+        risk_level="high",
+        possible_document_issue=True,
     ),
-    "Others/IBC/IBC April (1).pdf": (
-        "withheld", "withheld_adb",
-        ("ledger_sum_mismatch", "running_balance_breaks", "summary_math_inconsistent"),
+    "Others/IBC/IBC April (1).pdf": _Verdict(
+        "withheld",
+        flags=(
+            "summary_math_inconsistent",
+            "ledger_sum_mismatch",
+            "running_balance_breaks",
+        ),
+        notes=(
+            "bank-stated summary totals do not reconcile to beginning and ending balances",
+            "transaction sum does not reconcile to the printed ending balance",
+            "1 printed running-balance continuity break(s) detected",
+        ),
+        risk_level="high",
+        possible_document_issue=True,
     ),
 }
-
-#: What every pinned path absent from `PINNED_OUTCOMES` must be.
-PUBLISHED_OUTCOME = ("validated", "approved", ())
 
 #: Do production's analysis callers hand `analyze_markdown` the intake object's
 #: page list yet?
@@ -184,20 +296,53 @@ PUBLISHED_OUTCOME = ("validated", "approved", ())
 #: silently blind on the one flag this whole check was added to watch.
 #:
 #: `tests/test_corpus_gate_outcomes.py` holds this declaration to the real call
-#: sites, so flipping production without flipping this is a red test rather than
-#: a blind gate. Flipping it to True then moves pinned verdicts, which is a
-#: truth-set ceremony: `PINNED_OUTCOMES` moves in the same commit or the gate
-#: goes RED. Both steps are deliberate, which is the point.
+#: sites and sweeps the repository for callers that appear in neither list, so
+#: flipping production without flipping this is a red test rather than a blind
+#: gate. Flipping it to True then moves pinned verdicts, which is a truth-set
+#: ceremony: `PINNED_OUTCOMES` moves in the same commit or the gate goes RED.
+#: Both steps are deliberate, which is the point.
 PRODUCTION_SUPPLIES_SHEETS = False
 
 #: The production analysis call sites this declaration describes, as
-#: (module path, enclosing function). W3 §PIPEFIX P4b.5 tabulates three; the
-#: third is that module's docstring usage example rather than a caller, and its
-#: fourth row (the cache key material) is a separate card.
+#: (module path, enclosing function). Every one of them must pass `sheets=` when
+#: the wiring card activates.
+#:
+#: W3 §PIPEFIX P4b.5 tabulates three rows; only two are callers (its third is
+#: that module's docstring usage example, and its fourth — the cache key
+#: material — is a separate card). `batch.py` is the third real caller and was
+#: NOT in P4b.5's table: it holds the intake object in scope (`_read_source`
+#: returns it), `webapp/artifact_cache.py`'s own docstring names it a CLI
+#: consumer of the cache, and although its `needs_review` column keys on
+#: quality rather than on integrity, `_emit` serialises the report and passes it
+#: to `build_record`, which runs `classify_outcome` — so batch.py publishes an
+#: outcome class derived from these flags into its telemetry JSONL. It is a
+#: production caller and must be wired at activation.
 ANALYSIS_CALL_SITES = (
     ("discovery/runner.py", "_analyse"),
     ("webapp/worker.py", "_analyze_doc"),
+    ("batch.py", "main"),
 )
+
+#: Modules that call the analysis but must NOT be wired, each with the reason.
+#: The sweep test requires every repository caller to be in this list or in
+#: `ANALYSIS_CALL_SITES`, so a new caller cannot appear unclassified.
+EXCLUDED_ANALYSIS_CALLERS = {
+    # The two independent forensic oracles. Wiring them would couple the
+    # oracles to the change under test, and it would buy nothing: neither
+    # audits `flags`, `notes`, `risk_level` or `possible_document_issue`.
+    "adb_forensic_audit.py": "independent audit oracle - must not track production",
+    "balance_forensic_audit.py": "independent audit oracle - must not track production",
+    # Resolves source text through `balance_forensic_audit.source_markdown`,
+    # which returns text and no intake object, so it cannot supply sheets.
+    "benchmark/ourside.py": "H-2 comparison harness; its resolver yields no page list",
+    # Operate on already-extracted markdown; no intake object exists.
+    "analyze.py": "single-file CLI over an OCR'd .md; no intake object",
+    "adb_debug.py": "developer debug utility; prints, publishes nothing",
+    "coverage_audit.py": "measurement script over markdown",
+    "deterministic_coverage_audit.py": "measurement script over markdown",
+    # This gate's own harness, governed by PRODUCTION_SUPPLIES_SHEETS above.
+    "corpus_gate.py": "the harness itself; tracks the call sites by declaration",
+}
 
 # Audited columns whose value is a path, compared without regard to separator.
 # `folder` (ADB audit) is written with os.sep, so the committed CSV carries
@@ -517,15 +662,20 @@ def check_outcomes(result: Result, label: str, rows: list[dict[str, str]],
     )
 
 
-def production_verdict(path: Path, cache: Path) -> tuple[str, str, tuple[str, ...]]:
-    """(class, reason, flags) for one pinned statement, resolved as production does.
+def production_verdict(path: Path, cache: Path) -> _Verdict:
+    """The published verdict for one pinned statement, resolved as production does.
 
     The PRODUCTION intake ladder with both OCR rungs disabled, which is the
-    same resolution the discovery dry run and the telemetry corpus anchor use —
-    not `source_markdown`, whose generic reader silently produces different
-    markdown for the four layout-aware banks. Image-only statements fall
-    through to their committed OCR artifact, so this stays offline: no OCR
-    binary, no endpoint, no model call.
+    same resolution the discovery dry run and the telemetry corpus anchor use.
+    Image-only statements fall through to their committed OCR artifact, so this
+    stays offline: no OCR binary, no endpoint, no model call.
+
+    Why not `balance_forensic_audit.source_markdown`, which the two oracles
+    use: NOT because the two disagree — measured over the pinned manifest they
+    are byte-identical on 109 of 109 — but because `source_markdown` returns
+    text and nothing else. `parse_statement` returns the intake object, and its
+    `pages` are what a wired caller must hand to the analysis. Only this
+    resolver can still be correct after the wiring card lands.
 
     The page list is supplied to the analysis exactly when production supplies
     it — see `PRODUCTION_SUPPLIES_SHEETS`, which a test holds to the real call
@@ -568,9 +718,16 @@ def production_verdict(path: Path, cache: Path) -> tuple[str, str, tuple[str, ..
     payload = report_to_dict(
         analyze_markdown(markdown, parse_mode="deterministic", sheets=sheets)
     )
-    outcome, reason = classify_outcome(payload)
-    flags = tuple(sorted((payload.get("integrity") or {}).get("flags") or ()))
-    return outcome, reason, flags
+    outcome, _reason = classify_outcome(payload)
+    integrity = payload.get("integrity") or {}
+    return _Verdict(
+        outcome,
+        # Published ORDER, not sorted: the block is pinned as it is served.
+        flags=tuple(integrity.get("flags") or ()),
+        notes=tuple(integrity.get("notes") or ()),
+        risk_level=str(integrity.get("risk_level") or ""),
+        possible_document_issue=bool(integrity.get("possible_document_issue")),
+    )
 
 
 def check_outcome_classes(result: Result, corpus: Path, manifest: list[str],
@@ -578,10 +735,11 @@ def check_outcome_classes(result: Result, corpus: Path, manifest: list[str],
     """Every pinned document's published verdict is the one that is pinned.
 
     See `PINNED_OUTCOMES` for why this exists: the audit oracles compare
-    financial values, so they are blind both to a class moving inside PASS and
-    to a published integrity flag appearing or disappearing without a class
-    change. This compares the product's own verdict, per document, and fails
-    RED on any difference.
+    financial values, so they are blind to a class moving inside PASS, to a
+    published integrity flag appearing or disappearing without a class change,
+    and to `risk_level` / `possible_document_issue` moving independently of
+    both. This compares the product's whole published verdict, per document,
+    and fails RED on any difference.
     """
     details: list[str] = []
     counts: dict[str, int] = {}
@@ -593,30 +751,46 @@ def check_outcome_classes(result: Result, corpus: Path, manifest: list[str],
             details.append(f"{rel}: could not be analysed: {type(exc).__name__}: {exc}")
             counts["error"] = counts.get("error", 0) + 1
             continue
-        counts[actual[0]] = counts.get(actual[0], 0) + 1
+        counts[actual.outcome] = counts.get(actual.outcome, 0) + 1
         if actual == expected:
             continue
-        if actual[0] != expected[0]:
+        if actual.outcome != expected.outcome:
             details.append(
-                f"{rel}: outcome class moved {expected[0]} -> {actual[0]} "
-                f"(reason {expected[1]} -> {actual[1]}); a pinned statement's "
-                f"class is truth-set material and does not move without a ceremony"
+                f"{rel}: outcome class moved {expected.outcome} -> {actual.outcome}; "
+                f"a pinned statement's class is truth-set material and does not "
+                f"move without a ceremony"
             )
-        elif actual[1] != expected[1]:
-            details.append(f"{rel}: outcome reason moved {expected[1]} -> {actual[1]}")
-        gained = sorted(set(actual[2]) - set(expected[2]))
-        lost = sorted(set(expected[2]) - set(actual[2]))
-        for flag in gained:
+        for flag in sorted(set(actual.flags) - set(expected.flags)):
             details.append(f"{rel}: newly publishes integrity flag {flag!r}")
-        for flag in lost:
+        for flag in sorted(set(expected.flags) - set(actual.flags)):
             details.append(f"{rel}: no longer publishes pinned integrity flag {flag!r}")
+        if set(actual.flags) == set(expected.flags) and actual.flags != expected.flags:
+            details.append(
+                f"{rel}: integrity flags are published in a different order: "
+                f"{list(expected.flags)} -> {list(actual.flags)}"
+            )
+        for note in sorted(set(actual.notes) - set(expected.notes)):
+            details.append(f"{rel}: newly publishes integrity note {note!r}")
+        for note in sorted(set(expected.notes) - set(actual.notes)):
+            details.append(f"{rel}: no longer publishes pinned integrity note {note!r}")
+        if set(actual.notes) == set(expected.notes) and actual.notes != expected.notes:
+            details.append(f"{rel}: integrity notes are published in a different order")
+        if actual.risk_level != expected.risk_level:
+            details.append(
+                f"{rel}: risk_level moved {expected.risk_level} -> {actual.risk_level}"
+            )
+        if actual.possible_document_issue != expected.possible_document_issue:
+            details.append(
+                f"{rel}: possible_document_issue moved "
+                f"{expected.possible_document_issue} -> {actual.possible_document_issue}"
+            )
 
     split = " / ".join(f"{n} {name}" for name, n in sorted(counts.items()))
     result.add(
         "outcome_classes",
         not details,
         f"{len(manifest)} statements publish their pinned verdict "
-        f"(class, reason and integrity flags): {split}",
+        f"(outcome class and the whole integrity block): {split}",
         details,
     )
     return counts

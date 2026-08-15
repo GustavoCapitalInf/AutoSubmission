@@ -14865,22 +14865,47 @@ Ocean's composed stage bump covers the re-measurement.
 ## W4. Card D, landed: the gate now checks the product's own verdict
 
 `corpus_gate.check_outcomes` proves 106 PASS / 3 WITHHELD out of the two
-committed audit CSVs. **Neither CSV has a `flags`, `notes` or `risk_level`
-column**, so both oracles are blind to two kinds of truth-set movement, and
-this cell met both of them:
+committed audit CSVs. **Neither CSV has a `flags`, `notes`, `risk_level` or
+`possible_document_issue` column**, so both oracles are blind to three kinds of
+truth-set movement:
 
 * review to validated inside the audits' single PASS class — the `b8013d5`
   regression;
 * a published integrity flag appearing or disappearing with **no class change
-  at all** — the BMO statement of W1. Note that the carded outcome-CLASS check
-  would not have caught it either; that is why the pinned expectation is the
-  triple (class, reason, integrity flags) rather than the class alone.
+  at all** — the BMO statement of W1. The carded outcome-CLASS check would not
+  have caught it;
+* **`risk_level` and `possible_document_issue` moving independently of the flag
+  list** (Ocean's review, D1). `possible_document_issue` keys on
+  `recon.continuity_breaks >= 3` while the `running_balance_breaks` flag keys on
+  the same counter being non-zero, so 2 breaks → 3 leaves class, reason and
+  flags byte-identical while `risk_level` goes review → high. It is served to
+  users, and the approved Texas Bank ceremony moves it review → clear.
+
+So the pinned expectation is the outcome class plus **the whole published
+integrity block** — `_Verdict(outcome, flags, notes, risk_level,
+possible_document_issue)`, flags and notes in published order. Measured
+justification for the widening: over the 109, the earlier
+`(class, reason, flags)` triple **failed to determine
+`(risk_level, possible_document_issue, notes)` on 4 documents** — the five
+page_coverage documents share one triple while their notes name different page
+numbers.
+
+**The `reason` leg was dropped**, and the finding recorded rather than the field
+silently removed: over every state the pinned corpus reaches (6 distinct
+`(class, flags)` pairs, **0 collisions**) the reason is a total function of
+`(class, flags)`, which `classify_outcome`'s structure explains — `withheld`
+here is always `withheld_adb`, `validated` always `approved`, and each `review`
+reason is selected by a named flag or by the flag list being empty. It added
+zero discrimination. `test_the_outcome_reason_adds_no_discrimination_over_class_
+and_flags` keeps that true, so a future reason which is NOT so determined
+surfaces as a red test.
 
 `PINNED_OUTCOMES` is total over 109 without listing 109: it enumerates the nine
 documents that are not plainly published, and every pinned path absent from it
-must be `validated` / `approved` with an empty flag list — which is exactly what
-`classify_outcome` means by validated, so "absent" is a real expectation rather
-than a gap. Recorded from the current tree, PRE-ceremony.
+must equal `PUBLISHED_OUTCOME`. Measured: **all 100 validated documents share
+exactly one published state** — `('', (), 'clear', False)` — so "absent" is a
+real expectation rather than a gap. Recorded from the current tree,
+PRE-ceremony.
 
 **The harness-drift trap, closed.** A gate harness that analyses differently
 from production pins a verdict production never publishes. This cell's own
@@ -14889,15 +14914,41 @@ evidence is the trap in both directions: had `production_verdict` passed
 hardcoded `sheets=None` it would have stayed GREEN forever after the wiring
 landed — blind again, on the one flag it was added to watch.
 `PRODUCTION_SUPPLIES_SHEETS` therefore declares what the call sites actually do,
-and `test_the_gate_harness_analyses_the_way_production_does` holds that
-declaration to the two real call sites by AST. Wiring production without
+and an AST test holds that declaration to them. Wiring production without
 flipping it is a red test; flipping it moves pinned verdicts and so demands the
 ceremony. Two deliberate steps, neither skippable.
 
-(For the record, P4b.5's "three call sites" are two: the third entry,
-`webapp/artifact_cache.py`'s `cached_analysis` compute lambda, is the module
-docstring's usage example rather than a production caller. The fourth entry,
-the key material, is real and is card B.)
+**The declaration's three escapes, closed (Ocean's review, D2).** A declaration
+is only as good as its coverage, and the first form had three holes: a helper
+extracted out of a listed function would leave it GREEN while production was
+wired; `ANALYSIS_CALL_SITES` had no exhaustiveness check; and `**kwargs` or a
+literal `sheets=None` mis-classified. Now
+`test_every_production_caller_of_the_analysis_is_classified` sweeps the whole
+repository by AST and requires every module calling `analyze_markdown` or
+`cached_analysis` to be either a declared call site or an explicitly excused
+one — **11 modules, 0 unclassified**. A literal `sheets=None` counts as NOT
+supplying (it is the fail-closed default written out); a `**kwargs` splat is
+unreadable statically and is therefore refused in an excused module, so it must
+be declared. Every declared site must agree, so a sibling call that still
+passes `sheets=` cannot mask an extracted helper that does not.
+
+**`batch.py` is the third production caller, and P4b.5 missed it.** Decided and
+declared: it holds the intake object in scope (`_read_source` returns it),
+`webapp/artifact_cache.py`'s docstring already names it a CLI consumer of the
+cache, and although its own `needs_review` column keys on quality rather than
+integrity, `_emit` serialises the report and hands it to `build_record`, which
+runs `classify_outcome` — so **batch.py publishes an outcome class derived from
+these flags into its telemetry JSONL**. It must be wired at activation.
+Excused, each with its reason in `EXCLUDED_ANALYSIS_CALLERS`: the two forensic
+oracles (wiring them would couple the oracles to the change under test, and
+neither audits any of these fields), `benchmark/ourside.py` (its resolver yields
+no page list), `analyze.py` / `adb_debug.py` / the two coverage scripts (no
+intake object exists on their paths), and `corpus_gate.py` itself.
+
+(For the record, P4b.5's "three call sites" are two of the three real ones: its
+third entry, `webapp/artifact_cache.py`'s `cached_analysis` compute lambda, is
+that module's docstring usage example rather than a caller; its fourth entry,
+the key material, is card B; and `batch.py` is absent from the table.)
 
 **Proven by mutation, not by assertion** — expectation flipped in memory, gate
 RED, restored, GREEN:
@@ -14908,6 +14959,9 @@ RED, restored, GREEN:
 | `review` to `validated` (the `b8013d5` shape) | RED, names the class move |
 | expectation gains a flag the document no longer publishes (the BMO shape) | RED |
 | expectation loses a flag the document does publish | RED, "newly publishes" |
+| a note's text changes (the page_coverage shape the old triple could not see) | RED, both directions named |
+| `risk_level` moved (D1's counterexample) | RED |
+| `possible_document_issue` moved | RED |
 | document unreadable | RED — a verdict we cannot compute is never a pass |
 | restored | GREEN |
 
@@ -14918,18 +14972,19 @@ each), on top of the base ~430s. See W5 for the contended wall-clock figure.
 
 ```
 $ python -m pytest -q
-3774 passed, 23 deselected, 1 warning      EXIT=0
-   (base 3,769 + 5 unmarked new; 23 deselected = base 18 + 5 corpus-marked new)
+3776 passed, 26 deselected, 1 warning      EXIT=0
+   (base 3,769 + 7 unmarked new; 26 deselected = base 18 + 8 corpus-marked new)
 
 $ python -m pytest tests/test_corpus_gate_outcomes.py -q -m ""
-10 passed                                   EXIT=0
+15 passed                                   EXIT=0
 
 $ python corpus_gate.py
 [PASS] outcome_classes: 109 statements publish their pinned verdict
-       (class, reason and integrity flags): 6 review / 100 validated / 3 withheld
+       (outcome class and the whole integrity block):
+       6 review / 100 validated / 3 withheld
 Outcomes: 106 PASS / 3 WITHHELD
 Verdicts: 6 review / 100 validated / 3 withheld
-Runtime:  1502.7s
+Runtime:  1246.0s
 RESULT: GREEN                               EXIT=0
 
 $ python -m pytest -m corpus -q
@@ -14951,9 +15006,12 @@ BRANCH ce4e0e9   slowest full-registry detect sweep was 265.0 ms   FAIL (> 250 m
 
 Red on base, and this branch is FASTER than base. The constant was not raised.
 
-The gate's 1502.7s is a contended number — batch 4 ran eight cells and a second
+The gate's 1246.0s is a contended number — batch 4 ran eight cells and a second
 `corpus_gate.py` on the same box. The new check's own cost, measured alone, is
 **+222s** (109 production-ladder resolutions plus one analysis each).
+
+Both figures above are from the post-review re-run at `HEAD`, after the whole
+published integrity block replaced the (class, reason, flags) triple.
 
 The forge-fixture family (`test_page_content_cannot_forge_a_sheet_boundary`,
 `test_padding_the_pdf_with_a_blank_sheet_does_not_clear_the_flag`,
@@ -14983,3 +15041,23 @@ commit — untouched, since no production behaviour changed.
 5. **A third copy of the key derivation exists outside the repo**, in the
    scan-scout scratchpad instrument (`keys.py`). Not repo code and not this
    cell's to fix, but it will go stale the moment card B lands.
+6. **`production_verdict`'s first justification was measured wrong.** It said
+   `balance_forensic_audit.source_markdown` "silently produces different
+   markdown for the four layout-aware banks". Measured over the pinned
+   manifest: **0 of 109 differ**. The resolver choice is still right, for a
+   different and stronger reason — `source_markdown` returns text and nothing
+   else, while `parse_statement` returns the intake object whose `pages` a
+   wired caller must supply, so only it can still be correct after the wiring
+   lands. Sentence corrected in place.
+7. **A green `pytest -q` is not a verified truth set.** The 109-entry map is
+   compared against the product only by `python corpus_gate.py` (or
+   `pytest -m corpus`); the unmarked tests check the map's shape and prove the
+   mechanism by mutation on one document. Recorded in both module docstrings so
+   green CI is not mistaken for a verified map.
+8. **A flagless `review` is reachable and must stay recordable.** The first form
+   of the shape test asserted every non-validated entry carries a flag, which
+   would have made a legitimate `quality_needs_review` expectation
+   unrecordable — the gate would have gone RED with the only correct remedy
+   blocked by a test. It now asserts each entry is a state `classify_outcome`
+   can actually reach, including the internal consistency of `risk_level` with
+   `flags` and `possible_document_issue`.
