@@ -22,6 +22,7 @@ from ocr.native_text import (
     parse_native_pdf_text,
     parse_native_td_canada,
     parse_native_wells_fargo,
+    parse_native_woodforest,
 )
 
 
@@ -85,6 +86,7 @@ def native_statement(pdf_bytes: bytes, source_file: str = "") -> StatementMarkdo
         parse_native_navy_federal(pdf_bytes, source_file=source_file)
         or parse_native_td_canada(pdf_bytes, source_file=source_file)
         or parse_native_wells_fargo(pdf_bytes, source_file=source_file)
+        or parse_native_woodforest(pdf_bytes, source_file=source_file)
         or parse_native_desjardins(pdf_bytes, source_file=source_file)
         or parse_native_first_citizens(pdf_bytes, source_file=source_file)
         or parse_native_pdf_text(pdf_bytes, source_file=source_file)

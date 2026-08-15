@@ -277,7 +277,21 @@ OCR_STAGE_VERSION = 3
 # foreign repair rewrote) with the page-declaration sheet count inert
 # until the ceremony-gated wiring card. Registry 53 -> 68. One composed
 # bump before the round's measurement.
-ANALYSIS_STAGE_VERSION = 11
+# 11 -> 12: composed — coverage-wave batch 4 (twelve reviewed merges):
+# stated-count promotions x3 + first_citizens split + OBSERVER_VERSION 3
+# (4 td_canada_french flag movers); fifth_third scanned issue (+4);
+# first_citizens printed-description recovery (35 docs — description-
+# keyed metrics move as measured in W3 #FI14.1/#FCX); woodforest
+# geometry columns (+2, OCR_STAGE_VERSION 2 -> 3 composed with the
+# first_citizens native rung); bank=None honest-unknown-issuer policy
+# (community_section 5 + releve_facturation 16); core_processor_
+# sectioned (+10) + balance_by_date (+11) platforms; chase_export
+# wrapped rows (3 withheld -> review) + the fail-open or-0.0 class
+# closed via read_money; woodforest initialization-event evidence half
+# (inert; adb wiring awaits ruling); gate outcome-block check +
+# PreparedDocument detect seam (behavior-identical, proven). Registry
+# 68 -> 71. One composed bump before the round's measurement.
+ANALYSIS_STAGE_VERSION = 12
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 
