@@ -21270,3 +21270,195 @@ synthetic registry, so they exercise the rule and not any bank's markers.
 | `5e82e18` | the crash arm of the equivalence proof (Ocean's addendum) and the prescan finding |
 | `095901d` | quiet-machine readings, the DT8 proof block, section renumbered DT to clear the earlier §D |
 | (this one) | adversarial-review closures: the interning guard and its conformance assertion, the corrected selection pass, the projection stated as a floor |
+
+# §PIPE5 — the repair seam, and an honest model label (batch 5)
+
+Two pinned hunks in `analysis/pipeline.py`, one protected module, one cell.
+Card 1 (REPAIR-GUARD) was drafted by MG-C at `docs/agent-handoffs/REPAIR-GUARD.md`
+and is implemented as drafted. Card 2 (MODEL-LABEL) is the queued
+`bank-deterministic` item.
+
+## PIPE5.1 The repair seam was outside the promise
+
+`analysis/parser_registry` states the law for the deterministic branch, in its
+module docstring: *"The seam is total: no code path from `resolve` through
+`parse` raises."* Every `detect` and every `parse` runs behind `_guarded`,
+which reduces a crash to a `ParserFailure` — registration id, stage, and the
+exception's CLASS NAME. `ParserFailure`'s docstring states why the message is
+excluded: it *"routinely quotes the fragment of the document that provoked it
+… The message is not stored anywhere, not even locally."*
+
+`apply_statement_repairs` runs AFTER dispatch, at `:542`. It was the one line
+in that branch standing outside the promise. A repair that raised propagated
+out of `analyze_markdown` as a bare exception, and `webapp/worker.py:321` does
+`store.set_error(job_id, str(e))` — so the quoted cell landed in the durable
+job store and in front of a user. MG-C2 closed the loudest SOURCE
+(`money.read_money` names the reader and the refusal class, never the token);
+this closes the SEAM, which is the part that generalises to an `int()` on a
+mangled cell or a `KeyError` on a mis-shaped grid.
+
+**What the guard does.** The repair stage is discarded ATOMICALLY: the
+UNREPAIRED statement stands, which is exactly what this branch published
+before repairs existed, and the crash survives as a class name. Recovering
+WHICH step raised would mean running the ten repairs, the year assignment and
+the normalization independently — that changes what the stage DOES (today the
+first raise stops the rest), which the card puts out of scope. For the same
+reason the class is NOT attributed to `dispatch.registration`: only the keyed
+summary repair belongs to the claiming parser, so naming it as the author of
+one of the nine unconditional repairs' crashes would be exactly the
+misattribution the seam exists to prevent.
+
+**Scope boundary, stated rather than discovered.** The guard is NOT applied to
+the two LLM-branch repair calls. `extract_statement` on those branches is
+itself an unguarded call that raises out of `analyze_markdown`, so guarding
+one line inside a branch that makes no totality promise buys nothing; the
+escalation call already reduces any crash to `type(e).__name__` in its own
+`except`. The deterministic branch is the one that promises totality, and it
+now keeps it. Carried to Ocean as a question, not taken silently (§PIPE5.6).
+
+**The flag.** A swallowed repair may not be silent: `repair_exception` is a
+review cause with a named class, beside `parser_exception`. `classify_outcome`
+already routes any integrity flag to `review`, so `telemetry/record.py` needed
+no change. `telemetry/diagnostics.py` gains the flag and classes it
+**`extraction_failure`** — a PRODUCTION stage that did not complete, which is
+what that class already means for `recon:escalation_extraction_failed`. Not
+`check_unavailable` (a repair yields no finding, so no diagnosis is partial)
+and not advisory like `parser_exception` (a parser that crashed produced no
+claim and its document never reached the checks; THIS document reached every
+check with figures the platform knows are uncorrected). It ranks above the
+financial classes on W3-2b's own argument: a repair rewrites published
+balances and stated totals, so a `summary_identity` or `ledger_identity`
+finding taken on unrepaired figures may be the crash's symptom.
+
+## PIPE5.2 MODEL-LABEL — 41 documents, four parsers, one label
+
+`(stmt.bank or "bank").lower()` published `bank-deterministic` for every
+document whose parser publishes no issuer: the honest-unknown-issuer
+registrations (UNKNOWN-ISSUER) and the issuer-agnostic core-processor
+templates, which claim on a PLATFORM's paper and cannot name the bank without
+inventing one. Four parsers' output aggregated under a label naming none of
+them — in the field the coverage audits, the ADB forensic audit and the
+balance forensic audit all carry as `parser`.
+
+The claiming registration's id is the honest name. NARROW BY CONSTRUCTION:
+`stmt.bank is None` is required, so a document carrying a bank label takes the
+byte-identical old expression. `is None` and not falsiness — a parser
+publishing an EMPTY label would be saying something different from "this paper
+names no issuer", and this hunk does not adjudicate that; the live census
+proves the question is currently vacant (all 41 are `None`). The
+`-deterministic` suffix is unchanged, which is load-bearing:
+`telemetry.record.model_calls_for` reads `endswith("-deterministic")` to mean
+"no model call was made", so cost and call accounting are untouched.
+
+## PIPE5.3 The census, measured live
+
+Derived by LIVE REPLAY of the archive, not from `rows.csv` `parser_id` (the
+W3 #COUNTSP3 cache-hit hole): OCR artifacts read by DIRECT file path
+(`webapp_data/artifacts/ocr/<key[:2]>/<key>.json`, key recomputed from
+`cache_key("ocr", content_sha256, ocr_settings_key(...))`), never the sqlite
+index; `analyze_markdown(..., parse_mode="deterministic")`, $0 vendor.
+
+The harness reproduces the run of record `c924d751` exactly:
+
+```
+replayed distinct content_sha256                 3,380
+outcome-class agreement with the run of record   3,367 / 3,380
+the 13 disagreements                             exactly the 13 DEFERRED docs
+                                                 (a fact about the RUN, which a
+                                                 replay has no notion of)
+ok (published a payload)                         2,495  = validated 2,405
+                                                        + review 25
+                                                        + withheld 65
+```
+
+`bank-deterministic` population, live: **41**, every one `Statement.bank is
+None`, every one `validated`. Exactly the shape the card predicted;
+`fifth_third`/`fiserv_premier` are **zero**, not applicable.
+
+| claiming parser | docs | new label |
+|---|---|---|
+| `releve_facturation` | 16 | `releve_facturation-deterministic` |
+| `balance_by_date` | 11 | `balance_by_date-deterministic` |
+| `core_processor_sectioned` | 9 | `core_processor_sectioned-deterministic` |
+| `community_section` | 5 | `community_section-deterministic` |
+
+All 41 named by `content_sha256` in the PIPE5 report to Ocean. The
+`core_processor_sectioned` documents NOT in the mover set are the subset whose
+`_issuer(markdown)` did name an issuer — the card's "bank=None subset" is 9,
+measured rather than assumed.
+
+The pinned 109-document corpus contains **zero** movers: both audit CSVs pin a
+named bank and a named parser for all 109 (44 distinct), so no pinned
+document's `parser` field can move.
+
+## PIPE5.4 Movement
+
+Full-archive differential, base `b524f72` vs this branch, same 3,380 shas:
+
+```
+state changes                                        0
+payload-digest movers                               41
+  ...changing model_used                            41
+  ...changing any other field                        0
+outcome movers                                       0
+integrity-flag movers                                0
+documents carrying repair_exception                  0
+```
+
+`repair_exception` on zero documents confirms MG-C's measurement: no repair
+stage raises anywhere in the archive today, so card 1 ships INERT and card 2
+owns every one of the 41 movers.
+
+## PIPE5.5 Composition with WIRING-2, and the two named populations
+
+`discovery/runner.py::_analyse` does not pass `sheets` today — WIRING-2 is the
+cell that wires the three call sites — so the sweep above replays the pipeline
+production actually runs. The composition was then measured directly by
+replaying with `sheets` ON (the post-WIRING-2 shape) over the union of the two
+named sensitive populations, the 41 movers and a 500-document random control
+(554 documents), base vs branch:
+
+```
+sheets-ON, base vs branch: digest movers            41
+  ...changing model_used                            41
+  ...changing any other field                        0
+  set identical to the sheets-OFF mover set        yes
+```
+
+The two hunks are independent of the sheets wiring; the effects compose
+additively.
+
+**The three chase movers (§PIPEFIX P2.4)** — byte-identical base vs branch
+under BOTH wirings, all three still `validated`:
+
+```
+C8B06DE4D04B71470F3D65DB70667F03E17B3389EF874A78D04E8875E678827D
+863F7845AEB27BD46E3120CBAD4AD64DC2C2DD1FCE08320ADB04DD8916556BD6
+61BDA531117B7BBBC1B842C6FDA6EDB7E1C1BB64344A1CF234DB314471A54082
+```
+
+**The page-declaration population (§PIPEFIX card 2, the 114)** — 30 documents
+publish while carrying `missing_declared_statement_page` (the remainder of the
+114 are `failed`, so the flag is never published). Byte-identical base vs
+branch under both wirings. Under `sheets` ON, 21 lose the flag and 10 change
+outcome — IDENTICALLY on both sides, so that movement is WIRING-2's and none
+of it is this cell's.
+
+## PIPE5.6 Carried to Ocean
+
+1. **The LLM-branch repair calls are still unguarded** (`:565` and the
+   escalation call). The escalation one already reduces a crash to a class
+   name in its own `except`; `:565` does not, but it sits in a branch whose
+   `extract_statement` raises out of the function anyway, so the branch makes
+   no totality promise to keep. Guarding it is a one-line change if Ocean
+   wants the property unconditional; it is unmeasurable at $0 vendor and was
+   NOT taken inside a pinned two-hunk card.
+2. **`tests/test_structurer_pipeline.py`'s module docstring quotes the old
+   `bank_label` line** in an illustrative historical diff of the W3-3c cell.
+   It is a record of that cell, not a live guard, so it was left alone — but
+   it is now a stale quotation and Ocean may prefer it annotated.
+3. **The 41 movers change a cached analysis payload**, so the artifact cache
+   must not serve pre-merge entries for them. `ANALYSIS_STAGE_VERSION` is part
+   of `analysis_settings_key`, and the bump is Ocean's at merge, which closes
+   it; recorded here because this cell's movement is invisible to the corpus
+   gate and would otherwise be a silent warm-cache trap.
