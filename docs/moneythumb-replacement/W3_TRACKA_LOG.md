@@ -14703,3 +14703,496 @@ and pins, and they are the more important half:
    106 PASS / 3 WITHHELD and both classes sit inside PASS. The gate proves
    audited values reproduce; only the corpus-marked slice proves the outcome
    class did.
+
+---
+
+# §UNKISSUER — two populations that reconcile and name no bank
+
+Batch 4, card 2. Base `707ba9e` (main), branch `wave4-unkissuer`, worktree
+`.claude/worktrees/mt4-unkissuer`. Run of record
+`2026-08-14T214345.671986-0000-d5c75ff6`.
+
+**Gustavo's ruling, 2026-08-14, is the whole premise:** where statement
+structure is validated but issuer identity is not proven, publish
+`bank=None`; never infer the issuer from a filename, a folder label, template
+similarity, nearby corpus organization, or weak branding. Parser identity and
+issuer identity are separate facts.
+
+## U0. Summary
+
+**21 documents move `failed` → `validated`; nothing else in the archive moves
+at all.** Card 1 was carded at +5 and delivers 5. Card 2 was carded at +6 of
+16 and delivers **16 of 16** — the other 10 were not chain-broken documents,
+they were two defects in the grammar the scout and this cell inherited (U4).
+
+| | before | after |
+|---|---|---|
+| card 1 — `community_section`, no issuer printed | failed 5 | **validated 5** |
+| card 2 — the French `Relevé de compte` template | failed 16 | **validated 16** |
+| registry | 68 | 69 |
+
+Every one of the 21 publishes `bank=None`, `recon.ok`, both printed counts
+matched, both printed totals matched, zero continuity breaks, integrity
+`clear`, quality `transaction_level` / `approved`. **21 of 21 instrument
+sound, 0 unsound.**
+
+## U1. The instrument
+
+Every figure below comes from replaying the archive markdown through the real
+pipeline (`analyze_markdown(parse_mode="deterministic")` →
+`analysis.serialization.report_to_dict` → `telemetry.record.classify_outcome`),
+resolved from the D-3 OCR artifact store **by direct file path** — the sqlite
+index was never opened. The `content_sha256 → artifact` index was built by
+reading the tail of each payload envelope, where canonical key ordering puts
+its own `input_sha256`, so it does not depend on this process reproducing the
+run's cache key. 3,409 artifacts indexed; the run's 3,380 distinct shas, of
+which **3,269 have offline text**.
+
+The "before" side is not the main checkout: it is a pristine `git archive` of
+`707ba9e` unpacked into a private scratchpad, so no concurrent cell's merge
+can move the baseline underneath a differential.
+
+## U2. Card 1 — five reconciling documents that name no bank
+
+W3 §JHA J9.2. Characterized before any code changed, over every servable
+document:
+
+```
+community_section detects            : 115
+  names exactly one labelled domain  : 110
+  names NO labelled domain           :   5
+  names TWO OR MORE                  :   0
+```
+
+The 5 are exactly J9.2's five: all `failed` / `parser_declined` in the run of
+record, all in the `Unidentified/` folder. The refusal was one branch —
+`_issuer` returned `None` and the parser returned `None` with it.
+
+**`_issuer` became `_masthead_domains`, returning the SET**, because the three
+sizes of that set are three different findings and only two of them are the
+same fact:
+
+| size | finding | now |
+|---|---|---|
+| 1 | the document names its issuer | published, unchanged — 110 documents |
+| 0 | the document names no issuer | **published with `bank=None`** — 5 |
+| 2+ | the document contradicts ITSELF about its issuer | still refused — 0 |
+
+The 2+ case is deliberately NOT folded into the ruling. An unknown issuer is
+a gap in the document; two labelled domains in the masthead is a gap in our
+reading of it — the likeliest cause is `_MASTHEAD_END_RE` missing a layout's
+first account so the scope runs on into the fine print, where these
+statements cite their state regulator. Publishing `bank=None` there would
+file our own defect as the document's honest silence. No archive document is
+in the class, so there is nothing to prove a publication rule against either,
+and an unproven class fails closed.
+
+**No inference anywhere.** Four of the five really do print merchant domains
+(`walmart.com` and the like) in transaction descriptions; "the first domain
+in the document" would publish the shop the customer bought lunch at as the
+bank. Pinned as its own assertion.
+
+The five, by `content_sha256`, with the field that moved:
+
+```
+67AEA2A08137EC4629EF0DE6B2B50EC950369682051EF1BE4F68135B1FF4DCAB  bank None  failed -> validated
+87EE788278155A3F7675771E5A4AF9C4B515ACA420F451D60213CFE688DB61D8  bank None  failed -> validated
+E9CC87F0C6C50519723B57C10113B7A161EC930C929F905A6EF8D5EF17EF2BAB  bank None  failed -> validated
+F2BF141B7DB2B060FA73871D146CECFA0D9D4D36BFB0B1291E75F470768F87C3  bank None  failed -> validated
+F8A0DCBA41B68C54125F5021A01FDF523B0676739425AC49C402295785FC2C2B  bank None  failed -> validated
+```
+
+**A cross-document oracle nobody asked for.** Four of the five are the same
+account (`XXXXXX8906`) in four consecutive periods, and each period's closing
+balance is the next period's opening balance, with no date gap:
+
+```
+2026-01-16..02-19   363.32 ->   831.80
+2026-02-20..03-19   831.80 ->  -197.01
+2026-03-20..04-16  -197.01 ->  -114.67
+2026-04-17..05-21  -114.67 ->   237.95
+```
+
+No single-document check can produce that. It is evidence the five ledgers
+are right, and it is evidence about the LEDGERS only — it says nothing about
+who the bank is, which remains unprinted and unpublished.
+
+## U3. Does the platform tolerate `bank=None` end to end?
+
+`Statement.bank` has always been `str | None` (`analysis/schema.py:30`). The
+question is what every consumer does with the absence. Swept, and named:
+
+| surface | reads | behaviour on `None` |
+|---|---|---|
+| `analysis/pipeline.py:545` | `stmt.bank` | `model_used` becomes `"bank-deterministic"` — the `or "bank"` fallback was already there |
+| `analysis/pipeline.py:176` `_registration_for` | `by_bank_label(stmt.bank)` | never reached for these: the dispatch claimed, so the claiming registration is returned. `by_bank_label(None)` returns `None` anyway (`if not bank`) |
+| `analysis/bank_repairs.py` (8 repairs) | `(stmt.bank or "").upper()` | none fire; each is None-safe already |
+| `discovery/runner.py:494` | `statement.get("bank")` | field is `str \| None`; stored as null |
+| `discovery/report.py:27` `folder_agreement` | `if row.statement_bank` | None-safe. **All 21 sit in folders whose normalised label is `unidentified` or is not matched anyway, and `unidentified` is in the function's own exempt set, so the agreement rollup gains no `label_unmatched` noise** |
+| `telemetry/record.py` | — | deliberately never carries the extracted bank label (H3_SCHEMA I1) |
+| `webapp/app.py:831,:864` | `statement.get("bank")` | passed through as null |
+| `webapp/static/app.js:269` | report field | renders **"Bank Name: N/A"** |
+| `webapp/static/app.js:1448` | package doc row | renders **"Unknown bank"** |
+| `webapp/static/app.js:1592` | report title | renders **"Bank Statement"** |
+| `webapp/static/app.js:1721` | package summary sentence | opens **"Statement &lt;period&gt;: average daily balance …"** |
+| `webapp/static/app.js:485` | flattened ledger row | falls back to the document name, then `"Statement"` |
+| `analyze.py:19` | CLI header | `f"# {s.bank or 'Bank'}"` |
+
+Every one of these fallbacks pre-dates this cell. Nothing was added to make
+the absence displayable; the platform was already written for it. The one
+consequence worth naming to Ocean is `model_used="bank-deterministic"`
+(U7.1).
+
+`analysis/parser_registry.py:385` is the only unguarded `.bank` attribute
+access in non-test code, and it reads `Registration.bank` — our own constant,
+never the published one.
+
+## U4. Card 2 — the template that names no institution, and two grammar defects
+
+W3 §UNID-B UB5. The family is re-derived here rather than taken from the
+scout: documents printing the `MM JJ DESCRIPTION DÉBIT ($) CRÉDIT ($) SOLDE
+($)` grid, a `FACTURATION DÉTAILLÉE` fee table, and that table's
+`TRANSACTIONS DÉBIT n total CRÉDIT n total` trailer. Archive-wide, that
+conjunction hits **exactly 16 documents, with no false positive and no family
+member missed.**
+
+### U4.1 The issuer, measured rather than assumed
+
+Every occurrence of every institution word in all 16, in context:
+
+```
+LA BANQUE DOIT ETRE AVISEE PAR ECRIT ...   63   the per-page footer: "the Bank"
+COMPTE DIVERS FED DESJARDINS                6   a ledger row - a payment MADE
+PRET RBC LOAN PYMT                          9   a ledger row
+PRET PMT PRET TD                            8   a ledger row
+MONTREAL                                   20   the branch's street address, and the customer's
+```
+
+**No document names its issuer anywhere.** The masthead prints a street
+address, a phone number, `No succursale` and `No de compte` — no name. The
+footer calls the institution *la Banque*, which is the French word for "the
+bank".
+
+Three further facts against the folder label, all measured:
+
+1. the folder says `Desjardins` on 6 of the 16; the `FED DESJARDINS` ledger
+   row appears in 6 of the 16; **they are not the same 6**;
+2. one document filed under `Desjardins/` (`841438A5…`) contains the word
+   nowhere at all;
+3. the 12 archive documents that DO print `CAISSE DESJARDINS` over an
+   `EOP ÉPARGNE AVEC OPÉRATIONS` grid are a disjoint set, and `desjardins`'s
+   own 6 claims are disjoint from both.
+
+`analysis/desjardins.py` is byte-for-byte untouched.
+
+### U4.2 The 10 "chain-broken" documents were a missing digit boundary
+
+The scout and UB5 both measured 6 reconciling / 10 chain-broken. Reproduced
+exactly on the first run — and then diagnosed. The break messages were all
+one shape:
+
+```
+04 01 'TRF DT INTERNET D77100000001337 150,00 3 983,75'
+      4133.75 + -337150.0 != 3983.75
+```
+
+A money pattern with no LEFT digit boundary reads a reference number's tail
+as a thousands group: `...1337 150,00` matches `\d{1,3}( \d{3})*,\d{2}` as
+`337 150,00`. A $337,150.00 debit invented out of a document number. With
+`(?<!\d)` on the token — the digit-bound lesson the wave already learned in
+§MONEY-GRAMMAR — **12 of 16 reconcile.**
+
+### U4.3 The remaining 4 were a genuine ambiguity, and the document resolves it
+
+```
+04 07 'C/ACHAT 00105958482 PETRO-CANADA 13 100,00 2 399,30'
+      2499.30 + -13100.0 != 2399.30
+```
+
+`PETRO-CANADA 13 100,00` is a $13,100.00 purchase if `13` is a thousands
+group and a $100.00 purchase at store 13 if it is part of the merchant's
+name. Both readings are well-formed French money and no grammar separates
+them. **The bank's own printed running balance does:** 2499.30 − 100.00 =
+2399.30. So the candidates are the token and each of its suffixes at a group
+boundary, the movement the printed balances demand selects one, and a row
+that no reading fits refuses the document rather than publishing a guess.
+The readings are distinct numbers, so at most one can ever fit.
+
+This is not amount-from-balance. The printed amount is still read and still
+has to match; that is what keeps the chain a check rather than a tautology
+(a balance-derived amount would satisfy `previous + amount == balance` even
+across a dropped row). **All 16 reconcile.**
+
+### U4.4 The `MM JJ` collision, and where it actually bites
+
+UB5 described the date pair colliding with a space-thousands amount. The
+collision is real but not inside a single figure — a `\b`-bounded
+`\d{2} \d{2}` cannot match inside `9 999,99`. It bites at the **seam between
+two figures**: `... 2M7FINANCIALSOL 640,00 20 490,64 04 10 DPA ...` contains
+`00 20`, a well-formed date pair lying across an amount and the balance
+beside it. UB5's anchor is the fix and is what shipped: a row start requires
+a **following capital**, because a real date pair is followed by the
+description's first word and a false one by more digits.
+
+### U4.5 The oracle, and what it is worth
+
+The fee table prints a count AND a total for each direction — four figures,
+none of them derived from anything this reader computes. All four are
+checked; three-out-of-four is a refusal, and each is proven load-bearing by
+ablation. On top of a zero-break balance chain, that is two independent
+oracles per document.
+
+And, unasked-for again, a third: the 16 are **three accounts in consecutive
+monthly runs**, each period's closing balance opening the next, with no
+discontinuity anywhere —
+
+```
+04-378-26   Jan..Jun 2026        2853.79 -> 1760.96 -> 1966.86 -> 4113.92 -> 1030.18 -> 3466.14 -> 993.00
+66-576-21   Oct 2025..Mar 2026  -1372.08 -> -3771.99 -> -1757.53 -> -4723.81 -> -904.15 -> -1984.20 -> 29.93
+02-145-29   Mar..Jun 2026        1503.80 -> 34624.43 -> 13314.79 -> 18224.66 -> 2952.30
+```
+
+### U4.6 What the registration asserts, and what it refuses to
+
+`id = releve_facturation` names the printed furniture, not an issuer.
+`Registration.bank = "Releve de Compte Statement Template"` names the
+template, for the reason `community_section`'s label names a platform — and
+it carries **no institution word and no folder-label substring**, because
+`discovery.evidence.registered_bank_tokens` normalises it and matches folder
+names by containment in either direction. A label containing "Unidentified"
+would have reported the `Unidentified/` folder as a bank we support; that was
+checked against all 69 folder labels before the label was chosen.
+
+`Statement.bank` is `None` on every document. `currency` is `"CAD"`, read
+from the product line `COMPTE : COMPTE COURANT CANADIEN` — the document's own
+name for the account and the only currency evidence on the page, since the
+column headers print a bare `($)`. A product line this reader cannot read is
+a refusal, not a fallback to the schema default of `"USD"` (U7.2).
+
+## U5. Non-interference, measured over the whole archive
+
+Whole-archive claim differential, both sides replayed through `resolve` over
+all 3,380 distinct shas — full claimant SET before `supersedes` pruning, the
+surviving winner, the dispatch outcome, and a sha256 of the parsed
+`Statement`:
+
+```
+documents compared                      : 3380   (servable 3269)
+claimant SET changed                    :   16
+winning parser changed                  :   21
+dispatch outcome changed                :   21
+parsed Statement changed                :   21
+changed OUTSIDE the two populations     :    0
+
+   16  unclaimed/None  ->  claimed/releve_facturation
+    5  unclaimed/None  ->  claimed/community_section
+   (every other transition is X -> X)
+
+ambiguous  before 0   after 0
+crashed    before 0   after 0
+moved DOWN 0
+```
+
+`resolve` stops before `apply_statement_repairs`, so a second differential
+covers the rest of the pipeline: full `report_to_dict` payload plus
+`classify_outcome`, over the two populations, both sibling families, and a
+deterministic stratified probe (rows.csv order, validated first, ≤8 per
+folder label, 336 documents across 62 labels):
+
+```
+payload probe documents                        : 485
+   the two populations                         :  21
+   siblings + non-target                       : 464
+payload changed                                :  21   (outside: 0)
+outcome changed                                :  21   (outside: 0)
+byte-identical payloads outside the populations: 464 / 464
+moved UP 0   moved DOWN 0
+```
+
+**Both family sweeps.**
+
+```
+community_section       detects 115 before / 115 after
+   Statement changed within the family : 5   (all five are card 1)
+   byte-identical outside card 1       : 110 / 110
+
+desjardins              claims 6 before / 6 after, same set
+   byte-identical Statements           : 6 / 6
+   detection set                       : unchanged
+```
+
+**The new registration, bounded by its own markers.**
+
+```
+releve_facturation detects        : 16
+   the measured family            : 16
+   detected but OUTSIDE it        :  0
+   in the family but NOT detected :  0
+   claimed and then declined      :  0
+```
+
+No `excluding` marker and no `supersedes` edge was needed or added: the
+conjunction is disjoint from every other registration by construction, and
+the conformance cross-product (now 69 × 68) is what holds that rather than a
+precedence rule.
+
+**Published `bank=None`:** 0 claimed documents before, 21 after — card 1 five,
+card 2 sixteen, other zero.
+
+## U6. Two regex guards, proven load-bearing by mutation
+
+Not argued — removed, and the cell suite re-run:
+
+```
+remove (?<!\d) from the money token      : 19 of 30 cell tests fail
+remove (?=[A-Z]) from the row anchor     : 22 of 30 cell tests fail
+```
+
+## U7. Carried findings and questions for Ocean
+
+**U7.1 — `model_used` reads `"bank-deterministic"` for all 21.**
+`analysis/pipeline.py:545` builds it as `(stmt.bank or "bank").lower()...`,
+so an unnamed issuer produces the generic label. It is pre-existing behaviour
+and it is not wrong, but it is now VISIBLE: 21 documents will carry it in
+reports and telemetry, and it reads like a placeholder rather than a fact.
+The registration id (`releve_facturation`, `community_section`) would be the
+honest label there, and it is our own constant. `analysis/pipeline.py` is not
+this cell's file. **Ruling wanted.**
+
+**U7.2 — `Statement.currency` defaults to `"USD"`, which is an assertion.**
+For a schema field with a non-null default, "we did not read this" and "we
+read USD" are the same value. Card 2 refuses rather than defaulting: it
+publishes CAD only from the printed `COMPTE COURANT CANADIEN` product line
+and declines a document whose product line it cannot read. Only that one
+wording is archive-evidenced (16 of 16), so no `AMERICAIN` branch was
+written; the first US-dollar document of this template will fail closed and
+be looked at, which is the outcome this cell wants. Recorded so it is a
+decision and not an accident.
+
+**U7.3 — `analysis/fiserv_premier.py` has the same issuer-refusal path, and
+the ruling applies to it too.** §UB7 recorded it: `fiserv_premier` detects
+14 documents and parses 10, and "the other 4 are claimed and then declined
+for want of a printed issuer". That is exactly card 1's shape on a different
+template. It is outside this cell's declared ownership and was not touched.
+**A follow-up card is worth roughly +4**, subject to the same measurement
+this cell ran: whether those documents print no issuer or print two.
+
+**U7.4 — `count_semantics` has no entry for `releve_facturation`, and the
+default is correct.** `counts_comparable` returns False for an unsurveyed
+parser, so the stated-count integrity check emits nothing for the new
+registration — the structural default `analysis/pipeline.py:318-324`
+describes. The honest entry, when someone adds it, is the one
+`community_section` and `scanned_small_bank` already carry: the four printed
+figures are a parser-side CLAIM GATE keyed on `Transaction.direction`, so a
+`match` downstream is a tautology and the independent evidence is the fee
+table itself. Not added here deliberately: `analysis/count_semantics.py` is
+a shared file and batch 4 has a COUNTS cell in it. **Recommended text is
+above; the entry is a one-line addition whenever the file is next open.**
+
+**U7.5 — `ANALYSIS_STAGE_VERSION` needs its bump at merge** (currently 11,
+`webapp/artifact_cache.py`). Both cards change analysis output for documents
+whose cached payloads predate them. Ocean's at merge, per the standing rule.
+
+**U7.6 — the two-labelled-domains class is empty and still refused.** Stated
+here rather than left to be inferred from a passing test: `community_section`
+publishes nothing for a document whose masthead names two issuers, on the
+grounds that this is more likely our scoping defect than the document's
+silence. 0 of 115 archive documents. If one ever appears, the right first
+question is whether `_MASTHEAD_END_RE` found the first account.
+
+**U7.7 — the scout's 6-of-16 figure was a measurement of a defect, not of the
+archive.** Worth carrying because it generalises: two of the wave's
+"chain-broken" and "fail-closed named" populations were counted with a money
+grammar that had no left digit boundary. Wherever a layout prints
+space-thousands amounts next to reference numbers, a previously-carded
+fail-closed count may be an overestimate. §MONEY-GRAMMAR fixed the shared
+helpers; this was a per-parser pattern, and this cell found 10 documents
+behind one.
+
+## U8. Proofs
+
+All from the worktree at HEAD, `set -o pipefail`, exit codes verbatim.
+
+```
+$ git rev-parse --abbrev-ref HEAD ; git rev-parse --short HEAD
+wave4-unkissuer
+4dff931
+
+$ git status --short
+(clean)
+
+$ python -m pytest -q
+3818 passed, 18 deselected, 1 warning in 242.00s (0:04:02)
+SUITE_EXIT=0
+
+$ python -m pytest -m corpus -q -rA                          # 14/14, all named
+PASSED tests/test_corpus_gate.py::test_corpus_gate_is_green
+PASSED tests/test_discovery.py::test_dry_run_reproduces_known_truth
+PASSED tests/test_parser_parity.py::test_no_corpus_document_is_left_unclaimed
+PASSED tests/test_parser_parity.py::test_no_corpus_document_resolves_to_the_wrong_parser
+PASSED tests/test_parser_parity.py::test_no_corpus_document_is_ambiguous
+PASSED tests/test_parser_parity.py::test_every_corpus_document_resolves_to_the_recorded_parser
+PASSED tests/test_parser_parity.py::test_the_recorded_parser_is_always_the_highest_ranked_claimant
+PASSED tests/test_parser_parity.py::test_the_three_promoted_sub_dispatches_claim_their_documents
+PASSED tests/test_parser_parity.py::test_expectations_cover_the_pinned_manifest
+PASSED tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run
+PASSED tests/test_parser_parity.py::test_detection_is_invariant_to_the_filename_echo
+PASSED tests/test_telemetry_corpus.py::test_telemetry_reproduces_the_gate_outcome_split
+PASSED tests/test_telemetry_corpus.py::test_withheld_diagnostics_reproduce_the_documented_diagnosis
+PASSED tests/test_truncation.py::test_no_corpus_document_is_flagged_through_the_real_ladder
+14 passed, 3822 deselected, 1 warning in 1955.61s (0:32:35)
+CORPUS_EXIT=0
+
+$ python corpus_gate.py
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  696.0s
+RESULT: GREEN
+GATE_EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py       tests/test_parser_detection_markers.py tests/test_count_semantics.py       tests/test_stated_counts.py -q
+241 passed, 1 warning in 6.87s
+GUARDS_EXIT=0
+
+$ python -m pytest tests/test_parser_conformance.py tests/test_parser_registry_entries.py       tests/test_releve_facturation.py tests/test_community_section_layouts.py -q
+929 passed in 3.33s                    # cross-product now 69 x 68 = 4,692
+EXIT=0
+```
+
+**`test_detect_sweep_stays_affordable_for_the_discovery_run` PASSED on this
+branch**, at 69 registrations, during a run in which eleven other Python
+processes were competing for the machine — the "under load" condition the
+batch-level STOP-THE-LINE describes. No A/B was needed and the constant was
+not touched. The registration was written to the JHA clean-once precedent
+(one normalization registered as registry data, compiled patterns) and given
+an ASCII fast path (U6b); measured over 196 archive documents it is 4.0% of
+the sweep, below `community_section` 8.1%, `cibc` 6.9%, `rbc_french` 6.5%,
+`rbc` 5.7% and `td_canada_french` 5.6%.
+
+### U6b. The ASCII fast path
+
+`_fold` is a per-character Python loop and a registry sweep runs it over
+every discovery document. NFKD is the identity on ASCII and no ASCII
+character combines, so the fold there is exactly `.upper()`, and
+`str.isascii` — a C-level flag check — is what says so. Applied AFTER the
+sign and mojibake normalizations, which are the only steps that could
+introduce a non-ASCII character. Equivalence is pinned as a test and was
+measured identical on all 196 probe documents.
+
+## U9. Commits
+
+```
+599c67c  UNKISSUER card 1: community_section publishes bank=None instead of refusing
+cf8bf8c  UNKISSUER card 2: register the French `Relevé de compte` template, bank=None
+4dff931  UNKISSUER: ASCII fast path in the template's fold (detect-sweep budget)
+```
+
+Base `707ba9e`. `main` moved to `229a3cd` during this cell's run; the two
+commits it gained are handoff documents only, no code, so the differentials
+above remain exact and the branch does not overlap them. Files touched:
+`analysis/community_section.py` (the issuer branch only),
+`analysis/releve_facturation.py` (new), `analysis/parser_registry_entries.py`
+(one new row), `tests/data/parser_conformance_fixtures.py` (one new fixture),
+`tests/test_releve_facturation.py` (new), `tests/test_community_section_layouts.py`,
+`tests/test_parser_conformance.py` and `tests/test_parser_registry_entries.py`
+(the 68 -> 69 pins). `analysis/desjardins.py`: zero diff.
