@@ -335,7 +335,7 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
                 "`stated_debit_count + 1 where the billed service charge was "
                 "RECOVERED AS A POSTING`. Note the second clause, which the "
                 "capital_one entry does not need: `_service_charge_posting` "
-                "returns nothing when the itemisation cannot be found (:490, "
+                "returns nothing when the itemisation cannot be found (:523, "
                 "and the module docstring names it as the one path that can "
                 "still fail reconciliation), so a charged document whose "
                 "charge was not located is +0, and a naive '+1 iff charged' "
