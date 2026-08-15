@@ -14703,3 +14703,436 @@ and pins, and they are the more important half:
    106 PASS / 3 WITHHELD and both classes sit inside PASS. The gate proves
    audited values reproduce; only the corpus-marked slice proves the outcome
    class did.
+
+---
+
+# §SCANA — the Fifth Third statement, photographed
+
+SCAN-A, 2026-08-15. Branch `wave4-scana`, base `ba13ec3` (main `ea8d8e8`, two handoff
+commits on). Batch 4 refill, SCAN-SCOUT card A.
+
+## SA0. Summary
+
+| | |
+|---|---|
+| Population | 4 distinct shas, all `scanned` / `failed` / unclaimed, named in the handoff |
+| Result | **4 / 4 validated**, from 0 / 4. Improved 4, regressed 0 |
+| Registrations added | none — `fifth_third` already existed; one detection marker and three readings widened |
+| Marker blast radius | the final markers claim **17 of 3,380** archive shas: the 13 `fifth_third` already claimed + these 4, and nothing else |
+| Family sweep | the 13 already-claimed documents are **byte-identical**, payload for payload |
+| Statement-specific constants added | none |
+| Protected modules touched | none |
+| Files changed | `analysis/fifth_third.py`, `tests/test_fifth_third.py`, `tests/data/parser_conformance_fixtures.py`, this log |
+| Truth-set movement | none — no pinned corpus document is in this family |
+
+The four documents are four consecutive months of one account, and that is
+worth saying first because it gives the cohort a fifth instrument the parser
+does not have: **each month's printed closing balance is the next month's
+printed opening balance**, across all four, with no gaps.
+
+```
+Jan  6F57BE08   5,745.44  ->  -1,159.85
+Feb  64A49584  -1,159.85  ->     502.89
+Mar  53906D0E     502.89  ->     213.65
+Apr  CDB8A6CC     213.65  ->   4,214.58
+```
+
+Nothing in the reader chains statements together. Three independent readings
+per document plus this chain across them is the reason the cohort is published
+rather than reviewed.
+
+## SA1. What was actually wrong
+
+Nothing about the *statement*. The `fifth_third` reader shipped in batch 3
+against thirteen electronic PDFs, and three of its assumptions turned out to be
+assumptions about the PDF rather than about the layout the bank prints.
+
+**1 — the print stream is furniture the FILE carries.** Detection required
+`FTCSTMT044 044 20260228 UDSPDFSTMT …`, described in the module as "the one
+piece of evidence no other issuer's document carries". True, and still true —
+but it is a print-stream header, not ink on the page, so a photograph of the
+identical statement has no trace of it. What the page itself prints is the
+product the statement names in its own `Account Type:` field. The census over
+all seventeen documents:
+
+```
+                                 print stream   Account Type: 5/3
+13 electronic (already claimed)        13              9
+ 4 scanned (this cohort)                0              4
+```
+
+Both branches are load-bearing. The four electronic documents that do not name
+a `5/3` product print `COMM'L 53 ANALYZED` instead and are held by the print
+stream; the four scans have no print stream and are held by the product line.
+Replacing the marker rather than widening it would have lost four documents.
+
+`issuer_domain` (`53.COM`) and `summary_block` (`ACCOUNT SUMMARY`) were **not**
+touched. Every one of the seventeen documents prints the domain in its page-one
+footer, so widening the issuer marker to accept the bank's *name* — which the
+prototype handed over did — would have bought nothing and spent the one thing
+this parser's detection is built to resist. The archive measures the cost:
+
+```
+documents naming FIFTH THIRD anywhere in their text ........... 60   (of the 3,367 with OCR text)
+  ... carrying 53.com too (the real family) ...................  5
+  ... naming the bank WITHOUT its domain ...................... 55
+      ... of which also print 'Account Summary' ...............  9
+          8 Bank of America statements (all validated as bank_of_america)
+          1 Bluevine statement
+```
+
+Those nine are one marker away from a wrong-parser claim, and a wrong parse
+that happens to reconcile is precisely what the conformance cross product
+exists to prevent. Only five of the seventeen real documents spell the bank's
+name out at all, so the name buys nothing even for the family it belongs to.
+**The marker set shipped here is strictly tighter than the prototype's**, and
+the fixture that isolates it carries both other markers, so the domain is the
+only thing withholding the claim (SA6).
+
+**2 — the summary's middle span could not cross a printed line.** The
+electronic PDF flattens the whole account summary onto one line; the scan
+prints one component per line:
+
+```
+03/01 Beginning Balance $502.89 Number of Days in Period 31
+9 Checks $(20,634.00)
+38 Withdrawals / Debits $(14,452.62)
+10 Deposits / Credits $34,797.38
+03/31 Ending Balance $213.65
+```
+
+`_SUMMARY_RE`'s middle group was `(.*?)` without `DOTALL`, so on a scan it
+never matched and `_summary` returned None. It now spans lines, **bounded at
+400 characters**. The bound is the point: an unbounded `[\s\S]*?` would let a
+beginning balance pair with an ending balance printed further down the
+document — a different account's, or a different period's. Measured, the widest
+summary the archive prints is 140 characters (13 electronic: 110–140; 4
+scanned: 114–133), so 400 is roughly three times the observed need and far
+short of the distance to any second summary block. A span that did reach a
+second block would additionally hit `_summary`'s existing duplicate-label
+refusal, which is a second, independent guard on the same failure.
+
+**3 — OCR speckle welds itself to printed numbers.** Two shapes, one per
+document:
+
+* `13. Deposits / Credits $23,960.46` (Feb). The full stop broke `(\d+)\s+`,
+  the count read as absent, and an amount with no count beside it is — by this
+  parser's deliberate rule — a summary it will not read. The count is now read
+  through the speck.
+* `1229%i 04/20 400.00` (Apr). A sequence-gap asterisk photographed as a
+  percent sign. `(?:\s*\*)?(?:\s*[is])?` did not admit it, the row was dropped,
+  and the cheque section then failed its own printed count.
+
+Both tolerances are absorbed **only where a second, independent printing of the
+same figure has to agree**, which is what makes them safe rather than
+convenient:
+
+* the component count read through the speck is still checked against the count
+  the section heading prints on its own line (`Deposits / Credits 13 items
+  totaling $23,960.46`) — instrument 2. A misread count refuses the document;
+  the tolerance never completes the summary from the heading. Pinned both ways:
+  `test_a_full_stop_welded_to_a_component_count_is_absorbed` and
+  `test_the_absorbed_count_is_still_read_off_the_summary_not_the_heading`.
+* the cheque row admitted through the glyph is still checked against the
+  section's printed count, the section's printed total (instrument 3) and the
+  printed daily-balance walk (instrument 4). April's own arithmetic is the
+  proof that the dropped row was real: without cheque 1229 the walk to
+  `04/20 (64.02)` is short by exactly 400.00.
+
+The glyph tolerance is written as a **shape** — up to two glyphs that are
+neither digits nor the date's own separator — not as a list of the
+substitutions one OCR engine happens to make. Two is the flag cluster the
+layout prints (`*i`, `*s`); a longer run is not a flag and is not admitted,
+which `test_the_glyph_tolerance_is_a_bounded_shape_not_an_open_gap` pins by
+making the section's printed count refuse the document when it is tried.
+
+## SA2. The marker blast radius — all 3,380 archive shas
+
+Mandatory before shipping any marker change, run with the **final** markers as
+registered, `safe_detect` against every distinct sha in the run of record
+(`2026-08-14T214345.671986-0000-d5c75ff6`), cached OCR opened by direct file
+path.
+
+```
+markers: [('print_product', 'required'), ('issuer_domain', 'required'), ('summary_block', 'required')]
+
+swept 3380 distinct shas (13 whose cached OCR artifact carries no pages — verified
+to be exactly the run's own 13 deferred documents) in 20s
+claimants by run-of-record parser_id: {'fifth_third': 13, '-': 4}
+TOTAL CLAIMED BY THE FINAL MARKERS: 17
+NEWLY REACHED (not already fifth_third's): 4
+
+  53906D0EFDB5A5362D29AF88A5D773882CBF19B40F7832EC43A6A2A9D3304035 scanned failed was=- score=0.50
+  64A4958471C2E1625B1918EADB97C4B491520BEF5A560AB5E8BA94835A3C7645 scanned failed was=- score=0.50
+  6F57BE0899494DF11BAFB67741430A5A3537C623421D2A746232EA02B93AF7BC scanned failed was=- score=0.50
+  CDB8A6CC9F8EFB5FAC151979BFA9141697595F9B46A88A623A2DB1D380DF8629 scanned failed was=- score=0.50
+
+near-misses (some but not all required markers), by matched set:
+   1189  ('summary_block',)      <- 'Account Summary' is a common heading and
+                                    nothing else; no document anywhere in the
+                                    archive matched two of the three.
+```
+
+Four newly reached, and they are exactly the four named in the handoff. No
+existing claim was lost (all 13 still claimed) and no registration outside this
+cell gained one. `pr.resolve` on each of the four returns a single candidate at
+0.50 — `claimed`, not `ambiguous`.
+
+**Nothing is left behind, either.** The other direction of the same sweep: 60
+documents in the archive contain the words FIFTH THIRD, and every one that is
+not in the seventeen is a counterparty mention in someone else's ledger —
+16 Shopify Balance statements filed under a folder labelled "Fifth Third Bank"
+and claimed by `shopify_balance` (the custodian-disclosure family, exactly as
+the parser's own test warns), 10 Bank of America, 7 Chase, 7 Huntington, 5
+American Express, 2 Bluevine, and 8 unidentified. Of the ten `failed`
+documents that name the bank, four are this cohort; the other six are payroll
+cards and statements with a Fifth Third ACH debit or ATM fee in their rows. And
+**no document that carries `53.com` is left unclaimed** — the domain marker
+partitions this archive perfectly.
+
+**Why the detection sweep plus the family sweep is the whole argument here.**
+`git diff --stat ba13ec3..HEAD -- analysis/` reports **one file changed, 63
+insertions and 7 deletions**, and all seven deleted lines are inside
+`fifth_third.py`'s own four regexes and one marker. No shared module was
+touched, so no other parser's code path can have moved, and the only documents
+whose payload can differ are the ones `fifth_third` detects. The sweep
+enumerates those exhaustively at 17: 13 proven byte-identical below, and 4 that
+had no result at all before.
+
+## SA3. Family sweep — the 13 already-claimed documents
+
+Every document the run of record attributes to `fifth_third`, run end to end
+through `analyze_markdown(parse_mode="deterministic")` → `report_to_dict` at the
+base commit and at HEAD, same harness, same D-3 reads, and the full payloads
+compared:
+
+```
+family sweep: 13 documents, 0 differing
+  11BDCC0D706E identical      837CDEEFC360 identical      AF793A6674A0 identical
+  37DFD4E9FD6C identical      87A7A2780418 identical      CAC26C9000F1 identical
+  4F3A4903E72E identical      8968CE345AE3 identical      D19D28E92682 identical
+  63AD3FCB33B4 identical      8A6954E73E9F identical      F9FC731888CA identical
+                                                          FFD3DF4E21CD identical
+```
+
+All 13 `validated/approved` before and after — which is also the instrument
+check: the run of record records all 13 as validated, and the harness
+reproduces that, so it is measuring what the runner measured.
+
+## SA4. The cohort, document by document
+
+All four `validated/approved`, all four reconciling exactly — `sum_delta 0.0`,
+credit and debit coverage `1.0`, `stated_credit_count_matches` and
+`stated_debit_count_matches` true, `continuity_breaks 0`, integrity flags
+empty, `corporate_use approved`, `level transaction_level`.
+
+| sha | period | begin → end | txns | cr | db | daily | ADB |
+|---|---|---|---|---|---|---|---|
+| `6F57BE08` | 2026-01 | 5,745.44 → −1,159.85 | 87 | 7,581.69 / 7 | 14,486.98 / 80 | 20 | 388.13 |
+| `64A49584` | 2026-02 | −1,159.85 → 502.89 | 77 | 23,960.46 / 13 | 22,297.72 / 64 | 17 | 1,134.71 |
+| `53906D0E` | 2026-03 | 502.89 → 213.65 | 57 | 34,797.38 / 10 | 35,086.62 / 47 | 15 | **−53.54** |
+| `CDB8A6CC` | 2026-04 | 213.65 → 4,214.58 | 56 | 35,257.39 / 5 | 31,256.46 / 51 | 17 | 2,185.11 |
+
+`account_name` is `None` on all four, and that is the honest reading rather
+than a gap. The scan prints `Account Type: 5/3 BUSINESS CKG` at the end of one
+line and `Account Number:` at the start of the next, in the next column, so the
+account-type field has no terminator to read up to; splicing across the break
+would capture the logo block's `FIFTH THIRD` as part of the product name.
+
+## SA5. The review point — `53906D0E` publishes ADB −53.54
+
+The handoff flagged this for corroboration against the printed daily balances
+before shipping. Corroborated, exactly.
+
+March runs overdrawn for most of the month. The document prints fifteen daily
+closes and the parser publishes all fifteen. Walking them with each close held
+until the next printed date, over the 31 days the summary itself states:
+
+```
+03/01   502.89 × 1        03/13  -2,676.28 × 3      03/23      10.09 × 3
+03/02    49.45 × 1        03/16    -989.41 × 1      03/26  -7,489.91 × 1
+03/03  -557.85 × 1        03/17    -406.89 × 2      03/27   3,855.46 × 3
+03/04  -594.85 × 2        03/19     950.77 × 1      03/30    -994.92 × 1
+03/06     8.59 × 5        03/20   1,684.40 × 3      03/31     213.65 × 1
+03/11    -2.41 × 2                                  ————————————————————
+                                                    31 days, sum -1,659.67
+                                                    -1,659.67 / 31 = -53.54
+```
+
+`daily_balance_sum` in the published payload is `-1659.67` and
+`average_daily_balance` is `-53.54`. The figure is the arithmetic of the
+bank's own printed closes, to the cent, and the parser had already been
+required to reproduce every one of those closes by walking its transactions
+(instrument 4) before it would publish anything. `min_balance -7,489.91` and
+`max_balance 3,855.46` are both printed on the page too.
+
+A negative average daily balance on an account that opened at 502.89 and closed
+at 213.65 looks wrong at a glance, which is exactly why it was flagged. It is
+right: the account spent most of March overdrawn, including one day at
+−7,489.91, and the printed balances say so.
+`test_an_overdrawn_scan_publishes_the_printed_daily_balances_it_averages` pins
+the shape.
+
+## SA6. Fixtures, and the mutation pass that rewrote two of them
+
+`tests/test_fifth_third.py` gains a scanned-layout section: a synthetic
+photograph of the same statement — no print stream, the summary broken one
+component per line, `1002%i` in the cheque grid — and one adversarial twin for
+every tolerance introduced. 36 tests in the file, up from 24. Plus the scanned
+branch's entry in `ALTERNATE_FIXTURES`, which the conformance suite runs as a
+detection-positive for the disjunctive marker.
+
+Then every change was mutated and the suite re-run. **Nine mutants, nine
+killed** — but only after two of them survived the first pass and the fixtures
+that should have caught them were rewritten:
+
+| mutant | verdict |
+|---|---|
+| drop the product-line branch of `print_product` | KILLED (7 failures) |
+| drop the print-stream branch of `print_product` | KILLED (14 failures) |
+| widen `issuer_domain` to the bank's NAME (the prototype's version) | **survived → fixture rewritten → KILLED** |
+| summary span back to single-line `(.*?)` | KILLED (5 failures) |
+| summary span unbounded `[\s\S]*?` | KILLED |
+| drop the component full-stop tolerance | KILLED |
+| cheque row back to the literal `(?:\s*\*)?(?:\s*[is])?` list | KILLED (5 failures) |
+| cheque glyph run unbounded `*` | **survived → fixture rewritten → KILLED** |
+| cheque glyph run widened to `{0,3}` | KILLED |
+
+The two survivors are worth recording because both were tests that *looked*
+like they pinned the rule:
+
+* **the glyph bound.** The fixture printed the over-long-gap cheque on `03/06`,
+  a day the daily summary does not print — so instrument 4 refused it and the
+  bound was never consulted. Rewritten so that every other instrument agrees
+  with the row (the summary closes, both printings say three cheques totalling
+  $35.00, the walk lands on every printed close): the shape of the gap is now
+  the only thing that can refuse it. A twin asserts the same document IS read
+  when the gap is a real two-glyph flag cluster, so a quietly widened bound
+  cannot look tested either.
+* **the issuer marker.** The counter-example fixture carried neither of the
+  other two markers, so loosening `issuer_domain` changed nothing about it.
+  Rewritten to carry both — and renamed
+  `test_the_issuers_domain_is_what_holds_the_widened_marker_set_together`,
+  because that is what it now tests — leaving the domain as the single
+  withholding piece of evidence.
+
+Neither defect would have shown up in any other proof. Recording it because
+the general lesson is the one this wave keeps re-learning: a test that only
+demonstrates the rule working cannot fail when someone simplifies it away.
+
+## SA7. Proofs
+
+Every command run in the worktree at the final commit, sequentially, exit codes
+verbatim. **One red**, and it is the batch-level item Ocean flagged mid-cell:
+`test_detect_sweep_stays_affordable_for_the_discovery_run` fails on BASE too,
+under the load of several cells' suites running at once. A/B'd below per
+Ocean's instruction; the constant is not raised here.
+
+```
+All run in the worktree at 339b6a3, sequentially, on a machine also running
+other cells' suites (which the affordability item below turns out to matter to).
+
+$ python -m pytest -q                                   # full default suite
+3782 passed, 18 deselected, 1 warning in 257.19s
+EXIT=0
+
+$ python -m pytest -m corpus -q                         # the corpus-marked slice
+1 failed, 13 passed, 3786 deselected, 1 warning in 1945.06s (0:32:25)
+FAILED tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run
+  AssertionError: slowest full-registry detect sweep was 307.3 ms
+  assert 0.3073454999976093 < 0.25
+EXIT=1     <- the known batch-level item; base-vs-branch A/B below
+
+$ python corpus_gate.py
+[PASS] inventory / foreign_files / source_integrity / balance_audit / adb_audit
+[PASS] balance_outcomes: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes:     106 pass, 3 withheld, same three statements
+[PASS] ocr_coverage / exclusions / oracle_independence
+Outcomes: 106 PASS / 3 WITHHELD          Runtime: 679.3s
+RESULT: GREEN
+EXIT=0
+
+$ python -m pytest tests/test_fifth_third.py -q
+36 passed in 0.39s
+EXIT=0
+
+$ python -m pytest tests/test_parser_conformance.py tests/test_parser_registry.py \
+      tests/test_parser_registry_entries.py -q          # conformance cross-product
+872 passed in 2.80s
+EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+      tests/test_no_parser_helper_clones.py tests/test_filename_boundary.py \
+      tests/test_parser_exception_boundary.py -q        # guards
+259 passed, 1 warning in 21.90s
+EXIT=0
+
+# THE ONE RED, A/B'd — analysis/fifth_third.py swapped base<->branch in place,
+# three interleaved pairs, same process, same machine, same load. The test's own
+# measurement, plus fifth_third's share of it so the branch's contribution is
+# separable from the load the machine is under.
+BASE     registrations=68 docs=109 worst_sweep= 302.2 ms  mean_sweep= 83.6 ms  mean_fifth_third= 0.788 ms  share= 0.94%
+BRANCH   registrations=68 docs=109 worst_sweep= 311.5 ms  mean_sweep= 81.3 ms  mean_fifth_third= 0.792 ms  share= 0.97%
+BASE     registrations=68 docs=109 worst_sweep= 260.5 ms  mean_sweep= 71.3 ms  mean_fifth_third= 0.667 ms  share= 0.94%
+BRANCH   registrations=68 docs=109 worst_sweep= 293.0 ms  mean_sweep= 82.5 ms  mean_fifth_third= 0.829 ms  share= 1.01%
+BASE     registrations=68 docs=109 worst_sweep= 297.9 ms  mean_sweep= 83.5 ms  mean_fifth_third= 0.806 ms  share= 0.97%
+BRANCH   registrations=68 docs=109 worst_sweep= 315.3 ms  mean_sweep= 82.9 ms  mean_fifth_third= 0.852 ms  share= 1.03%
+
+BASE fails the 250 ms budget on its own, on all three runs (260-302 ms), which is
+what makes this pre-existing rather than this cell's. The branch adds +0.07 ms per
+document to fifth_third's own detect (0.754 -> 0.824 ms mean over three pairs) —
+0.09% of an 82 ms sweep, an order of magnitude inside the 42 ms run-to-run spread
+of BASE alone. Marked a known batch-level item under central triage (DETECT-BUDGET
+owns the structural fix); the constant is NOT raised here.
+
+# DETECTOR-CHEAPNESS OF THE MARKER CHANGE, as required
+Both alternatives are module-level compiled patterns; the added one is evaluated
+only when the print stream misses (short-circuit `or`); `detection_text` is
+untouched, so the one `.upper()` per document that `make_detector` already applied
+is still applied once per document and not once per marker. The change adds one
+compiled-regex search to one registration, and the numbers above are what that costs.
+```
+
+## SA8. Commits
+
+| Commit | Contents |
+|---|---|
+| `a0c86f7` | the scanned issue — detection, the bounded summary span, the two speck tolerances, and the scanned-layout fixtures |
+| `339b6a3` | mutation-kill the two fixtures that were passing for the wrong reason |
+| (this one) | §SCANA SA0–SA9 |
+
+## SA9. Carried findings for Ocean
+
+1. **Three cheque descriptions carry an OCR-degraded number.** On `53906D0E`,
+   `Check 11943` and `Check 11971` are the printed `1194 s` and `1197 i` with
+   the flag glyph welded onto the number; on `CDB8A6CC`, `Check 12271` is
+   `1227 i` and `Check 0000` is a cheque number the scan could not resolve at
+   all. **No financial field is affected** — the counts, the per-section totals
+   and the daily walk are exact on all four documents, which is how we know
+   these are real cheques and not phantoms. It is the *description* that is
+   degraded. Widening the flag tolerance to strip a trailing digit would be
+   guessing at which digit is the flag, and this cell will not guess. Named
+   because a reviewer reading the transaction list will see it.
+2. **A scanned `COMM'L 53 ANALYZED` statement would still not be reached.**
+   The product-line branch keys on the `5/3` shorthand. The four documents that
+   print the other product name are all electronic and are held by the print
+   stream. No such scan exists in the archive; if one appears it fails closed,
+   which is correct, and the fix is a one-line widening with its own blast
+   radius measured.
+3. **`ALTERNATE_FIXTURES` still has no negative cross product.** This cell adds
+   the scanned branch's fixture to it, and the conformance suite proves
+   `fifth_third` claims it — but not that nobody else does. That gap is the
+   already-recorded RC8.9 follow-up card; naming it again because this cell
+   just added another entry to a dictionary the cross product does not read.
+4. **The detect-sweep affordability red is BASE's, and this cell's share of it
+   is 0.09%.** A/B in SA7: base fails the 250 ms budget on all three
+   interleaved runs (260–302 ms), and the branch adds 0.07 ms per document to
+   `fifth_third`'s own detect — an order of magnitude inside base's own
+   run-to-run spread. Both marker alternatives are module-level compiled
+   patterns, the added one short-circuits behind the print stream, and
+   `detection_text` is untouched, so the per-document `.upper()` is still paid
+   once per document rather than once per marker. Constant NOT raised;
+   DETECT-BUDGET owns the structural fix.
+5. **No `ANALYSIS_STAGE_VERSION` implication of its own.** This cell publishes
+   four documents that previously published nothing and leaves thirteen
+   byte-identical. The bump is Ocean's at merge as always.
