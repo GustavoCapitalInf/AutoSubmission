@@ -19,6 +19,10 @@ from pathlib import Path
 #: telemetry, and this stays correct when it grows.
 DEFERRED_CLASS = "deferred"
 
+#: The folder-agreement class for a claim that names no issuer. See
+#: `folder_agreement` — and read its warning before touching this.
+TEMPLATE_CLAIM = "template_claim"
+
 
 def _normalise(label: str) -> str:
     return "".join(character for character in label.lower() if character.isalnum())
@@ -40,15 +44,49 @@ def folder_agreement(row) -> str:
     3,506 archive documents that fiction would be the headline number. So the
     runner reports the bucket, ranks the distinct (folder -> parser) pairs by
     volume, and leaves the judgement to a human who resolves each pair once.
+
+    `template_claim` is the second thing that bucket was carrying, and it is
+    not a string-matching limitation at all — it is a CATEGORY ERROR. The
+    honest-unknown-issuer registrations (§U) claim a document TEMPLATE, not a
+    bank: they are registered under a template name ("Releve de Compte
+    Statement Template", "Core Processor Sectioned Platform") and they publish
+    `Statement.bank = None` on purpose, because the paper names no issuer. A
+    claim that names no issuer cannot agree or disagree with a folder's bank
+    label; there is nothing on the claim side to compare. Measured on the run
+    of record (`c924d751`): 41 claims publish no issuer, and all 41 come from
+    the four template registrations — no bank-specific parser is in the set —
+    so the fact ("the claim carries no issuer") and the class ("this is a
+    template claim") coincide exactly. The pairs are still ranked and printed,
+    so a bank-specific parser arriving in this bucket is visible rather than
+    absorbed.
+
+    **THIS BUCKET MUST NOT BE "FIXED" (§U D3, verbatim in substance).** The
+    obvious way to make the six `Desjardins -> releve_facturation` entries
+    disappear is to name the registration after the folder it is filed under.
+    Never do that. §U4.1's evidence forbids it and
+    `tests/test_parser_detection_markers.py` exists to prevent it: the other
+    ten documents of that same template sit in `Unidentified/` and are not
+    Desjardins paper at all. The rollup is reporting a true fact — statements
+    filed under a bank name that appears nowhere in them — and re-labelling a
+    parser to silence a rollup would put the folder's guess into the registry
+    as if it were evidence.
+
+    Order is load-bearing. `unlabelled_folder` is tested first because it is a
+    statement about the REFERENCE side (the analyst filed this under nothing
+    usable) and it already exempts those documents; `template_claim` is tested
+    before the containment match because a template name that happened to be
+    contained in a folder name would otherwise be reported as `agree` —
+    manufacturing a detection-accuracy datum out of a coincidence, which is
+    the same failure this docstring opens with, in the other direction.
     """
     if not row.parser_id:
         return "no_claim"
     folder = _normalise(row.folder_label)
     if not folder or folder in {"root", "misc", "others", "unidentified"}:
         return "unlabelled_folder"
-    candidates = {_normalise(row.parser_id)}
-    if row.statement_bank:
-        candidates.add(_normalise(row.statement_bank))
+    if not row.statement_bank:
+        return TEMPLATE_CLAIM
+    candidates = {_normalise(row.parser_id), _normalise(row.statement_bank)}
     for candidate in candidates:
         if candidate and (candidate in folder or folder in candidate):
             return "agree"
@@ -65,18 +103,47 @@ class Rollups:
 
 def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
               cache_stats: dict | None = None) -> dict:
+    # Imported here, not at module scope: the runner owns the row vocabulary
+    # (as it owns `visual_rung`'s), and pulling `analysis.pipeline` in behind
+    # every `import discovery.report` to read one string constant is a cost the
+    # rollups do not need to impose on their readers.
+    from .runner import PARSER_ID_LIVE_DETECT
+
     total = len(rows)
     processed = [r for r in rows if r.outcome_class != DEFERRED_CLASS]
     deferred = [r for r in rows if r.outcome_class == DEFERRED_CLASS]
 
-    # A document served from the D-3 analysis cache never re-dispatched, so it
-    # has no parser verdict this run. Counting those as "unclaimed" would be a
-    # lie with consequences: on a re-run every folder would be reported as an
-    # unknown-layout cluster and coverage would read ~0%. Coverage is therefore
-    # computed over documents that actually dispatched, and the cached ones are
-    # reported as their own line. `--no-cache` forces a full re-dispatch.
+    # A document served from the D-3 analysis cache never re-dispatched.
+    # Counting those as "unclaimed" would be a lie with consequences (on a
+    # re-run every folder would read as an unknown-layout cluster and coverage
+    # as ~0%), so they used to be excluded from the denominator entirely and
+    # reported as their own line. That was honest and blind: on a warm run the
+    # excluded set is most of the archive, and every parser-keyed rollup here
+    # silently lost it.
+    #
+    # Since §DISCOBS the runner RECONSTRUCTS the identity of a cache-served row
+    # from a live detection sweep and marks it `parser_id_source=live_detect`,
+    # so those rows carry a verdict again and belong in the denominator. The
+    # two lines below keep the distinction visible rather than assuming it away:
+    #
+    #   `dispatch_cached`      — verdicts reconstructed, not observed. The name
+    #                            is now exact: it is the analysis-cache-served
+    #                            set and nothing else.
+    #   `dispatch_unavailable` — processed documents with NO verdict at all,
+    #                            because the analysis stage never ran for them
+    #                            (invalid PDF, OCR failure). These were
+    #                            previously counted as "served from cache",
+    #                            which they never were.
     dispatched = [r for r in processed if r.dispatch_outcome]
-    cached_dispatch = len(processed) - len(dispatched)
+    cached_dispatch = sum(
+        1 for r in dispatched
+        if getattr(r, "parser_id_source", "") == PARSER_ID_LIVE_DETECT
+    )
+    unavailable_dispatch = len(processed) - len(dispatched)
+    identity_source = Counter(
+        getattr(r, "parser_id_source", "") for r in processed
+        if getattr(r, "parser_id_source", "")
+    )
     dispatch = Counter(r.dispatch_outcome for r in dispatched)
     outcome = Counter(r.outcome_class for r in processed)
     reasons = Counter(r.outcome_reason for r in processed)
@@ -133,6 +200,19 @@ def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
         {"folder": folder, "parser": parser, "documents": count}
         for (folder, parser), count in unmatched_pairs.most_common()
     ]
+    # The same ranking for the template class, and for the same reason: it is
+    # reported, never resolved by renaming a parser after a folder. Printing
+    # the pairs is also what keeps the class honest — the rule that fills it is
+    # "the claim published no issuer", so a bank-specific parser that ever
+    # lands here is on the page instead of inside a bucket total.
+    template_pairs = Counter(
+        (r.folder_label, r.parser_id)
+        for r in dispatched if folder_agreement(r) == TEMPLATE_CLAIM
+    )
+    template_claims = [
+        {"folder": folder, "parser": parser, "documents": count}
+        for (folder, parser), count in template_pairs.most_common()
+    ]
 
     return {
         "run_id": run_id,
@@ -143,6 +223,8 @@ def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
         "deferred_reasons": dict(Counter(r.outcome_reason for r in deferred)),
         "dispatched": len(dispatched),
         "dispatch_cached": cached_dispatch,
+        "dispatch_unavailable": unavailable_dispatch,
+        "parser_id_source": dict(identity_source.most_common()),
         "deterministic_coverage": (claimed / len(dispatched)) if dispatched else 0.0,
         "dispatch": dict(dispatch),
         "outcome": dict(outcome),
@@ -152,6 +234,7 @@ def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
         "source_path": dict(source_path),
         "folder_agreement": dict(agreement),
         "label_unmatched_pairs": label_unmatched[:50],
+        "template_claim_pairs": template_claims[:50],
         "parsers": dict(parsers.most_common()),
         "folders": dict(folders.most_common()),
         "unknown_layout_clusters": dict(unknown_clusters.most_common()),
@@ -219,7 +302,13 @@ def render_report(summary: dict) -> str:
     if summary.get("dispatch_cached"):
         lines.append(
             f"  served from cache       {summary['dispatch_cached']:>7}"
-            "   (no dispatch this run; --no-cache to re-dispatch)"
+            "   (identity re-derived by detect, not re-dispatched; --no-cache"
+            " to re-dispatch)"
+        )
+    if summary.get("dispatch_unavailable"):
+        lines.append(
+            f"  no dispatch record      {summary['dispatch_unavailable']:>7}"
+            "   (the analysis stage never ran for these)"
         )
     for key in ("ambiguous", "unclaimed", "parser_exception") if not profile_only else ():
         if key in summary["dispatch"]:
@@ -250,6 +339,11 @@ def render_report(summary: dict) -> str:
         for key, count in summary["visual_rung"].items():
             lines.append(_bar(key, count, total))
 
+    if summary.get("parser_id_source"):
+        lines.append("parser identity, by how it was established")
+        for key, count in summary["parser_id_source"].items():
+            lines.append(_bar(key, count, processed))
+
     if summary["folder_agreement"]:
         lines.append("parser claim vs folder label")
     for key, count in sorted(summary["folder_agreement"].items(), key=lambda kv: (-kv[1], kv[0])):
@@ -258,6 +352,14 @@ def render_report(summary: dict) -> str:
         lines.append(
             f"    unmatched: {entry['folder']} -> {entry['parser']}"
             f"   ({entry['documents']} document(s))"
+        )
+    # Printed under its own heading, not folded in above: these are NOT
+    # unmatched labels, and the one thing a reader must not do with them is
+    # rename the parser after the folder (see `folder_agreement`).
+    for entry in summary.get("template_claim_pairs", [])[:15]:
+        lines.append(
+            f"    template claim (no issuer printed): {entry['folder']} ->"
+            f" {entry['parser']}   ({entry['documents']} document(s))"
         )
 
     if summary["unknown_layout_clusters"]:
@@ -308,6 +410,7 @@ ROW_FIELDS = [
     "encrypted", "classification", "page_count", "likely_account_count",
     "dedup_status", "duplicate_of", "source_path", "source_model",
     "truncated_pages", "parser_id", "parser_score", "dispatch_outcome",
+    "parser_id_source",
     "candidates", "attempted", "near_miss", "parser_exceptions",
     "outcome_class", "outcome_reason", "error_type",
     "statement_bank", "account_last4", "cache_ocr", "cache_analysis",

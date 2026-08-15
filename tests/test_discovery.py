@@ -41,6 +41,9 @@ from discovery.runner import (
     MODE_DIGITAL,
     MODE_DRY_RUN,
     MODE_PROFILE_ONLY,
+    PARSER_ID_LIVE_DETECT,
+    PARSER_ID_LIVE_DISPATCH,
+    PARSER_ID_UNAVAILABLE,
     DiscoveryRunner,
     DocumentRow,
 )
@@ -327,32 +330,246 @@ def _row(**kwargs) -> DocumentRow:
 
 
 def test_folder_agreement_buckets():
-    assert folder_agreement(_row(folder_label="Chase", parser_id="chase")) == "agree"
+    assert folder_agreement(
+        _row(folder_label="Chase", parser_id="chase", statement_bank="Chase")) == "agree"
     assert folder_agreement(
         _row(folder_label="Others", parser_id="altana")) == "unlabelled_folder"
     assert folder_agreement(_row(parser_id=None)) == "no_claim"
     # An abbreviation is UNMATCHED, not a disagreement: naming it "disagree"
     # would manufacture a detection-accuracy problem out of string matching.
     assert folder_agreement(
-        _row(folder_label="BofA", parser_id="bank_of_america")) == "label_unmatched"
+        _row(folder_label="BofA", parser_id="bank_of_america",
+             statement_bank="Bank of America")) == "label_unmatched"
 
 
 def test_cached_rows_do_not_count_as_unclaimed():
     """Regression: a re-run served from the D-3 analysis cache re-dispatches
     nothing, and counting those as unclaimed reported ~0% coverage and turned
-    every folder into an 'unknown-layout cluster'."""
+    every folder into an 'unknown-layout cluster'.
+
+    Since §DISCOBS the cache-served row carries a RECONSTRUCTED verdict, so it
+    is inside the denominator and marked `live_detect` — the two facts this
+    asserts together, because either alone is a different report.
+    """
     rows = [
-        _row(dispatch_outcome="claimed", parser_id="chase", outcome_class="validated",
-             outcome_reason="approved"),
-        _row(dispatch_outcome=None, outcome_class="validated", outcome_reason="approved",
+        _row(dispatch_outcome="claimed", parser_id="chase", statement_bank="Chase",
+             parser_id_source=PARSER_ID_LIVE_DISPATCH,
+             outcome_class="validated", outcome_reason="approved"),
+        _row(dispatch_outcome="claimed", parser_id="chase", statement_bank="Chase",
+             parser_id_source=PARSER_ID_LIVE_DETECT,
+             outcome_class="validated", outcome_reason="approved",
              cache_analysis="hit"),
     ]
     summary = summarize(rows, mode=MODE_DIGITAL, run_id="r")
-    assert summary["dispatched"] == 1
+    assert summary["dispatched"] == 2
     assert summary["dispatch_cached"] == 1
+    assert summary["dispatch_unavailable"] == 0
     assert summary["deterministic_coverage"] == 1.0
     assert summary["unknown_layout_clusters"] == {}
-    assert "served from cache" in render_report(summary)
+    assert summary["parsers"] == {"chase": 2}
+    assert summary["parser_id_source"] == {
+        PARSER_ID_LIVE_DISPATCH: 1, PARSER_ID_LIVE_DETECT: 1,
+    }
+    rendered = render_report(summary)
+    assert "served from cache" in rendered
+    assert "parser identity, by how it was established" in rendered
+
+
+def test_a_row_that_never_reached_analysis_is_not_reported_as_cache_served():
+    """`dispatch_cached` used to be `processed - dispatched`, which swept in
+    every document the analysis stage never ran for — 17 invalid PDFs on the
+    run of record, printed as "served from cache; --no-cache to re-dispatch".
+    They were never in the cache and re-dispatching them changes nothing."""
+    rows = [
+        _row(dispatch_outcome="claimed", parser_id="chase", statement_bank="Chase",
+             parser_id_source=PARSER_ID_LIVE_DISPATCH,
+             outcome_class="validated", outcome_reason="approved"),
+        _row(outcome_class="failed", outcome_reason="invalid_pdf"),
+    ]
+    summary = summarize(rows, mode=MODE_DIGITAL, run_id="r")
+    assert summary["dispatch_cached"] == 0
+    assert summary["dispatch_unavailable"] == 1
+    rendered = render_report(summary)
+    assert "served from cache" not in rendered
+    assert "no dispatch record" in rendered
+
+
+# ---------------------------------------------------------------------------
+# §DISCOBS: the cache-hit identity hole
+# ---------------------------------------------------------------------------
+
+def test_a_template_claim_is_not_a_label_disagreement():
+    """§U D3. The honest-unknown-issuer registrations claim a document
+    TEMPLATE and publish `Statement.bank = None`; comparing a template name to
+    a folder's bank name is a category error, not a disagreement. Reported in
+    its own class, with the pairs printed — and never "fixed" by renaming the
+    parser after the folder."""
+    template = _row(folder_label="Desjardins", parser_id="releve_facturation",
+                    dispatch_outcome="claimed", statement_bank=None,
+                    parser_id_source=PARSER_ID_LIVE_DISPATCH,
+                    outcome_class="validated", outcome_reason="approved")
+    unmatched = _row(folder_label="BofA", parser_id="bank_of_america",
+                     dispatch_outcome="claimed", statement_bank="Bank of America",
+                     parser_id_source=PARSER_ID_LIVE_DISPATCH,
+                     outcome_class="validated", outcome_reason="approved")
+    assert folder_agreement(template) == "template_claim"
+    assert folder_agreement(unmatched) == "label_unmatched"
+
+    summary = summarize([template, unmatched], mode=MODE_DIGITAL, run_id="r")
+    assert summary["folder_agreement"] == {"template_claim": 1, "label_unmatched": 1}
+    assert summary["template_claim_pairs"] == [
+        {"folder": "Desjardins", "parser": "releve_facturation", "documents": 1}
+    ]
+    # The template pair is NOT in the unmatched ranking an adjudicator works.
+    assert summary["label_unmatched_pairs"] == [
+        {"folder": "BofA", "parser": "bank_of_america", "documents": 1}
+    ]
+    rendered = render_report(summary)
+    assert "template claim (no issuer printed): Desjardins -> releve_facturation" in rendered
+    assert "unmatched: BofA -> bank_of_america" in rendered
+
+
+def test_an_unlabelled_folder_still_wins_over_the_template_class():
+    """Order is load-bearing: `unlabelled_folder` is a fact about the
+    REFERENCE side and already exempts those documents. 35 of the run of
+    record's 41 no-issuer claims sit in `Unidentified/` and stay there."""
+    row = _row(folder_label="Unidentified", parser_id="balance_by_date",
+               dispatch_outcome="claimed", statement_bank=None)
+    assert folder_agreement(row) == "unlabelled_folder"
+
+
+def test_a_template_name_that_matches_a_folder_is_still_not_agreement():
+    """A claim that names no issuer cannot AGREE either. Without the ordering,
+    a folder whose name happens to contain the template's id would be counted
+    as a detection-accuracy datum, which is the same fiction the docstring
+    opens with, running the other way."""
+    row = _row(folder_label="Balance By Date", parser_id="balance_by_date",
+               dispatch_outcome="claimed", statement_bank=None)
+    assert folder_agreement(row) == "template_claim"
+
+
+def test_the_projection_names_the_parser_resolve_would_have_named():
+    """The whole cache-hit projection rests on this equivalence: after
+    `supersedes` pruning a detection sweep has exactly one survivor iff
+    `resolve` claimed, and that survivor is the parser of record. Proven
+    against `resolve` itself over a synthetic registry with a supersedes edge,
+    so no bank's real code is involved."""
+    from analysis import parser_registry as pr
+    from discovery.runner import _sole_surviving_claimant
+    from telemetry import score_vector
+
+    saved = dict(pr._REGISTRY)
+    pr.clear_registry()
+    try:
+        pr.register(pr.Registration(
+            id="broad", bank="Broad Platform",
+            markers=(pr.required("any", lambda md: "LEDGER" in md),),
+            parse=lambda md: None,
+        ))
+        pr.register(pr.Registration(
+            id="narrow", bank="Narrow Bank", band=10,
+            supersedes=frozenset({"broad"}),
+            markers=(pr.required("narrow", lambda md: "NARROW" in md),),
+            parse=lambda md: None,
+        ))
+        pr.register(pr.Registration(
+            id="rival", bank="Rival Bank",
+            markers=(pr.required("rival", lambda md: "RIVAL" in md),),
+            parse=lambda md: None,
+        ))
+
+        # One claimant.
+        scores, _ = score_vector("LEDGER")
+        assert _sole_surviving_claimant(scores) == ("broad", 0.5)
+        assert pr.resolve("LEDGER").candidates == (("broad", 0.5),)
+
+        # Two claimants, one superseded: the survivor is the narrow one, and
+        # `resolve` agrees it is not ambiguous.
+        scores, _ = score_vector("LEDGER NARROW")
+        assert _sole_surviving_claimant(scores) == ("narrow", 0.5)
+        assert pr.resolve("LEDGER NARROW").candidates == (("narrow", 0.5),)
+
+        # Two unrelated claimants: ambiguous, so there is nothing to name and
+        # the projection must refuse rather than pick the first.
+        scores, _ = score_vector("LEDGER RIVAL")
+        assert _sole_surviving_claimant(scores) is None
+        assert pr.resolve("LEDGER RIVAL").outcome == "ambiguous"
+
+        # Nothing claims.
+        scores, _ = score_vector("nothing here")
+        assert _sole_surviving_claimant(scores) is None
+    finally:
+        pr.clear_registry()
+        pr._REGISTRY.update(saved)
+
+
+def test_a_cache_served_row_recovers_its_identity_and_says_how(
+    tree: Path, tmp_path: Path
+):
+    """End to end, through a real D-3 cache in `tmp_path`.
+
+    The first pass dispatches live; the second is served from the analysis
+    cache and used to carry NO parser_id, NO score and NO dispatch outcome —
+    the hole that shortened COUNTS-P3's denominators. The projected row now
+    reproduces the live one field for field, and is MARKED as reconstructed so
+    the instrument can still tell the two apart.
+    """
+    from webapp.artifact_cache import open_cache
+
+    cache = open_cache(tmp_path / "cache")
+    runner = DiscoveryRunner(tree, mode=MODE_DIGITAL, run_id="t", sink=None,
+                             cache=cache, dedup=DedupIndex())
+
+    live = runner.process("BankX/statement.pdf", "BankX")
+    assert live.cache_analysis == "miss"
+    assert live.parser_id_source == PARSER_ID_LIVE_DISPATCH
+    assert live.parser_id == "chase"
+
+    warm = runner.process("BankX/again.pdf", "BankX")
+    assert warm.cache_analysis == "hit"
+    assert warm.parser_id_source == PARSER_ID_LIVE_DETECT
+    assert warm.parser_id == live.parser_id
+    assert warm.parser_score == live.parser_score
+    assert warm.dispatch_outcome == live.dispatch_outcome == "claimed"
+    assert warm.candidates == live.candidates
+    assert warm.outcome_class == live.outcome_class
+    assert warm.statement_bank == live.statement_bank
+    # Not reconstructed, and not faked either: a detect-stage crash in some
+    # other registration is not recoverable from a score vector.
+    assert warm.attempted == [] and warm.parser_exceptions == []
+
+    write_rows(tmp_path / "rows.csv", [live, warm])
+    written = list(csv.DictReader((tmp_path / "rows.csv").open(encoding="utf-8")))
+    assert set(written[0]) == set(ROW_FIELDS)
+    assert [r["parser_id_source"] for r in written] == [
+        PARSER_ID_LIVE_DISPATCH, PARSER_ID_LIVE_DETECT
+    ]
+
+
+def test_a_cached_payload_whose_detection_is_inconclusive_names_no_parser():
+    """Fail-closed. The invariant behind the projection (a deterministic-mode
+    payload implies exactly one surviving claimant) can only break if a cached
+    artifact outlived a registry change without an ANALYSIS_STAGE_VERSION
+    bump. That is a finding, not a licence to pick a parser."""
+    from discovery.runner import _project_identity
+
+    row = _row()
+    source = _project_identity(row, [("a", 0.9), ("b", 0.9)], {"model_used": "x"})
+    assert source == PARSER_ID_UNAVAILABLE
+    assert (row.parser_id, row.parser_score, row.dispatch_outcome) == (None, None, None)
+
+
+def test_a_structurer_payload_projects_no_parser():
+    """W3-3c is the one branch that publishes a payload with no parser behind
+    it. Opt-in and off, but the projection must not name the parser whose
+    detection happened to be the loudest on a document nothing claimed."""
+    from analysis.structurer import STRUCTURER_MODEL
+    from discovery.runner import _project_identity
+
+    row = _row()
+    source = _project_identity(row, [("chase", 0.9)], {"model_used": STRUCTURER_MODEL})
+    assert source == PARSER_ID_UNAVAILABLE
+    assert row.parser_id is None
 
 
 def test_deferred_documents_are_outside_the_coverage_denominator():
@@ -508,6 +725,74 @@ def test_dry_run_reproduces_known_truth():
         expected = entry["variant_id"] or entry["parser_id"]
         assert rows[entry["path"]].parser_id == expected, entry["path"]
         assert rows[entry["path"]].content_sha256 == entry["sha256"]
+
+    # `use_cache=False`, so every one of the 109 verdicts is OBSERVED. Nothing
+    # in this gate may be a reconstruction (§DISCOBS).
+    assert summary["parser_id_source"] == {PARSER_ID_LIVE_DISPATCH: 109}
+    assert summary["dispatch_cached"] == 0
+    assert summary["dispatch_unavailable"] == 0
+
+
+@pytest.mark.corpus
+def test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered(tmp_path: Path):
+    """§DISCOBS, the acceptance proof, at the scale this repository can run.
+
+    The same 109 documents twice through a private D-3 cache: cold, then warm.
+    The warm pass re-dispatches nothing — that is what the cache is for — and
+    before this cell every one of its rows lost its parser, its score and its
+    dispatch outcome, so the coverage metric read 0/0 and every parser-keyed
+    rollup was empty. The warm pass must now reproduce the cold one EXACTLY
+    (the outcome split, the coverage rate, the parser ranking, the
+    folder-agreement rollup and the per-document identity), differing in
+    exactly one place: the provenance mark that says the verdicts were
+    reconstructed rather than observed.
+    """
+    from webapp.artifact_cache import open_cache
+
+    # A PRIVATE cache in tmp_path: the shared `webapp_data` store is read-only
+    # to a proof, and `discovery.cli.run(use_cache=True)` would open it.
+    inventory = enumerate_root(CORPUS)
+    paths = list(inventory.pinned)
+    assert len(paths) == 109
+
+    def pass_(cache):
+        runner = DiscoveryRunner(CORPUS, mode=MODE_DRY_RUN, run_id="warm-proof",
+                                 sink=None, cache=cache,
+                                 dedup=DedupIndex.with_pinned_corpus())
+        rows = [
+            runner.process(path, inventory.folder_label(path),
+                           disk_relative_path=inventory.disk_spelling(path))
+            for path in paths
+        ]
+        return rows, summarize(rows, mode=MODE_DRY_RUN, run_id="warm-proof")
+
+    cache = open_cache(tmp_path / "cache")
+    cold_rows, cold = pass_(cache)
+    warm_rows, warm = pass_(cache)
+
+    assert {r.cache_analysis for r in cold_rows} == {"miss"}
+    assert {r.cache_analysis for r in warm_rows} == {"hit"}
+    assert cold["parser_id_source"] == {PARSER_ID_LIVE_DISPATCH: 109}
+    assert warm["parser_id_source"] == {PARSER_ID_LIVE_DETECT: 109}
+
+    for key in ("outcome", "reasons", "dispatch", "dispatched",
+                "deterministic_coverage", "parsers", "folder_agreement",
+                "label_unmatched_pairs", "template_claim_pairs",
+                "unknown_layout_clusters", "declined_clusters"):
+        assert warm[key] == cold[key], key
+    assert warm["outcome"] == {"validated": 100, "review": 6, "withheld": 3}
+    assert warm["deterministic_coverage"] == 1.0
+
+    cold_by_path = {r.relative_path: r for r in cold_rows}
+    for row in warm_rows:
+        reference = cold_by_path[row.relative_path]
+        assert row.parser_id == reference.parser_id, row.relative_path
+        assert row.parser_score == reference.parser_score, row.relative_path
+        assert row.dispatch_outcome == reference.dispatch_outcome
+        assert row.candidates == reference.candidates
+        assert row.statement_bank == reference.statement_bank
+        assert row.outcome_class == reference.outcome_class
+        assert row.outcome_reason == reference.outcome_reason
 
 
 # ---------------------------------------------------------------------------

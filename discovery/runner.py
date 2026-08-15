@@ -100,6 +100,20 @@ VISUAL_FAILED = "failed"            # the rung raised (endpoint down/transport)
 #: document has one, so an archive scan defers instead.
 ARTIFACT_CACHE = Path("tests/corpus_cache")
 
+#: How this row's routing block (`parser_id`, `parser_score`,
+#: `dispatch_outcome`, `candidates`) was established. The row projection is the
+#: only writer, and the vocabulary exists so that a reader of `rows.csv` can
+#: tell an OBSERVED verdict from a RECONSTRUCTED one without re-running
+#: anything — the distinction the coverage metric was blind to on warm runs
+#: (§DISCOBS; W3 #COUNTSP3).
+#:
+#: `""` is a fifth state and means the analysis stage never ran for this
+#: document at all (deferred, invalid PDF, OCR failure): there is no routing
+#: verdict to have a provenance.
+PARSER_ID_LIVE_DISPATCH = "live_dispatch"
+PARSER_ID_LIVE_DETECT = "live_detect"
+PARSER_ID_UNAVAILABLE = "unavailable"
+
 
 @dataclass
 class DocumentRow:
@@ -127,6 +141,9 @@ class DocumentRow:
     parser_id: str | None = None
     parser_score: float | None = None
     dispatch_outcome: str | None = None
+    #: Provenance of the four fields above. See PARSER_ID_* above; empty when
+    #: no analysis stage ran for this document.
+    parser_id_source: str = ""
     candidates: list[str] = field(default_factory=list)
     #: Registrations that claimed this document and then declined to parse it
     #: (`Dispatch.attempted`). Bare ids, not `id:score` pairs: the declining
@@ -168,6 +185,128 @@ def _mask_last4(value: str | None) -> str | None:
 
 def _fmt(pairs) -> list[str]:
     return [f"{identifier}:{score:g}" for identifier, score in pairs]
+
+
+def _sole_surviving_claimant(scores) -> tuple[str, float] | None:
+    """`(parser_id, score)` when this document's detection implies exactly one
+    claimant after `supersedes` pruning, else `None`.
+
+    This is `parser_registry._surviving_claimants` re-expressed over a score
+    vector that has already been computed, and it is exact rather than
+    approximate for three reasons that are worth stating because the whole
+    projection rests on them:
+
+    * `scores` is `telemetry.score_vector`, i.e. `detection_report`, i.e. the
+      same `safe_detect` sweep over the same `PreparedDocument` that `resolve`
+      runs. `detect` is pure and total by the R-3 protocol contract, which is
+      the argument `score_vector`'s own docstring already makes: re-running it
+      over the same markdown provably reproduces the run of record.
+    * `Detection.claims` is `score >= CLAIM_THRESHOLD`, and every score the
+      registry can produce is already six-decimal exact (`round(..., 6)`, or
+      the literals `0.5` / `1.0`), so `score_vector`'s rounding is the identity
+      here and cannot move a registration across the threshold. `score_vector`
+      drops zeros only, and a claimant is never a zero.
+    * `supersedes` pruning is computed over ALL claimants before pruning,
+      exactly as `_surviving_claimants` does.
+
+    Reading the registry (ids and `supersedes` edges) is reading OUR constants,
+    the same admissibility `discovery.evidence.registration_labels` relies on.
+    """
+    from analysis import parser_registry_entries  # noqa: F401  (registers all parsers)
+    from analysis.parser_registry import CLAIM_THRESHOLD, registrations
+
+    superseded_by = {reg.id: reg.supersedes for reg in registrations()}
+    claimants = [
+        (parser_id, score) for parser_id, score in scores
+        if score >= CLAIM_THRESHOLD and parser_id in superseded_by
+    ]
+    dominated = {
+        target for parser_id, _score in claimants for target in superseded_by[parser_id]
+    }
+    survivors = [
+        (parser_id, score) for parser_id, score in claimants if parser_id not in dominated
+    ]
+    return survivors[0] if len(survivors) == 1 else None
+
+
+def _project_identity(row: "DocumentRow", scores, payload: dict) -> str:
+    """Fill a cache-served row's routing block. Returns the provenance mark.
+
+    THE HOLE THIS CLOSES. On a D-3 analysis cache hit `analyze_markdown` never
+    runs, so no `Dispatch` is observed and the row carried no `parser_id` and
+    no `dispatch_outcome` at all. The report then excluded the document from
+    the coverage denominator entirely (`dispatch_cached`), which is honest but
+    blind: on the warm re-runs that are now normal, hundreds of correctly
+    parsed statements were invisible to every parser-keyed rollup, and
+    COUNTS-P3's counterfactual denominators were short by exactly that set
+    (W3 #COUNTSP3). "Family populations from `rows.csv` alone" became a
+    standing prohibition because of it.
+
+    SURVEY: what the cached payload actually holds. The answer is that parser
+    identity is **genuinely absent** from it, so it cannot be read out:
+
+    * ``payload["detection"]`` is `analysis.detect.DetectionResult` — funders,
+      potential lenders, insurance providers, recurring debits. It is the
+      *financial* detection layer and says nothing about which parser routed
+      the document. The name collision with parser detection is the trap here.
+    * ``payload["model_used"]`` is ``f"{bank_label}-deterministic"`` built from
+      the extracted `Statement.bank` (`analysis/pipeline.py`), so it is a BANK
+      label, lower-cased and hyphenated — not a parser id, and not unique to
+      one: several registrations share a bank label, and the honest-unknown-
+      issuer registrations publish `bank=None`, which renders as the literal
+      `"bank-deterministic"`.
+    * ``payload["statement"]["bank"]`` is that same extracted label; the row
+      already carries it as `statement_bank`.
+    * ``payload["quality"]`` / ``payload["integrity"]`` carry flags and notes.
+      A parser's identity reaches them only as English prose inside a note,
+      which is not an identity.
+
+    So the identity is RE-RESOLVED live, from the detection sweep the row
+    already pays for (`score_vector`, 1.8-11.7 ms/document, and cheaper still
+    since DETECT-BUDGET), and the result is MARKED `live_detect` rather than
+    passed off as an observation.
+
+    WHY ONE DETECTION SWEEP IS ENOUGH TO NAME THE PARSER. Discovery analyses in
+    `parse_mode="deterministic"`, and in that mode `analyze_markdown` produces
+    a payload on exactly one path: a claiming parser returned a statement.
+    Every other `resolve` outcome raises before a payload exists — `ambiguous`
+    (AmbiguousParserError), `parser_exception` (ParserCrashError), `unclaimed`
+    (RuntimeError). And `resolve` declares `ambiguous` whenever more than one
+    registration survives `supersedes` pruning, BEFORE any parse runs. So a
+    cached payload is itself the evidence that the sweep had exactly one
+    survivor and that its `parse` succeeded: the survivor is the parser of
+    record, `attempted` was empty, and the outcome was `claimed`. Nothing is
+    guessed.
+
+    FAIL-CLOSED, twice. The generic structurer (W3-3c, opt-in, off) is the one
+    branch that can publish a payload with no parser behind it, so a
+    structurer payload projects nothing. And if the sweep does NOT name exactly
+    one survivor while a payload exists, the invariant above has been broken —
+    the only way it can be is a cached artifact that outlived a registry change
+    without an `ANALYSIS_STAGE_VERSION` bump — and this refuses to name a
+    parser rather than pick one. Both cases mark `unavailable`, which is a
+    finding, not a blank.
+
+    NOT reconstructed, deliberately: `parser_exceptions`. A detect-stage crash
+    in some *other* registration is part of the observed `Dispatch` and is not
+    recoverable from a score vector (a crashed detect scores 0.0 and 0.0 is
+    dropped), so the column stays empty and says nothing rather than saying
+    "no parser crashed". `attempted` is empty because the reasoning above
+    proves it was.
+    """
+    from analysis.structurer import STRUCTURER_MODEL
+
+    if (payload.get("model_used") or "") == STRUCTURER_MODEL:
+        return PARSER_ID_UNAVAILABLE
+    claim = _sole_surviving_claimant(scores)
+    if claim is None:
+        return PARSER_ID_UNAVAILABLE
+    parser_id, score = claim
+    row.parser_id = parser_id
+    row.parser_score = score
+    row.dispatch_outcome = "claimed"
+    row.candidates = _fmt([claim])
+    return PARSER_ID_LIVE_DETECT
 
 
 class DiscoveryRunner:
@@ -472,8 +611,16 @@ class DiscoveryRunner:
                     row.source_model = source["model"]
                     row.truncated_pages = source["truncation"]["truncated_page_count"]
 
+        # One detection sweep, read twice: for the near-miss vector (H-3) and,
+        # on a cache-served row, for the parser identity the absent `Dispatch`
+        # would otherwise have carried. Hoisted above the projection because
+        # both consumers need it; `score_vector` is pure, so where it is called
+        # changes nothing it returns.
+        scores, registration_count = score_vector(markdown)
+
         dispatch = collector.dispatch
         if dispatch is not None:
+            row.parser_id_source = PARSER_ID_LIVE_DISPATCH
             row.dispatch_outcome = dispatch.outcome
             row.parser_id = dispatch.parser_id
             row.parser_score = (
@@ -485,8 +632,12 @@ class DiscoveryRunner:
                 f"{failure.parser_id}:{failure.stage}:{failure.exception}"
                 for failure in dispatch.exceptions
             ]
+        elif payload is not None:
+            # A payload with no dispatch means exactly one thing: the analysis
+            # stage was served from the D-3 cache. Re-resolve the identity and
+            # mark how. See `_project_identity`.
+            row.parser_id_source = _project_identity(row, scores, payload)
 
-        scores, registration_count = score_vector(markdown)
         row.near_miss = _fmt([(i, s) for i, s in scores if s < 0.5][:5])
 
         if payload is not None:
