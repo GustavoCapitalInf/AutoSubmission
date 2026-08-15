@@ -456,3 +456,27 @@ def test_one_unreadable_cell_withdraws_the_whole_block():
     raw = page_bytes.tobytes()
     page_bytes.close()
     assert parse_native_woodforest(raw, source_file="x.pdf") is None
+
+
+def test_the_summary_region_survives_a_page_break():
+    """`_accounts` names this as the whole safety of the single-account guard:
+    a summary block whose rows are split by a page break must still be counted
+    as two accounts. A reader that closed the region at the end of a page
+    would see one and publish it."""
+    height = 9.0
+
+    def line(text, y, x=47.0):
+        out = []
+        for token in text.split():
+            out.append(GridWord(token, x, y, x + len(token) * height * 0.5, y + height))
+            x += len(token) * height * 0.5 + height * 0.4
+        return out
+
+    page_one = line("Summary of Accounts", 50.0) + \
+        line("Checking 1205009515 1,000.00 300.00 500.00 1,200.00", 70.0)
+    page_two = line("Savings 1205009516 500.00 0.00 0.00 500.00", 60.0) + \
+        line("Transactions", 90.0)
+    assert _wf_summary_rows([page_one, page_two]) == [
+        "Checking 1205009515 1,000.00 300.00 500.00 1,200.00",
+        "Savings 1205009516 500.00 0.00 0.00 500.00",
+    ]

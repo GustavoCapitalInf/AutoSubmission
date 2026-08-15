@@ -277,8 +277,15 @@ def _wf_summary_rows(pages_words: list[list]) -> list[str]:
     fails open instead.
     """
     rows: list[str] = []
+    # `inside` deliberately survives the page boundary. `_accounts` says why in
+    # its own docstring: a summary block whose rows are split by a page break
+    # is exactly the case the single-account guard exists for, and a reader
+    # that closed the region at the end of a page would see one account on a
+    # two-account document and let it through. A guard that fails open is
+    # worse than no guard. The region is closed only by the labels the bank
+    # prints to close it.
+    inside = False
     for words in pages_words:
-        inside = False
         for _y, text in _wf_lines(words):
             line = re.sub(r"\s+", " ", text).strip()
             lowered = line.lower()
