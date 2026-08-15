@@ -21659,8 +21659,15 @@ default, which the test now pins separately.
 | `python -m pytest -q` | **4,269 passed**, 33 skipped, 29 deselected, in 325.72s — exit 0 |
 | the four owned test files (`test_rbc_variants`, `test_td_can_native_variants`, `test_analysis`, `test_wealthsimple`) | **294 passed** — exit 0 |
 | td-family sweep (`td_canada`, `td_canada_native`, `td_canada_french`, `td_us`), 129 documents, live replay | `parser_id` **0** · `currency` **3** · `account_name` **3** (the same three documents, `… - CAD` -> `… - USD`) · **pinned 0** |
-| `python -m pytest -q -m corpus` | **25 passed**, 4,297 deselected, in 2667.28s — exit 0 |
-| `python corpus_gate.py` | **RESULT: GREEN** — exit 0. `Outcomes: 106 PASS / 3 WITHHELD` · `Verdicts: 6 review / 100 validated / 3 withheld` · every module PASS, including `outcome_classes` (the full published integrity block, per document) · `Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions` · no live OCR, no model calls |
+
+Every proof above was re-run in full after the review round, not carried over.
+The corpus gate and the corpus-marked slice were re-run **beyond Ocean's
+narrowed list** on purpose: D-5 changed the code that writes `account_name`,
+`account` is an audited column, and the gate's `balance_audit` module is the
+platform's authority on it. Both are green at `7e64cd3`, so the audited-column
+change is proven by the gate and not only by this cell's own sweep.
+| `python -m pytest -q -m corpus` | **25 passed**, 4,306 deselected, in 2490.69s — exit 0 |
+| `python corpus_gate.py` | **RESULT: GREEN** — exit 0, 11/11 modules PASS. `Outcomes: 106 PASS / 3 WITHHELD` · `Verdicts: 6 review / 100 validated / 3 withheld` · includes `outcome_classes` (the full published integrity block, per document) and `balance_audit` (which audits `account`) · `Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions` · no live OCR, no model calls |
 | guards + conformance (`test_no_statement_hardcodes`, `test_r1_hardcodes`, `test_no_parser_helper_clones`, `test_parser_conformance` 71x70 = 4,970 assertions, `test_parser_registry_entries`, `test_parser_expectations_baseline`) | **1,032 passed**, 33 skipped — exit 0 |
 | full-archive differential, 3,396 documents | 9 currency movers, 0 on `parser_id` / `outcome` / `bank`, **0 pinned** |
 | per-family reader confirmation (positive, not just movers) | `rbc` 12 USD / 6 CAD / 151 None · `td_canada_native` 70 CAD / 3 USD / 1 None · `desjardins` 6 USD. All 4 pinned RBC read None; all 6 pinned TD read CAD; the pinned Desjardins reads USD |
