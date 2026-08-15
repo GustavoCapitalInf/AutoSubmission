@@ -21468,6 +21468,27 @@ population was measured three ways:
 |---|---|---|---|---|
 | *(none)* | | | | |
 
+### CUR4.2 Blast radius — the label, and nothing else
+
+Measured, because a currency change that moved a figure would be a different
+card: **no production module reads `Statement.currency`.** `analysis/metrics.py`,
+`analysis/reconcile.py`, `analysis/adb.py`, `analysis/serialization.py`,
+`analysis/revenue.py`, `analysis/count_semantics.py` and
+`analysis/bank_repairs.py` contain zero references to it (the one hit in
+`adb.py` is the word "currency" in a rounding docstring), and a grep for
+`.currency` across `analysis/`, `webapp/`, `discovery/` and `telemetry/`
+returns only the parsers that WRITE it. The single reader on the platform is
+`benchmark/compare.py`, which compares our value against MoneyThumb's on
+demand and writes to a gitignored report.
+
+So the nine movers move a published label. No balance, no ADB, no metric, no
+reconciliation verdict and no integrity flag changes — which the differential
+in §CUR4 confirms independently (`outcome` movers: 0). It is also why the
+corpus gate and all three audit CSVs never pinned the field, and therefore why
+a pinned currency mover, had there been one, would have been a **gate-invisible**
+change — the same blindness class batch 3 found for review<->validated
+movement.
+
 **Audit CSVs:** `currency` is **not** an audited column in any of the three
 (`docs/adb-audit-results.csv`, `docs/balance-metrics-audit-results.csv`,
 `docs/new-statement-audit-results.csv` — checked by header). It is not in
@@ -21530,9 +21551,27 @@ documents that do not say.
 
 | Proof | Result |
 |---|---|
-| `python -m pytest -q` | **4,262 passed**, 33 skipped, 29 deselected — exit 0 |
-| `python -m pytest -q -m corpus` | PENDING — see the branch report |
-| `python corpus_gate.py` | PENDING — see the branch report |
+| `python -m pytest -q` | **4,262 passed**, 33 skipped, 29 deselected, in 312.19s — exit 0 |
+| `python -m pytest -q -m corpus` | **25 passed**, 4,297 deselected, in 2667.28s — exit 0 |
+| `python corpus_gate.py` | **RESULT: GREEN** — exit 0. `Outcomes: 106 PASS / 3 WITHHELD` · `Verdicts: 6 review / 100 validated / 3 withheld` · every module PASS, including `outcome_classes` (the full published integrity block, per document) · `Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions` · no live OCR, no model calls |
 | guards + conformance (`test_no_statement_hardcodes`, `test_r1_hardcodes`, `test_no_parser_helper_clones`, `test_parser_conformance` 71x70 = 4,970 assertions, `test_parser_registry_entries`, `test_parser_expectations_baseline`) | **1,032 passed**, 33 skipped — exit 0 |
 | full-archive differential, 3,396 documents | 9 currency movers, 0 on `parser_id` / `outcome` / `bank`, **0 pinned** |
 | per-family reader confirmation (positive, not just movers) | `rbc` 12 USD / 6 CAD / 151 None · `td_canada_native` 70 CAD / 3 USD / 1 None · `desjardins` 6 USD. All 4 pinned RBC read None; all 6 pinned TD read CAD; the pinned Desjardins reads USD |
+
+Method notes, for reproduction. Family populations come from LIVE detection
+replay, never from a `rows.csv` `parser_id` column (the cache-hit hole, W3
+#COUNTSP3). Document text comes from the OCR artifact store by DIRECT file path
+(`webapp_data/artifacts/ocr/**/*.json`, keyed on `input_sha256`, preferring the
+live `ocr_settings_key`); the `webapp_data` sqlite index was never opened. The
+archive and both caches were read-only throughout, and no vendor call was made
+— **$0**. Of the 3,409 distinct archive shas, 3,396 have an OCR artifact with
+pages; the other 13 are the run of record's deferred and are outside every
+count here.
+
+## CUR8. Commits
+
+| Commit | Contents |
+|---|---|
+| `99f480d` | the four parser changes, 20 tests, CUR0–CUR7 |
+| `5b18337` | the filename-boundary negative for both new readers (+2 tests) |
+| (this one) | the measured proof block, §CUR4.2 blast radius, §CUR2's filename paragraph |
