@@ -42,6 +42,22 @@ a single `Transaction Activity` grid carrying a running balance, whose chain is
 walked from the opening balance to the closing one; and separate
 `Credit Transactions` / `Debit Transactions` sections with no balance column,
 where the counts and totals are the whole of the evidence.
+
+**A THIRD printed issue exists, is claimed, and is deliberately NOT read**
+(W3 §FISERVISS). Four archive documents print this summary strip — the
+detection conjunction fires on all three markers and the identity closes to the
+cent on all four — over a ledger of a different vocabulary entirely
+(`Deposits` / `Other Credits` / `Debits` / `Checks Cleared` /
+`Daily Balance Information`), under a period line this module does not read
+(`Statement of Account <Month DD, YYYY> thru <Month DD, YYYY>` with the length
+printed separately as `Days in the Statement Period: N`, where the two issues
+above print `Statement Dates 3/01/26 to 3/31/26 (31 days)`). Neither gap is an
+absence: both facts are printed, in wordings no clause here matches. So the
+document is claimed and then refused, twice over, and
+`test_the_third_printed_issue_is_claimed_and_refused_twice_over` pins that
+refusal along with the two repairs it would take to lift it. The issuer is NOT
+among the reasons — all four print a web address and no bank name, which is the
+`bank=None` path above and costs a label, not a document.
 """
 from __future__ import annotations
 
