@@ -15173,7 +15173,87 @@ exit 0
 $ python -m pytest tests/test_no_statement_hardcodes.py -q
 40 passed
 exit 0
+
+$ python -m pytest tests/test_parser_conformance.py -q
+631 passed in 5.37s
+exit 0
+
+$ python -m pytest -m corpus -q
+1 failed, 13 passed, 3789 deselected, 1 warning in 2622.40s (0:43:42)
+exit 1
+  FAILED tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run
+  AssertionError: slowest full-registry detect sweep was 472.5 ms
 ```
+
+### WF7.1 The corpus-slice failure is pre-existing — §HUNT's prediction landing
+
+`test_detect_sweep_stays_affordable_for_the_discovery_run` caps the worst
+per-document full-registry detect sweep at 250 ms. It failed at 472.5 ms.
+**It is not this branch.** Three independent lines say so, and the third
+settles it.
+
+**1. The detect path has a zero diff.** Parsed to AST and compared against
+`707ba9e`, the six statements that constitute this registration's detection —
+`_MONEY`, `_SUMMARY_HEADER_RE`, `_GRID_RE`, `_BANK_RE`, `DETECTION_MARKERS`,
+`detect` — are **identical**, and `analysis/parser_registry_entries.py` is
+byte-identical. The whole diff to `analysis/woodforest.py` is additive: one
+import widened, two imports added, two module-level regexes compiled at import,
+two new functions. `parse_woodforest_statement` is untouched and neither new
+function is on the detect path.
+
+**2. In-process A/B of this parser's own `detect`.** Base and branch modules
+loaded into ONE interpreter and timed alternately, ten rounds each, over all
+109 corpus documents — no cross-process or machine-drift noise. Verdicts
+identical on all 109. Base median **141.9 ms** (129.0–171.3), branch median
+**146.0 ms** (128.6–175.5): +0.038 ms per document, inside a ±20 ms spread.
+
+**3. The base fails the same test by the same margin, on the same machine,
+minutes apart.** Five rounds each of the test's exact loop:
+
+| | min | median | max |
+|---|---|---|---|
+| branch | 275.5 | **306.4** | 322.3 ms |
+| base `707ba9e` | 286.0 | **310.0** | 317.5 ms |
+
+The base is if anything marginally SLOWER. Reverting this branch does not make
+the test pass.
+
+**What is actually going on — and §HUNT called it.** Best-of-three on the worst
+pinned document (`Others/Altana/Altana june 26.pdf`, 62,702 chars, the largest)
+is **259.8 ms**: over budget before any contention, with the machine only
+moderately loaded. The 472.5 ms in the slice was that plus ~20 concurrent
+python processes from other batch-4 cells saturating all 16 cores.
+
+§HUNT-CELL item 11 measured **195.2 ms at 55 registrations** one batch ago and
+wrote: *"at ~13 ms a cell the cap is four merges away … Worth deciding at the
+batch level, before the merge train, rather than by whichever cell happens to
+cross the line."* Batch 3 merged eleven cells and took the registry to 68. The
+line has now been crossed: 195.2 → 259.8 ms for +13 registrations, about 5 ms
+each, exactly the trajectory §HUNT projected. Batch 3's record that the test
+"HELD at 68 registrations" is not contradicted — on a quiet machine it evidently
+did — and that IS the finding: **the margin is now thin enough that the verdict
+depends on who else is running.**
+
+No single parser is the cause, which is why shaving one cannot fix it:
+
+| registration | ms | share |
+|---|---|---|
+| community_section | 17.56 | 8.6% |
+| rbc_french | 9.92 | 4.8% |
+| square_checking | 9.83 | 4.8% |
+| cibc | 9.55 | 4.7% |
+| td_canada_french | 9.23 | 4.5% |
+| … | | |
+| **woodforest (9th)** | **5.76** | **2.8%** |
+| the other 53 registrations | 96.2 | 47% |
+
+The worst single registration is 8.6% of the sweep; the top fifteen are 53%.
+**Deleting this registration outright would leave ~254 ms and the test would
+still fail.**
+
+**Nothing was done about it here, deliberately.** The budget constant is not
+this cell's to move, and raising it to make a red test green is the one
+response that would be wrong. Carried to Ocean as WF8.11.
 
 ## WF8. Carried findings and questions for Ocean
 
@@ -15239,3 +15319,22 @@ exit 0
     it did not learn why. Recorded rather than dressed up in a story: a
     plausible reading is that a days-old account funded by one deposit has no
     uncollected float, but nothing here proves that.
+11. **STOP-THE-LINE CANDIDATE, and it is not this branch's: the detect-sweep
+    budget has been crossed on `main`.** `test_detect_sweep_stays_affordable_
+    for_the_discovery_run` fails at 472.5 ms under batch-4 load and at
+    **259.8 ms best-of-three on a quiet-ish machine**, against a 250 ms cap.
+    Base `707ba9e` measures 310.0 ms median where this branch measures 306.4 ms;
+    the detect path here is AST-identical to base. Full proof in WF7.1. This is
+    §HUNT-CELL item 11's prediction arriving on schedule — it measured 195.2 ms
+    at 55 registrations, warned the cap was "four merges away", and asked for a
+    batch-level decision "rather than by whichever cell happens to cross the
+    line." Batch 3 merged eleven cells and the registry is now 68.
+    Three things follow. (a) **Triage it once, centrally.** Every cell in this
+    batch will hit this red and each will have to spend an hour proving it is
+    not theirs, as this one did. (b) **Do not raise the constant** — the check
+    is measuring something real about discovery throughput, since the sweep is
+    per-document overhead on all 3,506 documents. (c) The structural fix UA6.6
+    named is now due: a cheap pre-filter, or markers compiled into one
+    alternation, instead of 68 whole-document scans per document. The WF7.1
+    breakdown shows why shaving parsers cannot substitute for it — the worst
+    single registration is 8.6% of the sweep and 53 of the 68 make up 47%.
