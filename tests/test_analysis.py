@@ -1365,6 +1365,54 @@ def test_parse_desjardins_usd_layout_statement_reconciles_native_text():
     assert metrics.average_daily_balance == 3595.43
 
 
+# ---------------------------------------------------------------------------
+# Desjardins — the printed denomination (W3 #CURRENCY). The caisse prints the
+# account's currency in front of the product name that heads the ledger. Every
+# archive document of this layout prints `USD`, so the value published does not
+# change; what changes is where it comes from.
+# ---------------------------------------------------------------------------
+
+_DESJ_HEAD = """
+CAISSE DESJARDINS DE BORDEAUX-CARTIER
+From February 1 to February 28, 2026
+STATEMENT OF ACCOUNT
+SJ 000-00000-0
+PCA                           {code}DESJARDINS CORPORATE BUILD-UP ACCOUNT
+  Date  Code                       Description   Charges  Withdrawal  Deposit  Balance
+               Balance forward                                                 100.00
+ FEB   6 INBD Funds transfer received / EXAMPLE/                    50.00      150.00
+"""
+
+
+def test_desjardins_publishes_the_denomination_printed_on_the_product_line():
+    stmt = parse_desjardins_statement(_DESJ_HEAD.format(code="USD "))
+    assert stmt is not None
+    assert stmt.currency == "USD"
+
+
+def test_desjardins_publishes_cad_when_the_product_line_prints_cad():
+    """The reader has no CAD document of this layout to point at — and that is
+    exactly why the currency must come off the page rather than out of a
+    constant that assumed the only issue anyone had seen."""
+    stmt = parse_desjardins_statement(_DESJ_HEAD.format(code="CAD "))
+    assert stmt is not None
+    assert stmt.currency == "CAD"
+
+
+def test_desjardins_does_not_publish_the_account_type_mark_as_a_currency():
+    """`PCA` is the three-letter account-type mark printed immediately before
+    the product name. A reader that published whatever three letters it
+    captured would publish `PCA`; the admissible set is closed, so a product
+    line with no denomination leaves the default standing instead."""
+    from analysis.desjardins import _printed_currency
+
+    document = _DESJ_HEAD.format(code="")
+    assert _printed_currency(document) is None
+    stmt = parse_desjardins_statement(document)
+    assert stmt is not None
+    assert stmt.currency == "USD"
+
+
 @pytest.mark.parametrize(
     (
         "filename", "period_start", "period_end", "row_count", "beginning",

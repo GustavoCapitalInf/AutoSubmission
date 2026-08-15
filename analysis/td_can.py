@@ -407,6 +407,35 @@ def _table_layout_present(markdown: str) -> bool:
     )
 
 
+#: The account's own product name, printed in this layout's `Account Type`
+#: column of the header block: `BUSINESS CHEQUING` / `ACCOUNT - CAD`, wrapped
+#: across two lines by the column width and set on one line by the issues that
+#: have room for it (which is why `_table_layout_present` above already tests
+#: for the unwrapped spelling). The suffix is the account's denomination and is
+#: the only currency word the layout prints anywhere.
+#:
+#: A product with no denomination prints none: the one archive document of this
+#: layout without a suffix prints `BUSINESS` / `INVESTOR` / `ACCOUNT`, and its
+#: currency is therefore not stated. Anchoring on the word `ACCOUNT` rather
+#: than scanning for a bare `CAD`/`USD` token is what keeps this off the ledger,
+#: where TD prints `CAD DRAFT 11512638` as a posting description — a draft's
+#: denomination, not the account's.
+_NATIVE_PRODUCT_CURRENCY_RE = re.compile(r"\bACCOUNT\s*-\s*(CAD|USD)\b")
+
+
+def _native_printed_currency(markdown: str) -> str | None:
+    """The currency this document's product line PRINTS, or None.
+
+    Two different suffixes on one document is a statement of several accounts
+    in different denominations; there is no single answer to publish, so this
+    returns None and the caller leaves the default standing.
+    """
+    found = set(_NATIVE_PRODUCT_CURRENCY_RE.findall(markdown.upper()))
+    if len(found) != 1:
+        return None
+    return found.pop()
+
+
 NATIVE_DETECTION_MARKERS = (
     required("bank_name", lambda t: "THE TORONTO-DOMINION BANK" in t),
     required("native_header", lambda t: "DESCRIPTION CHEQUE/DEBIT DEPOSIT/CREDIT DATE BALANCE" in t),
@@ -426,7 +455,10 @@ def _parse_native_td_canada(markdown: str, base: Statement | None = None) -> Sta
 
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "TD Canada Trust"
-    stmt.currency = "CAD"
+    # The product line states the denomination where the product has one; CAD
+    # remains the layout's default where it does not, and the residual is
+    # named rather than inferred from the branch address.
+    stmt.currency = _native_printed_currency(markdown) or "CAD"
     stmt.beginning_balance = None
     stmt.ending_balance = None
     stmt.stated_total_credits = None

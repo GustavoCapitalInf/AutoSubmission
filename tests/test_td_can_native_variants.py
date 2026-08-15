@@ -447,3 +447,82 @@ E-TFR ***a1B EPAY 40.00 FEB01
 MONTHLY PLAN FEE 10.00 FEB01 50.00
 """))
         assert _amounts(stmt) == [-40.0, -10.0]
+
+
+# ---------------------------------------------------------------------------
+# F7 — the printed denomination (W3 #CURRENCY).
+#
+# The `Account Type` column carries the account's currency as a suffix on the
+# product name — `BUSINESS CHEQUING ACCOUNT - CAD`, `... - USD` — wrapped
+# across two lines by the column width on most issues. Three archive documents
+# of this layout print `ACCOUNT - USD` and were published as CAD by a constant.
+# One prints `BUSINESS INVESTOR ACCOUNT`, a product with no denomination at
+# all, and keeps the layout's default.
+# ---------------------------------------------------------------------------
+
+class TestF7PrintedDenomination:
+    LEDGER = """
+BALANCE FORWARD JAN31 100.00
+UNLISTED VENDOR ABC 40.00 FEB01 60.00
+"""
+
+    def test_the_cad_product_suffix_publishes_cad(self):
+        stmt = parse_native_td_canada_statement(_statement(self.LEDGER))
+        assert stmt is not None
+        assert stmt.currency == "CAD"
+
+    def test_the_usd_product_suffix_publishes_usd(self):
+        """The mover class."""
+        document = _statement(self.LEDGER).replace("ACCOUNT - CAD", "ACCOUNT - USD")
+        stmt = parse_native_td_canada_statement(document)
+        assert stmt is not None
+        assert stmt.currency == "USD"
+
+    def test_the_suffix_is_read_when_the_column_wraps_it_onto_its_own_line(self):
+        """The ordinary printing: the column is too narrow for the product."""
+        document = _statement(self.LEDGER).replace(
+            "BUSINESS CHEQUING ACCOUNT - USD", "BUSINESS CHEQUING\nACCOUNT - USD",
+        ).replace(
+            "BUSINESS CHEQUING ACCOUNT - CAD", "BUSINESS CHEQUING\nACCOUNT - USD",
+        )
+        stmt = parse_native_td_canada_statement(document)
+        assert stmt is not None
+        assert stmt.currency == "USD"
+
+    def test_a_product_with_no_denomination_keeps_the_layout_default(self):
+        """`BUSINESS INVESTOR ACCOUNT` states no currency, so neither do we —
+        and the branch address is not consulted to guess one."""
+        document = _statement(self.LEDGER).replace(
+            "BUSINESS CHEQUING ACCOUNT - CAD", "BUSINESS\nINVESTOR\nACCOUNT",
+        )
+        stmt = parse_native_td_canada_statement(document)
+        assert stmt is not None
+        assert stmt.currency == "CAD"
+
+    def test_negative_a_cad_draft_posting_is_not_the_account_denomination(self):
+        """TD prints `CAD DRAFT 11512638` as a posting description on eight
+        archive documents: the DRAFT's denomination, not the account's. A bare
+        token scan would flip a U.S.-dollar account on its own ledger."""
+        document = _statement(
+            """
+BALANCE FORWARD JAN31 100.00
+CAD DRAFT 11512638 40.00 FEB01 60.00
+"""
+        ).replace("ACCOUNT - CAD", "ACCOUNT - USD")
+        stmt = parse_native_td_canada_statement(document)
+        assert stmt is not None
+        assert stmt.currency == "USD"
+
+    def test_negative_two_denominations_printed_keep_the_default(self):
+        """A statement of several accounts in different currencies states no
+        single one, so the reader refuses rather than picking the first."""
+        from analysis.td_can import _native_printed_currency
+
+        document = _statement(self.LEDGER).replace(
+            "BUSINESS CHEQUING ACCOUNT - CAD",
+            "BUSINESS CHEQUING ACCOUNT - CAD\nBUSINESS CHEQUING ACCOUNT - USD",
+        )
+        assert _native_printed_currency(document) is None
+        stmt = parse_native_td_canada_statement(document)
+        assert stmt is not None
+        assert stmt.currency == "CAD"

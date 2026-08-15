@@ -150,6 +150,42 @@ def _transactions(markdown: str, *, year: int, beginning_balance: float) -> list
     return txns
 
 
+#: The product line that heads the ledger, with the denomination the caisse
+#: prints in front of the product name: `PCA   USD DESJARDINS CORPORATE
+#: BUILD-UP ACCOUNT`. The product name is what detection requires; the code in
+#: front of it is what the account is denominated in, and it is the only
+#: currency word on the page — the column headers print bare `Charges`,
+#: `Withdrawal`, `Deposit`, `Balance` with no unit at all.
+#:
+#: `_ADMISSIBLE` is a closed set on purpose. The token immediately before the
+#: product name is a three-letter code either way (`PCA` is the account-type
+#: mark that precedes it in the same header row), so a matcher that published
+#: whatever three letters it captured would publish `PCA` as a currency the
+#: first time the caisse set that row without a denomination. The same class of
+#: defect is live elsewhere in the archive: a scanned deposit slip OCRs as
+#: `Af 'CURRENCY KLR Enterpriees`, and a labelled-code reader without a closed
+#: set would publish `KLR`.
+_PRODUCT_CURRENCY_RE = re.compile(
+    r"\b([A-Z]{3})\s+DESJARDINS CORPORATE BUILD-UP ACCOUNT\b")
+_ADMISSIBLE_CURRENCIES = frozenset({"CAD", "USD"})
+
+
+def _printed_currency(markdown: str) -> str | None:
+    """The denomination printed in front of the product name, or None.
+
+    None where the layout prints no admissible code, and None where it prints
+    more than one: a document stating two denominations does not state one.
+    """
+    found = {
+        code
+        for code in _PRODUCT_CURRENCY_RE.findall(markdown.upper())
+        if code in _ADMISSIBLE_CURRENCIES
+    }
+    if len(found) != 1:
+        return None
+    return found.pop()
+
+
 DETECTION_MARKERS = (
     required("bank_name", lambda t: "CAISSE DESJARDINS" in t),
     required("product", lambda t: "DESJARDINS CORPORATE BUILD-UP ACCOUNT" in t),
@@ -184,6 +220,11 @@ def parse_desjardins_statement(markdown: str) -> Statement | None:
         days_in_period=(end_date - start_date).days + 1,
         beginning_balance=beginning,
         ending_balance=ending,
-        currency="USD",
+        # From the product line, not from the reader's expectation of it. Every
+        # archive document of this layout prints `USD`, so this publishes the
+        # same value it always did — but a Canadian-dollar issue of the same
+        # product would now publish CAD instead of being labelled USD by a
+        # constant. Where no admissible code is printed the default stands.
+        currency=_printed_currency(markdown) or "USD",
         transactions=txns,
     )

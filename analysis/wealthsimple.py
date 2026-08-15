@@ -204,8 +204,14 @@ def parse_wealthsimple_statement(markdown: str, base: Statement | None = None) -
     stmt.account_name = "Chequing"
     stmt.period_start = start.isoformat()
     stmt.period_end = end.isoformat()
-    # The activity grid states the account's currency in both money column
-    # headings and the layout is issued in no other.
+    # Not a schema default and not an assumption about the issuer: `_GRID_RE`
+    # is a REQUIRED detection marker and it matches only
+    # `AMOUNT (CAD) BALANCE (CAD)`, so a document that reaches this line has
+    # printed `CAD` over both of its money columns. A Wealthsimple statement
+    # denominated in anything else does not carry that header, is therefore not
+    # claimed by this registration at all, and can never be published in the
+    # wrong currency by this constant — which is what
+    # `test_a_non_cad_activity_grid_is_not_claimed` holds in place.
     stmt.currency = "CAD"
     stmt.beginning_balance = _amount(summary.group(5), summary.group(6))
     stmt.ending_balance = _amount(summary.group(7), summary.group(8))

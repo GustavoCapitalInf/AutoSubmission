@@ -1100,3 +1100,148 @@ def test_f1_negative_a_short_document_is_not_judged_on_a_noisy_ratio():
     from analysis.tables import glyph_damaged
 
     assert not glyph_damaged("A11ount 4t5t060nt")
+
+
+# ---------------------------------------------------------------------------
+# Card CUR — the printed denomination (W3 #CURRENCY).
+#
+# RBC issues this layout in both currencies and says so in two places when it
+# says so at all: the `U.S. Funds` line in the header block, and the account's
+# product name in the mailing header (`CAD CHEQUING ACCOUNT`, `US BUSINESS
+# ACCOUNT`). 151 of the 169 RBC documents in the archive print NEITHER, and
+# the platform's answer for those is the schema default, unchanged and named —
+# a Canadian address is geography, not a printed fact about the account.
+# ---------------------------------------------------------------------------
+
+def test_cur_the_us_funds_line_publishes_usd_from_the_document():
+    document = statement(
+        "02 Mar Item 100.00 1,100.00\n",
+        opening="1,000.00", closing="1,100.00",
+        credits="100.00", credit_count=1, debits="0.00", debit_count=0,
+    ).replace("Business Account Statement", "Business Account Statement\nU.S. Funds")
+    stmt = parse_rbc_statement(document)
+    assert stmt is not None
+    assert stmt.currency == "USD"
+
+
+def test_cur_the_us_funds_line_is_read_when_set_on_the_title_line():
+    """Some issues of the same header set both words on one line."""
+    document = statement(
+        "02 Mar Item 100.00 1,100.00\n",
+        opening="1,000.00", closing="1,100.00",
+        credits="100.00", credit_count=1, debits="0.00", debit_count=0,
+    ).replace("Business Account Statement", "Business Account Statement U.S. Funds")
+    stmt = parse_rbc_statement(document)
+    assert stmt is not None
+    assert stmt.currency == "USD"
+
+
+def test_cur_the_cad_product_line_publishes_cad():
+    """The mover class. Six archive documents print `CAD CHEQUING ACCOUNT` in
+    the mailing header and were published as USD by the schema default."""
+    document = statement(
+        "02 Mar Item 100.00 1,100.00\n",
+        opening="1,000.00", closing="1,100.00",
+        credits="100.00", credit_count=1, debits="0.00", debit_count=0,
+    ).replace(
+        "Account number: 00000 100-000-0",
+        "RBBDA30000_0000000 E D 00000 00000 EXAMPLE INC. CAD CHEQUING ACCOUNT 1 EXAMPLE ST\n"
+        "Account number: 00000 100-000-0",
+    )
+    stmt = parse_rbc_statement(document)
+    assert stmt is not None
+    assert stmt.currency == "CAD"
+
+
+def test_cur_the_us_product_line_publishes_usd():
+    document = statement(
+        "02 Mar Item 100.00 1,100.00\n",
+        opening="1,000.00", closing="1,100.00",
+        credits="100.00", credit_count=1, debits="0.00", debit_count=0,
+    ).replace(
+        "Account number: 00000 100-000-0",
+        "RBBDA30000_0000000 E D 00000 00000 EXAMPLE INC. US BUSINESS ACCOUNT 1 EXAMPLE ST\n"
+        "Account number: 00000 100-000-0",
+    )
+    stmt = parse_rbc_statement(document)
+    assert stmt is not None
+    assert stmt.currency == "USD"
+
+
+def test_cur_a_document_stating_no_denomination_keeps_the_default():
+    """The ordinary case, and deliberately pinned: absence of evidence is not
+    evidence, so nothing here infers CAD from `ROYAL BANK OF CANADA`."""
+    document = statement(
+        "02 Mar Item 100.00 1,100.00\n",
+        opening="1,000.00", closing="1,100.00",
+        credits="100.00", credit_count=1, debits="0.00", debit_count=0,
+    )
+    assert "U.S. Funds" not in document
+    stmt = parse_rbc_statement(document)
+    assert stmt is not None
+    assert stmt.currency == "USD"
+
+
+def test_cur_negative_a_funds_transfer_posting_is_not_a_denomination():
+    """`Funds transfer credit TT KM CAPITAL C` is a posting on the pinned RBC
+    statements. An unanchored search for the words would read a transfer TYPE
+    as the account's currency — and would have moved a pinned document."""
+    document = statement(
+        "02 Mar Funds transfer credit TT KM CAPITAL C 100.00 1,100.00\n"
+        "03 Mar U.S. Funds wire fee 0.00 1,100.00\n",
+        opening="1,000.00", closing="1,100.00",
+        credits="100.00", credit_count=1, debits="0.00", debit_count=1,
+    )
+    stmt = parse_rbc_statement(document)
+    assert stmt is not None
+    assert stmt.currency == "USD"  # the schema default, NOT a read of the ledger
+    from analysis.rbc import _printed_currency
+
+    assert _printed_currency(document) is None
+
+
+def test_cur_negative_an_e_transfer_reference_code_is_not_a_currency():
+    """This layout prints `CAxxxxxx` reference codes in its ledger. A bare
+    token scan would publish a customer's reference as the denomination."""
+    from analysis.rbc import _printed_currency
+
+    document = statement(
+        "02 Mar e-Transfer received PHILIPPESEGUIN CADWKEFS 100.00 1,100.00\n"
+        "03 Mar e-Transfer received EXAMPLE CO CAD 50.00 1,150.00\n",
+        opening="1,000.00", closing="1,150.00",
+        credits="150.00", credit_count=2, debits="0.00", debit_count=0,
+    )
+    assert _printed_currency(document) is None
+    stmt = parse_rbc_statement(document)
+    assert stmt is not None
+    assert stmt.currency == "USD"
+
+
+def test_cur_negative_a_self_contradicting_document_keeps_the_default():
+    """Two denominations printed is not one denomination stated."""
+    from analysis.rbc import _printed_currency
+
+    document = statement(
+        "02 Mar Item 100.00 1,100.00\n",
+        opening="1,000.00", closing="1,100.00",
+        credits="100.00", credit_count=1, debits="0.00", debit_count=0,
+    ).replace(
+        "Business Account Statement", "Business Account Statement\nU.S. Funds",
+    ).replace(
+        "Account number: 00000 100-000-0",
+        "RBBDA30000_0000000 E D 00000 00000 EXAMPLE INC. CAD CHEQUING ACCOUNT 1 EXAMPLE ST\n"
+        "Account number: 00000 100-000-0",
+    )
+    assert _printed_currency(document) is None
+    stmt = parse_rbc_statement(document)
+    assert stmt is not None
+    assert stmt.currency == "USD"
+
+
+def test_cur_the_french_reader_is_untouched_by_the_english_evidence():
+    """`_printed_currency` runs on the English branch only; the French reader
+    keeps its own CAD, and `CDN TIRE` — a merchant on the pinned French
+    statement — must not read as a denomination anywhere."""
+    from analysis.rbc import _printed_currency
+
+    assert _printed_currency("Versement par Banque en direct - 3841 CDN TIRE MC 1 350,00") is None

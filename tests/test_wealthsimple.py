@@ -228,3 +228,28 @@ def test_a_posting_row_whose_description_ends_in_balance_keeps_its_date():
     markdown = "Aug 31 TRANSFER TO SAVINGS BALANCE 403.00 1,200.00\n"
     found = source_posting_dates(markdown, date(2025, 8, 1), date(2025, 8, 31))
     assert date(2025, 8, 31) in found
+
+
+# --------------------------------------------------------------- the currency
+
+
+def test_a_non_cad_activity_grid_is_not_claimed():
+    """W3 #CURRENCY. `stmt.currency = "CAD"` is a constant in this reader, and
+    what makes it a reading of the document rather than an assumption about the
+    issuer is that `_GRID_RE` — a REQUIRED detection marker — matches only
+    `AMOUNT (CAD) BALANCE (CAD)`. A statement of this product denominated in
+    anything else is refused outright, so the constant can never be published
+    against the page. If detection is ever widened, this test fails and the
+    constant has to become a read."""
+    usd = ONE_ROW.replace(
+        "AMOUNT (CAD) BALANCE (CAD)", "AMOUNT (USD) BALANCE (USD)",
+    )
+    assert not detect(usd).claims
+    assert parse_wealthsimple_statement(usd) is None
+
+
+def test_the_claimed_document_prints_cad_over_both_money_columns():
+    """The other half of the same guarantee, stated positively: what the
+    reader publishes is what the grid header says."""
+    assert "AMOUNT (CAD) BALANCE (CAD)" in ONE_ROW
+    assert parse_wealthsimple_statement(ONE_ROW).currency == "CAD"
