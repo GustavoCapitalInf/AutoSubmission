@@ -1245,3 +1245,30 @@ def test_cur_the_french_reader_is_untouched_by_the_english_evidence():
     from analysis.rbc import _printed_currency
 
     assert _printed_currency("Versement par Banque en direct - 3841 CDN TIRE MC 1 350,00") is None
+
+
+def test_cur_negative_the_source_filename_cannot_set_the_currency():
+    """W3 FILENAME-BOUNDARY. The six RBC documents that DO print `CAD CHEQUING
+    ACCOUNT` are also named `CAD Statement-1718 …`, and six others are named
+    `USD Statement-1046 …` while printing no denomination at all. A reader that
+    saw the source comment would get the right answer on the first six for the
+    wrong reason and the wrong answer on the second six. `admissible_text`
+    removes the comment before any parser runs; this test holds the readers to
+    that even if the comment ever reaches them."""
+    from analysis.rbc import _printed_currency
+
+    body = "02 Mar Item 100.00 1,100.00\n"
+    document = statement(
+        body, opening="1,000.00", closing="1,100.00",
+        credits="100.00", credit_count=1, debits="0.00", debit_count=0,
+    )
+    for name in (
+        "CAD Statement-1718 2026-05-27.pdf",
+        "USD Statement-1046 2026-05-26.pdf",
+        "U.S. Funds chequing.pdf",
+    ):
+        commented = f"<!-- source: {name} | pages: 1 | model: x | empty: 0 -->\n\n" + document
+        assert _printed_currency(commented) is None, name
+        stmt = parse_rbc_statement(commented)
+        assert stmt is not None
+        assert stmt.currency == "USD"

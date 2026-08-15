@@ -21293,7 +21293,7 @@ result moves, use the formal truth-set ceremony before changing expectations."*
 | `analysis/schema.py` | untouched. A default is right where no evidence exists; the invariant governs documents that PROVE a currency |
 | Archive movement | **9 documents, currency only.** `parser_id` 0 · `outcome` 0 · `bank` 0 |
 | Statement-specific constants added | none |
-| Suite | 4,240 -> **4,260** (+20) |
+| Suite | 4,240 -> **4,262** (+22) |
 
 ## CUR1. The census — who publishes currency today, and from what
 
@@ -21348,6 +21348,16 @@ a real document, and each is pinned by a negative test:
 4. **`CAD DRAFT 11512638 3,009.95 JAN21`** — TD prints a draft's currency in
    its ledger on eight documents. The draft's denomination is not the
    account's; on a USD account the two disagree.
+
+And one the archive supplies twice over, which is why both new readers carry a
+filename-boundary test (W3 FILENAME-BOUNDARY / F-PROVENANCE): the six RBC
+documents that print `CAD CHEQUING ACCOUNT` are also **named**
+`CAD Statement-1718 …`, six RBC documents named `USD Statement-1046 …` print no
+denomination at all, and the three TD movers are named `TD USD JAN.pdf` and
+friends. A reader that could see the operator's filename would be right by luck
+on nine documents and wrong on six. `admissible_text` strips the source comment
+before any parser runs; the tests hold the readers to the same answer even when
+the comment is fed to them directly.
 
 Two more that shaped scope rather than a regex:
 
@@ -21520,9 +21530,9 @@ documents that do not say.
 
 | Proof | Result |
 |---|---|
-| `python -m pytest -q` | **4,260 passed**, 33 skipped, 29 deselected — exit 0 |
-| `python -m pytest -q -m corpus` | (see CUR7.1) |
-| `python corpus_gate.py` | (see CUR7.1) |
-| guards | (see CUR7.1) |
-| conformance cross-product (71x70) | (see CUR7.1) |
+| `python -m pytest -q` | **4,262 passed**, 33 skipped, 29 deselected — exit 0 |
+| `python -m pytest -q -m corpus` | PENDING — see the branch report |
+| `python corpus_gate.py` | PENDING — see the branch report |
+| guards + conformance (`test_no_statement_hardcodes`, `test_r1_hardcodes`, `test_no_parser_helper_clones`, `test_parser_conformance` 71x70 = 4,970 assertions, `test_parser_registry_entries`, `test_parser_expectations_baseline`) | **1,032 passed**, 33 skipped — exit 0 |
 | full-archive differential, 3,396 documents | 9 currency movers, 0 on `parser_id` / `outcome` / `bank`, **0 pinned** |
+| per-family reader confirmation (positive, not just movers) | `rbc` 12 USD / 6 CAD / 151 None · `td_canada_native` 70 CAD / 3 USD / 1 None · `desjardins` 6 USD. All 4 pinned RBC read None; all 6 pinned TD read CAD; the pinned Desjardins reads USD |

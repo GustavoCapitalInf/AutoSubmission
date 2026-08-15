@@ -526,3 +526,21 @@ CAD DRAFT 11512638 40.00 FEB01 60.00
         stmt = parse_native_td_canada_statement(document)
         assert stmt is not None
         assert stmt.currency == "CAD"
+
+    def test_negative_the_source_filename_cannot_set_the_currency(self):
+        """W3 FILENAME-BOUNDARY. The three archive documents that print
+        `ACCOUNT - USD` are also named `TD USD JAN.pdf` and friends. The right
+        answer here comes from the `Account Type` column; a reader that could
+        also see the operator's filename would be right by luck on these three
+        and wrong on the next document someone renames."""
+        from analysis.td_can import _native_printed_currency
+
+        document = _statement(self.LEDGER)
+        commented = (
+            "<!-- source: TD USD JAN.pdf | pages: 1 | model: x | empty: 0 -->\n\n"
+            + document
+        )
+        assert _native_printed_currency(commented) == "CAD"
+        stmt = parse_native_td_canada_statement(commented)
+        assert stmt is not None
+        assert stmt.currency == "CAD"
