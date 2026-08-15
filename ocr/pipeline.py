@@ -6,32 +6,12 @@ from .config import load_settings
 from .inspect import DocumentProfile, inspect_pdf
 from .local_tesseract import parse_local_tesseract
 from .truncation import assess_pages
-from .native_text import (
-    parse_native_desjardins,
-    parse_native_first_citizens,
-    parse_native_navy_federal,
-    parse_native_pdf_text,
-    parse_native_td_canada,
-    parse_native_wells_fargo,
-    parse_native_woodforest,
-)
-
-
-def _native_statement(pdf_bytes: bytes, source_file: str = "") -> StatementMarkdown | None:
-    """The native-text rung: bank-specific layouts first, generic text last.
-
-    O-1: this ladder previously existed twice — here (inline) and privately in
-    webapp/worker.py — and had drifted in rung order. This is now the ONLY
-    copy; the extractors are called, never modified."""
-    return (
-        parse_native_navy_federal(pdf_bytes, source_file=source_file)
-        or parse_native_td_canada(pdf_bytes, source_file=source_file)
-        or parse_native_wells_fargo(pdf_bytes, source_file=source_file)
-        or parse_native_woodforest(pdf_bytes, source_file=source_file)
-        or parse_native_desjardins(pdf_bytes, source_file=source_file)
-        or parse_native_first_citizens(pdf_bytes, source_file=source_file)
-        or parse_native_pdf_text(pdf_bytes, source_file=source_file)
-    )
+# The native-text rung ladder, defined ONCE in `ocr/native_text.py` (see
+# `native_statement` there for the rung order and the two drifts that paid for
+# consolidating it). Bound under the name `parse_statement` has always called
+# and the suite monkeypatches, so the only thing that changed here is where
+# the ladder lives.
+from .native_text import native_statement as _native_statement
 
 
 def _notify_stage(on_stage, rung: str) -> None:

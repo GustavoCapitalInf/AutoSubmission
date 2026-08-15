@@ -948,3 +948,49 @@ def _wells_rows(page) -> list[str]:
     flush()
     return rows
 
+
+# ---------------------------------------------------------------------------
+# The native-text rung ladder — the one copy
+# ---------------------------------------------------------------------------
+
+
+def native_statement(pdf_bytes: bytes, source_file: str = "") -> StatementMarkdown | None:
+    """The native-text rung: bank-specific layouts first, generic text last.
+
+    THIS IS THE LADDER. Every consumer imports this function; none composes its
+    own. `ocr/pipeline.py` binds it as `_native_statement`, and the five
+    oracle/cache consumers (`adb_debug.py`, `adb_forensic_audit.py`,
+    `balance_forensic_audit.py`, `build_corpus_cache.py`,
+    `deterministic_coverage_audit.py`) bind it under the names their call sites
+    already used. `tests/test_native_rung_parity.py` asserts all six names are
+    THIS object and that no module composes rungs itself.
+
+    Why one copy, in the words of the two drifts that paid for it:
+
+    * O-1: the ladder existed twice — inline in `ocr/pipeline.py` and privately
+      in `webapp/worker.py` — and the two had drifted in rung ORDER.
+    * GEOM-1 (batch 4): production gained `parse_native_woodforest` while the
+      five oracle copies did not, so the forensic oracles would have read
+      Woodforest documents with the generic rung while production read
+      geometry. An oracle that reads different bytes than production is not an
+      oracle. Batch 4 wired all six by hand and pinned them with an AST drift
+      guard; this function removes the thing the guard was watching.
+
+    Order is behaviour, not taste: each bank-specific rung claims only the
+    documents whose printed markers it recognises, and the generic rung claims
+    everything with enough native text — so it must stay last. The extractors
+    are called, never modified.
+
+    Returns None when no rung claims the document, INCLUDING when the PDF's
+    text layer cannot be read at all (`_UnreadableTextLayer`); the caller's
+    next stage — local Tesseract, then visual OCR — decides what happens next.
+    """
+    return (
+        parse_native_navy_federal(pdf_bytes, source_file=source_file)
+        or parse_native_td_canada(pdf_bytes, source_file=source_file)
+        or parse_native_wells_fargo(pdf_bytes, source_file=source_file)
+        or parse_native_woodforest(pdf_bytes, source_file=source_file)
+        or parse_native_desjardins(pdf_bytes, source_file=source_file)
+        or parse_native_first_citizens(pdf_bytes, source_file=source_file)
+        or parse_native_pdf_text(pdf_bytes, source_file=source_file)
+    )
