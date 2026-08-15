@@ -21518,7 +21518,62 @@ differs from the canonical figure on all ten, and `weekday_only` differs from
 `banking_day` on six, so the holiday calendar is doing real work rather than
 duplicating the weekday rule.
 
-## AS8. Carried findings for Ocean
+## AS8. Proofs
+
+Exit codes verbatim. Every command run in the worktree; the machine was shared
+with sibling batch-5 sessions throughout, which inflates the wall clocks and
+nothing else.
+
+```
+$ python -m pytest -q
+4264 passed, 33 skipped, 29 deselected, 1 warning in 160.36s
+exit 0
+
+$ python -m pytest -m corpus -q
+25 passed, 4301 deselected, 1 warning in 1951.48s (0:32:31)
+exit 0
+
+$ python corpus_gate.py --ocr-cache tests/corpus_cache
+[PASS] inventory / foreign_files / source_integrity
+[PASS] balance_audit / adb_audit: 109 statements reproduce every audited field
+[PASS] balance_outcomes / adb_outcomes: 106 pass, 3 withheld, same three
+[PASS] outcome_classes: 6 review / 100 validated / 3 withheld
+[PASS] adb_doctrine: 109/109 publish 'calendar_day_printed_period';
+       banking-day alternate distinct on 106
+[PASS] ocr_coverage / exclusions / oracle_independence
+Outcomes: 106 PASS / 3 WITHHELD    Runtime: 632.7s
+RESULT: GREEN
+exit 0
+
+$ python adb_forensic_audit.py "Bank Statements" --ocr-cache tests/corpus_cache
+Wrote 109 rows: {'PASS': 106, 'WITHHELD': 3, 'FAIL': 0}
+exit 0
+
+$ python balance_forensic_audit.py "Bank Statements" --ocr-cache tests/corpus_cache
+Wrote 109 rows: {'PASS': 106, 'WITHHELD_SOURCE_CONTRADICTION': 3, 'FAIL': 0}
+exit 0
+```
+
+**`pytest -m corpus` is fully GREEN, which it was not at §WFINIT.** That cell
+recorded `1 failed, 13 passed` on
+`test_detect_sweep_stays_affordable_for_the_discovery_run` (WF7.1/WF8.11, the
+detect-sweep budget crossed on main). The slice is now 25 passed / 0 failed,
+so the STOP-THE-LINE candidate WFINIT carried does not reproduce here —
+batch 4's detect-sweep re-scope (104 preparations per document down to 33)
+closed it. Recorded because that item was carried open.
+
+The gate was run twice: once at `44a5f4a` and again at `5a6bde1` after the
+label-pairing hardening. Both GREEN, check for check, and the second run is
+what proves the hardening inert on the corpus rather than an argument that it
+must be.
+
+**Scope note on the corpus slice.** It was run at `44a5f4a`. The only later
+change is `5a6bde1`, two parsers hoisting a value expression into a variable
+and pairing the label to it — provably identical output wherever the value is
+not None, which the CSV audit shows is every one of the 109. The full suite and
+the whole gate were both re-run at `5a6bde1` and are green there.
+
+## AS9. Carried findings for Ocean
 
 1. **`ANALYSIS_STAGE_VERSION` must bump in the merge commit.** Every payload
    changes additively and two outcomes move; the cached analysis payloads are
