@@ -161,19 +161,152 @@ def test_expectations_cover_the_pinned_manifest(documents):
     assert {row["path"] for row in documents} == pinned
 
 
-def test_detect_sweep_stays_affordable_for_the_discovery_run(sources):
-    """RFC risk 7: the full-registry sweep is per-document overhead on 3,506
-    discovery documents, so it must stay far below the cost of one parse."""
+#: The registry size the budget is required to hold at (ratified by Ocean,
+#: batch 4). Now that the text is prepared once per document, a registration
+#: adds its own markers and — if it brings one nobody else has — its own
+#: normalization, so a budget measured at today's size says nothing on its own
+#: about the size the coverage wave is heading for. The affordability
+#: assertion is therefore made against the cost PROJECTED to this many
+#: registrations, `worst * 80 / 68`.
+#:
+#: **That projection is a FLOOR on the cost at 80, not a bound.** It scales by
+#: the mean cost of today's registrations, and that mean is diluted by the 32
+#: which have no normalization at all: review measured projection/actual at
+#: 1.00 for a growth shape resembling today's mix and 0.79 for one where every
+#: new registration brings its own normalizer — i.e. the real cost can exceed
+#: this projection by a quarter. It is used because it is strictly harsher
+#: than asserting at today's 68 and it is honest about direction, not because
+#: it predicts. The load-independent clause above is the exact guard for the
+#: quadratic class this cell removed; other superlinear growth shapes are not
+#: caught by either, and are carried in W3 §DETBUDGET DT9.
+PLANNED_REGISTRATIONS = 80
+
+#: The absolute ceiling, unchanged since R-3 risk 7: no document may cost the
+#: discovery run a quarter-second of routing before a single parse has run.
+SWEEP_BUDGET_SECONDS = 0.25
+
+#: Repetitions the wall-clock reading is taken as the MINIMUM of. Contention
+#: on a shared machine can only ever make a sample slower — never faster — so
+#: the minimum of several samples is the reading least contaminated by load,
+#: and it converges on the cost the discovery run actually pays on a machine
+#: doing nothing else. Three cells of the batch-4 wave read this test red on
+#: an unmodified base while ten agents shared the machine; a single sample is
+#: simply the wrong instrument for an absolute cost contract.
+SWEEP_SAMPLES = 5
+
+
+def _sweep_seconds(markdown: str) -> float:
+    """One production detect sweep: what `resolve` costs before any parse.
+
+    `_surviving_claimants` and not a loop of `Registration.detect`, because the
+    loop is not a sweep — it prepares the document's text once per
+    registration, which is precisely the cost this budget exists to keep out
+    of the discovery run, and no caller has done it that way since the
+    `PreparedDocument` seam landed.
+    """
     import time
 
+    start = time.perf_counter()
+    pr._surviving_claimants(markdown)
+    return time.perf_counter() - start
+
+
+def test_the_detect_sweep_prepares_each_document_once(documents, sources):
+    """The structural half of the budget, and the load-independent half.
+
+    A sweep's text preparation — `admissible_text`, then each parser's own
+    normalization — is a function of the document, not of the registration
+    asking. Preparing it per registration made the sweep quadratic in registry
+    size in its dominant term: on the largest pinned document that was 68
+    `admissible_text` calls (116 ms) and 36 normalizations (77 ms) — four
+    fifths of a 242 ms sweep — to produce five distinct strings.
+
+    This states the property directly, in operations rather than milliseconds,
+    so it cannot be read differently by a busy machine and a quiet one — the
+    wall-clock assertion below is the one that needs an instrument, and this is
+    the one that catches the regression.
+    """
     registrations = pr.registrations()
-    worst = 0.0
-    for markdown in sources.values():
-        start = time.perf_counter()
+    expected = 1 + len({reg.normalize for reg in registrations if reg.normalize})
+
+    for row in documents:
+        prepared = pr.prepare(sources[row["path"]])
         for registration in registrations:
-            registration.detect(markdown)
-        worst = max(worst, time.perf_counter() - start)
-    assert worst < 0.25, f"slowest full-registry detect sweep was {worst * 1000:.1f} ms"
+            registration.detect_prepared(prepared)
+        assert prepared.preparations == expected, (
+            f"{row['path']}: {prepared.preparations} text preparations for "
+            f"{len(registrations)} registrations; expected {expected}"
+        )
+
+
+def test_the_sweep_entry_points_strip_the_filename_comment_once(sources, monkeypatch):
+    """...and that the entry points really are the seam, not just `prepare`.
+
+    `admissible_text` is the one preparation every registration shares
+    unconditionally, so counting it counts whether the entry point prepared
+    once or sixty-eight times. Both sweeping entry points are checked:
+    `resolve`'s, and the one telemetry's near-miss vector runs.
+    """
+    markdown = next(iter(sources.values()))
+    real = pr.admissible_text
+    calls: list[int] = []
+
+    def counted(text: str) -> str:
+        calls.append(len(text))
+        return real(text)
+
+    monkeypatch.setattr(pr, "admissible_text", counted)
+
+    pr._surviving_claimants(markdown)
+    assert len(calls) == 1, f"resolve's sweep stripped the comment {len(calls)} times"
+
+    calls.clear()
+    pr.detection_report(markdown)
+    assert len(calls) == 1, f"the near-miss sweep stripped the comment {len(calls)} times"
+
+
+def test_detect_sweep_stays_affordable_for_the_discovery_run(sources):
+    """RFC risk 7: the full-registry sweep is per-document overhead on 3,506
+    discovery documents, so it must stay far below the cost of one parse.
+
+    The ceiling is absolute and unchanged — a quarter-second per document —
+    but two things about how it is read have changed, because the reading and
+    not the ceiling was what went wrong (batch 4, DETECT-BUDGET):
+
+    * the sweep is timed through the seam production sweeps through, and
+    * the reading is the best of `SWEEP_SAMPLES`, which is the estimator that
+      survives a shared machine.
+
+    And the assertion is made against the cost projected to
+    `PLANNED_REGISTRATIONS` — a FLOOR on the cost at that size, not a bound;
+    see the note on the constant.
+
+    **Every document is read the same way the winner is.** The first revision
+    of this test picked the worst document from one noisy sample and only then
+    applied best-of-N to it, which is the same instrument error one level up:
+    review measured that selection finding the true worst 0 times in 7 and
+    understating the reading by up to 44%, because a document that got one
+    unlucky sample wins a selection it should not and then has that sample
+    thrown away. Selection and reading are now the same quantity — the minimum
+    of `SWEEP_SAMPLES` — so an unlucky sample can neither win nor mislead. It
+    costs `SWEEP_SAMPLES` passes over the corpus instead of one, which is
+    seconds against the twenty minutes the corpus-marked slice already takes.
+    """
+    registrations = pr.registrations()
+    worst, worst_doc = 0.0, ""
+    for path, markdown in sources.items():
+        elapsed = min(_sweep_seconds(markdown) for _ in range(SWEEP_SAMPLES))
+        if elapsed > worst:
+            worst, worst_doc = elapsed, path
+
+    projected = worst * PLANNED_REGISTRATIONS / len(registrations)
+
+    assert projected < SWEEP_BUDGET_SECONDS, (
+        f"slowest full-registry detect sweep was {worst * 1000:.1f} ms over "
+        f"{len(registrations)} registrations ({worst_doc}), which projects to "
+        f"{projected * 1000:.1f} ms at {PLANNED_REGISTRATIONS} — the budget is "
+        f"{SWEEP_BUDGET_SECONDS * 1000:.0f} ms"
+    )
 
 
 def test_detection_is_invariant_to_the_filename_echo(documents, sources):

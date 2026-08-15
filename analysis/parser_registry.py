@@ -73,6 +73,7 @@ __all__ = [
     "Parser",
     "ParserCrashError",
     "ParserFailure",
+    "PreparedDocument",
     "Registration",
     "admissible_text",
     "by_bank_label",
@@ -82,6 +83,7 @@ __all__ = [
     "excluding",
     "make_detector",
     "exclusive",
+    "prepare",
     "register",
     "registrations",
     "required",
@@ -211,6 +213,112 @@ def admissible_text(markdown: str) -> str:
     return SOURCE_COMMENT_RE.sub("", markdown)
 
 
+class PreparedDocument:
+    """One document's text, prepared once for a whole registry sweep.
+
+    Detection is two stages: **prepare the text**, then **run the markers over
+    it**. The first stage is a property of the document and of the parser's
+    normalization — not of the registration — and the registry sweeps every
+    registration over the same document, so preparing per registration does the
+    same work sixty-eight times. Measured on the largest pinned document
+    (62,702 chars) that was four fifths of a 242 ms sweep: `admissible_text`
+    sixty-eight times (116 ms) and thirty-six normalizations (77 ms), to
+    produce, in the end, five distinct strings.
+
+    This object does each preparation once:
+
+    * `admissible_text` once, whatever the registry's size;
+    * each *distinct* normalization callable once — registrations that share a
+      normalizer (the two Chase entries, the two Found entries, the two scanned
+      small banks) share its output;
+    * each *distinct resulting text* is interned to one object, so two
+      registrations whose normalizations happen to agree on this document hold
+      the same string, and a marker they also share is evaluated once.
+
+    Every one of those is exact rather than approximate. `admissible_text` and
+    the normalizers are pure functions of the text (the module contract for
+    `normalize`), and `Marker.test` is documented pure, total and cheap — so
+    computing a value twice can only ever produce the value already computed.
+    Nothing here decides that a registration *cannot* claim; every registration
+    still runs every one of its markers over exactly the text it ran them over
+    before. `tests/test_parser_parity.py` and the full-archive equivalence
+    sweep are what hold that to the letter.
+
+    Not shared between documents and not cached anywhere global: a document's
+    text is the sensitive thing this codebase is careful never to leave lying
+    around (see `ParserFailure`), so the prepared texts live exactly as long as
+    the sweep that asked for them.
+    """
+
+    __slots__ = ("_admissible", "_texts", "_interned", "_marker_results", "_preparations")
+
+    def __init__(self, markdown: str) -> None:
+        self._admissible = admissible_text(markdown)
+        #: normalize callable (or None) -> the interned text it produces here.
+        self._texts: dict[object, str] = {None: self._admissible}
+        #: value -> the one instance of it every registration shares.
+        self._interned: dict[str, str] = {self._admissible: self._admissible}
+        #: (marker test, prepared text) -> outcome, for a test two
+        #: registrations share and run over the same text. Worth 8.5 ms of a
+        #: 157 ms sweep on the largest pinned document.
+        self._marker_results: dict[tuple[object, str], bool] = {}
+        #: How many text preparations this document actually cost. The budget
+        #: test reads it: it is the load-independent statement of the property.
+        self._preparations = 1
+
+    @property
+    def admissible(self) -> str:
+        """The document with the source-filename comment removed."""
+        return self._admissible
+
+    @property
+    def preparations(self) -> int:
+        """Text preparations performed: `admissible_text`, plus one per
+        distinct normalization. A full sweep of a 68-registration registry
+        costs 33 of these; before this seam it cost 104."""
+        return self._preparations
+
+    def text_for(self, normalize: Callable[[str], str] | None) -> str:
+        """The text `normalize` sees on this document, computed at most once.
+
+        **Interning trusts the value a normalizer returns, so it is applied
+        only to an exact `str`.** Two things go wrong otherwise, and both are
+        silent or newly-fatal rather than merely slow. An unhashable return
+        cannot be a dict key, so the intern would raise where the base merely
+        handed the object to the markers — a `ParserFailure` that did not
+        exist before, fail-closed but a NEW failure mode. And a `str` subclass
+        carrying its own `__eq__`/`__hash__` can compare equal to a text
+        another normalizer produced, so `setdefault` would hand this
+        registration a *different* string to run its markers over. A
+        non-conforming normalizer therefore takes the base path — run per
+        call, never interned, never memoized — which costs nothing, because
+        the registry has none and
+        `tests/test_parser_registry_entries.py` is what keeps it that way.
+
+        An unhashable normalizer *callable* is handled the same way, for the
+        same reason.
+        """
+        try:
+            return self._texts[normalize]
+        except KeyError:
+            pass
+        except TypeError:  # pragma: no cover — no registry entry is unhashable
+            return normalize(self._admissible) if normalize else self._admissible
+
+        produced = normalize(self._admissible)  # type: ignore[misc]
+        self._preparations += 1
+        if type(produced) is not str:
+            return produced
+        text = self._interned.setdefault(produced, produced)
+        self._texts[normalize] = text
+        return text
+
+
+def prepare(markdown: str) -> PreparedDocument:
+    """The text of one document, ready for a sweep. See `PreparedDocument`."""
+    return PreparedDocument(markdown)
+
+
 def make_detector(
     markers: Sequence[Marker], normalize: Callable[[str], str] | None = None
 ) -> Callable[[str], "Detection"]:
@@ -224,8 +332,8 @@ def make_detector(
     """
 
     def detect(markdown: str) -> "Detection":
-        text = admissible_text(markdown)
-        return score_markers(markers, normalize(text) if normalize else text)
+        prepared = prepare(markdown)
+        return _score(markers, prepared.text_for(normalize), prepared)
 
     return detect
 
@@ -245,20 +353,54 @@ class Detection:
 
 def score_markers(markers: Iterable[Marker], markdown: str) -> Detection:
     """Turn marker outcomes into a `Detection` by the documented formula."""
+    return _score(markers, markdown, None)
+
+
+def _score(
+    markers: Iterable[Marker], markdown: str, prepared: PreparedDocument | None
+) -> Detection:
+    """`score_markers`, optionally reusing outcomes already known for this text.
+
+    `prepared` carries the sweep's memo of `(marker test, text) -> outcome`.
+    It changes nothing about which markers a registration consults or in what
+    order: a memo hit is the value the call would have returned, because
+    `Marker.test` is pure by contract. A test that raises is not memoized and
+    propagates exactly as before, to the `_guarded` seam that owns it.
+
+    The memo keys on the text, so it is used only for an exact `str` — the
+    same hazard `PreparedDocument.text_for` describes, one level on: a `str`
+    subclass with its own `__eq__`/`__hash__` could otherwise collide with
+    another registration's text and return that registration's marker outcome.
+    """
     markers = tuple(markers)
+    if prepared is None or type(markdown) is not str:
+        def fired(marker: Marker) -> bool:
+            return bool(marker.test(markdown))
+    else:
+        results = prepared._marker_results
+
+        def fired(marker: Marker) -> bool:
+            key = (marker.test, markdown)
+            try:
+                hit = results.get(key)
+            except TypeError:  # pragma: no cover — an unhashable test
+                return bool(marker.test(markdown))
+            if hit is None:
+                hit = results[key] = bool(marker.test(markdown))
+            return hit
 
     for marker in markers:
-        if marker.kind == "excluding" and marker.test(markdown):
+        if marker.kind == "excluding" and fired(marker):
             return Detection(0.0, (), excluded_by=marker.id)
 
     for marker in markers:
-        if marker.kind == "exclusive" and marker.test(markdown):
+        if marker.kind == "exclusive" and fired(marker):
             return Detection(1.0, (marker.id,))
 
     requirements = [m for m in markers if m.kind == "required"]
     corroborations = [m for m in markers if m.kind == "corroborating"]
-    satisfied = [m for m in requirements if m.test(markdown)]
-    supporting = [m for m in corroborations if m.test(markdown)]
+    satisfied = [m for m in requirements if fired(m)]
+    supporting = [m for m in corroborations if fired(m)]
     matched = tuple(m.id for m in (*satisfied, *supporting))
 
     if len(satisfied) != len(requirements):
@@ -331,8 +473,16 @@ class Registration:
     integrity_checks: tuple[IntegrityCheck, ...] = ()
 
     def detect(self, markdown: str) -> Detection:
-        text = admissible_text(markdown)
-        return score_markers(self.markers, self.normalize(text) if self.normalize else text)
+        return self.detect_prepared(prepare(markdown))
+
+    def detect_prepared(self, prepared: PreparedDocument) -> Detection:
+        """`detect` against text a sweep has already prepared.
+
+        The same computation as `detect` — `detect` is this method over a
+        `PreparedDocument` of one — but the preparation is shared with every
+        other registration sweeping the same document. See `PreparedDocument`.
+        """
+        return _score(self.markers, prepared.text_for(self.normalize), prepared)
 
     @property
     def sort_key(self) -> tuple[int, str]:
@@ -485,7 +635,11 @@ class Dispatch:
         return tuple(dict.fromkeys(failure.parser_id for failure in self.exceptions))
 
 
-def safe_detect(registration: Registration, markdown: str, failures: list | None = None) -> Detection:
+def safe_detect(
+    registration: Registration,
+    document: str | PreparedDocument,
+    failures: list | None = None,
+) -> Detection:
     """`registration.detect`, total by construction.
 
     A registration whose detection crashes scores 0.0 and therefore cannot
@@ -497,8 +651,13 @@ def safe_detect(registration: Registration, markdown: str, failures: list | None
     exception class to name and inventing one would put a fiction in
     telemetry. `tests/test_parser_registry_entries.py` is what catches that
     contract breach, at the registration level where it belongs.
+
+    `document` may be a `PreparedDocument`, which is how a sweep shares one
+    document's prepared text across every registration; a plain string is
+    prepared here and behaves identically.
     """
-    detection = _guarded("detect", registration, lambda: registration.detect(markdown),
+    prepared = document if isinstance(document, PreparedDocument) else prepare(document)
+    detection = _guarded("detect", registration, lambda: registration.detect_prepared(prepared),
                          failures if failures is not None else [])
     return detection if isinstance(detection, Detection) else Detection(0.0)
 
@@ -510,10 +669,11 @@ def _surviving_claimants(
     diagnostic callers (the corpus parity tests) keep their pre-W3-1 signature:
     they ask what claimed a document, not what broke doing it."""
     failures = failures if failures is not None else []
+    prepared = prepare(markdown)
     claimants = [
         (registration, detection)
         for registration in registrations()
-        if (detection := safe_detect(registration, markdown, failures)).claims
+        if (detection := safe_detect(registration, prepared, failures)).claims
     ]
     dominated = {target for registration, _ in claimants for target in registration.supersedes}
     return [(reg, det) for reg, det in claimants if reg.id not in dominated]
@@ -611,8 +771,9 @@ def detection_report(markdown: str) -> tuple[tuple[str, Detection], ...]:
     Guarded like `resolve`: a diagnostic sweep must not be the thing that
     aborts a run.
     """
+    prepared = prepare(markdown)
     scored = [
-        (registration.id, safe_detect(registration, markdown)) for registration in registrations()
+        (registration.id, safe_detect(registration, prepared)) for registration in registrations()
     ]
     return tuple(sorted(scored, key=lambda item: (-item[1].score, item[0])))
 

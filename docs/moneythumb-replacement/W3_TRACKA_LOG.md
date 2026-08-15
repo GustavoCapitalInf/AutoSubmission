@@ -20762,3 +20762,511 @@ payloads** - same outcomes, same transaction counts, same ADBs.
 | conformance cross-product | **640 passed** | 0 |
 | `python -m pytest -q` (full default suite) | **3,825 passed**, 18 deselected | 0 |
 | the eleven end to end | 11 `validated/approved`, 0 flags, payloads unchanged | 0 |
+
+# §DETBUDGET — the sweep prepared every document sixty-eight times
+
+Central triage of the batch-4 STOP-THE-LINE. Three cells read
+`test_detect_sweep_stays_affordable_for_the_discovery_run` red on an
+**unmodified base** while ten agents shared the machine, and each spent an hour
+proving the red was not theirs. The unit of work is `analysis/parser_registry.py`
+— the sweep path — and the affordability test's MEASUREMENT DESIGN. The
+constant is not touched: the budget is still a quarter-second per document.
+
+## DT0. Summary
+
+The red was real, and it was two separate defects wearing one symptom.
+
+| # | defect | fix | measured |
+|---|---|---|---|
+| 1 | **The sweep prepared each document's text once per registration.** `admissible_text` ran 68 times and 36 normalizations ran, per document, to produce five distinct strings. Four fifths of the sweep. | `PreparedDocument`: `admissible_text` once, each *distinct* normalizer once, results interned so a marker two registrations share over the same text runs once. | worst pinned sweep **267.7 → 128.6 ms** loaded, **118.1 → 50.4 ms** quiet; text preparations per document **104 → 33** |
+| 2 | **The test timed a loop no caller runs, and read one sample of it.** It called `Registration.detect(markdown)` 68 times — which is the per-registration preparation, i.e. defect 1 measured deliberately — and took a single wall-clock sample on a shared machine. | Time the production seam (`_surviving_claimants`); take the **minimum** of five samples; assert against the cost **projected to 80 registrations**; and add a load-immune structural assertion in OPERATIONS. | the assertion is now **strictly harsher** than the one it replaces and passes with 30% margin |
+
+`0` documents change behaviour. Full-archive claim-set equivalence over every
+archive sha that has text offline — 3,367 of 3,380 — is byte-identical:
+claimant sets, scores, matched marker ids and `excluded_by`, for all 68
+registrations on every document, digest
+`9A7DEAA1468033FA0966B429742660C2F9023EEAE4707ECEDEFF67C0C1672B15` on both
+arms. The 13 documents with no offline text are the deferred visual-OCR set;
+there is no text to sweep and they are excluded rather than assumed.
+
+`analysis/parser_registry_entries.py` and all 59 parser modules carry a
+**zero-line diff**. `ANALYSIS_STAGE_VERSION` is deliberately NOT bumped —
+nothing published changes, and the bump is Ocean's at merge in any case.
+
+## DT1. The instrument
+
+Two checkouts, one markdown store, one process per arm.
+
+* **base arm** — `git archive 229a3cd analysis ocr telemetry discovery`
+  extracted to a directory outside the worktree. Production code is imported
+  from the arm's own checkout and the harness asserts
+  `Path(pr.__file__).is_relative_to(CHECKOUT)` before measuring anything; the
+  first draft of this harness silently measured the branch twice and the
+  assertion is what caught it.
+* **the documents** — the run of record `d5c75ff6`'s 3,380 distinct shas,
+  resolved out of the D-3 artifact store **by direct file path** under the
+  run's OCR settings key. The sqlite index was never opened. 3,367 have text;
+  62,715,801 characters in total. Both arms read one pickled store, so the two
+  arms provably sweep identical bytes.
+* **the pinned corpus** — the 109-path manifest, resolved exactly as
+  `tests/test_parser_parity.py` resolves it.
+* **the timing method** — best-of-N per document, paired, arms alternating in
+  one command. Reported in both load regimes (DT6): *loaded* is roughly ten
+  parallel cells, *quiet* is three processes. Neither is a claim about a
+  dedicated machine; the train's numbers will be better than the quiet column.
+
+## DT2. Where the cost was
+
+Decomposed on the largest pinned document (`Others/Altana/Altana june 26.pdf`,
+62,702 chars), base arm, best-of-5:
+
+| stage | calls per document | cost | share |
+|---|---|---|---|
+| `admissible_text` | **68** — one per registration | 116 ms | 48% |
+| parser normalization | **36** — one per registration that has one | 77 ms | 32% |
+| markers | 68 registrations, 189 marker slots | 82 ms | 34% |
+| *(measured whole sweep)* | | *242 ms* | |
+
+The first two rows are the finding. `admissible_text` is a pure function of
+the document; a parser's `normalize` is a pure function of the document and of
+the parser's own preprocessing. Neither depends on which registration is
+asking, and the sweep asks 68 times. The 104 preparations produced, on that
+document, **five distinct strings**: 32 registrations have no normalizer, 30
+normalizers agreed on `admissible.upper()`, and three more stood alone.
+
+That is why HUNT-CELL's prediction landed at 55 registrations and why shaving
+could not save it: the dominant term grew with the registry, and removing the
+ninth-most-expensive registration entirely still left ~254 ms.
+
+## DT3. The fix — prepare once per document, not once per registration
+
+`PreparedDocument` in `analysis/parser_registry.py`. Three memos, each of them
+exact rather than approximate:
+
+1. **`admissible_text` once.** Whatever the registry's size.
+2. **Each distinct normalizer once.** Keyed on the callable itself, so the two
+   Chase entries, the two Found entries and the two scanned small banks share
+   one output apiece. 36 calls → 32.
+3. **Each distinct resulting text interned**, so two registrations whose
+   normalizations happen to agree on *this* document hold the same string —
+   and a marker they also share is then evaluated once. Worth 8.5 ms of a
+   157 ms sweep.
+
+**Interning trusts the value a normalizer returns, and that trust is now
+guarded rather than assumed** (review finding, `text_for`). Two things go
+wrong if the return is not an exact `str`. An unhashable one cannot be a dict
+key, so the intern raises where the base merely handed the object to the
+markers — fail-closed, but a `ParserFailure` that did not exist before, on a
+registration that used to score. A `str` subclass carrying its own
+`__eq__`/`__hash__` can compare equal to another normalizer's text, and
+`setdefault` then hands this registration a *different* string to run its
+markers over — silent. `type(produced) is str` is the guard: anything else
+takes the base path, run per call and never interned, and the marker memo
+carries the same guard one level on because it keys on the text too. The
+purity contract this rests on is now written on `text_for` itself rather than
+left to the module docstring. That is the fallback; the assertion that no
+registered normalizer ever needs it is
+`test_each_registrations_normalization_returns_an_exact_str`, which runs the
+36 normalizations over five probe documents. It lives in the registry test and
+not in `validate_registry` deliberately: the check needs a document to run on,
+and `validate_registry` runs at import — putting every parser's normalization
+on the import path of `analysis` to satisfy a type contract is the worse
+trade.
+
+Nothing here decides a registration cannot claim. Every registration still
+runs every one of its markers over exactly the text it ran them over before,
+in the same order, and still produces a `Detection` — including the near-miss
+scores telemetry publishes for registrations that did not claim. The seam is
+threaded through `_surviving_claimants`, `detection_report`, `safe_detect`
+(which now accepts a `PreparedDocument` or a string), `Registration.detect`
+(now `detect_prepared` over a prepared document of one) and `make_detector`.
+Public behaviour of every one of them is unchanged.
+
+**No global cache.** A prepared document lives exactly as long as the sweep
+that asked for it. Caching the last document's prepared texts in a module
+global would halve the discovery run's detection cost again — see DT9.1 — but
+it would also leave five copies of a customer's statement in a module-level
+variable for as long as the process lives, and this codebase does not do that
+(`ParserFailure` refuses to keep an exception *message* for the same reason).
+
+## DT4. The two candidates that were NOT taken, and why
+
+**Candidate 1, the two-tier prescan, is incompatible with the binding
+equivalence requirement.** A prescan is sound as a claim gate — a registration
+whose required markers cannot all be present can never claim — but skipping a
+registration does not merely withhold a claim. `detection_report` publishes a
+`Detection` for **every** registration on every document, and telemetry's
+near-miss vector (`telemetry/collect.score_vector`) records every non-zero
+score. A skipped registration would lose its partial score and its `matched`
+marker ids, which is a behaviour change outside sweep cost on documents that
+nothing claims — 815 of the 3,367 swept here, which is exactly the population
+whose near-miss vector the discovery run reads to rank the next parser cell.
+To keep the vector intact the prescan would have to run the markers anyway, at
+which point it has saved nothing.
+
+This is where the cell diverges from the design package. A gated-vs-ungated
+equivalence test of the kind SCAN-C pins would pass — it compares **claims**,
+and a prescan built from strictly necessary conditions really does preserve
+those — while the near-miss score and the `matched` marker ids of every gated-
+out registration silently went to zero. The DT7 sweep is what would catch it,
+because it compares the whole `Detection` for all 68 registrations and not only
+the claimants. Recorded, not attempted; the headroom was taken out of the
+normalization stage instead, where it costs no behaviour at all.
+
+**Candidate 2, per-registration shaving, is real work but it is not this
+cell's and it cannot close the gap alone.** The handoff's own arithmetic holds.
+What the profile adds is *where* the remaining cost is, so the cards can be
+written against evidence — DT9.2.
+
+## DT5. The measurement was wrong in two ways, and only one of them was load
+
+The shipped test read:
+
+```python
+for registration in registrations:
+    registration.detect(markdown)
+```
+
+That is not a sweep. It is the per-registration preparation of defect 1,
+performed deliberately, and **no caller has run detection that way since R-3**:
+`resolve` goes through `_surviving_claimants` and telemetry goes through
+`detection_report`, both of which sweep the registry once over one document.
+The test was measuring a shape production does not have, and it was the most
+expensive shape available.
+
+Second, one wall-clock sample on a shared machine is the wrong instrument for
+an absolute cost contract. Contention can only ever make a sample *slower*, so
+the minimum of several samples is the reading least contaminated by load and
+the one that converges on what a quiet machine pays.
+
+The replacement keeps the constant and states three things:
+
+| clause | what it asserts | instrument |
+|---|---|---|
+| `test_the_detect_sweep_prepares_each_document_once` | every pinned document costs exactly `1 + (distinct normalizers)` text preparations — 33 today | **operations. Deterministic; a busy machine and a quiet one cannot read it differently.** |
+| `test_the_sweep_entry_points_strip_the_filename_comment_once` | `_surviving_claimants` and `detection_report` — the two real entry points — strip the filename comment once per document, not once per registration | operations |
+| `test_detect_sweep_stays_affordable_for_the_discovery_run` | **every** pinned document read as the best of five sweeps through the production seam; the worst of those, **projected to 80 registrations**, is under **250 ms** | wall clock, absolute ceiling, load-robust estimator |
+
+The projection is what turns "the budget holds today" into "the budget holds at
+the size the coverage wave is heading for". At 68 registrations it requires the
+sweep to come in under 212.5 ms, which is **stricter than the 250 ms the
+shipped test asked for.**
+
+**It is a floor on the cost at 80, not a bound, and the record should not read
+otherwise.** `worst × 80/68` scales by the mean cost of today's registrations,
+and that mean is diluted by the 32 that have no normalization at all. Review
+measured projection ÷ actual at **1.00** for a growth shape resembling today's
+mix and **0.79** for one where every new registration brings its own
+normalizer — so the real cost at 80 can exceed the projection by a quarter.
+The projection earns its place by being harsher than asserting at 68 and
+honest about direction; it does not predict. Note also what the first clause
+does and does not cover: it is the **exact** guard for the quadratic class
+this cell removed — per-registration preparation cannot come back without
+turning it red — while other superlinear shapes (a marker whose cost grows
+with the registry, say) are caught by neither clause. Carried in DT9.
+
+Selection is done the same way as the reading, for the same reason. The first
+revision picked the worst document from a single sample and only then applied
+best-of-five to it; review measured that selection finding the true worst
+**0 times in 7** and understating the reading by up to **44%**, because a
+document that draws one unlucky sample wins a selection it should not and then
+has that very sample discarded. Both are now the minimum of five.
+
+Be precise about what is red where, because it matters for reading the next
+red. The wall-clock clause is red on base **under load** (267.7 ms → projects
+to 315 ms) and green on base **on a quiet machine** (118.1 ms → 139 ms): the
+production sweep really was affordable when nothing else was running, and the
+old test only looked green there because 203 ms of loop-shape sat just inside
+a 250 ms cap. That is the whole shape of the STOP-THE-LINE — a contract with
+no margin, read through an instrument that doubled the number and a machine
+that trebled it. The fix restores the margin; the structural clause is what
+makes the margin permanent.
+
+**The middle clause is red on base, and red without a stopwatch.** Run against
+`229a3cd`'s `analysis` (same harness, same document, arms selected by
+`DB_ARM`):
+
+```
+arm=base    registrations=68
+  _surviving_claimants: admissible_text called 68x  -> FAIL
+  detection_report    : admissible_text called 68x  -> FAIL
+arm=branch  registrations=68
+  _surviving_claimants: admissible_text called 1x   -> PASS
+  detection_report    : admissible_text called 1x   -> PASS
+```
+
+That is the defect stated as a number a loaded machine cannot change. The
+first clause cannot run against base at all — there is no `PreparedDocument`
+to count preparations on — so this is the one that carries the red.
+
+## DT6. Results
+
+Paired, arms alternating in one command, production seam
+(`_surviving_claimants`). **Two load regimes**, because the point of the
+exercise is that a reading has to survive both. *Loaded* is best-of-5 with
+roughly ten cells sharing the machine; *quiet* is the minimum over three
+alternating rounds of best-of-7, taken later when the machine was down to
+three processes.
+
+| measurement | base loaded | branch loaded | base quiet | branch quiet |
+|---|---|---|---|---|
+| worst pinned document | 267.7 ms | **128.6 ms** | 118.1 ms | **50.4 ms** |
+| largest pinned (62,702 chars) | 241.7 ms | **142.2 ms** | 110.2 ms | **50.6 ms** |
+| one pass over the 109 pinned | 8.14 s | **4.57 s** | 5.96 s | **1.73 s** |
+| 40 largest archive docs, worst (139,737 chars) | 591.4 ms | **318.9 ms** | 339.0 ms | **124.8 ms** |
+| 40 largest archive docs, median | 320.4 ms | **170.6 ms** | 193.0 ms | **69.9 ms** |
+| text preparations per document | 104 | **33** | 104 | **33** |
+| full-archive equivalence pass (3,367 docs × 2 sweeps) | ~400 s | **~135 s** | | |
+
+Speedup 1.7–2.1× loaded, 2.2–2.8× quiet; the whole-corpus pass 3.4× quiet.
+Projected to 80 registrations from the worst pinned reading: base **315 ms
+loaded / 139 ms quiet**, branch **151 ms loaded / 59 ms quiet** — a 40% margin
+under the ceiling in the worst regime measured, and 4.2× in the best.
+
+The gap between the two regimes is the whole argument for the estimator: the
+same quantity has been read anywhere from 50 ms to 310 ms on this machine
+depending on nothing but what else was running.
+
+And the shipped assertion's own computation, run on both arms after the
+selection pass was corrected — min-of-five for **every** pinned document, the
+worst of those, projected to 80 — twice each, alternating, on a quiet machine:
+
+```
+base    worst=  87.4 ms  Others/Altana/Altana june 26.pdf   projected@80= 102.8 ms  PASS
+branch  worst=  50.5 ms  Others/Altana/Altana june 26.pdf   projected@80=  59.4 ms  PASS
+base    worst=  89.8 ms  BofA/eStmt_2026-03-31 (3) (1).pdf  projected@80= 105.7 ms  PASS
+branch  worst=  51.1 ms  Others/Altana/Altana june 26.pdf   projected@80=  60.1 ms  PASS
+```
+
+Two things worth keeping. The branch picks the same document both times — the
+largest one, which is what a correct selection should pick — while the base
+wobbles between two of near-equal cost, which is the noise the old
+single-sample selection used to amplify into a 44% understatement. And both
+arms PASS quiet, which is the DT5 point restated: the wall-clock clause is not
+the one that carries the red on base.
+
+## DT7. The equivalence proof
+
+For every archive sha with text offline, both arms recorded, per document:
+
+* the surviving claimant set after `supersedes` pruning, with scores;
+* the **complete** `detection_report` — all 68 registrations' `(score,
+  matched marker ids, excluded_by)`.
+
+3,367 documents, 3,367 identical records, one identical digest per arm:
+`9A7DEAA1468033FA0966B429742660C2F9023EEAE4707ECEDEFF67C0C1672B15`.
+Documents differing: **0**. Claim-set composition, unchanged on both arms:
+2,552 single-claimant · 0 ambiguous · 815 unclaimed.
+
+This is strictly more than the binding proof asked for — it pins the near-miss
+vector telemetry publishes, not only the winner and the claimants.
+
+### DT7.1 The crash arm — the W3-1 guard, exercised on purpose
+
+Ocean's addendum is right that the sweep above proves equivalence only on the
+non-raising path: not one of the 68 registrations raised on any of the 3,367
+documents, so the `_guarded` seam was never entered. The proof was therefore
+re-run with five synthetic registrations injected, covering every place a
+registration's own code runs during detection:
+
+| injected | raises in |
+|---|---|
+| `zz_boom_required` | a REQUIRED marker |
+| `zz_boom_excluding` | an EXCLUDING marker — the first loop, before any other kind runs |
+| `zz_boom_exclusive` | an EXCLUSIVE marker |
+| `zz_boom_normalize` | the parser's own normalization — i.e. inside `PreparedDocument.text_for` |
+| `zz_shares_a_marker` | nothing; it shares a marker test object with a crashing sibling, so the prepared-text memo runs alongside the guard |
+
+73 registrations × 3,367 documents, both arms, recording the claimant set, the
+full detection report **and** the `ParserFailure` list:
+
+```
+base   : 3367 docs  digest 0A8990FF80F8D648A79E2BCB5767797F79BE719B2F65BBD1EF90E75E88717256
+branch : 3367 docs  digest 0A8990FF80F8D648A79E2BCB5767797F79BE719B2F65BBD1EF90E75E88717256
+documents whose detection differs: 0
+
+recorded ParserFailures, per arm:
+   ('zz_boom_excluding', 'detect', 'KeyError')   3367
+   ('zz_boom_exclusive', 'detect', 'IndexError') 3367
+   ('zz_boom_normalize', 'detect', 'TypeError')  3367
+   ('zz_boom_required',  'detect', 'ValueError') 3367
+scores the four crashing registrations received: 0.0, on all 3,367
+crashing registrations that ever claimed: 0
+```
+
+13,468 crash events, every one of them fail-closed to `Detection(0.0)`,
+recorded as a `ParserFailure` carrying the exception CLASS NAME and nothing
+else, and identical on both arms. The guard is preserved by evidence and not
+only by construction: `safe_detect` still wraps `detect_prepared` in
+`_guarded`, and a marker that raises is never memoized — the exception
+propagates to the guard on every call, which
+`test_a_marker_that_raises_is_not_memoized_and_still_reaches_the_guard` pins
+at unit scale by asserting two consecutive `safe_detect` calls each record
+their own `ParserFailure`.
+
+## DT8. Proofs
+
+All re-run at HEAD after the review closures (the `:296` guard, the corrected
+selection pass, the conformance assertion).
+
+```
+$ python -m pytest -q
+3813 passed, 32 skipped, 20 deselected, 1 warning in 101.16s (0:01:41)
+EXIT=0
+
+$ python -m pytest -m corpus -q
+16 passed, 3849 deselected, 1 warning in 689.58s (0:11:29)
+EXIT=0
+
+$ python corpus_gate.py
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  244.1s
+RESULT: GREEN
+EXIT=0
+
+$ python -m pytest tests/test_parser_conformance.py tests/test_parser_registry.py \
+    tests/test_parser_registry_entries.py tests/test_parser_exception_boundary.py \
+    tests/test_parser_crash_shapes.py tests/test_no_statement_hardcodes.py \
+    tests/test_filename_boundary.py tests/test_pipeline_registry_dispatch.py -q
+1146 passed, 32 skipped, 1 warning in 8.03s
+EXIT=0
+
+$ python -m pytest -m corpus -q \
+    "tests/test_parser_parity.py::test_the_detect_sweep_prepares_each_document_once" \
+    "tests/test_parser_parity.py::test_the_sweep_entry_points_strip_the_filename_comment_once" \
+    "tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run"
+3 passed, 1 warning in 35.99s
+EXIT=0
+```
+
+The last one is the three budget clauses alone: 36 s, of which the best-of-five
+selection pass over all 109 documents is about 24 s. That is the whole price of
+closure 2, against the 11.5 minutes the slice takes.
+
+The equivalence sweeps (DT7, DT7.1) were run before the closures and were not
+re-run: the guard added since is unreachable on this registry — the
+conformance assertion proves all 36 normalizations return an exact `str`, so
+every document takes the interning path the sweeps measured, byte for byte.
+
+Suite 3,769 → **3,813 passed / 32 skipped** and the corpus-marked slice
+14 → **16**. The 32 skips are the new normalization-conformance test on the 32
+registrations that declare no normalization; it is parametrized over all 68 so
+that adding one cannot quietly escape the check. The corpus-marked slice is in
+this list because the gate is structurally blind to review↔validated movement
+inside its PASS bucket; it is also the only place the two new corpus
+assertions live.
+
+### The eleven new tests, by the job each does
+
+**The budget, restated (2, corpus-marked, `tests/test_parser_parity.py`).**
+
+| test | job |
+|---|---|
+| `test_the_detect_sweep_prepares_each_document_once` | 33 preparations per document, not 104. **Load-immune**; cannot run on base, which has no `PreparedDocument`. |
+| `test_the_sweep_entry_points_strip_the_filename_comment_once` | both real sweep entry points strip once. **Load-immune AND red on base** — 68 calls there, 1 here (DT5). |
+
+Review proved both load-bearing by mutation rather than taking the assertion's
+word for it.
+
+**The seam (8, `tests/test_parser_registry.py`).** All eight run against a
+synthetic registry, so they exercise the rule and not any bank's markers.
+
+| test | job |
+|---|---|
+| `test_a_prepared_document_strips_the_filename_comment_once` | the base case |
+| `test_each_distinct_normalization_runs_once_per_document` | two registrations sharing a normalizer share its output; a third with its own still pays |
+| `test_a_prepared_sweep_detects_exactly_as_an_unprepared_one` | **the equivalence property at unit scale**, across a normalizer, no normalizer, and an excluding marker |
+| `test_a_marker_two_registrations_share_is_evaluated_once_per_text` | the memo fires, and only for the same text |
+| `test_a_marker_that_raises_is_not_memoized_and_still_reaches_the_guard` | **the W3-1 guard**: two consecutive `safe_detect` calls each record their own `ParserFailure`, so a crash is never cached as a result |
+| `test_an_unhashable_normalization_result_takes_the_base_path_not_a_crash` | **review finding, the fatal half**: red before the guard — the intern raised and it surfaced as a `ParserFailure` where the base scored |
+| `test_a_str_subclass_result_is_never_swapped_for_another_registrations_text` | **review finding, the silent half**: a `Sticky` subclass equal to everything would hand the second registration the first one's text; each keeps its own |
+| `test_preparing_a_document_never_mutates_it` | the document is untouched |
+
+**The conformance side (1, `tests/test_parser_registry_entries.py`).**
+
+| test | job |
+|---|---|
+| `test_each_registrations_normalization_returns_an_exact_str` | parametrized over all 68 registrations, 36 running and 32 skipping: no registered normalizer ever needs the fallback above. Not in `validate_registry`, because the check needs a document and `validate_registry` runs at import — see DT3 |
+
+## DT9. Carried findings and questions for Ocean
+
+1. **The discovery run sweeps every document TWICE, and the second sweep can
+   now be made free.** `analysis/pipeline.analyze_markdown` calls `resolve`,
+   and `telemetry/collect.score_vector` then calls `detection_report` on the
+   same markdown — a second full sweep, correctly justified in its own
+   docstring as admissible because `detect` is pure. With this seam in place
+   the first sweep's `PreparedDocument` could be handed to the second and the
+   second would cost almost nothing, halving the discovery run's detection
+   cost again. Not done here: it needs `analysis/pipeline.py` and
+   `telemetry/collect.py`, both outside this cell's ownership, and both live
+   in batch 4.
+2. **Where the remaining 149 ms is, so the shaving cards can be written against
+   evidence.** On the largest pinned document, after this cell:
+
+   | | cost | owner |
+   |---|---|---|
+   | `community_section._clean` | 10.6 ms | `analysis/community_section.py` |
+   | `td_canada_french.detection_text` | 10.5 ms | `analysis/td_canada_french.py` |
+   | `chase_savings.detection_text` | 7.4 ms | `analysis/chase_savings.py` |
+   | `square_checking.detection_text` | 6.6 ms | `analysis/square_checking.py` |
+   | `regions.detection_text` | 3.7 ms | `analysis/regions.py` |
+   | `glyph_damaged` markers (`rbc`, `rbc_french`, `cibc`) | 15.8 + 8.8 + 10.9 ms | `analysis/tables.py` |
+   | `symitar` markers | 8.2 ms | `analysis/symitar.py` |
+
+   Five normalizers are 39 ms of the 67 ms normalization stage; `glyph_damaged`
+   is 35 ms of the 83 ms marker stage and is two `re.findall` over the whole
+   document. Each is a small card in the owning module.
+3. **`glyph_damaged` is wired to three registrations and the fourth
+   over-threshold document is unprotected.** Not new — `analysis/tables.py`
+   says so itself and W3 §RBCCIBC carded it as RC8.7 — but this cell is the
+   first to price it: platform-wide wiring at today's cost would add ~12 ms per
+   registration per document, which the budget cannot absorb 68 times. The memo
+   in `PreparedDocument` makes it affordable *if* the registrations reading it
+   share a normalized text; they do not today (`.upper()` vs
+   `normalize_mojibake().upper()` vs CIBC's own). Wiring it platform-wide
+   should be costed together with a shared normalizer.
+4. **`PLANNED_REGISTRATIONS = 80` — ratified, and its limits recorded.** It is
+   a floor on the cost at 80, not a bound (DT5): review measured
+   projection ÷ actual at 1.00 and 0.79 for two growth shapes, the mean being
+   diluted by the 32 registrations with no normalization. **Superlinear growth
+   shapes other than the quadratic one this cell removed are caught by
+   neither clause** — the load-independent clause is exact for
+   per-registration preparation and silent about, say, a marker whose cost
+   grows with the registry. If the registry passes ~80, the honest move is to
+   re-measure rather than to trust the projection.
+5. **`test_detect_sweep_stays_affordable_for_the_discovery_run` is still a
+   wall-clock test, and wall-clock tests still flake.** Best-of-5 through the
+   production seam with a 40% margin is a very different proposition from one
+   sample with none, but if the batch sees another red the load-immune clause
+   (`test_the_detect_sweep_prepares_each_document_once`) is the one to read
+   first: if it is green, the structure is intact and the red is the machine.
+6. **The pinned corpus under-represents the archive's document sizes.** The
+   largest pinned document is 62,702 chars; the largest archive document is
+   139,737, and the branch sweeps it in 319 ms loaded (124.8 ms quiet) — over
+   the 250 ms ceiling in the loaded regime, for a document the budget test
+   cannot see. The base sweeps it in 591 ms loaded / 339 ms quiet, so the fix
+   moves it from over-budget in BOTH regimes to over-budget in one; the tail is
+   improved and still uncovered. The ceiling is honest about the corpus it
+   measures and silent about the tail. A per-character ceiling or a pinned
+   large document would close it; both are decisions about the contract rather
+   than fixes, so they are put here rather than taken.
+7. **The archive markdown store and the A/B harness are reusable.** The
+   session scratchpad `detbudget-5fb5b603/` holds `db_harness.py` (arm-selected
+   production import with an assertion that catches measuring the wrong arm —
+   it caught exactly that on the first draft), `archive_md.pkl` (all 3,367
+   archive documents' markdown, one pickle, so two arms provably sweep
+   identical bytes), `measure.py` (paired A/B, `DB_MODE=sweep|loop`),
+   `equiv.py`, `equiv_crash.py` and `redcheck.py`. Any cell measuring a
+   registry-wide cost or proving a detection-level equivalence can reuse them
+   unchanged.
+
+## DT10. Commits
+
+| Commit | Contents |
+|---|---|
+| `f1da551` | the `PreparedDocument` seam, the redesigned budget contract, six unit tests, DT0–DT9 |
+| `5e82e18` | the crash arm of the equivalence proof (Ocean's addendum) and the prescan finding |
+| `095901d` | quiet-machine readings, the DT8 proof block, section renumbered DT to clear the earlier §D |
+| (this one) | adversarial-review closures: the interning guard and its conformance assertion, the corrected selection pass, the projection stated as a floor |
