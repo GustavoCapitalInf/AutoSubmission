@@ -14703,3 +14703,211 @@ and pins, and they are the more important half:
    106 PASS / 3 WITHHELD and both classes sit inside PASS. The gate proves
    audited values reproduce; only the corpus-marked slice proves the outcome
    class did.
+
+# §MG-C — the wrapped row the export dropped, and the refusal that became a zero
+
+Two staged follow-ups from §MONEY-GRAMMAR: MG-C1 finishes the three
+corrected-sign chase exports; MG-C2 closes the `or 0.0` fail-open class §MG8.2
+catalogued. Base `ea8d8e8`, branch `wave4-mgc`.
+
+## MGC1. The chase export's grid, and the cell that wraps
+
+The export flattens five columns — Date | Description | Type | Amount |
+Balance — into text, so a logical row ALREADY spans two physical lines: date
+and description on the first, type and the amount pair on the second. The type
+cell is what sits in front of the amounts, which is why this parser's published
+"description" is `ACH debit`, `Card`, `Account transfer` and not the
+descriptive text above it.
+
+Three type cells in the archive are too long to fit beside the amounts and wrap
+onto a line of their own — `Incoming wire transfer`, `Outgoing wire transfer`,
+`ACH vendor payment`. The amount pair is then alone on its line, and
+`if not description: continue` dropped the entire transaction.
+
+Replaying the shipped loop over the three documents, with the base finder for
+comparison, gives the exact population:
+
+```
+                 HEAD kept   HEAD dropped   BASE kept   BASE dropped
+112431717DA1        145           11           153           3
+5A29258D7626         29            1            29           1
+5C93775BBA87         88            2            90           0
+```
+
+The §MG7 nuance is visible in that table and is worth stating plainly: on
+7302/7501 HEAD drops rows BASE kept, and the money-grammar card is why. With
+the ASCII-only finder a `−$702.32` matched from the `$`, leaving the U+2212 as
+a one-character "description" — truthy, so the row survived with its sign
+inverted. Widening the finder to the shared MINUS_CLASS made the description
+empty, and an empty description is dropped. The sign fix did not cause the
+defect; it exposed it.
+
+**Every one of the 14 dropped lines is preceded by a type cell** — no
+exceptions, no other shape. So the recovery is structural rather than a list of
+three strings: the wrapped cell is the last physical line that carried text and
+no amount at all. A line carrying an amount is a row in its own right —
+complete, or pending with a `—` where the balance goes — so it CONSUMES the
+carry instead of passing it on, and a pending row can never lend its type to
+the row beneath it.
+
+### MGC1.1 Outcomes — withheld to review, with the residual named
+
+| doc | txns | credits/debits | ending | ADB | outcome |
+|---|---|---|---|---|---|
+| `112431717DA1` | 145 to **156** | 31/125 | **3,714.06** | **9,101.16** | withheld_adb to **review** |
+| `5A29258D7626` | 29 to **30** | 6/24 | **20,852.46** | **5,723.88** | withheld_adb to **review** |
+| `5C93775BBA87` | 88 to **90** | 20/70 | **485.38** | **1,051.15** | withheld_adb to **review** |
+
+`ledger_sum_mismatch` and `running_balance_breaks` are both gone on all three:
+the walk is continuous and the sum closes to the printed ending balance
+exactly. That is an independent oracle — it confirms every recovered row's
+amount, sign and position at once, which no fixture can.
+
+**They are not validated, and validated is not the honest terminal state.** The
+residual is `not_a_formal_statement`, a REGISTRY declaration
+(`registration.formal_statement is False`, `analysis/pipeline.py:307`): a Chase
+online transaction export is not a complete bank statement, and saying so is
+deliberate. `classify_outcome` therefore returns `review / integrity_flags`.
+The brief asked for an honest terminal state or a named independent reason;
+this is the named reason.
+
+## MGC2. Absence is not a refusal — the distinction the whole card turns on
+
+§MG8.2 catalogued ~12 sites in ~10 parsers. Re-derived on `ea8d8e8` by AST over
+the whole analysis layer, the real census is four classes, and only one of them
+is a defect:
+
+| class | left of `or 0` | sites / files | verdict |
+|---|---|---|---|
+| A | a money-reading CALL | **39 / 15** | **fail-open — fixed** |
+| C | a NAME bound to a money read | 22 / 6 | absence |
+| C? | a NAME bound to something else | 18 / 5 | absence |
+| B | an ATTRIBUTE (`stmt.stated_*`, `.running_balance`) | 44 / 19 | different class |
+
+`None` out of a money reader means one of two opposite things. **Absence** — no
+label matched, nothing printed — is legitimate, and `or 0.0` is the correct
+arithmetic identity: a statement with no Checks line really does have zero
+cheques. **Refusal** — a token was THERE and the grammar said no — is the
+fail-open: a figure the bank printed, replaced by one it did not.
+
+Two readers collapsed both into the same `None`, so their callers could not
+possibly tell them apart: `bofa._native_money_after` and the `money_after`
+closure inside `repair_bofa_summary`. Both now separate them, and they are the
+two sites the archive actually exercises.
+
+`analysis.money.read_money(token, reader)` is the generalized helper —
+absence returns `None`, a refusal raises `ValueError`. The grammar stays
+shared; the FORMAT stays local, because each caller hands over its own reader
+rather than reimplementing the split. `ValueError` is not a new convention: it
+is the raising family's documented contract (§MG4) and what
+`chase._money_required` and `banco_popular` already do.
+
+### MGC2.1 The blast radius, measured before the edit
+
+`X or 0.0` differs from `X` only when X is None, so the documents that fire no
+site are exactly the documents that are byte-identical under the fix. One
+instrumented pass answers the whole question. Probing all 79 or-zero sites
+(behaviour-preserving; the full suite passed 3,774 under the probe, the single
+red being the helper-clone guard catching the probe's own import):
+
+```
+3,493 documents analysed      8 sites fired      0 fired on a REFUSAL
+```
+
+Every site that fires, fires on ABSENCE — `bofa:417/638` (7 docs each),
+`regions:264` (21 docs), `fifth_third:251/252/358/360` (6 docs),
+`banco_popular:68` (2 docs). A second sweep, wrapping every leaf money reader
+and recording only refusals of a NON-EMPTY token, found **zero across all
+3,493 documents**. The fix is therefore provably zero-movement, measured
+beforehand rather than hoped for after. 13 documents have no cached OCR
+artifact and were not analysed; they are named in the cell's report.
+
+### MGC2.2 What the fix broke, and why that was the point
+
+Two tests in `test_chase_closure.py` failed — both of them reproductions of
+this exact fail-open. They ran the parser with the pre-card-C guard restored
+and asserted it published `stated_service_charge == 0.0` for a printed `$0.75`
+fee. After MG-C2 the parser cannot be that wrong: it raises. The tests now
+assert the refusal, which makes them a stronger statement than before — card C
+makes the reading right, MG-C2 makes a future drift in the same guard fail
+loudly instead of quietly. The tolerance demonstration keeps its original
+meaning by constructing the wrong statement by hand.
+
+### MGC2.3 Exclusions and the guard
+
+`first_citizens.py` and `woodforest.py` were excluded by brief. Both contain
+**zero** or-zero sites of any class, so the exclusion costs nothing and
+FC-EXTRACT / WOODFOREST-INIT inherit no leftovers.
+
+`tests/test_no_fail_open_money_reads.py` bans the shape by AST, proves it can
+still see every spelling the census found, and proves it leaves the absence
+class alone — a guard that cannot fail is not a guard.
+
+## MGC3. The left digit boundary (cross-cell answer to §UNKNOWN-ISSUER)
+
+Asked whether the shared grammar admits the prefix-swallow class
+UNKNOWN-ISSUER fixed locally. **It does not.** `_TOKEN_RE` opens with
+`(?<![\d.])`, and measured on their fixture:
+
+```
+analysis/money.py      parse_money("D77100000001337 150.00")  -> 150.0      correct
+cibc.py:41  _MONEY_RE  (?<![A-Za-z0-9]) ...                   -> 150,00     correct
+bmo_ca_business.py:90  _MONEY_FR  (?<![\d.,-]) ...            -> 150,00     correct
+cibc.py:62  _summary's local `money` fragment — NO boundary   -> 337 150,00 WRONG
+```
+
+**One parser-local site carries the class**: the `money` fragment inside
+`cibc._summary` is the same pattern as `_MONEY_RE` with the left boundary
+dropped, and it reproduces the fabricated amount exactly. Listed rather than
+fixed, per the coordinator's instruction and because CIBC French overlaps
+UNKNOWN-ISSUER's active territory. Its four uses are label-anchored with `.*?`,
+which is non-greedy and therefore stops at the FIRST match — so a reference
+number printed between the label and the amount is enough to fire it. Not
+attested in today's archive; the sweep shows no cibc movement.
+
+The boundary is now pinned in `tests/test_money.py` so the answer stays
+answered. What it does NOT promise is unchanged and restated there:
+`parse_money` searches, so a whole-LINE caller still gets the line's first
+money-shaped token, reference numbers included (§MG8 finding 3, out of scope).
+
+## MGC4. Carried findings for Ocean
+
+1. **`MINUS_GLYPHS` is defined twice in `money.py`** — `"−–"` at the top
+   (feeding `_MINUS_TABLE`, and what §MG7 finding 7 documents) and `"-−–—"` at
+   the raising-family boundary, which SHADOWS it at module scope. Anything
+   importing `MINUS_GLYPHS` gets the four-glyph version, em dash included,
+   contradicting the documented two-glyph class. Not touched: it is a live
+   grammar constant and deserves its own differential matrix.
+2. **The silent-row-drop class**, a sibling shape this card did not own: a
+   refusal that `continue`s past a row rather than publishing a zero
+   (`banco_popular:118,193`, `bofa:478`). It publishes a SHORT ledger rather
+   than a wrong number, so reconciliation catches it downstream — fail-closed,
+   but it discards evidence silently. `bluevine:123` is the same shape done
+   right: it declines the document.
+3. **Class B (44 sites) is genuinely a different class** and was deliberately
+   left alone. `stmt.stated_total_credits or 0.0` in `reconcile.py` /
+   `metrics.py` is an Optional statement field, not a grammar refusal; changing
+   it is a reconciliation-semantics decision, not a money-grammar one.
+4. **`ANALYSIS_STAGE_VERSION` needs its bump at merge** — MG-C1 changes
+   published output on three documents. MG-C2 changes none.
+
+# proofs (§MG-C, branch wave4-mgc)
+
+# full default suite
+3796 passed, 18 deselected            exit 0
+
+# conformance + registry + guards cross-product
+922 passed                            exit 0
+
+# corpus-marked slice, run per-file (the whole slice exceeds the 10-minute
+# foreground budget on this host under batch load)
+tests/test_parser_parity.py                       8 passed, 1 failed   exit 1
+tests/test_telemetry_corpus.py -k outcome_split   1 passed, 311.70s    exit 0
+
+# the one red, A/B'd per the batch-level notice — pre-existing, NOT raised
+test_detect_sweep_stays_affordable_for_the_discovery_run
+  base   (85f21fc, MG-C2 stashed) : slowest full-registry detect sweep 340.7 ms
+  branch (91a7b07)                : slowest full-registry detect sweep 270.3 ms
+  threshold 0.25 s. Fails on both; the branch is FASTER. Known batch-level
+  item under central triage (DETECT-BUDGET owns the structural fix); the
+  constant was not touched.
