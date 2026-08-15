@@ -14703,3 +14703,532 @@ and pins, and they are the more important half:
    106 PASS / 3 WITHHELD and both classes sit inside PASS. The gate proves
    audited values reproduce; only the corpus-marked slice proves the outcome
    class did.
+
+# §FCX — the descriptions were never lost, only welded
+
+FC-EXTRACT, batch 4 card 5. Branch `wave4-fcextract`, base main `ea8d8e8`.
+Brief: `docs/agent-handoffs/FC-EXTRACT.md`, from W3 §FIRSTCIT FI6 / FI11.2 /
+FI14.1. Two production files (plus six one-line ladder sites), two test
+files, five commits.
+`ANALYSIS_STAGE_VERSION` NOT bumped (Ocean's). **`OCR_STAGE_VERSION` needs one
+too — FCX7, and it is not optional.**
+
+## FCX0. Summary
+
+| | |
+|---|---|
+| Cells worked | `ocr/native_text.py` (new extractor + 6 ladder sites), `analysis/first_citizens.py` |
+| The gap | 12 description-keyed production metrics read ZERO on 35 of 35 documents (FI14.1). `verified_revenue_*` among them: revenue verification was impossible for this bank |
+| Root cause | NOT geometry. `_native_pages` joins the lines INSIDE a PDF block with a space, and MuPDF hands it the whole description column as one block. The rows are already separate lines, each with a bounding box; the join is what destroys them |
+| Population | all 39 documents carrying the family signature (35 parsed, 4 declined) — the 34 the run of record validates, the 4 dormant declines, and the pinned statement |
+| Result | 2,109 postings labelled `Other Credit`/`Other Debit` → **0**; 2,118 postings now carry the printed text |
+| Independent confirmation | **2,118 of 2,118** recovered descriptions confirmed by `pdfplumber`, a different PDF text engine |
+| Balances / ADB / counts | **byte-identical on all 39** — 100 published fields compared per document (FCX4) |
+| Outcome movers | **none.** 35 validated before and after; the 4 declines still publish nothing |
+| Dispatch | identical on all 39, candidate scores included. No registration added |
+| Pinned corpus | 1 document in the blast radius; FI14.1's expected recovery reproduced exactly; `corpus_gate.py` GREEN 106/3 |
+| Statement-specific constants added | none. The extractor names its issuer, as all four existing bank-specific extractors do (`+wells` reads `WELLS FARGO`, `+navy-federal` reads `NAVY FEDERAL`); no figure, date or counterparty of any statement appears anywhere |
+| Tests | 3,769 → 3,802 (+33, one of them corpus-marked) |
+
+## FCX1. Characterisation — where the batch-3 reader lost it
+
+FI6 called the description column "flattened by the generic native-text
+extractor" and FI11.2 said `ocr/native_text.py` "shreds this layout". Both are
+true and neither is the mechanism. The mechanism is one line:
+
+```python
+# ocr/native_text.py::_native_pages
+text = " ".join(part.strip() for part in str(block[4]).splitlines() if part.strip())
+```
+
+MuPDF returns page 2 of the pinned statement as ten blocks. Block 2 is the
+whole description column — **74 lines inside one block**: `Date`,
+`Description`, `Amount`, and 71 printed descriptions. Blocks 3 and 5 and 7 are
+the date column (61 + 3 + 5 lines); blocks 4, 6 and 8 are the amounts. The
+generic reader emits each block as ONE line, so the dates and amounts survive
+as parallel runs and the descriptions arrive as
+
+```
+Date Description Amount POS Sig 02/27 Visa #8269 Cucina 100 864-6019606 SC POS
+Sig 02/28 Visa #8269 Companycam Companycam.Co NE Overdraft Charge Coast Payment
+9392 Barcotrucks Web Pay Rc*****7-004 ACH Same Day Originated Credit ...
+```
+
+— 69 postings welded end to end with nothing between them. That string cannot
+be split structurally: there is no separator, no repeated prefix, no length
+rule. It is why the previous parser needed ~25 remembered merchant names to cut
+it, and why the batch-3 rebuild, which correctly refused to remember them,
+could only label the postings by section.
+
+**But nothing was ever missing.** `block[4]` carries the newlines; `" ".join`
+throws them away. Read the same page with line boxes and the table is intact:
+
+```
+y=  83.8 n=3 [37]03-02 || [79]POS Sig 02/27 Visa #8269 Cucina 100 ... SC || [439]92.61
+y=  92.8 n=3 [37]03-02 || [79]POS Sig 02/28 Visa #8269 Companycam ... NE || [439]159.43
+y= 101.8 n=3 [37]03-02 || [79]Overdraft Charge                          || [439]36.00
+```
+
+Description baselines sit ~1.3pt above the date and amount they belong to and
+rows are 9pt apart, so a 3pt band recovers ownership exactly. On the pinned
+document that yields 95 rows against the printed counts of 9 other credits and
+86 other debits — 9 + 86 = 95, the control record's own figures.
+
+## FCX2. The recovery, and why it is structural
+
+`parse_native_first_citizens` (`ocr/native_text.py`). Every rule is read off
+the page; nothing is remembered:
+
+| Rule | Read from |
+|---|---|
+| where a described table starts | the band whose three cells say `Date`, `Description`, `Amount` |
+| which section it is | the band immediately above that ruler (a table the page does not name is **not read** — nothing guesses) |
+| where the columns are | that same ruler: the x of `Date`, the x of `Description`, the right edge of `Amount` |
+| what a row is | a `MM-DD` in the date column plus money ending at the amount column's right edge |
+| what a wrapped line is | a LONE cell in the description column, within one row pitch of the row above |
+| where the table ends | the first band that is neither |
+
+Three traps fall out of this rather than being special-cased:
+
+- **`ACH Batch         03-13 Seq #  5041  Track Id# 104869791`.** A description
+  containing a date cannot be mistaken for the date cell, because the date is
+  identified by its COLUMN, not by its shape.
+- **`Total` / `44,862.06`.** The printed total prints a money cell of its own,
+  so it is not a lone cell and cannot be swallowed as a continuation. The next
+  section's heading prints at the DATE column's x, not the description's, so it
+  cannot be either.
+- **The deposits, cheque and daily-balance grids are never read at all** — they
+  print `Date Amount Date Amount …`, `Check No. Date Amount …` and
+  `Date Balance …`, so they are not `Date/Description/Amount` tables and the
+  extractor never enters them. That is also why the daily chain, an ADB input,
+  is untouchable by this code path.
+
+**Additive by construction.** The pages are `parse_native_pdf_text`'s own list,
+so the generic text is preserved byte for byte and the SAME volume gate decides
+whether a document has usable native text (a rasterised body still falls
+through to OCR, FC-D unchanged). The recovered rows are appended after the last
+printed page — past `An updated`, past every `--- Page` marker, past anything a
+section-bounded reader can reach. A document from which no row is recovered is
+not claimed, and the ladder returns exactly today's bytes.
+
+Wired into all six copies of the native rung order (`ocr/pipeline.py`,
+`balance_forensic_audit.py`, `adb_forensic_audit.py`,
+`deterministic_coverage_audit.py`, `build_corpus_cache.py`, `adb_debug.py`),
+below every other bank-specific extractor and above the generic one.
+
+## FCX3. The overlay is a second reading, not a shortcut
+
+`_described` (`analysis/first_citizens.py`) lays the reported rows over the
+postings the parser already read. It publishes a section's printed text **only
+when the extractor's rows reproduce that section's parsed dates and amounts
+exactly, in order, one for one.** The extractor read the table by geometry; the
+parser read it positionally out of the flattened column. Two independent
+readings of the same table have to agree before a single description is
+published, and any disagreement — a count that differs, a date that resolves
+elsewhere, a cent out — returns the whole section to its label.
+
+This is worth naming against FI14.2, which established that
+`analysis.reconcile` is NOT an independent test of the detail for this bank
+because `_matches` plus the summary's own closure force the walk. The overlay
+does not fix that (it moves no money, so it cannot). What it does add is a
+genuine second reading of the two described sections, checked cell by cell.
+
+Everything the batch-3 gate does still runs, and runs BEFORE the overlay: the
+control record, the summary closure, the four per-section count+total checks,
+the daily walk. The overlay changes text and only text.
+
+### The report is cut OUT of the document, not read around it
+
+Found while reviewing the first working version, and fixed at `b71fc07`.
+
+Every reported row repeats the section heading it was printed under. Left in
+the text, a report is a second printing of `Other Debits From Your Account`
+inside the very string `_section_blocks` splits on and
+`_service_charge_posting` scans with `[A-Z][a-z]+ Service Charge\s*$`.
+
+Measured on all 39 documents, that cost nothing: the spurious section blocks
+contribute no posting (a `FC_TX|…` line matches neither the date run nor the
+amount run), and no recovered description happens to end in
+`<Word> Service Charge`. Both are luck. The second one would have dated a
+billed service charge off a merchant name — a published fact, silently wrong,
+on a document that still reconciles because `_matches` never sees the charge.
+
+`_report` now returns the rows AND the document with the block excised, and
+the parse seam rebinds `markdown` to the document immediately after detection
+(which still runs on exactly the bytes dispatch scored). A malformed report is
+excised too: it is not statement text whether or not it parses. The excision is
+EXACT — asserted as string equality against the same fixture built without a
+report — so a reader below sees the document it would have seen had the intake
+never reported anything. The trap is fixtured
+(`test_a_recovered_description_cannot_redate_the_billed_service_charge`).
+
+Re-running the whole family sweep after the change produced a byte-identical
+result file, which is the point: the fix removes a hazard, not a symptom.
+
+## FCX4. Family sweep — 39 documents, 100 fields each
+
+Both readings taken in ONE process off identical PDF bytes; the BASE reading is
+`parse_native_pdf_text` and the base-commit parser loaded from its git blob.
+No OCR, no model call, no cache write, **$0.00**.
+
+**Fidelity first.** The base markdown this cell measured against has to be the
+markdown the run of record actually analysed, or the whole sweep measures
+something else. Each of the 34 archive documents' OCR artifacts was addressed
+arithmetically — `cache_key(STAGE_OCR, content_sha256, ocr_settings_key(...))`
+→ `webapp_data/artifacts/ocr/<key[:2]>/<key>.json`, across all three offline
+settings partitions, the sqlite index never opened — and read:
+
+```
+run-of-record rows          : 34
+artifacts found             : 34   (every one a cache_ocr HIT in the run)
+base extraction == artifact : 34 / 34   pages AND model, byte for byte
+```
+
+That "34 artifacts found" line is also the evidence for FCX7: those artifacts
+are what a re-run will be served.
+
+```
+population (family signature)          : 39
+  parsed before and after              : 35
+  declined before and after            :  4   (3df19105_{Apr,Feb,Mar,May2026}_1301)
+outcome movers                         :  0
+dispatch movers (incl. candidate score):  0
+parser identical on rows-free text     : 39 / 39
+generic page text preserved byte-exact : 39 / 39
+published fields compared per document : 100
+```
+
+**Fields that moved NOWHERE, on any document** (60 of the 100): every balance
+and every ADB input — `beginning_balance`, `ending_balance`, `adb`, `adb_ok`,
+`average_daily_balance`, `daily_balance_sum`, `calendar_day_count`,
+`min_balance`, `max_balance`, `negative_days`, `days_in_period` — plus
+`stated_*` (all six), `total_deposits`, `total_withdrawals`, `num_deposits`,
+`num_withdrawals`, `effective_*`, every transaction's `(date, amount,
+direction)`, `txn_count`, `recon_ok`, `recon_summary_ok`, `quality`,
+`corporate_use`, `integrity_risk`, `integrity_flags`, `revenue_reconciles`,
+`revenue_classified_*`, `atm_withdrawal_count`, `pos_credit_count`, and the
+account/period identity fields.
+
+**Fields that moved, and on how many of the 35** — every one classification-
+driven, every one a consequence of the classifier finally being handed the
+printed text:
+
+```
+  insurance_count / insurance_total        18      ach_debit_count            18
+  pos_count                                13      unverified_deposit_*       12
+  potential_revenue_*                      12      non_revenue_*              10
+  loan_count / lenders_detected /          10      withholding_rate /         10
+    lender_debits / monthly_lender_debits            withholding_numerator
+  nsf_count / effective_nsf_count           5      verified_revenue_*          5
+  potential_lender_* / potential_            5      true_revenue /             5
+    withholding_*                                    confirmed_true_revenue_*
+  check_count                               5      ach_credit_count            2
+  lender_credits / withholding_denominator  4      eligible_deposits           4
+```
+
+FI14.1's twelve, measured as documents carrying a non-zero value, before → after
+(of 35):
+
+```
+  nsf_count                 0 ->  5      ach_credit_count          0 ->  2
+  effective_nsf_count       0 ->  5      atm_withdrawal_count      0 ->  0
+  insurance_count           0 -> 18      loan_count                0 -> 10
+  insurance_total           0 -> 18      verified_revenue_count    0 ->  5
+  pos_count                 0 -> 13      verified_revenue_total    0 ->  5
+  pos_credit_count          0 ->  0      (survivors: check_count 27 -> 30,
+  ach_debit_count           0 -> 18       unverified_deposit_count 35 -> 35)
+```
+
+Ten of the twelve move. `pos_credit_count` and `atm_withdrawal_count` stay zero
+across all 35, and the honest reason is that no posting in this population
+classifies into them — a POS refund and an ATM cash withdrawal simply do not
+occur here — not that the text is still missing. Family sums:
+`insurance_total` 0.00 → 205,091.68; `verified_revenue_total` 0.00 →
+20,654.11. `withholding_rate` — a headline underwriting number that was
+structurally 0.0 for this entire bank, because no lender debit can be detected
+without a description — moves on 10 documents.
+
+The credit total is CONSERVED on every document (`total_posted_credits` and
+`total_posted_credit_count` moved nowhere): what moved is its partition between
+verified revenue, unverified deposits and non-revenue. That is the revenue
+verification FI14.1 said was impossible, now possible.
+
+### The pinned document, against FI14.1's stated expectation
+
+`Others/First Citizen/First Citizens Bank.pdf`
+(`57058C69B8711C4A016F2AD301CA561B5BDD738349AD7FFC96AE3E6D40A5CFAE`),
+95 rows reported, 95 labelled postings → 0:
+
+```
+  nsf_count                 0      -> 1        (expected 0 -> 1)      MET
+  effective_nsf_count       0      -> 1        (expected 0 -> 1)      MET
+  insurance_count           0      -> 1        (expected 0 -> 1)      MET
+  insurance_total           0.00   -> 494.00   (expected 0 -> 494)    MET
+  pos_count                 0      -> 18       (expected 0 -> 18)     MET
+  ach_debit_count           0      -> 5        (expected 0 -> 5)      MET
+```
+
+All six, exactly. Pinned as a corpus-marked test
+(`test_the_pinned_statement_recovers_its_printed_descriptions_and_nothing_else`),
+which takes both readings in one process and asserts the balance/ADB set
+identical in the same breath.
+
+### Every document, named
+
+Every field named here is description-keyed. `withhold%` is
+`withholding_rate`; a `-` row publishes nothing before or after.
+
+| document | sha256 (12) | outcome | descriptions | fields moved (before -> after) |
+|---|---|---|---|---|
+| `**PINNED** Others/First Citizen/First Citizens Bank.pdf` | `57058C69B871` | validated -> validated | 95 -> 0 labelled | nsf 0->1, eff_nsf 0->1, ins_n 0->1, ins_$ 0.00->494.00, pos 0->18, ach_dr 0->5 |
+| `Bluevine/4bf42039_ 02_28_2026-document.pdf` | `AD2B678AC475` | validated -> validated | 24 -> 0 labelled | pos 0->1, unver_n 14->13, non_rev_n 0->1 |
+| `Bluevine/4bf42039_ 03_31_2026-document.pdf` | `63639ACF0141` | validated -> validated | 27 -> 0 labelled | pos 0->1 |
+| `Bluevine/4bf42039_ 04_30_2026-document.pdf` | `4B63431DA761` | validated -> validated | 19 -> 0 labelled | pos 0->1 |
+| `Bluevine/4bf42039_ 05_31_2026-document.pdf` | `445A57F355ED` | validated -> validated | 22 -> 0 labelled | pos 0->1, loan 0->1, lenders 0->1, withhold% 0.00->34.37 |
+| `Citizens Bank/474bff26_1-31.pdf` | `D02CEF0B603B` | validated -> validated | 122 -> 0 labelled | ins_n 0->1, ins_$ 0.00->293.34, pos 0->46, ach_dr 0->1, loan 0->1, lenders 0->1, unver_n 20->19, non_rev_n 0->1, withhold% 0.00->3.72 |
+| `Citizens Bank/474bff26_3969 2-28.pdf` | `B5C3E44F67D5` | validated -> validated | 54 -> 0 labelled | ins_n 0->1, ins_$ 0.00->293.34, pos 0->11, loan 0->1, lenders 0->1, withhold% 0.00->20.05 |
+| `Citizens Bank/474bff26_3969 3-31.pdf` | `4CD3C3DE63B9` | validated -> validated | 111 -> 0 labelled | ins_n 0->1, ins_$ 0.00->293.34, pos 0->42, ach_dr 0->6, loan 0->1, lenders 0->2, unver_n 11->8, non_rev_n 0->3, withhold% 0.00->18.02 |
+| `Citizens Bank/474bff26_3969 4-30.pdf` | `903B94D319E9` | validated -> validated | 93 -> 0 labelled | ins_n 0->1, ins_$ 0.00->293.34, pos 0->37, ach_dr 0->5, loan 0->1, lenders 0->2, unver_n 13->12, non_rev_n 0->1, withhold% 0.00->76.55 |
+| `Citizens Bank/474bff26_3969 5-31.pdf` | `A7753ABCC970` | validated -> validated | 95 -> 0 labelled | ins_n 0->1, ins_$ 0.00->293.69, pos 0->36, ach_dr 0->5, loan 0->1, lenders 0->1, withhold% 0.00->3.59 |
+| `Citizens Bank/70e2b596__02_28_2026-document (3).pdf` | `33C8E0FDF254` | validated -> validated | 112 -> 0 labelled | nsf 0->1, eff_nsf 0->1, ins_n 0->1, ins_$ 0.00->145.93, ach_dr 0->7, loan 0->1, lenders 0->3, ver_rev_n 0->3, unver_n 38->33, non_rev_n 0->2, withhold% 0.00->3.42 |
+| `Citizens Bank/70e2b596__03_31_2026-document (2).pdf` | `EB6C700D4089` | validated -> validated | 97 -> 0 labelled | nsf 0->1, eff_nsf 0->1, ins_n 0->1, ins_$ 0.00->145.93, ach_dr 0->2, loan 0->1, lenders 0->1, unver_n 34->32, non_rev_n 0->2, withhold% 0.00->0.48 |
+| `Citizens Bank/70e2b596__04_30_2026-document (1).pdf` | `5F58ADF60077` | validated -> validated | 90 -> 0 labelled | nsf 0->1, eff_nsf 0->1, ins_n 0->2, ins_$ 0.00->2143.93, ach_dr 0->2, loan 0->1, lenders 0->1, ver_rev_n 0->1, unver_n 31->29, non_rev_n 0->1, withhold% 0.00->0.56 |
+| `Citizens Bank/70e2b596__05_31_2026-document.pdf` | `A4E1F3B8567F` | validated -> validated | 78 -> 0 labelled | nsf 0->1, eff_nsf 0->1, ins_n 0->1, ins_$ 0.00->145.93, ach_dr 0->2, loan 0->1, lenders 0->1, ver_rev_n 0->1, unver_n 31->28, non_rev_n 0->2, withhold% 0.00->0.58 |
+| `Synchrony Bank/d3fb2e33__01_31_2026-document (1).pdf` | `B888EE5E2894` | validated -> validated | 66 -> 0 labelled | ach_dr 0->19, chk 0->6, ver_rev_n 0->1, unver_n 32->31 |
+| `Synchrony Bank/d3fb2e33__02_28_2026-document.pdf` | `05C636269204` | validated -> validated | 82 -> 0 labelled | ach_dr 0->25, chk 1->24 |
+| `Synchrony Bank/d3fb2e33__03_31_2026-document.pdf` | `135A84E957ED` | validated -> validated | 69 -> 0 labelled | ach_dr 0->26, chk 0->8, ver_rev_n 0->2, unver_n 29->27 |
+| `Synchrony Bank/d3fb2e33__12_31_2025-document (2).pdf` | `47FEBD0C2037` | validated -> validated | 70 -> 0 labelled | ach_dr 0->19, chk 0->13 |
+| `Unidentified/3df19105_Apr 0501.pdf` | `9146879D88BF` | validated -> validated | 85 -> 0 labelled | ins_n 0->8, ins_$ 0.00->21260.88 |
+| `Unidentified/3df19105_Apr 1301.pdf` | `11CF08F9F935` | declined -> declined | none published | - |
+| `Unidentified/3df19105_Apr 2801.pdf` | `D3F034BC45AA` | validated -> validated | 14 -> 0 labelled | (none) |
+| `Unidentified/3df19105_Apr 5501.pdf` | `7F567A644063` | validated -> validated | 2 -> 0 labelled | (none) |
+| `Unidentified/3df19105_Apr 6901.pdf` | `377EB5B00236` | validated -> validated | 0 -> 0 labelled | (none) |
+| `Unidentified/3df19105_FEB 2101.pdf` | `6C86D090BE64` | validated -> validated | 133 -> 0 labelled | ins_n 0->1, ins_$ 0.00->18885.17, ach_dr 0->2, ach_cr 0->4, unver_n 94->90, non_rev_n 0->4 |
+| `Unidentified/3df19105_Feb 1301.pdf` | `5F779C962F5F` | declined -> declined | none published | - |
+| `Unidentified/3df19105_Feb 6901.pdf` | `0B9B1116CD6F` | validated -> validated | 2 -> 0 labelled | (none) |
+| `Unidentified/3df19105_Feb2026_0501.pdf` | `FD4B79722534` | validated -> validated | 114 -> 0 labelled | ins_n 0->7, ins_$ 0.00->38321.85 |
+| `Unidentified/3df19105_Feb2026_5501.pdf` | `25C1D4E169DC` | validated -> validated | 3 -> 0 labelled | (none) |
+| `Unidentified/3df19105_Mar 0501.pdf` | `881EEB9AA644` | validated -> validated | 115 -> 0 labelled | ins_n 0->10, ins_$ 0.00->104982.55 |
+| `Unidentified/3df19105_Mar 1301.pdf` | `CC1DB089D295` | declined -> declined | none published | - |
+| `Unidentified/3df19105_Mar 5501.pdf` | `AAF842B79C8B` | validated -> validated | 2 -> 0 labelled | (none) |
+| `Unidentified/3df19105_Mar 6901.pdf` | `4A4B397E0216` | validated -> validated | 0 -> 0 labelled | (none) |
+| `Unidentified/3df19105_May2026_0501.pdf` | `AEFD0161608B` | validated -> validated | 100 -> 0 labelled | ins_n 0->7, ins_$ 0.00->16384.46, ach_dr 0->1 |
+| `Unidentified/3df19105_May2026_1301.pdf` | `9B30C2BE4389` | declined -> declined | none published | - |
+| `Unidentified/3df19105_May2026_5501.pdf` | `B83DD64EAF8E` | validated -> validated | 2 -> 0 labelled | (none) |
+| `Unidentified/3df19105_May2026_6901.pdf` | `6E075F96ABB2` | validated -> validated | 0 -> 0 labelled | (none) |
+| `Unidentified/fdfad302__04_30_2026-document (1) - Copy.pdf` | `E32A8C5D6A66` | validated -> validated | 70 -> 0 labelled | ins_n 0->1, ins_$ 0.00->238.00, pos 0->4, ach_dr 0->6, ach_cr 0->1, chk 39->40, unver_n 14->13, non_rev_n 0->1 |
+| `Unidentified/fdfad302__05_31_2026-document (2) - Copy.pdf` | `E3CBA0EA4F9F` | validated -> validated | 67 -> 0 labelled | ins_n 0->1, ins_$ 0.00->238.00, pos 0->17, ach_dr 0->7 |
+| `Unidentified/fdfad302__06_30_2026-document (1).pdf` | `4D65883BFD29` | validated -> validated | 74 -> 0 labelled | ins_n 0->1, ins_$ 0.00->238.00, pos 0->22, ach_dr 0->4 |
+
+### Zero movement outside the family, over the whole archive
+
+The extractor can only change a document it CLAIMS, and it claims nothing whose
+text carries neither the issuer marker nor the printed control record. So the
+blast radius is decidable rather than sampled. Every one of the 3,506 archive
+rows had its cached OCR artifact read by direct path (the sqlite index never
+opened, no PDF re-read needed — all 3,506 resolved from artifacts) and both
+gates applied to exactly the text the run of record analysed:
+
+```
+archive rows swept               : 3506
+documents the extractor can gate :   39
+  inside the named family        :   38
+  OUTSIDE the named family       :    1
+```
+
+The one outside is `Unidentified/fdfad302_3-31-2026 DFSBS.pdf`, and it is the
+pinned statement: `dedup_status: pinned_corpus_duplicate`, `duplicate_of:
+Others/First Citizen/First Citizens Bank.pdf`, content_sha256
+`57058C69…A5CFAE` — the same bytes, already measured, reaching the same answer.
+Its `parser_id` is blank in the run of record because it is a dedup skip, which
+is why the family list built from parser mentions did not contain it.
+
+38 archive documents + the pinned file = 39 distinct shas, which is FI4's 39.
+No document outside them can be reached by any line of this branch.
+
+### The forensic oracles' own daily chain, read off both texts
+
+FI6 named one specific risk for a layout extractor in this module: it "moves
+pinned ADB evidence", `raw_daily_balance_snapshots` and `daily_balance_sum`.
+That is a claim about the ORACLES, not about `analysis.metrics`, so it is
+answered where it was made — `adb_forensic_audit.raw_daily_balances` and
+`balance_forensic_audit.raw_daily_balances`, called directly on the base
+markdown and the new markdown for every document in the family:
+
+```
+documents                        : 39
+adb oracle daily-chain movers    :  0
+balance oracle daily-chain movers:  0
+```
+
+Structurally, not just observably: `first_citizens_daily` bounds its body
+between `^Daily Balance Summary$` and `^An updated`, the report is appended
+after the LAST printed page, and `An updated` (where the bank prints it at all)
+is on the Daily Balance page. There is no arrangement of these two markers that
+puts the report inside that body.
+
+## FCX5. The descriptions are confirmed by a second PDF engine
+
+The extractor reads line boxes with PyMuPDF. `pdfplumber` is a different
+engine with a different layout model, and FI6 recorded that it reads these rows
+one posting per line. Every published description was matched to the pdfplumber
+line carrying the same date and amount:
+
+```
+descriptions checked   2118
+confirmed              2118   (100.0%)
+conflicting               0
+```
+
+2,094 are character-for-character identical after whitespace normalisation. The
+other 24 are the wrapped rows: pdfplumber emits the first printed line only, and
+our reading is that line plus the continuation it drops — a strict superset,
+never a different answer. Counted independently on the extractor side: **2,120
+rows recovered, 24 carrying exactly one wrapped continuation line**, the same
+24. Both engines agree on which rows exist; they differ only in that one of
+them gives up at the line break.
+
+(2,120 rows recovered vs 2,118 descriptions published: the two spare rows are
+on `3df19105_May2026_1301.pdf`, which the parser DECLINES. It publishes
+nothing, before and after — a document you cannot prove publishes nothing, and
+recovering text from it changes that not at all.)
+
+Description coverage over the family's 2,606 postings:
+
+```
+                                  before          after
+  section label (flattened)   2109  80.9%       0   0.0%
+  full printed text              9   0.3%    2118  81.3%
+  deposits grid (no column)    208   8.0%     208   8.0%
+  cheque serial recovered      271  10.4%     271  10.4%
+  monthly service charge         9   0.3%       9   0.3%
+```
+
+The 208 and the 271 are not a shortfall. The deposits grid prints `Date` and
+`Amount` and no description column at all, and a cheque's printed identity IS
+its serial. There is nothing left on the page that this does not read.
+
+## FCX6. Proofs
+
+All at branch HEAD `365ba91`.
+
+```
+$ python -m pytest -q
+3802 passed, 19 deselected, 1 warning in 281.02s (0:04:41)
+EXIT=0
+
+$ python -m pytest -m corpus -q
+FAILED tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run
+1 failed, 14 passed, 3806 deselected, 1 warning in 1974.20s (0:32:54)
+CORPUS_EXIT=1
+
+$ python corpus_gate.py --corpus "<main checkout>/Bank Statements"
+[PASS] inventory / foreign_files / source_integrity
+[PASS] balance_audit: 109 statements reproduce every audited balance field
+[PASS] adb_audit: 109 statements reproduce every audited ADB field
+[PASS] balance_outcomes: balance: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes: adb: 106 pass, 3 withheld, same three statements
+[PASS] ocr_coverage / exclusions / oracle_independence
+Outcomes: 106 PASS / 3 WITHHELD
+Runtime:  707.5s
+RESULT: GREEN
+GATE_EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py \
+      tests/test_parser_registry_entries.py tests/test_parser_conformance.py -q
+884 passed in 11.77s
+EXIT=0
+```
+
+The gate is GREEN and the corpus-marked slice's 14 passes include this cell's
+own corpus pin. The one red is the wall-clock affordability assertion, and it
+is not this branch's.
+
+### The affordability red, A/B'd rather than asserted away
+
+The quantity that test measures is the slowest full-registry detect sweep over
+the 109 pinned sources, against a 250 ms constant. This branch adds NO
+registration (68 before, 68 after) and changes no marker:
+
+```
+first_citizens DETECTION_MARKERS, AST compared base 707ba9e vs branch: IDENTICAL
+detect = make_detector(DETECTION_MARKERS)                            : IDENTICAL
+```
+
+so base and branch are the same computation, and the paired measurement then
+confirms it. First, arms built from the base marker set and the branch marker
+set, timed alternately in one process (the FI13 design):
+
+```
+  trial 1:  BRANCH 276.2   BASE 272.1      BRANCH  median 270.0
+  trial 2:  BRANCH 274.6   BASE 243.2      BASE    median 244.5
+  trial 3:  BRANCH 243.3   BASE 227.3
+  trial 4:  BRANCH 270.0   BASE 258.5      BASE ALONE is already over the
+  trial 5:  BRANCH 228.8   BASE 241.8      250 ms constant on 3 of 7 trials
+  trial 6:  BRANCH 263.6   BASE 244.5
+  trial 7:  BRANCH 296.7   BASE 256.1
+```
+
+Then with the arm ORDER alternated, which is what the +16 ms median above
+actually was — both arms running the identical registry:
+
+```
+overall min 250.9   median 279.9   max 298.6   threshold 250.0
+trials over threshold: 16 of 16
+```
+
+Pre-existing at 68 registrations under load, reproducible with the base marker
+set, branch-independent. `tests/test_parser_parity.py` is untouched by this
+cell (zero diff) and the constant is NOT raised: batch-level item under central
+triage, DETECT-BUDGET owns the structural fix, and FI13 already recorded that
+this assertion reports machine load rather than registry cost.
+
+## FCX7. Carried for Ocean
+
+1. **`OCR_STAGE_VERSION` MUST be bumped at merge, and this is a blocker for the
+   measurement, not a nicety.** The OCR artifact cache is keyed on
+   `(content_sha256, ocr_settings_key)` and `OCR_STAGE_VERSION` is inside that
+   fingerprint (`webapp/artifact_cache.py:336`). This branch changes what the
+   OCR stage produces for 35 documents WITHOUT changing the key, so a cached
+   run serves the pre-change markdown and the parser correctly falls back to
+   labels. In the run of record all 34 archive rows are `cache_ocr: hit`, so
+   the next archive run would show **zero movement** for this family unless the
+   OCR stage version moves. `webapp/artifact_cache.py` is WIRING-1's file this
+   batch (its Card B owns the key-material hunk), so this cell did not touch
+   it. Nothing else in the wave forces an OCR-stage bump — WIRING-1's Card B
+   invalidates the ANALYSIS cache, which is a different key.
+   Cost of the bump: the digital rung re-extracts natively for free; the
+   scanned documents re-run the offline rungs. It is wall clock, not vendor
+   spend. Everything proven above is proven by running the ladder directly on
+   the PDFs — the path `corpus_gate.py` and both forensic audits already take —
+   so the change itself is proven independently of the cache.
+2. **`stated_daily_balances` is still deliberately empty** (FI2, FI11.5) and
+   this cell did not touch it. Unchanged: it would move `backend_adb` on a
+   pinned document and needs the ceremony.
+3. **FI14.5's two carried cards are unaffected and still open.** D2 (the
+   service-charge date contradicting the printed daily chain on 4 of 9) and D5
+   (the dropped ending-balance sign line) live in the summary and daily-balance
+   readers, neither of which this cell goes near.
+4. **FI14.3's MAPPING recommendation is unchanged.** The overlay adds and
+   removes no posting, so the 26 exact / 9 off-by-one split against the printed
+   per-direction counts is exactly as measured. COUNTS-P3 material still.
+5. **`count_semantics` untouched**, counts still inert (`UNSURVEYED`,
+   `comparable=False`).
+6. **The four dormant declines still publish nothing** and are unchanged.
+   `3df19105_May2026_1301.pdf` now has 2 recoverable rows and is still refused,
+   which is the right answer: the recovery is text, and text is not evidence of
+   a balance.
+7. **The affordability assertion is red on BASE too**, measured, at 68
+   registrations under load — 16 of 16 trials over the 250 ms constant with the
+   base marker set. Named here for the record only; DETECT-BUDGET owns it and
+   this cell neither touched the test nor raised the constant.
+
+## FCX8. Commits
+
+| Commit | Contents |
+|---|---|
+| `718ea93` | `first_citizens` — `_described`, the overlay and its cross-check, and its fixtures |
+| `4076a78` | intake — `parse_native_first_citizens`, six ladder sites, 14 fixtures incl. the corpus pin |
+| `b71fc07` | `_report` excises the block from the document; the service-charge redating trap fixtured |
+| `365ba91` | `model_copy` instead of a four-field rebuild; the continuation pitch bound fixtured in both of its states |
+| (this one) | §FCX |
