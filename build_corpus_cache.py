@@ -24,6 +24,7 @@ from corpus_artifacts import MANIFEST_NAME, sha256_hex
 from ocr.local_tesseract import parse_local_tesseract
 from ocr.native_text import (
     parse_native_desjardins,
+    parse_native_first_citizens,
     parse_native_navy_federal,
     parse_native_pdf_text,
     parse_native_td_canada,
@@ -37,6 +38,7 @@ def native_document(pdf_bytes: bytes, source_file: str):
         or parse_native_td_canada(pdf_bytes, source_file=source_file)
         or parse_native_wells_fargo(pdf_bytes, source_file=source_file)
         or parse_native_desjardins(pdf_bytes, source_file=source_file)
+        or parse_native_first_citizens(pdf_bytes, source_file=source_file)
         or parse_native_pdf_text(pdf_bytes, source_file=source_file)
     )
 
