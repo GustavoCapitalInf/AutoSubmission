@@ -413,10 +413,11 @@ def test_a_document_with_no_ledger_section_at_all_is_refused():
 # The third printed issue: claimed, and refused twice over (W3 §FISERVISS)
 # ===========================================================================
 
-#: The summary strip as the third issue prints it — no `Average Ledger`, no
-#: `Average Collected`, no fee terms, and the closing figure under the `Current
-#: Balance` wording. It is the SAME strip the two read issues print, which is
-#: why the registration claims these documents.
+#: The summary strip as the third issue prints it: the same clauses the two read
+#: issues print, minus the optional ones (`Average Ledger`, `Average Collected`,
+#: the two fee terms) and with the closing figure under the `Current Balance`
+#: wording. Every one of this registration's three required markers is in it,
+#: which is why these documents are claimed and not merely ignored.
 ISSUE_THREE_SUMMARY = (
     "Previous Balance $100.00 Deposits/Credits (1) $50.00 "
     "Checks/Debits (2) $30.00 Current Balance $120.00"
