@@ -14933,9 +14933,23 @@ Runtime:  1502.7s
 RESULT: GREEN                               EXIT=0
 
 $ python -m pytest -m corpus -q
-19 passed                                   EXIT=0
-   (base 14 corpus-marked + 5 new; includes both telemetry anchors)
+1 failed, 18 passed, 3778 deselected        EXIT=1
+   (base 14 corpus-marked + 5 new; BOTH telemetry anchors pass, and
+    test_dry_run_reproduces_known_truth passes at 100/6/3 — nothing moved)
 ```
+
+The single red is
+`test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run`,
+a wall-clock budget assertion. **It is a known batch-level item under central
+triage (a dedicated DETECT-BUDGET cell owns the structural fix), not this
+branch's.** One-line A/B on the same machine, back to back:
+
+```
+BASE   707ba9e   slowest full-registry detect sweep was 284.3 ms   FAIL (> 250 ms)
+BRANCH ce4e0e9   slowest full-registry detect sweep was 265.0 ms   FAIL (> 250 ms)
+```
+
+Red on base, and this branch is FASTER than base. The constant was not raised.
 
 The gate's 1502.7s is a contended number — batch 4 ran eight cells and a second
 `corpus_gate.py` on the same box. The new check's own cost, measured alone, is
