@@ -15350,3 +15350,360 @@ No measured result moved: D1, D2, D3 and D6 are disclosure edits inside
 `analysis/` does not import. The comparable set, the incomparable set and the
 4-flag / 0-outcome movement of CP5 are unchanged, and the pre-existing 54
 direction entries remain field-identical.
+# §WIRING — the activation that stopped: a sixth pinned document, and a ceremony half the harness cannot execute
+
+Ceremony-gated cell (PIPELINE-FIX-2's follow-up card). Four cards were carded:
+A the three call sites, B the analysis cache-key material, C the approved
+Regions/Texas-Bank truth-set ceremony, D gate hardening. **A, B and C are NOT
+landed.** The activation trips the card's own stop rule — it moves a pinned
+document nobody had counted — and one half of the approved ceremony turns out
+not to be executable in the pinned harness at all. D is landed, because it is
+the instrument that makes both facts visible and it moves nothing.
+
+## W0. Summary
+
+| card | disposition | why |
+|---|---|---|
+| A — the three call sites | **STOPPED, not written** | activating them moves a SIXTH pinned document (W1) |
+| B — sheet evidence in the cache key | **STOPPED, respecified** | ships with A; and the carded "sheet count" is *insufficient* — demonstrated collision (W3) |
+| C — the two-document ceremony | **HALF-BLOCKED, not executed** | Texas Bank moves as approved; Regions cannot move offline at all (W2) |
+| D — gate hardening | **LANDED** | moves nothing; closes both blind spots, proven by mutation (W4) |
+
+Nothing in this cell changes a published value, an audit CSV, a pinned
+expectation, or `ANALYSIS_STAGE_VERSION`. The corpus gate gains one check.
+
+## W1. The stop: a sixth pinned document carries the flag, and loses it
+
+The card's scope is *exactly two* pinned documents. §PIPEFIX P4b.5 measured the
+five pinned documents diagnosed `page_coverage` and concluded two move. That
+table enumerated the documents by their DIAGNOSIS, not by the flag, and a sixth
+pinned document carries `missing_declared_statement_page` without being
+diagnosed `page_coverage` — because it is `withheld`, and its primary diagnosis
+is `source_contradiction`:
+
+```
+Others/BMO/BMO_Statement_January_2026 Final-1-2 (1).pdf
+sha256 E86143101E28E198EC5278B065E8BA967DD73E9AB735A1CAC4A0FE7CB46CB83F
+physical PDF pages    2        intake sheets      2 (2 text-bearing)
+declarations printed  [(2, 2)] declared_total     2
+labels missing        [1]      unlabelled sheets  1
+=> accounted_for      True  -> flag WITHDRAWN when the wiring activates
+```
+
+It is one of the **three pinned WITHHELD statements**. Its outcome class does
+not move (withheld before, withheld after — the refusal is a reconciliation
+one), but its PUBLISHED payload does:
+
+```
+flags  [..., 'conflicting_statement_summaries', 'missing_declared_statement_page']
+    -> [..., 'conflicting_statement_summaries']
+notes  drops 'statement declares 2 bank page(s), but page label(s) 1 are absent
+        from the supplied PDF'
+```
+
+The withdrawal is *honest* — the page is present and simply unlabelled, exactly
+the defect card 2 fixes — but it is pinned movement outside an approved
+ceremony, so the card stops. §PIPEFIX P3.5 in fact already listed this
+statement among the 13 publishing movers, under its archive path
+`BMO/00ce1330_BMO_Statement_January_2026 Final-1-2 (1).pdf`, with the identical
+measured shape (declares 2, missing [1], 1 unlabelled sheet). What nobody
+noticed is that the same statement is also **pinned**, so it was adjudicated as
+an archive mover while being a truth-set movement.
+
+**Full-population containment, measured over the pinned 109.** Every pinned
+document was resolved through the production ladder with both OCR rungs off and
+analysed twice, unwired and wired with its authentic intake page list, and the
+complete serialized payloads compared:
+
+```
+outcome split   unwired  100 validated / 6 review / 3 withheld
+                wired    101 validated / 5 review / 3 withheld
+movers (outcome class OR any payload byte)   2
+    Misc/Texas Bank.pdf                     review -> validated   (approved)
+    Others/BMO/BMO_Statement_...(1).pdf     withheld -> withheld, flag withdrawn
+pinned documents carrying the flag before    6   (P4b.5 accounted for 5)
+    withdrawn 2  ·  kept 4
+everything else                              byte-identical
+```
+
+## W2. The other half of the ceremony cannot be executed offline
+
+`Regions/Regions.pdf` is one of the **six image-only pinned statements**. The
+gate, the discovery dry run and the telemetry corpus anchor are all offline, so
+they resolve those six from their committed OCR artifacts — and a committed
+artifact is a **markdown string** (`tests/corpus_cache/ocr/<pdf_sha>.md`). The
+intake object's page list was discarded when the artifact was committed and is
+not in the repository at all.
+
+So in every offline harness Regions is analysed with `sheets=None`, the check
+fail-closes, and **the flag stands**. The same is true of Builder June 2026 and
+Columbia May 26 complete; those two keep their flags anyway, but offline they
+keep them for the wrong reason — silence rather than a genuinely absent page.
+
+This is a property of the harness, not of the document. Read by direct file
+path out of the D-3 archive store, the same bytes DO carry their page list, and
+the ceremony's verdict is correct:
+
+```
+content_sha256 98D069AF2A41CC6F4A6E6B6DD94FA2E8C294E18438D817BBBB05CCE1B55E849F
+   == sha256 of the pinned Regions/Regions.pdf   (verified, identical bytes)
+   archive intake pages = 3 (3 text-bearing)
+   unwired  review/integrity_flags   flags=['missing_declared_statement_page']
+   wired    validated/approved       flags=[]
+```
+
+(Independently pre-measured by SCAN-SCOUT and reproduced here from the artifact
+store by direct path; the sqlite index was never opened.)
+
+**Consequence for the card as written.** Card D states the post-ceremony gate
+expects 102 validated / 4 review / 3 withheld. Measured, it is
+**101 / 5 / 3** — Texas Bank moves, Regions cannot. The remedy is not to force
+it: it is to give the committed artifacts a page list, which needs no live OCR
+because the D-3 store already holds one for all six. That is a bounded
+follow-up card against `corpus_artifacts.py` and `tests/corpus_cache/`, both
+outside this cell's ownership.
+
+## W3. Card B respecified: the sheet COUNT is not enough key material
+
+§PIPEFIX P4b.5 prescribes adding "the sheet count" to the analysis key
+material, because `to_markdown` is not injective over `admissible_text` and a
+forged one-sheet document can take an honest three-sheet document's cache
+entry. The prescription is directionally right and **quantitatively wrong**:
+the answer depends on the sheet PARTITION, not on its cardinality, so a
+count-carrying key still collides. Demonstrated, not argued:
+
+```python
+SEP = "--- Page 2 ---"
+A = ["Page 2 of 2\nalpha", f"Page 2 of 2\nbeta\n\n{SEP}\n\ngamma"]
+B = [f"Page 2 of 2\nalpha\n\n{SEP}\n\nPage 2 of 2\nbeta", "gamma"]
+```
+```
+same admissible text            True
+same sheet COUNT                True  (2)
+legacy input_sha equal          True  (3E57530980D6D53D...)
+A: missing_declared_statement_page = PRESENT
+B: missing_declared_statement_page = WITHDRAWN
+```
+
+Two sheet lists, the same length, rendering to the same admissible markdown,
+with opposite answers on the fraud-relevant flag. `sheet_count` in the key
+material maps them to one entry. The key must therefore carry the partition —
+a digest over the sheet list itself — and it should live in the analysis
+stage's **input hash**, not in `analysis_settings_key`: the settings key is a
+per-RUN constant and `telemetry/stated_counts.py::_ArtifactJoin` indexes the
+whole artifact table on one value of it (`stated_counts.py:707,720`). Making it
+per-document would silently blind that join.
+
+**Consumers of the derivation to re-point when B lands** (repo-wide grep for
+`admissible_text` / `text_sha256` / `analysis_settings_key`):
+
+1. `webapp/artifact_cache.py:653` — the derivation itself.
+2. `telemetry/stated_counts.py:774-779` — the second copy the FILENAME-BOUNDARY
+   lesson warned about; it reconstructs `pages` already, so it can supply the
+   same evidence, but it must be changed in the same commit or the instrument
+   goes blind while reporting nothing wrong.
+3. The module docstring's `input` table (`artifact_cache.py:45-48`) and the
+   `cached_analysis` usage example (`:156-160`).
+
+B invalidates the whole v11 analysis cache by construction. That is expected;
+Ocean's composed stage bump covers the re-measurement.
+
+## W4. Card D, landed: the gate now checks the product's own verdict
+
+`corpus_gate.check_outcomes` proves 106 PASS / 3 WITHHELD out of the two
+committed audit CSVs. **Neither CSV has a `flags`, `notes`, `risk_level` or
+`possible_document_issue` column**, so both oracles are blind to three kinds of
+truth-set movement:
+
+* review to validated inside the audits' single PASS class — the `b8013d5`
+  regression;
+* a published integrity flag appearing or disappearing with **no class change
+  at all** — the BMO statement of W1. The carded outcome-CLASS check would not
+  have caught it;
+* **`risk_level` and `possible_document_issue` moving independently of the flag
+  list** (Ocean's review, D1). `possible_document_issue` keys on
+  `recon.continuity_breaks >= 3` while the `running_balance_breaks` flag keys on
+  the same counter being non-zero, so 2 breaks → 3 leaves class, reason and
+  flags byte-identical while `risk_level` goes review → high. It is served to
+  users, and the approved Texas Bank ceremony moves it review → clear.
+
+So the pinned expectation is the outcome class plus **the whole published
+integrity block** — `_Verdict(outcome, flags, notes, risk_level,
+possible_document_issue)`, flags and notes in published order. Measured
+justification for the widening: over the 109, the earlier
+`(class, reason, flags)` triple **failed to determine
+`(risk_level, possible_document_issue, notes)` on 4 documents** — the five
+page_coverage documents share one triple while their notes name different page
+numbers.
+
+**The `reason` leg was dropped**, and the finding recorded rather than the field
+silently removed: over every state the pinned corpus reaches (6 distinct
+`(class, flags)` pairs, **0 collisions**) the reason is a total function of
+`(class, flags)`, which `classify_outcome`'s structure explains — `withheld`
+here is always `withheld_adb`, `validated` always `approved`, and each `review`
+reason is selected by a named flag or by the flag list being empty. It added
+zero discrimination. `test_the_outcome_reason_adds_no_discrimination_over_class_
+and_flags` keeps that true, so a future reason which is NOT so determined
+surfaces as a red test.
+
+`PINNED_OUTCOMES` is total over 109 without listing 109: it enumerates the nine
+documents that are not plainly published, and every pinned path absent from it
+must equal `PUBLISHED_OUTCOME`. Measured: **all 100 validated documents share
+exactly one published state** — `('', (), 'clear', False)` — so "absent" is a
+real expectation rather than a gap. Recorded from the current tree,
+PRE-ceremony.
+
+**The harness-drift trap, closed.** A gate harness that analyses differently
+from production pins a verdict production never publishes. This cell's own
+evidence is the trap in both directions: had `production_verdict` passed
+`sheets=` it would have been RED at a HEAD where production is inert; had it
+hardcoded `sheets=None` it would have stayed GREEN forever after the wiring
+landed — blind again, on the one flag it was added to watch.
+`PRODUCTION_SUPPLIES_SHEETS` therefore declares what the call sites actually do,
+and an AST test holds that declaration to them. Wiring production without
+flipping it is a red test; flipping it moves pinned verdicts and so demands the
+ceremony. Two deliberate steps, neither skippable.
+
+**The declaration's three escapes, closed (Ocean's review, D2).** A declaration
+is only as good as its coverage, and the first form had three holes: a helper
+extracted out of a listed function would leave it GREEN while production was
+wired; `ANALYSIS_CALL_SITES` had no exhaustiveness check; and `**kwargs` or a
+literal `sheets=None` mis-classified. Now
+`test_every_production_caller_of_the_analysis_is_classified` sweeps the whole
+repository by AST and requires every module calling `analyze_markdown` or
+`cached_analysis` to be either a declared call site or an explicitly excused
+one — **11 modules, 0 unclassified**. A literal `sheets=None` counts as NOT
+supplying (it is the fail-closed default written out); a `**kwargs` splat is
+unreadable statically and is therefore refused in an excused module, so it must
+be declared. Every declared site must agree, so a sibling call that still
+passes `sheets=` cannot mask an extracted helper that does not.
+
+**`batch.py` is the third production caller, and P4b.5 missed it.** Decided and
+declared: it holds the intake object in scope (`_read_source` returns it),
+`webapp/artifact_cache.py`'s docstring already names it a CLI consumer of the
+cache, and although its own `needs_review` column keys on quality rather than
+integrity, `_emit` serialises the report and hands it to `build_record`, which
+runs `classify_outcome` — so **batch.py publishes an outcome class derived from
+these flags into its telemetry JSONL**. It must be wired at activation.
+Excused, each with its reason in `EXCLUDED_ANALYSIS_CALLERS`: the two forensic
+oracles (wiring them would couple the oracles to the change under test, and
+neither audits any of these fields), `benchmark/ourside.py` (its resolver yields
+no page list), `analyze.py` / `adb_debug.py` / the two coverage scripts (no
+intake object exists on their paths), and `corpus_gate.py` itself.
+
+(For the record, P4b.5's "three call sites" are two of the three real ones: its
+third entry, `webapp/artifact_cache.py`'s `cached_analysis` compute lambda, is
+that module's docstring usage example rather than a caller; its fourth entry,
+the key material, is card B; and `batch.py` is absent from the table.)
+
+**Proven by mutation, not by assertion** — expectation flipped in memory, gate
+RED, restored, GREEN:
+
+| mutation | gate |
+|---|---|
+| committed expectation | GREEN |
+| `review` to `validated` (the `b8013d5` shape) | RED, names the class move |
+| expectation gains a flag the document no longer publishes (the BMO shape) | RED |
+| expectation loses a flag the document does publish | RED, "newly publishes" |
+| a note's text changes (the page_coverage shape the old triple could not see) | RED, both directions named |
+| `risk_level` moved (D1's counterexample) | RED |
+| `possible_document_issue` moved | RED |
+| document unreadable | RED — a verdict we cannot compute is never a pass |
+| restored | GREEN |
+
+Cost: +222s on the gate (109 production-ladder resolutions plus one analysis
+each), on top of the base ~430s. See W5 for the contended wall-clock figure.
+
+## W5. Proofs
+
+```
+$ python -m pytest -q
+3776 passed, 26 deselected, 1 warning      EXIT=0
+   (base 3,769 + 7 unmarked new; 26 deselected = base 18 + 8 corpus-marked new)
+
+$ python -m pytest tests/test_corpus_gate_outcomes.py -q -m ""
+15 passed                                   EXIT=0
+
+$ python corpus_gate.py
+[PASS] outcome_classes: 109 statements publish their pinned verdict
+       (outcome class and the whole integrity block):
+       6 review / 100 validated / 3 withheld
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 6 review / 100 validated / 3 withheld
+Runtime:  1246.0s
+RESULT: GREEN                               EXIT=0
+
+$ python -m pytest -m corpus -q
+1 failed, 18 passed, 3778 deselected        EXIT=1
+   (base 14 corpus-marked + 5 new; BOTH telemetry anchors pass, and
+    test_dry_run_reproduces_known_truth passes at 100/6/3 — nothing moved)
+```
+
+The single red is
+`test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run`,
+a wall-clock budget assertion. **It is a known batch-level item under central
+triage (a dedicated DETECT-BUDGET cell owns the structural fix), not this
+branch's.** One-line A/B on the same machine, back to back:
+
+```
+BASE   707ba9e   slowest full-registry detect sweep was 284.3 ms   FAIL (> 250 ms)
+BRANCH ce4e0e9   slowest full-registry detect sweep was 265.0 ms   FAIL (> 250 ms)
+```
+
+Red on base, and this branch is FASTER than base. The constant was not raised.
+
+The gate's 1246.0s is a contended number — batch 4 ran eight cells and a second
+`corpus_gate.py` on the same box. The new check's own cost, measured alone, is
+**+222s** (109 production-ladder resolutions plus one analysis each).
+
+Both figures above are from the post-review re-run at `HEAD`, after the whole
+published integrity block replaced the (class, reason, flags) triple.
+
+The forge-fixture family (`test_page_content_cannot_forge_a_sheet_boundary`,
+`test_padding_the_pdf_with_a_blank_sheet_does_not_clear_the_flag`,
+`test_no_sheet_list_leaves_the_check_exactly_as_it_was`,
+`test_passing_the_document_text_as_the_sheet_list_is_refused`) is green at every
+commit — untouched, since no production behaviour changed.
+
+## W6. Carried findings
+
+1. **The stop (W1).** `Others/BMO/BMO_Statement_January_2026 Final-1-2 (1).pdf`
+   is pinned movement outside the approved scope. Gustavo's ceremony needs
+   re-scoping to three documents, or the activation needs to leave this one
+   alone — which cannot be done without an issuer or shape literal.
+2. **Regions cannot move offline (W2).** Either the ceremony lands as one
+   document (Texas Bank, 101/5/3) with Regions deferred, or the committed
+   corpus artifacts gain their page list first. The D-3 store already holds it;
+   no live OCR is needed.
+3. **Card B is under-specified (W3).** Sheet count is not sufficient key
+   material; the partition is. And it belongs in the input hash, not the
+   settings key.
+4. **Tesseract-mangled page declarations (SCAN-SCOUT, recorded, not patched).**
+   23 of 179 scanned archive documents print declarations `_PAGE_DECLARATION_RE`
+   cannot read (`1of5`, `4 o0f6`). A tolerant pattern moves **zero** documents
+   today, so the regex is deliberately NOT widened here — a latent for whoever
+   next owns the declaration pattern, alongside §PIPEFIX P4b.4's
+   CONTINUED-footer composition.
+5. **A third copy of the key derivation exists outside the repo**, in the
+   scan-scout scratchpad instrument (`keys.py`). Not repo code and not this
+   cell's to fix, but it will go stale the moment card B lands.
+6. **`production_verdict`'s first justification was measured wrong.** It said
+   `balance_forensic_audit.source_markdown` "silently produces different
+   markdown for the four layout-aware banks". Measured over the pinned
+   manifest: **0 of 109 differ**. The resolver choice is still right, for a
+   different and stronger reason — `source_markdown` returns text and nothing
+   else, while `parse_statement` returns the intake object whose `pages` a
+   wired caller must supply, so only it can still be correct after the wiring
+   lands. Sentence corrected in place.
+7. **A green `pytest -q` is not a verified truth set.** The 109-entry map is
+   compared against the product only by `python corpus_gate.py` (or
+   `pytest -m corpus`); the unmarked tests check the map's shape and prove the
+   mechanism by mutation on one document. Recorded in both module docstrings so
+   green CI is not mistaken for a verified map.
+8. **A flagless `review` is reachable and must stay recordable.** The first form
+   of the shape test asserted every non-validated entry carries a flag, which
+   would have made a legitimate `quality_needs_review` expectation
+   unrecordable — the gate would have gone RED with the only correct remedy
+   blocked by a test. It now asserts each entry is a state `classify_outcome`
+   can actually reach, including the internal consistency of `risk_level` with
+   `flags` and `possible_document_issue`.
