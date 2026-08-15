@@ -14725,8 +14725,12 @@ fixtures — one proving the event, thirteen killing it one condition at a time,
 two pinning the fail-closed status quo — and the exact patch Ocean would apply,
 with its effect measured end to end.
 
-**Nothing moves on this branch. Both documents stay withheld. All 20 claimed
-Woodforest documents are byte-identical to `ea8d8e8`.**
+**Nothing moves on this branch. Both documents stay withheld.** All 20 claimed
+Woodforest documents are byte-identical to the base: the base parser was loaded
+out of git as a second module and its `parse_woodforest_statement` compared
+field for field against this branch's over every claimed archive document —
+**20 claimed, 20 identical, 0 differing** (base `707ba9e`, whose `analysis/`
+and `tests/` are unchanged from `ea8d8e8`).
 
 | | |
 |---|---|
@@ -15142,6 +15146,16 @@ line and are correctly unclaimed):
 today, because on that one the bank printed the period as starting ON the
 opening day. Same event, different printing — which is the clearest statement
 of what this card is actually about.
+
+**The new `Daily Closing Balance Summary` reader was swept over the family too**
+(it is new code, even though only the prover calls it). On 17 of the 18 parsed
+documents every dated balance it reads agrees with that day's last printed
+running balance, **zero conflicts**, table sizes 9–31 days, and the two block
+terminators (`ACCOUNT RECONCILIATION`, `Account Item Images`) both occur in the
+family and both bound correctly. The one document with disagreements is
+`FBDB971C` — the Royalty statement whose grid rows contradict the balance
+movement and which is withheld for exactly that reason; the conflict is the
+document's defect, not the reader's, and nothing consumes the reader there.
 
 ## WF7. Proofs
 
