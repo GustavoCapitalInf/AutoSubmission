@@ -36,19 +36,28 @@ of any particular statement's figures, dates, or counterparties. Every section
 is optional: a month with no deposits prints no deposits section, and the
 printed count for that section is then zero.
 
-Intake note (`ocr/native_text.py`): the generic native-text extractor flattens
+Intake note (`ocr/native_text.py`): the GENERIC native-text extractor flattens
 this bank's description column — every description in a section arrives
 concatenated onto one line, while the dates and amounts arrive as separate
-positional runs on the lines beneath it. Dates and amounts are therefore
-recoverable per posting and free-text descriptions are not, except where the
-section prints a structured row (checks) or holds a single posting. Rather
-than guess boundaries from a list of remembered merchant names — which is what
-tied the previous parser to one document — postings from a flattened column
-are labelled by the section that printed them. A layout-aware extractor for
-this bank (the `+wells` / `+desjardins-layout` pattern already in
-`ocr/native_text.py`) would restore per-posting descriptions for the whole
-family; it is not done here because that module also feeds the forensic
-oracles.
+positional runs on the lines beneath it. Everything below still reads that
+flattened form and still works on it, because it is what a document extracted
+before `+first-citizens-layout` existed looks like, and because it is the
+honest floor: from a flattened column, dates and amounts are recoverable per
+posting and free-text descriptions are not, except where the section prints a
+structured row (checks) or holds a single posting. The previous parser split
+that column on a list of ~25 remembered merchant names, which is what tied it
+to one document; nothing here guesses a boundary.
+
+`parse_native_first_citizens` now recovers the column properly, from the
+printed table's own geometry, and reports one row per posting at the end of
+the document. `_described` OVERLAYS those rows onto the postings this module
+already read, and it is a cross-check before it is a convenience: a section
+takes the printed descriptions only when the extractor's rows reproduce that
+section's parsed dates and amounts exactly, in order, one for one. Two
+independent readings of the same table therefore have to agree before any
+description is published, and where they do not the section keeps its label.
+No amount, date, count or balance depends on the overlay — it is text only,
+and a document extracted without the rows parses exactly as it did before.
 """
 from __future__ import annotations
 
@@ -523,6 +532,89 @@ def _service_charge_posting(
     return None
 
 
+#: The layout extractor's report, delimited so a document that never went
+#: through it is simply a document with no rows (`ocr/native_text.py`).
+#: The leading `\n?` is not cosmetic: it makes the excision exact, so the
+#: document a reader below sees is the document it would have seen had the
+#: intake never reported anything.
+_ROWS_RE = re.compile(
+    r"\n?^FC_NATIVE_TRANSACTIONS$(?P<body>.*?)^FC_NATIVE_TRANSACTIONS_END$",
+    re.MULTILINE | re.DOTALL,
+)
+
+
+def _report(markdown: str) -> tuple[list[tuple[str, str, str, str]], str]:
+    """The intake's rows, and the document with the report REMOVED.
+
+    Removed, not merely ignored. Every row repeats the section heading it was
+    printed under, so a report left in place is a second printing of
+    `Other Debits From Your Account` inside the text that `_section_blocks`
+    splits on and `_service_charge_posting` scans. Cutting it out at this one
+    seam is a property of the module; asking each reader to skip it would be a
+    promise renewed at every future edit.
+
+    A malformed block yields no rows rather than a partial reading — the
+    overlay is keyed on reproducing a whole section, so half a report fails
+    that check anyway, and failing here is cheaper and louder. The report is
+    still cut out: it is not statement text whether or not it parses.
+
+    Rows: `(section, MM-DD, amount, description)`.
+    """
+    match = _ROWS_RE.search(markdown)
+    if match is None:
+        return [], markdown
+    printed = markdown[: match.start()] + markdown[match.end():]
+    rows: list[tuple[str, str, str, str]] = []
+    for line in _lines(match.group("body")):
+        fields = line.split("|", 4)
+        if len(fields) != 5 or fields[0] != "FC_TX":
+            return [], printed
+        _prefix, section, mmdd, amount, description = fields
+        if _MMDD_RE.fullmatch(mmdd) is None or _MONEY_RE.fullmatch(amount) is None:
+            return [], printed
+        rows.append((section, mmdd, amount, description))
+    return rows, printed
+
+
+def _described(
+    postings: list[Transaction],
+    rows: list[tuple[str, str, str, str]],
+    header: str,
+    *,
+    start: date,
+    end: date,
+) -> list[Transaction]:
+    """The same postings, carrying the descriptions the bank printed for them.
+
+    Fail-closed by section. The extractor read the table by geometry and this
+    module read it positionally out of the flattened column; the printed text is
+    published only where those two readings agree on every date and every amount
+    of the section, in printed order. Any disagreement — a row count that
+    differs, a date that resolves elsewhere, a cent out — returns the postings
+    untouched, so the section keeps the honest label it has today. A row the
+    bank printed with an empty description column leaves that one posting
+    labelled; nothing is synthesised for it.
+    """
+    section = [row for row in rows if re.fullmatch(header, row[0], re.IGNORECASE)]
+    if len(section) != len(postings):
+        return postings
+    described: list[Transaction] = []
+    for posting, (_name, mmdd, amount, description) in zip(postings, section):
+        when = _resolve(int(mmdd[:2]), int(mmdd[3:]), start, end)
+        if when is None or when.isoformat() != posting.date:
+            return postings
+        if abs(_money(amount) - abs(posting.amount)) >= 0.005:
+            return postings
+        text = compact_whitespace(description)
+        # A COPY with one field replaced, not a rebuild: `Transaction` carries
+        # `running_balance` as well, and a rebuild naming four fields would
+        # silently drop a fifth the day this parser starts populating one.
+        described.append(
+            posting.model_copy(update={"description": text or posting.description})
+        )
+    return described
+
+
 def _matches(printed: tuple[int, float], postings: list[Transaction]) -> bool:
     """A parsed section agrees with the count AND the total the bank printed."""
     count, total = printed
@@ -560,6 +652,11 @@ def parse_first_citizens_statement(markdown: str) -> Statement | None:
     if not detect(markdown).claims:
         return None
 
+    # Detection has run on exactly the bytes dispatch scored. From here down
+    # `markdown` is the DOCUMENT: the intake's row report is evidence about the
+    # statement, not part of it, and nothing below can read it as printing.
+    reported, markdown = _report(markdown)
+
     period = _parse_period(markdown)
     account = _account(markdown)
     summary = _summary(markdown)
@@ -588,6 +685,18 @@ def parse_first_citizens_statement(markdown: str) -> Statement | None:
         and _matches(summary.other_debits, other_debits)
     ):
         return None
+
+    # Only now, with every section closed against the record the bank printed,
+    # are the printed descriptions laid over the two sections that have one.
+    # This changes text and nothing else: same dates, same amounts, same counts,
+    # same balances, and the gate above has already run either way.
+    if reported:
+        other_credits = _described(
+            other_credits, reported, _OTHER_CREDITS, start=start, end=end
+        )
+        other_debits = _described(
+            other_debits, reported, _OTHER_DEBITS, start=start, end=end
+        )
 
     # The service charge is billed outside the four section totals, so it is
     # recovered from its own itemisation rather than counted against them.
