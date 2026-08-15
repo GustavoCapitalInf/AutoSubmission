@@ -21439,6 +21439,58 @@ stale as predicted.
 document's input hash changes, whether or not its caller supplies a page list.
 Expected and chosen; Ocean's composed stage bump covers the re-measurement.
 
+**And here is the consequence, stated so nobody reads it as a defect.** On
+merge, all ~23,598 analysis entries in the store resolve under the OLD
+text-only key and **0** under the new one, so the stated-counts observer's
+`_ArtifactJoin` resolves **nothing**: `observe_run` reports
+`REASON_PAYLOAD_ABSENT` on every row, archive-wide, and its rollup is empty.
+That is the cache invalidation showing through the instrument that reads the
+cache — not a broken join. It fails safe (an unresolvable payload is never
+guessed) and it **self-heals at the train's cold run**, when the archive is
+re-analyzed at the bumped stage version and every key is written in the new
+form. No action is needed, and none should be taken on the strength of an empty
+rollup measured before that run.
+
+Worth one more sentence because it is the reason this needs saying at all: the
+join's own tests seed their fixture through `cached_analysis`, so they write
+and read the same (new) key and **stay green straight through the blindness**.
+Nothing in CI can warn about it; only an empty rollup over the real archive
+shows it, and that is exactly what an unwarned reader would misdiagnose.
+
+### The `sheets_sha256` contract, and why it is a guard rather than a note
+
+Ocean's review asked for the real contract to be stated or enforced. It is
+ENFORCED, because two of the three failure modes are silent:
+
+* **`str`** — refused already, the `assess_document_integrity` footgun one
+  layer down.
+* **a one-shot iterable** (generator, `map`, a bare iterator) — now refused.
+  Hashing CONSUMES it and the caller then hands the analysis an empty sequence:
+  the analysis fail-closes, so the answer is conservative, but it is stored
+  under the key of a partition that WAS proven, and a later caller supplying
+  the same pages properly is served that fail-closed answer. Nothing in the
+  payload looks wrong. A note would not have caught it; the guard does.
+* **non-`str` members** — now refused *by index*, because the alternative is an
+  `AttributeError` raised inside `text_sha256` that names neither the sheet nor
+  the call site.
+
+The accepted type is therefore a re-iterable `Sequence[str]`, checked with
+`collections.abc.Sequence` rather than the typing alias so the check is real at
+runtime. Every production caller already passes a list (`document.pages`,
+`cached_pages`). Only a call site can reach any of these — no document's
+content can — so raising costs nothing at runtime and fails a mis-wiring
+loudly. Pinned by `test_a_one_shot_iterable_of_sheets_is_refused` and
+`test_a_non_string_sheet_is_refused_by_name`.
+
+**Order is key material, and that is deliberate conservatism.** `["a", "b"]`
+and `["b", "a"]` hash differently, so three sheets have six permutations and
+six keys for one answer — over-partitioning, which this module's contract has
+always called the safe direction: it costs a recompute and never returns a
+stale artifact. It is also unreachable in production, since the markdown is
+rendered from the same ordered list that is hashed, so the cost is theoretical.
+Recorded rather than removed, and pinned by
+`test_sheet_order_is_key_material_and_that_is_deliberate`.
+
 ## W2-3. Card A — the three call sites, and the flip in the same commit
 
 | file | function | what it passes |
@@ -21525,12 +21577,15 @@ publishing movers are therefore 21, not P3.5's 13**, and every one is named:
 | withheld | `TD Bank/b1d8892d_01 Jan TD Statement.pdf` | `1A8B92DC…` | withheld, flags 4→3 |
 | withheld | `TD Bank/b1d8892d_01 Mar TD Statement.pdf` | `BDA1DE2F…` | withheld, flags 4→3 |
 
-All 13 documents §PIPEFIX P3.5 named are here. The 8 additions are not a
-surprise, they are §PIPEFIX's own prediction arriving: **3 Burke & Herbert + 4
-Fiserv Premier are exactly the "enabling movers" P0/P3.3 said would materialise
-once their registrations landed** (they did, in batch 3), and the ninth — the
-five Huntington documents of card 1 — landed with that card. Only
-`Citizens Bank/9033ffb9_Feb 28.pdf` is genuinely new to the publishing set, a
+All 13 documents §PIPEFIX P3.5 named are here. Seven of the 8 additions are
+not a surprise, they are §PIPEFIX's own prediction arriving: **3 Burke &
+Herbert + 4 Fiserv Premier are exactly the "enabling movers" P0/P3.3 said would
+materialise once their registrations landed**, and they did, in batch 3. (The
+three Burke & Herbert documents sit in the `Huntington Bank/` folder and are
+claimed by `burke_herbert` — the folder label is not the issuer, which is the
+HUNT-CELL finding. They are not card 1's five Huntington documents; those are a
+separate population that moved with card 1 itself.) The eighth,
+`Citizens Bank/9033ffb9_Feb 28.pdf`, is genuinely new to the publishing set — a
 document batch 3's citizens container fix started claiming.
 
 **Three of the 21 are the ceremony documents themselves**, under their archive
@@ -21566,8 +21621,10 @@ CONTROL: every 30th non-carrier                   107
 
 ```
 $ python -m pytest -q
-4249 passed, 33 skipped, 29 deselected, 1 warning in 353.56s      EXIT=0
-   (base 4,240 + 9 new unmarked; corpus-marked still 25)
+4252 passed, 33 skipped, 29 deselected, 1 warning in 338.90s      EXIT=0
+   (base 4,240 + 12 new unmarked; corpus-marked still 25.
+    Was 4,249 before the review closures added the three
+    sheets_sha256 contract tests.)
 
 $ python -m pytest -m corpus -q
 25 passed, 4286 deselected, 1 warning in 2767.04s (0:46:07)       EXIT=0
@@ -21622,6 +21679,25 @@ $ python -m pytest \
 6 passed                                                          EXIT=0
 ```
 
+Ocean's review closures (the `sheets_sha256` guards, the observer disclosure,
+the W2-4 correction) re-ran the six changed test files and the forge family:
+
+```
+$ python -m pytest tests/test_artifact_cache.py tests/test_corpus_gate.py \
+    tests/test_corpus_gate_outcomes.py tests/test_discovery.py \
+    tests/test_stated_counts.py tests/test_telemetry_corpus.py -q
+193 passed, 12 deselected                                         EXIT=0
+
+$ python -m pytest <the forge family + the two FILENAME-BOUNDARY tests> -q
+6 passed                                                          EXIT=0
+```
+
+Neither the gate nor the corpus-marked slice was re-run for the closures, and
+neither needed to be: the guards add refusals on input shapes no production
+caller produces (every one passes a list), and the rest of the closure is
+prose. `sheets_sha256`'s behaviour on a `Sequence[str]` — the only shape either
+harness reaches — is byte-identical, which the 193 above include.
+
 The gate's 1,209.7s is a CONTENDED figure — batch 5 runs several cells on this
 box and eight other Python processes were live for most of it. Nothing about
 the verdict depends on the clock; §WIRING measured the verdict check's own
@@ -21663,12 +21739,13 @@ cost at +222s on top of the ~430s base and this cell did not change either.
    that path passes `None` and keeps the pre-cell behaviour. It is the one
    production entry point where the check stays fail-closed by nature rather
    than by omission.
-6. **The stated-counts observer is blind until the next archive run, and that
-   is the cache invalidation showing through rather than a defect.** It joins
-   OCR artifacts to ANALYSIS artifacts, every analysis artifact in the current
-   store was written under the pre-card-B key, and the join now derives the
-   post-card-B one — so `payload_for` misses on all of them and `observe_run`
-   would report `payload_absent` across the archive. Ocean's re-run at the
-   bumped stage version refills the store and the join resolves again. Worth
-   stating because "the instrument reads zero" and "the instrument is broken"
-   look identical from the outside, and this is the first.
+6. **The stated-counts observer resolves NOTHING until the next archive run,
+   and that is the cache invalidation showing through rather than a defect.**
+   All ~23,598 analysis entries in the store were written under the pre-card-B
+   text-only key and 0 under the new one, so `payload_for` misses on every
+   document and `observe_run` reports `REASON_PAYLOAD_ABSENT` archive-wide.
+   Fails safe; self-heals at the train's cold run. Its own tests seed their
+   fixture through `cached_analysis` and so stay green throughout, which means
+   nothing in CI can warn about it — worth stating because "the instrument
+   reads zero" and "the instrument is broken" look identical from outside, and
+   this is the first. Recorded in W2-2 and in the join's docstring.

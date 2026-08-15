@@ -193,9 +193,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Sequence, TypeVar
+from typing import Any, Callable, TypeVar
 
 from analysis.parser_registry import admissible_text
 from ocr.document import StatementMarkdown
@@ -355,13 +356,37 @@ def sheets_sha256(sheets: Sequence[str] | None) -> str | None:
     joining them would make them identical. Sheet text is hashed rather than
     embedded so that key material stays bounded whatever the document's size.
 
-    ``str`` is refused for the same reason ``assess_document_integrity`` refuses
-    it: ``str`` is itself a ``Sequence[str]``, so ``sheets=markdown``
-    type-checks and then iterates one CHARACTER per sheet. There it would clear
-    a fraud-relevant flag; here it would silently partition the cache by
-    something meaningless. A caller that believes it is supplying page structure
-    while supplying none is a defect either way, and only a call site can reach
-    this — no document's content can.
+    ORDER IS KEY MATERIAL, deliberately. ``["a", "b"]`` and ``["b", "a"]`` hash
+    differently although both render to the same markdown under a caller that
+    reordered them, so three sheets have six permutations and six keys for one
+    answer. That is over-partitioning, which this module's contract says is the
+    safe direction: it costs a recompute and never returns a stale artifact.
+    It is also unreachable in production — the markdown is rendered from the
+    same ordered list that is hashed here — so the cost is theoretical and the
+    conservatism is free.
+
+    THE ACCEPTED TYPE is a re-iterable sequence of ``str``, and everything else
+    is refused rather than coerced. Three ways a call site can get this wrong,
+    all of them silent without the guards:
+
+    * ``str`` — refused for the same reason ``assess_document_integrity``
+      refuses it: ``str`` is itself a ``Sequence[str]``, so ``sheets=markdown``
+      type-checks and then iterates one CHARACTER per sheet. There it would
+      clear a fraud-relevant flag; here it would partition the cache by
+      something meaningless.
+    * a one-shot iterable (generator, map, zip, an exhausted iterator) —
+      refused because hashing CONSUMES it, and the caller then hands the
+      analysis an empty sequence. The analysis fail-closes on that, so the
+      answer is conservative, but it is stored under the key of a partition
+      that WAS proven: a later caller supplying the same pages properly gets
+      served the fail-closed answer. Nothing in the payload looks wrong, which
+      is what makes it worth a refusal rather than a note.
+    * non-``str`` members — refused with a message that names the offender,
+      because the alternative is an ``AttributeError`` from inside
+      ``text_sha256`` with no indication of which call site is at fault.
+
+    Only a call site can reach any of these — no document's content can — so
+    raising costs nothing at runtime and fails a mis-wiring loudly.
     """
     if sheets is None:
         return None
@@ -370,6 +395,17 @@ def sheets_sha256(sheets: Sequence[str] | None) -> str | None:
             "sheets must be the intake object's page list, not the document "
             "text: a str is a Sequence[str] of single characters"
         )
+    if not isinstance(sheets, Sequence):
+        raise TypeError(
+            "sheets must be a re-iterable sequence of page strings, not a "
+            f"one-shot iterable ({type(sheets).__name__}): hashing it here "
+            "would consume it and leave the analysis with no page structure"
+        )
+    for index, sheet in enumerate(sheets):
+        if not isinstance(sheet, str):
+            raise TypeError(
+                f"sheets[{index}] is {type(sheet).__name__}, not a page string"
+            )
     return text_sha256(_canonical_json([text_sha256(sheet) for sheet in sheets]))
 
 

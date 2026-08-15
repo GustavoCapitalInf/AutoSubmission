@@ -703,6 +703,18 @@ class _ArtifactJoin:
     reconstructed document, because `to_markdown()` requires one and the
     reconstruction must be faithful; it simply cannot reach the hash. It never
     leaves this class: what a caller gets back is a payload and a hash.
+
+    **Expect ZERO resolutions on the first run after W3 §WIRING2 merges, and do
+    not read that as a defect.** Adding the page partition to the analysis input
+    hash re-keyed the stage, so every analysis artifact already in the store was
+    written under the old text-only key and none under the new one: this join
+    resolves nothing and `observe_run` reports `REASON_PAYLOAD_ABSENT` on every
+    row until the next archive run re-analyzes at the bumped stage version. It
+    fails safe — an unresolvable payload is never guessed — and it self-heals at
+    the train's cold run, with no action needed here. Note that the tests below
+    seed their own fixture through `cached_analysis`, so they stay green
+    throughout the blindness and cannot warn about it; only an empty rollup over
+    the real archive shows it.
     """
 
     def __init__(self, data_dir: str | Path):
