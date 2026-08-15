@@ -21303,6 +21303,7 @@ two plus a spare strip.
 | one pass over the 109 pinned | 10.44 s | **4.94 s** |
 | 40 largest archive documents, worst (139,737 chars) | 758.8 ms | **366.5 ms** |
 | 40 largest archive documents, median | 430.6 ms | **188.1 ms** |
+| the same seven readings, arms measured in the opposite order an hour later | | **1.63x-2.62x, PH6** |
 | full-archive equivalence pass (3,351 docs, sweep + parse + serialize) | 10 min 52 s | **7 min 3 s** |
 
 Equivalence: 3,351 archive documents, every registration's `(score, matched
@@ -21507,10 +21508,15 @@ harness (DT9.7) and rebuilt for this wave's run of record: `ph_harness.py`
 (arm-selected production import, with the assertion that catches measuring the
 wrong arm; the OCR artifact index rebuilt by tail-reading every envelope, by
 DIRECT file path, never the sqlite index), `archive_md_v3.pkl` (**3,351 of the
-run of record's 3,380 shas** — the other 29 have a null document, i.e. no text
-offline — 62.9 M chars, one pickle, so two arms provably sweep identical
-bytes), `ph_equiv.py`, `ph_crash.py`, `ph_compare.py`, `ph_measure.py`,
-`ph_ops.py`.
+run of record's 3,380 shas**, 62.9 M chars, one pickle, so two arms provably
+sweep identical bytes), `ph_equiv.py`, `ph_crash.py`, `ph_compare.py`,
+`ph_measure.py`, `ph_ops.py`.
+
+**The 29 shas not in the store are the 29 that have no text at all** — 16
+`failed/invalid_pdf` and 13 `deferred/deferred_visual_ocr` in the run of
+record's own `rows.csv`, each with a null document in the D-3 store. Detection
+never runs on them, in either arm, so the corpus below is not a sample of the
+archive: it is every archive document a detect sweep can be performed on.
 
 Both arms run the production shape, per document:
 
@@ -21612,15 +21618,26 @@ preparation and detection, before any parse: the pipeline's rebind,
 throughout; the ratios are the durable part, the absolutes are this machine
 today.
 
-| measurement | base | branch | ratio |
-|---|---|---|---|
-| worst pinned document, best of 5 | 325.39 ms | **166.62 ms** | 1.95x |
-| largest pinned document (62,702 chars) | 301.20 ms | **134.96 ms** | 2.23x |
-| one pass over the 109 pinned | 10.44 s | **4.94 s** | 2.11x |
-| the 109, summed best-of-five | 9.33 s | **4.25 s** | 2.19x |
-| 40 largest archive docs, worst (139,737 chars) | 758.80 ms | **366.46 ms** | 2.07x |
-| 40 largest archive docs, median | 430.60 ms | **188.14 ms** | 2.29x |
-| 40 largest archive docs, total | 18.30 s | **8.40 s** | 2.18x |
+**Two rounds, with the arms in OPPOSITE ORDER**, because a single ordering
+cannot tell a speedup from the machine getting busier between the two arms.
+Round 1 ran base then branch on a moderately loaded machine; round 2 ran
+branch then base an hour later, with roughly two dozen Python processes
+sharing the box (the rest of batch 5 running its own proofs). The absolutes
+move by a factor of one and a half between rounds. The ratios do not.
+
+| measurement | round 1 base | round 1 branch | r1 | round 2 base | round 2 branch | r2 |
+|---|---|---|---|---|---|---|
+| worst pinned document, best of 5 | 325.39 ms | **166.62 ms** | 1.95x | 475.03 ms | **214.60 ms** | 2.21x |
+| largest pinned document (62,702 chars) | 301.20 ms | **134.96 ms** | 2.23x | 434.45 ms | **210.37 ms** | 2.07x |
+| one pass over the 109 pinned | 10.44 s | **4.94 s** | 2.11x | 17.96 s | **6.85 s** | 2.62x |
+| the 109, summed best-of-five | 9.33 s | **4.25 s** | 2.19x | 14.10 s | **6.54 s** | 2.15x |
+| 40 largest archive docs, worst (139,737 chars) | 758.80 ms | **366.46 ms** | 2.07x | 972.30 ms | **594.85 ms** | 1.63x |
+| 40 largest archive docs, median | 430.60 ms | **188.14 ms** | 2.29x | 572.67 ms | **282.71 ms** | 2.03x |
+| 40 largest archive docs, total | 18.30 s | **8.40 s** | 2.18x | 24.39 s | **12.27 s** | 1.99x |
+
+The honest summary is **about 2x on the double sweep, in both load regimes and
+in both orderings** — which is what halving the number of preparations should
+buy, and the reason to state it in preparations as well.
 
 And the load-independent reading, which a busy machine cannot move — measured
 on the largest pinned document and the largest archive document, identical on
@@ -21639,7 +21656,7 @@ through `_surviving_claimants`, which costs what it always did.
 
 ## PH7. Tests
 
-Eighteen, all green, suite 4,240 → **4,258**; corpus-marked slice 25 → **26**.
+Nineteen, all green, suite 4,240 → **4,259**; corpus-marked slice 25 → **26**.
 
 **The seam (10, `tests/test_parser_registry.py`, synthetic registry).**
 
@@ -21654,7 +21671,7 @@ Eighteen, all green, suite 4,240 → **4,258**; corpus-marked slice 25 → **26*
 | `test_a_crash_reaches_the_guard_on_the_second_sweep_as_well` | **the W3-1 guard**: the raise count is 2, not 1 |
 | `test_the_prepared_document_is_not_part_of_dispatch_equality` | `Dispatch` comparisons keep working |
 
-**The telemetry side (6, `tests/test_telemetry.py`, real Chase document).**
+**The telemetry side (7, `tests/test_telemetry.py`, real Chase document).**
 
 | test | job |
 |---|---|
@@ -21662,6 +21679,7 @@ Eighteen, all green, suite 4,240 → **4,258**; corpus-marked slice 25 → **26*
 | `test_the_near_miss_sweep_prepares_nothing_when_given_the_collector` | no `prepare` call, no new normalization |
 | `test_the_near_miss_vector_is_identical_with_and_without_the_collector` | the equivalence, on a real claimed document |
 | `test_a_collector_from_another_document_is_ignored` | **the guard, with its own vacuity proof** — the foreign vector really is different |
+| `test_a_str_subclass_cannot_talk_its_way_into_another_documents_preparation` | the `Sticky` hazard `PreparedDocument.text_for` documents, one level out: both sides of the guard's `==` are values `admissible_text` returned, and `re.sub` yields an exact `str` whatever it was given |
 | `test_a_collector_that_never_saw_a_dispatch_is_ignored` | the D-3 cache-hit path |
 | `test_the_collector_offers_no_preparation_when_handed_nonsense` | reading a preparation is not a new way for telemetry to raise |
 
@@ -21677,3 +21695,143 @@ nothing, the total is `1 + distinct normalizers` (35 today, not 70), and the
 near-miss vector is identical to the one a fresh sweep produces. Load-immune,
 and it cannot run on base at all, which is the same shape as DETECT-BUDGET's
 first clause.
+
+## PH8. Proofs
+
+All at HEAD, exit codes verbatim. The machine was shared with a dozen to two
+dozen other Python processes throughout — the rest of batch 5 running its own
+proofs — which is why every runtime here is well above the batch-4 record for
+the same command, and why PH6 is paired, best-of-N and measured in both
+orderings.
+
+```
+$ python -m pytest -q
+4259 passed, 33 skipped, 30 deselected, 1 warning in 357.37s (0:05:57)
+EXIT=0
+
+$ python -m pytest -m corpus -q tests/test_parser_parity.py
+12 passed, 1 warning in 198.49s (0:03:18)
+EXIT=0
+
+$ python -m pytest -m corpus -q tests/test_corpus_gate.py tests/test_corpus_gate_outcomes.py
+9 passed, 28 deselected, 1 warning in 1230.04s (0:20:30)
+EXIT=0
+
+$ python -m pytest -m corpus -q tests/test_discovery.py \
+    tests/test_first_citizens_native_layout.py tests/test_telemetry_corpus.py \
+    tests/test_truncation.py
+5 passed, 88 deselected, 1 warning in 1261.55s (0:21:01)
+EXIT=0
+
+$ python corpus_gate.py
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 6 review / 100 validated / 3 withheld
+Runtime:  1536.4s
+RESULT: GREEN
+EXIT=0
+
+$ python -m pytest tests/test_parser_conformance.py tests/test_parser_registry.py \
+    tests/test_parser_registry_entries.py tests/test_parser_exception_boundary.py \
+    tests/test_parser_crash_shapes.py tests/test_no_statement_hardcodes.py \
+    tests/test_filename_boundary.py tests/test_pipeline_registry_dispatch.py -q
+1197 passed, 33 skipped, 1 warning in 41.71s
+EXIT=0
+```
+
+The corpus-marked slice is 26 tests over three commands because a single
+`pytest -m corpus` runs past the ten-minute ceiling on this machine under this
+load; the three together are the whole slice (12 + 9 + 5 = 26 collected = 26
+run). The conformance cross-product in the last block is the full 71 x 70 =
+4,970 detection-negative assertions plus the registry, entries, exception
+boundary, crash shapes, hardcode and filename-boundary guards.
+
+The two archive sweeps (PH5, PH5.1) are 4 x 3,351 documents on top of that:
+`equiv` 10 min 52 s base / 7 min 3 s branch, `crash` 11 min 18 s base / 6 min
+48 s branch, both arms digest-identical.
+
+`python -m discovery --dry-run` is exercised inside the slice as
+`tests/test_discovery.py::test_dry_run_reproduces_known_truth`, which is the
+end-to-end proof of the three emitter call sites: the real runner, the real
+collector, the real `score_vector(markdown, collector)`, over the pinned 109.
+
+## PH9. Carried findings and questions for Ocean
+
+1. **This cell touched four files it does not own, one argument each.** The
+   three emitters (`discovery/runner.py` :489 and :544, `webapp/worker.py`
+   :134, `batch.py` :188, base numbering) belong to WIRING-2 and
+   DISCOVERY-OBS, and `analysis/parser_registry.py` — where
+   `Dispatch.prepared`, the two `str | PreparedDocument` widenings and
+   `resolve`'s two-line preamble live — belongs to nobody in batch 5. PH4 says
+   why the alternative (hidden module-level state, zero foreign edits) was
+   refused. **Where they sit, precisely, so the train can be sequenced:**
+   WIRING-2's three call sites are `_analyse` (runner :308-326),
+   `_analyze_doc` and batch's `analyze_markdown` call — none of them a line
+   this cell touches. DISCOVERY-OBS owns "the row projection" in the same
+   runner function as :489, and :489 is the line immediately above
+   `row.near_miss = ...`, so **that one can textually collide; the resolution
+   is always to keep both changes on the one line.** Nothing here changes what
+   is projected, only where the sweep behind it gets its text.
+2. **`Dispatch` now holds the document's prepared texts for as long as the
+   `Dispatch` lives.** A deliberate widening of what the routing object
+   carries, and the same class of thing `Dispatch.statement` already is —
+   which is why `dispatch_section` projects named fields and never the object,
+   and why nothing walks a `Dispatch` generically (checked repo-wide: there is
+   no `asdict(dispatch)` anywhere, and `analysis/serialization.py` never sees
+   one, because `Report` deliberately has no dispatch field). The lifetime is
+   one document's analysis — the same window the caller's own `markdown`
+   string is alive for — and the collector is rebuilt per document. If Ocean
+   would rather the publication were opt-in (`resolve(document,
+   publish=False)`), that is a one-line change that costs the whole
+   optimization at the three emitters, so it is put here rather than taken.
+3. **The guard costs one `admissible_text` per document and buys 34.** It
+   could be made free by having `PreparedDocument` remember the string it was
+   built from, so the guard could be an identity check — `re.sub` allocates
+   even when it substitutes nothing, so today's identity fast path never fires
+   on the production path. Not taken: that is a new slot on DETECT-BUDGET's
+   class holding a second reference to the raw text, for ~1.7 ms on the
+   largest pinned document against the ~150 ms the reuse saves there.
+   Recorded so nobody re-derives it.
+4. **A fourth strip is still out there, and it is not this cell's.**
+   `webapp/artifact_cache.py:677` computes the analysis cache key as
+   `text_sha256(admissible_text(markdown))` — a full pass over the document
+   before the pipeline runs at all, on every cached path. WIRING-2 owns that
+   region this batch (the input-hash digest hunk). Nothing to do today; the
+   next cost card should know it exists.
+5. **On a D-3 analysis cache hit nothing dispatches, so nothing is reused.**
+   `dispatch_cached = 202` in the run of record: those documents pay the
+   near-miss sweep whole, exactly as before, and pay no first sweep at all.
+   The optimization applies to the ~3,289 documents that dispatch live.
+6. **The near-miss vector is now the only consumer that reuses.** Discovery
+   adjudication and the conformance tests still call `detection_report(str)`
+   and prepare their own text, correctly — they run outside a dispatch. Noted
+   so the next cell does not read the reuse as a rule about
+   `detection_report`.
+7. **`claimed` on the archive is 2,495 against the run of record's 2,405
+   validated.** Detection replay, not an outcome census: `claimed` is a
+   routing fact and validation is decided downstream. Recorded because both
+   numbers appear in this section and they are not the same quantity (W3
+   #COUNTSP3's standing warning).
+8. **No stage bump is needed for correctness.** Every published byte is
+   identical — the gate's whole integrity block on 109, the parsed
+   `Statement` digest on 2,495 archive documents, the near-miss vector on
+   3,351 — so this cell does not invalidate the analysis cache. Ocean's
+   composed `ANALYSIS_STAGE_VERSION` bump at merge is unaffected either way.
+9. **The harness is reusable and is now rebuilt for v12 / OCR v3.**
+   `prephand-5fb5b603/` holds `ph_harness.py` (OCR index by envelope
+   tail-read, store build for THIS run of record), `archive_md_v3.pkl`,
+   `ph_equiv.py`, `ph_crash.py` (six injections including the parse-stage one,
+   with raise counting), `ph_compare.py`, `ph_measure.py`, `ph_ops.py`, and a
+   base arm at `.claude/worktrees/mt5-prephand-base` (a plain `git archive`
+   extract of `e935f98`, invisible to `git worktree list`). Any cell needing a
+   full-archive equivalence or a registry-wide cost can reuse them by changing
+   the arms.
+
+## PH10. Commits
+
+| Commit | Contents |
+|---|---|
+| `def3deb` | the seam: `Dispatch.prepared`, `resolve`/`_surviving_claimants`/`detection_report` accepting a `PreparedDocument`, the pipeline's rebind folded into it, `DispatchCollector.prepared`, `score_vector`'s guarded reuse, the four emitter arguments, 18 tests |
+| `a16f2af` | the `str`-subclass guard on the equality, its test, the corrected note about the identity fast path, and PH0-PH7 |
+| (this one) | PH5's null-document accounting, PH6's second measurement round in the opposite order, PH8-PH10 |
