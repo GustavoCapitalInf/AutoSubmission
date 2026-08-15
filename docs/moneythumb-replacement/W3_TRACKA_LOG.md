@@ -25137,3 +25137,436 @@ closures DID change — four test files and this log — is re-run above.
 | `ab6528c` | self-review: live-derived family populations, the fourth range dash, guard wording |
 | `987bece` | the completed proof block |
 | (this one) | adversarial-review closures 1–4: the guard scan made recursive, both guards' scopes stated honestly, the zero-amount and spaced-em-dash shapes pinned, the ownership disclosure completed, the ledger re-ranked with `structurer/tokens.py` first |
+---
+
+# §CURRENCY — the currency-evidence platform card (CURRENCY-1, batch 5)
+
+Branch `wave5-currency`, base `b524f72` (registry 71, v12, OCR v3, suite 4,240).
+Gustavo's standing invariant, verbatim: *"Currency should be derived from
+document evidence when available and must not be silently asserted by a schema
+default when the document proves otherwise. If RBC or any other pinned expected
+result moves, use the formal truth-set ceremony before changing expectations."*
+
+## CUR0. Summary
+
+| | |
+|---|---|
+| Survey | all **71** registrations x all **3,409** distinct archive documents, by LIVE detection replay (`analysis.parser_registry.resolve` over the OCR artifact store, never a rows.csv `parser_id` column — W3 #COUNTSP3) |
+| Documents publishing a currency today | 2,524 claimed (CAD 388 / USD 2,136); 872 unclaimed publish nothing |
+| Documents whose PRINTED evidence contradicts what we publish | **9**, in 2 registrations, and nowhere else on the platform |
+| Pinned movers | **0** — measured, not assumed (§CUR4.1). **No truth-set ceremony is required by this card** |
+| Parsers changed | `analysis/rbc.py`, `analysis/td_can.py`, `analysis/desjardins.py`, `analysis/wealthsimple.py` (comment + tests only) |
+| `analysis/schema.py` | untouched. A default is right where no evidence exists; the invariant governs documents that PROVE a currency |
+| Archive movement | **9 documents, currency only.** `parser_id` 0 · `outcome` 0 · `bank` 0 |
+| Statement-specific constants added | none |
+| Suite | 4,240 -> **4,269** (+29) |
+
+Revised after Ocean's adversarial review (BLOCK, narrow — behaviour sound, six
+findings in code-adjacent record plus one real contradiction). What the review
+changed is recorded inline at §CUR3.1 (D-1/D-2, the product read is now
+anchored to the mailing header and the spelling table is literal), §CUR3.2
+(D-5, the account name now carries the printed suffix — a contradiction THIS
+branch created), §CUR4.2 (the "no production reader" claim was false), §CUR6.6
+(D-3, the inadmissible-ISO residual) and §CUR7 (D-4, the filename-boundary
+tests were not discriminating). One prescription was corrected with
+measurement: §CUR3.2 explains why the printed plan token is not appended.
+
+## CUR1. The census — who publishes currency today, and from what
+
+Twenty-five explicit currency assignments exist across 19 modules; the other
+~46 registrations publish the `analysis/schema.py` default `"USD"` implicitly.
+Sorting them by *what the value is derived from* is the census the card needed,
+and it has four classes, not two:
+
+| Class | Registrations | What it means |
+|---|---|---|
+| **A. Read off the page** | `bmo` (`Currency: XXX`, CAD fallback), `cibc` (the ISO code on the closing-balance row) | Already correct. The pattern the rest should look like |
+| **B. Constant, but gated by a REQUIRED detection marker that carries the currency** | `wealthsimple` (`_GRID_RE` matches only `AMOUNT (CAD) BALANCE (CAD)`), `releve_facturation` (`_PRODUCT_RE` requires `COMPTE COURANT CANADIEN`, and the parser returns `None` without it) | Correct *by construction* — a document in another currency is never claimed. Reads as a hardcode; is not one. Both now say so, and `wealthsimple` has a test that fails if detection is ever widened |
+| **C. Constant, ungated, and the document names the currency anyway** | `desjardins` (`PCA USD DESJARDINS CORPORATE BUILD-UP ACCOUNT` is printed; `currency="USD"` was written) | The invariant's target even where the value happens to agree: a CAD issue of the same product would have been published as USD |
+| **D. Constant or schema default, and the document names nothing** | `bmo_ca_business` (127 docs), `scotiabank` (79 of 81), `community_section` (61), `td_canada_french` (13), `rbc` English (151 of 169), and every US registration | The default STANDS, and the ambiguity is named (§CUR5). Nothing here is inferred from an address, a folder or a filename |
+
+### CUR1.1 The evidence lexicon, measured
+
+Every currency word the archive actually prints, found by scanning all 3,409
+documents rather than by guessing at shapes:
+
+| Printed evidence | Where | Documents |
+|---|---|---|
+| `ACCOUNT - CAD` / `ACCOUNT - USD` | TD Canada native `Account Type` column | 70 / 3 |
+| `AMOUNT (CAD) BALANCE (CAD)` | Wealthsimple grid header | 16 |
+| `U.S. Funds` | RBC header block, its own line under the title | 12 |
+| `CAD CHEQUING ACCOUNT` / `US BUSINESS ACCOUNT` | RBC mailing-header product name | 6 / 6 |
+| `PCA USD DESJARDINS CORPORATE BUILD-UP ACCOUNT` | Desjardins ledger head | 6 |
+| `Currency: CAD` + `All figures are in Canadian Dollars (CAD)` | BMO header | 4 |
+| `Closing balance on Apr 30, 2026 USD = $3,606.95` | CIBC | 3 |
+| `(USD)` column header | Shopify Balance | 3 |
+| `Currency:  CAD` | Scotiabank, in a *second* statement bundled in the same PDF | 2 |
+| `COMPTE : COMPTE COURANT CANADIEN` | Releve de compte template | 16 |
+
+## CUR2. THE ORACLE BAR, and the traps that set it
+
+The bar is Gustavo's: a currency code, a locale-bound product line, or an
+explicit symbol convention the layout proves. No geography, no folder, no
+filename. The archive supplies four concrete reasons the bar has to be
+*anchored to layout furniture* rather than to a token scan — each of these is
+a real document, and each is pinned by a negative test:
+
+1. **`Af 'CURRENCY KLR Enterpriees, LL`** — the OCR of a deposit-slip image on
+   the **pinned** `Misc/KLR.May 31,2026 (1).pdf`. A labelled-ISO reader with an
+   open code set publishes `currency="KLR"` on a pinned document. Every reader
+   here validates against a closed set.
+2. **`e-Transfer received PHILIPPESEGUIN CADWKEFS`** — RBC prints `CAxxxxxx`
+   e-Transfer references in its ledger. A bare `\bCAD\b` scan reads a
+   customer's reference as the account's denomination.
+3. **`Funds transfer credit TT KM CAPITAL C`** — a posting on the **pinned**
+   `RBC/Chequing Statement-JAN+.pdf`. An unanchored search for the `U.S. Funds`
+   words reads a transfer TYPE as a denomination, and moves a pinned document.
+4. **`CAD DRAFT 11512638 3,009.95 JAN21`** — TD prints a draft's currency in
+   its ledger on eight documents. The draft's denomination is not the
+   account's; on a USD account the two disagree.
+
+And the filename hazard, stated correctly (this paragraph asserted the opposite
+in the first revision, and Ocean was right to reject it). **Measured: all
+twelve currency-named RBC files agree with their page — the six named
+`CAD Statement-1718 …` print `CAD CHEQUING ACCOUNT`, the six named
+`USD Statement-1046 …` print `U.S. Funds`. No archive filename disagrees with
+what its document prints.** The case for the boundary is therefore not that
+today's names would mislead; it is that the agreement is luck. Filenames are
+operator-supplied metadata (R-4b), F-PROVENANCE measured 7 of 10 sampled
+parsers reading financial evidence out of them, and a rename must not be able
+to move a published reading. Both new readers carry a filename-boundary test
+exercised through `admissible_text` (§CUR7, D-4).
+
+Two more that shaped scope rather than a regex:
+
+5. **`inter-currency transfer / 0390352/CAD 1.378237`** — Desjardins prints an
+   FX *rate* with its counter-currency. All 6 Desjardins documents print both
+   `USD` and `CAD` for this reason; only the product line states the account.
+6. **`Account Information Currency:  CAD`** — the Scotiabank label belongs to a
+   `Deposit Interest` statement bundled into the same PDF as the
+   `Business Account` the parser publishes. It is evidence about a *different
+   account*, so it is not read: **scotiabank is deliberately left alone** and
+   named in §CUR5.
+
+## CUR3. What was implemented
+
+### CUR3.1 `analysis/rbc.py` — English reader (`_printed_currency`)
+
+Two independent sites, both layout furniture and **both positionally
+anchored**: the `U.S. Funds` denomination line (anchored at both ends of its
+line, optionally sharing the title line) and the product name **inside the
+`RBBDA…` mailing header** (`CAD CHEQUING ACCOUNT`, `US BUSINESS ACCOUNT`).
+Disagreement between the two returns `None`, and `None` leaves the schema
+default standing.
+
+**D-1, the mailing-header anchor.** The first revision searched the whole
+document for the product spelling while its own comment claimed the mailing
+header. That gap is reachable: this family prints **88 postings that name an
+account** — `Online Transfer to Deposit Account-5887`,
+`ACCOUNT TRANSFER 06032-1122647` — so a customer who names an account
+`CAD Chequing` puts the product spelling in the LEDGER, and
+`Online Transfer to CAD Chequing Account-1718` would have been read as the
+statement's denomination. Measured before anchoring: **twelve product-spelling
+hits in the family, twelve of them on the `RBBDA…` line and none outside it**,
+and 157 of 169 documents carry that line — so the anchor closes the shape at
+zero cost, and the published result is byte-identical (12 USD / 6 CAD / 151
+None before and after). Pinned by
+`test_cur_negative_a_posting_naming_an_account_cannot_counterfeit_the_product`.
+
+**D-2, the spelling table is literal.** The first revision matched
+`(CAD|US)\s+(CHEQUING|BUSINESS)\s+ACCOUNT` — a four-way cross product admitting
+`CAD BUSINESS ACCOUNT` and `US CHEQUING ACCOUNT`, which no document prints and
+nothing had measured. It is now a two-entry table of the attested spellings
+(`CAD CHEQUING ACCOUNT` 6, `US BUSINESS ACCOUNT` 6), with the unattested pair
+pinned as reading nothing.
+
+- 6 documents move **USD -> CAD** (the product line proves CAD)
+- 12 keep USD, now *derived* from the page rather than defaulted onto it
+- **151 print nothing and keep the default USD**, unchanged and named
+- the French reader is untouched; `CDN TIRE MC`, a merchant on the pinned
+  French statement, reads as nothing
+
+### CUR3.2 `analysis/td_can.py` — native reader (`_native_printed_currency`)
+
+The `Account Type` column's product suffix, anchored on the word `ACCOUNT`
+(`ACCOUNT - CAD` / `- USD`), matched whether the column wraps it onto its own
+line or not. Two different suffixes on one document returns `None`.
+
+- 3 documents move **CAD -> USD** (they print `ACCOUNT - USD` twice each)
+- 70 keep CAD, now derived
+- 1 prints `BUSINESS / INVESTOR / ACCOUNT` — a product with no denomination —
+  and keeps the layout default CAD
+- the non-native `parse_td_canada_statement` and `td_canada_french` are
+  untouched: neither has an archive document that prints a currency
+
+**D-5 — the contradiction this branch created, and the fix.** The same header
+line also fed `account_name`, as the FIXED string
+`"BUSINESS CHEQUING ACCOUNT - CAD"`, written whenever the header printed
+`BUSINESS CHEQUING`. Reading the denomination off the page without reading the
+name off the same line published `currency="USD"` beside a name asserting
+`- CAD` on the three U.S.-dollar statements — one payload contradicting itself,
+from one printed line, on a field (`account`) that IS an audited column. Both
+now come from one call to `_native_printed_currency`, so they cannot disagree.
+
+Ocean's prescription offered the full printed string
+(`BUSINESS CHEQUING ACCOUNT - USD EVERY DAY B`); **that is corrected here with
+measurement.** Appending the plan token would move the published name on all 73
+documents that print `BUSINESS CHEQUING` — six of them pinned — on an audited
+column, for no correctness gain. Only the suffix was ever wrong, so only the
+suffix is read. Measured effect: 70 names byte-identical, **3 names corrected
+CAD -> USD (the same three documents as the currency), 0 pinned.**
+
+### CUR3.3 `analysis/desjardins.py` — `_printed_currency`
+
+The ISO code in front of the product name, validated against a closed
+`{CAD, USD}`. Zero movement — all 6 archive documents print `USD` — but the
+value is now the document's rather than the reader's, and `PCA`, the
+three-letter account-type mark printed immediately before the product name,
+cannot be published as a currency.
+
+### CUR3.4 `analysis/wealthsimple.py` — the gate made explicit
+
+No behaviour change. `stmt.currency = "CAD"` is class B: `_GRID_RE` is a
+REQUIRED detection marker and matches only `AMOUNT (CAD) BALANCE (CAD)`, so a
+document reaching that line has printed CAD over both money columns. The
+comment now says which marker discharges it, and
+`test_a_non_cad_activity_grid_is_not_claimed` fails if detection is ever
+widened without the constant becoming a read.
+
+## CUR4. Movement — the whole archive, every mover named
+
+Instrument: `resolve(admissible_text(markdown))` over the OCR artifact store at
+the live OCR settings key, base tree vs branch tree, same 3,396 documents (of
+3,409 distinct archive shas, 13 have no OCR artifact). Fields compared:
+`parser_id`, `outcome`, `bank`, `currency`.
+
+| Field | Movers |
+|---|---|
+| `parser_id` | **0** |
+| `outcome` | **0** |
+| `bank` | **0** |
+| `currency` | **9** |
+| `account_name` (td family sweep, §CUR7) | **3** — the same three td documents |
+
+Published-currency totals: CAD 388 -> **391**, USD 2,136 -> **2,133**.
+
+| # | content_sha256 | Registration | Old | New | The printed evidence |
+|---|---|---|---|---|---|
+| 1 | `0A482C2BEC8D3D1160BE14E6E9049A4F56C1B3AF7051124DD6E9C9488C5C19E0` | rbc | USD | CAD | `... 2424647 ALBERTA INC. CAD CHEQUING ACCOUNT 113 TAMARACK WAY ...` |
+| 2 | `4AFA2F2102B981ADD0B38E3DE9A0F1458FE36258E295410963310FAE38185BAE` | rbc | USD | CAD | `... CAD CHEQUING ACCOUNT ...` |
+| 3 | `64E841856FE419CD9B1D30CA8CE8E7552EEADBC9DC579E871B498EC79E6DADEA` | rbc | USD | CAD | `... CAD CHEQUING ACCOUNT ...` |
+| 4 | `6C3E154C69FF0490424CB96600408A216C3DA14020D91C59B0D4F702BCA58E17` | rbc | USD | CAD | `... CAD CHEQUING ACCOUNT ...` |
+| 5 | `839726D7A5BA213676E4400B12CCF57D06825611A74045498FB966AA2C87911E` | rbc | USD | CAD | `... CAD CHEQUING ACCOUNT ...` |
+| 6 | `F93B688A7171B8CC28B2D0C958BC2E7574A1F51C1AC90DC6EA6DA7A9E7B292E0` | rbc | USD | CAD | `... CAD CHEQUING ACCOUNT ...` |
+| 7 | `0677AD7549FD1BF44DFBE03AF8DB70503661CFE57C57DCE15D5A8F75E93972E3` | td_canada_native | CAD | USD | `ACCOUNT - USD` (twice) |
+| 8 | `780D0E3D3388076A9BC3B5F9C08E9A2F4F8B1AE7954B7A2CC60D0A5B3858D62D` | td_canada_native | CAD | USD | `ACCOUNT - USD` (twice) |
+| 9 | `B8A8D69CC7FEA4214E90128C8FD31C5A245653DA08E296407DF028A7FC8B94D7` | td_canada_native | CAD | USD | `ACCOUNT - USD` (twice) |
+
+### CUR4.1 The ceremony enumeration — EMPTY, and why that is a measurement
+
+**Zero of the 109 pinned documents move, on any of the four fields.** The
+enumeration table below is empty because the population is empty, and the
+population was measured three ways:
+
+1. The 9 movers' content hashes are disjoint from the pinned 109 (the diff
+   instrument checks membership per mover and reports 0).
+2. All four pinned RBC statements were read end to end for any currency-ish
+   token. They print `Funds transfer credit` postings and nothing else; the
+   only currency word in the four is a transfer type. They are in the
+   151-document no-evidence bucket, so the default stands and they do not move.
+   **The `rbc` ceremony the batch-3 log anticipated is not triggered by an
+   evidence-based reader** — it would only be triggered by inferring CAD from
+   the institution, which the invariant forbids.
+3. The six pinned `td_canada_native` documents all print `ACCOUNT - CAD` and
+   already publish CAD; the pinned Desjardins document prints `USD` and already
+   publishes USD; the pinned BMO document prints `Currency: CAD` and is already
+   read.
+
+| Pinned document | Field | Old | New | Printed evidence |
+|---|---|---|---|---|
+| *(none)* | | | | |
+
+### CUR4.2 Blast radius — the label, the UI, and no figure
+
+**CORRECTED after review.** The first revision claimed "no production module
+reads `Statement.currency`". That claim was **false, and false for a
+methodological reason worth recording: the grep behind it was
+`--include=*.py`.** The serving layer is JavaScript.
+
+What is true:
+
+* **No Python module reads it.** `analysis/metrics.py`, `analysis/reconcile.py`,
+  `analysis/adb.py`, `analysis/serialization.py`, `analysis/revenue.py`,
+  `analysis/count_semantics.py` and `analysis/bank_repairs.py` contain zero
+  references (the one hit in `adb.py` is the word "currency" in a rounding
+  docstring). No metric, no reconciliation verdict, no integrity flag and no
+  balance depends on it — which the differential confirms independently
+  (`outcome` movers: 0).
+* **`webapp/static/app.js` reads it, and it formats every money string in the
+  UI.** `statement.currency || "USD"` at the two context sites (the main
+  transaction table and the statement modal), threaded into
+  `renderTransactionRows` and into `formatMoney`, which calls
+  `Intl.NumberFormat("en-US", {style: "currency", currency})`. Under `en-US`
+  that renders CAD as `CA$1,234.56` rather than `$1,234.56`.
+* **So the nine movers DO change what an analyst sees**: the six RBC and three
+  TD statements now render their amounts as `CA$…`/`$…` according to what the
+  document prints. That is the correct rendering and the point of the card —
+  a Canadian-dollar statement was being displayed with a bare `$` — but it is a
+  visible change, not an inert one, and it is stated here rather than left for
+  someone to discover in the UI.
+* `benchmark/compare.py` is the only other reader; on-demand, gitignored.
+
+The corpus gate and all three audit CSVs still never pinned the field, so a
+pinned currency mover — had there been one — would have been a
+**gate-invisible** change that nonetheless altered the analyst's screen. That
+is the same blindness class batch 3 found for review<->validated movement, and
+it is the strongest argument in this card for the gate item in §CUR6.
+
+**Audit CSVs:** `currency` is **not** an audited column in any of the three
+(`docs/adb-audit-results.csv`, `docs/balance-metrics-audit-results.csv`,
+`docs/new-statement-audit-results.csv` — checked by header). It is not in
+`tests/data/parser_expectations.json` either, and `corpus_gate.py` does not
+mention it. So even a pinned currency mover would not have been a CSV change;
+it would have been a gate-invisible one, which is worth recording.
+
+## CUR5. Named ambiguities — the default stands, on purpose
+
+Every population below prints **no admissible currency evidence**. Each keeps
+what it publishes today. None of them is inferred from an address, a folder or
+a filename, and none is a defect this card is leaving unfixed — they are
+documents that do not say.
+
+| Population | Docs | Publishes | What it prints |
+|---|---|---|---|
+| `rbc` English, no denomination line | 151 | USD (schema default) | Product packages that name no currency: `RBC Digital Choice Business`, `RBC Ultimate Business`, `Business Current Account`, `RBC Advantage Banking` |
+| `bmo_ca_business` | 127 | CAD (constant) | Nothing. The 10 `U.S. dollars` hits are the fee-schedule notice *"Business Current Accounts available in Canadian and U.S. dollars"* — boilerplate about the product range, not this account |
+| `scotiabank` | 79 of 81 | CAD (constant) | Nothing. The 2 that print `Currency: CAD` print it inside a **different account's** `Deposit Interest` statement bundled in the same PDF (§CUR2.6) |
+| `community_section` | 61 (incl. the 5 `bank=None`) | USD (schema default) | Nothing — bare `$` only. **This answers the handoff's question about the five `bank=None` movers: they print no currency at all** |
+| `td_canada_french` | 13 | CAD (constant) | Nothing |
+| `td_canada_native`, `BUSINESS INVESTOR ACCOUNT` | 1 | CAD (default) | A product with no denomination suffix |
+| `cibc` | 31 of 34 | CAD (constant) | Nothing; the 3 that state USD are already read |
+| `shopify_balance` | 13 of 16 | USD (schema default) | Nothing; the 3 that print `(USD)` agree with the default, so there is no contradiction to fix |
+| every US registration | ~1,900 | USD (schema default) | Nothing |
+
+## CUR6. Cards for Ocean and Gustavo
+
+1. **RBC's 151 (decision, not a defect).** RBC prints `U.S. Funds` on its
+   U.S.-dollar statements and prints nothing on the others. Whether *absence*
+   of that line may be read as CAD is an inference from a negative about a
+   layout convention, and it is outside the bar as written — so it was not
+   taken. If Gustavo rules that a layout whose only denomination marker is
+   `U.S. Funds` proves CAD by its absence, 151 documents move USD -> CAD
+   **including all four pinned RBC statements**, and that ruling DOES need the
+   formal ceremony. Evidence for the ruling is in §CUR1.1 and §CUR5.
+2. **`scotiabank` multi-statement PDFs.** The `Currency:` label is per-account
+   and this layout bundles accounts. Reading it correctly needs the
+   account-block boundary the parser does not model today. Carded, not taken.
+3. **`desjardins.account_name`** is still the hardcoded string
+   `"USD Desjardins Corporate Build-Up Account"` while the product line it
+   copies is now read for the currency. Deriving the name from the same match
+   is a one-line change with a pinned-field consequence (`account` is an
+   audited column in `balance-metrics-audit-results.csv`), so it is carded
+   rather than taken inside a currency card.
+4. **`shopify_balance`** prints `(USD)` column headers on 3 of 16. Adding the
+   read changes nothing today and would gate the constant the way
+   `wealthsimple` is gated. Small, safe, out of this card's scope.
+5. **Class B is worth naming as a platform pattern.** Two registrations already
+   discharge the invariant through a REQUIRED detection marker rather than a
+   read. That is *better* than a read — it fails closed at dispatch instead of
+   publishing a fallback — and it is invisible unless the comment says so. Any
+   future currency constant should either be read or be gated, and should say
+   which.
+6. **THE RESIDUAL THIS CARD KNOWINGLY LEAVES (D-3): an inadmissible but REAL
+   ISO code.** Every reader here validates against a closed, attested set —
+   `{CAD, USD}` for Desjardins, two literal product spellings for RBC, the two
+   suffixes for TD. That is what stops `PCA` and the OCR garble `KLR` from
+   being published. It also means a **genuine** code the archive has not shown
+   us — a EUR issue of the Desjardins product, say — falls into the same
+   "prints nothing" branch as `PCA` and publishes the USD default **beside a
+   page that says EUR**. That is precisely the "asserted by a schema default
+   when the document proves otherwise" shape the invariant forbids, and it is
+   left standing deliberately rather than closed by widening to all of ISO
+   4217 on zero evidence.
+
+   **The rule for closing it, which must not be got wrong: a newly attested
+   code extends the closed SET. It never softens the fallback.** Publishing an
+   unvalidated captured token is the `KLR` defect; publishing the default over
+   a stated code is this one. The only safe third option, if this ever appears
+   in a real document, is to refuse the currency field outright (leave it
+   unset) rather than to guess — which needs a schema decision, so it is
+   Gustavo's, not this card's. Recorded in the `_ADMISSIBLE_CURRENCIES`
+   comment in `analysis/desjardins.py` so the next reader of that code finds
+   it.
+
+7. **The 13 archive documents with no OCR artifact** are outside every count in
+   this card. They are the run of record's 13 deferred; they publish nothing,
+   so they cannot carry a currency either way.
+
+## CUR7. Proofs
+
+D-4, why these tests changed. The first revision's filename-boundary negatives
+used names carrying no token either reader looks for (`CAD Statement-1718 …`,
+`TD USD JAN.pdf`), so they passed with the boundary deleted — they proved
+nothing. They now use **discriminating** names (`CAD CHEQUING ACCOUNT.pdf`,
+`ACCOUNT - USD.pdf`, `USD DESJARDINS CORPORATE BUILD-UP ACCOUNT.pdf`), run
+through `admissible_text` — the production seam — and the missing Desjardins
+case is added. Two of the three are now genuinely live counterfeits: on a
+document whose product states no denomination, the TD and Desjardins names
+alone decide the published currency unstripped. RBC's is not, because both its
+sites are positionally anchored; its test says so and pins the anchoring
+instead, so an unanchored rewrite fails there even though the boundary holds.
+One measurement corrected a second-order claim while writing them: on a
+document that DOES state CAD, a counterfeit name does not flip the answer — the
+two-denominations guard catches it — but it degrades real evidence to the bare
+default, which the test now pins separately.
+
+| Proof | Result |
+|---|---|
+| `python -m pytest -q` | **4,269 passed**, 33 skipped, 29 deselected, in 325.72s — exit 0 |
+| the four owned test files (`test_rbc_variants`, `test_td_can_native_variants`, `test_analysis`, `test_wealthsimple`) | **294 passed** — exit 0 |
+| td-family sweep (`td_canada`, `td_canada_native`, `td_canada_french`, `td_us`), 129 documents, live replay | `parser_id` **0** · `currency` **3** · `account_name` **3** (the same three documents, `… - CAD` -> `… - USD`) · **pinned 0** |
+
+Every proof above was re-run in full after the review round, not carried over.
+The corpus gate and the corpus-marked slice were re-run **beyond Ocean's
+narrowed list** on purpose: D-5 changed the code that writes `account_name`,
+`account` is an audited column, and the gate's `balance_audit` module is the
+platform's authority on it. Both are green at `7e64cd3`, so the audited-column
+change is proven by the gate and not only by this cell's own sweep.
+| `python -m pytest -q -m corpus` | **25 passed**, 4,306 deselected, in 2490.69s — exit 0 |
+| `python corpus_gate.py` | **RESULT: GREEN** — exit 0, 11/11 modules PASS. `Outcomes: 106 PASS / 3 WITHHELD` · `Verdicts: 6 review / 100 validated / 3 withheld` · includes `outcome_classes` (the full published integrity block, per document) and `balance_audit` (which audits `account`) · `Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions` · no live OCR, no model calls |
+| guards + conformance (`test_no_statement_hardcodes`, `test_r1_hardcodes`, `test_no_parser_helper_clones`, `test_parser_conformance` 71x70 = 4,970 assertions, `test_parser_registry_entries`, `test_parser_expectations_baseline`) | **1,032 passed**, 33 skipped — exit 0 |
+| full-archive differential, 3,396 documents | 9 currency movers, 0 on `parser_id` / `outcome` / `bank`, **0 pinned** |
+| per-family reader confirmation (positive, not just movers) | `rbc` 12 USD / 6 CAD / 151 None · `td_canada_native` 70 CAD / 3 USD / 1 None · `desjardins` 6 USD. All 4 pinned RBC read None; all 6 pinned TD read CAD; the pinned Desjardins reads USD |
+
+Method notes, for reproduction. Family populations come from LIVE detection
+replay, never from a `rows.csv` `parser_id` column (the cache-hit hole, W3
+#COUNTSP3). Document text comes from the OCR artifact store by DIRECT file path
+(`webapp_data/artifacts/ocr/**/*.json`, keyed on `input_sha256`); the
+`webapp_data` sqlite index was never opened. The archive and both caches were
+read-only throughout, and no vendor call was made — **$0**. Of the 3,409
+distinct archive shas, 3,396 have an OCR artifact with pages; the other 13 are
+the run of record's deferred and are outside every count here.
+
+**Artifact preference, and the ±1 it can cost.** The store holds up to three
+OCR settings keys per document. This survey prefers the live key
+(`1E6B5BE5…`, `force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False`)
+and falls back to an older one only where the live artifact is absent or has no
+pages. Exercised: **3,351 of 3,396 documents were read at the live key, 45 from
+a fallback** — including **4 of the 169 RBC documents and 1 of the 74 TD
+native**. A fallback artifact is text a previous OCR version produced, so for
+those documents this survey's census is a reading of slightly different bytes
+than a cold production run would see, and any single one of them could land on
+the other side of a count. Every number in this card is therefore exact for the
+bytes measured and ±1-per-fallback against a fully cold rerun; the nine movers
+themselves are not affected — all nine were read at the live key, and all nine
+are confirmed independently by the differential AND by the per-family reader
+confirmation.
+
+## CUR8. Commits
+
+| Commit | Contents |
+|---|---|
+| `99f480d` | the four parser changes, 20 tests, CUR0–CUR7 |
+| `5b18337` | the filename-boundary negative for both new readers (+2 tests) |
+| `464f492` | the measured proof block, §CUR4.2 blast radius, §CUR2's filename paragraph |
+| (this one) | Ocean's review round: D-5 (the account-name contradiction, fixed), D-1/D-2 (mailing-header anchor + literal spelling table), D-4 (discriminating filename negatives through `admissible_text`, +Desjardins), D-3 (the inadmissible-ISO residual carded), and five record corrections — the false "no production reader" claim, "four pinned" -> one, §CUR2's inverted filename story, the `_ADMISSIBLE_CURRENCIES` name, and the artifact-preference ±1 |

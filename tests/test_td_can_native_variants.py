@@ -447,3 +447,158 @@ E-TFR ***a1B EPAY 40.00 FEB01
 MONTHLY PLAN FEE 10.00 FEB01 50.00
 """))
         assert _amounts(stmt) == [-40.0, -10.0]
+
+
+# ---------------------------------------------------------------------------
+# F7 — the printed denomination (W3 #CURRENCY).
+#
+# The `Account Type` column carries the account's currency as a suffix on the
+# product name — `BUSINESS CHEQUING ACCOUNT - CAD`, `... - USD` — wrapped
+# across two lines by the column width on most issues. Three archive documents
+# of this layout print `ACCOUNT - USD` and were published as CAD by a constant.
+# One prints `BUSINESS INVESTOR ACCOUNT`, a product with no denomination at
+# all, and keeps the layout's default.
+# ---------------------------------------------------------------------------
+
+class TestF7PrintedDenomination:
+    LEDGER = """
+BALANCE FORWARD JAN31 100.00
+UNLISTED VENDOR ABC 40.00 FEB01 60.00
+"""
+
+    def test_the_cad_product_suffix_publishes_cad(self):
+        stmt = parse_native_td_canada_statement(_statement(self.LEDGER))
+        assert stmt is not None
+        assert stmt.currency == "CAD"
+
+    def test_the_usd_product_suffix_publishes_usd(self):
+        """The mover class."""
+        document = _statement(self.LEDGER).replace("ACCOUNT - CAD", "ACCOUNT - USD")
+        stmt = parse_native_td_canada_statement(document)
+        assert stmt is not None
+        assert stmt.currency == "USD"
+
+    def test_the_suffix_is_read_when_the_column_wraps_it_onto_its_own_line(self):
+        """The ordinary printing: the column is too narrow for the product."""
+        document = _statement(self.LEDGER).replace(
+            "BUSINESS CHEQUING ACCOUNT - USD", "BUSINESS CHEQUING\nACCOUNT - USD",
+        ).replace(
+            "BUSINESS CHEQUING ACCOUNT - CAD", "BUSINESS CHEQUING\nACCOUNT - USD",
+        )
+        stmt = parse_native_td_canada_statement(document)
+        assert stmt is not None
+        assert stmt.currency == "USD"
+
+    def test_a_product_with_no_denomination_keeps_the_layout_default(self):
+        """`BUSINESS INVESTOR ACCOUNT` states no currency, so neither do we —
+        and the branch address is not consulted to guess one."""
+        document = _statement(self.LEDGER).replace(
+            "BUSINESS CHEQUING ACCOUNT - CAD", "BUSINESS\nINVESTOR\nACCOUNT",
+        )
+        stmt = parse_native_td_canada_statement(document)
+        assert stmt is not None
+        assert stmt.currency == "CAD"
+
+    def test_negative_a_cad_draft_posting_is_not_the_account_denomination(self):
+        """TD prints `CAD DRAFT 11512638` as a posting description on eight
+        archive documents: the DRAFT's denomination, not the account's. A bare
+        token scan would flip a U.S.-dollar account on its own ledger."""
+        document = _statement(
+            """
+BALANCE FORWARD JAN31 100.00
+CAD DRAFT 11512638 40.00 FEB01 60.00
+"""
+        ).replace("ACCOUNT - CAD", "ACCOUNT - USD")
+        stmt = parse_native_td_canada_statement(document)
+        assert stmt is not None
+        assert stmt.currency == "USD"
+
+    def test_negative_two_denominations_printed_keep_the_default(self):
+        """A statement of several accounts in different currencies states no
+        single one, so the reader refuses rather than picking the first."""
+        from analysis.td_can import _native_printed_currency
+
+        document = _statement(self.LEDGER).replace(
+            "BUSINESS CHEQUING ACCOUNT - CAD",
+            "BUSINESS CHEQUING ACCOUNT - CAD\nBUSINESS CHEQUING ACCOUNT - USD",
+        )
+        assert _native_printed_currency(document) is None
+        stmt = parse_native_td_canada_statement(document)
+        assert stmt is not None
+        assert stmt.currency == "CAD"
+
+    def test_negative_the_source_filename_cannot_set_the_currency(self):
+        """W3 FILENAME-BOUNDARY / F-PROVENANCE, and here the counterfeit is
+        REAL: this reader's anchor is the word `ACCOUNT`, not a line position,
+        so a file named `ACCOUNT - USD.pdf` puts the exact token in the source
+        comment. Unstripped, the comment flips a Canadian-dollar statement to
+        USD; `admissible_text` — the production seam every parser sits behind —
+        removes it first. Delete the boundary and this test fails, which is the
+        property the earlier version of it did not have."""
+        from analysis.parser_registry import admissible_text
+        from analysis.td_can import _native_printed_currency
+
+        comment = "<!-- source: ACCOUNT - USD.pdf | pages: 1 | model: x | empty: 0 -->\n\n"
+
+        # (a) On a document whose product states no denomination, the filename
+        #     is the ONLY thing carrying one: unstripped it decides the answer
+        #     outright, turning an operator's rename into a published currency.
+        silent = _statement(self.LEDGER).replace("ACCOUNT - CAD", "ACCOUNT")
+        assert _native_printed_currency(comment + silent) == "USD"
+        assert _native_printed_currency(admissible_text(comment + silent)) is None
+
+        # (b) On a document that DOES state CAD, the filename does not flip the
+        #     answer — the two-denominations guard catches it — but it destroys
+        #     a good read: real evidence degrades to the bare default.
+        stated = _statement(self.LEDGER)
+        assert _native_printed_currency(comment + stated) is None
+        assert _native_printed_currency(admissible_text(comment + stated)) == "CAD"
+
+        admissible = admissible_text(comment + stated)
+        assert "source:" not in admissible
+        stmt = parse_native_td_canada_statement(admissible)
+        assert stmt is not None
+        assert stmt.currency == "CAD"
+        assert stmt.account_name == "BUSINESS CHEQUING ACCOUNT - CAD"
+
+    def test_the_account_name_carries_the_printed_suffix_not_a_fixed_one(self):
+        """D-5. The name was the fixed string `BUSINESS CHEQUING ACCOUNT - CAD`,
+        written whenever the header printed `BUSINESS CHEQUING`. Reading the
+        denomination without reading the name off the same printed line
+        published `currency='USD'` beside a name asserting `- CAD` on the three
+        U.S.-dollar statements of this layout — one payload contradicting
+        itself, from one line."""
+        cad = parse_native_td_canada_statement(_statement(self.LEDGER))
+        assert (cad.currency, cad.account_name) == (
+            "CAD", "BUSINESS CHEQUING ACCOUNT - CAD",
+        )
+        usd = parse_native_td_canada_statement(
+            _statement(self.LEDGER).replace("ACCOUNT - CAD", "ACCOUNT - USD")
+        )
+        assert (usd.currency, usd.account_name) == (
+            "USD", "BUSINESS CHEQUING ACCOUNT - USD",
+        )
+
+    def test_the_account_name_drops_the_suffix_when_none_is_printed(self):
+        """No document of this layout prints `BUSINESS CHEQUING` without a
+        denomination today, so this is the fail-closed branch rather than an
+        observed one: the name states what the page states, and a suffix is
+        never invented to fill the gap."""
+        from analysis.td_can import _native_product_name
+
+        assert _native_product_name(None) == "BUSINESS CHEQUING ACCOUNT"
+        document = _statement(self.LEDGER).replace("ACCOUNT - CAD", "ACCOUNT")
+        stmt = parse_native_td_canada_statement(document)
+        assert stmt is not None
+        assert stmt.currency == "CAD"  # the layout default still stands
+        assert stmt.account_name == "BUSINESS CHEQUING ACCOUNT"
+
+    def test_the_printed_plan_token_is_not_appended_to_the_account_name(self):
+        """The `Account Type` column also carries the plan (`EVERY DAY B`).
+        It is printed, and it is deliberately not published: appending it would
+        move the name on all 73 documents of this layout — six of them pinned —
+        on `account`, an audited column, for no correctness gain. Only the
+        suffix was ever wrong."""
+        stmt = parse_native_td_canada_statement(_statement(self.LEDGER))
+        assert "EVERY DAY" in _statement(self.LEDGER)
+        assert stmt.account_name == "BUSINESS CHEQUING ACCOUNT - CAD"
