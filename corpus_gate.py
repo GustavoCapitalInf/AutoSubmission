@@ -6,6 +6,14 @@ of its own: it re-runs `adb_forensic_audit` and `balance_forensic_audit`
 unchanged and compares their output, field by field, with
 `docs/adb-audit-results.csv` and `docs/balance-metrics-audit-results.csv`.
 
+One check is deliberately NOT oracle-independent. `check_outcome_classes` reads
+the product's own per-document verdict — outcome class, reason and published
+integrity flags — and holds it to `PINNED_OUTCOMES`. It exists because the two
+financial oracles are structurally blind to two kinds of truth-set movement:
+a statement moving review<->validated inside the audits' single PASS class, and
+a statement gaining or losing a published integrity flag without changing class
+at all. Both have happened; see `PINNED_OUTCOMES`.
+
     python corpus_gate.py                     # the gate
     python corpus_gate.py --json report.json  # plus a machine-readable report
     python corpus_gate.py --corpus <path>     # same gate against another root
@@ -55,7 +63,12 @@ from typing import Any
 
 import adb_forensic_audit
 import balance_forensic_audit
-from corpus_artifacts import DEFAULT_CACHE, manifest_entries
+from corpus_artifacts import (
+    DEFAULT_CACHE,
+    ArtifactError,
+    cached_markdown,
+    manifest_entries,
+)
 
 ROOT = Path(__file__).resolve().parent
 CORPUS = ROOT / "Bank Statements"
@@ -70,6 +83,121 @@ WITHHELD_STATEMENTS = {
     "BMO_Statement_January_2026 Final-1-2 (1).pdf",
     "IBC April (1).pdf",
 }
+
+# ----------------------------------------------------------------------
+# The product's own per-document verdict — the partition the two oracles
+# structurally cannot see.
+# ----------------------------------------------------------------------
+#
+# `check_outcomes` above proves 106 PASS / 3 WITHHELD from the audit CSVs, and
+# both audits are financial: neither carries `flags`, `notes` or `risk_level`
+# in a single column (see their `FIELDS`). Two consequences, both measured
+# rather than argued, and both of them defects this check exists to close:
+#
+# 1. `validated` and `review` are a FINER partition of the gate's PASS, so a
+#    pinned statement moving review<->validated is invisible to every check
+#    above while all of them stay green. That is not hypothetical: at
+#    PIPELINE-FIX-2's first revision (`b8013d5`) two pinned documents made
+#    exactly that move and the gate reported GREEN over it (W3 §PIPEFIX P4b.5).
+# 2. A pinned statement can also change a PUBLISHED integrity flag without
+#    changing class at all — a withheld document that loses a flag is still
+#    withheld. Measured on this branch: wiring the page-declaration check
+#    withdraws `missing_declared_statement_page` from the pinned BMO January
+#    statement, whose class does not move. Pinning the class alone would have
+#    stayed green over it, so the FLAG SET is pinned too.
+#
+# The expectation is total over all 109 without enumerating all 109: this map
+# holds every document that is NOT plainly published, and every pinned path
+# absent from it must be `validated` / `approved` carrying NO integrity flag —
+# which is what `classify_outcome` means by validated. Recorded from the
+# current tree, pre-ceremony; moving an entry is a truth-set movement and needs
+# the same ceremony as an audit CSV.
+#
+#: corpus-relative path -> (outcome class, outcome reason, sorted integrity flags)
+PINNED_OUTCOMES: dict[str, tuple[str, str, tuple[str, ...]]] = {
+    # a transaction export rather than a bank statement — a document class
+    "Chase/Chase Business.pdf": (
+        "review", "integrity_flags", ("not_a_formal_statement",),
+    ),
+    # The five page_coverage documents. All five carry the flag today; W3
+    # §PIPEFIX P4b.5 measured that two of them (Texas Bank, Regions) carry it
+    # FALSELY — the pages are present as unlabelled sheets — and Gustavo
+    # approved their review->validated ceremony on 2026-08-14. The ceremony is
+    # NOT executed here: activating it needs the wiring card, which is stopped.
+    # See the #WIRING section of W3_TRACKA_LOG.md.
+    "Misc/Builder June 2026.pdf": (
+        "review", "integrity_flags", ("missing_declared_statement_page",),
+    ),
+    "Misc/Columbia May 26 complete.pdf": (
+        "review", "integrity_flags", ("missing_declared_statement_page",),
+    ),
+    "Misc/Link Bank April statement.pdf": (
+        "review", "integrity_flags", ("missing_declared_statement_page",),
+    ),
+    "Misc/Texas Bank.pdf": (
+        "review", "integrity_flags", ("missing_declared_statement_page",),
+    ),
+    "Regions/Regions.pdf": (
+        "review", "integrity_flags", ("missing_declared_statement_page",),
+    ),
+    # The three withheld. Same three as WITHHELD_STATEMENTS, here with the
+    # evidence they publish rather than only their names.
+    "Misc/Ace_Auto_Final_Cut.pdf": (
+        "withheld", "withheld_adb",
+        (
+            "debit_count_mismatch",
+            "debit_detail_coverage_mismatch",
+            "ledger_sum_mismatch",
+            "transaction_detail_not_corporate_reliable",
+        ),
+    ),
+    "Others/BMO/BMO_Statement_January_2026 Final-1-2 (1).pdf": (
+        "withheld", "withheld_adb",
+        (
+            "conflicting_statement_summaries",
+            "credit_detail_coverage_mismatch",
+            "debit_detail_coverage_mismatch",
+            "ledger_sum_mismatch",
+            "missing_declared_statement_page",
+            "running_balance_breaks",
+            "transaction_detail_not_corporate_reliable",
+        ),
+    ),
+    "Others/IBC/IBC April (1).pdf": (
+        "withheld", "withheld_adb",
+        ("ledger_sum_mismatch", "running_balance_breaks", "summary_math_inconsistent"),
+    ),
+}
+
+#: What every pinned path absent from `PINNED_OUTCOMES` must be.
+PUBLISHED_OUTCOME = ("validated", "approved", ())
+
+#: Do production's analysis callers hand `analyze_markdown` the intake object's
+#: page list yet?
+#:
+#: `assess_document_integrity` accepts `sheets=` and fail-closes without it, and
+#: since W3 §PIPEFIX card 2 the parameter exists while NO production caller
+#: passes it — the page-declaration fix ships inert. `production_verdict` below
+#: must reproduce whatever the callers actually do, because a harness that
+#: analyses differently from production pins a verdict production never
+#: publishes, and a harness that stays unwired while production gets wired goes
+#: silently blind on the one flag this whole check was added to watch.
+#:
+#: `tests/test_corpus_gate_outcomes.py` holds this declaration to the real call
+#: sites, so flipping production without flipping this is a red test rather than
+#: a blind gate. Flipping it to True then moves pinned verdicts, which is a
+#: truth-set ceremony: `PINNED_OUTCOMES` moves in the same commit or the gate
+#: goes RED. Both steps are deliberate, which is the point.
+PRODUCTION_SUPPLIES_SHEETS = False
+
+#: The production analysis call sites this declaration describes, as
+#: (module path, enclosing function). W3 §PIPEFIX P4b.5 tabulates three; the
+#: third is that module's docstring usage example rather than a caller, and its
+#: fourth row (the cache key material) is a separate card.
+ANALYSIS_CALL_SITES = (
+    ("discovery/runner.py", "_analyse"),
+    ("webapp/worker.py", "_analyze_doc"),
+)
 
 # Audited columns whose value is a path, compared without regard to separator.
 # `folder` (ADB audit) is written with os.sep, so the committed CSV carries
@@ -389,6 +517,111 @@ def check_outcomes(result: Result, label: str, rows: list[dict[str, str]],
     )
 
 
+def production_verdict(path: Path, cache: Path) -> tuple[str, str, tuple[str, ...]]:
+    """(class, reason, flags) for one pinned statement, resolved as production does.
+
+    The PRODUCTION intake ladder with both OCR rungs disabled, which is the
+    same resolution the discovery dry run and the telemetry corpus anchor use —
+    not `source_markdown`, whose generic reader silently produces different
+    markdown for the four layout-aware banks. Image-only statements fall
+    through to their committed OCR artifact, so this stays offline: no OCR
+    binary, no endpoint, no model call.
+
+    The page list is supplied to the analysis exactly when production supplies
+    it — see `PRODUCTION_SUPPLIES_SHEETS`, which a test holds to the real call
+    sites. It is never recovered by re-splitting the markdown: page content is
+    untrusted and can print a separator line (W3 §PIPEFIX P4b.1). A committed
+    OCR artifact resolves to markdown alone, its page list having been
+    discarded when the artifact was committed, so those six statements can only
+    ever be analysed with `sheets=None` here and the check fail-closes for them
+    exactly as it does for any caller that cannot prove page structure.
+    """
+    # Imported here rather than at module scope so the two audit oracles above
+    # keep loading without the production analysis stack: this check reads the
+    # product's own verdict on purpose and is the one check in this file that
+    # is not oracle-independent.
+    from analysis.pipeline import analyze_markdown
+    from analysis.serialization import report_to_dict
+    from ocr.inspect import inspect_pdf
+    from ocr.pipeline import parse_statement
+    from telemetry.record import classify_outcome
+
+    raw = path.read_bytes()
+    document = parse_statement(
+        raw,
+        source_file=path.name,
+        profile=inspect_pdf(raw),
+        force_ocr=False,
+        allow_local_ocr=False,
+        allow_visual_ocr=False,
+    )
+    if document is not None:
+        markdown = document.to_markdown()
+        sheets = list(document.pages) if PRODUCTION_SUPPLIES_SHEETS else None
+    else:
+        markdown, sheets = cached_markdown(raw, cache), None
+        if markdown is None:
+            raise ArtifactError(
+                f"{path} has no native text and no committed OCR artifact in "
+                f"{cache}; refusing to run OCR in offline mode"
+            )
+    payload = report_to_dict(
+        analyze_markdown(markdown, parse_mode="deterministic", sheets=sheets)
+    )
+    outcome, reason = classify_outcome(payload)
+    flags = tuple(sorted((payload.get("integrity") or {}).get("flags") or ()))
+    return outcome, reason, flags
+
+
+def check_outcome_classes(result: Result, corpus: Path, manifest: list[str],
+                          cache: Path) -> dict[str, int]:
+    """Every pinned document's published verdict is the one that is pinned.
+
+    See `PINNED_OUTCOMES` for why this exists: the audit oracles compare
+    financial values, so they are blind both to a class moving inside PASS and
+    to a published integrity flag appearing or disappearing without a class
+    change. This compares the product's own verdict, per document, and fails
+    RED on any difference.
+    """
+    details: list[str] = []
+    counts: dict[str, int] = {}
+    for rel in manifest:
+        expected = PINNED_OUTCOMES.get(rel, PUBLISHED_OUTCOME)
+        try:
+            actual = production_verdict(corpus / Path(rel), cache)
+        except Exception as exc:  # a document we cannot verdict is a failure
+            details.append(f"{rel}: could not be analysed: {type(exc).__name__}: {exc}")
+            counts["error"] = counts.get("error", 0) + 1
+            continue
+        counts[actual[0]] = counts.get(actual[0], 0) + 1
+        if actual == expected:
+            continue
+        if actual[0] != expected[0]:
+            details.append(
+                f"{rel}: outcome class moved {expected[0]} -> {actual[0]} "
+                f"(reason {expected[1]} -> {actual[1]}); a pinned statement's "
+                f"class is truth-set material and does not move without a ceremony"
+            )
+        elif actual[1] != expected[1]:
+            details.append(f"{rel}: outcome reason moved {expected[1]} -> {actual[1]}")
+        gained = sorted(set(actual[2]) - set(expected[2]))
+        lost = sorted(set(expected[2]) - set(actual[2]))
+        for flag in gained:
+            details.append(f"{rel}: newly publishes integrity flag {flag!r}")
+        for flag in lost:
+            details.append(f"{rel}: no longer publishes pinned integrity flag {flag!r}")
+
+    split = " / ".join(f"{n} {name}" for name, n in sorted(counts.items()))
+    result.add(
+        "outcome_classes",
+        not details,
+        f"{len(manifest)} statements publish their pinned verdict "
+        f"(class, reason and integrity flags): {split}",
+        details,
+    )
+    return counts
+
+
 def check_oracle_independence(result: Result) -> None:
     details: list[str] = []
     for name in INDEPENDENT_SOURCES:
@@ -494,11 +727,13 @@ def run_gate(corpus: Path, cache: Path) -> Result:
 
     check_outcomes(result, "balance", fresh_balance, "PASS", "WITHHELD_SOURCE_CONTRADICTION")
     check_outcomes(result, "adb", fresh_adb, "PASS", "WITHHELD")
+    verdicts = check_outcome_classes(result, corpus, manifest, cache)
     check_ocr_coverage(result, source_types, manifest, cache)
     check_exclusions(result)
     check_oracle_independence(result)
 
     result.stats = _stats(source_types, len(pdfs), foreign, started)
+    result.stats["verdicts"] = verdicts
     return result
 
 
@@ -514,6 +749,13 @@ def render(result: Result) -> str:
                   f"{result.stats['exclusions']} exclusions",
               f"Ignored:  {result.stats['foreign_pdfs']} non-corpus PDFs under the corpus root",
               f"Outcomes: {result.stats['pass']} PASS / {result.stats['withheld']} WITHHELD",
+              "Verdicts: " + (
+                  " / ".join(
+                      f"{count} {name}"
+                      for name, count in sorted(result.stats["verdicts"].items())
+                  )
+                  if result.stats.get("verdicts") else "not run"
+              ),
               f"Runtime:  {result.stats['runtime_seconds']}s",
               "",
               "RESULT: " + ("GREEN" if result.ok else "RED")]
