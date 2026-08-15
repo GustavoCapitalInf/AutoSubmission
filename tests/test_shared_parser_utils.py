@@ -503,3 +503,61 @@ def test_unique_line_returns_the_match_when_every_occurrence_is_identical():
 ])
 def test_unique_line_returns_none_when_the_value_is_not_unique(lines):
     assert tb.unique_line(lines, re.compile(r"^Account Number:\s*(\w+)$")) is None
+
+
+# ---------------------------------------------------------------------------
+# unique_match / section_runs — the two helpers W3 §LCPERIOD lifted out of the
+# second and third core-processor templates, which held byte-identical copies
+# ---------------------------------------------------------------------------
+
+_SUMMARY_ROW = re.compile(r"Total additions\s+([\d,]+\.\d{2})")
+
+
+def test_unique_match_reads_a_row_a_strip_prints_once():
+    assert tb.unique_match("Total additions 300.00\n", _SUMMARY_ROW).group(1) == "300.00"
+
+
+def test_unique_match_reads_a_row_a_strip_prints_twice_identically():
+    """Not the same fact as printing it twice DIFFERENTLY: a page header
+    repeats, and the test is on the captured groups."""
+    region = "Total additions 300.00\n...\nTotal additions 300.00\n"
+    assert tb.unique_match(region, _SUMMARY_ROW).group(1) == "300.00"
+
+
+@pytest.mark.parametrize("region", [
+    "",
+    "no summary here",
+    # the document contradicting itself about its own summary
+    "Total additions 300.00\n...\nTotal additions 400.00\n",
+])
+def test_unique_match_declines_absence_and_contradiction(region):
+    assert tb.unique_match(region, _SUMMARY_ROW) is None
+
+
+_HEADING = re.compile(r"\b(DEBITS|CREDITS|DAILY BALANCES)\b")
+
+
+def test_section_runs_keeps_each_occurrence_of_a_heading_as_its_own_run():
+    """A section broken across a page reprints its heading. Concatenating the
+    runs would put the page furniture between them inside the description of
+    the row the second run opens with."""
+    runs = tb.section_runs(
+        "DEBITS\nrow a\nCREDITS\nrow b\nDEBITS\nrow c\nDAILY BALANCES\ngrid\n",
+        _HEADING,
+    )
+    assert runs["DEBITS"] == ["\nrow a\n", "\nrow c\n"]
+    assert runs["CREDITS"] == ["\nrow b\n"]
+    assert runs["DAILY BALANCES"] == ["\ngrid\n"]
+
+
+def test_section_runs_lets_a_heading_the_caller_ignores_close_the_run_before_it():
+    """How a template's trailing blocks stop its last section: the name need
+    only be in the pattern, not in what the caller reads."""
+    heading = re.compile(r"\b(DAILY BALANCES|INTEREST INFORMATION)\b")
+    runs = tb.section_runs(
+        "DAILY BALANCES\ngrid\nINTEREST INFORMATION\n04-30 12.34\n", heading)
+    assert runs["DAILY BALANCES"] == ["\ngrid\n"]
+
+
+def test_section_runs_returns_nothing_for_a_document_with_no_heading():
+    assert tb.section_runs("no sections at all\n", _HEADING) == {}

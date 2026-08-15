@@ -13,6 +13,11 @@ its own copy of them:
   `_tables_after`, differing only in how the bank spells "continued")
 * cut the text between two heading patterns (4 identical `_section`)
 
+W3 §LCPERIOD added two more, from the core-processor templates: reading a
+summary row exactly once over a span of text (`unique_match`) and splitting a
+document into the runs of its own named sections (`section_runs`). Both were
+byte-identical in two parser modules.
+
 W3 Track A added a fifth, from the other half of the ladder: when the extractor
 recovers no grid at all and the parser is reading a flattened text layer, the
 printed rows have to be recovered from the physical lines. `group_rows` is that
@@ -44,6 +49,8 @@ __all__ = [
     "table_rows",
     "tables_after",
     "section_between",
+    "section_runs",
+    "unique_match",
     "group_rows",
     "read_grid_rows",
     "glyph_damaged",
@@ -210,6 +217,55 @@ def section_between(markdown: str, start: str, end: str) -> str:
     """
     m = re.search(start + r"(?P<body>.*?)" + end, markdown, re.IGNORECASE | re.DOTALL)
     return m.group("body") if m else ""
+
+
+def unique_match(region: str, pattern: re.Pattern[str]) -> re.Match[str] | None:
+    """The single distinct reading of `pattern` inside `region`, or None.
+
+    `unique_line` above is the same discipline over a list of LINES; this is it
+    over a span of text, for the summary strips whose figures are not
+    line-shaped — one issuer prints its whole strip on one line and another
+    prints it as two interleaved columns.
+
+    A row a strip prints twice, differently, is the document contradicting
+    itself about its own summary, and there is no rule that says which printing
+    to believe: taking the first would be picking one. Printing it twice
+    IDENTICALLY is not that — a page header repeats — so the test is on the
+    captured groups rather than on the number of matches.
+
+    Shared because the second core processor's template and the third's each
+    had a private copy, and `tests/test_no_parser_helper_clones.py` is what
+    said so out loud (W3 §LCPERIOD L5.2).
+    """
+    found = list(pattern.finditer(region))
+    if not found or len({match.groups() for match in found}) != 1:
+        return None
+    return found[0]
+
+
+def section_runs(markdown: str, heading: re.Pattern[str]) -> dict[str, list[str]]:
+    """The document split on its own section headings, `{name: [run, ...]}`.
+
+    `heading` must capture the section's name in group 1; each run is the text
+    from the end of one heading to the start of the next, whatever that next
+    heading is. A section broken across a page reprints its heading, so a name
+    can occur more than once and each occurrence is kept as its OWN run: the
+    rows of all the runs are one section, but the runs are not concatenated,
+    because everything between the last row of one and the heading of the next
+    is page furniture, and a concatenation puts that furniture inside the
+    description of the row the next run opens with.
+
+    Names the caller does not read still bound the run before them, which is
+    how a template's trailing blocks stop its last section.
+
+    Shared for the same reason as `unique_match`, and lifted with it.
+    """
+    marks = [(m.start(), m.end(), m.group(1)) for m in heading.finditer(markdown)]
+    blocks: dict[str, list[str]] = {}
+    for index, (_start, end, name) in enumerate(marks):
+        stop = marks[index + 1][0] if index + 1 < len(marks) else len(markdown)
+        blocks.setdefault(name, []).append(markdown[end:stop])
+    return blocks
 
 
 #: A word with digits welded inside it between letters — `A11ount` for

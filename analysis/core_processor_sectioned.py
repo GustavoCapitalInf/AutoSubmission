@@ -74,6 +74,7 @@ from .date_tokens import iso_from_month_day_year, iso_within_period
 from .money import STRICT_UNSIGNED, pad_leading_decimal, parse_amount
 from .parser_registry import corroborating, make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
+from .tables import section_runs, unique_match
 
 # ---------------------------------------------------------------------------
 # The grammar
@@ -437,20 +438,13 @@ class _Summary:
             setattr(self, name, value)
 
 
-def _once(region: str, pattern: re.Pattern[str]) -> re.Match[str] | None:
-    """The one reading of a summary row, or None.
-
-    A row the strip prints twice, differently, is the document contradicting
-    itself about its own summary, and there is no rule that says which printing
-    to believe. Taking the first would be picking one, so this declines — which
-    is also what makes the strip's BOUNDARY load-bearing rather than decorative:
-    the small print at the foot of the statement prints these labels again, and
-    a read that ran to the end of the document would find them.
-    """
-    found = list(pattern.finditer(region))
-    if not found or len({match.groups() for match in found}) != 1:
-        return None
-    return found[0]
+#: The one reading of a summary row, or None. Shared with the third core
+#: processor's template, which had a byte-identical copy (W3 §LCPERIOD L5.2);
+#: the discipline it enforces is what makes the strip's BOUNDARY load-bearing
+#: rather than decorative here — the small print at the foot of the statement
+#: prints these labels again, and a read that ran to the end of the document
+#: would find them.
+_once = unique_match
 
 
 def _counts(region: str, pattern: re.Pattern[str]) -> tuple[int, float] | None:
@@ -582,20 +576,12 @@ _LEDGER_SECTIONS = (
 def _sections(markdown: str) -> dict[str, list[str]]:
     """The document's ledger, split on the platform's own section headings.
 
-    A section broken across a page reprints its heading, so a name can occur
-    more than once and each occurrence is kept as its own RUN. The rows of all
-    the runs are one section — the summary counts the whole of it however many
-    pages it took — but the runs are not concatenated, because everything
-    between the last row of one and the heading of the next is the page
-    furniture, and a concatenation puts that furniture inside the description
-    of the row the next run opens with.
+    The split itself is `tables.section_runs`, shared with the third core
+    processor's template, which had a byte-identical copy (W3 §LCPERIOD L5.2).
+    The summary counts a section as a whole however many pages it took, and
+    the runs are deliberately not concatenated — see the shared docstring.
     """
-    marks = [(m.start(), m.end(), m.group(1)) for m in _SECTION_RE.finditer(markdown)]
-    blocks: dict[str, list[str]] = {}
-    for index, (_start, end, name) in enumerate(marks):
-        stop = marks[index + 1][0] if index + 1 < len(marks) else len(markdown)
-        blocks.setdefault(name, []).append(markdown[end:stop])
-    return blocks
+    return section_runs(markdown, _SECTION_RE)
 
 
 #: What the platform prints as a section's column header. It sits between the
