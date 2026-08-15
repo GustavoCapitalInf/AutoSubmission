@@ -817,7 +817,12 @@ def test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered(tmp_path: 
         assert warm[key] == cold[key], key
     # Every one of the 109 was reconstructed; none was refused.
     assert warm["dispatch_inconclusive"] == 0
-    assert warm["outcome"] == {"validated": 100, "review": 6, "withheld": 3}
+    assert warm["outcome"] == {"validated": 102, "review": 4, "withheld": 3}
+    # 102/4/3, not 100/6/3: the batch-5 train composed this test (written on
+    # wave5-discobs) with WIRING-2's executed Option-A ceremony, which moved
+    # Texas Bank and Regions review->validated. The canonical split is the
+    # gate's PINNED_OUTCOMES; the warm==cold reproduction above is the
+    # property this test owns.
     assert warm["deterministic_coverage"] == 1.0
 
     cold_by_path = {r.relative_path: r for r in cold_rows}
