@@ -18,9 +18,11 @@ TOTALS exclude it too and the balance identity puts it back.  A reader that
 folds a fee row into the debit total produces a statement that still looks
 plausible: the balance chain closes, because the money is right either way,
 and only the COUNTS disagree.  Measured over the family that motivated this
-module, folding produced a count disagreement on every document.  So the
-counts are load-bearing here, not decoration, and this reader refuses a
-document whose printed counts it cannot reproduce exactly.
+module — seven of its eleven documents print a non-zero uncounted term, and
+on every one of those folding leaves the identity closing exactly and the
+count short by the number of rows folded in; on the other four there is
+nothing to fold.  So the counts are load-bearing here, not decoration, and
+this reader refuses a document whose printed counts it cannot reproduce.
 
 What the code does NOT contain is a list of fee wordings.  The rows the bank
 excluded from its counts are called `SERVICE CHARGE`, `CASH ITEM CHARGES`,

@@ -14966,12 +14966,12 @@ statements, and six consecutive-month joins where one statement's ending
 balance is the next one's previous balance. Nothing inside a single document
 constrains this:
 
-* `60992097`: Mar `DCB80E04B8ED` → 21,028.86 → Apr `1106E3FDD20A` → 6,830.83 →
+* account **A** (four consecutive months): Mar `DCB80E04B8ED` → 21,028.86 → Apr `1106E3FDD20A` → 6,830.83 →
   May `749CDCE460CB` → 12,313.67 → Jun `FA59082D6A74`. **3 joins, exact.**
-* `71277286`: Jan `5AFC66416A66` → 17,399.15 → Feb `DC3881234577` → 12,502.97
+* account **B**: Jan `5AFC66416A66` → 17,399.15 → Feb `DC3881234577` → 12,502.97
   → Mar `6F907373781E`. **2 joins, exact.** (April of this account is not in
   the archive; `F8FC1D8B3ECD` is May.)
-* `71022369`: Mar `B8B2136D2B41` → 1,064.05 → Apr `E4F5802ECAFE`. **1 join,
+* account **C**: Mar `B8B2136D2B41` → 1,064.05 → Apr `E4F5802ECAFE`. **1 join,
   exact.**
 
 ## SC6. DEVIATION — `F7BD156A7C86` is published, not refused
@@ -15026,8 +15026,8 @@ opened, $0):
 documents with cached OCR text: 3367 (no text: 13)
 balance_by_date CLAIMS: 11
 of which PARSE to a Statement: 11
-co-claimants (other registered parsers claiming the same document):
-    11  (none)
+co-claimants (registered parsers claiming the same document):
+    11  ('balance_by_date',)
 ```
 
 Eleven claims, all of them the named population, **zero** documents claimed by
@@ -15043,7 +15043,13 @@ outside the named population moves.
    count check is silent about it, and `analysis/count_semantics.py` is another
    cell's file. Promoting it is a measured decision with a table entry;
    `test_the_printed_counts_are_not_comparable_to_the_rows_this_reader_builds`
-   pins the current silence so the promotion cannot be incidental.
+   pins the current silence so the promotion cannot be incidental. What the
+   payload DOES carry is `reconciliation.stated_credit_count_matches` and
+   `stated_debit_count_matches` set to `false` on any document with a non-zero
+   uncounted term, beside `captured_*_count` figures that are larger by exactly
+   the excluded rows. That is `reconcile` reporting two different scopes
+   honestly, not a defect, and it raises no flag and moves no outcome - but a
+   reader of the payload should know why the pair disagrees.
 2. **The issuer, if a masthead wordmark ever reaches text.** `bank=None` is a
    statement about the OCR available today (SC4). If a visual rung ever reads
    the wordmark, this template becomes issuer-identifiable and the honest
@@ -15082,3 +15088,98 @@ outside the named population moves.
    day agrees and every posting day appears" would read both conventions and
    is a one-line change; it needs a document that attests the other
    convention, and none exists today.
+## SC9. Proofs
+
+Branch `wave4-scanc`, base `main` `ea8d8e8` (worktree HEAD `ba13ec3`, the
+batch-4 handoff commit). Every figure below was read off the run, not copied.
+
+| proof | result | exit |
+|---|---|---|
+| `python -m pytest -q` (full default suite) | **3,817 passed**, 18 deselected, 246.10s | 0 |
+| `python -m pytest -m corpus -q` (the mandatory slice) | **13 passed / 1 failed**, 3,821 deselected, 1927.69s — the one red is the batch-level item, see SC9.1 | 0 |
+| `python corpus_gate.py` | **RESULT: GREEN** — 106 PASS / 3 WITHHELD, 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions, 0 ignored, 680.2s | 0 |
+| guards (`test_no_statement_hardcodes`, `test_r1_hardcodes`, `test_no_parser_helper_clones`, `test_parser_detection_markers`) | **149 passed** | 0 |
+| conformance cross-product (`test_parser_conformance`) | **640 passed** (69 x 68 negative pairs) | 0 |
+| whole-archive detection sweep (`scanc-cell-5fb5b603/sweep.py`) | 11 claims / 3,367 documents with cached OCR, 11 parse, **0 co-claimants** | 0 |
+| end-to-end over the 11 (`harness.py`) | 11 `failed` -> `validated/approved`, 0 flags, ADB on every one | 0 |
+
+Suite trajectory: 3,769 (batch-3 base) -> **3,817**. The +48 are this cell's
+36 unit tests and the 12 parametrised conformance cases a 69th registration
+adds.
+
+### SC9.1 The corpus-marked slice, and the one red
+
+The slice reds on exactly one test, `test_parser_parity.py::
+test_detect_sweep_stays_affordable_for_the_discovery_run`, which is the
+batch-level item under central triage (Ocean's batch-wide notice; a dedicated
+DETECT-BUDGET cell owns the structural fix). Per that instruction: A/B run,
+both numbers recorded, constant NOT raised.
+
+**A/B over the 109 pinned documents, same process, min-of-3 per document:**
+
+| registry | worst single document | median | total over 109 |
+|---|---|---|---|
+| BASE-equivalent (68, this branch minus `balance_by_date`) | **252.1 ms** | 51.9 ms | 7,449 ms |
+| BRANCH (69) | **258.8 ms** | 48.6 ms | 7,116 ms |
+
+**BASE is already over the 250 ms limit**, which is the pre-existing failure.
+The wall clock is also load-dominated right now — across three runs of the
+same A/B, BASE measured 293 / 314 / 252 ms and BRANCH 322 / 247 / 259 ms, and
+in two of the three the BRANCH *total* came out BELOW the BASE total, which is
+impossible in expectation. Ten sibling python processes were resident
+throughout. So the whole-sweep wall clock is not a usable signal today; the
+DELTA is, because branch = base + one registration and that registration can
+be timed on its own.
+
+### SC9.2 This registration's detection cost
+
+Measured in isolation over the same 109 documents, min-of-N:
+
+| | total over 109 | per document |
+|---|---|---|
+| `balance_by_date` `Registration.detect` | **72-77 ms** | **0.66-0.71 ms** |
+| ...of which `admissible_text`, the strip EVERY registration pays | 43 ms | 0.39 ms |
+| ...of which this registration's own two markers | **35 ms** | **0.32 ms** |
+| worst single document (62,702 chars, 732 lines) | — | **2.9 ms** |
+
+Against the branch sweep's 7,116 ms over 69 registrations — 103 ms per
+registration on average — this one costs 72 ms, about **70% of the average**.
+The worst single document adds 2.9 ms to a 250 ms budget, 1.2%.
+
+Three things keep it there, and each is in the module:
+
+1. **No `normalize`.** 36 of the 69 registrations declare one, and a
+   normalization rewrites the whole document once per document. This
+   registration declares none: its markers read the text as it stands.
+2. **Line-local whitespace.** Every pattern that means "at the start of a
+   printed line" uses `[ \t]`, not `\s`. `^\s*` lets the engine backtrack
+   across blank lines, and on a 732-line document that is the difference
+   between a linear scan and a quadratic one. (It is also the correct reading:
+   with `\s+`, a label whose figure was missing could take the figure printed
+   on the line below it.)
+3. **Two prefilters that are accelerators, not evidence.** Each is a strictly
+   necessary condition taken from the literal text of the pattern it guards -
+   `Balance By Date` for the daily marker, the phrase `PREVIOUS BALANCE` for
+   the summary one - so neither can change an outcome, and
+   `test_the_detection_prefilters_change_no_outcome` runs both computations
+   against every registration's conformance fixture to keep that true. Both
+   words matter in the second one: 53 of the 109 documents contain `previous`
+   in prose and only 17 contain the phrase, so the word alone measured 48.8 ms
+   against 47.9 ms unfiltered - no gain at all - while the phrase measured 34.4
+   ms.
+
+### SC9.3 A measurement for the DETECT-BUDGET cell
+
+`admissible_text` is **43 ms of the 72 ms** this registration's `detect`
+costs, and it is not this registration's: `Registration.detect` calls it, so
+the same idempotent strip of the same document is recomputed **69 times per
+document**. At 0.39 ms per call that is ~3.3 s of the branch sweep's 7.1 s
+over the 109 pinned documents — **about 40% of the whole sweep, spent
+producing 69 identical strings.**
+
+`admissible_text` is documented as idempotent and `resolve()` already holds
+the document. Hoisting the strip to the sweep's entry and handing registrations
+the already-admissible text would take ~40% off the sweep without touching a
+single marker, and it does not change what any registration sees — detection
+already runs on stripped text today. Offered as evidence, not as a change:
+`analysis/parser_registry.py` is not this cell's file.
