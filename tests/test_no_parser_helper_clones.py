@@ -61,6 +61,30 @@ ALLOWED_PRIVATE_IMPORTS = {
 #: clone family R-2 removed.
 MONEY_CLEAN_RE = re.compile(r'\.replace\("\$", ""\)\s*\.replace\(",", ""\)')
 
+#: U+2212 MINUS SIGN — the sentinel of a privately-spelled SIGN class.
+#:
+#: This one codepoint is the right detector and the en/em dashes are not,
+#: because U+2212 has no punctuation reading at all: it is not a range dash,
+#: not a hyphen and not a bullet, and Unicode names it MINUS SIGN. A module
+#: that carries it is claiming to know what a minus is, which is a claim only
+#: `analysis/money.py` may make — the sign class decides the DIRECTION of
+#: money, and a second copy of it drifts silently and inverts amounts when it
+#: does. `analysis/wealthsimple.py` carried exactly such a copy, and it had
+#: drifted to admit U+2014 EM DASH, which the canon rules out on the archive's
+#: own evidence (W3 §MGD).
+#:
+#: A dash class for a DATE RANGE is a different thing with the opposite risk
+#: profile and is deliberately wider; it lives at `date_tokens.PERIOD_DASH`
+#: and is exempt here because it is a shared utility.
+MINUS_SIGN_CODEPOINT = "−"
+
+#: How long a string may be before it stops being a sign class. Every real one
+#: has been a handful of glyphs (`"–−—-"`) or a short pattern that interpolates
+#: them (`"[-−–+]?\\s?\\$[\\d,]+\\.\\d{2}"`, 26 characters); nothing above this
+#: is a class, and the module that keeps paragraph-length provenance notes as
+#: string DATA needs the room.
+SIGN_CLASS_MAX_CHARS = 60
+
 
 def _modules():
     return sorted(p for p in ANALYSIS_DIR.glob("*.py") if p.name != "__init__.py")
@@ -71,6 +95,28 @@ def _functions(path: Path):
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             yield node
+
+
+def _code_strings(path: Path):
+    """(value, lineno) for every string CONSTANT that is not a docstring.
+
+    Comments never reach the AST at all, and docstrings are excluded by
+    identity, so what remains is the strings the module can compile, compare
+    or embed — the only place a constant can affect a reading.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    docstrings = set()
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if not isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) \
+                and isinstance(body[0].value.value, str):
+            docstrings.add(id(body[0].value))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) \
+                and id(node) not in docstrings:
+            yield node.value, node.lineno
 
 
 def test_no_two_functions_in_analysis_share_a_body():
@@ -99,6 +145,65 @@ def test_money_cleaning_lives_only_in_the_shared_money_module():
         "money cleaning outside analysis/money.py — use parse_amount/parse_money "
         f"or add the new format there: {offenders}"
     )
+
+
+def test_the_minus_sign_class_lives_only_in_the_shared_money_module():
+    """No parser spells its own sign class.
+
+    The clone guards above catch a copied FUNCTION; this catches a copied
+    CONSTANT, which is the shape money drift actually takes — a four-character
+    string in a parser, agreeing with the shared class on the day it is written
+    and diverging the first time the shared one is narrowed. Two such copies
+    existed: a second `MINUS_GLYPHS` inside `money.py` itself, and
+    `wealthsimple._SIGN_GLYPHS`. Both had drifted the same way, and neither was
+    visible to any test until a document printed the glyph they disagreed on.
+
+    The allowlist is empty on purpose. If a layout genuinely prints a sign
+    glyph the canon lacks, the fix is to attest it and add it there — once.
+
+    Prose is not code, and the test says so twice. The glyph is read out of the
+    AST's string CONSTANTS with docstrings excluded, so a comment or a
+    docstring that sets a minus typographically (`charges − waivers`, four of
+    which exist today) is not an offence; and a constant longer than
+    `SIGN_CLASS_MAX_CHARS` is not a class either — `count_semantics.py` stores
+    paragraph-length provenance notes as DATA rather than as docstrings, and
+    two of them describe a count disagreement as `credit −n, debit +n`. What
+    is left is a short literal a parser can compile, embed or compare, which
+    is the only shape a privately-spelled sign class has ever taken.
+    """
+    offenders = []
+    for path in _modules():
+        if path.name in SHARED_UTILITIES:
+            continue
+        for node, line in _code_strings(path):
+            if MINUS_SIGN_CODEPOINT in node and len(node) <= SIGN_CLASS_MAX_CHARS:
+                offenders.append(f"{path.name}:{line}: {node!r}")
+    assert not offenders, (
+        "U+2212 MINUS SIGN outside the shared money grammar — import "
+        f"money.MINUS_GLYPHS / money.MINUS_CLASS instead: {offenders}"
+    )
+
+
+def test_the_minus_sign_guard_fires_on_the_copy_it_was_written_for(tmp_path):
+    """A guard that has never been seen to fail is a guard nobody has tested.
+    Both real offenders are replayed here — the private class `wealthsimple`
+    carried and the inline pattern shape a parser would write instead — along
+    with the two things that must NOT trip it."""
+    module = tmp_path / "fake_parser.py"
+    module.write_text(
+        '"""A docstring may say charges − waivers freely."""\n'
+        '# and so may a comment: −12.00\n'
+        'PROSE = "a provenance note long enough to be prose, disagreeing by '
+        'credit −n and debit +n, which is data and not a class"\n'
+        'SIGN_GLYPHS = "–−—-"\n'
+        'PATTERN = r"[-−–+]?\\s?\\$[\\d,]+\\.\\d{2}"\n',
+        encoding="utf-8",
+    )
+    caught = [
+        value for value, _ in _code_strings(module)
+        if MINUS_SIGN_CODEPOINT in value and len(value) <= SIGN_CLASS_MAX_CHARS
+    ]
+    assert caught == ["–−—-", r"[-−–+]?\s?\$[\d,]+\.\d{2}"]
 
 
 def test_no_parser_imports_a_private_helper_from_another_parser():
