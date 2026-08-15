@@ -77,6 +77,16 @@ INPUTS: tuple[str, ...] = (
     # so cards 1 and 3 would otherwise sit OUTSIDE the differential proof.
     "−500.00", "–500.00", "−$1,234.56",
     "$1,234.56−", "1,234.56–",
+    # --- U+2014 EM DASH, in every position the class rows above occupy ------
+    # The glyph the canon RULES OUT (W3 §MGD). These rows carry no divergence
+    # declaration anywhere below, and that absence is the finding: to the
+    # whole strict engine and to every tolerant parser the em dash was always
+    # punctuation, exactly as the frozen pre-R-2 clones read it. Only the
+    # shadowed second `MINUS_GLYPHS` disagreed, and it reached just two
+    # consumers — `SIGNED_MONEY_TOKEN` and `parse_signed_decimal` — neither of
+    # which has a pre-R-2 oracle to sit in this matrix. Their em-dash pins are
+    # the behavioural tests in section 4.
+    "—500.00", "—$1,234.56", "$1,234.56—", "1,234.56—", "— 500.00",
     # --- digit runs past the bound (card 3) -------------------------------
     "99999999999999.00",                  # 14 integer digits, one past
     "99999999999999999999999999.00",      # 26 — the adb crash width
@@ -697,7 +707,7 @@ def test_parse_decimal_raises_value_error_on_junk():
     ("−$1,234.56", "-1234.56"),
     ("− $1,234.56", "-1234.56"),
     ("–$1,234.56", "-1234.56"),
-    ("— $1,234.56", "-1234.56"),
+    ("– $1,234.56", "-1234.56"),
     # an explicit credit marker is a marker, not a digit
     ("+$3.57", "3.57"),
     ("+ $3.57", "3.57"),
@@ -725,6 +735,119 @@ def test_the_signed_money_token_pattern_carries_no_capturing_groups():
     assert re.compile(m.SIGNED_MONEY_TOKEN).groups == 0
     assert re.fullmatch(m.SIGNED_MONEY_TOKEN, "− $1,234.56")
     assert not re.fullmatch(m.SIGNED_MONEY_TOKEN, "1,234.56")
+
+
+# ===========================================================================
+# 3b. ONE minus class — the shadowed second definition (W3 §MGD)
+# ===========================================================================
+#
+# `money.py` carried TWO module-scope bindings of `MINUS_GLYPHS`: the 2-glyph
+# canon at the top, and a 4-glyph rebinding beside `parse_signed_decimal` that
+# added ASCII hyphen and U+2014 EM DASH. `MINUS_CLASS` and `_MINUS_TABLE` had
+# already been evaluated against the first, so the module answered one question
+# two ways, and two EXPORTED parsers read one token with opposite signs.
+#
+# These tests pin the canon, its derivation, and the ruling that put the em
+# dash outside it.
+
+EMDASH = "—"  # U+2014 — punctuation, not a sign
+
+
+def test_the_module_binds_each_exported_name_exactly_once():
+    """THE STRUCTURAL FIX. A second binding of an exported name is invisible at
+    the import site and silently shadows the first for every importer, while
+    anything already derived from the first keeps the old value — which is
+    precisely the state this cell found. An AST count is what makes that
+    unrepresentable rather than merely fixed once.
+    """
+    import ast
+    import pathlib
+
+    source = pathlib.Path(m.__file__).read_text(encoding="utf-8")
+    bindings: dict[str, int] = {}
+    for node in ast.parse(source).body:            # module scope only
+        targets = []
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        for target in targets:
+            if isinstance(target, ast.Name):
+                bindings[target.id] = bindings.get(target.id, 0) + 1
+    doubled = {name: n for name, n in bindings.items() if n > 1}
+    assert not doubled, f"module-scope names bound more than once: {doubled}"
+
+
+def test_the_minus_class_is_derived_from_the_canon_and_not_re_spelled():
+    """`MINUS_CLASS` is the canon in brackets. Pinned as a STRING as well as by
+    membership: the ASCII hyphen must stay first, where a regex reads it as a
+    literal — move it into the middle and `[−-–]` becomes a codepoint RANGE.
+    """
+    assert m.MINUS_CLASS == "[" + m.MINUS_GLYPHS + "]"
+    assert m.MINUS_CLASS == "[-−–]"
+    compiled = re.compile(m.MINUS_CLASS)
+    for glyph in m.MINUS_GLYPHS:
+        assert compiled.fullmatch(glyph), glyph
+    # nothing else in the neighbourhood, including the three carried
+    # candidates and the em dash the shadow admitted
+    for other in EMDASH + "‒―_~+.0aZ‐‑－":
+        assert not compiled.fullmatch(other), other
+
+
+def test_the_sign_table_and_the_class_cover_the_same_glyphs():
+    """`normalize_sign_glyphs` and `MINUS_CLASS` are the same class stated as a
+    translation and as a pattern. A glyph one honours and the other refuses is
+    the shadow's exact shape."""
+    compiled = re.compile(m.MINUS_CLASS)
+    for codepoint in range(0x20, 0x3000):
+        glyph = chr(codepoint)
+        normalized = m.normalize_sign_glyphs(glyph) == "-"
+        assert normalized == bool(compiled.fullmatch(glyph)), hex(codepoint)
+
+
+def test_the_finder_and_the_parser_read_the_same_sign_class():
+    """`SIGNED_MONEY_TOKEN` finds the cells `parse_signed_decimal` then reads.
+    A finder wider than its parser hands over tokens the parser must decline;
+    a finder narrower than its parser drops rows silently. They are one class,
+    so neither can happen."""
+    for glyph in m.MINUS_GLYPHS:
+        token = f"{glyph}$1,234.56"
+        assert re.fullmatch(m.SIGNED_MONEY_TOKEN, token), glyph
+        assert m.parse_signed_decimal(token) == Decimal("-1234.56"), glyph
+    assert not re.fullmatch(m.SIGNED_MONEY_TOKEN, f"{EMDASH}$1,234.56")
+
+
+@pytest.mark.parametrize("printed", [
+    f"{EMDASH}$500.00", f"{EMDASH} $500.00", f"{EMDASH}$1,234.56",
+])
+def test_an_em_dash_is_not_a_sign_and_the_cell_declines(printed):
+    """THE RULING (W3 §MGD), and it is a REFUSAL rather than a reading.
+
+    The em dash survives into `parse_decimal`, which cannot convert it, so the
+    document declines instead of publishing a figure nobody printed. Both
+    alternatives are wrong in a way that publishes: `+500.00` is the tolerant
+    parsers' answer — a debit booked as a credit — and `-500.00` was the
+    shadowed class's, which would have inverted the one archive document that
+    prints the shape (`88AAC06119FC`, Columbia, where `03-16 — 39,692.35` is a
+    POSITIVE running balance behind an empty-column placeholder).
+    """
+    with pytest.raises(ValueError):
+        m.parse_signed_decimal(printed)
+
+
+def test_the_two_exported_parsers_no_longer_answer_one_token_two_ways():
+    """The measured symptom, pinned so it cannot come back: `parse_money` and
+    `parse_signed_decimal` disagreed in DIRECTION on `—$500.00` (+500.0 against
+    -500.00). They now agree that no minus was printed — one by returning the
+    figure positive, the other by refusing the cell, which is the same claim
+    made at two different strictnesses."""
+    assert m.parse_money(f"{EMDASH}$500.00") == 500.0
+    with pytest.raises(ValueError):
+        m.parse_signed_decimal(f"{EMDASH}$500.00")
+    # and for every glyph that IS a sign, both read it as one
+    for glyph in m.MINUS_GLYPHS:
+        assert m.parse_money(f"{glyph}$500.00") == -500.0, glyph
+        assert m.parse_signed_decimal(f"{glyph}$500.00") == Decimal("-500.00"), glyph
 
 
 def test_mixed_separator_reads_comma_as_decimal_mark_only_when_unambiguous():
