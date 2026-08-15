@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from collections.abc import Sequence
 from typing import Callable
 from .config import Settings, load_settings
-from .count_semantics import counts_comparable
+from .count_semantics import claiming_parser_id, counts_comparable
 from .schema import Statement
 from .dates import assign_transaction_years
 from .extract import extract_statement
@@ -330,9 +330,12 @@ def assess_document_integrity(
     #
     # Keyed on the CLAIMING parser only: `_registration_for` also resolves by
     # bank label for LLM extractions, and a semantics entry is evidence about
-    # what one parser's reader produced, not about the bank's paper.
+    # what one parser's reader produced, not about the bank's paper. The key is
+    # derived by `count_semantics.claiming_parser_id` rather than spelled out
+    # here because `reconcile` needs the SAME key to apply the same table row's
+    # mapping (W3 §COUNTSMAP), and two copies of one expression can drift.
     formal = registration is None or registration.formal_statement
-    claiming = dispatch.parser_id if dispatch is not None and dispatch.outcome == "claimed" else None
+    claiming = claiming_parser_id(dispatch)
     if formal and counts_comparable(claiming, "credit") and recon.stated_credit_count_matches is False:
         flags.append("credit_count_mismatch")
         notes.append("captured credit rows do not match the bank-stated credit count")
@@ -682,7 +685,12 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
             raise RuntimeError("no deterministic parser matched this statement")
         stmt = normalize_statement(extract_statement(markdown, settings=settings, model=model_used))
         stmt = apply_statement_repairs(markdown, stmt, dispatch=dispatch)
-    recon = reconcile(stmt)
+    # One key for both halves of the count check: the mapping `reconcile`
+    # applies and the semantics `assess_document_integrity` judges the result
+    # under come from the same table row or the check is judging one comparison
+    # by another's rules (W3 §COUNTSMAP).
+    claiming = claiming_parser_id(dispatch)
+    recon = reconcile(stmt, parser_id=claiming)
 
     escalated = False
     # Cheap model's mistakes surface as reconciliation failures — re-extract those
@@ -696,7 +704,7 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         try:
             alt = normalize_statement(extract_statement(markdown, settings=settings, model=settings.escalation_model))
             alt = apply_statement_repairs(markdown, alt, dispatch=dispatch)
-            alt_recon = reconcile(alt)
+            alt_recon = reconcile(alt, parser_id=claiming)
             better_summary = bool(alt_recon.summary_ok) and not recon.summary_ok
             fewer_issues = alt_recon.summary_ok == recon.summary_ok and len(alt_recon.issues) < len(recon.issues)
             if alt_recon.ok or better_summary or fewer_issues:

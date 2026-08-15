@@ -110,6 +110,7 @@ from analysis.count_semantics import (  # noqa: F401
     SEMANTICS,
     UNSURVEYED,
     CountSemantics as Semantics,
+    expected_count,
     semantics_for,
 )
 
@@ -140,7 +141,29 @@ from analysis.count_semantics import (  # noqa: F401
 #:     the four families leave `unsurveyed_parser` behind, and four
 #:     `td_canada_french` documents start reporting `mismatch` where a v2
 #:     rollup reported them silent.
-OBSERVER_VERSION = 3
+#:
+#: 4 - COUNTS-MAP: `CountSemantics` gained a `mapping` — a closed, declarative
+#:     restatement of a printed count that excludes a named row class — and the
+#:     two service-charge-class debit directions left `semantics_incomparable`
+#:     on it: `capital_one:debit` (22 of 22 under the mapping) and
+#:     `first_citizens:debit` (35 of 35). The vocabulary and the evaluation
+#:     order are untouched, and so is every other entry. TWO things move
+#:     between a v3 and a v4 rollup. (1) 57 documents across the two families
+#:     report `match` on the debit direction where v3 reported
+#:     `semantics_incomparable`; none reports `mismatch`. That 57 is the
+#:     population WITH PARSER IDENTITY AVAILABLE (the DISCOVERY-OBS projection,
+#:     merging in the same train, supplies it); this runner reads `parser_id`
+#:     off `rows.csv`, so on a bare pre-projection run it reports 52 — the
+#:     other 5 (4 billed `capital_one`, 1 `first_citizens`) are hidden by the
+#:     documented analysis-cache-hit hole, which leaves the column EMPTY and
+#:     therefore reports them `unsurveyed_parser`. The difference fails
+#:     CLOSED: a document whose parser is unknown is never compared. (2) The
+#:     comparison
+#:     itself now runs through `expected_count`, the same function
+#:     `analysis/reconcile.py` uses, so `stated` and `captured` can legitimately
+#:     differ on a `match` — `expected` is the field that says by how much, and
+#:     it is the number the comparison actually used.
+OBSERVER_VERSION = 4
 
 # ----------------------------------------------------------------------
 # the closed vocabulary
@@ -240,6 +263,11 @@ class DirectionObservation:
     result: str
     reason: str
     stated: int | None = None
+    #: `stated` put through this parser's declared mapping — the number the
+    #: comparison actually used, equal to `stated` for every bank without one.
+    #: Reported because on a mapped direction `stated != captured` is a `match`,
+    #: and a record that showed only the two would read as a contradiction.
+    expected: int | None = None
     captured: int | None = None
     captured_by_sign: int | None = None
 
@@ -249,6 +277,7 @@ class DirectionObservation:
             "result": self.result,
             "reason": self.reason,
             "stated": self.stated,
+            "expected": self.expected,
             "captured": self.captured,
             "captured_by_sign": self.captured_by_sign,
         }
@@ -344,7 +373,11 @@ def evaluate(
     5. compare, exactly, no tolerance -> ``match`` / ``mismatch``. A count is
        an integer the bank printed; the ±2% band `analysis/reconcile.py:67-71`
        uses for money exists because OCR and rounding make money approximate,
-       and neither applies to an integer.
+       and neither applies to an integer. What is compared is the printed
+       figure through this parser's declared mapping
+       (``analysis.count_semantics.expected_count``, an identity for every bank
+       that has none) — the SAME function the shipping check applies, for the
+       same reason the table is imported rather than copied.
 
     Reversals are counted GROSS. `analysis/reconcile.py:165-207` nets
     settlement reversals out of the MONEY coverage because banks net them in
@@ -434,11 +467,16 @@ def evaluate(
                 direction, CHECK_UNAVAILABLE, REASON_DIRECTION_MISSING, stated=stated
             )
             continue
+        # The expected side, through the SAME function production applies
+        # (`analysis/count_semantics.expected_count`) and off the SAME payload
+        # the parser filled — never `metrics`, never a captured row.
+        expected = expected_count(parser_id, direction, stated, statement)
         observations[direction] = DirectionObservation(
             direction,
-            MATCH if captured[direction] == stated else MISMATCH,
+            MATCH if captured[direction] == expected else MISMATCH,
             REASON_COMPARED,
             stated=stated,
+            expected=expected,
             captured=captured[direction],
             captured_by_sign=captured_by_sign[direction],
         )
@@ -561,8 +599,12 @@ def rollup(
         for direction_obs in obs.directions():
             if direction_obs.result not in (MATCH, MISMATCH):
                 continue
+            # Against `expected`, not `stated`: the counterfactual changes ONE
+            # thing — the key the captured side is counted on — so it must run
+            # against the same expected side the real comparison used, or a
+            # mapped direction would score every document as a sign difference.
             sign_result = (
-                MATCH if direction_obs.captured_by_sign == direction_obs.stated else MISMATCH
+                MATCH if direction_obs.captured_by_sign == direction_obs.expected else MISMATCH
             )
             if sign_result == direction_obs.result:
                 continue

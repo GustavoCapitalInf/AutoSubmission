@@ -27,6 +27,37 @@ corpus documents into the flagged population, at least 5 of them because the
 check was misreading the document
 (`docs/moneythumb-replacement/COUNTS_P1_MEASUREMENT.md` §7.2).
 
+The third class is not incomparable — it is UNMAPPED (W3 §COUNTSMAP)
+------------------------------------------------------------------
+A bank that prints "N Checks/Debits" beside a separate "Service Charges"
+line is not printing an unknowable figure. It is printing a KNOWN figure
+about a known subset, and the difference between that subset and our rows is
+a row class the bank named on the same page. :class:`CountMapping` is the
+field that says so: `expected = printed + (1 if the bank BILLED a service
+charge else 0)`, declared per parser and per direction, applied in
+`analysis/reconcile.py` where the expected side is read.
+
+Three properties make that safe to have at all, and each is asserted:
+
+* it is a LOOKUP, not a callable. The rule is one of :data:`RULES` and the
+  evidence is one of :data:`PRINTED_EVIDENCE_FIELDS` — a table a reviewer can
+  audit by reading it, not a hook whose behaviour lives somewhere else;
+* it reads BANK-PRINTED evidence only. `stated_service_charge` is a figure the
+  parser lifted off the printed summary, so the expected side stays
+  independent of the rows it is checking. A mapping keyed on what we captured
+  would let a parser satisfy the check with its own output, which is the one
+  thing this whole check exists to avoid;
+* a mapping implies `comparable=True`. An entry that declares an adjustment
+  and then refuses to compare is dead code pretending to be a decision.
+
+The alternative was measured, twice, and it is a regression: promoting
+`capital_one:debit` or `first_citizens:debit` to a plain COMPARABLE — the
+equality test with the mapping BLIND — moves 11 and 9 documents respectively
+from `validated/approved` to `review/integrity_flags`, every one of them a
+ledger that reconciles to the cent (W3 §COUNTSP3 CP3). The mapping field
+exists to make those two promotions safe, and W3 §COUNTSMAP measures the
+result: 0 flag movers, 0 outcome movers, 22 of 22 and 35 of 35.
+
 The default is INCOMPARABLE, and that is load-bearing
 -----------------------------------------------------
 :func:`semantics_for` returns :data:`UNSURVEYED` — `comparable=False` — for
@@ -54,12 +85,121 @@ travels as data instead of as a paragraph someone must remember.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 #: The two printed directions. `Transaction.direction` is required and is one
 #: of exactly these (`analysis/schema.py:18`) — the column the bank printed
 #: the row in, never the sign of the amount.
 DIRECTIONS = ("credit", "debit")
+
+
+def _plus_one_when_billed(value: float | None) -> int:
+    """The bank prints a count for one named subset of the direction and bills
+    ONE further row of that direction on its own printed line, outside the
+    counted subset. Expected = printed + 1 exactly when that line is billed.
+    """
+    return 1 if value is not None and value > 0 else 0
+
+
+#: The CLOSED set of adjustments this schema can express, as name -> arithmetic.
+#: One entry today, and the list is short on purpose: every rule is a sentence
+#: a reviewer has to be able to check against a printed page, so it is added by
+#: the cell that measured a bank needing it and never "in case".
+#:
+#: A dict rather than a tuple beside a hand-written `if`, so a rule cannot be
+#: NAMED without being IMPLEMENTED: :data:`RULES` is derived from it, and
+#: `CountMapping.adjustment` dispatches through it rather than assuming there
+#: is only ever one.
+_RULE_ADJUSTMENTS = {"plus_one_when_billed": _plus_one_when_billed}
+
+#: The rule names an entry may use. Derived, never restated.
+RULES = tuple(_RULE_ADJUSTMENTS)
+
+#: The ONLY `Statement` fields a mapping may read. Bank-printed evidence, and
+#: nothing else: these are figures a parser lifted off the printed summary, so
+#: an expected side built from them is still independent of the rows it is
+#: being compared against. Adding a field here is adding a way for the
+#: expected side to move, so it is a deliberate edit with a test behind it
+#: (`tests/test_count_semantics.py`), and a CAPTURED-side field — anything
+#: derived from `transactions` — may never appear.
+PRINTED_EVIDENCE_FIELDS = ("stated_service_charge",)
+
+
+def printed_evidence(source: Any, field: str) -> float | None:
+    """One printed figure, read from a `Statement` or from a serialized one.
+
+    Both shapes exist and both must get the same answer: `analysis/reconcile.py`
+    holds a `Statement`, and the phase-1 count observer in `telemetry/` holds
+    the payload mapping the artifact cache stored. An observer that predicted a
+    different expected side from the one production emits would be measuring
+    the wrong thing.
+
+    Anything that is not a real number reads as absent — fail-closed, because
+    an unreadable figure must never be treated as a billed one.
+    """
+    if field not in PRINTED_EVIDENCE_FIELDS:
+        raise ValueError(f"not printed evidence: {field!r}")
+    value = source.get(field) if isinstance(source, Mapping) else getattr(source, field, None)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+@dataclass(frozen=True)
+class CountMapping:
+    """How a printed count that EXCLUDES a named row class becomes comparable.
+
+    Declarative and closed by construction: `rule` names one of :data:`RULES`
+    and `printed_field` names one of :data:`PRINTED_EVIDENCE_FIELDS`, both
+    checked here rather than at the call site, so an entry that cannot be
+    applied cannot be written. There is deliberately no callable — a table
+    whose behaviour is a function object somewhere else is not a table a
+    reviewer can audit.
+
+    `excluded_row_class` is what the printed count leaves out and our rows
+    include, in the bank's own vocabulary. It is the sentence the mapping is
+    making, and it is what a future reader checks against a printed page.
+    """
+
+    rule: str
+    printed_field: str
+    excluded_row_class: str
+
+    def __post_init__(self) -> None:
+        if self.rule not in RULES:
+            raise ValueError(f"unknown count-mapping rule: {self.rule!r}")
+        if self.printed_field not in PRINTED_EVIDENCE_FIELDS:
+            raise ValueError(f"not printed evidence: {self.printed_field!r}")
+        if not self.excluded_row_class:
+            raise ValueError("a mapping must name the row class the printed count excludes")
+
+    def adjustment(self, source: Any) -> int:
+        """How many rows the printed count leaves out of THIS document.
+
+        For the one rule that exists: +1 when the bank BILLED the excluded row,
+        else 0 — `> 0`, not truthiness of a signed number, because
+        `stated_service_charge` is documented as a POSITIVE magnitude
+        (`analysis/schema.py`) and a negative one would be a refund. A refund
+        adds nothing to the DEBIT side under either mapped parser, and they
+        differ in how: `first_citizens` emits no row at all
+        (`_service_charge_posting` returns None on `charge <= 0`,
+        analysis/first_citizens.py:506-507), while `capital_one` reads its
+        detail rows and would record the refund in the column the document
+        printed it in. Fail-closed: anything that is not a positive number
+        adjusts by nothing.
+
+        The threshold is `> 0` and not `>= 0.01`, so a printed sub-cent charge
+        would adjust by one. Stated rather than guarded: no bank in the archive
+        prints one, and rounding money to the cent is the reader's job
+        (`analysis/reconcile.py` holds the tolerances), not this table's.
+        """
+        return _RULE_ADJUSTMENTS[self.rule](printed_evidence(source, self.printed_field))
+
+    def expected(self, printed_count: int, source: Any) -> int:
+        """The printed count, in the scope our rows are counted in."""
+        return printed_count + self.adjustment(source)
 
 
 @dataclass(frozen=True)
@@ -71,11 +211,26 @@ class CountSemantics:
     equality test between them is not a defect detector — it is a mis-reading
     of the document. `scope` is the short label a rollup groups by; `reason`
     carries the argument and its `file:line` provenance.
+
+    `mapping` is the third state, between the two: the printed figure counts a
+    different set of rows AND the difference is a closed, printed-evidence
+    adjustment, so the comparison is a defect detector once it is applied. A
+    mapping therefore requires `comparable=True` — an entry declaring an
+    adjustment nothing will ever apply is a decision that has not been made.
     """
 
     comparable: bool
     scope: str
     reason: str
+    mapping: CountMapping | None = None
+
+    def __post_init__(self) -> None:
+        if self.mapping is not None and not self.comparable:
+            raise ValueError(
+                "a mapped direction must be comparable: the mapping is what makes "
+                "the comparison meaningful, so declaring one and then refusing to "
+                "compare would leave the adjustment unreachable"
+            )
 
 
 def _whole(printed: str, provenance: str) -> CountSemantics:
@@ -163,30 +318,131 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
             ),
         ),
     },
+    # W3 §COUNTSMAP. The first of the two service-charge-class promotions the
+    # `mapping` field was built for. Held incomparable through COUNTS-P1, P2
+    # and P3 not because the evidence was thin — it was 22 of 22 — but because
+    # the schema had nowhere to put the adjustment and a plain COMPARABLE
+    # installs the equality test the adjustment exists to avoid.
     "capital_one": {
         # "N Deposits/Credits" is a whole-direction figure and cheques ARE
         # inside the printed debit figure by the bank's own label — folded on
         # both sides, which is comparable (cf. bofa, folded on one side only).
         "credit": _whole("'N Deposits/Credits'", "analysis/capital_one.py:81-88, :106"),
         "debit": CountSemantics(
-            comparable=False,
+            comparable=True,
+            # The scope label is a fact about the DOCUMENT and it has not
+            # changed: the printed figure still enumerates a strict subset. What
+            # changed is that the table can now say what the subset excludes.
             scope="service_charge_excluded_from_printed_debit_count",
+            mapping=CountMapping(
+                rule="plus_one_when_billed",
+                printed_field="stated_service_charge",
+                excluded_row_class=(
+                    "the monthly service charge, printed on its own summary "
+                    "line with no count of its own"
+                ),
+            ),
             reason=(
-                "the printed summary is a LIST of lines — 'N Checks/Debits "
-                "($x)' AND a separate 'Service Charges ($y)' "
-                "(analysis/capital_one.py:81-108). The service charge "
-                "is its own printed line with no count, its money is inside "
-                "the printed debit TOTAL, and the parser records it as a debit "
-                "ROW. So the printed debit count enumerates a strict subset of "
-                "the parser's debit rows: same money, different scope. "
-                "Measured: 12 of 12 capital_one documents disagree by EXACTLY "
-                "+1 captured debit with a non-zero stated_service_charge on "
-                "every one, and debit_coverage is 1.0 with sum_delta 0.0 "
-                "throughout — the rows are right and the scopes differ. "
-                "`stated_debit_count + 1 where a service charge is printed` is "
-                "the mapping a parser card should encode; asserting it at the "
-                "platform level would change the expected side, which is a "
-                "parser's job and not this table's."
+                "PROMOTED to comparable WITH A MAPPING. The printed summary is "
+                "a LIST of lines — 'N Checks/Debits ($x)' AND a separate "
+                "'Service Charges ($y)' (analysis/capital_one.py:79-113 native, "
+                ":337-343 grid). The service charge is its own printed line "
+                "with no count, and the parser records it as a debit ROW, so "
+                "the printed debit count enumerates a strict subset of the "
+                "parser's debit rows. The mapping is the whole of that "
+                "difference: `printed + 1 exactly when the bank billed a "
+                "charge`. "
+                "NOT A TAUTOLOGY, unlike three other comparable entries in "
+                "this table: this parser gates on no printed count and no "
+                "printed total — it accepts a document whose detail rows exist "
+                "and whose balances are readable (:390-391) — so the mapped "
+                "comparison is a live check on the whole debit column rather "
+                "than a restatement of an acceptance gate. "
+                "THE PLATFORM ALREADY MAPS THIS BANK'S DEBIT TOTAL THE SAME "
+                "WAY, which is the precedent and was also the correction. "
+                "`_debit_coverage_target` (analysis/reconcile.py:63-84) adds "
+                "`stated_service_charge` back to the printed debit TOTAL "
+                "whenever the summary's own arithmetic says the charge sits "
+                "outside it — the money analogue of this mapping, keyed on the "
+                "same printed field, shipping since before COUNTS-P1. Measured "
+                "on all 12 billed documents: `beginning + credits - printed "
+                "debits` misses `ending` by the charge and closes only with it "
+                "subtracted separately, so the charge is OUTSIDE the printed "
+                "debit total on 12 of 12 and that adjustment fires on every "
+                "one. This entry used to assert the opposite — 'its money is "
+                "inside the printed debit TOTAL' — inherited from COUNTS-P1 "
+                "and never measured; it is corrected here. Count scope and "
+                "money scope agree on this bank, and both exclude the charge. "
+                "MEASURED FRESH over all 22 archive documents of the family "
+                "(18 rows plus 4 recovered by replaying dispatch, the run of "
+                "record's `parser_id` column being empty on analysis-cache "
+                "hits): 10 agree exactly, every one with a ZERO printed service "
+                "charge; 12 disagree by exactly +1, every one with a BILLED "
+                "charge; UNDER THE MAPPING 22 of 22 agree, 0 disagree. Credit "
+                "direction 22/22. `debit_coverage` is 1.0 and `sum_delta` 0.00 "
+                "on all 22 — the rows are right and the scopes differ. "
+                "CORRECTION OF A STALE SENTENCE, carried from W3 §COUNTSP3 "
+                "CP4.1: this entry used to read '12 of 12 capital_one documents "
+                "disagree by EXACTLY +1', true of the 12-document population it "
+                "was measured on and misleading about the family, which is 22 "
+                "with a 10-document zero-charge control arm. The arm is what "
+                "distinguishes '+1 always' from '+1 iff charged', and it is "
+                "measured here rather than assumed. "
+                "WHAT THE NAIVE PROMOTION COSTS, so nobody re-derives it: "
+                "flipping `comparable` without the mapping is the equality test "
+                "on a printed subset, and §COUNTSP3 CP3 measured it end to end "
+                "— 11 documents `validated/approved` -> `review/integrity_flags` "
+                "(the 12th charged document is already withheld), FOUR OF THEM "
+                "PINNED corpus documents, with `corpus_gate.py` reporting GREEN "
+                "over the move because `validated` and `review` both sit inside "
+                "its PASS bucket (§COUNTSP3 CP7). "
+                "INDEPENDENCE HOLDS: the adjustment reads "
+                "`stated_service_charge`, the magnitude the parser lifted off "
+                "the printed summary cell, and nothing derived from a captured "
+                "row. "
+                "FALSIFIER, two ways, both with the tell stated. (1) A cycle "
+                "that posts TWO separately-printed charge rows against ONE "
+                "printed 'Service Charges' total is +2 where the mapping adds "
+                "1, and this direction flags a complete ledger; the tell is a "
+                "captured debit count exceeding `printed + 1` by exactly the "
+                "extra charge rows. (2) A REFUNDED cycle. "
+                "`stated_service_charge` is published as a MAGNITUDE: the "
+                "native reader refuses a summary whose printed cell contradicts "
+                "its column (`_magnitude`, :68-77, returns None and the summary "
+                "is not read at all), so a refund cannot reach the field there, "
+                "but the GRID reader publishes `abs(value)` (:343) and keeps "
+                "the sign only for the cycle-date guard (:320-323, :392-394) — "
+                "so a refunded cycle read through the grid would map +1 while "
+                "the refund is a CREDIT row. The archive contains no such "
+                "cycle: on all 12 billed documents every row whose magnitude "
+                "equals the printed charge posts as an OUTFLOW, and the other "
+                "10 bill zero, so the family has no refund to test the hazard "
+                "against. Note what that evidence cannot be: `stated_service_"
+                "charge` is a magnitude, so the FIELD THE MAPPING READS cannot "
+                "tell a charge from a refund at all, and the bound comes "
+                "entirely from the two readers. The remedy if one appears is "
+                "the grid reader making the refusal the native reader already "
+                "makes, not a table edit. "
+                "WHAT THE MAPPING DELIBERATELY DOES NOT HIDE: a billed cycle "
+                "whose charge ROW the parser failed to record reads "
+                "`captured == printed` against an expected `printed + 1` and "
+                "FLAGS. That is the finding, not a false positive — the ledger "
+                "really is short a row the bank printed on the same page as the "
+                "figure it is being checked against. "
+                "AND THE DISCRIMINATOR, because those two cases present the "
+                "IDENTICAL observable: a future layout that FOLDED the charge "
+                "into the printed `Checks/Debits` count would also read "
+                "`captured == printed` on a complete ledger, and this direction "
+                "would flag it. What separates the finding from the false "
+                "positive is the MONEY scope, which is measured per document "
+                "and not assumed: `_debit_coverage_target` "
+                "(analysis/reconcile.py:63-84) fires only where "
+                "`beginning + credits - printed debits` misses `ending` by the "
+                "charge — i.e. only where the charge is OUTSIDE the printed "
+                "total — and it fires on 12 of 12 today. A document that flags "
+                "here while that adjustment does NOT fire is a folded layout "
+                "and this entry is wrong about it; one that flags while it DOES "
+                "fire is a ledger missing a row."
             ),
         ),
     },
@@ -316,10 +572,13 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
         "debit": _whole("a debit count in the printed account summary", "analysis/farmers_merchants.py:56-57"),
     },
     # W3 §COUNTSP3, on the correction §FI14.3 made to its own §FI10
-    # recommendation. A MIXED entry: the credit direction is comparable, the
-    # debit direction is the capital_one class and stays incomparable with the
-    # mapping written down. Promoting the debit direction as a plain
-    # COMPARABLE was measured and is a REGRESSION — see the entry.
+    # recommendation, then W3 §COUNTSMAP. Both directions are comparable now
+    # and they are worth opposite amounts: the credit direction is a TAUTOLOGY
+    # the parser's own section gate guarantees, and the debit direction — the
+    # capital_one class, comparable only WITH its mapping — is the one check
+    # anywhere on the platform that the service-charge recovery fired. A plain
+    # COMPARABLE on the debit side, with the mapping blind, was measured and is
+    # a REGRESSION of 9 documents; see the entry.
     "first_citizens": {
         "credit": CountSemantics(
             comparable=True,
@@ -348,42 +607,86 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
                 "this direction disagree by +1 on correct rows."
             ),
         ),
+        # W3 §COUNTSMAP. The second service-charge-class promotion, and the one
+        # that buys information rather than restating a gate — see the entry.
         "debit": CountSemantics(
-            comparable=False,
+            comparable=True,
             scope="service_charge_excluded_from_printed_debit_count",
+            mapping=CountMapping(
+                rule="plus_one_when_billed",
+                printed_field="stated_service_charge",
+                excluded_row_class=(
+                    "the monthly service charge, billed outside the four "
+                    "printed section totals and recovered from its own "
+                    "itemisation"
+                ),
+            ),
             reason=(
-                "the capital_one class, and the parser proves it on itself. "
-                "The expected side is `checks + other debits` "
-                "(analysis/first_citizens.py:611) — the two GATED debit "
-                "sections — while the published debit rows are those two "
-                "sections PLUS `billed`, the monthly service charge, which "
-                "the bank prints outside the four section totals and the "
-                "parser recovers from its own itemisation (:476-479, "
-                ":486-523) and appends at :597, :614. Same money, different "
-                "scope: the printed count enumerates a strict subset of the "
-                "parser's debit rows. MEASURED FRESH over all 35 archive "
-                "documents of the family (the run of record's `parser_id` "
-                "column is empty on analysis-cache hits, so the population is "
-                "34 rows plus 1 recovered by replaying dispatch): "
-                "26 agree exactly, every one with a ZERO service charge; 9 "
-                "disagree by exactly +1, every one with a BILLED service "
-                "charge; credit direction 35/35. This reproduces §FI14.3's "
-                "26/9 split on the current archive, and it is why a plain "
-                "COMPARABLE entry is not the answer: measured end to end, it "
-                "moves 9 documents from `validated/approved` to "
-                "`review/integrity_flags` — 9 manufactured flags on ledgers "
-                "that reconcile. The mapping a parser card should encode is "
-                "`stated_debit_count + 1 where the billed service charge was "
-                "RECOVERED AS A POSTING`. Note the second clause, which the "
-                "capital_one entry does not need: `_service_charge_posting` "
-                "returns nothing when the itemisation cannot be found (:523, "
-                "and the module docstring names it as the one path that can "
-                "still fail reconciliation), so a charged document whose "
-                "charge was not located is +0, and a naive '+1 iff charged' "
-                "would manufacture a mismatch on it. All 9 charged documents "
-                "in the archive were located. Asserting any of this at the "
-                "platform level would change the EXPECTED side, which is a "
-                "parser's job and not this table's."
+                "PROMOTED to comparable WITH A MAPPING, the capital_one class, "
+                "and the parser proves it on itself. The expected side is "
+                "`checks + other debits` (analysis/first_citizens.py:720) — the "
+                "two GATED debit sections — while the published debit rows are "
+                "those two sections PLUS `billed`, the monthly service charge, "
+                "which the bank prints outside the four section totals and the "
+                "parser recovers from its own itemisation (:489-532) and "
+                "appends at :701-706, :723. Same money, different scope, and "
+                "the mapping is exactly that difference. "
+                "MEASURED FRESH over all 35 archive documents of the family "
+                "(34 rows plus 1 recovered by replaying dispatch, the run of "
+                "record's `parser_id` column being empty on analysis-cache "
+                "hits): 26 agree exactly, every one with a ZERO service charge; "
+                "9 disagree by exactly +1, every one with a BILLED charge; "
+                "UNDER THE MAPPING 35 of 35 agree, 0 disagree. Credit direction "
+                "35/35. `sum_delta` is 0.00 on all 35, and the charge is "
+                "measurably OUTSIDE the printed section totals on all 9 billed "
+                "documents — `beginning + credits - printed debits` closes on "
+                "`ending` only with the charge subtracted separately — so "
+                "count scope and money scope agree and both exclude it. Every "
+                "row whose magnitude equals the printed charge posts as an "
+                "OUTFLOW on all 9, so the family carries no refunded cycle. "
+                "This reproduces "
+                "§FI14.3's 26/9 split on the current archive, and §COUNTSP3 CP3 "
+                "measured what promoting it WITHOUT the mapping costs: 9 "
+                "documents `validated/approved` -> `review/integrity_flags`, 9 "
+                "manufactured flags on ledgers that reconcile to the cent. "
+                "THIS DIRECTION IS NOT A TAUTOLOGY, and it is the one place in "
+                "this family where that is true. `_matches` gates each of the "
+                "four printed sections into agreement (:618-624, applied "
+                ":681-687), which is why the CREDIT direction's 35/35 carries "
+                "no information — but `billed` is appended OUTSIDE all four "
+                "(:701-706), so the mapped comparison tests exactly one thing "
+                "nothing else tests: that the charge posting was recovered iff "
+                "the bank billed one. It is the platform's only per-document "
+                "check on `_service_charge_posting`. "
+                "THE CLAUSE §FI14.3 ASKED FOR, AND WHY IT IS NOT IN THE "
+                "MAPPING. §FI14.3 proposed `+1 where the billed service charge "
+                "was RECOVERED AS A POSTING`, because `_service_charge_posting` "
+                "returns nothing when the itemisation cannot be located (:532; "
+                "the module docstring names it as the one path that can still "
+                "fail reconciliation, :24-28), so a charged document whose "
+                "charge was not found is +0. That clause is DELIBERATELY "
+                "ABSENT: 'was it recovered as a posting' is a fact about OUR "
+                "ROWS, and an expected side that reads the captured side lets "
+                "the parser satisfy the check with its own output — the exact "
+                "property the phase-1 sign-off's independence rule, and the "
+                "observer's forbidden-expected-sources list, exist to protect. "
+                "So the mapping "
+                "keys on the PRINTED charge and the un-recovered case flags. "
+                "That is correct rather than costly: a billed charge the parser "
+                "could not locate is a debit row the ledger is missing, and a "
+                "second independent witness to it is worth more than silence. "
+                "THE ARM IS UNEXERCISED and this sentence is the disclosure "
+                "§COUNTSP3 D2 made binding: all 9 charged documents in the "
+                "archive were located, so 0 documents exercise the "
+                "billed-but-not-recovered path and the claim that flagging it "
+                "is right rests on the argument above, not on a measurement. "
+                "FALSIFIER: a posting recovered outside the four gated sections "
+                "the way `billed` is — a second fee class, or an interest "
+                "credit — puts a row on a side the printed counts cannot see, "
+                "and this direction then flags a complete ledger; the tell is a "
+                "captured debit count exceeding `printed + 1` by exactly the "
+                "rows of the unnamed class. The credit sibling's falsifier is "
+                "the same shape on the other side."
             ),
         ),
     },
@@ -846,3 +1149,51 @@ def counts_comparable(parser_id: str | None, direction: str) -> bool:
     than a wrong one.
     """
     return semantics_for(parser_id, direction).comparable
+
+
+def expected_count(
+    parser_id: str | None, direction: str, printed_count: int, source: Any
+) -> int:
+    """The printed count, restated in the scope our rows are counted in.
+
+    The one function that applies a :class:`CountMapping`, called by BOTH
+    `analysis/reconcile.py` (which decides what is published) and the phase-1
+    count observer in `telemetry/` (which predicts it). One table and one
+    arithmetic: an observer that applied a different adjustment would forecast
+    a flag population production does not emit.
+
+    Returns `printed_count` unchanged for every parser without a mapping —
+    which is 29 of the 31 in the table and everything outside it — so this is
+    an identity for all of them and nothing about their comparison moved when
+    the field arrived.
+
+    `source` is the statement the printed count came off: a `Statement` or the
+    serialized mapping of one. It is read for `PRINTED_EVIDENCE_FIELDS` and
+    nothing else.
+    """
+    semantics = semantics_for(parser_id, direction)
+    if semantics.mapping is None or not semantics.comparable:
+        return printed_count
+    return semantics.mapping.expected(printed_count, source)
+
+
+def claiming_parser_id(dispatch: Any) -> str | None:
+    """The parser whose count semantics govern this document, or None.
+
+    A CLAIM, and nothing weaker. `analysis/pipeline.py`'s `_registration_for`
+    also resolves a registration by BANK LABEL for an LLM extraction, which is
+    right for document knowledge and wrong here: an entry in this table is
+    evidence about what one parser's summary reader produced, not about the
+    bank's paper. No claim, no semantics, no mapping, no flag.
+
+    It lives here, beside the table, because two call sites need the identical
+    answer — `reconcile`, which APPLIES the mapping, and
+    `assess_document_integrity`, which decides whether the result may be
+    flagged. Two copies of this expression could drift into applying an
+    adjustment under one table row and judging it under another; one function
+    cannot. Duck-typed on purpose, so this module still imports nothing but the
+    standard library.
+    """
+    if dispatch is None or getattr(dispatch, "outcome", None) != "claimed":
+        return None
+    return getattr(dispatch, "parser_id", None)

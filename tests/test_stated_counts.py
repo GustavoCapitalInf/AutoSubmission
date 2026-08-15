@@ -54,6 +54,7 @@ def payload(
     debit: int | None,
     rows: list[dict],
     metrics: object | None = None,
+    service_charge: float | None = None,
 ) -> dict:
     out: dict = {
         "statement": {
@@ -62,9 +63,17 @@ def payload(
             "transactions": rows,
         }
     }
+    if service_charge is not None:
+        # The one printed field a count mapping may read (W3 §COUNTSMAP).
+        out["statement"]["stated_service_charge"] = service_charge
     if metrics is not None:
         out["metrics"] = metrics
     return out
+
+
+#: A parser the table maps rather than compares raw: its printed debit count
+#: excludes the separately-printed service charge the parser records as a row.
+MAPPED = "capital_one"
 
 
 #: A parser whose semantics are surveyed and comparable in both directions.
@@ -120,6 +129,41 @@ def test_semantics_incomparable_for_a_bank_whose_printed_count_means_something_e
         SEMANTICS_INCOMPARABLE,
         SEMANTICS_INCOMPARABLE,
     )
+
+
+def test_a_mapped_direction_is_compared_against_the_mapped_expectation():
+    """W3 §COUNTSMAP. The bank printed `Checks/Debits (1)` and billed a charge
+    it prints on its own line with no count; the parser records the charge as a
+    debit ROW, so a complete ledger has two. The observer must reach the same
+    answer the shipping check does, through the same function."""
+    rows = [row("credit", 10), row("debit", -3), row("debit", -15, "SERVICE CHARGE")]
+    obs = evaluate(payload(credit=1, debit=1, rows=rows, service_charge=15.0),
+                   parser_id=MAPPED)
+    assert obs.debit.result == MATCH
+    # `stated` is what the bank printed; `expected` is the number compared.
+    assert (obs.debit.stated, obs.debit.expected, obs.debit.captured) == (1, 2, 2)
+    assert obs.credit.result == MATCH
+    assert (obs.credit.stated, obs.credit.expected) == (1, 1)
+
+
+def test_a_mapped_direction_still_reports_mismatch_when_a_row_is_missing():
+    """The mapping restates the expected side; it does not soften it. A billed
+    cycle whose charge row never made it into the ledger is a MISMATCH — and
+    the raw equality test, which would compare 1 against 1, is blind to it."""
+    rows = [row("credit", 10), row("debit", -3)]
+    obs = evaluate(payload(credit=1, debit=1, rows=rows, service_charge=15.0),
+                   parser_id=MAPPED)
+    assert obs.debit.result == MISMATCH
+    assert (obs.debit.stated, obs.debit.expected, obs.debit.captured) == (1, 2, 1)
+
+
+def test_an_unbilled_cycle_of_a_mapped_bank_is_compared_raw():
+    rows = [row("credit", 10), row("debit", -3)]
+    for charge in (0.0, None):
+        obs = evaluate(payload(credit=1, debit=1, rows=rows, service_charge=charge),
+                       parser_id=MAPPED)
+        assert obs.debit.result == MATCH, charge
+        assert (obs.debit.stated, obs.debit.expected) == (1, 1), charge
 
 
 def test_check_unavailable_with_no_payload():

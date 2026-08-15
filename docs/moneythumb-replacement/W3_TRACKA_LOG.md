@@ -21632,6 +21632,494 @@ $ python -m pytest -m corpus -q
     test_detect_sweep_stays_affordable_for_the_discovery_run — the single
     red §WIRING carried, closed structurally by DETECT-BUDGET in batch 4;
     the telemetry anchors and the dry run all move to 102/4/3 together)
+# §COUNTSMAP — the mapping field: a printed count that excludes a named row, made comparable
+
+| | |
+|---|---|
+| Cell | COUNTS-MAP (batch 5) — `wave5-countsmap`, base `b524f72` |
+| Cells worked | `analysis/count_semantics.py` (schema + two entries), `analysis/reconcile.py` (the comparison hunk), `analysis/pipeline.py` (the shared claim key + two call sites), `telemetry/stated_counts.py` (`OBSERVER_VERSION` 3→4 + the same arithmetic), `tests/test_count_semantics.py`, `tests/test_stated_counts.py` |
+| Promotions | `capital_one:debit` (22 of 22 under the mapping) · `first_citizens:debit` (35 of 35) |
+| Movement | **0 flag movers, 0 outcome movers** over all 3,380 distinct documents of the run of record; 21 documents' published `stated_debit_count_matches` moves `false` → `true` |
+| Table integrity | 60 of the 62 direction entries field-identical; no parser added or removed; `UNSURVEYED`, `SECTION_LEVEL_ORACLES`, `DIRECTIONS` untouched; the check stays advisory |
+
+## CM0. Summary
+
+`CountSemantics` had two states and the archive has three. A bank that
+prints `N Checks/Debits` beside a separate `Service Charges` line is not
+printing an unknowable figure — it is printing a **known figure about a
+known subset**, and the difference between that subset and our rows is a row
+class the bank named on the same page. COUNTS-P1 called that class
+incomparable because equality would manufacture flags on it; COUNTS-P3
+confirmed the evidence (22 of 22, 26/9) and **refused both promotions
+anyway**, because flipping `comparable` installs the equality test the
+mapping exists to avoid, and it measured the price: 11 and 9 documents
+`validated` → `review` on ledgers that reconcile to the cent, four of the 11
+being pinned corpus PASS documents the gate cannot see move.
+
+This cell adds the third state and promotes the two entries on it. The
+result is the one the design bar asked for: **0 outcome movers, 0 false
+mismatch flags, and a constructed genuine mismatch that the mapping catches
+and the equality test is blind to.**
+
+## CM1. The schema — declarative, closed, and printed-evidence-only
+
+```python
+@dataclass(frozen=True)
+class CountMapping:
+    rule: str                  # one of RULES
+    printed_field: str         # one of PRINTED_EVIDENCE_FIELDS
+    excluded_row_class: str    # the sentence the mapping is making
+```
+
+`PRINTED_EVIDENCE_FIELDS = ("stated_service_charge",)`, and `RULES` is
+**derived** from `_RULE_ADJUSTMENTS`, the `name -> arithmetic` dict
+`adjustment` dispatches through. Both are checked in `__post_init__`, not at
+the call site, so **an entry that could not be applied cannot be written**.
+There is deliberately no callable ON THE ENTRY: a table whose behaviour is a
+function object somewhere else is not a table a reviewer can audit, and the
+whole value of `count_semantics.py` is that a reviewer can check it against a
+printed page.
+
+The derivation is a self-review finding closed before any proof ran. The
+first draft had `RULES` as a literal tuple beside a hand-written `if`, so a
+second rule could be NAMED without being IMPLEMENTED and `adjustment` would
+silently keep applying the first one — the unenforced-enum shape. Deriving
+the vocabulary from the implementations makes that unrepresentable, and
+`test_a_rule_cannot_be_named_without_being_implemented` pins it.
+
+Three properties carry the design, each asserted rather than promised:
+
+1. **Printed evidence only.** `stated_service_charge` is a figure the parser
+   lifted off the printed summary cell, so the expected side is still
+   evidence off the page. A mapping able to read anything derived from
+   `transactions` would let a parser satisfy the check with its own output —
+   the one property the whole check exists to have.
+   `test_a_mapping_may_read_bank_printed_evidence_only` pins the allowlist
+   against `Statement.model_fields` and pins that `printed_evidence` refuses
+   any other name.
+2. **A mapping implies `comparable=True`.** An entry that declares an
+   adjustment and then refuses to compare leaves the adjustment unreachable —
+   a decision that has not been made, wearing the costume of one.
+   `CountSemantics.__post_init__` raises.
+3. **One function, two callers.** `expected_count(parser_id, direction,
+   printed, source)` is called by `analysis/reconcile.py` (which decides what
+   is published) and by the phase-1 count observer (which predicts it), and
+   `source` may be a `Statement` **or** the serialized payload mapping,
+   because those are the two shapes that exist. `test_the_observer_and_the_
+   check_read_one_table` now asserts the identity of the function as well as
+   of the table: one shared table with two different adjustments is the same
+   defect wearing a different hat.
+
+`expected_count` is the identity for 29 of the 31 parsers in the table and
+for everything outside it, which is what
+`test_expected_count_is_the_identity_wherever_there_is_no_mapping` says out
+loud rather than leaving to the absence of a failing test.
+
+**`> 0`, not truthiness.** `stated_service_charge` is documented as a POSITIVE
+magnitude; a negative reading would be a refund, and a refund is never a DEBIT
+row under either mapped parser — `first_citizens` emits **no row at all**
+(`_service_charge_posting` returns None on `charge <= 0`,
+`analysis/first_citizens.py:506-507`), and `capital_one` reads its detail rows
+and would record the refund in the column the document printed it in. (The
+first draft of both the entry and this paragraph said "a CREDIT row", which is
+true of at most one of the two and false of the one whose parser declines to
+post it at all — review D4.) Zero, `None`, a string, a bool and a negative all
+adjust by nothing: fail-closed in every direction.
+
+**And the threshold is `> 0`, not `>= 0.01`** — a printed sub-cent charge
+would adjust by one. Stated rather than guarded, because no bank in the
+archive prints one and rounding money to the cent belongs to
+`analysis/reconcile.py`, which owns the tolerances, rather than to this table.
+Immaterial today; on the record so it is a known limit and not a discovery.
+
+## CM2. Why the naive promotion is the wrong tool, in numbers already measured
+
+Not re-argued here; §COUNTSP3 CP3 ran it end to end and this cell's whole
+premise is those two rows:
+
+| counterfactual | flag movers | outcome movers |
+|---|---|---|
+| `capital_one:debit` → plain COMPARABLE | 12 | **11 `validated/approved` → `review/integrity_flags`** (the 12th is already withheld) |
+| `first_citizens:debit` → plain COMPARABLE | 9 | **9 `validated/approved` → `review/integrity_flags`** |
+
+Twenty manufactured review cases on ledgers that reconcile to the cent, and
+`corpus_gate.py` GREEN over four pinned documents moving inside its PASS
+bucket. That is what the mapping field is for.
+
+## CM3. The two entries, measured fresh
+
+Population identity was recovered the way §COUNTSP3 established, because the
+run of record's `rows.csv` still leaves `parser_id` EMPTY on every
+analysis-cache hit — **119 distinct documents** (110 `validated`, 6 `review`,
+3 `withheld`), the same hole, unchanged at v12. Identity came from replaying
+`parser_registry.resolve` over the reconstructed markdown, and its fidelity
+was proven before its results were believed: on all 52 candidate-family
+documents that DO carry a `parser_id`, the replay reproduced it, **52 of 52**.
+Enriched, the families land on their historical figures — `capital_one` 22
+(18 in `rows.csv`), `first_citizens` 35 (34), `texas_bank` 1 (0).
+
+Cached OCR and analysis artifacts were addressed **arithmetically**
+(`cache_key(stage, input_sha, settings_key)` →
+`webapp_data/artifacts/<stage>/<key[:2]>/<key>.json`) across the three OCR
+settings partitions. **The sqlite index was never opened.** Zero OCR, zero
+model calls, **$0.00**.
+
+| family | documents | zero charge | billed | raw debit delta | under the mapping | credit |
+|---|---|---|---|---|---|---|
+| `capital_one` | 22 | 10 | 12 | `+0` on all 10, `+1` on all 12 | **22/22 agree** | 22/22 |
+| `first_citizens` | 35 | 26 | 9 | `+0` on all 26, `+1` on all 9 | **35/35 agree** | 35/35 |
+| `texas_bank` | 1 | 0 | 1 | `+1` | 1/1 (**not promoted** — CM11) | 1/1 |
+
+This reproduces §DB8's 22, §FI14.3's 26/9 and §COUNTSP3's whole CP2 table on
+the current archive, from a cold re-derivation.
+
+**The control arm exists and is what makes the mapping falsifiable.** Ten
+capital_one and twenty-six first_citizens documents bill a ZERO charge and
+agree exactly, so `+1 always` and `+1 iff charged` are *distinguishable* on
+this archive — the indistinguishability §DB8 warned about on the old
+12-document population, and the reason the stale sentence in the
+`capital_one:debit` entry (§COUNTSP3 CP4.1, left for Ocean) is corrected in
+place by this cell, which owns the entry.
+
+**Corroboration that the `+1` row IS the charge**, rather than a coincidence
+of arithmetic: on every one of the 12 + 9 + 1 billed documents there is a
+DEBIT row whose magnitude equals the printed service charge, and every such
+row posts as an OUTFLOW — so the archive carries no refunded cycle, which is
+the second falsifier's control. Two of the 12 capital_one documents carry a
+second debit row of the same magnitude by coincidence, which the count
+arithmetic does not depend on and which is recorded so nobody reads the
+corroboration as tighter than it is. And the limit of that evidence is
+written into the entry: `stated_service_charge` is a MAGNITUDE, so the field
+the mapping reads cannot tell a charge from a refund at all — the bound comes
+entirely from the two summary readers, one of which refuses a contradicting
+sign and one of which does not.
+
+**Money is silent throughout**, which is the entire point of a count check:
+`debit_coverage` is 1.00 on all 22 capital_one and on 31 of 35
+first_citizens (the other 4 print no debit total), `sum_delta` is 0.00 on all
+57, and **not one of the 57 documents carries any integrity flag today.**
+
+### CM3.0 The money-side sentence was wrong, and correcting it is the best argument in the cell
+
+The `capital_one:debit` entry has carried this since COUNTS-P1: *"its money
+is inside the printed debit TOTAL."* It was never measured. It is false.
+
+On all 12 billed capital_one documents (and all 9 first_citizens, and the
+one texas_bank), `beginning + credits - printed debits` misses `ending` by
+exactly the charge and closes only with the charge subtracted SEPARATELY. The
+charge is **outside** the printed debit total.
+
+That matters twice.
+
+1. **Count scope and money scope AGREE on this bank**, and both exclude the
+   charge. BofA's defect — the one BOFA-COUNTS was spent removing — was
+   precisely that they did NOT agree there, and the repair path read one off
+   the other. Here there is nothing to read off anything: both figures
+   exclude the same printed line.
+2. **The platform already applies this exact mapping to the debit TOTAL.**
+   `_debit_coverage_target` (`analysis/reconcile.py:63-84`) adds
+   `stated_service_charge` back to the printed debit total whenever the
+   summary's own arithmetic says the charge sits outside it — same printed
+   field, same `+ charge`, shipping since before COUNTS-P1, and firing on
+   every one of these 12 documents. The count mapping is that adjustment's
+   twin, and the asymmetry this cell removes is that the money side has had
+   it for a year while the count side was called "incomparable".
+
+Both entries now carry the measurement, and
+`test_the_capital_one_entry_records_the_money_side_and_its_correction` pins
+the correction so it cannot quietly revert.
+
+### CM3.1 The first_citizens debit direction is the informative one
+
+Worth stating because the family's credit direction is not. `_matches`
+refuses the document unless each of the four printed sections' parsed posting
+count equals the count the bank printed for it, so the credit direction's
+35/35 is a TAUTOLOGY (§COUNTSP3 recorded it as one). `billed` is appended
+**outside all four gated sections**, so the mapped debit comparison tests
+exactly one thing nothing else tests: **that the service-charge posting was
+recovered iff the bank billed one.** It is the platform's only per-document
+check on `_service_charge_posting`. The same is true of `capital_one`, which
+gates on no count at all.
+
+## CM4. The clause §FI14.3 asked for, and why it is deliberately absent
+
+§FI14.3 proposed the mapping as `+1 where the billed service charge was
+**RECOVERED AS A POSTING**`, because `_service_charge_posting` returns
+nothing when the itemisation cannot be located, so a charged document whose
+charge was not found is `+0` and a naive "+1 iff charged" would flag it.
+
+That clause is **not in the mapping**, and the reason is independence: "was
+it recovered as a posting" is a fact about OUR ROWS. An expected side that
+reads the captured side is exactly what the phase-1 sign-off's independence
+rule forbids, and it would let the parser satisfy the check with its own
+output — the property `FORBIDDEN_EXPECTED_SOURCES` exists to protect.
+
+So the mapping keys on the PRINTED charge, and the billed-but-not-recovered
+case **flags**. That is correct rather than costly: a billed charge the
+parser could not locate is a debit row the ledger is missing, which the
+module docstring already names as the one path that can still fail
+reconciliation. The count check becomes a second, independent witness to that
+defect instead of being blinded to it by an exemption written in its own
+favour.
+
+**The arm is UNEXERCISED and the entry says so** — the disclosure standard
+§COUNTSP3 D2 made binding. All 9 charged first_citizens documents in the
+archive were located, so **0 documents exercise the path** and the claim that
+flagging it is right rests on the argument above, not on a measurement.
+
+## CM5. Application — one key, one arithmetic
+
+`reconcile` had no way to know which parser claimed the document, so the
+mapping could not be applied where the expected side is read. It now takes
+`parser_id` as a keyword whose default is `None`:
+
+```python
+def reconcile(stmt: Statement, *, parser_id: str | None = None) -> ReconResult:
+```
+
+`reconcile(stmt)` — every caller outside the pipeline, and every test written
+before mappings existed — is unchanged and fail-closed: no claim, no
+adjustment, the raw printed figure.
+
+The comparison hunk, verbatim:
+
+```python
+    if stmt.transactions and not aggregate_backed:
+        if stmt.stated_credit_count is not None:
+            captured_credit_count = sum(
+                1 for t in stmt.transactions if t.direction == "credit"
+            )
+            expected_credit_count = expected_count(
+                parser_id, "credit", stmt.stated_credit_count, stmt
+            )
+            credit_count_matches = captured_credit_count == expected_credit_count
+        if stmt.stated_debit_count is not None:
+            captured_debit_count = sum(
+                1 for t in stmt.transactions if t.direction == "debit"
+            )
+            expected_debit_count = expected_count(
+                parser_id, "debit", stmt.stated_debit_count, stmt
+            )
+            debit_count_matches = captured_debit_count == expected_debit_count
+```
+
+Still no `issues.append` in the block — `ok` gates the ADB, so a count may
+never withhold a document, and
+`test_a_mapped_direction_still_appends_no_reconciliation_issue` pins it on
+the new arm as well.
+
+**`expected_credit_count` / `expected_debit_count` are published** beside the
+verdict. The alternative is a payload reading `stated_debit_count 12 /
+captured_debit_count 13 / stated_debit_count_matches true`, which is only not
+a contradiction if the reader knows the table — one field with two meanings,
+the defect BOFA-COUNTS was spent removing. The cost is two keys on every
+payload's reconciliation block, and the precedent is COUNTS-P2, which added
+four.
+
+**The pipeline change is three lines, and the drift hazard it closes is one
+this cell CREATED.** Stated as what it is rather than as a free win: before
+this cell `reconcile` had no parser key at all, so there was nothing to drift.
+Keying it is what makes two derivations of "which parser claimed this"
+possible — `reconcile` now APPLIES a table row's mapping and
+`assess_document_integrity` decides whether the result may be flagged, and two
+copies of that expression could send them to different rows (applying
+capital_one's adjustment and judging it under nobody's semantics, or the
+reverse). Single-sourcing the key through
+`count_semantics.claiming_parser_id` closes the hazard the same commit opened,
+which is a good outcome and not a virtue. What makes it stay closed is the
+test, not the intention:
+`test_the_reconciler_and_the_flag_gate_key_on_the_same_claim` asserts that the
+pipeline derives BOTH keys from that one function and that every `reconcile(`
+call site names one.
+
+**The observer applies the same function.** `OBSERVER_VERSION` 3 → 4, its
+contract being "bumped when the vocabulary, the evaluation order or the
+semantics table changes"; `DirectionObservation` gained `expected` for the
+same legibility reason as the payload; and the sign-keyed counterfactual now
+runs against `expected` rather than `stated`, because that counterfactual
+changes ONE thing — the key the captured side is counted on — and must not
+silently change the expected side too.
+
+**What a v4 rollup will actually print, which is not 57** (review D2). The
+version note says 57 documents leave `semantics_incomparable` for `match`, and
+that is the population WITH PARSER IDENTITY AVAILABLE — the number this cell
+measured, using the dispatch replay. The SHIPPED runner reads `parser_id` off
+`rows.csv`, so on a bare pre-projection run it reports **52**: the
+analysis-cache-hit hole leaves the column empty on 4 billed `capital_one` and
+1 `first_citizens` document, and an unknown parser is `unsurveyed_parser`,
+never compared. The gap closes when DISCOVERY-OBS's projection lands in the
+same train. Until then the instrument under-reports and **fails closed**,
+which is the right direction for it to be wrong in, and the version note now
+carries both numbers so a reader diffing two rollups is not left to discover
+the difference.
+
+## CM6. The constructed genuine mismatch — and what it says about the field
+
+The design bar asked for a fixture whose captured count is off by two — one
+charge and one genuinely missing row. Built exactly that way, and the point
+is that **the two errors offset**, which is what makes it the sharpest
+argument in the cell:
+
+> The bank printed `Checks/Debits (2)` and billed a charge, so a complete
+> ledger carries THREE debit rows. This one carries two — the charge row is
+> present and one printed row was dropped.
+>
+> The **equality test compares 2 against the printed 2 and reports MATCH** —
+> a ledger missing a posting, called clean. The **mapping compares 2 against
+> 3 and flags.**
+
+So the field is not only a false-positive suppressor: it is what makes this
+class visible at all. `test_the_mapping_catches_a_dropped_row_the_equality_
+test_is_blind_to` runs it on both promoted parsers, asserts the flag, asserts
+`risk_level == "review"`, asserts `recon.ok is True` and
+`possible_document_issue is False` (advisory, never a withholding), asserts
+`classify_outcome` returns `("review", "integrity_flags")` — and then asserts
+the counterfactual: `reconcile(stmt)` without the claim reports
+`expected_debit_count == 2` and `matches is True`, seeing nothing.
+
+## CM7. Non-interference, measured over the whole archive
+
+Run of record `discovery_reports/2026-08-15T111704.195314-0000-c924d751`
+(v12, OCR v3), all 3,380 distinct documents, 2,495 of which have a cached
+analysis payload.
+
+**The instrument was validated before it was believed:** under `main`'s table
+it reproduces the count flags actually present in the cached payloads on
+**2,495 of 2,495** documents, and reproduces the run's outcome split exactly.
+
+With the committed table, over every distinct document of the run — not only
+the two families:
+
+```
+flag movers    0
+outcome movers 0
+outcome split  validated 2,405 / review 25 / withheld 65 / failed 872 / deferred 13   (unchanged)
+```
+
+**21 documents' published `stated_debit_count_matches` moves `false` →
+`true`** — 12 `capital_one` and 9 `first_citizens`, exactly the billed arms,
+exactly the hashes §COUNTSP3 CP6 listed. That is the promotion working: the
+field was already `false` on those payloads and already emitting nothing,
+because the direction was incomparable. Their cached payloads are therefore
+stale and `ANALYSIS_STAGE_VERSION` needs its bump at merge (CM11).
+
+Named, per the standing rule — `content_sha256`, outcome, field. Every one is
+`reconciliation.stated_debit_count_matches: false -> true`; every outcome is
+unchanged:
+
+```
+capital_one (11 validated, 1 withheld)
+  393547C0407F1A87CB11542BF476B1CC6B29CCC0DF3F5775E079DE0F6D9911D7  validated  [pinned PASS]
+  4FC7799B53D746E89FDDEF60E08C4BD5E58B96757CFC4E969033C537F13DAF16  validated  [pinned PASS]
+  538375B8A6BD9D8FCD7ED203610DCE3A66DC2DA2964FC1D82D14C6A678307280  withheld
+  5E465F9123AAAC754EF5FF4A6A63B17998A20DFA83EC6FCE2BF2C4D4EFE61139  validated
+  651D64B499E54CC6042330758DC22A5449B3BDFACF3ED6B7BDE543A3FDF889C3  validated
+  8E8086218E393E4712535083E9D0A56926B64D81E82F89AB581D43AC817F4484  validated
+  B9B0CC7E07E9FB068868B53138CDFE814FA52ABE76669ECC93D721D815A39816  validated
+  BDC3CF8F8BE2EB575D5E46C893D733F3A656D9E9A55F6226EE15091B49CC2265  validated
+  C5C39D466437059F8F4D64D79F3B9A3E5924F8BB23A23F9E788D8E4A5A67AC22  validated  [pinned PASS]
+  C6D4DAC2278D866F7DB8D05C71EF6573A9A973FA8557423123F0B7542C8DC8C0  validated  [pinned PASS]
+  D2A8160721E494DCA9C3C8A5968A5DEF047CD99CD3482E11196E0BD078D23FA5  validated
+  F891180AE8C70EC509EE4470B573E27CF2B691E2E92D6A057C0B7477EF24A59F  validated
+
+first_citizens (9 validated)
+  33C8E0FDF2540862CC9A3DBEACA72E0EEE48D675C710B6115B1373E0FEF9126B  validated
+  5F58ADF60077E09BC3F913EBAA41C2301B433EE852230EA512EC8A3EAC417C00  validated
+  6C86D090BE64E53D98CCDACEA48AC328B19DECA3BDF46D66F7AD6BD1DF8B9EC8  validated
+  881EEB9AA64495B0B46D273B09AD051D2102C468C15B55E92B124D177C872167  validated
+  A4E1F3B8567F3754B9E74AE2CC01B3D3890F718876AB41253939B5618C915F91  validated
+  AEFD0161608B45EFEEAEEED6C70453FB8E8E338E5F6B3BA82CB5BAB54A41FA95  validated
+  E32A8C5D6A6683B14EFC59915DB5096E77A2B65D0DBD3F0C49BB2C6A7D20F9A6  validated
+  EB6C700D4089E0FFFF5D44E1A9C9D08BB8DDF3D59958AC4E1CE343FBE3118BF9  validated
+  FD4B797225342B43B803D2A0AD5E05A5AB5DAAAF58C22FF2E022F8745A90A193  validated
+```
+
+The four pinned documents in that list are the four a plain COMPARABLE would
+have moved to `review`. Under the mapping their `matches` field goes from a
+silent `false` to a `true`, their integrity block does not change, and their
+outcome does not change — which is what the corpus-marked slice is run to
+demonstrate rather than assert.
+
+## CM8. The pinned corpus
+
+The 109-path manifest was hashed and joined to the run. **Six candidate-family
+documents are pinned, all six PASS**, and every one of them is invisible in
+`rows.csv` — recovered by the identity replay:
+
+```
+393547C0407F...  capital_one     PASS  validated  charge 15.00  raw +1  mapped +0
+4FC7799B53D7...  capital_one     PASS  validated  charge 15.00  raw +1  mapped +0
+C5C39D466437...  capital_one     PASS  validated  charge 15.00  raw +1  mapped +0
+C6D4DAC2278D...  capital_one     PASS  validated  charge 15.00  raw +1  mapped +0
+57058C69B871...  first_citizens  PASS  validated  charge  0.00  raw +0  mapped +0
+744D6E04AFCB...  texas_bank      PASS  review     charge 10.00  raw +1  mapped +0   [not promoted]
+```
+
+The first four are the documents a plain COMPARABLE `capital_one:debit`
+would have moved `validated` → `review` with the gate reporting GREEN over
+the move (§COUNTSP3 CP7). Under the mapping they are `+0` and do not move,
+and the corpus-marked slice — mandatory since §PIPEFIX P4b precisely because
+the gate's 106/3 partition cannot see `validated` ↔ `review` inside PASS — is
+run as the proof of that rather than as its argument.
+
+## CM9. The table diff, exactly
+
+Proven by VALUE, not by eyeball: `main`'s module was loaded beside the
+branch's and compared field-by-field.
+
+```
+pre-existing direction entries : 62    drifted: ['capital_one:debit', 'first_citizens:debit']
+parsers added                  : (none)
+UNSURVEYED                     : identical
+SECTION_LEVEL_ORACLES          : identical
+DIRECTIONS                     : identical
+table size                     : 31 parsers / 62 entries  ->  31 / 62   (unchanged)
+comparable added               : capital_one:debit, first_citizens:debit
+comparable removed             : (none)
+mapped                         : capital_one:debit, first_citizens:debit
+```
+
+Both halves of
+`test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental` were
+edited — two keys out of `incomparable`, two into `comparable` — and the
+`len(comparable) + len(incomparable) == 2 * len(SEMANTICS)` invariant still
+holds at 62. `test_the_observer_version_moves_when_the_table_does` was
+widened to pin the MAPPED count too, because a mapping changes which
+documents report `match` just as surely as a promotion does: it is now
+`(OBSERVER_VERSION, parsers, comparable, mapped) == (4, 31, 58, 2)`.
+
+Suite **4,240 → 4,262**. The +22 is fully accounted: 21 new node ids in
+`tests/test_count_semantics.py` (16 functions, five of them parametrized over
+the two mapped directions), 3 in `tests/test_stated_counts.py`, minus 2 from
+`test_an_incomparable_direction_can_never_flag`, which iterates the
+incomparable set and lost two members.
+
+## CM10. Proofs
+
+Exit codes verbatim. Every one was run on the FINAL tree `7377c5f` — the
+earlier runs were discarded and restarted twice rather than qualified, once
+because self-review changed the code and once because it changed the prose
+the entries are pinned on. Long proofs were run as sequential single
+commands.
+
+```
+$ python -m pytest -q
+4262 passed, 33 skipped, 29 deselected, 1 warning in 302.86s (0:05:02)
+EXIT=0
+
+$ python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+    tests/test_no_parser_helper_clones.py -q
+104 passed in 3.19s
+EXIT=0
+
+$ python -m pytest tests/test_parser_conformance.py tests/test_parser_registry_entries.py \
+    tests/test_parser_detection_markers.py -q
+964 passed, 33 skipped in 3.17s
+EXIT=0
+
+$ python -m pytest -m corpus -q
+25 passed, 4299 deselected, 1 warning in 2799.64s (0:46:39)
+EXIT=0
 
 $ python corpus_gate.py
 [PASS] inventory: 109 pinned corpus PDFs, all on disk and audited by both oracles
@@ -22756,6 +23244,14 @@ $ python -m pytest -m corpus -q tests/test_discovery.py \
 EXIT=0
 
 $ python corpus_gate.py
+[PASS] balance_audit: 109 statements reproduce every audited balance field across backend, API, dashboard, CSV, XLSX, and package surfaces
+[PASS] adb_audit: 109 statements reproduce every audited ADB field across backend, API, and dashboard-package surfaces
+[PASS] balance_outcomes: balance: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes: adb: 106 pass, 3 withheld, same three statements
+[PASS] outcome_classes: 109 statements publish their pinned verdict (outcome class and the whole integrity block): 6 review / 100 validated / 3 withheld
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR = 109 statements resolved offline; no live OCR, no model calls
+[PASS] exclusions: 0 named exclusions
+[PASS] oracle_independence: 4 audit modules import no production financial mathematics
 Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
 Ignored:  0 non-corpus PDFs under the corpus root
 Outcomes: 106 PASS / 3 WITHHELD
@@ -23378,3 +23874,194 @@ reverted): 3 failed / 18 passed  — exactly the version guard and the two
 note-wording guards, i.e. the three conditions with a code surface
                                                                EXIT=1
 ```
+Runtime:  1151.0s
+RESULT: GREEN
+EXIT=0
+```
+
+The `outcome_classes` line is the one to read for this cell: since batch 4 the
+gate pins every pinned document's WHOLE published integrity block, and it
+reports 6 review / 100 validated / 3 withheld — unchanged, over four pinned
+documents whose reconciliation block moved.
+
+The corpus-marked slice is again the one that matters most for a table
+change, and for this cell more than for §COUNTSP3: four of the documents
+whose published `stated_debit_count_matches` moves are PINNED, the gate's
+106/3 partition puts `validated` and `review` in the same bucket, and the
+counterfactual this promotion replaces moves exactly those four across that
+invisible line.
+
+Cost: **$0.00.** No OCR, no model call, no write to the archive or to either
+cache.
+
+## CM11. Carried findings and questions for Ocean
+
+1. **`ANALYSIS_STAGE_VERSION` needs its bump at merge, and the second reason
+   is a decision you can reverse.** 21 documents' `stated_debit_count_matches`
+   changes value — that alone forces the bump. But every payload's
+   reconciliation block ALSO gains `expected_credit_count` /
+   `expected_debit_count`, so the shape change is archive-wide rather than
+   21 documents wide. I judged that worth it: without the published expected
+   side, a capital_one payload reads `stated_debit_count 12 /
+   captured_debit_count 13 / stated_debit_count_matches true`, which is only
+   not a contradiction to a reader who knows the table — one field with two
+   meanings, the defect BOFA-COUNTS was spent removing. COUNTS-P2 set the
+   precedent by adding four such fields. If you would rather the payload not
+   grow, dropping the two fields is a contained edit (the dataclass, two
+   assignments, the return, and three test assertions) and the mapping still
+   works; the cost is that the payload stops explaining itself.
+   `webapp/` is untouched here either way; the brief reserves the bump to you.
+2. **`texas_bank:debit` is the third member of the class and was NOT
+   promoted.** It is outside this cell's named populations, and an entry is
+   promoted by the cell that measured it — but the measurement is done and
+   sits here so the decision is one line rather than a re-derivation: 1
+   archive document, printed `Checks/Debits ( N )` beside a separate
+   `Service Charge` line, `stated_service_charge` 10.00, raw `+1`, **1 of 1
+   under the identical `plus_one_when_billed` mapping**. The document is
+   pinned corpus PASS and already `review` on
+   `missing_declared_statement_page`, so promoting it moves no outcome
+   either. The parser's own acceptance gate is
+   `debit_sum == debits + service_charge`, which is the same argument the
+   entry already makes in prose. One caveat worth your eye: a
+   one-document family is a mapping with no control arm at all — there is no
+   zero-charge texas_bank statement in the archive, so `+1 always` and
+   `+1 iff charged` are indistinguishable on it, exactly the §DB8 hazard. My
+   recommendation is to promote it in a later cell that can say that out
+   loud in the entry, not to fold it in here.
+3. **Two corrections to the `capital_one:debit` entry, both in place, both
+   named in the entry.** (a) §COUNTSP3 CP4.1's stale sentence — "12 of 12
+   capital_one documents disagree by EXACTLY +1" — was true of the
+   12-document population it was measured on and misleading about a family of
+   22 with a 10-document zero-charge control arm. (b) A sentence nobody had
+   ever measured: "its money is inside the printed debit TOTAL", which is
+   FALSE on 12 of 12 (CM3.0). Both were rewritten as part of rewriting the
+   entry this cell owns rather than left as somebody's future surprise. (b) is
+   the one worth a second look from you: it is a claim COUNTS-P1 made, P2 and
+   P3 both read past, and it argued the opposite of what the archive shows.
+4. **The pipeline call-site change is outside the handoff's ownership list,
+   and it is unavoidable.** The handoff names `reconcile.py` as the
+   application point, and `reconcile` cannot apply a per-parser mapping
+   without being told which parser claimed the document — `Statement` carries
+   no parser identity. The change is three lines (an import, the two call
+   sites, and one existing expression replaced by the shared helper it now
+   has to agree with). The alternative designs are worse and are recorded so
+   you can check the reasoning: applying the mapping in `pipeline` instead
+   leaves `reconcile` publishing a `matches` field that disagrees with the
+   flag (BOFA-COUNTS's exact defect), and deriving the mapping from the
+   statement alone would make the expected side depend on the rows.
+5. **The `rows.csv` `parser_id` hole is unchanged at v12** — still 119
+   distinct documents (110 validated / 6 review / 3 withheld), and in this
+   cell it hid 4 of the 22 `capital_one` documents and 1 of the 35
+   `first_citizens`, five of the six pinned candidate-family documents among
+   them. The DISCOVERY-OBS card in this batch is the fix; until it lands, any
+   cell measuring a family from `rows.csv` alone is measuring a subset and
+   will not know it.
+6. **`PRINTED_EVIDENCE_FIELDS` is one field long, and the next entrant is the
+   decision worth guarding.** Every name added there is a new way for the
+   expected side to move, so the allowlist is asserted against
+   `Statement.model_fields` and pins that nothing derived from `transactions`
+   can appear — but the judgement of whether a given printed field is
+   *independent enough* is not something a test can make. `stated_nsf_count`
+   and `stated_interest_paid` are the plausible next candidates and neither
+   has a measured need today.
+7. **The movement harness is reusable and is the piece worth keeping.** The
+   session scratchpad `countsmap/` holds `join.py` (the arithmetic
+   artifact join — `cache_key` → path, sqlite never opened),
+   `step1_identity.py` (the dispatch replay that closes the `parser_id` hole,
+   with its own fidelity check), `step2_families.py` / `step2b_rowclass.py`
+   (per-family counterfactuals and the row-class corroboration),
+   `step3_movement.py` (whole-archive before/after under two tables loaded
+   side by side, with the self-validation against the published flags),
+   `step4_tablediff.py` (by-value table diff + the pinned-manifest join) and
+   `step5_money.py` (the folded-vs-separate charge measurement). Any cell
+   promoting a count direction can point `step3` at its table and get flag
+   movers, outcome movers and the outcome split in one run. **One trap it
+   already fell into and now guards:** `subprocess.run(..., text=True)`
+   decodes `git show` with the system ANSI codepage on Windows, which mangles
+   every em dash in the reasons and made the first by-value table diff report
+   20 spurious drifted entries. `encoding="utf-8"` is mandatory, and a
+   table-diff that reports drift in entries you did not touch is that bug
+   until proven otherwise.
+8. **What a mapping still cannot express, stated so the limit is a fact
+   rather than a discovery.** `plus_one_when_billed` adds at most one row.
+   A bank printing TWO separately-billed fee rows against one printed
+   `Service Charges` total is `+2` and would flag a complete ledger; the tell
+   is a captured count exceeding `printed + 1` by exactly the extra rows, and
+   it is written into the `capital_one:debit` falsifier. No archive document
+   of either family does this. The remedy, if one appears, is a new rule in
+   `RULES` measured by the cell that finds it — not a callable.
+
+## CM12. Commits
+
+| Commit | Contents |
+|---|---|
+| `e198eb5` | the `mapping` schema, the reconcile application, the shared claim key, the observer at v4, both entries, both sides of the pinned set, the tests |
+| `38ec73b` | self-review: `RULES` derived from the arithmetic; the money-scope claim measured and corrected in both entries; the refund falsifier given its control |
+| `819bc40` | citation line numbers corrected in both entries (prose only) |
+| `7377c5f` | both mapped entries state that they are not restating an acceptance gate, and the falsifier test enumerates the mapped set |
+| `3411af2` | §COUNTSMAP — the measurement, the design argument and the proofs |
+| (this one) | adversarial-review closures D1–D4 and the framing correction |
+
+## CM13. Adversarial review — the closures
+
+Verdict: **SHIP**, with the pipeline exception ACCEPTED — the review proved
+the alternatives worse and the `by_bank_label` hazard live. D5, the
+`ANALYSIS_STAGE_VERSION` bump, is Ocean's at the train as planned. The other
+four findings and the framing correction are all documentation-grade, and all
+are closed; none moved a line of executable code, so the proof floor of CM10
+stands unchanged and the two owned test files plus the guards were re-run over
+the closures.
+
+**D1 — an off-by-one in the module's own prose.** `expected_count`'s docstring
+said the mapping is the identity for "30 of the 31" parsers in the table. It
+is 29 of 31: two are mapped. This log had it right and the module did not,
+which is the wrong way round for a table whose whole value is that a reviewer
+can read it. Corrected.
+
+**D2 — "57 documents" is the number this CELL can see, not the number the
+runner prints.** The `OBSERVER_VERSION = 4` note forecast the v3 → v4
+population shift as 57 documents leaving `semantics_incomparable`. That is the
+identity-complete figure, obtained here by replaying dispatch; the shipped
+runner reads `parser_id` off `rows.csv` and reports **52**, because the
+analysis-cache-hit hole hides 4 billed `capital_one` and 1 `first_citizens`.
+A forecast that no run can reproduce is a forecast that will be read as a bug
+in the runner. The note now carries both numbers, names DISCOVERY-OBS's
+projection as what closes the gap, and says which way the instrument is wrong:
+an unknown parser is never compared, so it under-reports and fails CLOSED.
+
+**D3 — the falsifier named the hazard and not the discriminator. The one that
+matters.** The `capital_one:debit` entry already disclosed that a billed cycle
+whose charge row was never recorded reads `captured == printed` and flags, and
+argued that this is a finding rather than a false positive. What it did not
+say is that a FUTURE LAYOUT FOLDING THE CHARGE INTO THE PRINTED COUNT presents
+the **identical observable** — same equality, same flag, complete ledger — so
+the entry as written gave a reader no way to tell its true positive from its
+false one.
+
+The discriminator is measured and this cell had already measured it: the MONEY
+scope. `_debit_coverage_target` (`analysis/reconcile.py:63-84`) fires only
+where `beginning + credits - printed debits` misses `ending` by the charge —
+only where the charge is OUTSIDE the printed total — and it fires on 12 of 12
+today. So: **flag + that adjustment firing = a ledger missing a row; flag +
+that adjustment silent = a folded layout, and this entry is wrong about the
+document.** Written into the entry, where the next person to see the flag will
+be reading.
+
+**D4 — "a refund is a CREDIT row" is true of at most one of the two parsers.**
+`_service_charge_posting` returns None on `charge <= 0`
+(`analysis/first_citizens.py:506-507`), so first_citizens emits **no row at
+all** for a refund; only `capital_one`, which reads detail rows, would post one
+— in whichever column the document printed it. The conclusion the sentence was
+supporting is unchanged (the DEBIT side gains nothing either way) and the
+sentence is now accurate about how. Recorded with it, since the same paragraph
+is where a reader checks the arithmetic: the test is `> 0`, not `>= 0.01`, so a
+printed sub-cent charge would adjust by one — immaterial, no bank in the
+archive prints one, and stated rather than guarded because the money
+tolerances belong to `analysis/reconcile.py`.
+
+**FRAMING — "closes a drift hazard rather than opening one" was self-serving.**
+Before this cell `reconcile` had no parser key, so there was no key to drift.
+Keying it is what creates the possibility of two derivations disagreeing;
+single-sourcing through `claiming_parser_id` closes the hazard the same commit
+opened. That is a good outcome and it is not a virtue, and CM5 now says so.
+The property survives on the test that asserts it, not on the intention.
