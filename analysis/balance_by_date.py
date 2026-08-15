@@ -301,6 +301,14 @@ def _grid_rows(body: str, kind: str, columns: int) -> list[tuple[str, float, str
     duplicate: a duplicated row keeps the balance chain closing only if its
     amount is zero, but it moves the COUNT, which is exactly the constraint
     this template prints and the reason the count is checked at all.
+
+    A row's description is the text between its own amount and the START OF
+    THE NEXT ROW ON THE SAME LINE, and deliberately no more.  This platform
+    prints a row's trailing reference number on the line BELOW it, in that
+    row's column - so the continuation lines of two side-by-side rows arrive
+    interleaved with no column boundary left in the text, and attributing one
+    to a row would be a guess with a plausible-looking result.  What is
+    published is what the row's own line printed.
     """
     pattern = _ROW_SERIAL_RE if kind == "serial" else _ROW_AMOUNT_RE
     rows: list[tuple[str, float, str]] = []
@@ -598,9 +606,9 @@ def _parse(text: str) -> Statement | None:
         if name == "balance by date":
             daily_rows.extend(rows)
             continue
-        sign = 1 if name in _CREDIT_SECTIONS else -1
         if name not in _CREDIT_SECTIONS and name not in _DEBIT_SECTIONS:
             return None
+        sign = 1 if name in _CREDIT_SECTIONS else -1
         for token, value, description in rows:
             day = _resolve(token, start=start, end=end)
             if day is None:
