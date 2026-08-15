@@ -606,13 +606,11 @@ def _described(
         if abs(_money(amount) - abs(posting.amount)) >= 0.005:
             return postings
         text = compact_whitespace(description)
+        # A COPY with one field replaced, not a rebuild: `Transaction` carries
+        # `running_balance` as well, and a rebuild naming four fields would
+        # silently drop a fifth the day this parser starts populating one.
         described.append(
-            Transaction(
-                date=posting.date,
-                description=text or posting.description,
-                amount=posting.amount,
-                direction=posting.direction,
-            )
+            posting.model_copy(update={"description": text or posting.description})
         )
     return described
 

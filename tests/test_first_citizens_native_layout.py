@@ -205,6 +205,42 @@ def test_a_wrapped_description_joins_its_own_row_even_when_it_carries_money():
     ]
 
 
+@pytest.mark.parametrize("rows_before", [1, 2])
+def test_a_lone_line_a_whole_blank_line_below_the_table_is_not_joined(rows_before):
+    """The pitch bound, both while it is seeded and after rows have set it.
+
+    A continuation prints on the NEXT printed line. Anything a blank line
+    further down is something else, and joining it would publish another row's
+    text — or a footnote — as this posting's description.
+    """
+    doc = fitz.open()
+    page = doc.new_page()
+    y = 60.0
+    page.insert_text((DATE_X, y), "Other Debits From Your Account", fontsize=FONT_SIZE)
+    y += 13.0
+    page.insert_text((DATE_X, y), "Date", fontsize=FONT_SIZE)
+    page.insert_text((DESC_X, y), "Description", fontsize=FONT_SIZE)
+    _right(page, y, "Amount")
+    y += 13.7
+    for index in range(rows_before):
+        page.insert_text((DATE_X, y), f"04-0{index + 2}", fontsize=FONT_SIZE)
+        page.insert_text((DESC_X, y - 1.3), f"Coast Payment 939{index}", fontsize=FONT_SIZE)
+        _right(page, y, "369.67")
+        y += ROW_PITCH
+    page.insert_text((DESC_X, y + ROW_PITCH), "Detached Footnote Line", fontsize=FONT_SIZE)
+    page.insert_textbox(fitz.Rect(DESC_X, 300, 560, 340), HEAD, fontsize=FONT_SIZE)
+    page.insert_textbox(
+        fitz.Rect(DATE_X, 700, 560, 780),
+        "Direct Customer Inquiry Calls To Personal 1-888-323-4732 " * 12,
+        fontsize=FONT_SIZE,
+    )
+    document = parse_native_first_citizens(doc.tobytes(), source_file="fc.pdf")
+    assert _rows(document) == [
+        f"FC_TX|Other Debits From Your Account|04-0{index + 2}|369.67|Coast Payment 939{index}"
+        for index in range(rows_before)
+    ]
+
+
 def test_a_wrapped_line_cannot_reach_past_the_printed_total():
     """`Total` prints a money cell of its own, so it is never a lone cell."""
     pdf = _statement_pdf(
