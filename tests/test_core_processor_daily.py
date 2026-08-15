@@ -8,6 +8,9 @@ rule.
 """
 from __future__ import annotations
 
+import re
+from datetime import date
+
 import pytest
 
 from analysis import b1, core_processor_daily as cpd, parser_registry as pr
@@ -344,8 +347,6 @@ def test_an_amount_whose_integer_part_is_not_ascii_is_invisible_not_zero():
     outcome test can separate the two digit CLASSES; the boundary is where the
     difference is real, so that is where it is pinned.
     """
-    import re
-
     scanned = "٢٥٠.00"
     assert re.fullmatch(r"\d[\d,]*\.\d{2}", scanned), "the token is digits to `\\d`"
     assert re.search(r"(?<![0-9A-Za-z.,/-])(\.[0-9]{2})(?![0-9.,])", " " + scanned), (
@@ -386,6 +387,22 @@ def test_the_cheque_section_reads_its_serial_from_the_text_before_the_row():
     assert statement is not None
     assert [(row.description, row.direction) for row in statement.transactions] == [
         ("Check 1001", "debit"), ("Deposit", "credit"),
+    ]
+
+
+def test_a_cheque_the_bank_printed_no_serial_for_does_not_borrow_the_last_one():
+    """The gap a serial is read from starts at the PREVIOUS ROW'S AMOUNT, not
+    at its date. A gap that still held `250.00` would hand `_SERIAL_RE` the
+    cents `00` and publish `Check 00` for a cheque the bank printed no serial
+    for — a number the statement does not carry, invented out of another
+    row's money."""
+    checks = ("CHECKS\nNumber Date Amount\n"
+              "1001 04-02 150.00\n"
+              "04-02 100.00\n")
+    statement = parse(document(debits=checks))
+    assert statement is not None
+    assert [row.description for row in statement.transactions] == [
+        "Check 1001", "Check", "Deposit",
     ]
 
 

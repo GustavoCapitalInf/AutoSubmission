@@ -295,8 +295,12 @@ _OVERRIDES: dict[str, dict] = {
     # which the general reader never looks for - so neither can shadow the
     # other by accident. The general reader also declines the running-balance
     # issue at parse, because that issue prints no `Total additions` summary,
-    # so the edge cannot strand a document either. The pinned corpus holds no
-    # document of this template.
+    # so the edge cannot strand a document either.
+    #
+    # The PINNED CORPUS holds all three, and the edge is load-bearing there:
+    # with it the claimant set is exactly `['b1']` on each; without it all
+    # three resolve `ambiguous` and the gate's per-document verdict check goes
+    # red. Measured both ways.
     "b1": {"band": 10, "supersedes": frozenset({"core_processor_daily"})},
     # BMO prints a second summary block; where the two disagree the document
     # contradicts itself. Registered here so the orchestrator never names BMO.

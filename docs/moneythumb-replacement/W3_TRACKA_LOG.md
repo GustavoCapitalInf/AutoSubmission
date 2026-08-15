@@ -21270,3 +21270,603 @@ synthetic registry, so they exercise the rule and not any bank's markers.
 | `5e82e18` | the crash arm of the equivalence proof (Ocean's addendum) and the prescan finding |
 | `095901d` | quiet-machine readings, the DT8 proof block, section renumbered DT to clear the earlier §D |
 | (this one) | adversarial-review closures: the interning guard and its conformance assertion, the corrected selection pass, the projection stated as a floor |
+
+# §LCPERIOD — the recall card that turned out to be a third core processor
+
+## L0. Summary
+
+The card (W3 §SCANB S9.9) named 22 documents that print the second core
+processor's period vocabulary in sentence case with long-form dates, and asked
+for the period grammar to be widened so `core_processor_sectioned` could reach
+them. **The characterization says they are not that template.** Twenty of the
+22 are one platform whose only resemblance to the sectioned template is the
+period SENTENCE; the other two are a third platform that merely prints the
+same six words. So this cell registers the platform rather than widening a
+grammar, and the issuer-specific reader that came first (`b1`) supersedes it —
+§JHA-CELL's pattern, a third template over.
+
+**20 documents print the template; 13 move `failed` to `validated`; nothing
+moves down.**
+
+| | before (base `b524f72`) | after |
+|---|---|---|
+| validated | 3 | **16** |
+| failed | 17 | **4** |
+| withheld | 0 | 0 |
+| review | 0 | 0 |
+
+All 13 are instrumented per document: both printed totals equal the published
+totals, the summary's own identity closes, the printed day count equals the
+span of the two printed dates, and the printed `DAILY BALANCES` grid agrees
+with the walked ledger on every day in both directions — including its
+pre-period cell, which is the platform's own second printing of the opening
+balance. **822 transactions** published across the 13.
+
+The 3 documents `b1` already reads are **3/3 byte-identical**, and so are all
+39 documents of the §SCANB sectioned family: **0 of 42 rows differ** in the
+full published payload.
+
+## L1. The instrument
+
+Every figure below comes from replaying the archive markdown through the real
+pipeline (`analyze_markdown(parse_mode="deterministic")` +
+`telemetry.record.classify_outcome`, the discovery runner's own call), with
+the documents resolved from the D-3 OCR artifact store **by direct file path**
+— the sqlite index was never opened, and the archive and the caches were never
+written to.
+
+Population re-derived from the artifact STORE, never from `rows.csv`: all
+10,246 OCR artifacts were read, each payload envelope's own `input_sha256`
+taken as the document identity, and the longest OFFLINE text kept (224
+artifacts hold `document: null` — negative-cache entries — and are skipped).
+**3,396 distinct documents have offline text**, which reproduces §SCANB S1's
+figure exactly. Model census of the artifacts kept: `native-pdf-text` 8,769,
+`native-pdf-text+wells` 672, `local-tesseract-ocr` 358, and four
+layout-specialised native rungs; no hosted model, $0.
+
+Base `b524f72` (v12, OCR v3, registry 71, suite 4,240). Branch base commit
+`e935f98`, which differs from `b524f72` only in `docs/agent-handoffs/`.
+
+## L2. The cohort, characterized before any code was written
+
+### L2.1 The census reproduces, and then splits
+
+Store-wide, `TOTAL DAYS IN STATEMENT PERIOD` occurs in 61 documents: 39 with
+the dated `mm/dd/yy THROUGH mm/dd/yy` form `core_processor_sectioned` requires
+(the §SCANB cohort, reproduced exactly) and **22 without**. That is the card's
+population, and it is not homogeneous:
+
+| | documents |
+|---|---|
+| `Last statement: <Month D, YYYY>` + `This statement:` + `Total days in statement period: N` | **20** |
+| `Total Days in Statement Period 31`, title case, no colon | 2 |
+
+The 2 are `8ABEE7F32EC60078` and `F8E3E2E9F78F76E8`. They print
+`Statement Period Start: May 1, 2026`, an `Account Summary` block, `Beginning
+Balance as of 05/31/2026` and parenthesised counts (`+ Deposits and Credits
+(31) $80,351.88`) — a different platform that shares six words and no
+grammar. They are **out of this cell's population**, named here and carded at
+L7. Neither is claimed by the new registration; a conformance test pins that.
+
+### L2.2 The 20 share the period sentence and nothing else
+
+Measured against the sectioned template, printing by printing:
+
+| printing | `core_processor_sectioned` | this template |
+|---|---|---|
+| period | `TOTAL DAYS IN STATEMENT PERIOD 03/31/26 THROUGH 04/30/26: 30` | `Last statement: March 31, 2026` / `This statement: April 30, 2026` / `Total days in statement period: 30` |
+| counts | `16 CREDITS <total>`, `M DEBITS <total>` | **none printed at all** |
+| totals | inside the count rows | `Total additions` / `Total subtractions` |
+| opening/closing | `LAST STATEMENT mm/dd/yy <fig>` / `THIS STATEMENT mm/dd/yy <fig>` | `Beginning balance $<fig>` / `Ending balance $<fig>` |
+| statistics | `MINIMUM BALANCE`, `AVG AVAILABLE BALANCE`, `AVERAGE BALANCE` | `Low balance`, `Average balance`, `Avg collected balance`, `Interest paid year to date` |
+| account | `<PRODUCT> ACCOUNT <number>` | `Account number <number> [Enclosures N]` |
+| sections | `DEPOSITS` `OTHER CREDITS` `OTHER DEBITS` `CHECKS` | `DEBITS` `CREDITS` `CHECKS` |
+| grid | `DAILY BALANCE`, in-period days only | `DAILY BALANCES`, opening on the day BEFORE the period |
+| row date | `m/d` | `mm-dd` |
+| trailing blocks | none named | `OVERDRAFT/RETURN ITEM FEES`, `INTEREST INFORMATION` |
+| issuer | the institution slot, bounded on both sides by `PAGE:` | no institution field (L4) |
+| contact furniture | `TELEPHONE:` | `Direct inquiries to:` |
+
+Not one grammar is shared. Structural probes over the 20 confirm it as a
+population rather than as an impression: **0 of 20** print `AVG AVAILABLE
+BALANCE`, **0 of 20** print `PAGE:` or `TELEPHONE:`, **0 of 20** print a
+`N CREDITS` count row, **0 of 20** print `DEPOSITS`, `OTHER CREDITS` or
+`OTHER DEBITS`.
+
+### L2.3 What widening the period grammar would have done
+
+`core_processor_sectioned`'s two required markers are its period line and the
+substring pair `LAST STATEMENT` / `THIS STATEMENT`, tested against
+upper-cased text. **`Last statement:` upper-cases to a string containing
+`LAST STATEMENT`**, so the second marker already fires on all 20. Widening the
+first would have made that module claim all 20 and then decline all 20 at
+`parse` — its summary strip, its account heading and its section names are all
+absent — which is a detector that lies, and 20 documents added to the
+`attempted` population of a reader that cannot read them.
+
+And three of the 20 are `b1`'s, already `validated`. A second claim on them
+resolves `ambiguous`, which routes them to review: **the recall card would
+have regressed three documents.** That is the measurement that decided the
+shape of this cell.
+
+### L2.4 The two printed issues, and the issuers
+
+| issuer, read from the document | documents | printed issue |
+|---|---|---|
+| Enterprise Bank & Trust | 8 | sectioned |
+| Lake City Bank | 5 | sectioned |
+| El Dorado Savings Bank | 4 | sectioned |
+| B1Bank | 3 | running balance (`DAILY ACTIVITY` + `Ending totals`) |
+
+Four unrelated institutions in four states printing byte-identical furniture:
+a core processor's template, on the same evidence that made
+`community_section` and `core_processor_sectioned` platform registrations
+rather than bank ones. 16 documents are digital, 4 are `local-tesseract-ocr`
+scans; 137 pages; every document prints exactly ONE account, so this template
+costs nothing to L-1.
+
+`analysis/b1.py` is the issuer-specific reader of the running-balance issue —
+it hard-requires the string `B1Bank`, and publishes `bank="B1Bank"` and
+`account_name="Essential Business Checking"` as constants. It came first, so
+it supersedes the general reader, exactly as `first_farmers` supersedes
+`core_processor_sectioned`.
+
+### L2.5 The wider family, named but not claimed
+
+Probing the platform's other furniture across the store finds three sibling
+groups this cell does NOT reach, each carded at L7:
+
+* **8 documents** printing `Page 1 (0) Account #: 23980762`, `Contact us:`,
+  `This statement: <long date>` and a `DAILY BALANCES` grid with `m-d` cells —
+  the same processor under a different masthead arrangement, with **no
+  `Total days` line at all**. All 8 unclaimed today;
+* **5 documents** printing the running-balance issue's `Ending totals` row
+  without this cell's period sentence (one of them a Community Trust Bank scan
+  carrying `Direct inquiries to:`);
+* the 2 title-case documents of L2.1.
+
+They are named so the recall on this platform is a known quantity rather than
+a surprise for whoever measures it next.
+
+## L3. What a document has to prove
+
+This platform prints **no transaction count**, so §SCANB's first gate does not
+exist here. What it prints instead is a grid that OPENS on the opening
+balance, and that is the stronger evidence: a dropped row moves its direction's
+total AND every grid day after it, where a count check sees only the count.
+
+Five printings, all of them, exactly:
+
+1. the row total in each direction equals the printed total;
+2. `beginning + additions - subtractions == ending`, the summary's own
+   identity, checked against the printed closing balance;
+3. the grid's PRE-PERIOD cell equals the printed beginning balance;
+4. every in-period day of the grid equals the walked end-of-day balance, **and**
+   every day the ledger posts on appears in the grid;
+5. the printed day count equals the span the two printed statement dates
+   describe — the period opens the day AFTER the last statement closed, which
+   the grid's first cell independently confirms on every document.
+
+Of the five, (1), (3), (4) and (5) are independent printings; (2) is a
+function of figures (1) already checked. The grid is **REQUIRED**, unlike on
+the sectioned template where it sits on top of two printed counts.
+
+**Free evidence, deliberately not gated.** The bank prints `Average balance`
+on 5 of the 13 publishers, and the platform's computed ADB agrees with it to
+within a rounding convention every time:
+
+```
+computed ADB vs printed Average balance, the 5 that print one
+  5DADFE8416F942AD     442.54  vs      442.86   (-0.32)
+  7370DF5A42DF71E6  12,992.26  vs   12,992.17   (+0.09)
+  79ACCAA2AD709795     491.82  vs      492.11   (-0.29)
+  C505452E7046B8E0     539.58  vs      539.87   (-0.29)
+  F5ED552BE8CF348F     997.44  vs      997.73   (-0.29)
+```
+
+**`Low balance` is NOT the grid's minimum, and is therefore not usable as a
+sixth gate.** It agrees exactly on 3 of the 5 (`-387.40`, `19.53`,
+`-1,096.74`) and disagrees on the other two — `79ACCAA2AD709795` prints
+`-201.46` where the grid's lowest day is `-210.46`, and `7370DF5A42DF71E6`
+prints `837.29` where the grid's lowest is `840.07`. It is an
+available/collected-balance statistic, not a ledger one. Measured rather than
+assumed, and left alone.
+
+**The gate set's blind spot, named rather than left to be found.** Move value
+between two rows that share a date AND a direction and all five printings
+still hold. So does splitting one row into two on the same day and direction —
+which a printed count WOULD catch, and this platform prints none. Both are
+FORGERY signatures rather than OCR ones: a scan drops a row or mangles a
+digit, which moves a total and every grid day after it, and does exactly that
+on all four of the archive's refusing scans. Pinned as
+`test_the_gates_are_blind_to_a_same_day_same_direction_redistribution`.
+
+## L4. The issuer: this template does not print one
+
+**`Statement.bank` is None on every document this reader publishes**, and that
+is the SCAN-B hardening applied rather than a shortcut. The hardening is that
+an issuer is published only from an arrangement in which the TEMPLATE bounds
+the name on both sides, attested and fixtured. This template offers two
+candidate fields and neither is one.
+
+**The masthead line** prints the institution and then its address, with
+nothing between them:
+
+```
+Direct inquiries to: 833-896-2850
+Enterprise Bank & Trust PO Box 66940 St Louis MO 63166
+```
+
+Left edge only — §SCANB S3's refused arrangement exactly. A digit rule ends
+`El Dorado Savings Bank 4040 El Dorado Road` in the right place and
+`Enterprise Bank & Trust PO Box 66940` in the wrong one, and which it is
+depends on which word of the address happens to carry the first digit. Worse
+here than there: Lake City Bank prints the HOLDER's address block between the
+contact field and its own, so the line is not even positionally stable.
+
+**The closing courtesy sentence** is genuinely bounded on both sides — by the
+template's own phrase on the left and the end of the line on the right — and
+on the 17 sectioned documents it yields a clean name every time (Enterprise
+Bank & Trust 8, Lake City Bank 5, El Dorado Savings Bank 4; the 3 B1Bank
+documents yield the four-fold repeat the text layer prints). It was still
+rejected, because a bound is not a role. Measured over the store, the same
+full-line sentence yields:
+
+```
+   31  'us.'
+    8  'Orange CO Airport Office'   <- a BRANCH, on this platform's own sibling arrangement
+    4  'Simmons Bank. Thank you for banking with Simmons Bank. ...'
+    2  'Wells Fargo.'
+    2  'Farmers & Merchants Bank.'
+    1  'United!'
+```
+
+A slot that names a branch office on a sibling layout is prose the issuer
+chose, not a field the template reserves. Reading it would publish a wrong
+name for a real bank, and a wrong name is worse than no name.
+
+So `bank=None`, under the honest-unknown-issuer ruling of 2026-08-14. It costs
+17 documents a label and no document its figures. Pinned as
+`test_the_issuer_is_never_published_even_when_the_document_names_one`, and by
+a mutant that reads the courtesy line and is killed.
+
+**`account_name` is published only where the printing is unambiguous.** The
+product name sits on its own line above the account field. On some documents
+this text layer emits that line FOUR times over — fill, stroke and two shadows
+of one printed string, which is also why the holder block above it reads
+`RABBIT TWISTER HOLDINGS, LLC` four times. Publishing `Checking For Small
+Business Checking For Small Business Checking For Small Business Checking For
+Small Business` publishes a name no statement carries; collapsing it is a
+REPAIR. So a line that is one token sequence repeated is declined and a line
+printed once is published as printed: 8 of the 13 publishers name their
+product (`Optima Business`, `Bb Enhanced Checking`), 5 publish None. A
+whole-line rule, not a repeated-word one — `Business Business Checking` would
+publish.
+
+## L5. Three defects found before merge, and what was done about them
+
+### L5.1 The calendar-literal guard reads docstrings
+
+`test_no_literal_calendar_fields_in_patterns` scans every string literal
+containing an escaped `d` or `s`, and the module docstring quoted the escape
+sequence while ALSO quoting real printed rows (`04-02`, `04-01-26`) as
+evidence. The docstring now names the class in prose instead. The examples
+stay: they are the evidence for the boundary rule, and the guard's own
+docstring says it finds pinned calendar fields inside PATTERNS.
+
+### L5.2 The clone guard was right, and the fix is a shared helper
+
+`test_no_two_functions_in_analysis_share_a_body` found two functions
+byte-identical between this module and `core_processor_sectioned`: `_once`
+(read a summary row exactly once, decline a contradicted one) and `_sections`
+(split a document into the runs of its own headings). Both are text-shape
+utilities with the patterns supplied by the caller, so they were lifted to
+`analysis/tables.py` as `unique_match` and `section_runs`, beside
+`unique_line` (the same discipline over LINES) and `section_between`.
+
+**Proven pure**, in its own commit `31cfda3` before the registration landed:
+the 42-document family that reads through them — the 39 sectioned-template
+documents plus `b1`'s 3 — is byte-identical in its full published payload,
+**0 of 42 rows differing**, and the store-wide dispatch sweep is unchanged.
+Six new unit tests, and two mutants aimed at the lifted bodies, both killed.
+
+### L5.3 A latent defect the review of my own code found
+
+The cheque section prints `<serial> <date> <amount>` and the serial is read
+from the text before the row. The first form of `_rows` started that text at
+the previous row's DATE, so it still held the previous row's amount — and
+`_SERIAL_RE`, which anchors at the end, would hand back that amount's cents.
+A cheque the bank printed no serial for would have published `Check 00`: a
+number the statement does not carry, invented out of another row's money.
+
+The gap now starts at the previous row's AMOUNT, which is the form §SCANB
+uses. No archive document was affected — all 13 published payloads are
+byte-identical before and after the fix, and the archive's one cheque row is
+serialled — so this is a latent defect closed rather than a movement. Pinned
+as `test_a_cheque_the_bank_printed_no_serial_for_does_not_borrow_the_last_one`,
+and the old form is killed by it.
+
+## L6. Two corrections to §SCANB's glyph rationale
+
+### L6.1 The ASCII digit class is a conservatism, not the guard S5 credits
+
+§SCANB S5 says a Unicode-aware digit class "publishes a figure the bank never
+printed" because it admits digits from other scripts. Measured: it does admit
+them, and Python's `int()` and `float()` then map every one of them to its own
+numeric value — `float` of the Arabic-Indic spelling of `250.00` is `250.0`,
+`int` of the Arabic-Indic `24` is `24`. So a Unicode-class grammar reads the
+look-alike as the figure the bank printed and publishes exactly what the ASCII
+grammar publishes. **No outcome test can separate the two classes**, and the
+mutation harness confirms it: swapping `[0-9]` for the Unicode class in this
+module's row date is the one mutant the cell's tests could not kill by
+outcome.
+
+The class is kept — refusing an unexpected glyph is the right default for a
+reader whose job is to publish only what it can read — and it is now described
+accurately rather than credited with work it does not do. What the archive's
+scans really substitute is LETTERS (`o` for a leading zero, a Cyrillic `Е`
+inside `DATE`), and both classes refuse those.
+
+### L6.2 The figure the bank never printed comes from the BOUNDARY
+
+Chasing L6.1 found the real hole. With §SCANB's boundary class
+`(?<![0-9A-Za-z.,/])`, an amount whose integer part a scan rendered in another
+script matches the BARE sub-dollar alternative `.00`, because the character
+before the dot is not in the class. The reader publishes **0.00 where the bank
+printed 250.00**: precisely the failure the digit class is supposed to
+prevent, arriving through the boundary instead.
+
+This module's boundary classes are word-character classes for that reason.
+Over the store both forms publish the identical 13 documents, so the stronger
+one costs nothing. Pinned as
+`test_an_amount_whose_integer_part_is_not_ascii_is_invisible_not_zero`, which
+asserts the ASCII form's hole directly so the test cannot rot into a
+tautology, and by two mutants that narrow the boundaries back to ASCII.
+
+**`core_processor_sectioned` carries the same exposure.** It is gated rather
+than open — such a figure breaks a printed total and the document refuses —
+and it belongs to a shipped module this cell has no mandate to re-prove, so it
+is carded at L7 rather than changed here.
+
+## L7. Carried findings and questions for Ocean
+
+**L7.1 — the card asked for a period grammar; the cell delivered a
+registration.** The correction is load-bearing rather than stylistic: widening
+`_PERIOD_RE` would have regressed three validated documents to review (L2.3).
+**Ruling wanted only if Ocean disagrees with the characterization**; the table
+in L2.2 is the whole argument.
+
+**L7.2 — the two title-case documents are unresolved.** `8ABEE7F32EC60078`
+and `F8E3E2E9F78F76E8` print a `Statement Period Start:` layout with
+parenthesised counts and an `Account Summary` block. They are a different
+platform, they are `failed` today, and they are not this cell's population.
+Carded as a two-document layout.
+
+**L7.3 — the platform's sibling arrangements, 13 more documents, and the 8
+are worth a card of their own.** Measured rather than guessed: all 8 of the
+`Account #:` / `Contact us:` documents print `This statement:` and
+`Last statement:` in this cell's long-form sentence case, print `DEBITS`,
+`CREDITS` and `DAILY BALANCES`, and print NONE of `Total days in statement
+period`, `Total additions`, `Total subtractions`, `Beginning balance $` or
+`Ending balance $`. Their summary is a different one entirely — a counted
+partition:
+
+```
+Account Summary
+Beginning balance (1/30/2026)   $14,367.54
+Credits   Deposits (0) + 0.00  Electronic cr (2) + 9,372.24  Other credits (0) + 0.00
+Total credits                  +$9,372.24
+Debits    Checks paid (0) - 0.00  Electronic db (22) - 5,655.95  Other debits (0) - 0.00
+Total debits                   - $5,655.95
+Ending balance (2/27/2026)      $18,083.83
+```
+
+Their sections are `ELECTRONIC CREDITS` / `ELECTRONIC DEBITS` and their rows
+are `m-d`. So this is not "add a period marker": it is a fourth summary
+grammar. It is also the RICHEST oracle of the three templates — printed COUNTS
+per category, printed totals, dated balances AND a daily grid — on 8 unclaimed
+documents, which makes it a better next card than anything else this cell
+found. The remaining 5 are the running-balance issue without the period
+sentence.
+
+These are also where the branch-name evidence of L4 comes from: `Orange CO
+Airport Office` is what these documents print under `Contact us:` and in their
+closing courtesy sentence.
+
+**L7.4 — the grid is required, and that is a deliberate strictness.** Three of
+the four refusing scans print `DALY BALANCES` where the template prints
+`DAILY BALANCES`. With the grid optional they would still refuse — their
+ledgers are corrupted too — so the requirement costs nothing measurable today.
+It is named because on a platform with no printed count, two gates is not
+enough to publish on.
+
+**L7.5 — a negative sub-dollar balance is unreadable.** `_balance` pads the
+leading decimal before the sign is read, so a printed `$-.55` pads to nothing
+and is refused. No document in the store prints one (measured), and the
+refusal is fail-closed. The clean fix is a `LEADING_MINUS` variant that pads
+AFTER the sign, which belongs to `analysis/money.py` and therefore to MG-D's
+cell.
+
+**L7.6 — a trailing-minus section figure would be read as a positive
+magnitude.** The figure boundary excludes what may CONTINUE a number, not a
+trailing sign, so `250.00-` in the CREDITS column is captured as `250.00` and
+published as a credit. This template prints no trailing minus and no archive
+document carries one; if one appeared the totals gate would catch it, because
+a sign-flipped row misses its direction's total by twice its value. §SCANB
+carries the identical exposure. Named rather than closed, because closing it
+means diverging from the established form of the rule on a printing nobody has
+made.
+
+**L7.7 — `count_semantics` is deliberately not extended.** This registration
+publishes no `stated_credit_count` or `stated_debit_count` at all — the
+platform prints none — so the stated-count check has nothing to compare and
+the table's UNSURVEYED default is silent, which is correct. Recorded so the
+absence is a decision, as §SCANB S9.4 did for a different reason.
+
+**L7.8 — `stated_daily_balances` excludes the grid's pre-period cell.** It is
+a real printing and it IS used as a gate, but the field's contract is
+in-period snapshots and `analysis/adb.py` treats an out-of-period one as a
+defect of the statement (`bank_daily_balance_dates_valid`). Publishing it
+would have withheld all 13. Named because it is a silent-looking choice with a
+loud consequence.
+
+**L7.9 — the detect budget.** This registration adds two cheap required
+markers and one substring, with NO normalization (case is load-bearing), which
+is the cheapest shape a registration can have. Registry 71 to 72; the
+affordability test projects to `PLANNED_REGISTRATIONS=80` and is green on this
+tree.
+
+## L8. Proofs
+
+```
+# full default suite
+4308 passed, 34 skipped, 29 deselected in 331.30s          exit 0
+   (base b524f72: 4,240. +68 = this cell's 47, the shared helpers' 7,
+    and the 14 per-registration parametrizations a 72nd registration adds.)
+
+# this cell
+47 passed in 0.98s                                          exit 0
+
+# guards
+239 passed in 23.00s                                        exit 0
+   test_no_statement_hardcodes . test_no_parser_helper_clones .
+   test_r1_hardcodes . test_experiments_are_not_wired . test_filename_boundary
+
+# conformance cross-product + registry
+1096 passed, 34 skipped in 5.15s                            exit 0
+   test_parser_conformance (72 x 71 detection-negative) .
+   test_parser_registry_entries . test_parser_detection_markers .
+   test_parser_registry . test_parser_crash_shapes .
+   test_parser_exception_boundary . test_count_semantics
+
+# mutation harness (session scratchpad, not committed)
+19 mutants, 19 killed, 0 survivors                          exit 0
+
+# corpus gate (python corpus_gate.py), 1159.6s
+[PASS] balance_outcomes: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes:     106 pass, 3 withheld, same three statements
+[PASS] outcome_classes:  109 statements publish their pinned verdict
+                         (class + the whole integrity block):
+                         6 review / 100 validated / 3 withheld
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR, no live OCR, no model calls
+[PASS] exclusions: 0 named exclusions
+[PASS] oracle_independence
+Outcomes: 106 PASS / 3 WITHHELD
+RESULT: GREEN                                               exit 0
+
+# corpus-marked (pytest -m corpus), 2750.4s
+25 passed, 4345 deselected                                  exit 0
+   test_corpus_gate_is_green ·
+   test_corpus_gate_outcomes (all 8, incl. the per-document verdict check) ·
+   test_dry_run_reproduces_known_truth ·
+   test_no_corpus_document_is_left_unclaimed ·
+   test_no_corpus_document_is_ambiguous ·
+   test_no_corpus_document_resolves_to_the_wrong_parser ·
+   test_every_corpus_document_resolves_to_the_recorded_parser ·
+   test_the_recorded_parser_is_always_the_highest_ranked_claimant ·
+   test_detect_sweep_stays_affordable_for_the_discovery_run ·
+   test_the_detect_sweep_prepares_each_document_once ·
+   test_telemetry_reproduces_the_gate_outcome_split · and the rest
+```
+
+The corpus-marked slice above is the one figure not taken from the final tree:
+it started before L5.3's cheque-serial fix landed. It needs no re-run, and the
+reason is measured rather than argued. The fix is inside
+`core_processor_daily._rows`, which runs only when this registration WINS
+dispatch, and no pinned document reaches it: three of the 109 print this
+template (`Others/B1/`), and on all three the supersedes edge prunes this
+registration before any parse, leaving the claimant set exactly `['b1']`. The
+other 106 do not detect at all. Everything else changed since that run is a
+comment or a non-corpus test. (The slice is being re-run on the final tree for
+the record; this note stands whatever it returns, because the reachability
+argument is the load-bearing part.)
+
+Store-wide non-interference, all 3,396 documents with offline text, before
+(`b524f72`, extracted with `git archive`) and after:
+
+```
+DISPATCH OUTCOME transitions
+   2524  claimed   -> claimed
+    859  unclaimed -> unclaimed
+     13  unclaimed -> claimed
+
+ambiguous, before : 0      ambiguous, after : 0
+rows changed      : 17     all 17 named in L9
+statement digests identical : 3,383 / 3,396
+```
+
+## L9. Every document, named
+
+**The 13 that publish** (`failed` to `validated`, all `approved`, `bank=None`):
+
+| document | period | rows | beginning | ending | additions | subtractions | grid |
+|---|---|---|---|---|---|---|---|
+| `0853FD10760701AB` | 2026-04-01..04-30 | 4c/9d | 9,115.33 | -119.40 | 50,000.00 | 59,234.73 | 4 |
+| `1124CC1F5B9FC1E5` | 2026-06-01..06-30 | 22c/39d | -5,994.38 | 0.00 | 85,016.90 | 79,022.52 | 20 |
+| `196670833C6CA142` | 2026-03-01..03-31 | 11c/11d | 2,651.18 | 9,115.33 | 52,844.50 | 46,380.35 | 14 |
+| `5DADFE8416F942AD` | 2026-02-01..02-28 | 16c/53d | -210.46 | 464.66 | 10,716.31 | 10,041.19 | 19 |
+| `7370DF5A42DF71E6` | 2026-04-16..05-15 | 16c/105d | 4,567.38 | 840.07 | 285,548.78 | 289,276.09 | 22 |
+| `79ACCAA2AD709795` | 2026-01-01..01-31 | 9c/67d | 1,025.75 | -210.46 | 4,325.23 | 5,561.44 | 20 |
+| `7F24930F43E68918` | 2026-04-01..04-30 | 23c/32d | 58.48 | 5,826.39 | 117,643.29 | 111,875.38 | 21 |
+| `8B7B23BAD5394FE7` | 2026-05-01..05-31 | 12c/18d | -119.40 | 9,527.27 | 79,719.47 | 70,072.80 | 9 |
+| `9219F4C6288CA716` | 2026-05-01..05-31 | 20c/39d | 5,826.39 | -5,994.38 | 106,519.30 | 118,340.07 | 19 |
+| `A600AF7F3179021D` | 2026-03-01..03-31 | 21c/36d | -3,102.88 | 58.48 | 180,136.23 | 176,974.87 | 20 |
+| `BF1C4310EDCCD4F2` | 2026-06-01..06-30 | 15c/25d | 9,527.27 | -192.02 | 97,950.75 | 107,670.04 | 15 |
+| `C505452E7046B8E0` | 2025-12-01..12-31 | 4c/55d | 1,544.53 | 1,025.75 | 4,161.25 | 4,680.03 | 13 |
+| `F5ED552BE8CF348F` | 2026-03-01..03-31 | 23c/137d | 464.66 | 766.43 | 18,909.78 | 18,608.01 | 22 |
+
+Several of the thirteen CHAIN: `196670833C6CA142` closes at 9,115.33 and
+`0853FD10760701AB` opens there; that one closes at -119.40 and
+`8B7B23BAD5394FE7` opens there, and again into `BF1C4310EDCCD4F2`. Four chain
+across the `XXXXXX6499` account and three across `0183025873`. No gate uses
+it, but it is a cross-document corroboration the archive happens to supply,
+and it holds everywhere it is available.
+
+**The 3 the supersedes edge protects** (unchanged, `b1`, `validated`):
+`038B262B334DC848` . `1C1DA63082C5D724` . `A1A46034B0194137`. Detection claims
+them — same platform, same period furniture — and `parse` declines, because
+the running-balance issue prints no `Total additions` summary. That is what
+makes the edge safe in the strong sense: it cannot strand a document.
+
+**All three are also in the PINNED corpus** (`Others/B1/`), which makes the
+edge load-bearing on the gate rather than only on the archive. Measured both
+ways: with the edge the claimant set is exactly `['b1']` on each of the three
+and the gate is GREEN with its verdicts unchanged; with the edge removed all
+three resolve `ambiguous`, which is `review`, which the gate's per-document
+verdict check — new in batch 4, and the thing PIPELINE-FIX-2 proved was
+missing — would show as red. This cell is the first to exercise that check as
+a live safety net rather than as a regression pin.
+
+**The 4 that refuse**, each with what the document did:
+
+| document | what refused it |
+|---|---|
+| `0FFA1DA3837F5518` | `04-07 Deposit, 01 5,000,00,` — the amount's decimal point scanned as a comma. Grid heading also scanned as `DALY BALANCES` |
+| `2FC2A756EE5A8C50` | same issuer, same two corruptions |
+| `790B4EA8224B8ADE` | same issuer, same two corruptions |
+| `DE92B503B2EFF9CB` | `$6.02 12-28 5:07 AM` — a card date the scan stripped to `mm-dd`, which the period cannot place. The boundary rule makes it a refusal instead of a December posting on a February statement |
+
+All four are `local-tesseract-ocr` scans of one issuer, and all four gain an
+`attempted` entry where they previously had an empty one — a telemetry
+improvement, not a movement.
+
+**The 2 outside the population**: `8ABEE7F32EC60078` and `F8E3E2E9F78F76E8`,
+unchanged and unclaimed (L2.1, L7.2).
+
+## L10. Commits
+
+| Commit | Contents |
+|---|---|
+| `31cfda3` | the shared-helper lift into `analysis/tables.py`, proven pure over the 42-document family |
+| `fd547c4` | `analysis/core_processor_daily.py`, the registration, the `b1` supersedes edge, 46 tests, the conformance fixture |
+| (this one) | §LCPERIOD L0–L10, the proof block, the cheque-serial fix of L5.3, and one CORRECTION to `fd547c4`'s message |
+
+**The correction, stated plainly rather than left in the history.**
+`fd547c4`'s message says "The pinned corpus holds no document of this
+template." It does: all three `Others/B1/` statements print it, which is
+better evidence than the message claimed and not worse — the edge is
+load-bearing on the GATE and not only on the archive (L9). The claim came
+from reasoning about the template rather than from measuring the manifest,
+which is the exact substitution this wave's process exists to catch; it was
+caught by measuring, before merge, and the code comment and the
+supersedes-map comment now carry the measured fact both ways.

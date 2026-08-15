@@ -275,8 +275,10 @@ def test_only_the_promoted_sub_dispatches_supersede_anything():
         # offline text) and named in the commit message: the general reader
         # detects exactly the 20 documents that print the template, of which
         # `b1` holds 3 — all three validated today. Without the edge those 3
-        # resolve `ambiguous`, which is a regression. The pinned corpus holds
-        # no document of this template.
+        # resolve `ambiguous`, which is a regression. All three are ALSO in the
+        # pinned corpus (`Others/B1/`), measured both ways: with the edge the
+        # claimant set is exactly `['b1']`, without it all three are
+        # `ambiguous` and the gate's per-document verdict check goes red.
         "b1": ["core_processor_daily"],
         "chase_export": ["chase"],
         # W3 §CHASE-CLOSURE: `chase` detects every Chase savings statement on

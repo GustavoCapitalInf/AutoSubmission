@@ -208,7 +208,7 @@ def _balance(value: str) -> float | None:
     unread: a negative sub-dollar balance (`$-.55`) pads to nothing and is
     refused. No document in the store prints one — measured — and the refusal
     is fail-closed, so it costs a document rather than publishing a wrong
-    figure. Carded at §LCPERIOD L7.
+    figure. Carded at §LCPERIOD L7.5.
     """
     return parse_amount(pad_leading_decimal(value), LEADING_MINUS)
 
@@ -244,7 +244,7 @@ _CONTACT_FIELD = "Direct inquiries to:"
 #: two required markers below are satisfied by exactly 20 documents, every one
 #: of them this platform, with no near miss — and by neither of the two
 #: documents that print `Total Days in Statement Period` in title case, which
-#: are a different platform entirely (§LCPERIOD L2.4).
+#: are a different platform entirely (§LCPERIOD L2.1).
 DETECTION_MARKERS = (
     required(
         "platform_period_endpoints",
@@ -450,12 +450,19 @@ def _summary(markdown: str) -> _Summary | None:
 # The ledger
 # ---------------------------------------------------------------------------
 
-#: A row of any section: the posting date, then — for the two described
-#: sections — the description the bank printed between the date and the
-#: amount, then the amount. Found as two tokens rather than as one pattern
-#: with the description inside it, because the description runs onto the lines
-#: BELOW the amount on most rows and a greedy pattern would swallow the next
-#: row.
+# A row of any section is a posting date, then — in the two described sections
+# — the description the bank printed between the date and the amount, then the
+# amount. `_rows` finds it as TWO tokens rather than as one pattern with the
+# description inside, because the description runs onto the lines BELOW the
+# amount on most rows and a greedy pattern would swallow the next row. It also
+# lets two rows share one line, which this platform prints
+# (`04-21 Withdrawal 3,000.00 04-21 ' Outgoing Wire-Olb 10,000.00`) and a
+# line-anchored pattern would silently halve.
+
+#: A cheque's serial number, at the end of the text printed BEFORE its row —
+#: the cheque section prints `<serial> <date> <amount>`, with nothing between
+#: the date and the amount to describe. The platform marks a break in the
+#: serial sequence with a trailing `*`.
 _SERIAL_RE = re.compile(r"(?<![0-9])([0-9]{2,8})\s*\*?\s*$")
 
 #: The ledger's sections, with the direction each one's rows are postings in —
@@ -500,6 +507,7 @@ def _rows(runs: list[str], *, credit: bool | None, start: date, end: date,
     rows: list[Transaction] = []
     for run in runs:
         dates = list(re.finditer(_DATE_TOKEN, run))
+        cursor = 0
         for index, found in enumerate(dates):
             stop = dates[index + 1].start() if index + 1 < len(dates) else len(run)
             after = run[found.end():stop]
@@ -510,9 +518,14 @@ def _rows(runs: list[str], *, credit: bool | None, start: date, end: date,
             amount = _magnitude(amount_at.group(1))
             if iso is None or amount is None:
                 return None
+            # Everything printed since the PREVIOUS row's amount, not since its
+            # date: the cheque section's serial is the last thing before this
+            # row's date, and a gap that still held the previous row's amount
+            # would offer `_SERIAL_RE` that amount's cents as a serial for a
+            # cheque the bank printed none for.
+            gap, cursor = run[cursor : found.start()], found.end() + amount_at.end()
             if credit is None:
-                previous = dates[index - 1].end() if index else 0
-                serial = _SERIAL_RE.search(_described(run[previous : found.start()]))
+                serial = _SERIAL_RE.search(_described(gap))
                 description = f"{default} {serial.group(1)}" if serial else default
             else:
                 description = _described(after[: amount_at.start()]) or default
