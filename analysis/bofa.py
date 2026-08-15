@@ -5,7 +5,7 @@ from datetime import date
 from typing import NamedTuple
 
 from .date_tokens import iso_or_none
-from .money import parse_money
+from .money import parse_money, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import table_rows, tables_after
@@ -338,11 +338,22 @@ def _parse_native_sections(text: str, only: frozenset[str] | None = None) -> lis
 
 
 def _native_money_after(text: str, label: str, *, absolute: bool = True) -> float | None:
+    """The amount printed after `label`, or None when the label is ABSENT.
+
+    The two Nones this returned used to mean opposite things. "The statement
+    prints no such line" is legitimate, and the callers' `or 0.0` is the right
+    arithmetic identity for a section that is not there — a statement with no
+    Checks line really does have zero checks. "The line IS there and the
+    grammar refused its amount" is a fail-open: a figure the bank printed,
+    published as 0.00, folded into `stated_total_debits`, and reconciled
+    against. Only the first is a None now; a refusal raises out of
+    `read_money`. (W3 §MG-C2.)
+    """
     m = re.search(label + r"\s+(-?\$?\s*[0-9][0-9,]*\.[0-9]{2})", text, re.IGNORECASE)
     if not m:
         return None
-    amount = _money(m.group(1))
-    if amount is None:
+    amount = read_money(m.group(1), _money)
+    if amount is None:  # pragma: no cover - the capture group is never blank
         return None
     return abs(amount) if absolute else amount
 
@@ -563,7 +574,7 @@ def parse_bofa_statement(markdown: str) -> Statement | None:
                 stmt.stated_debit_count = int(count.group(1))
             avg = re.search(r"Average ledger balance:\s*(\$?[\d,]+\.\d{2})", extra, re.IGNORECASE)
             if avg:
-                stmt.stated_average_balance = abs(parse_money(avg.group(1)) or 0.0)
+                stmt.stated_average_balance = abs(read_money(avg.group(1)) or 0.0)
     elif not _parse_native_summary(text, stmt):
         return None
 
@@ -589,11 +600,19 @@ def repair_bofa_summary(markdown: str, stmt: Statement) -> Statement:
         return stmt
 
     def money_after(label: str, *, absolute: bool = True) -> float | None:
+        """The amount after `label`, or None when the label is ABSENT.
+
+        The same absence-is-not-refusal separation as `_native_money_after`
+        above: this reader's None means the summary does not print the line,
+        which is what makes the `checks or 0.0` / `service or 0.0` identities
+        below correct. A line that IS printed and whose amount the grammar
+        refuses raises instead of being folded in as zero. (W3 §MG-C2.)
+        """
         m = re.search(label + r"\s+(-?\$?[\d,]+\.\d{2})", text, re.IGNORECASE)
         if not m:
             return None
-        amount = parse_money(m.group(1))
-        if amount is None:
+        amount = read_money(m.group(1))
+        if amount is None:  # pragma: no cover - the capture group is never blank
             return None
         return abs(amount) if absolute else amount
 

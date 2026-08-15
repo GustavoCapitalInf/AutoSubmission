@@ -4,7 +4,7 @@ import re
 from datetime import date
 
 from .date_tokens import iso_from_month_day, period_from_long_dates
-from .money import MINUS_CLASS, parse_digit_scrubbed
+from .money import MINUS_CLASS, parse_digit_scrubbed, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import clean_cell, compact_whitespace, group_rows, table_rows, tables_after
@@ -300,7 +300,7 @@ def _row_amount(lines: list[str]) -> tuple[float, int, int] | None:
     for index, line in enumerate(lines[1:], start=1):
         match = _AMOUNT_CELL_RE.match(line)
         if match:
-            return _money(match.group(1)) or 0.0, index, match.start(1)
+            return read_money(match.group(1), _money) or 0.0, index, match.start(1)
     for index, line in enumerate(lines):
         match = _AMOUNT_AT_LINE_END_RE.search(line)
         if match:
@@ -469,7 +469,7 @@ def _parse_native_summary(text: str, stmt: Statement) -> bool:
         stmt.ending_balance = _money(ending.group(1))
     if deposits:
         stmt.stated_credit_count = int(deposits.group(1))
-        stmt.stated_total_credits = abs(_money(deposits.group(2)) or 0.0)
+        stmt.stated_total_credits = abs(read_money(deposits.group(2), _money) or 0.0)
 
     debit_total = 0.0
     debit_count = 0
@@ -478,7 +478,7 @@ def _parse_native_summary(text: str, stmt: Statement) -> bool:
         if not m:
             continue
         debit_count += int(m.group(1))
-        amount = abs(_money(m.group(2)) or 0.0)
+        amount = abs(read_money(m.group(2), _money) or 0.0)
         debit_total += amount
         if label == "Fees":
             stmt.stated_service_charge = amount

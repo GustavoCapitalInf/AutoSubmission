@@ -1077,3 +1077,124 @@ def test_minus_class_is_the_fragment_consumers_embed():
     assert re.fullmatch(m.MINUS_CLASS, MINUS)
     assert re.fullmatch(m.MINUS_CLASS, NDASH)
     assert not re.fullmatch(m.MINUS_CLASS, "—")  # em dash is not a minus
+
+
+# ===========================================================================
+# W3 §MG-C2 — read_money: absence is not a refusal
+# ===========================================================================
+
+
+def test_read_money_returns_none_when_there_was_no_token_at_all():
+    """Absence is legitimate and must stay expressible. A statement that does
+    not print a Checks line really does have zero checks, and its caller's
+    `or 0.0` is the right arithmetic identity — so absence may not raise."""
+    assert m.read_money(None) is None
+    assert m.read_money("") is None
+    assert m.read_money("   ") is None
+    assert m.read_money("\t\n") is None
+
+
+@pytest.mark.parametrize(
+    "token, expected",
+    [
+        ("$1,234.56", 1234.56),
+        ("-$1,234.56", -1234.56),
+        (f"{MINUS}$1,234.56", -1234.56),
+        ("$0.00", 0.0),
+        (".56", 0.56),
+        ("1234.56-", -1234.56),
+    ],
+)
+def test_read_money_passes_a_readable_token_through_unchanged(token, expected):
+    """The checked wrapper is not a second grammar: whatever `parse_money`
+    reads, it returns, including a genuine printed zero."""
+    assert m.read_money(token) == expected
+    assert m.read_money(token) == m.parse_money(token)
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        "34.9",                     # §MG3 one decimal place is not money
+        "1.2.3",                    # §MG3 dot-adjacent
+        "0.000668276",              # §MG3 four or more decimals (an FX factor)
+        "1" * 14 + ".00",           # §MG4 past MAX_INTEGER_DIGITS
+        "no digits here",
+    ],
+)
+def test_read_money_raises_on_a_token_the_grammar_refuses(token):
+    """The whole point. Every one of these returns None from `parse_money`,
+    and under `parse_money(x) or 0.0` every one of them published 0.00 — a
+    figure the bank printed replaced by one it did not. §MG3 and §MG4 widened
+    this refusal set deliberately; each addition needed this to be a raise."""
+    assert m.parse_money(token) is None
+    with pytest.raises(ValueError, match="refused a printed token"):
+        m.read_money(token)
+
+
+def test_read_money_names_the_token_it_refused():
+    """A refusal that does not say what it refused costs an OCR round trip to
+    diagnose. The message carries the token verbatim."""
+    with pytest.raises(ValueError, match=r"refused a printed token: '34\.9'"):
+        m.read_money("34.9")
+
+
+def test_read_money_uses_the_callers_own_reader():
+    """The grammar is shared but the FORMAT is local, so a parser that anchors
+    with its own guard hands that reader over rather than reimplementing the
+    absence/refusal split. Here the caller's reader refuses what the shared
+    one would happily read."""
+    refuse_everything = lambda token: None            # noqa: E731
+    with pytest.raises(ValueError, match="refused a printed token"):
+        m.read_money("$1,234.56", refuse_everything)
+    assert m.read_money("$1,234.56") == 1234.56       # the shared reader still reads it
+
+
+def test_read_money_absence_short_circuits_before_the_reader_runs():
+    """An absent token must not reach the reader at all: a reader that raises
+    on garbage would otherwise turn a legitimately absent field into an
+    error."""
+    calls = []
+
+    def recording(token):
+        calls.append(token)
+        raise AssertionError("the reader must not be called for an absent token")
+
+    assert m.read_money(None, recording) is None
+    assert m.read_money("  ", recording) is None
+    assert calls == []
+
+
+def test_a_money_token_may_not_begin_part_way_through_a_reference_number():
+    """The left digit boundary, pinned because a sibling grammar lacked it.
+
+    W3 §UNKNOWN-ISSUER hit this in a parser-local French grammar: with no
+    left boundary, `…D77100000001337 150,00` matched from part-way inside the
+    reference number and read `337 150,00` — a fabricated $337,150.00 debit
+    out of a $150.00 one. The shared grammar's `(?<![\d.])` is what stops the
+    same class here, and it is asserted rather than assumed.
+
+    Note what this does NOT promise. `parse_money` SEARCHES, so a caller that
+    hands it a whole LINE still gets the line's first money-shaped token,
+    reference numbers included (§MG8 finding 3, out of scope by brief). The
+    boundary guarantees a token is never read starting mid-number; it cannot
+    guarantee the token found is the one the caller meant. Callers must pass
+    a cell.
+    """
+    # The 14-digit run is past MAX_INTEGER_DIGITS and no sub-run of it may be
+    # entered part-way, so the reference number is skipped entirely.
+    assert m.parse_money("D77100000001337 150.00") == 150.0
+    assert m.parse_money_tokens("D77100000001337 150.00") == [150.0]
+
+    # No thousands group is ever welded across the boundary.
+    assert m.parse_money("REF1337 150.00") != 1337150.0
+    assert m.parse_money("1,337,150.00") == 1337150.0
+
+    # The boundary is a property of the pattern, not of these examples.
+    assert m._TOKEN_RE.pattern.startswith(r"(?<![\d.])")
+    for text in ("1234567", "99.99", "1.2.3"):
+        for start in range(1, len(text)):
+            match = m._TOKEN_RE.search(text)
+            assert match is None or match.start() == 0, (
+                f"{text!r} was entered at offset {match.start()}"
+            )

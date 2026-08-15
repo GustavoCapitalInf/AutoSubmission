@@ -70,7 +70,7 @@ from __future__ import annotations
 import re
 
 from .date_tokens import iso_from_month_day, period_from_long_dates
-from .money import parse_digit_scrubbed
+from .money import parse_digit_scrubbed, read_money
 from .parser_registry import excluding, make_detector, required
 from .schema import Statement, Transaction
 from .tables import compact_whitespace, group_rows
@@ -200,7 +200,7 @@ def _read_summary(summary: str, stmt: Statement) -> bool:
     )
     if deposits:
         stmt.stated_credit_count = int(deposits.group(1))
-        stmt.stated_total_credits = abs(_money(deposits.group(2)) or 0.0)
+        stmt.stated_total_credits = abs(read_money(deposits.group(2), _money) or 0.0)
 
     debit_total = 0.0
     debit_count = 0
@@ -209,7 +209,7 @@ def _read_summary(summary: str, stmt: Statement) -> bool:
         if not row:
             continue
         debit_count += int(row.group(1))
-        amount = abs(_money(row.group(2)) or 0.0)
+        amount = abs(read_money(row.group(2), _money) or 0.0)
         debit_total += amount
         if label == "Fees":
             stmt.stated_service_charge = amount
@@ -220,7 +220,7 @@ def _read_summary(summary: str, stmt: Statement) -> bool:
         rf"Interest Paid This Period\s+({_SUMMARY_AMOUNT})", summary, re.IGNORECASE
     )
     if interest:
-        stmt.stated_interest_paid = abs(_money(interest.group(1)) or 0.0)
+        stmt.stated_interest_paid = abs(read_money(interest.group(1), _money) or 0.0)
 
     return stmt.beginning_balance is not None and stmt.ending_balance is not None
 

@@ -5,7 +5,7 @@ from datetime import date
 from html import unescape
 
 from .date_tokens import iso_from_month_day_strict, period_from_long_dates
-from .money import parse_money
+from .money import parse_money, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import TAG_RE, table_rows, tables_after
@@ -26,7 +26,7 @@ def _money(value: str) -> float | None:
     if not re.search(r"\d+(?:\.\d{2})?", text):
         return None
     neg = text.endswith("-") or text.startswith("-")
-    amount = abs(parse_money(re.sub(r"[^0-9,.-]", "", text)) or 0.0)
+    amount = abs(read_money(re.sub(r"[^0-9,.-]", "", text)) or 0.0)
     return -amount if neg else amount
 
 
@@ -216,7 +216,7 @@ def parse_regions_statement(markdown: str) -> Statement | None:
         elif "ending balance" in label:
             stmt.ending_balance = amount
         if len(cells) >= 4 and "average balance" in cells[2].lower():
-            stmt.stated_average_balance = abs(_money(cells[3]) or 0.0)
+            stmt.stated_average_balance = abs(read_money(cells[3], _money) or 0.0)
     if stmt.stated_total_debits is not None:
         stmt.stated_total_debits = round(stmt.stated_total_debits + fees + checks, 2)
 
@@ -234,7 +234,7 @@ def _money_after(label: str, text: str) -> float | None:
     m = re.search(label + r"\s+\$?([\d,]+(?:\.\d{2})?)(?:\s*(-))?", text, re.IGNORECASE)
     if not m:
         return None
-    value = abs(parse_money(m.group(1)) or 0.0)
+    value = abs(read_money(m.group(1)) or 0.0)
     return -value if m.group(2) else value
 
 

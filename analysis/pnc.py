@@ -4,7 +4,7 @@ import re
 from datetime import date
 
 from .date_tokens import iso_from_month_day_strict
-from .money import parse_money
+from .money import parse_money, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
@@ -190,7 +190,7 @@ def _average_balance(text: str) -> float | None:
     if not m:
         m = re.search(rf"Average ledger.*?balance\s+({_LABELLED_FIGURE})",
                       text, re.IGNORECASE | re.DOTALL)
-    return abs(_money(m.group(1)) or 0.0) if m else None
+    return abs(read_money(m.group(1), _money) or 0.0) if m else None
 
 
 def _section_chunks(markdown: str, heading: str) -> list[str]:

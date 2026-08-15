@@ -4,7 +4,7 @@ import re
 import unicodedata
 from datetime import date
 
-from .money import parse_french_amount, parse_money
+from .money import parse_french_amount, parse_money, read_money
 from .parser_registry import excluding, make_detector, required
 from .schema import Statement, Transaction
 from .tables import glyph_damaged, group_rows, read_grid_rows
@@ -358,7 +358,7 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
     rows, table_opening = read_grid_rows(
         entries,
         pattern=_MONEY_RE,
-        to_amount=lambda token: parse_money(token) or 0.0,
+        to_amount=lambda token: read_money(token) or 0.0,
         opening_label="OPENING BALANCE",
         closing_label="CLOSING BALANCE",
     )

@@ -4,7 +4,7 @@ import re
 from datetime import date, timedelta
 
 from .date_tokens import iso_from_month_day
-from .money import EITHER_MINUS_DROPPED, parse_amount
+from .money import EITHER_MINUS_DROPPED, parse_amount, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 
@@ -55,8 +55,8 @@ def _summary(markdown: str) -> tuple[Statement, int] | None:
         period_end=end.isoformat(),
         beginning_balance=_money(beginning),
         ending_balance=_money(ending),
-        stated_total_credits=abs(_money(credits) or 0.0),
-        stated_total_debits=round(abs(_money(checks) or 0.0) + abs(_money(other_debits) or 0.0), 2),
+        stated_total_credits=abs(read_money(credits, _money) or 0.0),
+        stated_total_debits=round(abs(read_money(checks, _money) or 0.0) + abs(read_money(other_debits, _money) or 0.0), 2),
     )
     return stmt, end.year
 
@@ -84,7 +84,7 @@ def _section(block: str, heading: str, total_label: str) -> tuple[str, float | N
     m = pattern.search(block)
     if not m:
         return "", None
-    return m.group(1), abs(_money(m.group(2)) or 0.0)
+    return m.group(1), abs(read_money(m.group(2), _money) or 0.0)
 
 
 def _parse_dated_amount_rows(text: str, *, year: int, sign: int) -> list[Transaction]:
@@ -187,11 +187,11 @@ def _parse_checks(block: str, *, year: int) -> tuple[list[Transaction], float | 
         txns.append(Transaction(
             date=iso_from_month_day(mmdd, year),
             description=f"Check {printed_number}" if printed_number else "Check",
-            amount=round(-abs(_money(amount) or 0.0), 2),
+            amount=round(-abs(read_money(amount, _money) or 0.0), 2),
             direction="debit",
             running_balance=None,
         ))
-    return txns, abs(_money(m.group(2)) or 0.0)
+    return txns, abs(read_money(m.group(2), _money) or 0.0)
 
 
 DETECTION_MARKERS = (
