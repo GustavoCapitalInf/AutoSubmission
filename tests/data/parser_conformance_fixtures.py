@@ -190,6 +190,20 @@ FIXTURES: dict[str, str] = {
         "RELAY FINANCIALS TECHNOLOGY\nACCOUNT STATEMENT\n"
         "OPENING BALANCE\nCLOSING BALANCE\n"
     ),
+    # The second fixture here carrying no issuer identification, and for a
+    # stronger reason than `community_section`'s: that template's documents
+    # print an issuer this platform reads out of them, and these print none at
+    # all (W3 §UNKISSUER). So the fixture is the template's furniture and
+    # nothing else - the ledger's column header, the fee table that terminates
+    # it, and the fee table's printed transaction totals. The figures are
+    # zeroes: they make the oracle marker fire without putting a ledger in a
+    # file whose whole purpose is to hold none.
+    "releve_facturation": (
+        "MM JJ DESCRIPTION DÉBIT ($) CRÉDIT ($) SOLDE ($)\n"
+        "FACTURATION DÉTAILLÉE TRANSACTIONS/VOLUME(S) TARIF UNIT./TAUX FRAIS\n"
+        "NOMBRE MONTANT TOTAL NOMBRE MONTANT TOTAL\n"
+        "TRANSACTIONS DÉBIT 0 0,00 CRÉDIT 0 0,00\n"
+    ),
     "santander": "Santander\nAccount Activity\n",
     "scotiabank": "SCOTIABANK\nThe Bank of Nova Scotia\n",
     "secu": "secumd.org\nFree Business Checking\n",

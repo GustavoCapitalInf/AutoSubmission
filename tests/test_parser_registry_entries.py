@@ -75,6 +75,7 @@ EXPECTED_ORDER = [
     "rbc",
     "regions",
     "relay",
+    "releve_facturation",
     "santander",
     "scotiabank",
     "secu",
@@ -145,8 +146,9 @@ def test_registration_count_matches_the_documented_decision_points():
     (W3 §FINTECH); and the Woodforest, Wealthsimple and Symitar layouts
     (W3 §UNID-PACK-A); and the Fifth Third commercial print stream and
     the Fiserv Premier parenthesised-counts issue (W3 §UNID-B); and the issuer-agnostic core-processor template
-    (W3 §JHA-CELL)."""
-    assert len(pr.registrations()) == 68
+    (W3 §JHA-CELL); and the French-language `Relevé de compte` template whose
+    documents name no institution at all (W3 §UNKISSUER, UB5)."""
+    assert len(pr.registrations()) == 69
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():

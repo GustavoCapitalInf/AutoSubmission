@@ -482,7 +482,11 @@ def _section_oracle_disagrees(block: str, txns_by_section: list[list[Transaction
 def _parse_sectioned_statement(
     markdown: str,
     *,
-    bank: str,
+    #: `None` where the document is on this template but names no issuer. The
+    #: schema has always allowed it (`analysis/schema.py`: `bank: str | None`);
+    #: what changed is that this reader now uses it instead of refusing a
+    #: document whose arithmetic it has fully checked (W3 §JHA J9.2).
+    bank: str | None,
     account_name: str,
     account_heading: str | None = None,
     account_number_pattern: str | None = None,
@@ -729,13 +733,30 @@ def _masthead_lines(markdown: str) -> list[str]:
     same line is part of the evidence (see `_ISSUER_RE`). The page-header
     scrub `_clean` performs is not needed here - a page header cannot be in
     the masthead, which ends before the first account.
+
+    NOTE FOR THE NEXT EDITOR OF THIS SCOPE (D5). The masthead is the TOP of
+    the document, so it is also where the OCR layer's
+    `<!-- source: <filename> ... -->` comment sits. A filename is
+    operator-supplied metadata and on this archive a folder-derived guess, and
+    `_ISSUER_RE` would happily read one: a file called
+    `Visit bankname.com statement.pdf` puts a label and a domain on one line
+    inside this scope. Nothing is wrong today, because every production path
+    reaches a parser through `analysis.pipeline.analyze_markdown`, which
+    applies `parser_registry.admissible_text` at its single parse seam (W3
+    FILENAME-BOUNDARY) - the comment is gone before this function ever sees
+    it. What that means in practice: this function's safety depends on a
+    guarantee made ELSEWHERE, so a direct call to
+    `parse_community_section_statement` with raw markdown - a test, a script,
+    a future caller that bypasses the pipeline - is outside it. Widening the
+    masthead scope, or relaxing `_ISSUER_RE`'s label, widens that exposure
+    too; strip the comment here as well if this ever grows a direct caller.
     """
     end = _MASTHEAD_END_RE.search(markdown)
     return (markdown[:end.start()] if end else markdown).splitlines()
 
 
-def _issuer(markdown: str) -> str | None:
-    """The issuer this document names as its own, or None.
+def _masthead_domains(markdown: str) -> set[str]:
+    """Every labelled domain the masthead prints, normalised.
 
     Case and the `www.` prefix are normalised away because a domain is
     case-insensitive and `www.` is not part of the name - the same issuer
@@ -743,15 +764,15 @@ def _issuer(markdown: str) -> str | None:
     `Online www.columbiabankonline.com` on another. Nothing else is
     transformed: the published string is the name the bank printed.
 
-    Two DIFFERENT labelled domains in the masthead means the document does not
-    identify one issuer, and this returns None rather than picking one.
+    The SET is returned rather than a single answer because its three sizes
+    are three different facts about the document, and only the caller can
+    weigh them - see `parse_community_section_statement`.
     """
-    found = {
+    return {
         match.group(1).lower().removeprefix("www.")
         for line in _masthead_lines(markdown)
         for match in _ISSUER_RE.finditer(line)
     }
-    return found.pop() if len(found) == 1 else None
 
 
 #: An account section of this template: the product name and account number the
@@ -810,10 +831,10 @@ def _account_blocks(markdown: str) -> list[tuple[str, str, str]]:
 def parse_community_section_statement(markdown: str) -> Statement | None:
     """Any issuer's statement on this core-processor template.
 
-    Declines - rather than guesses - in three named situations, each of which
+    Declines - rather than guesses - in two named situations, each of which
     is a fact about the document and not a gap in this reader:
 
-    * the document names no single issuer (`_issuer`);
+    * the masthead names MORE THAN ONE labelled domain - see below;
     * more than one of its accounts has activity. The `Statement` schema holds
       ONE account (MASTER_PLAN L-1), and this template is used by credit unions
       that print a membership share, a checking account and a savings account
@@ -821,14 +842,46 @@ def parse_community_section_statement(markdown: str) -> Statement | None:
       of the customer's money as though it were all of it. Where exactly one
       account posted anything the others are dormant bookends, and reading that
       one is reading the document;
-    * the ledger does not reproduce every figure the summary grid printed -
-      the gate `_parse_sectioned_statement` already applies.
+
+    and refuses through `_parse_sectioned_statement`'s own gate whenever the
+    ledger does not reproduce every figure the summary grid printed.
+
+    **The issuer is a separate fact from the ledger** (Gustavo's ruling,
+    2026-08-14, W3 §JHA J9.2). The three sizes of `_masthead_domains` are three
+    different findings and are answered differently:
+
+    ``1``
+        the document names its issuer; that name is published, exactly as
+        before. 110 archive documents, unmoved.
+    ``0``
+        the document names NO issuer. The template is recognised and the
+        ledger closes against every printed figure, so the statement is
+        published with ``bank=None`` - an honest absence rather than a refusal
+        of a document we did in fact read. `Statement.bank` is `str | None`
+        and every consumer already renders the absence (the dashboard shows
+        "Unknown bank", the report titles itself "Bank Statement"). What is
+        NOT done here is inference: not from the filename, not from the
+        folder, not from template similarity, not from a merchant domain in a
+        transaction description - four of these five documents really do print
+        `walmart.com` and the like, and "the first domain in the document"
+        would publish a merchant as the bank. 5 archive documents.
+    ``2 or more``
+        the document contradicts ITSELF about its issuer, which is not the
+        same finding as printing nothing. An unknown issuer is a gap in the
+        document; two labelled domains in the masthead is a gap in our reading
+        of it - the most likely cause is that `_MASTHEAD_END_RE` did not find
+        this layout's first account and the scope ran on into the fine print.
+        Publishing `bank=None` would file our own defect as the document's
+        honest silence. No archive document is in this class (measured: 0 of
+        115), so there is nothing here to prove a publication rule against,
+        and fail-closed is what an unproven class gets.
     """
     if not detect_platform(markdown).claims:
         return None
-    issuer = _issuer(markdown)
-    if issuer is None:
+    domains = _masthead_domains(markdown)
+    if len(domains) > 1:
         return None
+    issuer = domains.pop() if domains else None
 
     parsed: list[Statement] = []
     for product, number, block in _account_blocks(markdown):
