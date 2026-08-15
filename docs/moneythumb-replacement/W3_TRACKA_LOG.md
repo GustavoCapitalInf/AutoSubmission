@@ -14820,9 +14820,19 @@ registration does not merely withhold a claim. `detection_report` publishes a
 near-miss vector (`telemetry/collect.score_vector`) records every non-zero
 score. A skipped registration would lose its partial score and its `matched`
 marker ids, which is a behaviour change outside sweep cost on documents that
-nothing claims — 815 of the 3,367 swept here. To keep the near-miss vector the
-prescan would have to run the markers anyway, at which point it has saved
-nothing. Recorded, not attempted.
+nothing claims — 815 of the 3,367 swept here, which is exactly the population
+whose near-miss vector the discovery run reads to rank the next parser cell.
+To keep the vector intact the prescan would have to run the markers anyway, at
+which point it has saved nothing.
+
+This is where the cell diverges from the design package. A gated-vs-ungated
+equivalence test of the kind SCAN-C pins would pass — it compares **claims**,
+and a prescan built from strictly necessary conditions really does preserve
+those — while the near-miss score and the `matched` marker ids of every gated-
+out registration silently went to zero. The D7 sweep is what would catch it,
+because it compares the whole `Detection` for all 68 registrations and not only
+the claimants. Recorded, not attempted; the headroom was taken out of the
+normalization stage instead, where it costs no behaviour at all.
 
 **Candidate 2, per-registration shaving, is real work but it is not this
 cell's and it cannot close the gap alone.** The handoff's own arithmetic holds.
@@ -14864,6 +14874,23 @@ sweep to come in under 212.5 ms, which is **stricter than the 250 ms the
 shipped test asked for** — the base fails it by a wider margin than it failed
 the old one, and the branch passes it with 30% margin.
 
+**The middle clause is red on base, and red without a stopwatch.** Run against
+`229a3cd`'s `analysis` (same harness, same document, arms selected by
+`DB_ARM`):
+
+```
+arm=base    registrations=68
+  _surviving_claimants: admissible_text called 68x  -> FAIL
+  detection_report    : admissible_text called 68x  -> FAIL
+arm=branch  registrations=68
+  _surviving_claimants: admissible_text called 1x   -> PASS
+  detection_report    : admissible_text called 1x   -> PASS
+```
+
+That is the defect stated as a number a loaded machine cannot change. The
+first clause cannot run against base at all — there is no `PreparedDocument`
+to count preparations on — so this is the one that carries the red.
+
 ## D6. Results
 
 Paired, same machine, same load, best-of-5, production seam
@@ -14900,6 +14927,49 @@ Documents differing: **0**. Claim-set composition, unchanged on both arms:
 
 This is strictly more than the binding proof asked for — it pins the near-miss
 vector telemetry publishes, not only the winner and the claimants.
+
+### D7.1 The crash arm — the W3-1 guard, exercised on purpose
+
+Ocean's addendum is right that the sweep above proves equivalence only on the
+non-raising path: not one of the 68 registrations raised on any of the 3,367
+documents, so the `_guarded` seam was never entered. The proof was therefore
+re-run with five synthetic registrations injected, covering every place a
+registration's own code runs during detection:
+
+| injected | raises in |
+|---|---|
+| `zz_boom_required` | a REQUIRED marker |
+| `zz_boom_excluding` | an EXCLUDING marker — the first loop, before any other kind runs |
+| `zz_boom_exclusive` | an EXCLUSIVE marker |
+| `zz_boom_normalize` | the parser's own normalization — i.e. inside `PreparedDocument.text_for` |
+| `zz_shares_a_marker` | nothing; it shares a marker test object with a crashing sibling, so the prepared-text memo runs alongside the guard |
+
+73 registrations × 3,367 documents, both arms, recording the claimant set, the
+full detection report **and** the `ParserFailure` list:
+
+```
+base   : 3367 docs  digest 0A8990FF80F8D648A79E2BCB5767797F79BE719B2F65BBD1EF90E75E88717256
+branch : 3367 docs  digest 0A8990FF80F8D648A79E2BCB5767797F79BE719B2F65BBD1EF90E75E88717256
+documents whose detection differs: 0
+
+recorded ParserFailures, per arm:
+   ('zz_boom_excluding', 'detect', 'KeyError')   3367
+   ('zz_boom_exclusive', 'detect', 'IndexError') 3367
+   ('zz_boom_normalize', 'detect', 'TypeError')  3367
+   ('zz_boom_required',  'detect', 'ValueError') 3367
+scores the four crashing registrations received: 0.0, on all 3,367
+crashing registrations that ever claimed: 0
+```
+
+13,468 crash events, every one of them fail-closed to `Detection(0.0)`,
+recorded as a `ParserFailure` carrying the exception CLASS NAME and nothing
+else, and identical on both arms. The guard is preserved by evidence and not
+only by construction: `safe_detect` still wraps `detect_prepared` in
+`_guarded`, and a marker that raises is never memoized — the exception
+propagates to the guard on every call, which
+`test_a_marker_that_raises_is_not_memoized_and_still_reaches_the_guard` pins
+at unit scale by asserting two consecutive `safe_detect` calls each record
+their own `ParserFailure`.
 
 ## D8. Proofs
 

@@ -207,8 +207,8 @@ def test_the_detect_sweep_prepares_each_document_once(documents, sources):
     normalization — is a function of the document, not of the registration
     asking. Preparing it per registration made the sweep quadratic in registry
     size in its dominant term: on the largest pinned document that was 68
-    `admissible_text` calls (115 ms) and 36 normalizations (77 ms), 86% of the
-    sweep, to produce five distinct strings.
+    `admissible_text` calls (116 ms) and 36 normalizations (77 ms) — four
+    fifths of a 242 ms sweep — to produce five distinct strings.
 
     This states the property directly, in operations rather than milliseconds,
     so it cannot be read differently by a busy machine and a quiet one — the
