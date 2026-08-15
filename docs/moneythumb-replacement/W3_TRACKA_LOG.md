@@ -14904,6 +14904,96 @@ corpus gate re-read the pinned 109 from cold in 874.4s and came back GREEN
 integer's meaning is "the ladder's output changed since v2", not a count of
 the cells that changed it.
 
+## GEOM1.9 Proofs
+
+Run at `bc478ec`. The one later commit, `59cb55c`, is this document.
+
+```
+python -m pytest -q
+    3794 passed, 18 deselected, 1 warning in 381.38s          exit 0
+    (3,769 at base + 25 new: 13 column-grid, 12 woodforest)
+
+python -m pytest -m corpus -q
+    1 failed, 13 passed, 3798 deselected in 1974.26s          exit 1
+    the one failure is the known batch-level item below
+
+python -m pytest tests/test_no_statement_hardcodes.py tests/test_r1_hardcodes.py \
+                 tests/test_parser_conformance.py -q
+    730 passed in 4.88s                                       exit 0
+
+python corpus_gate.py
+    106 PASS / 3 WITHHELD   RESULT: GREEN   Runtime 874.4s    exit 0
+```
+
+The gate matters more than usual on this branch. `OCR_STAGE_VERSION` 2 -> 3
+invalidated every cached OCR artifact, so the gate re-read the pinned 109 from
+cold — 103 native text, 6 committed OCR artifacts, no live OCR and no model
+calls — and every audited balance and ADB field on all 109 reproduced. A
+global cache invalidation with zero financial drift is the thing that had to be
+shown, and it was shown from cold rather than from a warm cache that could
+have hidden it.
+
+### The one red, A/B'd against base
+
+`test_detect_sweep_stays_affordable_for_the_discovery_run` is a wall-clock
+budget (`worst < 0.25s` for a full-registry detect sweep over one document).
+
+| tree | measured | result |
+|---|---|---|
+| base `707ba9e` | **304.7 ms** | fail |
+| branch `bc478ec` | **311.6 ms** | fail |
+
+6.9 ms apart, and `len(pr.registrations())` is **68 on both**. Pre-existing and
+load-dependent, matching Ocean's batch-wide notice; a dedicated DETECT-BUDGET
+cell owns the structural fix and **the constant was not raised**. The base
+measurement was taken from a `git archive` of `707ba9e` into the scratchpad —
+no worktree added, no git metadata touched.
+
+Independently of the timing, this branch cannot move that number: it adds no
+registration, changes nothing in the detect path, and changes the markdown of
+no pinned document — the test's input is the 109 corpus sources, and no
+woodforest document is pinned.
+
+### Non-interference over the whole archive
+
+The new rung sits above `parse_native_desjardins` and `parse_native_pdf_text`,
+so every native-text document in the archive now passes through it. Swept over
+all **3,615** archive PDFs by direct file path:
+
+```
+documents the new rung claims                                20
+  ...all 20 woodforest: the 18 the run of record attributes to that parser,
+     plus Royalty3 and Royalty4, which it had declined
+flattened page text byte-identical, block appended           20
+documents whose original text was REWRITTEN                   0
+```
+
+Zero documents outside the family, and nothing rewritten — the block is added,
+never a substitution. (4 documents raised while being read; the archive
+profile records 33 malformed/encrypted, and the sweep's baseline read raises
+on the same ones with or without this change.)
+
+Two commits landed after that sweep and neither can widen its result: the
+marker test is unchanged and only moved earlier, and carrying the summary
+region across a page break can only add rows to a document that already passed
+the same marker test.
+
+### The seam the design named, checked rather than assumed
+
+`DESIGN_GEOMETRY_INTEGRATION.md` §3.2 property 1 — geometry must never reach
+detection — holds here structurally rather than by discipline: the block is
+appended to the markdown AFTER the flattened text, detection reads markers
+that were already present, and the claim set over 3,615 documents is the
+measured 20 above.
+
+`admissible_text` strips only `<!-- SOURCE: ... -->`, so the block survives to
+the parser (the `NFCU_NATIVE_TRANSACTIONS` precedent relies on the same thing)
+AND is inside the text `cached_analysis` hashes. The analysis cache therefore
+partitions on it with no key change — which is why §4.3's mandatory cache-key
+work was not needed on this branch. It remains needed for the `analysis/`-side
+wiring card, where geometry would arrive as a parameter rather than inside the
+markdown.
+
 ## GEOM1.10 The ranking, with the proof attached to each
 
 Ranked by the card's own criteria: (a) proof that flattening destroyed printed
