@@ -490,41 +490,56 @@ def _report_of(markdown):
     return _report(markdown)
 
 
-def test_a_recovered_description_cannot_redate_the_billed_service_charge():
-    """A merchant memo ending in `Service Charge` is text, not an itemisation.
+def unitemised(rows: str | None = None, trap: bool = False) -> str:
+    """A statement that BILLS a service charge and itemises it nowhere.
 
-    `_service_charge_posting` looks for the charge's own printed table, and one
-    of its two patterns is `<Word> Service Charge` at end of line. A row report
-    scanned as document text could offer that shape with a different date
-    beside it, and the charge would be dated by a merchant name.
+    beginning 1,000.00 + deposits 1,000.00 + other credits 500.00
+        - cheques 250.00 - other debits 750.00 - charge 400.00 = ending 1,100.00
+
+    `_service_charge_posting` has nothing to find, so the honest outcome is that
+    the charge row is omitted and the detail does not close — the one path
+    FI14.2 identified as still able to fail reconciliation.
     """
-    billed = flattened().replace(
-        "+ 1 + 2 500.00+ 1 250.00- 3 750.00- 0.00", "+ 1 + 2 500.00+ 1 250.00- 3 750.00- 5.00-"
+    body = flattened(rows=rows)
+    if trap:
+        # A merchant whose printed memo happens to END in `<Word> Service
+        # Charge` — the exact shape `_SERVICE_CHARGE_BLOCKS`' second pattern
+        # looks for — with the charge's own amount printed BELOW it in the row
+        # that follows. There is nothing else in the document of that shape.
+        body = body.replace("|04-20|250.00|Delta Utilities", "|04-20|250.00|Delta April Service Charge")
+    body = body.replace(
+        "+ 1 + 2 500.00+ 1 250.00- 3 750.00- 0.00",
+        "+ 1 + 2 500.00+ 1 250.00- 3 750.00- 400.00-",
     )
-    billed = billed.replace("Ending  Balance", "Ending  Balance", 1)
-    billed = billed.replace("\n1,500.00\n", "\n1,495.00\n").replace(
-        "Checking Balance\n+\n1,500.00", "Checking Balance\n+\n1,495.00"
-    )
-    billed = billed.replace(
-        "Daily Balance Summary",
-        "April Service Charge\n04-30 5.00\nDaily Balance Summary",
-    )
-    honest = parse_first_citizens_statement(billed)
-    assert honest is not None
-    charge = [t for t in honest.transactions if t.description == "Monthly Service Charge"]
-    assert len(charge) == 1 and charge[0].date == "2026-04-30" and charge[0].amount == -5.00
+    return body.replace("1,500.00", "1,100.00")
 
-    trap = "\n".join(
-        [
-            REPORTED,
-            "FC_TX|Other Debits From Your Account|04-01|1.00|Acme April Service Charge",
-        ]
-    )
-    with_trap = billed.replace(
-        "Daily Balance Summary",
-        "FC_NATIVE_TRANSACTIONS\n" + trap + "\nFC_NATIVE_TRANSACTIONS_END\nDaily Balance Summary",
-    )
-    trapped = parse_first_citizens_statement(with_trap)
+
+def test_a_billed_charge_with_no_itemisation_is_omitted_not_invented():
+    """The floor this trap is measured against."""
+    stmt = parse_first_citizens_statement(unitemised())
+    assert stmt is not None
+    assert stmt.stated_service_charge == 400.00
+    assert not [t for t in stmt.transactions if t.description == "Monthly Service Charge"]
+    assert len(stmt.transactions) == 7
+    assert not reconcile(stmt).ok  # honest: the detail cannot close without it
+
+
+def test_a_recovered_description_cannot_invent_the_billed_service_charge():
+    """The report is not an itemisation, however much one row looks like one.
+
+    `_service_charge_posting` scans the document for the charge's own printed
+    table, and one of its two patterns is `<Word> Service Charge` at end of
+    line. A report read as document text offers exactly that shape — and the
+    rows below it supply a date and the charge's own amount — so a charge the
+    bank never itemised gets invented, dated off a merchant name, on a document
+    whose four section totals still agree because `_matches` never sees it.
+
+    Red before `b71fc07`; the excision is what makes it green.
+    """
+    trapped = parse_first_citizens_statement(unitemised(rows=REPORTED, trap=True))
     assert trapped is not None
-    charge = [t for t in trapped.transactions if t.description == "Monthly Service Charge"]
-    assert len(charge) == 1 and charge[0].date == "2026-04-30" and charge[0].amount == -5.00
+    assert trapped.stated_service_charge == 400.00
+    assert not [t for t in trapped.transactions if t.description == "Monthly Service Charge"]
+    assert len(trapped.transactions) == 7
+    # And the trap row is still published as the printed text it is.
+    assert "Delta April Service Charge" in [t.description for t in trapped.transactions]

@@ -14816,6 +14816,23 @@ Wired into all six copies of the native rung order (`ocr/pipeline.py`,
 `deterministic_coverage_audit.py`, `build_corpus_cache.py`, `adb_debug.py`),
 below every other bank-specific extractor and above the generic one.
 
+**The continuation window, fixed after review.** It was seeded from the
+header-to-first-row gap, which is a header height and not a row pitch: measured
+13.33-13.98pt against a 9.00-9.18pt pitch, so the first row of every table
+carried a window of ~1.6 pitches and would swallow a stray printed a whole line
+low. Unreachable in this population only because every real table ends with
+`Total` + money, which is not a lone cell — an accident, not a rule. The window
+now comes from the table's OWN row pitch once two rows have set it
+(`pitch + 1.0`), and until then from the row's own printed line box (measured
+10.00-12.30pt here: taller than the pitch, short of the header gap). Both are
+read off the page. Against the measured extremes it admits every wrapped line
+in the family (8.82-8.97pt) and clears the header gap by ~1.0pt either side.
+Re-extracted family-wide after the change, pre-fix module and post-fix module
+in one process: **2,120 rows, 0 documents whose rows changed**. Fixtured at
+`test_a_lone_line_below_the_last_row_is_not_joined`, whose `[13.0-1]`
+parametrisation — a stray wider than the pitch but narrower than the header gap,
+on a ONE-row table — is red against the old rule.
+
 ## FCX3. The overlay is a second reading, not a shortcut
 
 `_described` (`analysis/first_citizens.py`) lays the reported rows over the
@@ -14859,11 +14876,79 @@ the parse seam rebinds `markdown` to the document immediately after detection
 excised too: it is not statement text whether or not it parses. The excision is
 EXACT — asserted as string equality against the same fixture built without a
 report — so a reader below sees the document it would have seen had the intake
-never reported anything. The trap is fixtured
-(`test_a_recovered_description_cannot_redate_the_billed_service_charge`).
+never reported anything.
 
 Re-running the whole family sweep after the change produced a byte-identical
 result file, which is the point: the fix removes a hazard, not a symptom.
+
+**Correction — the first trap fixture was a FALSE GUARD.** Adversarial review
+found that `test_a_recovered_description_cannot_redate_the_billed_service_charge`
+passed at the pre-fix commit and with the excision monkeypatched out. Its trap
+row sat AFTER a genuine printed `April Service Charge` itemisation, and
+`_service_charge_posting` returns on the first pattern match, so the trap could
+never be reached. A test that cannot fail is worse than no test, because it is
+counted.
+
+It is replaced by the reviewer's construction, at
+`test_a_recovered_description_cannot_invent_the_billed_service_charge`: a
+charge the summary BILLS (400.00) and the document itemises NOWHERE, with the
+report appended where intake appends it and one row whose printed memo ends
+`Delta April Service Charge`. Verified red at `4076a78`:
+
+```
+E  AssertionError: assert not [Transaction(date='2026-04-22',
+E     description='Monthly Service Charge', amount=-400.0, direction='debit')]
+```
+
+— a charge the bank never itemised, invented from the report, dated off a
+merchant name, on a document whose four section totals still agree because
+`_matches` never sees it. Its floor is pinned beside it
+(`test_a_billed_charge_with_no_itemisation_is_omitted_not_invented`: the charge
+is omitted and `reconcile` correctly does NOT close).
+
+The excision's own guards are the two that were always real and are also red at
+`4076a78`: `test_the_report_is_cut_out_before_any_reader_scans_the_document`
+(the document after excision equals the same fixture built without a report,
+and `_section_blocks` finds one debits block rather than four) and
+`test_a_malformed_report_is_still_cut_out`.
+
+### What `_described` does and does not guarantee
+
+Stated precisely, because the gate cannot see the difference. `_described`'s
+check is over DATES and AMOUNTS only: it requires the extractor's rows to
+reproduce the section's parsed date and amount sequence exactly, in order. It
+does not, and cannot, verify that the description attached to a row is the
+description the bank printed on that row — a permuted set of descriptions over
+the same date/amount sequence would pass it unchanged.
+
+Description attribution rests on two other things instead, both measured:
+
+1. **The second engine.** All 2,118 published descriptions were confirmed
+   against `pdfplumber` (FCX5), which resolves layout independently of PyMuPDF.
+   That is the attribution proof, and it is a MEASUREMENT, not an invariant.
+2. **Geometric headroom.** Row ownership is a 3.0pt band on the y-centre. Over
+   the 2,286 multi-cell bands INSIDE a described table across all 39 documents,
+   the largest intra-band spread is **0.42pt** (p99 0.42, median 0.18) —
+   **2.58pt of headroom**. Reconciling the reviewer's 2.14pt/0.86pt figure:
+   that is drawn from the whole-page population, whose true maximum is
+   **2.92pt** (0.08pt headroom) — but every band above 2.0pt is page furniture
+   (the `FOLLOW THESE EASY STEPS TO BALANCE YOUR CHECKING ACCOUNT` worksheet,
+   the address block, the `14,702.87 || +` pair), **0 of them inside any
+   described table**, and none can become a row or a continuation. The number
+   that governs attribution is the in-table 0.42pt.
+
+**Therefore: any new sub-family joining this population must be re-confirmed
+against the second engine.** A green corpus gate is not evidence about
+descriptions — the audits contain none — and neither is a passing `_described`.
+The confirmation is the pdfplumber sweep and it must be re-run, not assumed.
+
+**Latent permutation blindness, recorded.** Two postings sharing a date AND an
+amount inside one section are interchangeable to `_described`, so a reordering
+between the two readings would swap their descriptions silently. There is no
+reachable reordering today: `_fc_bands` sorts by `(y-centre, x0)` and the
+parser reads the flattened runs in printed order, so both readings are in
+printed order by construction. It is the sort that is load-bearing here, and it
+is named so a future change to it is not mistaken for a refactor.
 
 ## FCX4. Family sweep — 39 documents, 100 fields each
 
@@ -15110,12 +15195,20 @@ its serial. There is nothing left on the page that this does not read.
 
 ## FCX6. Proofs
 
-All at branch HEAD `365ba91`.
+The suite, the two owned test files and the guards are at the post-review HEAD.
+The corpus-marked slice and the gate are the runs recorded at `365ba91`; the
+review fixes that followed them are proven not to move extraction — the
+pre-fix and post-fix extractors were re-run over the family in one process and
+produced the same 2,120 rows on all 39 documents, 0 changed.
 
 ```
 $ python -m pytest -q
-3802 passed, 19 deselected, 1 warning in 281.02s (0:04:41)
-EXIT=0
+3805 passed, 19 deselected, 1 warning in 457.09s (0:07:37)
+SUITE_EXIT=0
+
+$ python -m pytest tests/test_first_citizens_layouts.py       tests/test_first_citizens_native_layout.py -q -m "corpus or not corpus"
+49 passed, 1 warning in 12.78s
+TESTFILES_EXIT=0
 
 $ python -m pytest -m corpus -q
 FAILED tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run
@@ -15195,8 +15288,15 @@ this assertion reports machine load rather than registry cost.
    the next archive run would show **zero movement** for this family unless the
    OCR stage version moves. `webapp/artifact_cache.py` is WIRING-1's file this
    batch (its Card B owns the key-material hunk), so this cell did not touch
-   it. Nothing else in the wave forces an OCR-stage bump — WIRING-1's Card B
-   invalidates the ANALYSIS cache, which is a different key.
+   it.
+   **Correction (adversarial review): something else in the wave DOES bump it.**
+   `wave4-geom` moves `OCR_STAGE_VERSION` 2 -> 3 and updates its pin at
+   `tests/test_artifact_cache.py:723` (`assert OCR_STAGE_VERSION == 2`, present
+   in this tree). So the merge composition is explicit: Ocean resolves this to
+   ONE 2 -> 3 at the train and that single bump covers this cell too. A solo
+   merge of either branch that bumps the constant without touching that pin
+   reds the suite. WIRING-1's Card B does not help here — it invalidates the
+   ANALYSIS cache, a different key.
    Cost of the bump: the digital rung re-extracts natively for free; the
    scanned documents re-run the offline rungs. It is wall clock, not vendor
    spend. Everything proven above is proven by running the ladder directly on
@@ -15222,6 +15322,20 @@ this assertion reports machine load rather than registry cost.
    registrations under load — 16 of 16 trials over the 250 ms constant with the
    base marker set. Named here for the record only; DETECT-BUDGET owns it and
    this cell neither touched the test nor raised the constant.
+8. **THE SEAM CARD — the excision lives in one parser, not the intake seam.**
+   `_report` cuts the block out inside `analysis/first_citizens.py`, so the
+   property "the intake's report is never read as printing" holds for this
+   parser and for no other. That is a property of today's population (this is
+   the only reader of an `FC_*` block), not of the design. The moment a second
+   parser consumes an intake report — or this family's documents reach a
+   generic reader — the excision has to move to the admissibility seam beside
+   `admissible_text`, where it would be total instead of promised. Note the
+   precedent already in the tree: `+navy-federal` wraps its rows in an HTML
+   comment and `+wells` does not, so there is no shared convention to inherit
+   yet. Card it before the third producer, not after.
+9. **`_described` is a date/amount check, not a description check** (FCX3).
+   Description attribution is proven by the pdfplumber sweep, which must be
+   re-run for any new sub-family; a green gate says nothing about it.
 
 ## FCX8. Commits
 

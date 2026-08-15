@@ -206,12 +206,20 @@ def test_a_wrapped_description_joins_its_own_row_even_when_it_carries_money():
 
 
 @pytest.mark.parametrize("rows_before", [1, 2])
-def test_a_lone_line_a_whole_blank_line_below_the_table_is_not_joined(rows_before):
-    """The pitch bound, both while it is seeded and after rows have set it.
+@pytest.mark.parametrize("stray_gap", [13.0, 2 * ROW_PITCH])
+def test_a_lone_line_below_the_last_row_is_not_joined(rows_before, stray_gap):
+    """The continuation window, in both the states it can be in.
 
-    A continuation prints on the NEXT printed line. Anything a blank line
-    further down is something else, and joining it would publish another row's
-    text — or a footnote — as this posting's description.
+    A continuation prints on the NEXT printed line. Anything further down is
+    something else, and joining it would publish a footnote — or another row's
+    text — as this posting's description.
+
+    `stray_gap=13.0` is the case that made this fixture worth repointing: it is
+    wider than the row pitch but NARROWER than the header-to-first-row gap the
+    window used to be seeded from, so on a ONE-row table the old rule swallowed
+    it and this parametrisation goes red against that rule. The window now comes
+    from the table's own row pitch, or from the row's printed line box while
+    there is only one row.
     """
     doc = fitz.open()
     page = doc.new_page()
@@ -227,7 +235,9 @@ def test_a_lone_line_a_whole_blank_line_below_the_table_is_not_joined(rows_befor
         page.insert_text((DESC_X, y - 1.3), f"Coast Payment 939{index}", fontsize=FONT_SIZE)
         _right(page, y, "369.67")
         y += ROW_PITCH
-    page.insert_text((DESC_X, y + ROW_PITCH), "Detached Footnote Line", fontsize=FONT_SIZE)
+    page.insert_text(
+        (DESC_X, y - ROW_PITCH + stray_gap), "Detached Footnote Line", fontsize=FONT_SIZE
+    )
     page.insert_textbox(fitz.Rect(DESC_X, 300, 560, 340), HEAD, fontsize=FONT_SIZE)
     page.insert_textbox(
         fitz.Rect(DATE_X, 700, 560, 780),

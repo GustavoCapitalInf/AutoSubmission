@@ -291,13 +291,15 @@ _FC_SUMMARY_MARKERS = (
 )
 
 
-def _fc_bands(page) -> list[list[tuple[float, float, float, str]]]:
+def _fc_bands(page) -> list[list[tuple[float, float, float, str, float]]]:
     """Every printed line on the page, grouped into the row it prints on.
 
-    A cell is `(y-centre, x0, x1, text)`; a band is the cells sharing a row,
-    ordered left to right.
+    A cell is `(y-centre, x0, x1, text, height)`; a band is the cells sharing a
+    row, ordered left to right. The height is the printed line box, which is
+    what bounds a wrapped continuation in a table too short to measure its own
+    row pitch (`_fc_rows`).
     """
-    cells: list[tuple[float, float, float, str]] = []
+    cells: list[tuple[float, float, float, str, float]] = []
     for block in page.get_text("dict").get("blocks", []):
         if block.get("type") != 0:
             continue
@@ -306,9 +308,9 @@ def _fc_bands(page) -> list[list[tuple[float, float, float, str]]]:
             if not text:
                 continue
             x0, y0, x1, y1 = line["bbox"]
-            cells.append(((y0 + y1) / 2.0, x0, x1, text))
+            cells.append(((y0 + y1) / 2.0, x0, x1, text, y1 - y0))
     cells.sort()
-    bands: list[list[tuple[float, float, float, str]]] = []
+    bands: list[list[tuple[float, float, float, str, float]]] = []
     for cell in cells:
         if bands and abs(cell[0] - bands[-1][0][0]) <= _FC_BAND_TOLERANCE:
             bands[-1].append(cell)
@@ -317,14 +319,14 @@ def _fc_bands(page) -> list[list[tuple[float, float, float, str]]]:
     return [sorted(band, key=lambda cell: cell[1]) for band in bands]
 
 
-def _fc_is_column_header(band: list[tuple[float, float, float, str]]) -> bool:
+def _fc_is_column_header(band: list[tuple[float, float, float, str, float]]) -> bool:
     return len(band) == 3 and tuple(
         cell[3].strip().lower() for cell in band
     ) == _FC_COLUMN_HEADER
 
 
 def _fc_posting(
-    band: list[tuple[float, float, float, str]],
+    band: list[tuple[float, float, float, str, float]],
     date_x0: float,
     description_x0: float,
     amount_x1: float,
@@ -376,9 +378,20 @@ def _fc_rows(page) -> list[str]:
         section = bands[index - 2][0][3]
         date_x0, description_x0, amount_x1 = header[0][1], header[1][1], header[2][2]
 
+        # The window a wrapped line has to fall inside, and where it comes from.
+        # NOT from the header: the header sits a header-height above the first
+        # row (measured 13.33-13.98pt against a 9.00-9.18pt row pitch), so
+        # seeding the window from it opens ~1.6 pitches on the first row of
+        # every table and would swallow a stray printed a whole line low. The
+        # window is the table's OWN row pitch once two rows have set it, and
+        # until then the row's own printed line box — which on this layout is
+        # taller than the pitch (10.00-12.30pt) and still well short of the
+        # header gap, so it admits every wrapped line measured (8.82-8.97pt)
+        # and reaches no further than one printed line.
         pitch: float | None = None
         previous_y = header[0][0]
         current: list[str] | None = None
+        current_height = 0.0
         table: list[list[str]] = []
 
         while index < len(bands):
@@ -386,18 +399,20 @@ def _fc_rows(page) -> list[str]:
             gap = band[0][0] - previous_y
             posting = _fc_posting(band, date_x0, description_x0, amount_x1)
             if posting is not None:
+                if table:  # a row-to-row gap; the header-to-first-row one is not
+                    pitch = gap if pitch is None else min(pitch, gap)
                 current = [posting[0], posting[1], posting[2]]
+                current_height = band[0][4]
                 table.append(current)
-                pitch = gap if pitch is None else min(pitch, gap)
                 previous_y = band[0][0]
                 index += 1
                 continue
+            window = pitch + 1.0 if pitch is not None else current_height
             if (
                 current is not None
-                and pitch is not None
                 and len(band) == 1
                 and abs(band[0][1] - description_x0) <= _FC_COLUMN_TOLERANCE
-                and 0.0 < gap <= pitch + 1.0
+                and 0.0 < gap <= window
             ):
                 current[2] = f"{current[2]} {band[0][3]}"
                 previous_y = band[0][0]
