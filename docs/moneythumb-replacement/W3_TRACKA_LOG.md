@@ -21765,13 +21765,13 @@ $ python -m pytest -m corpus -q tests/test_parser_parity.py
 EXIT=0
 
 $ python -m pytest -m corpus -q tests/test_corpus_gate.py tests/test_corpus_gate_outcomes.py
-9 passed, 28 deselected, 1 warning in 1230.04s (0:20:30)
+9 passed, 28 deselected, 1 warning in 858.51s (0:14:18)
 EXIT=0
 
 $ python -m pytest -m corpus -q tests/test_discovery.py \
     tests/test_first_citizens_native_layout.py tests/test_telemetry_corpus.py \
     tests/test_truncation.py
-5 passed, 88 deselected, 1 warning in 1261.55s (0:21:01)
+5 passed, 88 deselected, 1 warning in 676.10s (0:11:16)
 EXIT=0
 
 $ python corpus_gate.py
@@ -21808,7 +21808,10 @@ preparations per sweep and 35 across both.
 The corpus-marked slice is 26 tests over three commands because a single
 `pytest -m corpus` runs past the ten-minute ceiling on this machine under this
 load; the three together are the whole slice (12 + 9 + 5 = 26 collected = 26
-run). The conformance cross-product in the last block is the full 71 x 70 =
+run). `python corpus_gate.py` is the run from before the review closures — the
+closures changed a docstring, a comment, an `isinstance` and four tests, and
+the gate's own 9-test corpus command was re-run after them (858.51s, exit 0)
+over the same 109 documents and the same published integrity blocks. The conformance cross-product in the last block is the full 71 x 70 =
 4,970 detection-negative assertions plus the registry, entries, exception
 boundary, crash shapes, hardcode and filename-boundary guards.
 
