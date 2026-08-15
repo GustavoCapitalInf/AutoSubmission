@@ -123,6 +123,23 @@ FIXTURES: dict[str, str] = {
     # recognises a CORE PROCESSOR's template and reads the issuer out of each
     # document. Its evidence is the template's own period line and the labels
     # of the two summary balance rows, and that is exactly what this holds.
+    # The THIRD core-processor template (W3 §LCPERIOD). No issuer in it at
+    # all, which is the point twice over: the registration reads the template's
+    # own period sentence, and the template prints no institution FIELD, so
+    # `Statement.bank` is None on every document it publishes. Sentence case is
+    # load-bearing — upper-cased, this fixture is not this template.
+    # The day count is on its own line, which is one of the two arrangements
+    # the archive prints (the other puts all three fields on one line). It
+    # matters here for the same reason it matters in the other platform
+    # fixtures: `_mention_of` demotes a fixture's FIRST LINE into another
+    # bank's ledger, and a registration must not claim a document that merely
+    # quotes it — so no single line of a fixture may carry every required
+    # marker.
+    "core_processor_daily": (
+        "Last statement: March 31, 2026 This statement: April 30, 2026\n"
+        "Total days in statement period: 30\n"
+        "Direct inquiries to: 000-000-0000\n"
+    ),
     "core_processor_sectioned": (
         "No Minimum Business Checking ACCOUNT XXXXXXXXXX1234\n"
         "LAST STATEMENT 07/31/25 0.00 AVG AVAILABLE BALANCE 0.00 "

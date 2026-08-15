@@ -22,6 +22,10 @@ ANALYSIS_DIR = Path(__file__).resolve().parent.parent / "analysis"
 #: being the line order of a 43-term boolean expression.
 EXPECTED_ORDER = [
     # band 10 — narrower document classes that supersede their general form
+    # The issuer-specific reader of the THIRD core-processor template's
+    # running-balance issue, which `core_processor_daily` now registers
+    # generically (W3 §LCPERIOD).
+    "b1",
     "chase_export",
     "chase_savings",
     # The four issuer-specific readers of the core-processor template that
@@ -41,7 +45,6 @@ EXPECTED_ORDER = [
     "american_express",
     "apex_scanned",
     "atb",
-    "b1",
     "balance_by_date",
     "banco_popular",
     "bank_of_america",
@@ -61,6 +64,7 @@ EXPECTED_ORDER = [
     "columbia_bank",
     "community_section",
     "consumers",
+    "core_processor_daily",
     "core_processor_sectioned",
     "demo_national",
     "desjardins",
@@ -155,8 +159,10 @@ def test_registration_count_matches_the_documented_decision_points():
     documents name no institution at all (W3 §UNKISSUER, UB5); the second
     core processor's sectioned template, likewise issuer-agnostic
     (W3 §SCANB); and the four-way partitioned-summary core-processor
-    template (W3 §SCANC)."""
-    assert len(pr.registrations()) == 71
+    template (W3 §SCANC); and the batch-5 train: the THIRD core processor's
+    template, whose period sentence is the only thing it shares with the
+    second's and which prints no institution field at all (W3 §LCPERIOD)."""
+    assert len(pr.registrations()) == 72
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():
@@ -261,6 +267,19 @@ def test_marker_ids_are_unique_within_a_registration():
 def test_only_the_promoted_sub_dispatches_supersede_anything():
     superseding = {reg.id: sorted(reg.supersedes) for reg in pr.registrations() if reg.supersedes}
     assert superseding == {
+        # W3 §LCPERIOD: the same relationship a THIRD template over.
+        # `core_processor_daily` registers the third core-processor template on
+        # the period furniture its two printed issues share, so it claims every
+        # document of the issuer whose running-balance issue `b1` reads.
+        # Evidence, measured over the D-3 artifact store (3,396 documents with
+        # offline text) and named in the commit message: the general reader
+        # detects exactly the 20 documents that print the template, of which
+        # `b1` holds 3 — all three validated today. Without the edge those 3
+        # resolve `ambiguous`, which is a regression. All three are ALSO in the
+        # pinned corpus (`Others/B1/`), measured both ways: with the edge the
+        # claimant set is exactly `['b1']`, without it all three are
+        # `ambiguous` and the gate's per-document verdict check goes red.
+        "b1": ["core_processor_daily"],
         "chase_export": ["chase"],
         # W3 §CHASE-CLOSURE: `chase` detects every Chase savings statement on
         # its own two markers and declines all of them at parse. The evidence
