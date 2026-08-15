@@ -9,6 +9,35 @@ from .column_grid import find_columns, page_words, read_rows
 from .document import StatementMarkdown
 
 
+class _UnreadableTextLayer(Exception):
+    """A page's text layer could not be extracted at all.
+
+    MuPDF raises out of ``page.get_text(...)`` on structurally malformed
+    documents — `FzErrorFormat: code=7: cycle in resources` is the class GEOM-1
+    found on four archive documents, and `get_text("text")` raises a bare
+    `RuntimeError` for the same defect while `"blocks"`/`"words"` raise the
+    typed one, so the failure cannot be recognised by exception class. Every
+    text extraction in this module goes through `_page_text`, which converts
+    whatever MuPDF raised into THIS exception; each rung catches it and returns
+    None. Two properties matter and are the reason the conversion is a distinct
+    class rather than a bare `except Exception` around each rung:
+
+    * a rung refuses ONLY because the document's text layer is unreadable — a
+      defect in a rung's own row logic still escapes, loudly, as it does today;
+    * a refusal is whole-document. A partial read (skip the bad page, keep the
+      rest) would hand a parser a statement with pages silently missing, and
+      `parse_native_pdf_text`'s quorum gate would happily accept it.
+    """
+
+
+def _page_text(page, *args, **kwargs):
+    """``page.get_text(...)``, with MuPDF's failure made into a refusal."""
+    try:
+        return page.get_text(*args, **kwargs)
+    except Exception as exc:  # noqa: BLE001 - any MuPDF failure means the same
+        raise _UnreadableTextLayer(f"{type(exc).__name__}: {exc}") from exc
+
+
 @lru_cache(maxsize=4)
 def _native_pages_cached(pdf_bytes: bytes) -> tuple[str, ...] | None:
     """The block extraction itself, memoised on the document's own bytes.
@@ -35,14 +64,19 @@ def _native_pages_cached(pdf_bytes: bytes) -> tuple[str, ...] | None:
         return None
 
     pages: list[str] = []
-    for page in doc:
-        lines: list[str] = []
-        blocks = sorted(page.get_text("blocks"), key=lambda b: (round(b[1], 1), round(b[0], 1)))
-        for block in blocks:
-            text = " ".join(part.strip() for part in str(block[4]).splitlines() if part.strip())
-            if text:
-                lines.append(text)
-        pages.append("\n".join(lines))
+    try:
+        for page in doc:
+            lines: list[str] = []
+            blocks = sorted(
+                _page_text(page, "blocks"), key=lambda b: (round(b[1], 1), round(b[0], 1))
+            )
+            for block in blocks:
+                text = " ".join(part.strip() for part in str(block[4]).splitlines() if part.strip())
+                if text:
+                    lines.append(text)
+            pages.append("\n".join(lines))
+    except _UnreadableTextLayer:
+        return None
     return tuple(pages)
 
 
@@ -104,7 +138,7 @@ def _navy_transaction_rows(doc, account: str) -> tuple[list[str], list[str]]:
         pending = None
 
     for page in doc:
-        for raw_line in page.get_text("text", sort=True).splitlines():
+        for raw_line in _page_text(page, "text", sort=True).splitlines():
             line = re.sub(r"\s+", " ", raw_line).strip()
             if not line:
                 continue
@@ -189,7 +223,10 @@ def parse_native_navy_federal(
     except Exception:
         return None
 
-    full_text = "\n".join(page.get_text("text", sort=True) or "" for page in doc)
+    try:
+        full_text = "\n".join(_page_text(page, "text", sort=True) or "" for page in doc)
+    except _UnreadableTextLayer:
+        return None
     upper = full_text.upper()
     if (
         "NAVY FEDERAL" not in upper
@@ -201,7 +238,10 @@ def parse_native_navy_federal(
     if account_match is None:
         return None
 
-    rows, source_dates = _navy_transaction_rows(doc, account_match.group(1))
+    try:
+        rows, source_dates = _navy_transaction_rows(doc, account_match.group(1))
+    except _UnreadableTextLayer:
+        return None
     pages = _native_pages(pdf_bytes)
     if not pages or not rows:
         return None
@@ -556,7 +596,7 @@ def _fc_bands(page) -> list[list[tuple[float, float, float, str, float]]]:
     row pitch (`_fc_rows`).
     """
     cells: list[tuple[float, float, float, str, float]] = []
-    for block in page.get_text("dict").get("blocks", []):
+    for block in _page_text(page, "dict").get("blocks", []):
         if block.get("type") != 0:
             continue
         for line in block.get("lines", []):
@@ -713,8 +753,11 @@ def parse_native_first_citizens(
         return None
 
     rows: list[str] = []
-    for page in doc:
-        rows.extend(_fc_rows(page))
+    try:
+        for page in doc:
+            rows.extend(_fc_rows(page))
+    except _UnreadableTextLayer:
+        return None
     if not rows:
         return None
 
@@ -747,7 +790,10 @@ def parse_native_desjardins(pdf_bytes: bytes, source_file: str = "") -> Statemen
     except Exception:
         return None
 
-    pages = [page.get_text("text", sort=True) or "" for page in doc]
+    try:
+        pages = [_page_text(page, "text", sort=True) or "" for page in doc]
+    except _UnreadableTextLayer:
+        return None
     full_text = "\n".join(pages).upper()
     if (
         "CAISSE DESJARDINS" not in full_text
@@ -791,32 +837,40 @@ def parse_native_wells_fargo(pdf_bytes: bytes, source_file: str = "") -> Stateme
     except Exception:
         return None
 
-    full_text = "\n".join(page.get_text("text") or "" for page in doc).upper()
+    try:
+        full_text = "\n".join(_page_text(page, "text") or "" for page in doc).upper()
+    except _UnreadableTextLayer:
+        return None
     if "WELLS FARGO" not in full_text or "TRANSACTION HISTORY" not in full_text:
         return None
 
     pages: list[str] = []
-    for page in doc:
-        lines: list[str] = []
-        blocks = sorted(page.get_text("blocks"), key=lambda b: (round(b[1], 1), round(b[0], 1)))
-        for block in blocks:
-            text = " ".join(part.strip() for part in str(block[4]).splitlines() if part.strip())
-            if text:
-                lines.append(text)
+    try:
+        for page in doc:
+            lines: list[str] = []
+            blocks = sorted(
+                _page_text(page, "blocks"), key=lambda b: (round(b[1], 1), round(b[0], 1))
+            )
+            for block in blocks:
+                text = " ".join(part.strip() for part in str(block[4]).splitlines() if part.strip())
+                if text:
+                    lines.append(text)
 
-        rows = _wells_rows(page)
-        if rows:
-            lines.append("WF_NATIVE_TRANSACTIONS")
-            lines.extend(rows)
-            lines.append("WF_NATIVE_TRANSACTIONS_END")
-        pages.append("\n".join(lines))
+            rows = _wells_rows(page)
+            if rows:
+                lines.append("WF_NATIVE_TRANSACTIONS")
+                lines.extend(rows)
+                lines.append("WF_NATIVE_TRANSACTIONS_END")
+            pages.append("\n".join(lines))
+    except _UnreadableTextLayer:
+        return None
     return StatementMarkdown(source_file=source_file, model="native-pdf-text+wells", pages=pages)
 
 
 def _wells_rows(page) -> list[str]:
     import re
 
-    words = page.get_text("words")
+    words = _page_text(page, "words")
     cutoff_y = 735.0
     for x0, y0, x1, y1, text, *_ in words:
         if text.lower() in {"items", "account", "important", "totals", "the", "summary", "monthly"}:
@@ -893,3 +947,4 @@ def _wells_rows(page) -> list[str]:
                 current["balance"] = balance
     flush()
     return rows
+
