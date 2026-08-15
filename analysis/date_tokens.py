@@ -25,6 +25,7 @@ from datetime import date
 __all__ = [
     "MONTH_NAME_ALT",
     "MONTH_NUMBERS",
+    "PERIOD_DASH",
     "iso_or_none",
     "iso_from_month_day",
     "iso_from_month_day_strict",
@@ -136,6 +137,34 @@ MONTH_NUMBERS: dict[str, int] = {
 MONTH_NAME_ALT = "|".join(
     sorted((re.escape(key) for key in MONTH_NUMBERS), key=len, reverse=True)
 )
+
+#: The dash a statement prints BETWEEN two dates — ``Apr 1 - Apr 30, 2026``,
+#: ``April 1, 2026—April 30, 2026``. For embedding in a parser's own period
+#: pattern; carries no groups.
+#:
+#: This class is deliberately WIDER than `analysis.money.MINUS_CLASS`, and the
+#: asymmetry is the point rather than an oversight. The two marks have
+#: opposite risk profiles:
+#:
+#: * a glyph admitted to the SIGN class silently inverts the direction of
+#:   every amount that carries it, so that class is narrowed to what documents
+#:   attest and nothing else;
+#: * a glyph admitted to the RANGE class can only make a period line match.
+#:   It carries no value and cannot change one. What it CAN do is fail to
+#:   match — and the period is required, so an unrecognised range dash costs
+#:   the whole document.
+#:
+#: The em dash therefore belongs here and not there. Both classes were once
+#: one string in `money.py`, which is how U+2014 reached the sign class: two
+#: parsers built their period pattern out of ``MINUS_GLYPHS`` because it was
+#: the only dash class the platform exported (W3 §MGD). `square_checking` had
+#: already reached the same conclusion privately, with an even wider class.
+#:
+#: Membership is exactly what those consumers carried before the split —
+#: ASCII hyphen-minus, U+2212, U+2013, U+2014 — so repointing them changes no
+#: pattern. Every archive document of the three families prints the ASCII
+#: hyphen here (brex 6/6, mercury 31/31, wealthsimple 16/16).
+PERIOD_DASH = "[-−–—]"
 
 
 def iso_from_named_month_day(month: str, day: str | int, year: str | int) -> str | None:

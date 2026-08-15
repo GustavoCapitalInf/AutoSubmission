@@ -143,10 +143,17 @@ def test_mercury_carries_the_date_forward_across_a_page_break():
     assert [t.date for t in statement.transactions] == ["2026-04-02", "2026-04-02"]
 
 
-@pytest.mark.parametrize("minus", ["-", "\u2212", "\u2013", "\u2014"])
+@pytest.mark.parametrize("minus", ["-", "\u2212", "\u2013"])
 def test_mercury_reads_all_three_printed_minus_glyphs(minus):
     """The same generator prints ASCII hyphen, U+2212 and U+2013 as the sign,
-    and a reader that knows only one of them sign-flips the others."""
+    and a reader that knows only one of them sign-flips the others.
+
+    Exactly three, measured: over the 31 archive statements the character
+    immediately before a `$` is U+2212 1,202 times, U+2013 687 and U+002D 13,
+    and U+2014 EM DASH zero times. The em dash was admitted here by a shadowed
+    second definition of the shared class and is now ruled out (W3 §MGD); the
+    test below is what it does instead.
+    """
     statement = mercury.parse_mercury_statement(mercury_document(
         f"Apr 02 Alpha Supply {MARK}ACH Pull {minus}$10.00 $90.00\n",
         beginning="$100.00", withdrawals=f"{minus}$10.00", deposits="$0.00", ending="$90.00",
@@ -155,6 +162,46 @@ def test_mercury_reads_all_three_printed_minus_glyphs(minus):
     assert statement.transactions[0].amount == -10.00
     assert statement.transactions[0].direction == "debit"
     assert reconcile(statement).ok
+
+
+def test_an_em_dash_is_not_a_sign_and_the_document_declines():
+    """THE RULING (W3 §MGD), at the parser, with its real mechanism named.
+
+    An em dash before the currency symbol used to make the amount NEGATIVE,
+    because ``SIGNED_MONEY_TOKEN`` was built from a shadowed four-glyph class
+    while every other consumer of that name held a narrower one. The em dash
+    is now outside the sign class on the archive's own evidence: it stands in
+    a sign position on exactly two documents, both failing, and on one of them
+    it is an empty-column placeholder in front of a POSITIVE balance.
+
+    What that costs this layout is stated exactly rather than optimistically.
+    The row does NOT refuse at the pattern: ``type`` is a lazy any-character
+    group, so it absorbs ``ACH Pull —$10.00`` and the BALANCE cell is read as
+    the amount — a worse reading than either sign, not a cleaner one. What
+    refuses is the arithmetic: the balance walk no longer reaches the printed
+    end-of-day balance, no average daily balance is produced, and
+    ``telemetry.record.classify_outcome`` turns that into ``withheld_adb``.
+    Nothing publishes, which is the same guarantee
+    `test_a_tampered_sign_glyph_publishes_nothing` pins for a dropped sign.
+
+    Zero archive documents print the shape (0 of 3,453 amounts over the 31
+    statements), so this moves nothing today. It is pinned because the
+    fail-closed depends on the ARITHMETIC rather than on the grammar, and a
+    future row shape without a balance column would not have that backstop.
+    Carried for Ocean as §MGD MGD-C2.
+    """
+    from analysis.metrics import compute_metrics
+
+    statement = mercury.parse_mercury_statement(_two_row_document(debit_sign="\u2014"))
+    assert statement is not None
+    # the mis-read, named rather than glossed
+    assert statement.transactions[1].amount == 130.00
+    assert "\u2014$10.00" in statement.transactions[1].description
+    # ... and the arithmetic that refuses it
+    recon = reconcile(statement)
+    assert not recon.ok
+    assert compute_metrics(statement, trust_stated_summary=recon.summary_ok,
+                           trust_running_balances=recon.ok).average_daily_balance is None
 
 
 def test_mercury_takes_direction_from_the_sign_and_never_from_the_type_column():
@@ -662,7 +709,7 @@ def test_a_tampered_sign_glyph_publishes_nothing():
                            trust_running_balances=True).average_daily_balance is not None
 
 
-@pytest.mark.parametrize("minus", ["-", "\u2212", "\u2013", "\u2014"])
+@pytest.mark.parametrize("minus", ["-", "\u2212", "\u2013"])
 def test_every_printed_minus_glyph_certifies_against_the_same_arithmetic(minus):
     """The three glyphs are one column. Each must produce the SAME statement,
     and each must reconcile — the arithmetic is what certifies the reading."""
