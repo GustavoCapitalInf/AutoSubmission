@@ -21437,12 +21437,30 @@ C8B06DE4D04B71470F3D65DB70667F03E17B3389EF874A78D04E8875E678827D
 61BDA531117B7BBBC1B842C6FDA6EDB7E1C1BB64344A1CF234DB314471A54082
 ```
 
-**The page-declaration population (§PIPEFIX card 2, the 114)** — 30 documents
-publish while carrying `missing_declared_statement_page` (the remainder of the
-114 are `failed`, so the flag is never published). Byte-identical base vs
-branch under both wirings. Under `sheets` ON, 21 lose the flag and 10 change
-outcome — IDENTICALLY on both sides, so that movement is WIRING-2's and none
-of it is this cell's.
+**The page-declaration population (§PIPEFIX card 2, the 114)** — re-measured
+here rather than quoted, counterfactually over every archive document with an
+OCR artifact (regex only, so `failed` documents are included where a pipeline
+replay cannot reach them):
+
+```
+documents with an OCR artifact                          3,351
+carry missing_declared_statement_page with sheets OFF     157
+  ...flag WITHDRAWN once sheets are wired                 114   ← §PIPEFIX's 114
+       by published outcome: failed 93 · withheld 11 · review 10
+  ...flag GAINED by wiring sheets                            0   ← restriction-only
+                                                                   property holds
+```
+
+§PIPEFIX recorded the same **114** with the split `failed 101 / review 3 /
+withheld 10`; the split has since shifted (batch 3–4 moved documents out of
+`failed`) and the total has not. 21 of the 114 publish a payload today, and
+those 21 are exactly the sheets-ON flag/outcome movers measured above.
+
+Against that population this cell is byte-identical base vs branch under BOTH
+wirings: the 30 published carriers of the flag show a zero-field diff with
+`sheets` off and with `sheets` on, and the 21 withdrawals and 10 outcome moves
+that `sheets` causes happen IDENTICALLY on both sides. That movement is
+WIRING-2's; none of it is this cell's.
 
 ## PIPE5.6 Carried to Ocean
 
