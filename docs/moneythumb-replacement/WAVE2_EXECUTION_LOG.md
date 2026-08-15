@@ -1,6 +1,73 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
-## 2026-08-14 — **COVERAGE-WAVE BATCH 3 OFFICIAL: improved 356 / regressed 0 — validated 2,357 (69.7%)**
+## 2026-08-15 — **COVERAGE-WAVE BATCH 4 OFFICIAL: improved 51 / regressed 0 — validated 2,405 (71.2%): THE 70% TIER CROSSED BY THE CORRECTNESS-FIRST BATCH**
+
+Twelve reviewed cells under Gustavo's correctness-first priority order,
+merged as one composed train on `229a3cd`: `63cadaa` (COUNTS-P3) ·
+`4c766c8` (WIRING-1, activation STOPPED per the approved-scope rule) ·
+`a447ff0` (SCAN-A) · `2aa90ec` (FC-EXTRACT) · `4d9f774` (GEOM-1) ·
+`1714701` (WOODFOREST-INIT, evidence half only — adb wiring awaits the
+ADB-basis ruling) · `d6b6ee2` (MG-C) · `c67a834` (UNKNOWN-ISSUER) ·
+`2243d11` (SCAN-B) · `7eae896` (SCAN-C) · `6f227c9` (DETECT-BUDGET) +
+integration `6abd2ee` (composed v11→12; OCR 2→3 composed; woodforest
+wired into all six native-rung copies + the new rung-parity guard;
+registry pins to the 71-union). **Every one of the twelve adversarial
+reviews produced findings; two BLOCKs (GEOM-1's silent split-cell
+truncation — its own log had booked a 1,000.00 reader defect to the
+bank's side; WOODFOREST-INIT's evidence packet — the zero-residual
+oracle was the bank's n+1 divisor convention, not an opening signature,
+and a sign hole would have published a day-before NSF fee as an account
+opening) fixed pre-merge. Four cells corrected Ocean's own prescriptions
+with measurement (SCAN-C's zero-row invariant vs a dedup guard that
+would have refused 6/11 genuine documents; MG-C's SINGLE+ADJACENCY carry
+vs a condition that would have discarded all 14 recoveries; GEOM-1's
+refuse-not-join; DETECT-BUDGET's rejection of the prescan on near-miss
+grounds).**
+
+Composed-tree proofs: suite **4,240** (+471) / corpus-marked **25** /
+gate GREEN 106/3 **with the new per-document verdict check live**
+(6 review / 100 validated / 3 withheld pinned as (class, flags, notes,
+risk_level, possible_document_issue)) / dry run `1bcd23b9` canonical
+100/6/3 at v12, all exit 0. Push `6abd2ee`, **remote CI SUCCESS, run
+31881544237 (conclusion read)**.
+
+**Official instrument (`d5c75ff6` → `c924d751`, shared 3,380, both
+caches COLD — OCR v3 + analysis v12 regenerate everything, making this
+run the wave's strongest cold-reproduction proof;
+--fail-on-regression exit 0): improved 51 / regressed 0.** Transitions:
+failed→validated 47 · withheld→validated 1 · withheld→review 3 (the
+chase exports, honestly not validated — the issuer's export is not a
+formal statement). Totals: validated 2,357 → **2,405 (71.2%)** · failed
+872 · withheld 65 · review 25 · deferred 13. Families: releve_facturation
+16 · balance_by_date 11 · core_processor_sectioned 10 ·
+community_section 5 · fifth_third 4 · chase_export 3 · woodforest 2.
+Cumulative: 1,048 → 2,405 (+129%), zero regressions ever, $0 vendor.
+
+**Platform capabilities landed:** the detect-sweep STOP-THE-LINE closed
+structurally (104→33 text preparations/doc; the affordability contract
+now three clauses projected to PLANNED_REGISTRATIONS=80, load-immune
+where it can be); the corpus gate can now SEE review↔validated movement
+(the blindness batch 3 proved); read_money splits absence from refusal
+across 39 fail-open sites (a refusal never again publishes 0.00); the
+exception boundary no longer quotes document text on refusals; the
+first geometry rung (header-derived bands, refuse-not-repair);
+first_citizens' printed descriptions recovered (revenue verification
+possible again — the six FI14.1 metric movers land exactly); bank=None
+honest-unknown-issuer live on three registrations.
+
+**Standing items for Gustavo (unchanged, plus one):** the ADB-basis
+ruling (WOODFOREST-INIT packet now review-hardened); the ceremony
+re-scope (WIRING-1's stop: BMO January is a sixth pinned flag-carrier;
+Regions offline-inexecutable until the committed artifacts carry page
+lists; executable ceremony today is 101/5/3); the currency-evidence
+class (rbc USD ceremony + community_section's USD default + card-2's
+refusal pattern — one platform card). Queue: WIRING-2 (activation +
+ceremony + cache-key digest, one card), REPAIR-GUARD, COUNTS-MAP,
+MG-D (MINUS_GLYPHS shadowing — em dash live-inconsistent, 2 archive
+attestations both against admitting it), RUNG-SEAM, the 22
+lowercase-period-line docs, fiserv issuer (+4), MODEL-LABEL,
+DISCOVERY-OBS (parser_id cache-hit hole), FzErrorFormat intake guard,
+double-sweep PreparedDocument handoff.
 
 Eleven scout-evidenced cells, each adversarially reviewed — **all eleven
 reviews produced real findings** (two BLOCK-grade defects fixed pre-merge:
