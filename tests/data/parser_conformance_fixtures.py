@@ -102,6 +102,17 @@ FIXTURES: dict[str, str] = {
         "COLUMBIA BANK\nMARKETPLACE CHECKING\nDEPOSITS/ADDITIONS\nDAILY BALANCES\n"
     ),
     "consumers": "Consumers Credit Union\nSummary of All Accounts\n",
+    # The second fixture here that carries no issuer identification, for the
+    # same reason as `community_section` below: the registration it covers
+    # recognises a CORE PROCESSOR's template and reads the issuer out of each
+    # document. Its evidence is the template's own period line and the labels
+    # of the two summary balance rows, and that is exactly what this holds.
+    "core_processor_sectioned": (
+        "No Minimum Business Checking ACCOUNT XXXXXXXXXX1234\n"
+        "LAST STATEMENT 07/31/25 0.00 AVG AVAILABLE BALANCE 0.00 "
+        "THIS STATEMENT 08/29/25 0.00\n"
+        "TOTAL DAYS IN STATEMENT PERIOD 08/01/25 THROUGH 08/29/25: 29\n"
+    ),
     "dakota_west": "dakotawestcu.com\nThank you for being a member of Dakota West Credit Union.\n",
     "demo_national": "SAMPLE BUSINESS BANK STATEMENT\nBank: Demo National Bank\n",
     "desjardins": (

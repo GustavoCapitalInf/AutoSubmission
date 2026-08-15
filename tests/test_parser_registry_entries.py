@@ -28,6 +28,10 @@ EXPECTED_ORDER = [
     # `community_section` now registers generically (W3 §JHA-CELL).
     "dakota_west",
     "first_community",
+    # The issuer-specific reader of the SECOND core-processor template's
+    # running-balance issue, which `core_processor_sectioned` now registers
+    # generically (W3 §SCANB).
+    "first_farmers",
     "midflorida",
     "mission_valley",
     "rbc_french",
@@ -56,12 +60,12 @@ EXPECTED_ORDER = [
     "columbia_bank",
     "community_section",
     "consumers",
+    "core_processor_sectioned",
     "demo_national",
     "desjardins",
     "farmers_merchants",
     "fifth_third",
     "first_citizens",
-    "first_farmers",
     "fiserv_premier",
     "found_lead",
     "found_lead_activity",
@@ -146,9 +150,11 @@ def test_registration_count_matches_the_documented_decision_points():
     (W3 §FINTECH); and the Woodforest, Wealthsimple and Symitar layouts
     (W3 §UNID-PACK-A); and the Fifth Third commercial print stream and
     the Fiserv Premier parenthesised-counts issue (W3 §UNID-B); and the issuer-agnostic core-processor template
-    (W3 §JHA-CELL); and the French-language `Relevé de compte` template whose
-    documents name no institution at all (W3 §UNKISSUER, UB5)."""
-    assert len(pr.registrations()) == 69
+    (W3 §JHA-CELL); the French-language `Relevé de compte` template whose
+    documents name no institution at all (W3 §UNKISSUER, UB5); and the
+    second core processor's sectioned template, likewise issuer-agnostic
+    (W3 §SCANB)."""
+    assert len(pr.registrations()) == 70
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():
@@ -239,6 +245,17 @@ def test_only_the_promoted_sub_dispatches_supersede_anything():
         # The pinned corpus holds one document of each of the four.
         "dakota_west": ["community_section"],
         "first_community": ["community_section"],
+        # W3 §SCANB: the same relationship one template over.
+        # `core_processor_sectioned` registers the SECOND core-processor
+        # template on the furniture its two printed issues share, so it claims
+        # every document of the issuer whose running-balance issue
+        # `first_farmers` reads. Evidence, measured over the D-3 artifact store
+        # (3,396 documents with offline text, run of record `d5c75ff6`) and
+        # named in the commit message: the general reader detects exactly the
+        # 39 documents that print the template, of which first_farmers holds 7
+        # (6 validated, 1 that first_farmers itself declines). Without the edge
+        # those 6 resolve `ambiguous`. The pinned corpus holds one of them.
+        "first_farmers": ["core_processor_sectioned"],
         "midflorida": ["community_section"],
         "mission_valley": ["community_section"],
         "rbc_french": ["rbc"],
