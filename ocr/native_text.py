@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from statistics import median
 from typing import TypedDict
 
 from .column_grid import find_columns, page_words, read_rows
@@ -237,11 +238,15 @@ _WF_END = "WOODFOREST_GEOMETRY_END"
 
 
 def _wf_lines(words) -> list[tuple[float, str]]:
-    """Words grouped into visual lines, as `(baseline, text)`, top to bottom."""
+    """Words grouped into visual lines, as `(baseline, text)`, top to bottom.
+
+    Used only to find the printed labels that OPEN and CLOSE a region — the
+    grid header, `Summary of Accounts`, `Checks Cleared`. Postings are read by
+    `read_rows`, which does not group into lines at all, because on this
+    layout a row and a visual line are not the same thing.
+    """
     if not words:
         return []
-    from statistics import median
-
     tolerance = max(1.0, median(word.height for word in words) * 0.6)
     ordered = sorted(words, key=lambda w: (w.mid_y, w.x0))
     groups: list[list] = [[ordered[0]]]
@@ -376,11 +381,22 @@ def parse_native_woodforest(pdf_bytes: bytes, source_file: str = "") -> Statemen
         import fitz
     except Exception:
         return None
+
+    # The cheap test first, and it matters: this rung sits in the ladder every
+    # native-text document passes through, so reading word boxes before
+    # knowing whose statement it is would add a second full text extraction to
+    # all ~3,300 of them for the sake of 18.
+    pages = _native_pages(pdf_bytes)
+    if not pages:
+        return None
+    upper = "\n".join(pages).upper()
+    if "WOODFOREST" not in upper or "DATE CREDITS DEBITS BALANCE DESCRIPTION" not in upper:
+        return None
+
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception:
         return None
-
     try:
         pages_words = [page_words(page) for page in doc]
     except Exception:
@@ -390,13 +406,6 @@ def parse_native_woodforest(pdf_bytes: bytes, source_file: str = "") -> Statemen
             doc.close()
         except Exception:
             pass
-
-    pages = _native_pages(pdf_bytes)
-    if not pages:
-        return None
-    upper = "\n".join(pages).upper()
-    if "WOODFOREST" not in upper or "DATE CREDITS DEBITS BALANCE DESCRIPTION" not in upper:
-        return None
 
     grid_rows, refusals = _wf_grid_rows(pages_words)
     if refusals or not grid_rows:
