@@ -407,3 +407,100 @@ def test_a_document_with_no_ledger_section_at_all_is_refused():
             "Transaction Activity Date Description Debits Credits Balance", ""
         )
     ) is None
+
+
+# ===========================================================================
+# The third printed issue: claimed, and refused twice over (W3 §FISERVISS)
+# ===========================================================================
+
+#: The summary strip as the third issue prints it: the same clauses the two read
+#: issues print, minus the optional ones (`Average Ledger`, `Average Collected`,
+#: the two fee terms) and with the closing figure under the `Current Balance`
+#: wording. Every one of this registration's three required markers is in it,
+#: which is why these documents are claimed and not merely ignored.
+ISSUE_THREE_SUMMARY = (
+    "Previous Balance $100.00 Deposits/Credits (1) $50.00 "
+    "Checks/Debits (2) $30.00 Current Balance $120.00"
+)
+#: The period, printed as two facts in two places instead of one clause.
+ISSUE_THREE_PERIOD = "Statement of Account March 01, 2026 thru March 31, 2026"
+#: The registered wording, for the one-repair variant below.
+READ_PERIOD = "Statement of Account\nStatement Dates 3/01/26 to 3/31/26 (31 days)"
+ISSUE_THREE_CREDIT_HEAD = "Deposits Date Description Amount"
+ISSUE_THREE_DEBIT_HEAD = "Debits Date Description Amount $"
+
+
+def issue_three_document() -> str:
+    """The third issue's furniture over an otherwise sound document.
+
+    Everything this registration DOES read is deliberately intact and correct:
+    the three detection markers fire, the summary parses, and its identity
+    closes ($100.00 + $50.00 − $30.00 = $120.00). What differs is only the
+    period wording and the section vocabulary — so a refusal here can only come
+    from those two.
+    """
+    return (
+        "--- Page 1 ---\n\n"
+        f"{RETURN_ADDRESS}\n"
+        "Managing Your Accounts Branch Name Synthetic Customer Service 000-000-0000\n"
+        "Address 1 Example Street Springfield, ZZ 00000 "
+        "Online Access www.example-bank.com\n"
+        f"{ISSUE_THREE_PERIOD}\n"
+        "SYNTHETIC BUSINESS CHECKING ACCOUNT XXXXXX0000\n"
+        f"{ISSUE_THREE_SUMMARY}\n"
+        "Activity Summary Days in the Statement Period:  31\n"
+        f"{ISSUE_THREE_CREDIT_HEAD}\n"
+        "3/03 SYNTHETIC DEPOSIT $50.00\n"
+        f"{ISSUE_THREE_DEBIT_HEAD}\n"
+        "3/02 SYNTHETIC DEBIT ONE $10.00 3/04 SYNTHETIC DEBIT TWO $20.00\n"
+        "--- Page 2 ---\n\n"
+        f"{DIRECTORY}\n"
+    )
+
+
+def _read_sections(document: str) -> str:
+    return document.replace(
+        ISSUE_THREE_CREDIT_HEAD, "Credit Transactions Date Description Amount"
+    ).replace(ISSUE_THREE_DEBIT_HEAD, "Debit Transactions Date Description Amount")
+
+
+def test_the_third_printed_issue_is_claimed_and_refused_twice_over():
+    """The refusal is OVER-DETERMINED, and both halves are load-bearing.
+
+    Repairing either one alone still refuses; repairing both publishes. That
+    last assertion is what stops this test being vacuous — it proves the
+    fixture is sound everywhere else, so the two named wordings really are the
+    whole of what blocks this issue, and neither is a missing fact: the
+    document prints its period and its ledger, in vocabularies no clause of
+    this module matches.
+    """
+    document = issue_three_document()
+    assert detect(document).claims, "all three required markers are printed"
+    assert parse_fiserv_premier_statement(document) is None
+
+    period_only = document.replace(ISSUE_THREE_PERIOD, READ_PERIOD)
+    assert parse_fiserv_premier_statement(period_only) is None, "sections still unread"
+
+    sections_only = _read_sections(document)
+    assert parse_fiserv_premier_statement(sections_only) is None, "period still unread"
+
+    both = _read_sections(document.replace(ISSUE_THREE_PERIOD, READ_PERIOD))
+    statement = parse_fiserv_premier_statement(both)
+    assert statement is not None
+    assert len(statement.transactions) == 3
+    assert statement.beginning_balance == 100.00
+    assert statement.ending_balance == 120.00
+
+
+def test_the_third_issues_unnamed_issuer_is_not_what_refuses_it():
+    """All four archive documents of this issue print a web address and no bank
+    name, so `_issuer` returns None — the `bank=None` path, which costs a label
+    and not a document. Pinned here because the card that produced this test
+    was written on the belief that the missing issuer was the refusal."""
+    anonymous = _read_sections(
+        issue_three_document().replace(ISSUE_THREE_PERIOD, READ_PERIOD)
+    ).replace(DIRECTORY, "")
+    statement = parse_fiserv_premier_statement(anonymous)
+    assert statement is not None
+    assert statement.bank is None
+    assert len(statement.transactions) == 3

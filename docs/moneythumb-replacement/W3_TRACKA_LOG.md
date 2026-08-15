@@ -26812,3 +26812,393 @@ as `failed / exception` — `analyze_markdown` RAISES `AmbiguousParserError` in
 deterministic mode, so the gate reds through the cannot-be-analysed path, not
 through a verdict class. Corrected in L9. Both corrections came from measuring
 a thing I had reasoned about; both were caught before merge.
+# §FISERVISS — the fourth population: the issuer was never what refused them
+
+Batch 5. Base `e935f98` (main `b524f72` + the batch-5 handoffs), branch
+`wave5-fiserviss`, worktree `.claude/worktrees/mt5-fiserviss`. Run of record
+`2026-08-15T111704.195314-0000-c924d751`. Owned files:
+`analysis/fiserv_premier.py`, `tests/test_fiserv_premier.py`, this log.
+
+**The card:** apply the approved honest-unknown-issuer policy (`bank=None`;
+never infer the issuer from a filename, folder, template or branding) to
+`fiserv_premier`'s four issuer-less refusals, carded at roughly +4 by §U7.3,
+with the standing instruction to characterize the refusals before assuming any
+of them publishes.
+
+## FI0. Summary — an honest +0, and two corrections to the record
+
+**Nothing moves. Nothing should.** The four documents are refused for two real,
+measured reasons, and the missing issuer is not one of them.
+
+| | claimed | published | refused |
+|---|---|---|---|
+| `fiserv_premier`, whole archive | 14 | 10 | **4** |
+
+1. **The honest-unknown-issuer policy is already live in this module and is
+   already correct.** `545166b` (batch 3, §UNID-B RC-D1) replaced the issuer
+   refusal with `bank=None` in the same commit that made `_issuer` require the
+   document's own web address to spell the name.
+   `parse_fiserv_premier_statement` has had no issuer refusal since. The card's
+   premise — "claimed and then declined for want of a printed issuer" (§UB7,
+   restated at §U7.3) — describes the module as it stood *before* that commit.
+   **Zero lines of policy to apply; +0 on that axis, structurally.**
+2. **The period line is not absent.** The handoff, and `545166b`'s own D3, both
+   record the refusal as over-determined because there is "no period line on
+   any of the 4". All four print their period, twice: `Statement of Account
+   <Month DD, YYYY> thru <Month DD, YYYY>` in the masthead, and the length
+   separately as `Activity Summary Days in the Statement Period:  N`. What is
+   absent is the *wording* `_PERIOD_RE` reads (`Statement Dates 4/01/26 to
+   4/30/26 (30 days)`). That is a gap in this module, not a silence in the
+   document, and the distinction decides the card: "the bank did not print it"
+   closes it, "we do not read what the bank printed" keeps it open at a known
+   price.
+
+The real blocker is larger than either: these four print a **third issue** of
+the template, whose ledger vocabulary this module does not read at all.
+
+## FI1. The instrument
+
+Every figure below is a live replay. The four documents' markdown was resolved
+from the D-3 OCR artifact store **by direct file path** — the `webapp_data`
+sqlite index was never opened — by recomposing the run's own cache key
+(`cache_key(STAGE_OCR, content_sha256, ocr_settings_key(...))`), reading
+`artifacts/ocr/<2>/<key>.json`, and rebuilding
+`StatementMarkdown.to_markdown()` from the stored pages. All four are
+`native-pdf-text`, 8 pages, `truncated_page_count: 0`, and both caches MISS in
+the run of record — so the artifact is the run's own text, generated cold at
+OCR v3.
+
+The family sweep replays `fiserv_premier.detect` and
+`parse_fiserv_premier_statement` over every artifact of the run's 3,380
+distinct shas (16 have no offline artifact on disk), never over `rows.csv`
+`parser_id` (the cache-hit hole, §COUNTSP3).
+
+## FI2. The four documents
+
+All four are the same account of the same issuer, in four consecutive periods.
+Folder `Unidentified/`, prefix `d8ddb4db`.
+
+| # | `content_sha256` | file | period printed | days |
+|---|---|---|---|---|
+| 1 | `4D0EACF6D617EDAB6AD7BA7EC7EE16A669CE90995916C73DD4228C5F9999A29E` | `d8ddb4db_April.pdf` | April 01, 2026 thru April 30, 2026 | 30 |
+| 2 | `4B37474294BFC9AB5D5CFCDA64BF5EB15677F8778C6F1712A8DDDE4C687F0C1D` | `d8ddb4db_May.pdf` | May 01, 2026 thru May 29, 2026 | 29 |
+| 3 | `8DB2CB78B67CF2235CC62C8ED71A0D3569DCACAA993339040ED02532FF5EA471` | `d8ddb4db_Checking Account Statements - 6_30_2026 - 3104008515.pdf` | May 30, 2026 thru June 30, 2026 | 32 |
+| 4 | `E34083B2FED71FB3565599BE3E4D26B4741A3CEBC7E91CED3451E319798A2513` | `d8ddb4db_Checking Account Statements - 7_31_2026 - 3104008515.pdf` | July 01, 2026 thru July 31, 2026 | 31 |
+
+Gate by gate, identically on all four:
+
+```
+detect(...).claims        True    score 0.5   (all three required markers fire)
+_summary(...)             MATCHES
+  summary identity        closes to 0.0000 on all four
+_PERIOD_RE.search(...)    None                              <- cause 1
+_sections(...)            activity 0, credit 0, debit 0, daily 0   <- cause 2
+_issuer(...)              None    (_own_domain -> 'coastalstatesbank')
+_TITLE_RE / _PRODUCT_RE   None / None
+parse_fiserv_premier_statement(...)   None
+```
+
+The summary strips, and their identities:
+
+| doc | previous | credits (n) | debits (n) | closing | walked − closing |
+|---|---|---|---|---|---|
+| April | $411.07 | 36 / $278,658.85 | 131 / $285,723.80 | −$6,653.88 | `-0.0000` |
+| May | −$6,653.88 | 18 / $296,791.12 | 107 / $276,559.94 | $13,577.30 | `-0.0000` |
+| Jun 30 | $13,577.30 | 40 / $219,048.53 | 157 / $230,817.90 | $1,807.93 | `-0.0000` |
+| Jul 31 | $1,807.93 | 36 / $243,368.25 | 174 / $234,885.81 | $10,290.37 | `-0.0000` |
+
+**The four chain across periods**: each closing balance is the next document's
+`Previous Balance`, and the printed periods abut with no gap and no overlap.
+Recorded because it is the corroboration a future cell will want — nothing here
+rests on it.
+
+### FI2.1 Cause 1 — the period, printed in two places instead of one clause
+
+The two read issues print `Statement Dates 4/01/26 to 4/30/26 (30 days)`: the
+dates and the length in one clause, which is what `_PERIOD_RE` matches. The
+third prints the dates in the masthead heading and the length in the activity
+strip, in long-form month names:
+
+```
+Statement of Account April 01, 2026 thru April 30, 2026
+...
+Activity Summary Days in the Statement Period:  30
+```
+
+Both facts are on the page. Neither is read. A parser with no period basis
+cannot publish `period_start` / `period_end`, and every dated row it would
+publish is bounded by `iso_within_period` against exactly that basis — so this
+alone refuses the document, correctly and fail-closed.
+
+### FI2.2 Cause 2 — a third ledger issue, in another registration's vocabulary
+
+The module reads two ledger shapes: the `Transaction Activity` running grid and
+the `Credit Transactions` / `Debit Transactions` split. These four print
+neither. They print:
+
+```
+Deposits Date Description Amount
+Other Credits Date Description Amount $
+Debits Date Description Amount $
+Checks Cleared            -> Date Check No Amount $
+Daily Balance Information
+Overdraft and Returned Item Fees
+```
+
+`_sections` matches none of those heads, all three buckets come back empty, and
+the parser refuses at the final `else`. That is the correct outcome: an unread
+ledger must never be published behind a summary that happens to close.
+
+**That vocabulary is not new to the platform — it is `community_section`'s.**
+Census over the run's artifacts, of documents printing `Deposits Date
+Description Amount`:
+
+```
+documents printing the head                                          62
+  claimed by community_section  (26 validated, 4 withheld, 2 review)  32
+  claimed by mission_valley     (19 validated)                        19
+  unclaimed / failed (Rogue Credit Union and siblings)                 7
+  claimed by fiserv_premier and refused   -> THESE FOUR                4
+```
+
+The four are the only ones of the 62 that also print `Previous Balance`, the
+parenthesised counts and `Statement of Account` — which is exactly the
+conjunction `fiserv_premier` registers. It claims them at 0.5 and then declines,
+and no other registration is offered them. `community_section`'s platform
+registration legitimately does not claim them: it requires its own `Account
+Summary Date Description Amount` grid and an `N Credit(s) This Period` row, and
+these print the parenthesised strip instead.
+
+So the fourth population is a genuine **hybrid**: one registration's summary
+furniture over another registration's ledger furniture. It is not a defect in
+either detector, and it is not fixable by widening one of them without
+measurement.
+
+### FI2.3 Is the ledger reachable? Yes, and the residual is one grammar rule
+
+Measured, segmenting on the issue's own heads and carrying the section identity
+across page breaks — the continuation header prints `Date Description Amount $`
+with no section name, so a reader that resets at `--- Page` cannot tell a credit
+continuation from a debit one. That carry is load-bearing, not cosmetic: mis-
+carrying it files a credit as a debit.
+
+```
+             printed credits          read           printed debits           read
+April        36 / 278,658.85    36 / 278,658.85     131 / 285,723.80    97 / 284,669.80
+May          18 / 296,791.12    18 / 296,791.12     107 / 276,559.94    97 / 276,249.94
+Jun 30       40 / 219,048.53    40 / 219,048.53     157 / 230,817.90   120 / 229,670.90
+Jul 31       36 / 243,368.25    36 / 243,368.25     174 / 234,885.81   146 / 234,017.81
+```
+
+**Credits reconcile exactly — count and total — on all four.** The debit
+residual is one row shape, and it is fully explained:
+
+```
+05/01 CHK# 00 AMT $579.45, NSF PAID ITEM FEE $31.00
+```
+
+The row's own amount is the LAST figure; the first is a REFERENCE to the item
+that caused the fee. `_PLAIN_ROW_RE`'s description class is `[^$]`, so it cannot
+span the reference, and its `(?=\s|$)` lookahead rejects `$579.45` because a
+comma follows — so the row matches nothing and is dropped whole. Count of that
+row per document: **34 / 10 / 37 / 28**, every one of them `$31.00`, and
+34×31 = 1,054.00, 10×31 = 310.00, 37×31 = 1,147.00, 28×31 = 868.00 — exactly the
+four residuals above, to the cent. The comma is doing accidental good work: it
+makes the row fail rather than publish `$579.45` as a fee.
+
+That is the whole of what stands between these four and a published ledger — a
+rule for "the row's amount is its last money token, and an embedded `AMT $x,` is
+a reference". It is a real money-grammar decision with a real hazard (a greedy
+last-token rule tried here merged rows at section ends and lost 1–3 per
+document), and it belongs to a scoped cell, not to this one.
+
+## FI3. What was changed
+
+Nothing that can move a document. Two files:
+
+1. `analysis/fiserv_premier.py` — the module docstring now names the third
+   issue, both causes, the fact that neither is an absence, and that the issuer
+   is not among the reasons. **AST-identical to base with the module docstring
+   excluded** (`ast.dump` equality, FI5), so the change is provably incapable of
+   altering any outcome.
+2. `tests/test_fiserv_premier.py` — two tests, +2 to the suite:
+   * `test_the_third_printed_issue_is_claimed_and_refused_twice_over` builds the
+     issue's furniture over a fixture that is sound everywhere else (detection
+     fires, the summary parses, its identity closes) and pins five things: the
+     document is CLAIMED; it is REFUSED; repairing **only** the period still
+     refuses; repairing **only** the sectioning still refuses; repairing both
+     publishes. The last assertion is what stops the test being vacuous — it
+     proves the two named wordings are the *whole* of the blockage, so the test
+     cannot quietly go on passing for the wrong reason.
+   * `test_the_third_issues_unnamed_issuer_is_not_what_refuses_it` pins the
+     `bank=None` path on this shape, because the card that produced this cell
+     was written on the belief that the missing issuer was the refusal.
+
+Mutation-killed, both directions, on the shipped tree:
+
+```
+teach _CREDIT_RE/_DEBIT_RE the `Deposits`/`Debits` heads -> FAILS at "sections still unread"
+teach _PERIOD_RE the long-form `... thru ...` wording    -> FAILS at "period still unread"
+```
+
+Every fixture is synthetic; no archive customer, account, date or amount appears
+in the test file.
+
+## FI4. Family sweep — zero movement, and a capability that is not exercised
+
+Live detection replay over all 3,380 distinct shas of the run of record (16 have
+no offline artifact), on the shipped tree:
+
+```
+fiserv_premier CLAIMS       : 14
+  published (parse != None) : 10   <- unchanged from the run of record
+  refused                   :  4   <- the four above
+```
+
+The 10 published match the run of record exactly — 6 `validated`, 4 `review` —
+and every one of the 10 carries a corroborated issuer name:
+
+```
+First Security Bank of Missoula   4   (…8891, Feb / Mar / Apr / May)
+Altabank                          6   (…0483 ×3, …0548 ×3)
+```
+
+**Therefore the `bank=None` branch of `fiserv_premier` is not exercised by any
+archive document.** `545166b` recorded "no archive document takes that path";
+this cell adds the reason it will stay true until the third issue is read — the
+only four documents that would take it are refused two gates earlier. The
+capability is right and is covered by synthetic tests; it is simply not
+load-bearing on today's corpus, and the `+11` of §UNKISSUER has no fiserv
+component to wait for.
+
+The 4 `review` documents of the family are a *different* open item and were not
+touched: all four carry `integrity_flags: ['missing_declared_statement_page']`
+(`primary_class: page_coverage`) — §UB8.2's class, where the GLBA privacy notice
+appended after the statement carries no `Page N of M` footer while the footers
+count it in their denominator. §PIPEFIX closed the image-sheet variant; this
+variant is still open, and it is worth 4 documents in this family alone.
+
+## FI5. Carried findings for Ocean
+
+1. **The card should be re-priced, not closed.** It is still worth +4, but it is
+   a LEDGER card, not an issuer card: a third printed issue (§FI2.2) plus a
+   second period wording (§FI2.1) plus one money-grammar rule for the embedded
+   `AMT $x,` reference (§FI2.3). The issuer half is already shipped and is not
+   what refuses anything. Suggested name: FISERV-ISSUE3.
+2. **The right home for it is a question, not a given.** The ledger vocabulary
+   belongs to `community_section` / `mission_valley`, which read it for 51
+   documents today. A third `_sections` shape inside `fiserv_premier` duplicates
+   a grammar that already exists twice over; lifting the section reader to a
+   shared helper is the §SCANB/§JHA-CELL pattern and is the cheaper end state,
+   but it touches two registrations and is therefore a ruling.
+3. **The record carried two stale facts into this batch** (§FI0.1, §FI0.2), and
+   both came from a differential written before a fix landed in the same wave.
+   The generalisable lesson: a refusal cause recorded from `dispatch_outcome`
+   is only true at the commit that produced it, and §UB7's `parser_declined`
+   line survived four commits past the change that made it false.
+4. **`_PLAIN_ROW_RE`'s `(?=\s|$)` lookahead is a guard nothing would notice
+   being deleted — until now.** It is what makes a comma-terminated amount fail
+   rather than publish. Measured over the ledger sections of all 10 published
+   documents (62,431 characters of section text): **0 comma-terminated money
+   tokens**. So on today's published population the lookahead is inert, and
+   §FI2.3's 109 dropped fee rows across the four refused documents are the first
+   measured evidence of what it buys. If FISERV-ISSUE3 is taken up, that
+   lookahead is the thing its money-grammar rule must not simply relax.
+
+## FI6. Proofs
+
+All from the worktree at HEAD, `set -o pipefail`, exit codes verbatim.
+
+```
+$ git rev-parse --abbrev-ref HEAD
+wave5-fiserviss
+
+$ git status --short
+(clean)
+
+# the whole default suite
+$ python -m pytest -q
+4242 passed, 33 skipped, 29 deselected, 1 warning in 481.39s (0:08:01)
+SUITE_EXIT=0
+   (base e935f98: 4,240. The 2 new tests are this cell's; no registration was
+    added, so the conformance parametrizations are unchanged.)
+
+# this cell
+$ python -m pytest -q tests/test_fiserv_premier.py
+28 passed in 0.35s                                        exit 0
+
+# guards
+$ python -m pytest -q tests/test_no_statement_hardcodes.py     tests/test_no_parser_helper_clones.py tests/test_r1_hardcodes.py     tests/test_experiments_are_not_wired.py tests/test_filename_boundary.py
+239 passed, 1 warning in 29.63s                           exit 0
+
+# conformance cross-product + registry
+$ python -m pytest -q tests/test_parser_conformance.py     tests/test_parser_registry_entries.py tests/test_parser_detection_markers.py     tests/test_parser_registry.py tests/test_parser_crash_shapes.py     tests/test_parser_exception_boundary.py tests/test_count_semantics.py
+1084 passed, 33 skipped, 1 warning in 6.55s               exit 0
+   registrations: 71  ->  cross-product 71 x 70
+
+# the parser change cannot alter an outcome
+$ ast.dump(base) == ast.dump(head), module docstring excluded
+True
+   base e935f98:analysis/fiserv_premier.py  19,615 bytes
+   head                                     20,706 bytes
+```
+
+```
+# corpus gate (python corpus_gate.py), 1218.8s under a loaded machine
+[PASS] inventory · foreign_files · source_integrity · balance_audit · adb_audit
+[PASS] balance_outcomes: balance: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes:     adb:     106 pass, 3 withheld, same three statements
+[PASS] outcome_classes: 109 statements publish their pinned verdict (outcome
+       class and the whole integrity block): 6 review / 100 validated / 3 withheld
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR = 109 resolved offline;
+       no live OCR, no model calls
+[PASS] exclusions: 0 named exclusions
+[PASS] oracle_independence: 4 audit modules import no production financial mathematics
+
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 6 review / 100 validated / 3 withheld
+
+RESULT: GREEN
+GATE_EXIT=0
+```
+
+```
+# the corpus-marked slice (mandatory since batch 3), 25/25, all named
+$ python -m pytest -m corpus -q -rA
+25 passed, 4279 deselected, 1 warning in 3190.68s (0:53:10)
+CORPUS_EXIT=0
+   test_corpus_gate_is_green
+   test_corpus_gate_outcomes: the verdict check green on the committed
+     expectation, and its six red-turning mutations (moved outcome class, lost
+     integrity flag, gained integrity flag, moved risk level, moved
+     possible_document_issue, changed integrity note) + the unanalysable
+     document is red not skipped
+   test_dry_run_reproduces_known_truth
+   test_the_pinned_statement_recovers_its_printed_descriptions_and_nothing_else
+   test_parser_parity: unclaimed / wrong parser / ambiguous / recorded parser /
+     highest-ranked claimant / three promoted sub-dispatches / expectations
+     cover the pinned manifest / detect-sweep prepares each document once /
+     entry points strip the filename comment once / detect sweep stays
+     affordable / detection invariant to the filename echo
+   test_telemetry_reproduces_the_gate_outcome_split
+   test_withheld_diagnostics_reproduce_the_documented_diagnosis
+   test_no_corpus_document_is_flagged_through_the_real_ladder
+```
+
+**Nothing in the pinned corpus moved**, in either direction: the gate's
+per-document verdict check is green on the committed expectation, and the
+corpus-marked slice — which is what catches review↔validated movement inside
+the gate's PASS bucket — is 25/25. Both were run on a machine carrying several
+other batch-5 cells at once, which is the only reason the two runtimes are
+1218.8s and 3190.68s rather than the usual figures.
+
+## FI7. Commits
+
+| Commit | Contents |
+|---|---|
+| `aff641a` | the module docstring naming the third issue and both causes; the two tests (claimed-and-refused-twice-over, and the issuer is not the refusal); both mutation-killed |
+| `5d361ad` | review of own text: the strip is identical in the REQUIRED markers, not in every clause |
+| `f132be9` | the claim assertion's message aligned with the marker it rests on |
+| `42e4055` | this section, FI0–FI5 |
+| `c536dbf` | the corpus gate proof |
+| (this one) | the corpus-marked slice proof, the no-movement statement, and this table |
