@@ -536,6 +536,22 @@ def test_the_mapped_set_is_pinned_and_every_mapping_is_a_closed_lookup():
         assert not any(callable(getattr(mapping, f.name)) for f in fields(mapping)), key
 
 
+def test_each_mapped_promotion_carries_a_falsifier_and_says_what_it_is_worth():
+    """The standing idiom (`first_community`, then BofA, then §COUNTSP3): an
+    entry that can be wrong has to say how you would find out — and, since
+    §COUNTSP3, an entry that CANNOT be wrong has to say that instead. Both
+    mapped directions can be wrong, both state the tell, and both say out loud
+    that they are not restating an acceptance gate."""
+    for key in MAPPED:
+        parser_id, direction = key.split(":")
+        reason = SEMANTICS[parser_id][direction].reason
+        assert "PROMOTED" in reason, key
+        assert "FALSIFIER" in reason, key
+        # the tell, in the shape the two share
+        assert "printed + 1" in reason, key
+        assert "TAUTOLOGY" in reason.upper(), key
+
+
 def test_a_rule_cannot_be_named_without_being_implemented():
     """`RULES` is DERIVED from the arithmetic rather than restated beside it,
     so a second rule cannot be added to the vocabulary while `adjustment`
