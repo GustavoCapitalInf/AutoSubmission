@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from analysis.date_tokens import PERIOD_DASH
 from analysis.money import MINUS_GLYPHS, parse_money
 from analysis.structurer import geometry_from_pdf, structure_document
 from analysis.structurer.geometry import DocumentGeometry, GeoLine, PageGeometry, Word
@@ -334,6 +335,27 @@ def test_the_period_is_read_from_an_explicit_range():
     period = read_period(lines, read_summary(lines))
 
     assert (period.start, period.end, period.source) == ("2026-03-01", "2026-03-31", "range")
+
+
+@pytest.mark.parametrize("separator", [*PERIOD_DASH.strip("[]"), "to", "through", "thru", "au", "until"])
+def test_the_period_range_reads_every_separator_the_canon_admits(separator):
+    """The dash half of this alternation is `date_tokens.PERIOD_DASH`, consumed
+    rather than re-spelled.
+
+    It was a fourth private range class (`-|–|—`) that had drifted from the
+    canon by exactly U+2212 (W3 §MGD MGD10 finding 2). The words stay local
+    because no shared constant claims them and a dash class that admitted
+    "to" would be wrong for every consumer that embeds it between two amounts.
+
+    Widening a RANGE class is the safe direction and the asymmetry with the
+    SIGN class is deliberate: a glyph admitted here can only make a period line
+    match, and the period is required, so an unrecognised range dash costs the
+    whole document.
+    """
+    lines = source_lines_from_text(f"Statement period March 1, 2026 {separator} March 31, 2026")
+    period = read_period(lines, {})
+
+    assert (period.start, period.end) == ("2026-03-01", "2026-03-31")
 
 
 def test_the_period_can_be_reconstructed_from_balance_anchors():
