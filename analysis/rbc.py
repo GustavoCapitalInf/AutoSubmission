@@ -75,7 +75,21 @@ _US_FUNDS_RE = re.compile(
 #: reads as a CAD denomination, on a statement that may be neither). Measured
 #: today: twelve product-spelling hits, twelve of them on this line and none
 #: outside it, so the anchor costs nothing and closes the shape.
-_MAILING_HEADER_RE = re.compile(r"^RBBDA\d+_\d+\b.*$", re.MULTILINE)
+#:
+#: BOTH print-control prefixes are anchored, not only the business one. RBC
+#: sets this header as `RBBDA<transit>_<serial>` on the business layout and as
+#: `RBPDA<transit>_<serial>_<sequence>` on the personal one; measured over the
+#: RBC superset, 181 archive documents carry an `RBBDA…` line and 13 carry an
+#: `RBPDA…` line. Matching only `RBBDA` left the personal layout's product line
+#: UNREAD, so a personal issue that printed a product currency word would have
+#: had its explicit denomination missed — and, once the jurisdiction default
+#: below exists, silently defaulted instead (RBC_CURRENCY_MEASUREMENT §11 R4).
+#: The explicit read must keep its precedence on both layouts, so the anchor is
+#: widened in the same commit as the default. Measured on the same superset:
+#: widening moves no document's read today (no personal issue prints either
+#: attested product spelling), which is why it is a precedence repair rather
+#: than a currency movement.
+_MAILING_HEADER_RE = re.compile(r"^RB[BP]DA\d+(?:_\d+)+\b.*$", re.MULTILINE)
 
 #: The product spellings that name a currency, and what each denominates.
 #: These two and no others are attested — measured over every RBC document in
@@ -97,19 +111,19 @@ _PRODUCT_CURRENCY = {
 }
 
 
-def _printed_currency(markdown: str) -> str | None:
-    """The currency this document PRINTS, or None when it prints none.
+def _printed_currency_evidence(markdown: str) -> set[str]:
+    """Every currency this document PRINTS, as a set.
 
     Two independent evidence sites, both of them the layout's own furniture and
     both positionally anchored: the `U.S. Funds` denomination line, and the
-    product name inside the mailing header. Where they disagree the document
-    contradicts itself and this returns None — the caller then leaves the
-    schema default standing rather than picking a winner, which is the
-    fail-closed reading of an ambiguity.
+    product name inside the mailing header.
 
-    Returning None is the ordinary case, not an error: 151 of the 169 RBC
-    documents in the archive print no denomination anywhere, and the honest
-    answer for them is "this document does not say".
+    The SET is the interesting object and not only its single-element case: an
+    empty set means "this document states no denomination", while a two-element
+    set means "this document contradicts itself". Those are different facts and
+    the jurisdiction default below must treat them differently — it may speak
+    where the page is silent and may not resolve a contradiction — so the
+    evidence is exposed here rather than collapsed inside `_printed_currency`.
     """
     found: set[str] = set()
     if _US_FUNDS_RE.search(markdown):
@@ -118,9 +132,218 @@ def _printed_currency(markdown: str) -> str | None:
         for spelling, code in _PRODUCT_CURRENCY.items():
             if spelling in line:
                 found.add(code)
+    return found
+
+
+def _printed_currency(markdown: str) -> str | None:
+    """The currency this document PRINTS, or None when it prints none.
+
+    Where the two evidence sites disagree the document contradicts itself and
+    this returns None — the caller then leaves the schema default standing
+    rather than picking a winner, which is the fail-closed reading of an
+    ambiguity.
+
+    Returning None is the ordinary case, not an error: 151 of the 169 English
+    RBC documents in the archive print no denomination anywhere, and the honest
+    answer for them is "this document does not say".
+    """
+    found = _printed_currency_evidence(markdown)
     if len(found) != 1:
         return None
     return found.pop()
+
+
+# ---------------------------------------------------------------------------
+# The RBC Canada native-currency default (CURRENCY_DOCTRINE §B, ratified
+# 2026-08-16), and the evidence hierarchy it is the second rung of.
+# ---------------------------------------------------------------------------
+#
+# The doctrine's framing matters as much as its answer. The REJECTED rule was
+# `absence of "U.S. Funds" => CAD`, which reasons from silence. The RATIFIED
+# rule is: a PROVEN RBC Canada account/product has CAD as its native default
+# unless the document affirmatively evidences another currency. So nothing
+# below ever infers a currency from an absence: the default is gated on a
+# CONJUNCTION of four affirmative structural proofs the page must print, and
+# two refusals are evaluated before any of them.
+#
+# The order of evaluation is itself part of the rule:
+#
+#   1. explicit statement currency evidence          (`_printed_currency`)
+#   2. proven account/jurisdiction native default    (`_jurisdiction_currency`)
+#   3. otherwise unknown -> nothing is published, the schema default stands
+#
+# and inside rung 2, U.S.-institution evidence is checked FIRST, so a document
+# carrying both a U.S. shape and a Canadian one fails closed rather than being
+# swept in on the strength of its Canadian half.
+#
+# Every predicate below reads printed text and only printed text. A filename or
+# a folder label can affect nothing: `analysis.parser_registry.admissible_text`
+# strips the intake comment at stage entry (W3 FILENAME-BOUNDARY), and the two
+# line anchors mean the comment was never reachable even unstripped. Both
+# counterfeit directions — a name that manufactures the default, and a name
+# that suppresses it — are pinned in `tests/test_rbc_variants.py` THROUGH that
+# seam.
+
+#: A Canadian postal code, `A1A 1A1`, with the letter positions restricted to
+#: the alphabet Canada Post actually uses (no D, F, I, O, Q, U anywhere; no W
+#: or Z in the leading position). A U.S. ZIP cannot take this shape.
+_CA_POSTAL = r"[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z][ \t]?\d[ABCEGHJ-NPRSTV-Z]\d"
+
+#: The statement-issuing centre's own line, as RBC Canada prints it at the head
+#: of page 1: the bank's name, a post-office designator, and a Canadian postal
+#: code closing the line. Measured over the RBC superset the archive prints
+#: exactly two of them — `P.O. BOX 4047 TERMINAL A TORONTO ON M5W 1L5` and
+#: `P.O. BAG SERVICE 2650 CALGARY AB T2P 2M7`.
+#:
+#: Anchored at both ends on purpose. `ROYAL BANK OF CANADA` occurs inside other
+#: issuers' ledgers as a COUNTERPARTY — `Book Transfer Credit B/O: Royal Bank
+#: of Canada Payment Centertoronto On Canada` is a posting on Chase statements
+#: in this archive — and a posting is not an issuer line.
+_J_ISSUER_RE = re.compile(
+    r"^[ \t]*ROYAL BANK OF CANADA[ \t]+P\.?[ \t]?O\.?[ \t]+(?:BOX|BAG[ \t]+SERVICE)\b"
+    r"[^\n]*?" + _CA_POSTAL + r"[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+#: The branch-of-domicile line printed under the account-summary heading: the
+#: bank's name followed by a CIVIC address — `Royal Bank of Canada 5117 49TH
+#: ST-PO BOX 359, HIGH PRAIRIE, AB T0G 1E0`. The negative lookahead is what
+#: makes this a SECOND, independent proof rather than a re-reading of the
+#: issuer line above: a line whose address opens with the post-office
+#: designator is the issuing centre and is excluded here.
+_J_BRANCH_RE = re.compile(
+    r"^[ \t]*ROYAL BANK OF CANADA[ \t]+"
+    r"(?!P\.?[ \t]?O\.?[ \t]+(?:BOX|BAG[ \t]+SERVICE)\b)"
+    r"[^\n]*?" + _CA_POSTAL + r"[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+#: RBC **Canada's own** service furniture. RBC's U.S. bank publishes
+#: `rbcbank.com` and a different toll-free number, so the domain is the
+#: cleanest institution discriminator these documents print. The Canadian
+#: toll-free is accepted in both spellings the layout sets it in — the
+#: mnemonic `1-800-ROYAL…` and the dialled `1-800-769-2520` / `-2511`.
+_J_SERVICE_RE = re.compile(
+    r"rbcroyalbank\.com"
+    r"|1[-‑\s]?800[-‑\s]?769[-‑\s]?25(?:20|11)"
+    r"|1[-‑\s]?800[-‑\s]?ROYAL",
+    re.IGNORECASE,
+)
+
+#: The Canadian Payments Association account shape, in both product spellings
+#: the family prints: business `Account number: <5-digit transit> <3-3-1>`,
+#: personal `Your account number: <5-digit transit>-<7 digits>`. A U.S. deposit
+#: account has no transit number of this shape.
+_J_ACCOUNT_RE = re.compile(
+    r"\bAccount number:[ \t]*\d{5}[ \t]\d{3}-\d{3}-\d\b"
+    r"|\bYour account number:[ \t]*\d{5}-\d{7}\b",
+    re.IGNORECASE,
+)
+
+#: RBC's U.S. institution and its U.S. banking furniture. Evaluated BEFORE any
+#: Canadian marker: the Canadian default must not apply to an RBC U.S. product,
+#: and a page carrying both shapes is a page to fail closed on.
+#:
+#: There is no RBC U.S. document in this archive (measured: zero hits of any of
+#: these markers inside the 178-document RBC name superset), so this clause is
+#: proven on synthetic printings rather than on the corpus — said plainly here
+#: rather than implied. `FDIC`, `ABA`, `RTN` and `Routing …` are U.S. deposit
+#: furniture generally, not RBC-specific: they are admitted because a document
+#: printing them is not a Canadian retail account whatever name it carries.
+_US_INSTITUTION_RE = re.compile(
+    r"rbcbank\.com"
+    r"|RBC[ \t]+Bank[ \t]*(?:\(Georgia\)|Georgia|USA|,?[ \t]*N\.A\.)"
+    r"|Royal[ \t]+Bank[ \t]+of[ \t]+Canada[ \t]*\(USA\)"
+    r"|RBC[ \t]+Centura"
+    r"|\bFDIC\b"
+    r"|\bABA\b"
+    r"|\bRTN\b"
+    r"|\bRouting[ \t]*(?:#|No\b\.?|Number|Transit)"
+    r"|\bRaleigh\b",
+    re.IGNORECASE,
+)
+
+#: Affirmative evidence of a currency other than the Canadian default,
+#: DELIBERATELY wider than `_printed_currency`'s two anchored sites and swept
+#: over the whole admissible text rather than over a line.
+#:
+#: The asymmetry is the point. The anchored reader decides what a document
+#: STATES, and it must be narrow or a ledger posting counterfeits a
+#: denomination. This one decides only whether to REFUSE the default, so its
+#: false positives cost a document its CAD label and never mislabel one: the
+#: safe direction. Measured over the superset it fires on exactly the twelve
+#: documents the anchored reader already reads as USD, and on nothing else.
+_CONTRARY_CURRENCY_RE = re.compile(
+    r"U\.?[ \t]?S\.?[ \t]*Funds"
+    r"|\bUSD\b"
+    r"|U\.?[ \t]?S\.?[ \t]*Dollars?\b"
+    r"|United[ \t]+States[ \t]+Dollars?\b"
+    r"|American[ \t]+Dollars?\b"
+    r"|fonds[ \t]+am.ricains"
+    r"|devise[ \t]+am.ricaine"
+    r"|US\$|\$US\b|\$U\.S\."
+    r"|US[ \t]+BUSINESS[ \t]+ACCOUNT"
+    r"|\b(?:EUR|GBP|CHF|JPY|AUD|NZD|MXN|HKD|CNY|RMB|INR|SGD|ZAR|SEK|NOK|DKK"
+    r"|PLN|AED|BRL|PHP)\b",
+    re.IGNORECASE,
+)
+
+
+def _jurisdiction_currency(markdown: str) -> str | None:
+    """CAD when this page PROVES an RBC Canada account, else None.
+
+    Rung 2 of the hierarchy. Three gates, in this order and for these reasons:
+
+    * a U.S. institution/product refuses the Canadian default outright
+      (doctrine §B item 3), and it is checked FIRST so that a document carrying
+      both a U.S. shape and a Canadian one fails closed rather than being swept
+      in on its Canadian half;
+    * affirmative evidence of another currency refuses it too (doctrine §B
+      item 1), because a default may never overrule what a page says;
+    * and then the default applies only on the CONJUNCTION of four affirmative
+      proofs the page must print — issuer, service, account shape, branch. Not
+      one of them is an absence, and `$` on its own is not consulted anywhere:
+      the symbol is printed by both denominations of this same layout.
+
+    Anything else returns None, which is rung 3 — unknown. Nothing here
+    resolves an ambiguity; this speaks only where the page is silent.
+    """
+    if _US_INSTITUTION_RE.search(markdown):
+        return None
+    if _CONTRARY_CURRENCY_RE.search(markdown):
+        return None
+    if not (
+        _J_ISSUER_RE.search(markdown)
+        and _J_SERVICE_RE.search(markdown)
+        and _J_ACCOUNT_RE.search(markdown)
+        and _J_BRANCH_RE.search(markdown)
+    ):
+        return None
+    return "CAD"
+
+
+def _statement_currency(markdown: str) -> str | None:
+    """The ratified evidence hierarchy, in one place and in order.
+
+    1. **explicit statement currency evidence** — what the document itself
+       states, which always has precedence. Two sites that disagree are not one
+       statement, so a contradiction stops here and publishes nothing;
+    2. **proven account/jurisdiction native default** — consulted only when the
+       page states nothing at all, never to overrule or to break a tie;
+    3. **otherwise unknown** — None, and the caller leaves the schema default
+       exactly where it was rather than inventing a denomination.
+
+    Returning None for rung 3 is deliberately not the same act as returning
+    `"USD"`: this function's answer is what the document supports, and today's
+    schema default is a separate fact about the field. Recording WHICH rung
+    answered is `currency_source` provenance, carded separately.
+    """
+    printed = _printed_currency_evidence(markdown)
+    if len(printed) == 1:
+        return printed.pop()
+    if printed:
+        return None
+    return _jurisdiction_currency(markdown)
 
 
 def _summary_amount(token: str) -> float | None:
@@ -335,13 +558,14 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
 
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "Royal Bank of Canada"
-    # Currency comes from what the document PRINTS, and from nothing else. On
-    # a statement that prints no denomination the schema default is left
-    # exactly where it was: this reader has no evidence, and the institution
-    # being Canadian is geography, not a printed fact about the account.
-    printed_currency = _printed_currency(markdown)
-    if printed_currency is not None:
-        stmt.currency = printed_currency
+    # Currency, under the ratified hierarchy: what the document STATES first,
+    # then the proven RBC Canada account's native default, then nothing. A
+    # statement that satisfies neither rung leaves the schema default exactly
+    # where it was — this reader has no evidence for it and does not invent
+    # one. See `_statement_currency`.
+    statement_currency = _statement_currency(markdown)
+    if statement_currency is not None:
+        stmt.currency = statement_currency
     entries: list[tuple[str, str, bool]] = []
     default_year: int | None = None
     in_activity = False

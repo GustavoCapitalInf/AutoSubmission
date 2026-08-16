@@ -1358,3 +1358,366 @@ def test_cur_negative_the_source_filename_cannot_set_the_currency():
         stmt = parse_rbc_statement(commented)
         assert stmt is not None
         assert stmt.currency == "USD"
+
+
+# ---------------------------------------------------------------------------
+# Card CUR-J — the RBC Canada native-currency default (CURRENCY_DOCTRINE §B,
+# ratified 2026-08-16) and the evidence hierarchy it belongs to.
+#
+# The hierarchy, and every test below names which rung it exercises:
+#
+#   1. explicit statement currency evidence   — `_printed_currency`
+#   2. proven account/jurisdiction default    — `_jurisdiction_currency`
+#   3. otherwise unknown                      — None; the schema default stands
+#
+# The rejected framing was `absence of "U.S. Funds" => CAD`. What is
+# implemented is a CONJUNCTION of four affirmative proofs the page must print,
+# behind two refusals evaluated first. `test_curj_the_conjunction_is_load_
+# bearing` is the test that would fail if anyone ever relaxed it back into an
+# absence rule, and `test_cur_a_document_stating_no_denomination_keeps_the_
+# default` above still pins the other side: a bare `ROYAL BANK OF CANADA` is
+# geography, and geography is not a proven account.
+# ---------------------------------------------------------------------------
+
+#: The four structural proofs RBC Canada prints, added to the synthetic
+#: statement above. Every string here is layout furniture — an issuing centre,
+#: a service line, a CPA transit account, a branch of domicile — and none of it
+#: names a customer or comes from a corpus document.
+_JURISDICTION_FURNITURE = {
+    "issuer": "ROYAL BANK OF CANADA P.O. BOX 4047 TERMINAL A TORONTO ON M5W 1L5",
+    "service": "How to reach us: call 1-800-769-2520 www.rbcroyalbank.com/business",
+    "account": "Account number: 00000 100-000-0",
+    "branch": "Royal Bank of Canada 1 MAIN ST, MILTON, ON L9T 7H5",
+}
+
+
+def canadian(document: str, *, without: str | None = None) -> str:
+    """The same synthetic statement, printing the RBC Canada jurisdiction proofs.
+
+    `without` removes exactly one evidence class, which is what makes the
+    ablation test able to show the conjunction is load-bearing rather than
+    decorative.
+    """
+    parts = {key: "" if key == without else value
+             for key, value in _JURISDICTION_FURNITURE.items()}
+    document = document.replace(
+        "ROYAL BANK OF CANADA\n",
+        (parts["issuer"] or "ROYAL BANK OF CANADA") + "\n",
+    )
+    block = "\n".join(
+        line for line in (parts["service"], parts["account"], parts["branch"]) if line
+    )
+    return document.replace(_JURISDICTION_FURNITURE["account"], block)
+
+
+def plain_statement() -> str:
+    return statement(
+        "02 Mar Item 100.00 1,100.00\n",
+        opening="1,000.00", closing="1,100.00",
+        credits="100.00", credit_count=1, debits="0.00", debit_count=0,
+    )
+
+
+def test_curj_a_proven_rbc_canada_account_with_no_contrary_evidence_publishes_cad():
+    """Rung 2, the mover class: 151 archive documents look exactly like this.
+
+    Four affirmative proofs are printed — issuing centre with a Canadian postal
+    code, RBC Canada's own service furniture, a CPA transit account number, a
+    branch of domicile — and the page names no currency at all.
+    """
+    from analysis.rbc import _jurisdiction_currency, _printed_currency
+
+    document = canadian(plain_statement())
+    assert _printed_currency(document) is None      # the page states nothing
+    assert _jurisdiction_currency(document) == "CAD"
+    stmt = parse_rbc_statement(document)
+    assert stmt is not None
+    assert stmt.bank == "Royal Bank of Canada"
+    assert stmt.currency == "CAD"
+
+
+def test_curj_the_conjunction_is_load_bearing_not_decorative():
+    """Rung 2, negatively. Remove ANY ONE of the four proofs and the default is
+    refused — so nothing here is reasoning from the absence of USD wording."""
+    from analysis.rbc import _jurisdiction_currency
+
+    assert _jurisdiction_currency(canadian(plain_statement())) == "CAD"
+    for evidence in ("issuer", "service", "account", "branch"):
+        ablated = canadian(plain_statement(), without=evidence)
+        assert _jurisdiction_currency(ablated) is None, evidence
+        stmt = parse_rbc_statement(ablated)
+        if stmt is not None:              # `account` also removes the account line
+            assert stmt.currency == "USD", evidence
+
+
+def test_curj_explicit_us_evidence_beats_the_canadian_default():
+    """Rung 1 over rung 2, both of the two spellings the archive prints. Twelve
+    genuine RBC USD documents are Canadian-issued by every structural proof and
+    must stay USD, so the hierarchy's order is the whole of their correctness."""
+    from analysis.rbc import _jurisdiction_currency, _statement_currency
+
+    for site in (
+        lambda d: d.replace("Business Account Statement",
+                            "Business Account Statement\nU.S. Funds"),
+        lambda d: _mailing(d, "US BUSINESS ACCOUNT"),
+    ):
+        document = site(canadian(plain_statement()))
+        # every Canadian proof still holds on the page ...
+        assert _jurisdiction_currency(
+            document.replace("U.S. Funds", "").replace("US BUSINESS ACCOUNT", "")
+        ) == "CAD"
+        # ... and the explicit evidence still wins.
+        assert _statement_currency(document) == "USD"
+        stmt = parse_rbc_statement(document)
+        assert stmt is not None
+        assert stmt.currency == "USD"
+
+
+def test_curj_an_rbc_us_product_refuses_the_canadian_default():
+    """Doctrine §B item 3. There is no RBC U.S. document in the archive — zero
+    hits of every U.S. marker across the 178-document RBC name superset — so
+    this is proven on a synthetic printing, and that is said plainly."""
+    from analysis.rbc import (
+        _J_ACCOUNT_RE, _J_BRANCH_RE, _J_ISSUER_RE, _J_SERVICE_RE,
+        _jurisdiction_currency,
+    )
+
+    us_document = plain_statement().replace(
+        "ROYAL BANK OF CANADA\n",
+        "RBC Bank (Georgia), N.A.\n"
+        "Member FDIC | www.rbcbank.com | Raleigh, NC 27612\n",
+    ).replace(
+        "Account number: 00000 100-000-0",
+        "Account number: 1234567890\nRouting Number: 063216608",
+    )
+    assert _jurisdiction_currency(us_document) is None
+    # and it fails every Canadian proof independently, not only the U.S. gate
+    for proof in (_J_ISSUER_RE, _J_SERVICE_RE, _J_ACCOUNT_RE, _J_BRANCH_RE):
+        assert proof.search(us_document) is None
+
+
+def test_curj_hostile_and_mixed_evidence_fails_closed():
+    """Doctrine §B item 4. A genuine Canadian page with ONE foreign token
+    grafted on refuses the default rather than being swept in on its Canadian
+    half — which is why the U.S. gate is evaluated BEFORE any Canadian marker."""
+    from analysis.rbc import _jurisdiction_currency, _statement_currency
+
+    control = canadian(plain_statement())
+    assert _jurisdiction_currency(control) == "CAD"
+    for token in (
+        "www.rbcbank.com",
+        "Member FDIC",
+        "RBC Bank (Georgia), N.A.",
+        "Routing Number: 063216608",
+        "RBC Bank USA",
+        "Raleigh, NC 27612",
+        "U.S. Funds are held separately",
+        "USD",
+        "U.S. Dollar",
+        "EUR",
+    ):
+        grafted = control.replace(
+            "Account Summary for this Period",
+            f"{token}\nAccount Summary for this Period",
+        )
+        assert _jurisdiction_currency(grafted) is None, token
+
+    # The two-code contradiction: both anchored sites fire, and they disagree.
+    # The explicit reader publishes nothing and the default is NOT consulted to
+    # break the tie — a default may not resolve an ambiguity.
+    contradicting = _mailing(
+        control.replace("Business Account Statement",
+                        "Business Account Statement\nU.S. Funds"),
+        "CAD CHEQUING ACCOUNT",
+    )
+    assert _statement_currency(contradicting) is None
+    stmt = parse_rbc_statement(contradicting)
+    assert stmt is not None
+    assert stmt.currency == "USD"        # the schema default, nothing published
+
+
+def test_curj_the_source_filename_and_folder_cannot_move_the_currency():
+    """PROOF 8, both counterfeit directions, carried THROUGH `admissible_text`.
+
+    (b) a filename printing every Canadian proof cannot manufacture the default
+    on a document whose page proves nothing; (c) a filename printing every U.S.
+    marker cannot suppress it on a document whose page proves everything.
+
+    The two directions are closed by DIFFERENT mechanisms, and the difference
+    is measured rather than glossed. Direction (c) is live: the U.S. gate is a
+    document-wide sweep by design — a page carrying that token anywhere is not
+    a Canadian retail account — so the unstripped comment really does suppress
+    the default, and `admissible_text` is the only thing that closes it.
+    Direction (b) is closed twice over: the seam removes the comment, and the
+    two jurisdiction line anchors could never have read it anyway, because a
+    filename arrives as one line that neither begins with the bank's name nor
+    ends with a postal code. Both are exercised THROUGH the production seam."""
+    from analysis.parser_registry import admissible_text
+    from analysis.rbc import _jurisdiction_currency
+
+    manufacturing = (
+        "ROYAL BANK OF CANADA P.O. BOX 4047 TERMINAL A TORONTO ON M5W 1L5 "
+        "Account number: 00000 100-000-0 rbcroyalbank.com "
+        "Royal Bank of Canada 1 MAIN ST, MILTON, ON L9T 7H5.pdf"
+    )
+    suppressing = (
+        "RBC Bank (Georgia), N.A. Member FDIC www.rbcbank.com "
+        "Routing Number 063216608.pdf"
+    )
+    bare = plain_statement()
+    proven = canadian(plain_statement())
+
+    counterfeit = f"<!-- source: {manufacturing} | pages: 1 | model: x | empty: 0 -->\n\n" + bare
+    # The claim is not vacuous: every token an unanchored reading would need is
+    # present in the unstripped string, and a document-wide rule would find all
+    # four. The anchors are what make it unreachable ...
+    for token in ("ROYAL BANK OF CANADA P.O. BOX", "rbcroyalbank.com",
+                  "Account number: 00000 100-000-0", "MILTON, ON L9T 7H5"):
+        assert token in counterfeit
+    assert _jurisdiction_currency(counterfeit) is None
+    # ... and the seam removes it before any parser runs regardless.
+    assert "source:" not in admissible_text(counterfeit)
+    assert _jurisdiction_currency(admissible_text(counterfeit)) is None
+    stmt = parse_rbc_statement(counterfeit)
+    assert stmt is not None
+    assert stmt.currency == "USD"
+
+    smothered = f"<!-- source: {suppressing} | pages: 1 | model: x | empty: 0 -->\n\n" + proven
+    assert _jurisdiction_currency(smothered) is None          # unstripped, it works
+    assert _jurisdiction_currency(admissible_text(smothered)) == "CAD"
+    # Through the PRODUCTION entry point, which is where the seam is applied
+    # (`analysis.pipeline.analyze_markdown`, W3 FILENAME-BOUNDARY): the parser
+    # is never handed the unstripped string, so the suppression never happens.
+    from analysis.pipeline import analyze_markdown
+
+    assert analyze_markdown(
+        smothered, parse_mode="deterministic"
+    ).statement.currency == "CAD"
+
+    # And the folder half of the same claim: nothing in this rule is reachable
+    # from a path at all — `_jurisdiction_currency`'s only argument is text.
+    for folder in ("RBC USD/", "RBC French/", "Others/RBC Bank Georgia/"):
+        assert _jurisdiction_currency(
+            admissible_text(
+                f"<!-- source: {folder}statement.pdf | pages: 1 | model: x | empty: 0 -->\n\n"
+                + proven
+            )
+        ) == "CAD", folder
+
+
+def test_curj_the_dollar_symbol_alone_establishes_nothing():
+    """`Do not infer currency from the $ symbol alone` (doctrine §A).
+
+    RBC prints `$` on both denominations of this same layout — the twelve
+    `U.S. Funds` documents print it exactly as the CAD ones do — so the symbol
+    carries no information at all. Measured here in both directions: a page
+    full of `$` that proves no jurisdiction publishes the schema default, and
+    removing every `$` from a proven Canadian page changes nothing."""
+    from analysis.rbc import _jurisdiction_currency, _statement_currency
+
+    dollars = plain_statement()
+    assert "$" in dollars
+    assert _statement_currency(dollars) is None
+
+    proven = canadian(plain_statement())
+    assert _jurisdiction_currency(proven) == "CAD"
+    assert _jurisdiction_currency(proven.replace("$", "")) == "CAD"
+
+
+#: The nine CURRENCY-1 explicit-evidence corrections (batch 5, `9a0d391`),
+#: named by `content_sha256` exactly as RBC_CURRENCY_MEASUREMENT §7 names them.
+#: None of them moves under this card, for two structurally different reasons —
+#: which is what the test below proves, one mechanism each.
+_CURRENCY_1_CORRECTIONS = {
+    # `rbc`, published CAD: the mailing header prints `CAD CHEQUING ACCOUNT`,
+    # so rung 1 answers and rung 2 is never consulted.
+    "0A482C2BEC8D3D1160BE14E6E9049A4F56C1B3AF7051124DD6E9C9488C5C19E0": ("rbc", "CAD"),
+    "4AFA2F2102B981ADD0B38E3DE9A0F1458FE36258E295410963310FAE38185BAE": ("rbc", "CAD"),
+    "64E841856FE419CD9B1D30CA8CE8E7552EEADBC9DC579E871B498EC79E6DADEA": ("rbc", "CAD"),
+    "6C3E154C69FF0490424CB96600408A216C3DA14020D91C59B0D4F702BCA58E17": ("rbc", "CAD"),
+    "839726D7A5BA213676E4400B12CCF57D06825611A74045498FB966AA2C87911E": ("rbc", "CAD"),
+    "F93B688A7171B8CC28B2D0C958BC2E7574A1F51C1AC90DC6EA6DA7A9E7B292E0": ("rbc", "CAD"),
+    # `td_canada_native`, published USD: this rule is confined to the `rbc`
+    # registration, and a TD jurisdiction default would need its own proven
+    # evidence base (doctrine §B, final paragraph).
+    "0677AD7549FD1BF44DFBE03AF8DB70503661CFE57C57DCE15D5A8F75E93972E3": ("td_canada_native", "USD"),
+    "780D0E3D3388076A9BC3B5F9C08E9A2F4F8B1AE7954B7A2CC60D0A5B3858D62D": ("td_canada_native", "USD"),
+    "B8A8D69CC7FEA4214E90128C8FD31C5A245653DA08E296407DF028A7FC8B94D7": ("td_canada_native", "USD"),
+}
+
+
+def test_curj_the_nine_currency_1_corrections_are_untouched():
+    """The nine batch-5 corrections keep their published currency, and this
+    test proves the two MECHANISMS that keep them rather than re-reading the
+    archive (the suite is hermetic; the archive proof is the payload
+    differential in the cell's report)."""
+    from analysis.rbc import _jurisdiction_currency, _printed_currency, _statement_currency
+
+    assert len(_CURRENCY_1_CORRECTIONS) == 9
+    assert sum(1 for parser, _ in _CURRENCY_1_CORRECTIONS.values() if parser == "rbc") == 6
+
+    # Mechanism 1 (the six `rbc` corrections). The explicit CAD read answers,
+    # and it answers WHETHER OR NOT the jurisdiction proofs are printed — so it
+    # is the read that is publishing CAD, not a default that happens to agree.
+    stated = _mailing(canadian(plain_statement()), "CAD CHEQUING ACCOUNT")
+    assert _printed_currency(stated) == "CAD"
+    assert _statement_currency(stated) == "CAD"
+    bare = _mailing(plain_statement(), "CAD CHEQUING ACCOUNT")
+    assert _jurisdiction_currency(bare) is None
+    assert _statement_currency(bare) == "CAD"
+
+    # Mechanism 2 (the three `td_canada_native` corrections). Another issuer's
+    # statement is not claimed by this parser at all, however Canadian its own
+    # furniture is, so no RBC rule can reach it.
+    td_document = plain_statement().replace(
+        "ROYAL BANK OF CANADA\n", "TD CANADA TRUST\n"
+    ).replace(
+        "Account number: 00000 100-000-0",
+        "Account number: 00000 100-000-0\n"
+        "TD Canada Trust 1 MAIN ST, MILTON, ON L9T 7H5",
+    )
+    assert parse_rbc_statement(td_document) is None
+
+
+def test_curj_the_personal_mailing_header_is_read_on_both_layouts():
+    """R4. RBC sets the print-control header as `RBBDA…` on the business layout
+    and `RBPDA…_…` on the personal one; 13 archive documents carry the personal
+    spelling. Anchoring only the business one left their product line unread,
+    so an explicit denomination printed there would have been missed and then
+    defaulted. Measured over the RBC superset, widening moves no document's
+    read today — it is a precedence repair, which is why it lands in the same
+    commit as the default rather than after it."""
+    from analysis.rbc import _printed_currency
+
+    document = plain_statement()
+    for header in (
+        "RBBDA30000_0000000 E D 00000 00000 EXAMPLE INC. {product} 1 EXAMPLE ST",
+        "RBPDA30000_5081501_12 E D 00000 00000 EXAMPLE INC. {product} 1 EXAMPLE ST",
+    ):
+        for product, expected in (("CAD CHEQUING ACCOUNT", "CAD"),
+                                  ("US BUSINESS ACCOUNT", "USD")):
+            personal = document.replace(
+                "Account number: 00000 100-000-0",
+                header.format(product=product) + "\nAccount number: 00000 100-000-0",
+            )
+            assert _printed_currency(personal) == expected, (header, product)
+
+
+def test_curj_the_named_future_mover_is_not_admitted_by_weakening_the_parser():
+    """`BFEB79B26E426C2FDA63DF0C1F422D95F4A8AF95319C03ADCA85D9560B6E58A3` — a
+    genuine zero-activity 4-day RBC Canada statement that satisfies all four
+    jurisdiction proofs and that NO registration claims, because it prints no
+    posting. It would join the packet as a 152nd document the moment any parser
+    claims it, and that movement is therefore expected rather than surprising.
+
+    Gustavo's instruction is that parser admission must not be weakened merely
+    to include it, so this pins the admission rule: a proven RBC Canada page
+    with no rows publishes NOTHING, currency included."""
+    from analysis.rbc import _jurisdiction_currency
+
+    empty = canadian(statement(
+        "", opening="1,000.00", closing="1,000.00",
+        credits="0.00", credit_count=0, debits="0.00", debit_count=0,
+    ))
+    assert _jurisdiction_currency(empty) == "CAD"   # the page proves Canada ...
+    assert parse_rbc_statement(empty) is None       # ... and still publishes nothing
