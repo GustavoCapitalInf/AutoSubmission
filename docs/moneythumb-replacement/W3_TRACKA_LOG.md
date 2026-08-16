@@ -27531,6 +27531,17 @@ Three things to read carefully there:
    collapsed), where the fix recovers exactly 90 documents into both halves:
    2,418/3,261 becomes 2,508/3,351.
 
+**A warning for the train instrument, because it will show this and it is not
+movement.** `discovery.compare` reads coverage out of the TELEMETRY records, so
+a batch-6 official run compared against the batch-5 baseline `2e3ea385` will
+print roughly **+0.7% deterministic coverage that is pure repair** — 90
+distinct documents the baseline's records could not attribute, entering both
+halves of the fraction. It is not +90 documents claimed and it is not a
+coverage gain; the outcome ladder (`improved` / `regressed`) is untouched by
+all of this, which is why `--fail-on-regression` and the outcome table are the
+lines to read. The honest way to state batch 6's coverage is against a
+recomputed baseline, or by naming this repair as its own line.
+
 **An independent oracle for the reconstruction, at archive scale.** The run of
 record dispatched 2,469 documents live and OBSERVED their parser. Every one of
 them was served from the analysis cache on this replay, so every one is now a
