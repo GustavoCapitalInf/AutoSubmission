@@ -27498,3 +27498,61 @@ runner has its own). Recorded because it is a real delta that the message
 change alone does not describe, and because "the new string is never empty" is
 the kind of property that changes a downstream truthiness test silently.
 
+## WP8. Proofs (branch `wave6-workerpriv`, base `8570bce`)
+
+```
+All timings on a heavily shared host: nine other batch-6 cells were running
+alongside (8-12 concurrent python processes throughout). The gate's 1060.8s
+and the corpus slice's 2612.2s are that load, not this branch — which changes
+no extraction, adds no registration, and is not on the archive path at all.
+
+# full default suite
+4541 passed, 34 skipped, 31 deselected in 273.54s          exit 0
+   (base 8570bce: 4,511. +30 = the new tests/test_worker_privacy.py module.)
+
+# this cell
+tests/test_worker_privacy.py     30 passed                 exit 0
+tests/test_webapp_worker.py       8 passed                 exit 0
+
+# guards
+242 passed in 27.71s                                       exit 0
+   test_no_statement_hardcodes · test_no_parser_helper_clones ·
+   test_r1_hardcodes · test_experiments_are_not_wired · test_filename_boundary
+
+# conformance cross-product + registry (registry 72)
+1126 passed, 34 skipped in 7.57s                           exit 0
+   test_parser_conformance (668 collected; the 72 x 71 detection-negative
+   cross-product) · test_parser_registry_entries ·
+   test_parser_detection_markers · test_parser_registry ·
+   test_parser_crash_shapes · test_parser_exception_boundary ·
+   test_count_semantics
+
+# corpus gate (python corpus_gate.py), 1060.8s
+[PASS] inventory · foreign_files · source_integrity (109/109 SHA-256) ·
+       balance_audit · adb_audit · exclusions · oracle_independence
+[PASS] balance_outcomes: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes:     106 pass, 3 withheld, same three statements
+[PASS] outcome_classes:  109 statements publish their pinned verdict
+                         (outcome class + the whole integrity block)
+[PASS] adb_doctrine: 109/109 canonical basis 'calendar_day_printed_period'
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR, no live OCR, no
+       model calls
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 102 validated / 4 review / 3 withheld
+RESULT: GREEN                                              exit 0
+
+# corpus-marked slice (pytest -m corpus)
+27 passed, 4578 deselected in 2612.19s (0:43:32)           exit 0
+
+# mutation kills (five on the boundary, one on the export sink, nine on the
+# source guard) — every one applied to the committed tree, run, reverted
+M1 site 1 -> str(e)              12 failed / 25 passed     exit 1
+M2 site 2 -> str(e)               7 failed / 30 passed     exit 1
+M3 allow-list == -> in            1 failed / 28 passed     exit 1
+M4 phase frozen at preflight      2 failed / 35 passed     exit 1
+M5 helper appends ": {exc}"      14 failed / 23 passed     exit 1
+M6 both sites -> str(e),
+   export test alone              1 failed                 exit 1
+guard shapes (9 parametrised)     6 findings / 3 clean     exit 0
+```
+
