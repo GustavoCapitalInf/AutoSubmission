@@ -1,5 +1,92 @@
 # Wave 2/3 Execution Log — reviews, rulings, merges
 
+## 2026-08-16 — **COVERAGE-WAVE BATCH 5 OFFICIAL: improved 25 / regressed 0 — validated 2,430 (71.9%); THE OPTION-A CEREMONY EXECUTED AND THE ADB DOCTRINE LIVE**
+
+Eleven reviewed cells merged as one composed train ending `11aac34`:
+`44021bb` (WIRING-2 — sheets activation, the APPROVED Option-A ceremony
+exactly three movements, partition digest into the analysis INPUT key) ·
+`43c288b` (DISCOVERY-OBS — parser_id cache-hit projection closed) ·
+`6376117` (PREPARED-HANDOFF; the PH9.1 collision resolved at the train
+per the documented rule — `collector` into DISCOBS's hoisted call) ·
+`8ad3d3e` (PIPELINE-5 — repair seam discard+flag, REPAIR-GUARD folded
+in; honest `model_used` for bank=None) · `7286c06` (COUNTS-MAP —
+CountMapping schema; capital_one/first_citizens debit promotions, 21
+stated-count corrections) · `71227e3` (ADB-SPLIT — the ratified
+doctrine: one user-facing ADB, basis literal pinned in the 109, H1
+promoted, H2 corrections, both Woodforest movers) · `f704e32` (MG-D —
+minus-glyph canon, em dash out of sign semantics) · `9a0d391`
+(CURRENCY-1 — evidence-based currency readers, 9 movers, empty
+ceremony) · `ddb0e45` (RUNG-SEAM — one shared native ladder +
+unreadable-text-layer guard) · `cd3711e` (LC-PERIOD —
+core_processor_daily third platform +13; registry 71→72) · `bb50f19`
+(FISERV-ISS — honest +0, third issue carded as FISERV-ISSUE3) + train
+commits `46fe40b` (DIAGNOSTICS_VERSION v4 composed union 60/53/7/2 —
+one bump per train), `3d565ec` (composed ANALYSIS_STAGE_VERSION 12→13),
+`11aac34` (DISCOBS's warm-rerun literal composed with the executed
+ceremony: 102/4/3 — the reproduction property itself had passed).
+**Every one of the eleven adversarial reviews produced findings; two
+narrow BLOCKs (CURRENCY-1's td_can contradiction; PIPELINE-5's
+DIAGNOSTICS_VERSION) fixed pre-merge. Cells again corrected Ocean's
+prescriptions with measurement (MG-D: a presence-guard cannot see an
+absence defect; CURRENCY-1: suffix-only account_name — the full-plan
+string would have moved 73 docs including 6 pinned on an audited
+column; ADB-SPLIT's flat-guard deviation keeping n_plus_1_zero_forward
+reachable).**
+
+Composed-tree proofs: suite **4,511** (+271) / corpus-marked **27** /
+gate GREEN 106/3, verdicts **102 validated / 4 review / 3 withheld** —
+the post-ceremony canonical (Texas Bank review→validated, Regions
+review→validated, BMO January flag withdrawal; zero unrelated pinned
+movement, per-document pins live) / dry run `28154511` canonical
+102/4/3 at v13, all exit 0. Push `11aac34`, **remote CI SUCCESS, run
+31916486788 (conclusion read)**.
+
+**Official instrument (`c924d751` → `2e3ea385`, shared 3,380; analysis
+cache doubly cold — the v13 bump plus WIRING-2's input-key rotation
+regenerate every analysis entry; OCR v3 warm, unchanged this batch;
+--fail-on-regression exit 0): improved 25 / regressed 0.** Transitions:
+failed→validated 13 · review→validated 10 · withheld→validated 2 (the
+Woodforest pair under the ratified doctrine). Totals: validated 2,405 →
+**2,430 (71.9%)** · failed 859 · review 15 · withheld 63 · deferred 13.
+Families: core_processor_daily 13 · fiserv_premier 4 · burke_herbert 3
+· woodforest 2 · apex_scanned 1 · regions 1 · texas_bank 1. Cell-
+measured intra-class quality movement (invisible to the class
+instrument by design): ~114 integrity-flag withdrawals including the
+21 stated-count corrections now publishing, 54 honest `model_used`
+relabels, 9 currency movers. Cumulative: 1,048 → 2,430 (+132%), zero
+regressions ever, $0 vendor.
+
+**Platform capabilities landed:** the sheets seam ACTIVE end-to-end
+(page-image partition digest in the analysis input key — visual
+re-reads can no longer collide with text-only entries); the
+parser_id cache-hit hole closed (family populations recoverable from
+any run, warm or cold); one text-preparation set per document across
+both sweeps (PreparedDocument handoff); pipeline repairs now discard
++flag instead of rewriting (the chase COUNT-as-balance class
+structurally dead); declarative CountMapping; the ADB split
+(underwriting_adb canonical calendar-day + bank_reported_* evidence
+lane, alternates internal-only); minus-glyph canon; one shared native
+ladder with an unreadable-text-layer reason channel; registry 72.
+
+**Operational note:** detached-run aliveness on this machine must be
+checked with `tasklist`, not MSYS `kill -0` (which cannot see
+non-MSYS processes and false-reports exit) — the error briefly put
+three concurrent archive runs on a 15GB machine before being caught;
+the kept run's integrity was unaffected (content-addressed store,
+single commit).
+
+**Standing items for Gustavo:** the RBC absence-proves-CAD ruling (151
+docs including all 4 pinned RBC — formal ceremony if approved). Batch-6
+queue, evidence-ranked: REGFP (registry fingerprint into the analysis
+settings key), MONEY-PRIVACY (raising-family quote tokens, widened by
+MG-D), WORKER-PRIVACY (str(e) into the durable store), FISERV-ISSUE3
+(+4 ledger card), telemetry coverage numerator, Registration
+template-flag, the 8-doc fourth-grammar sibling family, the Columbia
+3-doc fifth-grammar cohort, scanned Cards E/F, the structurer
+sign-reader (tops the private-opinions ledger), remaining reserved
+decisions (effective_num_*, metrics sign-vs-direction, OLB/Meridian,
+L-1 architecture).
+
 ## 2026-08-15 — **COVERAGE-WAVE BATCH 4 OFFICIAL: improved 51 / regressed 0 — validated 2,405 (71.2%): THE 70% TIER CROSSED BY THE CORRECTNESS-FIRST BATCH**
 
 Twelve reviewed cells under Gustavo's correctness-first priority order,
