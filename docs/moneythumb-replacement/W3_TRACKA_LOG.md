@@ -27469,6 +27469,17 @@ without writing an artifact — the same arrangement §DISCOBS used for
 live dispatch is an unclaimed document. The run of record was the inverse
 (`live_dispatch` 3,371 / `live_detect` 105).
 
+**And it wrote nothing to the shared store**, which the rule requires and which
+is measurable rather than promised. Its own rows: `cache_ocr` **hit 3,476 /
+bypass 30, zero misses**, and the OCR entry count is 10,246 in this run's stats
+exactly as in the run of record's. `cache_analysis` is **hit 2,574 / miss 902 /
+bypass 30**, and all 902 misses are `failed` (`no_parser_matched` 770,
+`parser_declined` 132) — a refusal raises, so nothing is cached, which is the
+same property the whole card rests on. **Zero payloads written on either
+stage.** (The store's analysis entry count did move, 26,067 -> 26,096, between
+the run of record and the end of this replay; none of those 29 can be this
+run's, and nine other cells were working against the same store.)
+
 **Zero outcome movement.** Field by field over all 3,506 rows, keyed on
 `relative_path`:
 
@@ -27563,3 +27574,12 @@ withholding since the baseline.
 `discovery_reports/` of this worktree, with its `rows.csv`, `summary.json`,
 `report.txt`, `hash_map.csv` and `telemetry.jsonl` intact, so the next archive
 proof can diff against it without re-running it.
+
+**Two commits landed after the replay was launched, and neither can have
+changed what it produced**: `payload` became a required keyword (the call sites
+already passed it by name — a signature change with no behaviour behind it),
+and `reconstructed_claim` grew an `isinstance` guard that only fires on a
+payload that is not a dict, which the runner cannot produce. Every rollup
+quoted above — the report, the compare, the adjudication workspace, the
+diagnostics table — was RE-RUN over the retained artifacts on the final tree,
+and the numbers here are those re-runs.
