@@ -104,7 +104,6 @@ INVOCATIONS = {
          lambda v: m.parse_digit_scrubbed(
              v, parens=True, leading_minus=True, trailing_minus=True)),
     ],
-    "parse_digit_scrubbed_guarded": [],   # covered above; guard is the caller's
     "normalize_sign_glyphs": [("normalize_sign_glyphs", m.normalize_sign_glyphs)],
     "pad_leading_decimal": [("pad_leading_decimal", m.pad_leading_decimal)],
     "strip_currency": [("strip_currency", m.strip_currency)],

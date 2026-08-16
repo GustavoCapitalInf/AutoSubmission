@@ -27202,3 +27202,247 @@ other batch-5 cells at once, which is the only reason the two runtimes are
 | `42e4055` | this section, FI0–FI5 |
 | `c536dbf` | the corpus gate proof |
 | (this one) | the corpus-marked slice proof, the no-movement statement, and this table |
+
+# §MONEYPRIV — the raising family stops quoting the document
+
+Batch 6, card 1. Base main `eef77c6` (branch point `8570bce`, the batch-6
+handoffs), branch `wave6-moneypriv`, worktree `.claude/worktrees/mt6-moneypriv`.
+Run of record `2026-08-16T000943.012887-0000-2e3ea385`. Owned files:
+`analysis/money.py`, `tests/test_money_refusals_are_private.py`, this log.
+
+**The card (W3 §MGD10 finding 6, MGD-C1):** the money-grammar raising family
+carries the printed token in `ValueError(value)`, and `webapp/worker.py`
+publishes `str(exc)` as the job error, so statement content can cross into the
+durable store. Batch 4 closed this law for `read_money` (§MG-C2 D1: a refusal
+never quotes the cell); the same module still quoted it one layer down, and
+§MGD *widened* the exposure — before `wave5-mgd`,
+`parse_signed_decimal("—$500.00")` returned a number; after it, that call
+raises, so a dormant boundary defect acquired a live caller.
+
+## MP0. Summary
+
+**Eleven raise sites in one module, all of which put the printed cell in the
+message; all eleven now name a reason instead. Zero archive movement, by
+construction and by measurement.**
+
+The card named five functions and five `raise ValueError(value)` statements.
+The module actually held **eleven** leaking sites, because a refusal in this
+family has two shapes and only one of them is written as a `raise`:
+
+| shape | sites | what the user would have seen |
+|---|---|---|
+| explicit `raise ValueError(value)` | 7 | the cell, alone, as the whole message |
+| the conversion's own error, escaping as the documented refusal | 4 | `could not convert string to float: '<the cell>'` |
+
+The four inherited ones are the more dangerous half and the harder half to
+see: `parse_grouped_float`, `parse_trailing_minus_dropped` and
+`parse_french_amount` document "raises ValueError when the token is not a
+number" and then let `float`'s own ValueError be that raise, so the leak is in
+the standard library rather than in this file. `Decimal` is the quiet
+counterpart — `InvalidOperation` says only `ConversionSyntax` — which is
+exactly why `parse_decimal` and `parse_decimal_mixed_separator` had to write
+their leak out by hand and the float three did not. The fourth is
+`parse_digit_scrubbed`, which is not a member of the raising family at all
+(§MP3).
+
+## MP1. The raise-site census, before and after
+
+Measured, not read off the diff: every entry below is the exception a poisoned
+token actually produced, on the base tree and on this one, through the same
+harness (`census.py`, session scratchpad; `WORD = "ACMEPAYROLL"`,
+`DIGITS = "4471009238"`).
+
+| # | site | before | after |
+|---|---|---|---|
+| 1 | `parse_decimal` :638 digit bound | `ValueError("99999999999999.00 ACMEPAYROLL")` | `money grammar refused a printed token (integer run longer than the 13-digit bound; reader=parse_decimal)` |
+| 2 | `parse_decimal` :642 `Decimal` conversion, `from exc` | `ValueError("ACMEPAYROLL")` ← `InvalidOperation` | `… (no digits in the cell; reader=parse_decimal)`, unchained |
+| 3 | `parse_decimal_mixed_separator` :714 digit bound | `ValueError("99999999999999.00 ACMEPAYROLL")` | `… (integer run longer than the 13-digit bound; reader=parse_decimal_mixed_separator)` |
+| 4 | `parse_decimal_mixed_separator` :718 conversion, `from exc` | `ValueError("ACMEPAYROLL")` ← `InvalidOperation` | `… (no digits in the cell; reader=parse_decimal_mixed_separator)`, unchained |
+| 5 | `parse_grouped_float` :725 digit bound | `ValueError("99999999999999.00 ACMEPAYROLL")` | `… (integer run longer than the 13-digit bound; reader=parse_grouped_float)` |
+| 6 | `parse_grouped_float` :726 `float()` | `ValueError("could not convert string to float: 'ACMEPAYROLL'")` | `… (no digits in the cell; reader=parse_grouped_float)` |
+| 7 | `parse_trailing_minus_dropped` :739 digit bound | `ValueError("99999999999999.00 ACMEPAYROLL")` | `… (integer run longer than the 13-digit bound; reader=parse_trailing_minus_dropped)` |
+| 8 | `parse_trailing_minus_dropped` :740 `float()` | `ValueError("could not convert string to float: 'ACMEPAYROLL'")` | `… (no digits in the cell; reader=parse_trailing_minus_dropped)` |
+| 9 | `parse_french_amount` :760 digit bound | `ValueError("99999999999999.00 ACMEPAYROLL")` | `… (integer run longer than the 13-digit bound; reader=parse_french_amount)` |
+| 10 | `parse_french_amount` :761 `float()` | `ValueError("could not convert string to float: '1234.56ACMEPAYROLL'")` | `… (not a money token; reader=parse_french_amount)` |
+| 11 | `parse_digit_scrubbed` :795 `float()` | `ValueError("could not convert string to float: '.1.2'")` | `… (decimal places are neither two nor three; reader=parse_digit_scrubbed)` |
+| — | `read_money` :620 | already compliant (§MG-C2 D1) | **byte-identical**, repointed at the shared constructor |
+| — | `parse_signed_decimal` | delegates | inherits `reader=parse_decimal` — see §MP4 |
+
+Whole-harness totals over 8 poisoned shapes × 10 entry points: **56 leaking
+cases before, 0 after.** Every non-raising outcome in the harness is identical
+between the two trees, value for value.
+
+## MP2. The fix: one constructor, and the chain severed at the source
+
+Two decisions carry the card.
+
+**One constructor.** `_refusal(reader, token)` returns the exception; every
+raise in the module is `raise _refusal(...)`. The property being defended is a
+property of the SET — "no exception this module raises quotes the document" —
+and a property of a set is only as strong as its widest member. Eleven
+hand-written messages would be eleven chances to write the twelfth one with an
+f-string in it. With one constructor, the guard against that is a single
+assertion about the module's own AST rather than a whitelist of message
+spellings.
+
+**The chain is severed, not suppressed.** Each conversion error is swallowed
+and the refusal is raised from OUTSIDE its `except` block, so the refusal
+carries neither `__cause__` nor `__context__`. This is the part that is easy to
+get half-right: `raise _refusal(...) from exc` passes any test written on
+`str(exc)` and leaks the moment something renders a traceback, because
+`float`'s ValueError is still hanging off the exception with the cell in it.
+`from None` is no better — it clears `__cause__` and sets a *rendering* hint,
+while `__context__` still holds the object. Raising after the handler has
+finished is what actually removes it, and the proof asserts on both links plus
+a rendered traceback so that the weaker fixes fail.
+
+The `pass` in each handler is the visible cost of that decision, and it is why
+each one carries `# -> the one refusal, below and unchained`.
+
+## MP3. `parse_digit_scrubbed` — the site the card did not name
+
+`parse_digit_scrubbed` is annotated `-> float | None` and is documented to
+return `None` for anything it cannot read, so it is not in the raising family
+and the handoff did not name it. It leaks anyway: scrubbing keeps DOTS, so a
+cell holding two of them reaches `float` as a string `float` cannot convert,
+and the resulting `ValueError` quotes the scrubbed cell. `float(".1.2")` is the
+shortest reproduction.
+
+Two judgements, both deliberately conservative:
+
+1. **It is fixed, because it is in this module and it quotes.** The card's
+   clause 1 is "every raise whose message embeds value/token text", not "every
+   member of the raising family".
+2. **It still RAISES.** Turning it into `None` would hand the caller's absence
+   branch a token that is present — the exact fail-open shape §MG-C2 spent
+   batch 4 closing — and it is a behaviour change with an archive sweep of its
+   own. This card's expected movement is zero, so the raise stands and the
+   message changes. Recorded in the ledger for whoever owns the contract fix.
+
+**Unreachable at every live call site today**, which is why closing it costs
+nothing: all three callers pass a `guard` that must fullmatch before scrubbing,
+and all three guards admit at most one decimal point —
+`chase._AMOUNT_RE`, `chase_savings._AMOUNT_GUARD`, `capital_one._AMOUNT_RE`.
+A fourth caller arriving without a guard is the scenario this closes in advance.
+
+## MP4. `parse_signed_decimal` names `parse_decimal`, on purpose
+
+`parse_signed_decimal` reads the sign and delegates the number, and has no
+raise of its own. Its refusals therefore say `reader=parse_decimal`, which is
+the function that actually declined the token rather than the entry point the
+parser called. Naming the entry point instead would mean a wrapper, a second
+handler and a second chance to chain; naming the decliner is also what a
+diagnosis follows. The privacy property is identical either way, so this is
+pinned as a decision rather than left as an accident
+(`test_parse_signed_decimal_reports_the_reader_that_actually_refused`).
+
+## MP5. Where a money refusal can reach `str(exc)` today
+
+Stated because "the leak is real" and "the leak is reachable" are different
+claims and the card is worth taking on the first alone.
+
+* **The deterministic parse branch is guarded.** Every `detect`, `parse` and
+  `integrity_check` runs behind `parser_registry._guarded`, which reduces any
+  exception to `ParserFailure(registration id, stage, type(exc).__name__)` —
+  the message is discarded. `AmbiguousParserError` and `ParserCrashError` carry
+  registry ids and class names only.
+* **The repair seam is guarded** as of `8ad3d3e` (§PIPE5): a raising repair
+  becomes `repair_failure = type(exc).__name__`.
+* **Every caller of the raising family is a registered parser.** Measured over
+  the whole tree: the importers of `analysis.money` are the 61 parser modules
+  plus `analysis/structurer/tokens.py` and `experiments/`, and the structurer
+  imports `parse_money` only — which returns `None` and never raises.
+* So on today's tree a money refusal reaches `webapp/worker.py`'s `str(e)`
+  through no path at all, and the card is a defence-in-depth fix on a leak that
+  is one guard away from live — the same posture §MGD argued when it declined
+  to fix it and carded it instead.
+
+The live quoting leak into that boundary is somebody else's line and is in the
+ledger: `analysis/extract.py:96` interpolates 300 characters of the model's own
+response into a `RuntimeError`, on the LLM branch, which is **not** behind
+`_guarded`.
+
+## MP6. The poisoned-token proof
+
+`tests/test_money_refusals_are_private.py`, **334 cases**.
+
+* **Driven by `money.__all__`, not by a hand-list.** A privacy law is a
+  property of the exported surface, and a hand-list proves only the members
+  someone remembered. `test_every_exported_callable_is_swept` fails the build
+  if the invocation table stops covering the exports, so a reader added to this
+  module in a later batch cannot quietly escape the sweep.
+* Six poisoned shapes — one per refusal branch, including MG-D's em-dash case —
+  through every exported reader, asserting that neither canary, nor the whole
+  token, nor any digit run of three or more from it survives into `str(exc)`,
+  the `__cause__`/`__context__` chain, or a rendered traceback.
+* Two AST guards for the branches no input reaches: every `raise` in the module
+  is `_refusal(...)`, and `_refusal_class` may return only fixed strings (with
+  one interpolation, of `MAX_INTEGER_DIGITS`, a module constant).
+
+**Mutation kill: 14 mutants, 14 killed, 0 survivors** (harness in the session
+scratchpad, not committed). One per raise site restored to `ValueError(value)`
+(M1–M7); one per chained-refusal variant, `from exc` (M8, M9); one per
+try/except removed so the conversion's own error escapes (M10–M12); one per
+message-vocabulary breach — a reason string interpolating the token (M13) and
+`_refusal` appending it (M14).
+
+## MP7. The zero-movement sweep
+
+_(pending: the full-population before/after is running; this section lands with it.)_
+
+## MP8. The ledger — quoted-text raise sites found and NOT owned
+
+Everything below quotes document-derived text into an exception. None of it is
+this cell's file; each is named for whoever takes it.
+
+**Ranked by whether it can reach `str(exc)` today.**
+
+1. **`analysis/extract.py:96` — LIVE, and the only one that is.**
+   `raise RuntimeError(f"extraction did not return a Statement: {resp.text[:300]!r}")`.
+   The model's response is a transcription of the document, 300 characters of
+   it, and this raise is on the LLM branch, which `analyze_markdown` does not
+   guard (the pipeline's own comment at `analysis/pipeline.py:628` states the
+   boundary). It propagates to `webapp/worker.py:94`'s
+   `return markdown, html, None, str(e)` and into the durable store. This is
+   WORKER-PRIVACY's neighbourhood or a card of its own; it is the one that
+   should not wait.
+2. **Six sibling `raise ValueError(value)` in parser modules** — the same
+   defect as this card's, in six of the callers rather than in the grammar:
+   `analysis/bmo.py:42` (`_amount`), `analysis/chase.py:47`
+   (`_money_required`), `analysis/farmers_merchants.py:19` (`_amount`),
+   `analysis/scanned_small_bank.py:45` (`_money`) and `:52` (`_iso`, a date
+   cell), `analysis/td_can.py:152` (`_native_date_to_iso`, a date cell).
+   All six are behind `_guarded` today. The fix shape is this card's exactly —
+   `money._refusal` is importable, and the two date sites want the same
+   treatment from a date-side constructor. Not taken: they are six parsers'
+   files, and this cell owns the shared module.
+3. **The `strptime` class — 20 sites across 7 parser modules**
+   (`burke_herbert`, `columbia_bank`, `community_section`, `demo_national`,
+   `huntington`, `relay`, `scotia`). `datetime.strptime` raises
+   `time data '<the printed date>' does not match format '…'`, which is the
+   same inherited-leak shape as the float three in §MP0 and is invisible for
+   the same reason: there is no `raise` to grep for. All behind `_guarded`.
+   `analysis/dates.py:63` is the counter-example and the model for a fix — it
+   catches its own `ValueError` and returns `None`.
+4. **`ocr/availability.py:126`** — `detail=str(exc)[:200]` on an OCR-endpoint
+   exception. Outside `analysis/`, so outside this card's scan; named because
+   it is the same `str(exc)` truncation pattern and belongs with the boundary
+   work.
+
+**Swept and found clean**, so that the ledger is a statement about the whole
+surface rather than about what was searched for: every other `raise` statement in
+`analysis/` (43 in the package, 36 of them outside `money.py`), plus `webapp/`, `ocr/`, `discovery/` and
+`telemetry/`, interpolates only registry ids, schema field names, enum
+vocabulary or path names — `count_semantics` (5), `metrics` (3), `revenue` (4),
+`parser_registry` (4), `pipeline` (3), `serialization`, `detect`,
+`banco_popular`, `date_tokens`, `webapp/artifact_cache` (3), `webapp/storage`
+(3), `telemetry` (3), `discovery/evidence`. `AmbiguousParserError` and
+`ParserCrashError` were read rather than assumed: both are ids and class names.
+
+## MP9. Proofs
+
+_(pending: this section lands with the sweep.)_
+
+## MP10. Commits
+
+_(pending.)_
