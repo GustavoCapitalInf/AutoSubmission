@@ -241,7 +241,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--enrich", action="append", default=[], metavar="RUN_DIR",
         help="Recover parser identity by content hash from another run, for "
-             "BOTH sides (a cache-served run carries no parser_id).")
+             "BOTH sides. Only for runs emitted before #TELCOV: a cache-served "
+             "record has carried its own reconstructed claim since then.")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--top", type=int, default=20)
     parser.add_argument(

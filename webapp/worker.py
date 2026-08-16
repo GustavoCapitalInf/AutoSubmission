@@ -147,10 +147,7 @@ def _emit(
         # D-3 analysis cache hit nothing dispatched and the sweep runs whole.
         scores, registration_count = score_vector(markdown, collector) if markdown else ([], 0)
         dispatch = dispatch_section(
-            collector.dispatch,
-            scores,
-            registration_count,
-            source="live" if collector.seen else ("cached" if analysis is not None else "unavailable"),
+            collector.dispatch, scores, registration_count, payload=analysis,
         )
         sink.write(build_record(
             run_id=_RUN_ID,

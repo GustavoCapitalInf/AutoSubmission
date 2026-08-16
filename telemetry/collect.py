@@ -1,4 +1,5 @@
-"""Collectors: the pipeline callback, stage timing, and the score vector.
+"""Collectors: the pipeline callback, stage timing, the score vector, and the
+one reconstruction the record is allowed to make from it.
 
 The one seam into `analysis/` is `DispatchCollector`, passed as
 `analyze_markdown(..., on_dispatch=collector)`. Its contract with the pipeline
@@ -7,6 +8,14 @@ deliberately has no `try/except` around the call, because swallowing exceptions
 inside a protected module would be new control flow there to cover a defect
 here. So the guarantee lives on this side, and a test proves it holds even when
 handed nonsense.
+
+`reconstructed_claim` is the other direction: what can be said about routing
+when there was no callback to collect, because the analysis was served from
+the D-3 cache. It lives here, beside `score_vector`, because it reads the same
+sweep and the same registry — and it lives in ONE place because two consumers
+need the identical answer: `record.dispatch_section` (the H-3 record) and
+`discovery.runner._project_identity` (the `rows.csv` row). A second derivation
+would let the two artifacts of one run disagree about the same document.
 """
 from __future__ import annotations
 
@@ -188,3 +197,121 @@ def score_vector(
         if detection.score > 0.0
     ]
     return scored, len(registrations())
+
+
+#: A `model_used` this suffix identifies a payload a REGISTRY parser produced.
+#: Not a new fact: `analysis/pipeline.py` builds it on the deterministic branch
+#: only, and `record.model_calls_for` already reads exactly this suffix to mean
+#: "no model call was made". Both readings are the same claim — that no LLM
+#: touched this payload — so they are pinned to one constant rather than two
+#: string literals that could drift apart.
+DETERMINISTIC_MODEL_SUFFIX = "-deterministic"
+
+
+def sole_surviving_claimant(scores) -> tuple[str, float] | None:
+    """`(parser_id, score)` when this document's detection implies exactly one
+    claimant after `supersedes` pruning, else `None`.
+
+    This is `parser_registry._surviving_claimants` re-expressed over a score
+    vector that has already been computed, and it is exact rather than
+    approximate for three reasons that are worth stating because the whole
+    reconstruction rests on them:
+
+    * `scores` is `score_vector`, i.e. `detection_report`, i.e. the same
+      `safe_detect` sweep over the same `PreparedDocument` that `resolve`
+      runs. `detect` is pure and total by the R-3 protocol contract, which is
+      the argument `score_vector`'s own docstring already makes: re-running it
+      over the same markdown provably reproduces the run of record.
+    * `Detection.claims` is `score >= CLAIM_THRESHOLD`, and every score the
+      registry can produce is already six-decimal exact (`round(..., 6)`, or
+      the literals `0.5` / `1.0`), so `score_vector`'s rounding is the identity
+      here and cannot move a registration across the threshold. `score_vector`
+      drops zeros only, and a claimant is never a zero.
+    * `supersedes` pruning is computed over ALL claimants before pruning,
+      exactly as `_surviving_claimants` does.
+
+    Reading the registry (ids and `supersedes` edges) is reading OUR constants,
+    the same admissibility `discovery.evidence.registration_labels` relies on.
+
+    Moved here from `discovery/runner.py` (§DISCOBS DO2) when the H-3 record
+    became the second consumer: the row and the record must name the same
+    parser for the same document, and the cheapest way to guarantee that is
+    for there to be only one function that can name one.
+    """
+    from analysis import parser_registry_entries  # noqa: F401  (registers all parsers)
+    from analysis.parser_registry import CLAIM_THRESHOLD, registrations
+
+    superseded_by = {reg.id: reg.supersedes for reg in registrations()}
+    claimants = [
+        (parser_id, score) for parser_id, score in scores
+        if score >= CLAIM_THRESHOLD and parser_id in superseded_by
+    ]
+    dominated = {
+        target for parser_id, _score in claimants for target in superseded_by[parser_id]
+    }
+    survivors = [
+        (parser_id, score) for parser_id, score in claimants if parser_id not in dominated
+    ]
+    return survivors[0] if len(survivors) == 1 else None
+
+
+def reconstructed_claim(scores, payload: dict | None) -> tuple[str, float] | None:
+    """The parser behind a payload no `Dispatch` was observed for, or `None`.
+
+    WHEN THIS IS ASKED. On a D-3 analysis cache hit `analyze_markdown` never
+    runs, so no callback fires and there is no `Dispatch` — while the payload,
+    and therefore the outcome, is served in full. Before §DISCOBS the row and
+    the record both answered "nothing known" there; the row stopped doing so in
+    batch 5, and the record stops doing so here.
+
+    WHY ONE DETECTION SWEEP NAMES THE PARSER. A payload produced by a registry
+    parser is itself the evidence that `resolve` had exactly one survivor:
+    every other outcome raises before a payload exists (`ambiguous` ->
+    AmbiguousParserError, `parser_exception` -> ParserCrashError, `unclaimed`
+    -> the deterministic branch's RuntimeError), and `resolve` declares
+    `ambiguous` BEFORE any parse runs. So the survivor is the parser of record,
+    `attempted` was empty, and the outcome was `claimed`. Nothing is guessed.
+
+    FAIL-CLOSED, THREE TIMES, and the first guard is why this is not just
+    `sole_surviving_claimant`:
+
+    1. **The payload must be a deterministic parser's.** The discovery runner
+       could rely on `parse_mode="deterministic"` for this; the H-3 record
+       cannot, because `batch.py` and the webapp worker run `parse_mode="auto"`
+       where a payload can come from LLM extraction with no parser behind it at
+       all. `model_used` ending in `-deterministic` is the pipeline's own mark
+       for "no model produced this" (`model_calls_for` reads it for cost), so
+       an LLM payload reconstructs nothing.
+    2. **Not the generic structurer** (W3-3c, opt-in, off), the one branch that
+       publishes a payload with no parser behind it. Its `model_used` carries
+       the same suffix, so it is excluded by name — its own constant, not a
+       string here.
+    3. **Not a sweep that names anything other than exactly one survivor.**
+       Zero or many, while a payload exists, means the invariant above was
+       broken by a stale artifact (the REGFP window: a registry composition
+       changed under a warm cache without a stage bump). That is a finding, and
+       the answer is to name nobody rather than to pick.
+
+    WHAT IT DOES NOT CATCH, stated plainly. Inside that same REGFP window a
+    cached payload may have been authored by a parser that TODAY loses a
+    `supersedes` contest; today's sweep then names one survivor, the new
+    winner, confidently and wrongly. One survivor is not a symptom, so no guard
+    here fires. That is a stale-cache corruption this reconstruction INHERITS,
+    not one it creates — before it, the same warm run served the same payload
+    and published the same outcome with no parser named at all — and the
+    structural fix is the REGFP card (the registry fingerprint in the analysis
+    cache key), not a guess here.
+
+    NEVER reconstructed: `attempted` (proven empty by the argument above) and
+    `exceptions` (a detect-stage crash in some other registration scores 0.0
+    and 0.0 is dropped, so it is not recoverable from a score vector; the field
+    stays empty and says nothing rather than saying "no parser crashed").
+    """
+    from analysis.structurer import STRUCTURER_MODEL
+
+    model_used = (payload or {}).get("model_used") or ""
+    if not model_used.endswith(DETERMINISTIC_MODEL_SUFFIX):
+        return None
+    if model_used == STRUCTURER_MODEL:
+        return None
+    return sole_surviving_claimant(scores)

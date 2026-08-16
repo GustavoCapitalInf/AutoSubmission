@@ -482,8 +482,7 @@ def test_the_projection_names_the_parser_resolve_would_have_named():
     against `resolve` itself over a synthetic registry with a supersedes edge,
     so no bank's real code is involved."""
     from analysis import parser_registry as pr
-    from discovery.runner import _sole_surviving_claimant
-    from telemetry import score_vector
+    from telemetry import score_vector, sole_surviving_claimant as _sole_surviving_claimant
 
     saved = dict(pr._REGISTRY)
     pr.clear_registry()
@@ -573,17 +572,119 @@ def test_a_cache_served_row_recovers_its_identity_and_says_how(
     ]
 
 
+class _ListSink:
+    """A telemetry sink that keeps the records, so a test can read them.
+
+    `DiscoveryRunner._emit` swallows its own failures (H3_SCHEMA I4), so a
+    record that is never written is invisible unless something counts them.
+    Every test using this asserts the count.
+    """
+
+    def __init__(self) -> None:
+        self.records: list[dict] = []
+
+    def write(self, record: dict) -> None:
+        self.records.append(record)
+
+
+def test_a_cache_served_record_carries_what_the_cache_served_row_carries(
+    tree: Path, tmp_path: Path
+):
+    """#TELCOV: the H-3 record's half of the hole §DISCOBS closed for the row.
+
+    The row projection landed in batch 5 and the record was left behind, so one
+    run published two artifacts that disagreed about the same document: the row
+    named the parser and `telemetry.jsonl` said `dispatch.source = unavailable`
+    with a null id, which is how the coverage rate the record feeds reached
+    0.0% on a fully warm archive run.
+
+    Both halves now come from ONE derivation
+    (`telemetry.collect.reconstructed_claim`), so this asserts the two agree
+    document by document as well as warm-against-cold.
+    """
+    from telemetry.report import coverage
+    from webapp.artifact_cache import open_cache
+
+    sink = _ListSink()
+    runner = DiscoveryRunner(tree, mode=MODE_DIGITAL, run_id="t", sink=sink,
+                             cache=open_cache(tmp_path / "cache"), dedup=DedupIndex())
+    cold_row = runner.process("BankX/statement.pdf", "BankX")
+    warm_row = runner.process("BankX/again.pdf", "BankX")
+    assert (cold_row.cache_analysis, warm_row.cache_analysis) == ("miss", "hit")
+    assert len(sink.records) == 2, "a swallowed emit is not a passing test"
+    cold, warm = (record["dispatch"] for record in sink.records)
+
+    assert cold["source"] == "live" and warm["source"] == "cached"
+    for field in ("outcome", "parser_id", "score", "candidates"):
+        assert warm[field] == cold[field], field
+    assert warm["outcome"] == "claimed" and warm["parser_id"] == "chase"
+    # Not reconstructed, on either arm, and for two different reasons.
+    assert warm["attempted"] == [] and warm["exceptions"] == []
+
+    # The row and the record, on the same warm document.
+    assert (warm_row.parser_id, warm_row.parser_score, warm_row.dispatch_outcome) == (
+        warm["parser_id"], warm["score"], warm["outcome"]
+    )
+    assert warm_row.parser_id_source == PARSER_ID_LIVE_DETECT
+
+    # And the number the whole card is about.
+    assert coverage(sink.records[:1])["rate"] == coverage(sink.records[1:])["rate"] == 1.0
+
+
+def test_a_deferred_document_emits_a_record_that_claims_nothing(
+    tree: Path, tmp_path: Path
+):
+    """`unavailable` still means what it says: no payload, no verdict, no
+    reconstruction. The three-state vocabulary is only worth anything if the
+    third state is still reachable."""
+    sink = _ListSink()
+    runner = DiscoveryRunner(tree, mode=MODE_DIGITAL, run_id="t", sink=sink,
+                             cache=None, dedup=DedupIndex())
+    row = runner.process("BankY/broken.pdf", "BankY")
+    assert row.outcome_class == "failed" and row.outcome_reason == "invalid_pdf"
+    assert len(sink.records) == 1
+    dispatch = sink.records[0]["dispatch"]
+    assert dispatch["source"] == "unavailable"
+    assert dispatch["outcome"] is None and dispatch["parser_id"] is None
+
+
 def test_a_cached_payload_whose_detection_is_inconclusive_names_no_parser():
     """Fail-closed. The invariant behind the projection (a deterministic-mode
     payload implies exactly one surviving claimant) can only break if a cached
     artifact outlived a registry change without an ANALYSIS_STAGE_VERSION
-    bump. That is a finding, not a licence to pick a parser."""
+    bump. That is a finding, not a licence to pick a parser.
+
+    The payload spells a deterministic `model_used` deliberately: #TELCOV
+    added that guard for the `parse_mode="auto"` emitters, and a payload
+    without one would now be refused for the wrong reason, leaving the
+    two-survivor branch this test is named for unexercised.
+    """
     from discovery.runner import _project_identity
 
     row = _row()
-    source = _project_identity(row, [("a", 0.9), ("b", 0.9)], {"model_used": "x"})
+    source = _project_identity(
+        row, [("a", 0.9), ("b", 0.9)], {"model_used": "somebank-deterministic"}
+    )
     assert source == PARSER_ID_UNAVAILABLE
     assert (row.parser_id, row.parser_score, row.dispatch_outcome) == (None, None, None)
+
+
+def test_an_llm_extracted_payload_projects_no_parser():
+    """The guard that makes one reconstruction safe for three emitters.
+
+    Discovery analyses in `parse_mode="deterministic"`, where a payload is a
+    registry parser's or the structurer's. `batch.py` and the webapp worker run
+    `parse_mode="auto"`, where a payload can come from LLM extraction with no
+    parser behind it at all - and the loudest detection on such a document is
+    not its parser, because it did not have one.
+    """
+    from discovery.runner import _project_identity
+
+    row = _row()
+    assert _project_identity(
+        row, [("chase", 0.9)], {"model_used": "gemini-2.5-flash"}
+    ) == PARSER_ID_UNAVAILABLE
+    assert row.parser_id is None
 
 
 def test_a_structurer_payload_projects_no_parser():
@@ -780,7 +881,15 @@ def test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered(tmp_path: 
     folder-agreement rollup and the per-document identity), differing in
     exactly one place: the provenance mark that says the verdicts were
     reconstructed rather than observed.
+
+    EXTENDED AT #TELCOV to the telemetry layer, which was the other half of
+    the same hole and was left behind by batch 5: each pass now writes its
+    H-3 records too, and the record arm is asserted the same way — warm
+    against cold, and then against the row the same document produced. Two
+    passes over 109 documents is the expensive part of this test and it was
+    already being paid; the records are free.
     """
+    from telemetry.report import coverage
     from webapp.artifact_cache import open_cache
 
     # A PRIVATE cache in tmp_path: the shared `webapp_data` store is read-only
@@ -790,19 +899,21 @@ def test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered(tmp_path: 
     assert len(paths) == 109
 
     def pass_(cache):
+        sink = _ListSink()
         runner = DiscoveryRunner(CORPUS, mode=MODE_DRY_RUN, run_id="warm-proof",
-                                 sink=None, cache=cache,
+                                 sink=sink, cache=cache,
                                  dedup=DedupIndex.with_pinned_corpus())
         rows = [
             runner.process(path, inventory.folder_label(path),
                            disk_relative_path=inventory.disk_spelling(path))
             for path in paths
         ]
-        return rows, summarize(rows, mode=MODE_DRY_RUN, run_id="warm-proof")
+        assert len(sink.records) == 109, "an emit that failed is not a proof"
+        return rows, summarize(rows, mode=MODE_DRY_RUN, run_id="warm-proof"), sink.records
 
     cache = open_cache(tmp_path / "cache")
-    cold_rows, cold = pass_(cache)
-    warm_rows, warm = pass_(cache)
+    cold_rows, cold, cold_records = pass_(cache)
+    warm_rows, warm, warm_records = pass_(cache)
 
     assert {r.cache_analysis for r in cold_rows} == {"miss"}
     assert {r.cache_analysis for r in warm_rows} == {"hit"}
@@ -835,6 +946,41 @@ def test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered(tmp_path: 
         assert row.statement_bank == reference.statement_bank
         assert row.outcome_class == reference.outcome_class
         assert row.outcome_reason == reference.outcome_reason
+
+    # --- the telemetry arm (#TELCOV) ---------------------------------------
+    # The record's provenance mark is `dispatch.source`, and it is the one
+    # field that is SUPPOSED to differ between the two passes.
+    assert {r["dispatch"]["source"] for r in cold_records} == {"live"}
+    assert {r["dispatch"]["source"] for r in warm_records} == {"cached"}
+
+    cold_by_sha = {r["document"]["content_sha256"]: r for r in cold_records}
+    assert len(cold_by_sha) == 109, "109 distinct documents, so a key per record"
+    for record in warm_records:
+        reference = cold_by_sha[record["document"]["content_sha256"]]
+        for field in ("outcome", "parser_id", "score", "candidates",
+                      "attempted", "exceptions", "scores", "registration_count"):
+            assert record["dispatch"][field] == reference["dispatch"][field], field
+        assert record["outcome"] == reference["outcome"]
+        assert record["diagnostics"] == reference["diagnostics"]
+
+    # The number the card is about, warm and cold, from the shipped summariser.
+    assert coverage(cold_records) == coverage(warm_records)
+    assert coverage(warm_records) == {
+        "numerator": 109, "denominator": 109, "deferred": 0,
+        "unattributed": 0, "rate": 1.0,
+    }
+    # And the two instruments over one run: the telemetry rollup and the
+    # discovery rollup are independent code paths reading independent
+    # artifacts, and they must not print different coverage for the same
+    # documents. Before #TELCOV the warm pass printed 0.0% here and 100% there.
+    for rollup, records in ((cold, cold_records), (warm, warm_records)):
+        assert coverage(records)["rate"] == rollup["deterministic_coverage"]
+        assert coverage(records)["denominator"] == rollup["dispatched"]
+        assert coverage(records)["numerator"] == rollup["dispatch"]["claimed"]
+
+    # The `--enrich` bridge is no longer load-bearing for a run emitted now:
+    # the records carry their own parser identity, warm or cold.
+    assert all(r["dispatch"]["parser_id"] for r in warm_records)
 
 
 # ---------------------------------------------------------------------------

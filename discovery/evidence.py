@@ -22,9 +22,10 @@ them.
 
 **The cache-hit hole, and why the join exists.** H3_SCHEMA §5.4 declared it:
 on a D-3 analysis cache hit `analyze_markdown` never runs, so the record
-carries `dispatch.source = "cached"/"unavailable"` and no `parser_id`. That is
-benign for coverage and fatal for W3-4, because "failure class x parser" needs
-the parser. Measured on the archive runs:
+carried `dispatch.source = "cached"/"unavailable"` and no `parser_id`. It was
+never benign for coverage - the rate collapsed to 0.0% on a fully warm run -
+and it was fatal for W3-4, because "failure class x parser" needs the parser.
+Measured on the archive runs:
 
     ec400125 (tranche 1, first pass)  608 withheld, 608 with a parser_id, 0 diagnosed
     02e90a86 (the W3-2 baseline)      614 withheld,   0 with a parser_id, 614 diagnosed
@@ -34,6 +35,19 @@ by joining a companion run on the content hash: the parser claim is a property
 of the document and the registry, not of the run that happened to observe it,
 so recovering it from another run over the same bytes is sound - and it is
 recorded in the output as an enrichment, never silently merged.
+
+**Closed at the source since #TELCOV, and the join is KEPT for the runs that
+predate it.** A cache-served record now carries the reconstructed claim
+(`telemetry.record.dispatch_section`), so a run emitted today answers its own
+class x parser question warm or cold, and `--enrich` is not part of reading it.
+It is not dead code: measured over the 43 retained run directories, **11 hold
+records with a published outcome and no verdict** - among them the W3-2
+baseline `02e90a86` (614 diagnosed, 0 attributed) and the warm archive re-run
+`b7b40c73` (2,561) - and those are the frozen evidence W3-2/W3-4 are pointed
+at. Retiring the join would make the archive's own history unreadable except
+through `--allow-unattributed`, which throws the attribution away rather than
+recovering it. So it stays, documented as a BRIDGE FOR PRE-#TELCOV RUNS rather
+than as part of the design, and it disappears on its own as those runs age out.
 """
 from __future__ import annotations
 
@@ -42,12 +56,33 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# The run report's own word for a claim that names no issuer. Imported, never
+# restated: one vocabulary across the two artifacts a run produces.
+from .report import TEMPLATE_CLAIM
+
+AGREE = "agree"
+LABEL_UNMATCHED = "label_unmatched"
+
 TELEMETRY_FILE = "telemetry.jsonl"
 ROWS_FILE = "rows.csv"
 SUMMARY_FILE = "summary.json"
 
 #: The only `rows.csv` columns that may cross into a W3-4 artifact.
 ADMISSIBLE_ROW_COLUMNS = ("content_sha256", "folder_label", "dedup_status")
+
+#: One more column is READ, and its value never crosses (#TELCOV).
+#: `statement_bank` is the label the parser extracted from the document and is
+#: inadmissible in an artifact for exactly the reason H3_SCHEMA I1 gives; what
+#: crosses is one boolean derived from it — whether the claim named an issuer
+#: at all — which is a fact about OUR claim, not a fact read out of the paper.
+#: The alternative sources were surveyed and rejected: the telemetry record
+#: cannot carry the label (I1) and does not carry `model_used`, and sniffing
+#: the registration name for "Template"/"Platform" is the name-based rule
+#: §DISCOBS DO4 declined to write. The structural answer is a registry-side
+#: "this label is not an issuer claim" flag (DO7#4), which is a change to
+#: `analysis/parser_registry.py` and is not this cell's to make; when it
+#: lands, this boolean has a second, better source and the read can go.
+DERIVED_ROW_COLUMNS = ("statement_bank",)
 
 #: Folder labels that are not bank labels: a human sorted these as "I could not
 #: sort these". They are the generic-understanding test set, not a bank.
@@ -78,6 +113,10 @@ class Document:
     diagnostics: dict
     folder_label: str | None = None
     dedup_status: str | None = None
+    #: Did the claiming parser publish an issuer for this document? `None` when
+    #: the run has no `rows.csv` to answer from. The LABEL is never held here
+    #: (see DERIVED_ROW_COLUMNS); this is one bit about our own claim.
+    claim_names_issuer: bool | None = None
 
     @property
     def primary_class(self) -> str | None:
@@ -86,6 +125,31 @@ class Document:
     @property
     def is_unlabelled_folder(self) -> bool:
         return (self.folder_label or "").strip().lower() in UNLABELLED_FOLDERS
+
+    @property
+    def is_template_claim(self) -> bool:
+        """The claim names no issuer, so no folder label can agree with it.
+
+        The §U honest-unknown-issuer registrations claim a document TEMPLATE
+        and publish `Statement.bank = None` on purpose, because the paper names
+        no institution. Their registry id and registry bank label are both
+        template names, so `registration_labels()` offers a folder matcher two
+        template strings to compare against a bank name — a category error,
+        which the label check filed as a disagreement (§DISCOBS DO7#3: six
+        `Desjardins -> releve_facturation` documents on the run of record).
+
+        The rule is a FACT about the claim, not a name test, and it is the same
+        rule `discovery.report.folder_agreement` uses for its `template_claim`
+        bucket — deliberately, so the workspace and the run report cannot
+        disagree about which documents are template claims. That is the same
+        argument `bank_is_registered` makes for sharing the report's matcher.
+
+        Fails CLOSED on `None`: a document whose claim we cannot ask about is
+        not exempted from the label check. It cannot arise in practice — the
+        folder label the check needs comes from the same file and the same row
+        — and a test pins that.
+        """
+        return self.claim_names_issuer is False
 
 
 @dataclass
@@ -124,8 +188,13 @@ def read_telemetry(directory: Path) -> list[dict]:
     return records
 
 
-def read_folder_labels(directory: Path) -> dict[str, tuple[str, str]]:
-    """sha -> (folder_label, dedup_status), the only admissible row columns.
+def read_folder_labels(directory: Path) -> dict[str, tuple[str, str, bool]]:
+    """sha -> (folder_label, dedup_status, claim_names_issuer).
+
+    The first two are `ADMISSIBLE_ROW_COLUMNS` and are published as they stand.
+    The third is derived from `statement_bank` and the label itself stops here
+    — see `DERIVED_ROW_COLUMNS` for why that column is read and why nothing
+    else could answer the question.
 
     Absent `rows.csv` is not an error: the telemetry alone is enough for every
     parser- and check-keyed cluster, and only the folder-keyed ones thin out.
@@ -133,7 +202,7 @@ def read_folder_labels(directory: Path) -> dict[str, tuple[str, str]]:
     path = Path(directory) / ROWS_FILE
     if not path.is_file():
         return {}
-    labels: dict[str, tuple[str, str]] = {}
+    labels: dict[str, tuple[str, str, bool]] = {}
     with path.open(encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             sha = (row.get("content_sha256") or "").strip()
@@ -141,6 +210,7 @@ def read_folder_labels(directory: Path) -> dict[str, tuple[str, str]]:
                 labels[sha] = (
                     (row.get("folder_label") or "").strip(),
                     (row.get("dedup_status") or "").strip(),
+                    bool((row.get("statement_bank") or "").strip()),
                 )
     return labels
 
@@ -148,10 +218,17 @@ def read_folder_labels(directory: Path) -> dict[str, tuple[str, str]]:
 def parser_index(directories: list[Path]) -> dict[str, tuple[str, str, str]]:
     """sha -> (parser_id, dispatch_outcome, run_id) from a run that dispatched it.
 
+    The bridge for runs emitted before #TELCOV closed the hole at the source;
+    see the module docstring for why it is kept and what it is measured to be
+    needed for.
+
     First writer wins, so passing the earliest live run first makes that run
-    the authority. Only records with a real parser id are indexed: a
-    cache-served record has nothing to contribute and must not overwrite a
-    real claim.
+    the authority. Only records with a real parser id are indexed: a record
+    with no claim has nothing to contribute and must not overwrite a real one.
+    Since #TELCOV a cache-served record usually HAS one, which is a
+    reconstruction rather than an observation - and admissible here for
+    exactly the reason this join is admissible at all: the parser claim is a
+    property of the document and the registry, not of the observation.
 
     The dispatch OUTCOME travels with the parser id deliberately. Recovering
     `parser_id` without it leaves the document looking like it never
@@ -205,7 +282,7 @@ def load_run(
             parser, enriched_outcome, enriched = enrichment[sha]
             dispatch_outcome = dispatch_outcome or enriched_outcome
             enriched_from.add(enriched)
-        folder, dedup = labels.get(sha, (None, None))
+        folder, dedup, names_issuer = labels.get(sha, (None, None, None))
         documents[sha] = Document(
             content_sha256=sha,
             outcome_class=outcome.get("class") or "unknown",
@@ -234,6 +311,7 @@ def load_run(
             diagnostics=record.get("diagnostics") or {},
             folder_label=folder,
             dedup_status=dedup,
+            claim_names_issuer=names_issuer,
         )
 
     run_id = records[0].get("run_id") if records else directory.name
@@ -283,6 +361,12 @@ def registration_labels() -> dict[str, frozenset[str]]:
     `td_us` claimed is in the RIGHT folder - matching the id alone would call
     28 correctly-parsed statements misfiled, which is precisely the failure
     `discovery.report.folder_agreement`'s docstring warns about.
+
+    WHAT IT CANNOT ANSWER, and where that is handled. For a §U registration
+    both strings are template names, so this returns two labels that no bank
+    folder can legitimately match. That is not a wrong answer here - the
+    registration really does answer to those names - it is a question that
+    should not have been asked, and `label_verdict` is what declines to ask it.
     """
     from analysis import parser_registry_entries  # noqa: F401  (populates)
     from analysis.parser_registry import registrations
@@ -304,6 +388,27 @@ def label_agrees(folder_label: str, labels: frozenset[str]) -> bool:
     if not folder or not labels:
         return False
     return any(token in folder or folder in token for token in labels)
+
+
+def label_verdict(document: Document, labels: frozenset[str]) -> str:
+    """Does this claim agree with the folder, disagree, or answer a different
+    question entirely? One of `AGREE` / `TEMPLATE_CLAIM` / `LABEL_UNMATCHED`.
+
+    The vocabulary and the ORDER are `discovery.report.folder_agreement`'s, and
+    `TEMPLATE_CLAIM` is imported from it rather than restated, so the run
+    report and the adjudication workspace cannot describe the same document
+    two ways. Order is load-bearing there and here: a template name that
+    happened to be contained in a folder name would otherwise be reported as
+    agreement, manufacturing a detection-accuracy datum out of a coincidence.
+
+    The caller decides what an unmatched label MEANS - `label_unmatched` is not
+    "disagree", and on the pinned corpus every one of them is an abbreviation
+    the matcher cannot see through (`Amex` vs `american_express`). This
+    function only refuses to file a category error among them.
+    """
+    if document.is_template_claim:
+        return TEMPLATE_CLAIM
+    return AGREE if label_agrees(document.folder_label or "", labels) else LABEL_UNMATCHED
 
 
 def bank_is_registered(folder_label: str, tokens: frozenset[str]) -> bool:

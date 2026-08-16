@@ -27,6 +27,7 @@ from discovery.compare import LADDER, compare, direction
 from discovery.compare import render as render_movement
 from discovery.evidence import (
     ADMISSIBLE_ROW_COLUMNS,
+    DERIVED_ROW_COLUMNS,
     bank_is_registered,
     label_agrees,
     load_run,
@@ -116,7 +117,10 @@ def _withheld(sha: str, primary: str, parser: str, **kw) -> dict:
 
 
 def _write_run(directory: Path, records: list[dict],
-               folders: dict[str, str] | None = None) -> Path:
+               folders: dict[str, str] | None = None,
+               no_issuer: frozenset[str] = frozenset()) -> Path:
+    """A run directory. `no_issuer` names the shas whose claiming parser
+    published no issuer - the §U template registrations' shape (#TELCOV)."""
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "telemetry.jsonl").write_text(
         "\n".join(json.dumps(r, sort_keys=True) for r in records) + "\n",
@@ -136,7 +140,9 @@ def _write_run(directory: Path, records: list[dict],
                     "folder_label": folder,
                     "content_sha256": sha,
                     "dedup_status": "unique",
-                    "statement_bank": "EXTRACTED BANK LABEL",
+                    "statement_bank": (
+                        "" if sha in no_issuer else "EXTRACTED BANK LABEL"
+                    ),
                     "account_last4": "1234",
                 })
     return directory
@@ -155,13 +161,21 @@ def test_documents_are_keyed_by_content_hash(tmp_path: Path):
 
 def test_only_admissible_row_columns_ever_load(tmp_path: Path):
     """rows.csv carries paths, the extracted bank label and an account
-    fragment. None of them may reach a W3-4 artifact."""
+    fragment. None of them may reach a W3-4 artifact.
+
+    `statement_bank` is READ since #TELCOV and still never crosses: what
+    crosses is one boolean about our own claim. This test is the guard for
+    that, and it fails on the label's text rather than on a promise.
+    """
     run = load_run(_write_run(
         tmp_path / "r", [_record("A" * 64)], folders={"A" * 64: "Chase"},
     ))
     document = run.documents["A" * 64]
     assert document.folder_label == "Chase"
     assert ADMISSIBLE_ROW_COLUMNS == ("content_sha256", "folder_label", "dedup_status")
+    assert DERIVED_ROW_COLUMNS == ("statement_bank",)
+    assert document.claim_names_issuer is True
+    assert not hasattr(document, "statement_bank")
     blob = json.dumps(workspace(run), sort_keys=True)
     assert "secret-customer-name" not in blob
     assert "EXTRACTED BANK LABEL" not in blob
@@ -454,6 +468,127 @@ def test_a_correctly_filed_document_raises_no_label_question(tmp_path: Path):
         folders={"A" * 64: "TD Bank"},
     ))
     assert not [c for c in build_clusters(run) if c.kind == "label_disagreement"]
+
+
+def test_a_template_claim_is_not_a_label_disagreement(tmp_path: Path):
+    """§DISCOBS DO7#3, closed one layer over `registration_labels()`.
+
+    `releve_facturation` is registered under the name of the TEMPLATE it
+    reads, and publishes `Statement.bank = None` because the paper names no
+    institution. Both strings the matcher is given are therefore template
+    names, so six documents a human had filed under `Desjardins/` read as a
+    label disagreement on the run of record — a category error, and the
+    obvious way to make it go away is to rename the parser after the folder,
+    which §U4.1's evidence forbids.
+    """
+    shas = [f"{i:064d}" for i in range(6)]
+    directory = _write_run(
+        tmp_path / "r",
+        [_record(s, parser_id="releve_facturation", outcome_class="validated")
+         for s in shas],
+        folders={s: "Desjardins" for s in shas},
+        no_issuer=frozenset(shas),
+    )
+    run = load_run(directory)
+    assert not [c for c in build_clusters(run) if c.kind == "label_disagreement"]
+
+    space = workspace(run)
+    assert space["template_claim_documents"] == 6
+    assert space["template_claim_pairs"] == [
+        {"folder": "Desjardins", "parser": "releve_facturation", "documents": 6}
+    ]
+    printed = render(space)
+    assert "6 claims name no issuer" in printed
+    assert "Desjardins -> releve_facturation   6" in printed
+    assert "DO NOT rename the parser after the folder" in printed
+
+
+def test_a_claim_that_names_an_issuer_is_still_judged(tmp_path: Path):
+    """The exemption is one bit about OUR claim, not a licence for the parser.
+
+    Same parser, same folder, but this document published an issuer, so the
+    disagreement is a real one and stays in the queue. Without this the
+    template class would be a name-based rule on the registration after all.
+    """
+    run = load_run(_write_run(
+        tmp_path / "r",
+        [_record("A" * 64, parser_id="releve_facturation", outcome_class="validated")],
+        folders={"A" * 64: "Desjardins"},
+    ))
+    cluster = next(c for c in build_clusters(run) if c.kind == "label_disagreement")
+    assert cluster.key == "Desjardins -> releve_facturation"
+    assert workspace(run)["template_claim_documents"] == 0
+
+
+def test_a_template_claim_is_tested_before_the_containment_match(tmp_path: Path):
+    """Order is load-bearing, and it is the report's order (§DISCOBS DO4).
+
+    A template name that happens to be contained in a folder name would
+    otherwise be reported as AGREEMENT, manufacturing a detection-accuracy
+    datum out of a coincidence.
+    """
+    from discovery.evidence import TEMPLATE_CLAIM, label_verdict, registration_labels
+
+    run = load_run(_write_run(
+        tmp_path / "r",
+        [_record("A" * 64, parser_id="community_section", outcome_class="validated")],
+        folders={"A" * 64: "Community Section Bank"},
+        no_issuer=frozenset({"A" * 64}),
+    ))
+    document = run.documents["A" * 64]
+    labels = registration_labels()["community_section"]
+    assert label_agrees(document.folder_label, labels), (
+        "vacuous unless the folder really does contain the template name"
+    )
+    assert label_verdict(document, labels) == TEMPLATE_CLAIM
+
+
+def test_the_template_exemption_fails_closed_when_it_cannot_be_asked(tmp_path: Path):
+    """`claim_names_issuer` is None without a rows.csv, and None is not an
+    exemption. It cannot arise in practice — the folder label the check needs
+    comes from the same file and the same row, so a run with no rows.csv has
+    no label check at all — and this pins both halves of that."""
+    from discovery.evidence import LABEL_UNMATCHED, label_verdict, registration_labels
+
+    run = load_run(_write_run(
+        tmp_path / "r",
+        [_record("A" * 64, parser_id="releve_facturation", outcome_class="validated")],
+    ))
+    document = run.documents["A" * 64]
+    assert document.claim_names_issuer is None
+    assert document.is_template_claim is False
+    assert document.folder_label is None
+    # Asked directly with a folder label it could not have: still judged.
+    labels = registration_labels()["releve_facturation"]
+    assert label_verdict(document, labels) == LABEL_UNMATCHED
+    # And through the workspace, where it is never asked at all.
+    assert workspace(run)["template_claim_documents"] == 0
+    assert not [c for c in build_clusters(run) if c.kind == "label_disagreement"]
+
+
+def test_the_two_artifacts_of_one_run_use_one_template_rule(tmp_path: Path):
+    """The workspace and the run report must not describe the same document
+    two ways, so the word and the rule are shared rather than restated."""
+    from discovery.evidence import TEMPLATE_CLAIM
+    from discovery.report import TEMPLATE_CLAIM as REPORT_TEMPLATE_CLAIM
+    from discovery.report import folder_agreement
+    from discovery.runner import DocumentRow
+
+    assert TEMPLATE_CLAIM is REPORT_TEMPLATE_CLAIM
+    row = DocumentRow(
+        relative_path="Desjardins/x.pdf", folder_label="Desjardins",
+        content_sha256="A" * 64, byte_size=1, parser_id="releve_facturation",
+        dispatch_outcome="claimed", statement_bank=None,
+    )
+    assert folder_agreement(row) == TEMPLATE_CLAIM
+
+    run = load_run(_write_run(
+        tmp_path / "r",
+        [_record("A" * 64, parser_id="releve_facturation", outcome_class="validated")],
+        folders={"A" * 64: "Desjardins"},
+        no_issuer=frozenset({"A" * 64}),
+    ))
+    assert run.documents["A" * 64].is_template_claim
 
 
 def test_a_truncation_flag_is_a_policy_question(tmp_path: Path):

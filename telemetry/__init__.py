@@ -21,7 +21,14 @@ Three properties hold everywhere in this package:
 """
 from __future__ import annotations
 
-from .collect import DispatchCollector, StageTimer, score_vector
+from .collect import (
+    DETERMINISTIC_MODEL_SUFFIX,
+    DispatchCollector,
+    StageTimer,
+    reconstructed_claim,
+    score_vector,
+    sole_surviving_claimant,
+)
 from .diagnostics import (
     ADVISORY_CODES,
     CLASS_OF,
@@ -44,8 +51,12 @@ from .emit import (
 )
 from .record import (
     DEFERRED_REASONS,
+    DISPATCH_SOURCES,
     OUTCOME_CLASSES,
     SCORE_CAP,
+    SOURCE_CACHED,
+    SOURCE_LIVE,
+    SOURCE_UNAVAILABLE,
     TELEMETRY_VERSION,
     TOP_LEVEL_KEYS,
     build_record,
@@ -63,14 +74,19 @@ __all__ = [
     "CLASS_OF",
     "CLASS_PRECEDENCE",
     "DEFERRED_REASONS",
+    "DETERMINISTIC_MODEL_SUFFIX",
     "DIAGNOSABLE_CLASSES",
     "DIAGNOSTICS_VERSION",
     "DISABLE_ENV",
+    "DISPATCH_SOURCES",
     "DispatchCollector",
     "JsonlSink",
     "NullSink",
     "OUTCOME_CLASSES",
     "SCORE_CAP",
+    "SOURCE_CACHED",
+    "SOURCE_LIVE",
+    "SOURCE_UNAVAILABLE",
     "SqliteSink",
     "StageTimer",
     "TELEMETRY_VERSION",
@@ -87,7 +103,9 @@ __all__ = [
     "open_jsonl_sink",
     "open_sqlite_sink",
     "read_jsonl",
+    "reconstructed_claim",
     "score_vector",
+    "sole_surviving_claimant",
     "source_path_for",
     "source_section",
     "telemetry_disabled",

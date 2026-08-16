@@ -39,6 +39,80 @@ def load_records(*, jsonl: str | None = None, sqlite: str | None = None,
     return records
 
 
+#: Outcome classes that prove an analysis PAYLOAD existed for a document.
+#: `classify_outcome` reaches each of them only from a payload, and reaches
+#: `failed` only without one, so this is a derivation from the record rather
+#: than a convention: it holds on every record ever emitted, including those
+#: written before `dispatch.source` could say `cached` (#TELCOV).
+ANALYSED_CLASSES = frozenset({"validated", "review", "withheld"})
+
+
+def coverage(records: list[dict]) -> dict:
+    """The deterministic-coverage numerator, denominator, and what is missing.
+
+    THE DEFECT THIS REPLACES (W3 §DISCOBS DO7#1). The rate was `claimed /
+    total`, where `claimed` counts `dispatch.outcome == "claimed"` — null on a
+    D-3 analysis cache hit — while `total` counted every record including the
+    deferred. Both halves were wrong and they were wrong in the same direction
+    on exactly the runs that matter. Measured on two retained archive runs of
+    the same 3,506 documents:
+
+    | run                       | printed | discovery's own rollup |
+    |---------------------------|---------|------------------------|
+    | `2e3ea385` (analysis cold) |  70.4% | 74.1%                  |
+    | `b7b40c73` (analysis warm) |   0.0% | 73.7%                  |
+
+    The warm figure is the finding: the analysis cache stores SUCCESSES only —
+    a refusal raises and nothing is cached — so the records that lose their
+    verdict are exactly the claimed ones, and the rate tends to zero as the
+    cache warms. `H3_SCHEMA §5.4`'s claim that it "stays computable on re-runs"
+    was false, and it was false for both rollups; discovery's was repaired in
+    batch 5 and this is telemetry's half.
+
+    THE THREE NUMBERS, and why each is what it is:
+
+    * `denominator` — non-deferred records that carry a dispatch verdict. The
+      same set `discovery.report.summarize` calls `dispatched`, so the two
+      instruments compute one number over one run. Deferred documents are
+      excluded by class: that is what H3_SCHEMA §6 has always said the class is
+      for ("a statement about the RUN, not about the document"), and including
+      them made the rate a function of which tranche you ran.
+    * `numerator` — verdicts of `claimed`, observed or reconstructed. Since
+      #TELCOV a cache-served record carries the reconstruction (see
+      `record.dispatch_section`), so a warm run's numerator is a measurement
+      again rather than a cache-temperature artefact.
+    * `unattributed` — records that HAVE a payload (so the analysis stage ran
+      and an outcome was published) and carry no verdict. Every one of them is
+      a document the rate cannot see: pre-#TELCOV records, where that is the
+      whole cache-served set, and post-#TELCOV records only where the
+      reconstruction fail-closed (a structurer payload, or the REGFP window).
+
+    AND THE RATE REFUSES RATHER THAN DEGRADES. With `unattributed` non-zero
+    there is no honest single number: excluding those documents from the
+    denominator prints a rate over an unstated subset (on `b7b40c73` that is
+    0/915 = 0.0%, the same fiction in a better disguise), and counting them as
+    unclaimed asserts something no evidence supports. So the rate is `None` and
+    the report says which documents it could not see and what to do about it —
+    the same rule `diagnostics_rollup` already applies one section down, for
+    the same reason.
+    """
+    processed = [r for r in records if r["outcome"]["class"] != "deferred"]
+    dispatched = [r for r in processed if r["dispatch"]["outcome"]]
+    unattributed = [
+        r for r in processed
+        if not r["dispatch"]["outcome"] and r["outcome"]["class"] in ANALYSED_CLASSES
+    ]
+    numerator = sum(1 for r in dispatched if r["dispatch"]["outcome"] == "claimed")
+    computable = bool(dispatched) and not unattributed
+    return {
+        "numerator": numerator,
+        "denominator": len(dispatched),
+        "deferred": len(records) - len(processed),
+        "unattributed": len(unattributed),
+        "rate": (numerator / len(dispatched)) if computable else None,
+    }
+
+
 def summarize(records: list[dict]) -> dict:
     """Every number the report prints. Pure, so the tests can assert on it."""
     total = len(records)
@@ -77,10 +151,14 @@ def summarize(records: list[dict]) -> dict:
             cost_total += cost["amount"]
             cost_known = True
 
-    claimed = dispatch.get("claimed", 0)
+    rates = coverage(records)
     return {
         "total": total,
-        "deterministic_coverage": (claimed / total) if total else 0.0,
+        # `None` when the run holds analysed documents whose verdict is
+        # missing: an absent measurement, never 0.0 (H3_SCHEMA I5). See
+        # `coverage` for the two runs that made the difference visible.
+        "deterministic_coverage": rates["rate"],
+        "coverage": rates,
         "dispatch": dict(dispatch),
         "dispatch_source": dict(dispatch_source),
         "outcome": dict(outcome),
@@ -110,11 +188,45 @@ def render(summary: dict, run_id: str | None = None) -> str:
     total = summary["total"]
     lines = [f"run {run_id or '(all)'} | {total} documents", ""]
 
-    claimed = summary["dispatch"].get("claimed", 0)
-    lines.append(
-        f"deterministic coverage    {claimed:>7} / {total}   "
-        f"{summary['deterministic_coverage']:.1%}"
-    )
+    rates = summary["coverage"]
+    if rates["rate"] is None and rates["unattributed"]:
+        # Named, never printed as a number — and the counts go BELOW the
+        # verdict, not beside it: `0 / 915  NOT COMPUTABLE` reads as a rate to
+        # a hurried eye, which is the failure this whole line is about.
+        lines.append("deterministic coverage    NOT COMPUTABLE")
+        lines.append(
+            f"  {rates['unattributed']} analysed documents carry no dispatch verdict, "
+            "so any rate here would be a share of an"
+        )
+        lines.append(
+            f"  unstated subset (of the {rates['denominator']} that do carry one, "
+            f"{rates['numerator']} claimed)."
+        )
+        lines.append(
+            "  This is the H3_SCHEMA 5.4 cache-hit hole. A run emitted before "
+            "the #TELCOV fix has it on every"
+        )
+        lines.append(
+            "  cache-served document; a run emitted after it has it only where "
+            "the reconstruction refused."
+        )
+        lines.append(
+            "    re-run with --no-cache             every verdict is then observed"
+        )
+    elif rates["rate"] is None:
+        lines.append(
+            "deterministic coverage    NOT COMPUTABLE (no document dispatched)"
+        )
+    else:
+        lines.append(
+            f"deterministic coverage    {rates['numerator']:>7} / "
+            f"{rates['denominator']}   {rates['rate']:.1%}"
+        )
+    if rates["deferred"]:
+        lines.append(
+            f"  {rates['deferred']} deferred documents are outside the denominator "
+            "by class (H3_SCHEMA 6)"
+        )
     for key in ("ambiguous", "unclaimed", "no_dispatch"):
         if key in summary["dispatch"]:
             lines.append(_line(key, summary["dispatch"][key], total))
@@ -173,11 +285,17 @@ class UnattributedParsers(RuntimeError):
     """A failure-class x parser rollup was asked for over a run with no parsers.
 
     Raised rather than degraded (W3-2b, Ocean ruling 2), for the same reason
-    `discovery.adjudication` raises: on a D-3 analysis cache hit
-    `analyze_markdown` never ran, so the record carries the diagnosis and no
-    `parser_id` (H3_SCHEMA 5.4). The rollup then prints a complete-LOOKING
-    table in which every parser column reads `(none)`, and nothing in the
-    output says the question was not answered.
+    `discovery.adjudication` raises: a record with a diagnosis and no
+    `parser_id` produces a complete-LOOKING table in which every parser column
+    reads `(none)`, and nothing in the output says the question was not
+    answered.
+
+    Narrowed by #TELCOV, not removed. A cache-served record now carries a
+    reconstructed `parser_id` (`record.dispatch_section`), so on a run emitted
+    since then this fires only where the reconstruction fail-closed — a
+    structurer payload, or the REGFP window — which is a finding worth
+    stopping on. On a run emitted before it, it still fires on the whole
+    cache-served set, which is what it was built for.
     """
 
 
@@ -194,9 +312,10 @@ def diagnostics_rollup(records: list[dict], *, allow_unattributed: bool = False)
         raise UnattributedParsers(
             f"{len(unattributed)} of {len(diagnosed)} diagnosed documents carry "
             "no parser_id, so a failure-class x parser rollup cannot be built.\n"
-            "This is the H3_SCHEMA 5.4 cache-hit hole: a run served from the "
-            "analysis cache never re-dispatched, so it has the diagnoses and "
-            "not the claims.\n"
+            "This is the H3_SCHEMA 5.4 cache-hit hole. A run emitted before the "
+            "#TELCOV fix has it on every cache-served document; a run emitted "
+            "after it has it only where the identity reconstruction refused to "
+            "name one parser.\n"
             "  re-run discovery with --no-cache   the run then carries its own "
             "parser attribution\n"
             "  --allow-unattributed               build the rollup anyway; the "
