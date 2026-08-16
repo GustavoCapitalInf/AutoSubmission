@@ -27202,3 +27202,706 @@ other batch-5 cells at once, which is the only reason the two runtimes are
 | `42e4055` | this section, FI0–FI5 |
 | `c536dbf` | the corpus gate proof |
 | (this one) | the corpus-marked slice proof, the no-movement statement, and this table |
+
+---
+
+# §SIGNREADER — the structurer inverted both attested sign glyphs, generically
+
+Batch 6, card 3. Branch `wave6-signreader`, base `eef77c6` (v13, OCR v3,
+registry 72, suite 4,511, corpus-marked 27). The cell closes the top three
+entries of the private-opinions ledger W3 §MGD carried (MGD10 findings 1, 2
+and 3) and one sibling of finding 3 that the ledger did not name.
+
+## SR0. Summary
+
+`analysis/structurer/tokens.py` read a U+2212 or U+2013 amount as POSITIVE
+where the shared grammar read it as negative, and it is the GENERIC
+unclaimed-layout reader — so that was the sign rule for every document no
+registration claims. Two halves had to move together:
+
+| | base | now |
+|---|---|---|
+| `MONEY_RE` sign | ASCII and parentheses only — the glyph fell OUTSIDE the token and the bare digits matched | `money.MINUS_CLASS`, in all three positions (leading, trailing, lookbehind) |
+| `money_value` | `startswith("-")`, then `-abs(value) if negative else abs(value)` — `parse_money`'s recovered sign discarded by the `abs()` | `normalize_sign_glyphs` first, so both tests read the whole class |
+
+Four cards. Card 1 is the reader; card 2 repoints the fourth date-range class
+onto `date_tokens.PERIOD_DASH` (finding 2); card 3 gives `regions._money` the
+shared helper (finding 3); card 4 is SEPARABLE and beyond the carded scope —
+the sibling half-opinion at `regions._money_after`, which is the Regions branch
+that actually runs.
+
+**Archive movement ZERO on the 3,380, as the brief predicted, and the rung
+stays opt-in OFF.** The one archive document in the structurer's reach is named
+in SR7 and does not move. Suite 4,511 -> 4,557 (+46, collected file by file:
+`test_structurer.py` + `test_analysis.py` go 184 -> 230).
+
+## SR1. The instrument, checked before any production edit
+
+Every figure below comes from replaying the archive markdown through the real
+pipeline (`analyze_markdown(parse_mode="deterministic")` ->
+`analysis.serialization.report_to_dict` -> `telemetry.record.classify_outcome`),
+with the OCR text resolved from the D-3 artifact store **by direct file path** —
+the `webapp_data` sqlite index was never opened, and neither the archive nor
+either cache was ever written to. The `content_sha256 -> markdown` index is
+built by reading all **10,246** OCR artifacts and taking the payload envelope's
+own `input_sha256` as the document identity; **3,396** distinct documents have
+offline text, which reproduces §MGD1 exactly.
+
+Checked against the run of record
+`discovery_reports/2026-08-16T000943.012887-0000-2e3ea385` before anything
+changed:
+
+```
+documents in the run       : 3380
+replayed with offline text : 3367
+no offline text            : 13        (exactly the run's `deferred` set)
+outcome_class  agree/dis   : 3357 / 10 (and the 10 are accounted for below)
+parser_id      agree/dis   : 2508 / 0  (859 unrecorded — the analysis-cache hits)
+totals reproduced          : validated 2420 · review 25 · withheld 63 · failed 859
+run of record              : validated 2430 · review 15 · withheld 63 · failed 859
+```
+
+**The 10 are not instrument error; they are §WIRING W2's finding, generalized.**
+Every one of them carries exactly one integrity flag in the replay —
+`missing_declared_statement_page` — because an offline caller has no intake
+page list and passes `sheets=None`, so the check fail-closes and the flag
+stands. Supply each document's page list from its own artifact and **10 of 10
+reproduce the run exactly**, which makes the instrument 3,367 / 3,367 and the
+disagreement a property of the harness rather than of the tree. (The pinned
+`Regions/Regions.pdf`, `98D069AF…`, is one of the ten, which is §WIRING W2
+itself.) The sweep below runs `sheets=None` on BOTH sides, so the comparison is
+like for like.
+
+**An instrument correction worth carrying, because the next cell will meet it.**
+The D-3 store holds **three OCR vintages per document** — settings keys
+`1E6B5BE5` / `974CF978` / `77A2ED8F`, covering 3,364 / 3,380 / 3,393 documents,
+plus a 109-entry key whose payloads are null — and "take the first artifact the
+directory walk reaches" is an accident, not a choice. The run's own
+`source_model` column is the oracle: pick the artifact whose model matches what
+the run recorded. That changed the text of **40** documents, and it is what
+took `parser_id` from 2,507/1 to **2,508/0** and the outcome disagreements from
+12 to the 10 explained above — one woodforest statement had been replayed
+through a pre-`woodforest-columns` vintage and could not be claimed at all.
+16 documents keep a mismatch by construction: the run recorded no model for
+them at all (`cache_ocr=bypass`, all 16 `failed`), so there is nothing to match.
+
+BEFORE and AFTER are two trees, not two hand-copied functions: the base side of
+every differential below is a `git archive` export of `8570bce` (the branch
+point), imported by path, so what it reports is what `main` does today.
+
+## SR2. The differential, reader by reader
+
+**Reader 1 — `structurer/tokens.py::money_value`.** Every token shape, before,
+after, and what the shared grammar says. `parse_money` is the third column
+because the finding is precisely that this reader disagreed with it.
+
+```
+token                        shape                      before      after  parse_money  verdict
+1,234.56                     bare                     +1234.56   +1234.56    +1234.56   same  ==parse_money
+$1,234.56                    currency                 +1234.56   +1234.56    +1234.56   same  ==parse_money
+-1,234.56                    ASCII leading            -1234.56   -1234.56    -1234.56   same  ==parse_money
+1,234.56-                    ASCII trailing           -1234.56   -1234.56    -1234.56   same  ==parse_money
+-$1,234.56                   ASCII + currency         -1234.56   -1234.56    -1234.56   same  ==parse_money
+- 1,234.56                   ASCII spaced             -1234.56   -1234.56    +1234.56   same  !=parse_money
+(1,234.56)                   parenthesised            -1234.56   -1234.56    +1234.56   same  !=parse_money
+(-1,234.56)                  paren + ASCII            -1234.56   -1234.56    -1234.56   same  ==parse_money
+-€1,234.56                   ASCII + euro             -1234.56   -1234.56    +1234.56   same  !=parse_money
+—1,234.56    (U+2014)        em dash leading          +1234.56   +1234.56    +1234.56   same  ==parse_money
+1,234.56—    (U+2014)        em dash trailing         +1234.56   +1234.56    +1234.56   same  ==parse_money
+100.00D                      welded marker (outside)   +100.00    +100.00     -100.00   same  !=parse_money
+$-500.00                     sign after currency (o.)  +500.00    +500.00     -500.00   same  !=parse_money
+−1,234.56    (U+2212)        leading                  +1234.56   -1234.56    -1234.56  MOVED  ==parse_money
+1,234.56−    (U+2212)        trailing                 +1234.56   -1234.56    -1234.56  MOVED  ==parse_money
+−$1,234.56   (U+2212)        + currency               +1234.56   -1234.56    -1234.56  MOVED  ==parse_money
+− 1,234.56   (U+2212)        spaced                   +1234.56   -1234.56    +1234.56  MOVED  !=parse_money
+(−1,234.56)  (U+2212)        parenthesised            -1234.56   -1234.56    -1234.56   same  ==parse_money
+−€1,234.56   (U+2212)        + euro                   +1234.56   -1234.56    +1234.56  MOVED  !=parse_money
+–1,234.56    (U+2013)        leading                  +1234.56   -1234.56    -1234.56  MOVED  ==parse_money
+1,234.56–    (U+2013)        trailing                 +1234.56   -1234.56    -1234.56  MOVED  ==parse_money
+–$1,234.56   (U+2013)        + currency               +1234.56   -1234.56    -1234.56  MOVED  ==parse_money
+```
+
+Read the verdict column in two halves. **Nothing ASCII, parenthesised or em
+dashed moves** — that is the byte-identity requirement, met on every row. **Every
+U+2212 and U+2013 row moves, and lands on `parse_money`'s answer** wherever
+`parse_money` reads the shape at all.
+
+The three `!=parse_money` rows in the after column are not disagreements about
+the sign; they are shapes the shared parser does not read, and each behaves
+identically for ASCII and for every glyph:
+
+* **parentheses** — the accounting negative. `parse_money` is paren-blind and
+  returns `+1234.56` for `(1,234.56)`; the accounting rule is this reader's, it
+  predates the cell, and it is unchanged.
+* **a spaced sign** (`- 1,234.56`) — `MONEY_RE` carries an optional space
+  between sign and digits; `parse_money`'s `_TOKEN_RE` requires them welded.
+* **a sign before a currency mark** (`-€1,234.56`) — `parse_money` strips `$`
+  and not `€`/`£`, so its lookbehind stops at the euro and it never sees the
+  sign. This one is why the fix normalizes and keeps the existing structure
+  rather than handing the whole token to `parse_money`: delegating outright
+  would have read `-€1,234.56` as POSITIVE and regressed an ASCII row.
+
+The symmetry is the property that actually matters, and it is asserted
+separately, 12/12: for every one of the six ASCII shapes, `after(glyph form)`
+equals `base(ASCII form)` for both glyphs of the canon.
+
+**Reader 1b — the tokenizer, as a row meets it.** `money_value` alone was not
+the whole defect: `MONEY_RE` never handed it a signed token in the first place.
+
+```
+line                                       before                       after
+03/05 VENDOR CO −1,234.56 END      [('1,234.56', +1234.56)]  [('−1,234.56', -1234.56)]   MOVED
+03/05 VENDOR CO 1,234.56− END      [('1,234.56', +1234.56)]  [('1,234.56−', -1234.56)]   MOVED
+03/05 VENDOR CO −$1,234.56 END     [('$1,234.56', +1234.56)] [('−$1,234.56', -1234.56)]  MOVED
+03/05 VENDOR CO − 1,234.56 END     [('1,234.56', +1234.56)]  [('− 1,234.56', -1234.56)]  MOVED
+03/05 VENDOR CO (−1,234.56) END    [('1,234.56)', -1234.56)] [('(−1,234.56)', -1234.56)] MOVED (extent)
+03/05 VENDOR CO –1,234.56 END      [('1,234.56', +1234.56)]  [('–1,234.56', -1234.56)]   MOVED
+03/05 VENDOR CO —1,234.56 END      [('1,234.56', +1234.56)]  [('1,234.56', +1234.56)]    same
+03/05 VENDOR CO -1,234.56 END      [('-1,234.56', -1234.56)] [('-1,234.56', -1234.56)]   same
+```
+
+The EXTENT is load-bearing downstream and not cosmetic: `rows._money_columns`
+clusters money bands by `token.start`, and `_collect` scrubs `token.text` out of
+the row description — so before the fix the sign glyph stayed in the
+description and the column band was measured from the first digit.
+
+**Compiled patterns, diffed against the base tree rather than described:**
+
+```
+before  (?<![\d./-])(?P<token>\(?-?[$€£]?\s?\d{1,3}(?:,\d{3})*\.\d{2}\)?-?)(?![\d/])
+after   (?<![-−–\d./])(?P<token>\(?[-−–]?[$€£]?\s?\d{1,3}(?:,\d{3})*\.\d{2}\)?[-−–]?)(?![\d/])
+flags   32 both sides
+```
+
+The difference is exactly two members, in three places. ASCII leads each class
+because a hyphen there is a literal rather than the start of a range.
+
+**Why the three positions move together.** `1,000.00-500.00` is a hyphenated
+pair and ASCII yields exactly ONE token from it: the trailing-minus branch is
+refused by the digit lookahead, and the right-hand amount is refused by the
+lookbehind. Widening the token class without the lookbehind would have
+manufactured a second token — a phantom `500.00` — from the glyph forms only.
+Pinned as `test_a_sign_glyph_between_two_amounts_reads_as_ascii_does`, and
+mutation M5 is exactly that mistake.
+
+## SR3. Containment, measured over the whole archive
+
+The change can only reach text containing U+2212 or U+2013:
+`normalize_sign_glyphs` is the identity on everything else, and the pattern
+differs from the base one by those two members alone. Measured rather than
+argued, over all 3,367 documents with offline text:
+
+```
+U+2014 anywhere        259 documents      (the em dash population, untouched)
+U+2013 anywhere        184 documents
+U+2212 anywhere         19 documents
+carriers (either)      203 documents
+
+non-carriers with byte-identical token streams : 3164 / 3164
+carriers whose token stream moves              :   47
+  tokens that change                           : 4263
+    leading welded U+2013                       2827
+    leading welded U+2212                       1436
+    every other shape (trailing, spaced,
+    parenthesised, extent-only)                    0
+```
+
+**No reading is lost and none is invented**, which is the other half of the
+question a widened pattern has to answer — the lookbehind narrows the reader as
+well as widening it (`1,000.00−500.00` yields one token now where it yielded
+one before, but a different one could in principle vanish):
+
+```
+BEFORE tokens with no overlapping AFTER token (a lost reading) : 0
+AFTER  tokens with no overlapping BEFORE token (net gain)      : 0
+BEFORE tokens whose overlapping AFTER token changed value      : 4263
+```
+
+**Every moved token is a leading WELDED sign glyph, and no other shape occurs
+anywhere in the archive.** That is the measurement that answers the risk §MGD
+raised about the em dash, asked of the two glyphs this cell admits: a spaced
+dash before an amount is the placeholder/punctuation shape, and the archive
+prints **zero** of them for U+2212 and U+2013 (it prints 4,263 welded ones).
+The tokenizer would read a spaced one as a sign — ASCII already does, through
+`MONEY_RE`'s optional space, and the glyphs match ASCII by construction — so
+the shape is admitted symmetrically and attested at zero rather than admitted
+blindly.
+
+**Are they really signs? An independent reader already says so.** The 47
+documents whose token stream moves, by LIVE dispatch through the pipeline (the
+detect sweep's own answer — `resolve()` on the raw markdown is NOT that answer,
+because the pipeline applies `admissible_text` first and the source-filename
+comment suppresses detection; measured, on a document the run recorded as
+`mercury`, `resolve` says None and the pipeline says `mercury`):
+
+```
+mercury          validated  27
+wealthsimple     validated  16
+chase_export     review      3
+(unclaimed)      failed      1     -- SR7
+```
+
+Mercury and Wealthsimple are two of the four families §MGD measured as printing
+a sign glyph — mercury 1,202 U+2212 and 687 U+2013, wealthsimple 2,140 U+2013 —
+and their own registrations read those glyphs as signs today, on documents that
+VALIDATE, which means the balance walk closes on that reading. So the tokens
+the structurer now reads as negative are tokens two independent readers and the
+document's own arithmetic already agree are negative. The generic reader was
+the only one disagreeing.
+
+## SR4. Card 2 (finding 2) — the fourth date-range class, repointed
+
+`summary.py:127` spelled `(?:-|–|—|to|through|thru|au|until)`: a fourth
+dash-range class, differing from `date_tokens.PERIOD_DASH` by exactly U+2212,
+and invisible to §MGD card 4's guard by design (its sentinel is the one glyph
+this copy lacked).
+
+**Reader 2 — the differential**, on the line
+`Statement period March 1, 2026 <X> March 31, 2026`:
+
+```
+separator     shape               before   after
+-             ASCII hyphen          True    True
+−  (U+2212)   MINUS SIGN           False    True    MOVED
+–  (U+2013)   EN DASH               True    True
+—  (U+2014)   EM DASH               True    True
+to            word                  True    True
+through       word                  True    True
+thru          word                  True    True
+au            word                  True    True
+until         word                  True    True
+|             not a separator      False   False
+and           not a separator      False   False
+```
+
+One row moves — the glyph the private copy had drifted away from — and every
+word alternative survives, which is the half a naive repointing would have
+dropped.
+
+**Repointed, with the word alternation kept local**, which is what the ledger
+left open. The dash half is now the shared constant and the words are not:
+`PERIOD_DASH` is dash-only, and a range class that admitted `to` would be wrong
+for every consumer that embeds it between two amounts. The result is a genuine
+local superset spelled as one — canon plus words — rather than a private copy.
+
+Direction and measurement, both stated because a range class is where §MGD
+refused a repointing once already (MGD10 finding 5, `balance_by_date`):
+
+* widening a RANGE class is the safe direction — a glyph admitted there can
+  only make a period line MATCH, never flip a value, and the period is required
+  so an unrecognised dash costs the whole document;
+* the reason §MGD refused the `balance_by_date` repointing was that a WIDER
+  class could claim documents that family does not claim today. Measured here:
+  over the 3,367 documents, the number whose `_RANGE_RE` matches change is
+  **ZERO**. No archive document prints a date range separated by U+2212. The
+  repointing is inert on today's corpus and correct on tomorrow's, and the rung
+  is off in any case.
+
+## SR5. Card 3 (finding 3) — regions, and the sibling that actually runs
+
+`regions._money:40` opened with `value.strip().replace("–", "-")` — half of
+`normalize_sign_glyphs`. A cell whose minus the generator set as a true MINUS
+SIGN lost it twice: the `neg` test never saw the glyph, and the non-ASCII scrub
+two lines down (`re.sub(r"[^0-9,.-]", "", text)`) deleted it before
+`parse_money` could read it. The reader consumes the shared helper now, which
+is byte-identical on every string without U+2212 (the helper adds the identity
+`-` -> `-` and the U+2212 mapping to what the line already did).
+
+**Reader 3 — the differential.** The third column is the shared canon applied
+by hand (`parse_money(normalize_sign_glyphs(cell))`), which is what this reader
+should always have agreed with:
+
+```
+cell            shape             before     after   canon
+250.00          bare             +250.00   +250.00   +250.00   same  ==canon
+$250.00         currency         +250.00   +250.00   +250.00   same  ==canon
+-250.00         ASCII leading    -250.00   -250.00   -250.00   same  ==canon
+250.00-         ASCII trailing   -250.00   -250.00   -250.00   same  ==canon
+–250.00 (2013)  EN DASH leading  -250.00   -250.00   -250.00   same  ==canon
+250.00– (2013)  EN DASH trailing -250.00   -250.00   -250.00   same  ==canon
+—250.00 (2014)  EM DASH leading  +250.00   +250.00   +250.00   same  ==canon
+N/A             not money           None      None      None   same  ==canon
+--              not money           None      None      None   same  ==canon
+(empty)         empty               None      None      None   same  ==canon
+−250.00 (2212)  MINUS leading    +250.00   -250.00   -250.00  MOVED  ==canon
+250.00− (2212)  MINUS trailing   +250.00   -250.00   -250.00  MOVED  ==canon
+```
+
+Exactly the two U+2212 rows move, which is the ledger's description of the
+defect confirmed rather than assumed: the private line already handled U+2013,
+so only the missing member changes. A refusal is still a refusal (`None`, never
+`0.0`) — the probe contract this reader documents is untouched.
+
+**Reader 3b — `_money_after`, the native path** (`Ending Balance $595.51 <X>`):
+
+```
+trailing mark   shape                before     after
+(none)          no sign             +595.51   +595.51   same
+-               ASCII               -595.51   -595.51   same
+−  (U+2212)     MINUS SIGN          +595.51   -595.51   MOVED
+–  (U+2013)     EN DASH             +595.51   -595.51   MOVED
+—  (U+2014)     EM DASH, not a sign +595.51   +595.51   same
+```
+
+**Where the defect could actually reach a published value, traced call site by
+call site.** `_money` has six callers and five of them take `abs()` and apply a
+section direction (`round(abs(amount) * sign, 2)`) or store a magnitude. The
+ONLY consumer that keeps this reader's sign is `regions.py:234`,
+`stmt.ending_balance = amount`, in the `<table>` summary branch. So the whole
+reach of finding 3 was: an overdrawn Regions closing balance published positive.
+
+**And that branch cannot publish at all today.** Measured on a synthetic
+table-bearing Regions document: `parse_regions_statement` reads its summary
+from the `<table>`, then builds its transactions with
+`_parse_section(text, ...)` where `text` is `_plain_text(markdown)` — TAGS
+STRIPPED — so `tables_after` finds nothing, `txns` is empty, and the function
+returns None before the ending balance is ever published. Carried to Ocean in
+SR10; not fixed here.
+
+**The family, by live detection replay** (`regions.detect` over every document,
+never `rows.csv`'s `parser_id`):
+
+```
+live-detected regions documents        24
+  carrying U+2212 anywhere              0
+  carrying U+2013 anywhere              0
+  carrying U+2014 anywhere              0
+  carrying the ASCII hyphen            24
+_money probed on family text cells   2645, of which move: 0
+
+archive documents containing `<table` : 0 / 3367
+archive documents containing `<td`    : 0 / 3367
+models in the artifact store          : native-pdf-text 2897 (+283 in five
+                                        layout variants), local-tesseract-ocr
+                                        179 — the `<table>` form comes only
+                                        from the vision rung, which no offline
+                                        harness runs
+```
+
+§WIRING's "Regions is offline-inexecutable" is about the sheets ceremony — the
+committed artifact is a markdown string whose page list was discarded — and not
+about parsing: the pinned `Regions/Regions.pdf` (`98D069AF…`, validated
+post-ceremony) IS in this sweep and IS live-detected here. What cannot be
+exercised offline is the `<table>` branch, because no offline artifact contains
+a table. So the proof is the differential against the shared helper plus the
+unit pin, exactly as the card asked, and the archive evidence is a containment
+measurement rather than a replay of the branch.
+
+**Card 4, SEPARABLE and beyond the carded scope.** `_money_after:262` — the
+NATIVE path's summary reader, and the only Regions path whose sign reaches a
+published field — carried the same absence in its trailing-sign group: `(-)`,
+ASCII only. Fixing `_money` and leaving this would have left the module reading
+the canon on the branch that cannot publish and half of it on the branch that
+does. It is `money.MINUS_CLASS` now, in its own commit so Ocean can drop it
+alone. Measured before writing it: widening that group changes the match on **0
+of the 24** live-detected Regions documents, because not one carries a
+non-ASCII dash anywhere. A LEADING sign is still unread on that path for every
+glyph including ASCII — the regex captures digits first — which fails closed
+(the field is left unset) and is carried rather than fixed.
+
+## SR6. What the rung would do the day it is turned on
+
+The structurer is opt-in OFF, so the archive sweep can only prove that the fix
+is inert today. The more useful question is what it does when the path is
+enabled, and that is measurable now: `structure_document` is the diagnostic
+entry point and does not consult the env var.
+
+Over all **203** sign-glyph carriers, before tree vs after tree, twice — once
+comparing the rung's VERDICT and once comparing its whole READING, because a
+verdict comparison is blind to a document whose rows changed while its refusal
+did not:
+
+```
+structure_document outcome (reason, rows, chained, agreement, sign_sources,
+                            published payload digest)   documents that move: 0
+full reading (every row's date / amount / running_balance / sign_source,
+              every summary value, the period)          documents that move: 0
+documents publishable                                   0 before, 0 after
+
+refusal reasons (identical on both sides)
+  no_dated_rows          81      ungrounded             27
+  no_printed_period      76      ledger_incomplete      11
+  period_excludes_rows    5      no_signable_rows        3
+  (119 of the 203 do build rows; 29 of those chain)
+```
+
+**Zero, and the reason is worth more than the number.** The structurer has no
+"printed sign" sign source at all: a row's direction comes from the balance
+chain, from the column geometry, or from a section heading, and the amount
+token enters those as `.magnitude`. The token's SIGNED value is read in exactly
+two places — a chained row's `running_balance`, and the summary values, of
+which only `beginning_balance` and `ending_balance` keep a direction. Measured
+against that: of the 4,263 moved tokens, 2,691 sit in the amount column (where
+only the magnitude is used) and 1,572 sit last on their line, but none of the
+last ones lands on a chained row of a document that reads a balance there — so
+no row value, no summary value, no period and no refusal changes anywhere.
+
+Stated plainly rather than favourably: **the fix changes no document outcome
+today even with the rung ON.** Its value is entirely prospective, and the shape
+of the future defect is exact rather than vague — it bites when a document
+prints an OVERDRAWN running balance or a signed summary figure with a glyph the
+reader did not admit. That is the case the synthetic pin below covers, and it
+is the case no archive document in the structurer's reach happens to print.
+The rung is opt-in off, which is why this is the cheapest possible moment to
+correct it: the correction can be proven to cost nothing.
+
+The document-level shape of the defect is pinned synthetically instead, as
+`test_an_overdrawn_ledger_printed_with_true_minus_signs_is_read_whole`: an
+overdrawn ledger printing three U+2212 and one U+2013 balance, and otherwise
+ordinary. Both sides measured rather than reasoned about, by running the same
+document through both trees:
+
+```
+                    reason             rows  chained  agreement  ending_balance
+base tree      no_signable_rows           0    False     0.8333      +331.00
+after tree     structured                 6     True     1.0         -331.00
+```
+
+The base reading is the whole defect in one line: the balance chain stops
+explaining the rows (0.8333 is under the 0.9 threshold), nothing can be signed,
+and the rung refuses a statement whose arithmetic is perfectly sound — while
+the summary block reads the printed `−331.00` closing balance as POSITIVE
+331.00 in the same breath. Under the fix: six rows, every one signed
+`balance_chain`, and the closing balance the bank printed.
+
+## SR7. The one archive document in the structurer's reach
+
+Of the 47 documents whose token stream moves, 43 are validated and 3 are in
+review — all claimed by a registration, and the structurer is a fallback on the
+UNCLAIMED branch, so it never sees them. Exactly one is unclaimed:
+
+```
+content_sha256 81C743048B48E1592902AD34BC0447271F9E446BCC51D2C35DACD96D84B06E0A
+folder label   CIBC          4 pages, digital
+run of record  failed / no_parser_matched   (dispatch: unclaimed; error RuntimeError)
+tokens moved   1
+structurer     period_excludes_rows  -- before AND after
+```
+
+It already fails for another reason, it is not publishable either way, and its
+structurer refusal is byte-identical across the change. Named because the brief
+asked for it to be named, and unmoved in the sweep below.
+
+## SR8. Mutation kill
+
+Each mutation is applied to the tree, the targeted test files are run, the
+failing test ids are recorded, and the file is restored from git before the
+next. A mutation that survived would be a hole in the tests and would be
+reported as one.
+
+| mutation | verdict | test ids that died |
+|---|---|---|
+| M1 `money_value`: drop the shared normalization | KILLED | 17 |
+| M2 `money_value`: flip the abs | KILLED | 29 |
+| M3 `money_value`: discard the sign entirely | KILLED | 16 |
+| M4 `MONEY_RE`: narrow the token class back to ASCII | KILLED | 9 |
+| M5 `MONEY_RE`: narrow the lookbehind back to ASCII | KILLED | 2 |
+| M6 `_RANGE_RE`: re-spell the fourth private range class | KILLED | 1 |
+| M7 `regions._money`: back to half the helper | KILLED | 1 |
+| M8 `regions._money_after`: narrow the trailing sign to ASCII | KILLED | 2 |
+
+Survivors: **0**. The two narrow ones are the interesting ones. M5 dies only on
+`test_a_sign_glyph_between_two_amounts_reads_as_ascii_does[−]` and `[–]` — the
+lookbehind has exactly one observable consequence and exactly one test covers
+it. M6 dies only on the U+2212 case of the period parametrization, which is the
+precise membership the repointing adds.
+
+## SR9. The archive-wide sweep
+
+```
+before: 3380 documents   after: 3380 documents
+no offline text (the run's deferred set) : 13
+replayed                                 : 3367
+
+byte-identical payloads : 3367 / 3367
+movers                  : 0
+
+outcome distribution before: validated 2420 · review 25 · withheld 63 · failed 859
+outcome distribution after : validated 2420 · review 25 · withheld 63 · failed 859
+```
+
+**Zero movers, as the brief required.** No document is named because none
+moved: no payload digest, no outcome class, no outcome reason, no error type
+and no parser id changed anywhere in the archive — including
+`81C743048B48…`, the one document in the structurer's reach (SR7), which
+stays `failed / no_parser_matched`.
+
+The measurement has a containment argument behind it and the two agree. With
+`GENERIC_STRUCTURER_ENABLED` unset — the production default, asserted at the
+top of the sweep — `analysis/structurer/` is unreachable from
+`analyze_markdown`: the single call site (`pipeline.py:589`) is guarded twice,
+by `dispatch.outcome == "unclaimed"` and by `structurer_enabled()`, and
+`structure_unclaimed` returns None before touching a token. So the only hunk
+the sweep can exercise is the one in `regions.py`, and SR5 measures that
+family at zero carriers. The sweep is the proof; this is why it came out the
+way it did.
+
+A third fact falls out of the sharded lanes and is worth recording: 124
+documents were replayed twice by different processes, and the merge asserts
+that a document recorded twice was recorded IDENTICALLY. It was, on every one
+— the payload digest is reproducible across processes, not merely within one.
+
+**Operational note, because the next cell will hit it too.** The first attempt
+ran the 3,367-document replay as ONE background command and the harness killed
+it at roughly 2,000 documents, ~55 minutes in — the standing rule's "long
+background shells get killed", observed rather than assumed. Nothing was lost
+because the rewrite that followed is the right shape for this machine and is
+worth copying: the sweep now (a) APPENDS one flushed line per document, so a
+kill costs at most the document in flight; (b) skips shas already recorded, so
+a relaunch resumes; (c) stops itself after a `--seconds` budget well under the
+kill threshold; (d) shards the FULL sorted population (`shas[i::n]`, never
+"what is left"), so several lanes run at once without doing each other's work;
+and (e) gives each lane its OWN file, because concurrent appends to one file
+cannot be relied on to keep whole lines whole. The 10,246-artifact index is
+built once and cached in the private scratchpad (127s -> 1.5s), which is what
+makes short resumable chunks affordable at all.
+
+## SR10. Carried findings for Ocean
+
+1. **`regions.py`'s `<table>` summary branch cannot publish, and has not been
+   able to for as long as it has read its transactions from tag-stripped
+   text.** `parse_regions_statement:252-254` calls
+   `_parse_section(text, …)` with `text = _plain_text(markdown)`; the callee's
+   first act is `tables_after(markdown, heading)`, which needs the tags. Empty
+   `txns` then returns None at :255. Measured on a synthetic table-bearing
+   document, not read off the diff. Invisible offline because no committed OCR
+   artifact contains a `<table>` at all — the form only comes from the vision
+   rung — so every archive Regions document takes the native branch. Not fixed
+   here: it is a coverage change on a claimed family with its own sweep, and it
+   is not a sign defect.
+2. **`regions._money_after` still cannot read a LEADING sign, in any glyph
+   including ASCII.** `label\s+\$?([\d,]+…)` captures digits, so
+   `Ending Balance -$595.51` matches nothing and the field is left unset. That
+   fails closed and is symmetric across glyphs, which is why card 4 did not
+   touch it — widening the capture is a matching change on a live family and
+   wants its own measurement.
+3. **`ocr/column_grid.py:62` is still the opposite half-opinion** — U+2212
+   admitted, U+2013 and U+2014 not — in the geometry layer, outside
+   `analysis/` and so outside the minus-guard's scan. Unchanged from MGD10
+   finding 4; this cell had no reason to open the geometry layer.
+4. **`money_value` still reports a magnitude for a welded debit marker**
+   (`100.00D` -> `+100.00` where `parse_money` says `-100.00`). Unreachable
+   from the tokenizer, which cannot emit a letter inside a token, and
+   `money_tokens` is the only caller in the tree. Named in the docstring and
+   left alone deliberately: closing it would change ASCII behaviour on a shape
+   no caller produces, which is exactly the kind of unattested widening this
+   cell is arguing against everywhere else.
+5. **The minus-guard's blindness is unchanged and now says so.** Both defects
+   its honesty note named are closed, and the note is rewritten to say that the
+   BLINDNESS is not: it detects the presence of a private sign class and can
+   never detect the absence of the shared one. Only a reader-by-reader
+   differential can, and `ocr/column_grid.py` is the next one owed.
+6. **`ANALYSIS_STAGE_VERSION` needs NO bump for this cell.** Zero archive
+   documents change output, before or after, with the rung off (production) or
+   on (SR6). Ocean's call at merge, as always, but nothing here forces it.
+
+## SR10a. Risks accepted, stated as risks
+
+1. **The reader now admits a SPACED sign glyph** (`− 1,234.56`), because
+   `MONEY_RE` has always carried an optional space and the glyphs match ASCII
+   by construction. A future layout that prints an en dash as a leading bullet
+   before an amount would be read as negative. Attested at ZERO in the archive
+   (4,263 welded, 0 spaced), and the alternative — admitting the glyphs only
+   when welded — would put a second opinion about sign shape back into this
+   reader, which is the defect being closed. Where such a mis-read could go:
+   the token's sign reaches only running balances and summary values (row
+   amounts come from the balance chain, the column geometry or a section
+   heading — never from the token's own sign), and an inverted balance breaks
+   the ledger-completeness check, so the rung refuses rather than publishes.
+   That backstop is arithmetic rather than grammatical, which §MGD MGD6 showed
+   has a hole at zero — here the hole is vacuous, because an inverted zero is
+   the same number, and the glyph that MGD6 saw published as description text
+   is now scrubbed with the token it belongs to. The rung is also off.
+2. **Card 4 admits a detached non-ASCII dash after a Regions summary amount.**
+   Same shape of risk, same zero attestation (no Regions document carries a
+   non-ASCII dash at all), and it is the one commit Ocean can drop alone.
+3. **The `PERIOD_DASH` repoint widens the range class by U+2212** and can only
+   make a period line match. Zero archive documents change.
+4. **13 documents have no offline text** — exactly the run's `deferred` set —
+   and are outside every sweep here, as they were for §MGD.
+5. **`money_value` still reports a magnitude for a welded debit marker**, and
+   `_money_after` still cannot read a leading sign. Both named in SR10, both
+   unreachable or fail-closed, both left rather than widened on no evidence.
+
+## SR11. Proofs (branch `wave6-signreader`, base `eef77c6`)
+
+```
+# full default suite (base 4,511 — measured in this environment, not quoted;
+# this cell adds 46, all of them differentials)
+4557 passed, 34 skipped, 31 deselected                          232.92s  EXIT=0
+  (re-run on the final tree after the last prose commit; the earlier run of
+   the same tree-minus-two-docstrings was 4557 in 358.18s, also EXIT=0)
+  base tree, same machine: 4511 passed, 34 skipped, 31 deselected  271.72s  EXIT=0
+
+# corpus-marked slice (MANDATORY — the check the gate is blind to). Unchanged
+# at 27; this cell adds no corpus-marked test.
+27 passed, 4595 deselected                                     2421.55s  EXIT=0
+   test_corpus_gate_is_green
+   test_corpus_gate_outcomes: the verdict check green on the committed
+     expectation, and its six red-turning mutations + the unanalysable
+     document is red not skipped
+   test_dry_run_reproduces_known_truth · test_a_warm_rerun_reproduces_the_cold_run
+   test_the_pinned_statement_recovers_its_printed_descriptions_and_nothing_else
+   test_parser_parity: unclaimed / wrong parser / ambiguous / recorded parser /
+     highest-ranked claimant / three promoted sub-dispatches / expectations
+     cover the pinned manifest / detect sweep prepares each document once /
+     double sweep prepares each document once / entry points strip the filename
+     comment once / detect sweep stays affordable / detection invariant to the
+     filename echo
+   test_telemetry_reproduces_the_gate_outcome_split
+   test_withheld_diagnostics_reproduce_the_documented_diagnosis
+   test_no_corpus_document_is_flagged_through_the_real_ladder
+
+# corpus gate
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 4 review / 102 validated / 3 withheld     (the post-ceremony canonical)
+Runtime:  972.2s
+RESULT: GREEN                                                            EXIT=0
+
+# conformance cross-product (registry 72 -> 72 x 71 = 5,112 pairings) + registry
+# + dispatch + hardcode guards + the clone/sign-class guards + fail-open guard
+tests/test_parser_conformance.py + test_parser_detection_markers.py
+  + test_parser_registry.py + test_parser_registry_entries.py
+  + test_pipeline_registry_dispatch.py + test_no_statement_hardcodes.py
+  + test_r1_hardcodes.py + test_no_parser_helper_clones.py
+  + test_no_fail_open_money_reads.py
+1170 passed, 34 skipped                                          16.34s  EXIT=0
+
+# mutation kill (SR8)
+8 mutations applied and reverted, 8 KILLED, 0 survivors                  EXIT=0
+
+# reader differentials (SR2, SR4, SR5), base tree vs worktree
+money_value       22 shapes · 12/12 glyph-vs-ASCII symmetric · 0 ASCII/paren moves
+tokenizer         6 glyph shapes MOVED (sign now inside the extent) · em dash same
+_RANGE_RE         1 of 11 separators moves (U+2212) · all 9 real separators match
+regions._money    2 of 12 cells move (both U+2212) · 12/12 == the shared canon
+regions._money_after  U+2212 and U+2013 move · U+2014 stays positive
+
+# structurer with the rung ON, over all 203 sign-glyph carriers (SR6)
+verdicts move: 0 · full readings move: 0 · publishable: 0 before, 0 after
+
+# archive-wide byte-identity sweep, 3,367 documents replayed on BOTH trees
+byte-identical payloads : 3367 / 3367   movers 0
+outcome transitions     : none — no class moved anywhere
+
+# instrument soundness, against run of record 2e3ea385, on the BASE tree
+outcome_class 3357 / 3367 agree · parser_id 2508 / 2508 agree · 0 parser
+disagreements; the 10 outcome disagreements all carry
+`missing_declared_statement_page` and all 10 reproduce the run exactly when
+the intake page list is supplied (§WIRING W2)
+```
+
+The gate, the slice and both sweep lanes ran on a machine carrying nine other
+cells; every runtime above is contended and is a reading of wall clock rather
+than of anything else.
+
+## SR12. Commits
+
+| Commit | Contents |
+|---|---|
+| `c9fd3e7` | card 1 — `MONEY_RE` onto `MINUS_CLASS` in all three positions; `money_value` normalizes through the shared helper; the differential, symmetry, extent, lookbehind and em-dash pins |
+| `a0f8c28` | card 2 — the fourth date-range class repointed onto `PERIOD_DASH`, words kept local (finding 2) |
+| `8ef35af` | card 3 — `regions._money` consumes `normalize_sign_glyphs`; the clone guard's honesty note updated (finding 3) |
+| `ebb2330` | card 4 — SEPARABLE: `regions._money_after`'s trailing-sign group onto the canon |
+| `dd88597` | self-review of own prose; behaviourally inert, proven by docstring-stripped AST digest |
+| (this one) | §SIGNREADER SR0–SR12 |
