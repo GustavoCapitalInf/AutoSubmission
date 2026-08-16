@@ -71,7 +71,14 @@ def test_run_job_failure(monkeypatch, store):
 
     fetched = store.get(job.id)
     assert fetched.status == "error"
-    assert fetched.error == "connection error"
+    # #WORKERPRIV: the durable job error is the exception's CLASS NAME and the
+    # named stage that raised, never `str(e)`. The full contract (and the proof
+    # that no statement text can cross) lives in tests/test_worker_privacy.py.
+    assert fetched.error == (
+        "reading stage failed: RuntimeError "
+        "(message withheld; an exception message can quote statement text)"
+    )
+    assert "connection error" not in fetched.error
 
 
 def test_deterministic_run_prefers_native_before_forced_visual_ocr(monkeypatch, store):

@@ -41,6 +41,94 @@ _STAGE_NAMES = {
     "visual_ocr": "reading_visual_ocr",
 }
 
+#: The named stages this module publishes at its exception boundary. Constants
+#: of ours, never anything read out of a document, so a stage name cannot
+#: itself be a leak. `preflight`/`reading`/`analysis` are the three coarse
+#: phases `run_job` runs in; the store's finer `stage` column
+#: (`reading_visual_ocr`, `analyzing`, …) still records which rung was live.
+_PHASE_PREFLIGHT = "preflight"
+_PHASE_READING = "reading"
+_PHASE_ANALYSIS = "analysis"
+
+#: The analysis pipeline's DECLARED refusals (#WORKERPRIV D2).
+#:
+#: `analysis/pipeline.py` raises a small number of refusals that are FIXED
+#: LITERALS of ours: they say why the deterministic path declined and carry no
+#: document content by construction. This is the one that a user can act on —
+#: `webapp/static/app.js:friendlyAnalysisError` matches it and answers "use
+#: Auto mode, or add a deterministic parser for this bank", which is the most
+#: common and most actionable outcome the deterministic mode produces.
+#:
+#: Matching is EXACT and the value published is the member of this tuple, not
+#: the exception's own string, so what crosses the boundary is provably a
+#: constant in this file. A message that merely CONTAINS a declared literal
+#: (an exception that quoted a cell alongside it) does not match and is
+#: reduced like any other. The information that crosses is one bit per member
+#: — "the pipeline declared this refusal" — which is a registry-level fact,
+#: not statement content.
+#:
+#: Deliberately NOT keyed on exception type: the refusal is a bare
+#: `RuntimeError`, and `AmbiguousParserError`/`ParserCrashError` subclass it,
+#: so a type test would admit every RuntimeError in the process. Those two DO
+#: carry safe messages (registry ids, class names) but their text VARIES, so
+#: they cannot be pinned to a constant here — they publish their class name,
+#: which already names the finding.
+_DECLARED_ANALYSIS_REFUSALS: tuple[str, ...] = (
+    "no deterministic parser matched this statement",
+)
+
+
+def _stage_failure(stage: str, exc: BaseException) -> str:
+    """The only exception text this module may put in the durable store.
+
+    `analysis/pipeline.py` states the law for the deterministic seam — every
+    crash reduced to the exception's CLASS NAME, never its message, because a
+    message routinely quotes the cell of the document that provoked it
+    (H3_SCHEMA I1, W3 §MG-C2 D1). That comment names THIS module as the reason
+    the law exists, and this module held the two holes it names: `_analyze_doc`
+    returned `str(e)` as the job's `analysis_error` and `run_job` stored
+    `str(e)` as the job's `error`.
+
+    Both are DURABLE — written through `JobStore` into the `jobs` table in
+    `webapp/storage.py` — and both are served verbatim to the browser by
+    `/status`, `/result` and `/analysis`. A refusal that quoted an account
+    number was therefore published, survived a restart, and sat in front of a
+    user. `read_money` closed the loudest source and `apply_statement_repairs`
+    closed the widest seam; this closes the BOUNDARY, which is the part that
+    holds for the exceptions neither card could see — an `int()` on a mangled
+    cell, a `KeyError` on a mis-shaped grid, a third-party reader quoting a
+    token it choked on.
+
+    Deliberately NO second sink for the message. This module has no logger
+    today, and adding one to hold the full text would MOVE the content rather
+    than stop it: a new durable, unmasked, unaudited copy of the same fragment
+    (#WORKERPRIV D1). The operator channel already exists and is already
+    compliant — the telemetry record carries `error_type` (the class name) and
+    the per-stage timings, so WHICH stage raised and WHAT raised are both
+    recoverable without the text. Reproducing a crash needs the document, and
+    the document is in the store already.
+    """
+    return (
+        f"{stage} stage failed: {type(exc).__name__} "
+        "(message withheld; an exception message can quote statement text)"
+    )
+
+
+def _analysis_failure(exc: BaseException) -> str:
+    """The analysis boundary's published reason.
+
+    A declared refusal keeps its named reason (see
+    `_DECLARED_ANALYSIS_REFUSALS`); anything else is reduced to class name plus
+    stage. Fail-closed: the reduction is the default and the allow-list is a
+    closed tuple of constants, so a new refusal message the pipeline invents is
+    withheld until someone deliberately admits it here.
+    """
+    message = str(exc)
+    for declared in _DECLARED_ANALYSIS_REFUSALS:
+        if message == declared:
+            return declared  # this module's constant, not the exception's text
+    return _stage_failure(_PHASE_ANALYSIS, exc)
+
 
 def _analyze_doc(
     doc: StatementMarkdown,
@@ -91,7 +179,13 @@ def _analyze_doc(
         analysis["parse_mode"] = parse_mode
         return markdown, html, analysis, None
     except Exception as e:
-        return markdown, html, None, str(e)
+        # #WORKERPRIV site 1. This return value becomes the job's DURABLE
+        # `analysis_error` (`store.set_result`), which `/analysis`, `/result`
+        # and `/status` serve verbatim. The markdown and the rendered report
+        # still publish — the document was read, only the analysis refused —
+        # so the user gets the statement plus a named reason, and never the
+        # exception's own text.
+        return markdown, html, None, _analysis_failure(e)
 
 
 def _note_cache(
@@ -257,6 +351,15 @@ def run_job(
     collector = DispatchCollector()
     profile: DocumentProfile | None = None
     doc: StatementMarkdown | None = None
+    # The named stage for the job-level exception boundary below (#WORKERPRIV
+    # site 2). Advanced inside the `read`/`analyze` closures rather than at
+    # their six call sites, so a new mode branch cannot forget it.
+    #
+    # KNOWN GRANULARITY, stated rather than hidden: `set_result` runs after
+    # `analyze` returns, so a storage-layer crash while publishing is
+    # attributed to `analysis`. The class name is exact either way, and the
+    # telemetry record's per-stage timings separate the two.
+    phase = _PHASE_PREFLIGHT
     try:
         with timer.time("preflight"):
             profile = inspect_pdf(pdf_bytes)
@@ -271,6 +374,8 @@ def run_job(
             store.set_page_live(job_id, page, text)
 
         def read(**flags) -> StatementMarkdown | None:
+            nonlocal phase
+            phase = _PHASE_READING
             return _read_document(
                 job_id, store, cache, pdf_bytes, filename, profile,
                 on_stage=on_stage, on_delta=on_delta, on_replace=on_replace,
@@ -278,6 +383,8 @@ def run_job(
             )
 
         def analyze(doc: StatementMarkdown) -> tuple[str, str, dict | None, str | None]:
+            nonlocal phase
+            phase = _PHASE_ANALYSIS
             return _analyze_doc(
                 doc, filename, parse_mode, cache, job_id, store,
                 collector=collector, timer=timer,
@@ -332,7 +439,12 @@ def run_job(
         _emit(store, job_id, profile, len(pdf_bytes), doc, markdown,
               analysis, analysis_error, collector, timer)
     except Exception as e:
-        store.set_error(job_id, str(e))
+        # #WORKERPRIV site 2. The DURABLE job error is the class name plus the
+        # named stage that raised. Until this hunk the line below was
+        # `store.set_error(job_id, str(e))` — with the comment that follows it,
+        # which described `_emit` while the store write beside it published the
+        # very text the comment forbids.
+        store.set_error(job_id, _stage_failure(phase, e))
         # Class name only, never the message: exception text routinely quotes a
         # fragment of the document (H3_SCHEMA I1).
         _emit(store, job_id, profile, len(pdf_bytes), doc, None, None, None,
