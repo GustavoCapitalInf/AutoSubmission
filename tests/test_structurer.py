@@ -104,7 +104,11 @@ def test_a_bare_integer_is_not_money():
 #
 # The structurer is the generic unclaimed-layout reader, so this is the sign
 # rule for every document no registration claims. It must be the SHARED rule
-# and not a private opinion, and these four tests are what says so.
+# and not a private opinion, and the five tests below are what say so. Each
+# parametrizes over `money.MINUS_GLYPHS` rather than over a literal, so the
+# ASCII case is deliberately included — a canon that grows a member grows this
+# differential on the same day, and the day it does the ASCII row is the
+# reference the new one is compared against.
 
 #: Every shape a sign can take on a token this tokenizer produces, written
 #: with a placeholder the parametrization fills with each glyph of the canon.

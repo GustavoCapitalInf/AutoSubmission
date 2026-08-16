@@ -161,8 +161,8 @@ def money_value(token: str) -> float | None:
     the accounting negative, which several banks use interchangeably.
 
     THE SIGN CLASS IS NOT SPELLED HERE. `normalize_sign_glyphs` rewrites every
-    glyph the shared canon admits to ASCII ``-`` first, so the two tests below
-    read the whole class rather than one third of it. Before that call this
+    glyph the shared canon admits to ASCII ``-`` first, so the two conditions
+    below read the whole class rather than one third of it. Before that call this
     reader tested ``startswith("-")`` for ASCII alone and then returned
     ``-abs(value) if negative else abs(value)``: `parse_money` had already
     recovered the sign of a U+2212 or U+2013 amount, and the ``abs()`` threw it
