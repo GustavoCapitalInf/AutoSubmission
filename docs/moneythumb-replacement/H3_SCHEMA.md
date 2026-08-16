@@ -275,7 +275,7 @@ What survives on a cache hit: document facts, source/truncation facts, stage
 timings, `stages.analysis.cache = "hit"`, and — critically — `outcome.class`,
 because that is derived from the analysis payload, which the cache does return.
 
-**CORRECTED 2026-08-15 (#TELCOV; the defect was recorded at W3 §DISCOBS DO7#1).**
+**CORRECTED 2026-08-16 (#TELCOV; the defect was recorded at W3 §DISCOBS DO7#1).**
 This section used to say that `outcome.class` surviving meant "the
 deterministic-coverage rate therefore stays computable on re-runs; only the
 parser diagnostics degrade". **That was false, and it was false for both
@@ -601,7 +601,7 @@ records the answers and where each landed.
    record (which is exactly what re-calling `resolve()` could not promise).
 3. **Cache-hit hole:** ACCEPTED as a deliberate, documented degradation. No
    `ANALYSIS_STAGE_VERSION` churn for a re-run-only diagnostic.
-   **Superseded in part, 2026-08-15 (#TELCOV).** The ruling's *decision* stands
+   **Superseded in part, 2026-08-16 (#TELCOV).** The ruling's *decision* stands
    — nothing was persisted into the cached artifact and no stage version was
    bumped — but the premise it was accepted on ("a re-run-only diagnostic";
    "the coverage rate stays computable") was false: the rate collapsed to 0.0%
