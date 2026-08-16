@@ -27412,3 +27412,18 @@ remembers to bump.
 4. `REGISTRY_MATERIAL_VERSION = 1` is new and is NOT a stage version. It moves
    only when we decide to hash a different set of fields, which is the one thing
    a digest change cannot otherwise be distinguished from.
+5. **A named defect elsewhere is now structurally closed, and its docstring has
+   not been told.** `discovery/runner.py::_project_cached_dispatch` states the
+   limit of its own fail-closed reasoning in as many words: it "holds *within
+   one registry composition*. It does not hold across a registry change that a
+   warm cache outlived, and in this repository that window is real … the wave
+   process COMPOSES the bump at merge, so mid-wave commits that add `supersedes`
+   edges ship without one. Inside such a window a cached payload can have been
+   authored by a parser that TODAY loses a supersedes contest — and today's
+   sweep then names exactly one survivor, the new winner, confidently and
+   wrongly." That window is exactly what this card removes: a payload authored
+   under a different registry is no longer reachable, so no sweep can be
+   confidently wrong about who wrote it. **`discovery/runner.py` is not this
+   cell's to edit** (ownership: `webapp/artifact_cache.py`, the registry-side
+   helper, tests, this log), so the paragraph is left standing and flagged here
+   for whoever owns that module.
