@@ -5,7 +5,7 @@ from datetime import date
 from html import unescape
 
 from .date_tokens import iso_from_month_day_strict, period_from_long_dates
-from .money import parse_money, read_money
+from .money import normalize_sign_glyphs, parse_money, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import TAG_RE, table_rows, tables_after
@@ -36,8 +36,19 @@ def _money(value: str) -> float | None:
     answered 0.0, the probe accepted it as the amount column, and the row
     published a zero. Refusal propagates; it just propagates as None here
     rather than as an exception.
+
+    THE SIGN GLYPHS ARE THE SHARED CANON'S, not this module's. The line below
+    was `value.strip().replace("–", "-")` — half of `normalize_sign_glyphs`,
+    handling U+2013 and missing U+2212 (W3 §MGD MGD10 finding 3). A cell whose
+    minus the generator set as a true MINUS SIGN lost it twice over: the
+    `neg` test below never saw it, and the non-ASCII scrub two lines down
+    deleted the glyph before `parse_money` could read it, so the cell came back
+    POSITIVE. The one field that keeps this reader's sign is the summary
+    grid's `ending balance` (every other consumer takes `abs()` and applies a
+    section direction), so the defect's whole reach was publishing an
+    overdrawn closing balance as a positive one.
     """
-    text = value.strip().replace("–", "-")
+    text = normalize_sign_glyphs(value.strip())
     if not re.search(r"\d+(?:\.\d{2})?", text):
         return None
     neg = text.endswith("-") or text.startswith("-")
