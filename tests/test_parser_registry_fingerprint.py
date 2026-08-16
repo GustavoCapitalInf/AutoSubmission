@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -140,7 +141,11 @@ def test_the_key_is_byte_identical_across_two_fresh_processes():
             capture_output=True,
             text=True,
             cwd=ROOT,
-            env={**_clean_env(), "PYTHONHASHSEED": seed},
+            # The parent environment, plus the seed. NOT a scrubbed one: the
+            # analysis knobs are in this key too, so a child that could not see
+            # an `ANALYSIS_MODEL` its parent can would fail this test for a
+            # reason that has nothing to do with the registry.
+            env={**os.environ, "PYTHONHASHSEED": seed},
         )
         assert result.returncode == 0, result.stderr
         runs.append(result.stdout.strip().splitlines())
@@ -152,20 +157,6 @@ def test_the_key_is_byte_identical_across_two_fresh_processes():
         pr.registry_fingerprint(),
         analysis_settings_key(parse_mode="deterministic"),
     ]
-
-
-def _clean_env() -> dict[str, str]:
-    """The parent environment minus anything that would make the subprocess
-    read a different `analysis.config`. The analysis knobs are in the key too,
-    so a stray `ANALYSIS_MODEL` in one shell and not the other would fail this
-    test for a reason that has nothing to do with the registry."""
-    import os
-
-    return {
-        key: value
-        for key, value in os.environ.items()
-        if not key.startswith(("ANALYSIS_", "OCR_", "WITHHOLDING_"))
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -373,8 +364,7 @@ def test_the_fingerprint_loads_the_registry_when_nothing_else_has():
         "print(key)"
     )
     result = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, cwd=ROOT,
-        env=_clean_env(),
+        [sys.executable, "-c", code], capture_output=True, text=True, cwd=ROOT
     )
     assert result.returncode == 0, result.stderr
     loaded, key = result.stdout.strip().splitlines()
