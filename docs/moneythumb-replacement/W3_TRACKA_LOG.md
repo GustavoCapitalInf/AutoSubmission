@@ -27202,3 +27202,283 @@ other batch-5 cells at once, which is the only reason the two runtimes are
 | `42e4055` | this section, FI0–FI5 |
 | `c536dbf` | the corpus gate proof |
 | (this one) | the corpus-marked slice proof, the no-movement statement, and this table |
+
+## WP0. Summary — `str(e)` never reaches the durable store (#WORKERPRIV)
+
+**Two lines, both durable, both user-visible, both closed.** `webapp/worker.py`
+held the two holes `analysis/pipeline.py`'s refusal-boundary comment names by
+file and by expression:
+
+| site | expression | column | who reads it |
+|---|---|---|---|
+| `_analyze_doc` | `return markdown, html, None, str(e)` | `jobs.analysis_error` | `/status`, `/result`, `/analysis`, **and every package export** |
+| `run_job` | `store.set_error(job_id, str(e))` | `jobs.error` | `/status`, `/live`, `/result`, **and every package export** |
+
+Both now publish the exception's CLASS NAME plus a NAMED STAGE
+(`preflight` / `reading` / `analysis` — constants of this module, never
+anything read out of a document). One named reason survives, by EXACT match
+against a closed tuple of our own literals (WP3).
+
+**The exposure was larger than the card recorded.** The card describes the two
+columns; it does not say that `_package_analysis` copies both into every
+member's `doc_row` (`webapp/app.py:880-881`) and that `_package_rows` then
+walks EVERY key of that dict into the CSV and the XLSX. `_masked` does not
+touch them — `_ACCOUNT_KEYS` is `{account, account_number}` — so an exception
+that quoted a cell was not merely rendered in a browser: it was written into
+the spreadsheet an underwriter downloads and keeps. `_escaped_rows` would
+neutralise it as a formula and pass it through as text.
+
+**Zero archive movement, by construction and by measurement.** The diff touches
+one production file, and it is a file no oracle enters.
+
+## WP1. The boundary census over `webapp/`
+
+Every durable sink of exception text in `webapp/`, found by AST rather than by
+grep (`except X as N` handlers, then every use of `N` that is not `type(N)`, a
+bare re-`raise`, or a hand-off to a declared boundary helper). The census is
+now a TEST — `test_the_webapp_exception_ledger_is_complete` — whose exemption
+list IS the ledger below, so the exposure cannot quietly grow.
+
+| # | site | sink | durable? | verdict |
+|---|---|---|---|---|
+| 1 | `worker.py:_analyze_doc` | `jobs.analysis_error` → HTTP + package export | yes | **FIXED** |
+| 2 | `worker.py:run_job` | `jobs.error` → HTTP + package export | yes | **FIXED** |
+| 3 | `worker.py:_emit` | telemetry `outcome.error_type` | yes | already class-name-only (H3_SCHEMA I1) — unchanged, pinned by a new test |
+| 4 | `app.py:revenue_review` ×2 | HTTP 404/400 JSON body | no | **LEDGERED** (WP6.1) |
+| 5 | `app.py:_read_upload` | `{"error": "PDF could not be read"}` | no | clean — the exception is swallowed, the message is a literal |
+| 6 | `app.py:boxes` (rasterize) | none | – | clean — swallowed, degrades to boxes-without-crops |
+| 7 | `app.py:_num` | none | – | clean — swallowed |
+| 8 | `artifact_cache.py:_cache_get` | none | – | clean — swallowed |
+| 9 | `storage.py` schema raises ×2, `pdf_path`, `artifact_cache.py` sheets/`ArtifactCache` raises ×4 | propagate to site 2 | via 2 | clean — messages are data-dir paths, schema versions, type names; and after this cell only their CLASS crosses anyway |
+| 10 | `jobs.py:mark_interrupted` | `jobs.error` | yes | clean — a fixed literal note |
+| 11 | `jobs.py` audit writes (`upload`, `cache_hit`), `record_export`, `record_review` | `audit_log` | yes | clean — no exception text at any of them |
+
+There is no logger anywhere in `webapp/`, which is why the fix adds no second
+sink (WP2 D1).
+
+**Adjacent, outside the census by scope, named so the next reader does not
+re-find them:** `deterministic_coverage_audit.py:165/167/241`,
+`coverage_audit.py:193`, `corpus_gate.py:928`, `batch.py:267` and
+`sweep_ocr.py:61` write `str(e)` / `f"{type(e).__name__}: {e}"` into audit CSVs
+and CLI output; `ocr/native_text.py:80` builds `_UnreadableTextLayer(
+f"{type(exc).__name__}: {exc}")`, whose text reaches
+`deterministic_coverage_audit`'s `error` column via `text_layer_refusal` (this
+is the `cycle in resources` row §RS pinned). None of them is in `webapp/`, none
+is served to a user, and `text_layer_refusal` has exactly one consumer, which
+is that audit script — verified, not assumed.
+
+## WP2. What was implemented
+
+One helper states the law and two call sites obey it.
+
+```python
+def _stage_failure(stage: str, exc: BaseException) -> str:
+    return (
+        f"{stage} stage failed: {type(exc).__name__} "
+        "(message withheld; an exception message can quote statement text)"
+    )
+```
+
+* **Site 1** `_analyze_doc`: `return markdown, html, None, _analysis_failure(e)`.
+  The markdown and the rendered report still publish — the document was read,
+  only the analysis refused — so the user keeps the statement and gets a named
+  reason instead of a quoted cell.
+* **Site 2** `run_job`: `store.set_error(job_id, _stage_failure(phase, e))`.
+
+**D1 — no second sink, deliberately.** The card allows keeping the full text in
+the process log "if the existing logging already does so". It does not: there
+is no logger in `webapp/` at all (measured, WP1). Adding one to hold the
+message would MOVE the content, not stop it — a new durable, unmasked,
+unaudited copy of the same fragment. The operator channel already exists and is
+already compliant: the telemetry record carries `error_type` and the per-stage
+timings, so WHICH stage raised and WHAT raised are both recoverable without the
+text, and reproducing a crash needs the document, which is in the store anyway.
+
+**D3 — the phase tracker.** `phase` is advanced inside the `read` / `analyze`
+closures rather than at their six call sites, so a new mode branch cannot
+forget it. KNOWN GRANULARITY, stated rather than hidden: `set_result` runs
+after `analyze` returns, so a storage-layer crash while publishing is
+attributed to `analysis`. The class name is exact either way and the telemetry
+stage timings separate the two; buying the extra precision would mean four more
+assignments in four branches, which is exactly the drift the closure placement
+avoids.
+
+**D4 — the comment that was already there.** The line under
+`store.set_error(job_id, str(e))` read "Class name only, never the message:
+exception text routinely quotes a fragment of the document (H3_SCHEMA I1)". It
+was true — of `_emit`, two lines below. The store write it sat beside published
+the very text it forbids. The comment is kept, for `_emit`, and the hunk above
+it now says which line it governs.
+
+## WP3. D2 — the one named reason that survives, and why it is not a hole
+
+A blanket reduction would have deleted a live, user-facing behaviour that
+nobody would have missed until a user did.
+`webapp/static/app.js:friendlyAnalysisError` matches
+`/no deterministic parser matched/i` and answers *"No deterministic parser
+matched this statement. Use Auto mode for fallback extraction, or add a
+bank-specific deterministic parser…"* — the most common and the only actionable
+outcome the deterministic mode produces. `analysis/pipeline.py:685` raises it
+as a FIXED LITERAL carrying no document content.
+
+```python
+_DECLARED_ANALYSIS_REFUSALS: tuple[str, ...] = (
+    "no deterministic parser matched this statement",
+)
+```
+
+Four properties make this safe, and each is a test:
+
+1. **Exact match, not containment.** `f"{DECLARED}: {poisoned}"` is reduced
+   like anything else (`test_the_allow_list_is_exact_match_and_not_containment`,
+   mutation-killed by flipping `==` to `in`).
+2. **The value published is the tuple member**, not `str(exc)`. What crosses
+   the boundary is provably a constant in this file. The information content
+   that crosses is one bit per member — "the pipeline declared this refusal" —
+   which is a registry-level fact, not statement content.
+3. **Not keyed on exception type.** The refusal is a bare `RuntimeError` and
+   `AmbiguousParserError` / `ParserCrashError` subclass it, so a type test
+   would admit every `RuntimeError` in the process. Those two carry SAFE text
+   (registry ids, class names) but VARIABLE text, so they cannot be pinned to a
+   constant — they publish their class name, which already names the finding
+   (`test_a_refusal_whose_text_varies_is_not_admitted`).
+4. **The coupling is explicit in both directions.** One test drives
+   `analyze_markdown` into the refusal and asserts the string it raises is in
+   the tuple; another asserts `app.js` still matches it. A reword on either
+   side fails here instead of silently deleting the guidance.
+
+Fail-closed: reduction is the default, admission is a deliberate edit.
+
+## WP4. The sentinel proof
+
+`tests/test_worker_privacy.py`, 29 tests. Two tokens, and the second is the
+point:
+
+```python
+PROVOKING_TOKEN        = "4021-9987-3315-0042"                # in the document
+EXCEPTION_ONLY_SENTINEL = "SENTINEL-EXCEPTION-TEXT-a7f31c9e"  # in the exception only
+POISONED_MESSAGE = (
+    f"invalid literal for int() with base 10: '{PROVOKING_TOKEN}' "
+    f"[{EXCEPTION_ONLY_SENTINEL}]"
+)
+```
+
+The durable store LEGITIMATELY holds the statement text — that is the accepted
+`/markdown` residual exposure (Wave 0, closed by authentication and not by
+redaction) — so a whole-database sweep needs a token that only ever existed
+inside an exception message. `PROVOKING_TOKEN` is printed in the fixture
+document and pins the columns; `EXCEPTION_ONLY_SENTINEL` is printed nowhere and
+pins the whole store.
+
+`test_the_sentinel_appears_nowhere_in_the_durable_store` runs two poisoned jobs
+into one store — one dying in the analysis, one dying in the read — then reads
+**every cell of every table** (enumerated from `sqlite_master`, so a table
+added later is swept without anyone remembering) and **the raw bytes of every
+file the store owns** (the database, its journal, the PDF store, the cache
+artifacts). It then asserts:
+
+```
+PROVOKING_TOKEN         in blob     # the sweep is live, not vacuous
+EXCEPTION_ONLY_SENTINEL not in blob
+"invalid literal"       not in blob
+```
+
+The first assertion is load-bearing: the document's own text IS in the store,
+so a sweep that found nothing at all would prove nothing about the exception
+channel.
+
+**Mutation-kill (five mutations, each applied to the committed tree, run, and
+reverted):**
+
+| # | mutation | result |
+|---|---|---|
+| M1 | site 1 back to `str(e)` | **12 failed** / 25 passed, exit 1 |
+| M2 | site 2 back to `str(e)` | **7 failed** / 30 passed, exit 1 |
+| M3 | allow-list `==` → `in` (containment) | **1 failed** / 28 passed, exit 1 |
+| M4 | phase tracker frozen at `preflight` | **2 failed** / 35 passed, exit 1 |
+| M5 | `_stage_failure` appends `: {exc}` | **14 failed** / 23 passed, exit 1 |
+
+The source guard has its own mutation family: nine synthetic handlers
+(`str(e)`, `repr(e)`, `f"{e}"`, `"%s" % (e,)`, `e.args[0]`, `log(e)` →
+findings; `type(e).__name__`, `raise e`, `_stage_failure(..., e)` → clean),
+because a guard nobody has watched fail is not a guard.
+
+## WP5. Zero movement — the containment argument, then the measurement
+
+**Containment (AST, total, not a sample).**
+
+```
+production files touched by the diff        : ['webapp/worker.py']
+importers of `webapp.worker`, whole repo    : webapp/app.py:26
+                                              tests/test_artifact_cache.py:50
+                                              tests/test_webapp_worker.py:17
+                                              tests/test_worker_privacy.py:32,377
+callers of ANY name defined in webapp.worker, non-test:
+                                              webapp/app.py:66  run_job()
+```
+
+`run_job` has exactly one production caller and it is the Flask upload thread.
+`corpus_gate.ANALYSIS_CALL_SITES` — the repo's own declared census — names three
+production analysis call sites: `discovery/runner.py:_analyse`,
+`webapp/worker.py:_analyze_doc`, `batch.py:main`. The archive's outcomes are
+produced by the first. This cell changed only the exception handling inside the
+second, and nothing reaches it except an HTTP upload.
+
+Two honest caveats on that census, both measured rather than waved away:
+
+* `corpus_gate`, `adb_forensic_audit`, `balance_forensic_audit` and
+  `discovery.runner` DO reach `webapp.worker` in the *import* graph — via
+  `adb_forensic_audit:28 from webapp.app import _package_analysis`, and
+  `webapp/app.py:26 from .worker import run_job`. They import the module; they
+  never enter it. The diff adds no import and no import-time work beyond three
+  string constants and a one-element tuple, so even that transitive import
+  behaves identically.
+* A name-only call census over-reports badly: `analysis/bofa.py`, `batch.py`
+  and `discovery/runner.py` each define their OWN private `_emit`. Filtering to
+  files that actually import the module removes all three; without the filter
+  the census would have booked three archive-producing modules as callers of
+  the worker's.
+
+## WP6. Carried findings for Ocean
+
+1. **THE LEDGER — `webapp/app.py:revenue_review` returns `str(exc)` as an HTTP
+   body (two expressions, 404 and 400).** Not this cell's file: `app.py` belongs
+   to no batch-6 cell, and the card's ownership is the worker's boundary. Not
+   durable either — a response body, not a stored column. But the `except` is
+   BROADER than the three fixed literals `analysis/revenue.py` actually raises
+   (`decision must be…`, `transaction source location was not found`, `only
+   automatically unverified deposits can be reviewed`): any `ValueError` raised
+   deeper inside `rebuild_serialized_revenue_views` is published verbatim, and
+   the money-grammar family is exactly such a raiser. **MONEY-PRIVACY is closing
+   the other end of that same pipe this batch**, which is precisely why the
+   worker's fix should not be read as closing the class. A one-card fix is the
+   same shape as this one: catch the three declared refusals by exact literal
+   and reduce everything else. Recommend carding it as `APP-PRIVACY`.
+   `test_the_webapp_exception_ledger_is_complete` fails the moment anyone adds
+   a third.
+
+2. **The exposure was bigger than the card said, and the card should be
+   amended in the record.** `analysis_error` and `error` are copied into every
+   package member's `doc_row` and then walked key-by-key into the CSV and the
+   XLSX export (`app.py:880-881`, `_package_rows:240-242`). `_masked` does not
+   cover them. So the leak was not only a browser view — it was a spreadsheet
+   an underwriter downloads and keeps. Nothing to do beyond this cell's fix;
+   worth recording because it changes the severity, not the remedy.
+
+3. **`friendlyAnalysisError` was one blanket reduction away from silently
+   dying** (WP3). Named because the next privacy card on a boundary a UI reads
+   will meet the same trap: a fixed literal that a human depends on is not the
+   same object as a quoted cell, and a card that says "never `str(e)`" reads as
+   if it were.
+
+4. **The oracles' `str(e)` CSV columns are real and out of scope** (WP1,
+   adjacent list). `deterministic_coverage_audit`'s `error` column is
+   deliberately verbose — §RS pinned `cycle in resources` as a *desirable* row —
+   and those CSVs are internal artifacts, not served. If a later card ever puts
+   an audit CSV in front of a customer, that decision inherits six sites.
+
+5. **`webapp/` still has no logger.** The right long-term operator channel for a
+   worker crash is a structured log with the message, written where the store is
+   not — but that is a D-2b/D-7 decision about retention and access, not
+   something an exception-boundary card gets to invent (WP2 D1).
+
