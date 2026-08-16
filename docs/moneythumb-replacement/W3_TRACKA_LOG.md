@@ -27348,6 +27348,46 @@ page instead of inside a bucket total. The DO4 census caveat carries over
 verbatim: five registrations can publish `bank=None` by design and nothing
 enforces that they are all platform-named.
 
+### TC3.1 Measured on the run of record (`2e3ea385`, 3,380 distinct documents)
+
+| | before | after |
+|---|---|---|
+| `label_disagreement` documents | 118 in 20 pairs | **99 in 16 pairs** |
+| `template_claim` documents | — | **19 in 4 pairs** |
+
+The four pairs that left the bucket left it whole, none shrank:
+`Enterprise Bank & Trust -> core_processor_daily` 8, `Desjardins ->
+releve_facturation` 6, `El Dorado Savings Bank -> core_processor_daily` 4,
+`City Bank -> core_processor_daily` 1. DO4 measured six on `c924d751`; the
+other thirteen are LC-PERIOD's `core_processor_daily`, registered in batch 5
+after that measurement was taken.
+
+**Why the rule is per-DOCUMENT and not per-registration — a number for the
+DO7#4 card, which I could not take and which will have to answer this.**
+Across the same run, two registrations publish an issuer on some documents and
+not on others:
+
+| registration | published an issuer | published none |
+|---|---|---|
+| `community_section` | **55** | 5 |
+| `core_processor_sectioned` | 1 | 9 |
+| `core_processor_daily` / `releve_facturation` / `balance_by_date` | 0 | 13 / 16 / 11 |
+
+A registry flag read as "never label-check this registration" would therefore
+exempt all 60 `community_section` claims, and **13 of them are live, checkable
+disagreements today** (`Bluevine` 5, `Columbia Bank` 3, `R Bank` 3, `Rogue
+Credit Union` 1, `SouthStar Bank` 1). The flag DO7#4 asks for is a fact about
+the LABEL ("this string is not an issuer claim"), which is a different
+statement from "this parser's documents name no issuer", and only the second
+one is what the exemption needs. When that card lands it should be measured
+against these numbers rather than assumed to subsume this rule.
+
+One divergence remains and it is I1's, not this cell's: for those 13 the run
+report can compare the EXTRACTED issuer against the folder and may call it
+`agree`, while the workspace may not see that label at all and keeps the pair
+as a question for a human. Fail-open toward the human queue is the safe
+direction for an advisory bucket; fail-closed toward silence is not.
+
 ## TC4. `--enrich`: measured, then KEPT
 
 The card said "retire the enrichment join (keep `--enrich` as a

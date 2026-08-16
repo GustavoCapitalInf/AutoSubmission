@@ -422,7 +422,7 @@ def workspace(run: Run, **kwargs) -> dict:
     # by design, and nothing enforces that they are all platform-named).
     _mismatched, template_claims = label_check(list(run.values()))
     template_pairs = Counter(
-        f"{d.folder_label} -> {d.parser_id}" for d in template_claims
+        (d.folder_label, d.parser_id) for d in template_claims
     )
     by_disposition = Counter(cluster.disposition for cluster in clusters)
     documents_by_disposition: Counter = Counter()
@@ -438,9 +438,8 @@ def workspace(run: Run, **kwargs) -> dict:
         "unattributed_documents": unattributed,
         "template_claim_documents": len(template_claims),
         "template_claim_pairs": [
-            {"folder": key.split(" -> ")[0], "parser": key.split(" -> ")[1],
-             "documents": count}
-            for key, count in template_pairs.most_common()
+            {"folder": folder, "parser": parser, "documents": count}
+            for (folder, parser), count in template_pairs.most_common()
         ],
         "dispositions": dict(by_disposition),
         "documents_by_disposition": dict(documents_by_disposition.most_common()),

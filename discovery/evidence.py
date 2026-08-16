@@ -78,10 +78,12 @@ ADMISSIBLE_ROW_COLUMNS = ("content_sha256", "folder_label", "dedup_status")
 #: The alternative sources were surveyed and rejected: the telemetry record
 #: cannot carry the label (I1) and does not carry `model_used`, and sniffing
 #: the registration name for "Template"/"Platform" is the name-based rule
-#: §DISCOBS DO4 declined to write. The structural answer is a registry-side
-#: "this label is not an issuer claim" flag (DO7#4), which is a change to
-#: `analysis/parser_registry.py` and is not this cell's to make; when it
-#: lands, this boolean has a second, better source and the read can go.
+#: §DISCOBS DO4 declined to write. DO7#4's registry-side "this label is not an
+#: issuer claim" flag is a change to `analysis/parser_registry.py` and is not
+#: this cell's to make - and it would NOT simply replace this read: measured on
+#: the run of record, `community_section` publishes an issuer on 55 documents
+#: and none on 5, so a per-REGISTRATION exemption would also silence 13 live,
+#: checkable disagreements that this per-DOCUMENT fact keeps (W3 §TELCOV TC3.1).
 DERIVED_ROW_COLUMNS = ("statement_bank",)
 
 #: Folder labels that are not bank labels: a human sorted these as "I could not
