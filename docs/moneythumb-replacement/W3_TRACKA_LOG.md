@@ -27709,3 +27709,19 @@ python -m discovery.compare <2e3ea385> <2e360336> --fail-on-regression
    property this card restores.
 6. **`--enrich` is kept**, so the pre-#TELCOV runs stay readable. If a future
    cell wants it gone, the number to beat is the 11 retained runs in TC4.
+
+## TC11. Commits
+
+| Commit | Contents |
+|---|---|
+| `a4f9355` | the three fixes: derived `source` + the reconstruction, one derivation shared with the row projection; `coverage()`; `label_verdict`; 18 tests |
+| `73c0f90` | `H3_SCHEMA` 3.1/5.4/10/11/12 corrected; TC0-TC6; `telemetry/report.py` back to an ASCII-only source, the property its own docstring claims |
+| `b1ba010` | review of own text: template pairs keyed on the tuple rather than a re-split string, and the DO7#4 caveat measured rather than assumed |
+| `def60d3` | TC7 - the warm archive replay `2e360336`, zero movement, 0.0% -> 74.1% |
+| `a1f2c2b` | TC7 - the replay wrote nothing to the shared store, measured from its own cache dispositions |
+| `2581e44` | TC7 - the +0.7% the train instrument will print is repair, not movement |
+| `16d4af5` | TC0 names the current run of record's 19 template claims, not only DO7's six |
+| `c7192bb` | `payload` required rather than defaulted (a forgotten keyword would have reintroduced this defect silently); the reconstruction guards on the type |
+| `7f0b5b0` | the H3_SCHEMA corrections dated the day they land |
+| `9fa6b33` | TC8-TC10: the test tally, the proof block with exit codes, the risks |
+| (this one) | this table |
