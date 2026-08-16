@@ -27202,3 +27202,89 @@ other batch-5 cells at once, which is the only reason the two runtimes are
 | `42e4055` | this section, FI0–FI5 |
 | `c536dbf` | the corpus gate proof |
 | (this one) | the corpus-marked slice proof, the no-movement statement, and this table |
+
+# §RBCMEASURE — the read-only measurement packet the RBC currency ceremony was gated on
+
+Branch `wave6-rbcmeasure`, base `90e9eb6` (the CURRENCY DOCTRINE commit).
+READ-ONLY card: the only repository changes are
+`docs/moneythumb-replacement/RBC_CURRENCY_MEASUREMENT.md` and this section.
+No code edit, no expectation edit, no cache write, $0.00.
+
+## RM0. Summary
+
+| | |
+|---|---|
+| Doctrine gate | CURRENCY_DOCTRINE §C, all eight proofs — **all eight land clean** |
+| Population | **exactly 151** documents (147 discovery + all 4 pinned English RBC), re-derived from run `2e3ea385` + live artifact replay, not inherited from the prior scouting |
+| Family, live-detected | `rbc` 169 English (165 discovery + 4 pinned) · `rbc_french` 20 (19 + 1 pinned). Live `resolve()` agreed with the run's `parser_id` **228/228** |
+| Movement | `statement.currency` `USD` → `CAD` on 151 documents, direction census `{('USD','CAD'): 151}` |
+| Field diff | 236 documents × two full `report_to_dict` payloads = **5,316,842 leaf comparisons**; **one** distinct changed path in the entire sweep: `statement.currency`; **0** documents with any non-currency change |
+| Nine CURRENCY-1 corrections | all nine payloads **byte-identical** |
+| Contradictory / uncertain evidence | **zero documents**, measured — nothing left the packet for uncertainty |
+| Existing suite | 414 passed on the merged tree, 414 passed with the prototype active — not one assertion moves |
+
+## RM1. What the doctrine changed about the measurement
+
+The rejected framing was `absence of "U.S. Funds" ⇒ CAD`. The ratified rule is
+a bank/account-**jurisdiction** default, so the prototype takes no inference
+from an absence: it requires four *affirmative* structural proofs — the issuer
+line closed by a Canadian postal code, RBC **Canada's** own service furniture
+(`rbcroyalbank.com` / `1-800-769-25xx`), the CPA transit-account shape in both
+product spellings, and the branch-of-domicile line — and it evaluates the RBC
+U.S. discriminator and a deliberately over-wide contrary-currency sweep
+**before** any of them. Ablation over 40 packet documents: removing any one
+class returns `None` 40/40. The default speaks only where the page is silent.
+
+## RM2. The three measurements worth carrying forward
+
+1. **The population is 151 exactly**, and it decomposes: 169 English RBC
+   documents = 151 silent + 12 that print `U.S. Funds` (6 of those also print
+   `US BUSINESS ACCOUNT`) + 6 that print `CAD CHEQUING ACCOUNT`. Every
+   USD-denominated RBC document in the archive announces itself on a
+   positionally-anchored line; half announce it twice.
+2. **There is no RBC U.S. document in the archive** — `rbcbank.com`,
+   `RBC Bank (Georgia)`, `RBC Bank USA`, `Raleigh` all return 0 across the
+   whole 228-document RBC superset — so proof 3 is discharged on synthetic
+   printings, and that is said plainly. The hostile case was measured too:
+   grafting any single U.S. token onto a genuine Canadian page turns CAD into
+   `None`, six for six.
+3. **The archive's own filename trap fired in our favour.** Seven documents
+   filed as `Business Checking Statement-5998 …` print Calgary addresses, an
+   `RBC Ultimate Business` package and a CPA transit account: they are RBC
+   Canada, they are in the packet, and a folder- or filename-driven rule would
+   have dropped seven correct movers on an operator's spelling.
+
+## RM3. The finding for Ocean and Gustavo
+
+`currency` is pinned **nowhere**: not a column in any of the three audit CSVs,
+absent from `corpus_gate.PINNED_OUTCOMES` (the string never appears in
+`corpus_gate.py`), absent from `tests/data/parser_expectations.json`. So the
+four pinned expectation diffs are, in every pinned artifact, **empty** — while
+`webapp/static/app.js` threads the field into `Intl.NumberFormat`, so all 151
+documents change what an analyst sees. A 151-document ceremony that leaves
+every pinned artifact byte-identical is the gate-invisible class CURRENCY-1
+flagged at §CUR4.2, now realised. **Recommendation: the ceremony should also
+put `currency` on a pinned surface** (a field on `_Verdict`, or a column in
+`balance-metrics-audit-results.csv`) so the next currency movement cannot
+happen silently. Scope decision, not this cell's.
+
+Four more carried risks — a silent-USD RBC Canada issue (residual, 0 attested,
+12/12 announce today); the rule being anchored to two English layouts; the
+personal layout's `RBPDA…` mailing header still unread by
+`_MAILING_HEADER_RE` (12 packet documents, harmless today, must be widened in
+the same commit as the default); and `schema.py`'s `USD` default now carrying
+two different meanings without a provenance field — are in
+`RBC_CURRENCY_MEASUREMENT.md` §11.
+
+## RM4. Method notes (for the cell that implements)
+
+OCR artifacts were addressed by **direct file path** with the key recomputed
+from `content_sha256` + `ocr_settings_key`; the `webapp_data` sqlite index was
+never opened. Every markdown was rebuilt with `source_file=""` and passed
+through `admissible_text`, so no predicate in this packet ever saw a filename.
+Instrument fidelity was checked twice: the cached artifact reproduces a fresh
+`parse_statement` read byte for byte on all five pinned RBC PDFs, and the
+before-payload reproduces the run of record's own `outcome_class` 30/30 on an
+RBC sample. `corpus_gate.py` was deliberately **not** re-run (>10 min on a
+machine shared with nine cells, and its inputs are provably unchanged) — the
+implementing cell owes that run.
