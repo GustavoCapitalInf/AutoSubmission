@@ -27240,6 +27240,13 @@ vocabulary and the fields it fills) and calls the shared `reconstructed_claim`;
 equality is therefore structural, and the tests assert it document by document
 anyway.
 
+The discovery runner therefore calls it TWICE per cache-served document, once
+for each artifact, and that is deliberate rather than overlooked: the function
+is pure, so the second call is the same answer, and threading the row's result
+through `_emit` would couple the two artifacts' code to save — measured,
+32 microseconds per call — **0.082 s across the 2,574 cache-served documents of
+the archive replay.** The coupling costs more than the sweep.
+
 **One guard is new, and it is the one that makes the shared function safe.**
 `_project_identity` excluded only the generic structurer, relying on
 `parse_mode="deterministic"` — which discovery can rely on and the H-3 record

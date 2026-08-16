@@ -67,7 +67,7 @@ def _record(**overrides) -> dict:
         emitter="batch",
         document=document_section("A" * 64, 1234, None),
         source=source_section(None),
-        dispatch=dispatch_section(None, [], 46),
+        dispatch=dispatch_section(None, [], 46, payload=None),
         stages={"analysis": {"ms": 1.0, "cache": "miss"}},
         model_calls=[],
         payload=None,
@@ -234,7 +234,7 @@ def test_dispatch_section_never_carries_the_parsed_statement():
     """Dispatch.statement is the full financial record; it must not be projected."""
     collector = DispatchCollector()
     analyze_markdown(claimed_markdown(), parse_mode="deterministic", on_dispatch=collector)
-    section = dispatch_section(collector.dispatch, [], 46)
+    section = dispatch_section(collector.dispatch, [], 46, payload=None)
     assert set(section) == {
         "source", "outcome", "parser_id", "score", "candidates", "attempted",
         "exceptions", "scores", "scores_floor", "scores_capped", "registration_count",
@@ -254,7 +254,7 @@ def test_dispatch_section_never_carries_the_prepared_document():
     analyze_markdown(claimed_markdown(), parse_mode="deterministic", on_dispatch=collector)
     assert collector.prepared is not None, "vacuous unless something was published"
 
-    section = dispatch_section(collector.dispatch, [], 46)
+    section = dispatch_section(collector.dispatch, [], 46, payload=None)
     assert "prepared" not in section
     snippet = collector.prepared.admissible[500:600]
     assert snippet.strip(), "vacuous unless the snippet is real document text"
@@ -296,7 +296,7 @@ def test_dispatch_section_projects_parser_failures_by_class_name_only():
             ParserFailure("bank_of_america", "detect", "ValueError"),
         ),
     )
-    section = dispatch_section(dispatch, [], 46)
+    section = dispatch_section(dispatch, [], 46, payload=None)
 
     assert section["outcome"] == "parser_exception"
     assert section["exceptions"] == [
@@ -309,7 +309,7 @@ def test_dispatch_section_projects_parser_failures_by_class_name_only():
 def test_a_dispatch_without_exceptions_reports_an_empty_list():
     collector = DispatchCollector()
     analyze_markdown(claimed_markdown(), parse_mode="deterministic", on_dispatch=collector)
-    assert dispatch_section(collector.dispatch, [], 46)["exceptions"] == []
+    assert dispatch_section(collector.dispatch, [], 46, payload=None)["exceptions"] == []
 
 
 # --- the cache-hit hole (#TELCOV) -------------------------------------------
@@ -331,9 +331,9 @@ def test_dispatch_source_is_derived_from_the_two_facts_that_decide_it():
     collector = DispatchCollector()
     analyze_markdown(claimed_markdown(), parse_mode="deterministic", on_dispatch=collector)
 
-    assert dispatch_section(collector.dispatch, [], 46)["source"] == "live"
+    assert dispatch_section(collector.dispatch, [], 46, payload=None)["source"] == "live"
     assert dispatch_section(None, [], 46, payload=DETERMINISTIC_PAYLOAD)["source"] == "cached"
-    assert dispatch_section(None, [], 46)["source"] == "unavailable"
+    assert dispatch_section(None, [], 46, payload=None)["source"] == "unavailable"
     assert dispatch_section(None, [], 46, payload=None)["source"] == "unavailable"
 
 
@@ -380,6 +380,17 @@ def test_an_inconclusive_sweep_names_nobody_rather_than_the_loudest():
     assert (none["outcome"], none["parser_id"]) == (None, None)
 
 
+def test_the_reconstruction_is_guarded_on_the_type_not_the_callers_word():
+    """It runs inside emit paths that swallow their own exceptions (I4), so
+    something that is not a serialized payload must reconstruct nothing rather
+    than cost the record. `score_vector`'s rule, one function over."""
+    from telemetry import reconstructed_claim
+
+    for nonsense in (object(), 42, "somebank-deterministic", [1, 2],
+                     {"model_used": 7}):
+        assert reconstructed_claim([("chase", 0.75)], nonsense) is None
+
+
 def test_the_structurer_model_is_read_from_its_own_constant():
     """The literal above is a test fixture; the product must not hold one."""
     from analysis.structurer import STRUCTURER_MODEL
@@ -415,10 +426,10 @@ def test_score_vector_drops_zeros_and_sorts_best_first():
 
 def test_score_vector_is_capped_and_says_so():
     long_vector = [(f"p{i}", 1.0 - i / 100) for i in range(SCORE_CAP + 5)]
-    section = dispatch_section(None, long_vector, 46)
+    section = dispatch_section(None, long_vector, 46, payload=None)
     assert len(section["scores"]) == SCORE_CAP
     assert section["scores_capped"] is True
-    assert dispatch_section(None, long_vector[:2], 46)["scores_capped"] is False
+    assert dispatch_section(None, long_vector[:2], 46, payload=None)["scores_capped"] is False
 
 
 # --- the double sweep: the near-miss vector reuses the analysis sweep -------
@@ -741,12 +752,12 @@ def _corpus_like_records() -> list[dict]:
     for _ in range(3):
         records.append(_record(
             payload=approved,
-            dispatch=dispatch_section(None, [], 46) | {"outcome": "claimed",
+            dispatch=dispatch_section(None, [], 46, payload=None) | {"outcome": "claimed",
                                                           "parser_id": "chase"},
         ))
     records.append(_record(
         payload=withheld,
-        dispatch=dispatch_section(None, [], 46) | {"outcome": "unclaimed"},
+        dispatch=dispatch_section(None, [], 46, payload=None) | {"outcome": "unclaimed"},
     ))
     return records
 

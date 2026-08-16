@@ -309,7 +309,12 @@ def reconstructed_claim(scores, payload: dict | None) -> tuple[str, float] | Non
     """
     from analysis.structurer import STRUCTURER_MODEL
 
-    model_used = (payload or {}).get("model_used") or ""
+    # Guarded on the type, not on the caller's word — `score_vector`'s rule,
+    # for the same reason: this runs inside emit paths that swallow their own
+    # exceptions (I4), so a caller that hands over something that is not a
+    # serialized payload must reconstruct nothing rather than cost a record.
+    model_used = payload.get("model_used") if isinstance(payload, dict) else None
+    model_used = model_used if isinstance(model_used, str) else ""
     if not model_used.endswith(DETERMINISTIC_MODEL_SUFFIX):
         return None
     if model_used == STRUCTURER_MODEL:

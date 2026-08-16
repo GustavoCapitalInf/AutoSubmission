@@ -173,7 +173,7 @@ def dispatch_section(
     scores: list[tuple[str, float]],
     registration_count: int,
     *,
-    payload: dict | None = None,
+    payload: dict | None,
 ) -> dict:
     """Routing facts: observed from the R-3 Dispatch, or reconstructed.
 
@@ -200,6 +200,11 @@ def dispatch_section(
     * `unavailable` — no `Dispatch` and no payload: the analysis stage never
       produced anything for this document (invalid PDF, OCR failure, a deferred
       tranche). Not a degradation, an absence.
+
+    `payload` is keyword-only and REQUIRED, with no default, for the same
+    reason `source` was: a caller that forgets it would otherwise get
+    `unavailable` on every cache hit — this exact defect, silently
+    reintroduced — instead of a `TypeError` at the call site.
 
     So `source` doubles as the provenance mark, with no new field and no new
     enum member: `cached` + a parser id is a reconstruction by construction,
