@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from analysis.money import MINUS_GLYPHS, parse_money
 from analysis.structurer import geometry_from_pdf, structure_document
 from analysis.structurer.geometry import DocumentGeometry, GeoLine, PageGeometry, Word
 from analysis.structurer.rows import (
@@ -17,7 +18,7 @@ from analysis.structurer.rows import (
     source_lines_from_text,
 )
 from analysis.structurer.summary import read_period, read_summary
-from analysis.structurer.tokens import document_year, money_tokens, read_date
+from analysis.structurer.tokens import document_year, money_tokens, money_value, read_date
 
 
 # ===========================================================================
@@ -72,6 +73,20 @@ def test_the_document_year_is_never_the_current_year():
         ("(1,234.56)", -1234.56),
         ("1,234.56-", -1234.56),
         ("-1,234.56", -1234.56),
+        # The two non-ASCII glyphs the archive attests in a sign position. Both
+        # read POSITIVE before W3 §SIGNREADER: the tokenizer admitted ASCII
+        # only, so the sign fell outside the token, and `money_value` then
+        # `abs()`-ed away the sign `parse_money` had recovered.
+        ("−1,234.56", -1234.56),   # U+2212 MINUS SIGN
+        ("–1,234.56", -1234.56),   # U+2013 EN DASH
+        ("1,234.56−", -1234.56),
+        ("1,234.56–", -1234.56),
+        ("−$1,234.56", -1234.56),
+        ("(−1,234.56)", -1234.56),
+        # U+2014 EM DASH is punctuation, not a sign (W3 §MGD MGD3): the one
+        # archive document that prints one before a bare figure prints a
+        # POSITIVE running balance behind an empty-column placeholder.
+        ("—1,234.56", 1234.56),
     ],
 )
 def test_money_is_read_with_its_printed_sign(text, value):
@@ -82,6 +97,87 @@ def test_money_is_read_with_its_printed_sign(text, value):
 def test_a_bare_integer_is_not_money():
     """Check numbers, item counts and reference ids are not amounts."""
     assert money_tokens("CHECK 4021 REF 99887766") == []
+
+
+# --- the sign class: one differential against the shared grammar -----------
+#
+# The structurer is the generic unclaimed-layout reader, so this is the sign
+# rule for every document no registration claims. It must be the SHARED rule
+# and not a private opinion, and these four tests are what says so.
+
+#: Every shape a sign can take on a token this tokenizer produces, written
+#: with a placeholder the parametrization fills with each glyph of the canon.
+SIGN_SHAPES = ("%s1,234.56", "1,234.56%s", "%s$1,234.56", "%s 1,234.56", "(%s1,234.56)")
+
+
+@pytest.mark.parametrize("glyph", list(MINUS_GLYPHS))
+@pytest.mark.parametrize("shape", SIGN_SHAPES)
+def test_the_sign_is_the_shared_grammars_answer(shape, glyph):
+    """Every glyph of `money.MINUS_GLYPHS` reads exactly as ASCII does here.
+
+    The differential is against the canon rather than against a literal: the
+    class is `analysis.money`'s, and a glyph added there is tested here the day
+    it is added. `money_value` of a U+2212 or U+2013 amount was POSITIVE where
+    `parse_money` was negative — it called the shared grammar and discarded the
+    answer (W3 §MGD MGD10 finding 1).
+    """
+    assert money_value(shape % glyph) == money_value(shape % "-")
+
+
+@pytest.mark.parametrize("glyph", list(MINUS_GLYPHS))
+def test_the_reader_and_the_shared_parser_agree_on_every_sign_glyph(glyph):
+    """Where `parse_money` reads the shape at all, the two must not disagree.
+
+    The three shapes it does not read are the ones this reader owns and are
+    excluded deliberately, not overlooked: parentheses (the accounting negative
+    — `parse_money` is paren-blind), a sign separated from its digits by a
+    space, and a sign before a currency mark. Each is a local rule of the
+    TOKEN GRAMMAR above, each behaves identically for ASCII and for every glyph
+    of the canon, and none of them is a second opinion about what a minus is.
+    """
+    for shape in ("%s1,234.56", "1,234.56%s"):
+        assert money_value(shape % glyph) == parse_money(shape % glyph) == -1234.56
+
+
+@pytest.mark.parametrize("glyph", list(MINUS_GLYPHS))
+def test_the_tokenizer_carries_the_sign_inside_the_token(glyph):
+    """The sign is part of the amount, not of the description beside it.
+
+    Before the fix the glyph fell outside the match: the token was the bare
+    digits, `MoneyToken.start` pointed at the first digit rather than at the
+    sign, and the leftover glyph stayed in the row's description. Extent is
+    load-bearing downstream — `rows._money_columns` clusters money bands by
+    `token.start`, and `_collect` scrubs `token.text` out of the description.
+    """
+    token, = money_tokens(f"03/05 VENDOR CO {glyph}1,234.56 END")
+    assert token.text.startswith(glyph)
+    assert token.value == -1234.56
+
+
+@pytest.mark.parametrize("glyph", list(MINUS_GLYPHS))
+def test_a_sign_glyph_between_two_amounts_reads_as_ascii_does(glyph):
+    """The lookbehind and the token class widen together or the reader breaks.
+
+    `1,000.00-500.00` is a hyphenated pair, and ASCII yields exactly one token
+    from it — the trailing-minus branch is refused by the digit lookahead, and
+    the right-hand amount is refused by the lookbehind. Widening the token
+    without the lookbehind would have manufactured a second token from the
+    right-hand half for the non-ASCII glyphs only.
+    """
+    assert [t.value for t in money_tokens(f"REF 1,000.00{glyph}500.00 END")] == \
+           [t.value for t in money_tokens("REF 1,000.00-500.00 END")] == [1000.0]
+
+
+def test_the_em_dash_stays_punctuation_for_the_generic_reader_too():
+    """W3 §MGD MGD3, applied where it matters most.
+
+    The generic reader meets every layout, including the three-column daily
+    balance grid whose empty cell is an em dash. That document prints a
+    POSITIVE running balance behind the placeholder, and admitting the glyph
+    would flip a figure the bank printed positive.
+    """
+    tokens = money_tokens("03-16 — 39,692.35   03-26 34,167.30")
+    assert [token.value for token in tokens] == [39692.35, 34167.30]
 
 
 # ===========================================================================
@@ -110,6 +206,47 @@ def test_signs_come_from_the_balance_chain():
     assert outcome.sign_sources == {"balance_chain": 7}
     assert [t.amount for t in outcome.statement.transactions] == [
         -25.0, 100.0, -5.0, -30.0, -20.0, 10.0, -20.0
+    ]
+
+
+#: The same ledger overdrawn, printing its negative balances with the two
+#: non-ASCII glyphs the archive attests — U+2212 on three lines and U+2013 on
+#: one, which is exactly how one issuer's generator behaves month to month
+#: (W3 §MGD). Nothing else about the document is unusual.
+OVERDRAWN_LEDGER = """--- Page 1 ---
+Statement period 03/01/2026 to 03/31/2026
+Beginning balance 1,000.00
+Ending balance −331.00
+03/05 ALPHA SUPPLY CO 211.00 789.00
+03/06 BRAVO LOGISTICS 322.00 467.00
+03/07 CHARLIE FOODS 433.00 34.00
+03/08 DELTA POWER AND LIGHT 144.00 −110.00
+03/09 ECHO WATER WORKS 155.00 –265.00
+03/10 FOXTROT GAS SUPPLY 66.00 −331.00
+"""
+
+
+def test_an_overdrawn_ledger_printed_with_true_minus_signs_is_read_whole():
+    """The sign defect's document-level shape, end to end.
+
+    Reading `−110.00` as +110.00 does not merely mis-state one figure: the
+    balance chain stops explaining the rows, so agreement falls under the
+    threshold, no row can be signed and the rung refuses the document —
+    `no_signable_rows`, on a statement whose arithmetic is perfectly sound.
+    The printed ending balance is inverted in the same breath, so even a
+    chained reading would fail the ledger-completeness check.
+    """
+    outcome = structure_document(OVERDRAWN_LEDGER)
+
+    assert outcome.reason == "structured"
+    assert outcome.chained is True
+    assert outcome.sign_sources == {"balance_chain": 6}
+    assert [t.amount for t in outcome.statement.transactions] == [
+        -211.0, -322.0, -433.0, -144.0, -155.0, -66.0
+    ]
+    assert outcome.statement.ending_balance == -331.0
+    assert [t.running_balance for t in outcome.statement.transactions] == [
+        789.0, 467.0, 34.0, -110.0, -265.0, -331.0
     ]
 
 
