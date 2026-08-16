@@ -5,7 +5,7 @@ from datetime import date
 from html import unescape
 
 from .date_tokens import iso_from_month_day_strict, period_from_long_dates
-from .money import normalize_sign_glyphs, parse_money, read_money
+from .money import MINUS_CLASS, normalize_sign_glyphs, parse_money, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import TAG_RE, table_rows, tables_after
@@ -270,7 +270,24 @@ def parse_regions_statement(markdown: str) -> Statement | None:
 
 
 def _money_after(label: str, text: str) -> float | None:
-    m = re.search(label + r"\s+\$?([\d,]+(?:\.\d{2})?)(?:\s*(-))?", text, re.IGNORECASE)
+    """The summary figure printed after `label`, with Regions' trailing sign.
+
+    The sign group is `money.MINUS_CLASS`, the same class `_money` above reads
+    through `normalize_sign_glyphs`. It was a bare ASCII hyphen — the same
+    absence-shaped half-opinion, on the branch that actually runs: this
+    module's `<table>` path never publishes (its transactions come from
+    `tables_after` over TAG-STRIPPED text and are always empty), so the native
+    path below is the only one whose sign reaches a published field.
+
+    Nothing in the archive moves on this: no live-detected Regions document
+    carries U+2212, U+2013 or U+2014 anywhere in its text — all 24 print the
+    ASCII hyphen and nothing else — so the widened class is inert today and
+    correct the day a generator's font map changes (W3 §SIGNREADER).
+    """
+    m = re.search(
+        label + r"\s+\$?([\d,]+(?:\.\d{2})?)(?:\s*(" + MINUS_CLASS + r"))?",
+        text, re.IGNORECASE,
+    )
     if not m:
         return None
     value = abs(read_money(m.group(1)) or 0.0)

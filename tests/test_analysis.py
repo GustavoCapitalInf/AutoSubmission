@@ -2157,6 +2157,20 @@ def test_regions_reads_the_whole_shared_sign_class_and_not_half_of_it():
     assert regions_money("N/A") is None, "a probe answers None; it does not raise"
 
 
+@pytest.mark.parametrize("glyph", list(MINUS_GLYPHS))
+def test_regions_summary_repair_reads_a_trailing_sign_in_any_glyph(glyph):
+    """The native path is the one that runs, and its trailing-sign group was
+    ASCII-only too. Same defect, same fix, one class."""
+    md = f"""
+Regions Bank
+SUMMARY
+Beginning Balance $7,317.34 Withdrawals $65,850.69 - Ending Balance $595.51 {glyph}
+Total Withdrawals $65,850.69
+"""
+    stmt = repair_regions_summary(md, Statement(bank="Regions Bank"))
+    assert stmt.ending_balance == -595.51
+
+
 def test_repair_regions_summary_handles_returned_checks_and_trailing_minus():
     md = """
 Regions Bank
