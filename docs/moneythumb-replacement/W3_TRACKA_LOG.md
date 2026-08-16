@@ -27627,10 +27627,13 @@ passes, and `all(record["dispatch"]["parser_id"] for record in warm)` — the
 ## TC9. Proofs
 
 One machine shared with nine other batch-6 cells, so the wall clocks are loaded
-rather than representative. Every figure below is from ONE sequential chain on
-the final tree — after an earlier chain was KILLED at 39% because two hardening
+rather than representative. Every figure below is from ONE sequential chain, run
+on `c7192bb` — after an earlier chain was KILLED at 39% because two hardening
 commits had landed under it, and an assertion no run has executed is not a
-proof.
+proof. `c7192bb` is the last commit that touches a `.py` file: everything after
+it is this log and `H3_SCHEMA.md`, and no test in the tree reads either
+(checked, not assumed — the matches for those filenames in `tests/` are all
+prose inside docstrings).
 
 ```
 # full default suite
