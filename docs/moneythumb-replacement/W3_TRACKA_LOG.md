@@ -27448,3 +27448,111 @@ Stated for the train, per the card. **This cell bumps nothing.**
 | `batch.py`, `webapp/worker.py` | the emit call site, one expression each. |
 | `H3_SCHEMA.md` | §3.1 provenance rows, §5.4 rewritten, §10 formula, §11 T9 + new T13, §12 ruling 3 annotated. |
 | everything else | zero-line diff. |
+
+## TC7. The archive proof — a warm replay of the run of record
+
+The branch over the frozen archive, through the run of record's own D-3 caches
+(`WEBAPP_DATA_DIR` at the main checkout; v13 and OCR v3 unchanged, and this
+branch touches no cache-key material, so every key matches and the run reads
+without writing an artifact — the same arrangement §DISCOBS used for
+`b7b40c73`). Run `2e360336`, mode `scanned`, 3,506 documents, exit 0.
+
+**Fully warm on the axis that matters**: `parser_id_source` is `live_detect`
+2,574 / `live_dispatch` 902, so every claim in it is cache-served and every
+live dispatch is an unclaimed document. The run of record was the inverse
+(`live_dispatch` 3,371 / `live_detect` 105).
+
+**Zero outcome movement.** Field by field over all 3,506 rows, keyed on
+`relative_path`:
+
+| | run of record `2e3ea385` | warm replay `2e360336` |
+|---|---|---|
+| validated | 2,495 | **2,495** |
+| review | 15 | **15** |
+| withheld | 64 | **64** |
+| failed | 919 | **919** |
+| deferred | 13 | **13** |
+
+`outcome_class`, `outcome_reason`, `error_type`, `statement_bank`,
+`account_last4`, `source_path` and `truncated_pages` **differ on 0 rows**. So
+do `parser_id`, `parser_score`, `dispatch_outcome`, `candidates`, `attempted`
+and `parser_exceptions` — and 2,574 of those verdicts are reconstructions here
+against 105 there, so that is the row projection reproducing 2,469 live
+observations, not two runs agreeing about the same observation.
+
+The official instrument agrees: `python -m discovery.compare … --fail-on-regression`,
+**3,380 shared documents, movement `{unchanged: 3380}`, `identical: true`, no
+transitions, exit 0.**
+
+**The number this card is about, before and after.**
+
+| rollup | before | after |
+|---|---|---|
+| `telemetry.report` on a warm archive run | **0.0%** (`b7b40c73`, 0/3,506) | **74.1%** (`2e360336`, 2,574/3,476) |
+| `telemetry.report` on the run of record's frozen records | 70.4% (2,469/3,506) | **NOT COMPUTABLE** (105 analysed documents carry no verdict) |
+| `discovery.compare`'s distinct-document coverage | 74.1% (2,418/3,261) | **74.8%** (2,508/3,351) |
+| discovery's own run rollup | 74.1% (2,574/3,476) | unchanged, 74.1% |
+
+Three things to read carefully there:
+
+1. **The warm arm moved from 0.0% to 74.1%** — the repair, on the same archive,
+   the same mode and the same caches. 74.1% is not a new number: it is what
+   discovery's rollup already printed for the same documents, to six decimals
+   (`0.740506329113924` both sides — cross-instrument agreement asserted in
+   code, not eyeballed).
+2. **The cold arm's printed rate moves too, and it should.** The run of record
+   printed 70.4% while its own rows said 74.1%: even a "cold" run has
+   intra-run duplicates (105 records served from the cache) and 30 documents
+   that never reached the analysis stage in the denominator. What the fixed
+   report prints over those FROZEN records is not a repaired number but a
+   refusal — the 105 missing verdicts cannot be recovered from a finished
+   JSONL, and inventing a denominator that excludes them would be the same
+   defect one layer up.
+3. **`discovery.compare`'s figure is a different population, not a discrepancy.**
+   It is coverage over the 3,380 DISTINCT documents (126 duplicate-hash records
+   collapsed), where the fix recovers exactly 90 documents into both halves:
+   2,418/3,261 becomes 2,508/3,351.
+
+**An independent oracle for the reconstruction, at archive scale.** The run of
+record dispatched 2,469 documents live and OBSERVED their parser. Every one of
+them was served from the analysis cache on this replay, so every one is now a
+reconstruction in a record: **2,469 checkable, `parser_id` mismatches 0, score
+mismatches 0.** And the row and the record agree on all 3,506 documents of the
+replay (`parser_id`, `dispatch_outcome`), which is the property the shared
+derivation exists to make structural.
+
+**What the two W3-4 instruments do with the two runs**, which is defect 2's
+whole point:
+
+```
+$ python -m discovery.adjudication <b7b40c73>          # warm, pre-fix records
+discovery.adjudication: 90 of 90 diagnosed documents carry no parser_id, so a
+failure-class x parser view cannot be built.                          exit 2
+
+$ python -m discovery.adjudication <2e360336>          # warm, post-fix records
+adjudication workspace  run …-2e360336
+3380 distinct documents (from 3506 telemetry records; 126 collapsed)
+  NOTE 19 claims name no issuer (a document TEMPLATE, not a bank) and are
+       outside the label check … DO NOT rename the parser after the folder
+       Enterprise Bank & Trust -> core_processor_daily   8
+       Desjardins -> releve_facturation   6
+       El Dorado Savings Bank -> core_processor_daily   4
+       City Bank -> core_processor_daily   1
+clusters (77) …                                                       exit 0
+
+$ python -m telemetry.report --jsonl <b7b40c73> --diagnostics
+telemetry.report: 91 of 91 diagnosed documents carry no parser_id …    exit 2
+
+$ python -m telemetry.report --jsonl <2e360336> --diagnostics
+diagnosed 79 of 3506 documents
+  detail_coverage  rbc 6 . detail_coverage  td_canada_native 6 …       exit 0
+```
+
+No `--enrich`, no `--allow-unattributed`, on a run where 74% of the verdicts
+are reconstructions. That is the W3-2 table the cache-hit hole had been
+withholding since the baseline.
+
+**The run is RETAINED** beside the others in the gitignored
+`discovery_reports/` of this worktree, with its `rows.csv`, `summary.json`,
+`report.txt`, `hash_map.csv` and `telemetry.jsonl` intact, so the next archive
+proof can diff against it without re-running it.
