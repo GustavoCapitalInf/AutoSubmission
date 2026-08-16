@@ -625,3 +625,60 @@ def test_the_artifact_join_computes_the_same_key_the_analysis_cache_writes(tmp_p
     assert analysis_input_sha(markdown, None) not in join._analysis_index
     assert text_sha256(admissible_text(markdown)) not in join._analysis_index
     assert text_sha256(markdown) not in join._analysis_index
+
+
+def test_the_join_settings_key_is_the_production_analysis_key(tmp_path):
+    """The other half of the key: the SETTINGS side.
+
+    The join indexes the whole artifact table on one value of the analysis
+    settings key, so anything the key gains must be something this class can
+    reproduce. W3 §REGFP added the parser registry's fingerprint to it — a
+    per-RUN constant, which is why it belongs in the settings key and not in
+    the input hash — and the join reaches it for free because it imports
+    `analysis_settings_key` rather than assembling the settings dict itself.
+    Pinned here so that a future copy of that dict fails a test instead of
+    silently emptying the index.
+    """
+    from telemetry.stated_counts import _ArtifactJoin
+    from webapp.artifact_cache import analysis_settings_key
+
+    data_dir = tmp_path / "data"
+    _seed_one_document(data_dir, cached_under="s.pdf")
+
+    join = _ArtifactJoin(data_dir)
+    assert join.analysis_settings_key == analysis_settings_key(parse_mode="deterministic")
+    # Not vacuous: that key is the one the seeded entry was written under, so
+    # the index the join built from it is non-empty.
+    assert join._analysis_index
+
+
+def test_the_join_resolves_a_payload_from_a_process_that_never_loaded_the_parsers(tmp_path):
+    """The observer's real process: artifacts written here, read over there.
+
+    `telemetry` deliberately does not import `analysis.pipeline` (T12), so the
+    registry fingerprint W3 §REGFP put in the settings key would be computed
+    over an EMPTY registry in the observer's process unless deriving it LOADS
+    the registry. The failure would be invisible in exactly the way
+    FILENAME-BOUNDARY was: a key no run ever wrote, `payload_for` None on every
+    document, `REASON_PAYLOAD_ABSENT` on every row, and an instrument that stays
+    green while measuring nothing. The in-process tests above cannot see it —
+    pytest imported the parsers long before they run — so this one seeds through
+    `cached_analysis` here and resolves in a subprocess that asserts the parser
+    package is unimported at the moment the join is built.
+    """
+    data_dir = tmp_path / "data"
+    content_sha, payload = _seed_one_document(data_dir, cached_under="s.pdf")
+
+    code = (
+        "import sys, json;"
+        "from telemetry.stated_counts import _ArtifactJoin;"
+        "assert 'analysis.parser_registry_entries' not in sys.modules, "
+        "'the parsers were already loaded; this proves nothing';"
+        f"join = _ArtifactJoin({str(data_dir)!r});"
+        f"print(json.dumps(join.payload_for({content_sha!r}, 's.pdf')))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, cwd=ROOT
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout.strip().splitlines()[-1]) == payload

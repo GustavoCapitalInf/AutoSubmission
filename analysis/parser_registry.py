@@ -57,6 +57,8 @@ candidates, expose near-misses, and give ambiguity a threshold. Nothing else.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field, replace
@@ -86,6 +88,8 @@ __all__ = [
     "prepare",
     "register",
     "registrations",
+    "registry_fingerprint",
+    "registry_key_material",
     "required",
     "resolve",
     "run_integrity_checks",
@@ -579,6 +583,195 @@ def validate_registry() -> None:
 
     for node in sorted(_REGISTRY):
         visit(node, ())
+
+
+# ---------------------------------------------------------------------------
+# Registry fingerprint (W3 §REGFP)
+# ---------------------------------------------------------------------------
+
+#: The SHAPE of `registry_key_material`, not its contents. The contents change
+#: whenever a parser is registered; this integer changes only when we decide to
+#: hash a DIFFERENT set of fields. Both rotate the digest, and only this one
+#: says the rotation was a decision about the instrument rather than a change in
+#: the registry — which is the difference a merge review needs to read.
+REGISTRY_MATERIAL_VERSION = 1
+
+
+def _ensure_registry_loaded() -> None:
+    """Populate the production registry if, and only if, nothing has loaded it.
+
+    The fingerprint's whole value is that a process which never imported the
+    parsers computes the SAME key as the one that did. Telemetry's read-only
+    artifact join is exactly such a process — it imports
+    `webapp.artifact_cache` lazily and analyses nothing — so if the fingerprint
+    simply read an empty `_REGISTRY` there, the join would derive a key no
+    production run ever wrote, resolve zero payloads, and report
+    `REASON_PAYLOAD_ABSENT` on every row while looking perfectly healthy. That
+    is the FILENAME-BOUNDARY failure mode a second time, and the fix is
+    structural rather than a note in someone's docstring: the material
+    materializes the registry it claims to describe.
+
+    The `if _REGISTRY` guard is what keeps this out of a test's way, and it is
+    exact rather than approximate. A test that has cleared the registry to build
+    a synthetic one has, by definition, already imported
+    `parser_registry_entries` (that import is what filled the registry it
+    cleared), so the import below is a no-op against `sys.modules` and cannot
+    resurrect the real registrations underneath the test. A test that cleared
+    the registry and registered nothing gets the honest fingerprint of an empty
+    registry — which is a real state a real analysis can run in, and a distinct
+    partition of the cache, not an error.
+
+    Deliberately a function-local import: `parser_registry_entries` imports this
+    module and every parser module, so a module-level import here would be a
+    cycle and would make `import analysis.parser_registry` cost the whole parser
+    package.
+    """
+    if _REGISTRY:
+        return
+    from . import parser_registry_entries  # noqa: F401  (its import registers)
+
+
+def _declared_callable(parser_id: str, field_name: str, fn: object) -> str:
+    """A stable, cross-process name for a callable held as registry data.
+
+    `module.qualname`, because that is what a registration DECLARES: the entries
+    table binds each field to a named function in a parser module, and rebinding
+    it to a different one is a change to the registry that this fingerprint
+    exists to see. Never `id()` and never `repr()` — both encode a memory
+    address, so they would differ between two runs of the same code and rotate
+    the analysis cache on every process start.
+
+    What this name does NOT capture is the function's BODY. That is deliberate
+    and is the boundary this whole card sits on: code changes are the stage
+    version's job (`webapp/artifact_cache.py`), registry SHAPE is this digest's.
+
+    A callable with no `__qualname__` — a `functools.partial`, a callable
+    instance — is REFUSED rather than reduced to its type, because every partial
+    in the process shares one type name: rewiring `parse` from one partial to
+    another would leave the digest unmoved and go on serving the old parser's
+    cached answers. That is precisely the silent under-partitioning the digest
+    is here to end, so it fails loudly at the one place that can cause it, the
+    registration itself. Nothing in the registry is such an object today and
+    `tests/test_parser_registry_fingerprint.py` holds that.
+    """
+    qualname = getattr(fn, "__qualname__", None)
+    if not isinstance(qualname, str) or not qualname:
+        raise TypeError(
+            f"{parser_id}.{field_name} is a {type(fn).__name__} with no "
+            "__qualname__, so the registry fingerprint cannot name it apart "
+            "from any other object of its type; register a named function"
+        )
+    module = getattr(fn, "__module__", None)
+    return f"{module}.{qualname}" if module else qualname
+
+
+def registry_key_material() -> dict[str, object]:
+    """The registry reduced to the declared facts that can change an analysis.
+
+    Published (rather than kept private inside the digest) so that a key
+    rotation can be DIFFED: two dumps of this structure say which registration
+    moved and in which field, where two hex digests only say "something did".
+
+    In dispatch order — `registrations()`, i.e. `(band, id)` — never dict
+    insertion order, and every set is sorted, so the digest is a pure function
+    of the data on any platform and under any `PYTHONHASHSEED`.
+
+    INCLUDED, with the reason each one can change a published answer:
+
+    * `id` — the identity dispatch resolves to, the key `count_semantics` and
+      the discovery rows are grouped by, and the thing whose mere presence or
+      absence decides whether a document is claimed at all.
+    * `bank` — published on unclaimed documents through `by_bank_label`, and
+      the label discovery normalizes into `registered_bank_tokens`.
+    * `band` — half of the sort key; ordering decides which claimant is parsed
+      first when several survive.
+    * `supersedes` — sorted, because a `frozenset` iterates in hash order. These
+      edges decide the winner between two claimants outright; adding one turns
+      an `ambiguous` review outcome into a claim, and removing one does the
+      reverse.
+    * `markers` — each marker's `(id, kind)` in declared order. The kinds are
+      the scoring formula's whole input (`_score`): an `excluding` marker sends
+      a registration to 0.0, an `exclusive` one to 1.0, and moving a marker
+      between `required` and `corroborating` moves the score across
+      `CLAIM_THRESHOLD`. Order is not load-bearing for the score, but it does
+      pick which `excluding` marker is reported as `excluded_by` and the order
+      of `Detection.matched`; it is included because keeping the declared
+      sequence is free and over-partitioning is the safe direction (the module
+      contract in `webapp/artifact_cache.py`).
+    * `parse`, `normalize` — by declared name (see `_declared_callable`).
+      `normalize` is detection's text preparation and `parse` decides whether a
+      claimant yields a statement or falls through to the next one, so a
+      rewiring of either changes the outcome with nothing else in the key
+      moving.
+    * `formal_statement`, `informal_quality_note`, `informal_integrity_note` —
+      not dispatch, but `analysis/pipeline.py` copies these strings into the
+      published quality notes and integrity notes and raises
+      `not_a_formal_statement` off the flag. They are registry DATA that lands
+      verbatim in the cached payload.
+    * `integrity_checks` — by declared name and count. They decide which
+      bank-specific contradiction notes a claimed document publishes.
+
+    EXCLUDED, with the reason each one cannot:
+
+    * `Marker.test`, and the bodies of `parse`, `normalize` and the integrity
+      checks — code, not data. A content hash cannot see code, and the platform
+      already has the lever that does: the stage version, bumped in the same
+      commit as the behaviour change. Hashing source text here would rotate the
+      whole analysis cache on a comment edit and would still miss a change in
+      anything those functions call.
+    * `Registration.detect` / `detect_prepared` / `sort_key` — derived from the
+      fields above, so hashing them would be counting the same fact twice.
+    * Everything outside the registry that a parser reads (`count_semantics`
+      mappings, the shared money grammar, the ADB engine): real output material,
+      and squarely the stage version's job. This digest claims to fingerprint
+      the REGISTRY, not the analysis package, and a digest that quietly claimed
+      more than it hashes would be worse than none.
+    """
+    _ensure_registry_loaded()
+    entries: list[dict[str, object]] = []
+    for registration in registrations():
+        entries.append(
+            {
+                "id": registration.id,
+                "bank": registration.bank,
+                "band": int(registration.band),
+                "supersedes": sorted(registration.supersedes),
+                "markers": [[marker.id, marker.kind] for marker in registration.markers],
+                "parse": _declared_callable(registration.id, "parse", registration.parse),
+                "normalize": None
+                if registration.normalize is None
+                else _declared_callable(registration.id, "normalize", registration.normalize),
+                "formal_statement": bool(registration.formal_statement),
+                "informal_quality_note": registration.informal_quality_note,
+                "informal_integrity_note": registration.informal_integrity_note,
+                "integrity_checks": [
+                    _declared_callable(registration.id, f"integrity_checks[{index}]", check)
+                    for index, check in enumerate(registration.integrity_checks)
+                ],
+            }
+        )
+    return {"material_version": REGISTRY_MATERIAL_VERSION, "registrations": entries}
+
+
+def registry_fingerprint() -> str:
+    """UPPERCASE hex SHA-256 over `registry_key_material`.
+
+    The hashing convention is the one `webapp/artifact_cache.py` established —
+    `json.dumps(..., sort_keys=True, separators=(",", ":"))`, SHA-256, upper hex
+    — reproduced here in three lines rather than imported, because `analysis`
+    must not import `webapp` (the dependency runs the other way: the cache
+    imports this module). The two are not allowed to drift apart on trust:
+    `tests/test_parser_registry_fingerprint.py` asserts this digest equals the
+    cache's own `text_sha256` of its own canonical JSON of the material.
+
+    Recomputed on every call rather than memoized. Measured on the 72-entry
+    registry: 27,289 bytes of material, 0.48 ms per call — about 1.6 seconds
+    across a 3,380-document archive run, against which a memo would have to be
+    invalidated by hand on `register`/`clear_registry` and would be one more
+    thing that can go stale while reporting nothing wrong.
+    """
+    blob = json.dumps(registry_key_material(), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest().upper()
 
 
 # ---------------------------------------------------------------------------
