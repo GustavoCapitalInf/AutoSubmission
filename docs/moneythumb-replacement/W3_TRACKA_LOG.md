@@ -27202,3 +27202,213 @@ other batch-5 cells at once, which is the only reason the two runtimes are
 | `42e4055` | this section, FI0–FI5 |
 | `c536dbf` | the corpus gate proof |
 | (this one) | the corpus-marked slice proof, the no-movement statement, and this table |
+
+---
+
+# §REGFP — the parser registry enters the analysis cache key (batch 6, card 4)
+
+## RF0. Summary
+
+`analysis_settings_key` fingerprinted five things: the stage version, the parse
+mode, and three `analysis.config` knobs. The registry it dispatches on — 72
+registrations, their bands, their `supersedes` edges, their markers — was
+invisible to it. **Register a parser without bumping the stage version and every
+document that registration affects keeps being served its pre-registration
+analysis out of the cache**, correctly keyed, indistinguishable from a fresh
+computation, for as long as the entry lives. What stood between that and a wrong
+published answer was the composed `ANALYSIS_STAGE_VERSION` bump this programme
+performs at every train: a policy, and policies are remembered by people.
+
+The key now carries `parser_registry` — an ordered digest over the registry's
+declared data. Registering, removing, rewiring or re-banding a parser rotates
+the analysis cache **by construction**, with no bump and no ceremony.
+
+**This invalidates the analysis cache at the merge where it lands.** Every
+analysis entry in the archive was written under a key with no `parser_registry`
+field; none is reachable afterwards. That is the intended effect and not a side
+effect. No stage version is bumped in this branch — Ocean's composed train bump
+covers the re-measurement, and the re-measurement is the *same values*: RF5
+recomputes all 3,380 archive documents at HEAD and finds zero movement.
+
+## RF1. What the key could not see
+
+`webapp/artifact_cache.py:499-517` (pre-change) hashed
+`{stage_version, parse_mode, model, escalation_model,
+withholding_denominator_mode}`. Nothing else reached it. The registry's 72
+entries, their `(band, id)` dispatch order, their 200 markers, their 10
+`supersedes` edges and their 12 integrity checks were not key material, so:
+
+* a registration ADDED changed unclaimed documents into claimed ones — and
+  served the old `failed` analysis to anything already cached;
+* a registration REMOVED did the reverse;
+* a `supersedes` edge added or dropped flipped documents between `claimed` and
+  `ambiguous` (review), invisibly;
+* a `parse` rebound to a different reader published a different statement under
+  the same key.
+
+Each of those is a real change this programme makes routinely — registry 53 →
+68 → 71 → 72 across four batches — and each was covered only by the train's
+composed bump.
+
+## RF2. The material, item by item
+
+`analysis.parser_registry.registry_key_material()` returns the registry in
+DISPATCH order (`registrations()`, i.e. `(band, id)`), every set sorted, wrapped
+in `{"material_version": 1, "registrations": [...]}`.
+`registry_fingerprint()` is the UPPER-hex SHA-256 of its canonical JSON.
+27,289 bytes of material over the 72 entries; 0.48 ms per call, measured, so it
+is recomputed on every call and never memoized — a memo would be one more thing
+that can go stale while reporting nothing wrong.
+
+**Included, and why each can change a published answer**
+
+| Field | Why it is material |
+|---|---|
+| `id` | the identity dispatch resolves to; its presence or absence decides whether a document is claimed at all, and it is the key `count_semantics` and the discovery rows group by |
+| `bank` | published on unclaimed documents through `by_bank_label`; normalised into `discovery.evidence.registered_bank_tokens` |
+| `band` | half of the sort key; ordering decides which surviving claimant is parsed first |
+| `supersedes` (sorted) | decides the winner between two claimants outright — adding one turns an `ambiguous` review outcome into a claim, dropping one does the reverse |
+| `markers` — each `(id, kind)`, declared order | the kinds ARE the scoring formula's input (`_score`): `excluding` → 0.0, `exclusive` → 1.0, and moving a marker between `required` and `corroborating` moves the score across `CLAIM_THRESHOLD` |
+| `parse`, `normalize` — `module.qualname` | `normalize` is detection's text preparation; `parse` decides whether a claimant yields a statement or falls through to the next one |
+| `formal_statement`, `informal_quality_note`, `informal_integrity_note` | not dispatch, but `analysis/pipeline.py` copies these strings into the published quality and integrity notes and raises `not_a_formal_statement` off the flag — registry data landing verbatim in the cached payload |
+| `integrity_checks` — declared names | they decide which bank-specific contradiction notes a claimed document publishes |
+
+**Excluded, and why each cannot**
+
+| Not hashed | Why |
+|---|---|
+| `Marker.test` bodies; the bodies of `parse` / `normalize` / the integrity checks | code, not data. A content hash cannot see code and the platform already has the lever that does: the stage version, bumped in the same commit as the behaviour change. Hashing source text would rotate the entire archive's analysis cache on a comment edit and would still miss a change in anything those functions call. `test_a_markers_test_body_is_not_key_material` states this as an assertion rather than a paragraph. |
+| `Registration.detect`, `detect_prepared`, `sort_key` | derived from the fields above; hashing them counts the same fact twice |
+| `count_semantics` mappings, the shared money grammar, the ADB engine, every other table in `analysis/` | real output material and squarely the stage version's job. This digest fingerprints the REGISTRY, and one that quietly claimed more than it hashes would be worse than none. **Named as a limit, not closed.** |
+
+Marker declared ORDER is inside the digest although it does not change a score
+(`_score` partitions by kind before counting). It does pick which `excluding`
+marker is reported as `excluded_by` and the order of `Detection.matched`, and
+keeping the declared sequence is free: over-partitioning is the direction
+`webapp/artifact_cache.py`'s contract calls safe.
+
+Callables are recorded as `module.qualname`, never `id()` and never `repr()` —
+both encode a memory address and would rotate the cache on every process start.
+A callable with no `__qualname__` (a `functools.partial`, a callable instance)
+is REFUSED at the registration rather than reduced to its type name, because
+every partial in a process shares one type name: rewiring `parse` from one
+partial to another would leave the digest unmoved. Nothing in the registry is
+such an object today and a test holds that for all 72.
+
+## RF3. Why the SETTINGS key, and how the join keeps up
+
+The registry is a **per-RUN constant** — one registration set serves every
+document of a run — so it belongs in the settings key. WIRING-2's lesson was the
+exact inverse and is worth restating beside it: the page partition is
+per-DOCUMENT, which is why it had to go into `analysis_input_sha`; a
+per-document value in the settings key would have shattered the telemetry
+observer's one-value index and blinded it while it reported nothing wrong.
+
+`telemetry/stated_counts.py::_ArtifactJoin` reconstructs this key to find a
+run's payloads. It picks the fingerprint up for free because it **imports**
+`analysis_settings_key` rather than assembling the settings dict itself — a
+repo-wide grep confirms there is exactly one derivation of the analysis settings
+material (`webapp/artifact_cache.py:499`; `"stage_version"` appears in three
+places, all inside that module's three key functions) and exactly one call site
+that reconstructs it (`telemetry/stated_counts.py:783`).
+
+There was one real hazard, and it is closed structurally. `telemetry` must not
+drag in `analysis.pipeline` (T12), so the observer's process has no parsers
+loaded: reading an empty `_REGISTRY` there would have produced a key no
+production run ever wrote, `payload_for` → None on every document,
+`REASON_PAYLOAD_ABSENT` on every row — the FILENAME-BOUNDARY failure a third
+time. `_ensure_registry_loaded` therefore imports the entries module when, and
+only when, the registry is empty. The guard is exact rather than approximate: a
+test that CLEARED the registry has by definition already imported that module,
+so the import is a `sys.modules` no-op and cannot resurrect the real
+registrations underneath it.
+
+## RF4. The two guards, and what kills them
+
+| Guard | Statement |
+|---|---|
+| `test_a_new_registration_moves_the_analysis_settings_key` | a synthetic registration added to a scratch registry moves the key — and removing it again returns the BYTE-IDENTICAL key, so the digest is a pure function of the registry rather than a counter, and a reverted merge re-reaches the artifacts it wrote |
+| `test_the_key_is_byte_identical_across_two_fresh_processes` | two subprocesses under `PYTHONHASHSEED=0` and `=1` print the same fingerprint and the same settings key, and both equal this process's. String hashing is randomized per process, so a digest that leaked a `set` or `dict` iteration order would differ here — verified live: `list(frozenset({...5 strings...}))` genuinely returns two different orders under those two seeds |
+
+Both were mutation-killed rather than merely observed green:
+
+* deleting `"parser_registry": registry_fingerprint()` from the settings dict →
+  3 failures (`…moves_the_analysis_settings_key`,
+  `…reads_the_registry_fingerprint`, `…loads_the_registry_when_nothing_else_has`);
+* neutering `_ensure_registry_loaded` to `return` → 3 failures, including
+  telemetry's `test_the_join_resolves_a_payload_from_a_process_that_never_loaded_the_parsers`.
+
+Around them: every declared field partitions the digest (12 parametrized
+cases + integrity-check swap + registration removal), insertion order does not,
+`supersedes` is hashed sorted, an empty registry is a distinct honest partition,
+the digest agrees with the cache's own `text_sha256`-of-canonical-JSON, all 72
+registrations declare nameable callables, and a `functools.partial` is refused
+by name.
+
+## RF5. Zero movement — the full population, recomputed
+
+Expected movement was ZERO: same registry, same code, only the key material
+changes. Proven over the whole archive rather than argued.
+
+**Instrument.** For each of the 3,380 distinct `content_sha256` of the run of
+record (`2026-08-16T000943.012887-0000-2e3ea385`): the cached OCR artifact was
+read **by direct file path** — the `webapp_data` sqlite index was never opened —
+by recomposing `cache_key(STAGE_OCR, sha, ocr_settings_key(...))` over the three
+offline partitions; `StatementMarkdown.to_markdown()` and its page list were
+rebuilt exactly as the worker hands them to the analysis; the payload the run
+published was read from
+`artifacts/analysis/<2>/cache_key(STAGE_ANALYSIS, analysis_input_sha, OLD_settings_key)>.json`,
+where OLD is the v13 deterministic settings key without `parser_registry`; and
+the analysis was recomputed at HEAD and compared byte-for-byte as canonical
+JSON. Read-only throughout; nothing was written to the archive; $0 vendor.
+
+| | documents |
+|---|---|
+| population (distinct shas, run of record) | **3,380** |
+| published payload, recomputed **byte-identical** | **2,508** |
+| published payload, moved | **0** |
+| no cached payload, recompute raises again (the `failed` class) | 843 |
+| no OCR artifact reachable (16 `failed`/`invalid_pdf`) + cached NEGATIVE OCR (13 `deferred`) | 29 |
+| payload that now raises, or absence that now publishes | **0 / 0** |
+
+2,508 is exactly the run of record's published population (validated 2,430 +
+review 15 + withheld 63) and 843 + 16 is exactly its 859 `failed`. **No document
+of any class moves; there is no mover to name.**
+
+## RF6. The cost, stated
+
+At the merge, every analysis artifact in the store becomes unreachable — 2,508
+live entries at v13, and the older-version entries below them, all orphaned
+rather than corrupted (they stay on disk under their own keys, exactly as the
+`OCR_STAGE_VERSION` 2→3 note describes). The next archive run recomputes them
+cold. Vendor cost stays **$0.00** — the deterministic path makes no model calls
+— and the wall clock is paid again: RF5's recompute of the whole population took
+about 55 minutes at 4-way parallelism on a machine carrying nine other cells,
+which is the honest order of magnitude for that re-measurement.
+
+Ocean's composed train bump would have invalidated the same entries anyway. The
+difference this card makes is that it will now happen whether or not anyone
+remembers to bump.
+
+## RF7. Carried findings for Ocean
+
+1. **The digest fingerprints the registry, not the analysis package.** A change
+   to `count_semantics`' CountMapping table, the shared money grammar, the ADB
+   engine or any parser's BODY still needs the stage version. The boundary is
+   documented in the material's docstring and asserted by
+   `test_a_markers_test_body_is_not_key_material`. If a future card wants the
+   wider guarantee, the honest instrument is a source digest over `analysis/`,
+   not a widening of this one.
+2. **Deriving the key now imports the parser package** when the calling process
+   has not. `webapp.artifact_cache` remains import-light (the load happens on
+   CALL, not on import), but a process that computes an analysis cache key now
+   pays one parser-package import. Measured at 0.5 s total for a cold
+   `python -c "…analysis_settings_key()"`.
+3. **Lambdas are accepted, `functools.partial` is refused.** The test registries
+   under `tests/` register lambdas, and every lambda in a module shares
+   `<lambda>`, so the digest is imprecise for THEM. It is exact for the 72
+   production registrations, which
+   `test_the_production_registry_declares_only_nameable_callables` pins.
+4. `REGISTRY_MATERIAL_VERSION = 1` is new and is NOT a stage version. It moves
+   only when we decide to hash a different set of fields, which is the one thing
+   a digest change cannot otherwise be distinguished from.
