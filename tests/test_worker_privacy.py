@@ -314,6 +314,67 @@ def test_the_sentinel_appears_nowhere_in_the_durable_store(monkeypatch, store):
     assert "invalid literal" not in blob
 
 
+def test_no_package_export_carries_the_exception_text(monkeypatch):
+    """THE SINK THE CARD DID NOT NAME.
+
+    `_package_analysis` copies BOTH columns into every member's `doc_row`
+    (`webapp/app.py:880-881`) and `_package_rows` then walks EVERY key of that
+    dict into the CSV and the XLSX. `_masked` does not touch them —
+    `_ACCOUNT_KEYS` is `{account, account_number}` — so the leak was not merely
+    rendered in a browser: it was written into the spreadsheet an underwriter
+    downloads and keeps. `_escaped_rows` would have neutralised it as a formula
+    and passed it through as text.
+
+    Driven through the real Flask app and the real export routes, because the
+    columns being clean at the store is not the same claim as the export being
+    clean.
+    """
+    import io
+    import zipfile
+
+    from webapp.app import app as flask_app
+    from webapp.app import store as app_store
+
+    _read_ok(monkeypatch)
+    _analysis_raises(monkeypatch, ValueError(POISONED_MESSAGE))
+    analysis_job = app_store.create("export-analysis-failure.pdf")
+    run_job(analysis_job.id, b"%PDF-export-analysis-failure",
+            "export-analysis-failure.pdf", app_store)
+
+    def boom(pdf_bytes, source_file="", **kwargs):
+        raise RuntimeError(POISONED_MESSAGE)
+
+    monkeypatch.setattr("webapp.worker.parse_statement", boom)
+    read_job = app_store.create("export-read-failure.pdf")
+    run_job(read_job.id, b"%PDF-export-read-failure",
+            "export-read-failure.pdf", app_store)
+
+    assert app_store.get(analysis_job.id).analysis_error
+    assert app_store.get(read_job.id).error
+
+    client = flask_app.test_client()
+    ids = f"{analysis_job.id},{read_job.id}"
+
+    for fmt in ("json", "csv"):
+        response = client.get(f"/package_download/{fmt}?ids={ids}")
+        assert response.status_code == 200, (fmt, response.status_code)
+        body = response.get_data(as_text=True)
+        # The sink is LIVE: both fields really are exported, so the two
+        # absences below are about the content and not about the field.
+        assert "analysis_error" in body and "error" in body
+        assert PROVOKING_TOKEN not in body
+        assert EXCEPTION_ONLY_SENTINEL not in body
+        assert "invalid literal" not in body
+
+    response = client.get(f"/package_download/xlsx?ids={ids}")
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.get_data())) as archive:
+        sheet = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+    assert "analysis_error" in sheet
+    assert PROVOKING_TOKEN not in sheet
+    assert EXCEPTION_ONLY_SENTINEL not in sheet
+
+
 # ---------------------------------------------------------------------------
 # The declared refusal — a named reason survives, and only by exact match
 # ---------------------------------------------------------------------------

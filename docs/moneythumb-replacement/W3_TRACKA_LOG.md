@@ -27482,3 +27482,19 @@ Two honest caveats on that census, both measured rather than waved away:
    not — but that is a D-2b/D-7 decision about retention and access, not
    something an exception-boundary card gets to invent (WP2 D1).
 
+## WP7. One behaviour change beyond the message, found by reading the consumers
+
+`_emit` computes `error_reason="analysis_error" if analysis_error and not
+error_type else None` — a TRUTHINESS test on the string this cell replaced. An
+exception raised with no message (`raise ValueError()`) previously produced
+`analysis_error == ""`, which is falsy, so the telemetry record booked
+`error_reason=None` and the browser rendered the fallback "No analysis report
+was generated". The replacement is never empty, so such a document now books
+`error_reason="analysis_error"` and shows the named reason.
+
+Strictly more honest in both places — an analysis error DID occur — and it
+cannot touch the archive (`_emit` here is the webapp emitter; the discovery
+runner has its own). Recorded because it is a real delta that the message
+change alone does not describe, and because "the new string is never empty" is
+the kind of property that changes a downstream truthiness test silently.
+
