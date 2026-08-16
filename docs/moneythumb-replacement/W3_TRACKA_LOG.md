@@ -27427,3 +27427,93 @@ remembers to bump.
    cell's to edit** (ownership: `webapp/artifact_cache.py`, the registry-side
    helper, tests, this log), so the paragraph is left standing and flagged here
    for whoever owns that module.
+
+## RF8. Proofs
+
+All on `3e30daa`, all offline, $0 vendor. Nine other cells were running on this
+machine throughout, which is the only reason the two long runtimes are 1012.3s
+and 2373.16s rather than the usual figures — three other `pytest -m corpus`
+processes were resident during the slice.
+
+```
+$ python -m pytest -q
+4540 passed, 34 skipped, 31 deselected, 1 warning in 231.69s
+EXIT=0                                   # 4,511 + 29 new (27 + 2)
+
+$ python -m pytest -m corpus -q
+27 passed, 4578 deselected, 1 warning in 2373.16s (0:39:33)
+EXIT=0                                   # the corpus-marked slice, 27/27
+
+$ python corpus_gate.py
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 4 review / 102 validated / 3 withheld
+Runtime:  1012.3s
+RESULT: GREEN
+EXIT=0
+
+$ python -m pytest tests/test_parser_conformance.py -q
+668 passed in 1.97s                      # incl. the 72 x 71 = 5,112
+EXIT=0                                   # detection-negative cross product
+
+$ python -m pytest tests/test_parser_registry_fingerprint.py -q
+27 passed in 2.85s
+EXIT=0
+
+$ GEMINI_MODEL=gemini-other-model WITHHOLDING_DENOMINATOR_MODE=verified_revenue \
+      python -m pytest tests/test_parser_registry_fingerprint.py -q
+27 passed in 2.87s                       # the cross-process guard under
+EXIT=0                                   # non-default analysis knobs
+
+$ python -m pytest tests/test_stated_counts.py -q
+69 passed in 1.47s                       # 67 + the two join tests
+EXIT=0
+```
+
+Mutation kills (each applied, run, and reverted):
+
+```
+# 1. drop `"parser_registry": registry_fingerprint()` from the settings dict
+3 failed, 24 passed
+FAILED …::test_a_new_registration_moves_the_analysis_settings_key
+FAILED …::test_the_analysis_settings_key_reads_the_registry_fingerprint
+FAILED …::test_the_fingerprint_loads_the_registry_when_nothing_else_has
+
+# 2. neuter `_ensure_registry_loaded` to `return`
+3 failed, 93 passed
+FAILED tests/test_stated_counts.py::test_the_join_resolves_a_payload_from_a_
+       process_that_never_loaded_the_parsers
+FAILED …::test_the_key_is_byte_identical_across_two_fresh_processes
+FAILED …::test_the_fingerprint_loads_the_registry_when_nothing_else_has
+# restored: 96 passed
+```
+
+Read-only archive measurements (no writes, sqlite index never opened):
+
+```
+full-population recompute, 3,380 documents (RF5)
+  compared payloads 2,508 · identical 2,508 · moved 0
+  no payload, raises again 843 · no OCR artifact 16 · cached-negative OCR 13
+  payload_now_raises 0 · no_payload_now_publishes 0
+
+invalidation, 249 documents sampled by direct path (RF6)
+  old settings key 205EB02A2C4B0A69D2AFA289F7A70B9EC81DED1004B97717751DFA64482EE9AF
+  new settings key 8B55E19D47FE7FEC4FC87BBD20F4CEBF02A8537EB3AE6AE102C5438F4FEADCE9
+  payloads present under the old key 190 · under the new key 0
+
+registry fingerprint at HEAD
+  3F1ADB24F856897DDDE4265D4F28C9FCA31BFEB1B37F2773C128C4EB973A5A51 (72 entries)
+  unchanged when the registry dict is rebuilt in reverse insertion order
+  frozenset iteration order verified to differ under PYTHONHASHSEED 0 vs 1,
+  which is what makes the sorted() in the material load-bearing
+```
+
+## RF9. Commits
+
+| Commit | Contents |
+|---|---|
+| `3cf701a` | `registry_key_material` / `registry_fingerprint` / `_ensure_registry_loaded` / `_declared_callable` in `analysis/parser_registry.py`; `parser_registry` into `analysis_settings_key`; the cache module's docstring (the analysis settings enumeration and the code-vs-registry-shape carve-out); `tests/test_parser_registry_fingerprint.py` (27); the two join tests in `tests/test_stated_counts.py` |
+| `6696a45` | this section, RF0–RF7 |
+| `7cee1f7` | RF7.5 — the discovery projection's registry window, closed here and flagged for its owner |
+| `3e30daa` | the cross-process guard inherits the parent environment (a defect in the guard, caught and killed before merge: it scrubbed `WITHHOLDING_*` out of the child only) |
+| (this one) | RF8 proofs and this table |
