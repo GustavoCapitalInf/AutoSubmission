@@ -27594,3 +27594,118 @@ payload that is not a dict, which the runner cannot produce. Every rollup
 quoted above — the report, the compare, the adjudication workspace, the
 diagnostics table — was RE-RUN over the retained artifacts on the final tree,
 and the numbers here are those re-runs.
+
+## TC8. Tests
+
+**18 new test functions, 20 collected default tests** (one is parametrized
+three ways), and no new corpus-marked test: the archive-scale record proof was
+folded into the corpus-marked warm-rerun test §DISCOBS already pays two passes
+over 109 documents for. Mechanical tally, `def test_` over base `8570bce`:
+
+| file | before | after | what was added |
+|---|---|---|---|
+| `tests/test_telemetry.py` | 44 | **54** | the derived `source`; the reconstruction and its three refusals (parametrized); the inconclusive sweep; the structurer constant; the type guard; and four on `coverage()` — the numerator surviving a cache hit, deferred outside the denominator, the refusal, and a failed document NOT counted as a missing verdict |
+| `tests/test_discovery.py` | 43 | **46** | the record's half of the cache-hit hole end to end (row == record == cold); `unavailable` still reachable; an LLM payload projecting nothing |
+| `tests/test_adjudication.py` | 37 | **42** | the template claim exempted; a claim that names an issuer still judged; the ordering; the fail-closed `None`; the two artifacts sharing one rule |
+| `tests/test_telemetry_corpus.py`, `tests/test_diagnostics.py` | 7 / 40 | 7 / 40 | call sites only |
+
+**Two existing tests changed, and one of them was passing for the wrong
+reason.** `test_a_cached_payload_whose_detection_is_inconclusive_names_no_parser`
+fed `{"model_used": "x"}` to a function that now refuses a non-deterministic
+payload BEFORE it reaches the two-survivor branch the test is named for; its
+payload is now a deterministic one, and the LLM case it had been covering by
+accident is its own test. And the corpus-marked
+`test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered` gained the
+telemetry arm: `dispatch.source` `live` on the cold pass and `cached` on the
+warm one, eight dispatch fields plus `outcome` and `diagnostics` equal per
+document keyed on `content_sha256`, `coverage(cold) == coverage(warm) ==
+{numerator: 109, denominator: 109, deferred: 0, unattributed: 0, rate: 1.0}`,
+the cross-instrument equality against `discovery.report`'s own rollup on BOTH
+passes, and `all(record["dispatch"]["parser_id"] for record in warm)` — the
+`--enrich` bridge proven unnecessary for a run emitted now.
+
+## TC9. Proofs
+
+One machine shared with nine other batch-6 cells, so the wall clocks are loaded
+rather than representative. Every figure below is from ONE sequential chain on
+the final tree — after an earlier chain was KILLED at 39% because two hardening
+commits had landed under it, and an assertion no run has executed is not a
+proof.
+
+```
+# full default suite
+4531 passed, 34 skipped, 31 deselected in 294.52s          SUITE_EXIT=0
+   (base 8570bce: 4,511 / 34 / 31. +20, matching TC8's mechanical tally.)
+
+# guards
+242 passed in 20.69s                                       GUARDS_EXIT=0
+   test_no_statement_hardcodes . test_no_parser_helper_clones .
+   test_r1_hardcodes . test_experiments_are_not_wired . test_filename_boundary
+
+# conformance cross-product + registry (72 registrations)
+1126 passed, 34 skipped in 5.54s                           CONFORMANCE_EXIT=0
+   test_parser_conformance . test_parser_registry_entries .
+   test_parser_detection_markers . test_parser_registry .
+   test_parser_crash_shapes . test_parser_exception_boundary .
+   test_count_semantics
+
+# corpus gate (python corpus_gate.py), 910.3s
+[PASS] inventory . foreign_files . source_integrity . balance_audit . adb_audit
+[PASS] balance_outcomes: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes:     106 pass, 3 withheld, same three statements
+[PASS] outcome_classes: 109 statements publish their pinned verdict (outcome
+       class and the whole integrity block): 4 review / 102 validated / 3 withheld
+[PASS] adb_doctrine: 109/109 publish 'calendar_day_printed_period'
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR, no live OCR, no model calls
+[PASS] exclusions: 0 named exclusions
+[PASS] oracle_independence
+Outcomes: 106 PASS / 3 WITHHELD    Verdicts: 4 review / 102 validated / 3 withheld
+RESULT: GREEN                                              GATE_EXIT=0
+
+# corpus-marked slice (pytest -m corpus -q -rA), 2374.29s
+27 passed, 4569 deselected                                 CORPUS_EXIT=0
+   (base 8570bce: 27. No corpus-marked test was added; the warm-rerun one
+    grew the telemetry arm inside the two passes it already paid for.)
+   incl. test_corpus_gate_is_green . the seven verdict-check reds .
+   test_dry_run_reproduces_known_truth .
+   test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered .
+   test_parser_parity (all 12) . test_telemetry_corpus (both) . test_truncation
+
+# archive warm replay (python -m discovery --scanned, run 2e360336)
+3,506 documents, 2,574 of 3,476 verdicts reconstructed     REPLAY_EXIT=0
+   outcome split identical to the run of record, 0 movers on 13 fields;
+   wrote nothing to the shared store (TC7)
+
+# the official movement instrument
+python -m discovery.compare <2e3ea385> <2e360336> --fail-on-regression
+   3,380 shared, movement {unchanged: 3380}, identical: true    exit 0
+```
+
+## TC10. Risks
+
+1. **A shared signature moved.** `dispatch_section(..., source=)` became
+   `(..., payload=)`, keyword-only and required. All four call sites in the
+   tree are updated (`batch.py`, `webapp/worker.py`, `discovery/runner.py`,
+   the corpus anchor harness). Any batch-6 sibling that adds an emitter will
+   conflict at the train; the failure mode is a `TypeError` at the call site,
+   which is why the parameter has no default.
+2. **`webapp/worker.py` is also WORKER-PRIVACY's file** this batch. My hunk is
+   the emit call site (3 lines); theirs is the exception boundary at lines ~94
+   and ~335. Disjoint, but Ocean should merge them in either order knowingly.
+3. **`summarize()["deterministic_coverage"]` can now be `null`.** No in-repo
+   consumer reads it (grepped: the webapp does not; `discovery/report.py` and
+   `discovery/compare.py` compute their own). An external script that assumed
+   a float would need to handle the absence — which is the point of the field.
+4. **Two additive keys in the W3-4 workspace** (`template_claim_documents`,
+   `template_claim_pairs`) and one additive `Document` field
+   (`claim_names_issuer`). `read_folder_labels`'s tuple went from 2 to 3
+   elements; its one caller is in the same module.
+5. **The REGFP window is inherited, not closed.** A cached payload authored by
+   a parser that today loses a `supersedes` contest is named wrongly and
+   confidently by the reconstruction, in the record now as well as in the row.
+   REGFP (batch 6) is the structural fix; if it lands in this train the
+   analysis cache rotates and the next run is cold, which is harmless — the
+   rate is a function of claims, not of cache temperature, and that is the
+   property this card restores.
+6. **`--enrich` is kept**, so the pre-#TELCOV runs stay readable. If a future
+   cell wants it gone, the number to beat is the 11 retained runs in TC4.
