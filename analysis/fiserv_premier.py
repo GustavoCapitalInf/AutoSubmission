@@ -64,7 +64,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from .date_tokens import iso_within_period
+from .date_tokens import MONTH_NAME_ALT, iso_from_named_month_day, iso_within_period
 from .money import PARENS_OR_LEADING_MINUS, parse_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -93,6 +93,24 @@ _PERIOD_RE = re.compile(
     r"Statement Dates\s+(\d{1,2})/(\d{1,2})/(\d{2})\s+to\s+"
     r"(\d{1,2})/(\d{1,2})/(\d{2})\s*\((\d+)\s*days?\)"
 )
+
+#: The SECOND period wording, printed by the third issue: the two dates in the
+#: masthead heading and the length in the activity strip, instead of the dates
+#: and the length in one clause.
+#:
+#: Anchored on `Statement of Account` rather than floating, because the pattern
+#: is otherwise two capitalized month words around `thru` and the disclosures
+#: below are prose. The month table is the shared one (`MONTH_NAME_ALT` /
+#: `iso_from_named_month_day`) so a month can never mean two things here and
+#: something else elsewhere.
+_LONG_PERIOD_RE = re.compile(
+    r"Statement of Account\s+(" + MONTH_NAME_ALT + r")\s+(\d{1,2}),\s*(\d{4})"
+    r"\s+thru\s+(" + MONTH_NAME_ALT + r")\s+(\d{1,2}),\s*(\d{4})",
+    re.IGNORECASE,
+)
+#: `Activity Summary Days in the Statement Period:  30` — the length, printed
+#: away from the dates.
+_DAYS_RE = re.compile(r"Days in the Statement Period:\s*(\d+)")
 _TITLE_RE = re.compile(r"Account Title:\s*(.+?)\s*$", re.MULTILINE)
 _PRODUCT_RE = re.compile(r"^(.+?)\s+-\s+(X+\d+)\s*$", re.MULTILINE)
 
@@ -124,6 +142,96 @@ _ACTIVITY_ROW_RE = re.compile(
 #: next row's amount and silently merges two postings into one.
 _PLAIN_ROW_RE = re.compile(
     r"(?<![\d/])(\d{1,2}/\d{1,2})\s+(?:([^$]+?)\s+)?(-?\$[\d,]*\.\d{2})(?=\s|$)"
+)
+
+#: ---------------------------------------------------------------------------
+#: The THIRD printed issue's ledger (W3 §FISERVISS FI2.2, card FISERV-ISSUE3).
+#: ---------------------------------------------------------------------------
+#: Its section heads. `Deposits` and `Other Credits` are two printed sections of
+#: ONE direction; `Debits` and `Checks Cleared` are two printed sections of the
+#: other. The cheque recap is a posting section here, not a recap: its items are
+#: inside the printed `Checks/Debits` count and total, and the arithmetic below
+#: proves it — dropping it leaves every one of the four documents short.
+_EMBEDDED_HEAD_RES = (
+    ("credit", re.compile(r"^Deposits\s+Date\s+Description\s+Amount\s*\$?(.*)$")),
+    ("credit", re.compile(r"^Other Credits\s+Date\s+Description\s+Amount\s*\$?(.*)$")),
+    ("debit", re.compile(r"^Debits\s+Date\s+Description\s+Amount\s*\$?(.*)$")),
+    ("debit", re.compile(r"^Checks Cleared\b\s*(.*)$")),
+)
+#: The column header this issue RE-DECLARES at the top of every continuation
+#: page, carrying no section name. It is the only thing that reopens a section
+#: across a page break — see `_embedded_sections`.
+_EMBEDDED_CONTINUATION_RE = re.compile(
+    r"^Date\s+(?:Description|Check No)\s+Amount\s*\$?(.*)$"
+)
+#: What ENDS the ledger. All three are printed recaps or statistics, never
+#: posting detail, and one of them always follows the last posting section.
+_EMBEDDED_END_RE = re.compile(
+    r"^(?:Itemization of Service Charge|Daily Balance Information"
+    r"|Overdraft and Returned Item Fees)\b"
+)
+_EMBEDDED_DAILY_HEAD_RE = re.compile(r"^Daily Balance Information\b")
+_EMBEDDED_DAILY_CONT_RE = re.compile(r"^Date\s+Balance\s*\$?(.*)$")
+
+#: **THE MONEY-GRAMMAR RULE, and its refusal.**
+#:
+#: This issue prints an overdraft fee as
+#:
+#:     04/01 CHK# 00 AMT $579.45, NSF PAID ITEM FEE $31.00
+#:
+#: where the FIRST money token is a REFERENCE to the item that caused the fee
+#: and the row's own amount is the last one. 109 such rows are printed across
+#: the four documents of this issue (34 / 10 / 37 / 28), every one of them a
+#: $31.00 fee against a reference of some other size.
+#:
+#: `_PLAIN_ROW_RE`'s `[^$]` description cannot span a reference, so it drops the
+#: row whole, and the printed debit count and total then refuse the document.
+#: The fix must NOT be to relax that class: with an unconstrained description
+#: the engine spans a bare pair into the next row's amount and merges two
+#: postings into one, and with a plain "the amount is the last money token"
+#: rule it merges rows at section ends (measured, §FI2.3: 1–3 lost per
+#: document). The `(?=\s|$)` lookahead is likewise load-bearing — it is the
+#: only reason the comma-terminated reference fails today instead of publishing
+#: $579.45 as a $31.00 fee (§FI5.4).
+#:
+#: So the relaxation is EXACTLY one shape wide and is paired with a refusal:
+#:
+#: * the description may cross a `$` **only** where the token is introduced by
+#:   the reference keyword `AMT` (`_EMBEDDED_REFERENCE`); anywhere else `[^$]`
+#:   still bounds it, so a row can still never run into its neighbour;
+#: * a money token introduced by `AMT` can **never** be the row's amount
+#:   (`(?<!\bAMT) ` in front of the amount capture). This is the refusal, and it
+#:   does not depend on the comma: strip the comma and the reference is still
+#:   refused as an amount and still read as part of the description.
+#:
+#: The trailing comma is therefore OPTIONAL here rather than required. Requiring
+#: it would make the refusal an accident of punctuation — exactly the accident
+#: §FI5.4 warned about — and it would refuse the whole document if one row's
+#: comma failed to survive the text layer.
+_EMBEDDED_REFERENCE = r"AMT -?\$[\d,]*\.\d{2},?"
+#: The row: a posting date, a description that may carry references and nothing
+#: else with a `$` in it, and the row's own amount.
+#:
+#: Read over WHITESPACE-NORMALIZED section text (`_embedded_rows`), which is
+#: what makes the fixed-width `(?<!\bAMT)` lookbehind exact: on raw text
+#: `AMT  $579.45` (this text layer does print double spaces — "Days in the
+#: Statement Period:  30") would step around a lookbehind anchored to one
+#: space, and the reference would be published as the amount.
+#:
+#: There is deliberately no second, "structural" re-check of the matched amount
+#: alongside this lookbehind. One was written and then measured UNREACHABLE:
+#: with the description class bounded as above, no input reaches
+#: `_embedded_rows` with an `AMT`-introduced token in the amount slot — such a
+#: row simply fails to match and is dropped, and the printed counts refuse the
+#: document. A guard nothing can trip is the §FI5.4 shape in reverse: it reads
+#: like protection while proving nothing, and it would have made the lookbehind
+#: look optional. The lookbehind is the mechanism, and
+#: `test_the_refusal_does_not_rest_on_the_reference_comma` is what kills its
+#: removal.
+_EMBEDDED_ROW_RE = re.compile(
+    r"(?<![\d/])(\d{1,2}/\d{1,2}) "
+    r"(?:((?:" + _EMBEDDED_REFERENCE + r"|[^$])+?)(?<!\bAMT) )?"
+    r"(-?\$[\d,]*\.\d{2})(?= |$)"
 )
 
 _TOLERANCE = 0.005
@@ -226,6 +334,45 @@ def _issuer(markdown: str) -> str | None:
     return corroborated.pop() if len(corroborated) == 1 else None
 
 
+def _period(markdown: str) -> tuple[date, date, int] | None:
+    """The statement period, in either wording this template prints.
+
+    The registered clause (`Statement Dates 4/01/26 to 4/30/26 (30 days)`) is
+    tried first and is unchanged: a document that prints it takes exactly the
+    same path it took before this reader existed.
+
+    The second wording prints the same two facts in two places — the dates in
+    the masthead, the length in the activity strip — and the two are welded
+    here by requiring the printed length to be the calendar span they describe.
+    That check exists only for this wording, and only because it is two
+    independent reads: in the registered clause the dates and the length are
+    one clause, so there is nothing to corroborate. Disagreement means one of
+    the two was misread, and a wrong period basis silently re-bounds every row
+    (`iso_within_period`) and re-bases the average daily balance.
+    """
+    registered = _PERIOD_RE.search(markdown)
+    if registered is not None:
+        sm, sd, sy, em, ed, ey, days = (int(part) for part in registered.groups())
+        try:
+            return date(2000 + sy, sm, sd), date(2000 + ey, em, ed), days
+        except ValueError:
+            return None
+
+    printed = _LONG_PERIOD_RE.search(markdown)
+    length = _DAYS_RE.search(markdown)
+    if printed is None or length is None:
+        return None
+    start_iso = iso_from_named_month_day(printed.group(1), printed.group(2), printed.group(3))
+    end_iso = iso_from_named_month_day(printed.group(4), printed.group(5), printed.group(6))
+    if start_iso is None or end_iso is None:
+        return None
+    start, end = date.fromisoformat(start_iso), date.fromisoformat(end_iso)
+    days = int(length.group(1))
+    if end < start or (end - start).days + 1 != days:
+        return None
+    return start, end, days
+
+
 def _summary(markdown: str):
     m = _SUMMARY_RE.search(markdown)
     if m is None:
@@ -293,6 +440,142 @@ def _sections(markdown: str) -> dict[str, str]:
 
 
 
+def _embedded_sections(markdown: str) -> dict[str, str]:
+    """The third issue's ledger, by direction, plus its printed daily grid.
+
+    Two things differ from `_sections`, and both are properties of THIS issue's
+    printing rather than preferences:
+
+    * **Four printed sections, two directions.** `Deposits` and `Other Credits`
+      are both credits; `Debits` and `Checks Cleared` are both debits. The
+      direction is the section's, never the sign's — no amount in this ledger
+      carries one.
+    * **Sections continue across page breaks.** `_sections` closes at
+      `--- Page` because the two issues it reads re-print their named heading on
+      every page. This one does not: it re-declares only the bare column header
+      (`Date Description Amount $`), and a disclosure page or a cheque-image
+      page can sit in the middle of a section. Closing at the page break loses
+      those continuations; carrying blindly across it swallows the disclosure
+      prose and the cheque-image list into the ledger.
+
+      So the carry is neither: a page break SUSPENDS the section, and only the
+      document's own re-declared column header resumes it. Prose that follows a
+      page break is outside every section because it declares nothing, which is
+      the same structural bound the headings give everywhere else.
+
+    A recap or statistics heading ends the ledger outright and cannot be
+    resumed — `Daily Balance Information` opens the printed daily grid, which
+    is evidence rather than posting detail and is read separately.
+    """
+    gathered: dict[str, list[str]] = {"credit": [], "debit": [], "daily": []}
+    current: str | None = None
+    suspended: str | None = None
+    for line in markdown.splitlines():
+        line = line.rstrip()
+        if _PAGE_RE.match(line):
+            if current is not None:
+                suspended = current
+            current = None
+            continue
+        if _EMBEDDED_END_RE.match(line):
+            if _EMBEDDED_DAILY_HEAD_RE.match(line):
+                current = "daily"
+            else:
+                current = None
+            suspended = None
+            continue
+        if current == "daily":
+            grid = _EMBEDDED_DAILY_CONT_RE.match(line)
+            if grid and grid.group(1).strip():
+                gathered["daily"].append(grid.group(1).strip())
+            continue
+        for name, pattern in _EMBEDDED_HEAD_RES:
+            head = pattern.match(line)
+            if head:
+                current, suspended = name, None
+                if head.group(1).strip():
+                    gathered[name].append(head.group(1).strip())
+                break
+        else:
+            resumed = _EMBEDDED_CONTINUATION_RE.match(line)
+            if resumed:
+                if current is None:
+                    current, suspended = suspended, None
+                if current is not None and resumed.group(1).strip():
+                    gathered[current].append(resumed.group(1).strip())
+            elif current is not None:
+                gathered[current].append(line)
+    return {name: " ".join(lines) for name, lines in gathered.items()}
+
+
+def _embedded_rows(text: str, start: date, end: date, sign: int):
+    """The third issue's posting rows, under the money grammar above.
+
+    Returns None — refusing the whole document — rather than dropping a row it
+    cannot read, because every row of this ledger is inside a printed count and
+    a printed total that the caller checks.
+    """
+    # Whitespace-normalized FIRST, and that is not cosmetic: it is what makes
+    # the pattern's fixed-width `(?<!\bAMT)` lookbehind exact. `AMT  $579.45`
+    # would otherwise step around a lookbehind anchored to one space and publish
+    # the reference as the fee, and this text layer does print double spaces.
+    text = " ".join(text.split())
+    rows: list[Transaction] = []
+    for m in _EMBEDDED_ROW_RE.finditer(text):
+        amount = _money(m.group(3))
+        posted = iso_within_period(m.group(1), start, end)
+        if amount is None or posted is None:
+            return None
+        rows.append(
+            Transaction(
+                date=posted,
+                description=re.sub(r"\s+", " ", m.group(2) or "").strip(),
+                amount=sign * abs(amount),
+                direction="credit" if sign > 0 else "debit",
+            )
+        )
+    return rows
+
+
+def _daily_grid_agrees(text: str, transactions, start: date, end: date,
+                       opening: float, closing: float) -> bool:
+    """Does the printed daily-balance grid reproduce the rows we read?
+
+    The third oracle, and the only one that binds a row to a DAY. The printed
+    counts and totals gate the ledger as a whole; this grid gates its shape:
+    walked from the opening balance, each printed day must equal the opening
+    plus every row filed on or before it, the last must be the closing balance,
+    and no row may fall on a day the grid does not print.
+
+    It is required rather than advisory because the underwriting ADB is a
+    calendar-day average over exactly these daily balances: a ledger whose rows
+    are on the wrong days can still satisfy both printed totals and still
+    produce a wrong average.
+    """
+    printed: list[tuple[str, float]] = []
+    for token, value in _DAILY_PAIR_RE.findall(text):
+        posted = iso_within_period(token, start, end)
+        balance = _money(value)
+        if posted is None or balance is None:
+            return False
+        printed.append((posted, balance))
+    if not printed:
+        return False
+    if [day for day, _ in printed] != sorted(day for day, _ in printed):
+        return False
+
+    moved: dict[str, float] = {}
+    for txn in transactions:
+        moved[txn.date] = round(moved.get(txn.date, 0.0) + txn.amount, 2)
+    running = opening
+    for day, balance in printed:
+        running = round(running + moved.pop(day, 0.0), 2)
+        if abs(running - balance) > _TOLERANCE:
+            return False
+    # A row on a day the grid never prints is a row the grid cannot vouch for.
+    return not moved and abs(running - closing) <= _TOLERANCE
+
+
 def _activity_rows(text: str, start: date, end: date, opening: float):
     """The single-grid shape: every row's balance must continue the chain."""
     rows: list[Transaction] = []
@@ -348,7 +631,7 @@ def parse_fiserv_premier_statement(markdown: str) -> Statement | None:
     if not detect(markdown).claims:
         return None
     summary = _summary(markdown)
-    period = _PERIOD_RE.search(markdown)
+    period = _period(markdown)
     # An unnamed issuer is not a reason to refuse the document: the arithmetic
     # is the same either way, and `bank=None` reports exactly what the page
     # supports. Refusing would also make the guard above look like a parse
@@ -357,12 +640,7 @@ def parse_fiserv_premier_statement(markdown: str) -> Statement | None:
     if summary is None or period is None:
         return None
 
-    sm, sd, sy, em, ed, ey, days = (int(part) for part in period.groups())
-    try:
-        start = date(2000 + sy, sm, sd)
-        end = date(2000 + ey, em, ed)
-    except ValueError:
-        return None
+    start, end, days = period
     if end < start:
         return None
 
@@ -405,7 +683,24 @@ def parse_fiserv_premier_statement(markdown: str) -> Statement | None:
             return None
         transactions = credits + debits
     else:
-        return None
+        # The THIRD printed issue, reached only when neither of the two read
+        # vocabularies is present at all. Deliberately the LAST branch and
+        # guarded by that `else`: a document that prints either read shape takes
+        # exactly the path it took before this branch existed, so nothing this
+        # cell added can reach it.
+        embedded = _embedded_sections(markdown)
+        if not (embedded["credit"] or embedded["debit"]):
+            return None
+        credits = _embedded_rows(embedded["credit"], start, end, 1)
+        debits = _embedded_rows(embedded["debit"], start, end, -1)
+        if credits is None or debits is None:
+            return None
+        transactions = credits + debits
+        if not _daily_grid_agrees(
+            embedded["daily"], transactions, start, end,
+            summary["previous"], summary["closing"],
+        ):
+            return None
 
     if not transactions:
         return None
