@@ -50,9 +50,9 @@ ANALYSED_CLASSES = frozenset({"validated", "review", "withheld"})
 def coverage(records: list[dict]) -> dict:
     """The deterministic-coverage numerator, denominator, and what is missing.
 
-    THE DEFECT THIS REPLACES (W3 §DISCOBS DO7#1). The rate was `claimed /
-    total`, where `claimed` counts `dispatch.outcome == "claimed"` — null on a
-    D-3 analysis cache hit — while `total` counted every record including the
+    THE DEFECT THIS REPLACES (W3 section DISCOBS DO7#1). The rate was `claimed /
+    total`, where `claimed` counts `dispatch.outcome == "claimed"` - null on a
+    D-3 analysis cache hit - while `total` counted every record including the
     deferred. Both halves were wrong and they were wrong in the same direction
     on exactly the runs that matter. Measured on two retained archive runs of
     the same 3,506 documents:
@@ -62,26 +62,26 @@ def coverage(records: list[dict]) -> dict:
     | `2e3ea385` (analysis cold) |  70.4% | 74.1%                  |
     | `b7b40c73` (analysis warm) |   0.0% | 73.7%                  |
 
-    The warm figure is the finding: the analysis cache stores SUCCESSES only —
-    a refusal raises and nothing is cached — so the records that lose their
+    The warm figure is the finding: the analysis cache stores SUCCESSES only -
+    a refusal raises and nothing is cached - so the records that lose their
     verdict are exactly the claimed ones, and the rate tends to zero as the
-    cache warms. `H3_SCHEMA §5.4`'s claim that it "stays computable on re-runs"
+    cache warms. `H3_SCHEMA 5.4`'s claim that it "stays computable on re-runs"
     was false, and it was false for both rollups; discovery's was repaired in
     batch 5 and this is telemetry's half.
 
     THE THREE NUMBERS, and why each is what it is:
 
-    * `denominator` — non-deferred records that carry a dispatch verdict. The
+    * `denominator` - non-deferred records that carry a dispatch verdict. The
       same set `discovery.report.summarize` calls `dispatched`, so the two
       instruments compute one number over one run. Deferred documents are
-      excluded by class: that is what H3_SCHEMA §6 has always said the class is
+      excluded by class: that is what H3_SCHEMA 6 has always said the class is
       for ("a statement about the RUN, not about the document"), and including
       them made the rate a function of which tranche you ran.
-    * `numerator` — verdicts of `claimed`, observed or reconstructed. Since
+    * `numerator` - verdicts of `claimed`, observed or reconstructed. Since
       #TELCOV a cache-served record carries the reconstruction (see
       `record.dispatch_section`), so a warm run's numerator is a measurement
       again rather than a cache-temperature artefact.
-    * `unattributed` — records that HAVE a payload (so the analysis stage ran
+    * `unattributed` - records that HAVE a payload (so the analysis stage ran
       and an outcome was published) and carry no verdict. Every one of them is
       a document the rate cannot see: pre-#TELCOV records, where that is the
       whole cache-served set, and post-#TELCOV records only where the
@@ -92,7 +92,7 @@ def coverage(records: list[dict]) -> dict:
     denominator prints a rate over an unstated subset (on `b7b40c73` that is
     0/915 = 0.0%, the same fiction in a better disguise), and counting them as
     unclaimed asserts something no evidence supports. So the rate is `None` and
-    the report says which documents it could not see and what to do about it —
+    the report says which documents it could not see and what to do about it -
     the same rule `diagnostics_rollup` already applies one section down, for
     the same reason.
     """
@@ -190,7 +190,7 @@ def render(summary: dict, run_id: str | None = None) -> str:
 
     rates = summary["coverage"]
     if rates["rate"] is None and rates["unattributed"]:
-        # Named, never printed as a number — and the counts go BELOW the
+        # Named, never printed as a number - and the counts go BELOW the
         # verdict, not beside it: `0 / 915  NOT COMPUTABLE` reads as a rate to
         # a hurried eye, which is the failure this whole line is about.
         lines.append("deterministic coverage    NOT COMPUTABLE")
@@ -292,8 +292,8 @@ class UnattributedParsers(RuntimeError):
 
     Narrowed by #TELCOV, not removed. A cache-served record now carries a
     reconstructed `parser_id` (`record.dispatch_section`), so on a run emitted
-    since then this fires only where the reconstruction fail-closed — a
-    structurer payload, or the REGFP window — which is a finding worth
+    since then this fires only where the reconstruction fail-closed - a
+    structurer payload, or the REGFP window - which is a finding worth
     stopping on. On a run emitted before it, it still fires on the whole
     cache-served set, which is what it was built for.
     """

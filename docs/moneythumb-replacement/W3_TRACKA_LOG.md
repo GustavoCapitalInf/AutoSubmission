@@ -27202,3 +27202,209 @@ other batch-5 cells at once, which is the only reason the two runtimes are
 | `42e4055` | this section, FI0–FI5 |
 | `c536dbf` | the corpus gate proof |
 | (this one) | the corpus-marked slice proof, the no-movement statement, and this table |
+# §TELCOV — the telemetry layer stops lying about cache hits
+
+Three recorded defects, one card: `§DISCOBS DO7` items 1, 2 and 3. Discovery's
+ROW projection was fixed in batch 5 and the H-3 RECORD was left behind, so one
+run published two artifacts that disagreed about the same document.
+
+No analysis code, no parser, no cache key, no registry: `analysis/`, `ocr/` and
+`webapp/artifact_cache.py` carry a **zero-line diff**, and the one hunk in
+`webapp/worker.py` is the emit call site. Nothing here can change a published
+payload, which is why the expected archive movement is zero and why the
+measurement below is a re-run rather than a re-analysis.
+
+## TC0. Summary
+
+| # | defect (DO7) | what it cost | fix |
+|---|---|---|---|
+| 1 | **The coverage numerator collapsed on warm runs.** `telemetry/report.py` computed `claimed / total`, where `claimed` came from `dispatch.outcome` — null on a cache hit — and `total` counted every record including the deferred. | The analysis cache stores SUCCESSES only, so the records that lose their verdict are exactly the CLAIMED ones. Measured over the same 3,506 archive documents: the run of record printed **70.4%** against discovery's 74.1%, and the retained warm re-run printed **0.0%** against discovery's 73.7%. `H3_SCHEMA §5.4`'s claim that the rate "stays computable on re-runs" was false, and was false for both rollups. | Numerator reads the (now reconstructed) verdict; denominator is non-deferred records that carry one — the same set discovery calls `dispatched`; and when analysed documents carry no verdict the rate REFUSES rather than printing a share of an unstated subset. |
+| 2 | **Records carried `dispatch.source = "unavailable"` and a null `parser_id` on cache hits.** Three emitters asserted `source` and two of them asserted it wrongly. | 2,561 of 3,506 records on the warm re-run said the analysis stage had produced nothing for a document whose full payload the cache had just served. `rows.csv` was self-sufficient after batch 5; the JSONL was not, and `--enrich` remained W3-4's bridge. | `dispatch_section` DERIVES `source` and reconstructs the claim behind a cache-served payload, through the same function the row projection uses. |
+| 3 | **The label check filed a template claim as a label disagreement.** `registration_labels()` answers with the registry id and the registry bank label; for a §U registration both are template names. | Six `Desjardins -> releve_facturation` documents on the run of record read as a filing dispute in the one workspace a human works through — an invitation to rename the parser after the folder, which §U4.1's evidence forbids. | `label_verdict`, sharing `discovery.report.folder_agreement`'s word (`template_claim`), its rule ("the claim published no issuer") and its ordering. Exempted, counted and printed — never renamed away. |
+
+## TC1. What the record could not say, and why one derivation says it
+
+The reconstruction is §DISCOBS DO2's argument, moved rather than copied. In
+`parse_mode="deterministic"` a payload exists on exactly one path — a claiming
+parser returned a statement — because every other `resolve` outcome raises
+before a payload exists and `ambiguous` is declared before any parse runs. So a
+cached payload is itself the evidence that the sweep had exactly one survivor;
+`sole_surviving_claimant` reproduces that survivor from the score vector
+telemetry already pays for.
+
+**It moved to `telemetry/collect.py` because there are now two consumers, and
+two derivations of one answer is how a run's two artifacts learn to disagree.**
+`discovery.runner._project_identity` keeps the row's half (the `PARSER_ID_*`
+vocabulary and the fields it fills) and calls the shared `reconstructed_claim`;
+`telemetry.record.dispatch_section` calls the same function for the record. The
+equality is therefore structural, and the tests assert it document by document
+anyway.
+
+**One guard is new, and it is the one that makes the shared function safe.**
+`_project_identity` excluded only the generic structurer, relying on
+`parse_mode="deterministic"` — which discovery can rely on and the H-3 record
+cannot: `batch.py` and the webapp worker run `parse_mode="auto"`, where a
+payload can come from LLM extraction with no parser behind it at all, and the
+loudest detection on such a document is not its parser. So the payload must
+carry a `model_used` ending in `-deterministic`, which is the pipeline's own
+mark for "no model produced this" and is already read for exactly that meaning
+by `record.model_calls_for` (one constant now, `DETERMINISTIC_MODEL_SUFFIX`,
+rather than two string literals that could drift). The structurer's `model_used`
+carries the same suffix, so it stays excluded by its own constant.
+
+The guard changes no discovery row: in deterministic mode every payload is a
+registry parser's or the structurer's. It DID change a test that had been
+passing for the wrong reason —
+`test_a_cached_payload_whose_detection_is_inconclusive_names_no_parser` fed
+`{"model_used": "x"}`, which the new guard refuses before the two-survivor
+branch the test is named for is ever reached; the payload now spells a
+deterministic model, and an LLM-payload test was added beside it.
+
+**`source` is the provenance mark, and no field or enum member was added.**
+`live` + an id is an observation, `cached` + an id is a reconstruction, `cached`
++ null is the reconstruction refusing (the REGFP instrument), `unavailable` is
+the analysis stage having produced nothing. `DISPATCH_SOURCES` is H-3's original
+three and is unchanged; what changed is that all three emitters now reach it
+through one derivation instead of asserting it, and that `cached` is finally
+reachable from the CLI paths at all.
+
+**Not reconstructed, deliberately:** `attempted` (proven empty by the argument
+above) and `exceptions` (a detect-stage crash in another registration scores
+0.0, and 0.0 is dropped from the vector, so it is unrecoverable — the field
+stays empty and says nothing rather than saying "no parser crashed").
+
+## TC2. Why the rate refuses instead of degrading
+
+Discovery's rollup prints coverage over the rows that carry a verdict and names
+the rest on their own lines. Telemetry cannot copy that, and the difference is
+not stylistic: `telemetry.report` is pointed at a finished JSONL of unknown
+provenance, including every run emitted before this fix. Excluding the
+verdict-less documents from the denominator there prints a rate over an unstated
+subset — on the retained warm run that is `0/915 = 0.0%`, the original fiction
+in a better disguise.
+
+So `coverage()` reports four numbers and a rate that may be `None`:
+
+* `denominator` — non-deferred records carrying a verdict (discovery's
+  `dispatched`);
+* `numerator` — verdicts of `claimed`, observed or reconstructed;
+* `deferred` — excluded by class, which is what H3_SCHEMA §6 always said the
+  class was for and what the code never did;
+* `unattributed` — records with a published outcome and no verdict;
+* `rate` — `None` while `unattributed` is non-zero, printed as `NOT COMPUTABLE`
+  with the count and the remedy.
+
+**The unattributed predicate is derived from the record, not from the fix**, so
+it works on every JSONL ever written here: `classify_outcome` reaches
+`validated`/`review`/`withheld` only from a payload and `failed` only without
+one, so "outcome class in those three AND no dispatch verdict" is exactly "the
+analysis ran and the verdict is missing". Checked against the two retained
+archive runs, where it reproduces discovery's independently-computed
+`dispatch_cached` on both: **105** on the run of record and **2,561** on the
+warm re-run.
+
+An invalid PDF is therefore not counted as a missing verdict — it never reached
+the analysis stage, and counting it would make the rate refuse on every archive
+run over 17 documents that have nothing to say.
+
+## TC3. The template blind spot, and the source it is allowed to read
+
+`registration_labels()` is not wrong for a §U registration — the registration
+really does answer to those two names — the question is one that should not have
+been asked, so `label_verdict` declines to ask it.
+
+What it may read is the constraint. The claim's issuer cannot come from the
+telemetry record: H3_SCHEMA I1 forbids the extracted label, and `model_used`
+(which since PIPELINE-5 carries the registry id exactly when `bank is None`) is
+not in the record and cannot be, because in the normal case it embeds that same
+extracted label. Sniffing the registration name for "Template"/"Platform" is the
+name-based rule §DISCOBS DO4 explicitly declined to write. The registry-side flag
+DO7#4 asks for is a change to `analysis/parser_registry.py`, which is not this
+cell's to make.
+
+So the fact comes from `rows.csv`'s `statement_bank`, and **the label stops at
+the reader**: what crosses into a W3-4 artifact is one boolean about our own
+claim, `claim_names_issuer`. Three properties make that admissible rather than
+convenient:
+
+* the boolean is a fact about OUR claim, not a fact read out of the paper — the
+  class of thing `parser_id` is, which I1 permits;
+* it is available exactly when the label check runs. Both the folder label and
+  this column come from the same file and the same row, so a run without
+  `rows.csv` has no label check at all, and `None` is never an exemption (fails
+  closed, pinned by test);
+* it is `discovery.report.folder_agreement`'s rule, imported rather than
+  restated — including the word `template_claim` itself — so the run report and
+  the adjudication workspace cannot describe one document two ways. That is the
+  argument `bank_is_registered` already makes for sharing the report's matcher.
+
+Ordering is the report's too: `template_claim` is tested before the containment
+match, so a template name that happens to be contained in a folder name is not
+reported as agreement (a coincidence manufactured into a detection-accuracy
+datum). And the exempted documents are RETURNED, ranked and printed with the
+§U4.1 warning, never dropped — the rule that fills the class is "the claim
+published no issuer", so a bank-specific parser that ever lands there is on the
+page instead of inside a bucket total. The DO4 census caveat carries over
+verbatim: five registrations can publish `bank=None` by design and nothing
+enforces that they are all platform-named.
+
+## TC4. `--enrich`: measured, then KEPT
+
+The card said "retire the enrichment join (keep `--enrich` as a
+no-op-with-warning or remove per what its callers need — measure, then decide)".
+Measured over all **43 retained run directories** in `discovery_reports/`,
+counting records with a published outcome and no verdict:
+
+| run | records | unattributed | diagnosed and unattributed |
+|---|---|---|---|
+| `02e90a86` (the W3-2 baseline) | 3,506 | 1,682 | **614** |
+| `b7b40c73` (DISCOBS's warm re-run) | 3,506 | 2,561 | 91 |
+| `0fd1bc0b` | 3,506 | 1,662 | 0 |
+| `88be9dd3` | 3,506 | 1,068 | 20 |
+| `baccd6a6` | 547 | 499 | 5 |
+| `c924d751` / `d5c75ff6` | 3,506 | 185 each | 10 each |
+| `89bb6185` | 3,506 | 178 | 9 |
+| `2e3ea385` (the run of record) | 3,506 | 105 | 2 |
+| `28154511` (batch-5 canonical dry run) | 109 | 80 | 6 |
+| `f6accc5f` | 1,111 | 60 | 2 |
+| the other 32 | — | 0 | 0 |
+
+**11 of 43.** Those are the frozen artifacts W3-2 and W3-4 are pointed at, and
+the W3-2 baseline cannot answer its own class×parser question without the join —
+that is the measurement `discovery/evidence.py`'s docstring was written around
+and it has not changed. Retiring `--enrich` would make the archive's own history
+readable only through `--allow-unattributed`, which discards the attribution
+rather than recovering it.
+
+**Decision: keep, re-documented.** It is a BRIDGE FOR PRE-#TELCOV RUNS, not part
+of the design; the CLI help and both refusal messages now say so, the module
+docstring carries the measurement, and it ages out on its own as those runs do.
+A run emitted today needs no flag, and the corpus-marked proof asserts that
+directly (`all(record["dispatch"]["parser_id"] for record in warm)`).
+
+## TC5. Version constants — nothing bumped here, and what Ocean should weigh
+
+Stated for the train, per the card. **This cell bumps nothing.**
+
+| constant | moved? | why |
+|---|---|---|
+| `ANALYSIS_STAGE_VERSION` (13) | **no** | zero-line diff in `analysis/`; no cached payload's contents can change. §5.4's rejected alternative — persisting the dispatch into the artifact — is exactly what a bump would have been for, and it was not taken. |
+| `OCR_STAGE_VERSION` (3) | **no** | `ocr/` untouched. |
+| `DIAGNOSTICS_VERSION` (4) | **no** | no code, class or `adb_check` added, removed or re-classed; `telemetry/diagnostics.py` is untouched. The rollup DOES gain rows on a warm run — documents that were `(parser unknown)` now carry their parser — but that is an attribution becoming available, not the class vocabulary moving, and two runs across the boundary still compare like with like on the class axis. |
+| `OBSERVER_VERSION` (4) | **no** | `telemetry/stated_counts.py` is untouched and reads `parser_id` off `rows.csv`, which batch 5 already fixed. Worth Ocean's eye all the same: OBSERVER v4's own note records that its `unsurveyed_parser` population is a function of parser-identity availability, so a future observer reading the JSONL instead would survey more documents — that would be its bump to declare, not this one. |
+| `TELEMETRY_VERSION` (1) | **no**, and this is the one worth a ruling | The record's KEY SET is unchanged (`TOP_LEVEL_KEYS` and the dispatch section's eleven keys are byte-identical) and `DISPATCH_SOURCES` is H-3's original three. What changes is the DISTRIBUTION of values in existing fields on warm runs: `source` says `cached` where it said `unavailable`, and `outcome`/`parser_id`/`score`/`candidates` are populated where they were null. A rollup spanning the boundary compares an attributed population against an unattributed one — the same hazard `DIAGNOSTICS_VERSION` exists to make visible, one field over. My reading: no bump. The pre-fix values were WRONG rather than differently-defined, `telemetry_version` has never moved for a defect repair, and the boundary is already detectable from the record itself, because a `cached` record from a CLI emitter could not exist before this cell. **Ocean's call at the train.** |
+
+## TC6. What changed, file by file
+
+| file | change |
+|---|---|
+| `telemetry/collect.py` | `sole_surviving_claimant` (moved verbatim from `discovery/runner.py`), `reconstructed_claim` and its three guards, `DETERMINISTIC_MODEL_SUFFIX`. |
+| `telemetry/record.py` | `dispatch_section` takes `payload=` instead of `source=`, derives `source`, reconstructs on `cached`; `SOURCE_LIVE/CACHED/UNAVAILABLE` named. |
+| `telemetry/report.py` | `coverage()` and `ANALYSED_CLASSES`; `summarize` publishes `coverage` and a nullable `deterministic_coverage`; `render` prints the refusal, the deferred-exclusion note, and never a fraction beside `NOT COMPUTABLE`; the `UnattributedParsers` text narrowed to what is still true. |
+| `discovery/runner.py` | `_sole_surviving_claimant` deleted (moved); `_project_identity` over the shared answer; `_emit` passes `payload=`. |
+| `discovery/evidence.py` | `claim_names_issuer` + `is_template_claim`; `label_verdict`; `DERIVED_ROW_COLUMNS`; the `--enrich` measurement in the module docstring. |
+| `discovery/adjudication.py` | `label_check` (one population filter, one verdict, two consumers); the workspace's `template_claim_documents` / `template_claim_pairs` and the rendered NOTE; `--enrich` help and the refusal message. |
+| `discovery/compare.py` | `--enrich` help. |
+| `batch.py`, `webapp/worker.py` | the emit call site, one expression each. |
+| `H3_SCHEMA.md` | §3.1 provenance rows, §5.4 rewritten, §10 formula, §11 T9 + new T13, §12 ruling 3 annotated. |
+| everything else | zero-line diff. |
