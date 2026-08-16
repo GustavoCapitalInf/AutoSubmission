@@ -738,7 +738,10 @@ def parse_signed_decimal(value: str) -> Decimal:
 
     Delegates the numeric conversion to `parse_decimal`, so what is added here
     is the sign reading and nothing else; anything that is not money still
-    raises rather than being guessed at.
+    raises rather than being guessed at. The refusal is therefore
+    `parse_decimal`'s and says ``reader=parse_decimal`` — the function that
+    actually declined the token rather than the entry point, which is what a
+    diagnosis follows. It quotes nothing either way (§MONEY-PRIVACY).
 
     The sign is read from `MINUS_GLYPHS`, the one class this module states, so
     a glyph outside it is not a sign HERE either. ``—$500.00`` therefore
