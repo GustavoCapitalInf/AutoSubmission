@@ -27664,11 +27664,13 @@ the summary block reads the printed `−331.00` closing balance as POSITIVE
 331.00 in the same breath. Under the fix: six rows, every one signed
 `balance_chain`, and the closing balance the bank printed.
 
-## SR7. The one archive document in the structurer's reach
+## SR7. The one archive document this change touches inside the rung's reach
 
-Of the 47 documents whose token stream moves, 43 are validated and 3 are in
-review — all claimed by a registration, and the structurer is a fallback on the
-UNCLAIMED branch, so it never sees them. Exactly one is unclaimed:
+The rung's reach is every unclaimed document; what matters here is which of
+them this CHANGE can reach. Of the 47 documents whose token stream moves, 43
+are validated and 3 are in review — all claimed by a registration, and the
+structurer is a fallback on the UNCLAIMED branch, so it never sees them.
+Exactly one is unclaimed:
 
 ```
 content_sha256 81C743048B48E1592902AD34BC0447271F9E446BCC51D2C35DACD96D84B06E0A
@@ -27681,6 +27683,11 @@ structurer     period_excludes_rows  -- before AND after
 It already fails for another reason, it is not publishable either way, and its
 structurer refusal is byte-identical across the change. Named because the brief
 asked for it to be named, and unmoved in the sweep below.
+
+A SECOND unclaimed document carries a sign-shaped defect this cell does not
+touch — `B5F4A9F6F8D5…`, the archive's only double sign, ASCII and therefore
+outside the change (SR10a item 5). Both documents in reach refuse upstream of
+any sign: `period_excludes_rows` and `no_dated_rows`.
 
 ## SR8. Mutation kill
 
@@ -27760,10 +27767,11 @@ makes short resumable chunks affordable at all.
 
 1. **`regions.py`'s `<table>` summary branch cannot publish, and has not been
    able to for as long as it has read its transactions from tag-stripped
-   text.** `parse_regions_statement:252-254` calls
+   text.** `parse_regions_statement:263-265` (`:252-254` on the base tree —
+   this branch's own docstrings moved them) calls
    `_parse_section(text, …)` with `text = _plain_text(markdown)`; the callee's
    first act is `tables_after(markdown, heading)`, which needs the tags. Empty
-   `txns` then returns None at :255. Measured on a synthetic table-bearing
+   `txns` then returns None at :267. Measured on a synthetic table-bearing
    document, not read off the diff. Invisible offline because no committed OCR
    artifact contains a `<table>` at all — the form only comes from the vision
    rung — so every archive Regions document takes the native branch. Not fixed
@@ -27791,9 +27799,33 @@ makes short resumable chunks affordable at all.
    BLINDNESS is not: it detects the presence of a private sign class and can
    never detect the absence of the shared one. Only a reader-by-reader
    differential can, and `ocr/column_grid.py` is the next one owed.
-6. **`ANALYSIS_STAGE_VERSION` needs NO bump for this cell.** Zero archive
+6. **`money_value` returns NEGATIVE ZERO, against the shared module's stated
+   invariant.** `tokens.py:192` ends `-abs(value) if negative else abs(value)`,
+   so `"-0.00"`, `"(0.00)"`, `"0.00-"` — and now `"−0.00"` and `"–0.00"` —
+   answer `-0.0`, while `analysis/money.py:497-498` states the opposite in
+   terms ("Zero is returned as ``+0.0`` regardless of markers — a signed zero
+   would round-trip badly through the reconciliation identities") and
+   `parse_money` returns `+0.0` for every one of them. Pre-existing for ASCII
+   and parentheses; this cell EXTENDED it to the two glyphs by making them
+   reach the same branch. Harmless in fact — `-0.0 == 0.0` is True, both
+   serialize as `-0.0`/`0.0` to the same number, and the structurer's
+   arithmetic compares rather than formats — so it is named rather than fixed:
+   changing it would move ASCII behaviour, which is the one thing this card
+   promised not to do. It is the third divergence from `parse_money` in SR2's
+   table, found by the review rather than by me.
+7. **A DOUBLE sign corrupts the magnitude, not just the sign** — carried in
+   SR10a below, because it is a risk statement rather than a defect this cell
+   introduced.
+8. **`ANALYSIS_STAGE_VERSION` needs NO bump for this cell.** Zero archive
    documents change output, before or after, with the rung off (production) or
    on (SR6). Ocean's call at merge, as always, but nothing here forces it.
+9. **The `8ef35af` commit message overstates card 3's reach.** It says the
+   defect's "whole reach was publishing an overdrawn closing balance as a
+   positive one"; finding 1 above proves the `<table>` branch never publishes,
+   so the measured reach was ZERO and the accurate form is "the only field that
+   WOULD keep this reader's sign". The docstring in `analysis/regions.py` is
+   corrected; the commit message is history and is left alone, so the
+   correction lives here.
 
 ## SR10a. Risks accepted, stated as risks
 
@@ -27819,7 +27851,41 @@ makes short resumable chunks affordable at all.
    make a period line match. Zero archive documents change.
 4. **13 documents have no offline text** — exactly the run's `deferred` set —
    and are outside every sweep here, as they were for §MGD.
-5. **`money_value` still reports a magnitude for a welded debit marker**, and
+5. **A DOUBLE sign corrupts the MAGNITUDE, not merely the sign.**
+   `−−1,234.56` tokenizes to `234.56` — the leading digits are eaten, not the
+   sign: the token can carry one sign glyph, the lookbehind then refuses a
+   match at the `1` (preceded by a sign) and the next legal start is the `2`
+   after the comma, which the lookbehind does not exclude. This is EXACT ASCII
+   PARITY — `--1,234.56` yields the same `234.56` on the base tree and on this
+   one — so the widening neither creates the shape nor worsens it, and the
+   parity argument that carries the rest of this card carries it too.
+
+   **Attestation, re-measured over the full 3,367 rather than sampled, and it
+   is not zero.** The review's 1,062-document sample found none; the whole
+   population holds exactly ONE document with two sign glyphs before a money
+   figure, and the correction matters because of which document it is:
+
+   ```
+   B5F4A9F6F8D595CF42256ED262FEB4356AB9BA11C0AFF6BCAAC4B6C9307EE654
+   Bank of America folder · 4 pages · digital
+   run of record : failed / no_parser_matched   (dispatch: unclaimed)
+   shape         : `--` ASCII, once; no U+2212 or U+2013 anywhere in the file
+   structurer    : no_dated_rows, 0 rows — before AND after
+   sweep         : byte-identical, before == after
+   ```
+
+   It is UNCLAIMED, which puts it in the structurer's reach alongside
+   `81C743048B48…` (SR7) — so the reach is two documents, not one, and both
+   already refuse for reasons upstream of any sign. Because the shape is
+   ASCII-only, this cell cannot touch it: the containment argument (SR3) makes
+   before and after identical on every file carrying neither glyph, and the
+   sweep confirms it document by document. Zero double signs of a NON-ASCII
+   glyph occur anywhere in the archive.
+
+   What was wrong was the SILENCE: a reader that can return a corrupted
+   magnitude should say so where it is read, and now it does. Found by the
+   adversarial review, not by me; the population figure is mine.
+6. **`money_value` still reports a magnitude for a welded debit marker**, and
    `_money_after` still cannot read a leading sign. Both named in SR10, both
    unreachable or fail-closed, both left rather than widened on no evidence.
 

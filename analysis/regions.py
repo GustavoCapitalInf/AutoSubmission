@@ -43,10 +43,16 @@ def _money(value: str) -> float | None:
     minus the generator set as a true MINUS SIGN lost it twice over: the
     `neg` test below never saw it, and the non-ASCII scrub two lines down
     deleted the glyph before `parse_money` could read it, so the cell came back
-    POSITIVE. The one field that keeps this reader's sign is the summary
-    grid's `ending balance` (every other consumer takes `abs()` and applies a
-    section direction), so the defect's whole reach was publishing an
-    overdrawn closing balance as a positive one.
+    POSITIVE.
+
+    Its MEASURED reach was zero, and the distinction is worth keeping straight.
+    The only field that WOULD keep this reader's sign is `ending_balance` in
+    the `<table>` summary branch — every other consumer takes `abs()` and
+    applies a section direction — and that branch cannot publish at all today:
+    it builds its transactions from `tables_after` over TAG-STRIPPED text, so
+    `txns` is empty and `parse_regions_statement` returns None before any
+    balance ships (W3 §SIGNREADER SR10 finding 1). So this fix corrects a
+    reading that reaches no published figure until that branch is repaired.
     """
     text = normalize_sign_glyphs(value.strip())
     if not re.search(r"\d+(?:\.\d{2})?", text):
