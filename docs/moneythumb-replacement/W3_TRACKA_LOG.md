@@ -27256,7 +27256,9 @@ composed bump.
 DISPATCH order (`registrations()`, i.e. `(band, id)`), every set sorted, wrapped
 in `{"material_version": 1, "registrations": [...]}`.
 `registry_fingerprint()` is the UPPER-hex SHA-256 of its canonical JSON.
-27,289 bytes of material over the 72 entries; 0.48 ms per call, measured, so it
+27,286 bytes of material over the 72 entries; 0.48–0.81 ms per call, measured
+under varying machine load (the higher figure with nine other cells resident),
+so it
 is recomputed on every call and never memoized — a memo would be one more thing
 that can go stale while reporting nothing wrong.
 
@@ -27374,6 +27376,25 @@ JSON. Read-only throughout; nothing was written to the archive; $0 vendor.
 2,508 is exactly the run of record's published population (validated 2,430 +
 review 15 + withheld 63) and 843 + 16 is exactly its 859 `failed`. **No document
 of any class moves; there is no mover to name.**
+
+**What the 843 does and does not prove, exactly.** The sweep observes that each
+of them raises again; it does NOT compare the exception CLASS, because the run
+stored none to compare against — a failed extraction is never cached
+(`webapp/artifact_cache.py`: "Exceptions from `compute` propagate and are never
+cached: a failed extraction is not an artifact"). Class equality is therefore an
+argument rather than a measurement, and the argument is the diff: **every line
+of this branch is additive to KEY MATERIAL** — a new field in the settings dict,
+a new digest function, a validation sweep, tests — and not one of them is on the
+path `analyze_markdown` takes. The recompute runs the same code over the same
+markdown and the same page partition, so it raises the same exception for the
+same reason. The measurement's real content is the weaker but independent fact
+that the publish/refuse BOUNDARY did not move in either direction (0 / 0).
+
+The instrument is committed as `tools/regfp_zero_movement_sweep.py`
+(`python -m tools.regfp_zero_movement_sweep --rows … --data-dir …
+--baseline-settings-key …`), so review can re-run it rather than take this
+table's word. It names movers by `content_sha256` and differing FIELD NAMES
+only — never a value, a filename or a line of a statement.
 
 ## RF6. The cost, stated
 
@@ -27499,6 +27520,11 @@ full-population recompute, 3,380 documents (RF5)
 invalidation, 249 documents sampled by direct path (RF6)
   old settings key 205EB02A2C4B0A69D2AFA289F7A70B9EC81DED1004B97717751DFA64482EE9AF
   new settings key 8B55E19D47FE7FEC4FC87BBD20F4CEBF02A8537EB3AE6AE102C5438F4FEADCE9
+    (the new key moved again at RF10's review closures, to
+     0966DD0883A008F5B5511052B842BE772D6B75A1F8BEBA9949310BB5BB6EBF11, when
+     `generic_structurer` joined the material; the count above is unaffected —
+     it is the OLD key's payloads that are being counted, and 0 was 0 under
+     both new keys)
   payloads present under the old key 190 · under the new key 0
 
 registry fingerprint at HEAD
@@ -27516,4 +27542,89 @@ registry fingerprint at HEAD
 | `6696a45` | this section, RF0–RF7 |
 | `7cee1f7` | RF7.5 — the discovery projection's registry window, closed here and flagged for its owner |
 | `3e30daa` | the cross-process guard inherits the parent environment (a defect in the guard, caught and killed before merge: it scrubbed `WITHHOLDING_*` out of the child only) |
-| (this one) | RF8 proofs and this table |
+| `948595a` | RF8 proofs and RF9 |
+| (this one) | RF10 — the adversarial-review closures |
+
+## RF10. Adversarial-review closures (APPROVE WITH FINDINGS: 1 MAJOR, 6 MINOR)
+
+**MAJOR-1 — the sort guard was a tautology, and the reviewer was right.**
+Every `supersedes` set the registry ships holds exactly ONE id, and a
+one-element set has one iteration order, so `test_supersedes_edges_are_hashed_
+sorted` asserted something that could not fail and `sorted(...)` → `list(...)`
+survived it. Reproduced before fixing: under the mutation the shipped registry's
+fingerprint is **byte-identical** (`3F1ADB24…` both ways).
+
+The fix is the reviewer's measured one. A scratch registry now carries a
+registration with `supersedes=frozenset({"a", "b"})`, the material's list is
+asserted to be `["a", "b"]`, and the digest of THAT registry is taken in four
+fresh processes at `PYTHONHASHSEED` 0, 1, 2, 3 — spanning both iteration orders
+(`['a','b']` at 0/1, `['b','a']` at 2/3/4, measured, which is why two seeds
+would have had roughly 60% detection power and four have 100%).
+
+Measured, mutated and unmutated, same four seeds:
+
+```
+sorted -> list (MUTATED)          unmutated (HEAD)
+  seed 0  ['a', 'b']  063A1221…     seed 0  ['a', 'b']  063A1221…
+  seed 1  ['a', 'b']  063A1221…     seed 1  ['a', 'b']  063A1221…
+  seed 2  ['b', 'a']  3FA5067E…     seed 2  ['a', 'b']  063A1221…
+  seed 3  ['b', 'a']  3FA5067E…     seed 3  ['a', 'b']  063A1221…
+```
+
+The kill is deterministic and was verified as such — the guard fails ALONE
+under parent seeds 0 and 2 — while the in-process assertion is only half a
+guard by construction: one process has one seed, and on the run recorded in RF8
+it happened to draw `['a','b']` from the mutant and passed. Both are kept, and
+the docstrings say which is which.
+
+**MINOR-1 — "fails at the registration" was not true.** `register()` validates
+nothing, so a `functools.partial` surfaced only when somebody derived a cache
+key, which also made a previously total function able to raise. The
+`_declared_callable` sweep moved into `validate_registry()` — the function
+`load()` runs over the entries table — as a shared `_declared_callables()`
+helper used by BOTH the validation and the material, so the two cannot come to
+disagree about what the registry declares. `analysis_settings_key` is total
+again for any registry that passed validation.
+
+**MINOR-2 — `int(registration.band)` narrowed what `sort_key` does not.**
+`band=100.9` orders differently from `100` and would have hashed the same.
+Hashed verbatim now, with a test.
+
+**MINOR-3 — the carve-out sentence invited too much.** Rewritten to claim only
+the registry's own shape, and to NAME the two things that look like registry
+data and are not: `analysis.count_semantics`'s per-parser-id `SEMANTICS` /
+`CountMapping` table (keyed by registration id, moves published documents) and
+every parser's extraction code. Both still require a stage bump.
+
+**MINOR-4 (approved scope extension) — `GENERIC_STRUCTURER_ENABLED` was
+invisible to the key.** The W3-3c generic rung publishes a statement for
+documents no parser claimed, where the pipeline would otherwise refuse, and two
+runs of the same archive with the flag on and off shared every analysis entry.
+`generic_structurer` is now settings-key material, read through the
+structurer's own `structurer_enabled()` accessor rather than a second reading of
+the environment variable — so the key agrees with the rung about what `"0"`,
+`""` and `"false"` mean, which the test pins.
+
+*Zero movement from this addition, argued and measured.* The flag is OFF by
+default and has been off for every artifact in the archive, so no cached
+payload was written under the enabled value; and the addition is key material
+only — no analysis code path reads it that did not already. RF5's recompute
+already ran with the flag in its default state and matched all 2,508 stored
+payloads. Re-confirmed on the 60-document head of the population after every
+review fix landed: `compared_payload 42 · identical 42 · moved 0 ·
+no_payload_raises_again 18`, exit 0.
+
+**MINOR-5/6 — record corrections.** The material is **27,286** bytes, not
+27,289 (the earlier figure came from the prototype, whose wrapper key was named
+`fingerprint_version` before it became `material_version`); RF5 now states why
+exception-class equality for the 843 is an argument from a purely additive diff
+rather than a measurement; and the sweep instrument is committed as
+`tools/regfp_zero_movement_sweep.py`.
+
+Final key surface after the closures: fingerprint
+`3F1ADB24F856897DDDE4265D4F28C9FCA31BFEB1B37F2773C128C4EB973A5A51` (unchanged
+by MINOR-1/2 — the shipped bands are ints, so the coercion was a no-op on this
+registry), analysis settings key
+`0966DD0883A008F5B5511052B842BE772D6B75A1F8BEBA9949310BB5BB6EBF11` with the
+structurer flag off and
+`1EBC38F974F1A3E2D7F386C622487B06353F96FF22A7A65DBD6CEC50A3A1D77A` with it on.

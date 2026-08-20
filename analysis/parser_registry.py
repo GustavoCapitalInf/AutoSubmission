@@ -561,12 +561,26 @@ def by_bank_label(bank: str | None) -> Registration | None:
 
 
 def validate_registry() -> None:
-    """Every `supersedes` target exists and the graph has no cycle."""
+    """Every `supersedes` target exists, the graph has no cycle, and every
+    registered callable can be NAMED.
+
+    The third check exists because of the registry fingerprint (W3 §REGFP):
+    `_declared_callable` records `parse`, `normalize` and each integrity check
+    as `module.qualname`, and an object with no `__qualname__` — a
+    `functools.partial`, a callable instance — cannot be told apart from any
+    other object of its type. Checking it HERE, where `load()` applies the
+    entries table, is what makes that refusal a registration-time failure
+    instead of a surprise the first time somebody derives a cache key: an
+    invalid registration never reaches production, and
+    :func:`analysis_settings_key` is total over any registry that passed this
+    function.
+    """
     known = set(_REGISTRY)
     for registration in _REGISTRY.values():
         unknown = registration.supersedes - known
         if unknown:
             raise ValueError(f"{registration.id} supersedes unknown parser(s): {sorted(unknown)}")
+        _declared_callables(registration)
 
     colour: dict[str, int] = {}
 
@@ -650,9 +664,14 @@ def _declared_callable(parser_id: str, field_name: str, fn: object) -> str:
     in the process shares one type name: rewiring `parse` from one partial to
     another would leave the digest unmoved and go on serving the old parser's
     cached answers. That is precisely the silent under-partitioning the digest
-    is here to end, so it fails loudly at the one place that can cause it, the
-    registration itself. Nothing in the registry is such an object today and
-    `tests/test_parser_registry_fingerprint.py` holds that.
+    is here to end, so it fails loudly.
+
+    WHERE it fails is `validate_registry`, which `load()` runs over the entries
+    table — not `register`, which takes one registration at a time and validates
+    nothing, and not the first cache-key derivation, which would be an
+    unrelated call site discovering somebody else's mistake. Nothing in the
+    registry is such an object today and
+    `tests/test_parser_registry_fingerprint.py` holds that for all 72.
     """
     qualname = getattr(fn, "__qualname__", None)
     if not isinstance(qualname, str) or not qualname:
@@ -663,6 +682,27 @@ def _declared_callable(parser_id: str, field_name: str, fn: object) -> str:
         )
     module = getattr(fn, "__module__", None)
     return f"{module}.{qualname}" if module else qualname
+
+
+def _declared_callables(registration: Registration) -> dict[str, object]:
+    """One registration's three callable-valued fields, as declared names.
+
+    ONE computation, called by `validate_registry` (where an unnameable
+    callable is refused) and by `registry_key_material` (where these names are
+    key material). Two copies would be two things that can come to disagree
+    about what the registry declares — and the half that drifted would be the
+    half nobody reads.
+    """
+    return {
+        "parse": _declared_callable(registration.id, "parse", registration.parse),
+        "normalize": None
+        if registration.normalize is None
+        else _declared_callable(registration.id, "normalize", registration.normalize),
+        "integrity_checks": [
+            _declared_callable(registration.id, f"integrity_checks[{index}]", check)
+            for index, check in enumerate(registration.integrity_checks)
+        ],
+    }
 
 
 def registry_key_material() -> dict[str, object]:
@@ -684,7 +724,9 @@ def registry_key_material() -> dict[str, object]:
     * `bank` — published on unclaimed documents through `by_bank_label`, and
       the label discovery normalizes into `registered_bank_tokens`.
     * `band` — half of the sort key; ordering decides which claimant is parsed
-      first when several survive.
+      first when several survive. Hashed exactly as declared, because
+      `sort_key` uses it exactly as declared: `100.9` and `100` order
+      differently and must therefore hash differently.
     * `supersedes` — sorted, because a `frozenset` iterates in hash order. These
       edges decide the winner between two claimants outright; adding one turns
       an `ambiguous` review outcome into a claim, and removing one does the
@@ -734,20 +776,17 @@ def registry_key_material() -> dict[str, object]:
             {
                 "id": registration.id,
                 "bank": registration.bank,
-                "band": int(registration.band),
+                # VERBATIM, not `int(...)`: `sort_key` uses the value as
+                # declared, so a `100.9` that orders differently from `100`
+                # must hash differently from it too. Coercing here would have
+                # been a narrowing the sort does not perform.
+                "band": registration.band,
                 "supersedes": sorted(registration.supersedes),
                 "markers": [[marker.id, marker.kind] for marker in registration.markers],
-                "parse": _declared_callable(registration.id, "parse", registration.parse),
-                "normalize": None
-                if registration.normalize is None
-                else _declared_callable(registration.id, "normalize", registration.normalize),
                 "formal_statement": bool(registration.formal_statement),
                 "informal_quality_note": registration.informal_quality_note,
                 "informal_integrity_note": registration.informal_integrity_note,
-                "integrity_checks": [
-                    _declared_callable(registration.id, f"integrity_checks[{index}]", check)
-                    for index, check in enumerate(registration.integrity_checks)
-                ],
+                **_declared_callables(registration),
             }
         )
     return {"material_version": REGISTRY_MATERIAL_VERSION, "registrations": entries}

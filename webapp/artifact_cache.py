@@ -87,7 +87,9 @@ nothing else (surveyed from ``webapp/worker.py`` and the functions it calls,
     ``escalation_model``, ``withholding_denominator_mode`` — the whole of
     ``analysis.config.Settings`` that reaches the output, plus
     ``stage_version`` = :data:`ANALYSIS_STAGE_VERSION`, plus
-    ``parser_registry`` = ``analysis.parser_registry.registry_fingerprint()``.
+    ``parser_registry`` = ``analysis.parser_registry.registry_fingerprint()``,
+    plus ``generic_structurer`` =
+    ``analysis.structurer.structurer_enabled()``.
 
     The registry fingerprint (W3 §REGFP) is a digest over the registration set
     itself — ids, bank labels, bands, ``supersedes`` edges, each marker's id and
@@ -100,6 +102,17 @@ nothing else (surveyed from ``webapp/worker.py`` and the functions it calls,
     programme performs at each train — a policy, not a construction. It is the
     settings key rather than the input hash because the registry is a per-RUN
     constant; see :func:`analysis_settings_key` for the WIRING-2 symmetry.
+
+    ``generic_structurer`` is the W3-3c generic rung's opt-in flag
+    (``GENERIC_STRUCTURER_ENABLED``), read through the structurer's OWN
+    accessor rather than from the environment here — one place decides what
+    "enabled" means, and a second reading of that variable could disagree with
+    it about ``"0"`` or ``" false"``. It is an environment switch that changes
+    the published payload of every document no parser claimed (the rung
+    publishes a statement where the pipeline would otherwise refuse), so
+    flipping it must partition the cache exactly as ``parse_mode`` does. It is
+    OFF today and has always been off, so no artifact in the archive was
+    written under the enabled value.
 
 ``report`` (:func:`report_settings_key`)
     ``title`` (the rendered document title) and ``stage_version`` =
@@ -138,12 +151,19 @@ the OCR ladder or the analysis pipeline changes its output, bump
 :data:`REPORT_STAGE_VERSION` in the same commit; bumping
 :data:`CACHE_FORMAT_VERSION` invalidates everything.
 
-The carve-out is the parser registry's SHAPE, which is data rather than code
-and is now hashed into the analysis settings key (see ``parser_registry``
-above). Registering a parser therefore invalidates the analysis stage by
-construction and needs no bump to be honest. Everything the registry's
-functions DO is still code: change what a parser extracts, or the money
-grammar, or the ADB engine, and the stage version remains the only lever.
+The carve-out is narrow and is exactly this: the parser registry's OWN SHAPE —
+the fields ``registry_key_material`` enumerates — is data rather than code and
+is hashed into the analysis settings key (see ``parser_registry`` above), so
+registering, removing, re-banding or rewiring a parser invalidates the analysis
+stage by construction and needs no bump to be honest.
+
+Nothing wider than that is covered, and two examples are worth naming because
+they LOOK like registry data and are not: ``analysis.count_semantics``'s
+per-parser-id ``SEMANTICS``/``CountMapping`` table is keyed by registration id
+and moves published documents, and every parser's own extraction code is keyed
+by nothing at all. Both are outside the digest and both still require a
+:data:`ANALYSIS_STAGE_VERSION` bump in the same commit — as do the money
+grammar, the ADB engine and the pipeline itself.
 D-3b is the first exercise of that rule: O-3 added ``page_integrity`` to
 ``StatementMarkdown``, so the OCR artifact's shape changed and
 :data:`OCR_STAGE_VERSION` went 1 -> 2. Entries written before it lack the
@@ -538,11 +558,18 @@ def analysis_settings_key(
     second derivation anywhere would go blind while reporting nothing wrong.
     It also loads the production registry if the calling process has not — see
     ``analysis.parser_registry._ensure_registry_loaded``.
+
+    ``generic_structurer`` is read through ``structurer_enabled()`` for the same
+    reason: the structurer owns what its own flag means, and a second reading of
+    ``GENERIC_STRUCTURER_ENABLED`` here would be free to disagree with it.
     """
     if analysis_settings is None:
         from analysis.config import load_settings as _load_analysis_settings
 
         analysis_settings = _load_analysis_settings()
+    # Function-local, like ``analysis.config``: importing this module must stay
+    # cheap, and the structurer package is only needed when a key is derived.
+    from analysis.structurer import structurer_enabled
     return _fingerprint(
         {
             "stage_version": ANALYSIS_STAGE_VERSION,
@@ -553,6 +580,7 @@ def analysis_settings_key(
                 getattr(analysis_settings, "withholding_denominator_mode", "")
             ),
             "parser_registry": registry_fingerprint(),
+            "generic_structurer": bool(structurer_enabled()),
         }
     )
 

@@ -173,6 +173,33 @@ def test_the_analysis_settings_key_reads_the_registry_fingerprint(monkeypatch):
     assert analysis_settings_key() != before
 
 
+def test_the_generic_structurer_flag_partitions_the_analysis_key(monkeypatch):
+    """The W3-3c generic rung is an ENV switch that changes the published
+    payload of every unclaimed document — it publishes a statement where the
+    pipeline would otherwise refuse — and it was invisible to the key. Two runs
+    of the same archive, one with the flag and one without, would have shared
+    every analysis entry and served each other's answers.
+
+    Off is the default and the archive's whole history, so nothing cached today
+    was written under the enabled value.
+    """
+    from analysis.structurer import STRUCTURER_ENV, structurer_enabled
+
+    monkeypatch.delenv(STRUCTURER_ENV, raising=False)
+    assert structurer_enabled() is False
+    off = analysis_settings_key(parse_mode="deterministic")
+
+    monkeypatch.setenv(STRUCTURER_ENV, "1")
+    assert structurer_enabled() is True
+    assert analysis_settings_key(parse_mode="deterministic") != off
+
+    # …and the key reads the structurer's own accessor, so it agrees with the
+    # rung about what the flag MEANS: "0" is off, and so is a blank string.
+    for falsey in ("0", "", "  ", "false", "no"):
+        monkeypatch.setenv(STRUCTURER_ENV, falsey)
+        assert analysis_settings_key(parse_mode="deterministic") == off, falsey
+
+
 def test_the_digest_uses_the_caches_own_hashing_convention():
     """`analysis` cannot import `webapp` — the dependency runs the other way —
     so `registry_fingerprint` reproduces the cache's canonical-JSON + UPPER-hex
@@ -192,12 +219,80 @@ def test_the_material_is_the_registry_in_dispatch_order():
     ]
 
 
-def test_supersedes_edges_are_hashed_sorted():
-    """A `frozenset` iterates in hash order, which is per-process. Sorted here
-    or the digest is a coin flip between runs (the failure `test_the_key_is_
-    byte_identical_across_two_fresh_processes` would catch, stated locally)."""
-    for entry in pr.registry_key_material()["registrations"]:
-        assert entry["supersedes"] == sorted(entry["supersedes"])
+#: A THREE-registration registry whose one edge set has TWO members, built in a
+#: fresh process and reported as both the material's list and the digest.
+#:
+#: Two members is the whole point. Every `supersedes` set the registry ships
+#: today holds exactly one id, and a one-element set has one iteration order, so
+#: the shipped registry cannot tell `sorted(...)` apart from `list(...)` — an
+#: assertion over it is a tautology and the mutation survives it. `frozenset`
+#: iteration order for `{"a", "b"}` IS seed-dependent (measured: `['a', 'b']`
+#: under PYTHONHASHSEED 0 and 1, `['b', 'a']` under 2, 3 and 4), which is what
+#: makes the seeds below a real experiment rather than a repeated one.
+_MULTI_EDGE_CODE = """
+import analysis.parser_registry as pr
+
+
+def make(parser_id, supersedes=frozenset()):
+    pr.register(pr.Registration(
+        id=parser_id,
+        bank=parser_id.upper(),
+        markers=(pr.required("m", str.isupper),),
+        parse=str.strip,
+        supersedes=supersedes,
+    ))
+
+
+make("a")
+make("b")
+make("subject", frozenset({"a", "b"}))
+entry = {e["id"]: e for e in pr.registry_key_material()["registrations"]}["subject"]
+print(entry["supersedes"])
+print(pr.registry_fingerprint())
+"""
+
+
+def test_supersedes_edges_are_hashed_sorted(scratch_registry):
+    """A `frozenset` iterates in hash order, which is per-process.
+
+    Asserted on a TWO-member edge set, because the shipped registry's are all
+    one member and prove nothing about the sort. In-process this assertion is
+    only half a guard — this process has one seed, and under half of them
+    `list()` and `sorted()` agree — so the deterministic kill is the
+    cross-seed test below.
+    """
+    make("a")
+    make("b")
+    make("subject", supersedes=frozenset({"a", "b"}))
+    entries = {entry["id"]: entry for entry in pr.registry_key_material()["registrations"]}
+    assert entries["subject"]["supersedes"] == ["a", "b"]
+
+
+def test_a_two_member_edge_set_hashes_identically_across_hash_seeds():
+    """GUARD 2b — the sort in the material, held by four fresh processes.
+
+    Four seeds, not two: `['a', 'b']` comes out of PYTHONHASHSEED 0 and 1 and
+    `['b', 'a']` out of 2, 3 and 4, so a two-seed experiment can agree by
+    accident. With 0-3 an unsorted digest is guaranteed to disagree with
+    itself, and that is what makes `sorted(registration.supersedes)`
+    mutation-killable rather than merely correct-looking.
+    """
+    runs = []
+    for seed in ("0", "1", "2", "3"):
+        result = subprocess.run(
+            [sys.executable, "-c", _MULTI_EDGE_CODE],
+            capture_output=True,
+            text=True,
+            cwd=ROOT,
+            env={**os.environ, "PYTHONHASHSEED": seed},
+        )
+        assert result.returncode == 0, result.stderr
+        runs.append((seed, result.stdout.strip().splitlines()))
+
+    edge_lines = {lines[0] for _, lines in runs}
+    digests = {lines[1] for _, lines in runs}
+    assert len(digests) == 1, f"the digest moved with the hash seed: {runs}"
+    assert edge_lines == {"['a', 'b']"}, f"edge order leaked into the material: {runs}"
 
 
 # ---------------------------------------------------------------------------
@@ -334,14 +429,40 @@ def test_the_production_registry_declares_only_nameable_callables():
             assert name.count(".") >= 1, f"{registration.id}.{field_name} has no module: {name}"
 
 
-def test_an_unnameable_callable_is_refused_by_name(scratch_registry):
+def test_an_unnameable_callable_is_refused_when_the_registry_is_validated(scratch_registry):
     """A `functools.partial` has no `__qualname__`, and reducing it to its TYPE
     would give every partial in the process the same name — a rewiring that
-    left the digest unmoved. It fails at the registration instead."""
+    left the digest unmoved.
+
+    It is refused by `validate_registry`, which is what `load()` runs over the
+    entries table, so an unnameable callable cannot reach production at all.
+    Before this it surfaced only from `analysis_settings_key`, which meant the
+    first caller to derive a cache key discovered somebody else's registration
+    mistake — and made a function that had been total able to raise.
+    """
+    make("subject", parse=functools.partial(parse_nothing))
     with pytest.raises(TypeError) as excinfo:
-        pr._declared_callable("subject", "parse", functools.partial(parse_nothing))
+        pr.validate_registry()
     assert "subject.parse" in str(excinfo.value)
     assert "__qualname__" in str(excinfo.value)
+
+
+def test_the_shipped_registry_validates():
+    """The production entries table passes the check that now runs inside
+    `validate_registry` — stated separately from the 72-way sweep below so a
+    regression names the mechanism rather than the census."""
+    pr.validate_registry()
+
+
+def test_band_is_hashed_as_declared(scratch_registry):
+    """`sort_key` uses `band` as declared, so `100.9` orders differently from
+    `100` and must hash differently. An `int()` coercion in the material would
+    have made the two collide — the digest saying "unchanged" about a registry
+    whose dispatch order had moved."""
+    make("subject", band=100)
+    before = pr.registry_fingerprint()
+    pr._REGISTRY["subject"] = pr.with_overrides(pr._REGISTRY["subject"], band=100.9)
+    assert pr.registry_fingerprint() != before
 
 
 # ---------------------------------------------------------------------------
