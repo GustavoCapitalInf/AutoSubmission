@@ -27597,16 +27597,16 @@ and the numbers here are those re-runs.
 
 ## TC8. Tests
 
-**18 new test functions, 20 collected default tests** (one is parametrized
+**21 new test functions, 23 collected default tests** (one is parametrized
 three ways), and no new corpus-marked test: the archive-scale record proof was
 folded into the corpus-marked warm-rerun test §DISCOBS already pays two passes
 over 109 documents for. Mechanical tally, `def test_` over base `8570bce`:
 
 | file | before | after | what was added |
 |---|---|---|---|
-| `tests/test_telemetry.py` | 44 | **54** | the derived `source`; the reconstruction and its three refusals (parametrized); the inconclusive sweep; the structurer constant; the type guard; and four on `coverage()` — the numerator surviving a cache hit, deferred outside the denominator, the refusal, and a failed document NOT counted as a missing verdict |
-| `tests/test_discovery.py` | 43 | **46** | the record's half of the cache-hit hole end to end (row == record == cold); `unavailable` still reachable; an LLM payload projecting nothing |
-| `tests/test_adjudication.py` | 37 | **42** | the template claim exempted; a claim that names an issuer still judged; the ordering; the fail-closed `None`; the two artifacts sharing one rule |
+| `tests/test_telemetry.py` | 44 | **56** | the derived `source`; the reconstruction and its three refusals (parametrized); the inconclusive sweep; the structurer constant; the type guard; four on `coverage()` — the numerator surviving a cache hit, deferred outside the denominator, the refusal, and a failed document NOT counted as a missing verdict; and, at review closure, the block partitioning its base and the two readers of the deterministic mark sharing one constant |
+| `tests/test_discovery.py` | 43 | **46** | the record's half of the cache-hit hole end to end (row == record == cold); `unavailable` reachable by BOTH early returns, the unreadable document and the deferred one; an LLM payload projecting nothing |
+| `tests/test_adjudication.py` | 37 | **43** | the template claim exempted; a claim that names an issuer still judged; the ordering; the fail-closed `None`; the two artifacts sharing one rule; and a `rows.csv` with no `statement_bank` COLUMN exempting nothing |
 | `tests/test_telemetry_corpus.py`, `tests/test_diagnostics.py` | 7 / 40 | 7 / 40 | call sites only |
 
 **Two existing tests changed, and one of them was passing for the wrong
@@ -27627,32 +27627,47 @@ passes, and `all(record["dispatch"]["parser_id"] for record in warm)` — the
 ## TC9. Proofs
 
 One machine shared with nine other batch-6 cells, so the wall clocks are loaded
-rather than representative. Every figure below is from ONE sequential chain, run
-on `c7192bb` — after an earlier chain was KILLED at 39% because two hardening
-commits had landed under it, and an assertion no run has executed is not a
-proof. `c7192bb` is the last commit that touches a `.py` file: everything after
-it is this log and `H3_SCHEMA.md`, and no test in the tree reads either
-(checked, not assumed — the matches for those filenames in `tests/` are all
-prose inside docstrings).
+rather than representative, and they got worse across the day: the same slice
+took 2,374s in the morning and 3,042s at review closure.
+
+**Run three times, and only the third counts.** The first chain was KILLED at
+39% because two hardening commits landed under it. The second ran clean through
+the suite, the guards, the conformance cross-product and the gate, then the
+corpus-marked slice went **1 failed / 26 passed** on the stale literal at TC11.
+The figures below are the third chain, on `7496154`, except the three carried
+lines marked **[carried]** — each carried from the second chain with the reason
+stated, because the only delta between them is one assertion literal INSIDE a
+corpus-marked test, which none of those three runs can see (`corpus_gate.py`
+imports no test module; the guard and conformance runs select other files).
+Everything a test edit could touch — collection included — was re-run.
 
 ```
 # full default suite
-4531 passed, 34 skipped, 31 deselected in 294.52s          SUITE_EXIT=0
-   (base 8570bce: 4,511 / 34 / 31. +20, matching TC8's mechanical tally.)
+4534 passed, 34 skipped, 31 deselected in 358.13s          SUITE2_EXIT=0
+   (base 8570bce: 4,511 / 34 / 31. +23, matching TC8's mechanical tally.)
 
-# guards
-242 passed in 20.69s                                       GUARDS_EXIT=0
+# corpus-marked slice (pytest -m corpus -q -rA), 3041.78s
+27 passed, 4572 deselected                                 CORPUS2_EXIT=0
+   (base 8570bce: 27. No corpus-marked test was added; the warm-rerun one
+    grew the telemetry arm inside the two passes it already paid for.)
+   incl. test_corpus_gate_is_green . the seven verdict-check reds .
+   test_dry_run_reproduces_known_truth .
+   test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered .
+   test_parser_parity (all 12) . test_telemetry_corpus (both) . test_truncation
+
+# guards                                                   [carried]
+242 passed in 22.12s                                       GUARDS_EXIT=0
    test_no_statement_hardcodes . test_no_parser_helper_clones .
    test_r1_hardcodes . test_experiments_are_not_wired . test_filename_boundary
 
-# conformance cross-product + registry (72 registrations)
-1126 passed, 34 skipped in 5.54s                           CONFORMANCE_EXIT=0
+# conformance cross-product + registry (72 registrations)  [carried]
+1126 passed, 34 skipped in 5.40s                           CONFORMANCE_EXIT=0
    test_parser_conformance . test_parser_registry_entries .
    test_parser_detection_markers . test_parser_registry .
    test_parser_crash_shapes . test_parser_exception_boundary .
    test_count_semantics
 
-# corpus gate (python corpus_gate.py), 910.3s
+# corpus gate (python corpus_gate.py), 958.2s              [carried]
 [PASS] inventory . foreign_files . source_integrity . balance_audit . adb_audit
 [PASS] balance_outcomes: 106 pass, 3 withheld, same three statements
 [PASS] adb_outcomes:     106 pass, 3 withheld, same three statements
@@ -27665,14 +27680,13 @@ prose inside docstrings).
 Outcomes: 106 PASS / 3 WITHHELD    Verdicts: 4 review / 102 validated / 3 withheld
 RESULT: GREEN                                              GATE_EXIT=0
 
-# corpus-marked slice (pytest -m corpus -q -rA), 2374.29s
-27 passed, 4569 deselected                                 CORPUS_EXIT=0
-   (base 8570bce: 27. No corpus-marked test was added; the warm-rerun one
-    grew the telemetry arm inside the two passes it already paid for.)
-   incl. test_corpus_gate_is_green . the seven verdict-check reds .
-   test_dry_run_reproduces_known_truth .
-   test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered .
-   test_parser_parity (all 12) . test_telemetry_corpus (both) . test_truncation
+# the rate block, rendered against the retained warm archive run
+python -m telemetry.report --jsonl <2e360336>/telemetry.jsonl
+   deterministic coverage       2574 / 3476   74.1%
+     unclaimed                   902    25.9%      -> 74.1 + 25.9 = 100.0%
+     no_dispatch                  30     0.9%   of all 3506, outside the
+                                                coverage denominator
+                                                           exit 0
 
 # archive warm replay (python -m discovery --scanned, run 2e360336)
 3,506 documents, 2,574 of 3,476 verdicts reconstructed     REPLAY_EXIT=0
@@ -27775,6 +27789,20 @@ Two nits, both taken: `H3_SCHEMA` T13 moved after T12 (it had been inserted
 after T9), and the refusal message now says `re-run discovery with --no-cache`,
 matching the diagnostics rollup's wording instead of leaving the tool unnamed.
 
+**And the closure produced its own red, which is the part worth recording.**
+`coverage()` gained a `verdicts` key for MINOR-1, and the corpus-marked
+`test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered` asserts
+the whole dict as a literal — so the literal went stale. Every default run of
+`tests/test_discovery.py` DESELECTS that test, so nothing caught it until the
+slice reached it 45 minutes into the proof floor: **1 failed, 26 passed**. The
+reproduction property itself was fine (the line above it,
+`coverage(cold_records) == coverage(warm_records)`, passed); only the literal
+was wrong, and it now pins `verdicts == {"claimed": 109}`, which is stronger
+than what it asserted before. This is the second time this cell has been bitten
+by the same deselection — §DISCOBS DO9 recorded the first — and the rule it
+teaches is the one already written there: an edited assertion that no run has
+executed is not a proof, and `-m corpus` is the only run that executes these.
+
 ## TC12. Carried findings, not fixed here
 
 1. **MINOR-5 — the REGFP window is now in the record as well as the row, and
@@ -27818,4 +27846,6 @@ matching the diagnostics rollup's wording instead of leaving the tool unnamed.
 | `c7192bb` | `payload` required rather than defaulted (a forgotten keyword would have reintroduced this defect silently); the reconstruction guards on the type |
 | `7f0b5b0` | the H3_SCHEMA corrections dated the day they land |
 | `9fa6b33` | TC8-TC10: the test tally, the proof block with exit codes, the risks |
-| (this one) | this table |
+| `7e3f743` | **review closures**: the rate block partitions its base (`coverage.verdicts`, `parser_exception` printed, `no_dispatch` naming its own base, `H3_SCHEMA 10`'s sample corrected); `model_calls_for` on the shared constant; `read_folder_labels` fail-closed on an absent column; the deferred test renamed and given its second arm; the two nits; TC11-TC12 |
+| `7496154` | the corpus-marked coverage literal carries the `verdicts` key - a TRUE red the slice caught 45 minutes into the proof floor |
+| (this one) | TC8/TC9 re-measured on the re-proved tree, and this table |
