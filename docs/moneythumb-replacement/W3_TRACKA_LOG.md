@@ -27513,3 +27513,104 @@ identity already pins the cheque sum exactly (every other term is a printed
 total), so the footer adds nothing today. The COUNT would add something — it
 would catch two compensating row errors — and is left for a card that has a
 document to prove it on.
+
+## C8. Proofs
+
+Exit codes verbatim. Run on a machine carrying ~7 other batch-6 cells, which
+is the only reason the runtimes are what they are.
+
+```
+# full default suite                                          exit 0
+4560 passed, 34 skipped, 31 deselected in 336.90s
+   (base eef77c6: 4,511. +49 = this cell's 49 tests; no registration was
+    added, so the per-registration parametrizations do not move.)
+
+# this cell                                                   exit 0
+49 passed in 0.80s
+
+# guards                                                      exit 0
+242 passed in 29.34s
+   test_no_statement_hardcodes . test_no_parser_helper_clones .
+   test_r1_hardcodes . test_experiments_are_not_wired . test_filename_boundary
+
+# conformance cross-product + registry                        exit 0
+1126 passed, 34 skipped in 7.95s
+   test_parser_conformance (72 x 71 detection-negative) .
+   test_parser_registry_entries . test_parser_detection_markers .
+   test_parser_registry . test_parser_crash_shapes .
+   test_parser_exception_boundary . test_count_semantics
+   (registry stays 72: this card extends a registration, it does not add one,
+    so no pins move and the cross-product is the same shape it was.)
+
+# mutation harness (session scratchpad, not committed)         21 mutants
+19 killed, 2 survive BY DESIGN and are named in C8.1
+
+# corpus gate (python corpus_gate.py), 1210.2s                exit 0
+[PASS] inventory: 109 pinned corpus PDFs, all on disk and audited by both oracles
+[PASS] foreign_files: no non-corpus PDFs under the corpus root
+[PASS] source_integrity: 109/109 pinned source PDFs match their pinned SHA-256
+[PASS] balance_audit: 109 statements reproduce every audited balance field
+[PASS] adb_audit:     109 statements reproduce every audited ADB field
+[PASS] balance_outcomes: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes:     106 pass, 3 withheld, same three statements
+[PASS] outcome_classes:  109 statements publish their pinned verdict (class +
+                         the whole integrity block): 4 review / 102 validated
+                         / 3 withheld
+[PASS] adb_doctrine: 109/109 publish 'calendar_day_printed_period'
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR, no live OCR, no model calls
+[PASS] exclusions: 0 named exclusions
+[PASS] oracle_independence
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 4 review / 102 validated / 3 withheld
+RESULT: GREEN
+
+# corpus-marked slice (pytest -m corpus)                      exit 0
+27 passed, 4584 deselected in 2772.99s
+```
+
+**Which tree each proof ran on.** The gate ran on `6bfd185`; the only later
+commit, `fc4cdc6`, touches `tests/` alone, and `corpus_gate.py` runs the two
+forensic audits directly rather than through pytest, so it cannot see that
+commit. The corpus-marked slice also started on `6bfd185`: `tests/
+test_columbia_bank.py` carries zero `pytest.mark.corpus` on BOTH trees and
+`pytest -m corpus --collect-only` selects the same 27 node ids on both, so the
+selection and the result are the same run. The full suite, this cell's tests,
+the guards, the cross-product and the mutation harness all ran on `fc4cdc6`.
+
+**The pinned document's no-movement proof, re-run on `fc4cdc6`.** The whole
+published analysis payload of `0CBD2AD897B90137`, reconstructed from the OCR
+artifact the run of record read, compares byte-identical to the run's own
+cached analysis entry
+`B65432823CA264342474318986552F2EBE0C448A1A0CF552F468809A2B508B89`.
+
+**The archive detection sweep** (C6) was RE-RUN on `fc4cdc6` over all 3,364
+v3-scanned artifacts and is byte-identical to the one taken on `a898ccd`:
+the same two claimant-set changes, the same nine score changes, zero
+multi-claimant documents anywhere, and `columbia_bank` claiming exactly
+four documents in the archive.
+
+### C8.1 The two mutants that survive by design
+
+* **an unclosed DEPOSIT section treated as an absent one.** Its rows are
+  always inside the summary's `Deposits/Additions` figure, so dropping them
+  fails the credit identity anyway and the document declines either way. The
+  check is kept because it is NOT equivalent for the other optional section —
+  `Other Deposits/Additions` can be dropped and still leave a balancing
+  ledger, which is the mutant that IS killed — and a rule that holds for one
+  optional section and not its twin is a rule waiting to be misread.
+* **a FLOW figure read as a signed value.** The summary identity compares it
+  against a sum of unsigned printed section totals, so a signed reading fails
+  that identity and declines exactly where the unsigned pattern declines. The
+  pattern is kept because it states the template's rule — these two figures
+  are magnitudes whose direction is their label — where the reader can see it.
+
+## C9. Commits
+
+| Commit | Contents |
+|---|---|
+| `a898ccd` | the extension: detection marker swap, section bounding, signed balances, the two optional sections, the structural cheque serial, the sign-aware grid; conformance fixture |
+| `3c91388` | 35 tests, and the two holes they found in `a898ccd` (debris in front of a summary figure; an unclosed section made invisible by `section_between`'s two meanings for `""`) |
+| `e89ccae` | §COLUMBIA5 C0–C7 |
+| `6bfd185` | two comment claims re-measured (three negative grid days, not six; two different cell boundaries, not one printed four ways) |
+| `fc4cdc6` | the mutation harness's six holes closed; 35 -> 49 tests |
+| (this one) | the proof block, the two by-design survivors, and this table |
