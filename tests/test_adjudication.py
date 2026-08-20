@@ -566,6 +566,44 @@ def test_the_template_exemption_fails_closed_when_it_cannot_be_asked(tmp_path: P
     assert not [c for c in build_clusters(run) if c.kind == "label_disagreement"]
 
 
+def test_a_rows_csv_without_the_column_exempts_nothing(tmp_path: Path):
+    """Column-absent and value-empty are different answers, and reading them
+    the same way was fail-OPEN.
+
+    An empty `statement_bank` means "this claim published no issuer" and may
+    exempt a document from the label check. A `rows.csv` with no such column —
+    a legacy or third-party file — can say nothing about any claim, and reading
+    the missing key as empty would have exempted EVERY claimed document in it,
+    silently emptying the one cluster a human works through. Every retained run
+    carries the column, so this shape is latent rather than live; that is a
+    reason to pin it, not a reason to leave it.
+    """
+    directory = tmp_path / "r"
+    directory.mkdir(parents=True)
+    (directory / "telemetry.jsonl").write_text(
+        json.dumps(_record("A" * 64, parser_id="releve_facturation"), sort_keys=True)
+        + "\n",
+        encoding="utf-8",
+    )
+    with (directory / "rows.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=["content_sha256", "folder_label", "dedup_status"]
+        )
+        writer.writeheader()
+        writer.writerow({"content_sha256": "A" * 64, "folder_label": "Desjardins",
+                         "dedup_status": "unique"})
+
+    document = load_run(directory).documents["A" * 64]
+    assert document.folder_label == "Desjardins", "the columns present still load"
+    assert document.claim_names_issuer is None
+    assert document.is_template_claim is False
+
+    run = load_run(directory)
+    assert workspace(run)["template_claim_documents"] == 0
+    cluster = next(c for c in build_clusters(run) if c.kind == "label_disagreement")
+    assert cluster.key == "Desjardins -> releve_facturation"
+
+
 def test_the_two_artifacts_of_one_run_use_one_template_rule(tmp_path: Path):
     """The workspace and the run report must not describe the same document
     two ways, so the word and the rule are shared rather than restated."""

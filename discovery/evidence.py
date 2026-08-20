@@ -190,13 +190,14 @@ def read_telemetry(directory: Path) -> list[dict]:
     return records
 
 
-def read_folder_labels(directory: Path) -> dict[str, tuple[str, str, bool]]:
+def read_folder_labels(directory: Path) -> dict[str, tuple[str, str, bool | None]]:
     """sha -> (folder_label, dedup_status, claim_names_issuer).
 
     The first two are `ADMISSIBLE_ROW_COLUMNS` and are published as they stand.
-    The third is derived from `statement_bank` and the label itself stops here
-    — see `DERIVED_ROW_COLUMNS` for why that column is read and why nothing
-    else could answer the question.
+    The third is derived from `statement_bank`, is `None` when the file has no
+    such column to answer from, and the label itself stops here — see
+    `DERIVED_ROW_COLUMNS` for why that column is read and why nothing else
+    could answer the question.
 
     Absent `rows.csv` is not an error: the telemetry alone is enough for every
     parser- and check-keyed cluster, and only the folder-keyed ones thin out.
@@ -204,15 +205,25 @@ def read_folder_labels(directory: Path) -> dict[str, tuple[str, str, bool]]:
     path = Path(directory) / ROWS_FILE
     if not path.is_file():
         return {}
-    labels: dict[str, tuple[str, str, bool]] = {}
+    labels: dict[str, tuple[str, str, bool | None]] = {}
     with path.open(encoding="utf-8", newline="") as handle:
-        for row in csv.DictReader(handle):
+        reader = csv.DictReader(handle)
+        # An ABSENT column and an EMPTY value are different answers and the
+        # difference is the whole exemption: empty means "this claim published
+        # no issuer", absent means "this file cannot say", and only the first
+        # may exempt a document from the label check. Every retained run
+        # carries the column, so reading `.get` alone was fail-OPEN on a shape
+        # that does not exist yet - a legacy or third-party `rows.csv` would
+        # have silently exempted every claimed document in it.
+        answers_issuer = "statement_bank" in (reader.fieldnames or ())
+        for row in reader:
             sha = (row.get("content_sha256") or "").strip()
             if sha:
                 labels[sha] = (
                     (row.get("folder_label") or "").strip(),
                     (row.get("dedup_status") or "").strip(),
-                    bool((row.get("statement_bank") or "").strip()),
+                    bool((row.get("statement_bank") or "").strip())
+                    if answers_issuer else None,
                 )
     return labels
 

@@ -631,21 +631,44 @@ def test_a_cache_served_record_carries_what_the_cache_served_row_carries(
     assert coverage(sink.records[:1])["rate"] == coverage(sink.records[1:])["rate"] == 1.0
 
 
-def test_a_deferred_document_emits_a_record_that_claims_nothing(
+def test_a_document_the_analysis_never_saw_emits_a_record_that_claims_nothing(
     tree: Path, tmp_path: Path
 ):
     """`unavailable` still means what it says: no payload, no verdict, no
     reconstruction. The three-state vocabulary is only worth anything if the
-    third state is still reachable."""
+    third state is still reachable, and it is reached by two DIFFERENT early
+    returns in `process` — an unreadable document and a deferred one — so both
+    are exercised here rather than one being named for the other.
+    """
+    scanned = tree / "BankZ" / "scan.pdf"
+    scanned.parent.mkdir()
+    scanned.write_bytes((CORPUS / SCANNED).read_bytes())
+
     sink = _ListSink()
     runner = DiscoveryRunner(tree, mode=MODE_DIGITAL, run_id="t", sink=sink,
                              cache=None, dedup=DedupIndex())
-    row = runner.process("BankY/broken.pdf", "BankY")
-    assert row.outcome_class == "failed" and row.outcome_reason == "invalid_pdf"
-    assert len(sink.records) == 1
-    dispatch = sink.records[0]["dispatch"]
-    assert dispatch["source"] == "unavailable"
-    assert dispatch["outcome"] is None and dispatch["parser_id"] is None
+    invalid = runner.process("BankY/broken.pdf", "BankY")
+    deferred = runner.process("BankZ/scan.pdf", "BankZ")
+
+    assert (invalid.outcome_class, invalid.outcome_reason) == ("failed", "invalid_pdf")
+    assert (deferred.outcome_class, deferred.outcome_reason) == (
+        "deferred", "deferred_scanned"
+    )
+    assert len(sink.records) == 2, "a swallowed emit is not a passing test"
+    for record, expected_class in zip(sink.records, ("failed", "deferred")):
+        dispatch = record["dispatch"]
+        assert record["outcome"]["class"] == expected_class
+        assert dispatch["source"] == "unavailable", expected_class
+        assert dispatch["outcome"] is None and dispatch["parser_id"] is None
+
+    # And the deferred one is outside the coverage denominator by class, which
+    # is the other half of what `unavailable` is for.
+    from telemetry.report import coverage
+
+    assert coverage(sink.records) == {
+        "numerator": 0, "denominator": 0, "deferred": 1, "unattributed": 0,
+        "verdicts": {}, "rate": None,
+    }
 
 
 def test_a_cached_payload_whose_detection_is_inconclusive_names_no_parser():

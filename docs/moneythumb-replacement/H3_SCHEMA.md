@@ -531,8 +531,10 @@ run 2026-08-06T21:04:11Z-a1b2c3 — 3,506 documents
 
 deterministic coverage      2,412 / 3,493   69.1%     (dispatch.outcome=claimed)
   13 deferred documents are outside the denominator by class (H3_SCHEMA 6)
-  ambiguous                    41           1.2%
-  unclaimed                 1,053          30.0%
+  ambiguous                    40           1.1%
+  unclaimed                 1,041          29.8%
+  no_dispatch                  13           0.4%   of all 3,506, outside the
+                                                   coverage denominator
 outcome
   validated                 2,190          62.5%
   review                      388          11.1%
@@ -564,6 +566,15 @@ verdict. While it is non-zero there is no honest single rate, so
 `deterministic_coverage` is `null` and the CLI prints `NOT COMPUTABLE` rather
 than a share of an unstated subset.
 
+**The block partitions, and that is a property with a test (T13).** Every
+verdict line — `ambiguous`, `unclaimed`, `parser_exception` — is a share of the
+SAME `dispatched` base as the coverage line, and `coverage.verdicts` sums to
+`coverage.denominator` by construction because it is counted over that
+population rather than over every record. `no_dispatch` is the one line whose
+base is `total`, and it says so on the line: those documents are not a slice of
+the same pie. The first #TELCOV revision moved the coverage line to `dispatched`
+and left the others on `total`, which rendered 100.7% on a warm archive run.
+
 ---
 
 ## 11. Test plan
@@ -579,10 +590,10 @@ than a share of an unstated subset.
 | T7 | JSONL and SQLite produce identical coverage output from the same records; SQLite columns match their JSON projections | I2 |
 | T8 | v3→v4 migration is additive; existing rows survive; append-only triggers fire | I3, D-3 compatibility |
 | T9 | Cache-hit record: `dispatch.source = "cached"`, the claim RECONSTRUCTED and equal to the cold run's field for field, `attempted`/`exceptions` empty, `outcome.class` still correct, `stages.analysis.cache = "hit"`; and the reconstruction refusing on a structurer payload, an LLM payload, or an inconclusive sweep | §5.4 |
-| T13 | Coverage: the numerator survives a cache hit; deferred documents are outside the denominator; a run with analysed-but-unattributed documents refuses to print a rate; the telemetry rollup and `discovery.report`'s agree over one run, warm and cold | §5.4, §10 |
 | T10 | Unpriced model → `amount` null / `complete` false / model listed; priced model → exact arithmetic | §9 |
 | T11 | Truncation fields correct on both a fresh read and a cache hit | O-3 × D-3b |
 | T12 | `batch.py` emits without importing `webapp.*` (import-graph assertion) | §8.2 |
+| T13 | Coverage: the numerator survives a cache hit; deferred documents are outside the denominator; a run with analysed-but-unattributed documents refuses to print a rate; **the printed block partitions — every verdict line shares the coverage line's base and they sum to it, and the no-verdict line names its own**; the telemetry rollup and `discovery.report`'s agree over one run, warm and cold | §5.4, §10 |
 
 ---
 

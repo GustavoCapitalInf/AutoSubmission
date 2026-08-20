@@ -102,13 +102,22 @@ def coverage(records: list[dict]) -> dict:
         r for r in processed
         if not r["dispatch"]["outcome"] and r["outcome"]["class"] in ANALYSED_CLASSES
     ]
-    numerator = sum(1 for r in dispatched if r["dispatch"]["outcome"] == "claimed")
+    # The verdict distribution over the COVERAGE POPULATION, not over every
+    # record. `claimed` here is the rate's numerator, so these counts sum to
+    # `denominator` by construction and the printed block partitions - which
+    # the first version of this cell broke: it divided the coverage line by
+    # `denominator` and left the lines under it dividing by `total`, so a warm
+    # archive run rendered 74.1% + 25.7% + 0.9% = 100.7%. A block whose parts
+    # do not add up is exactly the class of defect this card exists to fix.
+    verdicts = Counter(r["dispatch"]["outcome"] for r in dispatched)
+    numerator = verdicts.get("claimed", 0)
     computable = bool(dispatched) and not unattributed
     return {
         "numerator": numerator,
         "denominator": len(dispatched),
         "deferred": len(records) - len(processed),
         "unattributed": len(unattributed),
+        "verdicts": dict(verdicts),
         "rate": (numerator / len(dispatched)) if computable else None,
     }
 
@@ -211,7 +220,7 @@ def render(summary: dict, run_id: str | None = None) -> str:
             "the reconstruction refused."
         )
         lines.append(
-            "    re-run with --no-cache             every verdict is then observed"
+            "    re-run discovery with --no-cache   every verdict is then observed"
         )
     elif rates["rate"] is None:
         lines.append(
@@ -227,9 +236,23 @@ def render(summary: dict, run_id: str | None = None) -> str:
             f"  {rates['deferred']} deferred documents are outside the denominator "
             "by class (H3_SCHEMA 6)"
         )
-    for key in ("ambiguous", "unclaimed", "no_dispatch"):
-        if key in summary["dispatch"]:
-            lines.append(_line(key, summary["dispatch"][key], total))
+    # The other verdicts, over the SAME base as the coverage line, so the four
+    # of them partition it. `parser_exception` is in the list because it is a
+    # dispatch outcome (R-3) and printing three of four made the block fail to
+    # add up on any run that crashed a parser - a second hole in the same six
+    # lines, found while closing the first.
+    for key in ("ambiguous", "unclaimed", "parser_exception"):
+        if key in rates["verdicts"]:
+            lines.append(_line(key, rates["verdicts"][key], rates["denominator"]))
+    # And the documents with no verdict at all, over a base that is NOT the
+    # coverage denominator - so it is named rather than left to look like one
+    # more slice of the same pie.
+    no_dispatch = summary["dispatch"].get("no_dispatch", 0)
+    if no_dispatch:
+        lines.append(
+            _line("no_dispatch", no_dispatch, total)
+            + f"   of all {total}, outside the coverage denominator"
+        )
 
     lines.append("outcome")
     for key in ("validated", "review", "withheld", "failed", "deferred"):

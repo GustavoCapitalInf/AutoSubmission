@@ -27713,7 +27713,98 @@ python -m discovery.compare <2e3ea385> <2e360336> --fail-on-regression
 6. **`--enrich` is kept**, so the pre-#TELCOV runs stay readable. If a future
    cell wants it gone, the number to beat is the 11 retained runs in TC4.
 
-## TC11. Commits
+## TC11. Review closures
+
+The adversarial review returned APPROVE with six MINOR findings. Four were
+real and are closed here; two are not this cell's and are carried at TC12.
+
+**MINOR-1 — a regression this cell shipped, and the sharpest one.** The
+coverage line moved to `claimed / dispatched` while the `ambiguous` /
+`unclaimed` / `no_dispatch` lines under it stayed on `total`, so the block
+stopped describing one population: on the warm archive replay it rendered
+**74.1% + 25.7% + 0.9% = 100.7%**. A percentage block is a claim, and a card
+whose subject is a rate that lied cannot ship a rate block that does not add
+up. Closed wider than the finding asked:
+
+* `coverage()` now returns `verdicts`, counted over the COVERAGE POPULATION
+  (non-deferred, verdict present) rather than over every record, so
+  `sum(verdicts.values()) == denominator` is true by construction and not by
+  the caller's care.
+* every verdict line prints over `rates["denominator"]`, so the four of them
+  partition the coverage line exactly: on `2e360336`, `2574 + 902 = 3476`, and
+  the rendered `74.1% + 25.9% = 100.0%`.
+* **`parser_exception` is now printed.** It is one of R-3's four dispatch
+  outcomes and the loop listed three of them, so on any run that crashed a
+  parser the block failed to add up for a second, independent reason. Found
+  while closing the first.
+* `no_dispatch` keeps `total` as its base and NAMES it on the line
+  (`of all 3506, outside the coverage denominator`), because those documents
+  are not a slice of the same pie.
+* `H3_SCHEMA §10`'s illustrative block had the identical defect
+  (2,412 + 41 + 1,053 against a 3,493 denominator) and is corrected with it.
+
+**MINOR-2 — a claim in a docstring that the code did not honour.**
+`DETERMINISTIC_MODEL_SUFFIX` was documented as pinning both readers of the
+`-deterministic` mark while `record.model_calls_for` still held the bare
+literal. `record.py` imports and uses the constant, and a test pins both
+directions of the agreement (a deterministic payload: no extraction call AND a
+reconstruction; an LLM payload: an extraction call AND no reconstruction) plus
+the absence of a second literal in the module.
+
+**MINOR-3 — fail-OPEN on a shape that does not exist yet.**
+`bool((row.get("statement_bank") or "").strip())` read an ABSENT column and an
+EMPTY value the same way, so a legacy or third-party `rows.csv` without that
+column would have exempted every claimed document in it from the label check —
+emptying the one cluster a human works through, silently. `read_folder_labels`
+now reads `DictReader.fieldnames` and answers `None` when the file cannot say;
+`is_template_claim` is `is False`, so `None` exempts nothing. All 41 retained
+runs carry the column, which makes this latent rather than live — a reason to
+pin it, not a reason to leave it.
+
+**MINOR-4 — a test named for a path it never took.**
+`test_a_deferred_document_emits_a_record_that_claims_nothing` processed an
+INVALID PDF; the runner's deferred early return was unasserted end to end. It
+is renamed for what it covers
+(`test_a_document_the_analysis_never_saw_emits_a_record_that_claims_nothing`)
+and now exercises BOTH early returns — the unreadable document and a genuinely
+deferred scanned one — asserting `source="unavailable"`, null verdict and null
+parser on each, plus the deferred document landing outside the coverage
+denominator by class.
+
+Two nits, both taken: `H3_SCHEMA` T13 moved after T12 (it had been inserted
+after T9), and the refusal message now says `re-run discovery with --no-cache`,
+matching the diagnostics rollup's wording instead of leaving the tool unnamed.
+
+## TC12. Carried findings, not fixed here
+
+1. **MINOR-5 — the REGFP window is now in the record as well as the row, and
+   the `model_used` stem cross-check is still on the table.** A cached payload
+   authored by a parser that today loses a `supersedes` contest is named
+   confidently and wrongly by the reconstruction, and since #TELCOV that naming
+   reaches the H-3 record too. There IS a partial instrument available and this
+   cell did not build it: the cached payload's `model_used` is
+   `f"{bank_label}-deterministic"`, or since PIPELINE-5 `f"{owner.id}-deterministic"`
+   when the parser published no issuer, so its stem could be cross-checked
+   against the reconstructed registration's id and registered bank label. It is
+   partial by construction — several registrations share a bank label, the
+   normalisation is lossy, and a mismatch is not proof of staleness — so it
+   would be a SIGNAL to count beside `dispatch_inconclusive`, never a refusal
+   rule. It belongs with REGFP, which fixes the cause rather than detecting the
+   symptom. **Not implemented; carried.**
+2. **MINOR-6 — an `auto`-mode store reaches steady-state NOT COMPUTABLE.** The
+   webapp emits into one long-lived SQLite store under `parse_mode="auto"`,
+   where an LLM-extracted payload served from the analysis cache reconstructs
+   nothing — correctly, since no parser produced it. Those records are
+   `unattributed`, so `python -m telemetry.report --sqlite webapp_data`
+   permanently refuses to print a rate once any of them accumulate. Each record
+   is honest and the aggregate is useless, which is a real cost of the refusal
+   rule and worth stating rather than discovering. The shape of the fix is a
+   population split — the deterministic population's rate printed, the
+   LLM-extracted population named beside it — which is a report design question
+   over a store whose contents this cell cannot see. **Carried; discovery, batch
+   and the corpus anchor are unaffected because they run deterministic-only.**
+
+## TC13. Commits
 
 | Commit | Contents |
 |---|---|

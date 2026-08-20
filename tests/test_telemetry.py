@@ -858,6 +858,95 @@ def test_a_run_whose_verdicts_are_missing_refuses_to_print_a_rate():
     assert "0 / " not in printed and "3 / 4" not in printed
 
 
+def test_the_coverage_block_partitions_the_base_it_prints():
+    """The regression this cell's first revision shipped, and the reason a
+    percentage block is a claim rather than decoration.
+
+    The coverage line moved to `claimed / dispatched` while the lines under it
+    stayed on `total`, so the four numbers no longer described one population:
+    on the warm archive replay the block rendered 74.1% + 25.7% + 0.9% =
+    100.7%. Every verdict line now shares the coverage line's base and they
+    sum to it exactly; the documents with NO verdict are printed over `total`
+    with that base named, because they are not a slice of the same pie.
+    """
+    from analysis import parser_registry_entries  # noqa: F401  (populates)
+    from analysis.parser_registry import Detection, Dispatch, by_id
+
+    approved = {"metrics": {"average_daily_balance": 1.0},
+                "quality": {"corporate_use": "approved"},
+                "model_used": "somebank-deterministic"}
+
+    def observed(outcome, parser=None):
+        dispatch = Dispatch(
+            outcome,
+            registration=by_id(parser) if parser else None,
+            detection=Detection(score=0.75) if parser else None,
+        )
+        return _record(
+            payload=approved if parser else None,
+            error_reason=None if parser else "no_parser_matched",
+            dispatch=dispatch_section(dispatch, [], 46,
+                                      payload=approved if parser else None),
+        )
+
+    records = (
+        [observed("claimed", "chase") for _ in range(6)]
+        + [observed("unclaimed") for _ in range(3)]
+        + [observed("ambiguous")]
+        + [observed("parser_exception")]
+        + [_record(deferred="deferred_scanned"), _record(payload=None,
+                                                         error_reason="invalid_pdf")]
+    )
+    rates = coverage(records)
+    assert rates["denominator"] == 11 and rates["numerator"] == 6
+    assert rates["verdicts"] == {"claimed": 6, "unclaimed": 3,
+                                 "ambiguous": 1, "parser_exception": 1}
+    # The identity, before the rounding: the verdicts ARE the denominator.
+    assert sum(rates["verdicts"].values()) == rates["denominator"]
+
+    printed = render(summarize(records), "run-1").splitlines()
+    shares = [
+        float(line.rsplit(" ", 1)[-1].rstrip("%"))
+        for line in printed
+        if line.strip().startswith(("unclaimed", "ambiguous", "parser_exception"))
+    ]
+    coverage_share = rates["rate"] * 100
+    assert len(shares) == 3, printed
+    assert round(coverage_share + sum(shares), 1) == 100.0, printed
+    # `parser_exception` is a dispatch outcome and used not to be printed at
+    # all, which broke the same block a second way.
+    assert any("parser_exception" in line for line in printed)
+    # The no-verdict line is over a different base and says so.
+    assert any(
+        "no_dispatch" in line and "outside the coverage denominator" in line
+        for line in printed
+    ), printed
+
+
+def test_the_two_readers_of_the_deterministic_mark_read_one_constant():
+    """`model_calls_for` and `reconstructed_claim` ask the same question — did
+    a model produce this payload — and answered it with two separate string
+    literals until #TELCOV. This pins that they agree, on both answers."""
+    import telemetry.record as record_module
+
+    deterministic = {"model_used": "somebank" + DETERMINISTIC_MODEL_SUFFIX}
+    extracted = {"model_used": "gemini-2.5-flash"}
+
+    assert model_calls_for(None, deterministic) == []
+    assert [call["purpose"] for call in model_calls_for(None, extracted)] == ["extraction"]
+
+    from telemetry import reconstructed_claim
+
+    assert reconstructed_claim([("chase", 0.75)], deterministic) == ("chase", 0.75)
+    assert reconstructed_claim([("chase", 0.75)], extracted) is None
+
+    source = Path(record_module.__file__).read_text(encoding="utf-8")
+    assert '"-deterministic"' not in source, (
+        "the suffix belongs to DETERMINISTIC_MODEL_SUFFIX; a second literal is "
+        "how the two readers drift apart"
+    )
+
+
 def test_a_failed_document_is_not_a_missing_verdict():
     """An invalid PDF never reached the analysis stage, so it has no verdict to
     have lost. Counting it as one would make the rate refuse on every run that

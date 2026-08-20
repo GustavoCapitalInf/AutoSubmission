@@ -25,7 +25,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from .collect import reconstructed_claim
+from .collect import DETERMINISTIC_MODEL_SUFFIX, reconstructed_claim
 from .diagnostics import diagnose
 from .prices import estimate
 
@@ -300,7 +300,14 @@ def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
         })
 
     model_used = (payload or {}).get("model_used") or ""
-    if payload is not None and model_used and not model_used.endswith("-deterministic"):
+    # The same suffix `reconstructed_claim` reads, through the same constant:
+    # both are asking whether a model produced this payload, and two string
+    # literals asking one question is how they drift apart (#TELCOV).
+    if (
+        payload is not None
+        and model_used
+        and not model_used.endswith(DETERMINISTIC_MODEL_SUFFIX)
+    ):
         calls.append({
             "stage": "analysis",
             "model": model_used,
