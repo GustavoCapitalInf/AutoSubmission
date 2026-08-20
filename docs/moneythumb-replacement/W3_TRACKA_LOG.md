@@ -27673,3 +27673,56 @@ WHOLE published integrity block, not merely its class, so a widened parser that
 changed a flag on a pinned document would fail it rather than pass quietly.
 Runtime 1010.8s is host load — the box was carrying four other cells'
 `-m corpus` slices at the time — not a property of this branch.
+
+### D8.2 The corpus-marked slice
+
+`python -m pytest -m corpus -q`, run in the worktree, **exit 0**:
+
+```
+27 passed, 4562 deselected, 1 warning in 2751.51s (0:45:51)
+```
+
+27 is the batch-5 count, unchanged: this cell added 13 tests and none of them
+is corpus-marked. The slice is mandatory in every proof floor because the gate
+is structurally blind to review<->validated movement inside its PASS bucket
+(proven at PIPELINE-FIX-2's first revision), and it is the check that would
+catch a widened parser moving a pinned document between those two classes.
+45:51 is host load — four other cells' slices and two gates were on the box —
+not a property of this branch.
+
+**Nothing in the pinned corpus moved, in either direction**: the gate's
+per-document verdict check is green on the committed expectation (102/4/3), the
+slice is 27/27, and the one pinned document either touched family claims is
+byte-identical in its whole published payload (D8).
+
+### D8.3 A note on completion signals, because this cell got one wrong twice
+
+Two proofs in this section were nearly recorded from a signal that was not
+completion, and both mistakes have the same shape — a condition that the
+intended event produces but that other things produce too:
+
+* `git stash push -- <file>` on an already-committed, clean tree is a NO-OP
+  that still exits 0. A "measure the baseline" step built on it measured the
+  new code and produced a tautological byte-identity match. The baseline is now
+  taken with `git checkout <base> -- <file>`, and the measuring script asserts
+  the base file is the one loaded.
+* "the log file is non-empty" is not "pytest finished". `pytest -q` flushes its
+  progress dots as it goes, so a 9-byte log was 9 of 27 tests, not a summary.
+  The wrapper now appends an explicit `CORPUS_EXIT=$?` line after pytest exits
+  and the watcher waits for THAT, with a `tasklist` check on the pid as the
+  second exit so a died-without-finishing run reports rather than hangs.
+
+Recorded because the general rule is cheap and reusable: a proof's terminator
+must be something only the finished proof can emit.
+
+## D9. Commits
+
+| Commit | Contents |
+|---|---|
+| `750e768` | WM1-WM3: the summary strip read as a table, the omitted count, the section boundary; 9 tests |
+| `22966b3` | SQ1: the Location column, one-row-only, the shared `_summary` behind the integrity check; 4 tests |
+| `68ffcb4` | this section, D0-D6 — the census over all 132 and the routing of all 43 groups |
+| `423235c` | the two module docstrings cite their own W3 sections |
+| `080eca8` | D7-D8: the scope argument, the pinned byte-identity, the first four proofs |
+| `447a7fa` | D8.1: the corpus gate proof |
+| (this one) | D8.2 the corpus-marked slice, D8.3 the completion-signal note, and this table |
