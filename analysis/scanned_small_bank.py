@@ -658,7 +658,9 @@ _TF_SUMMARY_DEBITS_RE = re.compile(
 _TF_SERVICE_CHARGE_RE = re.compile(rf"^Service Charge\s+({_TF_FIGURE})\s*$", re.IGNORECASE | re.M)
 #: The bank's own average, printed in WHOLE DOLLARS on this template. Evidence
 #: only — `analysis/adb.py` owns the canonical figure (ADB doctrine).
-_TF_AVERAGE_RE = re.compile(r"^Average Balance\s+(\d[\d,]{0,15})\s*$", re.IGNORECASE | re.M)
+_TF_AVERAGE_RE = re.compile(
+    r"^Average Balance\s+(\d[\d,]{0,15}(?:\.\d{2})?)\s*$", re.IGNORECASE | re.M
+)
 
 TEXAS_FIRST_DETECTION_MARKERS = (
     # The issuer's own tele-banking domain, printed in the page furniture of
@@ -678,6 +680,22 @@ detect_texas_first = make_detector(TEXAS_FIRST_DETECTION_MARKERS, detection_text
 def _tf_cents(token: str) -> int | None:
     value = parse_money(token.replace("$", "").strip())
     return None if value is None else int(round(value * 100))
+
+
+def _tf_one(pattern: re.Pattern[str], source: str):
+    """The document's single reading of a summary term, or None.
+
+    `search` alone would take the first occurrence and never notice a second,
+    so a statement whose summary is printed twice — a continuation page
+    reprinting it, a two-account document, an OCR duplication — could publish
+    one account's figures under another's heading and look perfectly ordinary.
+    A repeat that AGREES is free corroboration and is accepted; a repeat that
+    disagrees is the document contradicting itself and refuses it.
+    """
+    matches = pattern.findall(source)
+    if not matches or len(set(matches)) > 1:
+        return None
+    return pattern.search(source)
 
 
 def _tf_iso(mmdd: str, *, start: date, end: date) -> str | None:
@@ -885,10 +903,10 @@ def parse_texas_first_scanned_statement(markdown: str) -> Statement | None:
         return None
     source = normalize_mojibake(markdown)
 
-    begin = _TF_SUMMARY_BEGIN_RE.search(source)
-    end = _TF_SUMMARY_END_RE.search(source)
-    credit_summary = _TF_SUMMARY_CREDITS_RE.search(source)
-    debit_summary = _TF_SUMMARY_DEBITS_RE.search(source)
+    begin = _tf_one(_TF_SUMMARY_BEGIN_RE, source)
+    end = _tf_one(_TF_SUMMARY_END_RE, source)
+    credit_summary = _tf_one(_TF_SUMMARY_CREDITS_RE, source)
+    debit_summary = _tf_one(_TF_SUMMARY_DEBITS_RE, source)
     if not (begin and end and credit_summary and debit_summary):
         return None
     try:
@@ -1008,12 +1026,12 @@ def parse_texas_first_scanned_statement(markdown: str) -> Statement | None:
     # belong to the ATM rows' card numbers (`*****5512`, `*****8152`) and to
     # the cheque images - reading one of those into this field would publish a
     # card as an account. Honest-unknown is the answer the document supports.
-    service = _TF_SERVICE_CHARGE_RE.search(source)
+    service = _tf_one(_TF_SERVICE_CHARGE_RE, source)
     if service is not None:
         charge = _tf_cents(service.group(1))
         if charge is not None:
             stmt.stated_service_charge = round(charge / 100, 2)
-    average = _TF_AVERAGE_RE.search(source)
+    average = _tf_one(_TF_AVERAGE_RE, source)
     if average is not None:
         printed_average = parse_money(average.group(1))
         if printed_average is not None:

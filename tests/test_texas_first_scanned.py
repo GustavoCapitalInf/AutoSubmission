@@ -352,6 +352,25 @@ def test_a_day_carrying_ledger_rows_but_no_printed_balance_is_refused():
     ) is None
 
 
+def test_a_summary_printed_twice_and_agreeing_is_corroboration():
+    doubled = whole(extra=WHOLE_STATEMENT_SUMMARY)
+    stmt = parse_texas_first_scanned_statement(doubled)
+    assert stmt is not None
+    assert stmt.beginning_balance == 1000.00
+
+
+def test_a_summary_printed_twice_and_disagreeing_refuses():
+    """Taking the first occurrence would publish one set of figures and never
+    notice the other — on a two-account printing that is one account's summary
+    under the other's heading."""
+    contradicting = whole(
+        extra=WHOLE_STATEMENT_SUMMARY.replace(
+            "Beginning Balance 4/01/26 1,000.00", "Beginning Balance 4/01/26 9,000.00"
+        )
+    )
+    assert parse_texas_first_scanned_statement(contradicting) is None
+
+
 def test_a_summary_that_does_not_close_publishes_nothing():
     assert parse_texas_first_scanned_statement(
         whole(
