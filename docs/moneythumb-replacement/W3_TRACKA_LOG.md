@@ -27719,3 +27719,116 @@ scanned cards after this one.
 ## SN10. Proofs
 
 All commands run in the worktree, sequentially, exit codes verbatim.
+
+### SN10.1 Read-only measurements
+
+```
+# the harness's own validity: the replay reproduces the run of record
+replayed 179 non-digital documents in 113s
+changed: 0                      (before the registration)
+
+# blast radius: detection over all 3,380 distinct archive documents
+python sweep.py
+swept 3380 documents in 392s
+no usable artifact (deferred / absent): 29
+texas_first_scanned claims 8 documents
+  33A2F2DD... 390DD1A1... 644F3694... 6ACF3130...
+  756F987E... 8FC40813... 9B3DB6CF... A20AACF2...   ['texas_first_scanned'] each
+NEW AMBIGUITIES: 0 {}
+
+# end-to-end differential over the whole non-digital population
+replayed 179 non-digital documents in 113s
+changed: 8                      (the eight, and nothing else)
+```
+
+### SN10.2 The proof floor, on the final tree
+
+```
+# full default suite
+python -m pytest -q
+4560 passed, 34 skipped, 31 deselected, 1 warning in 292.74s (0:04:52)
+EXIT=0  elapsed=296s
+```
+
+4,511 -> **4,560**: 35 tests in `tests/test_texas_first_scanned.py` plus the
+14 conformance/registry parametrisations the 73rd registration adds.
+
+```
+# conformance cross-product (73 x 72) + the registry pins, on the same tree
+python -m pytest tests/test_parser_conformance.py tests/test_parser_registry_entries.py -q
+974 passed, 34 skipped in 4.02s
+EXIT=0
+
+# guards (also inside the default suite above)
+python -m pytest -q -k "registry or conformance or hardcode"
+1121 passed, 34 skipped, 3435 deselected, 1 warning in 29.38s
+EXIT=0
+
+# this cell
+python -m pytest tests/test_texas_first_scanned.py -q
+35 passed in 0.44s
+EXIT=0
+```
+
+### SN10.3 The pinned 109: the gate's question, answered directly
+
+**The corpus gate and the corpus-marked slice did not complete on this host.**
+They are running detached (`proofs.log` in the session scratchpad, launched
+against `a3afa8a`); the reason is host saturation and it is measured, not
+guessed. Six other cells' python processes were resident throughout, two of
+them long-running, and the box is I/O-bound on a OneDrive-backed corpus: over
+one wall-clock hour this cell's slice accrued **40 seconds of CPU**. Batch 5
+recorded the same slice at 3,250s and the gate at ~1,200s. Nothing about the
+branch is implicated — the full suite on the same tree, in the same process
+tree, minutes earlier, ran in 292.74s.
+
+What the gate would be asked is narrower than what it does, and that narrower
+question IS answered here. This branch adds ONE registration; it changes no
+existing marker, adds no `supersedes` edge, and alters no shared code path. The
+only way it can move a pinned document is by that registration CLAIMING one, or
+by creating an ambiguity where a pinned document previously had a single
+claimant. Both are measured, over all 109, through the same offline ladder the
+gate's dry run uses:
+
+```
+python pinned_sweep.py
+pinned manifest: 109 paths
+swept 109 pinned documents in 89s
+no offline text (would need the live rung): 0 []
+texas_first_scanned claims 0 pinned documents: {}
+pinned documents with more than one claimant: 8
+  Misc/7429_Statement_October_2025_Statement.pdf        ['first_community', 'community_section']
+  Misc/Checking Account Statements - 1_30_2026 - ...    ['mission_valley', 'community_section']
+  Misc/Field Trucking November 2025 .pdf                ['dakota_west', 'community_section']
+  Misc/First Farmers 2026 01-document.pdf               ['first_farmers', 'core_processor_sectioned']
+  Misc/MidFlorida.pdf                                   ['midflorida', 'community_section']
+  Others/B1/b1 april 2026.pdf                           ['b1', 'core_processor_daily']
+  Others/B1/b1 feb 2026 (1).pdf                         ['b1', 'core_processor_daily']
+  Others/B1/b1 march 2026.pdf                           ['b1', 'core_processor_daily']
+```
+
+Zero pinned documents claimed, and the eight multi-claimant pinned documents
+are exactly the eight `supersedes` pairs already in `_OVERRIDES` and already
+resolved there — the same eight, with or without this branch. **No pinned
+document acquires a claimant and none acquires an ambiguity.**
+
+This is a substitute for the gate, and it is named as one rather than dressed
+up as the gate. It answers the mechanism; it does not re-audit the 109
+field-by-field. **Ocean should treat `python corpus_gate.py` and
+`pytest -m corpus` as OWED on this branch and run them on a quiet host before
+merging** — the standing rule is the gate attached to every merge, and a
+measured argument for why it cannot move is evidence, not a substitute for the
+run.
+
+## SN11. Commits
+
+| commit | what |
+|---|---|
+| `b63e3c5` | phase 1 — the census, the enumeration's immunity argument, the re-derived ranking (SN0–SN3) |
+| `b66587e` | `texas_first_scanned` — the reader, the registration, and the registry/conformance pins in the same commit |
+| `70ce243` | the tests, and two source comments corrected by mutation |
+| `d3fabea` | a summary term printed twice must agree |
+| `8029172` | an ambiguous posting year is refused, not decided by set iteration order |
+| `a3afa8a` | daily balances publish chronologically and once |
+| `6a29616` | the two refusal figures restated exactly (documentation only) |
+| (this one) | SN10 — the proofs, and the corpus gate honestly owed |
