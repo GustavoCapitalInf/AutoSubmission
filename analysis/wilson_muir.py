@@ -16,7 +16,7 @@ bounded by two dated balance rows::
     Ending Balance On 01/30/26  23,957.66
 
 Three facts about that strip are load-bearing and were previously memorized
-instead of read (§DECLINESD D2, and the same shape §DECLB found in two other
+instead of read (§DECLINESD D3, and the same shape §DECLB found in two other
 banks):
 
 * **The category list is open.** `Automatic Teller Withdrawals` and

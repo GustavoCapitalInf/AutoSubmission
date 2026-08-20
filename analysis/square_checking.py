@@ -66,7 +66,7 @@ _PERIOD = re.compile(
 #: is read BELOW the header rather than welded to it: a pattern that required
 #: the first money cell to follow the header immediately refused four
 #: consecutive statements of one merchant whose period, account number and
-#: activity grid all read perfectly (§DECLINESD D3).
+#: activity grid all read perfectly (§DECLINESD D4).
 _SUMMARY_HEADER = re.compile(
     r"(LOCATION )?STARTING BALANCE ACTIVITIES ENDING BALANCE", re.IGNORECASE
 )
