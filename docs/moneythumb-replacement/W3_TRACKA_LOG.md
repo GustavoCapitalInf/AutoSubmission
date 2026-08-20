@@ -27625,3 +27625,134 @@ restored tree: 49 passed, exit 0
 
 Every fixture in `tests/test_fiserv_premier.py` is synthetic; no archive
 customer, account, date or amount appears in the test file.
+
+## F11. Proofs
+
+All from the worktree at HEAD, exit codes verbatim. The machine carried six to
+seven concurrent sibling-cell python processes throughout, which is the only
+reason the gate and the corpus slice read 859.8s and 2927.36s; each long proof
+was run as a single sequential command, never overlapping another of this
+cell's.
+
+```
+$ git rev-parse --abbrev-ref HEAD
+wave6-fiserv3
+
+$ git status --short
+(clean)
+
+# the whole default suite
+$ python -m pytest -q
+4532 passed, 34 skipped, 31 deselected, 1 warning in 288.40s (0:04:48)
+SUITE_EXIT=0
+   (base eef77c6: 4,511. +21 = this cell's 49 tests less the 28 that were
+    there; no registration was added, so the conformance parametrizations
+    move only with the registry, which did not move.)
+
+# this cell
+$ python -m pytest -q tests/test_fiserv_premier.py
+49 passed in 0.35s                                        exit 0
+   (base: 28)
+
+# guards
+$ python -m pytest -q tests/test_no_statement_hardcodes.py \
+    tests/test_no_parser_helper_clones.py tests/test_r1_hardcodes.py \
+    tests/test_experiments_are_not_wired.py tests/test_filename_boundary.py
+242 passed, 1 warning in 17.88s                           exit 0
+
+# conformance cross-product + registry
+$ python -m pytest -q tests/test_parser_conformance.py \
+    tests/test_parser_registry_entries.py tests/test_parser_detection_markers.py \
+    tests/test_parser_registry.py tests/test_parser_crash_shapes.py \
+    tests/test_parser_exception_boundary.py tests/test_count_semantics.py
+1126 passed, 34 skipped, 1 warning in 4.69s               exit 0
+   registrations: 72  ->  cross-product 72 x 71   (UNCHANGED: no sibling
+   registration was created; see F0 on the §SCANB discipline)
+```
+
+```
+# corpus gate
+$ python corpus_gate.py
+[PASS] inventory · foreign_files · source_integrity · balance_audit · adb_audit
+[PASS] balance_outcomes: balance: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes:     adb:     106 pass, 3 withheld, same three statements
+[PASS] outcome_classes: 109 statements publish their pinned verdict (outcome
+       class and the whole integrity block): 4 review / 102 validated / 3 withheld
+[PASS] adb_doctrine: 109/109 publish the canonical basis
+       'calendar_day_printed_period'; banking-day alternate distinct on 106,
+       skipped 3 unpublished (0 all-banking-day periods, 0 flat ledgers)
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR = 109 resolved offline;
+       no live OCR, no model calls
+[PASS] exclusions: 0 named exclusions
+[PASS] oracle_independence: 4 audit modules import no production financial mathematics
+
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 4 review / 102 validated / 3 withheld
+Runtime:  859.8s
+
+RESULT: GREEN
+GATE_EXIT=0
+```
+
+```
+# the corpus-marked slice (mandatory since batch 3), 27/27, all named
+$ python -m pytest -m corpus -q -rA
+27 passed, 4570 deselected, 1 warning in 2927.36s (0:48:47)
+CORPUS_EXIT=0
+   test_corpus_gate_is_green
+   test_corpus_gate_outcomes: the verdict check green on the committed
+     expectation, and its six red-turning mutations (moved outcome class, lost
+     integrity flag, gained integrity flag, moved risk level, moved
+     possible_document_issue, changed integrity note) + the unanalysable
+     document is red not skipped
+   test_dry_run_reproduces_known_truth
+   test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered
+   test_the_pinned_statement_recovers_its_printed_descriptions_and_nothing_else
+   test_parser_parity: unclaimed / wrong parser / ambiguous / recorded parser /
+     highest-ranked claimant / three promoted sub-dispatches / expectations
+     cover the pinned manifest / detect-sweep prepares each document once /
+     entry points strip the filename comment once / double sweep prepares each
+     document once / detect sweep stays affordable / detection invariant to the
+     filename echo
+   test_telemetry_reproduces_the_gate_outcome_split
+   test_withheld_diagnostics_reproduce_the_documented_diagnosis
+   test_no_corpus_document_is_flagged_through_the_real_ladder
+```
+
+**Nothing in the pinned corpus moved**, in either direction: the gate's
+per-document verdict check is green on the committed expectation (102 validated
+/ 4 review / 3 withheld — the post-ceremony canonical), and the corpus-marked
+slice — which is what catches review↔validated movement inside the gate's PASS
+bucket — is 27/27. No pinned document is a `fiserv_premier` claimant, and
+`test_parser_parity` re-derives that by live dispatch rather than from a
+recorded id.
+
+## F12. Movers, named
+
+Exactly four, all `failed` → `validated`, all in folder `Unidentified/`:
+
+| `content_sha256` | before (run `2e3ea385`) | after | fields gained |
+|---|---|---|---|
+| `4D0EACF6D617EDAB6AD7BA7EC7EE16A669CE90995916C73DD4228C5F9999A29E` | `failed` / `parser_declined` / RuntimeError | **`validated`** / `approved` | period 2026-04-01…04-30 (30d), balances 411.07 → −6,653.88, 167 transactions, ADB −3,539.00, flags [] |
+| `4B37474294BFC9AB5D5CFCDA64BF5EB15677F8778C6F1712A8DDDE4C687F0C1D` | `failed` / `parser_declined` / RuntimeError | **`validated`** / `approved` | period 2026-05-01…05-29 (29d), −6,653.88 → 13,577.30, 125 transactions, ADB 15,533.42, flags [] |
+| `8DB2CB78B67CF2235CC62C8ED71A0D3569DCACAA993339040ED02532FF5EA471` | `failed` / `parser_declined` / RuntimeError | **`validated`** / `approved` | period 2026-05-30…06-30 (32d), 13,577.30 → 1,807.93, 197 transactions, ADB 1,957.83, flags [] |
+| `E34083B2FED71FB3565599BE3E4D26B4741A3CEBC7E91CED3451E319798A2513` | `failed` / `parser_declined` / RuntimeError | **`validated`** / `approved` | period 2026-07-01…07-31 (31d), 1,807.93 → 10,290.37, 210 transactions, ADB 751.64, flags [] |
+
+`bank` stays None on all four (F7) and `account_name` / `account_number` stay
+None on all four (F9.1). The before-state class/reason/error is quoted from the
+run of record's own rows; the replay harness reproduces the CLASS exactly and
+reports the reason as `exception` only because it does not pass the runner's
+`error_reason=_failure_reason(error_type, dispatch)` — the `parser_declined`
+refinement is the runner's dispatch-aware vocabulary, not a parser behaviour.
+
+**Zero movement outside these four**, by the F8 sweep: 3,396 distinct documents
+replayed through both module versions, 0 detection differences, 4 parse-output
+movers, 10/10 prior publishers byte-identical.
+
+## F13. Commits
+
+| Commit | Contents |
+|---|---|
+| `181aa8a` | the reader: `_period` (second wording, corroborated), `_embedded_sections` (four sections, suspend/resume), `_embedded_rows` (the money rule and its refusal), `_daily_grid_agrees` (the printed grid as a required oracle); the embedded branch as the `else` of the two that came first; tests 28 → 49 |
+| `4a85efd` | this section's F0–F10 |
+| (this one) | F11–F13: the proof block, the movers named, and this table |
