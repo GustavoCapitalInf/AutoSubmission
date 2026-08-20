@@ -27390,7 +27390,68 @@ message-vocabulary breach — a reason string interpolating the token (M13) and
 
 ## MP7. The zero-movement sweep
 
-_(pending: the full-population before/after is running; this section lands with it.)_
+**Zero movers, and the instrument is checked against itself before it is
+believed.**
+
+**What was run.** For every OCR artifact under the two live OCR settings keys,
+read by DIRECT file path (never the sqlite index): rehydrate the intake
+document exactly as `cached_ocr` does on a hit, then
+`analyze_markdown(markdown, parse_mode="deterministic", sheets=doc.pages)` —
+the discovery runner's own call at `discovery/runner.py:487` — and compare the
+published payload against **the analysis artifact the run of record itself
+stored** for that exact input, under the live v13 settings key
+`205EB02A2C4B0A69D2AFA289F7A70B9EC81DED1004B97717751DFA64482EE9AF`. The before
+side is therefore `2e3ea385`'s own answer rather than a re-derivation of it.
+Read-only throughout: `analyze_markdown` is called directly, so no analysis
+artifact is written back.
+
+**The instrument is checked first.** The same harness run against the BASE tree
+reproduces the stored payloads byte for byte — 83 of 83 on the first 120
+artifacts, 0 movers — so the comparison can see a difference if there is one.
+(Its first revision reported 83/83 *movers*, because the stored artifact nests
+the payload under `artifact.analysis` and the harness compared one level too
+high. A sweep that reports 100% movement is a broken instrument, not a
+finding; it is recorded here because "0 movers" is only worth reading next to
+the run that proves the harness can produce a non-zero.)
+
+**Population.** 3,454 artifacts under the live keys → **3,393 distinct content
+shas** → **3,339 distinct analysis inputs**. The 115 artifacts skipped are
+duplicates *of an analysis input*, not of a document: 61 are the same sha under
+both live OCR keys, and 54 are distinct shas whose text and page partition
+hash identically to another document's, so the analysis is the same
+deterministic function of the same bytes and cannot diverge from its twin.
+
+**Result.**
+
+```
+FINAL: seen 3,339 · compared 2,498 · MOVERS 0 · raised 841 · no_base_returned 0 · skipped 115
+```
+
+* **2,498 documents compared field by field against the run of record: 0
+  movers.** No outcome, flag, note, metric or published field moved anywhere.
+* **841 documents raise on both trees**, all `RuntimeError` — the deterministic
+  branch's "no deterministic parser matched this statement" for documents no
+  registration claims, which is why they have no stored analysis artifact
+  (`cached_analysis` does not cache a raise). Re-run on the base tree and
+  compared on exception class AND a digest of the message: **841 of 841
+  identical, 0 differences.**
+* **`no_base_returned` is 0**, which is the sweep's own soundness check in the
+  other direction: the branch produced no payload for a document the run of
+  record had refused, so the two populations are the same population.
+* **Money-grammar refusals reaching the boundary anywhere in the archive: 0.**
+  This is the raising family's analogue of §MG-C2's measurement for
+  `read_money` ("zero refusals of a present token at any call site"), and it is
+  the reason the card moves nothing: on today's archive there is no live
+  refusal whose message could change. The leak was real and unreachable, which
+  is exactly the condition §MGD named when it carded this rather than fixing it.
+
+**The swept tree is the shipped tree.** The sweep ran against `9a78876`; the
+branch since adds one docstring paragraph to `parse_signed_decimal` (§MP4).
+Asserted as a measurement rather than as a reading of the diff: both revisions
+of `analysis/money.py` were parsed, their docstrings stripped, the ASTs
+unparsed and hashed — `f126b96134780e4d1d0761fb962a4cb97051ddc7f4f0fb22957da0f0bc78b1c3`
+on both sides. No other file under `analysis/`, `ocr/`, `webapp/`, `telemetry/`
+or `discovery/` differs at all.
 
 ## MP8. The ledger — quoted-text raise sites found and NOT owned
 
@@ -27445,11 +27506,72 @@ vocabulary or path names — `count_semantics` (5), `metrics` (3), `revenue` (4)
 
 ## MP9. Proofs
 
-_(pending: this section lands with the sweep.)_
+Branch `wave6-moneypriv`, final tree `8078d74`, run as one sequential chain
+after the MP11 comment corrections so that every proof below reads the tree
+that ships. Nine other cells were working the same machine throughout; the
+runtimes are contended wall clock and are a reading of the host, not of this
+cell.
+
+```
+# 1. full default suite (base 4,511; this cell adds 334)
+4845 passed, 34 skipped, 31 deselected, 1 warning        394.92s  SUITE_EXIT=0
+
+# 2. corpus-marked slice (MANDATORY since batch 3) — unchanged at 27; this
+#    cell adds no corpus-marked test, and the slice is the check the gate is
+#    structurally blind to (review<->validated inside its PASS bucket)
+27 passed, 4883 deselected, 1 warning                   3056.47s  CORPUS_EXIT=0
+
+# 3. corpus gate (python corpus_gate.py)
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 4 review / 102 validated / 3 withheld
+Runtime:  1142.2s
+RESULT: GREEN                                                     GATE_EXIT=0
+
+# 4. conformance cross-product (72 x 71 = 5,112 pairs) + registry + guards
+#    test_parser_conformance / test_parser_detection_markers /
+#    test_parser_registry / test_parser_registry_entries /
+#    test_pipeline_registry_dispatch / test_no_statement_hardcodes /
+#    test_r1_hardcodes / test_no_parser_helper_clones /
+#    test_no_fail_open_money_reads / test_money
+1720 passed, 34 skipped, 1 warning                        18.61s  GUARDS_EXIT=0
+
+# 5. the poisoned-token proof alone
+334 passed                                                 1.07s  PRIVACY_EXIT=0
+
+# mutation kill (session scratchpad, not committed)
+14 mutants, 14 KILLED, 0 survivors
+
+# raise-site census (session scratchpad, not committed)
+56 leaking cases before, 0 after; every non-raising return identical
+
+# full-population zero-movement sweep (MP7)
+seen 3,339 · compared 2,498 · MOVERS 0 · raised 841 · no_base_returned 0
+raising subset re-run on the base tree: 841/841 identical class + message digest
+money-grammar refusals reaching the boundary, whole archive: 0
+```
+
+**Nothing in the pinned corpus moved**, in either direction: the gate's
+per-document verdict check is green on the committed expectation at the
+canonical post-ceremony split (102/4/3), and the corpus-marked slice — which
+is what catches review<->validated movement inside the gate's PASS bucket — is
+27/27.
+
+**An earlier, identical floor was run on `3375886` and discarded**, not
+reported: it was in flight when Ocean's MP11 coordination item arrived, and a
+proof that reads a tree one commit behind the one being merged is not a proof
+of the merge. It was stopped mid-slice and the whole floor re-run above.
 
 ## MP10. Commits
 
-_(pending.)_
+| Commit | Contents |
+|---|---|
+| `9a78876` | the card — eleven raise sites routed through one `_refusal` constructor, the chain severed at each conversion, `read_money` repointed with a byte-identical message; `tests/test_money_refusals_are_private.py` (334 cases) |
+| `2527448` | this section, MP0-MP10: the census, the design, the two unnamed sites, the reachability statement, the ledger |
+| `3375886` | `parse_signed_decimal`'s docstring states the delegated reader name (MP4) |
+| `8078d74` | MP11 — the six stale `webapp/worker.py` boundary claims corrected across both files, prose only, AST-identity asserted |
+| (this one) | MP7 the full-population sweep, MP9 the proof floor with verbatim exit codes, and this table |
 
 ## MP11. Coordination item — the stale boundary comments (Ocean, at the train)
 
