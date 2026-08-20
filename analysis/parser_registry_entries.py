@@ -207,6 +207,11 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("td_canada_french", "TD Canada Trust", td_canada_french, "DETECTION_MARKERS", "detection_text", "parse_td_canada_french_statement"),
     ("td_us", "TD Bank", td_us, "DETECTION_MARKERS", None, "parse_td_us_statement"),
     ("texas_bank", "Texas Bank and Trust", texas_bank, "DETECTION_MARKERS", None, "parse_texas_bank_statement"),
+    # A THIRD scanned small-bank reader in the same module as `apex_scanned`
+    # and `southside_scanned` (W3 §SCANNEXT). The issuer IS printed here - in
+    # the page furniture of every page - so `Statement.bank` names it, unlike
+    # the core-processor templates above.
+    ("texas_first_scanned", "Texas First Bank", scanned_small_bank, "TEXAS_FIRST_DETECTION_MARKERS", "detection_text", "parse_texas_first_scanned_statement"),
     ("truist", "Truist", truist, "DETECTION_MARKERS", None, "parse_truist_statement"),
     ("us_bank", "U.S. Bank", us_bank, "DETECTION_MARKERS", None, "parse_us_bank_statement"),
     ("wealthsimple", "Wealthsimple", wealthsimple, "DETECTION_MARKERS", None, "parse_wealthsimple_statement"),

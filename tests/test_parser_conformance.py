@@ -96,7 +96,7 @@ def test_no_fixture_names_a_registration_that_does_not_exist():
 
 
 def test_the_registry_holds_the_documented_number_of_registrations():
-    assert len(REGISTRATIONS) == 72, (
+    assert len(REGISTRATIONS) == 73, (
         "43 registry entry points, the three promoted sub-dispatches, the "
         "three BMO layouts, the Square Checking layout, the Chase savings "
         "product, the TD Canada Trust French layout, the English CIBC "
@@ -108,7 +108,8 @@ def test_the_registry_holds_the_documented_number_of_registrations():
         "`Relevé de compte` template that names no institution, the "
         "second core processor's sectioned template, the batch-4 "
         "partitioned-summary core-processor template, and the batch-5 "
-        "third core-processor template; "
+        "third core-processor template, and the batch-6 scanned Texas First "
+        "four-way partition; "
         "update this count and the docs together"
     )
 
