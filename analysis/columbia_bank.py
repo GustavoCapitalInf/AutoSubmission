@@ -6,13 +6,80 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
-from .money import parse_decimal_mixed_separator
+from .money import MINUS_GLYPHS, normalize_sign_glyphs, parse_decimal_mixed_separator
 from .parser_registry import make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
 from .tables import section_between
 
 
 _MONEY = r"\d[\d,]*[\.,]\d{2}"
+
+#: A balance slot in the summary strip. Beginning, low, average and ending are
+#: BALANCES and a business account goes overdrawn, so the sign is part of the
+#: printing: this account's June statement prints `Low balance -$10,816.06` and
+#: its daily grid walks through six negative days. The two FLOW figures
+#: (`Deposits/Additions`, `Withdrawals/Subtractions`) and `Interest earned`
+#: keep the unsigned pattern — this template prints them as magnitudes whose
+#: direction is the label — so a signed printing of one of those declines
+#: instead of being read as a magnitude.
+#:
+#: The class is `money.MINUS_GLYPHS`, so the em dash is NOT a sign here either
+#: (W3 §MGD3, whose decisive attestation is this very family's `03-16 —
+#: 39,692.35`). An em dash in a sign position therefore declines the summary
+#: rather than flipping a figure the bank printed positive.
+_SIGN = "[" + re.escape(MINUS_GLYPHS) + "]"
+_BALANCE = rf"{_SIGN}?\s?\$?{_MONEY}"
+
+#: OCR debris between two printed CELLS of a scanned grid: a column rule read
+#: as `|`, a leader read as `—` or `_`, a stray `.`. Never a letter, a digit, a
+#: currency symbol or a sign glyph — so it can swallow neither a label, nor a
+#: figure, nor the sign of one. Four consecutive statements of one account
+#: print, between the same two summary cells, ` ` / `  ` / ` — ` / ` | `; they
+#: are one printed strip and a reader that admits only the first two publishes
+#: two of the four.
+_DEBRIS = r"[^\s0-9A-Za-z$" + re.escape(MINUS_GLYPHS) + r"]"
+
+#: The gap between two cells: whitespace, optionally with a run of debris in
+#: it. At least one whitespace character, so it can never join two tokens the
+#: bank printed adjacent.
+_GAP = rf"\s+(?:{_DEBRIS}+\s*)?"
+
+
+def _columns(*labels: str) -> str:
+    """A section's column-header row, tolerant of the debris between its cells.
+
+    `Date Description Additions` and `Date —_ Description Additions` are the
+    same printed row; the second is what Tesseract makes of the column rule on
+    three of this account's four statements. The header row is the second half
+    of every section's start pattern — the half that keeps the section masthead
+    apart from the same words in the summary strip — so a reader that spells it
+    as literal single spaces does not merely lose the header: it bounds the
+    section from the wrong place, or not at all.
+
+    Debris may not cross a line. The header is ONE printed row, and a gap that
+    spanned lines could join a `Date` in one section's header to a
+    `Description` in the next.
+    """
+    return rf"(?:[^\S\n]|{_DEBRIS})*".join(labels)
+
+
+def _section(head: str, *labels: str) -> str:
+    """A ledger section's start: its masthead on its own line, then its
+    column-header row.
+
+    The masthead starts its own line. `Deposits/Additions` is a SUFFIX of both
+    `Other Deposits/ Additions` and `ACH and Electronic Deposits/Additions`,
+    and `Checks` of `Total Checks paid:` — so an unanchored masthead bounds a
+    section from another section's heading whenever the one it names is
+    absent, which April (no plain deposit section) is the printing that makes
+    real. What may precede it on its line is debris and nothing else: April
+    prints `——. Other Withdrawals/Subtractions`, and since `_DEBRIS` admits no
+    letter, no word of a longer heading can hide in that tolerance.
+
+    The column-header row is what keeps the masthead apart from the same words
+    in the summary strip, and it is read through `_columns`.
+    """
+    return rf"\n(?:[^\S\n]|{_DEBRIS})*{head}\s+" + _columns("", *labels)
 
 
 @dataclass(frozen=True)
@@ -25,6 +92,24 @@ class _Row:
 
 def _money(value: str) -> Decimal:
     return parse_decimal_mixed_separator(value)
+
+
+def _signed(value: str) -> Decimal:
+    """A summary BALANCE cell -> `Decimal`, the printed sign preserved.
+
+    `money.parse_signed_decimal` is the same reading over `parse_decimal`; this
+    template needs the sign over `parse_decimal_mixed_separator`, because its
+    scans render the cents separator as a comma often enough that `_money` is
+    the module's numeric reader everywhere else. The sign class is
+    `money.MINUS_GLYPHS` either way, read through `normalize_sign_glyphs`
+    rather than by re-spelling the glyphs here.
+    """
+    text = normalize_sign_glyphs(value.strip())
+    negative = text.startswith("-")
+    if negative:
+        text = text[1:].lstrip()
+    amount = _money(text)
+    return -amount if negative else amount
 
 
 def _clean_description(value: str) -> str:
@@ -122,11 +207,44 @@ def _repair_repeated_amounts(rows: list[_Row], target: Decimal) -> list[_Row]:
         repaired[index] = replace(repaired[index], amount=mode)
 
 
+#: A cell of the Daily Balances grid: `mm-dd`, whitespace, and then the figure
+#: — optionally carrying a SIGN from `money.MINUS_GLYPHS`, and nothing else.
+#:
+#: Both halves of that are load-bearing, and this family is the archive's whole
+#: attestation for the strict half. `88AAC06119FC` prints
+#:
+#:     03-04 56,767.53   03-16 —  39,692.35   03-26 34,167.30
+#:
+#: where the `—` is the grid's empty-column placeholder and 39,692.35 is a
+#: POSITIVE running balance between its two neighbours (W3 §MGD3). A reader
+#: that lets ANYTHING stand between the date and the figure has three ways to
+#: be wrong and no way to know which: it can publish the placeholder as a sign
+#: and invert a balance the bank printed positive, it can bind a date to the
+#: NEXT column's figure when its own is unreadable, and — the failure this
+#: family actually suffered — it can carry the cell into the LEDGER as a
+#: transaction of 39,692.35 (W3 §COUNTSP3). The em dash is not in
+#: `MINUS_GLYPHS`, by that same ruling, so this pattern refuses the cell
+#: outright: 03-16 is simply not a snapshot this reader will vouch for.
+#:
+#: The sign IS admitted, because it is a figure the bank printed and not
+#: debris: `2E667295DFCB16BA` is an overdrawn month whose grid prints
+#: `06-22 -2,209.18`, `06-23 -2,209.18` and `06-25 -3,133.90`. Reading only
+#: unsigned cells drops exactly the days an underwriter most needs to see, and
+#: reading them WITHOUT the sign would publish an overdraft as a balance three
+#: times its true distance from zero. One class separates the two cases at a
+#: glance: a sign glyph is a sign, an em dash is punctuation.
+#:
+#: What refusing still costs on `88AAC06119FC` is the two cells whose figure
+#: the scan preceded with debris (03-02 `___57,697.72` and 03-16). They are
+#: absent from `stated_daily_balances` rather than present and wrong.
+_GRID_CELL = re.compile(rf"(\d{{2}})-(\d{{2}})\s+({_SIGN}?{_MONEY})")
+
+
 def _daily_snapshots(block: str, *, year: int) -> dict[date, Decimal]:
     snapshots: dict[date, Decimal] = {}
-    for month, day, amount in re.findall(rf"(\d{{2}})-(\d{{2}})\s+({_MONEY})", block):
+    for month, day, amount in _GRID_CELL.findall(block):
         try:
-            snapshots[date(year, int(month), int(day))] = _money(amount)
+            snapshots[date(year, int(month), int(day))] = _signed(amount)
         except ValueError:
             continue
     return snapshots
@@ -190,15 +308,75 @@ def _repair_single_section_delta(
     return candidates[0][2]
 
 
+#: A row of the two-column cheque grid (`Check # Amount Date Check # Amount
+#: Date`). The serial is the row's leading cell and it is OPTIONAL, because on
+#: this account's March statement the scan reads `4177` as `A777`.
+#:
+#: The three readings of that cell are not equivalent. Taking any trailing
+#: digit run publishes `Check 777` — a serial the bank did not print, on a
+#: cheque that cleared for $17,263.50. REQUIRING a clean serial loses the row,
+#: and with it the section's agreement with the printed `Withdrawals/
+#: Subtractions` total, so the whole statement declines over a damaged label.
+#: What is printed and readable is the AMOUNT and the DATE — the two things the
+#: ledger and the reconciliation need — so the row is published as a bare
+#: `Check` and the serial is simply not asserted. The same discipline as the
+#: third core processor's structural serial read (W3 §LCPERIOD), in the shape
+#: this two-per-line grid takes.
+#:
+#: `\$` is required on the amount, and that is what lets the serial be
+#: optional: without it a serial-less row's amount and the next row's serial
+#: are the same shape. Every cheque amount in this family prints the symbol; a
+#: printing that omitted it would lose the row and fail the debit total, which
+#: is the fail-closed direction.
+_CHEQUE_ROW = re.compile(
+    rf"(?:(?<![0-9A-Za-z])(\d{{3,}})\s+)?\$({_MONEY})\s+(\d{{2}})-(\d{{2}})"
+)
+
+
+def _printed_total(markdown: str, label: str) -> Decimal | None:
+    """The figure a section's own `Total ...` row prints, or None if absent.
+
+    Every section in this template closes with its own total, and those totals
+    are this reader's oracles: no section's rows are believed until they add up
+    to the figure the bank printed under them. Shared so that the two sections
+    a month may or may not print are read exactly like the three it always
+    does — an absent section is `None` here, never a silent zero.
+    """
+    found = re.search(rf"{label}{_GAP}\$?({_MONEY})", markdown, re.IGNORECASE)
+    return None if found is None else _money(found.group(1))
+
+
 def detection_text(markdown: str) -> str:
     """The text this parser recognises itself in."""
     return markdown.upper()
 
 
+#: The issuer's NAME is deliberately not among these, and the reason is
+#: measured rather than stylistic. This account's four consecutive statements
+#: are one printing; the masthead is a logo, so whether `COLUMBIA BANK` appears
+#: in the text at all is a property of the SCAN and not of the document. Over
+#: the four: April's logo OCRs to the name and May's does not, but May happens
+#: to carry a one-off overdraft-disclosure paragraph that mentions "the
+#: columbia Bank welcome booklet"; March's and June's logos OCR to
+#: `sbedet eye ffgeef tLe lpg f apg gle ete` and
+#: `Aun | rou ae nn nro) cell Mazo LOTT`, and neither prints the name anywhere
+#: else. A required issuer name therefore claimed two of four statements of one
+#: account by accidents of Tesseract and of a paragraph the bank printed twice
+#: and then stopped printing.
+#:
+#: What replaces it is the section masthead the reader REQUIRES: the debit
+#: ledger it must find and reconcile against that section's own printed total.
+#: This keeps the marker count at four and the claim score at 0.5 — the two
+#: statements already claimed keep the score they had — and it moves the
+#: evidence from something a scan can lose to something the parser cannot
+#: proceed without. `MARKETPLACE CHECKING` remains: it is the issuer's own
+#: product masthead, and it is why this registration still publishes a bank
+#: NAME the two unlabelled scans do not print (the printing is Columbia Bank's,
+#: and the registration is Columbia Bank's).
 DETECTION_MARKERS = (
-    required("bank_name", lambda t: "COLUMBIA BANK" in t),
     required("product", lambda t: "MARKETPLACE CHECKING" in t),
     required("credits_section", lambda t: "DEPOSITS/ADDITIONS" in t),
+    required("debits_section", lambda t: "ACH AND ELECTRONIC PAYMENTS/SUBTRACTIONS" in t),
     required("daily_balances", lambda t: "DAILY BALANCES" in t),
 )
 
@@ -211,15 +389,17 @@ def parse_columbia_bank_statement(markdown: str) -> Statement | None:
         return None
 
     dates = re.search(
-        r"Last statement:\s*([A-Z][a-z]+ \d{1,2}, \d{4})\s+"
-        r"This statement:\s*([A-Z][a-z]+ \d{1,2}, \d{4})",
+        # The colon is optional on both labels: April's scan drops the one
+        # after `Last statement` and prints the same two-line period strip.
+        r"Last statement:?\s*([A-Z][a-z]+ \d{1,2}, \d{4})\s+"
+        r"This statement:?\s*([A-Z][a-z]+ \d{1,2}, \d{4})",
         markdown,
     )
     summary = re.search(
-        rf"Account number\s+([X\d]+)\s+Beginning balance\s+\$?({_MONEY})\s+"
-        rf"Low balance\s+\$?({_MONEY})\s+Deposits/Additions\s+\$?({_MONEY})\s+"
-        rf"Average balance\s+\$?({_MONEY})\s+Withdrawals/Subtractions\s+\$?({_MONEY})\s+"
-        rf".*?Interest earned\s+\$?({_MONEY})\s+Ending balance\s+\$?({_MONEY})",
+        rf"Account number{_GAP}([X\d]+){_GAP}Beginning balance{_GAP}({_BALANCE}){_GAP}"
+        rf"Low balance{_GAP}({_BALANCE}){_GAP}Deposits/Additions{_GAP}\$?({_MONEY}){_GAP}"
+        rf"Average balance{_GAP}({_BALANCE}){_GAP}Withdrawals/Subtractions{_GAP}\$?({_MONEY})\s+"
+        rf".*?Interest earned{_GAP}\$?({_MONEY}){_GAP}Ending balance{_GAP}({_BALANCE})",
         markdown,
         re.IGNORECASE | re.DOTALL,
     )
@@ -230,73 +410,88 @@ def parse_columbia_bank_statement(markdown: str) -> Statement | None:
     period_end = datetime.strptime(dates.group(2), "%B %d, %Y").date()
     period_start = previous_end + timedelta(days=1)
     account, opening_raw, _low, credits_raw, average_raw, debits_raw, interest_raw, ending_raw = summary.groups()
-    opening = _money(opening_raw)
-    ending = _money(ending_raw)
+    opening = _signed(opening_raw)
+    ending = _signed(ending_raw)
     total_credits = _money(credits_raw)
     total_debits = _money(debits_raw)
 
     deposit_block = section_between(
         markdown,
-        r"Deposits/Additions\s+Date Description Additions",
+        _section(r"Deposits/Additions", "Date", "Description", "Additions"),
         r"Total Additions",
     )
     ach_debit_block = section_between(
         markdown,
-        r"ACH and Electronic Payments/Subtractions\s+Date Description Subtractions",
+        _section(r"ACH and Electronic Payments/Subtractions",
+                 "Date", "Description", "Subtractions"),
         r"Total ACH and Electronic Payments/Subtractions",
     )
     ach_credit_block = section_between(
         markdown,
-        r"ACH and Electronic Deposits/Additions\s+Date Description Additions",
+        _section(r"ACH and Electronic Deposits/Additions",
+                 "Date", "Description", "Additions"),
         r"Total ACH and Electronic Deposits/Additions",
+    )
+    # Printed only in months that have one, and only ONE of this account's four
+    # statements does. Its head and its own printed total travel together: a
+    # head with no total, or a total with no head, is a section this reader
+    # cannot reconcile and the document declines.
+    other_credit_block = section_between(
+        markdown,
+        _section(r"Other Deposits/\s*Additions", "Date", "Description", "Additions"),
+        r"Total Other Deposits/\s*Additions",
     )
     other_debit_block = section_between(
         markdown,
-        r"Other Withdrawals/Subtractions\s+Date Description Subtractions",
+        _section(r"Other Withdrawals/Subtractions", "Date", "Description", "Subtractions"),
         r"Total Other Withdrawals/Subtractions",
     )
     daily_block = section_between(markdown, r"Daily Balances", r"Overdraft Fee Summary")
-    checks_block = section_between(markdown, r"Checks\s+Check # Amount Date", r"\(\* Skip in check sequence")
-    if not all((deposit_block, ach_debit_block, ach_credit_block, other_debit_block, daily_block, checks_block)):
+    checks_block = section_between(
+        markdown,
+        _section(r"Checks", "Check #", "Amount", "Date"),
+        r"\(\* Skip in check sequence",
+    )
+    if not all((ach_debit_block, ach_credit_block, other_debit_block, daily_block, checks_block)):
         return None
 
     sequence = 0
     deposits, sequence = _rows(deposit_block, start=period_start, end=period_end, sequence=sequence)
     ach_debits, sequence = _rows(ach_debit_block, start=period_start, end=period_end, sequence=sequence)
     ach_credits, sequence = _rows(ach_credit_block, start=period_start, end=period_end, sequence=sequence)
+    other_credits, sequence = _rows(other_credit_block, start=period_start, end=period_end, sequence=sequence)
     other_debits, sequence = _rows(other_debit_block, start=period_start, end=period_end, sequence=sequence)
 
     checks: list[_Row] = []
-    for check_number, amount, month, day in re.findall(
-        rf"(\d{{3,}})\s+\$?({_MONEY})\s+(\d{{2}})-(\d{{2}})", checks_block
-    ):
+    for check_number, amount, month, day in _CHEQUE_ROW.findall(checks_block):
         checks.append(
             _Row(
                 date=date(period_end.year, int(month), int(day)),
-                description=f"Check {check_number}",
+                description=f"Check {check_number}" if check_number else "Check",
                 amount=_money(amount),
                 sequence=sequence,
             )
         )
         sequence += 1
 
-    ach_debit_total_match = re.search(
-        rf"Total ACH and Electronic Payments/Subtractions\s+\$?({_MONEY})", markdown,
-        re.IGNORECASE,
-    )
-    ach_credit_total_match = re.search(
-        rf"Total ACH and Electronic Deposits/Additions\s+\$?({_MONEY})", markdown,
-        re.IGNORECASE,
-    )
-    other_total_match = re.search(
-        rf"Total Other Withdrawals/Subtractions\s+\$?({_MONEY})", markdown,
-        re.IGNORECASE,
-    )
-    if not ach_debit_total_match or not ach_credit_total_match or not other_total_match:
+    ach_debit_total = _printed_total(
+        markdown, r"Total ACH and Electronic Payments/Subtractions")
+    ach_credit_total = _printed_total(
+        markdown, r"Total ACH and Electronic Deposits/Additions")
+    other_total = _printed_total(markdown, r"Total Other Withdrawals/Subtractions")
+    if ach_debit_total is None or ach_credit_total is None or other_total is None:
         return None
-    ach_debit_total = _money(ach_debit_total_match.group(1))
-    ach_credit_total = _money(ach_credit_total_match.group(1))
-    other_total = _money(other_total_match.group(1))
+    # The two sections a month may or may not print. Each is read only against
+    # its OWN printed total, and each pairs its rows with that total: present
+    # with no total, or a total with no rows to close, is a refusal.
+    deposit_total = _printed_total(markdown, r"Total Additions")
+    other_credit_total = _printed_total(markdown, r"Total Other Deposits/\s*Additions")
+    if bool(deposit_block) != (deposit_total is not None):
+        return None
+    if bool(other_credit_block) != (other_credit_total is not None):
+        return None
+    deposit_total = Decimal() if deposit_total is None else deposit_total
+    other_credit_total = Decimal() if other_credit_total is None else other_credit_total
 
     ach_debits = _repair_repeated_amounts(ach_debits, ach_debit_total)
     ach_credits = _repair_repeated_amounts(ach_credits, ach_credit_total)
@@ -305,7 +500,7 @@ def parse_columbia_bank_statement(markdown: str) -> Statement | None:
         ach_debits,
         target=ach_debit_total,
         opening=opening,
-        all_credit_rows=deposits + ach_credits,
+        all_credit_rows=deposits + other_credits + ach_credits,
         other_debits=other_debits,
         checks=checks,
         snapshots=snapshots,
@@ -313,7 +508,12 @@ def parse_columbia_bank_statement(markdown: str) -> Statement | None:
     if ach_debits is None:
         return None
 
-    if sum((row.amount for row in deposits), Decimal()) + ach_credit_total != total_credits:
+    # Every section against its OWN printed total, then the two summary
+    # figures against the sum of the section totals. No row is believed on its
+    # own and no section total is believed without the rows under it.
+    if sum((row.amount for row in deposits), Decimal()) != deposit_total:
+        return None
+    if sum((row.amount for row in other_credits), Decimal()) != other_credit_total:
         return None
     if sum((row.amount for row in ach_debits), Decimal()) != ach_debit_total:
         return None
@@ -321,11 +521,13 @@ def parse_columbia_bank_statement(markdown: str) -> Statement | None:
         return None
     if sum((row.amount for row in other_debits), Decimal()) != other_total:
         return None
+    if deposit_total + other_credit_total + ach_credit_total != total_credits:
+        return None
     if ach_debit_total + other_total + sum((row.amount for row in checks), Decimal()) != total_debits:
         return None
 
     signed_rows = (
-        [(row, 1) for row in deposits + ach_credits]
+        [(row, 1) for row in deposits + other_credits + ach_credits]
         + [(row, -1) for row in ach_debits + other_debits + checks]
     )
     reconstructed = _ending_by_date(opening, signed_rows)
@@ -374,7 +576,7 @@ def parse_columbia_bank_statement(markdown: str) -> Statement | None:
         ending_balance=float(ending),
         stated_total_credits=float(total_credits),
         stated_total_debits=float(total_debits),
-        bank_reported_average_balance=float(_money(average_raw)),
+        bank_reported_average_balance=float(_signed(average_raw)),
         bank_reported_average_label="Average balance",
         stated_interest_paid=float(_money(interest_raw)),
         stated_daily_balances=daily_evidence,
