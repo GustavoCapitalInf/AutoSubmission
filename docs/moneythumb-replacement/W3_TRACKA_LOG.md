@@ -27693,6 +27693,20 @@ verified complete):**
 Identical to RF5's numbers in every cell, now from an instrument that proves its
 input selection instead of assuming it.
 
+**One ownership boundary crossed, named.** Committing the instrument made it a
+new caller of `analyze_markdown`, and `test_every_production_caller_of_the_
+analysis_is_classified` correctly refused it: every analysis caller in the
+repository must be either a declared call site or an explicitly excused one. It
+is excused in `corpus_gate.py`'s `EXCLUDED_ANALYSIS_CALLERS` — it publishes no
+verdict (aggregate counts, plus a `content_sha256` and differing field NAMES for
+a mover), and it is not excused for the usual "cannot supply sheets" reason
+either: it reconstructs the intake partition and passes it, because a sweep that
+fed the analysis a different partition from the run's would measure a difference
+it had itself created. **`corpus_gate.py` is outside this cell's declared
+ownership** (`webapp/artifact_cache.py`, the registry helper, tests, this log);
+the edit is one dictionary entry required by that guard, and it is flagged here
+rather than made quietly.
+
 Final key surface after the closures: fingerprint
 `3F1ADB24F856897DDDE4265D4F28C9FCA31BFEB1B37F2773C128C4EB973A5A51` (unchanged
 by MINOR-1/2 — the shipped bands are ints, so the coercion was a no-op on this

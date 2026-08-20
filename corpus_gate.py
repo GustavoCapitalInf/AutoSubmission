@@ -372,6 +372,19 @@ EXCLUDED_ANALYSIS_CALLERS = {
     "deterministic_coverage_audit.py": "measurement script over markdown",
     # This gate's own harness, governed by PRODUCTION_SUPPLIES_SHEETS above.
     "corpus_gate.py": "the harness itself; tracks the call sites by declaration",
+    # W3 §REGFP's differential (read-only, offline). Excused on the question
+    # this list actually asks — it publishes no verdict: it prints aggregate
+    # counts and, for a mover, a content_sha256 and the differing FIELD NAMES.
+    # Nothing it computes reaches a user, a job record or a discovery row.
+    # Note it is not excused for the usual reason either: it DOES supply the
+    # page list, because it reconstructs the intake partition out of the OCR
+    # artifact and passes it as `sheets` — a sweep that fed the analysis a
+    # different partition from the one the run fed it would measure a
+    # difference it had itself created.
+    "tools/regfp_zero_movement_sweep.py": (
+        "read-only archive differential; publishes no verdict, and already "
+        "supplies the reconstructed page partition"
+    ),
 }
 
 # Audited columns whose value is a path, compared without regard to separator.
