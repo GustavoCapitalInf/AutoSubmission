@@ -18,6 +18,26 @@ cache keys, which is the wave rule for archive artifacts. It makes no model call
 and costs $0.00: `parse_mode="deterministic"` cannot reach the extraction
 branch.
 
+WHICH OCR ARTIFACT A DOCUMENT IS READ FROM, and why it is not a guess. A
+document can hold more than one cached OCR artifact — one per capability
+partition of `ocr_settings_key` — and picking the wrong one hands the analysis
+text the run never analysed. WORKER-PRIVACY's sweep measured that trap on this
+archive: 55 of the 3,380 were read under a partition holding a re-read text
+preparation, and feeding those the plain native text manufactured two false
+movers.
+
+This tool does not choose by an ordering. It enumerates **every** capability
+partition, and selects the artifact whose reconstruction resolves the run's own
+stored analysis payload — `cache_key(STAGE_ANALYSIS, analysis_input_sha(text,
+pages), baseline)` — which is per-document PROOF that this is the text the run
+analysed, not an assumption about which rung it used. Two consequences worth
+stating: a wrong reconstruction can never produce a false MOVER (it misses the
+payload and the document lands in the no-payload bucket instead of being
+compared against a payload built from other text), and where several artifacts
+reconstruct to the same input hash the choice is immaterial by definition.
+`multi_artifact_documents` in the output counts the documents where more than
+one partition held a document, i.e. where the selection had a choice to make.
+
 **`--baseline-settings-key` is the analysis settings key the run wrote under**,
 and it is an argument rather than a computation because the whole point of a
 cache-key card is that today's key is NOT that key. §REGFP compared against
@@ -41,10 +61,10 @@ WHAT THE DOCUMENT CLASSES MEAN in the output:
 * `no_payload_now_publishes` / `payload_now_raises` — the two ways the boundary
   between publishing and refusing can move. Both are findings and both are
   named.
-* `no_ocr_artifact` — no OCR payload with a document under any of the three
-  offline settings partitions: the `invalid_pdf` refusals (no artifact at all)
-  and the deferred scans (a cached NEGATIVE OCR result, which is a real cached
-  fact and not a miss).
+* `no_ocr_artifact` — no OCR payload holding a document under ANY capability
+  partition: the `invalid_pdf` refusals (no artifact at all) and the deferred
+  scans (a cached NEGATIVE OCR result, which is a real cached fact and not a
+  miss).
 
 `--start`/`--end` slice the sorted distinct `content_sha256` so a long sweep can
 be run in chunks; each chunk writes its own report and the counts add.
@@ -53,6 +73,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import itertools
 import json
 import sys
 import time
@@ -94,12 +115,13 @@ def main(argv: list[str] | None = None) -> int:
 
     baseline = args.baseline_settings_key.strip().upper()
     root = args.data_dir / "artifacts"
-    # The three offline partitions the archive was read across (the same list
-    # telemetry's read-only join carries).
+    # EVERY capability partition, not the three the offline tranches usually
+    # produce: a partition this list omitted would be a document silently read
+    # from the wrong rung's text. Eight keys is the whole space of the three
+    # boolean flags, and existence checks against the missing ones are free.
     ocr_keys = [
-        ocr_settings_key(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False),
-        ocr_settings_key(force_ocr=False, allow_local_ocr=False, allow_visual_ocr=False),
-        ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True),
+        ocr_settings_key(force_ocr=force, allow_local_ocr=local, allow_visual_ocr=visual)
+        for force, local, visual in itertools.product((False, True), repeat=3)
     ]
 
     outcome_by_sha: dict[str, str] = {}
@@ -115,6 +137,7 @@ def main(argv: list[str] | None = None) -> int:
         "identical": 0,
         "moved": 0,
         "no_ocr_artifact": 0,
+        "multi_artifact_documents": 0,
         "no_payload_raises_again": 0,
         "no_payload_now_publishes": 0,
         "payload_now_raises": 0,
@@ -123,7 +146,10 @@ def main(argv: list[str] | None = None) -> int:
     started = time.perf_counter()
 
     for sha in shas:
-        document = None
+        # Every partition that holds a document, then the one whose
+        # reconstruction resolves the run's payload. See the module docstring:
+        # this is proof of which text the run analysed, not an ordering.
+        candidates: list[tuple[str, list[str]]] = []
         for key in ocr_keys:
             composed = cache_key(STAGE_OCR, sha, key)
             path = root / STAGE_OCR / composed[:2] / f"{composed}.json"
@@ -133,26 +159,40 @@ def main(argv: list[str] | None = None) -> int:
                 payload = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
-            candidate = (payload.get("artifact") or {}).get("document")
-            if isinstance(candidate, dict):
-                document = candidate
-                break
-        if document is None:
+            document = (payload.get("artifact") or {}).get("document")
+            if not isinstance(document, dict):
+                # A cached NEGATIVE OCR result: a real cached fact (the
+                # deferred scans), not a miss, and no text to analyse.
+                continue
+            pages = [str(page) for page in (document.get("pages") or [])]
+            markdown = StatementMarkdown(
+                source_file="sweep.pdf", model=str(document.get("model") or ""), pages=pages
+            ).to_markdown()
+            candidates.append((markdown, pages))
+        if not candidates:
             counts["no_ocr_artifact"] += 1
             continue
+        if len(candidates) > 1:
+            counts["multi_artifact_documents"] += 1
 
-        pages = [str(page) for page in (document.get("pages") or [])]
-        markdown = StatementMarkdown(
-            source_file="sweep.pdf", model=str(document.get("model") or ""), pages=pages
-        ).to_markdown()
-        composed = cache_key(STAGE_ANALYSIS, analysis_input_sha(markdown, pages), baseline)
-        stored = root / STAGE_ANALYSIS / composed[:2] / f"{composed}.json"
         before = None
-        if stored.exists():
+        markdown, pages = candidates[0]
+        for candidate_markdown, candidate_pages in candidates:
+            composed = cache_key(
+                STAGE_ANALYSIS,
+                analysis_input_sha(candidate_markdown, candidate_pages),
+                baseline,
+            )
+            stored = root / STAGE_ANALYSIS / composed[:2] / f"{composed}.json"
+            if not stored.exists():
+                continue
             try:
                 before = json.loads(stored.read_text(encoding="utf-8"))["artifact"]["analysis"]
             except (OSError, ValueError, KeyError):
-                before = None
+                continue
+            # THE artifact the run analysed, proven by its own key.
+            markdown, pages = candidate_markdown, candidate_pages
+            break
 
         try:
             after = report_to_dict(

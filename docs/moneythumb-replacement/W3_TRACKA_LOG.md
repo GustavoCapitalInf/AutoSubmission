@@ -27543,7 +27543,8 @@ registry fingerprint at HEAD
 | `7cee1f7` | RF7.5 — the discovery projection's registry window, closed here and flagged for its owner |
 | `3e30daa` | the cross-process guard inherits the parent environment (a defect in the guard, caught and killed before merge: it scrubbed `WITHHOLDING_*` out of the child only) |
 | `948595a` | RF8 proofs and RF9 |
-| (this one) | RF10 — the adversarial-review closures |
+| `f8c878a` | RF10 — the adversarial-review closures |
+| (this one) | RF11 — the sweep's input selection, measured and then fixed |
 
 ## RF10. Adversarial-review closures (APPROVE WITH FINDINGS: 1 MAJOR, 6 MINOR)
 
@@ -27620,6 +27621,77 @@ no_payload_raises_again 18`, exit 0.
 exception-class equality for the 843 is an argument from a purely additive diff
 rather than a measurement; and the sweep instrument is committed as
 `tools/regfp_zero_movement_sweep.py`.
+
+## RF11. The cross-cell instrument warning, and which enumeration this sweep used
+
+WORKER-PRIVACY's full-population sweep found a repo-wide harness trap and Ocean
+broadcast it: enumerating OCR artifacts under ONE `settings_key` covers exactly
+3,380 distinct shas and therefore LOOKS like the run-of-record population, but
+55 of those documents were read by the run under a different partition holding a
+re-read text preparation. Feeding those the plain native text manufactured two
+false movers in their sweep.
+
+**What this sweep did.** Not one key — a first-match over the three offline
+partitions. That is the same class of assumption, so it was measured rather than
+argued, and then removed.
+
+*Immunity, structural.* The stored payload is looked up at
+`cache_key(STAGE_ANALYSIS, analysis_input_sha(reconstructed_text, pages),
+baseline)`. The lookup is keyed on the very text being compared, so a wrong
+reconstruction cannot be compared against a payload built from different text —
+it MISSES, and the document lands in the no-payload bucket. The false-mover mode
+is unreachable here by construction; the reachable failure is a silently
+SMALLER compared population.
+
+*And that did not happen either, by arithmetic:* `compared_payload` was 2,508,
+which is exactly the run's published population (2,430 validated + 15 review +
+63 withheld), with 843 + 16 = its 859 `failed` and 13 `deferred`. Every
+published document was matched. A mis-selected document would have been missing
+from that count.
+
+*Measured exposure, whole population, existence checks over all eight capability
+partitions (no file reads, no sqlite):*
+
+```
+documents by number of cached OCR artifacts   {0: 16, 1: 3284, 2: 80}
+documents whose artifacts lie OUTSIDE the three keys the sweep used        0
+```
+
+*And the decisive per-document check on the multi-artifact set:*
+
+```
+80 documents hold two artifacts; 74 hold two with a DOCUMENT in each
+   (the other 6 pair a document with a cached NEGATIVE result)
+identical reconstructed input hash across both artifacts                  74/74
+the sweep's first-match pick is the artifact that resolves the payload    74/74
+documents where the pick was NOT the run's artifact                           0
+```
+
+So this archive's multi-artifact documents are duplicate reads of the same text,
+not the re-read class WORKER-PRIVACY hit, and the selection could not have
+mattered. **The tool was fixed anyway**, because "it happened not to matter" is
+not a property: `tools/regfp_zero_movement_sweep.py` now enumerates all EIGHT
+capability partitions and selects the artifact whose reconstruction RESOLVES the
+run's stored payload — per-document proof of which text the run analysed rather
+than an ordering — falling back to the first only for the raises-again check,
+and reporting `multi_artifact_documents` so the exposure is visible in every
+run.
+
+**Re-run in full with the corrected instrument (20 chunks, coverage of 0..3,380
+verified complete):**
+
+| | documents |
+|---|---|
+| population | **3,380** |
+| payload recomputed **byte-identical** | **2,508** |
+| payload **moved** | **0** |
+| no cached payload, recompute raises again | 843 |
+| no OCR artifact holding a document (16 `invalid_pdf` + 13 cached-negative) | 29 |
+| documents where the selection had a choice to make | 74 |
+| `payload_now_raises` / `no_payload_now_publishes` | **0 / 0** |
+
+Identical to RF5's numbers in every cell, now from an instrument that proves its
+input selection instead of assuming it.
 
 Final key surface after the closures: fingerprint
 `3F1ADB24F856897DDDE4265D4F28C9FCA31BFEB1B37F2773C128C4EB973A5A51` (unchanged
