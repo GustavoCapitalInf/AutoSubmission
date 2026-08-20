@@ -27288,3 +27288,322 @@ before-payload reproduces the run of record's own `outcome_class` 30/30 on an
 RBC sample. `corpus_gate.py` was deliberately **not** re-run (>10 min on a
 machine shared with nine cells, and its inputs are provably unchanged) — the
 implementing cell owes that run.
+
+# §EXTRACTPRIV — the LLM branch stops quoting the transcription
+
+Batch 6, micro-card 14. Base main `c6ddd71` (this card's handoff), branch
+`wave6-extractpriv`, worktree `.claude/worktrees/mt6-extractpriv`. Run of
+record `2026-08-16T000943.012887-0000-2e3ea385`. Owned files:
+`analysis/extract.py`, `tests/test_extraction_refusal_is_private.py`, this log.
+
+**The card (MONEY-PRIVACY's measurement, verified by its reviewer):**
+`analysis/extract.py` :96 refused a non-`Statement` response with
+
+```python
+raise RuntimeError(f"extraction did not return a Statement: {resp.text[:300]!r}")
+```
+
+— 300 characters of the model's transcription of the statement. This is the
+LLM branch, the one branch `analyze_markdown` makes no totality promise for, so
+the exception leaves the pipeline intact and the message is published by
+everything downstream. §MONEYPRIV closed the same law at the money grammar and
+§WORKER-PRIVACY closes the durable-store boundary in this batch; this closes
+the source that neither of them covers.
+
+## XP0. Summary
+
+| | |
+|---|---|
+| Raise sites in the file | **2**: `:96` (the leak) and `:31` (`GEMINI_API_KEY is not set`, already a constant). No siblings — the module is 98 lines and holds no other exception construction |
+| Refusal shapes measured | **7** reachable ways `resp.parsed` is not a `Statement`. Before: **4 leaked the transcription**, **3 never reached the raise at all** (`TypeError`, §XP4) |
+| After | 7/7 `RuntimeError`, 0 leaking, and no digit anywhere in any of them |
+| Message set | **54 strings** — (17 `FinishReason` names + `unknown`) x 3 response states — enumerable without reading a document; longest 99 characters |
+| Behaviour change | the exception CLASS, the branch and the success path are untouched; the empty-response half now raises the `RuntimeError` it always documented instead of a `TypeError` (§XP4) |
+| Archive movement | **zero, structurally**: the deterministic path raises at `pipeline.py` :685 before the branch, and no proof run in this program ever enters it (§XP6) |
+| Files changed | `analysis/extract.py`, `tests/test_extraction_refusal_is_private.py` (new), this log. No parser, no registry, no analysis-output path; registry stays **72** |
+
+## XP1. The raise-site census
+
+The whole file, not the line the card named. `analysis/extract.py` is 98 lines
+before the change; every construct in it that can produce an exception:
+
+| # | site | shape | carries document text? |
+|---|---|---|---|
+| 1 | `:31` `_get_client` | `raise RuntimeError("GEMINI_API_KEY is not set (put it in .env).")` | no — a literal. Left byte-identical |
+| 2 | `:96` `extract_statement` | `raise RuntimeError(f"...: {resp.text[:300]!r}")` | **YES — 300 characters of the transcription.** THE CARD |
+| 3 | `:96` (same statement) | `resp.text[:300]` where `resp.text` is `None` | no, but it replaces the raise with `TypeError` — §XP4 |
+| 4 | `:85` `client.models.generate_content` | the SDK's own `APIError` | not ours to construct or chain; see §XP9 risk 1 |
+| 5 | `:83` `load_settings()` | `analysis/config.py` -> `normalize_withholding_denominator_mode` | quotes an ENV VAR, never the document. Out of scope |
+| 6 | `:87` `strip_embedded_images` / `_INSTRUCTIONS + ...` | `TypeError` on a non-str input | the interpreter's, content-free |
+| 7 | `:94` `resp.parsed` | none — a plain pydantic FIELD | google-genai 2.6.0 `types.py` :8204-8211 populates it in `_from_response` and swallows `ValidationError`/`JSONDecodeError`, so the parse failure that produced this branch is already discarded upstream. Read, not assumed |
+
+**One leaking site, no siblings.** After the change the module contains **zero
+f-strings** and exactly two raises, one a literal and one the shared
+constructor.
+
+## XP2. The hunk
+
+```python
+     stmt = resp.parsed
+     if not isinstance(stmt, Statement):  # schema violation / empty response
+-        raise RuntimeError(f"extraction did not return a Statement: {resp.text[:300]!r}")
++        raise _extraction_refusal(resp)
+     return stmt
+```
+
+and the vocabulary it raises from:
+
+```python
+_STOP_REASONS = frozenset(member.name for member in types.FinishReason)
+_UNKNOWN_STOP_REASON = "unknown"
+_RESPONSE_STATES = ("empty", "nonempty", "unavailable")
+_REFUSAL = "extraction did not return a Statement (stop_reason={}, response={})"
+
+
+def _stop_reason(response: types.GenerateContentResponse) -> str:
+    try:
+        candidates = response.candidates or ()
+        reason = candidates[0].finish_reason if candidates else None
+        name = getattr(reason, "name", reason)
+        if isinstance(name, str) and name in _STOP_REASONS:
+            return name
+    except Exception:
+        return _UNKNOWN_STOP_REASON
+    return _UNKNOWN_STOP_REASON
+
+
+def _response_state(response: types.GenerateContentResponse) -> str:
+    try:
+        return "nonempty" if response.text else "empty"
+    except Exception:
+        return "unavailable"
+
+
+def _extraction_refusal(response: types.GenerateContentResponse) -> RuntimeError:
+    return RuntimeError(_REFUSAL.format(_stop_reason(response), _response_state(response)))
+```
+
+Four decisions carry it.
+
+**The vocabulary is the SDK's, not ours.** `_STOP_REASONS` is read off
+`types.FinishReason` rather than typed out, so the names are fixed by a library
+that has never seen the document, and an SDK upgrade widens the vocabulary
+instead of this file drifting behind it. Anything not in that set — a `None`,
+a raw string from a newer API, an object whose `.name` is something else — is
+reported as `unknown`. Fail-closed: an unrecognised value is exactly the case
+where we cannot prove it carries no document text, so it is never the value
+that gets printed.
+
+**No length, and that is a decision.** A character count is the natural third
+field and is *nearly* content-free, and the handoff explicitly permits it. It
+was not taken. It is derived from the document; it puts a digit run into a
+message whose whole defence is that it has none; and it costs the property that
+makes the rest provable — that the set of messages this module can emit is
+finite (54) and enumerable without a statement in hand.
+`test_the_message_set_is_finite_and_enumerable` writes that set out and pins
+the raise inside it, and `test_a_refusal_contains_no_digits` can then be
+asserted in its absolute form rather than as "no run of three or more".
+
+**The constructor RETURNS.** §MONEYPRIV's pattern: the call site raises from
+outside any handler, so the refusal carries neither `__cause__` nor
+`__context__`. Returning buys a second thing here that it did not buy there —
+`_extraction_refusal`, `_stop_reason` and `_response_state` have all returned
+by the time the exception exists, so the frames holding `response` are not in
+the raised traceback at all.
+
+**`response.text` has exactly one reader.** It is touched inside
+`_response_state`'s truth test and never bound to a name. An AST guard pins
+that: a second reader — including one that only means to measure the body — is
+a build failure.
+
+## XP3. The caller census
+
+Who catches this, and what each does with the message. Nothing below changes
+behaviour: every caller either catches `Exception` (so the class is irrelevant
+to control flow) or catches nothing.
+
+| caller | handler | what it does with the message | effect of this card |
+|---|---|---|---|
+| `analysis/pipeline.py` :686 | **none** | the primary LLM extraction is unguarded and the exception leaves `analyze_markdown` | the exception that leaves is the same class, with a different message |
+| `analysis/pipeline.py` :705 | `except Exception as e` :712 | already privacy-safe — appends `f"escalation extraction failed ({type(e).__name__}); ..."` to `recon.issues`. Message discarded, class name kept | the class name it records was `RuntimeError` before and after on the quoting path, and moves `TypeError` -> `RuntimeError` on the empty-response path (§XP4) |
+| `webapp/worker.py` :93 | `except Exception as e` | `return markdown, html, None, str(e)` -> `store.set_result(..., analysis_error, ...)` -> `webapp/storage.py` :598 writes it to the `jobs` table -> `webapp/app.py` :880 / :1205 / :1278 serve `analysis_error` in JSON | **this is the live publication path on main.** 300 characters of the statement stopped being what those three routes return |
+| `webapp/worker.py` :334 | `except Exception as e` | `store.set_error(job_id, str(e))`; the paired telemetry emit deliberately records `type(e).__name__` only | same |
+| `batch.py` :264 | `except Exception as e` | `f"{type(e).__name__}: {e}"` into the CSV `error` column, plus `traceback.print_exc()` | the CSV cell and the printed traceback stop carrying it |
+| `coverage_audit.py` :188 | `except Exception as e` | identical CSV shape | same |
+| `analyze.py` :187 | **none** | the CLI renders the traceback to the console | same |
+| `discovery/runner.py` :501 | `except Exception as exc` | `type(exc).__name__` only — already safe, and unreachable anyway (deterministic mode) | none |
+| `corpus_gate.py` :927 | `except Exception as exc` | `f"{type(exc).__name__}: {exc}"` into a failure detail | none — deterministic mode, unreachable |
+| `benchmark/ourside.py` :99, `deterministic_coverage_audit.py` :150, `adb_forensic_audit.py` :445, `balance_forensic_audit.py` :464 | none / deterministic | deterministic mode | none — unreachable |
+
+**No caller branches on the message, and nothing in the tree read its text.**
+Before the change, `extraction did not return a Statement` occurred exactly
+twice in the repository: at the raise itself and in this card's handoff — no
+test matched on it, no `webapp/static/app.js` branch keyed off it, no
+expectation file held it. The three `pytest.raises(RuntimeError, match=...)`
+assertions against the pipeline all match `"no deterministic parser matched"`,
+which is `pipeline.py` :685's own message and is untouched.
+
+## XP4. The finding the card did not name: the empty half never raised at all
+
+The branch is commented `# schema violation / empty response`. On the
+empty-response half it did not deliver: `resp.text` is `None` whenever the
+response has no text part — a safety block, a blocked prompt, no candidates —
+and the old message subscripted it, so `None[:300]` raised
+
+```
+TypeError: 'NoneType' object is not subscriptable
+```
+
+from inside the raise statement. The `RuntimeError` the branch documents was
+never constructed, and every consumer that files `type(e).__name__` — the
+escalation note in `recon.issues`, the telemetry `error_type`, the batch CSV —
+recorded a `TypeError` for what is actually a blocked or empty response.
+Measured on the base tree: **3 of the 7 shapes** (`empty_no_parts`,
+`empty_no_candidates`, `prohibited_content`).
+
+Removing the subscript restores the documented class, and the fixed vocabulary
+makes those three the most useful messages in the set — `(stop_reason=SAFETY,
+response=empty)` and `(stop_reason=PROHIBITED_CONTENT, response=empty)` say
+exactly what happened, which the quoting version could not say even in
+principle because there was nothing to quote.
+
+**Stated as a behaviour change, not smuggled**: on that path the recorded class
+name moves `TypeError` -> `RuntimeError`. It is unreachable from every proof
+surface in this program (§XP6), it is the class the code says it raises, and
+no caller branches on either.
+
+## XP5. The census, before and after
+
+Measured through the real `extract_statement` against locally-built
+`google.genai.types.GenerateContentResponse` objects and a stub client
+(`census.py`, session scratchpad — no hosted model, on either tree).
+`WORD = "ACMEPAYROLL"`, `DIGITS = "4471009238"`, poison = a transcription
+carrying both plus five balances.
+
+| shape | before | after |
+|---|---|---|
+| `schema_violation_stop` | `RuntimeError('...: \'{"bank": "ACMEPAYROLL BANK NA", "account_number": "4471009238", "beginning_balance": 118432.19, "transactions": [{"date": "2026-01-04", "description": "ACH DEBIT ACMEPAYROLL 4471009238", ...\'')` — leaked `ACMEPAYROLL`, `4471009238`, `118432`, `12345`, `106086` | `extraction did not return a Statement (stop_reason=STOP, response=nonempty)` |
+| `truncated_max_tokens` | same shape, 180 characters of it | `(stop_reason=MAX_TOKENS, response=nonempty)` |
+| `parsed_is_a_dict` | same shape | `(stop_reason=STOP, response=nonempty)` |
+| `recitation_with_text` | same shape | `(stop_reason=RECITATION, response=nonempty)` |
+| `empty_no_parts` | `TypeError: 'NoneType' object is not subscriptable` | `(stop_reason=SAFETY, response=empty)` |
+| `empty_no_candidates` | `TypeError` | `(stop_reason=unknown, response=empty)` |
+| `prohibited_content` | `TypeError` | `(stop_reason=PROHIBITED_CONTENT, response=empty)` |
+
+**7 shapes: 4 leaking before, 0 after; 3 raising the wrong class before, 0
+after.** `__cause__` and `__context__` are `None` on every shape on both trees
+(the old raise was already outside a handler — the chain was never the leak
+here; the message was), and the success path returns the same object.
+
+## XP6. Zero movement, structurally
+
+The card does not require a full-population replay and none was run. The claim
+is structural and it is stronger than a sweep:
+
+* **`parse_mode="deterministic"` raises before the branch.**
+  `analysis/pipeline.py` :684-686 is, in order:
+  `if parse_mode == "deterministic": raise RuntimeError("no deterministic parser matched this statement")` then
+  `stmt = normalize_statement(extract_statement(...))`. The LLM call is the
+  next statement after the guard that makes it unreachable.
+* **The run of record and every proof surface are deterministic.**
+  `discovery/runner.py` :487, `corpus_gate.py` :765,
+  `deterministic_coverage_audit.py` :150, `benchmark/ourside.py` :99 and both
+  forensic audits all pass `parse_mode="deterministic"`. The gate makes no
+  model call (its own `ocr_coverage` proves it), so the pinned 109 cannot move.
+* **Already pinned by existing tests**, which this card did not have to write:
+  `tests/test_discovery.py` :288 fails the run if `extract_statement` is called
+  at all, and `tests/test_analysis.py` :214 / :291 do the same for the TD
+  Canada native path and for unmatched documents.
+* **Probed, not only read** (`reachability.py`, session scratchpad):
+  `extract_statement` replaced by a recording sentinel, `analyze_markdown(...,
+  parse_mode="deterministic")` over an unclaimed document, structurer opt-in
+  both off and on — `calls=[]` in both, `RuntimeError: no deterministic parser
+  matched this statement`.
+
+The one seam worth naming is in §XP9 (finding 2): the escalation guard at
+`pipeline.py` :703 does not test `parse_mode`.
+
+## XP7. The proof of privacy
+
+`tests/test_extraction_refusal_is_private.py`, 61 tests, 2.3s, no network. It
+drives the real `extract_statement`; the responses are real SDK objects built
+locally, so `.text`, `.candidates` and `.parsed` behave as they do in
+production rather than as a hand-written double imagines.
+`test_no_client_is_ever_built` asserts the module global is still `None` after
+the file has run, which is the $0-vendor claim made structurally rather than
+promised.
+
+Seven poisoned shapes x four assertions: no canary, no >=3-digit run and no
+whole-transcription fragment in `str(exc)` / the cause-context chain / a
+rendered traceback; **no digit at all**; both chain links `None`; the class
+still `RuntimeError`. Then the message set (54, enumerated), the exact message
+per shape, the `TypeError` finding pinned, the two helpers under hostile input
+(a finish reason that is a poisoned string, an enum-shaped object with a
+foreign `.name`, an unhashable list, an int, an object that raises on every
+attribute access, a `.text` that raises), the success path, and four structural
+guards:
+
+* every `raise` in the module is the shared constructor or a string literal,
+  and an f-string anywhere inside a `raise` is refused outright;
+* `_extraction_refusal` interpolates only `_stop_reason` and `_response_state`;
+* both helpers return only literals or a name already tested for membership in
+  a module-level vocabulary;
+* `response.text` has exactly one reader in the module.
+
+## XP8. The mutation kill
+
+Four mutants, all reverted by the harness (`mutate.py`, session scratchpad):
+
+| mutant | result |
+|---|---|
+| M1 — the original f-string restored verbatim | **KILLED**, pytest exit 1: 30 failed / 31 passed |
+| M2 — `_stop_reason` echoes the finish reason unchecked | **KILLED**, exit 1: 5 failed |
+| M3 — a response LENGTH added to the template (the field this card declined) | **KILLED**, exit 1: 24 failed |
+| M4 — the refusal chained to a quoting `ValueError` (`from None`, which clears `__cause__` and leaves `__context__`) | **KILLED**, exit 1: 22 failed |
+
+M1 and M4 each fail the dynamic sweep *and* an AST guard independently; M3 is
+killed by the digit assertion, by the enumeration and by the interpolation
+guard, which is what the "no length" decision bought.
+
+## XP9. Carried findings and risks
+
+1. **The SDK's own exceptions still pass through** (`generate_content`, census
+   row 4). They are not constructed or chained here, and google-genai's
+   `APIError` carries the API's error body rather than the prompt — but this
+   card does not close them, and closing them would mean converting an SDK
+   error into our own class, which is a control-flow change the card forbids.
+   Named so it is a known residue rather than an unexamined one.
+2. **`pipeline.py` :703 does not test `parse_mode`.** The escalation call at
+   :705 is guarded on `deterministic_stmt is None and needs_escalation and
+   settings.escalation_model != settings.model` — no mode check. With
+   `GENERIC_STRUCTURER_ENABLED` set, `deterministic_stmt` is `None` while
+   `structured_stmt` is not, so nothing in that condition would stop a
+   *deterministic-mode* run from making a hosted-model call. It is not live
+   today, and the reason is a second, unstated coincidence: the structurer only
+   publishes a statement whose ledger grounds, so `recon.ok` is `True` and
+   `needs_escalation` is `False` — measured over four constructed variants, the
+   structurer refused (returned `None`) on every one that would not reconcile.
+   The offline guarantee on that branch therefore rests on the structurer's
+   grounding rather than on the mode. `pipeline.py` is not this cell's file and
+   the opt-in is off; **recommend a one-line `parse_mode != "deterministic"`
+   clause at :703** in whichever cell owns that module next.
+3. **Frame locals are not closable at this site, and this card does not claim
+   them.** A traceback renderer configured with `capture_locals` (pytest's
+   `--showlocals`, some crash reporters) prints frame variables, and
+   `extract_statement`'s frame holds `markdown` — the whole document — as does
+   `analyze_markdown`'s above it. That is a property of every frame in the
+   pipeline, not of this raise; the message, the args, the chain and the
+   *default* rendered traceback are what this card closes, and those are what
+   the proof asserts on. Returning the exception from the constructor does keep
+   the helper frames (which hold `response`) out of the traceback entirely.
+4. **`_STOP_REASONS` tracks the installed SDK.** If google-genai ever returns a
+   finish reason the installed enum does not name, the message says `unknown` —
+   correct and fail-closed, but it means a vocabulary gap presents as a
+   diagnosis gap. The test asserts the enum is non-empty so that an SDK change
+   which empties it fails loudly instead of collapsing every message to
+   `unknown`.
+5. **`webapp/worker.py` :94 remains the publication boundary on main.**
+   §WORKER-PRIVACY closes it in this batch. The two closures are independent
+   and neither is the other's excuse: a boundary can only withhold the messages
+   it knows about, and a source that never puts the transcription in a message
+   is safe in front of a boundary nobody has written yet.
