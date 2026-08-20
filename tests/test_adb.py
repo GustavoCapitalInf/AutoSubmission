@@ -867,8 +867,12 @@ def test_metrics_retains_full_internal_adb_working():
 def test_existing_dashboard_field_binds_directly_to_authoritative_api_adb():
     javascript = Path("webapp/static/app.js").read_text(encoding="utf-8")
     assert "formatMoney(metrics.average_daily_balance, currency)" in javascript
-    assert "formatMoney(doc.average_daily_balance)" in javascript
-    assert "formatMoney(totals.average_daily_balance)" in javascript
+    # Still bound directly to the authoritative API field with no frontend
+    # recalculation; the second argument only DENOMINATES the same value
+    # (CURRENCY DOCTRINE §D), exactly as the single-statement card above and
+    # the balance cards below already do.
+    assert "formatMoney(doc.average_daily_balance, docCurrency)" in javascript
+    assert "formatMoney(totals.average_daily_balance, currency)" in javascript
     assert "metrics.average_balance" not in javascript
     assert "doc.average_balance" not in javascript
     assert "m.average_balance" not in javascript
