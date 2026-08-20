@@ -27577,3 +27577,62 @@ that cannot be proven empty, and `scotia:276` (3) is its sibling;
 the scanned singletons are each one document's or one account's shape.
 `core_processor_daily` (4, scanned) refuses on unreadable dates and rows — the
 same scan honesty as D5.3.
+
+## D7. Why nothing can have moved outside the two named populations
+
+Two `parse` functions changed and nothing else: no detection marker, no
+`detection_text`, no shared helper. `tests/test_parser_conformance.py`'s full
+cross product (72 x 71) is green, which pins that no registration's detection
+moved against its fixtures. Movement is therefore confined to documents these
+two registrations CLAIM — and both claimed populations were swept whole.
+
+The one shape that could smuggle movement past a family sweep is the
+FALLTHROUGH: a document where one of these parsers claims, declines, and some
+OTHER claimant then wins. Widening the decliner would make it win instead, and
+the document would move without its published payload ever having been this
+cell's to compare. Measured, it does not occur here: in both families every
+claimant either won or declined with nothing else claiming —
+
+| family | claimants | `parser_id` = the family | `parser_id` empty (declined) | won by another parser |
+|---|---|---|---|---|
+| wilson_muir | 14 | 8 | 6 | **0** |
+| square_checking | 32 | 28 | 4 | **0** |
+
+The sweep enumerates claimants BEFORE `supersedes` pruning, so it is a superset
+of the documents `resolve` would ever hand to these parsers — conservative in
+the right direction.
+
+## D8. Proofs
+
+| proof | result | exit |
+|---|---|---|
+| full default suite | `4524 passed, 34 skipped, 31 deselected, 1 warning in 404.38s (0:06:44)` | 0 |
+| conformance cross-product (`tests/test_parser_conformance.py`, 72 x 71) | `668 passed in 1.88s` | 0 |
+| guards (`test_no_statement_hardcodes` + `test_no_parser_helper_clones` + `test_parser_registry_entries`) | `310 passed, 34 skipped in 6.23s` | 0 |
+| corpus-marked slice collection | `27/4589 tests collected (4562 deselected) in 6.40s` — the batch-5 count of 27, unchanged | 0 |
+
+Suite 4,511 -> **4,524**: the 13 tests of
+`tests/test_declines_d_variants.py`. No corpus-marked test was added, so the
+slice stays at 27.
+
+**The pinned corpus.** `tests/data/parser_expectations.json` records exactly
+one pinned document claimed by either touched family: `Misc/WMB May 25.pdf`,
+`6EFD091D2A38B437E249D3B37198B0634B1D544EF7A9B689291AC0A776D23C56`,
+`parser_id=wilson_muir`. `square_checking` claims none of the 109. That pinned
+document's WHOLE published payload was measured at base `8570bce` and at
+`HEAD` through the production ladder and pipeline:
+
+    BEFORE payload sha256: CE01A5CEDE1123D4A775E63F22C0454AE39D18070B6DC737F29C5A6968092D56
+    AFTER  payload sha256: CE01A5CEDE1123D4A775E63F22C0454AE39D18070B6DC737F29C5A6968092D56
+
+Byte-identical — it prints only the six categories the old chain memorized, so
+the strip reader reproduces it exactly (stated credits 101,265.58 / debits
+103,693.40, counts 11 / 83, 94 transactions, unchanged). **No pinned document
+moves, and there is no named pinned mover for Ocean to weigh.**
+
+*(A first attempt at this measurement was invalid and is recorded because the
+failure mode is reusable: `git stash push -- <file>` on an already-committed,
+clean tree is a NO-OP that still exits 0, so the "before" run measured the new
+code and produced a tautological match. The baseline is now taken with
+`git checkout 8570bce -- analysis/wilson_muir.py`, and the run asserts the
+base file is loaded — the base module has no docstring, the new one does.)*
