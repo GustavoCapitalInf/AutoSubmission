@@ -6,15 +6,24 @@ of its own: it re-runs `adb_forensic_audit` and `balance_forensic_audit`
 unchanged and compares their output, field by field, with
 `docs/adb-audit-results.csv` and `docs/balance-metrics-audit-results.csv`.
 
-One check is deliberately NOT oracle-independent. `check_outcome_classes` reads
-the product's own per-document verdict — the outcome class plus the WHOLE
-published integrity block (flags, notes, risk_level, possible_document_issue) —
-and holds it to `PINNED_OUTCOMES`. It exists because the two financial oracles
-are structurally blind to three kinds of truth-set movement: a statement moving
-review<->validated inside the audits' single PASS class; a statement gaining or
-losing a published integrity flag without changing class; and risk_level or
-possible_document_issue moving independently of the flags. All three are real;
-see `PINNED_OUTCOMES`.
+Three checks are deliberately NOT oracle-independent, and all three read the
+same per-document payloads the product itself publishes.
+
+`check_outcome_classes` reads the product's own per-document verdict — the
+outcome class plus the WHOLE published integrity block (flags, notes,
+risk_level, possible_document_issue) — and holds it to `PINNED_OUTCOMES`. It
+exists because the two financial oracles are structurally blind to three kinds
+of truth-set movement: a statement moving review<->validated inside the audits'
+single PASS class; a statement gaining or losing a published integrity flag
+without changing class; and risk_level or possible_document_issue moving
+independently of the flags. All three are real; see `PINNED_OUTCOMES`.
+
+`check_adb_doctrine` holds every pinned document to the one published ADB
+basis, and `check_currency` holds every pinned document to its published
+`statement.currency`. Currency is the fourth blind spot: it appears in neither
+audit CSV, so 151 archive documents (four of them pinned) could change the
+denomination an analyst reads with every financial field byte-identical. See
+`PINNED_CURRENCY`.
 
 **That check runs only in the gate.** `pytest -q` does not verify the 109-entry
 map — the unmarked tests check its shape and prove the mechanism by mutation on
@@ -310,6 +319,201 @@ PINNED_OUTCOMES: dict[str, _Verdict] = {
         risk_level="high",
         possible_document_issue=True,
     ),
+}
+
+# ----------------------------------------------------------------------
+# The published CURRENCY of every pinned document — the fourth thing the two
+# financial oracles structurally cannot see.
+# ----------------------------------------------------------------------
+#
+# `currency` is analyst-visible output: `webapp/static/app.js` threads
+# `statement.currency` into `Intl.NumberFormat`, so it decides whether a
+# dashboard reads `$1,234.56` or `CA$1,234.56` for every figure on the page.
+# Until this map existed it was pinned NOWHERE — measured at
+# RBC_CURRENCY_MEASUREMENT §4.6: no currency column in either audit CSV or in
+# the new-statement audit, zero occurrences of the string in this file, zero in
+# `tests/data/parser_expectations.json`. A change that moved the published
+# currency of 151 archive documents (four of them pinned) could therefore land
+# with every pinned artifact byte-identical and every gate check green. That is
+# the blindness class this closes, on Gustavo's ruling of 2026-08-16: "currency
+# must no longer be gate-invisible ... pin the expected currency for all 109
+# trusted statements, not only the four RBC movers".
+#
+# WHY A SEPARATE TOTAL MAP rather than a sixth field on `_Verdict`. `_Verdict`
+# is an exception map: a pinned path absent from `PINNED_OUTCOMES` means "this
+# document publishes the one ordinary state", and that works only because all
+# 102 validated documents share it. Currency has no such single ordinary value
+# — 95 USD and 14 CAD — so folding it into `_Verdict` would force fourteen
+# documents into an exception map they do not otherwise belong in, and would
+# entangle a currency movement with a verdict movement in the same tuple. This
+# map is instead TOTAL: every pinned path appears exactly once, a manifest path
+# missing from it is a failure, and an entry naming an unpinned path is a
+# failure. Nothing can be added to the corpus without a currency being stated
+# for it, and nothing can be silently dropped.
+#
+# HOW THESE VALUES WERE ESTABLISHED (the ruling's "verify the existing values
+# before establishing the baseline; do not use baseline generation to bless
+# unexplained values"). Every value below was measured on the UNCHANGED base
+# tree first, through this file's own `production_verdict` resolution, and the
+# provenance of each was measured separately by rotating
+# `analysis.schema.Statement`'s field default to a sentinel: 10 documents were
+# published CAD by their parser, 5 were published USD by their parser, and 94
+# carried the schema default because no reader asked. The four RBC entries
+# marked CEREMONY are the only values that differ from that census; every other
+# entry is the pre-existing published value, recorded rather than re-derived.
+#
+# Enumerated because they were reviewed rather than assumed:
+#
+#  * the 14 CAD. Ten already published CAD before this card (CIBC French,
+#    BMO Canada, the pinned French RBC statement, Scotiabank, and the six TD
+#    Canada Trust statements), each from its own parser's explicit assignment.
+#    Four are this card's approved ceremony.
+#  * `Misc/USD FEB 2026.pdf` is a Desjardins document — a Quebec caisse — and
+#    it is pinned USD on EXPLICIT evidence, not by default: its product line
+#    prints `USD DESJARDINS CORPORATE BUILD-UP ACCOUNT` and
+#    `analysis/desjardins.py::_printed_currency` reads it. A Canadian
+#    institution's USD-denominated product is exactly what doctrine §A's second
+#    RBC example describes, so this is a correct USD and not a silent default.
+#  * the five `ATB/*` documents are ATB Financial — Alberta Treasury Branches,
+#    a Canadian provincial bank — and they are pinned USD because that is what
+#    the platform publishes today, from the schema default, with no reader
+#    having asked. They are NOT evidence of a USD account. They are the same
+#    shape the RBC family had before this card, they are named here as expected
+#    future movers, and moving them requires ATB's own proven jurisdiction
+#    evidence base first (doctrine §B, final paragraph). Pinning today's value
+#    is what makes that future movement a visible ceremony instead of a silent
+#    drift — which is the whole purpose of this map.
+#
+# Moving any entry is truth-set movement and needs the same ceremony as an
+# audit CSV row.
+PINNED_CURRENCY: dict[str, str] = {
+    "ATB/ATB August 2023.pdf": "USD",
+    "ATB/ATB Dec 2023.pdf": "USD",
+    "ATB/ATB Nov 2023.pdf": "USD",
+    "ATB/ATB October statement 2023.pdf": "USD",
+    "ATB/ATB Sep 2023.pdf": "USD",
+    "Amex/Amex Apr2026.pdf": "USD",
+    "Amex/Amex June2026.pdf": "USD",
+    "Amex/Amex May2026.pdf": "USD",
+    "BofA/BofA 2026-05-29.pdf": "USD",
+    "BofA/BofA Statement.pdf": "USD",
+    "BofA/BofA.pdf": "USD",
+    "BofA/Bofa 2026-02-27.pdf": "USD",
+    "BofA/eStmt_2026-01-30 (3) (1).pdf": "USD",
+    "BofA/eStmt_2026-02-27 (3) (1).pdf": "USD",
+    "BofA/eStmt_2026-03-31 (3) (1).pdf": "USD",
+    "BofA/eStmt_2026-04-30 (1).pdf": "USD",
+    "CIBC French/Account Statement 1.pdf": "CAD",
+    "CapitalOne/capital one april 2026.pdf": "USD",
+    "CapitalOne/capital one february 2026.pdf": "USD",
+    "CapitalOne/capital one march 2026.pdf": "USD",
+    "CapitalOne/capital one may 2026.pdf": "USD",
+    "Chase/Chase Apr.pdf": "USD",
+    "Chase/Chase Business.pdf": "USD",
+    "Chase/Chase Jun.pdf": "USD",
+    "Chase/Chase Mar.pdf": "USD",
+    "Chase/Chase May.pdf": "USD",
+    "Chase/Chase Salomomon February 27 2026.pdf": "USD",
+    "Chase/Chase Salomon Dec 2025.pdf": "USD",
+    "Chase/Chase Salomon January.pdf": "USD",
+    "Chase/Chase Salomon March 2026.pdf": "USD",
+    "Chase/chase jun 30.pdf": "USD",
+    "Chase/chase may 29.pdf": "USD",
+    "Citizen/Citizen June 2026.pdf": "USD",
+    "Citizen/Citizens April 2026.pdf": "USD",
+    "Citizen/Citizens March 2026.pdf": "USD",
+    "Citizen/Citizens May 2026.pdf": "USD",
+    "Misc/7429_Statement_October_2025_Statement.pdf": "USD",
+    "Misc/Ace_Auto_Final_Cut.pdf": "USD",
+    "Misc/Builder June 2026.pdf": "USD",
+    "Misc/Checking Account Statements - 1_30_2026 - 4001245.pdf": "USD",
+    "Misc/Columbia May 26 complete.pdf": "USD",
+    "Misc/Consumers March - Monthly Statement.pdf": "USD",
+    "Misc/Field Trucking November 2025 .pdf": "USD",
+    "Misc/First Farmers 2026 01-document.pdf": "USD",
+    "Misc/KLR.May 31,2026 (1).pdf": "USD",
+    "Misc/Link Bank April statement.pdf": "USD",
+    "Misc/MidFlorida.pdf": "USD",
+    "Misc/Texas Bank.pdf": "USD",
+    # Desjardins, read from the printed product line. See the note above.
+    "Misc/USD FEB 2026.pdf": "USD",
+    "Misc/WMB May 25.pdf": "USD",
+    "Navy Fed/APRIL 2026.pdf": "USD",
+    "Navy Fed/JUNE 2026.pdf": "USD",
+    "Navy Fed/MARCH 2026.pdf": "USD",
+    "Navy Fed/MAY 2026.pdf": "USD",
+    "Others/Altana/Altana april 26.pdf": "USD",
+    "Others/Altana/Altana june 26.pdf": "USD",
+    "Others/Altana/Altana may 26.pdf": "USD",
+    "Others/B1/b1 april 2026.pdf": "USD",
+    "Others/B1/b1 feb 2026 (1).pdf": "USD",
+    "Others/B1/b1 march 2026.pdf": "USD",
+    "Others/BMO/BMO_Statement_January_2026 Final-1-2 (1).pdf": "CAD",
+    "Others/Banco/Banco Popular April 2026.pdf": "USD",
+    "Others/Banco/Banco Popular Junio 2026.pdf": "USD",
+    "Others/Banco/Banco Popular May 2026.pdf": "USD",
+    "Others/Bluevine/bluevine_Statement_2026-04-02T21_36_47.777670Z (1).pdf": "USD",
+    "Others/First Citizen/First Citizens Bank.pdf": "USD",
+    "Others/IBC/IBC April (1).pdf": "USD",
+    "Others/Navigant Credit Union 2026-06-30.pdf": "USD",
+    "Others/Relay Operations-June-2026.pdf": "USD",
+    "Others/Santander/Santander_April26.pdf": "USD",
+    "Others/Santander/Santander_February 2026.pdf": "USD",
+    "Others/Santander/Santander_March 2026.pdf": "USD",
+    "Others/Secu/Secu.pdf": "USD",
+    "PNC/PNC_Statement-2026-01-29.pdf": "USD",
+    "PNC/PNC_Statement-2026-02-26.pdf": "USD",
+    "PNC/PNC_Statement-2026-03-30.pdf": "USD",
+    "PNC/PNC_Statement-2026-04-29.pdf": "USD",
+    "PNC/PNC_Statement-2026-05-28.pdf": "USD",
+    # Already CAD from the French reader; explicitly NOT part of the ceremony.
+    "RBC French/12 - Relevé Royale Décembre 2025 - Tommy Aspirot.pdf": "CAD",
+    # CEREMONY, approved by Gustavo 2026-08-16 (CURRENCY_DOCTRINE §B; the
+    # eight-proof packet RBC_CURRENCY_MEASUREMENT §9.1). These four English RBC
+    # chequing statements move `statement.currency` USD -> CAD and NOTHING
+    # else: ADB, opening/ending balances, the transaction ledger, credits and
+    # debits, revenue classifications and validation outcomes are all
+    # byte-identical, which the two forensic oracles above and the verdict map
+    # below prove on every gate run.
+    #
+    #   Chequing Statement-DEC+.pdf  A26ECE4F32488CECDD59EA5BCF13B4947786456038CBDD17AC52C0F3D9F38EE5
+    #   Chequing Statement-JAN+.pdf  633F036CDE97F639D95538678B738E939E708254C99D9910F6202CB44C1FD2D3
+    #   Chequing Statement-FEB+.pdf  F0348F3EDD0F64284AD49632C9FF5414C60113A79B0A3356E2441B1CB2E7CA27
+    #   Chequing Statement-MAR+.pdf  4F3CC713463FDD59318770C037FB0786FB984FB1A169456B068AE735D64EFD77
+    #
+    # None of the four prints a denomination anywhere; all four print the four
+    # affirmative RBC Canada jurisdiction proofs. The justification is that
+    # affirmative evidence, never the absence of USD wording.
+    "RBC/Chequing Statement-DEC+.pdf": "CAD",
+    "RBC/Chequing Statement-FEB+.pdf": "CAD",
+    "RBC/Chequing Statement-JAN+.pdf": "CAD",
+    "RBC/Chequing Statement-MAR+.pdf": "CAD",
+    "Regions/Regions-29-2026 (3).pdf": "USD",
+    "Regions/Regions.pdf": "USD",
+    "Regions/Regions_03-31-2026 (3) (1).pdf": "USD",
+    "Regions/Regions_04-30-2026 (2) (1).pdf": "USD",
+    "ScotiaBank/Scotiabank -2.pdf": "CAD",
+    "TD Can/Dec_31-Jan_30_2026 (6).pdf": "CAD",
+    "TD Can/Feb_27-Mar_31_2026 (2).pdf": "CAD",
+    "TD Can/Jan_30-Feb_27_2026 (3).pdf": "CAD",
+    "TD Can/Mar_31-Apr_30_2026.pdf": "CAD",
+    "TD Can/Nov_28-Dec_31_2025 (7).pdf": "CAD",
+    "TD Can/TD Bank Bank Statement.pdf": "CAD",
+    "TD/TD BANK NARROW APR.pdf": "USD",
+    "TD/TD BANK NARROW FEB.pdf": "USD",
+    "TD/TD BANK NARROW JAN.pdf": "USD",
+    "TD/TD BANK NARROW MAR.pdf": "USD",
+    "Truist/Truist AUTO February, 2026.pdf": "USD",
+    "Truist/Truist AUTO March 2026.pdf": "USD",
+    "Truist/Truist April, 2026.pdf": "USD",
+    "Truist/Truist February, 2026.pdf": "USD",
+    "Truist/Truist March, 2026.pdf": "USD",
+    "US Bank/US Bank 2026-03-31 Statement.pdf": "USD",
+    "US Bank/US Bank 2026-04-30 Statement.pdf": "USD",
+    "WellsFargo/02-28-26 WellsFargo.pdf": "USD",
+    "WellsFargo/03-31-26 WellsFargo.pdf": "USD",
+    "WellsFargo/04-30-26 WellsFargo 1.pdf": "USD",
+    "WellsFargo/113025 WellsFargo.pdf": "USD",
 }
 
 #: Do production's analysis callers hand `analyze_markdown` the intake object's
@@ -879,6 +1083,64 @@ def check_adb_doctrine(result: Result, payloads: dict[str, dict]) -> None:
     )
 
 
+def check_currency(result: Result, manifest: list[str], payloads: dict[str, dict]) -> None:
+    """Every pinned document publishes the currency that is pinned for it.
+
+    A TOTAL assertion in both directions, which is what makes it a surface
+    rather than a spot check: the map must name every pinned path and no other,
+    and every published `statement.currency` must equal its pin. A document
+    whose payload could not be produced is reported here too rather than
+    passing by omission — `check_outcome_classes` already fails on it, and a
+    currency check that quietly skipped the same document would be exactly the
+    kind of blind spot this exists to remove.
+
+    The compared value is the published FIELD (`payload["statement"]
+    ["currency"]`), not rendered UI text. That is the value
+    `webapp/static/app.js` hands to `Intl.NumberFormat`, so pinning the field
+    pins what the analyst sees without coupling the gate to any template.
+
+    Reuses the payloads `check_outcome_classes` already produced, so the whole
+    surface costs no extra analysis pass over the corpus.
+    """
+    details: list[str] = []
+    for rel in sorted(set(manifest) - set(PINNED_CURRENCY)):
+        details.append(
+            f"{rel}: pinned in the manifest but no expected currency is recorded; "
+            f"every pinned document must state one"
+        )
+    for rel in sorted(set(PINNED_CURRENCY) - set(manifest)):
+        details.append(f"{rel}: a currency is pinned for a path that is not in the manifest")
+
+    counts: dict[str, int] = {}
+    verified = 0
+    for rel in manifest:
+        expected = PINNED_CURRENCY.get(rel)
+        payload = payloads.get(rel)
+        if payload is None:
+            details.append(f"{rel}: no payload was produced, so its currency is unverified")
+            continue
+        actual = (payload.get("statement") or {}).get("currency")
+        counts[str(actual)] = counts.get(str(actual), 0) + 1
+        if expected is None:
+            continue
+        if actual != expected:
+            details.append(
+                f"{rel}: publishes currency {actual!r}, pinned {expected!r}; the "
+                f"denomination of a pinned statement is truth-set material and "
+                f"does not move without a ceremony"
+            )
+        else:
+            verified += 1
+
+    split = " / ".join(f"{n} {name}" for name, n in sorted(counts.items()))
+    result.add(
+        "currency",
+        not details,
+        f"{verified}/{len(manifest)} statements publish their pinned currency: {split}",
+        details,
+    )
+
+
 #: The gate's own federal-bank-holiday test, kept independent of
 #: `analysis.adb`'s: this file may not import the production financial modules,
 #: and a check that borrowed the engine's calendar could not detect the engine
@@ -1081,6 +1343,7 @@ def run_gate(corpus: Path, cache: Path) -> Result:
     check_outcomes(result, "adb", fresh_adb, "PASS", "WITHHELD")
     verdicts, payloads = check_outcome_classes(result, corpus, manifest, cache)
     check_adb_doctrine(result, payloads)
+    check_currency(result, manifest, payloads)
     check_ocr_coverage(result, source_types, manifest, cache)
     check_exclusions(result)
     check_oracle_independence(result)
