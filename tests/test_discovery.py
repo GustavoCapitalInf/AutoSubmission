@@ -990,7 +990,7 @@ def test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered(tmp_path: 
     assert coverage(cold_records) == coverage(warm_records)
     assert coverage(warm_records) == {
         "numerator": 109, "denominator": 109, "deferred": 0,
-        "unattributed": 0, "rate": 1.0,
+        "unattributed": 0, "verdicts": {"claimed": 109}, "rate": 1.0,
     }
     # And the two instruments over one run: the telemetry rollup and the
     # discovery rollup are independent code paths reading independent
