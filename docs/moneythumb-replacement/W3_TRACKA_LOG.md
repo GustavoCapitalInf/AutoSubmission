@@ -27556,3 +27556,77 @@ M6 both sites -> str(e),
 guard shapes (9 parametrised)     6 findings / 3 clean     exit 0
 ```
 
+## WP9. The full-population sweep — 3,380 / 3,380, zero movers
+
+Every document of the run of record
+(`discovery_reports/2026-08-16T000943.012887-0000-2e3ea385`) replayed on this
+branch from the D-3 OCR artifact store **by direct file path** — the
+`webapp_data` sqlite index was never opened — and compared against the run's
+own `rows.csv`, keyed by `content_sha256`. Reconstruction mirrors
+`discovery/runner.py`: `source_file = Path(relative_path).name` (runner.py:572),
+the intake object rebuilt from the artifact's committed page list, and
+`analyze_markdown(..., parse_mode="deterministic", sheets=pages)` (its
+`_analyse`, runner.py:486-490).
+
+```
+population                     3,380 distinct content_sha256
+replayable                     3,380  (run-only 0, artifact-only 0)
+outcome distribution (record)  validated 2430 · failed 859 · withheld 63 · review 15 · deferred 13
+outcome distribution (replay)  validated 2430 · failed 859 · withheld 63 · review 15 · deferred 13
+MOVERS                         0
+```
+
+**The first pass reported 2 movers, and they were the instrument, not the
+branch.** Recorded in full because the correction is the interesting part:
+
+| sha (16) | first pass | run of record |
+|---|---|---|
+| `D2548844593B4616` | failed / analysis_error (`RuntimeError: no deterministic parser matched this statement`) | validated / approved, `woodforest` |
+| `FBDB971C999AC6D3` | withheld / withheld_adb | validated / approved, `woodforest` |
+
+The harness enumerated OCR artifacts under ONE settings key — the one that
+covers exactly 3,380 distinct shas, which is why it looked like the run's own
+population. It is not. **55 of the 3,380 were read by the run under a
+different key, with a re-read text preparation the plain key does not hold:**
+33 `native-pdf-text+first-citizens-layout` and 22
+`native-pdf-text+woodforest-columns`. Fed the plain `native-pdf-text` text, 53
+of those 55 still reproduce their recorded outcome and 2 do not. Given the
+artifact the run actually used, both reproduce exactly:
+
+```
+D2548844593B4616  artifact_model='native-pdf-text+woodforest-columns'
+    run of record: validated/approved  parser=woodforest
+    replay       : validated/approved  model_used='woodforest-national-bank-deterministic'   MATCH
+FBDB971C999AC6D3  artifact_model='native-pdf-text+woodforest-columns'
+    run of record: validated/approved  parser=woodforest
+    replay       : validated/approved  model_used='woodforest-national-bank-deterministic'   MATCH
+```
+
+**The differential that settles it regardless.** Both documents were replayed
+with `webapp/worker.py` reverted to its base content (`git checkout 8570bce --
+webapp/worker.py`) and again on the branch. Byte-identical output both times,
+including the identical `RuntimeError` text — so whatever the harness was
+measuring, it was not this cell. That is what the containment proof (WP5)
+predicts: the replay harness imports `analysis.pipeline`,
+`analysis.serialization`, `ocr.document`, `telemetry.record` and
+`webapp.artifact_cache._page_integrity`, and never `webapp.worker` at all.
+
+**Carried finding for the next cell that builds a replay harness (WP6.6).**
+Enumerating the OCR artifact store by a single `settings_key` silently feeds
+the wrong rung's text to 55 archive documents, and the count of distinct shas
+under that key (3,380) matches the run's population exactly, so the mistake
+looks correct at every checkpoint until a family whose re-read changes the
+parse shows up. A correct harness must resolve the artifact per document —
+by recomposing the run's own key, as §FI1 did for four documents — or must
+prefer the re-read variant where one exists. Two of the three archive-wide
+sweep harnesses this wave used will have the same hole.
+
+**Operational note.** The first sweep was launched through the harness's own
+background shell and was killed at 2,250/3,380 with nothing on disk — the
+"long background shells get killed" hazard the standing rules name. The rerun
+was launched detached (`Start-Process -PassThru`, aliveness checked with
+`tasklist` and never MSYS `kill -0`) and writes one JSON line per document to
+`results.jsonl`, so the tally is reconstructible from the file rather than from
+any process surviving. 3,380 lines on disk is the completeness evidence, not a
+console tail.
+
