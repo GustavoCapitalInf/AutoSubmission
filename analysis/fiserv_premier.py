@@ -208,6 +208,36 @@ _EMBEDDED_DAILY_CONT_RE = re.compile(r"^Date\s+Balance\s*\$?(.*)$")
 #: it would make the refusal an accident of punctuation — exactly the accident
 #: §FI5.4 warned about — and it would refuse the whole document if one row's
 #: comma failed to survive the text layer.
+#:
+#: **WHAT THIS RULE ASSUMES, stated so the next reader does not have to derive
+#: it** (W3 §FISERV3 F14, review MINOR-1/2/3):
+#:
+#: 1. **The keyword is the literal uppercase token `AMT`.** Both halves of the
+#:    rule key on it, so a variant spelling the template does not print today —
+#:    `Amt`, `AMT:` — would be neither admitted into the description nor refused
+#:    as an amount. WITHOUT the trailing comma such a row would publish the
+#:    REFERENCE as its amount. Measured over the ledger sections of all four
+#:    documents: 109 occurrences, 109 of them bare uppercase `AMT`, 0 variant
+#:    spellings, and 0 not immediately followed by a money token. So the hole is
+#:    unreachable on the attested corpus, and it is fail-closed at DOCUMENT
+#:    level if it ever opens: a mis-read amount misses the printed debit total
+#:    and the printed daily grid, and the document refuses rather than
+#:    publishing a wrong figure. Widening the keyword class is a measurement, not
+#:    a guess, and belongs to whichever cell meets the variant.
+#: 2. **The `\b` is deliberately asymmetric, and it is inert here.**
+#:    `(?<!\bAMT) ` is word-bounded (so `PAYAMT $5.00` is an ordinary amount, not
+#:    a refused reference) while `_EMBEDDED_REFERENCE` is not (so a description
+#:    could in principle cross `PAYAMT $5.00` as if it were a reference). No
+#:    archive row prints `AMT` as a word-suffix, so the two never disagree on
+#:    real text. Recorded because the asymmetry looks like an oversight and is
+#:    not one: the REFUSAL is the half that must be precise, since over-refusing
+#:    costs a document and under-refusing costs a number.
+#: 3. **A genuine row whose DESCRIPTION ends in `AMT` before its own amount
+#:    refuses the document.** `06/01 WIRE TRANSFER AMT $500.00` is read as a
+#:    reference with no fee behind it, matches nothing, is dropped, and the
+#:    printed count then refuses. That is the intended trade and it is the right
+#:    way round — it costs a document, never a number — but it IS a false
+#:    refusal, and it is why the keyword class must not be widened casually.
 _EMBEDDED_REFERENCE = r"AMT -?\$[\d,]*\.\d{2},?"
 #: The row: a posting date, a description that may carry references and nothing
 #: else with a `$` in it, and the row's own amount.

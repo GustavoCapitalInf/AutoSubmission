@@ -27755,4 +27755,144 @@ movers, 10/10 prior publishers byte-identical.
 |---|---|
 | `181aa8a` | the reader: `_period` (second wording, corroborated), `_embedded_sections` (four sections, suspend/resume), `_embedded_rows` (the money rule and its refusal), `_daily_grid_agrees` (the printed grid as a required oracle); the embedded branch as the `else` of the two that came first; tests 28 → 49 |
 | `4a85efd` | this section's F0–F10 |
-| (this one) | F11–F13: the proof block, the movers named, and this table |
+| `a747adc` | F11–F13: the proof block, the movers named, and this table |
+| (this one) | F14: the review closures — the money grammar’s stated assumptions (module comment), the section extent, the first-match period reads, Ocean’s three rulings, and the negative-ADB observation. DOCUMENTATION ONLY. |
+
+## F14. Adversarial review — APPROVE WITH FINDINGS, and the closures
+
+**Verdict: APPROVE WITH FINDINGS — 0 BLOCK, 0 MAJOR, 7 MINOR.** The +4/−0 was
+reproduced independently: an independent money-token oracle agreed to the cent
+on all four documents, **86 day-by-day grid checkpoints with 0 mismatches**, the
+four documents' closing→previous chain across periods confirmed, and **12/12
+mutations killed including one the reviewer invented** that this cell had not
+written. The reviewer's own store enumeration returned 3,409 documents against
+this cell's 3,396; the difference is 13 documents whose only artifacts are
+all-cached-negative, and the two figures reconcile exactly.
+
+**Every closure below is DOCUMENTATION.** No behaviour changed, no regex
+changed, no gate changed; the proof floor was not re-run, and the only
+executable re-run is this cell's own test file (F15). The four movers, the ten
+held publishers and every proof in F11 stand as recorded.
+
+### F14.1 What the money-grammar rule assumes (MINOR-1, MINOR-2, MINOR-3)
+
+The rule was correct and the tests were sound; what was missing was that its
+assumptions were derivable rather than stated. They are now written at
+`_EMBEDDED_REFERENCE` in the module, and measured here.
+
+**(a) The keyword is the literal uppercase token `AMT`.** Both halves of the
+rule key on it, so a variant spelling — `Amt`, `AMT:` — is neither admitted to
+the description nor refused as an amount, and **without the trailing comma such
+a row would publish the REFERENCE as its amount**. Census over the ledger
+sections of all four documents:
+
+```
+              occurrences of AMT   bare uppercase   variant spellings   not followed by money
+April                 34                 34                0                    0
+May                   10                 10                0                    0
+Jun 30                37                 37                0                    0
+Jul 31                28                 28                0                    0
+total                109                109                0                    0
+```
+
+So the hole is **unreachable on the attested corpus**, and it is **fail-closed
+at document level** if it ever opens: a mis-read amount misses the printed debit
+total AND the printed daily grid, so the document refuses rather than publishing
+a wrong figure. Widening the keyword class is a measurement, not a guess, and
+belongs to whichever cell meets the variant.
+
+**(b) The `\b` asymmetry is deliberate and inert here.** `(?<!\bAMT) ` is
+word-bounded; `_EMBEDDED_REFERENCE` is not. Measured:
+
+```
+'06/01 WIRE TRANSFER PAYAMT $500.00'  ->  ('06/01', 'WIRE TRANSFER PAYAMT', '$500.00')
+```
+
+— an ordinary amount, not a refused reference, which is the right answer. No
+archive row prints `AMT` as a word-suffix, so the two halves never disagree on
+real text. Recorded because the asymmetry reads like an oversight and is not
+one: the REFUSAL is the half that must be precise, because over-refusing costs a
+document while under-refusing costs a number.
+
+**(c) The false-refusal shape, named.** A genuine row whose DESCRIPTION ends in
+`AMT` immediately before its own amount refuses the whole document:
+
+```
+'06/01 WIRE TRANSFER AMT $500.00'              ->  NO MATCH (row dropped; the
+                                                    printed count then refuses)
+'06/01 WIRE TRANSFER AMT $500.00, FEE $31.00'  ->  ('06/01', 'WIRE TRANSFER AMT
+                                                    $500.00, FEE', '$31.00')
+```
+
+This is the intended trade and it is the right way round — **it costs a
+document, never a number** — but it is a false refusal, and it is the second
+reason the keyword class must not be widened casually. No archive row of this
+family prints it.
+
+### F14.2 The section extent is wider than F4 stated (MINOR-6)
+
+F4 described where a section STOPS but implied the gathered text is posting
+detail only. It is not: page furniture printed inside a section's extent is
+carried into the section string. Measured, per document, over the credit and
+debit sections:
+
+```
+              page footers   8-digit stamps   gap notes   rows produced by furniture
+April              4               7              1                  0
+May                3               7              1                  0
+Jun 30             4              12              1                  0
+Jul 31             4              10              1                  0
+```
+
+Harmless, and structurally so rather than by luck: none of these tokens is
+`<date> … <money>` shaped, so `_EMBEDDED_ROW_RE` cannot match one — **0 rows
+produced by furniture on all four documents**, and the printed counts would
+refuse the document if one ever were. (The barcode runs are not in the extent at
+all: they print at the head of a continuation page, where the section is
+suspended and not yet resumed.) Recorded because "the section text is the
+ledger" is a convenient shorthand and a false one, and the next reader should
+not build a stricter oracle on it.
+
+### F14.3 The two period facts are first-match reads (MINOR-7)
+
+`_LONG_PERIOD_RE` and `_DAYS_RE` each take the FIRST occurrence of a fact
+printed in two places. If a document printed either twice with different values,
+the first would win silently. Measured on all four: **`_LONG_PERIOD_RE` occurs
+exactly once and `_DAYS_RE` exactly once**, on every document. The corroboration
+rule in `_period` is the backstop either way — a first match that disagrees with
+the other fact still refuses the document, which is the whole reason the two
+halves are welded (F3).
+
+### F14.4 Rulings carried in from the review
+
+* **MINOR-4 — currency stays the schema default (USD) on this branch. Ocean's
+  ruling.** These four are US documents and USD is correct, but it is published
+  as a schema default rather than as evidence. Making currency evidence-explicit
+  with provenance is the **batch-7 `currency_source` card**, which is now
+  explicitly widened to include `fiserv_premier` and **every schema-default
+  publisher**. A per-parser `currency=` kwarg is NOT to be added now: zero-
+  movement cosmetics do not reopen an approved branch, and piecemeal per-parser
+  kwargs would race the systematic provenance design.
+* **MINOR-5 — stays this cell's F9.1 card recommendation, scheduled batch 7.**
+  The four print `LOCAL. SMALL BUSINESS CHECKING ACCOUNT XXXXXX8515` and repeat
+  the mask in the summary line; `account_name` / `account_number` publish as
+  None. Audited columns, so the corroboration rule belongs to a card.
+* **§FI5.2 — the section-reader lift into `community_section` /
+  `mission_valley` remains deferred. Ocean's ruling, batch 7.** Unchanged by
+  this cell, which registered nothing new (registry 72, F0).
+
+### F14.5 April publishes a NEGATIVE underwriting ADB, as a validated document
+
+`4D0EACF6…A29E` publishes `underwriting_adb = −3,539.00` and is `validated`
+with an empty integrity-flag list. **This is doctrine-correct, not a defect**:
+the canonical ADB is the calendar-day average of the printed daily balances, and
+this account is overdrawn on 17 of the 22 days the bank's own grid prints
+(closing −$6,653.88). The figure reproduces the bank's own grid to the cent
+(F2), so refusing it or clamping it would be publishing something the document
+does not say.
+
+Flagged here so downstream consumers are not surprised: a validated statement of
+this family can carry a negative average daily balance, and any consumer that
+assumes `underwriting_adb >= 0` — a ratio denominator, a bar chart axis, a
+"months of runway" division — will meet one here. This is an observation for the
+consumers, not a change request for the parser.
