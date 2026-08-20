@@ -2,8 +2,11 @@
 
 `analysis/money.py` is the layer that holds the printed cell. When it refuses
 one, the refusal becomes a `ValueError` that travels: out of the parser, out of
-`analyze_markdown`, and — via `webapp/worker.py`'s `str(exc)` — into the
-durable job store and onto a screen. The law batch 4 wrote for `read_money`
+`analyze_markdown`, and into whatever the caller does with `str(exc)` — which
+through batch 5 meant `webapp/worker.py` writing it into the durable job store
+and onto a screen (batch 6's §WORKER-PRIVACY withholds it there; this file
+asserts the source-side property, which is the one that holds for a reader
+nobody has written yet). The law batch 4 wrote for `read_money`
 (§MG-C2 D1) is that such a message names the reader and the refusal CLASS and
 never echoes the statement. Batch 6 extends it to the rest of the module, where
 five raising parsers spelled their refusal `ValueError(value)` — the cell,
@@ -245,7 +248,8 @@ def test_parse_signed_decimal_reports_the_reader_that_actually_refused():
 def test_the_account_shaped_run_that_started_the_card_is_gone():
     """MGD-C1's own example. `parse_signed_decimal("—$500.00")` began raising
     when MG-D took the em dash out of the sign class; before batch 6 it raised
-    `ValueError("— 500.00")`, carrying the figure to a user-visible job error.
+    `ValueError("— 500.00")`, putting the figure the bank printed into an
+    exception message that the serving layer of the day published verbatim.
     """
     for call in (m.parse_decimal, m.parse_grouped_float, m.parse_signed_decimal,
                  m.parse_french_amount, m.parse_trailing_minus_dropped,

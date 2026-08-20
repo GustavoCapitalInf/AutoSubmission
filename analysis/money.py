@@ -37,10 +37,18 @@ not made here.
 A REFUSAL IN THIS MODULE NEVER QUOTES THE DOCUMENT (W3 §MG-C2 D1 for
 `read_money`, §MONEY-PRIVACY for everything else). Every exception raised here
 is built by `_refusal`: the reader's name and one of four measured shape
-categories, and nothing that varies with the cell. The reason is `webapp`'s —
-a refusal escaping `analyze_markdown` becomes the job error via `str(exc)` and
-lands in the durable store — but the rule is stated and enforced here, at the
-grammar, because this is the layer that has the token in its hand.
+categories, and nothing that varies with the cell.
+
+The rule is stated and enforced HERE, at the grammar, because this is the layer
+that has the token in its hand — deliberately not at the boundary that
+motivated it. Through batch 5 that boundary was `webapp/worker.py`, which
+published `str(exc)` as the job error into the durable store; batch 6 closes
+that side too (§WORKER-PRIVACY, a sibling card). Neither closure is the other's
+excuse: a boundary can only withhold the messages it knows about, and a
+grammar that never puts a cell in a message is safe in front of a boundary
+nobody has written yet. What must not happen is the pair being read as one
+belt with two names — so this module's rule is stated as a property of what it
+may RAISE, with no clause about who catches it.
 
 `tests/test_money.py` pins every function against the pre-R-2 implementation it
 replaced, over a shared matrix of positive, negative and malformed inputs, and
@@ -552,10 +560,13 @@ def parse_money_tokens(value: str | None) -> list[float]:
 def _refusal_class(text: str) -> str:
     """WHY the grammar refused, as a category — never the text itself.
 
-    A refusal message crosses an exception boundary and can be surfaced to a
-    user (`webapp/worker.py` returns `str(exc)` as the job error), so it may
-    carry no statement content whatsoever: the exception-boundary law is
-    registry ids and class names only. These categories are derived FROM the
+    A refusal message crosses an exception boundary, so it may carry no
+    statement content whatsoever: the exception-boundary law is registry ids
+    and class names only. (Through batch 5 the boundary in question was
+    `webapp/worker.py`, which published `str(exc)` as the job error; batch 6's
+    §WORKER-PRIVACY withholds it there. The category rule below does not rest
+    on that — it is about what this function may return, not about who reads
+    it.) These categories are derived FROM the
     token and describe only its shape, which is what a diagnosis actually
     needs — the token itself is in the document, and the document is where it
     stays. (W3 §MG-C2 D1; extended to the whole raising family by
@@ -642,9 +653,10 @@ def read_money(
     document declines instead of publishing a number nobody printed.
 
     **The message never quotes the token.** It names the reader and the
-    refusal CLASS, because this exception can reach a user through
-    ``webapp/worker.py``'s ``str(exc)`` job error and statement content may not
-    cross that boundary. See :func:`_refusal_class`.
+    refusal CLASS, because statement content may not cross an exception
+    boundary — the rule holds whatever any particular boundary does with the
+    message, and it is `_refusal` that enforces it for every raise in this
+    module. See :func:`_refusal_class`.
 
     `reader` is the caller's own money reader, because the grammar is shared
     but the FORMAT is local: a parser that anchors with its own guard passes
@@ -674,10 +686,13 @@ def read_money(
 # THE REFUSAL LAW FOR THIS SECTION (W3 §MONEY-PRIVACY, extending §MG-C2 D1).
 # Every function below refuses by raising `_refusal(...)`, and none of them
 # quotes the token. Until batch 6 each one raised `ValueError(value)` — the
-# printed cell as the message — and `webapp/worker.py` publishes `str(exc)` as
-# the job error into the durable store, so a refusal put statement content
+# printed cell as the message — while `webapp/worker.py` published `str(exc)`
+# as the job error into the durable store, so a refusal put statement content
 # somewhere it may not go. Batch 4 closed exactly this law one layer up, at
-# `read_money`; this closes it at the layer the parsers actually call.
+# `read_money`; this closes it at the layer the parsers actually call, and
+# §WORKER-PRIVACY closes the boundary end in the same batch. The source fix is
+# the one that generalises: it holds for every reader of the message, not only
+# for the one boundary that was known to publish it.
 #
 # Two shapes are involved and only one of them is visible as a `raise`:
 #

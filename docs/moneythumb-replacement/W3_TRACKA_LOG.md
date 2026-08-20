@@ -27212,8 +27212,10 @@ Run of record `2026-08-16T000943.012887-0000-2e3ea385`. Owned files:
 
 **The card (W3 §MGD10 finding 6, MGD-C1):** the money-grammar raising family
 carries the printed token in `ValueError(value)`, and `webapp/worker.py`
-publishes `str(exc)` as the job error, so statement content can cross into the
-durable store. Batch 4 closed this law for `read_money` (§MG-C2 D1: a refusal
+published `str(exc)` as the job error, so statement content could cross into
+the durable store. (That boundary is being closed in the same batch by
+§WORKER-PRIVACY; see MP11 — the two closures are independent and neither is
+the other's excuse.) Batch 4 closed this law for `read_money` (§MG-C2 D1: a refusal
 never quotes the cell); the same module still quoted it one layer down, and
 §MGD *widened* the exposure — before `wave5-mgd`,
 `parse_signed_decimal("—$500.00")` returned a number; after it, that call
@@ -27352,10 +27354,10 @@ claims and the card is worth taking on the first alone.
   the whole tree: the importers of `analysis.money` are the 61 parser modules
   plus `analysis/structurer/tokens.py` and `experiments/`, and the structurer
   imports `parse_money` only — which returns `None` and never raises.
-* So on today's tree a money refusal reaches `webapp/worker.py`'s `str(e)`
-  through no path at all, and the card is a defence-in-depth fix on a leak that
-  is one guard away from live — the same posture §MGD argued when it declined
-  to fix it and carded it instead.
+* So even before §WORKER-PRIVACY, a money refusal reached
+  `webapp/worker.py`'s `str(e)` through no path at all, and this card is a
+  defence-in-depth fix on a leak that is one guard away from live — the same
+  posture §MGD argued when it declined to fix it and carded it instead.
 
 The live quoting leak into that boundary is somebody else's line and is in the
 ledger: `analysis/extract.py:96` interpolates 300 characters of the model's own
@@ -27403,9 +27405,11 @@ this cell's file; each is named for whoever takes it.
    it, and this raise is on the LLM branch, which `analyze_markdown` does not
    guard (the pipeline's own comment at `analysis/pipeline.py:628` states the
    boundary). It propagates to `webapp/worker.py:94`'s
-   `return markdown, html, None, str(e)` and into the durable store. This is
-   WORKER-PRIVACY's neighbourhood or a card of its own; it is the one that
-   should not wait.
+   `return markdown, html, None, str(e)`, which through batch 5 put it in the
+   durable store. §WORKER-PRIVACY closes that end this batch, which makes the
+   quoted 300 characters unpublished rather than unproduced: the RuntimeError
+   still carries them into any log, any traceback and any future consumer of
+   the message. It is the one on this list that should not wait.
 2. **Six sibling `raise ValueError(value)` in parser modules** — the same
    defect as this card's, in six of the callers rather than in the grammar:
    `analysis/bmo.py:42` (`_amount`), `analysis/chase.py:47`
@@ -27446,3 +27450,33 @@ _(pending: this section lands with the sweep.)_
 ## MP10. Commits
 
 _(pending.)_
+
+## MP11. Coordination item — the stale boundary comments (Ocean, at the train)
+
+**One line: §WORKER-PRIVACY's boundary fix falsified five comments in this
+cell's files, and this cell corrected all five rather than the two it was
+asked about.** The prose in `analysis/money.py` and the new test file
+motivated the source-side law by asserting what `webapp/worker.py` does with
+`str(exc)` — true through batch 5, false once the sibling card withholds the
+message. Corrected at `analysis/money.py` module docstring, `_refusal_class`,
+`read_money`, the raising-section banner, and the test file's header and the
+MGD-C1 example's docstring. Ocean named two sites (the pre-fix :545 and :599);
+both are inside this cell's hunks, and a `worker.py`-claims grep found three
+more of this cell's own writing, so all six were taken together — a partial
+correction would have left the file asserting two different things about the
+same boundary.
+
+The rewrite does not simply delete the motivation, because the history is
+load-bearing: it says what the boundary DID through batch 5, that batch 6
+closes it, and that the two closures are independent. A source fix that reads
+as redundant once the boundary is closed is a source fix somebody deletes.
+The comments now state the rule as a property of what this module may RAISE,
+with no clause about who catches it.
+
+`analysis/pipeline.py:608` carries the same stale claim and is NOT this cell's
+file — Ocean holds it.
+
+The proof floor below was run AFTER these edits, so every proof reads the
+final tree; the in-flight floor started before them was stopped and discarded
+rather than reported.
+
