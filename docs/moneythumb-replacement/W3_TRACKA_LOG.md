@@ -27223,7 +27223,7 @@ that the values it adds together have units.
 | Buckets | single / mixed / undetermined / no-analyzed-documents |
 | Archive movement | **ZERO on the 3,380.** Discovery does not run packages; no parser, no schema, no analysis-stage file was touched |
 | Files changed | `webapp/app.py` (package aggregation region only), `webapp/static/app.js`, 4 test stubs, 1 ADB guard literal, 1 new test module |
-| Suite | 4,511 -> **4,545** (+34) |
+| Suite | 4,511 -> **4,547** (+36) |
 
 ## PC1. The currency-field map (measurement, before any code changed)
 

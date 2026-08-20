@@ -482,6 +482,47 @@ def test_package_ledger_rows_carry_their_own_source_currency():
     assert [tx["source_currency"] for tx in package["transactions"]] == ["CAD", "USD"]
 
 
+def test_the_route_serves_the_refusal_through_masking_and_json():
+    """`/package_analysis` runs the payload through `_masked` and `jsonify`.
+    Neither may turn a refusal back into a number, and neither may drop the
+    block that explains it."""
+    from webapp.app import app, store
+
+    ids = []
+    for name, code in (("cad.pdf", "CAD"), ("usd.pdf", "USD")):
+        job = store.create(name)
+        store.set_result(job.id, f"# {name}", f"<h1>{name}</h1>", analysis=statement_payload(code))
+        ids.append(job.id)
+
+    response = app.test_client().get(f"/package_analysis?ids={','.join(ids)}")
+    assert response.status_code == 200
+    body = response.get_json()
+
+    assert body["currency"]["resolution"] == "mixed"
+    assert body["currency"]["documents_by_currency"] == {"CAD": 1, "USD": 1}
+    assert body["totals"]["cross_currency_totals_refused"] is True
+    assert body["totals"]["total_credits"] is None
+    assert body["totals"]["average_daily_balance"] is None
+    assert body["totals"]["decision"] == "review_required"
+    # Statement-level results still served, still denominated.
+    assert sorted(doc["currency"] for doc in body["documents"]) == ["CAD", "USD"]
+
+
+def test_the_route_denominates_a_single_currency_package():
+    from webapp.app import app, store
+
+    ids = []
+    for name in ("jan.pdf", "feb.pdf"):
+        job = store.create(name)
+        store.set_result(job.id, f"# {name}", f"<h1>{name}</h1>", analysis=statement_payload("CAD"))
+        ids.append(job.id)
+
+    body = app.test_client().get(f"/package_analysis?ids={','.join(ids)}").get_json()
+    assert body["totals"]["currency"] == "CAD"
+    assert body["totals"]["total_credits"] == 20_000.0
+    assert body["totals"]["cross_currency_totals_refused"] is False
+
+
 # ---------------------------------------------------------------------------
 # The dashboard
 # ---------------------------------------------------------------------------
