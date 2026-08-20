@@ -264,20 +264,73 @@ def test_a_negative_ending_balance_is_published_with_its_sign():
     assert statement.ending_balance == -150.00
 
 
-def test_an_em_dash_in_a_sign_position_declines_rather_than_flipping_a_figure():
+@pytest.mark.parametrize("printed", [
+    "Beginning balance $100.00", "Low balance $60.00",
+    "Average balance $80.00", "Ending balance $150.00",
+])
+def test_an_em_dash_in_a_sign_position_declines_rather_than_flipping_a_figure(printed):
     #: W3 §MGD3: the em dash is punctuation, never a sign. `parse_decimal`
     #: cannot convert it and this pattern will not match past it, so the
-    #: summary is simply not read.
+    #: summary is simply not read. Asserted on EVERY balance slot: the debris
+    #: tolerance runs between the cells of this strip, and a tolerance that
+    #: crept in front of any one figure would absorb the dash there and publish
+    #: the magnitude.
+    label, figure = printed.rsplit(" ", 1)
     assert parse(document(summary=SUMMARY.replace(
-        "Beginning balance $100.00", "Beginning balance —$100.00"))) is None
+        printed, f"{label} —{figure}"))) is None
 
 
-def test_a_signed_flow_figure_declines_rather_than_being_read_as_a_magnitude():
-    #: the template prints the two flow figures unsigned and gives their
-    #: direction by the label; a signed printing is a template this reader has
-    #: not been shown.
+def test_the_balance_pattern_and_the_balance_reader_admit_the_same_tokens():
+    #: A finder that admits a token its parser refuses hands the parser
+    #: something it can only decline by RAISING, which surfaces as
+    #: `parser_exception` ("our code broke") rather than as a refusal ("we
+    #: could not read this"). `money.SIGNED_MONEY_TOKEN`'s docstring names that
+    #: hazard; this is the same pairing for this module's own slot pattern.
+    #: `_BALANCE` admits one space between the sign and the figure, which is
+    #: the whole of what `_signed` adds over `_money` — `_money` raises on it.
+    from analysis.money import MINUS_GLYPHS
+
+    for token in [f"{g}{s}$150.00" for g in MINUS_GLYPHS for s in ("", " ")]:
+        assert re.fullmatch(cb._BALANCE, token), token
+        assert cb._signed(token) == -150, token
+    statement = parse(document(
+        summary=SUMMARY.replace("Ending balance $150.00", "Ending balance - $150.00")
+                       .replace("Average balance $80.00", "Average balance - $80.00")
+                       .replace("Withdrawals/Subtractions $450.00",
+                                "Withdrawals/Subtractions $750.00"),
+        ach_debits=ACH_DEBITS.replace("400.00", "700.00"),
+        grid=GRID.replace("04-03 -100.00", "04-03 -400.00").replace(
+            "04-05 200.00", "04-05 -100.00").replace(
+            "04-06 170.00", "04-06 -130.00").replace("04-07 150.00", "04-07 -150.00"),
+    ))
+    assert statement is not None and statement.ending_balance == -150.00
+    #: and the evidence lane carries the sign too — a bank-reported average
+    #: published as +80.00 on an overdrawn account is the wrong number in the
+    #: one field an underwriter reads first.
+    assert statement.bank_reported_average_balance == -80.00
+
+
+def test_a_balance_slot_without_the_sign_class_would_lose_the_whole_summary():
+    #: the shape of the loss, so the tolerance cannot be quietly narrowed:
+    #: June's statement would be declined by a sign on `Low balance`, a figure
+    #: this reader does not even publish.
+    assert re.fullmatch(cb._BALANCE, "-$60.00")
+    assert not re.fullmatch(cb._BALANCE.replace(f"{cb._SIGN}?", "", 1), "-$60.00")
+
+
+@pytest.mark.parametrize("printed", [
+    "Deposits/Additions $500.00", "Withdrawals/Subtractions $450.00",
+    "Interest earned $0.00",
+])
+def test_a_signed_flow_figure_declines_rather_than_being_read_as_a_magnitude(printed):
+    #: the template prints the two flow figures and the interest unsigned and
+    #: gives their direction by the label; a signed printing is a template this
+    #: reader has not been shown, and reading the magnitude would book a
+    #: refund of deposits as deposits. Both flow slots asserted, because one
+    #: slot widened to `_BALANCE` is exactly how the other's guarantee is lost.
+    label, figure = printed.rsplit(" ", 1)
     assert parse(document(summary=SUMMARY.replace(
-        "Withdrawals/Subtractions $450.00", "Withdrawals/Subtractions -$450.00"))) is None
+        printed, f"{label} -{figure}"))) is None
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +357,16 @@ def test_an_other_deposits_section_without_its_printed_total_declines():
         "Total Other Deposits/ Additions $50.00", ""))) is None
 
 
+def test_a_deposit_section_without_its_printed_total_declines():
+    #: the same fact for the other optional section, and it is the dangerous
+    #: direction: the rows this fixture prints add to 200.00, which is exactly
+    #: what the summary's `Deposits/Additions` figure has already been told to
+    #: expect — so a reader that treated the unclosed section as an absent one
+    #: would drop 200.00 of credits out of a ledger and still balance.
+    assert parse(document(deposits=DEPOSITS.replace(
+        "Total Additions $200.00", ""))) is None
+
+
 def test_a_printed_other_deposits_total_with_no_section_declines():
     assert parse(document(
         other_credits="Total Other Deposits/ Additions $50.00\n")) is None
@@ -313,9 +376,75 @@ def test_a_printed_total_additions_with_no_deposit_section_declines():
     assert parse(document(deposits="Total Additions $200.00\n")) is None
 
 
-def test_a_section_whose_rows_miss_its_own_printed_total_declines():
-    assert parse(document(other_debits=OTHER_DEBITS.replace(
-        "Automatic Loan Pay 30.00", "Automatic Loan Pay 31.00"))) is None
+@pytest.mark.parametrize("section,printed,damaged", [
+    ("other_debits", "Automatic Loan Pay 30.00", "Automatic Loan Pay 31.00"),
+    ("deposits", "04-02 Deposit 200.00", "04-02 Deposit 201.00"),
+    ("ach_credits", "20260405 300.00", "20260405 301.00"),
+])
+def test_a_section_whose_rows_miss_its_own_printed_total_declines(section, printed, damaged):
+    #: EVERY section against its own printed total, not just the ones a
+    #: fixture happens to exercise. This is the oracle the whole read rests on:
+    #: a section that quietly published rows disagreeing with the figure
+    #: beneath them would put the disagreement into the transaction list and
+    #: leave the summary looking right.
+    #:
+    #: The ACH DEBIT section is not in this list, and deliberately: it is the
+    #: one section with a repair path, pinned in the two tests below.
+    base = {"other_debits": OTHER_DEBITS, "deposits": DEPOSITS,
+            "ach_credits": ACH_CREDITS}[section]
+    assert parse(document(**{section: base.replace(printed, damaged)})) is None
+
+
+def test_one_damaged_ach_debit_row_is_repaired_when_the_grid_names_it():
+    #: The shipped single-delta repair (unchanged by this cell). It moves ONE
+    #: row by the section's whole distance from its printed total, and it keeps
+    #: the result only when the reconstructed ledger then agrees with the daily
+    #: grid. Here one row is the only candidate and the grid confirms it.
+    statement = parse(document(ach_debits=ACH_DEBITS.replace(
+        "20260403 400.00", "20260403 401.00")))
+    assert statement is not None
+    assert [t.amount for t in statement.transactions if t.date == "2026-04-03"] == [-400.00]
+
+
+def test_two_equally_scoring_candidates_refuse_rather_than_choosing():
+    #: `88AAC06119FC`'s shape: the section misses its printed total by 0.33 and
+    #: the grid puts the whole difference on a day that prints more than one
+    #: row, so every candidate reconstructs the same balances. Choosing would
+    #: publish an amount the bank did not print, against a named counterparty.
+    two_rows = (
+        "ACH and Electronic Payments/Subtractions\n"
+        "Date Description Subtractions\n"
+        "04-03 ACH Debit Example Vendor 20260403 251.00\n"
+        "04-03 ACH Debit Other Vendor 20260403 150.00\n"
+        "Total ACH and Electronic Payments/Subtractions $400.00\n"
+    )
+    assert parse(document(ach_debits=two_rows)) is None
+
+
+#: The dangerous shape for a per-section gate: a document whose SUMMARY
+#: identity and whose balance CHAIN both hold, and whose only contradiction is
+#: one section against its own printed total. Every other oracle is satisfied,
+#: so the section gate is the only thing standing between the reader and a
+#: published amount the bank did not print. Both optional sections are pinned
+#: in it, because both were introduced by this cell.
+
+def test_a_deposit_section_that_contradicts_only_its_own_total_still_declines():
+    #: rows 201.00, printed total 200.00, summary and ending both consistent
+    #: with the 201.00 the rows add to.
+    assert parse(document(
+        deposits=DEPOSITS.replace("04-02 Deposit 200.00", "04-02 Deposit 201.00"),
+        summary=SUMMARY.replace("Ending balance $150.00", "Ending balance $151.00"),
+    )) is None
+
+
+def test_an_other_deposits_section_that_contradicts_only_its_own_total_declines():
+    #: rows 51.00, printed total 50.00, summary and ending both consistent with
+    #: the 51.00.
+    assert parse(document(
+        other_credits=OTHER_CREDITS.replace("20260402 50.00", "20260402 51.00"),
+        summary=SUMMARY.replace("Deposits/Additions $500.00", "Deposits/Additions $550.00")
+                       .replace("Ending balance $150.00", "Ending balance $201.00"),
+    )) is None
 
 
 # ---------------------------------------------------------------------------
