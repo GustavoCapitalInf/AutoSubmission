@@ -27481,8 +27481,8 @@ A LEADING minus is never a sign here, for the same reason that module gives.
 
 | sha | outcome | the defect, named |
 |---|---|---|
-| `8FC408139D8A...` | `failed/parser_declined` | Two ATM rows totalling **$1.00** are absent from the grids: the summary counts 47/66 and totals 27,993.31/28,650.25, the grids hold 45/64 and 26,907.18/28,649.25. The day walk localises it to **3/02**, where the residual is $1.00 short. |
-| `33A2F2DD6CAF...` | `failed/parser_declined` | One ATM row of **$0.01** is absent. The walk localises it to **6/22**, whose residual misses by exactly one cent. `6/15` is additionally an ambiguous day (two sign assignments reach the printed balance), so even a repaired row would not publish this document. |
+| `8FC408139D8A...` | `failed/parser_declined` | **Two ATM rows totalling $1.00 are absent.** The summary counts 47 credits / 66 debits and totals 27,993.31 / 28,650.25. Subtracting the Deposits section (44 rows, 26,907.18) and the Debits section plus cheques (42 + 3 rows, 20,521.09 + 3,100.00) implies **24 ATM rows totalling 6,115.29**; the grid holds **22 rows totalling 6,114.29**. The day walk localises the money to **3/02**, whose residual is $1.00 short. |
+| `33A2F2DD6CAF...` | `failed/parser_declined` | **One ATM row of $0.01 is absent.** Summary 39 / 113 and 28,645.32 / 28,062.62; sections 34 rows / 28,128.32 and 28 + 1 rows / 16,520.55 + 3,350.00, implying **89 ATM rows totalling 8,709.07** against the grid's **88 rows totalling 8,709.06**. The walk localises it to **6/22**, whose residual misses by exactly one cent. `6/15` is additionally an ambiguous day (two sign assignments reach the printed balance), so even a repaired row would not publish this document. |
 | `9B3DB6CF995D...` | `failed/parser_declined` | The daily grid's **5/22** cell is `714,71` — the decimal separator resolved as a comma. The ledger determines that day as `714.71` exactly (`2,324.17 + 379.13 - 281.07 - 1,447.52 - 260.00`), so the printing is recoverable in principle. It is NOT repaired here: see SN9 finding 1. |
 
 All three previously read `failed/no_parser_matched`; they now read
