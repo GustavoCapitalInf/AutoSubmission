@@ -136,7 +136,7 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
-from .date_tokens import MONTH_NUMBERS, iso_or_none, iso_within_period
+from .date_tokens import iso_from_named_month_day, iso_within_period
 from .money import (
     LEADING_MINUS, MINUS_CLASS, STRICT_UNSIGNED, pad_leading_decimal, parse_amount,
 )
@@ -375,11 +375,15 @@ def _long_date(match: re.Match[str]) -> str | None:
 
     The pattern proves the SHAPE and nothing more: `Fiscal 30, 2026` has that
     shape, and so does `February 31, 2026`.
+
+    The reading itself is `date_tokens.iso_from_named_month_day`, which is
+    where it always belonged: this module had re-derived the shared helper's
+    two lines, and the clone became visible when the fourth grammar of the
+    same processor needed the same reading (W3 §GRAM4). Behaviour-identical —
+    the helper case-folds the month word and funnels through `iso_or_none`
+    exactly as the copy did.
     """
-    number = MONTH_NUMBERS.get(match.group(1).casefold())
-    if number is None:
-        return None
-    return iso_or_none(int(match.group(3)), number, int(match.group(2)))
+    return iso_from_named_month_day(match.group(1), match.group(2), match.group(3))
 
 
 def _front_matter(markdown: str) -> str:

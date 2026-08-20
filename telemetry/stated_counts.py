@@ -163,7 +163,20 @@ from analysis.count_semantics import (  # noqa: F401
 #:     `analysis/reconcile.py` uses, so `stated` and `captured` can legitimately
 #:     differ on a `match` — `expected` is the field that says by how much, and
 #:     it is the number the comparison actually used.
-OBSERVER_VERSION = 4
+#:
+#: 5 - GRAM4: one NEW registration entered the table, surveyed by the cell that
+#:     registered it — `core_processor_counted`, comparable in both directions
+#:     as a category sum. The vocabulary, the evaluation order, the mapping
+#:     set and every other entry are untouched. What moves between a v4 and a
+#:     v5 rollup is 8 documents (the whole family, unclaimed before this
+#:     registration existed) reporting `match` in both directions where a v4
+#:     rollup reported them `unsurveyed_parser` — the family publishes no
+#:     count at all today because nothing claims it. Both directions are
+#:     TAUTOLOGICAL and the entries say so: the parser gates each printed
+#:     category count against the rows of the section that category heads, so
+#:     a claimed document agrees by construction and no v5 rollup can report a
+#:     `mismatch` here without the parser having refused the document first.
+OBSERVER_VERSION = 5
 
 # ----------------------------------------------------------------------
 # the closed vocabulary

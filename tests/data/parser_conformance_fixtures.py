@@ -140,6 +140,18 @@ FIXTURES: dict[str, str] = {
         "Total days in statement period: 30\n"
         "Direct inquiries to: 000-000-0000\n"
     ),
+    # The fourth summary grammar of the same processor (W3 §GRAM4). It shares
+    # the line above's period SENTENCE, so the first line is deliberately not
+    # enough on its own: the second required marker is the pair of DATED
+    # summary balances, which is exactly what separates the two registrations
+    # on the archive. No `Total days` line here, and none in the sibling's
+    # fixture's summary — that asymmetry is the cross-product's job to prove.
+    "core_processor_counted": (
+        "This statement: February 27, 2026 Last statement: January 30, 2026\n"
+        "Beginning balance (1/30/2026)\n"
+        "Ending balance (2/27/2026)\n"
+        "Contact us:\n"
+    ),
     "core_processor_sectioned": (
         "No Minimum Business Checking ACCOUNT XXXXXXXXXX1234\n"
         "LAST STATEMENT 07/31/25 0.00 AVG AVAILABLE BALANCE 0.00 "

@@ -43,6 +43,7 @@ from . import (
     columbia_bank,
     community_section,
     consumers,
+    core_processor_counted,
     core_processor_daily,
     core_processor_sectioned,
     demo_national,
@@ -130,6 +131,21 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     # inventing one would be the hardcode this registration exists to avoid.
     ("community_section", "Core Statement Platform", community_section, "PLATFORM_DETECTION_MARKERS", "detection_text", "parse_community_section_statement"),
     ("consumers", "Consumers Credit Union", consumers, "DETECTION_MARKERS", None, "parse_consumers_statement"),
+    # The FOURTH summary grammar of that same third core processor
+    # (W3 §GRAM4, carded at §LCPERIOD L7.3). It shares the period SENTENCE
+    # with the entry below and prints no `Total days` line, no
+    # `Total additions` and no undated `Beginning balance $`: its summary is a
+    # counted PARTITION - three printed categories per direction, each with
+    # its own count and total - and its two balances are DATED. Those dated
+    # balances are the marker that separates it from the three sibling
+    # grammars that share its period sentence, so the two registrations are
+    # DISJOINT by construction rather than by precedence: no `supersedes` edge
+    # and no band, exactly as `td_canada_french` stands beside the English TD
+    # layouts, and the conformance cross-product is what holds them apart.
+    # The label names the PLATFORM because this template prints no institution
+    # field either - what it prints under `Contact us:` is a BRANCH office,
+    # which is where §LCPERIOD L4's evidence came from.
+    ("core_processor_counted", "Core Processor Counted Summary Platform", core_processor_counted, "DETECTION_MARKERS", None, "parse_core_processor_counted_statement"),
     # A THIRD core processor's template (W3 §LCPERIOD), registered the same
     # way and for the same reason - the archive prints it under four issuers,
     # one of which already has its own reader. It is NOT a printed variant of
