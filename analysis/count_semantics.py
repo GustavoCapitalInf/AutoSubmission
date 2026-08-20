@@ -1093,7 +1093,10 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
             reason=(
                 "`Checks paid (N)`, `Electronic db (N)` and `Other debits "
                 "(N)`, summed, for the reason and with the construction the "
-                "credit direction states. Two things recorded so nobody "
+                "credit direction states — and TAUTOLOGICAL on the same "
+                "gate, restated here rather than cross-referenced because an "
+                "entry that cannot be read on its own is an entry nobody "
+                "checks. Two things recorded so nobody "
                 "re-derives them. (1) The cheque category is INSIDE the "
                 "printed debit partition and inside the printed `Total "
                 "debits`, and its rows are published as debits, so count and "
