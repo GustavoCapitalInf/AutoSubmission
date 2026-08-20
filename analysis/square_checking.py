@@ -60,8 +60,23 @@ _PERIOD = re.compile(
     rf"({_MONTH_NAMES})\s+(\d{{1,2}}),\s*(\d{{4}})",
     re.IGNORECASE,
 )
-_SUMMARY = re.compile(
-    rf"STARTING BALANCE ACTIVITIES ENDING BALANCE\s+({_MONEY.pattern})\s+(\d+)\s+({_MONEY.pattern})",
+#: The summary table's printed column header. A merchant with locations
+#: receives the same three columns under a leading `Location` one, and the
+#: location's name then stands in the row's first cell — which is why the row
+#: is read BELOW the header rather than welded to it: a pattern that required
+#: the first money cell to follow the header immediately refused four
+#: consecutive statements of one merchant whose period, account number and
+#: activity grid all read perfectly (§DECLINESD D3).
+_SUMMARY_HEADER = re.compile(
+    r"(LOCATION )?STARTING BALANCE ACTIVITIES ENDING BALANCE", re.IGNORECASE
+)
+#: One row of that table: an optional leading text cell, then the three printed
+#: figures in the order the header names them. The name cell cannot contain a
+#: currency symbol, so it can never swallow a money column, and the row is
+#: anchored at both ends so nothing else on the line can be read as part of it.
+_SUMMARY_ROW = re.compile(
+    rf"\A(?:(?P<name>[^\n$]*?)[ \t]+)?({_MONEY.pattern})[ \t]+(\d+)[ \t]+"
+    rf"({_MONEY.pattern})\Z",
     re.IGNORECASE,
 )
 #: The account number is masked by the issuer; only the trailing digits survive
@@ -124,6 +139,39 @@ def _amount(token: str) -> float:
     return round(-value if negative else value, 2)
 
 
+def _summary(text: str) -> tuple[float, int, float] | None:
+    """`(starting balance, activity count, ending balance)`, or None.
+
+    The table's rows are read from under its own header, one line at a time,
+    stopping at the first line that is not one — the prose paragraph the
+    statement prints next is not a row and must not be scanned for figures.
+
+    EXACTLY ONE ROW, deliberately. A statement listing two locations is two
+    ledgers under one account, and the extraction schema carries one account
+    per statement (L-1): publishing the first row's balances against a grid
+    holding both locations' activity would be a statement about neither. Zero
+    rows is a table this reader did not understand. Both refuse.
+    """
+    header = _SUMMARY_HEADER.search(text)
+    if header is None:
+        return None
+    rows = []
+    for line in text[header.end():].split("\n"):
+        line = line.strip()
+        if not line:
+            if rows:
+                break
+            continue
+        match = _SUMMARY_ROW.match(line)
+        if match is None:
+            break
+        rows.append(match)
+    if len(rows) != 1:
+        return None
+    row = rows[0]
+    return _amount(row.group(2)), int(row.group(3)), _amount(row.group(4))
+
+
 def _period(text: str) -> tuple[date, date] | None:
     """The period the statement names in its own title line.
 
@@ -159,15 +207,16 @@ def parse_square_checking_statement(markdown: str) -> Statement | None:
         return None
     period_start, period_end = period
 
-    summary = _SUMMARY.search(text)
+    summary = _summary(text)
     if summary is None:
         return None
+    beginning, _activities, ending = summary
 
     stmt = Statement(bank="Square", currency="USD")
     stmt.period_start = period_start.isoformat()
     stmt.period_end = period_end.isoformat()
-    stmt.beginning_balance = _amount(summary.group(1))
-    stmt.ending_balance = _amount(summary.group(3))
+    stmt.beginning_balance = beginning
+    stmt.ending_balance = ending
 
     account = _ACCOUNT.search(text)
     if account:
@@ -239,10 +288,10 @@ def activity_count_contradictions(markdown: str, stmt: Statement) -> list[str]:
     count and printed ledger disagree is reported as contradicting itself rather
     than published as though the ledger were complete.
     """
-    summary = _SUMMARY.search(_normalized(markdown))
+    summary = _summary(_normalized(markdown))
     if summary is None:
         return []
-    if int(summary.group(2)) != len(stmt.transactions):
+    if summary[1] != len(stmt.transactions):
         return [
             "the statement summary states a different number of activities "
             "than the activity grid lists"
