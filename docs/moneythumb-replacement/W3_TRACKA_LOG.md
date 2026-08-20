@@ -27709,6 +27709,9 @@ ownership** (`webapp/artifact_cache.py`, the registry helper, tests, this log);
 the edit is one dictionary entry required by that guard, and it is flagged here
 rather than made quietly.
 
+Ocean ruled 2026-08-20: the EXCLUDED_ANALYSIS_CALLERS entry stands; adjacency
+with RBC-CAD's ownership of corpus_gate.py is Ocean's to compose at the train.
+
 ## RF12. Proofs after the closures (final tree, `576a00c`)
 
 Every one re-run after the last edit, not carried forward. Nine other cells were
