@@ -22,6 +22,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import zipfile
 from pathlib import Path
 
@@ -136,7 +137,19 @@ def statement_payload(currency, *, amount=10_000.0, adb=100.0, days=31, bank="Te
         },
         "quality": {"level": "transaction_level", "corporate_use": "approved"},
         "integrity": {"risk_level": "clear"},
-        "detection": {"known_funders": [{"funder": "ONDECK", "total_debited": 250.0}]},
+        # All THREE rollup kinds, so the export sweep below is never vacuous:
+        # the alias that escaped the refusal lived on a potential-lender rollup.
+        "detection": {
+            "known_funders": [
+                {"funder": "ONDECK", "total_debited": 250.0, "debit_count": 2}
+            ],
+            "potential_lenders": [
+                {"funder": "RAPID CAPITAL", "total_debited": 500.0, "debit_count": 3}
+            ],
+            "insurance_providers": [
+                {"provider": "ACME INSURANCE", "total_debited": 40.0, "count": 1}
+            ],
+        },
     }
 
 
@@ -307,6 +320,84 @@ def test_mixed_currency_refusal_covers_the_cross_document_rollups():
         assert funder["documents"] == 2
 
 
+def test_the_deprecated_rollup_alias_is_refused_with_its_canonical_key():
+    """BLOCK-1 regression. `_package_analysis` assigns
+    `potential_lender_debit_total = total_debited` on every potential-lender
+    rollup, and the dashboard reads
+    `potential_lender_debit_total ?? total_debited` — alias FIRST. Refusing only
+    the canonical key left the mixed number in the JSON, the CSV, the XLSX and
+    the rendered row, defeating the refusal exactly where it was designed to
+    bite."""
+    package = _package_analysis(
+        [member("a", "CAD", amount=10_000.0), member("b", "USD", amount=20_000.0)]
+    )
+    assert package["potential_lenders"], "the fixture must produce a rollup"
+    for item in package["potential_lenders"]:
+        assert item["total_debited"] is None
+        assert item["potential_lender_debit_total"] is None
+        # The dashboard's own accessor chain must not find a number either.
+        assert (item["potential_lender_debit_total"] or item["total_debited"]) is None
+        # Counts are unit-free and must survive.
+        assert item["documents"] == 2
+        assert item["potential_lender_debit_count"] == item["debit_count"]
+
+    text = _package_csv(package)
+    assert "potential_lender_1,potential_lender_debit_total," in text
+    assert "1500.0" not in text  # 500 CAD + 500 USD, had it been summed
+
+
+def test_refused_packages_do_not_rank_rollups_by_a_cross_currency_magnitude():
+    """MINOR-1 (Ocean's ruling). Ranking by summed money publishes a
+    cross-currency comparison; nulling the figures afterwards leaves that
+    assertion standing in the ROW ORDER, unauditable because the numbers behind
+    it are gone. A refused package ranks by count, then name."""
+    small_cad = member("a", "CAD")
+    small_cad.analysis["detection"]["known_funders"] = [
+        # Biggest magnitude, fewest debits.
+        {"funder": "ZZZ BIG MONEY", "total_debited": 900_000.0, "debit_count": 1}
+    ]
+    big_usd = member("b", "USD")
+    big_usd.analysis["detection"]["known_funders"] = [
+        {"funder": "AAA MANY DEBITS", "total_debited": 5.0, "debit_count": 40}
+    ]
+
+    refused = _package_analysis([small_cad, big_usd])
+    assert refused["totals"]["cross_currency_totals_refused"] is True
+    # Count descending, so the 40-debit lender leads — NOT the 900,000 one,
+    # whose lead would have been a CAD-vs-USD comparison.
+    assert [f["funder"] for f in refused["funders"]] == [
+        "AAA MANY DEBITS",
+        "ZZZ BIG MONEY",
+    ]
+
+    # The same two lenders in ONE currency keep today's magnitude order exactly.
+    same_a = member("a", "CAD")
+    same_a.analysis["detection"]["known_funders"] = [
+        {"funder": "ZZZ BIG MONEY", "total_debited": 900_000.0, "debit_count": 1}
+    ]
+    same_b = member("b", "CAD")
+    same_b.analysis["detection"]["known_funders"] = [
+        {"funder": "AAA MANY DEBITS", "total_debited": 5.0, "debit_count": 40}
+    ]
+    single = _package_analysis([same_a, same_b])
+    assert single["totals"]["cross_currency_totals_refused"] is False
+    assert [f["funder"] for f in single["funders"]] == [
+        "ZZZ BIG MONEY",
+        "AAA MANY DEBITS",
+    ]
+
+
+def test_potential_lender_order_is_unit_free_in_both_cases():
+    """Measured correction to the ruling's premise: `potential_lenders` was
+    already sorted by NAME, never by a magnitude, so its order never asserted a
+    cross-currency comparison and is deliberately left unchanged."""
+    refused = _package_analysis([member("a", "CAD"), member("b", "USD")])
+    single = _package_analysis([member("a", "CAD"), member("b", "CAD")])
+    names = [item["funder"] for item in refused["potential_lenders"]]
+    assert names == sorted(names)
+    assert names == [item["funder"] for item in single["potential_lenders"]]
+
+
 def test_statement_level_results_survive_a_mixed_currency_refusal():
     """Doctrine F preserves statement-level results and presents them per
     currency; only the cross-currency combination is refused."""
@@ -471,28 +562,77 @@ def test_xlsx_export_carries_the_same_refusal():
     assert "cross_currency_totals_refused" in sheet
 
 
+#: Sections that aggregate ACROSS documents. Matched exactly so that
+#: `potential_lender_evidence_3` — a per-transaction classification record, and
+#: therefore statement-level — is not mistaken for the `potential_lender_3`
+#: rollup.
+CROSS_DOCUMENT_SECTION = re.compile(
+    r"^(totals|funder_\d+|potential_lender_\d+|insurance_provider_\d+)$"
+)
+
+#: Counts that live on the cross-document rollups.
+UNIT_FREE_ROLLUP_KEYS = {
+    "count",
+    "debit_count",
+    "documents",
+    "potential_lender_debit_count",
+}
+
+
 def test_every_money_row_the_export_emits_is_covered_by_a_declared_currency():
-    """The structural guarantee: for a refused package, no `totals` row in the
-    export holds a number. Anything numeric there would be a mixed unit."""
+    """The structural guarantee, across EVERY export section.
+
+    A refused package has no declared currency, so nothing that aggregates
+    across documents may still publish a number — a surviving one is a mixed
+    unit by definition. This is deliberately not scoped to `totals`: the
+    rollups are just as cross-document, and `potential_lender_debit_total`
+    (the deprecated alias of `total_debited`) escaped exactly that way.
+
+    Statement-level sections DO carry money and keep it. Their obligation is
+    different: each must DECLARE the unit it is in, so that no consumer can
+    assume dollars.
+    """
     package = _package_analysis([member("a", "CAD"), member("b", "USD")])
-    numeric = []
-    for section, field, value in _package_rows(package):
-        if section != "totals":
+    rows = _package_rows(package)
+    assert package["totals"]["cross_currency_totals_refused"] is True
+
+    offenders = []
+    for section, field, value in rows:
+        if not CROSS_DOCUMENT_SECTION.match(section):
             continue
         # A bool is a flag, not a quantity — and `float(False)` succeeds, so it
         # has to be excluded explicitly or every flag reads as money.
         if isinstance(value, bool):
             continue
         try:
-            float(value)
+            number = float(value)
         except (TypeError, ValueError):
             continue
-        numeric.append((field, value))
-    for field, value in numeric:
-        assert field in UNIT_FREE_TOTALS, (
-            f"totals.{field} = {value!r} is a number in a refused package but is "
-            "not on the unit-free list"
-        )
+        if field in UNIT_FREE_TOTALS or field in UNIT_FREE_ROLLUP_KEYS:
+            continue
+        offenders.append(f"{section}.{field} = {number!r}")
+
+    assert offenders == [], (
+        "a refused package still publishes cross-document number(s) that are "
+        f"not counts, i.e. mixed units: {offenders}"
+    )
+
+    # Every rollup section really was exercised — otherwise the sweep above
+    # would pass vacuously and the alias could regress unnoticed.
+    exercised = {
+        section for section, _, _ in rows if CROSS_DOCUMENT_SECTION.match(section)
+    }
+    assert "totals" in exercised
+    assert any(s.startswith("funder_") for s in exercised)
+    assert any(s.startswith("potential_lender_") for s in exercised)
+    assert any(s.startswith("insurance_provider_") for s in exercised)
+
+    # Statement-level sections keep their money and declare their unit.
+    document_sections = {s for s, _, _ in rows if s.startswith("document_")}
+    assert document_sections
+    for section in document_sections:
+        declared = [f for s, f, _ in rows if s == section and f == "currency"]
+        assert declared, f"{section} publishes figures without declaring a currency"
 
 
 def test_version_3_deprecated_aliases_degrade_with_their_canonical_names():
@@ -553,6 +693,41 @@ def test_the_route_serves_the_refusal_through_masking_and_json():
     assert sorted(doc["currency"] for doc in body["documents"]) == ["CAD", "USD"]
 
 
+def test_the_route_serves_the_undetermined_bucket_end_to_end():
+    """MINOR-3. The fail-closed bucket was only ever exercised in-process; this
+    pins it through the real route, masking and JSON serialization."""
+    from webapp.app import app, store
+
+    ids = []
+    for name, code in (("proven.pdf", "USD"), ("legacy.pdf", DROP)):
+        job = store.create(name)
+        store.set_result(job.id, f"# {name}", f"<h1>{name}</h1>", analysis=statement_payload(code))
+        ids.append(job.id)
+
+    response = app.test_client().get(f"/package_analysis?ids={','.join(ids)}")
+    assert response.status_code == 200
+    body = response.get_json()
+
+    assert body["currency"]["resolution"] == "undetermined"
+    assert body["currency"]["refusal_reason"] == "undetermined_statement_currency"
+    assert body["currency"]["undeclared_currency_documents"] == 1
+    # The code that WAS declared is still reported as evidence.
+    assert body["currency"]["currencies"] == ["USD"]
+    assert len(body["currency"]["refused_total_fields"]) == 32
+    assert body["totals"]["cross_currency_totals_refused"] is True
+    assert body["totals"]["currency"] is None
+    assert body["totals"]["total_credits"] is None
+    assert body["totals"]["average_daily_balance"] is None
+    assert body["totals"]["decision"] == "review_required"
+    # The undeclared member is served honestly, not backfilled to USD.
+    assert sorted(
+        (doc["currency"] is None) for doc in body["documents"]
+    ) == [False, True]
+    for item in body["potential_lenders"]:
+        assert item["total_debited"] is None
+        assert item["potential_lender_debit_total"] is None
+
+
 def test_the_route_denominates_a_single_currency_package():
     from webapp.app import app, store
 
@@ -588,3 +763,34 @@ def test_dashboard_no_longer_hardcodes_usd_for_the_package_view():
     assert "undetermined_statement_currency" in javascript
     # An undeclared currency must not be printed as dollars.
     assert "if (!currency) return amount;" in javascript
+    # MAJOR-1: the lender summary box and the copied package summary denominate
+    # too — the summary is what an analyst pastes into a credit memo.
+    assert "formatMoney(funder.total_debited, currency)" in javascript
+    assert "formatMoney(totals.avg_monthly_credits, currency)" in javascript
+    assert "formatMoney(totals.avg_monthly_cash_flow, currency)" in javascript
+
+
+def test_no_package_money_is_rendered_with_the_usd_default():
+    """Exhaustive, not a spot-check: every `formatMoney` call site in the file
+    passes an explicit currency, so no money anywhere can silently inherit the
+    USD default parameter."""
+    javascript = (ROOT / "webapp/static/app.js").read_text(encoding="utf-8")
+    single_argument = []
+    for match in re.finditer(r"\bformatMoney\(", javascript):
+        index, depth, arguments = match.end(), 1, 1
+        while index < len(javascript) and depth:
+            char = javascript[index]
+            if char in "([{":
+                depth += 1
+            elif char in ")]}":
+                depth -= 1
+            elif char == "," and depth == 1:
+                arguments += 1
+            index += 1
+        if arguments == 1:
+            line = javascript.count("\n", 0, match.start()) + 1
+            single_argument.append(line)
+    assert javascript.count("formatMoney(") > 50, "sanity: the scan found the call sites"
+    assert single_argument == [], (
+        f"formatMoney call sites relying on the USD default at lines {single_argument}"
+    )

@@ -416,8 +416,18 @@ _CROSS_CURRENCY_TOTAL_KEYS = frozenset({
 
 #: The same rule for the cross-document funder / potential-lender / insurance
 #: rollups, whose money is summed across the package exactly like a total.
+#:
+#: `potential_lender_debit_total` is the DEPRECATED ALIAS of `total_debited` on
+#: a potential-lender rollup — `_package_analysis` assigns one from the other —
+#: so it has to be refused with it. Leaving it out let a mixed-unit number
+#: survive into the JSON, the CSV, the XLSX and the dashboard, where
+#: `lenderRowHtml`'s `potential_lender_debit_total ?? total_debited` accessor
+#: reads the alias FIRST and would have defeated the refusal at exactly the
+#: place it was designed to bite. Every money key on these rollups belongs
+#: here; everything left on them is a genuine count.
 _CROSS_CURRENCY_ROLLUP_KEYS = (
     "total_debited",
+    "potential_lender_debit_total",
     "eligible_deposit_denominator",
     "potential_withholding_exposure",
 )
@@ -1169,14 +1179,34 @@ def _package_analysis(jobs) -> dict:
         currency_refusal_reason = None
     refuse_cross_currency = currency_refusal_reason is not None
 
-    package_funders = sorted(
-        funders.values(), key=lambda r: r["total_debited"], reverse=True
-    )
+    # CURRENCY DOCTRINE §F reaches the ORDER, not only the values. Ranking these
+    # rollups by their summed money publishes a cross-currency comparison —
+    # "this lender took more than that one" — and nulling the figures afterwards
+    # leaves that assertion standing in the row order, where it is read as fact
+    # and cannot be audited because the numbers behind it are gone. A refused
+    # package therefore ranks by a unit-free key: the count, then the name.
+    #
+    # `potential_lenders` already sorts by name. Its order never encoded a
+    # magnitude comparison, so it is correct in both cases and is deliberately
+    # left alone rather than churned.
+    if refuse_cross_currency:
+        package_funders = sorted(
+            funders.values(),
+            key=lambda r: (-int(r.get("debit_count") or 0), r["funder"]),
+        )
+        package_insurance_providers = sorted(
+            insurance_providers.values(),
+            key=lambda r: (-int(r.get("count") or 0), r["provider"]),
+        )
+    else:
+        package_funders = sorted(
+            funders.values(), key=lambda r: r["total_debited"], reverse=True
+        )
+        package_insurance_providers = sorted(
+            insurance_providers.values(), key=lambda r: r["total_debited"], reverse=True
+        )
     package_potential_lenders = sorted(
         potential_lenders.values(), key=lambda r: r["funder"]
-    )
-    package_insurance_providers = sorted(
-        insurance_providers.values(), key=lambda r: r["total_debited"], reverse=True
     )
 
     published_totals = {

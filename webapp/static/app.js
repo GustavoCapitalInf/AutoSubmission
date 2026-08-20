@@ -1527,7 +1527,7 @@ function renderPackageTables(pkg) {
   }
 
   const lenderSummary = funders.length
-    ? funders.map((funder) => `${funder.funder}: ${formatMoney(funder.total_debited)} across ${formatNumber(funder.documents)} statement(s)`).join("\n")
+    ? funders.map((funder) => `${funder.funder}: ${formatMoney(funder.total_debited, currency)} across ${formatNumber(funder.documents)} statement(s)`).join("\n")
     : "No lenders detected across the package.";
   els.summaryBox.textContent = `Package lender summary:\n${lenderSummary}`;
 }
@@ -1768,11 +1768,15 @@ function generateSummary() {
     const pkg = currentAnalysis.package;
     const totals = pkg.totals || {};
     const funders = Array.isArray(pkg.funders) ? pkg.funders : [];
+    // The copied summary is the artefact an analyst pastes into a credit memo,
+    // so it must carry the package's real denomination — or none at all when
+    // the package has no single one (CURRENCY DOCTRINE §D/§F).
+    const currency = packageCurrencyInfo(pkg).currency;
     els.summaryBox.textContent =
       `Package ${packagePeriod(pkg.documents || [])}: ${formatNumber(totals.completed)} of ${formatNumber(totals.documents)} statements completed, ` +
-      `${formatMoney(totals.avg_monthly_credits)} average monthly credits, ${formatMoney(totals.avg_monthly_cash_flow)} average monthly cash flow, ` +
+      `${formatMoney(totals.avg_monthly_credits, currency)} average monthly credits, ${formatMoney(totals.avg_monthly_cash_flow, currency)} average monthly cash flow, ` +
       `${formatNumber(totals.nsf_count)} NSF events, ${formatPercent(totals.package_withholding_rate)} confirmed withholding, ` +
-      `${formatMoney(potentialLenderDebitTotal(totals))} potential lender debits and ${formatPercent(totals.potential_withholding_exposure)} potential exposure. ` +
+      `${formatMoney(potentialLenderDebitTotal(totals), currency)} potential lender debits and ${formatPercent(totals.potential_withholding_exposure)} potential exposure. ` +
       `${formatNumber(funders.length)} confirmed lender detections. Decision: ${labelize(totals.decision || "review required")}.`;
     return;
   }
