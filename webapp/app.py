@@ -237,6 +237,13 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     totals = package.get("totals") or {}
     for key, value in totals.items():
         rows.append(("totals", key, "" if value is None else value))
+    # CURRENCY DOCTRINE §F: a refusal that only exists in the JSON payload is
+    # invisible to the underwriter reading the sheet, who would see the empty
+    # money cells and read them as missing data rather than as refused units.
+    for key, value in (package.get("currency") or {}).items():
+        if isinstance(value, (dict, list)):
+            value = json.dumps(value)
+        rows.append(("currency", key, "" if value is None else value))
     for idx, document in enumerate(package.get("documents") or [], start=1):
         for key, value in document.items():
             rows.append((f"document_{idx}", key, "" if value is None else value))
@@ -360,6 +367,85 @@ def _contributes_to_potential_totals(classification: dict) -> bool:
     return classification.get("contributes_to_potential_lender_count") is True
 
 
+#: Package totals that carry money, or that divide one money figure by another.
+#: Adding or dividing these across statements denominated in different
+#: currencies is a unit error — `30,000 CAD + 20,000 USD != 50,000 package ADB`
+#: (CURRENCY DOCTRINE §F) — so a package that is not PROVEN single-currency
+#: publishes every one of them as None.
+#:
+#: None is this payload's established "not computable" value: an unvalidated ADB
+#: already travels that way (`analysis/serialization.py::_metrics_dict`), the
+#: CSV/XLSX writers already render it as an empty cell, and the dashboard's
+#: `formatMoney` already renders it "N/A". A silent zero would read as "the
+#: package moved no money" and a converted figure would be fabricated evidence;
+#: the doctrine forbids both, so refusal is the only honest shape.
+_CROSS_CURRENCY_TOTAL_KEYS = frozenset({
+    "average_daily_balance",
+    "avg_monthly_cash_flow",
+    "avg_monthly_credits",
+    "avg_monthly_debits",
+    "cash_flow",
+    "confirmed_true_revenue",
+    "confirmed_true_revenue_total",
+    "eligible_deposits",
+    "insurance_total",
+    "lender_debits",
+    "maximum_revenue",
+    "monthly_lender_debits",
+    "non_revenue_total",
+    "package_withholding_rate",
+    "package_withholding_rate_raw",
+    "potential_lender_debit_total",
+    "potential_lender_debits",
+    "potential_revenue_total",
+    "potential_withholding_denominator",
+    "potential_withholding_exposure",
+    "potential_withholding_exposure_raw",
+    "potential_withholding_numerator",
+    "revenue_classified_total",
+    "revenue_reconciliation_delta",
+    "total_credits",
+    "total_debits",
+    "total_posted_credits",
+    "true_revenue",
+    "unverified_deposit_total",
+    "verified_revenue_total",
+    "withholding_denominator",
+    "withholding_numerator",
+})
+
+#: The same rule for the cross-document funder / potential-lender / insurance
+#: rollups, whose money is summed across the package exactly like a total.
+_CROSS_CURRENCY_ROLLUP_KEYS = (
+    "total_debited",
+    "eligible_deposit_denominator",
+    "potential_withholding_exposure",
+)
+
+
+def _statement_currency(analysis: dict) -> str | None:
+    """The ISO code this member's statement is denominated in, or None when the
+    document does not declare one.
+
+    `analysis/schema.py` gives `Statement.currency` a non-null default, so every
+    payload the current pipeline produces carries a code. None here therefore
+    means a payload that predates the field or never came from `Statement` at
+    all — a genuine unknown, which CURRENCY DOCTRINE §B resolves by failing
+    closed rather than by forcing a currency onto it.
+
+    Case and surrounding blanks are folded away: ISO 4217 codes are uppercase,
+    so `usd` is a spelling of USD rather than a second unit, and refusing a
+    package over a spelling would be a false refusal, not a safe one.
+    """
+    statement = analysis.get("statement")
+    if not isinstance(statement, dict):
+        return None
+    code = statement.get("currency")
+    if not isinstance(code, str):
+        return None
+    return code.strip().upper() or None
+
+
 def _package_duplicates(jobs) -> tuple[dict[str, str], list[dict]]:
     """Members of a package that repeat an EARLIER member's content hash.
 
@@ -466,6 +552,10 @@ def _package_analysis(jobs) -> dict:
         state: [] for state in REVENUE_STATES
     }
     denominator_modes: set[str] = set()
+    #: CURRENCY DOCTRINE §F bookkeeping: how many money-contributing members
+    #: each declared currency has, and how many declared none at all.
+    currency_documents: dict[str, int] = {}
+    undeclared_currency_documents = 0
     for job in jobs:
         analysis = job.analysis or {}
         statement = analysis.get("statement") or {}
@@ -476,6 +566,21 @@ def _package_analysis(jobs) -> dict:
         corporate_use = quality.get("corporate_use") or ""
         integrity_risk = integrity.get("risk_level") or ""
         ready = job.status == "done" and job.analysis is not None
+
+        # CURRENCY DOCTRINE §F. A member with no analysis at all contributes
+        # exactly zero to every money total below — each `_num` call falls back
+        # to its default over the empty dicts — so it carries no unit and cannot
+        # make a package multi-currency. A member that DOES contribute money has
+        # to declare the unit it contributed in; one that does not is an unknown
+        # and fails the package closed rather than joining a pool as if proven.
+        statement_currency = _statement_currency(analysis)
+        if analysis:
+            if statement_currency is None:
+                undeclared_currency_documents += 1
+            else:
+                currency_documents[statement_currency] = (
+                    currency_documents.get(statement_currency, 0) + 1
+                )
 
         if ready:
             totals["completed"] += 1
@@ -847,6 +952,10 @@ def _package_analysis(jobs) -> dict:
                 "source_job": job.id,
                 "source_document": job.filename,
                 "source_bank": statement.get("bank"),
+                # The combined ledger shows rows from every member at once, so
+                # each row has to carry its own denomination — a package-wide
+                # currency would mislabel every row of a mixed package.
+                "source_currency": statement_currency,
                 "source_period_start": statement.get("period_start"),
                 "source_period_end": statement.get("period_end"),
             }
@@ -881,6 +990,10 @@ def _package_analysis(jobs) -> dict:
             "error": job.error,
             "bank": statement.get("bank"),
             "account": statement.get("account_number"),
+            # CURRENCY DOCTRINE §D/§F: this row's figures are all in one
+            # currency and stay denominated even when the package refuses to
+            # combine them with another member's.
+            "currency": statement_currency,
             "period_start": statement.get("period_start"),
             "period_end": statement.get("period_end"),
             "beginning_balance": statement.get("beginning_balance"),
@@ -1025,33 +1138,117 @@ def _package_analysis(jobs) -> dict:
     elif totals["summary_only"] or totals["integrity_review"]:
         decision = "limited_review"
 
+    # ------------------------------------------------------------------
+    # CURRENCY DOCTRINE §F — the package layer stops mixing currencies.
+    #
+    # Everything above ran exactly as it always has; this is the one place the
+    # currency rule applies, so the same-currency path reaches the return with
+    # byte-identical figures and the refusal cannot leak a half-converted
+    # number into an earlier accumulation.
+    # ------------------------------------------------------------------
+    if undeclared_currency_documents:
+        # Fail closed (§B): a member contributed money in a unit it never
+        # named. It must not silently join a same-currency pool as if proven.
+        currency_resolution = "undetermined"
+        package_currency = None
+        currency_refusal_reason = "undetermined_statement_currency"
+    elif len(currency_documents) > 1:
+        currency_resolution = "mixed"
+        package_currency = None
+        currency_refusal_reason = "multiple_currencies"
+    elif len(currency_documents) == 1:
+        currency_resolution = "single"
+        package_currency = next(iter(currency_documents))
+        currency_refusal_reason = None
+    else:
+        # No member produced an analysis, so no member contributed a figure in
+        # any currency. Every total is a structural zero over an empty set;
+        # there is no unit to protect and nothing to refuse.
+        currency_resolution = "no_analyzed_documents"
+        package_currency = None
+        currency_refusal_reason = None
+    refuse_cross_currency = currency_refusal_reason is not None
+
+    package_funders = sorted(
+        funders.values(), key=lambda r: r["total_debited"], reverse=True
+    )
+    package_potential_lenders = sorted(
+        potential_lenders.values(), key=lambda r: r["funder"]
+    )
+    package_insurance_providers = sorted(
+        insurance_providers.values(), key=lambda r: r["total_debited"], reverse=True
+    )
+
+    published_totals = {
+        **totals,
+        "months": months,
+        "avg_monthly_credits": round(totals["total_credits"] / months, 2),
+        "avg_monthly_debits": round(totals["total_debits"] / months, 2),
+        "avg_monthly_cash_flow": round(totals["cash_flow"] / months, 2),
+        "average_daily_balance": package_average_daily_balance,
+        "package_withholding_rate": package_withholding,
+        "package_withholding_rate_raw": package_withholding_raw,
+        "eligible_deposits": totals["withholding_denominator"],
+        "withholding_formula": "abs(total_qualifying_lender_debits) / eligible_deposits * 100",
+        "withholding_review_required": withholding_review_required,
+        "potential_withholding_exposure": potential_withholding,
+        "potential_withholding_exposure_raw": potential_withholding_raw,
+        "potential_withholding_formula": "abs(potential_lender_debit_total) / eligible_deposits * 100",
+        "potential_withholding_review_required": potential_withholding_review_required,
+        "decision": decision,
+        "withholding_denominator_mode": (
+            next(iter(denominator_modes)) if len(denominator_modes) == 1 else "mixed"
+        ),
+        "withholding_denominator_label": (
+            "Verified revenue"
+            if denominator_modes == {"verified_revenue"}
+            else "Legacy eligible deposits"
+            if denominator_modes == {"legacy_eligible_deposits"}
+            else "Mixed denominator configuration"
+        ),
+        # CURRENCY DOCTRINE §D: the one denomination every figure above is in,
+        # surfaced once. None whenever the package could not prove a single one.
+        "currency": package_currency,
+        "currency_resolution": currency_resolution,
+        "cross_currency_totals_refused": refuse_cross_currency,
+        "currency_refusal_reason": currency_refusal_reason,
+    }
+
+    if refuse_cross_currency:
+        for key in _CROSS_CURRENCY_TOTAL_KEYS:
+            published_totals[key] = None
+        for item in (
+            *package_funders,
+            *package_potential_lenders,
+            *package_insurance_providers,
+        ):
+            for key in _CROSS_CURRENCY_ROLLUP_KEYS:
+                if key in item:
+                    item[key] = None
+        # A judgement read off a refused figure must not read as a pass. The
+        # reconciliation cannot be asserted, the withholding denominator is not
+        # available, and the package as a whole needs an analyst.
+        published_totals["revenue_reconciles"] = False
+        published_totals["withholding_review_required"] = True
+        published_totals["decision"] = "review_required"
+
     return {
-        "totals": {
-            **totals,
-            "months": months,
-            "avg_monthly_credits": round(totals["total_credits"] / months, 2),
-            "avg_monthly_debits": round(totals["total_debits"] / months, 2),
-            "avg_monthly_cash_flow": round(totals["cash_flow"] / months, 2),
-            "average_daily_balance": package_average_daily_balance,
-            "package_withholding_rate": package_withholding,
-            "package_withholding_rate_raw": package_withholding_raw,
-            "eligible_deposits": totals["withholding_denominator"],
-            "withholding_formula": "abs(total_qualifying_lender_debits) / eligible_deposits * 100",
-            "withholding_review_required": withholding_review_required,
-            "potential_withholding_exposure": potential_withholding,
-            "potential_withholding_exposure_raw": potential_withholding_raw,
-            "potential_withholding_formula": "abs(potential_lender_debit_total) / eligible_deposits * 100",
-            "potential_withholding_review_required": potential_withholding_review_required,
-            "decision": decision,
-            "withholding_denominator_mode": (
-                next(iter(denominator_modes)) if len(denominator_modes) == 1 else "mixed"
-            ),
-            "withholding_denominator_label": (
-                "Verified revenue"
-                if denominator_modes == {"verified_revenue"}
-                else "Legacy eligible deposits"
-                if denominator_modes == {"legacy_eligible_deposits"}
-                else "Mixed denominator configuration"
+        "totals": published_totals,
+        # CURRENCY DOCTRINE §F: the package's currency composition, and — when
+        # the package is not single-currency — exactly which totals were refused
+        # and why, so no consumer has to infer a refusal from a null.
+        "currency": {
+            "resolution": currency_resolution,
+            "currency": package_currency,
+            "currencies": sorted(currency_documents),
+            "documents_by_currency": {
+                code: currency_documents[code] for code in sorted(currency_documents)
+            },
+            "undeclared_currency_documents": undeclared_currency_documents,
+            "cross_currency_totals_refused": refuse_cross_currency,
+            "refusal_reason": currency_refusal_reason,
+            "refused_total_fields": (
+                sorted(_CROSS_CURRENCY_TOTAL_KEYS) if refuse_cross_currency else []
             ),
         },
         "documents": documents,
@@ -1059,13 +1256,9 @@ def _package_analysis(jobs) -> dict:
         # member job that carries it (the first occurrence included).
         "duplicates": duplicate_groups,
         "monthly": sorted(monthly, key=lambda r: (r.get("period_end") or "", r.get("filename") or "")),
-        "funders": sorted(funders.values(), key=lambda r: r["total_debited"], reverse=True),
-        "potential_lenders": sorted(potential_lenders.values(), key=lambda r: r["funder"]),
-        "insurance_providers": sorted(
-            insurance_providers.values(),
-            key=lambda r: r["total_debited"],
-            reverse=True,
-        ),
+        "funders": package_funders,
+        "potential_lenders": package_potential_lenders,
+        "insurance_providers": package_insurance_providers,
         "transactions": package_transactions,
         "lender_evidence": package_lender_evidence,
         "potential_lender_evidence": package_potential_lender_evidence,
