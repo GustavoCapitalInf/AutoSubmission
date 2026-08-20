@@ -334,6 +334,13 @@ def test_the_year_comes_from_the_period_and_a_date_outside_it_is_refused():
     across = dict(start=date(2025, 12, 28), end=date(2026, 1, 27))
     assert _tf_iso("12/30", **across) == "2025-12-30"
     assert _tf_iso("1/05", **across) == "2026-01-05"
+    # A period long enough for BOTH candidate years to land inside it makes the
+    # day genuinely ambiguous, and ambiguity refuses rather than picking one.
+    # (A one-month template cannot print such a period — a mis-scanned period
+    # date is how it would acquire one.)
+    year_long = dict(start=date(2025, 3, 1), end=date(2026, 6, 30))
+    assert _tf_iso("4/15", **year_long) is None
+    assert _tf_iso("12/15", **year_long) == "2025-12-15"
 
 
 def test_a_day_carrying_ledger_rows_but_no_printed_balance_is_refused():

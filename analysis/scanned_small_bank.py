@@ -705,16 +705,24 @@ def _tf_iso(mmdd: str, *, start: date, end: date) -> str | None:
     and from nowhere else: a date that lands outside it under either candidate
     year is a mis-read, and this returns None so the document fails closed
     rather than acquiring a transaction in the wrong year.
+
+    A period spanning the new year has two candidate years, and AMBIGUITY IS
+    REFUSED rather than resolved by picking one. That needs a period at least
+    a year long to arise, which this template does not print — but "at least a
+    year long" is a property of the DOCUMENT, and a mis-scanned period date is
+    exactly how a one-month statement acquires one. Deciding it by iteration
+    order (a set of two ints) would make the answer depend on nothing.
     """
     month_s, _, day_s = mmdd.partition("/")
-    for year in {start.year, end.year}:
+    resolved: list[date] = []
+    for year in sorted({start.year, end.year}):
         try:
             candidate = date(year, int(month_s), int(day_s))
         except ValueError:
             continue
         if start <= candidate <= end:
-            return candidate.isoformat()
-    return None
+            resolved.append(candidate)
+    return resolved[0].isoformat() if len(resolved) == 1 else None
 
 
 def _tf_unique_subset(values: list[int], target: int) -> set[int] | None:
