@@ -27223,7 +27223,7 @@ that the values it adds together have units.
 | Buckets | single / mixed / undetermined / no-analyzed-documents |
 | Archive movement | **ZERO on the 3,380.** Discovery does not run packages; no parser, no schema, no analysis-stage file was touched |
 | Files changed | `webapp/app.py` (package aggregation region only), `webapp/static/app.js`, 4 test stubs, 1 ADB guard literal, 1 new test module |
-| Suite | 4,511 -> **4,547** (+36) |
+| Suite | 4,511 -> **4,548** (+37) |
 
 ## PC1. The currency-field map (measurement, before any code changed)
 
@@ -27362,7 +27362,8 @@ decision rather than taken unilaterally here.
 | version-3.0 deprecated aliases (`true_revenue`, `confirmed_true_revenue{,_total}`, `potential_revenue_total`, `potential_lender_debits`, `monthly_lender_debits`) | assigned from their canonical totals | All six are in the refused set. An old consumer must not be the one client still handed a mixed number. Pinned by test |
 | `webapp/static/app.js` package view | `totals.*`, `documents[]`, `transactions[]`, rollups | **Found hardcoding USD in five places** — see PC4 |
 | `/package_analysis` route | `_masked(package)` | Generic recursion; new keys pass through |
-| `adb_forensic_audit.py`, `balance_forensic_audit.py`, `benchmark/ourside.py` | `_package_analysis` over real payloads | Real payloads declare a currency, so all three stay in the `single` bucket. Unaffected |
+| `adb_forensic_audit.py`, `benchmark/ourside.py` | `_package_analysis` over real payloads | Real payloads declare a currency. Unaffected |
+| **`corpus_gate.py` -> `balance_forensic_audit.apply_package_results`** | FOUR per-document balance fields off `_package_analysis`, plus the same four out of the CSV and XLSX at `document_N` | **Missed in the first pass of the census and found by verifying the "discovery does not run packages" claim instead of assuming it.** Safe on inspection and by proof: all four fields are statement-level and never refused, and both export readers address by `(section, field)` — `csv_rows` builds a dict comprehension over `(section, field, value)`, `xlsx_rows` keys on `values[0], values[1]` — so neither the added `currency` section nor the added `currency` column can shift a lookup. Now pinned by `test_the_corpus_gate_package_surface_survives_a_refusal` so the omission cannot recur silently |
 
 ## PC4. A second defect the census found: the dashboard printed every package as USD
 

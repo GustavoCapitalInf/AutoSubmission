@@ -320,6 +320,51 @@ def test_statement_level_results_survive_a_mixed_currency_refusal():
     assert [row["currency"] for row in package["monthly"]] == ["CAD", "USD"]
 
 
+def test_the_corpus_gate_package_surface_survives_a_refusal():
+    """`corpus_gate.py` -> `balance_forensic_audit.apply_package_results` reads
+    FOUR per-document balance fields off `_package_analysis`, plus the same four
+    out of the CSV and XLSX at `document_N`. All four are statement-level, so a
+    currency refusal must leave every one of them — and the export's key-based
+    `(section, field)` addressing — completely intact.
+
+    This consumer was not in the first pass of the census; it is pinned here so
+    the omission cannot recur silently."""
+    from balance_forensic_audit import csv_rows, surface_value, xlsx_rows
+
+    cad = member("a", "CAD")
+    cad.analysis["statement"]["beginning_balance"] = 500.0
+    cad.analysis["statement"]["ending_balance"] = 900.0
+    cad.analysis["metrics"]["min_balance"] = 250.0
+    cad.analysis["metrics"]["max_balance"] = 1200.0
+    cad.analysis["reconciliation"] = {"ok": True}
+    usd = member("b", "USD")
+    usd.analysis["statement"]["beginning_balance"] = 900.0
+    usd.analysis["statement"]["ending_balance"] = 1100.0
+    usd.analysis["metrics"]["min_balance"] = 700.0
+    usd.analysis["metrics"]["max_balance"] = 1500.0
+    usd.analysis["reconciliation"] = {"ok": True}
+
+    package = _package_analysis([cad, usd])
+    assert package["totals"]["cross_currency_totals_refused"] is True
+
+    first, second = package["documents"]
+    assert (first["beginning_balance"], first["ending_balance"]) == (500.0, 900.0)
+    assert (first["min_balance"], first["max_balance"]) == (250.0, 1200.0)
+    assert (second["beginning_balance"], second["ending_balance"]) == (900.0, 1100.0)
+    assert (second["min_balance"], second["max_balance"]) == (700.0, 1500.0)
+
+    # The exports address by (section, field), never by row position, so the
+    # added `currency` section and `currency` column cannot shift them.
+    from webapp.app import _package_csv as pkg_csv, _package_xlsx as pkg_xlsx
+
+    for reader, blob in ((csv_rows, pkg_csv(package)), (xlsx_rows, pkg_xlsx(package))):
+        rows = reader(blob)
+        assert surface_value(rows, "document_1", "beginning_balance") == "500.0"
+        assert surface_value(rows, "document_1", "max_balance") == "1200.0"
+        assert surface_value(rows, "document_2", "ending_balance") == "1100.0"
+        assert surface_value(rows, "document_2", "min_balance") == "700.0"
+
+
 def test_no_conversion_is_ever_fabricated():
     """A converted number would be evidence nobody produced. The refusal path
     must not contain a rate, a converted figure, or a normalized total."""
