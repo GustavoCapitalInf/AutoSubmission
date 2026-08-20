@@ -613,3 +613,68 @@ def test_section_runs_lets_a_heading_the_caller_ignores_close_the_run_before_it(
 
 def test_section_runs_returns_nothing_for_a_document_with_no_heading():
     assert tb.section_runs("no sections at all\n", _HEADING) == {}
+
+
+# ---------------------------------------------------------------------------
+# dated_cells — the scan W3 §GRAM4 lifted out of the third core-processor
+# template when the FOURTH summary grammar of the same processor needed it
+# ---------------------------------------------------------------------------
+
+_CELL_DATE = re.compile(r"(?<![\w.,/-])((?:1[0-2]|0?[1-9])-(?:3[01]|[12][0-9]|0?[1-9]))(?![\w/-])")
+_CELL_VALUE = re.compile(r"(?<![\w.,/-])((?:[0-9][0-9,]*\.[0-9]{2}|\.[0-9]{2}))(?![\w.,])")
+
+
+def _cells(run):
+    return tb.dated_cells(run, date_pattern=_CELL_DATE, value_pattern=_CELL_VALUE)
+
+
+def test_dated_cells_reads_two_printed_rows_off_one_physical_line():
+    """The printing a line-anchored pattern silently halves."""
+    cells = _cells("2-2 Preauthorized Debit 600.00 2-3 Preauthorized Debit 300.00")
+    assert [(cell.date, cell.value) for cell in cells] == [("2-2", "600.00"), ("2-3", "300.00")]
+
+
+def test_dated_cells_reads_a_row_whose_description_arrives_between_it_and_its_amount():
+    """The interleaving this processor's text layer prints: a block of
+    descriptions stands between a run of dates and the amounts that answer
+    them, so a cell closes at the first value before the NEXT date."""
+    run = (
+        "3-13 Preauthorized Credit 50,000.00 3-17 Preauthorized Credit\n"
+        "AS AMERICA INC. INTC 1500010009 CCD KAPITUS SERVICIN CCD\n"
+        "213,750.00 3-20 Preauthorized Credit 10,053.20\n"
+    )
+    assert [(cell.date, cell.value) for cell in _cells(run)] == [
+        ("3-13", "50,000.00"), ("3-17", "213,750.00"), ("3-20", "10,053.20"),
+    ]
+
+
+def test_dated_cells_reads_the_sub_dollar_figure_this_processor_prints_bare():
+    assert [cell.value for cell in _cells("2-5 Preauthorized Debit .14")] == [".14"]
+
+
+def test_dated_cells_returns_none_when_a_date_closes_no_cell():
+    """None, never a short list: a dropped row is how a ledger comes to
+    disagree with a printed total while still looking complete."""
+    assert _cells("2-2 Preauthorized Debit 600.00 2-3 Preauthorized Debit") is None
+
+
+def test_dated_cells_returns_an_empty_list_for_a_run_with_no_dates():
+    """Distinct from None: a section that printed nothing is not a section
+    that printed something unreadable."""
+    assert _cells("Date Description Debits\n") == []
+
+
+def test_dated_cells_describes_only_what_stands_between_the_date_and_the_value():
+    cell, = _cells("3-9 Account Transfer Cr. 40,000.00")
+    assert cell.described == " Account Transfer Cr. "
+
+
+def test_dated_cells_bounds_each_cell_so_the_caller_can_read_what_precedes_a_row():
+    """`run[previous.end:cell.start]` is the leading cell of a
+    `Number Date Amount` cheque grid — two rows on one line, each keeping its
+    own serial."""
+    run = "2068 3-9 143.86 2070 * 3-2 3,276.93"
+    first, second = _cells(run)
+    assert run[:first.start] == "2068 "
+    assert run[first.end:second.start] == " 2070 * "
+    assert run[first.start:first.end] == "3-9 143.86"
