@@ -27202,3 +27202,314 @@ other batch-5 cells at once, which is the only reason the two runtimes are
 | `42e4055` | this section, FI0–FI5 |
 | `c536dbf` | the corpus gate proof |
 | (this one) | the corpus-marked slice proof, the no-movement statement, and this table |
+
+# §COLUMBIA5 — the fifth grammar was `columbia_bank`'s own, and the cohort is four
+
+Card: batch 6 card 8. Base `main` `eef77c6`, branch `wave6-columbia5`.
+Run of record `discovery_reports/2026-08-16T000943.012887-0000-2e3ea385`
+(`2e3ea385`), registry 72, v13, OCR v3.
+
+## C0. What this card was asked and what it found
+
+The card asked whether the three documents W3 §LCPERIOD L7.3 found — two
+unclaimed, one claimed by `columbia_bank` — are a fifth-grammar SIBLING
+registration or an extension of `columbia_bank`, to be decided by the same
+registration-vs-widening discipline §LCPERIOD used.
+
+The answer is neither of the card's two shapes exactly. **The "fifth grammar"
+is `columbia_bank`'s own grammar, and the cohort is FOUR documents, not
+three.** A full-archive detection replay found a fourth member the card did
+not name: `6ADFE63F4F745B8B`, which `columbia_bank` ALREADY claims (score 0.5)
+and ALREADY declines at parse. Its absence from the card is why the card read
+one grammar as two.
+
+| content_sha256 | archive path | run of record | claims (before) |
+|---|---|---|---|
+| `88AAC06119FC0B7DFAA278AAA9FB71348152D47C960F782DFD0A05CB5089F0EE` | `Columbia Bank/459ebbc5_Mar 2026.pdf` | failed / no_parser_matched | — (0.3) |
+| `6ADFE63F4F745B8B90B3685BC79F691846CC3488DBA98C0EF6C6006B9AB9BDDB` | `Columbia Bank/459ebbc5_Apr 2026.pdf` | failed / parser_declined | `columbia_bank` 0.5 |
+| `0CBD2AD897B90137878F81EF608778735CA0DFEAB23D25793F2C6F1DF6C6127D` | `Columbia Bank/459ebbc5_May 26 complete.pdf` (= pinned `Misc/Columbia May 26 complete.pdf`) | review / integrity_flags | `columbia_bank` 0.5 |
+| `2E667295DFCB16BAB6E1ECB8D41F450E8D79AA1A8B93C77FAB867E1CFEECFAA4` | `Columbia Bank/459ebbc5_June 2026.pdf` | failed / no_parser_matched | — (0.3) |
+
+Four consecutive monthly statements of ONE account: same holder, same
+`Account number XXXXXX4166`, same `MARKETPLACE CHECKING` masthead, same
+summary strip, same section names, same daily grid, same
+`Total Checks paid: N for -$X` footer, same form number in the page furniture,
+all four `local-tesseract-ocr` scans of four pages. March→April→May→June 2026,
+each one's ending balance the next one's beginning balance
+(32,358.65 → 6,291.76 → 13,904.87 → …), which is the strongest attestation
+available that they are one series and one printing.
+
+## C1. Which artifact this cell read, and why the enumeration is immune
+
+The batch-6 cross-cell warning is that enumerating OCR artifacts under ONE
+settings key is not what the run of record read. This cell assumed no settings
+key at all. It read the **tail of all 10,246 payloads in the OCR artifact
+store** and grouped them by the `input_sha256` each payload envelope records —
+the envelope is written with `sort_keys=True`, so `input_sha256`,
+`settings_key` and `stage` are the last three fields of every file and cost
+400 bytes each to read. Four settings keys exist, all four identified by
+reconstructing `ocr_settings_key` at each stage version:
+
+```
+77A2ED8F…  3393   OCR stage v2, offline-digital
+974CF978…  3380   OCR stage v2, offline-scanned
+1E6B5BE5…  3364   OCR stage v3, offline-scanned   <- the run of record
+7F8077A5…   109   OCR stage v3, offline-digital   <- the pinned-109 dry run
+```
+
+Of the 3,380 shas the run processed, **3,364 have a v3-scanned artifact and
+the other 16 are `invalid_pdf`** — never OCR'd, `cache_ocr=bypass`. 3,284 have
+NO other v3 artifact; the 80 that also carry a v3-digital one are the
+pinned-corpus duplicates the dry run read. So the archive run used one mode
+throughout and the v3-scanned artifact is per-document what it read.
+
+That is tied to the run of record rather than argued: reconstructing the
+pinned document's markdown from its v3-scanned artifact, analysing it at
+`parse_mode="deterministic"` with the artifact's own page list, and comparing
+to the run's **cached analysis entry**
+`B65432823CA264342474318986552F2EBE0C448A1A0CF552F468809A2B508B89`
+produces a byte-identical payload. The same comparison is the pinned
+document's no-movement proof, run again after every commit on this branch.
+
+## C2. The decision: extension, not a sibling registration
+
+Three measurements decide it.
+
+**1. The reader already reads this grammar.** `columbia_bank` reads
+`0CBD2AD897B90137` end to end today and publishes 108 transactions, 21 daily
+balances and the whole summary strip. A sibling registration would duplicate
+every one of its oracles — five printed section totals, two summary totals and
+the balance chain — and then need a `supersedes` edge against it on documents
+that are the same template.
+
+**2. Detection bypassed, the reader cannot read the other three.** Calling
+`parse_columbia_bank_statement` with detection forced open returns `None` on
+all three. That is the §LCPERIOD test applied in the direction it is usually
+applied: a widening that made the detector claim would have claimed documents
+the parser could not read.
+
+**3. The reason it cannot read them is not the grammar.** It is three
+printings the reader had never been shown and one class of OCR debris. Those
+are what C3 fixes. After C3 the reader reaches every section of every one of
+the four, and what stops three of them is the BANK'S OWN printed totals
+disagreeing with the scan (C5) — which is a refusal, and the correct one.
+
+## C3. What the extension is
+
+**Detection.** `required("bank_name", "COLUMBIA BANK")` is gone; the debit
+ledger's masthead takes its place.
+
+```
+-    required("bank_name", lambda t: "COLUMBIA BANK" in t),
+     required("product", lambda t: "MARKETPLACE CHECKING" in t),
+     required("credits_section", lambda t: "DEPOSITS/ADDITIONS" in t),
++    required("debits_section", lambda t: "ACH AND ELECTRONIC PAYMENTS/SUBTRACTIONS" in t),
+     required("daily_balances", lambda t: "DAILY BALANCES" in t),
+```
+
+The issuer's name is a LOGO on this printing, so whether it reaches the text
+is a property of the SCAN. Across the four statements of one account:
+
+| doc | what the masthead OCR'd to | prints `COLUMBIA BANK`? |
+|---|---|---|
+| `6ADFE63F` Apr | `& COLUMBIA BANK` | yes |
+| `0CBD2AD8` May | (nothing) | yes — but only inside a one-off overdraft-disclosure paragraph naming "the columbia Bank welcome booklet", printed in April and May and never again |
+| `88AAC061` Mar | `sbedet eye ffgeef tLe lpg f apg gle ete EE` | no |
+| `2E667295` Jun | `Aun \| rou ae nn nro) cell Mazo LOTT` | no |
+
+So the marker that decided which half of one account's year this registration
+would claim was Tesseract's rendering of a logo, plus a paragraph the bank
+stopped printing. The replacement is the section masthead the reader cannot
+proceed without, and it keeps the marker count at four — so the claim score
+stays **0.5** and the two documents already claimed keep the score they had.
+
+`MARKETPLACE CHECKING` stays, and it is why the registration still publishes
+`bank="Columbia Bank"` on statements that do not print the name: it is the
+issuer's own product masthead and this is a bank-specific registration, not an
+issuer-agnostic platform template of the `community_section` /
+`core_processor_daily` kind. The honest-unknown-issuer ruling is about
+templates many issuers print; this template has one issuer.
+
+**Reader.** Every change is gated by a figure the bank printed.
+
+* *Section bounding.* Mastheads start their own line, may be preceded by
+  debris and nothing else (April prints `——. Other Withdrawals/Subtractions`),
+  and their column-header row tolerates the debris the scan puts between its
+  cells (`Date —_ Description Additions` on three of the four). The line
+  anchor is load-bearing in its own right: `Deposits/Additions` is a SUFFIX of
+  both `Other Deposits/ Additions` and `ACH and Electronic Deposits/
+  Additions`, and April prints no plain deposit section, so an unanchored
+  masthead would have bounded the plain section from the ACH section's
+  heading and read its rows under the wrong printed total.
+* *Signed balances.* `Beginning balance`, `Low balance`, `Average balance` and
+  `Ending balance` read a sign from `money.MINUS_GLYPHS`. June prints
+  `Low balance -$10,816.06`, and the whole statement used to be lost to a sign
+  on a cell this reader does not even publish. The two FLOW figures and
+  `Interest earned` stay unsigned: the template prints them as magnitudes
+  whose direction is the label.
+* *The two optional sections.* `Other Deposits/Additions` is read (June prints
+  one, $40,872.53 over 8 rows) and the plain deposit section is optional
+  (April prints none). Each pairs with its own printed total: masthead without
+  total, or total without masthead, refuses.
+* *The period strip.* `Last statement` may print without its colon (April).
+* *The cheque serial.* Read structurally, and OPTIONAL. March's scan reads a
+  serial cell as `A777` (its three neighbours are 4178, 4179 and 4180, so it
+  is the LEADING character the scan lost, not the trailing ones). The three
+  available readings are `Check 777` — a serial the bank did not print, on a
+  cheque that cleared for $17,263.50 — or losing the row and with it the
+  statement, or publishing `Check` with the amount and date that ARE printed. The third is the same discipline as §LCPERIOD's structural
+  serial read, in the shape this two-per-line grid takes. `$` becomes required
+  on the amount, which is what lets the serial be optional.
+* *The daily grid.* See C4.
+
+## C4. The placeholder refusal, and the sign it must not refuse
+
+The handoff asks for the placeholder refusal to be proven on the exact
+printing. `88AAC06119FC` prints, in its Daily Balances grid:
+
+```
+03-04 56,767.53   03-16 —  39,692.35   03-26 34,167.30
+```
+
+The `—` is the grid's empty-column placeholder and 39,692.35 is a POSITIVE
+running balance between its two neighbours (W3 §MGD3). The grid reader admits
+`mm-dd`, whitespace, an optional sign from `money.MINUS_GLYPHS`, and the
+figure — nothing else. The em dash is not in that class, by §MGD3's own
+ruling, so the cell is refused outright. Pinned by
+`test_a_grid_cell_whose_figure_the_scan_preceded_with_a_placeholder_is_refused`
+on that literal, and by
+`test_the_placeholder_row_never_reaches_the_ledger_or_flips_a_balance`, which
+asserts all three wrong readings absent: no transaction of ±39,692.35 (the
+failure this family actually suffered, §COUNTSP3), no daily balance of
+−39,692.35 (the shadowed sign class's answer), and no snapshot published for
+the date at all.
+
+**The sign is admitted, and that is a correction this cell owes the family.**
+`2E667295` is an overdrawn month whose grid prints `06-22 -2,209.18`,
+`06-23 -2,209.18` and `06-25 -3,133.90`. The previous pattern refused all
+three — it dropped exactly the days an underwriter most needs to see — and a
+pattern that admitted the debris instead of the sign would have published an
+overdraft three times its true distance from zero. One class separates the two
+cases: a sign glyph is a sign, an em dash is punctuation. June's readable
+snapshot count goes 19 → 22 as a result. (No effect on the pinned document,
+whose grid prints no negative cell.)
+
+What refusing still costs, named because it is a silent-looking choice: the
+two cells `88AAC061` prints with debris — `03-02 ___57,697.72` and the 03-16
+above — are absent from `stated_daily_balances` rather than present and wrong.
+
+## C5. Why the three still refuse, defect by defect
+
+All three reach every gate now. Each is stopped by the bank's own printed
+totals disagreeing with the scan, and each disagreement is a named OCR defect
+on a named row. The daily grid is the second oracle used to locate them: the
+table below is the first day at which the ledger and the printed grid diverge.
+
+**`88AAC06119FC` (March) — one defect, and it cannot be attributed.**
+The ACH debit section's rows sum to 111,102.68 against its printed
+`Total ACH and Electronic Payments/Subtractions $111,102.35`. The grid puts
+the whole 0.33 on 03-09, where the section prints three rows (5.16, 712.44 and
+a 3,934.00 that is the mode of its counterparty group). `_repair_single_
+section_delta` scores each candidate against the grid, finds two that score
+identically, and refuses to choose — which is right: choosing publishes an
+amount the bank did not print, against a named counterparty.
+
+**`6ADFE63F` (April) — three defects.**
+`0417 ACH Debit Bizpoint Cap … 20260417 3,035.83` has lost the hyphen from its
+date cell, so the row is not read and the section is 3,035.83 short; a credit
+of 79.00 is printed with a 04-24 date cell inside the 04-20/04-22 run (the
+grid puts it on 04-21); and the ACH credit section is a further 0.90 short of
+its own printed total. Refuses.
+
+**`2E667295` (June) — five defects.**
+Two rows printed `06-02` and `06-08` carry `20260609` in their descriptions
+and sit inside the section's 06-09 block, and the grid confirms 06-09 for
+both; a Bizpoint row reads 4,214.33 where its group and the grid say 1,214.33
+(+3,000.00); a 06-05 row is 0.01 high; and
+`… Feetransfer Ref#15 0081008 417` has lost its decimal point, so the row is
+not read at all (−4.17). +3,000.00 + 0.01 − 4.17 = +2,995.84, exactly the
+section's disagreement with its printed total. Refuses.
+
+The credit side of all three now reconciles exactly — March 121,859.15,
+April 119,491.84 short by only the 0.90, June 73,131.16 + 40,872.53 +
+100,281.71 = 214,285.40 against the printed summary — which is what makes the
+refusals attributable rather than "somewhere in this document".
+
+## C6. Movement
+
+**Published fields: none, anywhere in the archive.** The pinned document's
+whole analysis payload is byte-identical to the run of record's cached entry.
+
+**Dispatch, 2 documents**, both remaining `failed`:
+
+| sha | before | after |
+|---|---|---|
+| `88AAC06119FC0B7D` | unclaimed, `no_parser_matched`, near-miss `columbia_bank:0.3` | claimed-and-declined, `parser_declined`, candidate `columbia_bank:0.5` |
+| `2E667295DFCB16BA` | unclaimed, `no_parser_matched`, near-miss `columbia_bank:0.3` | claimed-and-declined, `parser_declined`, candidate `columbia_bank:0.5` |
+
+This is the state `6ADFE63F` was already in, and it is the more truthful
+report: "this is a Columbia Marketplace Checking statement whose scan we could
+not reconcile" points at OCR quality, where the fix is, rather than at a
+missing layout, where it is not. Coverage is unchanged in both directions.
+
+**Near-miss telemetry, 7 documents.** `columbia_bank` no longer scores 0.1 on
+seven documents that merely printed the words `COLUMBIA BANK` somewhere: three
+Columbia Bank statements of a DIFFERENT customer (`823BE33E3E8DE9DC`,
+`909DEE0149E9916B`, `0139C091430B34CD`, all `validated` by
+`community_section`) and four Bank of America statements
+(`3D947BFC12DCD340`, `471B571D6FB715FF`, `69C139B7AD1E2BE3`,
+`6E94B13DD0524E77`, all `validated` by `bank_of_america`). No outcome changes.
+
+**Zero movement outside the population, measured not argued.** A full-archive
+detection replay over all 3,364 v3-scanned artifacts — 3,351 of which hold a
+document, the other 13 being the run's cached-negative `deferred` entries —
+before and after, diffs to exactly two claimant-set changes (the two above) and nine
+score changes (the two above plus the seven). No document anywhere gained a
+second claimant, so no ambiguity was created. `columbia_bank` claims exactly
+four documents in the archive, and the parser's code cannot run on a document
+it does not claim.
+
+## C7. Carried findings for Ocean
+
+**C7.1 — `_repair_repeated_amounts` will rewrite a genuine amount to mask a
+row it never read, and only a downstream gate stops it.** On `6ADFE63F` the
+unread `0417` row leaves the ACH debit section 3,035.83 short; the repair then
+rewrites a genuine `Bizpoint Cap … 99.00` row to 3,035.83, because doing so
+reduces the section's distance from its printed total from 3,035.83 to 99.00.
+The document still declines — the section is now 99.00 short — so nothing was
+published, and this is not a defect this card introduced (the mechanism is
+shipped and the pinned document depends on it). But the mechanism has no
+notion of a MISSING row, and its own success criterion cannot distinguish
+"this amount was misread" from "a different row was not read at all". Named
+rather than changed: touching it means touching the only reader of the pinned
+document, and the right shape (discard-and-flag rather than rewrite, per the
+batch-5 repair doctrine) is a card, not a hunk.
+
+**C7.2 — the detector now claims three documents it declines, and that is a
+deliberate reading of §LCPERIOD L7.1.** The rule is that a detector must not
+claim what its parser cannot read. Its subject is a widening that claims a
+different GRAMMAR; here the parser reads this grammar and refuses these
+SCANS, by the bank's own printed totals, exactly as a fail-closed reader
+should. `6ADFE63F` was already in that state before this card. **Ruling wanted
+only if Ocean disagrees with that reading**; C6's table is the whole argument,
+and reverting is a four-line change to `DETECTION_MARKERS`.
+
+**C7.3 — one date-cell recovery is available and deliberately not taken.**
+April's `0417` row could be read: `mmdd` welded, corroborated by the
+`20260417` its own description prints. It is not taken because April declines
+for two further defects regardless, so the tolerance would change no outcome
+and would ship unexercised by any published document. Named so the next scan
+of this family does not have to rediscover it.
+
+**C7.4 — the cohort is four and the card said three.** Recorded as a process
+note, not a complaint: the fourth was invisible to a `rows.csv parser_id`
+reading (it has none — it is `unclaimed / parser_declined`) and appeared
+immediately under the standing rule that family populations come from a live
+detection replay. §LCPERIOD's L7.3 census was taken from its own document set
+and was right about what it could see.
+
+**C7.5 — `Total Checks paid: N for -$X` is printed and not used.** The debits
+identity already pins the cheque sum exactly (every other term is a printed
+total), so the footer adds nothing today. The COUNT would add something — it
+would catch two compensating row errors — and is left for a card that has a
+document to prove it on.
