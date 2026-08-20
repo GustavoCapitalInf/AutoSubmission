@@ -440,12 +440,31 @@ def test_every_category_total_is_gated_against_its_own_rows(printed, corrupted):
     assert parse(document(summary=SUMMARY.replace(printed, corrupted))) is None
 
 
+def test_a_category_total_that_its_own_rows_do_not_reach_refuses():
+    """ISOLATED to the per-category check, which is the point: the direction
+    total and the identity are moved WITH the category so that both still
+    close, and the only printing left disagreeing is the category's own.
+
+    A mutation run is what asked for this test. The parametrized corruption
+    above kills through the DIRECTION sum — it moves a category without
+    moving the total that category feeds — so with the per-category check
+    deleted the suite still passed. A gate test that fires through a
+    different gate is a gate that is not tested."""
+    broken = (SUMMARY.replace("Electronic cr (1) + 300.00", "Electronic cr (1) + 301.00")
+              .replace("+$300.00", "+$301.00")
+              .replace("Ending balance (2/27/2026)\n$150.00",
+                       "Ending balance (2/27/2026)\n$151.00"))
+    assert parse(document(summary=broken)) is None
+
+
 def test_a_direction_total_that_its_categories_do_not_sum_to_refuses():
     """The bank prints the parts AND the sum, so this is a printing
-    independent of the per-category checks above."""
+    independent of the per-category checks above — and this corruption is
+    isolated to it: every category still matches its own rows, and the
+    identity still closes, because the ending balance moves with the total."""
     broken = SUMMARY.replace("+$300.00", "+$400.00").replace(
-        "Beginning balance (1/30/2026)\n$100.00",
-        "Beginning balance (1/30/2026)\n$0.00")
+        "Ending balance (2/27/2026)\n$150.00",
+        "Ending balance (2/27/2026)\n$250.00")
     assert parse(document(summary=broken)) is None
 
 
@@ -476,11 +495,32 @@ def test_a_direction_total_printed_with_the_wrong_sign_refuses():
         "Total credits\n+$300.00", "Total credits\n-$300.00"))) is None
 
 
-def test_a_summary_contradicting_itself_about_one_row_refuses():
+def test_a_direction_total_printed_with_no_sign_at_all_refuses():
+    """Requiring what is printed and nothing else. The template always prints
+    the sign, so an unsigned total is a layout this reader has not seen, and
+    refusing it is the fail-closed answer rather than a stricter reading of
+    the same document."""
+    assert parse(document(summary=SUMMARY.replace(
+        "Total credits\n+$300.00", "Total credits\n$300.00"))) is None
+
+
+@pytest.mark.parametrize("contradiction", [
+    "Total credits\n+$900.00\n",
+    "Electronic cr (9) + 999.00\n",
+])
+def test_a_summary_contradicting_itself_about_one_row_refuses(contradiction):
     """`unique_match`: a row a strip prints twice, differently, is the
     document contradicting itself, and there is no rule saying which printing
-    to believe."""
-    assert parse(document(summary=SUMMARY + "Total credits\n+$900.00\n")) is None
+    to believe. Both halves of the partition are pinned — the CATEGORY rows
+    are read by the same discipline as the direction totals, which a mutation
+    run had to ask for."""
+    assert parse(document(summary=SUMMARY + contradiction)) is None
+
+
+def test_a_summary_row_reprinted_identically_is_not_a_contradiction():
+    """A page header repeats. The test is on the captured groups, not on the
+    number of matches."""
+    assert parse(document(summary=SUMMARY + "Electronic cr (1) + 300.00\n")) is not None
 
 
 def test_the_gates_are_blind_to_a_same_day_same_direction_same_category_redistribution():
@@ -609,8 +649,13 @@ def test_an_amount_whose_integer_part_is_not_ascii_is_invisible_not_zero():
     assert cpc._FIGURE_RE.search(foreign) is None
 
 
-def test_an_amount_run_onto_a_word_is_refused():
-    assert cpc._FIGURE_RE.search("300.00USD") is None
+@pytest.mark.parametrize("run_on", ["300.00USD", "300.00٥"])
+def test_an_amount_run_onto_a_word_is_refused(run_on):
+    """Both boundary classes refuse the ASCII case; only the `\\w` one refuses
+    a figure run onto a non-ASCII glyph, and that is the difference the
+    class is carried for. Asserted because a mutation run showed the ASCII
+    form of the RIGHT boundary passing every other test in this module."""
+    assert cpc._FIGURE_RE.search(run_on) is None
 
 
 def test_a_signed_section_figure_is_refused():
