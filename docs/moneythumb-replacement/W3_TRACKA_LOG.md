@@ -27288,3 +27288,359 @@ before-payload reproduces the run of record's own `outcome_class` 30/30 on an
 RBC sample. `corpus_gate.py` was deliberately **not** re-run (>10 min on a
 machine shared with nine cells, and its inputs are provably unchanged) — the
 implementing cell owes that run.
+
+---
+
+# §RBCCAD — the APPROVED RBC currency ceremony, executed, and the pinned currency surface
+
+Branch `wave6-rbccad`, base `93fb369`. Batch 6, card 13. PROTECTED CEREMONY
+cell: Gustavo's approval of 2026-08-16 is the scope, pinned-diff discipline
+throughout, $0.00 vendor, archive and caches read-only.
+
+## RC0. Summary
+
+| | |
+|---|---|
+| Ceremony | `statement.currency` `USD` → `CAD` on **exactly 151** archive documents, **4** of them pinned. Reproduced on the real implementation, not inherited from the packet's prototype |
+| Pinned movement | the four English RBC chequing statements (DEC/JAN/FEB/MAR), currency only. The pinned French RBC statement does **not** move |
+| Field differential | 236 documents × two full `report_to_dict` payloads = **5,316,858** leaf comparisons; **one** distinct changed field path in the entire sweep — `statement.currency`; **0** documents with a non-currency change; **0/16** terminal-outcome documents whose failure text moved |
+| Mover set identity | my 151 movers are **sha-for-sha identical** to `RBC_CURRENCY_MEASUREMENT` §9.2 — `packet − mine = ∅`, `mine − packet = ∅` |
+| Currency surface | `corpus_gate.PINNED_CURRENCY`, **total** over all 109 pinned documents (95 USD / 14 CAD), enforced by `check_currency` on the published field |
+| Census before pinning | measured on the UNCHANGED base tree: 99 USD / 10 CAD, with the provenance of every value measured separately. **No unexplained value was blessed** |
+| Hierarchy | explicit in code (`_statement_currency`) and in tests (the CUR-J family) |
+| Statement-specific constants | none. Every new literal is layout furniture or an institution discriminator, all registry-local to the `rbc` registration |
+
+## RC1. The hierarchy, in code
+
+`analysis/rbc.py::_statement_currency` is the whole rule in one place, and its
+three rungs are the ratified ones:
+
+```
+1. explicit statement currency evidence      _printed_currency_evidence()
+     |exactly one code|  -> publish it
+     |two codes|         -> None  (a contradiction is not a statement)
+2. proven account/jurisdiction native default   _jurisdiction_currency()
+3. otherwise                                    -> None, schema default stands
+```
+
+`_printed_currency` was split so the EVIDENCE SET is visible to rung 2: an
+empty set ("the page is silent") and a two-element set ("the page contradicts
+itself") are different facts, and only the first may reach the default. A
+default never resolves an ambiguity.
+
+Inside rung 2 the ORDER is the rule:
+
+```
+_jurisdiction_currency(markdown):
+    if _US_INSTITUTION_RE       -> None    # doctrine §B item 3, FIRST
+    if _CONTRARY_CURRENCY_RE    -> None    # doctrine §B item 1, SECOND
+    if not (J_ISSUER and J_SERVICE and J_ACCOUNT and J_BRANCH) -> None
+    else                        -> "CAD"   # doctrine §B item 2
+```
+
+Not one clause reasons from an absence. `$` is never consulted. No predicate
+can see a filename or a folder: `_jurisdiction_currency`'s only argument is
+text, `admissible_text` strips the intake comment at stage entry, and both
+counterfeit directions are carried THROUGH that seam in the tests.
+
+## RC2. The four affirmative proofs, and how they were derived
+
+Measured over the RBC name superset (233 documents carrying any RBC-shaped
+token, rebuilt from the D-3 OCR artifacts with `source_file=""` and passed
+through `admissible_text`; 178 of them print `ROYAL BANK OF CANADA`):
+
+| Proof | What the page must print | Docs |
+|---|---|---|
+| `J_ISSUER` | a line **beginning** `ROYAL BANK OF CANADA` + a P.O. designator and **ending** in a Canadian postal code — the statement-issuing centre. Archive prints exactly two (Toronto `P.O. BOX 4047`, Calgary `P.O. BAG SERVICE 2650`) | 170 |
+| `J_SERVICE` | `rbcroyalbank.com` and/or `1-800-769-25(20\|11)` / `1-800-ROYAL` — RBC **Canada's** own furniture; the U.S. bank publishes `rbcbank.com` | 190 |
+| `J_ACCOUNT` | the CPA transit shape in both product spellings — business `Account number: <5> <3-3-1>`, personal `Your account number: <5>-<7>` | 170 |
+| `J_BRANCH` | a second `ROYAL BANK OF CANADA` line whose address is CIVIC (negative lookahead on the P.O. designator) and closes with a Canadian postal code — the branch of domicile | 170 |
+| conjunction | | **170** |
+
+`J_BRANCH`'s negative lookahead is what makes it an independent second proof
+rather than a re-reading of `J_ISSUER`; both are `ROYAL BANK OF CANADA … <CA
+postal>` lines and the archive's branch addresses can themselves contain a
+`PO BOX`, so the discriminator is where the address BEGINS.
+
+The conjunction's 170 decomposes exactly: 169 English RBC family documents plus
+`BFEB79B2…`, the zero-activity statement no registration claims (RC6).
+
+## RC3. The two refusals, measured
+
+* **`_US_INSTITUTION_RE`** — `rbcbank.com`, `RBC Bank (Georgia)/USA/N.A.`,
+  `Royal Bank of Canada (USA)`, `RBC Centura`, `FDIC`, `ABA`, `RTN`,
+  `Routing #/No./Number/Transit`, `Raleigh`. Hits inside the 170-document
+  conjunction: **0**. Hits anywhere in the 233-superset: **6**, every one of
+  them on a non-RBC document (`chase` ×2 with `FDIC`/`Aba`, `td_canada_native`
+  ×4 with `RTN`). There is no RBC U.S. document in this archive, so the clause
+  is discharged on synthetic printings and that is said plainly, in the code
+  comment and in the test docstring.
+* **`_CONTRARY_CURRENCY_RE`** — deliberately wider than the anchored reader and
+  swept over the whole admissible text: `U.S. Funds` (any spacing), `\bUSD\b`,
+  `U.S. Dollar(s)`, `United States Dollar(s)`, `American Dollar(s)`,
+  `fonds américains`, `devise américaine`, `US$`/`$US`/`$U.S.`,
+  `US BUSINESS ACCOUNT`, and 20 standalone ISO codes. Hits inside the
+  conjunction: **12 documents, and exactly the 12 the anchored reader already
+  reads as USD** — 6 with `U.S. Funds` only, 6 with `U.S. Funds` **and**
+  `US BUSINESS ACCOUNT`. Zero false positives on the movers.
+
+The asymmetry is deliberate and recorded: the anchored reader decides what a
+document STATES and must be narrow (a ledger posting would counterfeit a
+denomination); the wide sweep only decides whether to REFUSE the default, so
+its false positives cost a document its CAD label and can never mislabel one.
+
+## RC4. The header-anchor widening (packet R4), same commit
+
+`_MAILING_HEADER_RE` `^RBBDA\d+_\d+\b` → `^RB[BP]DA\d+(?:_\d+)+\b`. RBC prints
+`RBBDA<transit>_<serial>` on the business layout and
+`RBPDA<transit>_<serial>_<sequence>` on the personal one; the old pattern could
+not match the personal spelling at all, because the extra `_<sequence>` group
+leaves no word boundary where it required one. Measured: **181** superset
+documents carry an `RBBDA…` line, **13** carry an `RBPDA…` line.
+
+Measured harmlessness, on my implementation over all 233: **0 documents whose
+explicit read moves on the widening.** It is a precedence repair — it keeps
+rung 1 ahead of rung 2 on both layouts — which is exactly why it lands in the
+same commit as the default rather than after it.
+
+## RC5. The 151-differential, reproduced on the real implementation
+
+Method as the packet's, run twice over the same 236 documents (233 RBC-superset
+∪ the 3 `td_canada_native` CURRENCY-1 corrections, which carry no RBC token):
+`report_to_dict(analyze_markdown(md, parse_mode="deterministic", sheets=pages))`
+on the base tree (`analysis/rbc.py` at `93fb369`) and on the implementation,
+each payload flattened to leaf field paths and compared path by path. The
+analysis cache is bypassed entirely — `analyze_markdown` is called directly, so
+no analysis-stage entry was read or written.
+
+| | |
+|---|---|
+| Documents compared | 236 (220 parsed + 16 terminal) |
+| Leaf field comparisons | **5,316,858** |
+| Median payload leaf count | 16,580 |
+| Documents with any payload change | **151** |
+| Distinct changed field paths across the sweep | **1 — `statement.currency`** |
+| Documents with a NON-currency change | **0** |
+| Terminal documents whose failure text changed | **0 / 16** |
+| Direction census | `{('USD','CAD'): 151}` |
+
+Byte-identity of the named populations, all measured rather than argued:
+the **12** explicit-USD documents unchanged; the **6** stated-CAD documents
+unchanged; the **20** French RBC documents unchanged including the pinned one;
+the **9** CURRENCY-1 corrections unchanged (none appears in the mover set); the
+**16** no-parser documents' terminal outcomes unchanged.
+
+**Collateral bound.** The rule sits inside `parse_rbc_statement`, behind the
+`rbc` registration's REQUIRED marker `"ROYAL BANK OF CANADA" in upper(text)`,
+which is strictly stronger than the superset regex the 233 were drawn with. So
+every document the rule can reach was measured, and the rest of the archive is
+unreachable by construction rather than by sampling.
+
+### RC5.1 Which enumeration fed the differential, and why it is immune
+
+Ocean's cross-cell warning (WORKER-PRIVACY): enumerating the OCR artifact store
+under ONE `settings_key` looks like the run-of-record population but is not
+what the run read — 55 of the 3,380 were read under a different key holding a
+RE-READ text preparation (33 `native-pdf-text+first-citizens-layout`, 22
+`native-pdf-text+woodforest-columns`). Feeding such a document the wrong rung's
+text manufactures movement that passes every checkpoint, and in a ceremony a
+false mover is indistinguishable from unapproved pinned movement.
+
+**The enumeration used here was never keyed on a settings_key.** The artifact
+store was indexed by `input_sha256` across ALL partitions, and each document's
+text was taken from that document's own artifacts. Verified per document over
+the whole 236-document diff set, against the run of record's own `source_model`
+column in `rows.csv`:
+
+| | |
+|---|---|
+| diff-set documents whose stored partitions DISAGREE on parser-visible text | **0 / 236** |
+| diff-set documents in a re-read preparation class | **0 / 236** |
+| diff-set documents where the fed model differs from the run of record's `source_model` | **0 / 231** compared (231 of the 236 appear in the run's rows) |
+| model census over the diff set | `native-pdf-text` 235 · `local-tesseract-ocr` 1 |
+
+Because every partition of every diff-set document rebuilds the identical
+parser-visible text, the selection among partitions cannot change any result —
+the instrument is immune by measurement, not by assumption. The one scanned
+document (`F8EE0316B23AAD2F7F18AA1CF7B0E606410DD537DEB20F86843FD75378138F88`,
+`local-tesseract-ocr`) is **not** a mover.
+
+The 5 documents absent from the run's rows are exactly the five pinned RBC
+PDFs (the four English movers and the French one), which are not discovery
+documents. Their text provenance does not depend on the artifact store at all:
+`corpus_gate.production_verdict` reads their bytes from disk through the
+production intake ladder, and the corpus gate plus the corpus-marked
+end-to-end proof exercise that path.
+
+## RC6. The named future mover, not admitted
+
+`BFEB79B26E426C2FDA63DF0C1F422D95F4A8AF95319C03ADCA85D9560B6E58A3` — a genuine
+zero-activity 4-day RBC Canada statement. It satisfies all four jurisdiction
+proofs (it is one of the 170 in RC2) and it does **not** move, because no
+registration claims it: `parse_rbc_statement` returns `None` when the grid
+yields no rows. Parser admission was NOT weakened to include it.
+`test_curj_the_named_future_mover_is_not_admitted_by_weakening_the_parser`
+pins both halves — the page proves Canada, and the parser still publishes
+nothing — so its eventual arrival as a 152nd mover is expected, not surprising.
+
+## RC7. The pinned currency surface
+
+**The finding it closes.** `currency` was pinned nowhere (packet §4.6): not a
+column in `balance-metrics-audit-results.csv`, `adb-audit-results.csv` or
+`new-statement-audit-results.csv`; the string did not occur in `corpus_gate.py`
+at all; absent from `parser_expectations.json`. Meanwhile
+`webapp/static/app.js:176` threads `statement.currency` into
+`Intl.NumberFormat`, so it decides whether every figure an analyst reads is
+`$1,234.56` or `CA$1,234.56`.
+
+**The form chosen, and why.** A total `PINNED_CURRENCY: dict[str, str]` plus a
+`check_currency` check reading the published `statement.currency` field —
+**not** a sixth member of `_Verdict`, and **not** a new audit-CSV column.
+
+* `_Verdict` is an EXCEPTION map: absence means "publishes the one ordinary
+  state", which works only because all 102 validated documents share it.
+  Currency has no single ordinary value (95 USD / 14 CAD), so folding it in
+  would drag fourteen documents into an exception map they do not belong in and
+  entangle a currency movement with a verdict movement in one tuple.
+* A new audit-CSV column would have moved all 109 rows of an audited artifact
+  and required regenerating an independent forensic oracle — a far larger
+  pinned diff than the ceremony itself, which is the opposite of pinned-diff
+  discipline.
+* The chosen map is TOTAL in both directions: a manifest path with no pin is
+  RED, and a pin naming a non-manifest path is RED. Nothing can enter the
+  corpus without a stated currency and nothing can silently drop out.
+* It costs no extra analysis pass: it consumes the payloads
+  `check_outcome_classes` already produced.
+
+## RC8. The 109-document census, measured BEFORE pinning
+
+Measured on the UNCHANGED base tree through `corpus_gate.production_verdict` —
+the production intake ladder with both OCR rungs disabled, the same resolution
+the gate itself uses. **99 USD / 10 CAD.**
+
+Provenance was measured separately, by rotating
+`analysis.schema.Statement`'s `currency` field default to a sentinel at runtime
+(scratchpad only; no repository file was modified) and re-running the same 109:
+
+| Provenance | Docs |
+|---|---|
+| parser assigned CAD | **10** — CIBC French; BMO Canada; the pinned French RBC statement; Scotiabank; TD Canada Trust ×6 |
+| parser assigned USD | **5** — Chase transaction export; Farmers & Merchants; Southside; Apex; **Desjardins** |
+| schema default (nobody asked) | **94** |
+
+**Values reviewed rather than blessed.** Three classes were examined before
+anything was pinned:
+
+1. **`Misc/USD FEB 2026.pdf` — Desjardins, a Quebec caisse, published USD.**
+   Verified to be an EXPLICIT read, not a fallback: the page prints
+   `USD DESJARDINS CORPORATE BUILD-UP ACCOUNT` and
+   `analysis/desjardins.py::_printed_currency` returns `USD` from it. A
+   Canadian institution's USD-denominated product is exactly doctrine §A's
+   second RBC example. Correct as pinned.
+2. **`ATB/*.pdf` ×5 — ATB Financial (Alberta Treasury Branches), a Canadian
+   provincial bank, published USD from the schema default.** This is the same
+   shape the RBC family had before this card: not evidence of a USD account,
+   but "nobody asked". Pinned at today's value and NAMED in the map as expected
+   future movers; moving them requires ATB's own proven jurisdiction evidence
+   base first (doctrine §B, final paragraph). Pinning today's value is what
+   turns that future movement into a visible ceremony instead of a silent
+   drift.
+3. **The 10 CAD** are all parser-assigned by their own issuer's reader, and 6
+   of them (TD Canada Trust) are the sibling institution doctrine §B names as
+   needing its own evidence base — recorded, not moved.
+
+**No surprising value was found that required a STOP.** Nothing in the 109 is
+an unexplained currency: every value is either an explicit read, an explicit
+parser assignment, or the schema default with the institution named.
+
+**What was pinned:** the census exactly, with **four** entries changed —
+`RBC/Chequing Statement-{DEC,JAN,FEB,MAR}+.pdf`, `USD` → `CAD`. Final surface
+**95 USD / 14 CAD**. The pinned French RBC statement pins at its pre-existing
+`CAD` and is asserted in the tests to be outside the ceremony set.
+
+## RC9. The four pinned expectation diffs, enumerated
+
+| # | Pinned document | `content_sha256` | Field | Old | New |
+|---|---|---|---|---|---|
+| 1 | `RBC/Chequing Statement-DEC+.pdf` | `A26ECE4F32488CECDD59EA5BCF13B4947786456038CBDD17AC52C0F3D9F38EE5` | `statement.currency` | `USD` | `CAD` |
+| 2 | `RBC/Chequing Statement-JAN+.pdf` | `633F036CDE97F639D95538678B738E939E708254C99D9910F6202CB44C1FD2D3` | `statement.currency` | `USD` | `CAD` |
+| 3 | `RBC/Chequing Statement-FEB+.pdf` | `F0348F3EDD0F64284AD49632C9FF5414C60113A79B0A3356E2441B1CB2E7CA27` | `statement.currency` | `USD` | `CAD` |
+| 4 | `RBC/Chequing Statement-MAR+.pdf` | `4F3CC713463FDD59318770C037FB0786FB984FB1A169456B068AE735D64EFD77` | `statement.currency` | `USD` | `CAD` |
+
+`RBC French/12 - Relevé Royale Décembre 2025 - Tommy Aspirot.pdf`
+(`874D48BF…`) does not move at all.
+
+No row of `docs/balance-metrics-audit-results.csv`, `docs/adb-audit-results.csv`
+or `docs/new-statement-audit-results.csv` changes; `PINNED_OUTCOMES` is
+untouched; `tests/data/parser_expectations.json` is untouched. The ONLY pinned
+artifact this card edits is the new `PINNED_CURRENCY` map, and the only
+intentional movement inside it is these four.
+
+## RC10. Tests — the CUR-J family
+
+Gustavo's list, one test each, plus three the measurement demanded:
+
+| Test | Requirement |
+|---|---|
+| `test_curj_a_proven_rbc_canada_account_with_no_contrary_evidence_publishes_cad` | proven RBC Canada + no contrary evidence → CAD |
+| `test_curj_explicit_us_evidence_beats_the_canadian_default` | proven RBC Canada + explicit `U.S. Funds` / `US BUSINESS ACCOUNT` → USD, on a page whose four Canadian proofs still hold |
+| `test_curj_an_rbc_us_product_refuses_the_canadian_default` | RBC U.S. product → default refused, and it fails all four Canadian proofs independently |
+| `test_curj_hostile_and_mixed_evidence_fails_closed` | 10 hostile grafts onto a genuine Canadian page → None each; plus the two-code contradiction → publishes nothing |
+| `test_curj_the_source_filename_and_folder_cannot_move_the_currency` | filename/folder cannot affect currency, both counterfeit directions, THROUGH `admissible_text` |
+| `test_curj_the_dollar_symbol_alone_establishes_nothing` | `$` alone cannot establish USD — measured both ways |
+| `test_curj_the_nine_currency_1_corrections_are_untouched` | the nine batch-5 corrections, named by sha, with both mechanisms proven |
+| `test_curj_the_conjunction_is_load_bearing_not_decorative` | ablation: remove any one proof → refused |
+| `test_curj_the_personal_mailing_header_is_read_on_both_layouts` | R4, the widening |
+| `test_curj_the_named_future_mover_is_not_admitted_by_weakening_the_parser` | the zero-activity document stays unclaimed |
+
+Plus eight on the surface in `tests/test_corpus_gate_outcomes.py`: totality both
+directions, the 95/14 split derived not restated, the French statement excluded
+from the ceremony set, green when the product agrees, RED on a moved currency
+in **both** directions, RED on an unstated pin, RED on an unknown pin, RED (not
+skipped) on a document with no payload, and one corpus-marked end-to-end proof
+that the DEC statement publishes CAD through the real intake ladder while its
+verdict stays `PUBLISHED_OUTCOME`.
+
+`test_cur_a_document_stating_no_denomination_keeps_the_default` — the batch-5
+assertion that a bare `ROYAL BANK OF CANADA` publishes the default — is
+UNCHANGED and still green: the stripped `HEAD` fixture prints no postal code,
+no service line and no branch line, so the conjunction correctly refuses it.
+The rule is tight enough that geography is not mistaken for a proven account.
+
+## RC11. Carried risks
+
+* **R1 (unchanged, residual)** — a USD RBC Canada account whose statement omits
+  the denomination line would be defaulted wrong. Base rate measured: 12 of 169
+  English RBC documents are USD-denominated and **12 of 12 announce it**, 6 of
+  them twice. Not observed; it is the risk doctrine §A accepts.
+* **R2 (unchanged)** — the rule is anchored to the two English RBC Canada
+  layouts. A third layout fails all four proofs and silently keeps the default:
+  a false negative, the safe direction, but it will look like the rule stopped
+  working.
+* **R5 (open, carded)** — `schema.py`'s `USD` default now carries two meanings
+  on RBC English documents versus ~1,900 U.S.-registration documents, and
+  nothing records which rung answered. `currency_source` provenance is
+  explicitly out of this card (batch 7, additive). The census in RC8 is the
+  manual substitute for it today.
+* **NEW — the ATB class.** Five pinned ATB Financial documents (and the
+  wider ATB family in the archive) are Canadian-institution statements
+  publishing USD from the schema default. They are named in `PINNED_CURRENCY`
+  so their eventual movement is a ceremony. An ATB jurisdiction default needs
+  its own eight-proof packet.
+* **Process** — machine shared with other cells; the two 236-document analysis
+  passes ran as sequential foreground commands (419.1s + 340.1s), and the proof
+  floor ran as sequential single commands writing durable output. Nothing
+  outside this branch was touched; no cache was written; no vendor call.
+
+## RC12. One defect this cell found in its own work
+
+The first corpus-marked run was RED on exactly one test — this cell's own
+`test_the_ceremony_document_publishes_cad_end_to_end`, and the defect was in
+the TEST, not in the gate. `check_currency` is total over the manifest it is
+handed, so driving it with a one-document manifest against the committed
+109-entry map correctly reported the other 108 pins as naming paths outside
+that manifest. The proof now scopes the map to the document under test and
+gained its negative half: the same real payload against the pre-ceremony `USD`
+pin is RED, so the green is the product agreeing rather than the check being
+inert. Recorded because the totality property that broke the harness is the
+same property that makes the surface worth having.
