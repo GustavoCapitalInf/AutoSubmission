@@ -27228,11 +27228,13 @@ ledger, a per-day balance grid, and — because the eight are two four-month
 chains of the same two accounts — a month-to-month balance chain across
 documents. Zero overlap with any other batch-6 cell.
 
-**Implemented ceiling, stated before the code was written: 5 of 8.** The other
-three refuse, with named causes, and the refusals are the point: two have rows
-Tesseract dropped (`8FC40813` two rows totalling $1.00; `33A2F2DD` one row of
-$0.01) and one (`9B3DB6CF`) has one daily-grid cell whose decimal separator
-Tesseract resolved as a comma.
+**Implemented: 5 of 8 publish** — four `validated`, one `review` on a flag it
+earns (a Tesseract-mangled page declaration, SN7). The other three refuse,
+with named causes, and the refusals are the point: two have rows Tesseract
+dropped (`8FC40813` two rows totalling $1.00; `33A2F2DD` one row of $0.01, and
+an ambiguous day besides) and one (`9B3DB6CF`) has one daily-grid cell whose
+decimal separator Tesseract resolved as a comma. Zero movement anywhere else
+in the archive, measured two ways (SN8).
 
 ## SN1. The instrument, and why this enumeration is immune
 
@@ -27394,3 +27396,326 @@ BIGHEAD SMOKE     3/01 4,166.20 -> 5,299.00 -> 1,545.04 -> 10,345.17 -> 8,252.65
 All eight close their own printed identity exactly:
 `beginning + stated credits - stated debits == ending`, residual `0.00` on
 every one.
+
+## SN4. The family, characterized before a line of code
+
+Eight documents, two accounts, four consecutive months each. The template
+prints a summary that states BOTH counts and BOTH totals, then four separately
+headed grids and a per-day balance grid:
+
+```
+Summary of Activity Since Your Last Statement
+  Beginning Balance   4/01/26     626.96
+  Deposits / Misc Credits    48  19,863.46
+  Withdrawals / Misc Debits  43  18,382.54
+** Ending Balance     4/30/26   2,107.88 **
+  Service Charge                   10.00
+  Average Balance                   1,122
+  Enclosures                            4
+
+Deposits and Other Credits     Date  Amount  Activity Description
+Debits and Other Withdrawals   Date  Amount  Activity Description
+ATM /POS Transactions          Date  Deposits | Withdrawals  Location
+Checks                         Date Check No Amount  (x3 columns)
+Daily Balance Summary          Date Balance             (x3 columns)
+```
+
+The closing identity `b0 + C - D == b1` closes to `0.00` on all eight.
+
+**The card is the ATM/POS grid.** It has TWO money columns and the scan
+destroys the only thing that says which column a figure sat in: Tesseract
+collapses the run of spaces, so
+
+```
+4/07 300.00 ATM Withdrawal
+4/16 300.00 ATM Cash Deposit
+```
+
+arrive as the same shape. A vocabulary would not save it either — this family
+prints `ATM Cash Deposit`, `ATM Withdrawal`, `Debit Transfer`,
+`POS Purchase Non-PIN` and `POS Purchase with PIN`, and `Debit Transfer`, the
+commonest of them, is a withdrawal on one row and the deposit leg of a
+peer-to-peer transfer on another. Memorising them would be reading our own
+list rather than the document, and would be the R-1 hardcode class besides.
+
+## SN5. What the reader does instead: the split is solved
+
+1. **The aggregate.** The summary's counts and totals cover the ATM grid too,
+   so what the grid contributes to each side is fixed by subtraction:
+
+   ```
+   ATM deposits    = (N - rows in Deposits,  C - total of Deposits)
+   ATM withdrawals = (M - rows in Debits - rows in Checks,
+                      D - total of Debits - total of Checks)
+   ```
+
+   Both sides must be non-negative and must add back to the grid's own row
+   count and total. This is a statement about the grids' COMPLETENESS — it is
+   what catches the row Tesseract dropped — and it runs before the walk
+   because it is cheap.
+
+2. **The day.** `Daily Balance Summary` prints the end-of-day balance for
+   every day the account moved, so each day's NET is known before any row is
+   directed. The day's ATM rows are then a subset-sum: with `r` the day's
+   residual and `T` the day's ATM total, the deposit side sums to `(r+T)/2`,
+   and the reader requires **exactly one** subset to reach it. Two subsets
+   differ by which row is the deposit; publishing either would publish a
+   direction the document does not determine, so an ambiguous day refuses the
+   whole statement.
+
+3. **The closing identity**, checked first as a fail-fast on the summary read.
+
+Measured over the eight: **zero ambiguous days on the five documents that
+publish**, and every printed daily balance reproduced to the cent.
+
+### SN5.1 The right-hand minus, proven rather than asserted
+
+A negative balance prints its minus on the RIGHT — `3/02 1,420.04 -` — the
+same convention `analysis/balance_by_date.py` documents for its average-balance
+statistic. Two of the five published documents print overdrawn days (three on
+`6ACF3130`, two on `644F3694`). The convention is not taken on trust: with the
+hyphen ignored the walk stops reproducing the grid, and both documents refuse.
+A LEADING minus is never a sign here, for the same reason that module gives.
+
+### SN5.2 Three refusals, with their exact defects
+
+| sha | outcome | the defect, named |
+|---|---|---|
+| `8FC408139D8A...` | `failed/parser_declined` | Two ATM rows totalling **$1.00** are absent from the grids: the summary counts 47/66 and totals 27,993.31/28,650.25, the grids hold 45/64 and 26,907.18/28,649.25. The day walk localises it to **3/02**, where the residual is $1.00 short. |
+| `33A2F2DD6CAF...` | `failed/parser_declined` | One ATM row of **$0.01** is absent. The walk localises it to **6/22**, whose residual misses by exactly one cent. `6/15` is additionally an ambiguous day (two sign assignments reach the printed balance), so even a repaired row would not publish this document. |
+| `9B3DB6CF995D...` | `failed/parser_declined` | The daily grid's **5/22** cell is `714,71` — the decimal separator resolved as a comma. The ledger determines that day as `714.71` exactly (`2,324.17 + 379.13 - 281.07 - 1,447.52 - 260.00`), so the printing is recoverable in principle. It is NOT repaired here: see SN9 finding 1. |
+
+All three previously read `failed/no_parser_matched`; they now read
+`failed/parser_declined`. Same outcome class, better information — a reader
+now looks at them and declines with a reason.
+
+## SN6. The implementation
+
+`analysis/scanned_small_bank.py` gains a third scanned reader beside
+`apex_scanned` and `southside_scanned`. Registry 72 -> 73.
+
+**Detection** — three required markers, all structural furniture:
+
+```python
+TEXAS_FIRST_DETECTION_MARKERS = (
+    required("tele_banking_domain", lambda t: "WWW.TEXASFIRST.BANK" in t),
+    required("summary_head", lambda t: "SUMMARY OF ACTIVITY SINCE YOUR LAST STATEMENT" in t),
+    required("daily_grid", lambda t: "DAILY BALANCE SUMMARY" in t),
+)
+```
+
+The daily grid is a DETECTION marker and not merely a parse requirement,
+deliberately: a printing without it is one whose ATM directions cannot be
+solved, and claiming it would strand a document another reader could take.
+
+**The solver** refuses rather than choosing:
+
+```python
+    count, witness = states.get(target, (0, ()))
+    return set(witness) if count == 1 else None
+```
+
+**The daily cell**, with the right-hand minus and the year taken from the
+printed period and from nowhere else:
+
+```python
+_TF_DAILY_CELL_RE = re.compile(rf"({_TF_MD})\s+({_TF_FIGURE})\s*(-)?")
+...
+                daily.append((iso, -cents if cell.group(3) else cents))
+```
+
+**An illegible cell refuses the document.** Both three-column grids are
+oracles — the cheque grid feeds the debit count, the daily grid feeds the ADB
+— so a grid line whose residue still carries digits after its cells are
+matched fails the document closed:
+
+```python
+        residue = line
+        for cell in reversed(cells):
+            residue = residue[: cell.start()] + residue[cell.end():]
+        if any(character.isdigit() for character in residue):
+            return None
+```
+
+**`account_number` is honest-unknown on every document of the class.** The
+template prints it masked in the header block and the mask is exactly what the
+scan destroys (`Account Number: FAKKAT AG`, `Account Number: *AKKT BGO`). The
+masks that DO survive elsewhere on the page belong to the ATM rows' card
+numbers (`*****5512`, `*****8152`); reading one of those into this field would
+publish a card as an account. A first draft did read them and was removed — it
+was the R-1 lesson wearing a regex.
+
+**Page declarations are read by the pipeline, not by this reader**, and one
+document earns a flag by them: see SN7.
+
+### SN6.1 The gates, measured by mutation
+
+A twelve-mutant harness (session scratchpad, not committed) over the reader's
+gates, against `tests/test_texas_first_scanned.py`:
+
+| mutant | caught |
+|---|---|
+| per-day uniqueness dropped (take the first assignment) | **yes** |
+| the right-hand minus ignored | **yes** |
+| the illegible-cell refusal dropped | **yes** (2 tests) |
+| the day-not-in-the-grid check dropped | **yes** |
+| the period-year bound dropped | **yes** |
+| the walk stops reading the printed balance | **yes** (13 tests) |
+| aggregate count fail-fast dropped | no |
+| aggregate total fail-fast dropped | no |
+| deposit-count agreement dropped | no |
+| deposit-total agreement dropped | no |
+| final-day-equals-ending dropped | no |
+| closing-identity fail-fast dropped | no |
+
+The six survivors are all provably redundant with the walk, and TWO SOURCE
+COMMENTS OVERCLAIMED because of it — both were corrected in the same commit
+rather than left for review. The aggregate checks are fail-fasts, not further
+evidence; and the deposit count/total agreement is corroboration, because once
+every day has a unique assignment the split is determined and the money half
+follows from the arithmetic. They are kept because that derivation depends on
+each of the earlier checks still being in place, and because a reader that
+only discovers a short grid inside the walk reports "the day did not close"
+for a defect that is really "the grid is missing a row".
+
+## SN7. The movers, named
+
+Five publish; three refuse. Every field below is from a live replay of the run
+of record's own OCR artifact through the branch pipeline.
+
+| sha | run of record | branch | published |
+|---|---|---|---|
+| `390DD1A1E8039F2C0EB92DFA36EEAC6E149DDDDA83996257599A5C0EB321BF9A` | `failed/no_parser_matched` | **`validated/approved`** | bank `Texas First Bank`, 2026-04-01..04-30, b0 626.96 -> b1 2,107.88, 48/19,863.46 credits, 43/18,382.54 debits, 91 transactions, 22 daily balances, service charge 10.00, **ADB 1,122.65**, risk `clear`, flags `[]` |
+| `644F369429CD3D19342476F1B349A7263C05D82A1D24E143646F04C09054571D` | `failed/no_parser_matched` | **`validated/approved`** | 2026-04-01..04-30, b0 5,299.00 -> b1 1,545.04, 89/176,759.57, 82/180,513.53, 171 transactions, 22 dailies (**2 overdrawn**), service charge 353.22, **ADB 6,796.25**, risk `clear`, flags `[]` |
+| `6ACF3130775C25175642FDAE8E9AFD98F66F9175B3684AD3C3956026C7624DDC` | `failed/no_parser_matched` | **`validated/approved`** | 2026-03-01..03-31, b0 4,166.20 -> b1 5,299.00, 100/260,341.70, 123/259,208.90, 223 transactions, 22 dailies (**3 overdrawn**), service charge 246.77, **ADB 5,183.97**, risk `clear`, flags `[]` |
+| `756F987E1AD8B217D67E7B8F7F77BC6740A4B9D408A678AD8F4CEF7A74FFBADB` | `failed/no_parser_matched` | **`validated/approved`** | 2026-05-01..05-31, b0 1,545.04 -> b1 10,345.17, 82/196,461.91, 75/187,661.78, 157 transactions, 20 dailies, service charge 195.54, **ADB 7,248.18**, risk `clear`, flags `[]` |
+| `A20AACF22B6A475AED00D6557931BF0D97D6D8B20E34442791D1071B6EEA4431` | `failed/no_parser_matched` | **`review/integrity_flags`** | 2026-06-01..06-30, b0 10,345.17 -> b1 8,252.65, 77/251,508.72, 70/253,601.24, 147 transactions, 21 dailies, service charge 141.24, **ADB 15,037.34**, risk `review`, flags `['missing_declared_statement_page']` — EARNED, see below |
+| `33A2F2DD6CAF...`, `8FC408139D8A...`, `9B3DB6CF995D...` | `failed/no_parser_matched` | `failed/parser_declined` | nothing published; the reason moves, the class does not |
+
+`account_number` is `None` on all five (SN6); `account_name` is the address
+block's entity-suffixed holder (`SEAWALL8910 LLC`, `BIGHEAD SMOKE SHOP LLC`);
+`bank` is `Texas First Bank` on all five, because unlike the core-processor
+templates this one prints its issuer.
+
+**`A20AACF2`'s flag is earned, not inherited.** Its page 6 declares
+`Page 6 of 14` where its other five legible declarations say `of 11` and the
+document supplies 11 sheets; under the WIRING-2 regime the sheet list is live
+and the pipeline's page-declaration check takes the largest denominator, so
+`missing_declared_statement_page` stands. That is a true statement about the
+document AS SCANNED, this cell did not touch `analysis/pipeline.py` to soften
+it, and `failed -> review` is still forward movement. The correction, if the
+platform wants one, is a pipeline card and is written up at SN9 finding 2.
+
+### SN7.1 The bank's own average: EXPLAINED, exactly
+
+The template prints `Average Balance` in whole dollars, and `metrics.py`
+records our ADB against it. On all five published documents the printed figure
+is exactly **the calendar-day average with overdrawn days counted as zero,
+truncated to whole dollars**:
+
+| sha | our ADB (doctrine) | same, negatives floored at 0 | the bank printed | overdrawn days |
+|---|---:|---:|---:|---:|
+| `390DD1A1` | 1,122.65 | 1,122.65 | 1,122 | 0 |
+| `644F3694` | 6,796.25 | **6,849.05** | **6,849** | 2 |
+| `6ACF3130` | 5,183.97 | **5,243.99** | **5,243** | 3 |
+| `756F987E` | 7,248.18 | 7,248.18 | 7,248 | 0 |
+| `A20AACF2` | 15,037.34 | 15,037.34 | 15,037 | 0 |
+
+Five for five. This is the strongest available corroboration of our own
+figure: the bank's arithmetic is ours, over the same calendar days and the
+same daily balances, differing only in a convention the ratified ADB doctrine
+already rejects — an overdrawn day is a negative day, not a zero one.
+`bank_reported_average_hypothesis` nevertheless reports `unexplained` on all
+five, because `metrics.py` has no vocabulary for this convention. SN9
+finding 3.
+
+## SN8. Nothing else moves
+
+Two measurements, both over the run of record's own artifacts, both by direct
+file path with the SN1 enumeration.
+
+**1. The detection sweep, all 3,380 distinct documents.** The branch's only
+registry change is an ADDITION with no `supersedes` edge and no change to any
+existing marker, so a document's base claimant set is exactly its branch
+claimant set minus `texas_first_scanned` — which makes one sweep a complete
+differential.
+
+```
+swept 3380 documents in 392s
+no usable artifact (deferred / absent): 29
+texas_first_scanned claims 8 documents
+  33A2F2DD...  ['texas_first_scanned']
+  390DD1A1...  ['texas_first_scanned']
+  644F3694...  ['texas_first_scanned']
+  6ACF3130...  ['texas_first_scanned']
+  756F987E...  ['texas_first_scanned']
+  8FC40813...  ['texas_first_scanned']
+  9B3DB6CF...  ['texas_first_scanned']
+  A20AACF2...  ['texas_first_scanned']
+NEW AMBIGUITIES: 0 {}
+```
+
+Exactly the eight, SOLE claimant on each, **zero new ambiguities**: the
+remaining 3,372 documents keep their base claimant set exactly, so none of
+them can have changed.
+
+**2. The end-to-end replay differential over the whole non-digital
+population** (179 documents with text, the same harness that reproduces the
+run of record 179/179 at SN1):
+
+```
+replayed 179 non-digital documents in 113s
+changed: 8
+```
+
+The eight are the eight. Nothing else in the scanned, mixed or unknown
+population moved.
+
+## SN9. Findings and questions for Ocean
+
+**1. `9B3DB6CF995D` is recoverable and was deliberately not recovered (+1).**
+Its only defect is one daily-grid cell, `714,71`, whose decimal separator
+Tesseract read as a comma; the ledger fixes that day at `714.71` to the cent.
+A corroborated repair is available — derive the hole from the walk and accept
+it ONLY when the derived value's digit sequence is identical to the printed
+token's (`71471 == 71471`) — and that is evidence, not tolerance-widening: two
+independent printings agreeing. It is not in this branch for two reasons. The
+walk has to be widened from day-to-day to legible-balance-to-legible-balance
+(the hole's own day carries an ATM row, so the sign solve spans both days),
+which reduces the uniqueness the whole design rests on; and this reader's
+contract is currently the clean one — *the grid it publishes is the grid the
+bank printed*. Worth +1 document; wants its own card and its own gate.
+
+**2. The Tesseract-mangled page declaration (`A20AACF2`, `Page 6 of 14`).**
+SCAN-SCOUT recorded this class in batch 4 and it is still open. The pipeline
+takes `declared_total` from the LARGEST denominator it finds, which is the
+conservative direction and correct in general, but on a scanned document a
+single mangled denominator outvotes five agreeing ones and the supplied sheet
+count. A denominator-contradiction rule (a declaration whose denominator
+disagrees with the majority of legible declarations AND with the sheet count
+is evidence of a mis-scan, not of a missing page) would withdraw this flag and
+move the document to `validated`. `analysis/pipeline.py` is not this cell's to
+touch and the flag is fraud-relevant, so it is named, not softened.
+
+**3. `metrics.py` has no hypothesis for "overdrawn days counted as zero".**
+Proven on 5/5 documents at SN7.1, with the whole-dollar truncation the same
+template prints. Today all five report `bank_reported_average_hypothesis:
+"unexplained"` while the variance is in fact fully explained — and explained
+in a way that CORROBORATES the ratified doctrine. Two documents' variance is
+~1% purely from this convention. A named hypothesis would turn five
+"unexplained" variances into five confirmations. This is the evidence lane
+ADB-SPLIT built, working, and short one word.
+
+**4. The ranking's second and third cards overlap DECLINES-D by sha.** The
+scanned half of `core_processor_sectioned`'s decline cluster is 14 documents
+(SN3 row 2) and `citizens`' is 4 (row 5) and `core_processor_daily`'s is 4
+(row 7). If DECLINES-D takes those reasons, batch 7 should not re-staff them
+as scanned family cards; if it does not, they are the two best remaining
+scanned cards after this one.
+
+**5. The 29 documents with no OCR text are a spend decision, not a card.**
+13 cached negatives + 16 invalid/encrypted. Reported at SN2, not spent.
+
+## SN10. Proofs
+
+All commands run in the worktree, sequentially, exit codes verbatim.
