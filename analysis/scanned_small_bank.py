@@ -577,8 +577,9 @@ def parse_apex_scanned_statement(markdown: str) -> Statement | None:
 #                           D - total of Debits - total of Checks)
 #
 #    Both sides must come out non-negative, and their counts and totals must
-#    add back to the grid's own row count and total. That is two independent
-#    equations, not one restated.
+#    add back to the grid's own row count and total. That is a statement about
+#    the grids' COMPLETENESS - it is what catches the row Tesseract dropped -
+#    and it is checked before the walk because it is cheap.
 #
 # 2. **The day.** `Daily Balance Summary` prints the end-of-day balance for
 #    every day the account moved, so each day's NET is known before any ATM row
@@ -925,6 +926,14 @@ def parse_texas_first_scanned_statement(markdown: str) -> Statement | None:
     atm_debit_cents = stated_debits - sum(row.cents for row in debits) - sum(
         row.cents for row in checks
     )
+    # Fail-fasts, in the same spirit as the closing identity above: cheap
+    # arithmetic that rejects a mis-read grid before the day walk is run. Both
+    # are deliberately redundant with the checks that follow the walk —
+    # measured by mutation, removing either still refuses every document of the
+    # archive family, because a grid whose rows do not add up cannot reproduce
+    # the printed daily balances either. They are kept because a reader that
+    # only ever discovers this inside the walk reports "the day did not close"
+    # for a defect that is really "the grid is short a row".
     if min(atm_credit_count, atm_credit_cents, atm_debit_count, atm_debit_cents) < 0:
         return None
     if atm_credit_count + atm_debit_count != len(atm):
@@ -938,8 +947,17 @@ def parse_texas_first_scanned_statement(markdown: str) -> Statement | None:
     )
     if deposit_indices is None:
         return None
-    # The day walk and the summary subtraction are independent readings of the
-    # same split; publishing needs them to agree.
+    # The two readings of the same split, made to agree explicitly.
+    #
+    # Stated precisely, because it would be easy to overclaim here: once the
+    # day walk has a UNIQUE assignment on every day, the split is determined,
+    # and the money half of this pair follows from the arithmetic (summing the
+    # daily residuals gives `atm_credit_cents - atm_debit_cents`, and the
+    # aggregate fail-fast above gives the sum, so the deposit total is fixed).
+    # These are therefore corroboration and not a further independent oracle.
+    # They are kept because the derivation above depends on every one of those
+    # earlier checks still being in place, and a reader that publishes a split
+    # its own summary contradicts is not a thing to leave to a proof.
     if len(deposit_indices) != atm_credit_count:
         return None
     if sum(atm[i].cents for i in deposit_indices) != atm_credit_cents:
