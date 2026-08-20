@@ -27202,3 +27202,426 @@ other batch-5 cells at once, which is the only reason the two runtimes are
 | `42e4055` | this section, FI0–FI5 |
 | `c536dbf` | the corpus gate proof |
 | (this one) | the corpus-marked slice proof, the no-movement statement, and this table |
+
+# §FISERV3 — the third printed issue, read: two wordings and one money rule
+
+Batch 6, card 6. Base main `eef77c6` (+ the batch-6 handoffs, `8570bce`),
+branch `wave6-fiserv3`, worktree `.claude/worktrees/mt6-fiserv3`. Run of record
+`2026-08-16T000943.012887-0000-2e3ea385`. Owned files:
+`analysis/fiserv_premier.py`, `tests/test_fiserv_premier.py`, this log.
+
+**The card:** §FISERVISS re-priced its own cell — the fourth population is a
+LEDGER card, not an issuer card, worth +4: a second period wording (§FI2.1), a
+third section vocabulary (§FI2.2), and one money-grammar rule for an embedded
+`AMT $x,` reference (§FI2.3) with a named hazard the rule must refuse rather
+than relax (§FI5.4).
+
+## F0. Summary — +4, and all three named causes were real
+
+**Exactly the four named documents move `failed` → `validated`. Nothing else
+moves anywhere.** 699 transactions published across the four, every one of them
+inside a printed count, a printed total and the bank's own printed daily
+balance grid.
+
+| | before (run `2e3ea385`) | after |
+|---|---|---|
+| `fiserv_premier` claims | 14 | **14** (detection untouched) |
+| publishes | 10 | **14** |
+| refuses | 4 | **0** |
+| the 10 prior publishers | — | **10/10 byte-identical** |
+
+The card's three causes were all real and all sufficient: with the period
+wording alone repaired the document still refuses, with the sections alone
+repaired it still refuses, and the money rule is what the debit count turns on
+(109 fee rows across the four — 34 / 10 / 37 / 28 — every one a $31.00 fee
+carrying a reference of some other size).
+
+**Registry unchanged at 72.** The §SCANB sibling discipline is what decides
+this: §SCANB registered ONE registration over two printed issues of one
+template because they share the template's own furniture, and these four print
+the same summary strip, the same three required markers and the same
+`Statement of Account` heading as the two issues already read. A sibling
+registration would have had to be superseded off exactly the documents it was
+created for. Conformance cross-product stays 72×71.
+
+## F1. The instrument
+
+Every figure is a live replay. The four documents' markdown was resolved from
+the D-3 OCR artifact store **by direct file path** — the `webapp_data` sqlite
+index was never opened — by recomposing the run's own cache key
+(`cache_key(STAGE_OCR, content_sha256, ocr_settings_key(...))`), reading
+`artifacts/ocr/<2>/<key>.json`, rebuilding `StatementMarkdown.to_markdown()`
+from the stored pages and passing it through `admissible_text` exactly as
+`analyze_markdown` does. Each payload's own `input_sha256` was checked against
+the sha it was resolved for. Outcome classes come from the real pipeline —
+`report_to_dict(analyze_markdown(markdown, parse_mode="deterministic",
+sheets=<the stored page list>))` then `telemetry.record.classify_outcome`.
+
+The family sweep enumerates the artifact STORE — all **10,246** OCR artifact
+files, **3,396** distinct documents by payload `input_sha256`, longest offline
+text per document (§SCANB S1's figure, reproduced) — and replays BOTH module
+versions over the same text: `eef77c6:analysis/fiserv_premier.py` loaded as a
+second module beside the branch's. `rows.csv` `parser_id` was never used to
+derive a population (§COUNTSP3's cache-hit hole); the run's rows are quoted
+only for the four documents' recorded before-state.
+
+## F2. Gate by gate, all four
+
+The four are one account in four consecutive periods, folder `Unidentified/`,
+prefix `d8ddb4db`; all `native-pdf-text`, 8 pages, `truncated_page_count: 0`.
+
+| | `4D0EACF6…A29E` (April) | `4B374742…0C1D` (May) | `8DB2CB78…EA71` (Jun 30) | `E34083B2…8513` (Jul 31) |
+|---|---|---|---|---|
+| `detect().claims` / score | True 0.5 → **unchanged** | True 0.5 → **unchanged** | True 0.5 → **unchanged** | True 0.5 → **unchanged** |
+| `_summary` identity | closes `-0.0000` → **unchanged** | closes → **unchanged** | closes → **unchanged** | closes → **unchanged** |
+| `_PERIOD_RE` | MISS → **MISS** | MISS → **MISS** | MISS → **MISS** | MISS → **MISS** |
+| `_LONG_PERIOD_RE` + `_DAYS_RE` | — → **HIT, 30** | — → **HIT, 29** | — → **HIT, 32** | — → **HIT, 31** |
+| printed length = calendar span | — → **30 = 30** | — → **29 = 29** | — → **32 = 32** | — → **31 = 31** |
+| `_sections` activity/credit/debit | 0/0/0 → **0/0/0** | 0/0/0 → **0/0/0** | 0/0/0 → **0/0/0** | 0/0/0 → **0/0/0** |
+| `_embedded_sections` credits | — → **36 rows / 278,658.85** | — → **18 / 296,791.12** | — → **40 / 219,048.53** | — → **36 / 243,368.25** |
+| printed credits | 36 / 278,658.85 | 18 / 296,791.12 | 40 / 219,048.53 | 36 / 243,368.25 |
+| `_embedded_sections` debits | — → **131 / 285,723.80** | — → **107 / 276,559.94** | — → **157 / 230,817.90** | — → **174 / 234,885.81** |
+| printed debits | 131 / 285,723.80 | 107 / 276,559.94 | 157 / 230,817.90 | 174 / 234,885.81 |
+| reference rows read as description + fee | — → **34** | — → **10** | — → **37** | — → **28** |
+| printed daily grid, walked | — → **22/22 days, 0 misses** | — → **20/20** | — → **21/21** | — → **23/23** |
+| `_issuer` | None → **None** | None → **None** | None → **None** | None → **None** |
+| `parse(...)` | None → **Statement** | None → **Statement** | None → **Statement** | None → **Statement** |
+| period published | — → **2026-04-01 … 04-30** | — → **2026-05-01 … 05-29** | — → **2026-05-30 … 06-30** | — → **2026-07-01 … 07-31** |
+| transactions | 0 → **167** | 0 → **125** | 0 → **197** | 0 → **210** |
+| `integrity.flags` | — → **[]** | — → **[]** | — → **[]** | — → **[]** |
+| outcome class | `failed` / `parser_declined` → **`validated` / `approved`** | same | same | same |
+| `underwriting_adb` | — → **−3,539.00** | — → **15,533.42** | — → **1,957.83** | — → **751.64** |
+
+The ADB is a fourth, independent corroboration and was not designed for: the
+engine's calendar-day average over the published ledger reproduces the average
+of the bank's OWN printed daily-balance grid, carried across non-banking days,
+to the cent on all four. (May: the 29 printed daily balances with weekend
+carry-forward sum to 450,469.27; 450,469.27 / 29 = 15,533.42.)
+
+## F3. Cause 1 — the second period wording, welded rather than merely read
+
+The two read issues print `Statement Dates 4/01/26 to 4/30/26 (30 days)`: dates
+and length in ONE clause. The third prints the dates in the masthead heading
+and the length in the activity strip:
+
+```
+Statement of Account April 01, 2026 thru April 30, 2026
+...
+Activity Summary Days in the Statement Period:  30
+```
+
+`_period` tries the registered clause first and returns it unchanged, so a
+document that prints it takes exactly the path it took before this reader
+existed. Only on a miss does the second wording get a chance — and a miss was a
+refusal before, so the change is strictly additive.
+
+**The two halves are required to corroborate each other**
+(`(end - start).days + 1 == days`), and that check exists ONLY for this
+wording. It is not symmetry for its own sake: these are two independent reads
+from two places on the page, either of which could be the wrong one, and a
+wrong period basis is silent — it re-bounds every row through
+`iso_within_period` and re-bases the calendar-day ADB without failing anything
+visibly. In the registered clause the dates and the length are one clause, so
+there is nothing to corroborate and nothing is imposed.
+
+The month table is the shared one (`MONTH_NAME_ALT` / `iso_from_named_month_day`
+from `date_tokens`), not a private copy, so a month cannot mean two things in
+two modules. `period_from_long_dates` was NOT reused: it is anchored on
+`through` and floats free of any heading, where this wording is `thru` and must
+be anchored to `Statement of Account` — two capitalized month words around a
+conjunction is a shape the disclosures below could otherwise produce.
+
+## F4. Cause 2 — the section vocabulary, and where a section stops
+
+The issue prints four sections over two directions:
+
+```
+Deposits Date Description Amount          -> credit
+Other Credits Date Description Amount $   -> credit
+Debits Date Description Amount $          -> debit
+Checks Cleared / Date Check No Amount $   -> debit
+Daily Balance Information                 -> the printed grid (evidence)
+Itemization of Service Charge …           -> ends the ledger
+Overdraft and Returned Item Fees          -> ends the ledger
+```
+
+**`Checks Cleared` is posting detail here, not a recap.** In the two read
+issues the cheque list is a recap that `_DAILY_BALANCE_RE` terminates the
+ledger on. Here its items are inside the printed `Checks/Debits` count and
+total: April reads 120 rows in `Debits` and 11 in `Checks Cleared`, and
+120 + 11 = 131 = the printed count, with 215,071.30 + 70,652.50 = 285,723.80 =
+the printed total. Dropping it leaves every one of the four short. Its
+direction is taken from its own head rather than inherited from the preceding
+section, and `test_the_cheque_sections_direction_comes_from_its_own_head` is
+what makes that a claim rather than an accident of these four documents'
+ordering.
+
+**Sections survive page breaks, but only by the document's own re-declaration.**
+`_sections` closes at `--- Page` because the two issues it reads re-print their
+named heading on every page. This one re-declares only the bare column header
+`Date Description Amount $`, and a disclosure page or a cheque-image page can
+sit in the MIDDLE of a section — April's credit run is interrupted by the GLBA
+page and resumed on page 3; May's `Checks Cleared` head is the last line of
+page 4 and its rows are on page 5. Closing at the page break loses those
+continuations; carrying blindly across it swallows the disclosure prose and the
+cheque-image list into the ledger.
+
+So the carry is neither. **A page break SUSPENDS the section; only a
+re-declared column header resumes it.** Prose that follows a page break is
+outside every section because it declares nothing — the same structural bound
+the headings give everywhere else. Both failure modes are mutation-killed
+(F10): carry-blindly fails two tests, close-at-page-break fails one.
+
+The cheque-image pages the template prints last (`04/22/26 295 $…`, no section
+head at all) are outside the ledger for a second, independent reason:
+`Overdraft and Returned Item Fees` has already ended it, and an ended ledger
+cannot be resumed at all.
+
+## F5. The one money-grammar rule — and the refusal it is built around
+
+The issue prints an overdraft fee as
+
+```
+04/01 CHK# 00 AMT $579.45, NSF PAID ITEM FEE $31.00
+```
+
+where the first money token is a REFERENCE to the item that caused the fee and
+the row's own amount is the last one. `_PLAIN_ROW_RE`'s `[^$]` description
+cannot span it, so the row is dropped whole and the printed debit count refuses
+the document — 109 rows across the four.
+
+§FI5.4 named the hazard precisely: the `(?=\s|$)` lookahead is the ONLY reason
+the comma-terminated reference fails today instead of publishing `$579.45` as a
+`$31.00` fee, and it is doing that by accident. The rule therefore had to be
+built so the refusal is structural, not punctuation.
+
+**The relaxation is exactly one shape wide:**
+
+```
+_EMBEDDED_REFERENCE = r"AMT -?\$[\d,]*\.\d{2},?"
+_EMBEDDED_ROW_RE = re.compile(
+    r"(?<![\d/])(\d{1,2}/\d{1,2}) "
+    r"(?:((?:" + _EMBEDDED_REFERENCE + r"|[^$])+?)(?<!\bAMT) )?"
+    r"(-?\$[\d,]*\.\d{2})(?= |$)"
+)
+```
+
+* the description may cross a `$` **only** where the token is `AMT`-introduced;
+  anywhere else `[^$]` still bounds it, so a row can never run into its
+  neighbour and take the neighbour's amount;
+* **an `AMT`-introduced token can never be the row's amount** — `(?<!\bAMT) `
+  in front of the amount capture. **This is the refusal.**
+
+**The trailing comma is OPTIONAL, deliberately.** Requiring it would keep
+§FI5.4's accident and inherit its failure mode, and would refuse a whole
+document if one row's comma failed to survive the text layer. Strip the comma
+and the reference is still refused as an amount and still read as description
+(`test_the_refusal_does_not_rest_on_the_reference_comma`).
+
+**The section text is whitespace-normalized before the grammar reads it**, and
+that is what makes the fixed-width lookbehind exact rather than approximate.
+This text layer does print double spaces — `Days in the Statement Period:  30`
+on all four documents — and `AMT  $579.45` steps around a lookbehind anchored
+to one space, publishing the reference as the fee. Mutation-killed.
+
+### F5.1 The refusal proved on the attested rows, and on the baited one
+
+On the attested shape, all four documents: **109 / 109 reference rows read as
+description + fee**, every fee `$31.00`, and the debit counts and totals close
+exactly (F2). A regex census of the printed shape over the same section text
+finds the same 34 / 10 / 37 / 28 — no reference row is silently dropped and none
+is invented.
+
+The refusal itself needs a counterfactual, because on these four documents the
+count gate would have caught a mis-read anyway. **`test_the_reference_is_refused_
+even_when_every_other_gate_would_pass`** removes that safety net: the reference
+stands as the row's last money token, and the printed counts, the printed
+totals, the summary identity AND the printed daily grid have all been arranged
+to agree with reading it as a `$31.00` fee. Every oracle in the module says yes.
+The grammar says no. Its control,
+`test_the_baited_document_is_sound_apart_from_the_reference`, publishes the same
+document with the keyword replaced by an ordinary word — so the refusal is the
+grammar and not some unrelated defect in the fixture.
+
+### F5.2 A guard that was written, measured unreachable, and removed
+
+A structural re-check (`re.search(r"\bAMT\s*$", text[:amount_start])`) was
+written alongside the lookbehind. It was then measured **unreachable**: with the
+description class bounded as above, no input reaches `_embedded_rows` with an
+`AMT`-introduced token in the amount slot — such a row simply fails to match,
+is dropped, and the printed counts refuse the document. It was removed rather
+than shipped. A guard nothing can trip is §FI5.4's lesson in reverse: it reads
+like protection while proving nothing, and it would have made the lookbehind
+look optional to the next reader. One mechanism, and a mutation that kills it.
+
+### F5.3 What the lookbehind actually buys — measured, not assumed
+
+The first version of the refusal test did NOT kill the lookbehind mutation, and
+the reason is worth recording. Because the reference alternative is tried FIRST
+at each repetition, the engine consumes `AMT $x` in one step and walks past it
+on its own for any row that has a later money token. The lookbehind is what
+decides the case where the reference is the section's LAST money token — there
+the engine backtracks to the `[^$]` path, stops the description at `…AMT`, and
+without the lookbehind publishes the reference. Measured directly:
+
+```
+'3/02 X $10.00 3/04 CHK# 00 AMT $31.00'
+   with    lookbehind  -> [('3/02','X','$10.00')]
+   without lookbehind  -> [('3/02','X','$10.00'), ('3/04','CHK# 00 AMT','$31.00')]
+```
+
+The test was rewritten around exactly that shape. **A refusal test that passes
+under the mutation of the thing it names is not a refusal test**, and this one
+only became one after the mutation run said so.
+
+## F6. The printed daily grid, promoted to a required oracle
+
+`_daily_grid_agrees` walks the bank's own `Daily Balance Information` grid from
+the opening balance: each printed day must equal the opening plus every row
+filed on or before it, the last must be the printed closing balance, the printed
+days must be in order, and **no row may fall on a day the grid does not print**.
+
+It is required rather than advisory, and the reason is the ADB doctrine: the
+one user-facing underwriting ADB is a calendar-day average over exactly these
+daily balances, so a ledger whose rows sit on the wrong days can satisfy both
+printed counts and both printed totals and still publish a wrong average. Both
+printed totals are direction-partitioned gates on the ledger as a whole; this is
+the only gate that binds a row to a DAY.
+
+The "no row outside the grid" clause is separately mutation-killed by an
+OFFSETTING pair — a credit and a debit of the same size on an unprinted day —
+because a non-offsetting one is already caught by the closing-balance check, and
+a test that cannot distinguish the two clauses is not testing the one it names.
+
+`_DAILY_PAIR_RE` was reused rather than re-derived. It was dead code before this
+cell: `_sections` has always built a `daily` block and nothing has ever read it.
+
+## F7. The issuer — `bank=None`, and the document is the reason
+
+**The four print no issuer name anywhere, and `bank=None` is what the page
+supports.** `_issuer` → None before and after; the branch is untouched. The
+evidence, over all four:
+
+* the masthead prints `Managing Your Accounts Branch Name <branch> Customer
+  Service <phone>` and `Address <street> … Online Access
+  www.coastalstatesbank.com` — a branch, an address, a phone and a **web
+  address**, and no bank name;
+* the Regulation E notices do not name the bank either. They defer to it:
+  "Telephone or write us at **the bank phone number or address listed on the
+  front of this statement**", "Contact **the bank** immediately". Both point
+  back at a masthead that prints no name;
+* a case-insensitive census of `bank` / `coastal` / `Member FDIC` / `N.A.`
+  across all four returns exactly those disclosure phrases, the domain, and one
+  merchant description on two documents. There is no capitalized run in front of
+  a return address for `_issuer`'s `_spells` corroboration to test, because
+  there is no name printed at all.
+
+So the domain is the ONLY identity-bearing token on the page, and the honest-
+unknown-issuer doctrine says a domain alone is not the printed issuer identity —
+`_issuer` publishes a name only when the document ties a printed NAME to its own
+web address. **Inferring "Coastal States Bank" from `coastalstatesbank.com`
+would be inferring from the domain alone, which the doctrine forbids and which
+this module's `_spells` design was built to prevent.** The arithmetic does not
+depend on the name, so this costs a label and not a document — and these four
+are the first archive documents ever to take the `bank=None` branch of this
+module (§FI4 recorded that no document did; they were refused two gates
+earlier).
+
+## F8. Coexistence — the two read issues, byte-identical, structurally
+
+Non-interference here is **structural before it is measured**, which is the
+stronger of the two:
+
+* detection is untouched — no marker, no scorer, no registration changed;
+* the embedded branch is the `else` of the two that came first, so a document
+  printing `Transaction Activity` or the `Credit Transactions` /
+  `Debit Transactions` split cannot reach one line of it;
+* `_PLAIN_ROW_RE`, `_plain_rows`, `_activity_rows`, `_sections` and
+  `_DAILY_BALANCE_RE` are byte-identical to base. The new grammar lives in
+  `_embedded_rows` and does not touch them, so the two read issues cannot
+  inherit the reference relaxation, the whitespace normalization, or the
+  suspend/resume carry;
+* `_period` returns the registered clause unchanged whenever it matches, and a
+  miss was a refusal before.
+
+Measured anyway, by live replay of BOTH module versions over the whole store:
+
+```
+artifact files read     : 10246
+distinct documents      : 3396
+fiserv_premier CLAIMS   : base 14   head 14
+  detection differences : 0
+fiserv_premier PUBLISHES: base 10   head 14
+  parse-output movers   : 4
+    4B37474294BFC9AB…  base=None  head=FA6AA02502C28FF4
+    4D0EACF6D617EDAB…  base=None  head=E0A23A3E215C1755
+    8DB2CB78B67CF223…  base=None  head=1AFBD5FF0F3F905D
+    E34083B2FED71FB3…  base=None  head=B40B2E6FE0F6A8C3
+  base publishers held byte-identical: 10 / 10
+```
+
+(The digests are SHA-256 over the `Statement` dataclass `repr`, so they cover
+every published field including every transaction.) Cross-parser movement is
+impossible for the same reason: dispatch is by detection score, detection is
+unchanged, and the 14 claimants are the same 14 documents — 10 already
+dispatched to this parser and 4 that it declined with no other candidate at or
+above the claim threshold.
+
+## F9. Carried findings for Ocean
+
+**F9.1 — the four print a product name and a masked account number that this
+module does not read, and it is worth a card, not a patch.** All four print
+`LOCAL. SMALL BUSINESS CHECKING ACCOUNT XXXXXX8515` on its own line and repeat
+the same mask in the summary line. `_PRODUCT_RE` requires a ` - ` separator
+(`<product> - XXXXXX0000`) and `_TITLE_RE` requires `Account Title:`; both miss,
+so `account_name` and `account_number` publish as None. This is §FI0.2's shape
+exactly — "we do not read what the bank printed" — and it is named here rather
+than fixed because `account_name` / `account_number` are audited columns and
+CURRENCY-1's full-plan string would have moved 73 documents including 6 pinned
+on one. The price is two labels on four documents; the fix is a corroboration
+rule (the mask is printed twice, identically) and it belongs to a card.
+
+**F9.2 — the four `review` documents of this family are still open and are a
+different class.** §FI4's `missing_declared_statement_page` variant, where the
+GLBA privacy notice appended after the statement carries no `Page N of M`
+footer while the footers count it in their denominator. Untouched here. Note
+that the third issue prints exactly that appendix (April's page 2) and does NOT
+take the flag — its footers count 8 of 8.
+
+**F9.3 — a refusal test is only a refusal test if the mutation kills it.**
+§F5.3. Two of this cell's first-draft tests passed under the mutation of the
+very guard they were named after, and one of them was the reference-number
+refusal itself. The mutation run is what found both. Recommend the mutation
+sweep be stated as the standard for any test whose NAME claims a guard.
+
+**F9.4 — `_sections`' `daily` block has been dead since the module was written.**
+It is built on every call and read by nothing. This cell reused `_DAILY_PAIR_RE`
+for the third issue's grid but did not wire the other two issues' recap into an
+oracle: those two shapes have their own closing-balance gates (the running-
+balance chain, and the direction-partitioned totals), and adding a third gate to
+a population of 10 published documents is a change that needs its own
+measurement.
+
+## F10. Mutation kills — eleven, both directions
+
+Each mutation is applied to a copy of the module, the copy is imported under the
+real module name, and this cell's test file is run against it. The tree on disk
+is restored and re-verified after every run.
+
+```
+[KILLED] drop the (?<!\bAMT) lookbehind: the reference becomes the amount
+[KILLED] require the reference comma: the refusal becomes punctuation-dependent
+[KILLED] drop whitespace normalization: AMT  $x steps around the lookbehind
+[KILLED] widen the description to `.`: rows merge into their neighbours
+[KILLED] carry sections blindly across a page break            (2 tests)
+[KILLED] close sections at a page break, as `_sections` does
+[KILLED] drop `Checks Cleared` from the debit vocabulary
+[KILLED] drop the period corroboration between the dates and the printed length
+[KILLED] make the daily grid advisory instead of required      (3 tests)
+[KILLED] let a row fall on a day the grid never prints
+[KILLED] reach the embedded branch even when a read vocabulary is present
+restored tree: 49 passed, exit 0
+```
+
+Every fixture in `tests/test_fiserv_premier.py` is synthetic; no archive
+customer, account, date or amount appears in the test file.
