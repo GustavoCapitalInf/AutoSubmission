@@ -27636,3 +27636,40 @@ clean tree is a NO-OP that still exits 0, so the "before" run measured the new
 code and produced a tautological match. The baseline is now taken with
 `git checkout 8570bce -- analysis/wilson_muir.py`, and the run asserts the
 base file is loaded — the base module has no docstring, the new one does.)*
+
+### D8.1 The corpus gate
+
+`python corpus_gate.py`, run in the worktree at `080eca8`, **exit 0**:
+
+```
+Corpus gate
+
+[PASS] inventory: 109 pinned corpus PDFs, all on disk and audited by both oracles
+[PASS] foreign_files: no non-corpus PDFs under the corpus root
+[PASS] source_integrity: 109/109 pinned source PDFs match their pinned SHA-256
+[PASS] balance_audit: 109 statements reproduce every audited balance field across backend, API, dashboard, CSV, XLSX, and package surfaces
+[PASS] adb_audit: 109 statements reproduce every audited ADB field across backend, API, and dashboard-package surfaces
+[PASS] balance_outcomes: balance: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes: adb: 106 pass, 3 withheld, same three statements
+[PASS] outcome_classes: 109 statements publish their pinned verdict (outcome class and the whole integrity block): 4 review / 102 validated / 3 withheld
+[PASS] adb_doctrine: 109/109 statements publish the canonical basis 'calendar_day_printed_period'; banking-day alternate distinct on 106, skipped 3 unpublished (0 all-banking-day periods, 0 flat ledgers)
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR = 109 statements resolved offline; no live OCR, no model calls
+[PASS] exclusions: 0 named exclusions
+[PASS] oracle_independence: 4 audit modules import no production financial mathematics
+
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 4 review / 102 validated / 3 withheld
+Runtime:  1010.8s
+
+RESULT: GREEN
+```
+
+**106/3 and 102 validated / 4 review / 3 withheld** — the canonical
+post-ceremony split, unmoved. `outcome_classes` is the check that matters most
+for a decline-widening cell: since batch 4 it pins each pinned document's
+WHOLE published integrity block, not merely its class, so a widened parser that
+changed a flag on a pinned document would fail it rather than pass quietly.
+Runtime 1010.8s is host load — the box was carrying four other cells'
+`-m corpus` slices at the time — not a property of this branch.
