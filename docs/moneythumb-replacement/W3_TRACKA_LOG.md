@@ -27202,3 +27202,391 @@ other batch-5 cells at once, which is the only reason the two runtimes are
 | `42e4055` | this section, FI0–FI5 |
 | `c536dbf` | the corpus gate proof |
 | (this one) | the corpus-marked slice proof, the no-movement statement, and this table |
+
+# §GRAM4 — the fourth summary grammar: the counted partition, and the richest oracle in the complex
+
+## G0. Summary
+
+§LCPERIOD L7.3 named eight unclaimed documents, measured them, and ranked
+them: they print the third core processor's period SENTENCE and none of its
+summary, so "this is not 'add a period marker': it is a fourth summary
+grammar", and it is "the RICHEST oracle of the three templates — printed
+COUNTS per category, printed totals, dated balances AND a daily grid — which
+makes it a better next card than anything else this cell found." This cell is
+that card.
+
+**8 documents print the template; 8 move `failed` to `validated`; nothing
+else in the archive moves at all.**
+
+| | before (base `8570bce`) | after |
+|---|---|---|
+| validated | 0 | **8** |
+| failed | 8 | **0** |
+| withheld | 0 | 0 |
+| review | 0 | 0 |
+
+All 8 are instrumented per document: six printed category counts and six
+printed category totals each agree with the section that category heads, both
+direction totals agree with the sum of their three categories, the summary's
+own identity closes, both DATED balances agree with the two printed statement
+dates, and the `DAILY BALANCES` grid agrees with the walked ledger on every
+day in both directions — including its pre-period cell, which is the
+platform's second printing of the opening balance. **279 transactions**
+published across the 8.
+
+The three exclusion populations are byte-identical before and after in the
+full published payload: `core_processor_daily`'s 20 (including `b1`'s 3), the
+2-document `Statement Period Start:` platform, and Columbia's 3. Store-wide,
+**8 of 3,396 documents change dispatch and 3,388 do not**, with `ambiguous` 0
+on both sides.
+
+## G1. The instrument
+
+Every figure below comes from replaying the archive markdown through the real
+pipeline (`analyze_markdown(parse_mode="deterministic", sheets=...)` +
+`telemetry.record.classify_outcome`, the discovery runner's own call), with
+the documents resolved from the D-3 OCR artifact store **by direct file path**
+— the sqlite index was never opened, and the archive and the caches were never
+written to.
+
+Population re-derived from the artifact STORE rather than trusted from the
+recorded cohort: all 10,246 OCR artifacts were read, each payload envelope's
+own `input_sha256` taken as the document identity, and the longest OFFLINE
+text kept (224 hold `document: null` — negative-cache entries — and are
+skipped). **3,396 distinct documents have offline text**, and the model census
+of the artifacts kept reproduces §LCPERIOD L1 exactly: `native-pdf-text`
+8,769, `native-pdf-text+wells` 672, `local-tesseract-ocr` 358, and four
+layout-specialised native rungs (148 / 37 / 19 / 19); no hosted model, $0.
+
+Base main `eef77c6` via branch base `8570bce`, which differs from it only in
+`docs/agent-handoffs/`. v13, OCR v3, registry 72, suite 4,511.
+
+## G2. The population, re-derived rather than trusted
+
+### G2.1 The census, and the four grammars of one processor
+
+Store-wide, the sentence-case period PAIR (`Last statement: <long date>` and
+`This statement: <long date>`) is printed by **32** documents. They are not
+one template; they are four summary grammars of one core processor, and the
+partition is exact:
+
+| grammar | documents | what closes its summary |
+|---|---|---|
+| the sectioned issue, `core_processor_daily` | 14 | `Total days in statement period:` + `Total additions` + undated `Beginning balance $` |
+| the running-balance issue, `b1` | 3 | the same period line, `DAILY ACTIVITY`, `Ending totals` |
+| the refusing scans of the sectioned issue | 3 | same, corrupted |
+| one scan printing the pair and no summary at all | 1 | — |
+| **the counted partition — THIS cell** | **8** | `Account Summary` + six categories + **DATED** balances |
+| the Columbia fifth grammar (COLUMBIA-5's) | 3 | undated `Beginning balance $` / `Ending balance $`, no day count |
+
+14 + 3 + 3 = the 20 §LCPERIOD names as `core_processor_daily`'s population,
+reproduced exactly; the 8 are L7.3's cohort, reproduced exactly; the 3 are
+L7.3's "FOURTH arrangement", reproduced exactly. Nothing was taken on trust.
+
+### G2.2 The two required markers, measured against the whole store
+
+| probe | documents | covers the 8 |
+|---|---|---|
+| the period sentence pair | 32 | yes |
+| the two DATED summary balances | **8** | yes |
+| `Total credits` + `Total debits` | 9 | yes |
+| `Contact us:` | 15 | yes |
+| `Account #:` | 60 | yes |
+
+`period pair AND dated balances` = **exactly the 8**, with **no near miss in
+either direction**: no document prints a dated balance pair without the period
+sentence, and no document prints both markers without being one of the 8. The
+dated balances are therefore the discriminator, and they are a TEMPLATE
+printing rather than an issuer's — the parenthesised date is how this summary
+states the day each balance is a balance ON.
+
+### G2.3 The eight, by content sha256
+
+| document | model | period | rows | beginning | ending | credits | debits | grid |
+|---|---|---|---|---|---|---|---|---|
+| `026EE24630D7A7A2` | native-pdf-text | 2026-01-31..02-27 | 24 | 14,367.54 | 18,083.83 | 9,372.24 | 5,655.95 | 14 |
+| `1468D77AF2EBD42C` | native-pdf-text | 2026-04-01..04-30 | 57 | 395,670.62 | 217,256.05 | 53,081.48 | 231,496.05 | 19 |
+| `1ADC8AD7F251FBCE` | native-pdf-text | 2026-05-01..05-29 | 48 | 217,256.05 | 106,672.85 | 83,492.07 | 194,075.27 | 16 |
+| `7B3B8113DA9E7DEE` | native-pdf-text | 2026-01-31..02-27 | 49 | 37,006.93 | 80,552.85 | 294,930.67 | 251,384.75 | 15 |
+| `91A2DE994D379971` | native-pdf-text | 2026-02-28..03-31 | 60 | 80,552.85 | 395,670.62 | 544,927.10 | 229,809.33 | 21 |
+| `A3539AB30B9365D3` | native-pdf-text | 2026-02-28..03-31 | 30 | 18,083.83 | 29,415.18 | 62,380.93 | 51,049.58 | 17 |
+| `C80C0CC8CFE47D9D` | native-pdf-text | 2026-05-01..05-29 | 2 | 30,614.45 | 29,672.78 | 2,058.33 | 3,000.00 | 2 |
+| `FC385FC2D01A280F` | native-pdf-text | 2026-04-01..04-30 | 9 | 29,415.18 | 30,614.45 | 5,624.27 | 4,425.00 | 4 |
+
+Full shas are in the branch's commit messages and in G9. All 8 are digital;
+all 8 print exactly ONE account, so this template costs nothing to L-1. Six of
+the eight CHAIN — `026EE246` closes at 18,083.83 and `A3539AB3` opens there,
+which closes at 29,415.18 and `FC385FC2` opens there, and again into
+`C80C0CC8`; the other account chains `7B3B8113` into `91A2DE99` into
+`1468D77A` into `1ADC8AD7`. No gate uses it; it is a cross-document
+corroboration the archive happens to supply, and it holds everywhere it is
+available.
+
+## G3. What a document has to prove
+
+This is the first grammar in the complex that prints a COUNT — the second core
+processor prints one per direction (§SCANB), the third prints none at all
+(§LCPERIOD L3), and this one prints six of each:
+
+```
+Beginning balance (1/30/2026)
+$14,367.54
+Credits
+Deposits (0) + 0.00  Electronic cr (2) + 9,372.24  Other credits (0) + 0.00
+Total credits
++$9,372.24
+Debits
+Checks paid (0) - 0.00  Electronic db (22) - 5,655.95  Other debits (0) - 0.00
+Total debits
+- $5,655.95
+Ending balance (2/27/2026)
+$18,083.83
+```
+
+Fourteen comparisons over eight independent printings, all of them required:
+
+1. **six category COUNTS**, each against the rows of the section that category
+   heads (`Electronic db (22)` heads `ELECTRONIC DEBITS`);
+2. **six category TOTALS**, each against those same rows' amounts;
+3. **two direction totals**, each against the SUM of its three categories —
+   independent of (2) because the bank prints the parts AND the sum;
+4. `beginning + credits - debits == ending`, against the two printed balances;
+5. **the period, printed twice in two notations**: the parenthesised date on
+   each balance must be the date of the matching printed statement;
+6. **the grid**: its pre-period cell equals the printed beginning balance,
+   every in-period cell equals the walked end-of-day balance, and every day
+   the ledger posts on appears in the grid.
+
+Plus the two printed account numbers, which must agree: a document printing
+two is carrying two accounts, and this reader refuses rather than picking one.
+
+**What the counts buy that no other grammar in the complex has.** §LCPERIOD L3
+named its blind spot precisely: splitting one row into two on the same day and
+direction survives every gate there, "which a printed count WOULD catch, and
+this platform prints none." Here it is caught — it moves the category's count.
+What survives is narrower: moving value between two rows that already share a
+date, a direction AND a category. The partition SHRINKS the blind spot rather
+than closing it, and the surviving construction is a forgery signature rather
+than an OCR one. Pinned as
+`test_the_gates_are_blind_to_a_same_day_same_direction_same_category_redistribution`.
+
+**Free evidence, deliberately not gated — and one figure worth Ocean's
+attention.** The bank prints three statistics beside the balances, and the
+first of them agrees with this platform's own reading on all 8:
+
+```
+computed canonical ADB vs printed `Average balance`, all 8
+  026EE24630D7A7A2      15,446.25  vs      15,446.25   (0.00)
+  1468D77AF2EBD42C     274,502.91  vs     274,502.91   (0.00)
+  1ADC8AD7F251FBCE     125,552.98  vs     125,552.98   (0.00)
+  7B3B8113DA9E7DEE     169,391.52  vs     169,391.52   (0.00)
+  91A2DE994D379971     232,091.76  vs     232,091.76   (0.00)
+  A3539AB30B9365D3      25,633.69  vs      25,633.69   (0.00)
+  C80C0CC8CFE47D9D      32,258.99  vs      32,258.99   (0.00)
+  FC385FC2D01A280F      28,774.41  vs      28,774.41   (0.00)
+```
+
+**Eight of eight to the cent, `bank_reported_average_variance` 0.00 on every
+one.** That is a stronger result than the sibling's (§LCPERIOD L3 measured
+±0.32 against a rounding convention), and it is worth recording as evidence
+rather than as a curiosity: this issuer's own printed average is computed on
+the CANONICAL basis the ADB doctrine ratified — calendar days of the printed
+period, opening state excluded from the denominator. A bank's printed figure
+is never a definition to adopt (the doctrine is explicit), but eight documents
+of an independent issuer reproducing the canonical figure exactly is the kind
+of external corroboration the doctrine packet had to argue for from deltas.
+
+`Minimum balance` also equals the in-period grid minimum on **8 of 8**
+exactly, unlike the sibling's `Low balance`, which §LCPERIOD L3 measured
+disagreeing on 2 of 5 and correctly refused to gate on. It is still NOT gated
+here: a minimum-balance statistic is an available/collected-balance figure on
+several platforms in this archive, the reader already has six independent
+gates, and a seventh that can refuse an honest document costs more than it
+buys. Measured, named, left alone.
+
+The masthead's `Page 1 (N)` enclosure count equals the printed `Checks paid`
+count on **8 of 8** as well. Also not gated: an enclosure is a physical item
+the bank chose to mail, not a ledger fact, and a statement whose cheque images
+were not enclosed would be refused for a reason that has nothing to do with
+its arithmetic.
+
+## G4. The issuer: this template does not print one either
+
+`Statement.bank` is None on every document this reader publishes, and this
+cohort is where §LCPERIOD L4's evidence CAME from. What these documents print
+under `Contact us:`, and again in the closing courtesy sentence, is
+`Orange CO Airport Office` — a BRANCH. L4 refused the courtesy line on the
+sibling template precisely because "a slot that names a branch office on a
+sibling layout is prose the issuer chose, not a field the template reserves",
+and the sibling layout it meant is this one. Reading it would publish a branch
+as the name of a bank.
+
+The documents also print a bare `cnb.com` in the masthead. A domain is not an
+institution field: nothing bounds it on both sides as a name, deriving an
+issuer from it is inference rather than reading, and the honest-unknown-issuer
+ruling of 2026-08-14 says an unnamed issuer costs a label rather than a
+document. So `bank=None`, pinned as
+`test_the_issuer_is_never_published_even_though_the_document_names_a_branch`.
+
+`account_name` IS published — the product name stands on its own line directly
+above the `Account Summary` heading, and all 8 print `Analyzed Business
+Checking`. The same repeated-line refusal the sibling needed is carried here
+(this processor's text layer emits a line up to four times over — fill, stroke
+and two shadows), plus a length bound so that a disclosure paragraph in that
+slot is declined rather than published as a product.
+
+## G5. Four decisions worth stating, and what each cost
+
+### G5.1 A registration, disjoint by marker — no supersedes edge
+
+`core_processor_daily` requires `Total days in statement period:`, which this
+grammar prints nowhere; this registration requires the dated balances, which
+that grammar prints nowhere. Neither can claim the other's printing, so there
+is nothing for a precedence rule to resolve: **no band, no `supersedes`**, and
+the conformance cross-product (73 x 72) is what holds them apart — the same
+shape `td_canada_french` has beside the English TD layouts, rather than the
+`b1`/`first_farmers` shape. Asserted in both directions, and end to end:
+neither document resolves `ambiguous`.
+
+### G5.2 The row date is two characters shorter, and that is a real hazard
+
+This grammar dates its rows `m-d` UNPADDED (`2-2`, `3-17`) where the sibling
+prints `mm-dd`. Two characters shorter is far easier for a description to
+imitate, and these ledgers really do print `BILL.COM P26031002 - 4974025 INV
+26-2` and `INV 26-3` on ordinary rows: an invoice suffix like that satisfies a
+one-or-two-digit-run row-date grammar perfectly.
+
+So the month and day are matched as CALENDAR RANGES rather than digit runs,
+and the left boundary then stops the pattern restarting inside the token one
+character along. **Measured, not assumed: with a plain digit-run class all 8
+documents refuse**, because a phantom row appears in a section whose printed
+count then disagrees. The gates catch it — that is what they are for — but a
+reader that refuses eight honest documents is a reader that cannot read the
+template. The mutant is in the harness and is killed by
+`test_an_invoice_suffix_in_a_description_is_not_a_row_date`.
+
+### G5.3 A day the grid prints twice refuses the document
+
+Not the sibling's rule, and the difference is this template's own: it prints
+its grid in FOUR columns whose cells arrive out of document order (a `2-23`
+cell after the `2-26` one, on the archive). A set comparison would hide a
+duplicate day; a map that kept the last reading would hide it silently. Here a
+repeated day is evidence the column recovery went wrong, so it refuses.
+
+### G5.4 No day count is published, because none is printed
+
+This grammar drops the sibling's `Total days in statement period:` line.
+`days_in_period` is therefore None rather than the calendar span several other
+parsers compute: the schema's contract for the field is a BANK-STATED figure,
+and the canonical ADB denominator is derived by `analysis/adb.py` from the
+printed period regardless. Measured: `metrics.days_in_period` comes out at
+28/30/29 exactly as the printed periods require on all 8, so nothing
+downstream loses anything.
+
+## G6. The ADB doctrine, and the cell that confirms it twice
+
+The binding note in this cell's handoff is that a daily grid opening on the
+day BEFORE the period is opening STATE, never a denominator day. This template
+states the same thing twice in its own printing, which is worth recording
+because it is the first document family in the archive to do so explicitly:
+
+* the grid's first cell is dated the day the LAST statement closed;
+* `Beginning balance (1/30/2026)` carries that same date in the summary — the
+  bank labelling its opening balance with the day it is a balance ON, which is
+  the day before the period opens.
+
+Both are used as GATES and neither is published as a daily balance:
+`stated_daily_balances` carries in-period snapshots only, because
+`analysis/adb.py` treats an out-of-period snapshot as a defect of the
+statement (`bank_daily_balance_dates_valid`) and publishing it would withhold
+all 8 (§LCPERIOD L7.8, reproduced here rather than rediscovered). Pinned as
+`test_the_pre_period_cell_is_a_gate_and_is_not_published` and by a mutant that
+publishes it and is killed.
+
+The corroboration in G3 belongs to the doctrine too: on all 8, the canonical
+calendar-day ADB equals the bank's own printed average to the cent.
+
+## G7. Carried findings and questions for Ocean
+
+**G7.1 — the shared scan was lifted, and the sibling was repointed.** Both
+templates recover a cell from a flattened text layer by the same rule — it
+opens at a date and closes at the first value before the next date — and that
+scan sat twice in `core_processor_daily` and would have sat twice more here.
+`tables.dated_cells` is now that scan (patterns stay in the callers). Proven
+pure in its own commit before the registration landed: the 20-document family
+that reads through it is byte-identical in the full published payload.
+**No ruling wanted unless Ocean disagrees with lifting rather than copying**;
+`tests/test_no_parser_helper_clones.py` is what said so out loud, exactly as
+it did at §LCPERIOD L5.2.
+
+**G7.2 — a second clone the guard found: `_long_date`.** Both modules had
+re-derived `date_tokens.iso_from_named_month_day`, which has existed since
+R-2. Both call it now. Behaviour-identical (the helper case-folds the month
+word and funnels through `iso_or_none` exactly as the copies did), and covered
+by the same family replay.
+
+**G7.3 — the calendar-literal guard still reads DOCSTRINGS.** §LCPERIOD L5.1
+recorded this and worked around it; this cell hit it again, because a
+docstring that quotes a regex escape beside real printed dates trips a scan
+aimed at PATTERNS. The workaround is the same (name the class in prose), and
+the finding is unchanged: `_pattern_strings` in
+`tests/test_no_statement_hardcodes.py` does not exclude docstrings the way
+`tests/test_no_parser_helper_clones.py::_code_strings` does. **Carded, not
+fixed here** — it is a guard owned by no cell this batch, and changing what a
+guard scans is not something to do inside a registration card.
+
+**G7.4 — five mutants survived the first harness run, and two of them were
+gate tests firing through the wrong gate.** `category TOTAL check removed`
+survived because the corruption moved a category without moving the direction
+total it feeds, so the suite was killing through the direction sum;
+`direction-sum check removed` survived because its corruption also moved the
+beginning balance, so the GRID caught it first. Both are now isolated to the
+gate they name. Recorded because the class generalises: on a reader with
+fourteen overlapping gates, a test that merely asserts `parse(...) is None`
+proves that SOMETHING refused, not that the named gate did.
+
+**G7.5 — `count_semantics` gains its first entry from this complex.** The
+registration publishes `stated_credit_count` / `stated_debit_count` as
+category sums, and the entry is comparable in both directions with the
+tautology disclosed (the parser gates each category count against the section
+it heads, so a claimed document agrees by construction). It carries no
+`CountMapping`: a service charge this issuer bills arrives as an
+`Electronic db` or `Other debits` row and is therefore already inside the
+printed partition. `OBSERVER_VERSION` 4 to 5, with the v5 note recording that
+8 documents move from `unsurveyed_parser` to `match` and that no `mismatch`
+is reachable without the parser having refused the document first.
+
+**G7.6 — the 2-document `Statement Period Start:` platform is still
+unclaimed, and still nobody's.** `8ABEE7F32EC60078` and `F8E3E2E9F78F76E8`
+print parenthesised counts and an `Account Summary` block, which makes them
+the closest near miss to this grammar. They print neither required marker,
+this registration does not reach them, a conformance test pins that, and they
+are byte-identical before and after. Carded again, unclaimed.
+
+**G7.7 — the merchant detail below the amounts is deliberately not read.**
+This processor prints each row's originator on lines BELOW the amount column,
+interleaved in blocks that serve several rows at once. What stands between a
+row's date and its amount is the row's own printed label (`Preauthorized
+Debit`), and that is what is published. Attributing the merchant blocks to
+rows would be a repair; the ledger reconciles to the cent without it, and the
+descriptions are honest about being the labels the bank printed in the
+description column.
+
+**G7.8 — a trailing-minus section figure would be read as a positive
+magnitude**, and **a negative sub-dollar balance (`$-.55`) is unreadable**.
+Both are §LCPERIOD L7.5/L7.6 carried forward unchanged: this template prints
+neither, the second fails closed, and the fix for the second belongs to
+`analysis/money.py` rather than to a third copy of the rule.
+
+**G7.9 — for the train's composition.** All 8 documents publish `bank=None`,
+so they join the honest-unknown-issuer population; the arithmetic of any
+`model_used`/label rollup is Ocean's to verify at merge, as §LCPERIOD L7.9
+noted for its 13.
+
+**G7.10 — the detect budget.** This registration adds two cheap required
+markers and one corroborating substring, with NO normalization (case is
+load-bearing) — the cheapest shape a registration can have. Registry 72 to 73;
+the affordability test projects to `PLANNED_REGISTRATIONS=80` and is green on
+this tree, and the measured store-wide sweep cost 73 ms/document against the
+base tree's 75 ms/document (the difference is machine contention, not the
+registration).
