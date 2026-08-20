@@ -172,10 +172,16 @@ function numberOrNull(value) {
 function formatMoney(value, currency = "USD") {
   const n = numberOrNull(value);
   if (n === null) return "N/A";
+  const amount = n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // An explicit null currency means the document never declared one. Printing
+  // a dollar sign there would assert a denomination nobody proved
+  // (CURRENCY DOCTRINE §A), so the magnitude is shown without a unit. Callers
+  // that omit the argument still get the USD default they always had.
+  if (!currency) return amount;
   try {
     return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(n);
   } catch {
-    return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `$${amount}`;
   }
 }
 
@@ -481,6 +487,10 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
   tableEl.innerHTML = visible.map((tx) => {
     const amount = txAmount(tx);
     const category = transactionCategory(tx);
+    // The combined package ledger interleaves rows from every statement, so a
+    // row is denominated by the statement it came from, never by a package-wide
+    // label that a mixed package does not have (CURRENCY DOCTRINE §F).
+    const rowCurrency = "source_currency" in tx ? tx.source_currency : currency;
     const source = showSource
       ? `<td class="transaction-source">${escapeHtml(tx.source_document || tx.source_bank || "Statement")}</td>`
       : "";
@@ -489,7 +499,7 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
       ? `<div class="table-head-scope"><strong>Reason:</strong> ${escapeHtml(reviewReason)}</div>`
       : "";
     const runningBalance = showRunningBalance
-      ? `<td class="amount-cell">${escapeHtml(formatMoney(runningBalanceValue(tx), currency))}</td>`
+      ? `<td class="amount-cell">${escapeHtml(formatMoney(runningBalanceValue(tx), rowCurrency))}</td>`
       : "";
     return `
       <tr>
@@ -497,7 +507,7 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
         <td class="transaction-desc">${escapeHtml(txDescriptionRaw(tx) || "N/A")}</td>
         ${source}
         <td>${glassChip(category.glyph, category.label, category.tone)}${reviewReasonHtml}${revenueReviewControls(tx, reviewJobId)}</td>
-        <td class="amount-cell ${amount < 0 ? "amount-debit" : "amount-credit"}">${escapeHtml(formatMoney(amount, currency))}</td>
+        <td class="amount-cell ${amount < 0 ? "amount-debit" : "amount-credit"}">${escapeHtml(formatMoney(amount, rowCurrency))}</td>
         ${runningBalance}
       </tr>
     `;
@@ -511,7 +521,10 @@ function mainTransactionContext() {
   if (pkg) {
     return {
       transactions: Array.isArray(pkg.transactions) ? pkg.transactions : [],
-      currency: "USD",
+      // The package currency when there is one; each row still overrides with
+      // its own `source_currency`, so a mixed package's rows stay denominated
+      // individually instead of all being relabelled as one unit.
+      currency: packageCurrencyInfo(pkg).currency,
       multi: true,
     };
   }
@@ -806,6 +819,45 @@ function averageBalanceNote(metrics = {}) {
 
 function averageBalanceTone(metrics = {}) {
   return metrics.average_daily_balance === null || metrics.average_daily_balance === undefined ? "amber" : "neutral";
+}
+
+/* CURRENCY DOCTRINE §F. A package that mixes currencies, or that contains a
+   statement which never declared one, publishes its cross-currency totals as
+   null. `formatMoney` already renders those "N/A"; these say WHY, so an
+   underwriter does not read a refusal as missing data. */
+const CURRENCY_REFUSAL_COPY = {
+  multiple_currencies:
+    "Refused: this package mixes currencies and adding them would be a unit error. Each statement's own figures are unaffected.",
+  undetermined_statement_currency:
+    "Refused: a statement in this package does not declare its currency, so its figures cannot be pooled with the rest.",
+};
+
+function packageCurrencyInfo(pkg = {}) {
+  const info = pkg.currency || {};
+  const totals = pkg.totals || {};
+  const currencies = Array.isArray(info.currencies) ? info.currencies : [];
+  const refused =
+    info.cross_currency_totals_refused === true ||
+    totals.cross_currency_totals_refused === true;
+  return {
+    currency: info.currency ?? totals.currency ?? null,
+    currencies,
+    refused,
+    reason: info.refusal_reason ?? totals.currency_refusal_reason ?? null,
+  };
+}
+
+function packageCurrencyLabel(info) {
+  if (info.currency) return info.currency;
+  if (info.currencies.length) return `Mixed (${info.currencies.join(", ")})`;
+  return "Not declared";
+}
+
+function packageCurrencyRefusalNote(info) {
+  const copy =
+    CURRENCY_REFUSAL_COPY[info.reason] ||
+    "Refused: this package's currency could not be proven, so its figures cannot be combined.";
+  return info.currencies.length ? `${copy} Currencies present: ${info.currencies.join(", ")}.` : copy;
 }
 
 /* Package rollup: days-weighted validated statement ADB values from the API. */
@@ -1330,6 +1382,12 @@ function renderPackageAnalysis(pkg) {
   const potentialLenders = Array.isArray(pkg.potential_lenders) ? pkg.potential_lenders : [];
   const insuranceProviders = Array.isArray(pkg.insurance_providers) ? pkg.insurance_providers : [];
   const confidence = packageConfidence(pkg);
+  // CURRENCY DOCTRINE §D: ONE denominated set of package figures. §F: none at
+  // all when the package could not prove a single currency.
+  const currencyInfo = packageCurrencyInfo(pkg);
+  const currency = currencyInfo.currency;
+  const refusalNote = currencyInfo.refused ? packageCurrencyRefusalNote(currencyInfo) : null;
+  const moneyNote = (note) => refusalNote || note;
 
   els.statusHeading.textContent = "Package completed";
   setBanner("done", "Package analysis completed", `${confidence}%`);
@@ -1337,6 +1395,7 @@ function renderPackageAnalysis(pkg) {
   els.decisionPill.className = `decision-pill ${totals.decision || ""}`.trim();
   setStatusRows([
     ["Statements completed", `${formatNumber(totals.completed)} / ${formatNumber(totals.documents)}`],
+    ["Package currency", packageCurrencyLabel(currencyInfo)],
     ["Approved", formatNumber(totals.approved)],
     ["Manual review", formatNumber(totals.manual_review)],
     ["High integrity risk", formatNumber(totals.integrity_high)],
@@ -1352,25 +1411,25 @@ function renderPackageAnalysis(pkg) {
       title: "Package Revenue",
       sub: `${formatNumber(totals.months)} statement periods`,
       items: [
-        ["Total Credits", formatMoney(totals.total_credits), REVENUE_METRIC_COPY.totalCredits, "CR", "green"],
-        ["Verified Revenue", formatMoney(totals.verified_revenue_total), REVENUE_METRIC_COPY.verifiedRevenue, "REV", "green", { revenueFilter: "verified_revenue" }],
-        ["Unverified Deposits", formatMoney(totals.unverified_deposit_total), REVENUE_METRIC_COPY.unverifiedDeposits, "?", "amber", { revenueFilter: "unverified_deposit" }],
-        ["Non-Revenue", formatMoney(totals.non_revenue_total), REVENUE_METRIC_COPY.nonRevenue, "X", "neutral", { revenueFilter: "non_revenue" }],
-        ["Revenue Upper Bound", formatMoney(totals.maximum_revenue), REVENUE_METRIC_COPY.revenueUpperBound, "MAX", "neutral"],
-        ["Avg Monthly Credits", formatMoney(totals.avg_monthly_credits), "Average posted credits per statement period", "AVG", "neutral"],
-        ["Total Debits", formatMoney(totals.total_debits), "All posted debit transactions", "DB", "neutral"],
-        ["Avg Monthly Debits", formatMoney(totals.avg_monthly_debits), "Average posted debits per statement period", "AVG", "neutral"],
+        ["Total Credits", formatMoney(totals.total_credits, currency), moneyNote(REVENUE_METRIC_COPY.totalCredits), "CR", "green"],
+        ["Verified Revenue", formatMoney(totals.verified_revenue_total, currency), moneyNote(REVENUE_METRIC_COPY.verifiedRevenue), "REV", "green", { revenueFilter: "verified_revenue" }],
+        ["Unverified Deposits", formatMoney(totals.unverified_deposit_total, currency), moneyNote(REVENUE_METRIC_COPY.unverifiedDeposits), "?", "amber", { revenueFilter: "unverified_deposit" }],
+        ["Non-Revenue", formatMoney(totals.non_revenue_total, currency), moneyNote(REVENUE_METRIC_COPY.nonRevenue), "X", "neutral", { revenueFilter: "non_revenue" }],
+        ["Revenue Upper Bound", formatMoney(totals.maximum_revenue, currency), moneyNote(REVENUE_METRIC_COPY.revenueUpperBound), "MAX", "neutral"],
+        ["Avg Monthly Credits", formatMoney(totals.avg_monthly_credits, currency), moneyNote("Average posted credits per statement period"), "AVG", "neutral"],
+        ["Total Debits", formatMoney(totals.total_debits, currency), moneyNote("All posted debit transactions"), "DB", "neutral"],
+        ["Avg Monthly Debits", formatMoney(totals.avg_monthly_debits, currency), moneyNote("Average posted debits per statement period"), "AVG", "neutral"],
       ],
     },
     {
       title: "Cash Flow",
       sub: "Package-level affordability signals",
       items: [
-        ["Total Cash Flow", formatMoney(totals.cash_flow), "Credits minus debits", "CF", negativeTone(totals.cash_flow)],
-        ["Avg Monthly Cash Flow", formatMoney(totals.avg_monthly_cash_flow), "Average statement cash flow", "AVG", negativeTone(totals.avg_monthly_cash_flow)],
-        ["Average Daily Balance", formatMoney(totals.average_daily_balance), packageAverageBalanceNote(documents), "ADB", packageAverageBalanceTone(documents)],
+        ["Total Cash Flow", formatMoney(totals.cash_flow, currency), moneyNote("Credits minus debits"), "CF", negativeTone(totals.cash_flow)],
+        ["Avg Monthly Cash Flow", formatMoney(totals.avg_monthly_cash_flow, currency), moneyNote("Average statement cash flow"), "AVG", negativeTone(totals.avg_monthly_cash_flow)],
+        ["Average Daily Balance", formatMoney(totals.average_daily_balance, currency), moneyNote(packageAverageBalanceNote(documents)), "ADB", currencyInfo.refused ? "amber" : packageAverageBalanceTone(documents)],
         ["NSFs", formatNumber(totals.nsf_count), "Total returned items", "NSF", countTone(totals.nsf_count)],
-        ["Confirmed Withholding", formatPercent(totals.package_withholding_rate), withholdingAuditNote(totals), "%", withholdingTone(totals.package_withholding_rate)],
+        ["Confirmed Withholding", formatPercent(totals.package_withholding_rate), moneyNote(withholdingAuditNote(totals, currency)), "%", withholdingTone(totals.package_withholding_rate)],
       ],
     },
     {
@@ -1390,13 +1449,13 @@ function renderPackageAnalysis(pkg) {
         ["Confirmed Lenders", formatNumber(totals.lenders_detected), "Lenders confirmed from statement transactions", "LEN", presenceTone(totals.lenders_detected)],
         ["Potential Lenders", formatNumber(totals.potential_lenders_detected), "Possible lenders requiring analyst review", "?", countTone(totals.potential_lenders_detected)],
         ["Confirmed Lender Debit Count", formatNumber(totals.lender_debit_count), "Transactions paid to confirmed lenders", "DB", "neutral"],
-        ["Confirmed Lender Debits", formatMoney(totals.lender_debits), "Total paid to confirmed lenders", "$", "neutral"],
+        ["Confirmed Lender Debits", formatMoney(totals.lender_debits, currency), moneyNote("Total paid to confirmed lenders"), "$", "neutral"],
         ["Potential Lender Debit Count", formatNumber(totals.potential_lender_debit_count), "Transactions linked to possible lenders", "DB", countTone(totals.potential_lender_debit_count)],
-        ["Potential Lender Debits", formatMoney(potentialLenderDebitTotal(totals)), "Excluded until lender status is confirmed", "$", countTone(totals.potential_lender_debit_count)],
-        ["Eligible Deposits", formatMoney(totals.potential_withholding_denominator ?? totals.eligible_deposits), activeDenominatorNote(totals), "DEP", "neutral"],
-        ["Potential Withholding Exposure", formatPercent(totals.potential_withholding_exposure), potentialWithholdingAuditNote(totals), "%", hasMaterialPotentialLenderDebits(totals) ? "amber" : "neutral"],
+        ["Potential Lender Debits", formatMoney(potentialLenderDebitTotal(totals), currency), moneyNote("Excluded until lender status is confirmed"), "$", countTone(totals.potential_lender_debit_count)],
+        ["Eligible Deposits", formatMoney(totals.potential_withholding_denominator ?? totals.eligible_deposits, currency), moneyNote(activeDenominatorNote(totals)), "DEP", "neutral"],
+        ["Potential Withholding Exposure", formatPercent(totals.potential_withholding_exposure), moneyNote(potentialWithholdingAuditNote(totals, currency)), "%", hasMaterialPotentialLenderDebits(totals) ? "amber" : "neutral"],
         ["Insurance Debits", formatNumber(totals.insurance_count), "Insurance debit transactions", "INS", "neutral"],
-        ["Insurance Total", formatMoney(totals.insurance_total), "Excluded from lender payment totals", "$", "neutral"],
+        ["Insurance Total", formatMoney(totals.insurance_total, currency), moneyNote("Excluded from lender payment totals"), "$", "neutral"],
       ],
     },
   ]);
@@ -1404,11 +1463,12 @@ function renderPackageAnalysis(pkg) {
   renderAccountSummary([
     ["Package Decision", labelize(totals.decision || "review required")],
     ["Statements", `${formatNumber(totals.completed)} completed of ${formatNumber(totals.documents)}`],
+    ["Currency", packageCurrencyLabel(currencyInfo)],
     ["Period Range", packagePeriod(documents)],
-    ["Average Daily Balance", formatMoney(totals.average_daily_balance)],
+    ["Average Daily Balance", formatMoney(totals.average_daily_balance, currency)],
     ["Top Lenders", funders.length ? funders.slice(0, 3).map((f) => f.funder).join(", ") : "None detected"],
-    ["Confirmed Lender Debits", formatMoney(totals.lender_debits)],
-    ["Potential Lender Debits", formatMoney(potentialLenderDebitTotal(totals))],
+    ["Confirmed Lender Debits", formatMoney(totals.lender_debits, currency)],
+    ["Potential Lender Debits", formatMoney(potentialLenderDebitTotal(totals), currency)],
     ["Potential Exposure", formatPercent(totals.potential_withholding_exposure)],
   ]);
   renderPackageTables(pkg);
@@ -1419,9 +1479,13 @@ function renderPackageTables(pkg) {
   const funders = Array.isArray(pkg.funders) ? pkg.funders : [];
   const potentialLenders = Array.isArray(pkg.potential_lenders) ? pkg.potential_lenders : [];
   const insuranceProviders = Array.isArray(pkg.insurance_providers) ? pkg.insurance_providers : [];
-  renderLenders(funders, potentialLenders, "USD");
-  renderInsurance(insuranceProviders, "USD");
-  renderRevenueEvidence(pkg.totals || {}, "USD");
+  // These rollups sum across the whole package, so they are denominated by the
+  // package currency - null when there is not one, in which case the backend
+  // has already refused their money and `formatMoney` renders "N/A".
+  const currency = packageCurrencyInfo(pkg).currency;
+  renderLenders(funders, potentialLenders, currency);
+  renderInsurance(insuranceProviders, currency);
+  renderRevenueEvidence(pkg.totals || {}, currency);
   if (els.monthlyCard) els.monthlyCard.style.display = "block";
   if (els.monthlyCount) {
     els.monthlyCount.textContent = `${documents.length} ${documents.length === 1 ? "statement" : "statements"}`;
@@ -1443,14 +1507,18 @@ function renderPackageTables(pkg) {
   } else {
     els.monthlyTable.innerHTML = documents.map((doc) => {
       const status = doc.status !== "done" ? "Failed" : labelize(doc.corporate_use || doc.quality || "review");
+      // Statement-level results survive a package refusal untouched, and each
+      // row is denominated by its OWN statement (CURRENCY DOCTRINE §F) - which
+      // is what makes a mixed package still readable.
+      const docCurrency = "currency" in doc ? doc.currency : "USD";
       return `
         <tr>
-          <td><strong>${escapeHtml(doc.filename || "Statement")}</strong><br><span>${escapeHtml(doc.bank || "Unknown bank")}</span></td>
+          <td><strong>${escapeHtml(doc.filename || "Statement")}</strong><br><span>${escapeHtml(doc.bank || "Unknown bank")}${docCurrency ? ` &middot; ${escapeHtml(docCurrency)}` : ""}</span></td>
           <td>${escapeHtml(doc.period_start || "N/A")} to ${escapeHtml(doc.period_end || "N/A")}</td>
-          <td>${escapeHtml(formatMoney(doc.credits))}</td>
-          <td>${escapeHtml(formatMoney(doc.debits))}</td>
-          <td>${escapeHtml(formatMoney(doc.cash_flow))}</td>
-          <td>${escapeHtml(formatMoney(doc.average_daily_balance))}</td>
+          <td>${escapeHtml(formatMoney(doc.credits, docCurrency))}</td>
+          <td>${escapeHtml(formatMoney(doc.debits, docCurrency))}</td>
+          <td>${escapeHtml(formatMoney(doc.cash_flow, docCurrency))}</td>
+          <td>${escapeHtml(formatMoney(doc.average_daily_balance, docCurrency))}</td>
           <td>${escapeHtml(formatNumber(doc.nsf_count))}</td>
           <td><button class="table-action statement-open" type="button" data-job-id="${escapeHtml(doc.id)}" ${doc.status === "done" ? "" : "disabled"}>${escapeHtml(status === "Failed" ? "Unavailable" : "Open")}</button></td>
         </tr>
