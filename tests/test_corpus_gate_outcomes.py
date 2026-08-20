@@ -614,11 +614,18 @@ def test_a_document_with_no_payload_is_red_not_skipped():
 
 
 @pytest.mark.corpus
-def test_the_ceremony_document_publishes_cad_end_to_end():
+def test_the_ceremony_document_publishes_cad_end_to_end(monkeypatch):
     """The loop closed against the real product: the DEC statement
     (A26ECE4F32488CECDD59EA5BCF13B4947786456038CBDD17AC52C0F3D9F38EE5) resolves
     through the production intake ladder and publishes CAD, while its verdict
-    stays `PUBLISHED_OUTCOME` — currency moved, nothing else did."""
+    stays `PUBLISHED_OUTCOME` — currency moved, nothing else did.
+
+    `check_currency` is TOTAL over the manifest it is given, so driving it with
+    a one-document manifest requires a one-document map: with the committed 109
+    in place it would (correctly) report the other 108 pins as naming paths
+    outside that manifest. The full 109-vs-109 comparison is
+    `python corpus_gate.py`, not this proof.
+    """
     rel = "RBC/Chequing Statement-DEC+.pdf"
     verdict, payload = corpus_gate.production_verdict(
         corpus_gate.CORPUS / Path(rel), corpus_gate.DEFAULT_CACHE
@@ -626,4 +633,14 @@ def test_the_ceremony_document_publishes_cad_end_to_end():
     assert payload["statement"]["currency"] == "CAD"
     assert payload["statement"]["bank"] == "Royal Bank of Canada"
     assert verdict == corpus_gate.PUBLISHED_OUTCOME
+    assert corpus_gate.PINNED_CURRENCY[rel] == "CAD"
+
+    monkeypatch.setattr(corpus_gate, "PINNED_CURRENCY", {rel: "CAD"})
     assert _run_currency([rel], {rel: payload}).ok
+
+    # ...and the same document against the pre-ceremony value is RED, so the
+    # green above is the product agreeing rather than the check being inert.
+    monkeypatch.setattr(corpus_gate, "PINNED_CURRENCY", {rel: "USD"})
+    check = _run_currency([rel], {rel: payload})
+    assert not check.ok
+    assert any("publishes currency 'CAD', pinned 'USD'" in d for d in check.details)
