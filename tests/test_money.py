@@ -1280,11 +1280,15 @@ def test_read_money_reports_the_refusal_class_and_never_the_token(token, expecte
     """W3 §MG-C2 D1 — the privacy seam.
 
     This exception crosses an exception boundary: a repair-stage refusal
-    escapes `analyze_markdown`, and `webapp/worker.py` returns `str(exc)` as
-    the job error a user can see. The exception-boundary law is registry ids
-    and class names only, so the message may name the READER and the refusal
-    CLASS and must never echo the statement's own text — an account-number-
-    shaped run, a balance, or anything else the cell happened to hold.
+    escapes `analyze_markdown` into whatever the caller does with `str(exc)`.
+    Through batch 5 that caller was `webapp/worker.py`, which returned it as
+    the job error a user could see; batch 6's §WORKER-PRIVACY withholds it
+    there, and §MONEY-PRIVACY closes the source end for every raise in
+    `analysis/money.py`. The law does not rest on either: the
+    exception-boundary rule is registry ids and class names only, so the
+    message may name the READER and the refusal CLASS and must never echo the
+    statement's own text — an account-number-shaped run, a balance, or
+    anything else the cell happened to hold.
     """
     with pytest.raises(ValueError) as excinfo:
         m.read_money(token)

@@ -30,9 +30,16 @@ WHAT THIS FILE ASSERTS, and why in this shape:
   fragment of a leaked cell is not the word around it: it is the account
   number, the balance, the amount.
 * `test_no_raise_in_the_module_names_anything_but_the_refusal_constructor`
-  reads the module's own AST. The dynamic sweep can only poison the branches it
-  reaches; the AST guard covers the ones it does not, and it is what fails if a
-  future edit writes `raise ValueError(value)` on a path no test input hits.
+  reads the module's own AST, and it is the guard that carries the claim for
+  the module as a whole. The dynamic sweeps prove their three properties — no
+  fragment in the message, no chain, the named vocabulary — only on the
+  branches six poisoned shapes actually reach. The AST guard covers every
+  raise in the file, reached or not, on all three of the ways this property
+  breaks: the message not coming from `_refusal`, an explicit `from exc`, and
+  a raise sitting inside an `except` handler where `__context__` is attached
+  implicitly. Its first revision checked only the first, and a reviewer's
+  mutants on unreached branches survived it; the two clauses that kill them
+  are now in it.
 """
 from __future__ import annotations
 
@@ -282,31 +289,69 @@ def test_every_exported_callable_is_swept():
 
 
 def test_no_raise_in_the_module_names_anything_but_the_refusal_constructor():
-    """Every `raise` in `analysis/money.py` is `raise _refusal(...)`.
+    """Every `raise` in `analysis/money.py` is a BARE `raise _refusal(...)`
+    standing outside any `except` handler.
 
-    The dynamic sweep above can only poison branches its inputs reach. This
-    reads the source instead, so a refusal added on an unreached path — or an
-    old one restored to `raise ValueError(value)` — fails here even though no
+    The dynamic sweeps above can only poison branches their inputs reach, and
+    the chain assertions therefore prove `__cause__`/`__context__` emptiness
+    only on the branches those six shapes reach. This reads the source
+    instead, so a refusal added on an unreached path fails here even though no
     input finds it. `_refusal` is the single constructor precisely so that
-    this guard can be one line of intent rather than a message whitelist.
+    this guard can be three clauses of intent rather than a message whitelist.
+
+    THREE clauses, because the privacy property has three ways to break and
+    the first revision of this guard checked only one of them (a reviewer
+    found the gap by mutating branches the sweeps cannot reach):
+
+    ``the callee is _refusal``
+        the message itself must come from the one constructor.
+    ``node.cause is None``
+        ``raise _refusal(...) from exc`` builds a token-free message and then
+        hangs `float`'s quoting ValueError off it as `__cause__`. Every
+        renderer prints a cause.
+    ``not raised inside an except handler``
+        a `raise` lexically inside `except` attaches the exception being
+        handled as `__context__` IMPLICITLY — no `from` needed, nothing
+        visible at the raise site. This is the one that would be written by
+        accident, because moving the raise three lines up into the handler
+        looks like a tidy-up.
     """
     source = pathlib.Path(m.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
+    # Lexical containment, not dataflow: a raise anywhere under a handler's
+    # body — nested `try`, nested `if`, nested function — takes the context.
+    inside_handler = {
+        id(node)
+        for handler in ast.walk(tree) if isinstance(handler, ast.ExceptHandler)
+        for statement in handler.body
+        for node in ast.walk(statement) if isinstance(node, ast.Raise)
+    }
     offenders = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Raise):
             continue
         exc = node.exc
-        ok = (
-            isinstance(exc, ast.Call)
-            and isinstance(exc.func, ast.Name)
-            and exc.func.id == "_refusal"
-        )
-        if not ok:
-            offenders.append(f"line {node.lineno}: {ast.unparse(node)}")
+        if not (isinstance(exc, ast.Call) and isinstance(exc.func, ast.Name)
+                and exc.func.id == "_refusal"):
+            offenders.append(
+                f"line {node.lineno}: not `_refusal(...)`, so the message is "
+                f"not provably token-free — {ast.unparse(node)}"
+            )
+        if node.cause is not None:
+            offenders.append(
+                f"line {node.lineno}: `raise ... from ...` attaches a "
+                f"__cause__ that a traceback renderer prints — "
+                f"{ast.unparse(node)}"
+            )
+        if id(node) in inside_handler:
+            offenders.append(
+                f"line {node.lineno}: raised inside an `except` handler, which "
+                f"attaches the caught exception as __context__ implicitly — "
+                f"{ast.unparse(node)}"
+            )
     assert not offenders, (
-        "analysis/money.py raises outside `_refusal`, so the message is not "
-        "provably token-free:\n  " + "\n  ".join(offenders)
+        "analysis/money.py can carry document text out of a refusal:\n  "
+        + "\n  ".join(offenders)
     )
 
 
