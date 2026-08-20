@@ -803,7 +803,10 @@ def test_package_rollup_weights_each_statement_by_its_own_calendar_days():
             self.analysis_error = None
             self.error = None
             self.analysis = {
-                "statement": {"period_start": "2026-01-01", "period_end": "2026-01-31", "transactions": []},
+                # The package layer aggregates only across a proven single
+                # currency (CURRENCY DOCTRINE §F), so the unit these figures
+                # are in has to be declared like a real payload declares it.
+                "statement": {"currency": "USD", "period_start": "2026-01-01", "period_end": "2026-01-31", "transactions": []},
                 "metrics": {
                     "average_daily_balance": adb,
                     "calendar_day_count": days,
