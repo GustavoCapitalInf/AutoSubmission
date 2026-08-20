@@ -27479,9 +27479,10 @@ This grammar drops the sibling's `Total days in statement period:` line.
 `days_in_period` is therefore None rather than the calendar span several other
 parsers compute: the schema's contract for the field is a BANK-STATED figure,
 and the canonical ADB denominator is derived by `analysis/adb.py` from the
-printed period regardless. Measured: `metrics.days_in_period` comes out at
-28/30/29 exactly as the printed periods require on all 8, so nothing
-downstream loses anything.
+printed period regardless. Measured on all 8: `metrics.days_in_period` equals
+the printed period's own calendar span every time (28, 28, 29, 29, 30, 30, 32,
+32 — this issuer's cycle is not a calendar month), so nothing downstream loses
+anything by the field being absent on the statement.
 
 ## G6. The ADB doctrine, and the cell that confirms it twice
 
