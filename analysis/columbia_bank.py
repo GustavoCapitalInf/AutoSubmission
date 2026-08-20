@@ -17,7 +17,7 @@ _MONEY = r"\d[\d,]*[\.,]\d{2}"
 #: A balance slot in the summary strip. Beginning, low, average and ending are
 #: BALANCES and a business account goes overdrawn, so the sign is part of the
 #: printing: this account's June statement prints `Low balance -$10,816.06` and
-#: its daily grid walks through six negative days. The two FLOW figures
+#: its daily grid prints three negative days. The two FLOW figures
 #: (`Deposits/Additions`, `Withdrawals/Subtractions`) and `Interest earned`
 #: keep the unsigned pattern — this template prints them as magnitudes whose
 #: direction is the label — so a signed printing of one of those declines
@@ -33,10 +33,12 @@ _BALANCE = rf"{_SIGN}?\s?\$?{_MONEY}"
 #: OCR debris between two printed CELLS of a scanned grid: a column rule read
 #: as `|`, a leader read as `—` or `_`, a stray `.`. Never a letter, a digit, a
 #: currency symbol or a sign glyph — so it can swallow neither a label, nor a
-#: figure, nor the sign of one. Four consecutive statements of one account
-#: print, between the same two summary cells, ` ` / `  ` / ` — ` / ` | `; they
-#: are one printed strip and a reader that admits only the first two publishes
-#: two of the four.
+#: figure, nor the sign of one. The measured need: across four consecutive
+#: statements of one account the summary strip's cell boundaries print as
+#: `4166 Beginning balance` three times and `4166 — Beginning balance` once,
+#: and as `$4,831.08 Deposits/Additions` / `-$10,816.06  Deposits/Additions`
+#: three times and `$3,304.13 | Deposits/Additions` once. They are one printed
+#: strip, and a reader that admits only whitespace publishes two of the four.
 _DEBRIS = r"[^\s0-9A-Za-z$" + re.escape(MINUS_GLYPHS) + r"]"
 
 #: The gap AFTER a cell's value and before the next cell's LABEL: whitespace,
