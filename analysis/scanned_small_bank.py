@@ -1048,9 +1048,16 @@ def parse_texas_first_scanned_statement(markdown: str) -> Statement | None:
             # canonical figure (ADB doctrine, 2026-08-15).
             stmt.bank_reported_average_balance = printed_average
             stmt.bank_reported_average_label = "Average Balance"
+    # Published CHRONOLOGICALLY and DEDUPLICATED, not in printed order. The
+    # grid is three columns wide, so its reading order is column-major and its
+    # last cell is not its last day; and a day printed twice would reach
+    # `analysis/adb.py` as a duplicate snapshot and cost the whole document its
+    # `snapshot_dates_valid`. Deduplication is lossless here because a repeated
+    # day whose balances DISAGREE has already refused the document
+    # (:func:`_tf_direct_atm`), so the two entries are the same fact twice.
     stmt.stated_daily_balances = [
         StatementDailyBalance(date=iso, balance=round(cents / 100, 2))
-        for iso, cents in daily
+        for iso, cents in sorted(dict(daily).items())
     ]
     stmt.transactions = _attach_daily_balances(
         _sort_txns(transactions), {iso: round(cents / 100, 2) for iso, cents in daily}

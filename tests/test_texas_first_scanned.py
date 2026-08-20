@@ -215,6 +215,37 @@ OVERDRAWN = dict(
 )
 
 
+def test_daily_balances_publish_chronologically_not_in_reading_order():
+    """The grid is three columns wide, so its reading order is column-major:
+    `4/01 ... 4/13 ... 4/23` on one line. Published in that order the series
+    would zig-zag and its last entry would not be the period's last day."""
+    stmt = parse_texas_first_scanned_statement(
+        whole(daily="4/01 1,600.00 4/03 1,290.00\n4/02 1,500.00\n")
+    )
+    assert stmt is not None
+    assert [d.date for d in stmt.stated_daily_balances] == [
+        "2026-04-01", "2026-04-02", "2026-04-03",
+    ]
+
+
+def test_a_day_printed_twice_is_published_once():
+    """A duplicate snapshot costs `analysis/adb.py` its `snapshot_dates_valid`
+    for the whole document. The repeat has already had to agree to get here."""
+    stmt = parse_texas_first_scanned_statement(
+        whole(daily="4/01 1,600.00 4/02 1,500.00 4/03 1,290.00\n4/02 1,500.00\n")
+    )
+    assert stmt is not None
+    assert [d.date for d in stmt.stated_daily_balances] == [
+        "2026-04-01", "2026-04-02", "2026-04-03",
+    ]
+
+
+def test_a_day_printed_twice_with_two_balances_refuses():
+    assert parse_texas_first_scanned_statement(
+        whole(daily="4/01 1,600.00 4/02 1,500.00 4/03 1,290.00\n4/02 1,900.00\n")
+    ) is None
+
+
 def test_a_negative_daily_balance_prints_its_minus_on_the_right():
     stmt = parse_texas_first_scanned_statement(document(**OVERDRAWN))
     assert stmt is not None
