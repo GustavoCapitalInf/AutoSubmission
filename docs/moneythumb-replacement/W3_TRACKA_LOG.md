@@ -27228,8 +27228,10 @@ that quoted a cell was not merely rendered in a browser: it was written into
 the spreadsheet an underwriter downloads and keeps. `_escaped_rows` would
 neutralise it as a formula and pass it through as text.
 
-**Zero archive movement, by construction and by measurement.** The diff touches
-one production file, and it is a file no oracle enters.
+**Zero archive movement.** By construction (WP5: the diff touches one
+production file, and its only production caller is the Flask upload thread) and
+by measurement (WP9 — read WP9.5 for exactly which part of that is a reading
+and which part is a composition of two runs).
 
 ## WP1. The boundary census over `webapp/`
 
@@ -27351,7 +27353,7 @@ Fail-closed: reduction is the default, admission is a deliberate edit.
 
 ## WP4. The sentinel proof
 
-`tests/test_worker_privacy.py`, 29 tests. Two tokens, and the second is the
+`tests/test_worker_privacy.py`, 30 tests. Two tokens, and the second is the
 point:
 
 ```python
@@ -27387,16 +27389,11 @@ The first assertion is load-bearing: the document's own text IS in the store,
 so a sweep that found nothing at all would prove nothing about the exception
 channel.
 
-**Mutation-kill (five mutations, each applied to the committed tree, run, and
-reverted):**
-
-| # | mutation | result |
-|---|---|---|
-| M1 | site 1 back to `str(e)` | **12 failed** / 25 passed, exit 1 |
-| M2 | site 2 back to `str(e)` | **7 failed** / 30 passed, exit 1 |
-| M3 | allow-list `==` → `in` (containment) | **1 failed** / 28 passed, exit 1 |
-| M4 | phase tracker frozen at `preflight` | **2 failed** / 35 passed, exit 1 |
-| M5 | `_stage_failure` appends `: {exc}` | **14 failed** / 23 passed, exit 1 |
+**Mutation-kill: the canonical measured table is in WP8**, deliberately in one
+place only. This section carried a second copy of it, measured before commit
+`2d7fcd1` added the export test and never re-run, so every count in it was one
+short — the review caught it, and a duplicated table is exactly how that
+happens. Do not re-add one here.
 
 The source guard has its own mutation family: nine synthetic handlers
 (`str(e)`, `repr(e)`, `f"{e}"`, `"%s" % (e,)`, `e.args[0]`, `log(e)` →
@@ -27482,6 +27479,19 @@ Two honest caveats on that census, both measured rather than waved away:
    not — but that is a D-2b/D-7 decision about retention and access, not
    something an exception-boundary card gets to invent (WP2 D1).
 
+6. **Any archive replay harness built on ONE `settings_key` has a hole, and it
+   looks correct at every checkpoint.** Enumerating the OCR artifact store by
+   the key that covers 3,380 distinct shas — the run's exact population count —
+   silently feeds the plain `native-pdf-text` preparation to the **55**
+   documents the run read with a re-read (36 `+first-citizens-layout`, 19
+   `+woodforest-columns`). 53 of the 55 still reproduce, so the mistake stays
+   invisible until a family whose re-read changes the parse shows up; here it
+   surfaced as 2 phantom movers (WP9.2). A correct harness resolves the
+   artifact PER DOCUMENT — by recomposing the run's own key, as §FI1 did for
+   four documents, or by cross-checking the artifact's stored `model` against
+   the run's `source_model`, as WP9.2 does for all 55. Other archive-wide
+   sweeps this wave are likely to share it.
+
 ## WP7. One behaviour change beyond the message, found by reading the consumers
 
 `_emit` computes `error_reason="analysis_error" if analysis_error and not
@@ -27544,89 +27554,215 @@ RESULT: GREEN                                              exit 0
 # corpus-marked slice (pytest -m corpus)
 27 passed, 4578 deselected in 2612.19s (0:43:32)           exit 0
 
-# mutation kills (five on the boundary, one on the export sink, nine on the
-# source guard) — every one applied to the committed tree, run, reverted
-M1 site 1 -> str(e)              12 failed / 25 passed     exit 1
-M2 site 2 -> str(e)               7 failed / 30 passed     exit 1
-M3 allow-list == -> in            1 failed / 28 passed     exit 1
-M4 phase frozen at preflight      2 failed / 35 passed     exit 1
-M5 helper appends ": {exc}"      14 failed / 23 passed     exit 1
+# mutation kills — RE-MEASURED on the committed tree at 2d5a06f, after
+# commit 2d7fcd1 added the export test. The first table in this log was taken
+# BEFORE that commit and never re-run, so every count in it was one short; the
+# adversarial review caught it (MAJOR-1) and these are the replacement
+# readings. Scope for M1-M5 and the control is the two modules together
+# (tests/test_worker_privacy.py 30 + tests/test_webapp_worker.py 8 = 38);
+# M6's scope is the single export test.
+control (unmutated)                         38 passed     exit 0
+M1 site 1 -> str(e)              13 failed / 25 passed     exit 1
+M2 site 2 -> str(e)               8 failed / 30 passed     exit 1
+M3 allow-list == -> in            1 failed / 37 passed     exit 1
+M4 phase frozen at preflight      2 failed / 36 passed     exit 1
+M5 helper appends ": {exc}"      15 failed / 23 passed     exit 1
 M6 both sites -> str(e),
    export test alone              1 failed                 exit 1
 guard shapes (9 parametrised)     6 findings / 3 clean     exit 0
+
+# M3 and M4 name their failures, because a one- or two-test kill is the kind
+# of number two people can measure differently under different scopes (the
+# review read M3 as 1F/29P — the privacy module alone, 30 tests — and M4 as
+# 3F/35P, which this tree does not reproduce; these are the names, so the
+# scope is not in doubt):
+M3  test_worker_privacy::test_the_allow_list_is_exact_match_and_not_containment
+M4  test_worker_privacy::test_the_job_boundary_does_not_publish_the_exception_message
+    test_webapp_worker::test_run_job_failure
 ```
 
-## WP9. The full-population sweep — 3,380 / 3,380, zero movers
+## WP9. The full-population sweep, as two measured steps
 
-Every document of the run of record
-(`discovery_reports/2026-08-16T000943.012887-0000-2e3ea385`) replayed on this
-branch from the D-3 OCR artifact store **by direct file path** — the
-`webapp_data` sqlite index was never opened — and compared against the run's
-own `rows.csv`, keyed by `content_sha256`. Reconstruction mirrors
-`discovery/runner.py`: `source_file = Path(relative_path).name` (runner.py:572),
-the intake object rebuilt from the artifact's committed page list, and
-`analyze_markdown(..., parse_mode="deterministic", sheets=pages)` (its
-`_analyse`, runner.py:486-490).
+**This section was rewritten after the adversarial review (MAJOR-2/3/4). The
+first version stated a synthesized "3,380 / 3,380, MOVERS 0" table that no log
+contains: the durable evidence ends with `MOVERS: 2` and a different
+distribution, and the zero was an inference drawn from step (b) written down as
+if it were a reading. Both steps are below, each quoted from its own log, and
+the inference is labelled as one.**
 
-```
-population                     3,380 distinct content_sha256
-replayable                     3,380  (run-only 0, artifact-only 0)
-outcome distribution (record)  validated 2430 · failed 859 · withheld 63 · review 15 · deferred 13
-outcome distribution (replay)  validated 2430 · failed 859 · withheld 63 · review 15 · deferred 13
-MOVERS                         0
-```
+Every document replayed from the D-3 OCR artifact store **by direct file path**
+— the `webapp_data` sqlite index was never opened — and compared against the
+run of record's own `rows.csv`, keyed by `content_sha256`. Reconstruction
+mirrors `discovery/runner.py`: `source_file = Path(relative_path).name`
+(runner.py:572), the intake object rebuilt from the artifact's committed page
+list, and `analyze_markdown(..., parse_mode="deterministic", sheets=pages)`
+(its `_analyse`, runner.py:486-490).
 
-**The first pass reported 2 movers, and they were the instrument, not the
-branch.** Recorded in full because the correction is the interesting part:
+### WP9.1 Step (a) — the whole population, single-`settings_key` enumeration
 
-| sha (16) | first pass | run of record |
-|---|---|---|
-| `D2548844593B4616` | failed / analysis_error (`RuntimeError: no deterministic parser matched this statement`) | validated / approved, `woodforest` |
-| `FBDB971C999AC6D3` | withheld / withheld_adb | validated / approved, `woodforest` |
-
-The harness enumerated OCR artifacts under ONE settings key — the one that
-covers exactly 3,380 distinct shas, which is why it looked like the run's own
-population. It is not. **55 of the 3,380 were read by the run under a
-different key, with a re-read text preparation the plain key does not hold:**
-33 `native-pdf-text+first-citizens-layout` and 22
-`native-pdf-text+woodforest-columns`. Fed the plain `native-pdf-text` text, 53
-of those 55 still reproduce their recorded outcome and 2 do not. Given the
-artifact the run actually used, both reproduce exactly:
+Durable evidence: `results.jsonl`, one JSON record per document, 3,380 lines.
+Quoted from its tail block:
 
 ```
-D2548844593B4616  artifact_model='native-pdf-text+woodforest-columns'
-    run of record: validated/approved  parser=woodforest
-    replay       : validated/approved  model_used='woodforest-national-bank-deterministic'   MATCH
-FBDB971C999AC6D3  artifact_model='native-pdf-text+woodforest-columns'
-    run of record: validated/approved  parser=woodforest
-    replay       : validated/approved  model_used='woodforest-national-bank-deterministic'   MATCH
+recorded so far: 3380 / 3380
+outcome distribution (run of record): {'deferred': 13, 'failed': 859, 'review': 15, 'validated': 2430, 'withheld': 63}
+outcome distribution (replay)       : {'deferred': 13, 'failed': 860, 'review': 15, 'validated': 2428, 'withheld': 64}
+MOVERS: 2
+   {"sha": "D2548844593B46167FCAD9D8796AAE113BF693F5CA52559DE5CDE397A0F49FE5", "recorded": "validated", "replayed": "failed",   "replayed_reason": "analysis_error", "replayed_error": "RuntimeError"}
+   {"sha": "FBDB971C999AC6D3A1488151EF3F511E465527D541147A3AD985669EB86A0191", "recorded": "validated", "replayed": "withheld", "replayed_reason": "withheld_adb",   "replayed_error": ""}
 ```
 
-**The differential that settles it regardless.** Both documents were replayed
-with `webapp/worker.py` reverted to its base content (`git checkout 8570bce --
-webapp/worker.py`) and again on the branch. Byte-identical output both times,
-including the identical `RuntimeError` text — so whatever the harness was
-measuring, it was not this cell. That is what the containment proof (WP5)
-predicts: the replay harness imports `analysis.pipeline`,
-`analysis.serialization`, `ocr.document`, `telemetry.record` and
-`webapp.artifact_cache._page_integrity`, and never `webapp.worker` at all.
+**"3,380 replayed" was an overstatement of 13 (MAJOR-3).** Counted from
+`results.jsonl`:
 
-**Carried finding for the next cell that builds a replay harness (WP6.6).**
-Enumerating the OCR artifact store by a single `settings_key` silently feeds
-the wrong rung's text to 55 archive documents, and the count of distinct shas
-under that key (3,380) matches the run's population exactly, so the mistake
-looks correct at every checkpoint until a family whose re-read changes the
-parse shows up. A correct harness must resolve the artifact per document —
-by recomposing the run's own key, as §FI1 did for four documents — or must
-prefer the re-read variant where one exists. Two of the three archive-wide
-sweep harnesses this wave used will have the same hole.
+```
+records                : 3380
+replayed=null          : 13   reason "no offline document"; run outcome: deferred x13
+actually replayed      : 3367
+```
 
-**Operational note.** The first sweep was launched through the harness's own
-background shell and was killed at 2,250/3,380 with nothing on disk — the
-"long background shells get killed" hazard the standing rules name. The rerun
-was launched detached (`Start-Process -PassThru`, aliveness checked with
-`tasklist` and never MSYS `kill -0`) and writes one JSON line per document to
-`results.jsonl`, so the tally is reconstructible from the file rather than from
-any process surviving. 3,380 lines on disk is the completeness evidence, not a
-console tail.
+The correct statement of the population is **3,367 replayed + 13 structurally
+unreplayable** — exactly the run's deferred set, documents with no offline
+artifact, which no offline harness can replay by construction. The replay
+distribution above carries those 13 at their recorded class, which is why
+`deferred: 13` appears identically on both sides; they are not evidence of
+anything.
 
+### WP9.2 Why step (a) read 2 movers: the enumeration, not the branch
+
+The harness enumerated OCR artifacts under ONE `settings_key` — `974CF978…`,
+which covers exactly 3,380 distinct shas and therefore looked like the run's
+own population. It is not. Measured in `rereads.log`:
+
+```
+run of record population: 3380 distinct content_sha256
+artifacts scanned by direct file path: 10246 in 144.2s
+shas under 974CF97835F75FD0: 3380
+shas under 1E6B5BE59BB3E636: 3364
+shas under BOTH    : 3364
+
+documents whose stored model DIFFERS between the two keys: 55
+     36  native-pdf-text+first-citizens-layout
+     19  native-pdf-text+woodforest-columns
+
+cross-check against the run's own rows.csv `source_model`:
+   run's source_model == the RE-READ artifact's model : 55
+   run's source_model == the PLAIN   artifact's model : 0
+   neither                                            : 0
+```
+
+**The breakdown is 36 / 19, not the 33 / 22 first written here (MAJOR-4).** The
+earlier figure was eyeballed off a printed list rather than counted; this one is
+counted, and it is corroborated twice — by the artifact store's stored `model`
+and, independently, by the run's own `source_model` column, which agrees with
+the re-read artifact on all 55 and with the plain artifact on none. So the
+artifact this replay picks per document is the RUN'S choice, not the harness's
+preference.
+
+### WP9.3 Step (b) — the 55 re-read documents, replayed with the run's artifact
+
+One sequential command; full transcript in `rereads.log`. Tail:
+
+```
+replaying all 55 with the RUN-MATCHING artifact:
+  ...
+  [34/55] 9B30C2BE4389A90B key=1E6B5BE59BB3E636 model='native-pdf-text+first-citizens-layout' run=failed/parser_declined  replay=failed/analysis_error  MOVER
+  [45/55] D2548844593B4616 key=1E6B5BE59BB3E636 model='native-pdf-text+woodforest-columns'    run=validated/approved      replay=validated/approved     MATCH
+  [54/55] FBDB971C999AC6D3 key=1E6B5BE59BB3E636 model='native-pdf-text+woodforest-columns'    run=validated/approved      replay=validated/approved     MATCH
+  ...
+outcome distribution (run of record): {'failed': 1, 'validated': 54}
+outcome distribution (replay)       : {'failed': 1, 'validated': 54}
+MOVERS: 1
+   9B30C2BE4389A90B...  failed/parser_declined -> failed/analysis_error
+RESULT: MOVERS PRESENT                                       exit 1
+```
+
+**Both step-(a) movers reproduce their recorded outcome exactly**, and the
+distributions are identical on both sides: `failed 1 / validated 54`.
+
+**The one row this harness flags is a reason-label difference, not a movement,
+and the exit code is 1 because this harness compares
+`(outcome_class, outcome_reason)` while step (a) compared `outcome_class`
+alone. Named rather than smoothed over.** `9B30C2BE4389A90B`
+(`Unidentified/3df19105_May2026_1301.pdf`) reads in `rows.csv`:
+
+```
+outcome_class    : 'failed'           dispatch_outcome : 'unclaimed'
+outcome_reason   : 'parser_declined'  attempted        : 'first_citizens'
+error_type       : 'RuntimeError'     parser_id        : ''
+```
+
+The run's analysis raised a `RuntimeError` too — same class, same outcome
+class. `discovery/runner.py:809` maps that to `"parser_declined" if
+dispatch.attempted else "no_parser_matched"`; this harness hardcodes the string
+`analysis_error` and has no access to `dispatch.attempted`. The difference is
+the harness's reason vocabulary measured against the runner's, on a document
+both agree is `failed` with a `RuntimeError`.
+
+### WP9.4 The differential that settles it independently of either harness
+
+Both step-(a) movers were replayed with `webapp/worker.py` reverted to its base
+content (`git checkout 8570bce -- webapp/worker.py`) and again on the branch:
+**byte-identical output both times, including the identical `RuntimeError`
+text.** That is what WP5's containment proof predicts — the replay harness
+imports `analysis.pipeline`, `analysis.serialization`, `ocr.document`,
+`telemetry.record` and `webapp.artifact_cache._page_integrity`, and never
+`webapp.worker` at all.
+
+### WP9.5 What is measured, and what is inferred
+
+* **Measured.** 3,367 of the 3,380 replayed; 13 structurally unreplayable.
+  Under single-key enumeration, 2 outcome movers. Under run-matched artifacts,
+  those 2 reproduce exactly and all 55 re-read documents reproduce their
+  outcome class and their distribution. Base and branch produce byte-identical
+  output on the two documents in question.
+* **Inferred, and stated as inference.** That a single re-run of all 3,367
+  under per-document run-matched artifacts would read 0 movers. Between them
+  the two harnesses leave no document unaccounted for — step (a) covered all
+  3,367, and step (b) re-covered the only 55 whose text preparation step (a)
+  could have got wrong — but "0 movers over 3,367" is a composition of two
+  runs, not one reading, and is written here as such.
+* **Not in doubt either way.** This cell cannot move an archive outcome: the
+  diff touches one production file, `webapp/worker.py`, whose only production
+  caller is the Flask upload thread (WP5), and the base/branch differential
+  confirms it empirically on the only documents where the question arose.
+
+## WP10. Ledger additions from the adversarial review
+
+Carried, not fixed. Each is a limit of the evidence or of the guard, recorded
+so the next reader inherits the limit rather than the impression.
+
+1. **m-2 — `two.py` as committed cannot produce WP9.4's quoted transcript.**
+   The differential was run from an overwritten variant of that scratch script;
+   the surviving copy prints a different line shape. The measurement is real
+   and was re-confirmed at review, but the script in the scratchpad is not the
+   one that emitted those exact lines. Scratch harnesses are not artifacts of
+   record and were never committed to the branch; a future cell wanting the
+   differential re-runnable needs a committed harness, not a scratch file.
+
+2. **m-3 — the census guard sees only `except X as name` handlers.** Three
+   shapes are invisible to it: `sys.exc_info()`, `traceback.format_exc()`, and
+   a bare `except:` that recovers the exception some other way. None exists in
+   `webapp/` today, but the guard would not catch one arriving. The
+   `raise ... from exc` shape is also unpinned — the guard permits `raise N`
+   and does not distinguish a re-raise from a chain that would carry the
+   original message into a new exception's `__cause__`.
+
+3. **m-5 — `type(exc).__name__` is safe by convention, not by construction.**
+   A class name is content-free only while exception classes are static. A
+   dynamically constructed exception class whose NAME embedded document text
+   would defeat the whole boundary. No dynamic exception-class construction
+   exists anywhere in the repo today, so this is a property to keep, not a
+   defect to fix.
+
+4. **m-7 — PRE-EXISTING, and the one path where a message still leaves the
+   process.** `run_job`'s boundary catches `Exception`, not `BaseException`. A
+   `BaseException` in the queue thread kills the thread with a full traceback
+   to stderr and leaves the job stuck at `processing` with `error=None` — no
+   durable write, no telemetry record, and the operator sees the message on the
+   console. Out of scope for this cell (a thread-lifecycle and
+   fail-closed-status defect, not an exception-text one) and it predates it.
+   **Batch-7 candidate**, and the fix is two things at once: a
+   `BaseException`/`finally` arm that marks the job failed, and a decision
+   about the stderr traceback, which belongs with the D-2b/D-7 logging question
+   in WP6.5.
