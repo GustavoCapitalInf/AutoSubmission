@@ -27544,7 +27544,9 @@ registry fingerprint at HEAD
 | `3e30daa` | the cross-process guard inherits the parent environment (a defect in the guard, caught and killed before merge: it scrubbed `WITHHOLDING_*` out of the child only) |
 | `948595a` | RF8 proofs and RF9 |
 | `f8c878a` | RF10 — the adversarial-review closures |
-| (this one) | RF11 — the sweep's input selection, measured and then fixed |
+| `fb01bb8` | RF11 — the sweep's input selection, measured and then fixed |
+| `576a00c` | the sweep classified as an excused analysis caller (corpus_gate.py) |
+| (this one) | RF12 — the proof block after the closures |
 
 ## RF10. Adversarial-review closures (APPROVE WITH FINDINGS: 1 MAJOR, 6 MINOR)
 
@@ -27706,6 +27708,59 @@ it had itself created. **`corpus_gate.py` is outside this cell's declared
 ownership** (`webapp/artifact_cache.py`, the registry helper, tests, this log);
 the edit is one dictionary entry required by that guard, and it is flagged here
 rather than made quietly.
+
+## RF12. Proofs after the closures (final tree, `576a00c`)
+
+Every one re-run after the last edit, not carried forward. Nine other cells were
+resident throughout; the long runtimes are contention, and each was verified
+progressing rather than hung.
+
+```
+$ python -m pytest -q
+4544 passed, 34 skipped, 31 deselected, 1 warning in 361.51s        EXIT=0
+                                         # 4,511 + 33 (31 + 2)
+
+$ python -m pytest -m corpus -q
+27 passed, 4582 deselected, 1 warning in 3021.21s (0:50:21)         EXIT=0
+
+$ python corpus_gate.py
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 4 review / 102 validated / 3 withheld
+Runtime:  1232.4s
+RESULT: GREEN                                                       EXIT=0
+
+$ python -m pytest tests/test_parser_registry_fingerprint.py       tests/test_stated_counts.py tests/test_artifact_cache.py       tests/test_parser_conformance.py -q
+824 passed, 1 warning in 15.34s                                     EXIT=0
+
+$ python -m pytest tests/test_corpus_gate_outcomes.py -q
+8 passed, 8 deselected, 1 warning in 7.23s                          EXIT=0
+```
+
+Mutation kills after the closures — five mutations, five kills, one test each
+(each applied, run, reverted, and the tree re-verified green):
+
+```
+1. "supersedes": sorted(...) -> list(...)
+   shipped-registry fingerprint UNCHANGED (3F1ADB24… both ways: the tautology)
+   FAILED …::test_a_two_member_edge_set_hashes_identically_across_hash_seeds
+   deterministic — fails ALONE under parent seeds 0 and 2
+2. "band": registration.band -> int(registration.band)
+   FAILED …::test_band_is_hashed_as_declared
+3. _declared_callables(registration) removed from validate_registry
+   FAILED …::test_an_unnameable_callable_is_refused_when_the_registry_is_validated
+4. "generic_structurer" removed from the settings dict
+   FAILED …::test_the_generic_structurer_flag_partitions_the_analysis_key
+5. "parser_registry" removed from the settings dict
+   FAILED …::test_a_new_registration_moves_the_analysis_settings_key
+   FAILED …::test_the_analysis_settings_key_reads_the_registry_fingerprint
+   FAILED …::test_the_fingerprint_loads_the_registry_when_nothing_else_has
+6. _ensure_registry_loaded neutered to `return`
+   FAILED tests/test_stated_counts.py::test_the_join_resolves_a_payload_from_a_
+          process_that_never_loaded_the_parsers
+   FAILED …::test_the_key_is_byte_identical_across_two_fresh_processes
+   FAILED …::test_the_fingerprint_loads_the_registry_when_nothing_else_has
+```
 
 Final key surface after the closures: fingerprint
 `3F1ADB24F856897DDDE4265D4F28C9FCA31BFEB1B37F2773C128C4EB973A5A51` (unchanged
