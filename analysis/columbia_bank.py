@@ -39,9 +39,15 @@ _BALANCE = rf"{_SIGN}?\s?\$?{_MONEY}"
 #: two of the four.
 _DEBRIS = r"[^\s0-9A-Za-z$" + re.escape(MINUS_GLYPHS) + r"]"
 
-#: The gap between two cells: whitespace, optionally with a run of debris in
-#: it. At least one whitespace character, so it can never join two tokens the
-#: bank printed adjacent.
+#: The gap AFTER a cell's value and before the next cell's LABEL: whitespace,
+#: optionally with a run of debris in it. At least one whitespace character, so
+#: it can never join two tokens the bank printed adjacent.
+#:
+#: Deliberately not used between a label and its own value. Debris only ever
+#: appears after a value in these printings (`XXXXXX4166 — Beginning balance`,
+#: `$3,304.13 | Deposits/Additions`), and a tolerance in front of a figure
+#: would swallow an em dash standing in a sign position and publish
+#: `—$100.00` as `+100.00` — the exact misreading W3 §MGD3 ruled against.
 _GAP = rf"\s+(?:{_DEBRIS}+\s*)?"
 
 
@@ -342,8 +348,21 @@ def _printed_total(markdown: str, label: str) -> Decimal | None:
     a month may or may not print are read exactly like the three it always
     does — an absent section is `None` here, never a silent zero.
     """
-    found = re.search(rf"{label}{_GAP}\$?({_MONEY})", markdown, re.IGNORECASE)
+    found = re.search(rf"{label}\s+\$?({_MONEY})", markdown, re.IGNORECASE)
     return None if found is None else _money(found.group(1))
+
+
+def _prints_section(markdown: str, start: str) -> bool:
+    """Whether the document prints a section's masthead and column header.
+
+    Asked separately from `tables.section_between` because that function
+    returns `""` both for "no such section" and for "the section's closing
+    total is missing", and those are opposite facts: the first is a month with
+    nothing to report, the second is a section whose rows this reader can see
+    and cannot reconcile. Conflating them would let an unclosed section's rows
+    be silently dropped from a ledger that still balanced without them.
+    """
+    return re.search(start, markdown, re.IGNORECASE | re.DOTALL) is not None
 
 
 def detection_text(markdown: str) -> str:
@@ -396,10 +415,10 @@ def parse_columbia_bank_statement(markdown: str) -> Statement | None:
         markdown,
     )
     summary = re.search(
-        rf"Account number{_GAP}([X\d]+){_GAP}Beginning balance{_GAP}({_BALANCE}){_GAP}"
-        rf"Low balance{_GAP}({_BALANCE}){_GAP}Deposits/Additions{_GAP}\$?({_MONEY}){_GAP}"
-        rf"Average balance{_GAP}({_BALANCE}){_GAP}Withdrawals/Subtractions{_GAP}\$?({_MONEY})\s+"
-        rf".*?Interest earned{_GAP}\$?({_MONEY}){_GAP}Ending balance{_GAP}({_BALANCE})",
+        rf"Account number\s+([X\d]+){_GAP}Beginning balance\s+({_BALANCE}){_GAP}"
+        rf"Low balance\s+({_BALANCE}){_GAP}Deposits/Additions\s+\$?({_MONEY}){_GAP}"
+        rf"Average balance\s+({_BALANCE}){_GAP}Withdrawals/Subtractions\s+\$?({_MONEY})\s+"
+        rf".*?Interest earned\s+\$?({_MONEY}){_GAP}Ending balance\s+({_BALANCE})",
         markdown,
         re.IGNORECASE | re.DOTALL,
     )
@@ -415,11 +434,8 @@ def parse_columbia_bank_statement(markdown: str) -> Statement | None:
     total_credits = _money(credits_raw)
     total_debits = _money(debits_raw)
 
-    deposit_block = section_between(
-        markdown,
-        _section(r"Deposits/Additions", "Date", "Description", "Additions"),
-        r"Total Additions",
-    )
+    deposit_head = _section(r"Deposits/Additions", "Date", "Description", "Additions")
+    deposit_block = section_between(markdown, deposit_head, r"Total Additions")
     ach_debit_block = section_between(
         markdown,
         _section(r"ACH and Electronic Payments/Subtractions",
@@ -436,11 +452,10 @@ def parse_columbia_bank_statement(markdown: str) -> Statement | None:
     # statements does. Its head and its own printed total travel together: a
     # head with no total, or a total with no head, is a section this reader
     # cannot reconcile and the document declines.
+    other_credit_head = _section(
+        r"Other Deposits/\s*Additions", "Date", "Description", "Additions")
     other_credit_block = section_between(
-        markdown,
-        _section(r"Other Deposits/\s*Additions", "Date", "Description", "Additions"),
-        r"Total Other Deposits/\s*Additions",
-    )
+        markdown, other_credit_head, r"Total Other Deposits/\s*Additions")
     other_debit_block = section_between(
         markdown,
         _section(r"Other Withdrawals/Subtractions", "Date", "Description", "Subtractions"),
@@ -482,13 +497,17 @@ def parse_columbia_bank_statement(markdown: str) -> Statement | None:
     if ach_debit_total is None or ach_credit_total is None or other_total is None:
         return None
     # The two sections a month may or may not print. Each is read only against
-    # its OWN printed total, and each pairs its rows with that total: present
-    # with no total, or a total with no rows to close, is a refusal.
+    # its OWN printed total, and the two must travel together: a masthead with
+    # no closing total is a section whose rows this reader can see and cannot
+    # reconcile, and a closing total with no masthead is a figure with no rows
+    # under it. Both refuse. The masthead is asked for directly rather than
+    # inferred from an empty block, because an unclosed section produces the
+    # same empty block as an absent one and the two mean opposite things.
     deposit_total = _printed_total(markdown, r"Total Additions")
     other_credit_total = _printed_total(markdown, r"Total Other Deposits/\s*Additions")
-    if bool(deposit_block) != (deposit_total is not None):
+    if _prints_section(markdown, deposit_head) != (deposit_total is not None):
         return None
-    if bool(other_credit_block) != (other_credit_total is not None):
+    if _prints_section(markdown, other_credit_head) != (other_credit_total is not None):
         return None
     deposit_total = Decimal() if deposit_total is None else deposit_total
     other_credit_total = Decimal() if other_credit_total is None else other_credit_total
