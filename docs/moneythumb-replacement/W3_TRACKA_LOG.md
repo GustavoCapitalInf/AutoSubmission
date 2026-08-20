@@ -27591,3 +27591,166 @@ the affordability test projects to `PLANNED_REGISTRATIONS=80` and is green on
 this tree, and the measured store-wide sweep cost 73 ms/document against the
 base tree's 75 ms/document (the difference is machine contention, not the
 registration).
+
+## G8. Proofs
+
+```
+# full default suite
+4625 passed, 35 skipped, 31 deselected in 319.52s        exit 0
+   (base 8570bce: 4,511. +114 = this cell's 93, the lifted scan's 7,
+    and the 14 per-registration parametrizations a 73rd registration adds.)
+
+# this cell
+93 passed in 0.97s                                       exit 0
+
+# the third core processor's family, re-proven after the shared-scan lift
+266 passed in 1.47s                                      exit 0
+   test_core_processor_daily . test_core_processor_sectioned .
+   test_shared_parser_utils
+
+# guards
+242 passed in 28.63s                                     exit 0
+   test_no_statement_hardcodes . test_no_parser_helper_clones .
+   test_r1_hardcodes . test_experiments_are_not_wired . test_filename_boundary
+
+# conformance cross-product + registry + count semantics
+1138 passed, 35 skipped in 7.00s                         exit 0
+   test_parser_conformance (73 x 72 detection-negative) .
+   test_parser_registry_entries . test_parser_detection_markers .
+   test_parser_registry . test_parser_crash_shapes .
+   test_parser_exception_boundary . test_count_semantics
+
+# mutation harness (session scratchpad, not committed)
+22 mutants, 22 killed                                    exit 0
+   one aimed at every gate, boundary and refusal. Five survived the first
+   run and all five were TEST gaps, closed in `145d72f` (G7.4).
+
+# corpus gate (python corpus_gate.py), 1124s
+[PASS] inventory: 109 pinned corpus PDFs, all on disk and audited by both oracles
+[PASS] source_integrity: 109/109 pinned source PDFs match their pinned SHA-256
+[PASS] balance_audit / adb_audit: 109 statements reproduce every audited field
+[PASS] balance_outcomes: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes:     106 pass, 3 withheld, same three statements
+[PASS] outcome_classes:  109 statements publish their pinned verdict
+                         (class + the whole integrity block):
+                         4 review / 102 validated / 3 withheld
+[PASS] adb_doctrine: 109/109 publish the canonical basis
+                     'calendar_day_printed_period'
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR, no live OCR, no model calls
+[PASS] exclusions: 0 named exclusions
+[PASS] oracle_independence
+Outcomes: 106 PASS / 3 WITHHELD
+RESULT: GREEN                                            exit 0
+
+# corpus-marked (pytest -m corpus), 3072s
+27 passed, 4664 deselected                               exit 0
+   test_corpus_gate_is_green . test_dry_run_reproduces_known_truth .
+   test_no_corpus_document_is_left_unclaimed .
+   test_no_corpus_document_is_ambiguous .
+   test_every_corpus_document_resolves_to_the_recorded_parser .
+   test_the_recorded_parser_is_always_the_highest_ranked_claimant .
+   test_detect_sweep_stays_affordable_for_the_discovery_run .
+   test_the_verdict_check_is_green_on_the_committed_expectation . and the rest
+```
+
+**Nothing in the pinned corpus moved.** The 109 hold no document of this
+grammar — the four corpus-marked dispatch checks pin every pinned document to
+its RECORDED parser and to being the highest-ranked claimant, so a pinned
+document reached by this registration would have reddened them, and the
+verdict check is green on the committed expectation. Unlike §LCPERIOD, whose
+registration was load-bearing on the gate through `b1`'s three `Others/B1/`
+statements, this one touches the pinned corpus only through the shared scan —
+which the same 109 documents prove inert.
+
+Store-wide non-interference, all 3,396 documents with offline text, base tree
+`8570bce` (extracted with `git archive`) versus this branch:
+
+```
+DISPATCH OUTCOME transitions
+   2537  claimed   -> claimed
+    851  unclaimed -> unclaimed
+      8  unclaimed -> claimed
+
+ambiguous, before : 0      ambiguous, after : 0
+documents whose dispatch changed in ANY field : 8  (exactly the 8)
+documents this registration CLAIMS             : 8  (exactly the 8)
+documents this registration ATTEMPTS and then declines : 0
+```
+
+The last line is the one worth reading twice: the registration never claims a
+document it cannot read, so it adds nothing to any `attempted` population and
+cannot turn an unclaimed document into a `parser_declined` one. Sweep cost 73
+ms/document here against 75 ms/document on the base tree — the difference is
+machine contention, not the 73rd registration.
+
+Full published-payload replay, before and after, over every document this
+cell touches or excludes:
+
+```
+                                    documents  byte-identical  moved
+this cell's population                      8               0      8
+core_processor_daily's family (incl. b1)   20              20      0
+the Statement Period Start platform         2               2      0
+the Columbia fifth grammar                  3               3      0
+```
+
+## G9. Every document, named
+
+**The 8 that publish** (`failed / no_parser_matched` to
+`validated / approved`, all `bank=None`, all `quality: transaction_level`,
+integrity flags empty, `risk_level: clear`):
+
+| content_sha256 | outcome | period | rows | ADB | printed average |
+|---|---|---|---|---|---|
+| `026EE24630D7A7A2C1071472DBD05E478DA2ACA9F3B85F74EA90BF5ACBB3D937` | validated/approved | 2026-01-31..02-27 | 24 | 15,446.25 | 15,446.25 |
+| `1468D77AF2EBD42C3146C1C5EEEBC3BCBB047D41B18AAFE30228C033A673DA62` | validated/approved | 2026-04-01..04-30 | 57 | 274,502.91 | 274,502.91 |
+| `1ADC8AD7F251FBCE8708E27E4E16A73717DC64EE8911D5ACF8FAD373B3A44EF4` | validated/approved | 2026-05-01..05-29 | 48 | 125,552.98 | 125,552.98 |
+| `7B3B8113DA9E7DEEFA80B5D7F50360B3E66446B6A5E0E76B35B9727D7A443809` | validated/approved | 2026-01-31..02-27 | 49 | 169,391.52 | 169,391.52 |
+| `91A2DE994D3799712332B734BE8E8C6BC12E0C5A341E367D068DD16E7E9A8711` | validated/approved | 2026-02-28..03-31 | 60 | 232,091.76 | 232,091.76 |
+| `A3539AB30B9365D39BF049159CAFFCEED4DC29164619B0CE4B26E7DD120ACB5D` | validated/approved | 2026-02-28..03-31 | 30 | 25,633.69 | 25,633.69 |
+| `C80C0CC8CFE47D9D0B09A65AAE4D24B5995B450AB8E942BFB51A0BFE6A5D97FE` | validated/approved | 2026-05-01..05-29 | 2 | 32,258.99 | 32,258.99 |
+| `FC385FC2D01A280FB256720E89A349A4048D3A15BEC8F8D948CBE769BA6FE472` | validated/approved | 2026-04-01..04-30 | 9 | 28,774.41 | 28,774.41 |
+
+Every one publishes `account_name = "Analyzed Business Checking"`,
+`days_in_period = None` (none printed), `bank_reported_average_label =
+"Average balance"`, and a `bank_reported_average_variance` of **0.00**. Two
+accounts across the eight — `23980762` (4 documents) and `23980770` (4).
+
+**The 20 of `core_processor_daily`, byte-identical** (13 validated by that
+registration, 3 validated by `b1` behind its supersedes edge, 4 refusing
+scans): `0853FD10760701AB…` `1124CC1F5B9FC1E5…` `196670833C6CA142…`
+`5DADFE8416F942AD…` `7370DF5A42DF71E6…` `79ACCAA2AD709795…`
+`7F24930F43E68918…` `8B7B23BAD5394FE7…` `9219F4C6288CA716…`
+`A600AF7F3179021D…` `BF1C4310EDCCD4F2…` `C505452E7046B8E0…`
+`F5ED552BE8CF348F…` · `038B262B334DC848…` `1C1DA63082C5D724…`
+`A1A46034B0194137…` · `0FFA1DA3837F5518…` `2FC2A756EE5A8C50…`
+`790B4EA8224B8ADE…` `DE92B503B2EFF9CB…`
+
+**The 2-document platform, byte-identical and still unclaimed**:
+`8ABEE7F32EC600787EBB9005609C330F0BDF1FBE237944B0EEDEA4A1AED34172` ·
+`F8E3E2E9F78F76E8C04CCB59DADE7C67259FAEB18038E4B0F9FE389259363C92`
+
+**Columbia's 3, byte-identical and left to COLUMBIA-5** (one claimed by
+`columbia_bank` and `review / integrity_flags` before and after; two
+`failed / no_parser_matched` before and after):
+`0CBD2AD897B90137878F81EF608778735CA0DFEAB23D25793F2C6F1DF6C6127D` ·
+`2E667295DFCB16BAB6E1ECB8D41F450E8D79AA1A8B93C77FAB867E1CFEECFAA4` ·
+`88AAC06119FC0B7DFAA278AAA9FB71348152D47C960F782DFD0A05CB5089F0EE`
+
+**Zero overlap with COLUMBIA-5's population, by construction and by
+measurement**: the two sets are disjoint (8 and 3), the 32-document period-pair
+census in G2.1 partitions them exactly, and this branch's conformance test
+`test_the_columbia_fifth_grammar_is_not_claimed` pins the exclusion in code
+rather than in a report.
+
+## G10. Commits
+
+| Commit | Contents |
+|---|---|
+| `2fef908` | the dated-cell scan lifted into `analysis/tables.py`, the sibling repointed, 7 unit tests, proven pure over the 33 |
+| `240620f` | `analysis/core_processor_counted.py`, the registration, every registry pin, the conformance fixture, the `count_semantics` entry and `OBSERVER_VERSION` 5, and the two guard findings fixed |
+| `61aa90a` | the cell's 88 tests, including the three exclusion proofs |
+| `145d72f` | five surviving mutants closed; 22 of 22 killed |
+| `8837f5e` | this section's G0–G7 |
+| `b25f570` | one log correction: the measured day-count spans, stated exactly |
+| (this one) | G8–G10: the proof block, every document named, and the commit table |
