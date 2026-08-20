@@ -27832,3 +27832,22 @@ run.
 | `a3afa8a` | daily balances publish chronologically and once |
 | `6a29616` | the two refusal figures restated exactly (documentation only) |
 | (this one) | SN10 — the proofs, and the corpus gate honestly owed |
+
+## SN12. Ocean's rulings on SN9, recorded
+
+Received after the report, before the owed proofs landed. Recorded here so the
+dispositions travel with the evidence rather than in a review thread.
+
+| SN9 finding | ruling | disposition |
+|---|---|---|
+| **1** — `9B3DB6CF995D`'s recoverable `714,71` daily cell; the repair needs the walk widened from day-to-day to legible-balance-to-legible-balance | **batch-7 card; correctly not taken here** | The document stays `failed/parser_declined` on this branch. The widening erodes the per-day uniqueness the whole direction solve rests on, so it is a design change with its own gate, not a patch. Worth +1 document. |
+| **2** — the Tesseract-mangled page declaration (`A20AACF2`, page 6 prints `of 14` against five legible `of 11` and 11 supplied sheets) | **batch-7 card, named `PAGE-DENOM`** | `A20AACF2` **stays `review/integrity_flags`** on this branch. The flag is fraud-relevant and `analysis/pipeline.py` is not this card's to touch. A denominator-contradiction rule would move it to `validated`; that is `PAGE-DENOM`'s to prove, not this cell's to assume. |
+| **3** — `metrics.py` has no hypothesis for "overdrawn days counted as zero, truncated to whole dollars" (proven 5/5, SN7.1) | **batch-7 card, named `ADB-HYPO`, citing the 5/5 evidence** | NOT taken here, and the reason is the discipline rather than the difficulty: adding the vocabulary word changes a PUBLISHED field (`bank_reported_average_hypothesis`) on five documents, and those five are outside this card's named population in every sense that matters — the movement would be in a field this card did not open. The evidence stands at SN7.1 for `ADB-HYPO` to build on. |
+| **4** — the ranking's rows 2, 5 and 7 overlap DECLINES-D by sha | **routed at batch-7 staffing, not double-staffed** | The overlaps are named by family and by declining parser in SN3 so the routing needs no second census. |
+
+**Registry composition is Ocean's at the train.** This cell took 72 -> 73
+(`texas_first_scanned`); GRAM-4 took 72 -> 73 independently
+(`core_processor_counted`). The composed 72 -> 74 — `EXPECTED_ORDER`, both
+documented count tuples, and the 74 x 73 conformance cross-product — belongs to
+the train. **This cell's pins are final and are not to be touched further**;
+the conflict between the two branches' `73`s is expected and mechanical.
