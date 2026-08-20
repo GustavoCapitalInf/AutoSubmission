@@ -27202,3 +27202,195 @@ other batch-5 cells at once, which is the only reason the two runtimes are
 | `42e4055` | this section, FI0–FI5 |
 | `c536dbf` | the corpus gate proof |
 | (this one) | the corpus-marked slice proof, the no-movement statement, and this table |
+
+---
+
+# §SCANNEXT — the scanned ladder's ranking, re-derived, and the family that tops it
+
+## SN0. Summary
+
+The scout's batch-4 ranking is four batches stale. This cell re-derived it from
+the run of record and then implemented the family that came first.
+
+**Census (phase 1, no code):** 208 of the run's 3,380 distinct documents are
+non-digital (scanned 176 · mixed 16 · unknown 16). 179 of them carry OCR text;
+29 do not (13 deferred, 16 with no artifact at all). Grouped by STRUCTURAL
+family — mastheads and page furniture printed in the cached OCR text, never
+folder labels — the 179 fall into 36 families plus a residual of 34 documents
+that are not statements (driver's licences, cheque images, a W-9, zero-balance
+letters, online screenshots) and are correctly `failed`.
+
+**The ranking's answer:** `texas_first` — eight documents, all
+scanned/`failed`/`no_parser_matched`, **claimed by no registration and
+attempted by none**, printing the richest oracle set in the scanned population:
+a summary that states BOTH counts and BOTH totals, a four-way partitioned
+ledger, a per-day balance grid, and — because the eight are two four-month
+chains of the same two accounts — a month-to-month balance chain across
+documents. Zero overlap with any other batch-6 cell.
+
+**Implemented ceiling, stated before the code was written: 5 of 8.** The other
+three refuse, with named causes, and the refusals are the point: two have rows
+Tesseract dropped (`8FC40813` two rows totalling $1.00; `33A2F2DD` one row of
+$0.01) and one (`9B3DB6CF`) has one daily-grid cell whose decimal separator
+Tesseract resolved as a comma.
+
+## SN1. The instrument, and why this enumeration is immune
+
+Run of record `2026-08-16T000943.012887-0000-2e3ea385`. Two instrument hazards
+were live this batch and both are answered here rather than assumed away.
+
+**Hazard 1 (WORKER-PRIVACY, reviewer-confirmed): one settings_key is not the
+run's population.** The D-3 store partitions OCR artifacts by
+`ocr_settings_key`, and enumerating under a single partition reports a
+population the run did not read.
+
+**Hazard 2 (SIGN-READER): the store holds several OCR vintages per document,
+so "the first artifact found" is not the artifact the run read.**
+
+The enumeration used here is immune to both by construction: for every document
+it probes EVERY settings partition reachable from `ocr_settings_key` at the
+current `OCR_STAGE_VERSION` (8 flag combinations), by DIRECT FILE PATH, and
+then SELECTS the artifact whose stored `model` equals that document's own
+`source_model` column in the run's `rows.csv`. A document with no
+model-agreeing artifact is reported UNRESOLVED, never guessed. Measured over
+all 3,380:
+
+```
+resolved by model agreement (one partition)                   3,277
+resolved by model agreement (two partitions, text identical)     74
+cached NEGATIVE (source_model empty; the ladder returned None)   13
+no artifact in the store at all                                  16
+                                                              -----
+                                                              3,380
+```
+
+3,284 documents have ONLY the scanned-mode partition
+(`force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False`); 80 have two;
+none has only the digital-mode partition. Of the 80, 74 hold byte-identical
+text under the same model, and **6 DISAGREE** — the digital-mode partition
+holds a cached NEGATIVE (no text at all) while the scanned-mode partition holds
+the `local-tesseract-ocr` read the run actually used. All six are scanned:
+
+```
+A4C49ACBC03D905D3A94369311205E93D52D56CB47822D829DD542C0B39E2BCE  Apex Bank      validated
+E5C8D422FDBE927710BBD33F879882D7D2F6F4A324FDB1F0738FFFBF423D5D72  Chase          review
+0CBD2AD897B90137878F81EF608778735CA0DFEAB23D25793F2C6F1DF6C6127D  Columbia Bank  review
+98D069AF2A41CC6F4A6E6B6DD94FA2E8C294E18438D817BBBB05CCE1B55E849F  Regions Bank   validated
+58CB0DCC7460A445541C6181F461432BBF948BC31AB7F1C64459FF6ADC8F0243  Unidentified   validated
+4C96DDA28A6728FB42C04D15A77860A0FE8A335FF1BBEC7FAE890524D1645163  Unidentified   review
+```
+
+On a scanned card that is not a footnote: an enumeration keyed on the digital
+partition would report SIX documents as having no OCR text at all, and any
+differential built on it would manufacture six false movers.
+
+**Populations are derived by live detection replay, never from `rows.csv`
+`parser_id`.** That column is EMPTY on all 27 non-digital `parser_declined`
+documents — the declining parser is only recoverable from the run's telemetry
+`dispatch.attempted` or from a replay. The replay harness rebuilds the exact
+`StatementMarkdown` the runner rebuilt from the artifact (same model, same
+pages, same `page_integrity` shape), calls the same
+`analyze_markdown(..., parse_mode="deterministic", sheets=pages)`, and
+classifies with the runner's own `classify_outcome` / `_failure_reason`. The
+D-3 cache is disabled, so nothing is read stale and nothing is written.
+
+**Harness validity, measured:** over all 179 non-digital documents with text,
+the replay reproduces the run of record's `(outcome_class, outcome_reason)`
+**179/179, zero mismatches.**
+
+## SN2. The census
+
+208 non-digital documents, by classification and outcome in the run of record:
+
+| classification | n | validated | review | withheld | failed | deferred |
+|---|---:|---:|---:|---:|---:|---:|
+| scanned | 176 | 28 | 3 | 8 | 126 | 11 |
+| mixed | 16 | 0 | 0 | 0 | 14 | 2 |
+| unknown | 16 | 0 | 0 | 0 | 16 | 0 |
+
+Of the 126 scanned `failed`: 100 `no_parser_matched`, 26 `parser_declined`.
+
+**The 29 with no OCR text are not a family and cannot become one without
+spend.** 13 are cached NEGATIVES (the deterministic ladder returned None: the
+page images carry no recoverable text layer and local Tesseract produced
+nothing) and 16 have no artifact at all (invalid or encrypted PDFs — the runner
+never reached the ladder). Neither group can be validated from the cache. The
+only route is the visual rung (`--scanned-visual`), which is a GPU/vendor call:
+**out of scope at $0, and reported rather than spent.** Cost/benefit: 29
+documents, ~0.9% of the archive, at the price of turning on a paid rung for the
+whole scanned tranche.
+
+**The residual 34 are not statements.** Driver's licences (11), cheque images
+(9), an IRS W-9, an accountant's compilation report, a QuickBooks P&L, a
+zero-balance letter, a routing-number screenshot, online-banking screenshots,
+two Adobe-Reader stub pages, and one 13-page document (`8AE51A345F85F...`)
+whose Tesseract output is not language at all
+(`M 6a.e CiC1i5d / in i unnotN. Do/ 50331AcA`) — the honest answer to "does the
+local OCR carry a readable ledger AT ALL" is NO, and no reader can fix it.
+These are correctly `failed` and must stay `failed`.
+
+## SN3. The re-derived ranking
+
+Ranked by (validated-gain × confidence). "Attempted" is the live-replay
+dispatch, not `rows.csv`. **Batch 7 can staff from this table without another
+census.**
+
+| # | family | printed identity | unclaimed | attempted by | gain | conf | note |
+|---:|---|---|---:|---|---:|---|---|
+| 1 | `texas_first` | Texas First Bank, `www.texasfirst.bank`, 600 Gulf Freeway Texas City TX | **8** | none | 5–8 | **VERY HIGH** | **TAKEN BY THIS CELL.** Summary states both counts AND both totals; four-way ledger; daily grid; two four-month chains cross-check each other. |
+| 2 | `cp_sectioned_scan` | core-processor sectioned template (`PAGE:` / `ACCOUNT:` / `TELEPHONE:`), issuers UNITED COMMUNITY x7, SOUTHSTATE x6, FIRST FARMERS x1 | 14 | `core_processor_sectioned` x13, `first_farmers` x1 | <=14 | MEDIUM | **OVERLAPS DECLINES-D** (its largest named cluster is `core_processor_sectioned` 22, of which these 14 are the non-digital half). Route, do not double-staff. 7 siblings already validate. |
+| 3 | `southside` | `SOUTHSIDE STATEMENT OF ACCOUNT`, PO Box 1079 Tyler TX | 9 | `southside_scanned` x1 | <=9 | MEDIUM | The registration exists and claims only 1 of the 9, then declines it. 4 of the 9 are one- and two-page fragments (827-1,688 chars) that are page extracts, not statements — realistic gain about 5. |
+| 4 | `td_soa` | TD Bank `STATEMENT OF ACCOUNT`, `America's Most Convenient Bank` | 6 | `td_us` x1 | <=5 | MEDIUM-HIGH | 4 already reach `withheld_adb` — a parser reads them and the ADB is what refuses. This is an ADB-doctrine card, not a new-template card. One 287-char fragment is not a statement. |
+| 5 | `citizens_rop` | `Business Account Statement` / `Commercial Account Statement`, ROP, PO Box 7000 Providence RI 02940 | 5 | `citizens` x4 | <=5 | MEDIUM | **OVERLAPS DECLINES-D** (`citizens` 4). Rich text, 20k-25k chars per document. 1 reaches `withheld_adb`. |
+| 6 | `tangerine` | `<Month> 2026 Statement` + `Your activity summary`, account `114-040-401` | 5 | none | <=5 | MEDIUM | One account, five consecutive months — the same chain property that makes #1 strong. |
+| 7 | `lake_city` | Lake City Bank, `Last statement:` / `This statement:` pair | 4 | `core_processor_daily` x4 | <=4 | MEDIUM | **OVERLAPS DECLINES-D** (`core_processor_daily` 4). |
+| 8 | `hoosier_hills` | Hoosier Hills Credit Union `Member Statement`, hoosierhills.com | 3 | none | <=3 | MEDIUM | The three richest scanned documents in the archive (44k-48k chars). A multi-share member statement — an L-1 multi-account shape, which is why confidence is not higher. |
+| 9 | `fc_daco2` | First Citizens Bank, `Central Bank Operations - DACO2` | 3 | none | <=3 | MEDIUM | 18k-35k chars. Adjacent to the shipped `first_citizens` reader; settle sibling/supersedes before registering. |
+| 10 | `columbia` | Columbia Bank, `Customer Service 1-866-486-7782` | 4 | `columbia_bank` x1 | <=3 | — | **CLAIMED BY COLUMBIA-5 this batch.** Not available. |
+| 11 | `novo_middlesex` | Novo / `Middlesex Federal Savings, F.A.` monthly account statement | 4 | none | <=4 | LOW-MED | One page and about 1.6k chars each — a summary card with little or no ledger. Verify a ledger exists before staffing. |
+| 12 | `swla_cu` | Southwest Louisiana CU `STATEMENT OF ACCOUNT` | 2 | none | <=2 | MEDIUM | 12k-29k chars; a loan-and-share member statement. |
+| 13 | `choice_fargo` | Choice Bank Fargo ND, bankwithchoice.com | 2 | none | <=2 | MEDIUM | 12k chars each. |
+| 14 | `south_point` | South Point Bank / Merchants Bank of Alabama | 2 | none | <=2 | MEDIUM | 25k chars each; two issuers on one printing — read the issuer, do not name it. |
+| 15 | `enclosure_count` | `Page 1 / Statement Date / Account Number / Enclosure Count` | 2 | none | <=2 | LOW-MED | The issuer prints its name only as a graphic; honest-unknown-issuer applies. |
+| 16 | `meridian_txhistory` | Meridian online `Transaction History` extract | 4 | none | 0 | — | **NOT A STATEMENT** — an online extract with no period and no summary; the Meridian/OLB reserved decision covers it. Route to Gustavo, do not parse. |
+| 17 | `td_canada_scan` | TD Canada Trust activity, photographed | 5 | none | <=2 | LOW | Four of the five are one-page fragments (443-1,498 chars) of a longer print. |
+| 18 | `signature_bcas` | `Business Checking Account Statement`, one holder | 3 | none | <=3 | LOW | 723-871 chars for a two-page document: the ledger did not survive the scan. |
+| 19 | `firefighters_cu` | Firefighters & Company Federal CU, Dayton OH | 3 | none | <=3 | LOW | One page each; the NCUA furniture survived and the ledger did not. |
+| 20 | `community_bank_fcrot` | Community Bank `FCROT`/`GBOT` internet-banking print | 2 | none | <=2 | LOW | About 1.1k chars. |
+| — | 16 singletons | `altra_cu`, `bofa_scan`, `commerce_scan`, `community_trust`, `frost_scan`, `home_federal`, `stock_yards`, `tbk_scan`, `us_bank_scan`, `wells_scan`, `texas_first_bank_mo`, `united_community_chk`, `bmo_avis`, `rbc_void`, `cibc_form`, and the `chase_scan` tail | 1 each | mixed | 1 | — | Not worth a registration each. `home_federal` (22k chars) and `altra_cu` (34k chars) are the only two carrying a full ledger. |
+
+Two families in the table are already spoken for this batch (`columbia` goes to
+COLUMBIA-5) and three overlap DECLINES-D by sha; those are named so batch 7
+routes rather than collides.
+
+**Refusal reasons as evidence (RUNG-SEAM's channel).** No document in the
+non-digital population carries an `unreadable_text_layer` refusal in the run of
+record: every one of the 179 with text produced text the ladder accepted, and
+the 13 that produced none are cached negatives rather than refusals. The reason
+channel therefore adds nothing to this ranking beyond what the census already
+shows — recorded because it was checked, not because it moved a rank.
+
+### SN3.1 The eight, named
+
+```
+33A2F2DD6CAF1791C891CC86AF34EC5D95332A196C599D68CF1DA4443D771EAB  13 pages  failed/no_parser_matched
+390DD1A1E8039F2C0EB92DFA36EEAC6E149DDDDA83996257599A5C0EB321BF9A   7 pages  failed/no_parser_matched
+644F369429CD3D19342476F1B349A7263C05D82A1D24E143646F04C09054571D  13 pages  failed/no_parser_matched
+6ACF3130775C25175642FDAE8E9AFD98F66F9175B3684AD3C3956026C7624DDC  16 pages  failed/no_parser_matched
+756F987E1AD8B217D67E7B8F7F77BC6740A4B9D408A678AD8F4CEF7A74FFBADB  12 pages  failed/no_parser_matched
+8FC408139D8A437A820F0ABCDF35DEFEADE3CAB8CF349C797433EAB8F88EE3EC   8 pages  failed/no_parser_matched
+9B3DB6CF995DB68B5E4E25DB38EFC728DC0ED2D7AFCA3D1BCB54CC197A36E0A6   9 pages  failed/no_parser_matched
+A20AACF22B6A475AED00D6557931BF0D97D6D8B20E34442791D1071B6EEA4431  11 pages  failed/no_parser_matched
+```
+
+Two accounts, four consecutive months each, and each month's ending balance is
+the next month's beginning balance:
+
+```
+SEAWALL8910 LLC   3/01 1,283.90 -> 626.96 -> 2,107.88 -> 1,284.92 -> 1,867.62 (6/30)
+BIGHEAD SMOKE     3/01 4,166.20 -> 5,299.00 -> 1,545.04 -> 10,345.17 -> 8,252.65 (6/30)
+```
+
+All eight close their own printed identity exactly:
+`beginning + stated credits - stated debits == ending`, residual `0.00` on
+every one.
