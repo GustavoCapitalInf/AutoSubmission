@@ -372,6 +372,15 @@ EXCLUDED_ANALYSIS_CALLERS = {
     "deterministic_coverage_audit.py": "measurement script over markdown",
     # This gate's own harness, governed by PRODUCTION_SUPPLIES_SHEETS above.
     "corpus_gate.py": "the harness itself; tracks the call sites by declaration",
+    # W3 §EXTRACTPRIV. Calls the analysis to prove the LLM branch is NOT
+    # reachable in deterministic mode: `extract_statement` is replaced by a
+    # recording sentinel and the assertion is that it records nothing. It
+    # analyses one string literal, never a document, and publishes no verdict —
+    # so there is no intake object to supply and nothing for `sheets` to
+    # describe. Excused rather than declared, deliberately: adding it to
+    # ANALYSIS_CALL_SITES would assert that this probe should pass sheets,
+    # which would be a false statement about what it measures.
+    "tools/extractpriv_reachability.py": "reachability probe over a literal; asserts the call never happens",
 }
 
 # Audited columns whose value is a path, compared without regard to separator.

@@ -221,6 +221,49 @@ def test_a_refusal_carries_no_chained_exception_at_all(shape, refuse):
 
 
 @pytest.mark.parametrize("shape", list(SHAPES))
+def test_a_refusal_carries_no_attached_state(shape, refuse):
+    """`str(exc)` is not the only thing an exception carries.
+
+    Reviewer's mutant B: `err.response = response; return err` passes every
+    other assertion in this file — the message is still the closed vocabulary,
+    the chain is still empty — and hangs the whole
+    `GenerateContentResponse` off the exception, where the transcription is one
+    `repr()`, one `pickle` or one structured-logger away. `args` is checked for
+    the same reason one step down: a second positional would travel in every
+    serialization of the exception.
+    """
+    exc = refuse(shape)
+    assert exc.__dict__ == {}, f"{shape}: refusal carries attached state {exc.__dict__!r}"
+    assert len(exc.args) == 1 and isinstance(exc.args[0], str), exc.args
+
+
+@pytest.mark.parametrize("shape", list(SHAPES))
+def test_no_helper_frame_is_in_the_raised_traceback(shape, refuse):
+    """The constructor RETURNS, so only the raise site is in the traceback.
+
+    `_extraction_refusal`, `_stop_reason` and `_response_state` have all
+    returned by the time the exception exists, and their frames — the ones
+    holding `response` — are therefore absent from `exc.__traceback__`. A
+    mutant that raises from inside the constructor instead puts one back, which
+    is invisible to every assertion on the message and visible to any renderer
+    configured with `capture_locals`.
+
+    `extract_statement`'s own frame is expected and is not something this card
+    claims to close: it holds `markdown` and `resp`, as does `analyze_markdown`
+    above it (§XP9.3).
+    """
+    exc = refuse(shape)
+    frames = []
+    tb = exc.__traceback__
+    while tb is not None:
+        code = tb.tb_frame.f_code
+        if pathlib.Path(code.co_filename).resolve() == pathlib.Path(ex.__file__).resolve():
+            frames.append(code.co_name)
+        tb = tb.tb_next
+    assert frames == ["extract_statement"], frames
+
+
+@pytest.mark.parametrize("shape", list(SHAPES))
 def test_the_refusal_stays_a_runtime_error(shape, refuse):
     """The CLASS is the contract. `analysis/pipeline.py` :705 reduces an
     escalation failure to `type(e).__name__`, `batch.py` and
@@ -317,6 +360,33 @@ class _FakeReason:
     name = f"{WORD}_{DIGITS}"
 
 
+class _SpoofedName(str):
+    """A `str` that LIES about membership and tells the truth when rendered.
+
+    `__hash__`/`__eq__` say "I am STOP", so `name in _STOP_REASONS` is True;
+    the characters, and `__format__`, are the transcription. Unreachable from
+    the SDK — pydantic mints real `FinishReason` members — but it is the exact
+    shape that turns a membership test into a rendering licence, so
+    `_stop_reason` returns the canonical value from `_CANONICAL_STOP_REASON`
+    rather than the object that matched.
+    """
+
+    def __hash__(self):
+        return hash("STOP")
+
+    def __eq__(self, other):
+        return other == "STOP"
+
+    def __format__(self, spec):
+        return f"{WORD} {DIGITS}"
+
+
+class _SpoofedEnumLike:
+    """An enum-shaped object whose `.name` is the liar above."""
+
+    name = _SpoofedName(f"{WORD} {DIGITS}")
+
+
 class _TextRaises:
     candidates = None
 
@@ -354,6 +424,30 @@ class _StubReason:
 
 def test_stop_reason_is_unknown_when_the_response_itself_explodes():
     assert ex._stop_reason(_Exploding()) == ex._UNKNOWN_STOP_REASON
+
+
+@pytest.mark.parametrize("vector, reason", [
+    # the liar arrives AS the finish reason (a str has no `.name`, so
+    # `getattr(reason, "name", reason)` hands the object straight through)
+    ("bare", _SpoofedName(f"{WORD} {DIGITS}")),
+    # the liar arrives as an enum-shaped object's `.name`
+    ("dot_name", _SpoofedEnumLike()),
+])
+def test_a_name_that_lies_about_membership_still_cannot_reach_the_message(vector, reason):
+    """Passing `in _STOP_REASONS` earns the VALUE, never the object.
+
+    `_SpoofedName` compares equal to "STOP" and renders as the transcription.
+    The returned string must be this module's own "STOP" — identical
+    characters, no poison — and the assembled message must be one of the 54.
+    """
+    got = ex._stop_reason(_StubReason(reason))
+    assert got == "STOP"
+    assert type(got) is str, type(got)
+    assert f"{got}" == "STOP"
+    assert WORD not in f"{got}" and DIGITS not in f"{got}"
+    message = str(ex._extraction_refusal(_StubReason(reason)))
+    assert WORD not in message and DIGITS not in message, message
+    assert message in _every_possible_message(), message
 
 
 def test_response_state_is_unavailable_when_the_body_cannot_be_read():
@@ -463,6 +557,34 @@ def test_the_refusal_interpolates_only_the_vocabulary_helpers():
     assert not [n for n in ast.walk(fn) if isinstance(n, ast.JoinedStr)]
 
 
+def test_the_refusal_constructor_attaches_nothing_to_the_exception():
+    """No `something.attr = ...` inside `_extraction_refusal`.
+
+    The companion to `test_a_refusal_carries_no_attached_state`, which can only
+    see the shapes the sweep constructs. Reviewer's mutant B —
+    `err.response = response; return err` — is an attribute assignment, and so
+    is every variant of it (`err.args += ...` reaches `args` through an
+    augmented assignment, `err.__cause__ = ...` re-attaches the chain this
+    module severs). The source-level rule refuses the whole family.
+    """
+    fn = next(node for node in ast.walk(_module_ast())
+              if isinstance(node, ast.FunctionDef) and node.name == "_extraction_refusal")
+    offenders = []
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+            targets = [node.target]
+        else:
+            continue
+        if any(isinstance(t, (ast.Attribute, ast.Subscript)) for t in targets):
+            offenders.append(f"line {node.lineno}: {ast.unparse(node)}")
+    assert not offenders, (
+        "_extraction_refusal assigns to an attribute, so the exception can "
+        "carry state that `str(exc)` does not show:\n  " + "\n  ".join(offenders)
+    )
+
+
 def test_the_vocabulary_helpers_return_only_closed_values():
     """`_stop_reason` and `_response_state` return constants or a value already
     tested for membership in a module-level vocabulary.
@@ -493,12 +615,46 @@ def test_the_vocabulary_helpers_return_only_closed_values():
             for candidate in candidates:
                 if isinstance(candidate, ast.Constant) and isinstance(candidate.value, str):
                     continue
+                # `_CANONICAL_STOP_REASON[name]` — the module's own copy of the
+                # matched name, which is the ONLY subscript allowed here: the
+                # value comes from this file, never from the caller's object.
+                if (isinstance(candidate, ast.Subscript)
+                        and isinstance(candidate.value, ast.Name)
+                        and candidate.value.id == "_CANONICAL_STOP_REASON"):
+                    continue
                 assert isinstance(candidate, ast.Name), (
                     f"{name} returns {ast.unparse(candidate)}, which is neither a "
-                    "literal nor a vocabulary-checked name")
+                    "literal, a vocabulary-checked name, nor the canonical lookup")
                 assert candidate.id in guarded | {"_UNKNOWN_STOP_REASON"}, (
                     f"{name} returns `{candidate.id}` without testing it against "
                     f"{vocabulary} first")
+
+
+def _text_readers() -> list[tuple[str, int]]:
+    """Every `.text` attribute access in the module, with its enclosing scope.
+
+    Walks the WHOLE tree — module level, class bodies, `async def`, nested
+    definitions, decorators, comprehensions — rather than iterating
+    `ast.FunctionDef` nodes, which is what this guard used to do and which
+    silently exempted every one of those places. A second reader is a second
+    reader wherever it is written; a module-level `_PREVIEW = resp.text[:80]`
+    is the easiest one to add and was the easiest one to miss.
+    """
+    readers: list[tuple[str, int]] = []
+
+    def visit(node: ast.AST, scope: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.Attribute) and child.attr == "text":
+                readers.append((scope, child.lineno))
+            inner = (
+                child.name
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                else scope
+            )
+            visit(child, inner)
+
+    visit(_module_ast(), "<module>")
+    return readers
 
 
 def test_the_module_reads_the_response_body_in_exactly_one_place():
@@ -510,12 +666,38 @@ def test_the_module_reads_the_response_body_in_exactly_one_place():
     it — and it is the guard that would fail first if someone re-added a
     length or a preview.
     """
-    tree = _module_ast()
-    readers = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.FunctionDef):
-            continue
-        for inner in ast.walk(node):
-            if isinstance(inner, ast.Attribute) and inner.attr == "text":
-                readers.append((node.name, inner.lineno))
-    assert {name for name, _ in readers} <= {"_response_state"}, readers
+    readers = _text_readers()
+    assert {scope for scope, _ in readers} == {"_response_state"}, readers
+    assert len(readers) == 1, readers
+
+
+def test_the_reader_guard_actually_looks_outside_functions():
+    """The guard above is only worth its docstring if its walk is total.
+
+    Three synthetic modules, one per place the old `ast.FunctionDef` loop could
+    not see. Each must be reported; if `_text_readers` ever narrows again, this
+    fails instead of the guard silently passing on a real leak.
+    """
+    cases = {
+        "<module>": "PREVIEW = resp.text[:80]\n",
+        "Holder": "class Holder:\n    preview = resp.text[:80]\n",
+        "peek": "async def peek(resp):\n    return resp.text\n",
+    }
+    for expected_scope, source in cases.items():
+        tree = ast.parse(source)
+        readers: list[tuple[str, int]] = []
+
+        def visit(node, scope):
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, ast.Attribute) and child.attr == "text":
+                    readers.append((scope, child.lineno))
+                inner = (
+                    child.name
+                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                    else scope
+                )
+                visit(child, inner)
+
+        visit(tree, "<module>")
+        assert readers == [(expected_scope, readers[0][1] if readers else 0)], (
+            f"a `.text` read in {expected_scope} went unseen: {readers}")

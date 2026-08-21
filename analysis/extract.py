@@ -125,6 +125,18 @@ Statement markdown follows:
 #: widen this by upgrading the SDK and never by this file drifting behind it.
 _STOP_REASONS = frozenset(member.name for member in types.FinishReason)
 
+#: The same names, as a lookup that RETURNS OUR OWN copy of the string.
+#:
+#: `x in _STOP_REASONS` is a question answered by the candidate's `__hash__`
+#: and `__eq__`, and a `str` subclass may answer it however it likes while its
+#: actual characters — and its `__format__` — say something else entirely. A
+#: membership test therefore licenses the VALUE, never the OBJECT: `_stop_reason`
+#: looks the matched name up here and returns what this module put in, so the
+#: only strings that can reach the message are the ones built from the enum at
+#: import time. Unreachable from the SDK, which mints real enum members; one
+#: dict and one subscript to make that a property rather than a dependency.
+_CANONICAL_STOP_REASON = {name: name for name in _STOP_REASONS}
+
 #: What an unreadable finish reason is called. Fail-closed: it is what a
 #: missing candidate, a `None`, a value from a newer API and an attribute
 #: access that raises all collapse to.
@@ -147,13 +159,16 @@ def _stop_reason(response: types.GenerateContentResponse) -> str:
     the object is not the shape we think. A diagnosis that says `unknown` costs
     a debugging session; a diagnosis that echoes whatever it found costs the
     property this module is defending.
+
+    The matched name is never itself returned — see `_CANONICAL_STOP_REASON`.
+    Passing the membership test earns the VALUE, not a place in the message.
     """
     try:
         candidates = response.candidates or ()
         reason = candidates[0].finish_reason if candidates else None
         name = getattr(reason, "name", reason)
         if isinstance(name, str) and name in _STOP_REASONS:
-            return name
+            return _CANONICAL_STOP_REASON[name]
     except Exception:                     # noqa: BLE001 — see the docstring
         return _UNKNOWN_STOP_REASON
     return _UNKNOWN_STOP_REASON

@@ -27605,12 +27605,18 @@ guard, which is what the "no length" decision bought.
 3. **Frame locals are not closable at this site, and this card does not claim
    them.** A traceback renderer configured with `capture_locals` (pytest's
    `--showlocals`, some crash reporters) prints frame variables, and
-   `extract_statement`'s frame holds `markdown` — the whole document — as does
-   `analyze_markdown`'s above it. That is a property of every frame in the
-   pipeline, not of this raise; the message, the args, the chain and the
-   *default* rendered traceback are what this card closes, and those are what
-   the proof asserts on. Returning the exception from the constructor does keep
-   the helper frames (which hold `response`) out of the traceback entirely.
+   `extract_statement`'s frame holds **both** of them: `markdown`, the whole
+   document as it went to the model, and `resp`, the response object whose
+   `repr` carries the transcription back — with `markdown` also live in
+   `analyze_markdown`'s frame above it. That is a property of every frame in
+   the pipeline, not of this raise; the message, the args, the attached state,
+   the chain and the *default* rendered traceback are what this card closes,
+   and those are what the proof asserts on. Returning the exception from the
+   constructor does keep the helper frames (which also hold `response`) out of
+   the traceback entirely, and
+   `test_no_helper_frame_is_in_the_raised_traceback` now pins that the only
+   frame this module contributes is `extract_statement`'s — so the exposure
+   cannot silently widen even though it cannot be closed here.
 4. **`_STOP_REASONS` tracks the installed SDK.** If google-genai ever returns a
    finish reason the installed enum does not name, the message says `unknown` —
    correct and fail-closed, but it means a vocabulary gap presents as a
@@ -27696,3 +27702,121 @@ afterwards on the same tree.
 | `fff8372` | this section (XP0-XP9): census, hunk, caller census, findings |
 | `f864598` | XP2's answer to the finish-reason-bits objection; XP6's overstated `ocr_coverage` claim replaced with what that check actually asserts |
 | (this one) | the proof table and this list |
+
+## XP12. Review closures (APPROVE WITH FINDINGS — 0 BLOCK, 0 MAJOR)
+
+The adversarial review verified the card by hand — 17 `FinishReason` members
+to 54 strings, 0 f-strings / 2 raises / one `.text` read, no helper frame in
+the traceback, `TypeError` absent from all 43 archived `telemetry.jsonl`, the
+`worker.py` -> sqlite -> `app.py` path live on main, the sentinel probe six
+ways, all four mutants dead, 61 tests green with sockets hard-blocked — and
+returned six findings. All six are taken.
+
+**MINOR-1 — the reviewer's surviving mutant.** `err.response = response;
+return err` inside `_extraction_refusal` passed all 61 tests: the message is
+still one of the 54 and the chain is still empty, while the whole
+`GenerateContentResponse` rides on the exception, one `repr()`, one `pickle`
+or one structured logger away from the transcription. The find is that
+`str(exc)` was standing in for "what the exception carries", and those are not
+the same object. Two closures, because the dynamic one cannot see unreached
+branches and the static one cannot see runtime state:
+`test_a_refusal_carries_no_attached_state` asserts `exc.__dict__ == {}` and a
+single string `arg` on every shape, and
+`test_the_refusal_constructor_attaches_nothing_to_the_exception` refuses, in
+the source, any `Assign`/`AugAssign`/`AnnAssign` whose target is an attribute
+or a subscript anywhere in the constructor — which covers `err.response`,
+`err.args += ...` and `err.__cause__ = ...` as one family rather than as three
+spellings. Mutant B is now **KILLED**.
+
+**MINOR-2 — a membership test is not a rendering licence.** `name in
+_STOP_REASONS` is answered by the candidate's `__hash__`/`__eq__`, and a `str`
+subclass may answer "I am STOP" while its characters and its `__format__` say
+otherwise. Unreachable from the SDK — pydantic mints real enum members — and
+closed anyway, in one line: `_CANONICAL_STOP_REASON` maps each name to this
+module's own copy, and `_stop_reason` returns the LOOKED-UP value rather than
+the object that matched. Both spoof vectors are now cases
+(`bare`, where the liar arrives as the `finish_reason` itself, and `dot_name`,
+where it arrives as an enum-shaped object's `.name`); both render `STOP`.
+
+**MINOR-3 — the guard now checks what its docstring claims.**
+`test_the_module_reads_the_response_body_in_exactly_one_place` iterated
+`ast.FunctionDef`, which exempted module level, class bodies and `async def` —
+so `_PREVIEW = resp.text[:80]` at import time would have passed the guard whose
+whole point is that there is one reader. `_text_readers` now descends the whole
+tree with a scope stack, and `test_the_reader_guard_actually_looks_outside_functions`
+feeds it one synthetic module per blind spot so the walk cannot narrow again
+without failing. Mutants C and C2 (a second reader at module level, and in a
+class body) are **KILLED**; under the old walk both would have survived.
+
+**MINOR-4 — canonical proof sets.** §XP10's guard and conformance figures were
+an ad-hoc file mix and did not compare with other cards. The canonical sets,
+measured green on this head:
+
+| set | files | result |
+|---|---|---|
+| guards (5) | `test_filename_boundary`, `test_no_statement_hardcodes`, `test_r1_hardcodes`, `test_no_parser_helper_clones`, `test_experiments_are_not_wired` | **242 passed** |
+| conformance (7) | `test_parser_conformance`, `test_parser_detection_markers`, `test_parser_registry`, `test_parser_registry_entries`, `test_pipeline_registry_dispatch`, `test_parser_exception_boundary`, `test_diagnostics` | **1126 passed, 34 skipped** |
+
+**MINOR-5** — §XP9.3 named only `markdown` in `extract_statement`'s frame. It
+holds `resp` too, whose `repr` carries the transcription; the sentence is
+completed there, and the frame set is now pinned by a test rather than merely
+described.
+
+**MINOR-6 — the harnesses are committed.** `tools/extractpriv_census.py`
+(§XP5), `tools/extractpriv_reachability.py` (§XP6) and
+`tools/extractpriv_mutate.py` (§XP8), each runnable as `python -m tools.<name>`
+in the house idiom, so the three tables are re-derivable instead of asserted.
+The mutate harness now carries all eight mutants; B is the reviewer's verbatim,
+and A, C and C2 are this harness's rendering of the other properties the review
+verified by hand.
+
+**The corpus-gate adjacency REGFP hit.** Committing the reachability probe
+tripped `test_every_production_caller_of_the_analysis_is_classified`
+immediately, exactly as forecast: it calls `analyze_markdown`, and `tools/` is
+swept as production. Classified in `corpus_gate.EXCLUDED_ANALYSIS_CALLERS`
+rather than declared in `ANALYSIS_CALL_SITES`, and the reason is the honest one
+— it analyses a string literal to prove a call never happens, publishes no
+verdict, and has no intake object, so declaring it would assert that this probe
+*should* supply `sheets`, which is a false statement about what it measures.
+`tests/test_corpus_gate_outcomes.py` 8 passed after the entry.
+
+### XP12.1 The mutation table, second round
+
+Eight mutants, `python -m tools.extractpriv_mutate .`, each reverted by the
+harness:
+
+| mutant | before this round | now |
+|---|---|---|
+| M1 the original f-string | KILLED | **KILLED** |
+| M2 `_stop_reason` echoes unchecked | KILLED | **KILLED** |
+| M3 a response length in the template | KILLED | **KILLED** |
+| M4 the refusal chained to a quoting `ValueError` | KILLED | **KILLED** |
+| A the constructor raises, putting its frame back in the traceback | (not tested) | **KILLED** |
+| B `err.response = response; return err` | **SURVIVED all 61** | **KILLED** |
+| C a second `.text` reader at module level | (would have survived) | **KILLED** |
+| C2 a second `.text` reader in a class body | (would have survived) | **KILLED** |
+
+**8 mutants, 8 KILLED, 0 survivors** (`MUTATE_EXIT=0`).
+
+### XP12.2 Proofs for the closure round
+
+Tree `bf4a8b1`. Gate and corpus slice are **not owed by this round** and were
+not re-run: the closures touch `analysis/extract.py`'s refusal vocabulary, this
+cell's own test file, three new `tools/` scripts and one declaration entry in
+`corpus_gate.py` — no parser, no registry, no analysis-output path, and nothing
+on any surface either proof reads. The structural argument of §XP6 is unchanged
+and is what carries the zero-movement claim; the gate's own GREEN from the
+first round (106/3, verdicts 102/4/3) stands on a tree whose analysis behaviour
+is identical.
+
+```
+4590 passed, 34 skipped, 31 deselected, 1 warning   140.66s   SUITE2_EXIT=0
+79 passed, 1 warning                                  1.24s   PRIVACY2_EXIT=0
+242 passed, 1 warning                                 9.66s   GUARDS_CANON_EXIT=0
+1126 passed, 34 skipped, 1 warning                    2.87s   CONFORMANCE_CANON_EXIT=0
+34 passed, 9 deselected, 1 warning                    3.52s   GATETESTS_EXIT=0
+8 mutants, 8 KILLED, 0 survivors                              MUTATE_EXIT=0
+```
+
+4,590 = the pinned 4,511 plus this cell's 79 (61 at review time, 18 added by
+the closures). Registry still 72.
