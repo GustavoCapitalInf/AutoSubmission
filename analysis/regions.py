@@ -5,7 +5,7 @@ from datetime import date
 from html import unescape
 
 from .date_tokens import iso_from_month_day_strict, period_from_long_dates
-from .money import parse_money, read_money
+from .money import MINUS_CLASS, normalize_sign_glyphs, parse_money, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import TAG_RE, table_rows, tables_after
@@ -36,8 +36,25 @@ def _money(value: str) -> float | None:
     answered 0.0, the probe accepted it as the amount column, and the row
     published a zero. Refusal propagates; it just propagates as None here
     rather than as an exception.
+
+    THE SIGN GLYPHS ARE THE SHARED CANON'S, not this module's. The line below
+    was `value.strip().replace("–", "-")` — half of `normalize_sign_glyphs`,
+    handling U+2013 and missing U+2212 (W3 §MGD MGD10 finding 3). A cell whose
+    minus the generator set as a true MINUS SIGN lost it twice over: the
+    `neg` test below never saw it, and the non-ASCII scrub two lines down
+    deleted the glyph before `parse_money` could read it, so the cell came back
+    POSITIVE.
+
+    Its MEASURED reach was zero, and the distinction is worth keeping straight.
+    The only field that WOULD keep this reader's sign is `ending_balance` in
+    the `<table>` summary branch — every other consumer takes `abs()` and
+    applies a section direction — and that branch cannot publish at all today:
+    it builds its transactions from `tables_after` over TAG-STRIPPED text, so
+    `txns` is empty and `parse_regions_statement` returns None before any
+    balance ships (W3 §SIGNREADER SR10 finding 1). So this fix corrects a
+    reading that reaches no published figure until that branch is repaired.
     """
-    text = value.strip().replace("–", "-")
+    text = normalize_sign_glyphs(value.strip())
     if not re.search(r"\d+(?:\.\d{2})?", text):
         return None
     neg = text.endswith("-") or text.startswith("-")
@@ -259,7 +276,24 @@ def parse_regions_statement(markdown: str) -> Statement | None:
 
 
 def _money_after(label: str, text: str) -> float | None:
-    m = re.search(label + r"\s+\$?([\d,]+(?:\.\d{2})?)(?:\s*(-))?", text, re.IGNORECASE)
+    """The summary figure printed after `label`, with Regions' trailing sign.
+
+    The sign group is `money.MINUS_CLASS`, the same class `_money` above reads
+    through `normalize_sign_glyphs`. It was a bare ASCII hyphen — the same
+    absence-shaped half-opinion, on the branch that actually runs: this
+    module's `<table>` path never publishes (its transactions come from
+    `tables_after` over TAG-STRIPPED text and are always empty), so the native
+    path below is the only one whose sign reaches a published field.
+
+    Nothing in the archive moves on this: no live-detected Regions document
+    carries U+2212, U+2013 or U+2014 anywhere in its text — all 24 print the
+    ASCII hyphen and nothing else — so the widened class is inert today and
+    correct the day a generator's font map changes (W3 §SIGNREADER).
+    """
+    m = re.search(
+        label + r"\s+\$?([\d,]+(?:\.\d{2})?)(?:\s*(" + MINUS_CLASS + r"))?",
+        text, re.IGNORECASE,
+    )
     if not m:
         return None
     value = abs(read_money(m.group(1)) or 0.0)

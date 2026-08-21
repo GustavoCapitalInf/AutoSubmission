@@ -46,6 +46,8 @@ from analysis.first_community import parse_first_community_statement, repair_fir
 from analysis.first_citizens import parse_first_citizens_statement
 from analysis.pnc import parse_pnc_statement
 from analysis.rbc import parse_rbc_statement
+from analysis.money import MINUS_GLYPHS
+from analysis.regions import _money as regions_money
 from analysis.regions import parse_regions_statement, repair_regions_summary
 from analysis.santander import parse_santander_statement
 from analysis.scanned_small_bank import _section, parse_apex_scanned_statement
@@ -2128,6 +2130,45 @@ Total service fees -$50.00
     stmt = repair_bofa_summary(md, stmt)
     assert [t.amount for t in stmt.transactions] == [500.0, -100.0, -150.0, -200.0, -20.0, -30.0]
     assert reconcile(stmt).ok
+
+
+def test_regions_reads_the_whole_shared_sign_class_and_not_half_of_it():
+    """W3 §MGD MGD10 finding 3, closed by differential.
+
+    `regions._money` opened with `value.strip().replace("–", "-")` — half of
+    `money.normalize_sign_glyphs`: U+2013 handled, U+2212 missed. A cell whose
+    minus the generator set as a true MINUS SIGN lost it twice, because the
+    non-ASCII scrub two lines down then deleted the glyph before `parse_money`
+    could see it. The reader now consumes the shared helper, so its class is
+    the canon's by construction rather than by agreement.
+
+    Regions cannot be proven end to end offline (§WIRING: the pinned statement
+    is image-only and its committed artifact is a markdown string), so this is
+    a differential against the shared helper plus the unit proof, and the
+    archive evidence is stated rather than replayed: all 24 live-detected
+    Regions documents print the ASCII hyphen and not one carries U+2212,
+    U+2013 or U+2014 anywhere, so nothing in the archive moves.
+    """
+    for glyph in MINUS_GLYPHS:
+        assert regions_money(f"{glyph}250.00") == -250.0
+        assert regions_money(f"250.00{glyph}") == -250.0
+        assert regions_money(f"{glyph}250.00") == regions_money("-250.00")
+    assert regions_money("250.00") == 250.0
+    assert regions_money("N/A") is None, "a probe answers None; it does not raise"
+
+
+@pytest.mark.parametrize("glyph", list(MINUS_GLYPHS))
+def test_regions_summary_repair_reads_a_trailing_sign_in_any_glyph(glyph):
+    """The native path is the one that runs, and its trailing-sign group was
+    ASCII-only too. Same defect, same fix, one class."""
+    md = f"""
+Regions Bank
+SUMMARY
+Beginning Balance $7,317.34 Withdrawals $65,850.69 - Ending Balance $595.51 {glyph}
+Total Withdrawals $65,850.69
+"""
+    stmt = repair_regions_summary(md, Statement(bank="Regions Bank"))
+    assert stmt.ending_balance == -595.51
 
 
 def test_repair_regions_summary_handles_returned_checks_and_trailing_minus():

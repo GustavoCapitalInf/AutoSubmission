@@ -17,6 +17,7 @@ import re
 from dataclasses import dataclass
 from datetime import date, timedelta
 
+from ..date_tokens import PERIOD_DASH
 from .rows import SourceLine
 from .tokens import MoneyToken, iso_from_any, money_tokens, read_date
 
@@ -123,9 +124,24 @@ _DATE_ALTERNATIVES = (
     rf"\d{{1,2}}[/.-]\d{{1,2}}[/.-]\d{{2,4}}|{_MONTH_NAME}\s+\d{{1,2}},?\s+\d{{4}}|"
     rf"\d{{1,2}}\s+{_MONTH_NAME}\s+\d{{4}}"
 )
+#: The separator between the two dates: the canonical range class, plus the
+#: WORDS a period line also prints. `date_tokens.PERIOD_DASH` is the platform's
+#: one dash-range class and is consumed rather than re-spelled — this pattern
+#: carried its own `-|–|—` alternation, a fourth private copy that had drifted
+#: away from the canon by exactly U+2212 (W3 §MGD MGD10 finding 2).
+#:
+#: The word alternatives stay local because they are not dashes: no shared
+#: constant claims "to"/"through"/"au", and a range class that admitted them
+#: would be wrong for every consumer that embeds it between two amounts.
+#:
+#: Widening a RANGE class is the safe direction, and the asymmetry is the
+#: canon's own (`date_tokens.PERIOD_DASH`): a glyph admitted here can only make
+#: a period line MATCH — it carries no value and cannot flip one — while the
+#: period is required, so an unrecognised range dash costs the whole document.
+_RANGE_SEPARATOR = rf"(?:{PERIOD_DASH}|to|through|thru|au|until)"
 _RANGE_RE = re.compile(
     rf"(?P<a>{_DATE_ALTERNATIVES})"
-    r"\s*(?:-|–|—|to|through|thru|au|until)\s*"
+    rf"\s*{_RANGE_SEPARATOR}\s*"
     rf"(?P<b>{_DATE_ALTERNATIVES})",
     re.IGNORECASE,
 )

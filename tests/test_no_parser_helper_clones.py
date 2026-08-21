@@ -182,16 +182,20 @@ def test_the_minus_sign_class_lives_only_in_the_shared_money_module():
     layout genuinely prints a sign glyph the canon lacks, the fix is to attest
     it and add it there — once.
 
-    WHAT THIS GUARD CANNOT DO, stated because the gap is not obvious and two
-    real defects live in it: it detects the PRESENCE of a private sign class,
-    so it is structurally blind to a reader whose bug is the ABSENCE of one.
-    `structurer/tokens.py::money_value` and `regions.py:40` each handle ASCII
-    and U+2013 and miss U+2212 — `tokens.py` goes further and `abs()`-es away
+    WHAT THIS GUARD CANNOT DO, stated because the gap is not obvious and it
+    hid two real defects: it detects the PRESENCE of a private sign class, so
+    it is structurally blind to a reader whose bug is the ABSENCE of one.
+    `structurer/tokens.py::money_value` and `regions.py:40` each handled ASCII
+    and U+2013 and missed U+2212 — `tokens.py` went further and `abs()`-ed away
     the sign the shared grammar had already recovered, so `money_value` of a
-    U+2212 or U+2013 amount is POSITIVE where `parse_money` is negative. No
-    presence-guard can see that; only a differential against the shared
-    grammar can, and that is a reader-by-reader job. Both are carried at
-    W3 §MGD MGD10, `tokens.py` first.
+    U+2212 or U+2013 amount was POSITIVE where `parse_money` was negative. Both
+    passed this guard on every run. They are closed now (W3 §SIGNREADER: both
+    readers consume `normalize_sign_glyphs`/`MINUS_CLASS`, and the differentials
+    live in `tests/test_structurer.py` and `tests/test_analysis.py`), but the
+    BLINDNESS is not, and no future absence of the same shape will be caught
+    here. Only a differential against the shared grammar can catch one, and
+    that stays a reader-by-reader job. `ocr/column_grid.py:62` is the next one
+    on the ledger and is outside this scan's boundary (W3 §MGD MGD10).
 
     Prose is not code, and the test says so twice. The glyph is read out of the
     AST's string CONSTANTS with docstrings excluded, so a comment or a

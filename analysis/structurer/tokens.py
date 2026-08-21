@@ -22,7 +22,7 @@ import re
 from dataclasses import dataclass
 
 from ..date_tokens import iso_or_none
-from ..money import parse_money
+from ..money import MINUS_CLASS, MINUS_GLYPHS, normalize_sign_glyphs, parse_money
 
 __all__ = [
     "MONEY_RE",
@@ -61,9 +61,29 @@ DATE_PATTERNS: tuple[re.Pattern[str], ...] = (
 
 #: Money as printed: optional currency mark, thousands groups, two decimals,
 #: with parentheses or a trailing/leading minus for negatives.
+#:
+#: THE SIGN HALF IS `money.MINUS_CLASS`, not a bare ASCII hyphen, and the same
+#: class appears in all three positions — leading, trailing, and the guard
+#: lookbehind. A structurer knows no bank, so it meets every glyph the archive
+#: prints where a minus belongs (U+2212 on one month's statement and U+2013 on
+#: the next, from one issuer's generator — W3 §MGD). Matching only ASCII here
+#: did not merely refuse a signed token: the sign fell OUTSIDE the token, the
+#: digits matched on their own, and the amount was read POSITIVE. A debit
+#: booked as a credit, generically, on every document no registration claims.
+#:
+#: The three positions move together or not at all. Widening the token without
+#: widening the lookbehind would read the right-hand amount of `1,000.00−500.00`
+#: as a new token, where ASCII yields none; widening the lookbehind without the
+#: token would refuse a signed amount outright. Both ends match the ASCII rule
+#: exactly, which is the property the differential in `tests/test_structurer.py`
+#: pins.
+#:
+#: ASCII leads the character class because a hyphen there is a literal rather
+#: than the start of a range — the same reason `money.MINUS_CLASS` is spelled
+#: that way and derived rather than re-spelled.
 MONEY_RE = re.compile(
-    r"(?<![\d./-])"
-    r"(?P<token>\(?-?[$€£]?\s?\d{1,3}(?:,\d{3})*\.\d{2}\)?-?)"
+    rf"(?<![{MINUS_GLYPHS}\d./])"
+    rf"(?P<token>\(?{MINUS_CLASS}?[$€£]?\s?\d{{1,3}}(?:,\d{{3}})*\.\d{{2}}\)?{MINUS_CLASS}?)"
     r"(?![\d/])"
 )
 
@@ -138,8 +158,29 @@ class MoneyToken:
 
 def money_value(token: str) -> float | None:
     """A money token's SIGNED value; parentheses and a trailing minus are both
-    the accounting negative, which several banks use interchangeably."""
-    text = token.strip()
+    the accounting negative, which several banks use interchangeably.
+
+    THE SIGN CLASS IS NOT SPELLED HERE. `normalize_sign_glyphs` rewrites every
+    glyph the shared canon admits to ASCII ``-`` first, so the two conditions
+    below read the whole class rather than one third of it. Before that call this
+    reader tested ``startswith("-")`` for ASCII alone and then returned
+    ``-abs(value) if negative else abs(value)``: `parse_money` had already
+    recovered the sign of a U+2212 or U+2013 amount, and the ``abs()`` threw it
+    away — so `money_value` answered POSITIVE where the shared grammar answered
+    negative (W3 §MGD MGD10 finding 1). Normalizing first is what makes the two
+    agree; the equality is pinned token by token in
+    `tests/test_structurer.py::test_the_sign_is_the_shared_grammars_answer`.
+
+    The `abs()` stays, and after the normalization it is a no-op on every token
+    `MONEY_RE` can produce: the sign has been stripped from `cleaned` by then,
+    so `parse_money` returns a magnitude and this line only re-applies the
+    accounting sign the flag holds. It is load-bearing for one shape the
+    tokenizer cannot emit and a direct caller could — a welded debit marker
+    (``100.00D``), which `parse_money` reads as negative and this reader still
+    reports as a magnitude. That residual is named rather than fixed: changing
+    it would move ASCII behaviour on a token no caller in the tree produces.
+    """
+    text = normalize_sign_glyphs(token.strip())
     negative = (
         text.startswith("(") or text.endswith(")")
         or text.startswith("-") or text.endswith("-")
