@@ -27948,3 +27948,476 @@ than of anything else.
 | `ebb2330` | card 4 — SEPARABLE: `regions._money_after`'s trailing-sign group onto the canon |
 | `dd88597` | self-review of own prose; behaviourally inert, proven by docstring-stripped AST digest |
 | (this one) | §SIGNREADER SR0–SR12 |
+## WP0. Summary — `str(e)` never reaches the durable store (#WORKERPRIV)
+**Two lines, both durable, both user-visible, both closed.** `webapp/worker.py`
+held the two holes `analysis/pipeline.py`'s refusal-boundary comment names by
+file and by expression:
+| site | expression | column | who reads it |
+|---|---|---|---|
+| `_analyze_doc` | `return markdown, html, None, str(e)` | `jobs.analysis_error` | `/status`, `/result`, `/analysis`, **and every package export** |
+| `run_job` | `store.set_error(job_id, str(e))` | `jobs.error` | `/status`, `/live`, `/result`, **and every package export** |
+Both now publish the exception's CLASS NAME plus a NAMED STAGE
+(`preflight` / `reading` / `analysis` — constants of this module, never
+anything read out of a document). One named reason survives, by EXACT match
+against a closed tuple of our own literals (WP3).
+**The exposure was larger than the card recorded.** The card describes the two
+columns; it does not say that `_package_analysis` copies both into every
+member's `doc_row` (`webapp/app.py:880-881`) and that `_package_rows` then
+walks EVERY key of that dict into the CSV and the XLSX. `_masked` does not
+touch them — `_ACCOUNT_KEYS` is `{account, account_number}` — so an exception
+that quoted a cell was not merely rendered in a browser: it was written into
+the spreadsheet an underwriter downloads and keeps. `_escaped_rows` would
+neutralise it as a formula and pass it through as text.
+**Zero archive movement.** By construction (WP5: the diff touches one
+production file, and its only production caller is the Flask upload thread) and
+by measurement (WP9 — read WP9.5 for exactly which part of that is a reading
+and which part is a composition of two runs).
+## WP1. The boundary census over `webapp/`
+Every durable sink of exception text in `webapp/`, found by AST rather than by
+grep (`except X as N` handlers, then every use of `N` that is not `type(N)`, a
+bare re-`raise`, or a hand-off to a declared boundary helper). The census is
+now a TEST — `test_the_webapp_exception_ledger_is_complete` — whose exemption
+list IS the ledger below, so the exposure cannot quietly grow.
+| # | site | sink | durable? | verdict |
+|---|---|---|---|---|
+| 1 | `worker.py:_analyze_doc` | `jobs.analysis_error` → HTTP + package export | yes | **FIXED** |
+| 2 | `worker.py:run_job` | `jobs.error` → HTTP + package export | yes | **FIXED** |
+| 3 | `worker.py:_emit` | telemetry `outcome.error_type` | yes | already class-name-only (H3_SCHEMA I1) — unchanged, pinned by a new test |
+| 4 | `app.py:revenue_review` ×2 | HTTP 404/400 JSON body | no | **LEDGERED** (WP6.1) |
+| 5 | `app.py:_read_upload` | `{"error": "PDF could not be read"}` | no | clean — the exception is swallowed, the message is a literal |
+| 6 | `app.py:boxes` (rasterize) | none | – | clean — swallowed, degrades to boxes-without-crops |
+| 7 | `app.py:_num` | none | – | clean — swallowed |
+| 8 | `artifact_cache.py:_cache_get` | none | – | clean — swallowed |
+| 9 | `storage.py` schema raises ×2, `pdf_path`, `artifact_cache.py` sheets/`ArtifactCache` raises ×4 | propagate to site 2 | via 2 | clean — messages are data-dir paths, schema versions, type names; and after this cell only their CLASS crosses anyway |
+| 10 | `jobs.py:mark_interrupted` | `jobs.error` | yes | clean — a fixed literal note |
+| 11 | `jobs.py` audit writes (`upload`, `cache_hit`), `record_export`, `record_review` | `audit_log` | yes | clean — no exception text at any of them |
+There is no logger anywhere in `webapp/`, which is why the fix adds no second
+sink (WP2 D1).
+**Adjacent, outside the census by scope, named so the next reader does not
+re-find them:** `deterministic_coverage_audit.py:165/167/241`,
+`coverage_audit.py:193`, `corpus_gate.py:928`, `batch.py:267` and
+`sweep_ocr.py:61` write `str(e)` / `f"{type(e).__name__}: {e}"` into audit CSVs
+and CLI output; `ocr/native_text.py:80` builds `_UnreadableTextLayer(
+f"{type(exc).__name__}: {exc}")`, whose text reaches
+`deterministic_coverage_audit`'s `error` column via `text_layer_refusal` (this
+is the `cycle in resources` row §RS pinned). None of them is in `webapp/`, none
+is served to a user, and `text_layer_refusal` has exactly one consumer, which
+is that audit script — verified, not assumed.
+## WP2. What was implemented
+One helper states the law and two call sites obey it.
+```python
+def _stage_failure(stage: str, exc: BaseException) -> str:
+    return (
+        f"{stage} stage failed: {type(exc).__name__} "
+        "(message withheld; an exception message can quote statement text)"
+    )
+```
+* **Site 1** `_analyze_doc`: `return markdown, html, None, _analysis_failure(e)`.
+  The markdown and the rendered report still publish — the document was read,
+  only the analysis refused — so the user keeps the statement and gets a named
+  reason instead of a quoted cell.
+* **Site 2** `run_job`: `store.set_error(job_id, _stage_failure(phase, e))`.
+**D1 — no second sink, deliberately.** The card allows keeping the full text in
+the process log "if the existing logging already does so". It does not: there
+is no logger in `webapp/` at all (measured, WP1). Adding one to hold the
+message would MOVE the content, not stop it — a new durable, unmasked,
+unaudited copy of the same fragment. The operator channel already exists and is
+already compliant: the telemetry record carries `error_type` and the per-stage
+timings, so WHICH stage raised and WHAT raised are both recoverable without the
+text, and reproducing a crash needs the document, which is in the store anyway.
+**D3 — the phase tracker.** `phase` is advanced inside the `read` / `analyze`
+closures rather than at their six call sites, so a new mode branch cannot
+forget it. KNOWN GRANULARITY, stated rather than hidden: `set_result` runs
+after `analyze` returns, so a storage-layer crash while publishing is
+attributed to `analysis`. The class name is exact either way and the telemetry
+stage timings separate the two; buying the extra precision would mean four more
+assignments in four branches, which is exactly the drift the closure placement
+avoids.
+**D4 — the comment that was already there.** The line under
+`store.set_error(job_id, str(e))` read "Class name only, never the message:
+exception text routinely quotes a fragment of the document (H3_SCHEMA I1)". It
+was true — of `_emit`, two lines below. The store write it sat beside published
+the very text it forbids. The comment is kept, for `_emit`, and the hunk above
+it now says which line it governs.
+## WP3. D2 — the one named reason that survives, and why it is not a hole
+A blanket reduction would have deleted a live, user-facing behaviour that
+nobody would have missed until a user did.
+`webapp/static/app.js:friendlyAnalysisError` matches
+`/no deterministic parser matched/i` and answers *"No deterministic parser
+matched this statement. Use Auto mode for fallback extraction, or add a
+bank-specific deterministic parser…"* — the most common and the only actionable
+outcome the deterministic mode produces. `analysis/pipeline.py:685` raises it
+as a FIXED LITERAL carrying no document content.
+```python
+_DECLARED_ANALYSIS_REFUSALS: tuple[str, ...] = (
+    "no deterministic parser matched this statement",
+)
+```
+Four properties make this safe, and each is a test:
+1. **Exact match, not containment.** `f"{DECLARED}: {poisoned}"` is reduced
+   like anything else (`test_the_allow_list_is_exact_match_and_not_containment`,
+   mutation-killed by flipping `==` to `in`).
+2. **The value published is the tuple member**, not `str(exc)`. What crosses
+   the boundary is provably a constant in this file. The information content
+   that crosses is one bit per member — "the pipeline declared this refusal" —
+   which is a registry-level fact, not statement content.
+3. **Not keyed on exception type.** The refusal is a bare `RuntimeError` and
+   `AmbiguousParserError` / `ParserCrashError` subclass it, so a type test
+   would admit every `RuntimeError` in the process. Those two carry SAFE text
+   (registry ids, class names) but VARIABLE text, so they cannot be pinned to a
+   constant — they publish their class name, which already names the finding
+   (`test_a_refusal_whose_text_varies_is_not_admitted`).
+4. **The coupling is explicit in both directions.** One test drives
+   `analyze_markdown` into the refusal and asserts the string it raises is in
+   the tuple; another asserts `app.js` still matches it. A reword on either
+   side fails here instead of silently deleting the guidance.
+Fail-closed: reduction is the default, admission is a deliberate edit.
+## WP4. The sentinel proof
+`tests/test_worker_privacy.py`, 30 tests. Two tokens, and the second is the
+point:
+```python
+PROVOKING_TOKEN        = "4021-9987-3315-0042"                # in the document
+EXCEPTION_ONLY_SENTINEL = "SENTINEL-EXCEPTION-TEXT-a7f31c9e"  # in the exception only
+POISONED_MESSAGE = (
+    f"invalid literal for int() with base 10: '{PROVOKING_TOKEN}' "
+    f"[{EXCEPTION_ONLY_SENTINEL}]"
+)
+```
+The durable store LEGITIMATELY holds the statement text — that is the accepted
+`/markdown` residual exposure (Wave 0, closed by authentication and not by
+redaction) — so a whole-database sweep needs a token that only ever existed
+inside an exception message. `PROVOKING_TOKEN` is printed in the fixture
+document and pins the columns; `EXCEPTION_ONLY_SENTINEL` is printed nowhere and
+pins the whole store.
+`test_the_sentinel_appears_nowhere_in_the_durable_store` runs two poisoned jobs
+into one store — one dying in the analysis, one dying in the read — then reads
+**every cell of every table** (enumerated from `sqlite_master`, so a table
+added later is swept without anyone remembering) and **the raw bytes of every
+file the store owns** (the database, its journal, the PDF store, the cache
+artifacts). It then asserts:
+```
+PROVOKING_TOKEN         in blob     # the sweep is live, not vacuous
+EXCEPTION_ONLY_SENTINEL not in blob
+"invalid literal"       not in blob
+```
+The first assertion is load-bearing: the document's own text IS in the store,
+so a sweep that found nothing at all would prove nothing about the exception
+channel.
+**Mutation-kill: the canonical measured table is in WP8**, deliberately in one
+place only. This section carried a second copy of it, measured before commit
+`2d7fcd1` added the export test and never re-run, so every count in it was one
+short — the review caught it, and a duplicated table is exactly how that
+happens. Do not re-add one here.
+The source guard has its own mutation family: nine synthetic handlers
+(`str(e)`, `repr(e)`, `f"{e}"`, `"%s" % (e,)`, `e.args[0]`, `log(e)` →
+findings; `type(e).__name__`, `raise e`, `_stage_failure(..., e)` → clean),
+because a guard nobody has watched fail is not a guard.
+## WP5. Zero movement — the containment argument, then the measurement
+**Containment (AST, total, not a sample).**
+```
+production files touched by the diff        : ['webapp/worker.py']
+importers of `webapp.worker`, whole repo    : webapp/app.py:26
+                                              tests/test_artifact_cache.py:50
+                                              tests/test_webapp_worker.py:17
+                                              tests/test_worker_privacy.py:32,377
+callers of ANY name defined in webapp.worker, non-test:
+                                              webapp/app.py:66  run_job()
+```
+`run_job` has exactly one production caller and it is the Flask upload thread.
+`corpus_gate.ANALYSIS_CALL_SITES` — the repo's own declared census — names three
+production analysis call sites: `discovery/runner.py:_analyse`,
+`webapp/worker.py:_analyze_doc`, `batch.py:main`. The archive's outcomes are
+produced by the first. This cell changed only the exception handling inside the
+second, and nothing reaches it except an HTTP upload.
+Two honest caveats on that census, both measured rather than waved away:
+* `corpus_gate`, `adb_forensic_audit`, `balance_forensic_audit` and
+  `discovery.runner` DO reach `webapp.worker` in the *import* graph — via
+  `adb_forensic_audit:28 from webapp.app import _package_analysis`, and
+  `webapp/app.py:26 from .worker import run_job`. They import the module; they
+  never enter it. The diff adds no import and no import-time work beyond three
+  string constants and a one-element tuple, so even that transitive import
+  behaves identically.
+* A name-only call census over-reports badly: `analysis/bofa.py`, `batch.py`
+  and `discovery/runner.py` each define their OWN private `_emit`. Filtering to
+  files that actually import the module removes all three; without the filter
+  the census would have booked three archive-producing modules as callers of
+  the worker's.
+## WP6. Carried findings for Ocean
+1. **THE LEDGER — `webapp/app.py:revenue_review` returns `str(exc)` as an HTTP
+   body (two expressions, 404 and 400).** Not this cell's file: `app.py` belongs
+   to no batch-6 cell, and the card's ownership is the worker's boundary. Not
+   durable either — a response body, not a stored column. But the `except` is
+   BROADER than the three fixed literals `analysis/revenue.py` actually raises
+   (`decision must be…`, `transaction source location was not found`, `only
+   automatically unverified deposits can be reviewed`): any `ValueError` raised
+   deeper inside `rebuild_serialized_revenue_views` is published verbatim, and
+   the money-grammar family is exactly such a raiser. **MONEY-PRIVACY is closing
+   the other end of that same pipe this batch**, which is precisely why the
+   worker's fix should not be read as closing the class. A one-card fix is the
+   same shape as this one: catch the three declared refusals by exact literal
+   and reduce everything else. Recommend carding it as `APP-PRIVACY`.
+   `test_the_webapp_exception_ledger_is_complete` fails the moment anyone adds
+   a third.
+2. **The exposure was bigger than the card said, and the card should be
+   amended in the record.** `analysis_error` and `error` are copied into every
+   package member's `doc_row` and then walked key-by-key into the CSV and the
+   XLSX export (`app.py:880-881`, `_package_rows:240-242`). `_masked` does not
+   cover them. So the leak was not only a browser view — it was a spreadsheet
+   an underwriter downloads and keeps. Nothing to do beyond this cell's fix;
+   worth recording because it changes the severity, not the remedy.
+3. **`friendlyAnalysisError` was one blanket reduction away from silently
+   dying** (WP3). Named because the next privacy card on a boundary a UI reads
+   will meet the same trap: a fixed literal that a human depends on is not the
+   same object as a quoted cell, and a card that says "never `str(e)`" reads as
+   if it were.
+4. **The oracles' `str(e)` CSV columns are real and out of scope** (WP1,
+   adjacent list). `deterministic_coverage_audit`'s `error` column is
+   deliberately verbose — §RS pinned `cycle in resources` as a *desirable* row —
+   and those CSVs are internal artifacts, not served. If a later card ever puts
+   an audit CSV in front of a customer, that decision inherits six sites.
+5. **`webapp/` still has no logger.** The right long-term operator channel for a
+   worker crash is a structured log with the message, written where the store is
+   not — but that is a D-2b/D-7 decision about retention and access, not
+   something an exception-boundary card gets to invent (WP2 D1).
+6. **Any archive replay harness built on ONE `settings_key` has a hole, and it
+   looks correct at every checkpoint.** Enumerating the OCR artifact store by
+   the key that covers 3,380 distinct shas — the run's exact population count —
+   silently feeds the plain `native-pdf-text` preparation to the **55**
+   documents the run read with a re-read (36 `+first-citizens-layout`, 19
+   `+woodforest-columns`). 53 of the 55 still reproduce, so the mistake stays
+   invisible until a family whose re-read changes the parse shows up; here it
+   surfaced as 2 phantom movers (WP9.2). A correct harness resolves the
+   artifact PER DOCUMENT — by recomposing the run's own key, as §FI1 did for
+   four documents, or by cross-checking the artifact's stored `model` against
+   the run's `source_model`, as WP9.2 does for all 55. Other archive-wide
+   sweeps this wave are likely to share it.
+## WP7. One behaviour change beyond the message, found by reading the consumers
+`_emit` computes `error_reason="analysis_error" if analysis_error and not
+error_type else None` — a TRUTHINESS test on the string this cell replaced. An
+exception raised with no message (`raise ValueError()`) previously produced
+`analysis_error == ""`, which is falsy, so the telemetry record booked
+`error_reason=None` and the browser rendered the fallback "No analysis report
+was generated". The replacement is never empty, so such a document now books
+`error_reason="analysis_error"` and shows the named reason.
+Strictly more honest in both places — an analysis error DID occur — and it
+cannot touch the archive (`_emit` here is the webapp emitter; the discovery
+runner has its own). Recorded because it is a real delta that the message
+change alone does not describe, and because "the new string is never empty" is
+the kind of property that changes a downstream truthiness test silently.
+## WP8. Proofs (branch `wave6-workerpriv`, base `8570bce`)
+```
+All timings on a heavily shared host: nine other batch-6 cells were running
+alongside (8-12 concurrent python processes throughout). The gate's 1060.8s
+and the corpus slice's 2612.2s are that load, not this branch — which changes
+no extraction, adds no registration, and is not on the archive path at all.
+# full default suite
+4541 passed, 34 skipped, 31 deselected in 273.54s          exit 0
+   (base 8570bce: 4,511. +30 = the new tests/test_worker_privacy.py module.)
+# this cell
+tests/test_worker_privacy.py     30 passed                 exit 0
+tests/test_webapp_worker.py       8 passed                 exit 0
+# guards
+242 passed in 27.71s                                       exit 0
+   test_no_statement_hardcodes · test_no_parser_helper_clones ·
+   test_r1_hardcodes · test_experiments_are_not_wired · test_filename_boundary
+# conformance cross-product + registry (registry 72)
+1126 passed, 34 skipped in 7.57s                           exit 0
+   test_parser_conformance (668 collected; the 72 x 71 detection-negative
+   cross-product) · test_parser_registry_entries ·
+   test_parser_detection_markers · test_parser_registry ·
+   test_parser_crash_shapes · test_parser_exception_boundary ·
+   test_count_semantics
+# corpus gate (python corpus_gate.py), 1060.8s
+[PASS] inventory · foreign_files · source_integrity (109/109 SHA-256) ·
+       balance_audit · adb_audit · exclusions · oracle_independence
+[PASS] balance_outcomes: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes:     106 pass, 3 withheld, same three statements
+[PASS] outcome_classes:  109 statements publish their pinned verdict
+                         (outcome class + the whole integrity block)
+[PASS] adb_doctrine: 109/109 canonical basis 'calendar_day_printed_period'
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR, no live OCR, no
+       model calls
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 102 validated / 4 review / 3 withheld
+RESULT: GREEN                                              exit 0
+# corpus-marked slice (pytest -m corpus)
+27 passed, 4578 deselected in 2612.19s (0:43:32)           exit 0
+# mutation kills — RE-MEASURED on the committed tree at 2d5a06f, after
+# commit 2d7fcd1 added the export test. The first table in this log was taken
+# BEFORE that commit and never re-run, so every count in it was one short; the
+# adversarial review caught it (MAJOR-1) and these are the replacement
+# readings. Scope for M1-M5 and the control is the two modules together
+# (tests/test_worker_privacy.py 30 + tests/test_webapp_worker.py 8 = 38);
+# M6's scope is the single export test.
+control (unmutated)                         38 passed     exit 0
+M1 site 1 -> str(e)              13 failed / 25 passed     exit 1
+M2 site 2 -> str(e)               8 failed / 30 passed     exit 1
+M3 allow-list == -> in            1 failed / 37 passed     exit 1
+M4 phase frozen at preflight      2 failed / 36 passed     exit 1
+M5 helper appends ": {exc}"      15 failed / 23 passed     exit 1
+M6 both sites -> str(e),
+   export test alone              1 failed                 exit 1
+guard shapes (9 parametrised)     6 findings / 3 clean     exit 0
+# M3 and M4 name their failures, because a one- or two-test kill is the kind
+# of number two people can measure differently under different scopes (the
+# review read M3 as 1F/29P — the privacy module alone, 30 tests — and M4 as
+# 3F/35P, which this tree does not reproduce; these are the names, so the
+# scope is not in doubt):
+M3  test_worker_privacy::test_the_allow_list_is_exact_match_and_not_containment
+M4  test_worker_privacy::test_the_job_boundary_does_not_publish_the_exception_message
+    test_webapp_worker::test_run_job_failure
+```
+## WP9. The full-population sweep, as two measured steps
+**This section was rewritten after the adversarial review (MAJOR-2/3/4). The
+first version stated a synthesized "3,380 / 3,380, MOVERS 0" table that no log
+contains: the durable evidence ends with `MOVERS: 2` and a different
+distribution, and the zero was an inference drawn from step (b) written down as
+if it were a reading. Both steps are below, each quoted from its own log, and
+the inference is labelled as one.**
+Every document replayed from the D-3 OCR artifact store **by direct file path**
+— the `webapp_data` sqlite index was never opened — and compared against the
+run of record's own `rows.csv`, keyed by `content_sha256`. Reconstruction
+mirrors `discovery/runner.py`: `source_file = Path(relative_path).name`
+(runner.py:572), the intake object rebuilt from the artifact's committed page
+list, and `analyze_markdown(..., parse_mode="deterministic", sheets=pages)`
+(its `_analyse`, runner.py:486-490).
+### WP9.1 Step (a) — the whole population, single-`settings_key` enumeration
+Durable evidence: `results.jsonl`, one JSON record per document, 3,380 lines.
+Quoted from its tail block:
+```
+recorded so far: 3380 / 3380
+outcome distribution (run of record): {'deferred': 13, 'failed': 859, 'review': 15, 'validated': 2430, 'withheld': 63}
+outcome distribution (replay)       : {'deferred': 13, 'failed': 860, 'review': 15, 'validated': 2428, 'withheld': 64}
+MOVERS: 2
+   {"sha": "D2548844593B46167FCAD9D8796AAE113BF693F5CA52559DE5CDE397A0F49FE5", "recorded": "validated", "replayed": "failed",   "replayed_reason": "analysis_error", "replayed_error": "RuntimeError"}
+   {"sha": "FBDB971C999AC6D3A1488151EF3F511E465527D541147A3AD985669EB86A0191", "recorded": "validated", "replayed": "withheld", "replayed_reason": "withheld_adb",   "replayed_error": ""}
+```
+**"3,380 replayed" was an overstatement of 13 (MAJOR-3).** Counted from
+`results.jsonl`:
+```
+records                : 3380
+replayed=null          : 13   reason "no offline document"; run outcome: deferred x13
+actually replayed      : 3367
+```
+The correct statement of the population is **3,367 replayed + 13 structurally
+unreplayable** — exactly the run's deferred set, documents with no offline
+artifact, which no offline harness can replay by construction. The replay
+distribution above carries those 13 at their recorded class, which is why
+`deferred: 13` appears identically on both sides; they are not evidence of
+anything.
+### WP9.2 Why step (a) read 2 movers: the enumeration, not the branch
+The harness enumerated OCR artifacts under ONE `settings_key` — `974CF978…`,
+which covers exactly 3,380 distinct shas and therefore looked like the run's
+own population. It is not. Measured in `rereads.log`:
+```
+run of record population: 3380 distinct content_sha256
+artifacts scanned by direct file path: 10246 in 144.2s
+shas under 974CF97835F75FD0: 3380
+shas under 1E6B5BE59BB3E636: 3364
+shas under BOTH    : 3364
+documents whose stored model DIFFERS between the two keys: 55
+     36  native-pdf-text+first-citizens-layout
+     19  native-pdf-text+woodforest-columns
+cross-check against the run's own rows.csv `source_model`:
+   run's source_model == the RE-READ artifact's model : 55
+   run's source_model == the PLAIN   artifact's model : 0
+   neither                                            : 0
+```
+**The breakdown is 36 / 19, not the 33 / 22 first written here (MAJOR-4).** The
+earlier figure was eyeballed off a printed list rather than counted; this one is
+counted, and it is corroborated twice — by the artifact store's stored `model`
+and, independently, by the run's own `source_model` column, which agrees with
+the re-read artifact on all 55 and with the plain artifact on none. So the
+artifact this replay picks per document is the RUN'S choice, not the harness's
+preference.
+### WP9.3 Step (b) — the 55 re-read documents, replayed with the run's artifact
+One sequential command; full transcript in `rereads.log`. Tail:
+```
+replaying all 55 with the RUN-MATCHING artifact:
+  ...
+  [34/55] 9B30C2BE4389A90B key=1E6B5BE59BB3E636 model='native-pdf-text+first-citizens-layout' run=failed/parser_declined  replay=failed/analysis_error  MOVER
+  [45/55] D2548844593B4616 key=1E6B5BE59BB3E636 model='native-pdf-text+woodforest-columns'    run=validated/approved      replay=validated/approved     MATCH
+  [54/55] FBDB971C999AC6D3 key=1E6B5BE59BB3E636 model='native-pdf-text+woodforest-columns'    run=validated/approved      replay=validated/approved     MATCH
+  ...
+outcome distribution (run of record): {'failed': 1, 'validated': 54}
+outcome distribution (replay)       : {'failed': 1, 'validated': 54}
+MOVERS: 1
+   9B30C2BE4389A90B...  failed/parser_declined -> failed/analysis_error
+RESULT: MOVERS PRESENT                                       exit 1
+```
+**Both step-(a) movers reproduce their recorded outcome exactly**, and the
+distributions are identical on both sides: `failed 1 / validated 54`.
+**The one row this harness flags is a reason-label difference, not a movement,
+and the exit code is 1 because this harness compares
+`(outcome_class, outcome_reason)` while step (a) compared `outcome_class`
+alone. Named rather than smoothed over.** `9B30C2BE4389A90B`
+(`Unidentified/3df19105_May2026_1301.pdf`) reads in `rows.csv`:
+```
+outcome_class    : 'failed'           dispatch_outcome : 'unclaimed'
+outcome_reason   : 'parser_declined'  attempted        : 'first_citizens'
+error_type       : 'RuntimeError'     parser_id        : ''
+```
+The run's analysis raised a `RuntimeError` too — same class, same outcome
+class. `discovery/runner.py:809` maps that to `"parser_declined" if
+dispatch.attempted else "no_parser_matched"`; this harness hardcodes the string
+`analysis_error` and has no access to `dispatch.attempted`. The difference is
+the harness's reason vocabulary measured against the runner's, on a document
+both agree is `failed` with a `RuntimeError`.
+### WP9.4 The differential that settles it independently of either harness
+Both step-(a) movers were replayed with `webapp/worker.py` reverted to its base
+content (`git checkout 8570bce -- webapp/worker.py`) and again on the branch:
+**byte-identical output both times, including the identical `RuntimeError`
+text.** That is what WP5's containment proof predicts — the replay harness
+imports `analysis.pipeline`, `analysis.serialization`, `ocr.document`,
+`telemetry.record` and `webapp.artifact_cache._page_integrity`, and never
+`webapp.worker` at all.
+### WP9.5 What is measured, and what is inferred
+* **Measured.** 3,367 of the 3,380 replayed; 13 structurally unreplayable.
+  Under single-key enumeration, 2 outcome movers. Under run-matched artifacts,
+  those 2 reproduce exactly and all 55 re-read documents reproduce their
+  outcome class and their distribution. Base and branch produce byte-identical
+  output on the two documents in question.
+* **Inferred, and stated as inference.** That a single re-run of all 3,367
+  under per-document run-matched artifacts would read 0 movers. Between them
+  the two harnesses leave no document unaccounted for — step (a) covered all
+  3,367, and step (b) re-covered the only 55 whose text preparation step (a)
+  could have got wrong — but "0 movers over 3,367" is a composition of two
+  runs, not one reading, and is written here as such.
+* **Not in doubt either way.** This cell cannot move an archive outcome: the
+  diff touches one production file, `webapp/worker.py`, whose only production
+  caller is the Flask upload thread (WP5), and the base/branch differential
+  confirms it empirically on the only documents where the question arose.
+## WP10. Ledger additions from the adversarial review
+Carried, not fixed. Each is a limit of the evidence or of the guard, recorded
+so the next reader inherits the limit rather than the impression.
+1. **m-2 — `two.py` as committed cannot produce WP9.4's quoted transcript.**
+   The differential was run from an overwritten variant of that scratch script;
+   the surviving copy prints a different line shape. The measurement is real
+   and was re-confirmed at review, but the script in the scratchpad is not the
+   one that emitted those exact lines. Scratch harnesses are not artifacts of
+   record and were never committed to the branch; a future cell wanting the
+   differential re-runnable needs a committed harness, not a scratch file.
+2. **m-3 — the census guard sees only `except X as name` handlers.** Three
+   shapes are invisible to it: `sys.exc_info()`, `traceback.format_exc()`, and
+   a bare `except:` that recovers the exception some other way. None exists in
+   `webapp/` today, but the guard would not catch one arriving. The
+   `raise ... from exc` shape is also unpinned — the guard permits `raise N`
+   and does not distinguish a re-raise from a chain that would carry the
+   original message into a new exception's `__cause__`.
+3. **m-5 — `type(exc).__name__` is safe by convention, not by construction.**
+   A class name is content-free only while exception classes are static. A
+   dynamically constructed exception class whose NAME embedded document text
+   would defeat the whole boundary. No dynamic exception-class construction
+   exists anywhere in the repo today, so this is a property to keep, not a
+   defect to fix.
+4. **m-7 — PRE-EXISTING, and the one path where a message still leaves the
+   process.** `run_job`'s boundary catches `Exception`, not `BaseException`. A
+   `BaseException` in the queue thread kills the thread with a full traceback
+   to stderr and leaves the job stuck at `processing` with `error=None` — no
+   durable write, no telemetry record, and the operator sees the message on the
+   console. Out of scope for this cell (a thread-lifecycle and
+   fail-closed-status defect, not an exception-text one) and it predates it.
+   **Batch-7 candidate**, and the fix is two things at once: a
+   `BaseException`/`finally` arm that marks the job failed, and a decision
+   about the stderr traceback, which belongs with the D-2b/D-7 logging question
+   in WP6.5.
