@@ -31890,3 +31890,574 @@ closing tree.
 | Commit | Contents |
 |---|---|
 | (this one) | C10, the five corrections in place, the REPAIR-DOCTRINE card in C7.1 with the reviewer's measurements, and C7.2's ambiguity count |
+# §DECLINESD — the reason IS the card: 132 declines, 43 named refusal sites, two of them widened
+DECLINES-D, 2026-08-20. Branch `wave6-declinesd`, base `8570bce`
+(main `eef77c6` + the batch-6 handoffs). Brief:
+`docs/agent-handoffs/DECLINES-D.md`. Two production files, two cards, one
+test file. `ANALYSIS_STAGE_VERSION` NOT bumped — published output moves on 10
+archive documents, so the bump is Ocean's to compose.
+## D0. Summary
+| | |
+|---|---|
+| Population | the run of record's 132 `parser_declined` rows = **124 distinct content_sha256** (8 paths are within-archive duplicates of 6 shas) |
+| Census | **43 distinct (parser, refusal-site) groups**, every one named by module and source line, every one derived by replay |
+| Cards worked | WM1 · WM2 · WM3 (`analysis/wilson_muir.py`) · SQ1 (`analysis/square_checking.py`) |
+| Cards carded, not taken | 41 groups, each with a named diagnosis; the ones needing a DOCTRINE decision are escalated by name (D6) |
+| Result | **improved 10, regressed 0** — wilson_muir 8→14 validated, square_checking 28→32 validated, over the two full claimed families |
+| Byte-identity | 36 of the 46 documents in the two claimed families are byte-identical in the WHOLE published payload; the other 10 are the movers, each named by sha |
+| Overlap with the three live family cards | **FISERV-ISSUE3 = exactly 4 of the 132 (verified by sha), not taken. GRAM-4 zero (its 8 are `no_parser_matched`, a disjoint class). COLUMBIA-5 zero by sha, but see D6.5 — one `columbia_bank` decline shares that cell's MODULE.** |
+## D1. The instrument, and why its enumeration is immune
+Every figure below comes from replaying the archive markdown through the real
+pipeline (`analysis.pipeline.analyze_markdown` in deterministic mode +
+`analysis.serialization.report_to_dict` + `telemetry.record.classify_outcome`
+store in the MAIN checkout **by direct file path** — the cache key is
+recomputed with the repo's own `ocr_settings_key`/`cache_key` and the payload
+JSON is read from `webapp_data/artifacts/ocr/<shard>/<key>.json`. **The sqlite
+index was never opened.** The ANALYSIS stage is never served from cache.
+**The cross-cell enumeration trap (WORKER-PRIVACY's finding), and this cell's
+immunity.** Enumerating the artifact store under ONE settings key produces a
+set that LOOKS like the run-of-record population and is not the one the run
+read: some documents were read under a settings key holding a different text
+preparation. This harness never enumerates the store at all. It starts from
+the run of record's own `rows.csv` and, per document, resolves the artifact by
+CONTENT and then PROVES the resolution two ways:
+* the reconstructed document's `model` must equal that row's `source_model`;
+* the replayed dispatch must reproduce that row's `outcome_class`,
+  `outcome_reason` and `attempted` list exactly.
+Measured over the whole run of record — all **3,380** distinct documents, not
+only the declines: **3,351 model checks, 0 mismatches** (16 have no artifact —
+the invalid PDFs; 13 hold a cached negative — the deferred). One of the 132
+declines is a `native-pdf-text+first-citizens-layout` re-read and it resolved
+and matched like the rest. Over the 132 declines specifically: **132/132
+reproduce the run's outcome, reason and attempted list, and 132/132 match on
+`source_model`.** A differential built on a different preparation would have
+failed the model check loudly rather than manufacturing a mover.
+**Family populations are by LIVE DETECTION REPLAY**, never `rows.csv
+parser_id`: for each of the 3,380 documents the reconstructed markdown is run
+through the registration's own `detect`. wilson_muir claims 14,
+square_checking claims 32, citizens claims 21.
+**The refusal site is machine-derived, not read off the code.** A `parse` that
+returns None says nothing about WHY. Each decline is replayed under a tracer
+that records every `None` return inside `analysis/`; at the moment `parse`
+returns None, the chain of returns at CONSECUTIVE depths (d -> d+1, an actual
+caller->callee chain) ending there is the propagation chain, and its innermost
+non-generator frame is the refusal site. Read as "strictly increasing depth"
+instead, the same records yield 6/6 for huntington.py:681 rather than 8/8 and
+invent a huntington.py:354 group, so the distinction is load-bearing, not
+editorial. That is what makes the census below a MEASUREMENT of 132 documents
+rather than a reading of 43 modules.
+The generator filter is REQUIRED and is sufficient on this corpus — without it
+huntington attributes to `_validate.<locals>.<genexpr>`, square_checking to
+`_normalized.<locals>.<genexpr>`, bmo_ca_business to
+`td_can.normalize_mojibake.<locals>.<genexpr>` and capital_one/wilson_muir to
+`parser_registry.py:423 _score.<locals>.<genexpr>`, a SIBLING subtree
+(`detect()` runs inside `parse`). It is not a general immunity. Comprehensions
+are a non-issue only because PEP 709 inlines them on 3.12+; a `yield` emits a
+return event with `arg is None`, so a generator yielding a possibly-None row
+injects records at its own depth mid-chain, and `void -> None` closures,
+lambdas and `__init__` are non-generator frames the filter elects freely.
+Measured: under the strictly-increasing reading 5 of 88 audited documents
+attribute to a non-refusing frame (`huntington.py:354 _blocks.<locals>.flush`,
+`community_section.py:143 _Summary.__init__`,
+`navy_federal.py:221 _separate_amount_balance`).
+## D2. The census — all 132, by (parser, refusal site)
+Sorted by rows. `sha` is distinct documents, `rows` is archive paths.
+| parser | refusal site | sha | rows | text |
+|---|---|---|---|---|
+| core_processor_sectioned | `core_processor_sectioned.py:751` | 14 | 14 | 13 scanned, 1 digital |
+| wilson_muir | `wilson_muir.py:90` | 6 | 11 | digital |
+| huntington | `huntington.py:681` | 8 | 8 | digital |
+| core_processor_sectioned | `tables.py:242` | 8 | 8 | 7 digital, 1 mixed |
+| community_section | `community_section.py:896` | 7 | 7 | digital |
+| bmo_ca_business | `bmo_ca_business.py:262` | 6 | 6 | digital |
+| capital_one | `capital_one.py:394` | 5 | 5 | digital |
+| square_checking | `square_checking.py:164` | 4 | 4 | digital |
+| citizens | `citizens.py:66` | 4 | 4 | scanned |
+| huntington | `huntington.py:662` | 4 | 4 | digital |
+| first_citizens | `first_citizens.py:317` | 4 | 4 | digital |
+| navy_federal | `navy_federal.py:127` | 4 | 4 | digital |
+| fiserv_premier | `fiserv_premier.py:226` | 4 | 4 | digital |
+| cibc_french | `cibc.py:198` | 1 | 3 | digital |
+| chase | `chase.py:716` | 3 | 3 | digital |
+| truist | `truist.py:46` | 3 | 3 | digital |
+| symitar | `symitar.py:302` | 3 | 3 | digital |
+| consumers | `consumers.py:73` | 3 | 3 | digital |
+| scotiabank | `scotia.py:276` | 3 | 3 | digital |
+| bluevine | `bluevine.py:137` | 2 | 2 | digital |
+| community_section | `community_section.py:530` | 2 | 2 | digital |
+| core_processor_daily | `date_tokens.py:257` | 2 | 2 | scanned |
+| core_processor_daily | `core_processor_daily.py:545` | 2 | 2 | scanned |
+| santander | `santander.py:161` | 2 | 2 | digital |
+| ibc | `ibc.py:214` | 1 | 2 | digital |
+| banco_popular | `banco_popular.py:43` | 2 | 2 | digital |
+| apex_scanned | `scanned_small_bank.py:531` | 1 | 1 | scanned |
+| navy_federal | `navy_federal.py:402` | 1 | 1 | digital |
+| navy_federal | `navy_federal.py:353` | 1 | 1 | digital |
+| bank_of_america | `bofa.py:45` | 1 | 1 | digital |
+| bank_of_america | `bofa.py:588` | 1 | 1 | digital |
+| capital_one | `capital_one.py:201` | 1 | 1 | digital |
+| chase | `chase.py:595` | 1 | 1 | digital |
+| columbia_bank | `columbia_bank.py:227` | 1 | 1 | scanned |
+| pnc | `pnc.py:329` | 1 | 1 | digital |
+| rbc | `rbc.py:461` | 1 | 1 | digital |
+| td_us | `td_us.py:204` | 1 | 1 | scanned |
+| td_us | `td_us.py:27` | 1 | 1 | digital |
+| ibc | `ibc.py:59` | 1 | 1 | digital |
+| first_farmers | `first_farmers.py:114` | 1 | 1 | scanned |
+| wealthsimple | `wealthsimple.py:220` | 1 | 1 | digital |
+| southside_scanned | `scanned_small_bank.py:281` | 1 | 1 | scanned |
+| woodforest | `woodforest.py:317` | 1 | 1 | digital |
+**Ranked by (population x fix-confidence), the top of that list is not the top
+of the population list**, and saying so is most of this cell's work. The
+largest group (14) is 13 scanned documents whose refusal the module's own
+docstring already calls honest, and the second-largest all-digital group (8)
+is a geometry problem (D6.1). The two groups taken are ranked 2nd and 8th by
+population and 1st and 2nd by confidence: each is a reader that memorized a
+SHAPE its own bank prints wider, and each has an in-document arithmetic oracle
+that gates the widening.
+## D3. WM — wilson_muir: the summary strip is a table, not a sentence (6 sha, 11 rows)
+One `re.search` welded together the account header, six named categories in a
+fixed order, the two dated balance rows and the ledger average. Three
+independent facts about the printing defeat it, and all six declines are one
+account's consecutive statements.
+**WM1 — the category list is open.** The strip prints, under the platform's
+own `Category Number Amount` heading and between two dated balance rows, a
+sequence of `<category> [<count>] <amount>[+]` rows. This account prints
+`Automatic Teller Withdrawals` and `Miscellaneous Fees` in some months, and
+each stands BETWEEN two memorized categories — so the chain's whitespace welds
+break and the whole document is refused on its summary. Three of the six
+declined for this reason alone.
+**WM2 — a category with no items prints no count.** `Debits 0.00`. Requiring a
+count refused the other three. This is the SAME convention
+`core_processor_sectioned._counts` already names ("an absent count is admitted
+ONLY against a zero total"), which is the evidence that it is the platform's
+convention and not this account's accident.
+**WM3 — the electronic-debit section ended at a heading three of them never
+print.** `CHECKS AND OTHER DEBITS` appears only when the period contains
+cheques; on the three whose `Debits` category is `0.00` the heading is absent
+(measured: its count in the document text is 0 on exactly those three), so
+`section_between(..., "ELECTRONIC DEBITS", "CHECKS AND OTHER DEBITS")`
+returned the empty string and the **entire debit ledger read as zero** against
+a six-figure printed total. Silent and total: with WM1 and WM2 fixed and WM3
+not, those three still decline — on a gate that is right about a ledger the
+reader had thrown away.
+**WM4 — the ledger average became OPTIONAL, and review had to name it.**
+Not listed in the first revision of this section, which is the finding: the
+old chain required `Average Balance (Ledger)` as its last welded segment, so a
+statement that suppressed the statistic was refused on it. The reader now
+searches for it separately (`wilson_muir.py:238-239`) and publishes
+`bank_reported_average_balance=None` with `bank_reported_average_label=None`
+when it is absent. Doctrine-safe — the field is the bank's own evidence lane
+and gates nothing, and the ADB doctrine's one user-facing metric does not read
+it — but it is a FOURTH widening and it shipped unannounced.
+It is also **unexercised**: measured over the whole claimed family, all 14
+documents print `Average Balance (Ledger)`, so no mover reaches the None
+branch and the 8 non-movers are byte-identical. A widening no document
+exercises is still a widening; it is recorded here so the next cell to touch
+this family knows the branch exists and is unproven.
+**What makes reading an unmemorized category safe.** The strip states its own
+arithmetic and this reader now checks it to the cent before publishing
+anything:
+    Balance Forward + sum(credits) - sum(debits) = Ending Balance
+`+` is the platform's own direction marker (every credit category carries it,
+no debit category does), so direction is READ rather than inferred from a
+category name. A row taken on the wrong side moves that identity by twice its
+amount. Measured on all six: the identity closes at delta 0.00 on every one.
+Two further gates follow, unchanged in spirit: the ledger's credit sum and its
+debit sum must each equal the strip's. And nothing in the strip may go unread —
+whatever the category pattern does not consume declines the document, because
+a category silently dropped here would be a category missing from the totals
+the ledger is then gated against.
+`stated_credit_count` / `stated_debit_count` are now every count the strip
+printed on that side rather than the three categories the module knew. On
+`2CCA90C6` that is 5 debit categories, not 3, against a ledger that correctly
+lists 92 debit rows — a stated count short of the printed one would have been
+a false contradiction against a complete ledger.
+**Result over the whole claimed family (14 documents, live detection replay):
+8 byte-identical published payloads, 6 movers `failed/parser_declined` ->
+`validated/approved`.**
+| content_sha256 | before | after |
+|---|---|---|
+| `2CCA90C6DBCE11C26ADADE4DA2D8FBF7039CF9585DFA300838B53AB6DB464473` | failed/parser_declined | validated/approved |
+| `420DEA25390642A9772315E12FB8D5302097F22473769555266B6828CF4E545E` | failed/parser_declined | validated/approved |
+| `626EDF423ED019D75A2359836A1E973F82BD75D2E264279EF5ECEB25F628999F` | failed/parser_declined | validated/approved |
+| `A3FBCFF56A177B47003C783516A0725118C5B0934C5827FEBF84851765741A65` | failed/parser_declined | validated/approved |
+| `AFD15B32BCD3D1028F0721F1A24E830D298CCCADDA4EBA3C97C6EDE80F06B04B` | failed/parser_declined | validated/approved |
+| `BE70422DD37DDEE74A7299C26ED650ADC51D63306D81297F84EF98D6B45EED52` | failed/parser_declined | validated/approved |
+Each is `validated/approved`, measured through the real pipeline — not "it
+parses now". `2CCA90C6` and `A3FBCFF5` each appear twice more in the archive
+under other paths, and `626EDF42` and `BE70422D` once more, which is why the
+class instrument will report 6 and the row instrument 11.
+## D4. SQ — square_checking: the Location column it also prints (4 sha)
+The summary table's header names its columns. A merchant with locations
+receives the same three columns under a leading `Location` one, and the
+location's name then stands in the row's first cell:
+    Location Starting balance Activities Ending balance
+    <location name>  <money>  <count>  <money>
+`_SUMMARY` required the first money cell to follow the header immediately, so
+four consecutive statements of one merchant were refused on their summary
+while their period, their account number and their 220–328-row activity grid
+all read perfectly. The row is now read BELOW the header, one line at a time,
+stopping at the first line that is not a row — the prose paragraph the
+statement prints next is not a row and must not be scanned for figures.
+**Exactly one row is admitted.** Two location rows are two ledgers under one
+account and the extraction schema carries one account per statement (L-1);
+publishing the first row's balances against a grid holding both locations'
+activity would be a statement about neither. Zero rows is a table this reader
+did not understand. Both refuse, and a test pins the two-location refusal.
+`activity_count_contradictions` reads the same helper, so the platform's own
+printed `Activities` count still reaches the registered integrity check on the
+located printing. Reading the located summary through a SECOND pattern that
+happened to lose the count would have silently disabled the one contradiction
+this layout can prove — the failure mode this project has named before.
+**Result over the whole claimed family (32 documents, live detection replay):
+28 byte-identical published payloads, 4 movers.**
+| content_sha256 | before | after |
+|---|---|---|
+| `29DC2F462C4D735C5BF49009BB28A9C97204367C78CA873DFBE258FCE64C32AF` | failed/parser_declined | validated/approved |
+| `2C01E9B16BFC29F184779DA6684D4EBEC286EC351BFF90E373D47B2365BA9423` | failed/parser_declined | validated/approved |
+| `49B7F934B0266FE1078EF435BB3F887F0B9136C43CBC6A563EA33D669E0BF4F3` | failed/parser_declined | validated/approved |
+| `A46825D41C9C03B358E2157BCE8B280C9C4B52F17196F0C011649750FD8CB8DE` | failed/parser_declined | validated/approved |
+## D5. The three groups that were measured and deliberately left
+These were carried far enough to state a ceiling, then stopped. Each is a
+finding, not a shrug.
+**D5.1 citizens — 4 scanned documents, ceiling `failed` -> `withheld`, not
+`validated`.** Three named causes, measured:
+* the summary strip's separator. The reader requires `Checks - <fig>` and
+  `Debits - <fig>`; three of the four print `Checks .` and `Debits .` — the
+  subtraction marker rendered as a leader dot by the scan. The fourth prints
+  the marker correctly and is refused by `Balance Calculation _ -` instead:
+  furniture between the block heading and its first row.
+* the credit section is never found. The section's END boundary names a
+  heading these documents do not print — their daily-balance block opens
+  `Current Balance` and then the grid's own column header `Date Balance`,
+  where the reader expects `Current Balance` then `Daily Balance`. The end
+  never matches, so the section is empty and **`credit_coverage` is 0.000 on
+  all four.**
+* the debit ledger is short as well: `debit_coverage` 0.799 / 0.941 / 0.815 /
+  0.850.
+The strip's identity (previous - checks - debits + deposits = current) closes
+to the cent on all four, so the separator is furniture and that half of the
+fix is sound — but with the summary alone widened all four land
+`withheld/withheld_adb` with zero credits published. **Claimed is not
+validated**, and a three-gap document is a card of its own, not a decline
+widening. Carded as CIT-DECLINES with the three causes above and the identity
+as its oracle.
+**D5.2 truist — 3 documents, blocked on a field that cannot move here.**
+`_summary` and `_first_account_block` both require the literal product word
+`CHECKING` in the account line; these three print `TRUIST SIMPLE BUSINESS
+SAVINGS`. Everything else about the layout is identical, each prints exactly
+ONE `Account summary` grid, and the printed identity closes exactly on all
+three (1,236.60 - 0.00 - 53,832.94 + 62,968.20 = 10,371.86, and the other two
+likewise). This is the same R-1 memorized-product class §DECLB removed from
+`us_bank`.
+It is NOT taken here because the same module publishes
+`account_name="Checking"` as a literal. Widening the gate without moving that
+literal would label a savings statement "Checking", which is false; moving the
+literal to the printed product name moves an audited published field across
+the whole claimed truist family — which includes pinned documents. That is a
+ceremony-shaped decision, not a decline widening. Carded as TRU-SAVINGS with
+the three shas and the measurement above.
+**D5.3 core_processor_sectioned `:751` — 14 documents, 13 of them scanned.**
+The strip reads correctly and its identity closes at delta 0.00 on all 14; the
+LEDGER is short. Two sub-shapes: nine lose many rows (read 12 of 18 printed
+credits and 46 of 81 printed debits on one, 0 of 11 and 1 of 99 on another),
+and five match the printed COUNTS exactly while a handful of amounts differ
+(+640.00, -820.02, -204.05, -462.04, -361.56). The module's docstring already
+states the honest answer for the scanned issue — "OCR substitutes look-alike
+letters for digits inside the date column ... a fact about the scan, not a gap
+in this reader". The five count-matching ones are the interesting residue and
+are carded (CPS-AMOUNT, D6.2); nothing here was widened, because a reader
+relaxed until a mis-scanned row parses is a reader that publishes a figure the
+bank never printed.
+## D6. What the other 41 groups are, and where they go
+**D6.1 Geometry, not vocabulary — `core_processor_sectioned` via
+`tables.unique_match` (8 sha, 7 digital).** The summary strip's LABELS and its
+FIGURES stand in different runs of the text layer: `LAST STATEMENT 03/31/26`
+on one line and `9,849.31 67,892.64 77,741.95` on the next; `31 CREDITS 30
+DEBITS THIS STATEMENT 04/30/26` as a label row with its figures elsewhere. The
+association is positional and the text layer has lost it. `unique_match`
+correctly refuses. **Routed to the geometry rung** (the header-derived bands
+card, §GEOM) — this is exactly the class that rung exists for, and no amount
+of vocabulary widening reaches it.
+**D6.2 CPS-AMOUNT (new card).** The five `:751` documents whose printed counts
+match exactly and whose amounts differ by 204.05–820.02. Counts matching means
+the row FINDER is right and a small number of amounts are read wrong — a
+bounded, oracle-rich target (the printed summary, the printed counts and the
+`DAILY BALANCE` grid all localise it). Not taken here: it is an amount-grammar
+card on a scanned population, not a decline-vocabulary one.
+**D6.3 Honest refusals of documents that are not one parseable statement
+(L-1).** 21 documents across five groups, every one already deliberate:
+`huntington:662` (4 — the Business Overdraft Protection line of credit, a
+second account with its own summary and daily-balance table),
+`community_section:896` (7 — three account blocks, two or three of which
+parse), `navy_federal:127` (4 — more than one checking product; §DECLINES-C's
+N2), `symitar:302` (3 — active deposit accounts != 1),
+`community_section:530` (2 — the inner sectioned parse). **These need L-1, not
+a parser fix**, and each already declines with a documented reason.
+**D6.4 HUNT-NOFEE (new card, escalated as a doctrine question) — 8
+documents.** `huntington:681`, the largest all-digital group after
+wilson_muir, and the diagnosis is precise. All eight print a `Total Service
+Charges (-)` row (189.50, 288.50, 8.50, 110.50, 80.50, 468.50, 95.00, 72.00)
+and print **no `Service Charge Detail`, no `Service Charge Summary`, and no
+`Balance Activity` / `Daily Balance` grid at all** — all four counts are 0 in
+every one of the eight. Two independent `_validate` gates therefore fail: the
+fee net is 0 against a stated non-zero charge, and there are no printed daily
+balances. On five of the eight the section sums already equal the printed
+`Credits (+)` and `Debits (-)` to the cent, and the summary identity closes
+(430.98 + 49,718.88 - 51,144.56 - 189.50 = -1,184.20).
+**This is a doctrine question, not a bug.** Publishing them means publishing a
+ledger that provably omits a stated fee total whose DATE the document never
+prints, on statements that print no daily-balance grid to prove any date.
+Under the ratified ADB doctrine the ADB is the one user-facing metric and it
+is date-derived, so a document with no printed date oracle and an undated fee
+is exactly the case the doctrine says to refuse. **Escalated, not fixed**, per
+the brief's hard rule. The three remaining ones also have section sums that
+disagree with the printed totals (by 500.00, 999.98 and 5,850.00) and would
+stay refused regardless.
+**D6.5 The three live family cards.**
+* **FISERV-ISSUE3 — overlap is exactly 4 and they are NOT mine.** The four
+  `fiserv_premier:226` declines are `4D0EACF6D617...A29E`,
+  `4B37474294BF...0C1D`, `8DB2CB78B67C...EA71`, `E34083B2FED7...8513` —
+  byte-for-byte the four shas that card's brief names, all in `Unidentified/`
+  under prefix `d8ddb4db`, and the refusal site (`_issuer` -> None) is the
+  third of the causes that brief names. Untouched.
+* **GRAM-4 — overlap zero by construction.** Its 8 are `no_parser_matched`;
+  no document can be in both classes. Verified: none of the 124 shas is in an
+  unclaimed row.
+* **COLUMBIA-5 — overlap zero by sha, but a shared MODULE.** Its three
+  (`2E667295DFCB16BA...`, `88AAC06119FC0B7D...`, `0CBD2AD897B90137...`) are
+  not among the 124. There IS one `columbia_bank` decline —
+  `6ADFE63F4F745B8B90B3685BC79F691846CC3488DBA98C0EF6C6006B9AB9BDDB`,
+  `Columbia Bank/459ebbc5_Apr 2026.pdf`, scanned, refusing at
+  `columbia_bank.py:227`. **Deliberately not touched**: COLUMBIA-5 owns that
+  module this batch and a single-document widening from a second branch is how
+  two cells produce one conflicted file. Handed to COLUMBIA-5 by sha.
+**D6.6 The remaining singletons and pairs (17 groups, 20 documents).** Each
+has a named site in D2 and none is a shape that repeats: `chase:716` (3) and
+`chase:595` (1) are the §CHASE-CLOSURE card-A' fail-closed refusal of a period
+that cannot be proven empty, and `scotia:276` (3) is its sibling;
+`capital_one:394` (5) and `:201` (1), `first_citizens:317` (4),
+`consumers:73` (3), `bmo_ca_business:262` (6), `santander:161` (2), `ibc` (2),
+`banco_popular:43` (2), `bluevine:137` (2), `cibc:198` (1 sha / 3 rows) and
+the scanned singletons are each one document's or one account's shape.
+`core_processor_daily` (4, scanned) refuses on unreadable dates and rows — the
+same scan honesty as D5.3.
+## D7. Why nothing can have moved outside the two named populations
+Two `parse` functions changed and nothing else: no detection marker, no
+`detection_text`, no shared helper. `tests/test_parser_conformance.py`'s full
+cross product (72 x 71) is green, which pins that no registration's detection
+moved against its fixtures. Movement is therefore confined to documents these
+two registrations CLAIM — and both claimed populations were swept whole.
+The one shape that could smuggle movement past a family sweep is the
+FALLTHROUGH: a document where one of these parsers claims, declines, and some
+OTHER claimant then wins. Widening the decliner would make it win instead, and
+the document would move without its published payload ever having been this
+cell's to compare. Measured, it does not occur here: in both families every
+claimant either won or declined with nothing else claiming —
+| family | claimants | `parser_id` = the family | `parser_id` empty (declined) | won by another parser |
+|---|---|---|---|---|
+| wilson_muir | 14 | 8 | 6 | **0** |
+| square_checking | 32 | 28 | 4 | **0** |
+The sweep enumerates claimants BEFORE `supersedes` pruning, so it is a superset
+of the documents `resolve` would ever hand to these parsers — conservative in
+the right direction.
+## D8. Proofs
+| proof | result | exit |
+|---|---|---|
+| full default suite | `4524 passed, 34 skipped, 31 deselected, 1 warning in 404.38s (0:06:44)` | 0 |
+| conformance cross-product (`tests/test_parser_conformance.py`, 72 x 71) | `668 passed in 1.88s` | 0 |
+| guards (`test_no_statement_hardcodes` + `test_no_parser_helper_clones` + `test_parser_registry_entries`) | `310 passed, 34 skipped in 6.23s` | 0 |
+| corpus-marked slice collection | `27/4589 tests collected (4562 deselected) in 6.40s` — the batch-5 count of 27, unchanged | 0 |
+Suite 4,511 -> **4,524**: the 13 tests of
+`tests/test_declines_d_variants.py`. No corpus-marked test was added, so the
+slice stays at 27.
+**The pinned corpus.** `tests/data/parser_expectations.json` records exactly
+one pinned document claimed by either touched family: `Misc/WMB May 25.pdf`,
+`6EFD091D2A38B437E249D3B37198B0634B1D544EF7A9B689291AC0A776D23C56`,
+`parser_id=wilson_muir`. `square_checking` claims none of the 109. That pinned
+document's WHOLE published payload was measured at base `8570bce` and at
+`HEAD` through the production ladder and pipeline:
+    BEFORE payload sha256: CE01A5CEDE1123D4A775E63F22C0454AE39D18070B6DC737F29C5A6968092D56
+    AFTER  payload sha256: CE01A5CEDE1123D4A775E63F22C0454AE39D18070B6DC737F29C5A6968092D56
+Byte-identical — it prints only the six categories the old chain memorized, so
+the strip reader reproduces it exactly (stated credits 101,265.58 / debits
+103,693.40, counts 11 / 83, 94 transactions, unchanged). **No pinned document
+moves, and there is no named pinned mover for Ocean to weigh.**
+*(A first attempt at this measurement was invalid and is recorded because the
+failure mode is reusable: `git stash push -- <file>` on an already-committed,
+clean tree is a NO-OP that still exits 0, so the "before" run measured the new
+code and produced a tautological match. The baseline is now taken with
+`git checkout 8570bce -- analysis/wilson_muir.py`, and the run asserts the
+base file is loaded — the base module has no docstring, the new one does.)*
+### D8.1 The corpus gate
+`python corpus_gate.py`, run in the worktree at `080eca8`, **exit 0**:
+```
+Corpus gate
+[PASS] inventory: 109 pinned corpus PDFs, all on disk and audited by both oracles
+[PASS] foreign_files: no non-corpus PDFs under the corpus root
+[PASS] source_integrity: 109/109 pinned source PDFs match their pinned SHA-256
+[PASS] balance_audit: 109 statements reproduce every audited balance field across backend, API, dashboard, CSV, XLSX, and package surfaces
+[PASS] adb_audit: 109 statements reproduce every audited ADB field across backend, API, and dashboard-package surfaces
+[PASS] balance_outcomes: balance: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes: adb: 106 pass, 3 withheld, same three statements
+[PASS] outcome_classes: 109 statements publish their pinned verdict (outcome class and the whole integrity block): 4 review / 102 validated / 3 withheld
+[PASS] adb_doctrine: 109/109 statements publish the canonical basis 'calendar_day_printed_period'; banking-day alternate distinct on 106, skipped 3 unpublished (0 all-banking-day periods, 0 flat ledgers)
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR = 109 statements resolved offline; no live OCR, no model calls
+[PASS] exclusions: 0 named exclusions
+[PASS] oracle_independence: 4 audit modules import no production financial mathematics
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 4 review / 102 validated / 3 withheld
+Runtime:  1010.8s
+RESULT: GREEN
+```
+**106/3 and 102 validated / 4 review / 3 withheld** — the canonical
+post-ceremony split, unmoved. `outcome_classes` is the check that matters most
+for a decline-widening cell: since batch 4 it pins each pinned document's
+WHOLE published integrity block, not merely its class, so a widened parser that
+changed a flag on a pinned document would fail it rather than pass quietly.
+Runtime 1010.8s is host load — the box was carrying four other cells'
+`-m corpus` slices at the time — not a property of this branch.
+### D8.2 The corpus-marked slice
+`python -m pytest -m corpus -q`, run in the worktree, **exit 0**:
+```
+27 passed, 4562 deselected, 1 warning in 2751.51s (0:45:51)
+```
+27 is the batch-5 count, unchanged: this cell added 13 tests and none of them
+is corpus-marked. The slice is mandatory in every proof floor because the gate
+is structurally blind to review<->validated movement inside its PASS bucket
+(proven at PIPELINE-FIX-2's first revision), and it is the check that would
+catch a widened parser moving a pinned document between those two classes.
+45:51 is host load — four other cells' slices and two gates were on the box —
+not a property of this branch.
+**Nothing in the pinned corpus moved, in either direction**: the gate's
+per-document verdict check is green on the committed expectation (102/4/3), the
+slice is 27/27, and the one pinned document either touched family claims is
+byte-identical in its whole published payload (D8).
+### D8.3 A note on completion signals, because this cell got one wrong twice
+Two proofs in this section were nearly recorded from a signal that was not
+completion, and both mistakes have the same shape — a condition that the
+intended event produces but that other things produce too:
+* `git stash push -- <file>` on an already-committed, clean tree is a NO-OP
+  that still exits 0. A "measure the baseline" step built on it measured the
+  new code and produced a tautological byte-identity match. The baseline is now
+  taken with `git checkout <base> -- <file>`, and the measuring script asserts
+  the base file is the one loaded.
+* "the log file is non-empty" is not "pytest finished". `pytest -q` flushes its
+  progress dots as it goes, so a 9-byte log was 9 of 27 tests, not a summary.
+  The wrapper now appends an explicit `CORPUS_EXIT=$?` line after pytest exits
+  and the watcher waits for THAT, with a `tasklist` check on the pid as the
+  second exit so a died-without-finishing run reports rather than hangs.
+Recorded because the general rule is cheap and reusable: a proof's terminator
+must be something only the finished proof can emit.
+### D8.4 The mutation table
+The first revision of this cell shipped **no mutation table**, and adversarial
+review built one: of its 16 mutants **five survived**, every one a correct and
+reachable gate with no test behind it. The table was reconstructed here — the
+five review named, at the lines review named, plus every other reachable gate
+in the changed code — and closed. Each mutant is the gate rewritten to its
+permissive form; a mutant is KILLED when this cell's test file fails, and the
+killing test is named, because a table that only counts is not evidence that
+the right test is doing the work.
+| # | mutated gate | verdict | killed by |
+|---|---|---|---|
+| M1 | `wilson_muir.py:186` strip-absent gate | KILLED | `..._declines_a_document_that_prints_no_summary_strip` |
+| M2 | `wilson_muir.py:218` **strip identity gate** | KILLED | `..._declines_a_beginning_balance_its_categories_contradict` · `..._declines_an_ending_balance_its_categories_contradict` |
+| M3 | `wilson_muir.py:195` unread-residue gate | KILLED | `..._declines_a_strip_row_it_cannot_read` |
+| M4 | `wilson_muir.py:190` unreadable-balance gate | KILLED | `..._declines_a_balance_the_money_grammar_refuses` |
+| M5 | `wilson_muir.py:252` **ledger CREDIT gate** | KILLED | `..._declines_a_ledger_missing_a_printed_credit` |
+| M6 | `wilson_muir.py:254` ledger DEBIT gate | KILLED | `..._declines_a_ledger_short_of_its_own_strip` |
+| M7 | `wilson_muir.py:205` unreadable-category-amount gate | KILLED | `..._declines_a_category_amount_the_money_grammar_refuses` |
+| M8 | `wilson_muir.py:164` WM3 boundary reverted | KILLED | `..._reads_the_debits_of_a_statement_with_no_cheque_section` (+1) |
+| M9 | `wilson_muir.py:153` WM2 count mandatory again | KILLED | `..._reads_a_zero_category_that_printed_no_count` (+1) |
+| M10 | `wilson_muir.py:207` direction marker inverted | KILLED | `..._reads_a_category_it_was_never_told_about` (+5) |
+| M11 | `wilson_muir.py:233` account header optional | KILLED | `..._declines_a_strip_with_no_account_header` |
+| M12 | `wilson_muir.py:209` credit count never accumulated | KILLED | `..._counts_every_category_the_strip_printed` (+1) |
+| M13 | `square_checking.py:78` **name cell may swallow money** | KILLED | `..._declines_a_row_whose_first_cell_is_a_money_column` |
+| M14 | `square_checking.py:169` one-row rule relaxed | KILLED | `..._declines_a_summary_listing_more_than_one_location` |
+| M15 | `square_checking.py:161` **blank line no longer terminates** | KILLED | `..._contains_a_two_location_table_split_by_a_blank_line` |
+| M16 | `square_checking.py:79` **row not anchored at its end** | KILLED | `..._declines_a_row_with_a_trailing_money_cell` |
+**16/16 KILLED**, exit 0. Bold = the five review found surviving. Reproduced
+on a `git archive HEAD` scratch copy, so no production file was written by the
+harness.
+**What the five survivors had in common, and it is worth naming.** Each was a
+gate whose FAILURE MODE another gate also catches on the fixtures that existed
+— so every test passed with the gate deleted. `M2` is the sharpest: the strip
+identity is the SOLE gate on `beginning_balance` and `ending_balance`, and the
+test named `..._declines_a_strip_whose_identity_does_not_close` did not reach
+it, because a mis-marked category moves the strip's TOTALS as well as its
+identity and the ledger gates refuse it first. With the identity deleted, a
+Balance Forward mis-read from 1,000.00 to 7,000.00 publishes
+`beginning_balance=7000.0` and every other check passes. The closing fixtures
+move a BALANCE and nothing else, which is the only shape that isolates it;
+the old test is renamed
+`..._declines_a_category_whose_direction_marker_is_missing` and its docstring
+now says what it actually pins. **A test named after a gate is not a test of
+that gate** — the mutation table is what tells the two apart, and this cell
+should have shipped one.
+### D8.5 Why the gate and the slice are not re-owed for the closure
+The closure is **tests and documentation only**. Review verified each of the
+five gates is correct and specifically NOT redundant, so no production gate was
+touched. Proven rather than asserted: the ASTs of both modules are identical
+to the reviewed tree —
+    analysis/wilson_muir.py     1AEC717495DB8D7DF6B4143378EACF6EF939C1EEB5259A6E85202928C92011CE
+    analysis/square_checking.py 803FB142F30D43A8156829844F157E903CD9E0F36739E23F2C8FD90635426920
+`corpus_gate.py` and the corpus-marked slice both measure PRODUCTION output
+over the pinned 109. Identical production ASTs cannot produce different
+published payloads, so re-running them would re-measure the same code and
+re-prove D8.1 and D8.2. They are not re-run, and this paragraph is the
+argument for that rather than an omission. Every proof that CAN move with a
+test-file change — the full default suite, the cell's own tests, the canonical
+guard and conformance sets — is re-run on the final tree.
+### D8.6 The closure proof set, on the final tree
+| proof | result | exit |
+|---|---|---|
+| production AST identity (both modules vs the reviewed tree) | `IDENTICAL` / `IDENTICAL` | 0 |
+| mutation table, 16 mutants | `16/16 killed` | 0 |
+| full default suite | `4534 passed, 34 skipped, 31 deselected, 1 warning in 192.46s (0:03:12)` | 0 |
+| this cell's tests | `23 passed, 1 warning in 1.76s` | 0 |
+| canonical GUARD set (`test_no_statement_hardcodes` + `test_no_parser_helper_clones` + `test_r1_hardcodes` + `test_experiments_are_not_wired` + `test_filename_boundary`) | `242 passed, 1 warning in 13.18s` | 0 |
+| canonical CONFORMANCE set (`test_parser_conformance` + `test_parser_registry_entries` + `test_parser_detection_markers` + `test_parser_registry` + `test_parser_crash_shapes` + `test_parser_exception_boundary` + `test_count_semantics`) | `1126 passed, 34 skipped, 1 warning in 3.43s` | 0 |
+| bisect check at `750e768` (recorded, not a pass) | `3 failed, 10 passed in 0.46s` | 1 |
+Both canonical sets hit their expected counts exactly — guard **242**,
+conformance **1126** — which is the check that the sets were run whole rather
+than approximated. Suite 4,511 (base) -> 4,524 (first revision, +13) ->
+**4,534** (+10 closure tests). The corpus gate and the corpus-marked slice are
+not re-owed; D8.5 is the argument.
+## D9. Commits
+Corrected after review (MINOR-4): the first version of this table credited
+9 tests to `750e768` and 4 to `22966b3`. That is wrong, and the way it is
+wrong matters.
+| Commit | Contents |
+|---|---|
+| `750e768` | WM1-WM4 in `analysis/wilson_muir.py` **and all 13 of the first revision's tests** — the 9 wilson_muir ones and the 4 square_checking ones |
+| `22966b3` | SQ1 in `analysis/square_checking.py`; **no test file** |
+| `68ffcb4` | D0-D6 — the census over all 132 and the routing of all 43 groups |
+| `423235c` | the two module docstrings cite their own W3 sections |
+| `080eca8` | D7-D8: the scope argument, the pinned byte-identity, the first four proofs |
+| `447a7fa` | D8.1: the corpus gate proof |
+| `4038301` | D8.2 the corpus-marked slice, D8.3 the completion-signal note |
+| `520174c` | the review closure: 10 tests, cell tests 13 -> 23, production AST unchanged |
+| (this one) | D1 corrected, WM4 named, D8.4 the mutation table, D8.5, and this table |
+**`750e768` is RED and the branch is not bisectable through it.** The four
+square_checking tests were committed four commits before the implementation
+they exercise, so the tree at `750e768` fails them. Measured, not inferred:
+    3 failed, 10 passed in 0.46s
+    FAILED tests/test_declines_d_variants.py::test_square_reads_the_location_column_it_also_prints
+    FAILED tests/test_declines_d_variants.py::test_square_location_column_changes_nothing_else
+    FAILED tests/test_declines_d_variants.py::test_square_counts_the_activities_of_a_located_summary
+History stays as it is — rewriting a pushed-for-review branch to make a log
+table true is a worse trade than recording the defect. The lesson is
+mechanical and belongs in the standing rules: **a card that writes one test
+file for two modules must commit that file with the LAST of them, or split it
+per module.** "Commit incrementally" was followed to the letter and still
+produced a red commit, because incrementality was measured in changes rather
+than in trees that pass.
+One more thing that commit hides: `test_square_declines_a_summary_listing_more_
+than_one_location` PASSED at `750e768` — vacuously, because the pre-SQ1
+`_SUMMARY` did not match the located header at all and returned None for the
+wrong reason. A green assertion in a red tree is not evidence, and it is the
+same G7.4 shape as M2: the right answer reached by a path the test does not
+name.
