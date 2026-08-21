@@ -27263,10 +27263,28 @@ square_checking claims 32, citizens claims 21.
 **The refusal site is machine-derived, not read off the code.** A `parse` that
 returns None says nothing about WHY. Each decline is replayed under a tracer
 that records every `None` return inside `analysis/`; at the moment `parse`
-returns None, the chain of returns at strictly increasing depth ending there
-is the propagation chain, and its innermost non-generator frame is the refusal
-site. That is what makes the census below a MEASUREMENT of 132 documents
+returns None, the chain of returns at CONSECUTIVE depths (d -> d+1, an actual
+caller->callee chain) ending there is the propagation chain, and its innermost
+non-generator frame is the refusal site. Read as "strictly increasing depth"
+instead, the same records yield 6/6 for huntington.py:681 rather than 8/8 and
+invent a huntington.py:354 group, so the distinction is load-bearing, not
+editorial. That is what makes the census below a MEASUREMENT of 132 documents
 rather than a reading of 43 modules.
+
+The generator filter is REQUIRED and is sufficient on this corpus — without it
+huntington attributes to `_validate.<locals>.<genexpr>`, square_checking to
+`_normalized.<locals>.<genexpr>`, bmo_ca_business to
+`td_can.normalize_mojibake.<locals>.<genexpr>` and capital_one/wilson_muir to
+`parser_registry.py:423 _score.<locals>.<genexpr>`, a SIBLING subtree
+(`detect()` runs inside `parse`). It is not a general immunity. Comprehensions
+are a non-issue only because PEP 709 inlines them on 3.12+; a `yield` emits a
+return event with `arg is None`, so a generator yielding a possibly-None row
+injects records at its own depth mid-chain, and `void -> None` closures,
+lambdas and `__init__` are non-generator frames the filter elects freely.
+Measured: under the strictly-increasing reading 5 of 88 audited documents
+attribute to a non-refusing frame (`huntington.py:354 _blocks.<locals>.flush`,
+`community_section.py:143 _Summary.__init__`,
+`navy_federal.py:221 _separate_amount_balance`).
 
 ## D2. The census — all 132, by (parser, refusal site)
 
@@ -27357,6 +27375,22 @@ returned the empty string and the **entire debit ledger read as zero** against
 a six-figure printed total. Silent and total: with WM1 and WM2 fixed and WM3
 not, those three still decline — on a gate that is right about a ledger the
 reader had thrown away.
+
+**WM4 — the ledger average became OPTIONAL, and review had to name it.**
+Not listed in the first revision of this section, which is the finding: the
+old chain required `Average Balance (Ledger)` as its last welded segment, so a
+statement that suppressed the statistic was refused on it. The reader now
+searches for it separately (`wilson_muir.py:238-239`) and publishes
+`bank_reported_average_balance=None` with `bank_reported_average_label=None`
+when it is absent. Doctrine-safe — the field is the bank's own evidence lane
+and gates nothing, and the ADB doctrine's one user-facing metric does not read
+it — but it is a FOURTH widening and it shipped unannounced.
+
+It is also **unexercised**: measured over the whole claimed family, all 14
+documents print `Average Balance (Ledger)`, so no mover reaches the None
+branch and the 8 non-movers are byte-identical. A widening no document
+exercises is still a widening; it is recorded here so the next cell to touch
+this family knows the branch exists and is unproven.
 
 **What makes reading an unmemorized category safe.** The strip states its own
 arithmetic and this reader now checks it to the cent before publishing
@@ -27715,14 +27749,130 @@ intended event produces but that other things produce too:
 Recorded because the general rule is cheap and reusable: a proof's terminator
 must be something only the finished proof can emit.
 
+### D8.4 The mutation table
+
+The first revision of this cell shipped **no mutation table**, and adversarial
+review built one: of its 16 mutants **five survived**, every one a correct and
+reachable gate with no test behind it. The table was reconstructed here — the
+five review named, at the lines review named, plus every other reachable gate
+in the changed code — and closed. Each mutant is the gate rewritten to its
+permissive form; a mutant is KILLED when this cell's test file fails, and the
+killing test is named, because a table that only counts is not evidence that
+the right test is doing the work.
+
+| # | mutated gate | verdict | killed by |
+|---|---|---|---|
+| M1 | `wilson_muir.py:186` strip-absent gate | KILLED | `..._declines_a_document_that_prints_no_summary_strip` |
+| M2 | `wilson_muir.py:218` **strip identity gate** | KILLED | `..._declines_a_beginning_balance_its_categories_contradict` · `..._declines_an_ending_balance_its_categories_contradict` |
+| M3 | `wilson_muir.py:195` unread-residue gate | KILLED | `..._declines_a_strip_row_it_cannot_read` |
+| M4 | `wilson_muir.py:190` unreadable-balance gate | KILLED | `..._declines_a_balance_the_money_grammar_refuses` |
+| M5 | `wilson_muir.py:252` **ledger CREDIT gate** | KILLED | `..._declines_a_ledger_missing_a_printed_credit` |
+| M6 | `wilson_muir.py:254` ledger DEBIT gate | KILLED | `..._declines_a_ledger_short_of_its_own_strip` |
+| M7 | `wilson_muir.py:205` unreadable-category-amount gate | KILLED | `..._declines_a_category_amount_the_money_grammar_refuses` |
+| M8 | `wilson_muir.py:164` WM3 boundary reverted | KILLED | `..._reads_the_debits_of_a_statement_with_no_cheque_section` (+1) |
+| M9 | `wilson_muir.py:153` WM2 count mandatory again | KILLED | `..._reads_a_zero_category_that_printed_no_count` (+1) |
+| M10 | `wilson_muir.py:207` direction marker inverted | KILLED | `..._reads_a_category_it_was_never_told_about` (+5) |
+| M11 | `wilson_muir.py:233` account header optional | KILLED | `..._declines_a_strip_with_no_account_header` |
+| M12 | `wilson_muir.py:209` credit count never accumulated | KILLED | `..._counts_every_category_the_strip_printed` (+1) |
+| M13 | `square_checking.py:78` **name cell may swallow money** | KILLED | `..._declines_a_row_whose_first_cell_is_a_money_column` |
+| M14 | `square_checking.py:169` one-row rule relaxed | KILLED | `..._declines_a_summary_listing_more_than_one_location` |
+| M15 | `square_checking.py:161` **blank line no longer terminates** | KILLED | `..._contains_a_two_location_table_split_by_a_blank_line` |
+| M16 | `square_checking.py:79` **row not anchored at its end** | KILLED | `..._declines_a_row_with_a_trailing_money_cell` |
+
+**16/16 KILLED**, exit 0. Bold = the five review found surviving. Reproduced
+on a `git archive HEAD` scratch copy, so no production file was written by the
+harness.
+
+**What the five survivors had in common, and it is worth naming.** Each was a
+gate whose FAILURE MODE another gate also catches on the fixtures that existed
+— so every test passed with the gate deleted. `M2` is the sharpest: the strip
+identity is the SOLE gate on `beginning_balance` and `ending_balance`, and the
+test named `..._declines_a_strip_whose_identity_does_not_close` did not reach
+it, because a mis-marked category moves the strip's TOTALS as well as its
+identity and the ledger gates refuse it first. With the identity deleted, a
+Balance Forward mis-read from 1,000.00 to 7,000.00 publishes
+`beginning_balance=7000.0` and every other check passes. The closing fixtures
+move a BALANCE and nothing else, which is the only shape that isolates it;
+the old test is renamed
+`..._declines_a_category_whose_direction_marker_is_missing` and its docstring
+now says what it actually pins. **A test named after a gate is not a test of
+that gate** — the mutation table is what tells the two apart, and this cell
+should have shipped one.
+
+### D8.5 Why the gate and the slice are not re-owed for the closure
+
+The closure is **tests and documentation only**. Review verified each of the
+five gates is correct and specifically NOT redundant, so no production gate was
+touched. Proven rather than asserted: the ASTs of both modules are identical
+to the reviewed tree —
+
+    analysis/wilson_muir.py     1AEC717495DB8D7DF6B4143378EACF6EF939C1EEB5259A6E85202928C92011CE
+    analysis/square_checking.py 803FB142F30D43A8156829844F157E903CD9E0F36739E23F2C8FD90635426920
+
+`corpus_gate.py` and the corpus-marked slice both measure PRODUCTION output
+over the pinned 109. Identical production ASTs cannot produce different
+published payloads, so re-running them would re-measure the same code and
+re-prove D8.1 and D8.2. They are not re-run, and this paragraph is the
+argument for that rather than an omission. Every proof that CAN move with a
+test-file change — the full default suite, the cell's own tests, the canonical
+guard and conformance sets — is re-run on the final tree.
+
+### D8.6 The closure proof set, on the final tree
+
+| proof | result | exit |
+|---|---|---|
+| production AST identity (both modules vs the reviewed tree) | `IDENTICAL` / `IDENTICAL` | 0 |
+| mutation table, 16 mutants | `16/16 killed` | 0 |
+| full default suite | `4534 passed, 34 skipped, 31 deselected, 1 warning in 192.46s (0:03:12)` | 0 |
+| this cell's tests | `23 passed, 1 warning in 1.76s` | 0 |
+| canonical GUARD set (`test_no_statement_hardcodes` + `test_no_parser_helper_clones` + `test_r1_hardcodes` + `test_experiments_are_not_wired` + `test_filename_boundary`) | `242 passed, 1 warning in 13.18s` | 0 |
+| canonical CONFORMANCE set (`test_parser_conformance` + `test_parser_registry_entries` + `test_parser_detection_markers` + `test_parser_registry` + `test_parser_crash_shapes` + `test_parser_exception_boundary` + `test_count_semantics`) | `1126 passed, 34 skipped, 1 warning in 3.43s` | 0 |
+| bisect check at `750e768` (recorded, not a pass) | `3 failed, 10 passed in 0.46s` | 1 |
+
+Both canonical sets hit their expected counts exactly — guard **242**,
+conformance **1126** — which is the check that the sets were run whole rather
+than approximated. Suite 4,511 (base) -> 4,524 (first revision, +13) ->
+**4,534** (+10 closure tests). The corpus gate and the corpus-marked slice are
+not re-owed; D8.5 is the argument.
+
 ## D9. Commits
+
+Corrected after review (MINOR-4): the first version of this table credited
+9 tests to `750e768` and 4 to `22966b3`. That is wrong, and the way it is
+wrong matters.
 
 | Commit | Contents |
 |---|---|
-| `750e768` | WM1-WM3: the summary strip read as a table, the omitted count, the section boundary; 9 tests |
-| `22966b3` | SQ1: the Location column, one-row-only, the shared `_summary` behind the integrity check; 4 tests |
-| `68ffcb4` | this section, D0-D6 — the census over all 132 and the routing of all 43 groups |
+| `750e768` | WM1-WM4 in `analysis/wilson_muir.py` **and all 13 of the first revision's tests** — the 9 wilson_muir ones and the 4 square_checking ones |
+| `22966b3` | SQ1 in `analysis/square_checking.py`; **no test file** |
+| `68ffcb4` | D0-D6 — the census over all 132 and the routing of all 43 groups |
 | `423235c` | the two module docstrings cite their own W3 sections |
 | `080eca8` | D7-D8: the scope argument, the pinned byte-identity, the first four proofs |
 | `447a7fa` | D8.1: the corpus gate proof |
-| (this one) | D8.2 the corpus-marked slice, D8.3 the completion-signal note, and this table |
+| `4038301` | D8.2 the corpus-marked slice, D8.3 the completion-signal note |
+| `520174c` | the review closure: 10 tests, cell tests 13 -> 23, production AST unchanged |
+| (this one) | D1 corrected, WM4 named, D8.4 the mutation table, D8.5, and this table |
+
+**`750e768` is RED and the branch is not bisectable through it.** The four
+square_checking tests were committed four commits before the implementation
+they exercise, so the tree at `750e768` fails them. Measured, not inferred:
+
+    3 failed, 10 passed in 0.46s
+    FAILED tests/test_declines_d_variants.py::test_square_reads_the_location_column_it_also_prints
+    FAILED tests/test_declines_d_variants.py::test_square_location_column_changes_nothing_else
+    FAILED tests/test_declines_d_variants.py::test_square_counts_the_activities_of_a_located_summary
+
+History stays as it is — rewriting a pushed-for-review branch to make a log
+table true is a worse trade than recording the defect. The lesson is
+mechanical and belongs in the standing rules: **a card that writes one test
+file for two modules must commit that file with the LAST of them, or split it
+per module.** "Commit incrementally" was followed to the letter and still
+produced a red commit, because incrementality was measured in changes rather
+than in trees that pass.
+
+One more thing that commit hides: `test_square_declines_a_summary_listing_more_
+than_one_location` PASSED at `750e768` — vacuously, because the pre-SQ1
+`_SUMMARY` did not match the located header at all and returned None for the
+wrong reason. A green assertion in a red tree is not evidence, and it is the
+same G7.4 shape as M2: the right answer reached by a path the test does not
+name.
