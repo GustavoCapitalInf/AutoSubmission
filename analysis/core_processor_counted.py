@@ -132,11 +132,15 @@ description to imitate: these ledgers carry `BILL.COM P26031002 - 4974025 INV
 satisfies a one-or-two-digit-run row-date grammar perfectly. So the month and
 day are matched as CALENDAR ranges rather than as digit runs — an invoice
 number is not a month, and the left boundary then stops the pattern
-from restarting inside the token at `6-2`. Measured: with a plain digit-run
-class every one of the 8 documents refuses, because a phantom row appears in a
-section whose printed count then disagrees. The gates would have caught it —
-that is the point of them — but a reader that refuses eight honest documents
-is a reader that cannot read the template.
+from restarting inside the token at `6-2`.
+
+Measured, and stated as measured: with a plain digit-run class **3 of the 8
+documents refuse** — the three that print the BILL.COM invoice suffixes — and
+the other 5 publish BYTE-IDENTICALLY, because they print no token of that
+shape. A phantom row appears in a section whose printed count then disagrees,
+so the gates catch it; that is the point of them. But a reader that refuses
+three honest documents out of eight is a reader that cannot read the template,
+and the calendar class costs nothing on the five it does not affect.
 """
 from __future__ import annotations
 
@@ -523,14 +527,27 @@ _SERIAL_RE = re.compile(r"([0-9]{2,8})\s*\*?")
 
 
 def _described(gap: str) -> str:
-    """The description the bank printed between a row's date and its amount.
+    """Everything the bank printed between a row's date and its amount.
 
-    Whitespace only: what this template prints in that gap is the row's own
-    printed label (`Preauthorized Debit`, `Account Transfer Cr.`) and stripping
-    its punctuation would publish something the statement does not carry. The
-    merchant block this processor prints BELOW the amounts is deliberately not
-    reached — on a flattened layer it arrives out of order, and attributing it
-    to rows would be a repair rather than a reading.
+    Whitespace only: stripping punctuation would publish something the
+    statement does not carry.
+
+    **What that span actually contains, measured rather than assumed (W3
+    §GRAM4 G7.7).** Usually it is the row's own printed label
+    (`Preauthorized Debit`, `Account Transfer Cr.`) — 168 of the 279 published
+    rows. On the other 111 the flattened layer has put a block of merchant
+    lines between the PREVIOUS row's amount and this row's date, so the block
+    lands in THIS row's description and the row it describes publishes a bare
+    label. Nothing is invented — every character was printed on the document —
+    and no gated field is affected, which is why the fourteen gates cannot see
+    it. Twelve rows are additionally cut mid-token by the 200-character cap.
+
+    `core_processor_daily` publishes descriptions through a byte-identical
+    call, so the class is the whole complex's rather than this reader's.
+    Attributing the block to the preceding row (or publishing bare labels) is
+    a design change across BOTH readers that moves descriptions on already
+    validated documents: carded as DESC-ATTRIB (batch 7) by Ocean's ruling,
+    deliberately not done here.
     """
     return re.sub(r"\s+", " ", gap).strip(" |")[:200].strip()
 

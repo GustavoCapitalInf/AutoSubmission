@@ -27270,18 +27270,32 @@ Store-wide, the sentence-case period PAIR (`Last statement: <long date>` and
 one template; they are four summary grammars of one core processor, and the
 partition is exact:
 
-| grammar | documents | what closes its summary |
-|---|---|---|
-| the sectioned issue, `core_processor_daily` | 14 | `Total days in statement period:` + `Total additions` + undated `Beginning balance $` |
-| the running-balance issue, `b1` | 3 | the same period line, `DAILY ACTIVITY`, `Ending totals` |
-| the refusing scans of the sectioned issue | 3 | same, corrupted |
-| one scan printing the pair and no summary at all | 1 | — |
-| **the counted partition — THIS cell** | **8** | `Account Summary` + six categories + **DATED** balances |
-| the Columbia fifth grammar (COLUMBIA-5's) | 3 | undated `Beginning balance $` / `Ending balance $`, no day count |
+| grammar | documents | outcome today | what closes its summary |
+|---|---|---|---|
+| the sectioned issue, `core_processor_daily` | 13 | validated / approved | `Total days in statement period:` + `Total additions` + undated `Beginning balance $` |
+| the running-balance issue, `b1` | 3 | validated / approved | the same period line, `DAILY ACTIVITY`, `Ending totals` |
+| scans of those two issues that refuse | 4 | failed / **parser_declined** | same furniture, corrupted by the scan |
+| one scan printing the pair and no summary at all | 1 | failed / no_parser_matched | — |
+| **the counted partition — THIS cell** | **8** | failed / no_parser_matched → validated | `Account Summary` + six categories + **DATED** balances |
+| the Columbia fifth grammar (COLUMBIA-5's) | 3 of its 4 | 1 review, 2 failed | undated `Beginning balance $` / `Ending balance $`, no day count |
 
-14 + 3 + 3 = the 20 §LCPERIOD names as `core_processor_daily`'s population,
-reproduced exactly; the 8 are L7.3's cohort, reproduced exactly; the 3 are
-L7.3's "FOURTH arrangement", reproduced exactly. Nothing was taken on trust.
+13 + 3 + 4 = the 20 §LCPERIOD names as `core_processor_daily`'s population,
+reproduced exactly by OUTCOME. **The earlier version of this table split them
+14 / 3 / 3 by PRINTING** — grouping `DE92B503B2EFF9CB` with the sectioned
+issue it prints rather than with the four documents that decline — which sums
+to the same 20 and describes a different partition. Both are true statements
+about different questions; the outcome split is the one a reader of this table
+wants, so it is the one printed here. The 8 are L7.3's cohort, reproduced
+exactly. Nothing was taken on trust.
+
+**COLUMBIA-5's cohort is FOUR, not the three visible here**, and the fourth is
+outside this census by construction: `6ADFE63F4F745B8B90B3685BC79F691846CC3488DBA98C0EF6C6006B9AB9BDDB`
+(a `local-tesseract-ocr` scan) prints `This statement:` and NOT
+`Last statement:`, so it never enters the 32-document period-PAIR population
+this section partitions. Verified on this tree: it prints the undated
+`Beginning balance $`, no dated balance label, and this registration does not
+claim it. **Overlap with this cell's 8 is zero across all four of
+COLUMBIA-5's shas.**
 
 ### G2.2 The two required markers, measured against the whole store
 
@@ -27458,12 +27472,29 @@ one-or-two-digit-run row-date grammar perfectly.
 
 So the month and day are matched as CALENDAR RANGES rather than digit runs,
 and the left boundary then stops the pattern restarting inside the token one
-character along. **Measured, not assumed: with a plain digit-run class all 8
-documents refuse**, because a phantom row appears in a section whose printed
-count then disagrees. The gates catch it — that is what they are for — but a
-reader that refuses eight honest documents is a reader that cannot read the
-template. The mutant is in the harness and is killed by
-`test_an_invoice_suffix_in_a_description_is_not_a_row_date`.
+character along.
+
+**CORRECTION, and it is mine rather than the reviewer's to own.** The first
+version of this paragraph said "with a plain digit-run class all 8 documents
+refuse". That figure was reasoned, not measured, and it is wrong. Re-measured
+by relaxing `_DATE_RE` to `[0-9]{1,2}-[0-9]{1,2}` in place and re-parsing all
+eight:
+
+```
+refuse                     3   1468D77AF2EBD42C . 1ADC8AD7F251FBCE . 91A2DE994D379971
+publish BYTE-IDENTICALLY   5   026EE246 . 7B3B8113 . A3539AB3 . C80C0CC8 . FC385FC2
+publish DIFFERENTLY        0
+```
+
+The three that refuse are exactly the three printing the BILL.COM `INV 26-2` /
+`INV 26-3` suffixes; the other five print no token of that shape, so the
+calendar class costs them nothing and buys them nothing. **The decision
+stands and the argument is unchanged in kind — a phantom row moves a printed
+count, the gates catch it, and a reader that refuses three honest documents in
+eight cannot read the template — but the strength of the claim was overstated
+by a factor of nearly three, and a report that rounds 3 up to 8 is the
+substitution this log exists to prevent.** The mutant is in the harness and is
+killed by `test_an_invoice_suffix_in_a_description_is_not_a_row_date`.
 
 ### G5.3 A day the grid prints twice refuses the document
 
@@ -27564,14 +27595,62 @@ the closest near miss to this grammar. They print neither required marker,
 this registration does not reach them, a conformance test pins that, and they
 are byte-identical before and after. Carded again, unclaimed.
 
-**G7.7 — the merchant detail below the amounts is deliberately not read.**
-This processor prints each row's originator on lines BELOW the amount column,
-interleaved in blocks that serve several rows at once. What stands between a
-row's date and its amount is the row's own printed label (`Preauthorized
-Debit`), and that is what is published. Attributing the merchant blocks to
-rows would be a repair; the ledger reconciles to the cent without it, and the
-descriptions are honest about being the labels the bank printed in the
-description column.
+**G7.7 — CORRECTED: the merchant detail IS read, and on 111 rows it lands on
+the wrong row.** The first version of this entry said the merchant blocks are
+"deliberately not read" and that descriptions are "the labels the bank printed
+in the description column". That is the opposite of what ships, the review
+measured it, and the measurement is reproduced here.
+
+`_described(cell.described)` publishes everything the layer printed between a
+row's date and its amount. On this template that span is usually just the
+row's own label — but where the flattened layer has put a block of merchant
+lines between one row's amount and the NEXT row's date, that block lands
+inside the FOLLOWING row's description. Measured over all 279 published rows:
+
+```
+document            rows   bare label   carries extra text   at the 200-char cap
+026EE24630D7A7A2      24           24                    0                     0
+1468D77AF2EBD42C      57           29                   28                     3
+1ADC8AD7F251FBCE      48           26                   22                     5
+7B3B8113DA9E7DEE      49           19                   30                     2
+91A2DE994D379971      60           30                   30                     2
+A3539AB30B9365D3      30           29                    1                     0
+C80C0CC8CFE47D9D       2            2                    0                     0
+FC385FC2D01A280F       9            9                    0                     0
+                     279          168                  111                    12
+```
+
+**111 of 279 rows — 40% — carry text beyond their own label, and that text
+belongs to the row BEFORE them.** The clearest printing is `91A2DE99` on
+`2026-03-02`, verified on the published payload:
+
+```
+   -363.94  'Preauthorized Debit'                     <- THE HARTFORD's row, bare
+   -923.20  'Preauthorized Debit THE HARTFORD INSPMTCL 17169005 … ULISES IBARGUREN …'
+```
+
+THE HARTFORD's own row publishes no merchant, and THE HARTFORD's name is
+published on ULISES IBARGUREN's row instead. Twelve rows are additionally cut
+mid-token by the 200-character description cap.
+
+**What is NOT wrong.** Nothing is invented: every published character was
+printed on the document, in the span the reader took it from. No monetary
+field is affected — amounts, directions, dates, counts, totals, the grid and
+the ADB are all gated and all reconcile, which is exactly why the fourteen
+gates cannot see this. And it is not new: `core_processor_daily` publishes
+descriptions through the byte-identical `_described(cell.described)` call, so
+the same class exists on that registration's 13 validated documents. This
+cell inherited the behaviour rather than introducing it.
+
+**Ocean's ruling: no code change in this card, and a batch-7 card instead.**
+The correct fix — attribute the interleaved block to the PRECEDING row, or
+publish bare labels and drop the block — is a design change that has to be
+measured across BOTH readers of this complex, and it moves descriptions on 13
+already-validated sibling documents. That is a card, not a hunk: **DESC-ATTRIB
+(batch 7), priority**, because descriptions feed funder and lender
+attribution, and KAPITUS, HEADWAY, ONDECK and CELTIC BANK all appear in these
+very statements — a lender name attributed to the wrong posting is a wrong
+answer in the one place this platform is asked for one.
 
 **G7.8 — a trailing-minus section figure would be read as a positive
 magnitude**, and **a negative sub-dollar balance (`$-.55`) is unreadable**.
@@ -27754,3 +27833,36 @@ rather than in a report.
 | `8837f5e` | this section's G0–G7 |
 | `b25f570` | one log correction: the measured day-count spans, stated exactly |
 | (this one) | G8–G10: the proof block, every document named, and the commit table |
+
+## G11. Review closures, and the train items that are Ocean's
+
+The adversarial review returned **APPROVE WITH FINDINGS, 0 BLOCK**. Its
+independent reimplementation reproduced the 279-row multiset on all 8, the ADB
+to the cent 8/8, all 26 exclusion documents byte-identical (plus `6ADFE63F`),
+the partition under every single-axis OCR relaxation returning the same 8, a
+26,018-case differential fuzz of `dated_cells` with 0 differences, and 12/12
+mutants killed by the tests that NAME their gate. What it found was in the
+RECORD, not in the reader, and every closure below is documentation:
+
+| finding | closure |
+|---|---|
+| MAJOR-1 | G7.7 rewritten from the opposite of what ships to the measured behaviour: 111 of 279 rows carry a block belonging to the preceding row, per-document split and the 91A2DE99 printing verified on the published payload. Ocean's ruling recorded: no code change here, **DESC-ATTRIB is a priority batch-7 card** across both readers of this complex. The same false claim in `_described`'s docstring is corrected with it |
+| MINOR-1 | G5.2 and the module docstring: **3 of 8** refuse under a digit-run row date, not 8; 5 publish byte-identically. Re-measured in place; the decision stands, the overstatement is named as mine |
+| MINOR-2 | G2.1's table now partitions by OUTCOME (13 / 3 / 4) and says why the earlier 14 / 3 / 3 was a partition by PRINTING of the same 20 |
+| MINOR-3 | COLUMBIA-5's cohort is FOUR; `6ADFE63F…` prints `This statement:` without `Last statement:` and is therefore outside this cell's period-pair census. Overlap with the 8 remains zero across all four shas, verified by sha on this tree |
+
+**Train items, which are Ocean's and not this cell's** — recorded here so the
+next reader of this section does not go looking for them on this branch:
+
+* **registry composition 72 → 74.** SCAN-NEXT's `texas_first_scanned` lands in
+  the same train, and both cards pin 73 independently. The composed count is
+  74, and the two registration-count assertions
+  (`tests/test_parser_conformance.py`,
+  `tests/test_parser_registry_entries.py`) plus the cross-product docstring
+  are Ocean's to compose;
+* **fixture-file conflicts** in `tests/data/parser_conformance_fixtures.py`
+  with SCAN-NEXT and COLUMBIA-5 — three cards appending to one dict;
+* **REGFP's fingerprint rotation** covers the FINAL registry count, so it must
+  be computed after the composition above, not from any single branch;
+* **`OBSERVER_VERSION`**: TEL-COV does not touch it, so this cell's 4 → 5 is
+  the only mover in the train and needs no re-composition.
