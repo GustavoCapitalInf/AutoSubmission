@@ -114,8 +114,16 @@ FIXTURES: dict[str, str] = {
         "Date Description Debits Credits Balance\n"
     ),
     "citizens": "citizensbank.com\nBalance Calculation\n",
+    # No issuer NAME, and that is the registration's own conclusion rather
+    # than this file's convenience (W3 §COLUMBIA5). The masthead of this
+    # printing is a logo: across four consecutive statements of one account the
+    # scan renders the name twice and renders it as `sbedet eye ffgeef tLe` and
+    # `Aun | rou ae nn nro) cell Mazo LOTT` the other two times. What the
+    # registration recognises instead is the issuer's product masthead and the
+    # three pieces of ledger furniture its reader cannot proceed without.
     "columbia_bank": (
-        "COLUMBIA BANK\nMARKETPLACE CHECKING\nDEPOSITS/ADDITIONS\nDAILY BALANCES\n"
+        "MARKETPLACE CHECKING\nDEPOSITS/ADDITIONS\n"
+        "ACH AND ELECTRONIC PAYMENTS/SUBTRACTIONS\nDAILY BALANCES\n"
     ),
     "consumers": "Consumers Credit Union\nSummary of All Accounts\n",
     # The second fixture here that carries no issuer identification, for the
