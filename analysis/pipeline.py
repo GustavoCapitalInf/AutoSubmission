@@ -604,9 +604,12 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
         # of the document that provoked it (H3_SCHEMA I1). The repairs run
         # AFTER dispatch, so they were the one line in this branch standing
         # outside that promise: a repair that raised propagated out of
-        # `analyze_markdown` as a bare exception, and `webapp/worker.py` does
-        # `store.set_error(job_id, str(exc))` — putting the quoted cell in the
-        # durable job store and in front of a user.
+        # `analyze_markdown` as a bare exception, and through batch 5
+        # `webapp/worker.py` did `store.set_error(job_id, str(exc))` — putting
+        # the quoted cell in the durable job store and in front of a user.
+        # (WORKER-PRIVACY, batch 6, closed that boundary too: the job store now
+        # receives the stage and the exception's class name, never its message.
+        # The two closures are independent; neither is the other's excuse.)
         #
         # MG-C closed the leak at its loudest SOURCE (`money.read_money` names
         # the reader and the refusal class, never the token). This closes the
