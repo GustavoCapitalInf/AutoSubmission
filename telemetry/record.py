@@ -25,6 +25,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from .collect import DETERMINISTIC_MODEL_SUFFIX, reconstructed_claim
 from .diagnostics import diagnose
 from .prices import estimate
 
@@ -54,7 +55,15 @@ OUTCOME_CLASSES = ("validated", "review", "withheld", "failed", "deferred")
 #: and inferring it would let a real failure hide as a decision.
 DEFERRED_REASONS = ("deferred_scanned", "deferred_visual_ocr", "profile_only")
 SOURCE_PATHS = ("native", "local_tesseract", "visual", "none")
-DISPATCH_SOURCES = ("live", "cached", "unavailable")
+
+#: How this record's routing block was established. The vocabulary is
+#: unchanged since H-3 shipped; what changed at #TELCOV is that all three
+#: emitters now reach it through one derivation in `dispatch_section` instead
+#: of asserting it, and that `cached` is finally reachable from the CLI paths.
+SOURCE_LIVE = "live"
+SOURCE_CACHED = "cached"
+SOURCE_UNAVAILABLE = "unavailable"
+DISPATCH_SOURCES = (SOURCE_LIVE, SOURCE_CACHED, SOURCE_UNAVAILABLE)
 
 #: The complete key set of a record, asserted by test so a new field cannot be
 #: added without being reviewed against the sensitivity invariant.
@@ -164,19 +173,48 @@ def dispatch_section(
     scores: list[tuple[str, float]],
     registration_count: int,
     *,
-    source: str,
+    payload: dict | None,
 ) -> dict:
-    """Routing facts, projected from the R-3 Dispatch.
+    """Routing facts: observed from the R-3 Dispatch, or reconstructed.
 
     PROJECTED, never stored whole: `Dispatch.statement` holds the parsed
     Statement — every amount and description — and must never reach a record.
     Only ids, scores and enum outcomes cross this boundary.
 
-    `source="cached"` is the deliberate, documented degradation: on a D-3
-    analysis cache hit `analyze_markdown` never ran, so there is no dispatch of
-    record. The score vector is still populated (detect is pure), and the
-    outcome class still comes from the cached payload, so the coverage rate
-    stays computable — only the parser diagnostics thin out.
+    **`source` is DERIVED HERE, from the two facts that decide it, and is not
+    the caller's to assert (#TELCOV).** It had been a required keyword, and all
+    three emitters computed it themselves: the worker said `cached`, while
+    `batch.py` and the discovery runner said `unavailable` for the identical
+    state. Measured on the warm archive re-run `b7b40c73`, that spelled
+    `dispatch.source = "unavailable"` over 2,561 records the analysis cache had
+    just served in full — H3_SCHEMA I5's own example of what the field exists
+    to prevent ("`dispatch.source = "cached"` is not `unclaimed`"), written the
+    other way round. One rule now, in one place:
+
+    * `live` — a `Dispatch` was observed. The verdict is an OBSERVATION,
+      including `unclaimed`, where the observation is that nobody claimed.
+    * `cached` — no `Dispatch`, but a payload exists, which happens on exactly
+      one path: the D-3 analysis cache served it. `outcome`/`parser_id`/`score`
+      /`candidates` are then RECONSTRUCTED where `reconstructed_claim` can do
+      it soundly, and stay null where it refuses.
+    * `unavailable` — no `Dispatch` and no payload: the analysis stage never
+      produced anything for this document (invalid PDF, OCR failure, a deferred
+      tranche). Not a degradation, an absence.
+
+    `payload` is keyword-only and REQUIRED, with no default, for the same
+    reason `source` was: a caller that forgets it would otherwise get
+    `unavailable` on every cache hit — this exact defect, silently
+    reintroduced — instead of a `TypeError` at the call site.
+
+    So `source` doubles as the provenance mark, with no new field and no new
+    enum member: `cached` + a parser id is a reconstruction by construction,
+    `live` + a parser id is an observation, and `cached` + null is the
+    reconstruction refusing to name one (the REGFP instrument). The
+    §DISCOBS row vocabulary maps onto it exactly — `live_dispatch`,
+    `live_detect`, and the `unavailable` mark that names no parser.
+
+    NOT reconstructed, in either sense: `attempted` and `exceptions`. See
+    `reconstructed_claim` for why each says nothing rather than saying zero.
 
     `exceptions` (W3-1) carries `[parser_id, stage, exception_class]` triples.
     Before the boundary existed a parser crash escaped `resolve`, so no
@@ -188,7 +226,9 @@ def dispatch_section(
     """
     capped = scores[:SCORE_CAP]
     section = {
-        "source": source,
+        "source": SOURCE_LIVE if dispatch is not None else (
+            SOURCE_CACHED if payload is not None else SOURCE_UNAVAILABLE
+        ),
         "outcome": None,
         "parser_id": None,
         "score": None,
@@ -213,6 +253,16 @@ def dispatch_section(
                 for failure in getattr(dispatch, "exceptions", ())
             ],
         )
+    elif payload is not None:
+        claim = reconstructed_claim(scores, payload)
+        if claim is not None:
+            parser_id, score = claim
+            section.update(
+                outcome="claimed",
+                parser_id=parser_id,
+                score=score,
+                candidates=[[parser_id, score]],
+            )
     return section
 
 
@@ -250,7 +300,14 @@ def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
         })
 
     model_used = (payload or {}).get("model_used") or ""
-    if payload is not None and model_used and not model_used.endswith("-deterministic"):
+    # The same suffix `reconstructed_claim` reads, through the same constant:
+    # both are asking whether a model produced this payload, and two string
+    # literals asking one question is how they drift apart (#TELCOV).
+    if (
+        payload is not None
+        and model_used
+        and not model_used.endswith(DETERMINISTIC_MODEL_SUFFIX)
+    ):
         calls.append({
             "stage": "analysis",
             "model": model_used,

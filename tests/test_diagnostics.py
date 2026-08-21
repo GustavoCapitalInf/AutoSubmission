@@ -507,7 +507,7 @@ def _record(payload, parser_id="chase") -> dict:
         emitter="batch",
         document=document_section("A" * 64, 10, None),
         source=source_section(None),
-        dispatch=dispatch_section(dispatch, [], 46, source="live"),
+        dispatch=dispatch_section(dispatch, [], 46, payload=payload),
         stages={},
         model_calls=[],
         payload=payload,

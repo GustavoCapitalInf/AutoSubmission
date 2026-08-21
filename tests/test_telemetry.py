@@ -18,6 +18,7 @@ from analysis.pipeline import analyze_markdown
 from analysis.serialization import report_to_dict
 from telemetry import (
     DEFERRED_REASONS,
+    DETERMINISTIC_MODEL_SUFFIX,
     DISABLE_ENV,
     DispatchCollector,
     JsonlSink,
@@ -40,7 +41,7 @@ from telemetry import (
 )
 from telemetry.prices import PRICE_TABLE_VERSION, estimate
 from telemetry.record import model_calls_for
-from telemetry.report import render, summarize
+from telemetry.report import coverage, render, summarize
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -66,7 +67,7 @@ def _record(**overrides) -> dict:
         emitter="batch",
         document=document_section("A" * 64, 1234, None),
         source=source_section(None),
-        dispatch=dispatch_section(None, [], 46, source="unavailable"),
+        dispatch=dispatch_section(None, [], 46, payload=None),
         stages={"analysis": {"ms": 1.0, "cache": "miss"}},
         model_calls=[],
         payload=None,
@@ -233,7 +234,7 @@ def test_dispatch_section_never_carries_the_parsed_statement():
     """Dispatch.statement is the full financial record; it must not be projected."""
     collector = DispatchCollector()
     analyze_markdown(claimed_markdown(), parse_mode="deterministic", on_dispatch=collector)
-    section = dispatch_section(collector.dispatch, [], 46, source="live")
+    section = dispatch_section(collector.dispatch, [], 46, payload=None)
     assert set(section) == {
         "source", "outcome", "parser_id", "score", "candidates", "attempted",
         "exceptions", "scores", "scores_floor", "scores_capped", "registration_count",
@@ -253,7 +254,7 @@ def test_dispatch_section_never_carries_the_prepared_document():
     analyze_markdown(claimed_markdown(), parse_mode="deterministic", on_dispatch=collector)
     assert collector.prepared is not None, "vacuous unless something was published"
 
-    section = dispatch_section(collector.dispatch, [], 46, source="live")
+    section = dispatch_section(collector.dispatch, [], 46, payload=None)
     assert "prepared" not in section
     snippet = collector.prepared.admissible[500:600]
     assert snippet.strip(), "vacuous unless the snippet is real document text"
@@ -295,7 +296,7 @@ def test_dispatch_section_projects_parser_failures_by_class_name_only():
             ParserFailure("bank_of_america", "detect", "ValueError"),
         ),
     )
-    section = dispatch_section(dispatch, [], 46, source="live")
+    section = dispatch_section(dispatch, [], 46, payload=None)
 
     assert section["outcome"] == "parser_exception"
     assert section["exceptions"] == [
@@ -308,7 +309,97 @@ def test_dispatch_section_projects_parser_failures_by_class_name_only():
 def test_a_dispatch_without_exceptions_reports_an_empty_list():
     collector = DispatchCollector()
     analyze_markdown(claimed_markdown(), parse_mode="deterministic", on_dispatch=collector)
-    assert dispatch_section(collector.dispatch, [], 46, source="live")["exceptions"] == []
+    assert dispatch_section(collector.dispatch, [], 46, payload=None)["exceptions"] == []
+
+
+# --- the cache-hit hole (#TELCOV) -------------------------------------------
+#
+# A payload with no `Dispatch` means the D-3 analysis cache served it. Before
+# this the record said `unavailable` (batch, discovery) or `cached` (worker)
+# and named no parser either way; the rate computed from it collapsed toward
+# zero as the cache warmed. Measured on the retained warm archive run
+# `b7b40c73`: 2,561 of 3,506 records, and 0.0% printed against discovery's
+# 73.7% over the same documents.
+
+#: What the pipeline writes into a payload a REGISTRY parser produced. The
+#: bank half is arbitrary; the suffix is the fact under test.
+DETERMINISTIC_PAYLOAD = {"model_used": "somebank-deterministic"}
+
+
+def test_dispatch_source_is_derived_from_the_two_facts_that_decide_it():
+    """It was a required keyword and the three emitters disagreed on it."""
+    collector = DispatchCollector()
+    analyze_markdown(claimed_markdown(), parse_mode="deterministic", on_dispatch=collector)
+
+    assert dispatch_section(collector.dispatch, [], 46, payload=None)["source"] == "live"
+    assert dispatch_section(None, [], 46, payload=DETERMINISTIC_PAYLOAD)["source"] == "cached"
+    assert dispatch_section(None, [], 46, payload=None)["source"] == "unavailable"
+    assert dispatch_section(None, [], 46, payload=None)["source"] == "unavailable"
+
+
+def test_a_cache_served_record_carries_the_claim_it_can_prove():
+    """The reconstruction, and the vocabulary that keeps it distinguishable.
+
+    `cached` + a parser id IS the provenance mark: no new field and no new
+    enum member: `live` + a parser id is an observation, `cached` + a parser id
+    is a reconstruction, `cached` + null is the reconstruction refusing.
+    """
+    section = dispatch_section(
+        None, [("chase", 0.75), ("bmo", 0.166667)], 46, payload=DETERMINISTIC_PAYLOAD
+    )
+    assert section["source"] == "cached"
+    assert section["outcome"] == "claimed"
+    assert section["parser_id"] == "chase"
+    assert section["score"] == 0.75
+    assert section["candidates"] == [["chase", 0.75]]
+    # Never reconstructed: proven empty, and unrecoverable, respectively.
+    assert section["attempted"] == [] and section["exceptions"] == []
+
+
+@pytest.mark.parametrize("payload, why", [
+    ({"model_used": "generic-structurer-deterministic"},
+     "the one branch that publishes a payload with no parser behind it"),
+    ({"model_used": "gemini-2.5-flash"},
+     "an LLM extraction in parse_mode=auto had no parser at all"),
+    ({}, "a payload that names no model is not evidence of a parser"),
+])
+def test_a_cache_served_record_refuses_to_name_a_parser_it_cannot_prove(payload, why):
+    section = dispatch_section(None, [("chase", 0.75)], 46, payload=payload)
+    assert section["source"] == "cached", why
+    assert section["outcome"] is None and section["parser_id"] is None, why
+
+
+def test_an_inconclusive_sweep_names_nobody_rather_than_the_loudest():
+    """Zero or many survivors while a payload exists means a stale artifact
+    outlived a registry change (the REGFP window). A finding, not a pick."""
+    two = dispatch_section(
+        None, [("chase", 0.75), ("regions", 0.75)], 46, payload=DETERMINISTIC_PAYLOAD
+    )
+    assert (two["outcome"], two["parser_id"]) == (None, None)
+    none = dispatch_section(None, [("bmo", 0.166667)], 46, payload=DETERMINISTIC_PAYLOAD)
+    assert (none["outcome"], none["parser_id"]) == (None, None)
+
+
+def test_the_reconstruction_is_guarded_on_the_type_not_the_callers_word():
+    """It runs inside emit paths that swallow their own exceptions (I4), so
+    something that is not a serialized payload must reconstruct nothing rather
+    than cost the record. `score_vector`'s rule, one function over."""
+    from telemetry import reconstructed_claim
+
+    for nonsense in (object(), 42, "somebank-deterministic", [1, 2],
+                     {"model_used": 7}):
+        assert reconstructed_claim([("chase", 0.75)], nonsense) is None
+
+
+def test_the_structurer_model_is_read_from_its_own_constant():
+    """The literal above is a test fixture; the product must not hold one."""
+    from analysis.structurer import STRUCTURER_MODEL
+
+    assert STRUCTURER_MODEL == "generic-structurer-deterministic"
+    assert STRUCTURER_MODEL.endswith(DETERMINISTIC_MODEL_SUFFIX), (
+        "if this ever stops being true the suffix guard alone would let a "
+        "structurer payload through, and the explicit exclusion is what stops it"
+    )
 
 
 def test_a_crash_flag_is_classified_as_review_with_its_own_reason():
@@ -335,10 +426,10 @@ def test_score_vector_drops_zeros_and_sorts_best_first():
 
 def test_score_vector_is_capped_and_says_so():
     long_vector = [(f"p{i}", 1.0 - i / 100) for i in range(SCORE_CAP + 5)]
-    section = dispatch_section(None, long_vector, 46, source="live")
+    section = dispatch_section(None, long_vector, 46, payload=None)
     assert len(section["scores"]) == SCORE_CAP
     assert section["scores_capped"] is True
-    assert dispatch_section(None, long_vector[:2], 46, source="live")["scores_capped"] is False
+    assert dispatch_section(None, long_vector[:2], 46, payload=None)["scores_capped"] is False
 
 
 # --- the double sweep: the near-miss vector reuses the analysis sweep -------
@@ -626,10 +717,14 @@ def test_sqlite_columns_are_projections_of_the_record(tmp_path):
     from webapp.storage import Storage
 
     store = Storage(tmp_path)
+    cached = {"metrics": {"average_daily_balance": 1.0},
+              "quality": {"corporate_use": "approved"}}
     record = _record(
-        dispatch=dispatch_section(None, [("chase", 0.5)], 46, source="cached"),
-        payload={"metrics": {"average_daily_balance": 1.0},
-                 "quality": {"corporate_use": "approved"}},
+        # A cache-served payload with no `model_used`: `source` is `cached`
+        # and the reconstruction declines, which is the shape this test wants
+        # in the database.
+        dispatch=dispatch_section(None, [("chase", 0.5)], 46, payload=cached),
+        payload=cached,
     )
     store.append_telemetry(record)
     stored = store.telemetry_records()[0]
@@ -657,12 +752,12 @@ def _corpus_like_records() -> list[dict]:
     for _ in range(3):
         records.append(_record(
             payload=approved,
-            dispatch=dispatch_section(None, [], 46, source="live") | {"outcome": "claimed",
-                                                                     "parser_id": "chase"},
+            dispatch=dispatch_section(None, [], 46, payload=None) | {"outcome": "claimed",
+                                                          "parser_id": "chase"},
         ))
     records.append(_record(
         payload=withheld,
-        dispatch=dispatch_section(None, [], 46, source="live") | {"outcome": "unclaimed"},
+        dispatch=dispatch_section(None, [], 46, payload=None) | {"outcome": "unclaimed"},
     ))
     return records
 
@@ -674,6 +769,193 @@ def test_coverage_summary_counts_what_it_says(tmp_path):
     assert summary["outcome"] == {"validated": 3, "withheld": 1}
     assert summary["deterministic_coverage"] == pytest.approx(0.75)
     assert "deterministic coverage" in render(summary, "run-1")
+
+
+# --- the coverage numerator on a warm run (#TELCOV, W3 §DISCOBS DO7#1) -------
+
+
+def _cached_claim(payload: dict) -> dict:
+    """A record as a warm run emits it: no Dispatch, a cache-served payload."""
+    return _record(
+        payload=payload,
+        dispatch=dispatch_section(None, [("chase", 0.75)], 46, payload=payload),
+        stages={"analysis": {"ms": 0.4, "cache": "hit"}},
+    )
+
+
+def test_the_coverage_numerator_survives_a_cache_hit():
+    """The defect, at the smallest scale that shows it.
+
+    Three documents the cache serves and one it does not. `claimed` used to
+    come from an observed `Dispatch` alone, so the three cache hits scored
+    zero: the rate read 25% where the truth is 100%, and on a fully warm
+    archive run it read 0.0%.
+    """
+    from analysis import parser_registry_entries  # noqa: F401  (populates)
+    from analysis.parser_registry import Detection, Dispatch, by_id
+
+    approved = {"metrics": {"average_daily_balance": 1.0},
+                "quality": {"corporate_use": "approved"},
+                "model_used": "somebank-deterministic"}
+    observed = Dispatch(
+        "claimed", registration=by_id("chase"), detection=Detection(score=0.75),
+        candidates=(("chase", 0.75),),
+    )
+    live = _record(
+        payload=approved,
+        dispatch=dispatch_section(observed, [("chase", 0.75)], 46, payload=approved),
+    )
+    records = [live] + [_cached_claim(approved) for _ in range(3)]
+
+    assert [r["dispatch"]["source"] for r in records] == ["live"] + ["cached"] * 3
+    assert all(r["dispatch"]["parser_id"] == "chase" for r in records)
+    rates = coverage(records)
+    assert (rates["numerator"], rates["denominator"], rates["unattributed"]) == (4, 4, 0)
+    assert rates["rate"] == 1.0
+
+
+def test_deferred_documents_are_outside_the_coverage_denominator():
+    """H3_SCHEMA 6 has always said so; the rate did not, and counted them.
+
+    `deferred` is a statement about the RUN — work a tranche chose not to do —
+    so including it made coverage a function of which tranche you ran. This is
+    also what `discovery.report.summarize` does, and the two rollups have to
+    mean the same thing by the same rule.
+    """
+    approved = {"metrics": {"average_daily_balance": 1.0},
+                "quality": {"corporate_use": "approved"},
+                "model_used": "somebank-deterministic"}
+    records = [_cached_claim(approved), _record(deferred="deferred_scanned")]
+    rates = coverage(records)
+    assert (rates["numerator"], rates["denominator"]) == (1, 1)
+    assert rates["deferred"] == 1 and rates["rate"] == 1.0
+    assert "1 deferred documents are outside the denominator" in render(summarize(records))
+
+
+def test_a_run_whose_verdicts_are_missing_refuses_to_print_a_rate():
+    """The shape of every run emitted before this fix, and of a REGFP window.
+
+    A payload exists (so the analysis stage ran and published an outcome) and
+    no verdict does. Excluding those documents silently would print a rate over
+    an unstated subset — on the retained warm archive run that is 0/915 = 0.0%,
+    which is the original fiction in a better disguise.
+    """
+    withheld = {"metrics": {"average_daily_balance": None}}
+    blind = _record(payload=withheld, dispatch=dispatch_section(None, [], 46, payload=withheld))
+    assert blind["dispatch"]["outcome"] is None
+    assert blind["outcome"]["class"] == "withheld"
+
+    records = _corpus_like_records() + [blind]
+    rates = coverage(records)
+    assert rates["unattributed"] == 1
+    assert rates["rate"] is None
+    assert summarize(records)["deterministic_coverage"] is None
+
+    printed = render(summarize(records), "run-1")
+    assert "NOT COMPUTABLE" in printed
+    assert "1 analysed documents carry no dispatch verdict" in printed
+    # The counts are still stated, below the verdict and never beside it.
+    assert "0 / " not in printed and "3 / 4" not in printed
+
+
+def test_the_coverage_block_partitions_the_base_it_prints():
+    """The regression this cell's first revision shipped, and the reason a
+    percentage block is a claim rather than decoration.
+
+    The coverage line moved to `claimed / dispatched` while the lines under it
+    stayed on `total`, so the four numbers no longer described one population:
+    on the warm archive replay the block rendered 74.1% + 25.7% + 0.9% =
+    100.7%. Every verdict line now shares the coverage line's base and they
+    sum to it exactly; the documents with NO verdict are printed over `total`
+    with that base named, because they are not a slice of the same pie.
+    """
+    from analysis import parser_registry_entries  # noqa: F401  (populates)
+    from analysis.parser_registry import Detection, Dispatch, by_id
+
+    approved = {"metrics": {"average_daily_balance": 1.0},
+                "quality": {"corporate_use": "approved"},
+                "model_used": "somebank-deterministic"}
+
+    def observed(outcome, parser=None):
+        dispatch = Dispatch(
+            outcome,
+            registration=by_id(parser) if parser else None,
+            detection=Detection(score=0.75) if parser else None,
+        )
+        return _record(
+            payload=approved if parser else None,
+            error_reason=None if parser else "no_parser_matched",
+            dispatch=dispatch_section(dispatch, [], 46,
+                                      payload=approved if parser else None),
+        )
+
+    records = (
+        [observed("claimed", "chase") for _ in range(6)]
+        + [observed("unclaimed") for _ in range(3)]
+        + [observed("ambiguous")]
+        + [observed("parser_exception")]
+        + [_record(deferred="deferred_scanned"), _record(payload=None,
+                                                         error_reason="invalid_pdf")]
+    )
+    rates = coverage(records)
+    assert rates["denominator"] == 11 and rates["numerator"] == 6
+    assert rates["verdicts"] == {"claimed": 6, "unclaimed": 3,
+                                 "ambiguous": 1, "parser_exception": 1}
+    # The identity, before the rounding: the verdicts ARE the denominator.
+    assert sum(rates["verdicts"].values()) == rates["denominator"]
+
+    printed = render(summarize(records), "run-1").splitlines()
+    shares = [
+        float(line.rsplit(" ", 1)[-1].rstrip("%"))
+        for line in printed
+        if line.strip().startswith(("unclaimed", "ambiguous", "parser_exception"))
+    ]
+    coverage_share = rates["rate"] * 100
+    assert len(shares) == 3, printed
+    assert round(coverage_share + sum(shares), 1) == 100.0, printed
+    # `parser_exception` is a dispatch outcome and used not to be printed at
+    # all, which broke the same block a second way.
+    assert any("parser_exception" in line for line in printed)
+    # The no-verdict line is over a different base and says so.
+    assert any(
+        "no_dispatch" in line and "outside the coverage denominator" in line
+        for line in printed
+    ), printed
+
+
+def test_the_two_readers_of_the_deterministic_mark_read_one_constant():
+    """`model_calls_for` and `reconstructed_claim` ask the same question — did
+    a model produce this payload — and answered it with two separate string
+    literals until #TELCOV. This pins that they agree, on both answers."""
+    import telemetry.record as record_module
+
+    deterministic = {"model_used": "somebank" + DETERMINISTIC_MODEL_SUFFIX}
+    extracted = {"model_used": "gemini-2.5-flash"}
+
+    assert model_calls_for(None, deterministic) == []
+    assert [call["purpose"] for call in model_calls_for(None, extracted)] == ["extraction"]
+
+    from telemetry import reconstructed_claim
+
+    assert reconstructed_claim([("chase", 0.75)], deterministic) == ("chase", 0.75)
+    assert reconstructed_claim([("chase", 0.75)], extracted) is None
+
+    source = Path(record_module.__file__).read_text(encoding="utf-8")
+    assert '"-deterministic"' not in source, (
+        "the suffix belongs to DETERMINISTIC_MODEL_SUFFIX; a second literal is "
+        "how the two readers drift apart"
+    )
+
+
+def test_a_failed_document_is_not_a_missing_verdict():
+    """An invalid PDF never reached the analysis stage, so it has no verdict to
+    have lost. Counting it as one would make the rate refuse on every run that
+    contains one — 17 of them on the archive."""
+    records = _corpus_like_records() + [_record(payload=None, error_reason="invalid_pdf")]
+    rates = coverage(records)
+    assert rates["unattributed"] == 0
+    assert (rates["numerator"], rates["denominator"]) == (3, 4)
+    assert rates["rate"] == pytest.approx(0.75)
 
 
 def test_jsonl_and_sqlite_report_identically(tmp_path):

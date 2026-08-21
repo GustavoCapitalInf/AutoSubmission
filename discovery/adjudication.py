@@ -25,10 +25,12 @@ from pathlib import Path
 from telemetry.diagnostics import UNATTRIBUTED
 
 from .evidence import (
+    LABEL_UNMATCHED,
+    TEMPLATE_CLAIM,
     Document,
     Run,
     bank_is_registered,
-    label_agrees,
+    label_verdict,
     load_run,
     registered_bank_tokens,
     registration_labels,
@@ -208,6 +210,52 @@ def _card(kind: str, key: str, documents: list[Document], rule_id: str,
     )
 
 
+def label_check(
+    documents: list[Document],
+) -> tuple[dict[str, list[Document]], list[Document]]:
+    """(disagreeing pairs, template claims) over the documents this check can
+    ask about at all.
+
+    ONE function, because two consumers must not disagree: the
+    `label_disagreement` clusters and the workspace header that names what was
+    exempted from them. It owns the population filter as well as the verdict —
+    a document is judged only if the platform published a claim for it
+    (`claimed`, with a parser, outcome `validated` or `review`) AND a human
+    filed it under something usable. An unusable document, an unlabelled
+    folder or a withheld outcome answers no filing question.
+
+    The third verdict is the #TELCOV fix (§DISCOBS DO7#3). A §U registration
+    claims a document TEMPLATE and publishes no issuer, so a bank folder can
+    neither agree nor disagree with it; those documents used to land in
+    `label_disagreement` (six `Desjardins -> releve_facturation` on the run of
+    record) where the obvious way to make them disappear is to rename the
+    parser after the folder. §U4.1's evidence forbids that and
+    `tests/test_parser_detection_markers.py` exists to prevent it: the other
+    ten documents of that template sit in `Unidentified/` and are not that
+    bank's paper. So they are exempted from the disagreement and RETURNED, not
+    dropped - the workspace prints the count and the warning.
+    """
+    labels_by_parser = registration_labels()
+    mismatched: dict[str, list[Document]] = defaultdict(list)
+    template_claims: list[Document] = []
+    for document in documents:
+        if not document.valid_pdf or document.encrypted:
+            continue
+        if document.dispatch_outcome != "claimed" or not document.parser_id:
+            continue
+        if not document.folder_label or document.is_unlabelled_folder:
+            continue
+        if document.outcome_class not in ("validated", "review"):
+            continue
+        admissible = labels_by_parser.get(document.parser_id or "", frozenset())
+        verdict = label_verdict(document, admissible)
+        if verdict == TEMPLATE_CLAIM:
+            template_claims.append(document)
+        elif verdict == LABEL_UNMATCHED:
+            mismatched[f"{document.folder_label} -> {document.parser_id}"].append(document)
+    return mismatched, template_claims
+
+
 def build_clusters(
     run: Run,
     *,
@@ -241,11 +289,13 @@ def build_clusters(
         raise UnattributedParsers(
             f"{len(unattributed)} of {len(diagnosed)} diagnosed documents carry "
             "no parser_id, so a failure-class x parser view cannot be built.\n"
-            "This is the H3_SCHEMA 5.4 cache-hit hole: a run served from the "
-            "analysis cache never re-dispatched, so it has the diagnoses and "
-            "not the claims.\n"
+            "This is the H3_SCHEMA 5.4 cache-hit hole. A run emitted before "
+            "the #TELCOV fix has it on every cache-served document; a run "
+            "emitted after it has it only where the identity reconstruction "
+            "refused to name one parser.\n"
             "  --enrich <run_dir>        recover parser identity by content "
-            "hash from a run that dispatched these documents live\n"
+            "hash from a run that dispatched these documents live (for a run "
+            "from before that fix)\n"
             "  --allow-unattributed      build the view anyway; the affected "
             "rows are labelled '(parser unknown)' explicitly"
         )
@@ -341,19 +391,9 @@ def build_clusters(
             {"parsers": dict(Counter(d.parser_id for d in unlabelled_claims).most_common(8))},
         ))
 
-    # The label question. Both halves matter: without the validation the
-    # disagreement could be a bad claim, and calling that a filing problem
-    # would manufacture one out of a detection problem.
-    labels_by_parser = registration_labels()
-    mismatched: dict[str, list[Document]] = defaultdict(list)
-    for document in claimed:
-        if not document.folder_label or document.is_unlabelled_folder:
-            continue
-        if document.outcome_class not in ("validated", "review"):
-            continue
-        admissible = labels_by_parser.get(document.parser_id or "", frozenset())
-        if not label_agrees(document.folder_label, admissible):
-            mismatched[f"{document.folder_label} -> {document.parser_id}"].append(document)
+    # The label question, ruled on by `label_check` so that the workspace
+    # header and this cluster read one verdict per document.
+    mismatched, _template_claims = label_check(documents)
     for key, group in sorted(mismatched.items(), key=lambda item: (-len(item[1]), item[0])):
         clusters.append(_card("label_disagreement", key, group, "R6_label_disagreement"))
 
@@ -374,6 +414,16 @@ def workspace(run: Run, **kwargs) -> dict:
         cluster.documents for cluster in clusters
         if cluster.kind == "withheld_check_cell" and cluster.evidence.get("parser") == UNATTRIBUTED
     )
+    # Ranked pairs, not a bare total: the rule that fills this class is "the
+    # claim published no issuer", so a BANK-specific parser that ever lands
+    # here is on the page instead of inside a bucket total. That is the same
+    # thing `discovery.report`'s `template_claim_pairs` does with the same
+    # census caveat (§DISCOBS DO4: five registrations can publish `bank=None`
+    # by design, and nothing enforces that they are all platform-named).
+    _mismatched, template_claims = label_check(list(run.values()))
+    template_pairs = Counter(
+        (d.folder_label, d.parser_id) for d in template_claims
+    )
     by_disposition = Counter(cluster.disposition for cluster in clusters)
     documents_by_disposition: Counter = Counter()
     for cluster in clusters:
@@ -386,6 +436,11 @@ def workspace(run: Run, **kwargs) -> dict:
         "folder_labels_available": run.folder_labels_available,
         "parser_enrichment_runs": list(run.enrichment_runs),
         "unattributed_documents": unattributed,
+        "template_claim_documents": len(template_claims),
+        "template_claim_pairs": [
+            {"folder": folder, "parser": parser, "documents": count}
+            for (folder, parser), count in template_pairs.most_common()
+        ],
         "dispositions": dict(by_disposition),
         "documents_by_disposition": dict(documents_by_disposition.most_common()),
         "clusters": [cluster.as_dict() for cluster in clusters],
@@ -416,6 +471,21 @@ def render(space: dict, *, top: int = 40) -> str:
             "diagnosed documents have no parser and are grouped under "
             f"'{UNATTRIBUTED}'; those rows answer no class x parser question"
         )
+    if space.get("template_claim_documents"):
+        lines.append(
+            f"  NOTE {space['template_claim_documents']} claims name no issuer "
+            "(a document TEMPLATE, not a bank) and are outside the label check: "
+            "a folder's"
+        )
+        lines.append(
+            "       bank name can neither agree nor disagree with them. DO NOT "
+            "rename the parser after the folder (W3 U4.1)."
+        )
+        for pair in space.get("template_claim_pairs") or []:
+            lines.append(
+                f"       {pair['folder']} -> {pair['parser']}   "
+                f"{pair['documents']}"
+            )
     lines.extend(["", "documents by disposition"])
     total = space["documents"]
     for name, count in space["documents_by_disposition"].items():
@@ -491,9 +561,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("run", help="A discovery run directory.")
     parser.add_argument(
         "--enrich", action="append", default=[], metavar="RUN_DIR",
-        help="Recover parser identity by content hash from another run "
-             "(needed when the run of record was served from the analysis "
-             "cache and carries no parser_id).")
+        help="Recover parser identity by content hash from another run. Only "
+             "for runs emitted before #TELCOV: a cache-served record has "
+             "carried its own reconstructed claim since then.")
     parser.add_argument(
         "--allow-unattributed", action="store_true",
         help="Build the class x parser view even when some diagnosed documents "

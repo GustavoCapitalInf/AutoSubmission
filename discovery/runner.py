@@ -70,6 +70,7 @@ from telemetry import (
     dispatch_section,
     document_section,
     model_calls_for,
+    reconstructed_claim,
     score_vector,
     source_path_for,
     source_section,
@@ -187,48 +188,6 @@ def _fmt(pairs) -> list[str]:
     return [f"{identifier}:{score:g}" for identifier, score in pairs]
 
 
-def _sole_surviving_claimant(scores) -> tuple[str, float] | None:
-    """`(parser_id, score)` when this document's detection implies exactly one
-    claimant after `supersedes` pruning, else `None`.
-
-    This is `parser_registry._surviving_claimants` re-expressed over a score
-    vector that has already been computed, and it is exact rather than
-    approximate for three reasons that are worth stating because the whole
-    projection rests on them:
-
-    * `scores` is `telemetry.score_vector`, i.e. `detection_report`, i.e. the
-      same `safe_detect` sweep over the same `PreparedDocument` that `resolve`
-      runs. `detect` is pure and total by the R-3 protocol contract, which is
-      the argument `score_vector`'s own docstring already makes: re-running it
-      over the same markdown provably reproduces the run of record.
-    * `Detection.claims` is `score >= CLAIM_THRESHOLD`, and every score the
-      registry can produce is already six-decimal exact (`round(..., 6)`, or
-      the literals `0.5` / `1.0`), so `score_vector`'s rounding is the identity
-      here and cannot move a registration across the threshold. `score_vector`
-      drops zeros only, and a claimant is never a zero.
-    * `supersedes` pruning is computed over ALL claimants before pruning,
-      exactly as `_surviving_claimants` does.
-
-    Reading the registry (ids and `supersedes` edges) is reading OUR constants,
-    the same admissibility `discovery.evidence.registration_labels` relies on.
-    """
-    from analysis import parser_registry_entries  # noqa: F401  (registers all parsers)
-    from analysis.parser_registry import CLAIM_THRESHOLD, registrations
-
-    superseded_by = {reg.id: reg.supersedes for reg in registrations()}
-    claimants = [
-        (parser_id, score) for parser_id, score in scores
-        if score >= CLAIM_THRESHOLD and parser_id in superseded_by
-    ]
-    dominated = {
-        target for parser_id, _score in claimants for target in superseded_by[parser_id]
-    }
-    survivors = [
-        (parser_id, score) for parser_id, score in claimants if parser_id not in dominated
-    ]
-    return survivors[0] if len(survivors) == 1 else None
-
-
 def _project_identity(row: "DocumentRow", scores, payload: dict) -> str:
     """Fill a cache-served row's routing block. Returns the provenance mark.
 
@@ -314,12 +273,20 @@ def _project_identity(row: "DocumentRow", scores, payload: dict) -> str:
     dropped), so the column stays empty and says nothing rather than saying
     "no parser crashed". `attempted` is empty because the reasoning above
     proves it was.
-    """
-    from analysis.structurer import STRUCTURER_MODEL
 
-    if (payload.get("model_used") or "") == STRUCTURER_MODEL:
-        return PARSER_ID_UNAVAILABLE
-    claim = _sole_surviving_claimant(scores)
+    ONE DERIVATION, TWO ARTIFACTS (#TELCOV). The claimant reasoning and its
+    fail-closed guards moved to `telemetry.collect.reconstructed_claim` when
+    the H-3 record became the second consumer of them. This function is now the
+    row's half — the `PARSER_ID_*` vocabulary and the fields it fills — over a
+    shared answer, so `rows.csv` and `telemetry.jsonl` cannot name different
+    parsers for the same document. `reconstructed_claim` also adds a guard this
+    one did not need: the payload must carry a deterministic `model_used`.
+    Discovery analyses in `parse_mode="deterministic"`, where every payload is
+    a parser's or the structurer's, so that guard changes no discovery row —
+    it is what makes the same function safe for `batch.py` and the webapp,
+    which run `parse_mode="auto"`.
+    """
+    claim = reconstructed_claim(scores, payload)
     if claim is None:
         return PARSER_ID_UNAVAILABLE
     parser_id, score = claim
@@ -749,8 +716,7 @@ class DiscoveryRunner:
                 ),
                 source=source_section(document),
                 dispatch=dispatch_section(
-                    collector.dispatch, vector, registration_count,
-                    source="live" if collector.seen else "unavailable",
+                    collector.dispatch, vector, registration_count, payload=payload,
                 ),
                 stages=timer.as_dict(),
                 model_calls=model_calls_for(document, payload),

@@ -191,8 +191,7 @@ def _telemetry_for(rel: str) -> tuple[dict, dict | None]:
         document=document_section(profile.content_sha256, len(raw), profile),
         source=source_section(doc),
         dispatch=dispatch_section(
-            collector.dispatch, scores, registration_count,
-            source="live" if collector.seen else "unavailable",
+            collector.dispatch, scores, registration_count, payload=payload,
         ),
         stages=timer.as_dict(),
         model_calls=model_calls_for(doc, payload),

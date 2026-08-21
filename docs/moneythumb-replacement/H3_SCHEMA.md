@@ -158,7 +158,8 @@ telemetry except the near-miss vector (§4) and the timings.
 | `source.model`, `source.page_count` | `StatementMarkdown.model` / `len(pages)` | |
 | `source.path` | derived from `model` | `native-pdf-text*` → native; `local-tesseract-ocr` → local_tesseract; else visual. The webapp's `on_stage` rung is the same fact but is unavailable on the CLI, so `model` is the single authority both paths share |
 | `source.truncation.*` | `doc.truncated_pages`, `doc.page_integrity` (O-3) | Correct on cache hit and miss — D-3b round-trips `page_integrity` |
-| `dispatch.outcome/parser_id/score/candidates/attempted` | `analysis.parser_registry.Dispatch` (R-3 §4.1) | via the §5 seam |
+| `dispatch.source` | derived in `dispatch_section` from `(dispatch, payload)` | `live` when a `Dispatch` was observed, `cached` when a payload exists without one, `unavailable` when neither. Never asserted by the emitter (§5.4) |
+| `dispatch.outcome/parser_id/score/candidates/attempted` | `analysis.parser_registry.Dispatch` (R-3 §4.1) | via the §5 seam. On `source="cached"` the first four are RECONSTRUCTED from the score vector and `attempted` stays empty (§5.4); `exceptions` is never reconstructed |
 | `dispatch.exceptions` | `Dispatch.exceptions` (W3-1) | `[parser_id, stage, ExceptionClass]`; class names only, per I1 |
 | `dispatch.scores` | `detection_report(markdown)` | §4 |
 | `stages.*.ms` | `perf_counter()` in the emitters | |
@@ -263,25 +264,80 @@ tests that it cannot raise.
 | **`detection_report()` alone, no seam** | Recovers scores but not `attempted` (only observable inside `resolve`'s parse loop) and not post-`supersedes` `candidates` without duplicating registry logic in the telemetry module. Insufficient — but it is the right fallback for cache hits (§5.4) and the right source for §4. |
 | **Extend `Dispatch` to carry all detections** | Cross-agent churn in R-3's just-merged core to save ≤12 ms. Not worth it. |
 
-### 5.4 The cache-hit hole — declared, not papered over
+### 5.4 The cache-hit hole — declared, then measured, then closed
 
 D-3's analysis cache means that on a re-run **`analyze_markdown` is never called**,
-so no `Dispatch` exists. The record then carries `dispatch.source = "cached"`,
-`outcome`/`parser_id`/`attempted` null, and `scores` still populated (telemetry
-can always call `detection_report` on the markdown it holds).
+so no `Dispatch` exists. The record carries `dispatch.source = "cached"`, and
+`scores` is still populated (telemetry can always call `detection_report` on the
+markdown it holds).
 
 What survives on a cache hit: document facts, source/truncation facts, stage
 timings, `stages.analysis.cache = "hit"`, and — critically — `outcome.class`,
 because that is derived from the analysis payload, which the cache does return.
-**The deterministic-coverage rate therefore stays computable on re-runs**; only
-the parser diagnostics degrade. For DSC-2 tranche 0/1 this is a non-issue (a
-first pass is all misses).
 
-If Ocean wants complete parser telemetry on re-runs, the fix is to persist the
-dispatch projection inside the cached analysis artifact — which changes the
-cached payload shape and so requires an `ANALYSIS_STAGE_VERSION` bump and a D-3
-module diff. I recommend **not** doing that in H-3: it couples telemetry to the
-cache format for a benefit only re-runs see. Open question O-3 below.
+**CORRECTED 2026-08-16 (#TELCOV; the defect was recorded at W3 §DISCOBS DO7#1).**
+This section used to say that `outcome.class` surviving meant "the
+deterministic-coverage rate therefore stays computable on re-runs; only the
+parser diagnostics degrade". **That was false, and it was false for both
+rollups.** The rate is `claimed / …`, and `claimed` came from
+`dispatch.outcome`, which was null on exactly the documents the cache serves.
+The analysis cache stores SUCCESSES only — a refusal raises and nothing is
+cached — so the records that lose their verdict are precisely the claimed ones
+and the rate tends to zero as the cache warms. It does not degrade gracefully;
+it inverts. Measured over the same 3,506 archive documents, telemetry's rollup
+against discovery's own over the identical run:
+
+| run | analysis cache | `telemetry.report` printed | discovery's rollup |
+|---|---|---|---|
+| `2e3ea385` (the run of record) | 105 hits | 70.4% | 74.1% |
+| `b7b40c73` (warm re-run) | 2,561 hits | **0.0%** | 73.7% |
+
+Two things were wrong with the printed number and both are fixed:
+
+1. **The numerator.** A cache-served record now carries the claim, because
+   `dispatch_section` reconstructs it from the detection sweep telemetry
+   already pays for (`telemetry.collect.reconstructed_claim`; the argument is
+   §DISCOBS DO2's — in `parse_mode="deterministic"` a payload exists iff
+   exactly one registration survived `supersedes` pruning and its `parse`
+   returned, so the survivor IS the parser of record). It fail-closes on a
+   structurer payload, on an LLM-extracted payload (`model_used` without the
+   `-deterministic` suffix — the guard that makes this safe for the
+   `parse_mode="auto"` emitters), and on any sweep that does not name exactly
+   one survivor. `attempted` and `exceptions` are never reconstructed.
+2. **The denominator.** It counted every record, including the deferred ones
+   §6 says are excluded by class. It is now non-deferred records that carry a
+   verdict — the same set `discovery.report.summarize` calls `dispatched`, so
+   the two instruments compute one number over one run.
+
+**`source` is the provenance mark**, and no field or enum member was added for
+it: `live` + a parser id is an OBSERVATION, `cached` + a parser id is a
+RECONSTRUCTION, `cached` + null is the reconstruction refusing to name one, and
+`unavailable` still means the analysis stage produced nothing. It is derived
+inside `dispatch_section` from `(dispatch, payload)` rather than asserted by
+each emitter, because when the emitters asserted it they disagreed: the webapp
+worker said `cached` while `batch.py` and the discovery runner said
+`unavailable` for the identical state.
+
+**When the rate is not computable, it is not printed.** A record with a
+published outcome and no verdict is a document the rate cannot see: every
+cache-served record of every run emitted before this fix, and after it only
+where the reconstruction refused. Excluding those from the denominator would
+print a share of an unstated subset (on `b7b40c73`, 0/915 = 0.0% — the same
+fiction in a better disguise), so `deterministic_coverage` is `null`, the CLI
+prints `NOT COMPUTABLE` with the count and the remedy, and `summarize` reports
+`coverage.unattributed`. That is I5 applied to the report rather than to the
+record, and it is the rule `diagnostics_rollup` already followed.
+
+What was NOT done, and why it is still the right call: persisting the dispatch
+into the cached analysis artifact. That changes the payload shape, needs an
+`ANALYSIS_STAGE_VERSION` bump and a D-3 diff, and buys nothing the
+reconstruction does not — `detect` is pure and total, so re-deriving is exact
+rather than approximate (§DISCOBS DO5: 2,376 archive rows, byte-identical to
+the observation they replace, including the six-decimal score). The one case
+the reconstruction cannot see is a cached payload authored by a parser that
+today loses a `supersedes` contest — a stale-cache exposure it inherits rather
+than creates, whose structural fix is the registry fingerprint in the cache key
+(the REGFP card), not a change here.
 
 ---
 
@@ -473,9 +529,12 @@ Output (shape, numbers illustrative):
 ```
 run 2026-08-06T21:04:11Z-a1b2c3 — 3,506 documents
 
-deterministic coverage      2,412 / 3,506   68.8%     (dispatch.outcome=claimed)
-  ambiguous                    41           1.2%
-  unclaimed                 1,053          30.0%
+deterministic coverage      2,412 / 3,493   69.1%     (dispatch.outcome=claimed)
+  13 deferred documents are outside the denominator by class (H3_SCHEMA 6)
+  ambiguous                    40           1.1%
+  unclaimed                 1,041          29.8%
+  no_dispatch                  13           0.4%   of all 3,506, outside the
+                                                   coverage denominator
 outcome
   validated                 2,190          62.5%
   review                      388          11.1%
@@ -494,9 +553,27 @@ SELECT dispatch_outcome, outcome_class, COUNT(*)
 FROM telemetry WHERE run_id = ? GROUP BY 1, 2;
 ```
 
-Deterministic coverage = `claimed / total`, and the same script computes it from
-either backend — the JSONL reader projects the same fields the SQLite columns
-hold (I2), so the two must agree, and §11 tests that they do on identical input.
+Deterministic coverage = `claimed / dispatched`, where `dispatched` is the
+non-deferred records that carry a verdict — observed or, on a cache hit,
+reconstructed (§5.4). It was `claimed / total` until #TELCOV, which was wrong in
+both halves and printed 0.0% on a fully warm archive run. The same script
+computes it from either backend — the JSONL reader projects the same fields the
+SQLite columns hold (I2), so the two must agree, and §11 tests that they do on
+identical input.
+
+`summarize` also reports `coverage.unattributed`: analysed documents carrying no
+verdict. While it is non-zero there is no honest single rate, so
+`deterministic_coverage` is `null` and the CLI prints `NOT COMPUTABLE` rather
+than a share of an unstated subset.
+
+**The block partitions, and that is a property with a test (T13).** Every
+verdict line — `ambiguous`, `unclaimed`, `parser_exception` — is a share of the
+SAME `dispatched` base as the coverage line, and `coverage.verdicts` sums to
+`coverage.denominator` by construction because it is counted over that
+population rather than over every record. `no_dispatch` is the one line whose
+base is `total`, and it says so on the line: those documents are not a slice of
+the same pie. The first #TELCOV revision moved the coverage line to `dispatched`
+and left the others on `total`, which rendered 100.7% on a warm archive run.
 
 ---
 
@@ -512,10 +589,11 @@ hold (I2), so the two must agree, and §11 tests that they do on identical input
 | T6 | `scores` excludes zeros, is sorted desc, respects the cap, sets `scores_capped` | §4 |
 | T7 | JSONL and SQLite produce identical coverage output from the same records; SQLite columns match their JSON projections | I2 |
 | T8 | v3→v4 migration is additive; existing rows survive; append-only triggers fire | I3, D-3 compatibility |
-| T9 | Cache-hit record: `dispatch.source = "cached"`, parser fields null, `outcome.class` still correct, `stages.analysis.cache = "hit"` | §5.4 |
+| T9 | Cache-hit record: `dispatch.source = "cached"`, the claim RECONSTRUCTED and equal to the cold run's field for field, `attempted`/`exceptions` empty, `outcome.class` still correct, `stages.analysis.cache = "hit"`; and the reconstruction refusing on a structurer payload, an LLM payload, or an inconclusive sweep | §5.4 |
 | T10 | Unpriced model → `amount` null / `complete` false / model listed; priced model → exact arithmetic | §9 |
 | T11 | Truncation fields correct on both a fresh read and a cache hit | O-3 × D-3b |
 | T12 | `batch.py` emits without importing `webapp.*` (import-graph assertion) | §8.2 |
+| T13 | Coverage: the numerator survives a cache hit; deferred documents are outside the denominator; a run with analysed-but-unattributed documents refuses to print a rate; **the printed block partitions — every verdict line shares the coverage line's base and they sum to it, and the no-verdict line names its own**; the telemetry rollup and `discovery.report`'s agree over one run, warm and cold | §5.4, §10 |
 
 ---
 
@@ -534,6 +612,13 @@ records the answers and where each landed.
    record (which is exactly what re-calling `resolve()` could not promise).
 3. **Cache-hit hole:** ACCEPTED as a deliberate, documented degradation. No
    `ANALYSIS_STAGE_VERSION` churn for a re-run-only diagnostic.
+   **Superseded in part, 2026-08-16 (#TELCOV).** The ruling's *decision* stands
+   — nothing was persisted into the cached artifact and no stage version was
+   bumped — but the premise it was accepted on ("a re-run-only diagnostic";
+   "the coverage rate stays computable") was false: the rate collapsed to 0.0%
+   on a warm run, and warm runs became the normal case. It is closed by
+   reconstruction from the detection sweep instead, which costs no cache
+   format and no bump. See §5.4.
 4. **Sensitivity invariant:** APPROVED as specified. DSC-1 maintains its own
    gitignored hash→path map.
 5. **Outcome anchor:** made a test (§6).
