@@ -385,15 +385,34 @@ def detection_text(markdown: str) -> str:
 #: account by accidents of Tesseract and of a paragraph the bank printed twice
 #: and then stopped printing.
 #:
-#: What replaces it is the section masthead the reader REQUIRES: the debit
-#: ledger it must find and reconcile against that section's own printed total.
-#: This keeps the marker count at four and the claim score at 0.5 — the two
-#: statements already claimed keep the score they had — and it moves the
-#: evidence from something a scan can lose to something the parser cannot
-#: proceed without. `MARKETPLACE CHECKING` remains: it is the issuer's own
-#: product masthead, and it is why this registration still publishes a bank
-#: NAME the two unlabelled scans do not print (the printing is Columbia Bank's,
-#: and the registration is Columbia Bank's).
+#: What replaces it is the debit ledger's heading. Be exact about what that
+#: buys, because it is less than "the masthead the reader requires": this is a
+#: SUBSTRING test over the upper-cased document, so it also fires on the
+#: section's own closing row `Total ACH and Electronic Payments/Subtractions`
+#: and on any longer phrase containing it (`Corrected ACH and Electronic
+#: Payments/Subtractions`). `credits_section` has carried the identical
+#: weakness since the registration was written. The claim such a document wins
+#: is worthless — the reader still has to bound the section by its masthead AND
+#: its column-header row and reconcile its rows against its printed total, so
+#: every one of those documents declines at parse — but the marker is evidence
+#: that the phrase is PRINTED, not that the section is. Measured archive-wide
+#: over all 3,351 readable documents: `ACH AND ELECTRONIC PAYMENTS/
+#: SUBTRACTIONS` appears in exactly the 4 statements of this cohort, so the
+#: weakness is a property of the shape and not of anything the archive prints.
+#:
+#: What the swap does buy is the two things the card needed: the marker count
+#: stays at four, so the claim score stays 0.5 and the two statements already
+#: claimed keep the score they had; and the evidence moves off a logo whose
+#: survival is a property of the scan.
+#:
+#: `MARKETPLACE CHECKING` remains, and it is the load-bearing issuer evidence
+#: now that the name is gone. Census over the same 3,351: the product masthead
+#: appears in 4 documents and the four markers are satisfied together by 4 —
+#: the same four, this account's own statements. `DEPOSITS/ADDITIONS` appears
+#: in 21 and `DAILY BALANCES` in 290, which is what makes the product name the
+#: discriminating half. So "this template has one issuer" is a census result
+#: rather than an assertion, and it is why this registration still publishes a
+#: bank NAME the two unlabelled scans do not print.
 DETECTION_MARKERS = (
     required("product", lambda t: "MARKETPLACE CHECKING" in t),
     required("credits_section", lambda t: "DEPOSITS/ADDITIONS" in t),

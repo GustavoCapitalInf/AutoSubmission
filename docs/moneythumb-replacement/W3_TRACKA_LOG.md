@@ -27428,7 +27428,19 @@ both; a Bizpoint row reads 4,214.33 where its group and the grid say 1,214.33
 (+3,000.00); a 06-05 row is 0.01 high; and
 `… Feetransfer Ref#15 0081008 417` has lost its decimal point, so the row is
 not read at all (−4.17). +3,000.00 + 0.01 − 4.17 = +2,995.84, exactly the
-section's disagreement with its printed total. Refuses.
+section's disagreement with its printed total AS READ. Refuses.
+
+**And a sixth thing happens in between, which the first form of this paragraph
+left out (review MINOR-1).** `+2,995.84` is the PRE-repair disagreement. Before
+the document refuses, `_repair_repeated_amounts` rewrites a genuine
+`ACH Debit Sbfs LLC Vendor Pay 12565979 20260602` from 1,905.39 to 1,637.05
+(−268.34) — the mode of that counterparty's group — because doing so shrinks
+the section's distance from its printed total. The disagreement AT REFUSAL is
+therefore **2,727.50**, not 2,995.84, and one of the amounts in the refused
+read is a figure the parser wrote rather than one the bank printed. Both
+numbers belong in the record: the first is what the scan did to the document,
+the second is what this reader had in hand when it refused. It is the same
+mechanism as C7.1's April finding, on a second document of the cohort.
 
 The credit side of all three now reconciles exactly — March 121,859.15,
 April 119,491.84 short by only the 0.90, June 73,131.16 + 40,872.53 +
@@ -27485,14 +27497,72 @@ rather than changed: touching it means touching the only reader of the pinned
 document, and the right shape (discard-and-flag rather than rewrite, per the
 batch-5 repair doctrine) is a card, not a hunk.
 
+**That card now exists: REPAIR-DOCTRINE, batch 7, ceremony-gated.** The
+adversarial review measured the class properly and the measurements belong in
+this record, because they are worse than the April finding on its own and
+because every one of them is PRE-EXISTING — identical on base `eef77c6` and on
+this branch, and this cell changed none of it.
+
+*The pinned document publishes three amounts the parser WROTE.*
+`0CBD2AD897B90137` is `review / integrity_flags`, 108 transactions, and three
+of those transactions carry a figure no scan of the document contains:
+
+| printed | published | by | delta |
+|---|---|---|---|
+| `ACH Debit Bizpoint Cap … 20260529` 3,036.83 | 3,035.83 | `_repair_repeated_amounts` | −1.00 |
+| `ACH Credit Bizpoint Cap … 20260522` 40,962.30 | 10,962.30 | `_repair_repeated_amounts` | −30,000.00 |
+| `ACH Debit Amex Epayment ACH Pmt M2352 20260515` 4,500.00 | 1,500.00 | `_repair_single_section_delta` | −3,000.00 |
+
+Two of the three are almost certainly right (the scan doubled a leading digit
+on a counterparty that bills the same amount weekly). The third is a guess the
+grid scored, on a card payment whose amount has no group to belong to. All
+three are published as the bank's own figures, with nothing on the statement
+saying otherwise. **The repair fires on 3 of the 4 documents in this cohort**,
+so it is the family's normal path and not an edge.
+
+*The downstream gate cannot catch a repair that succeeds.* C7.1 above said the
+April invention was "contained by a downstream gate". That is true of that
+instance and false as a general statement, and the distinction is the whole
+card: the gate is `sum(section) == printed_total`, which is exactly the
+objective function the repair minimises. A repair that reaches the total
+satisfies the gate by construction. April's 99.00 → 3,035.83 was caught only
+because the repair was GREEDY and left a 99.00 residue it could not also
+close; had the arithmetic landed, the document would have published.
+
+*And the daily grid is never compared.* `stated_daily_balances` publishes
+`reconstructed.get(d, snapshots[d])` — the parser's own arithmetic at the dates
+the bank printed, falling back to the printed figure only where the ledger has
+no entry. So the printed grid is used as a date filter and as the repair's
+scorer, and never as a check. On the pinned document that is visible:
+**2026-05-20 publishes 7,525.18 where the grid prints 7,825.18**, a 300.00
+disagreement, unflagged.
+
+*Fix shape (not this branch's to make).* Discard-and-flag rather than rewrite,
+per the batch-5 repair doctrine; and either publish the printed grid or refuse
+on disagreement with it. Every one of those changes moves a PINNED document,
+so the card is truth-set ceremony territory and Gustavo's to approve.
+
 **C7.2 — the detector now claims three documents it declines, and that is a
 deliberate reading of §LCPERIOD L7.1.** The rule is that a detector must not
 claim what its parser cannot read. Its subject is a widening that claims a
 different GRAMMAR; here the parser reads this grammar and refuses these
 SCANS, by the bank's own printed totals, exactly as a fail-closed reader
-should. `6ADFE63F` was already in that state before this card. **Ruling wanted
-only if Ocean disagrees with that reading**; C6's table is the whole argument,
-and reverting is a four-line change to `DETECTION_MARKERS`.
+should. `6ADFE63F` was already in that state before this card.
+
+**L7.1 has a second half, and the first form of this note did not address it
+(review closure).** A widening is dangerous not only when it claims what the
+parser cannot read but when it makes a document AMBIGUOUS — two claimants and
+no rule between them, which routes to review rather than to a refusal.
+Measured, not argued: over all 3,351 readable documents in the archive there
+are **zero multi-claimant documents on either tree**, before and after. The
+widening adds a claimant to two documents that had none and to no document
+that already had one, and `columbia_bank` claims exactly four documents in the
+archive. Neither half of L7.1 is breached.
+
+**Ruling wanted only if Ocean disagrees with the reading**; C6's table and the
+ambiguity count are the whole argument, and reverting is a four-line change to
+`DETECTION_MARKERS`. *(Ocean's ruling, recorded at review closure: the marker
+swap STAYS.)*
 
 **C7.3 — one date-cell recovery is available and deliberately not taken.**
 April's `0417` row could be read: `mmdd` welded, corroborated by the
@@ -27614,3 +27684,72 @@ four documents in the archive.
 | `6bfd185` | two comment claims re-measured (three negative grid days, not six; two different cell boundaries, not one printed four ways) |
 | `fc4cdc6` | the mutation harness's six holes closed; 35 -> 49 tests |
 | (this one) | the proof block, the two by-design survivors, and this table |
+
+## C10. Review closure
+
+Ocean's adversarial review returned APPROVE WITH FINDINGS, 0 BLOCK. Every
+claim in C0–C9 reproduced independently: the pinned payload byte-identical on
+base, branch and the run of record's cached entry (the reviewer derived cache
+key `B65432823CA2…` for itself and matched); the 2 / 9 / 0 sweep exact; all
+eleven named movers' full payloads identical; June's `+2,995.84` arithmetic;
+both surviving mutants confirmed redundant with the credit identity; and a
+trial merge with GRAM-4 clean (suite 4,674, 0 ambiguous archive-wide).
+
+**Rulings.** (a) The marker swap STAYS — the reviewer's independent §LCPERIOD
+reading matches this cell's and Ocean's. (b) The repair class is PRE-EXISTING
+and not this branch's to fix: it becomes batch 7's ceremony-gated
+REPAIR-DOCTRINE card, recorded in C7.1 above and escalated to Gustavo.
+
+**Five corrections, stated plainly rather than left in the history.** All five
+are mine, all five are in the RECORD rather than in the code, and the pattern
+in four of them is the same: a sentence that named the mechanism I expected
+instead of the one the code runs.
+
+1. **C5's June list was incomplete (MINOR-1).** It gave `+2,995.84` as "the"
+   disagreement without saying that `_repair_repeated_amounts` rewrites a
+   genuine `Sbfs LLC Vendor Pay … 20260602` 1,905.39 → 1,637.05 first, so the
+   disagreement at refusal is 2,727.50. Both now stated, and the second
+   document of the cohort is now named as carrying the C7.1 hazard.
+2. **C3 over-claimed the new marker (MINOR-2).** `debits_section` is a
+   SUBSTRING test: it fires on the section's own closing `Total ACH and
+   Electronic Payments/Subtractions` row and on any phrase containing the
+   heading, exactly as `credits_section` has since the registration was
+   written. Calling it "the masthead the reader cannot proceed without" named
+   the section, not the test. Corrected at the code comment, with the census
+   that bounds it: the phrase appears in exactly the 4 cohort documents
+   archive-wide, and every hostile claim declines at parse anyway.
+3. **A test comment described a refusal that does not happen (MINOR-3).**
+   `test_a_deposit_section_without_its_printed_total_declines` claimed the
+   unclosed-section mutant "would drop 200.00 of credits and still balance".
+   It would not: those rows are inside the summary's credit figure, so the
+   credit identity refuses too — which is precisely what C8.1 already said
+   about that mutant, two sections later in the same document. The comment now
+   says which direction is dangerous (`Other Deposits/Additions`) and which is
+   symmetry.
+4. **A test proved a refusal, but not the named one (MINOR-4).**
+   `test_a_signed_flow_figure_declines_…` refuses in shipped code because a
+   signed figure makes the summary regex as a WHOLE unmatchable — the account
+   number and every balance are lost with it — not because "the flow figure
+   declined". Under the widening mutant the summary reads and the CREDIT
+   IDENTITY refuses instead. Two gates, one verdict, which is why that mutant
+   survives by design; the comment now says so and points at the test that
+   pins the widening directly.
+5. **C3 asserted what a census can show (MINOR-5).** With the logo marker
+   gone, `MARKETPLACE CHECKING` is the load-bearing issuer evidence. Measured
+   over the same 3,351 readable documents: the product masthead appears in 4
+   and the four markers are satisfied together by 4 — the same four, this
+   account's own statements (`DEPOSITS/ADDITIONS` appears in 21 and `DAILY
+   BALANCES` in 290, which is what makes the product name the discriminating
+   half). "This template has one issuer" is now a census result.
+
+C7.2 additionally gained the half of L7.1 its first form did not address: the
+ambiguity count, zero multi-claimant documents archive-wide on both trees.
+
+Every one of these is a comment or a ledger paragraph. `analysis/
+columbia_bank.py` is unchanged as a program — proven by AST identity against
+`f66bd6d`, not by reading the diff — and the cell's 49 tests are re-run on the
+closing tree.
+
+| Commit | Contents |
+|---|---|
+| (this one) | C10, the five corrections in place, the REPAIR-DOCTRINE card in C7.1 with the reviewer's measurements, and C7.2's ambiguity count |

@@ -323,11 +323,22 @@ def test_a_balance_slot_without_the_sign_class_would_lose_the_whole_summary():
     "Interest earned $0.00",
 ])
 def test_a_signed_flow_figure_declines_rather_than_being_read_as_a_magnitude(printed):
-    #: the template prints the two flow figures and the interest unsigned and
+    #: The template prints the two flow figures and the interest unsigned and
     #: gives their direction by the label; a signed printing is a template this
-    #: reader has not been shown, and reading the magnitude would book a
-    #: refund of deposits as deposits. Both flow slots asserted, because one
-    #: slot widened to `_BALANCE` is exactly how the other's guarantee is lost.
+    #: reader has not been shown.
+    #:
+    #: Be exact about WHICH refusal this pins, because it is not the one the
+    #: name suggests. In shipped code the unsigned slot cannot match a signed
+    #: figure, so the summary regex as a WHOLE becomes unmatchable and the
+    #: document is refused for having no readable summary at all — the account
+    #: number and every balance are lost with it, not just the flow figure.
+    #: Under the mutant that widens the slot to `_BALANCE` the summary reads,
+    #: the flow figure comes out negative, and the document is then refused by
+    #: the credit identity instead. Two different gates, same verdict: which is
+    #: why that mutant survives by design (C8.1). What this test therefore
+    #: guarantees is the VERDICT on every flow slot, and the widening it would
+    #: take to lose it is pinned separately by
+    #: `test_the_balance_pattern_and_the_balance_reader_admit_the_same_tokens`.
     label, figure = printed.rsplit(" ", 1)
     assert parse(document(summary=SUMMARY.replace(
         printed, f"{label} -{figure}"))) is None
@@ -358,11 +369,16 @@ def test_an_other_deposits_section_without_its_printed_total_declines():
 
 
 def test_a_deposit_section_without_its_printed_total_declines():
-    #: the same fact for the other optional section, and it is the dangerous
-    #: direction: the rows this fixture prints add to 200.00, which is exactly
-    #: what the summary's `Deposits/Additions` figure has already been told to
-    #: expect — so a reader that treated the unclosed section as an absent one
-    #: would drop 200.00 of credits out of a ledger and still balance.
+    #: The same pairing for the other optional section. It is NOT the dangerous
+    #: direction, and saying so is the point: this section's rows are always
+    #: inside the summary's `Deposits/Additions` figure, so a reader that
+    #: treated the unclosed section as an absent one drops 200.00 of credits
+    #: and then FAILS the credit identity — it refuses too, for a different
+    #: reason. (The mutation harness confirms it: reverting this check to the
+    #: empty-block test survives, and C8.1 names it as surviving by design.)
+    #: The check is kept and pinned for symmetry with `Other Deposits/
+    #: Additions`, where the same revert does NOT refuse — see the test above,
+    #: which is the dangerous direction.
     assert parse(document(deposits=DEPOSITS.replace(
         "Total Additions $200.00", ""))) is None
 
