@@ -410,7 +410,14 @@ def test_a_document_with_no_ledger_section_at_all_is_refused():
 
 
 # ===========================================================================
-# The third printed issue: claimed, and refused twice over (W3 §FISERVISS)
+# The THIRD printed issue: read (W3 §FISERVISS FI2, card FISERV-ISSUE3)
+#
+# Four archive documents print this issue. Before this cell they were claimed
+# and refused twice over — the period in a wording no clause read, and a ledger
+# vocabulary no section head matched. Both facts were PRINTED; neither was
+# absent. These tests pin the two wordings, the one money-grammar rule the
+# ledger needed, and — at more length than anything else here — the refusal
+# that rule is built around.
 # ===========================================================================
 
 #: The summary strip as the third issue prints it: the same clauses the two read
@@ -418,26 +425,55 @@ def test_a_document_with_no_ledger_section_at_all_is_refused():
 #: the two fee terms) and with the closing figure under the `Current Balance`
 #: wording. Every one of this registration's three required markers is in it,
 #: which is why these documents are claimed and not merely ignored.
+#:
+#: $100.00 + $70.00 − $50.00 = $120.00, and the two counts are 2 and 3.
 ISSUE_THREE_SUMMARY = (
-    "Previous Balance $100.00 Deposits/Credits (1) $50.00 "
-    "Checks/Debits (2) $30.00 Current Balance $120.00"
+    "Previous Balance $100.00 Deposits/Credits (2) $70.00 "
+    "Checks/Debits (3) $50.00 Current Balance $120.00"
 )
 #: The period, printed as two facts in two places instead of one clause.
 ISSUE_THREE_PERIOD = "Statement of Account March 01, 2026 thru March 31, 2026"
-#: The registered wording, for the one-repair variant below.
+ISSUE_THREE_DAYS = "Activity Summary Days in the Statement Period:  31"
+#: The registered wording, for the counterfactuals below.
 READ_PERIOD = "Statement of Account\nStatement Dates 3/01/26 to 3/31/26 (31 days)"
-ISSUE_THREE_CREDIT_HEAD = "Deposits Date Description Amount"
-ISSUE_THREE_DEBIT_HEAD = "Debits Date Description Amount $"
+
+#: The attested fee row. The FIRST money token names the item that caused the
+#: fee; the row's own amount is the last one. 109 rows of this shape are printed
+#: across the four archive documents (34 / 10 / 37 / 28).
+FEE_ROW = "3/04 CHK# 00 AMT $10.00, NSF PAID ITEM FEE $31.00"
+
+#: The disclosure page the template prints in the MIDDLE of a section, and the
+#: cheque-image page it prints after the ledger has ended. Neither declares a
+#: column header; both are outside every section for that reason alone.
+DISCLOSURE_PAGE = (
+    "PROMPTLY EXAMINE YOUR STATEMENT AND REPORT ANY PROBLEMS.\n"
+    "We must hear from you no later than 60 days after we sent you the first "
+    "statement on which the error appeared."
+)
+CHEQUE_IMAGE_PAGE = "3/06/26 101 $9.00"
 
 
-def issue_three_document() -> str:
-    """The third issue's furniture over an otherwise sound document.
+def issue_three_document(
+    *,
+    period: str = ISSUE_THREE_PERIOD,
+    days: str = ISSUE_THREE_DAYS,
+    summary: str = ISSUE_THREE_SUMMARY,
+    deposits: str = "3/03 SYNTHETIC DEPOSIT $50.00",
+    other_credits: str = "3/05 RETURNED ITEM, INSUFFICIENT FUNDS, SYNTHETIC $20.00",
+    debits: str = "3/02 SYNTHETIC DEBIT ONE $10.00 " + FEE_ROW,
+    cheques: str = "Date Check No Amount $ 3/06 101 $9.00",
+    grid: str = (
+        "Date Balance $ 3/02 $90.00 3/03 $140.00 3/04 $109.00 "
+        "3/05 $129.00 3/06 $120.00"
+    ),
+) -> str:
+    """The third issue's furniture, printed the way the four documents print it.
 
-    Everything this registration DOES read is deliberately intact and correct:
-    the three detection markers fire, the summary parses, and its identity
-    closes ($100.00 + $50.00 − $30.00 = $120.00). What differs is only the
-    period wording and the section vocabulary — so a refusal here can only come
-    from those two.
+    Everything is synthetic. The structure is not: the credits arrive in two
+    printed sections and the debits in two, one section is interrupted by a
+    disclosure page and resumed by the bare column header, the cheque recap is
+    posting detail rather than a recap, and the printed daily grid closes on the
+    ledger to the cent.
     """
     return (
         "--- Page 1 ---\n\n"
@@ -445,62 +481,394 @@ def issue_three_document() -> str:
         "Managing Your Accounts Branch Name Synthetic Customer Service 000-000-0000\n"
         "Address 1 Example Street Springfield, ZZ 00000 "
         "Online Access www.example-bank.com\n"
-        f"{ISSUE_THREE_PERIOD}\n"
+        f"{period}\n"
         "SYNTHETIC BUSINESS CHECKING ACCOUNT XXXXXX0000\n"
-        f"{ISSUE_THREE_SUMMARY}\n"
-        "Activity Summary Days in the Statement Period:  31\n"
-        f"{ISSUE_THREE_CREDIT_HEAD}\n"
-        "3/03 SYNTHETIC DEPOSIT $50.00\n"
-        f"{ISSUE_THREE_DEBIT_HEAD}\n"
-        "3/02 SYNTHETIC DEBIT ONE $10.00 3/04 SYNTHETIC DEBIT TWO $20.00\n"
+        f"{summary}\n"
+        f"{days}\n"
+        f"Deposits Date Description Amount\n{deposits}\n"
+        f"Other Credits Date Description Amount $\n{other_credits}\n"
+        "Page 1 of 4\n"
         "--- Page 2 ---\n\n"
-        f"{DIRECTORY}\n"
+        f"{DISCLOSURE_PAGE}\n"
+        "Page 2 of 4\n"
+        "--- Page 3 ---\n\n"
+        f"Debits Date Description Amount $\n{debits}\n"
+        f"Checks Cleared\n{cheques}\n"
+        "(*) Indicates a Gap in Check Number Sequence\n"
+        "Itemization of Service Charge Paid this Period "
+        "TOTAL CHARGE FOR MAINTENANCE FEE: $0.00\n"
+        f"Daily Balance Information\n{grid}\n"
+        "Overdraft and Returned Item Fees\n"
+        "TOTAL OVERDRAFT FEES: $31.00 $31.00\n"
+        "Page 3 of 4\n"
+        "--- Page 4 ---\n\n"
+        f"{CHEQUE_IMAGE_PAGE}\n"
+        "Page 4 of 4\n"
     )
 
 
-def _read_sections(document: str) -> str:
-    return document.replace(
-        ISSUE_THREE_CREDIT_HEAD, "Credit Transactions Date Description Amount"
-    ).replace(ISSUE_THREE_DEBIT_HEAD, "Debit Transactions Date Description Amount")
+def _sides(statement):
+    return (
+        [t for t in statement.transactions if t.direction == "credit"],
+        [t for t in statement.transactions if t.direction == "debit"],
+    )
 
 
-def test_the_third_printed_issue_is_claimed_and_refused_twice_over():
-    """The refusal is OVER-DETERMINED, and both halves are load-bearing.
+# ---------------------------------------------------------------------------
+# What the issue publishes
+# ---------------------------------------------------------------------------
 
-    Repairing either one alone still refuses; repairing both publishes. That
-    last assertion is what stops this test being vacuous — it proves the
-    fixture is sound everywhere else, so the two named wordings really are the
-    whole of what blocks this issue, and neither is a missing fact: the
-    document prints its period and its ledger, in vocabularies no clause of
-    this module matches.
+
+def test_the_third_printed_issue_is_read_end_to_end():
+    """Both printed causes lifted, under the module's existing oracles.
+
+    The summary identity, the two printed counts, the two printed totals and
+    the printed daily grid all gate this — and the fixture's cheque item is
+    inside the printed debit count, which is why it is posting detail here and
+    not a recap.
     """
-    document = issue_three_document()
-    assert detect(document).claims, "all three required markers are printed"
-    assert parse_fiserv_premier_statement(document) is None
-
-    period_only = document.replace(ISSUE_THREE_PERIOD, READ_PERIOD)
-    assert parse_fiserv_premier_statement(period_only) is None, "sections still unread"
-
-    sections_only = _read_sections(document)
-    assert parse_fiserv_premier_statement(sections_only) is None, "period still unread"
-
-    both = _read_sections(document.replace(ISSUE_THREE_PERIOD, READ_PERIOD))
-    statement = parse_fiserv_premier_statement(both)
+    statement = parse_fiserv_premier_statement(issue_three_document())
     assert statement is not None
-    assert len(statement.transactions) == 3
+    assert statement.period_start == "2026-03-01"
+    assert statement.period_end == "2026-03-31"
+    assert statement.days_in_period == 31
     assert statement.beginning_balance == 100.00
     assert statement.ending_balance == 120.00
+    credits, debits = _sides(statement)
+    assert [t.amount for t in credits] == [50.00, 20.00]
+    assert [t.amount for t in debits] == [-10.00, -31.00, -9.00]
+    assert statement.stated_credit_count == 2
+    assert statement.stated_debit_count == 3
+    assert statement.stated_total_credits == 70.00
+    assert statement.stated_total_debits == 50.00
 
 
-def test_the_third_issues_unnamed_issuer_is_not_what_refuses_it():
-    """All four archive documents of this issue print a web address and no bank
-    name, so `_issuer` returns None — the `bank=None` path, which costs a label
-    and not a document. Pinned here because the card that produced this test
-    was written on the belief that the missing issuer was the refusal."""
-    anonymous = _read_sections(
-        issue_three_document().replace(ISSUE_THREE_PERIOD, READ_PERIOD)
-    ).replace(DIRECTORY, "")
-    statement = parse_fiserv_premier_statement(anonymous)
+def test_the_third_issue_publishes_no_bank_because_it_prints_none():
+    """All four archive documents print a web address under `Online Access` and
+    no bank name anywhere — not in the masthead, not beside a return address,
+    not in the Regulation E notice, which defers to "the address listed on the
+    front of this statement". `bank=None` is therefore what the page supports,
+    and the domain alone is never promoted to an identity."""
+    statement = parse_fiserv_premier_statement(issue_three_document())
     assert statement is not None
     assert statement.bank is None
-    assert len(statement.transactions) == 3
+
+
+# ---------------------------------------------------------------------------
+# THE REFERENCE-NUMBER REFUSAL
+#
+# The money-grammar rule this issue needed is "the description may cross a `$`
+# where the token is an `AMT`-introduced reference". Relaxing only that much is
+# half the rule; the other half is that such a token can NEVER be the row's
+# amount. These tests are the second half.
+# ---------------------------------------------------------------------------
+
+
+def test_the_reference_is_read_as_description_and_the_fee_as_the_amount():
+    """The attested row: `CHK# 00 AMT $10.00, NSF PAID ITEM FEE $31.00`."""
+    statement = parse_fiserv_premier_statement(issue_three_document())
+    assert statement is not None
+    fee = [t for t in statement.transactions if t.description.startswith("CHK#")]
+    assert len(fee) == 1
+    assert fee[0].amount == -31.00, "the fee, not the item that caused it"
+    assert fee[0].description == "CHK# 00 AMT $10.00, NSF PAID ITEM FEE"
+
+
+def test_the_refusal_does_not_rest_on_the_reference_comma():
+    """§FI5.4: the comma is what makes the row FAIL today rather than publish
+    `$10.00` as the fee, and it is doing that by accident — `_PLAIN_ROW_RE`'s
+    `(?=\\s|$)` lookahead rejects a comma-terminated amount. A rule that read
+    the reference only when a comma followed would keep the accident and
+    inherit its failure mode. Strip the comma and the reference is still
+    refused as an amount, and still read as description."""
+    document = issue_three_document(
+        debits="3/02 SYNTHETIC DEBIT ONE $10.00 "
+               + FEE_ROW.replace("$10.00,", "$10.00")
+    )
+    statement = parse_fiserv_premier_statement(document)
+    assert statement is not None
+    fee = [t for t in statement.transactions if t.description.startswith("CHK#")]
+    assert [t.amount for t in fee] == [-31.00]
+    assert fee[0].description == "CHK# 00 AMT $10.00 NSF PAID ITEM FEE"
+
+
+def test_the_refusal_survives_a_double_space_after_the_reference_keyword():
+    """This text layer prints double spaces (`Days in the Statement Period:  31`
+    on all four documents). A lookbehind anchored to exactly one space would
+    step around `AMT  $10.00` and publish the reference as the fee, so the
+    section text is whitespace-normalized before the row grammar reads it."""
+    document = issue_three_document(
+        debits="3/02 SYNTHETIC DEBIT ONE $10.00 " + FEE_ROW.replace("AMT $", "AMT  $")
+    )
+    statement = parse_fiserv_premier_statement(document)
+    assert statement is not None
+    assert [t.amount for t in _sides(statement)[1]] == [-10.00, -31.00, -9.00]
+
+
+def test_a_reference_standing_where_the_amount_belongs_refuses_the_document():
+    """The failure mode the rule exists to prevent, driven to its end: a row
+    whose LAST money token is the `AMT` reference. There is no fee to publish,
+    so publishing anything would publish the referenced item's size as a fee.
+    The row is unreadable and the document goes with it."""
+    document = issue_three_document(
+        debits="3/02 SYNTHETIC DEBIT ONE $10.00 3/04 CHK# 00 AMT $31.00"
+    )
+    assert parse_fiserv_premier_statement(document) is None
+
+
+#: The reference-in-the-amount-slot row, with the whole document arranged so
+#: that reading it as an amount would satisfy every gate this module has: two
+#: printed debits totalling $41.00, a summary identity that closes on $129.00,
+#: and a daily grid walked from the same reading.
+_BAITED_SUMMARY = (
+    "Previous Balance $100.00 Deposits/Credits (2) $70.00 "
+    "Checks/Debits (2) $41.00 Current Balance $129.00"
+)
+_BAITED_GRID = "Date Balance $ 3/02 $90.00 3/03 $140.00 3/04 $109.00 3/05 $129.00"
+
+
+def test_the_reference_is_refused_even_when_every_other_gate_would_pass():
+    """The sharp form of the refusal, and the reason it is grammar rather than
+    an after-the-fact check.
+
+    The printed counts, the printed totals, the summary identity and the
+    printed daily grid have all been arranged to agree with reading the
+    reference as the row's amount. Every oracle in this module says yes. The
+    only thing that says no is the rule that a token the reference keyword
+    introduces is never an amount — so this is the one test that fails if that
+    lookbehind is deleted.
+    """
+    baited = issue_three_document(
+        summary=_BAITED_SUMMARY,
+        debits="3/02 SYNTHETIC DEBIT ONE $10.00 3/04 CHK# 00 AMT $31.00",
+        cheques="",
+        grid=_BAITED_GRID,
+    )
+    assert parse_fiserv_premier_statement(baited) is None
+
+
+def test_the_baited_document_is_sound_apart_from_the_reference():
+    """The control that stops the test above being vacuous: the same document
+    with the reference keyword replaced by an ordinary word publishes, with the
+    $31.00 in exactly the slot the refusal denied it."""
+    sound = issue_three_document(
+        summary=_BAITED_SUMMARY,
+        debits="3/02 SYNTHETIC DEBIT ONE $10.00 3/04 CHK# 00 REF 31 $31.00",
+        cheques="",
+        grid=_BAITED_GRID,
+    )
+    statement = parse_fiserv_premier_statement(sound)
+    assert statement is not None
+    assert [t.amount for t in _sides(statement)[1]] == [-10.00, -31.00]
+    assert statement.ending_balance == 129.00
+
+
+def test_a_money_token_that_is_not_a_reference_still_bounds_the_row():
+    """The relaxation is exactly one shape wide. Any other embedded money token
+    still stops the description dead, so a row can never run into its
+    neighbour and swallow the neighbour's amount — the merge hazard §FI2.3
+    measured when a plain last-token rule was tried here (1–3 rows lost per
+    document)."""
+    document = issue_three_document(
+        debits="3/02 SYNTHETIC DEBIT ONE $10.00 3/04 CHK# 00 REF $10.00, NSF FEE $31.00"
+    )
+    assert parse_fiserv_premier_statement(document) is None
+
+
+def test_rows_do_not_merge_across_the_end_of_a_section():
+    """The other half of the merge hazard: the last row of the debit section
+    must not reach forward into the cheque section for its amount. If it did,
+    the debit count would come back short by one and the totals would miss."""
+    statement = parse_fiserv_premier_statement(issue_three_document())
+    assert statement is not None
+    debits = _sides(statement)[1]
+    assert len(debits) == 3
+    assert [t.date for t in debits] == ["2026-03-02", "2026-03-04", "2026-03-06"]
+
+
+# ---------------------------------------------------------------------------
+# The second period wording
+# ---------------------------------------------------------------------------
+
+
+def test_the_registered_period_clause_is_still_the_first_reading():
+    """A document that prints `Statement Dates ... (N days)` takes exactly the
+    path it took before the second wording existed."""
+    statement = parse_fiserv_premier_statement(
+        issue_three_document(period=READ_PERIOD, days="")
+    )
+    assert statement is not None
+    assert (statement.period_start, statement.period_end) == ("2026-03-01", "2026-03-31")
+    assert statement.days_in_period == 31
+
+
+def test_the_second_wordings_two_halves_must_corroborate_each_other():
+    """The dates and the length are printed in two different places, so they
+    are two reads and either could be the wrong one. They are welded by the
+    calendar: a printed length that is not the span of the printed dates means
+    one of them was misread, and a wrong period basis silently re-bounds every
+    row and re-bases the average daily balance."""
+    assert parse_fiserv_premier_statement(
+        issue_three_document(days="Activity Summary Days in the Statement Period:  30")
+    ) is None
+
+
+def test_the_length_alone_is_not_a_period_and_neither_are_the_dates_alone():
+    assert parse_fiserv_premier_statement(issue_three_document(days="")) is None
+    assert parse_fiserv_premier_statement(
+        issue_three_document(period="Statement of Account")
+    ) is None
+
+
+# ---------------------------------------------------------------------------
+# The section vocabulary, and where it stops
+# ---------------------------------------------------------------------------
+
+
+def test_a_section_is_suspended_by_a_page_break_and_resumed_by_the_column_header():
+    """This issue re-declares only the bare `Date Description Amount $` header
+    on a continuation page, so a reader that closes at `--- Page` loses the
+    continuation and a reader that carries blindly swallows the disclosure
+    page. Neither: the page break suspends, the document's own re-declared
+    header resumes."""
+    document = issue_three_document().replace(
+        "--- Page 3 ---\n\nDebits Date Description Amount $\n"
+        "3/02 SYNTHETIC DEBIT ONE $10.00",
+        "Debits Date Description Amount $\n3/02 SYNTHETIC DEBIT ONE $10.00\n"
+        "--- Page 3 ---\n\nDate Description Amount $",
+    )
+    statement = parse_fiserv_premier_statement(document)
+    assert statement is not None
+    assert len(_sides(statement)[1]) == 3
+
+
+def test_a_page_break_that_is_never_resumed_ends_the_section():
+    """The same document with nothing declaring the section after the break:
+    the rows below it are outside every section, the debit count comes back
+    short, and the document refuses rather than publishing a partial ledger."""
+    document = issue_three_document().replace(
+        "Debits Date Description Amount $\n3/02 SYNTHETIC DEBIT ONE $10.00",
+        "Debits Date Description Amount $\n--- Page 9 ---\n\n"
+        "3/02 SYNTHETIC DEBIT ONE $10.00",
+    )
+    assert parse_fiserv_premier_statement(document) is None
+
+
+def test_the_disclosure_page_in_the_middle_of_a_section_is_not_in_the_ledger():
+    """Page 2 sits inside the credit run in the fixture, exactly as it does on
+    the archive documents, and it declares no column header. A dated amount
+    printed on it is therefore outside every section and changes NOTHING — the
+    published ledger is the same five rows, not six and not a refusal."""
+    document = issue_three_document().replace(
+        DISCLOSURE_PAGE, DISCLOSURE_PAGE + "\n3/09 NOT A POSTING $999.00"
+    )
+    statement = parse_fiserv_premier_statement(document)
+    baseline = parse_fiserv_premier_statement(issue_three_document())
+    assert statement is not None and baseline is not None
+    assert statement.transactions == baseline.transactions
+    assert len(statement.transactions) == 5
+
+
+def test_the_cheque_image_page_printed_after_the_ledger_is_not_in_the_ledger():
+    """The template reprints every cleared cheque as an image list on the last
+    pages, with no section head. `Overdraft and Returned Item Fees` has already
+    ended the ledger by then, and nothing can resume it — not even the column
+    header, which is what resumes a suspended section everywhere else."""
+    document = issue_three_document().replace(
+        CHEQUE_IMAGE_PAGE, "Date Check No Amount $ 3/06 101 $9.00"
+    )
+    statement = parse_fiserv_premier_statement(document)
+    assert statement is not None
+    assert len(_sides(statement)[1]) == 3, "the cheque is posted once, not twice"
+
+
+def test_the_cheque_section_is_posting_detail_and_is_inside_the_printed_count():
+    """`Checks Cleared` is a recap in the two read issues and posting detail
+    here: its items are inside `Checks/Debits (3)` and inside the printed debit
+    total. Dropping it leaves every one of the four archive documents short."""
+    assert parse_fiserv_premier_statement(issue_three_document(cheques="")) is None
+
+
+def test_the_cheque_sections_direction_comes_from_its_own_head():
+    """`Checks Cleared` names a direction; it does not inherit one.
+
+    On all four archive documents it happens to follow the debit section, so a
+    reader that simply let the previous section run on would get the same
+    answer. It would get it for the wrong reason, and the wrong reason files
+    every cheque as a CREDIT the moment an issuer prints the recap after the
+    credit sections instead. Here it does exactly that, with no debit section
+    on the page at all.
+    """
+    document = issue_three_document(
+        summary=("Previous Balance $100.00 Deposits/Credits (2) $70.00 "
+                 "Checks/Debits (1) $9.00 Current Balance $161.00"),
+        debits="",
+        grid="Date Balance $ 3/03 $150.00 3/05 $170.00 3/06 $161.00",
+    ).replace("Debits Date Description Amount $\n", "")
+    statement = parse_fiserv_premier_statement(document)
+    assert statement is not None
+    credits, debits = _sides(statement)
+    assert [t.amount for t in credits] == [50.00, 20.00]
+    assert [t.amount for t in debits] == [-9.00], "the cheque is a debit, by its head"
+
+
+def test_a_document_printing_a_read_vocabulary_never_reaches_this_branch():
+    """Structural non-interference: the embedded branch is the `else` of the two
+    that came first, so a document printing `Transaction Activity` or the
+    `Credit Transactions` / `Debit Transactions` split cannot reach it however
+    much of this issue's furniture it also prints."""
+    document = split_document() + (
+        "\nDeposits Date Description Amount\n3/09 SYNTHETIC $999.00\n"
+        "Debits Date Description Amount $\n3/09 SYNTHETIC $999.00\n"
+        "Daily Balance Information\nDate Balance $ 3/09 $999.00\n"
+    )
+    statement = parse_fiserv_premier_statement(document)
+    assert statement is not None
+    assert len(statement.transactions) == 3, "the split sections, and only those"
+
+
+# ---------------------------------------------------------------------------
+# The printed daily grid, as an oracle
+# ---------------------------------------------------------------------------
+
+
+def test_the_printed_daily_grid_must_reproduce_the_rows_that_were_read():
+    """The third oracle, and the only one that binds a row to a DAY. Both
+    printed counts and both printed totals can be satisfied by a ledger whose
+    rows are on the wrong days — and the underwriting ADB is a calendar-day
+    average over exactly these balances, so that ledger would publish a wrong
+    average with every other gate green."""
+    assert parse_fiserv_premier_statement(
+        issue_three_document(
+            grid=("Date Balance $ 3/02 $90.00 3/03 $140.00 3/04 $109.00 "
+                  "3/05 $129.00 3/06 $121.00")
+        )
+    ) is None
+
+
+def test_a_row_on_a_day_the_grid_never_prints_refuses_the_document():
+    """A row filed on a day the grid does not print is a row the grid cannot
+    vouch for, and the walk must not simply carry it forward into the next
+    printed day.
+
+    The pair here is deliberately OFFSETTING — a $15.00 credit and a $15.00
+    debit on 3/10 — so the walk still lands on the printed closing balance and
+    every printed count and total still agrees. The closing check therefore
+    cannot see them; only "no row falls outside the grid" can.
+    """
+    document = issue_three_document(
+        summary=("Previous Balance $100.00 Deposits/Credits (3) $85.00 "
+                 "Checks/Debits (4) $65.00 Current Balance $120.00"),
+        other_credits=("3/05 RETURNED ITEM, INSUFFICIENT FUNDS, SYNTHETIC $20.00 "
+                       "3/10 SYNTHETIC LATE CREDIT $15.00"),
+        debits="3/02 SYNTHETIC DEBIT ONE $10.00 " + FEE_ROW
+               + " 3/10 SYNTHETIC LATE DEBIT $15.00",
+    )
+    assert parse_fiserv_premier_statement(document) is None
+
+
+def test_an_absent_daily_grid_refuses_rather_than_waiving_the_oracle():
+    assert parse_fiserv_premier_statement(issue_three_document(grid="")) is None
+    assert parse_fiserv_premier_statement(
+        issue_three_document().replace("Daily Balance Information\n", "")
+    ) is None
