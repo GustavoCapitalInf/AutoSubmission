@@ -27221,8 +27221,12 @@ that are not statements (driver's licences, cheque images, a W-9, zero-balance
 letters, online screenshots) and are correctly `failed`.
 
 **The ranking's answer:** `texas_first` — eight documents, all
-scanned/`failed`/`no_parser_matched`, **claimed by no registration and
-attempted by none**, printing the richest oracle set in the scanned population:
+`failed`/`no_parser_matched` and **claimed by no registration and attempted by
+none**. Six are `classification=scanned` and two (`644F3694`, `6ACF3130`) are
+`mixed` — corrected after review; an earlier draft of this line said "all
+scanned", which is wrong about two documents and about the population this
+card came out of (the census at SN2 counts scanned, mixed and unknown
+separately and always did). printing the richest oracle set in the scanned population:
 a summary that states BOTH counts and BOTH totals, a four-way partitioned
 ledger, a per-day balance grid, and — because the eight are two four-month
 chains of the same two accounts — a month-to-month balance chain across
@@ -27241,10 +27245,16 @@ in the archive, measured two ways (SN8).
 Run of record `2026-08-16T000943.012887-0000-2e3ea385`. Two instrument hazards
 were live this batch and both are answered here rather than assumed away.
 
-**Hazard 1 (WORKER-PRIVACY, reviewer-confirmed): one settings_key is not the
-run's population.** The D-3 store partitions OCR artifacts by
-`ocr_settings_key`, and enumerating under a single partition reports a
-population the run did not read.
+**Hazard 1: one settings_key is not the run's population.** The D-3 store
+partitions OCR artifacts by `ocr_settings_key`, and enumerating under a single
+partition reports a population the run did not read. The finding is
+**WORKER-PRIVACY's**, recorded in its own W3 §WORKERPRIV WP6.6/WP9 on branch
+`wave6-workerpriv`: 55 documents of the 3,380 were read by run `2e3ea385` under
+a settings key holding a re-read text preparation — `rows.csv` `source_model`
+`native-pdf-text+first-citizens-layout` ×36 and
+`native-pdf-text+woodforest-columns` ×19. Cited here so the reference
+resolves; this cell reproduced the hazard's shape independently below, on its
+own population.
 
 **Hazard 2 (SIGN-READER): the store holds several OCR vintages per document,
 so "the first artifact found" is not the artifact the run read.**
@@ -27273,13 +27283,20 @@ text under the same model, and **6 DISAGREE** — the digital-mode partition
 holds a cached NEGATIVE (no text at all) while the scanned-mode partition holds
 the `local-tesseract-ocr` read the run actually used. All six are scanned:
 
+The middle column is the run's **`folder_label`** throughout — the archive's
+filing, not the issuer, and the two disagree exactly where the folder says
+`Unidentified`. Spelled out because an earlier draft of this table read as if
+it were naming banks: `58CB0DCC` is a First Farmers statement and `4C96DDA2`
+is a Southside Bank statement, both filed under `Unidentified`.
+
 ```
+sha                                                               folder_label   outcome
 A4C49ACBC03D905D3A94369311205E93D52D56CB47822D829DD542C0B39E2BCE  Apex Bank      validated
 E5C8D422FDBE927710BBD33F879882D7D2F6F4A324FDB1F0738FFFBF423D5D72  Chase          review
 0CBD2AD897B90137878F81EF608778735CA0DFEAB23D25793F2C6F1DF6C6127D  Columbia Bank  review
 98D069AF2A41CC6F4A6E6B6DD94FA2E8C294E18438D817BBBB05CCE1B55E849F  Regions Bank   validated
-58CB0DCC7460A445541C6181F461432BBF948BC31AB7F1C64459FF6ADC8F0243  Unidentified   validated
-4C96DDA28A6728FB42C04D15A77860A0FE8A335FF1BBEC7FAE890524D1645163  Unidentified   review
+58CB0DCC7460A445541C6181F461432BBF948BC31AB7F1C64459FF6ADC8F0243  Unidentified   validated   (First Farmers)
+4C96DDA28A6728FB42C04D15A77860A0FE8A335FF1BBEC7FAE890524D1645163  Unidentified   review      (Southside Bank)
 ```
 
 On a scanned card that is not a footnote: an enumeration keyed on the digital
@@ -27333,17 +27350,34 @@ These are correctly `failed` and must stay `failed`.
 
 ## SN3. The re-derived ranking
 
-Ranked by (validated-gain × confidence). "Attempted" is the live-replay
-dispatch, not `rows.csv`. **Batch 7 can staff from this table without another
-census.**
+Ranked by (validated-gain × confidence). **Batch 7 can staff from this table
+without another census.**
+
+**The claimant column, defined** — an earlier draft mixed two different things
+under the heading "attempted by" and understated three rows as a result. There
+are two distinct measurements and this table now reports the one that matters
+for staffing:
+
+* **CLAIMED BY** — every registration whose DETECTOR claims the document, from
+  a live detection sweep. This is what says whether a family already has a
+  reader pointed at it, and it counts documents the reader publishes as well
+  as documents it declines.
+* *attempted (declined)* — the run's `dispatch.attempted`, which is non-empty
+  only where a parser claimed and then DECLINED. A document a parser claims
+  and successfully publishes has an EMPTY `attempted`, so reading that column
+  as "who looks at this family" silently omits every success.
+
+Rows 2, 3 and 5 below are corrected to CLAIMED BY; the corrections are in the
+staffing direction that matters (each family is better covered than the first
+draft said).
 
 | # | family | printed identity | unclaimed | attempted by | gain | conf | note |
 |---:|---|---|---:|---|---:|---|---|
 | 1 | `texas_first` | Texas First Bank, `www.texasfirst.bank`, 600 Gulf Freeway Texas City TX | **8** | none | 5–8 | **VERY HIGH** | **TAKEN BY THIS CELL.** Summary states both counts AND both totals; four-way ledger; daily grid; two four-month chains cross-check each other. |
-| 2 | `cp_sectioned_scan` | core-processor sectioned template (`PAGE:` / `ACCOUNT:` / `TELEPHONE:`), issuers UNITED COMMUNITY x7, SOUTHSTATE x6, FIRST FARMERS x1 | 14 | `core_processor_sectioned` x13, `first_farmers` x1 | <=14 | MEDIUM | **OVERLAPS DECLINES-D** (its largest named cluster is `core_processor_sectioned` 22, of which these 14 are the non-digital half). Route, do not double-staff. 7 siblings already validate. |
-| 3 | `southside` | `SOUTHSIDE STATEMENT OF ACCOUNT`, PO Box 1079 Tyler TX | 9 | `southside_scanned` x1 | <=9 | MEDIUM | The registration exists and claims only 1 of the 9, then declines it. 4 of the 9 are one- and two-page fragments (827-1,688 chars) that are page extracts, not statements — realistic gain about 5. |
+| 2 | `cp_sectioned_scan` | core-processor sectioned template (`PAGE:` / `ACCOUNT:` / `TELEPHONE:`) | **15** | `core_processor_sectioned` claims **all 15**; `first_farmers` also claims 1 | <=15 | MEDIUM | **OVERLAPS DECLINES-D.** Re-measured — see SN14.2: the family is **22** non-digital documents, 7 validated and **15** unclaimed, and the unclaimed issuer split is **UNITED COMMUNITY 7 · SOUTHSTATE 6 · STOCK YARDS 1 · FIRST FARMERS 1**. The Stock Yards document belongs to this template and the first draft filed it as a singleton. Of the 7 that validate, **6 are FIRST FARMERS and 1 (`ADE55A5B`) is UNITED COMMUNITY**, published by `core_processor_sectioned` itself. |
+| 3 | `southside` | `SOUTHSIDE STATEMENT OF ACCOUNT`, PO Box 1079 Tyler TX | 9 | `southside_scanned` claims **3** | <=6 | MEDIUM | Corrected: the registration claims THREE of the 9 and already PUBLISHES two of them — `4C96DDA2` `review/integrity_flags` and `B3110297` `withheld/withheld_adb` — while declining `9D7EB67A`. Six are genuinely unclaimed, and 4 of those are one- and two-page fragments (827-1,688 chars) that are page extracts, not statements. The card is therefore mostly "finish the reader that exists", not "write one". |
 | 4 | `td_soa` | TD Bank `STATEMENT OF ACCOUNT`, `America's Most Convenient Bank` | 6 | `td_us` x1 | <=5 | MEDIUM-HIGH | 4 already reach `withheld_adb` — a parser reads them and the ADB is what refuses. This is an ADB-doctrine card, not a new-template card. One 287-char fragment is not a statement. |
-| 5 | `citizens_rop` | `Business Account Statement` / `Commercial Account Statement`, ROP, PO Box 7000 Providence RI 02940 | 5 | `citizens` x4 | <=5 | MEDIUM | **OVERLAPS DECLINES-D** (`citizens` 4). Rich text, 20k-25k chars per document. 1 reaches `withheld_adb`. |
+| 5 | `citizens_rop` | `Business Account Statement` / `Commercial Account Statement`, ROP, PO Box 7000 Providence RI 02940 | 5 | `citizens` claims **all 5** | <=5 | MEDIUM | **OVERLAPS DECLINES-D** (`citizens` 4 declines). Corrected: `citizens` claims all five — four it declines, and `675EB43935FE` it claims and publishes as `withheld/withheld_adb`. Rich text, 20k-25k chars per document. Another "finish the reader" card. |
 | 6 | `tangerine` | `<Month> 2026 Statement` + `Your activity summary`, account `114-040-401` | 5 | none | <=5 | MEDIUM | One account, five consecutive months — the same chain property that makes #1 strong. |
 | 7 | `lake_city` | Lake City Bank, `Last statement:` / `This statement:` pair | 4 | `core_processor_daily` x4 | <=4 | MEDIUM | **OVERLAPS DECLINES-D** (`core_processor_daily` 4). |
 | 8 | `hoosier_hills` | Hoosier Hills Credit Union `Member Statement`, hoosierhills.com | 3 | none | <=3 | MEDIUM | The three richest scanned documents in the archive (44k-48k chars). A multi-share member statement — an L-1 multi-account shape, which is why confidence is not higher. |
@@ -27359,7 +27393,7 @@ census.**
 | 18 | `signature_bcas` | `Business Checking Account Statement`, one holder | 3 | none | <=3 | LOW | 723-871 chars for a two-page document: the ledger did not survive the scan. |
 | 19 | `firefighters_cu` | Firefighters & Company Federal CU, Dayton OH | 3 | none | <=3 | LOW | One page each; the NCUA furniture survived and the ledger did not. |
 | 20 | `community_bank_fcrot` | Community Bank `FCROT`/`GBOT` internet-banking print | 2 | none | <=2 | LOW | About 1.1k chars. |
-| — | 16 singletons | `altra_cu`, `bofa_scan`, `commerce_scan`, `community_trust`, `frost_scan`, `home_federal`, `stock_yards`, `tbk_scan`, `us_bank_scan`, `wells_scan`, `texas_first_bank_mo`, `united_community_chk`, `bmo_avis`, `rbc_void`, `cibc_form`, and the `chase_scan` tail | 1 each | mixed | 1 | — | Not worth a registration each. `home_federal` (22k chars) and `altra_cu` (34k chars) are the only two carrying a full ledger. |
+| — | 15 singletons | `altra_cu`, `bofa_scan`, `commerce_scan`, `community_trust`, `frost_scan`, `home_federal`, `tbk_scan`, `us_bank_scan`, `wells_scan`, `texas_first_bank_mo`, `united_community_chk`, `bmo_avis`, `rbc_void`, `cibc_form`, and the `chase_scan` tail | 1 each | mixed | 1 | — | Not worth a registration each. `home_federal` (22k chars) and `altra_cu` (34k chars) are the only two carrying a full ledger. **`stock_yards` was a 16th here in the first draft and is not a singleton** — it is a member of row 2's template and is counted there (SN14.2). |
 
 Two families in the table are already spoken for this batch (`columbia` goes to
 COLUMBIA-5) and three overlap DECLINES-D by sha; those are named so batch 7
@@ -27537,46 +27571,87 @@ matched fails the document closed:
             return None
 ```
 
-**`account_number` is honest-unknown on every document of the class.** The
-template prints it masked in the header block and the mask is exactly what the
-scan destroys (`Account Number: FAKKAT AG`, `Account Number: *AKKT BGO`). The
-masks that DO survive elsewhere on the page belong to the ATM rows' card
-numbers (`*****5512`, `*****8152`); reading one of those into this field would
-publish a card as an account. A first draft did read them and was removed — it
-was the R-1 lesson wearing a regex.
+**`account_number` is honest-unknown on every document of the class — the
+conservative answer, not the only possible one.** The page-1 header mask is
+what the scan destroys on all eight (`Account Number: FAKKAT AG`,
+`Account Number: *AKKT BGO`). An earlier draft went further and claimed every
+surviving mask elsewhere is a card, and **that is false**: on the BIGHEAD chain
+the ACCOUNT mask survives legibly and labelled — `Account Number: ****7860` in
+a genuine statement header on page 13 of `6ACF3130`, and
+`Account Number **** 7860` in the cheque-page headers of four documents
+(`644F3694`, `6ACF3130`, `756F987E`, `A20AACF2`). The card masks on those same
+documents are `*****4975`; on the SEAWALL chain they are `*****5512` /
+`*****8152`. So the field is recoverable on four or five of the eight from a
+labelled printing corroborated more than once. It is not recovered here because
+its gate — which labelled occurrences count, what to do when a document shows
+none, and whether to publish the field on some documents of a family and not
+others — is a decision worth making deliberately. **Carded for batch 7 as
+`ACCT-MASK-SCAN`.**
 
 **Page declarations are read by the pipeline, not by this reader**, and one
 document earns a flag by them: see SN7.
 
-### SN6.1 The gates, measured by mutation
+### SN6.1 The gates, measured by mutation — corrected after review
 
 A twelve-mutant harness (session scratchpad, not committed) over the reader's
-gates, against `tests/test_texas_first_scanned.py`:
+gates, against `tests/test_texas_first_scanned.py`. **The first version of this
+table had six survivors and drew the wrong conclusion from them.** Review
+supplied counterexamples proving that two of the six were load-bearing, the
+two tests below were added, and the harness re-run:
 
-| mutant | caught |
-|---|---|
-| per-day uniqueness dropped (take the first assignment) | **yes** |
-| the right-hand minus ignored | **yes** |
-| the illegible-cell refusal dropped | **yes** (2 tests) |
-| the day-not-in-the-grid check dropped | **yes** |
-| the period-year bound dropped | **yes** |
-| the walk stops reading the printed balance | **yes** (13 tests) |
-| aggregate count fail-fast dropped | no |
-| aggregate total fail-fast dropped | no |
-| deposit-count agreement dropped | no |
-| deposit-total agreement dropped | no |
-| final-day-equals-ending dropped | no |
-| closing-identity fail-fast dropped | no |
+| # | mutant — the gate it removes | first run | now |
+|---|---|---|---|
+| M01 | per-day uniqueness (take the first assignment) | KILLED | **KILLED** |
+| M02 | the right-hand minus ignored | KILLED | **KILLED** |
+| M03 | the illegible-cell refusal | KILLED (2 tests) | **KILLED** (2 tests) |
+| M04 | the day-not-in-the-grid check | KILLED | **KILLED** |
+| M05 | the period-year bound | KILLED | **KILLED** |
+| M06 | the walk stops reading the printed balance | KILLED (13 tests) | **KILLED** (17 tests) |
+| **M07** | **aggregate COUNT fail-fast** `atm_credit_count + atm_debit_count != len(atm)` | survived | **KILLED** |
+| M08 | aggregate TOTAL fail-fast | survived | survived (by design) |
+| **M09** | **deposit-COUNT agreement** `len(deposit_indices) != atm_credit_count` | survived | **KILLED** |
+| M10 | deposit-TOTAL agreement | survived | survived (by design) |
+| M11 | final-day-equals-ending | survived | survived (by design) |
+| M12 | closing-identity fail-fast | survived | survived (by design) |
 
-The six survivors are all provably redundant with the walk, and TWO SOURCE
-COMMENTS OVERCLAIMED because of it — both were corrected in the same commit
-rather than left for review. The aggregate checks are fail-fasts, not further
-evidence; and the deposit count/total agreement is corroboration, because once
-every day has a unique assignment the split is determined and the money half
-follows from the arithmetic. They are kept because that derivation depends on
-each of the earlier checks still being in place, and because a reader that
-only discovers a short grid inside the walk reports "the day did not close"
-for a defect that is really "the grid is missing a row".
+**8 killed, 4 survive.**
+
+#### What the first table got wrong
+
+It said "the six survivors are all provably redundant with the walk". **That is
+false for M07 and M09, and the error is a real one: the walk is arithmetic over
+MONEY, and nothing in it constrains a COUNT.** My own sentence "the money half
+follows from the arithmetic" was the correct one and I did not follow it to its
+conclusion — the count half follows from nothing.
+
+The two counterexamples, both now tests:
+
+* **M07** (`test_a_stated_debit_count_the_grids_cannot_fill_refuses`). A
+  summary stating **5 debits** over grids holding **4** — three debit rows and
+  one cheque — with every total, the closing identity and every printed daily
+  balance agreeing exactly. Shipped: REFUSES. Without the gate: PUBLISHES
+  `stated_debit_count=5` beside four debit transactions, and no other oracle
+  notices.
+* **M09** (`test_an_atm_split_whose_row_count_the_summary_denies_refuses`). A
+  summary counting **one** ATM deposit of 100.00 against a grid whose `60.00`
+  and `40.00` are uniquely **both** deposits under the day walk. Every figure
+  agrees; only the row count differs. Shipped: REFUSES. Without the gate:
+  PUBLISHES three credit transactions against a stated credit count of two.
+
+Both source comments have been corrected to say which half of each pair is
+load-bearing and which is redundant. The correction is **prose only** — see
+SN14.1 for the AST identity proof.
+
+#### The four that still survive, stated precisely
+
+M08, M10, M11 and M12 are mutually redundant over MONEY, and that is a real
+property rather than an excuse: a grid whose money does not add up cannot
+reproduce the printed daily balances either, so the walk catches what they
+catch. They are kept as fail-fasts and as explicit agreement, for two reasons
+worth writing down — a short grid should be reported as a short grid rather
+than as "the day did not close", and each one's redundancy depends on every
+other check still being in place. A reader whose correctness rests on a chain
+of derivations should not also be the only thing holding the chain up.
 
 ## SN7. The movers, named
 
@@ -27598,8 +27673,9 @@ block's entity-suffixed holder (`SEAWALL8910 LLC`, `BIGHEAD SMOKE SHOP LLC`);
 templates this one prints its issuer.
 
 **`A20AACF2`'s flag is earned, not inherited.** Its page 6 declares
-`Page 6 of 14` where its other five legible declarations say `of 11` and the
-document supplies 11 sheets; under the WIRING-2 regime the sheet list is live
+`Page 6 of 14` where its other **six pipeline-legible** declarations say
+`of 11` (eight literal `of 11` occurrences in the text; the pipeline's own
+reader resolves six of them) and the document supplies 11 sheets; under the WIRING-2 regime the sheet list is live
 and the pipeline's page-declaration check takes the largest denominator, so
 `missing_declared_statement_page` stands. That is a true statement about the
 document AS SCANNED, this cell did not touch `analysis/pipeline.py` to soften
@@ -27756,8 +27832,11 @@ EXIT=0  elapsed=296s
 ```
 # conformance cross-product (73 x 72) + the registry pins, on the same tree
 python -m pytest tests/test_parser_conformance.py tests/test_parser_registry_entries.py -q
-974 passed, 34 skipped in 4.02s
+944 passed, 34 skipped in 4.02s
 EXIT=0
+   (an earlier draft recorded 974 here: that was a THREE-file run which also
+   included this cell's own test module. The two-file command is 944, as SN13
+   and the review's re-run both measure.)
 
 # guards (also inside the default suite above)
 python -m pytest -q -k "registry or conformance or hardcode"
@@ -27952,3 +28031,134 @@ computed over the bank's own printed daily grid (SN7.1).
 **Nothing is owed on this branch.** The proof floor is complete: full default
 suite, corpus-marked slice, gate GREEN, guards, and the conformance
 cross-product with the registry pins, every one exit 0.
+
+## SN14. Review closures (APPROVE WITH FINDINGS, 0 BLOCK)
+
+The adversarial review reproduced all five published documents to the cent with
+an independent re-reader, brute-forced every ATM day over all subsets (exactly
+one assignment per day on all five), confirmed both chains, confirmed SN7.1's
+floor-and-truncate hypothesis 5/5, traced the three refusals to their named
+lines, and reproduced the detection census and the pinned sweep. It also found
+one MAJOR and eleven MINOR items. All are closed below.
+
+### SN14.1 MAJOR-1 — two "redundant" gates were load-bearing
+
+Closed in SN6.1: two counterexamples lifted into tests, both source comments
+corrected, harness re-run, **M07 and M09 now KILLED**, 8/12 killed overall.
+
+**The code did not change — only comments did**, so this closure cannot move a
+document and the gate is not owed again:
+
+```
+$ python -c "ast.dump(ast.parse(before)) == ast.dump(ast.parse(head))"
+bytes  before 46114   head 47686
+text identical      : False
+AST identical       : True
+AST dump length     : 122208 122208
+docstrings identical: True
+```
+
+Before = `5309958:analysis/scanned_small_bank.py`, head = this commit. The AST
+dumps are identical to the character and every docstring is byte-identical, so
+the only delta is `#` comment text. **Gate and corpus-marked slice are NOT owed
+for this commit** — they ran GREEN at SN13 on an AST-identical module.
+
+### SN14.2 MINOR-9 — the sectioned-template split, re-measured (and a disagreement)
+
+The review corrected my SN3 row 2 to "UNITED COMMUNITY 8 / SOUTHSTATE 6 /
+FIRST FARMERS 0, all 14 claimed by `core_processor_sectioned` alone". I
+re-measured by live detection over the whole non-digital population and get a
+different split, so I am recording mine with its derivation rather than
+copying the review's:
+
+```
+non-digital documents claimed by the sectioned template or first_farmers: 22
+  of which unclaimed (not validated): 15
+
+unclaimed, by printed issuer x claimant:
+  UNITED COMMUNITY   core_processor_sectioned                   7
+  SOUTHSTATE         core_processor_sectioned                   6
+  STOCK YARDS        core_processor_sectioned                   1
+  FIRST FARMERS      first_farmers + core_processor_sectioned   1
+
+validated in the same template:  FIRST FARMERS 6 · UNITED COMMUNITY 1
+```
+
+Where we agree, and it matters: **`ADE55A5B` is a UNITED COMMUNITY document,
+validated, published by `core_processor_sectioned` — not a `first_farmers`
+document.** My first draft implied the seven validated siblings were all First
+Farmers; six are, and that one is not.
+
+Where we differ, twice:
+
+1. **15 unclaimed, not 14.** The extra is the Stock Yards document
+   (`EF1C5806D1A5…`, `mixed`), which my `families.py` filed as a singleton
+   because I clustered on the masthead rather than on the template furniture.
+   It is claimed and declined by `core_processor_sectioned` like the other
+   fourteen and belongs in this row. SN3's singleton list is corrected from 16
+   to 15 accordingly.
+2. **FIRST FARMERS is 1, not 0**, and that one (`8035EE1A5453…`) is the single
+   member NOT claimed by `core_processor_sectioned` alone — `first_farmers`
+   claims it too, under the shipped `supersedes` edge. So "all claimed by
+   `core_processor_sectioned` alone" holds for 14 of the 15, not 15 of 15.
+
+Neither difference changes the row's rank or its DECLINES-D overlap; both
+change what a batch-7 cell would find when it opens the family, which is what
+the table is for. Ocean should re-check before staffing — the derivation above
+is reproducible from the run of record with the SN1 enumeration.
+
+### SN14.3 The remaining MINORs
+
+| item | closure |
+|---|---|
+| MINOR-2 | `tests/test_parser_conformance.py` module-docstring lines 5 and 14 still read 72 — **left untouched** per instruction; the train composes 74 and 74x73=5,402 by hand, and editing them here would only collide with GRAM-4's identical lines. |
+| MINOR-3 | SN10.2's `974 passed` corrected to **944**; the 974 was a three-file run that also included this cell's test module. |
+| MINOR-4 | canonical proof sets recorded at SN14.4 beside the narrower steps. |
+| MINOR-5 | SN0's "all scanned" corrected: **six `scanned`, two `mixed`** (`644F3694`, `6ACF3130`). |
+| MINOR-6 | SN7's "five legible declarations" corrected to **six pipeline-legible** `of 11` (eight literal occurrences). |
+| MINOR-7 | the `account_number` justification corrected in both the source comment and SN6: the surviving labelled masks on the BIGHEAD chain are the **ACCOUNT** (`****7860`), not cards (`*****4975` / `*****5512` / `*****8152`). Field stays `None` (conservative); **carded batch 7 as `ACCT-MASK-SCAN`**. |
+| MINOR-8 | SN3 row 3 corrected: `southside_scanned` claims **3** of the 9 and already publishes two (`4C96DDA2` review, `B3110297` withheld). |
+| MINOR-9 | SN14.2 above. |
+| MINOR-10 | SN3 row 5 corrected: `citizens` claims **all 5** (4 declined, `675EB4393` published as `withheld_adb`). |
+| MINOR-11 | SN1's third column defined as **`folder_label`** and the two `Unidentified` rows annotated with their real issuers (`58CB0DCC` First Farmers, `4C96DDA2` Southside Bank). |
+| MINOR-12 | the 55-document re-read class cited to **WORKER-PRIVACY's W3 §WORKERPRIV WP6.6/WP9 on `wave6-workerpriv`**, with the `source_model` split (36 first-citizens-layout, 19 woodforest-columns). |
+
+The claimant-column definition the three staffing corrections share is written
+out at the head of SN3: **CLAIMED BY** (every registration whose detector
+claims the document) versus *attempted (declined)* (the run's
+`dispatch.attempted`, non-empty only on a decline). Reading the second as the
+first is what understated rows 2, 3 and 5 — a parser that claims and
+successfully publishes leaves `attempted` empty.
+
+### SN14.4 Proofs for the closure commit
+
+```
+# full default suite
+python -m pytest -q
+4562 passed, 34 skipped, 31 deselected, 1 warning in 206.36s (0:03:26)
+EXIT=0
+
+# this cell
+python -m pytest tests/test_texas_first_scanned.py -q
+37 passed in 0.27s
+EXIT=0
+
+# canonical guards (5 files)
+python -m pytest tests/test_no_statement_hardcodes.py tests/test_no_parser_helper_clones.py \
+    tests/test_r1_hardcodes.py tests/test_experiments_are_not_wired.py \
+    tests/test_filename_boundary.py -q
+242 passed, 1 warning in 18.01s
+EXIT=0
+
+# canonical conformance + registry (7 files)
+python -m pytest tests/test_parser_conformance.py tests/test_parser_registry_entries.py \
+    tests/test_parser_detection_markers.py tests/test_parser_registry.py \
+    tests/test_parser_crash_shapes.py tests/test_parser_exception_boundary.py \
+    tests/test_count_semantics.py -q
+1139 passed, 34 skipped, 1 warning in 4.59s
+EXIT=0
+   registrations 73 -> cross-product 73 x 72
+
+# the 12-mutant harness, re-run (session scratchpad, not committed)
+12 mutants: 8 killed, 4 survived    survivors M08 M10 M11 M12, all by design
+```
