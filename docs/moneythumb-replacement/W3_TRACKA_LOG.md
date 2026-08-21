@@ -27644,3 +27644,42 @@ gained its negative half: the same real payload against the pre-ceremony `USD`
 pin is RED, so the green is the product agreeing rather than the check being
 inert. Recorded because the totality property that broke the harness is the
 same property that makes the surface worth having.
+
+## RC13. Proofs, with verbatim exit codes
+
+All run on this branch, sequentially, on a machine shared with other cells.
+
+| Proof | Result | Exit |
+|---|---|---|
+| `python corpus_gate.py --json …` | **RESULT: GREEN** — every check PASS; 109 pinned PDFs (103 native + 6 committed OCR), 0 foreign; `Outcomes: 106 PASS / 3 WITHHELD`; `Verdicts: 4 review / 102 validated / 3 withheld`; **`[PASS] currency: 109/109 statements publish their pinned currency: 14 CAD / 95 USD`**; runtime 1221.8s | **0** |
+| `pytest -q -p no:cacheprovider -m corpus` | **28 passed**, 4,566 deselected (2700.32s) | **0** |
+| `pytest -q -p no:cacheprovider` | **4,528 passed**, 34 skipped, 32 deselected (346.40s) | **0** |
+| guard slice (`test_no_statement_hardcodes`, `test_r1_hardcodes`, `test_parser_detection_markers`, `test_parser_conformance`, `test_no_parser_helper_clones`, `test_filename_boundary`, `test_parser_registry`) | **999 passed** | **0** |
+| `pytest -q -p no:cacheprovider tests/test_rbc_variants.py` | **92 passed** | **0** |
+| differential, AFTER pass (236 documents) | 236 analysed, 0 without artifact, 419.1s | **0** |
+| differential, BEFORE pass (`analysis/rbc.py` at `93fb369`) | 236 analysed, 0 without artifact, 340.1s | **0** |
+
+Suite movement: 4,511 → **4,528** (+17 unmarked: 10 CUR-J + 7 surface).
+Corpus-marked slice: 27 → **28** (+1, the end-to-end ceremony proof).
+Deselected 31 → 32. Skipped unchanged at 34.
+
+The gate's `currency` check is the new line, and it is GREEN on the first run
+with the surface live — 109 of 109 published currencies equal to their pins,
+including the four the ceremony moved.
+
+$0.00 vendor. No cache written: the differential calls `analyze_markdown`
+directly, and every pytest run used `-p no:cacheprovider`. The archive and the
+D-3 artifact store were opened read-only, by direct file path; the
+`webapp_data` sqlite index was never opened.
+
+## RC14. Commits
+
+| | |
+|---|---|
+| `8020987` | the ratified RBC Canada jurisdiction default + the `RBBDA`/`RBPDA` header widening, in one commit, with the CUR-J test family |
+| `6ac2f7d` | the pinned currency surface — `PINNED_CURRENCY` (109, total) + `check_currency`, and its tests |
+| `39d9a38` | fix this cell's own corpus-marked harness defect, and give the proof its negative half |
+| `33d2a9c` | this log section |
+
+Base `93fb369`. Never merged, never pushed; no stage version bumped — the
+composed `ANALYSIS_STAGE_VERSION` bump is Ocean's at the train.
