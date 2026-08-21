@@ -200,6 +200,16 @@ def test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental():
         # left for someone to discover from a run of tautological `match`es.
         "community_section:credit",
         "community_section:debit",
+        # W3 §GRAM4. A new registration, surveyed by the cell that registered
+        # it. Comparable as a CATEGORY SUM in both directions — three printed
+        # categories per direction — and tautological for the same structural
+        # reason `community_section` is: the parser gates each category's
+        # printed count against the rows of the section that category heads,
+        # and takes `Transaction.direction` from the category. It cannot
+        # under-count the expected side either: the six-category list is
+        # closed and a summary missing one refuses the document.
+        "core_processor_counted:credit",
+        "core_processor_counted:debit",
         "dakota_west:credit",
         "dakota_west:debit",
         "demo_national:credit",
@@ -499,7 +509,7 @@ def test_the_observer_version_moves_when_the_table_does():
         1 for table in SEMANTICS.values()
         for semantics in table.values() if semantics.mapping is not None
     )
-    assert (observer.OBSERVER_VERSION, len(SEMANTICS), comparable, mapped) == (4, 31, 58, 2)
+    assert (observer.OBSERVER_VERSION, len(SEMANTICS), comparable, mapped) == (5, 32, 60, 2)
 
 
 # ---------------------------------------------------------------------------

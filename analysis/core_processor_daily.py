@@ -136,13 +136,13 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
-from .date_tokens import MONTH_NUMBERS, iso_or_none, iso_within_period
+from .date_tokens import iso_from_named_month_day, iso_within_period
 from .money import (
     LEADING_MINUS, MINUS_CLASS, STRICT_UNSIGNED, pad_leading_decimal, parse_amount,
 )
 from .parser_registry import corroborating, make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
-from .tables import section_runs, unique_match
+from .tables import dated_cells, section_runs, unique_match
 
 # ---------------------------------------------------------------------------
 # The grammar
@@ -185,6 +185,12 @@ _FIGURE_TOKEN = _TOKEN_START + r"(" + _FIGURE + r")" + _FIGURE_END
 #: `-` so the shared money grammar's glyph set applies here too.
 _BALANCE = MINUS_CLASS + r"?" + _FIGURE
 _BALANCE_TOKEN = _TOKEN_START + r"(" + _BALANCE + r")" + _FIGURE_END
+
+#: The same three tokens, compiled, for `tables.dated_cells` — which takes the
+#: caller's patterns rather than owning a grammar of its own.
+_DATE_RE = re.compile(_DATE_TOKEN)
+_FIGURE_RE = re.compile(_FIGURE_TOKEN)
+_BALANCE_RE = re.compile(_BALANCE_TOKEN)
 
 
 def _magnitude(value: str) -> float | None:
@@ -369,11 +375,15 @@ def _long_date(match: re.Match[str]) -> str | None:
 
     The pattern proves the SHAPE and nothing more: `Fiscal 30, 2026` has that
     shape, and so does `February 31, 2026`.
+
+    The reading itself is `date_tokens.iso_from_named_month_day`, which is
+    where it always belonged: this module had re-derived the shared helper's
+    two lines, and the clone became visible when the fourth grammar of the
+    same processor needed the same reading (W3 §GRAM4). Behaviour-identical —
+    the helper case-folds the month word and funnels through `iso_or_none`
+    exactly as the copy did.
     """
-    number = MONTH_NUMBERS.get(match.group(1).casefold())
-    if number is None:
-        return None
-    return iso_or_none(int(match.group(3)), number, int(match.group(2)))
+    return iso_from_named_month_day(match.group(1), match.group(2), match.group(3))
 
 
 def _front_matter(markdown: str) -> str:
@@ -458,6 +468,13 @@ def _summary(markdown: str) -> _Summary | None:
 # lets two rows share one line, which this platform prints
 # (`04-21 Withdrawal 3,000.00 04-21 ' Outgoing Wire-Olb 10,000.00`) and a
 # line-anchored pattern would silently halve.
+#
+# That scan is `tables.dated_cells`, shared with the FOURTH summary grammar of
+# this same processor (W3 §GRAM4): both templates print a ledger grid and a
+# daily-balance grid whose flattened text layer has lost its columns, and both
+# recover a cell the same way — it opens at a date and closes at the first
+# value printed before the next date. The patterns stay here; only the scan
+# moved (§LCPERIOD L5.2's discipline, one template on).
 
 #: A cheque's serial number. The cheque section prints a three-column grid —
 #: `Number Date Amount` — so the serial is the row's LEADING token, and it is
@@ -535,28 +552,25 @@ def _rows(runs: list[str], *, credit: bool | None, start: date, end: date,
     """
     rows: list[Transaction] = []
     for run in runs:
-        dates = list(re.finditer(_DATE_TOKEN, run))
+        cells = dated_cells(run, date_pattern=_DATE_RE, value_pattern=_FIGURE_RE)
+        if cells is None:
+            return None
         cursor = 0
-        for index, found in enumerate(dates):
-            stop = dates[index + 1].start() if index + 1 < len(dates) else len(run)
-            after = run[found.end():stop]
-            amount_at = re.search(_FIGURE_TOKEN, after)
-            if amount_at is None:
-                return None
-            iso = iso_within_period(found.group(1).replace("-", "/"), start, end)
-            amount = _magnitude(amount_at.group(1))
+        for cell in cells:
+            iso = iso_within_period(cell.date.replace("-", "/"), start, end)
+            amount = _magnitude(cell.value)
             if iso is None or amount is None:
                 return None
             # Everything printed since the PREVIOUS row's amount, not since its
             # date: the cheque section's serial is the leading cell of this
             # row, and a gap that still held the previous row's amount would
             # put that amount on this row's line.
-            gap, cursor = run[cursor : found.start()], found.end() + amount_at.end()
+            gap, cursor = run[cursor : cell.start], cell.end
             if credit is None:
                 serial = _SERIAL_RE.fullmatch(_row_lead(gap))
                 description = f"{default} {serial.group(1)}" if serial else default
             else:
-                description = _described(after[: amount_at.start()]) or default
+                description = _described(cell.described) or default
             rows.append(Transaction(
                 date=iso,
                 description=description,
@@ -577,14 +591,12 @@ def _grid(runs: list[str], *, seed: date, end: date) -> list[StatementDailyBalan
     """
     printed: list[StatementDailyBalance] = []
     for run in runs:
-        dates = list(re.finditer(_DATE_TOKEN, run))
-        for index, found in enumerate(dates):
-            stop = dates[index + 1].start() if index + 1 < len(dates) else len(run)
-            figure = re.search(_BALANCE_TOKEN, run[found.end():stop])
-            if figure is None:
-                return None
-            iso = iso_within_period(found.group(1).replace("-", "/"), seed, end)
-            amount = _balance(figure.group(1))
+        cells = dated_cells(run, date_pattern=_DATE_RE, value_pattern=_BALANCE_RE)
+        if cells is None:
+            return None
+        for cell in cells:
+            iso = iso_within_period(cell.date.replace("-", "/"), seed, end)
+            amount = _balance(cell.value)
             if iso is None or amount is None:
                 return None
             printed.append(StatementDailyBalance(date=iso, balance=amount))

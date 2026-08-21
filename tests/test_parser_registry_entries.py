@@ -64,6 +64,10 @@ EXPECTED_ORDER = [
     "columbia_bank",
     "community_section",
     "consumers",
+    # The fourth summary grammar of the third core processor (W3 §GRAM4).
+    # Disjoint from `core_processor_daily` below by its two required markers,
+    # not by precedence, so it takes the ordinary band.
+    "core_processor_counted",
     "core_processor_daily",
     "core_processor_sectioned",
     "demo_national",
@@ -161,8 +165,11 @@ def test_registration_count_matches_the_documented_decision_points():
     (W3 §SCANB); and the four-way partitioned-summary core-processor
     template (W3 §SCANC); and the batch-5 train: the THIRD core processor's
     template, whose period sentence is the only thing it shares with the
-    second's and which prints no institution field at all (W3 §LCPERIOD)."""
-    assert len(pr.registrations()) == 72
+    second's and which prints no institution field at all (W3 §LCPERIOD);
+    and the batch-6 card: that third processor's FOURTH summary grammar,
+    whose summary is a counted partition and whose two balances are dated
+    (W3 §GRAM4)."""
+    assert len(pr.registrations()) == 73
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():

@@ -1046,6 +1046,74 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
             ),
         ),
     },
+    # W3 §GRAM4. The fourth summary grammar of the third core processor is
+    # the first registration in the complex to print a count at all: the
+    # second prints one per direction, the third prints none (§LCPERIOD L7.7),
+    # and this one prints SIX — three categories per direction, each with its
+    # own count and total, each heading a ledger section of the same name.
+    "core_processor_counted": {
+        "credit": CountSemantics(
+            comparable=True,
+            scope="multi_category_sum_proven_complete",
+            reason=(
+                "The summary prints `Deposits (N)`, `Electronic cr (N)` and "
+                "`Other credits (N)`, and the expected side is their sum "
+                "(analysis/core_processor_counted.py:_CATEGORIES, published "
+                "at :parse_core_processor_counted_statement). The category "
+                "list is CLOSED and the closure is checked rather than "
+                "assumed: `_counted_partition` requires all six categories to "
+                "read or the document is refused, so a fourth printed credit "
+                "category would fail the document closed instead of "
+                "under-counting the expected side — the failure mode every "
+                "other category-sum entry in this table has to caveat. "
+                "DISCLOSURE, in `burke_herbert`'s idiom: the agreement is a "
+                "TAUTOLOGY and carries no information. The parser gates each "
+                "category's printed count against the number of rows it read "
+                "from the section that category heads "
+                "(`_matches_the_printed_partition`), and it sets "
+                "`Transaction.direction` from the category, so this check's "
+                "set and the gate's set are the same set and a claimed "
+                "document agrees by construction. Measured over all 8 archive "
+                "documents of the family: 8/8 agree, 0 disagreements, 0 flags "
+                "raised. NO falsifier of the `burke_herbert` kind exists "
+                "here: that gate keys on the SIGN of an amount and diverges "
+                "from `direction` on a $0.00 row, while this one counts ROWS "
+                "per section and is blind to the amount, so a genuine $0.00 "
+                "posting is counted identically by both sides. The entry is "
+                "written rather than left UNSURVEYED because 'examined, and "
+                "structurally silent' is a different fact from 'not yet "
+                "examined'. The independent oracles for this family are the "
+                "six printed category TOTALS and the daily-balance grid, "
+                "neither of which any count can reproduce."
+            ),
+        ),
+        "debit": CountSemantics(
+            comparable=True,
+            scope="multi_category_sum_proven_complete",
+            reason=(
+                "`Checks paid (N)`, `Electronic db (N)` and `Other debits "
+                "(N)`, summed, for the reason and with the construction the "
+                "credit direction states — and TAUTOLOGICAL on the same "
+                "gate, restated here rather than cross-referenced because an "
+                "entry that cannot be read on its own is an entry nobody "
+                "checks. Two things recorded so nobody "
+                "re-derives them. (1) The cheque category is INSIDE the "
+                "printed debit partition and inside the printed `Total "
+                "debits`, and its rows are published as debits, so count and "
+                "total cover one scope on both sides — the alignment W3 "
+                "§FIXUPS-1 corrected on `first_community`, satisfied here by "
+                "the printing itself. (2) There is no separate service-charge "
+                "line outside the partition on any of the 8: a charge this "
+                "issuer bills arrives as an `Electronic db` or `Other debits` "
+                "row and is therefore already counted, which is why this "
+                "direction needs no `CountMapping`. If an issue of this "
+                "template ever prints one outside the six categories, the "
+                "direction totals would stop summing to `Total debits` and "
+                "the document would go UNCLAIMED rather than mis-flagged: "
+                "fail-closed, not proven-absent. 8/8 agree over the family."
+            ),
+        ),
+    },
     # W3 §CITI3 card C. A new registration, surveyed here rather than left
     # UNSURVEYED because its printed counts and the rows this parser captures
     # are the same set BY CONSTRUCTION, and that construction is checked.

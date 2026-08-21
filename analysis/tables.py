@@ -34,6 +34,7 @@ meant to stop.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from html import unescape
 from itertools import takewhile
 from typing import Callable, Iterable, TypeVar
@@ -42,10 +43,12 @@ __all__ = [
     "TAG_RE",
     "ROW_RE",
     "CELL_RE",
+    "DatedCell",
     "compact_whitespace",
     "compact_lines",
     "unique_line",
     "clean_cell",
+    "dated_cells",
     "table_rows",
     "tables_after",
     "section_between",
@@ -241,6 +244,72 @@ def unique_match(region: str, pattern: re.Pattern[str]) -> re.Match[str] | None:
     if not found or len({match.groups() for match in found}) != 1:
         return None
     return found[0]
+
+
+@dataclass(frozen=True)
+class DatedCell:
+    """One printed cell of a dated grid: the date that opens it, the value
+    that closes it, and where in the run each of them stood.
+
+    `described` is what the statement printed BETWEEN the two — the row's
+    description on a ledger grid, and nothing at all on a daily-balance grid.
+    `start` and `end` bound the whole cell, so a caller can recover what was
+    printed to the LEFT of a row (the cheque serial in a `Number Date Amount`
+    grid) as `run[previous.end:cell.start]`.
+    """
+
+    date: str
+    value: str
+    start: int
+    end: int
+    described: str
+
+
+def dated_cells(
+    run: str, *, date_pattern: re.Pattern[str], value_pattern: re.Pattern[str]
+) -> list[DatedCell] | None:
+    """Every cell a run prints, or None when one of its dates closes no cell.
+
+    The operation two core-processor templates already needed four times over
+    (W3 §LCPERIOD L5.2's discipline, one template further on): a printed grid
+    whose flattened text layer has lost the columns is still readable, because
+    **a cell opens at a date and closes at the first value printed before the
+    next date opens**. That single rule reads three printings the physical
+    lines cannot:
+
+    * a description that wraps onto the lines BELOW its own amount — a greedy
+      pattern would swallow the row after it;
+    * several printed rows emitted on ONE physical line, which a line-anchored
+      pattern silently halves;
+    * a text layer that interleaves whole blocks of descriptions between a run
+      of dates and the run of amounts that answers them.
+
+    None — never a short list — when a date closes no cell: a row we could not
+    read is not a row to drop, and dropping one silently is exactly how a
+    ledger comes to disagree with a printed total while still looking
+    complete. The callers' gates then have something to fail against.
+
+    `date_pattern` and `value_pattern` are the CALLER's, compiled, and each
+    must capture its token in group 1: the date grammar, the money grammar and
+    the boundary classes that keep a token from starting inside another one
+    are template knowledge and stay in the template's own module.
+    """
+    dates = list(date_pattern.finditer(run))
+    cells: list[DatedCell] = []
+    for index, found in enumerate(dates):
+        stop = dates[index + 1].start() if index + 1 < len(dates) else len(run)
+        after = run[found.end():stop]
+        value = value_pattern.search(after)
+        if value is None:
+            return None
+        cells.append(DatedCell(
+            date=found.group(1),
+            value=value.group(1),
+            start=found.start(),
+            end=found.end() + value.end(),
+            described=after[: value.start()],
+        ))
+    return cells
 
 
 def section_runs(markdown: str, heading: re.Pattern[str]) -> dict[str, list[str]]:
