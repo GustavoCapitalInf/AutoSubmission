@@ -29552,3 +29552,521 @@ executed is not a proof, and `-m corpus` is the only run that executes these.
 | `7e3f743` | **review closures**: the rate block partitions its base (`coverage.verdicts`, `parser_exception` printed, `no_dispatch` naming its own base, `H3_SCHEMA 10`'s sample corrected); `model_calls_for` on the shared constant; `read_folder_labels` fail-closed on an absent column; the deferred test renamed and given its second arm; the two nits; TC11-TC12 |
 | `7496154` | the corpus-marked coverage literal carries the `verdicts` key - a TRUE red the slice caught 45 minutes into the proof floor |
 | (this one) | TC8/TC9 re-measured on the re-proved tree, and this table |
+# §MONEYPRIV — the raising family stops quoting the document
+Batch 6, card 1. Base main `eef77c6` (branch point `8570bce`, the batch-6
+handoffs), branch `wave6-moneypriv`, worktree `.claude/worktrees/mt6-moneypriv`.
+Run of record `2026-08-16T000943.012887-0000-2e3ea385`. Owned files:
+`analysis/money.py`, `tests/test_money_refusals_are_private.py`, this log.
+**The card (W3 §MGD10 finding 6, MGD-C1):** the money-grammar raising family
+carries the printed token in `ValueError(value)`, and `webapp/worker.py`
+published `str(exc)` as the job error, so statement content could cross into
+the durable store. (That boundary is being closed in the same batch by
+§WORKER-PRIVACY; see MP11 — the two closures are independent and neither is
+the other's excuse.) Batch 4 closed this law for `read_money` (§MG-C2 D1: a refusal
+never quotes the cell); the same module still quoted it one layer down, and
+§MGD *widened* the exposure — before `wave5-mgd`,
+`parse_signed_decimal("—$500.00")` returned a number; after it, that call
+raises, so a dormant boundary defect acquired a live caller.
+## MP0. Summary
+**Eleven raise sites in one module, all of which put the printed cell in the
+message; all eleven now name a reason instead. Zero archive movement, by
+construction and by measurement.**
+The card named five functions and five `raise ValueError(value)` statements.
+The module actually held **eleven** leaking sites, because a refusal in this
+family has two shapes and only one of them is written as a `raise`:
+| shape | sites | what the user would have seen |
+|---|---|---|
+| explicit `raise ValueError(value)` | 7 | the cell, alone, as the whole message |
+| the conversion's own error, escaping as the documented refusal | 4 | `could not convert string to float: '<the cell>'` |
+The four inherited ones are the more dangerous half and the harder half to
+see: `parse_grouped_float`, `parse_trailing_minus_dropped` and
+`parse_french_amount` document "raises ValueError when the token is not a
+number" and then let `float`'s own ValueError be that raise, so the leak is in
+the standard library rather than in this file. `Decimal` is the quiet
+counterpart — `InvalidOperation` says only `ConversionSyntax` — which is
+exactly why `parse_decimal` and `parse_decimal_mixed_separator` had to write
+their leak out by hand and the float three did not. The fourth is
+`parse_digit_scrubbed`, which is not a member of the raising family at all
+(§MP3).
+## MP1. The raise-site census, before and after
+Measured, not read off the diff: every entry below is the exception a poisoned
+token actually produced, on the base tree and on this one, through the same
+harness (`census.py`, session scratchpad; `WORD = "ACMEPAYROLL"`,
+`DIGITS = "4471009238"`).
+**The eight poisoned shapes**, written out so the totals below re-measure
+rather than have to be taken on trust — one per refusal branch, fed to each of
+ten exported entry points (the eight raising functions, `parse_digit_scrubbed`
+and `read_money`), 80 cells in all:
+| shape | token |
+|---|---|
+| `plain-junk` | `ACMEPAYROLL` |
+| `junk+amount` | `ACMEPAYROLL 1,234.56` |
+| `amount+junk` | `1,234.56 ACMEPAYROLL` |
+| `over-bound` | `99999999999999.00 ACMEPAYROLL` |
+| `emdash-sign` | `—$500.00` (MG-D's own case; carries NO canary) |
+| `dot-adjacent` | `ACMEPAYROLL.1.2` |
+| `french` | `1 234,56 ACMEPAYROLL` |
+| `trailing-minus` | `ACMEPAYROLL 1,234.56-` |
+| # | site | before | after |
+|---|---|---|---|
+| 1 | `parse_decimal` :638 digit bound | `ValueError("99999999999999.00 ACMEPAYROLL")` | `money grammar refused a printed token (integer run longer than the 13-digit bound; reader=parse_decimal)` |
+| 2 | `parse_decimal` :642 `Decimal` conversion, `from exc` | `ValueError("ACMEPAYROLL")` ← `InvalidOperation` | `… (no digits in the cell; reader=parse_decimal)`, unchained |
+| 3 | `parse_decimal_mixed_separator` :714 digit bound | `ValueError("99999999999999.00 ACMEPAYROLL")` | `… (integer run longer than the 13-digit bound; reader=parse_decimal_mixed_separator)` |
+| 4 | `parse_decimal_mixed_separator` :718 conversion, `from exc` | `ValueError("ACMEPAYROLL")` ← `InvalidOperation` | `… (no digits in the cell; reader=parse_decimal_mixed_separator)`, unchained |
+| 5 | `parse_grouped_float` :725 digit bound | `ValueError("99999999999999.00 ACMEPAYROLL")` | `… (integer run longer than the 13-digit bound; reader=parse_grouped_float)` |
+| 6 | `parse_grouped_float` :726 `float()` | `ValueError("could not convert string to float: 'ACMEPAYROLL'")` | `… (no digits in the cell; reader=parse_grouped_float)` |
+| 7 | `parse_trailing_minus_dropped` :739 digit bound | `ValueError("99999999999999.00 ACMEPAYROLL")` | `… (integer run longer than the 13-digit bound; reader=parse_trailing_minus_dropped)` |
+| 8 | `parse_trailing_minus_dropped` :740 `float()` | `ValueError("could not convert string to float: 'ACMEPAYROLL'")` | `… (no digits in the cell; reader=parse_trailing_minus_dropped)` |
+| 9 | `parse_french_amount` :760 digit bound | `ValueError("99999999999999.00 ACMEPAYROLL")` | `… (integer run longer than the 13-digit bound; reader=parse_french_amount)` |
+| 10 | `parse_french_amount` :761 `float()` | `ValueError("could not convert string to float: '1234.56ACMEPAYROLL'")` | `… (not a money token; reader=parse_french_amount)` |
+| 11 | `parse_digit_scrubbed` :795 `float()` | `ValueError("could not convert string to float: '.1.2'")` | `… (decimal places are neither two nor three; reader=parse_digit_scrubbed)` |
+| — | `read_money` :620 | already compliant (§MG-C2 D1) | **byte-identical**, repointed at the shared constructor |
+| — | `parse_signed_decimal` | delegates | inherits `reader=parse_decimal` — see §MP4 |
+**Whole-harness totals, 80 cells.** BEFORE: 56 carried the canary; a further
+**9 quoted the document without containing it** — the 8 `emdash-sign` cells,
+whose token holds no canary, echoing `$500.00`, and `parse_digit_scrubbed`
+echoing the scrubbed `'.1.2'`; 3 were already token-free (`read_money`, batch
+4); 12 returned a value. So **65 of 80 cells quoted the statement, and 56 is
+only the canary-detected subset** — which is precisely why the shipped proof
+asserts digit RUNS as well as canaries, and why quoting the canary total alone
+would have understated the defect. AFTER: **0 of 80** carry the canary, the
+whole token, or any digit run of three or more. The 12 returns are identical
+between the two trees, value for value.
+## MP2. The fix: one constructor, and the chain severed at the source
+Two decisions carry the card.
+**One constructor.** `_refusal(reader, token)` returns the exception; every
+raise in the module is `raise _refusal(...)`. The property being defended is a
+property of the SET — "no exception this module raises quotes the document" —
+and a property of a set is only as strong as its widest member. Eleven
+hand-written messages would be eleven chances to write the twelfth one with an
+f-string in it. With one constructor, the guard against that is a single
+assertion about the module's own AST rather than a whitelist of message
+spellings.
+**The chain is severed, not suppressed.** Each conversion error is swallowed
+and the refusal is raised from OUTSIDE its `except` block, so the refusal
+carries neither `__cause__` nor `__context__`. This is the part that is easy to
+get half-right: `raise _refusal(...) from exc` passes any test written on
+`str(exc)` and leaks the moment something renders a traceback, because
+`float`'s ValueError is still hanging off the exception with the cell in it.
+`from None` is no better — it clears `__cause__` and sets a *rendering* hint,
+while `__context__` still holds the object. Raising after the handler has
+finished is what actually removes it.
+**What proves it, exactly.** The dynamic chain assertion walks both links and
+a rendered traceback, so a weaker fix fails — but only on the branches six
+poisoned shapes reach. The claim for the module as a whole is carried by the
+AST guard, which reads every raise in the file reached or not, and which is
+where the two clauses that catch a chained refusal live (§MP12). Stated this
+precisely because the first revision of the guard had only the callee clause,
+and a reviewer's mutants on an unreached branch survived it.
+The `pass` in each handler is the visible cost of that decision, and it is why
+each one carries `# -> the one refusal, below and unchained`.
+## MP3. `parse_digit_scrubbed` — the site the card did not name
+`parse_digit_scrubbed` is annotated `-> float | None` and is documented to
+return `None` for anything it cannot read, so it is not in the raising family
+and the handoff did not name it. It leaks anyway: scrubbing keeps DOTS, so a
+cell holding two of them reaches `float` as a string `float` cannot convert,
+and the resulting `ValueError` quotes the scrubbed cell. `float(".1.2")` is the
+shortest reproduction.
+Two judgements, both deliberately conservative:
+1. **It is fixed, because it is in this module and it quotes.** The card's
+   clause 1 is "every raise whose message embeds value/token text", not "every
+   member of the raising family".
+2. **It still RAISES.** Turning it into `None` would hand the caller's absence
+   branch a token that is present — the exact fail-open shape §MG-C2 spent
+   batch 4 closing — and it is a behaviour change with an archive sweep of its
+   own. This card's expected movement is zero, so the raise stands and the
+   message changes. Recorded in the ledger for whoever owns the contract fix.
+**Unreachable at every live call site today**, which is why closing it costs
+nothing: all three callers pass a `guard` that must fullmatch before scrubbing,
+and all three guards admit at most one decimal point —
+`chase._AMOUNT_RE`, `chase_savings._AMOUNT_GUARD`, `capital_one._AMOUNT_RE`.
+A fourth caller arriving without a guard is the scenario this closes in advance.
+## MP4. `parse_signed_decimal` names `parse_decimal`, on purpose
+`parse_signed_decimal` reads the sign and delegates the number, and has no
+raise of its own. Its refusals therefore say `reader=parse_decimal`, which is
+the function that actually declined the token rather than the entry point the
+parser called. Naming the entry point instead would mean a wrapper, a second
+handler and a second chance to chain; naming the decliner is also what a
+diagnosis follows. The privacy property is identical either way, so this is
+pinned as a decision rather than left as an accident
+(`test_parse_signed_decimal_reports_the_reader_that_actually_refused`).
+## MP5. Where a money refusal can reach `str(exc)` today
+Stated because "the leak is real" and "the leak is reachable" are different
+claims and the card is worth taking on the first alone.
+* **The deterministic parse branch is guarded.** Every `detect`, `parse` and
+  `integrity_check` runs behind `parser_registry._guarded`, which reduces any
+  exception to `ParserFailure(registration id, stage, type(exc).__name__)` —
+  the message is discarded. `AmbiguousParserError` and `ParserCrashError` carry
+  registry ids and class names only.
+* **The repair seam is guarded** as of `8ad3d3e` (§PIPE5): a raising repair
+  becomes `repair_failure = type(exc).__name__`.
+* **Every caller of the raising family is a registered parser.** Measured over
+  the whole tree: the importers of `analysis.money` are the 61 parser modules
+  plus `analysis/structurer/tokens.py` and `experiments/`, and the structurer
+  imports `parse_money` only — which returns `None` and never raises.
+* So even before §WORKER-PRIVACY, a money refusal reached
+  `webapp/worker.py`'s `str(e)` through no path at all, and this card is a
+  defence-in-depth fix on a leak that is one guard away from live — the same
+  posture §MGD argued when it declined to fix it and carded it instead.
+The live quoting leak into that boundary is somebody else's line and is in the
+ledger: `analysis/extract.py:96` interpolates 300 characters of the model's own
+response into a `RuntimeError`, on the LLM branch, which is **not** behind
+`_guarded`.
+## MP6. The poisoned-token proof
+`tests/test_money_refusals_are_private.py`, **334 cases**.
+* **Driven by `money.__all__`, not by a hand-list.** A privacy law is a
+  property of the exported surface, and a hand-list proves only the members
+  someone remembered. `test_every_exported_callable_is_swept` fails the build
+  if the invocation table stops covering the exports, so a reader added to this
+  module in a later batch cannot quietly escape the sweep.
+* Six poisoned shapes — one per refusal branch, including MG-D's em-dash case —
+  through every exported reader, asserting that neither canary, nor the whole
+  token, nor any digit run of three or more from it survives into `str(exc)`,
+  the `__cause__`/`__context__` chain, or a rendered traceback.
+* Two AST guards for the branches no input reaches. `_refusal_class` may
+  return only fixed strings (with one interpolation, of `MAX_INTEGER_DIGITS`,
+  a module constant); and every `raise` in the module must be a BARE
+  `raise _refusal(...)` standing OUTSIDE any `except` handler — three clauses,
+  because the property has three ways to break: the message not coming from
+  the constructor, an explicit `from exc`, and a raise sitting inside a
+  handler where `__context__` is attached implicitly with nothing visible at
+  the raise site. The dynamic sweep cannot see the last two on an unreached
+  branch, which is the division of labour between the two kinds of proof
+  (§MP12).
+**Mutation kill: 14 mutants, 14 killed, 0 survivors** (harness in the session
+scratchpad, not committed). One per raise site restored to `ValueError(value)`
+(M1–M7); one per chained-refusal variant, `from exc` (M8, M9); one per
+try/except removed so the conversion's own error escapes (M10–M12); one per
+message-vocabulary breach — a reason string interpolating the token (M13) and
+`_refusal` appending it (M14).
+## MP7. The zero-movement sweep
+**Zero movers, and the instrument is checked against itself before it is
+believed.**
+**What was run.** For every OCR artifact under the two live OCR settings keys,
+read by DIRECT file path (never the sqlite index): rehydrate the intake
+document exactly as `cached_ocr` does on a hit, then
+`analyze_markdown(markdown, parse_mode="deterministic", sheets=doc.pages)` —
+the discovery runner's own call at `discovery/runner.py:487` — and compare the
+published payload against **the analysis artifact the run of record itself
+stored** for that exact input, under the live v13 settings key
+`205EB02A2C4B0A69D2AFA289F7A70B9EC81DED1004B97717751DFA64482EE9AF`. The before
+side is therefore `2e3ea385`'s own answer rather than a re-derivation of it.
+Read-only throughout: `analyze_markdown` is called directly, so no analysis
+artifact is written back.
+**The instrument is checked first.** The same harness run against the BASE tree
+reproduces the stored payloads byte for byte — 83 of 83 on the first 120
+artifacts, 0 movers — so the comparison can see a difference if there is one.
+(Its first revision reported 83/83 *movers*, because the stored artifact nests
+the payload under `artifact.analysis` and the harness compared one level too
+high. A sweep that reports 100% movement is a broken instrument, not a
+finding; it is recorded here because "0 movers" is only worth reading next to
+the run that proves the harness can produce a non-zero.)
+**Population — one convention, stated: an artifact that CARRIES A DOCUMENT.**
+A cached-negative OCR artifact (the deterministic preflight returned `None`)
+holds no text and there is nothing to analyse, so it is outside the
+denominator; the first draft of this section counted artifacts one way and
+distinct shas the other, and the corrected chain is:
+```
+3,473  artifacts under the two live OCR settings keys
+   19  of them cached-negative (document is null)          -> excluded
+3,454  artifacts carrying a document
+3,380  distinct content shas among them   <- the run of record's denominator, exactly
+3,339  distinct analysis inputs                            <- what was replayed
+```
+**The 3,380 is not a coincidence and is the section's best check**: replaying
+the archive by artifact, under one convention, lands on the same population the
+run of record reports. The 13 shas that appear ONLY as cached-negative
+artifacts (3,393 − 3,380) are the run's **deferred set**, which is where the
+deferred 13 have been all along.
+The 115 skipped artifacts are duplicates *of an analysis input*, not of a
+document, and split **74 / 41**: 74 are the same content sha under both live
+OCR keys, and 41 are distinct shas whose text and page partition hash
+identically to another document's — the same deterministic function of the same
+bytes, so they cannot diverge from their twin. (3,339 processed + 41 twins =
+3,380, which closes the arithmetic.) The first draft of this paragraph split it
+61/54, filing the 13 deferred shas under "twins"; both sub-numbers were wrong
+and the total was right, which is the failure mode a total hides.
+**Result.**
+```
+FINAL: seen 3,339 · compared 2,498 · MOVERS 0 · raised 841 · no_base_returned 0 · skipped 115
+```
+* **2,498 documents compared field by field against the run of record: 0
+  movers.** No outcome, flag, note, metric or published field moved anywhere.
+* **841 documents raise on both trees**, all `RuntimeError` — the deterministic
+  branch's "no deterministic parser matched this statement" for documents no
+  registration claims, which is why they have no stored analysis artifact
+  (`cached_analysis` does not cache a raise). Re-run on the base tree and
+  compared on exception class AND a digest of the message: **841 of 841
+  identical, 0 differences.**
+* **`no_base_returned` is 0**, which is the sweep's own soundness check in the
+  other direction: the branch produced no payload for a document the run of
+  record had refused, so the two populations are the same population.
+* **Money-grammar refusals reaching the boundary anywhere in the archive: 0.**
+  This is the raising family's analogue of §MG-C2's measurement for
+  `read_money` ("zero refusals of a present token at any call site"), and it is
+  the reason the card moves nothing: on today's archive there is no live
+  refusal whose message could change. The leak was real and unreachable, which
+  is exactly the condition §MGD named when it carded this rather than fixing it.
+**The swept tree is the shipped tree.** The sweep ran against `9a78876`; the
+branch since adds one docstring paragraph to `parse_signed_decimal` (§MP4).
+Asserted as a measurement rather than as a reading of the diff: both revisions
+of `analysis/money.py` were parsed, their docstrings stripped, the ASTs
+unparsed and hashed — `f126b96134780e4d1d0761fb962a4cb97051ddc7f4f0fb22957da0f0bc78b1c3`
+on both sides. No other file under `analysis/`, `ocr/`, `webapp/`, `telemetry/`
+or `discovery/` differs at all.
+## MP8. The ledger — quoted-text raise sites found and NOT owned
+Everything below quotes document-derived text into an exception. None of it is
+this cell's file; each is named for whoever takes it.
+**Ranked by whether it can reach `str(exc)` today.**
+1. **`analysis/extract.py:96` — LIVE, and the only one that is.**
+   `raise RuntimeError(f"extraction did not return a Statement: {resp.text[:300]!r}")`.
+   The model's response is a transcription of the document, 300 characters of
+   it, and this raise is on the LLM branch, which `analyze_markdown` does not
+   guard (the pipeline's own comment at `analysis/pipeline.py:628` states the
+   boundary). It propagates to `webapp/worker.py:94`'s
+   `return markdown, html, None, str(e)`, which through batch 5 put it in the
+   durable store. §WORKER-PRIVACY closes that end this batch, which makes the
+   quoted 300 characters unpublished rather than unproduced: the RuntimeError
+   still carries them into any log, any traceback and any future consumer of
+   the message. It is the one on this list that should not wait.
+2. **Six sibling `raise ValueError(value)` in parser modules** — the same
+   defect as this card's, in six of the callers rather than in the grammar:
+   `analysis/bmo.py:42` (`_amount`), `analysis/chase.py:47`
+   (`_money_required`), `analysis/farmers_merchants.py:19` (`_amount`),
+   `analysis/scanned_small_bank.py:45` (`_money`) and `:52` (`_iso`, a date
+   cell), `analysis/td_can.py:152` (`_native_date_to_iso`, a date cell).
+   All six are behind `_guarded` today. The fix shape is this card's exactly —
+   `money._refusal` is importable, and the two date sites want the same
+   treatment from a date-side constructor. Not taken: they are six parsers'
+   files, and this cell owns the shared module.
+3. **The `strptime` class — 20 sites across 7 parser modules**
+   (`burke_herbert`, `columbia_bank`, `community_section`, `demo_national`,
+   `huntington`, `relay`, `scotia`). `datetime.strptime` raises
+   `time data '<the printed date>' does not match format '…'`, which is the
+   same inherited-leak shape as the float three in §MP0 and is invisible for
+   the same reason: there is no `raise` to grep for. All behind `_guarded`.
+   `analysis/dates.py:63` is the counter-example and the model for a fix — it
+   catches its own `ValueError` and returns `None`.
+4. **`analysis/money.py::parse_amount` — the last path in THIS module by which
+   a stdlib-quoting error could still return, named because the card closed
+   every other one.** The engine calls `float(text)` only after
+   `_compiled(fmt.pattern).fullmatch(text)` succeeds, so the guard is the
+   caller-settable `AmountFormat.pattern`: a format whose pattern fullmatched
+   something `float` cannot convert would raise
+   `could not convert string to float: '<cell>'` out of this module again.
+   **Unreachable today and measured, not assumed** — every `AmountFormat` in
+   the repository is one of the thirteen constructed in this file, all of them
+   on `CENTS`/`SIGNED_CENTS`; there are zero constructions anywhere else,
+   tests included. Second-order and worth one line: `_compiled` is
+   `lru_cache(maxsize=None)`, so a pattern built out of document text would be
+   RETAINED, unboundedly, for the life of the process — the leak would be a
+   residency one rather than a message one. Not fixed: making `parse_amount`
+   refuse through `_refusal` means deciding what a caller-supplied pattern is
+   allowed to be, which is a change to the strict engine's contract and not an
+   exception-message card. Named for the batch-7 RAISE-PRIVACY-2 card.
+5. **`ocr/availability.py:126`** — `detail=str(exc)[:200]` on an OCR-endpoint
+   exception. Outside `analysis/`, so outside this card's scan; named because
+   it is the same `str(exc)` truncation pattern and belongs with the boundary
+   work.
+**Swept and found clean**, so that the ledger is a statement about the whole
+surface rather than about what was searched for: every other `raise` statement in
+`analysis/` (43 in the package, 36 of them outside `money.py`), plus `webapp/`, `ocr/`, `discovery/` and
+`telemetry/`, interpolates only registry ids, schema field names, enum
+vocabulary or path names — `count_semantics` (5), `metrics` (3), `revenue` (4),
+`parser_registry` (4), `pipeline` (3), `serialization`, `detect`,
+`banco_popular`, `date_tokens`, `webapp/artifact_cache` (3), `webapp/storage`
+(3), `telemetry` (3), `discovery/evidence`. `AmbiguousParserError` and
+`ParserCrashError` were read rather than assumed: both are ids and class names.
+## MP9. Proofs
+Branch `wave6-moneypriv`, final tree `8078d74`, run as one sequential chain
+after the MP11 comment corrections so that every proof below reads the tree
+that ships. Nine other cells were working the same machine throughout; the
+runtimes are contended wall clock and are a reading of the host, not of this
+cell.
+```
+# 1. full default suite (base 4,511; this cell adds 334)
+4845 passed, 34 skipped, 31 deselected, 1 warning        394.92s  SUITE_EXIT=0
+# 2. corpus-marked slice (MANDATORY since batch 3) — unchanged at 27; this
+#    cell adds no corpus-marked test, and the slice is the check the gate is
+#    structurally blind to (review<->validated inside its PASS bucket)
+27 passed, 4883 deselected, 1 warning                   3056.47s  CORPUS_EXIT=0
+# 3. corpus gate (python corpus_gate.py)
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 4 review / 102 validated / 3 withheld
+Runtime:  1142.2s
+RESULT: GREEN                                                     GATE_EXIT=0
+# 4. conformance cross-product (72 x 71 = 5,112 pairs) + registry + guards
+#    test_parser_conformance / test_parser_detection_markers /
+#    test_parser_registry / test_parser_registry_entries /
+#    test_pipeline_registry_dispatch / test_no_statement_hardcodes /
+#    test_r1_hardcodes / test_no_parser_helper_clones /
+#    test_no_fail_open_money_reads / test_money
+1720 passed, 34 skipped, 1 warning                        18.61s  GUARDS_EXIT=0
+# 5. the poisoned-token proof alone
+334 passed                                                 1.07s  PRIVACY_EXIT=0
+# mutation kill (session scratchpad, not committed)
+14 mutants, 14 KILLED, 0 survivors
+# raise-site census (session scratchpad, not committed) — 8 shapes x 10 entry
+# points = 80 cells, the shapes enumerated at MP1 so this re-measures
+BEFORE  56 canary + 9 quoting-without-canary = 65 of 80 quoted the statement
+AFTER   0 of 80 carry the canary, the token, or any 3+ digit run
+        12 returning cells identical between the trees, value for value
+# full-population zero-movement sweep (MP7)
+seen 3,339 · compared 2,498 · MOVERS 0 · raised 841 · no_base_returned 0
+raising subset re-run on the base tree: 841/841 identical class + message digest
+money-grammar refusals reaching the boundary, whole archive: 0
+```
+**Nothing in the pinned corpus moved**, in either direction: the gate's
+per-document verdict check is green on the committed expectation at the
+canonical post-ceremony split (102/4/3), and the corpus-marked slice — which
+is what catches review<->validated movement inside the gate's PASS bucket — is
+27/27.
+**An earlier, identical floor was run on `3375886` and discarded**, not
+reported: it was in flight when Ocean's MP11 coordination item arrived, and a
+proof that reads a tree one commit behind the one being merged is not a proof
+of the merge. It was stopped mid-slice and the whole floor re-run above.
+## MP10. Commits
+| Commit | Contents |
+|---|---|
+| `9a78876` | the card — eleven raise sites routed through one `_refusal` constructor, the chain severed at each conversion, `read_money` repointed with a byte-identical message; `tests/test_money_refusals_are_private.py` (334 cases) |
+| `2527448` | this section, MP0-MP10: the census, the design, the two unnamed sites, the reachability statement, the ledger. **Also the only AST-changing edit outside `9a78876`**: a dead key (`"parse_digit_scrubbed_guarded": []`) dropped from the privacy suite's `INVOCATIONS` table — behaviourally inert (the coverage assertion tests `exported - set(INVOCATIONS)`, so an extra key was never read), and named here rather than left implicit in a commit titled for the log |
+| `3375886` | `parse_signed_decimal`'s docstring states the delegated reader name (MP4) |
+| `8078d74` | MP11 — the six stale `webapp/worker.py` boundary claims corrected across both files, prose only, AST-identity asserted |
+| `15c4e45` | MP7 the full-population sweep, MP9 the proof floor with verbatim exit codes, and this table |
+| (this one) | MP12 — the six adversarial-review closures: the AST guard's two missing clauses (+2 mutants killed), the falsified claim in `test_money.py`, MP7's skip taxonomy, MP11's count, the reproducible census figure, and the `parse_amount` ledger line |
+## MP11. Coordination item — the stale boundary comments (Ocean, at the train)
+**One line: §WORKER-PRIVACY's boundary fix falsified six comments in this
+cell's files, and this cell corrected all six rather than the two it was
+asked about.** The prose in `analysis/money.py` and the new test file
+motivated the source-side law by asserting what `webapp/worker.py` does with
+`str(exc)` — true through batch 5, false once the sibling card withholds the
+message. Corrected at `analysis/money.py` module docstring, `_refusal_class`,
+`read_money`, the raising-section banner, and the test file's header and the
+MGD-C1 example's docstring. Ocean named two sites (the pre-fix :545 and :599);
+both are inside this cell's hunks, and a `worker.py`-claims grep found three
+more of this cell's own writing, so all six were taken together — a partial
+correction would have left the file asserting two different things about the
+same boundary.
+The rewrite does not simply delete the motivation, because the history is
+load-bearing: it says what the boundary DID through batch 5, that batch 6
+closes it, and that the two closures are independent. A source fix that reads
+as redundant once the boundary is closed is a source fix somebody deletes.
+The comments now state the rule as a property of what this module may RAISE,
+with no clause about who catches it.
+`analysis/pipeline.py:608` carries the same stale claim and is NOT this cell's
+file — Ocean holds it.
+The proof floor below was run AFTER these edits, so every proof reads the
+final tree; the in-flight floor started before them was stopped and discarded
+rather than reported.
+## MP12. Adversarial-review closures (APPROVE WITH FINDINGS — 0 BLOCK, 0 MAJOR, 6 MINOR)
+The review reproduced the load-bearing claims independently: the eleven-row
+census verbatim in both directions, the AST-identity hash `f126b961…`
+reimplemented and matched, the population numbers exact, all 841 raisers
+identical on both trees, and 205 documents re-compared with 0 movers. Its own
+first sweep pass made the same `artifact.analysis` nesting error MP7 discloses,
+which is the strongest thing that could have been said about disclosing it.
+**MINOR-1 — the one that mattered. The AST guard had one clause and needed
+three.** `test_no_raise_in_the_module_names_anything_but_the_refusal_constructor`
+checked only that `node.exc` calls `_refusal`. That is the clause the dynamic
+sweep least needs help with, and it left the two failures the sweep CANNOT see:
+* `raise _refusal(...) from exc` — a token-free message with `float`'s quoting
+  ValueError hanging off it as `__cause__`;
+* the same raise moved three lines up INTO the `except` handler — `__context__`
+  attached implicitly, nothing visible at the raise site.
+Both were proven live on a scratch copy, mutating
+`parse_decimal_mixed_separator`'s `single_comma_only` branch, which no poisoned
+shape reaches:
+```
+[baseline] the shipped tree                                   exit=0  1 passed
+[KILLED]   M15 explicit chain: `raise _refusal(...) from exc` exit=1  1 failed
+           -> line 806: `raise ... from ...` attaches a __cause__ that a
+              traceback renderer prints
+[KILLED]   M16 implicit chain: the raise moved INSIDE the handler
+                                                              exit=1  1 failed
+           -> line 805: raised inside an `except` handler, which attaches the
+              caught exception as __context__ implicitly
+MUTANTS: 2  SURVIVORS: 0                                 HARNESS_EXIT=0
+```
+The shipped tree passes all three clauses with zero offenders, so this closure
+adds no production change — it makes an already-true property provable on the
+branches nothing executes. The second clause is the one worth having: moving a
+raise into the handler above it is a *tidy-up*, the kind of edit that arrives
+in a commit about something else.
+**MINOR-5.** `tests/test_money.py:1283` still asserted in the present tense
+that `webapp/worker.py` returns `str(exc)` as a user-visible job error — the
+same falsified class MP11 corrected six of, in the grammar's own pinning suite.
+Corrected to the same shape as the rest: what the boundary did through batch 5,
+that §WORKER-PRIVACY closes it, and that the law rests on neither.
+**MINOR-3.** MP7's skip taxonomy was wrong in both sub-numbers with the total
+right — 61/54 where the measurement says **74/41** — because 13 deferred
+documents had been filed under "twins". Re-measured by replaying the
+enumeration order without running any analysis, and the corrected section now
+states ONE convention and gains a check it did not have: under "artifacts
+carrying a document" the archive lands on **3,380 distinct shas, the run of
+record's denominator exactly**, and the 13 that appear only as cached-negative
+artifacts are the deferred set.
+**MINOR-4.** MP11's headline said "five" twice and "six" once; the measured
+count is six. Corrected.
+**MINOR-6.** The "56 leaking cases" headline could not be re-measured without
+the harness's shapes, so the eight are now enumerated in MP1 — and re-deriving
+the figure corrected it: 56 is the canary-detected subset, **65 of 80 cells
+quoted the statement**, the other 9 being tokens that carry no canary (the
+em-dash shape, and `parse_digit_scrubbed`'s scrubbed `'.1.2'`). The lower
+number understated the defect, which is the argument for the rule that a
+headline number must reproduce. MP10 now also names `2527448`'s dead-key
+removal as the only AST-changing edit outside `9a78876`.
+**MINOR-2.** One ledger line added: `parse_amount`'s `float()` is guarded by
+the caller-settable `AmountFormat.pattern` — the last path in this module by
+which a stdlib-quoting error could return — with `_compiled`'s unbounded
+`lru_cache` as a second-order residency concern. Zero external `AmountFormat`
+constructions exist, tests included; named, not fixed.
+**Why the gate and the corpus-marked slice are NOT owed for this closure, and
+the argument stated rather than assumed.** These six touch `tests/` only —
+`tests/test_money_refusals_are_private.py` and `tests/test_money.py` — and no
+file under `analysis/`, `ocr/`, `webapp/`, `telemetry/` or `discovery/`. The
+production tree is unchanged, and that is asserted as a measurement at two
+strengths rather than argued: `analysis/money.py` is **byte-identical** to
+`8078d74` (`git diff --quiet` exit 0; LF-normalised sha256 `4098601c…` both
+sides), and — the weaker claim, recorded because it is the one this section
+uses elsewhere and because it chains — its docstring-stripped **AST digest is
+`f126b961…`, the same value carried by the tree the MP7 sweep ran on
+(`9a78876`) and independently reimplemented and matched by the reviewer**. The
+swept tree, the pre-closure tree and the closure tree are one behaviour. A gate run and a 51-minute corpus
+slice re-measure the behaviour of production code; over a tree whose production
+bytes did not move they would reproduce the run already recorded at MP9 and
+prove nothing new. The proofs that CAN change — the full suite, whose
+collection this closure could break, and the privacy suite it edits — were
+re-run:
+```
+# THE PRODUCTION TREE DID NOT MOVE — the closure commit `5aa4e42` against the
+# pre-closure tree `8078d74`, which is what makes the gate and the slice
+# not-owed rather than skipped:
+git diff --quiet 8078d74 HEAD -- analysis/money.py                     EXIT=0
+raw sha256, LF-normalised, BOTH sides
+    4098601c535d814af9a463c353c78511d38a2cdea4e9734a596a1dde2c308ffa   IDENTICAL
+AST digest (docstrings stripped), BOTH sides
+    f126b96134780e4d1d0761fb962a4cb97051ddc7f4f0fb22957da0f0bc78b1c3   IDENTICAL
+# collection holds (this closure edits two test files)
+4879/4910 tests collected (31 deselected)                8.67s  COLLECT_EXIT=0
+# full default suite
+4845 passed, 34 skipped, 31 deselected, 1 warning      208.65s  SUITE_EXIT=0
+# the poisoned-token proof alone (334 unchanged: the guard gained clauses,
+# not cases)
+334 passed                                               0.44s  PRIVACY_EXIT=0
+# the two unreachable-branch mutants, on a scratch copy of `5aa4e42`
+[baseline] the shipped tree passes all three clauses     exit=0   1 passed
+[KILLED]   V5/M15  `raise _refusal(...) from exc`        exit=1   1 failed
+[KILLED]   V6/M16  the raise moved INSIDE the handler    exit=1   1 failed
+2 mutants, 2 KILLED, 0 survivors                                HARNESS_EXIT=0
+scratch `analysis/money.py` restored to pristine after both (4098601c…)
+```
+The suite and privacy figures above are a re-run after a spend-limit
+interruption; they reproduce the pre-interruption run exactly (4,845 / 334,
+both exit 0) at a different wall clock (208.65s against 427.42s), which is the
+host's load and not this cell's. The `raw sha256` line is worth one sentence of
+warning to whoever repeats it: comparing `git show`'s blob against the working
+file directly reports a MISMATCH on this checkout, because the blob is stored
+LF and the working tree is CRLF. `git diff --quiet` is the authority; the
+hashes above are LF-normalised on both sides.

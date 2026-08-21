@@ -34,8 +34,27 @@ a packaging change with a byte-identical corpus proof; unifying the *numeric
 type* is a separate, financially significant decision (MERGE_PLAN §5) and is
 not made here.
 
+A REFUSAL IN THIS MODULE NEVER QUOTES THE DOCUMENT (W3 §MG-C2 D1 for
+`read_money`, §MONEY-PRIVACY for everything else). Every exception raised here
+is built by `_refusal`: the reader's name and one of four measured shape
+categories, and nothing that varies with the cell.
+
+The rule is stated and enforced HERE, at the grammar, because this is the layer
+that has the token in its hand — deliberately not at the boundary that
+motivated it. Through batch 5 that boundary was `webapp/worker.py`, which
+published `str(exc)` as the job error into the durable store; batch 6 closes
+that side too (§WORKER-PRIVACY, a sibling card). Neither closure is the other's
+excuse: a boundary can only withhold the messages it knows about, and a
+grammar that never puts a cell in a message is safe in front of a boundary
+nobody has written yet. What must not happen is the pair being read as one
+belt with two names — so this module's rule is stated as a property of what it
+may RAISE, with no clause about who catches it.
+
 `tests/test_money.py` pins every function against the pre-R-2 implementation it
-replaced, over a shared matrix of positive, negative and malformed inputs.
+replaced, over a shared matrix of positive, negative and malformed inputs, and
+`tests/test_money_refusals_are_private.py` feeds a poisoned token through every
+raising entry point and fails if any fragment of it survives into the raised
+exception, its chain, or a rendered traceback.
 """
 from __future__ import annotations
 
@@ -541,13 +560,24 @@ def parse_money_tokens(value: str | None) -> list[float]:
 def _refusal_class(text: str) -> str:
     """WHY the grammar refused, as a category — never the text itself.
 
-    A refusal message crosses an exception boundary and can be surfaced to a
-    user (`webapp/worker.py` returns `str(exc)` as the job error), so it may
-    carry no statement content whatsoever: the exception-boundary law is
-    registry ids and class names only. These categories are derived FROM the
+    A refusal message crosses an exception boundary, so it may carry no
+    statement content whatsoever: the exception-boundary law is registry ids
+    and class names only. (Through batch 5 the boundary in question was
+    `webapp/worker.py`, which published `str(exc)` as the job error; batch 6's
+    §WORKER-PRIVACY withholds it there. The category rule below does not rest
+    on that — it is about what this function may return, not about who reads
+    it.) These categories are derived FROM the
     token and describe only its shape, which is what a diagnosis actually
     needs — the token itself is in the document, and the document is where it
-    stays. (W3 §MG-C2 D1.)
+    stays. (W3 §MG-C2 D1; extended to the whole raising family by
+    §MONEY-PRIVACY.)
+
+    The four categories are a closed vocabulary. Each is a fixed string chosen
+    by a MEASUREMENT on the token — "does it hold a digit", "how long is the
+    integer run", "how many decimals" — so no branch can return a value that
+    varies with the content. That closure is the privacy property: a category
+    that interpolated any part of the token would be a leak wearing a
+    reason's clothes.
     """
     stripped = strip_currency(normalize_sign_glyphs(text)).strip()
     if not any(ch.isdigit() for ch in stripped):
@@ -559,6 +589,34 @@ def _refusal_class(text: str) -> str:
     if decimals and len(decimals.group(1)) not in (2, 3):
         return "decimal places are neither two nor three"
     return "not a money token"
+
+
+def _refusal(reader: str, token: str) -> ValueError:
+    """THE refusal. Every raise in this module is built here (§MONEY-PRIVACY).
+
+    One constructor rather than nine `raise` statements, because the property
+    being defended is a property of the SET: "no exception this module raises
+    quotes the document". A property of a set is only as strong as its widest
+    member, and nine hand-written messages are nine chances to write the tenth
+    one with an f-string in it. Here there is one message, it is assembled from
+    the reader's NAME (a symbol in this file) and `_refusal_class`'s closed
+    vocabulary, and `token` is passed in only to be MEASURED — it reaches the
+    message through nothing but that four-value classification.
+
+    It RETURNS the exception rather than raising it, and that is load-bearing:
+    the call site writes ``raise _refusal(...)`` from OUTSIDE the ``except``
+    block that swallowed the conversion error, so the exception it raises
+    carries neither a ``__cause__`` nor a ``__context__``. That matters because
+    `float`'s own ValueError quotes its argument verbatim
+    (``could not convert string to float: '<the cell>'``) — a chained refusal
+    would pass the privacy test on ``str(exc)`` and fail it the moment anything
+    rendered a traceback. The chain is severed at the source instead of being
+    suppressed at each renderer.
+    """
+    return ValueError(
+        f"money grammar refused a printed token "
+        f"({_refusal_class(token)}; reader={reader})"
+    )
 
 
 def read_money(
@@ -595,9 +653,10 @@ def read_money(
     document declines instead of publishing a number nobody printed.
 
     **The message never quotes the token.** It names the reader and the
-    refusal CLASS, because this exception can reach a user through
-    ``webapp/worker.py``'s ``str(exc)`` job error and statement content may not
-    cross that boundary. See :func:`_refusal_class`.
+    refusal CLASS, because statement content may not cross an exception
+    boundary — the rule holds whatever any particular boundary does with the
+    message, and it is `_refusal` that enforces it for every raise in this
+    module. See :func:`_refusal_class`.
 
     `reader` is the caller's own money reader, because the grammar is shared
     but the FORMAT is local: a parser that anchors with its own guard passes
@@ -617,29 +676,55 @@ def read_money(
         return None
     amount = reader(text)
     if amount is None:
-        raise ValueError(
-            f"money grammar refused a printed token "
-            f"({_refusal_class(text)}; reader={getattr(reader, '__name__', 'reader')})"
-        )
+        raise _refusal(getattr(reader, "__name__", "reader"), text)
     return amount
 
 
 # ---------------------------------------------------------------------------
 # Raising / Decimal parsers
+#
+# THE REFUSAL LAW FOR THIS SECTION (W3 §MONEY-PRIVACY, extending §MG-C2 D1).
+# Every function below refuses by raising `_refusal(...)`, and none of them
+# quotes the token. Until batch 6 each one raised `ValueError(value)` — the
+# printed cell as the message — while `webapp/worker.py` published `str(exc)`
+# as the job error into the durable store, so a refusal put statement content
+# somewhere it may not go. Batch 4 closed exactly this law one layer up, at
+# `read_money`; this closes it at the layer the parsers actually call, and
+# §WORKER-PRIVACY closes the boundary end in the same batch. The source fix is
+# the one that generalises: it holds for every reader of the message, not only
+# for the one boundary that was known to publish it.
+#
+# Two shapes are involved and only one of them is visible as a `raise`:
+#
+# * the explicit `raise ValueError(value)` guarding the digit bound, and
+# * the conversion itself. `float("N/A")` raises
+#   ``could not convert string to float: 'N/A'`` — the token, verbatim, from
+#   the standard library — and these functions' documented contract was to let
+#   that escape. `Decimal` is the quiet one (`InvalidOperation` says only
+#   `ConversionSyntax`), which is precisely why the float callers were the
+#   worse leak and looked the same in the source.
+#
+# So the pattern below is uniform: TRY the conversion, swallow its error, and
+# raise the one named refusal from outside the handler — never `from exc`,
+# which would keep the quoting exception alive as a `__cause__` for any
+# traceback renderer to print.
 # ---------------------------------------------------------------------------
 
 def parse_decimal(value: str) -> Decimal:
     """``$1,234.56`` -> ``Decimal("1234.56")``; raises ValueError otherwise.
 
     For parsers that keep Decimal end to end so that their own totals are exact.
+
+    The refusal names the reader and the refusal CLASS and never echoes the
+    cell — see `_refusal`.
     """
     text = normalize_sign_glyphs(value).replace("$", "").replace(",", "").strip()
-    if not _within_digit_bound(text):
-        raise ValueError(value)
-    try:
-        return Decimal(text)
-    except InvalidOperation as exc:
-        raise ValueError(value) from exc
+    if _within_digit_bound(text):
+        try:
+            return Decimal(text)
+        except InvalidOperation:
+            pass                      # -> the one refusal, below and unchained
+    raise _refusal("parse_decimal", value)
 
 
 #: One money cell with an optional printed sign: ``$0.69``, ``-$1,234.56``,
@@ -668,7 +753,10 @@ def parse_signed_decimal(value: str) -> Decimal:
 
     Delegates the numeric conversion to `parse_decimal`, so what is added here
     is the sign reading and nothing else; anything that is not money still
-    raises rather than being guessed at.
+    raises rather than being guessed at. The refusal is therefore
+    `parse_decimal`'s and says ``reader=parse_decimal`` — the function that
+    actually declined the token rather than the entry point, which is what a
+    diagnosis follows. It quotes nothing either way (§MONEY-PRIVACY).
 
     The sign is read from `MINUS_GLYPHS`, the one class this module states, so
     a glyph outside it is not a sign HERE either. ``—$500.00`` therefore
@@ -710,20 +798,27 @@ def parse_decimal_mixed_separator(value: str, *, single_comma_only: bool = False
         text = f"{whole.replace(',', '')}.{cents}"
     else:
         text = text.replace(",", "")
-    if not _within_digit_bound(text):
-        raise ValueError(value)
-    try:
-        return Decimal(text)
-    except InvalidOperation as exc:
-        raise ValueError(value) from exc
+    if _within_digit_bound(text):
+        try:
+            return Decimal(text)
+        except InvalidOperation:
+            pass                      # -> the one refusal, below and unchained
+    raise _refusal("parse_decimal_mixed_separator", value)
 
 
 def parse_grouped_float(value: str) -> float:
-    """``1,234.56`` -> ``1234.56``; raises ValueError on anything else."""
+    """``1,234.56`` -> ``1234.56``; raises ValueError on anything else.
+
+    The refusal names the reader and the refusal CLASS and never echoes the
+    cell — see `_refusal`.
+    """
     text = normalize_sign_glyphs(value).replace(",", "")
-    if not _within_digit_bound(text):
-        raise ValueError(value)
-    return float(text)
+    if _within_digit_bound(text):
+        try:
+            return float(text)
+        except ValueError:
+            pass                      # -> the one refusal, below and unchained
+    raise _refusal("parse_grouped_float", value)
 
 
 def parse_trailing_minus_dropped(value: str) -> float:
@@ -732,12 +827,16 @@ def parse_trailing_minus_dropped(value: str) -> float:
 
     One layout prints a trailing marker on every amount in a section whose
     direction the section heading already fixes, so honouring it would
-    double-negate. Raises `ValueError` when the token is not a number.
+    double-negate. Raises `ValueError` when the token is not a number — naming
+    the reader and the refusal CLASS, never the cell (see `_refusal`).
     """
     text = normalize_sign_glyphs(value).replace("$", "").replace(",", "").rstrip("-")
-    if not _within_digit_bound(text):
-        raise ValueError(value)
-    return float(text)
+    if _within_digit_bound(text):
+        try:
+            return float(text)
+        except ValueError:
+            pass                      # -> the one refusal, below and unchained
+    raise _refusal("parse_trailing_minus_dropped", value)
 
 
 def parse_french_amount(value: str, *, parens: bool = False) -> float:
@@ -745,21 +844,26 @@ def parse_french_amount(value: str, *, parens: bool = False) -> float:
 
     ``1 234,56`` -> ``1234.56``. With `parens`, ``(1 234,56)`` is negative —
     the bracket convention French-language Canadian statements use instead of
-    a minus sign. Raises ValueError when the token is not a number.
+    a minus sign. Raises ValueError when the token is not a number — naming
+    the reader and the refusal CLASS, never the cell (see `_refusal`).
     """
-    value = normalize_sign_glyphs(value)
+    normalized = normalize_sign_glyphs(value)
     if parens:
-        bracketed = value.strip()
+        bracketed = normalized.strip()
         negative = bracketed.startswith("(") and bracketed.endswith(")")
-        text = value.strip("()")
+        text = normalized.strip("()")
     else:
         negative = False
-        text = value
+        text = normalized
     text = text.replace(" ", "").replace(",", ".")
-    if not _within_digit_bound(text):
-        raise ValueError(value)
-    amount = float(text)
-    return round(-amount if negative else amount, 2)
+    if _within_digit_bound(text):
+        try:
+            amount = float(text)
+        except ValueError:
+            pass                      # -> the one refusal, below and unchained
+        else:
+            return round(-amount if negative else amount, 2)
+    raise _refusal("parse_french_amount", value)
 
 
 def parse_digit_scrubbed(
@@ -776,6 +880,21 @@ def parse_digit_scrubbed(
     enumeration of separators would cover. `guard`, when supplied, must
     fullmatch the (stripped) token first, so scrubbing never turns arbitrary
     text into a number.
+
+    NOT a member of the raising family, and the return annotation is the
+    contract: a token this cannot read comes back as ``None``. There is one
+    exception and it is inherited rather than designed — scrubbing keeps DOTS,
+    so a cell holding two of them (``12.34.56``, or a bare ``.1.2``) reaches
+    `float` as a string `float` cannot convert and has always raised. That
+    raise quoted the scrubbed cell, so §MONEY-PRIVACY re-routes it through
+    `_refusal` like every other refusal in this module. It is deliberately
+    still a RAISE: turning it into ``None`` would hand the caller's absence
+    branch a token that is present, which is a behaviour change with an
+    archive sweep of its own and no place in a card whose expected movement is
+    zero. Unreachable at all three live call sites today — `analysis/chase.py`,
+    `analysis/chase_savings.py` and `analysis/capital_one.py` each pass a
+    `guard` that admits at most one decimal point — which is why closing it
+    costs nothing and is worth doing before a fourth caller arrives without one.
     """
     text = normalize_sign_glyphs(value).strip()
     if not text:
@@ -792,5 +911,10 @@ def parse_digit_scrubbed(
         return None
     if not _within_digit_bound(cleaned):
         return None
-    amount = float(cleaned)
-    return -amount if negative else amount
+    try:
+        amount = float(cleaned)
+    except ValueError:
+        pass                          # -> the one refusal, below and unchained
+    else:
+        return -amount if negative else amount
+    raise _refusal("parse_digit_scrubbed", value)
