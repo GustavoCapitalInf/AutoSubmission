@@ -33075,3 +33075,449 @@ computed over the bank's own printed daily grid (SN7.1).
 **Nothing is owed on this branch.** The proof floor is complete: full default
 suite, corpus-marked slice, gate GREEN, guards, and the conformance
 cross-product with the registry pins, every one exit 0.
+# §EXTRACTPRIV — the LLM branch stops quoting the transcription
+Batch 6, micro-card 14. Base main `c6ddd71` (this card's handoff), branch
+`wave6-extractpriv`, worktree `.claude/worktrees/mt6-extractpriv`. Run of
+record `2026-08-16T000943.012887-0000-2e3ea385`. Owned files:
+`analysis/extract.py`, `tests/test_extraction_refusal_is_private.py`, this log.
+**The card (MONEY-PRIVACY's measurement, verified by its reviewer):**
+`analysis/extract.py` :96 refused a non-`Statement` response with
+```python
+raise RuntimeError(f"extraction did not return a Statement: {resp.text[:300]!r}")
+```
+— 300 characters of the model's transcription of the statement. This is the
+LLM branch, the one branch `analyze_markdown` makes no totality promise for, so
+the exception leaves the pipeline intact and the message is published by
+everything downstream. §MONEYPRIV closed the same law at the money grammar and
+§WORKER-PRIVACY closes the durable-store boundary in this batch; this closes
+the source that neither of them covers.
+## XP0. Summary
+| | |
+|---|---|
+| Raise sites in the file | **2**: `:96` (the leak) and `:31` (`GEMINI_API_KEY is not set`, already a constant). No siblings — the module is 98 lines and holds no other exception construction |
+| Refusal shapes measured | **7** reachable ways `resp.parsed` is not a `Statement`. Before: **4 leaked the transcription**, **3 never reached the raise at all** (`TypeError`, §XP4) |
+| After | 7/7 `RuntimeError`, 0 leaking, and no digit anywhere in any of them |
+| Message set | **54 strings** — (17 `FinishReason` names + `unknown`) x 3 response states — enumerable without reading a document; longest 99 characters |
+| Behaviour change | the exception CLASS, the branch and the success path are untouched; the empty-response half now raises the `RuntimeError` it always documented instead of a `TypeError` (§XP4) |
+| Archive movement | **zero, structurally**: the deterministic path raises at `pipeline.py` :685 before the branch, and no proof run in this program ever enters it (§XP6) |
+| Files changed | `analysis/extract.py`, `tests/test_extraction_refusal_is_private.py` (new), this log. No parser, no registry, no analysis-output path; registry stays **72** |
+## XP1. The raise-site census
+The whole file, not the line the card named. `analysis/extract.py` is 98 lines
+before the change; every construct in it that can produce an exception:
+| # | site | shape | carries document text? |
+|---|---|---|---|
+| 1 | `:31` `_get_client` | `raise RuntimeError("GEMINI_API_KEY is not set (put it in .env).")` | no — a literal. Left byte-identical |
+| 2 | `:96` `extract_statement` | `raise RuntimeError(f"...: {resp.text[:300]!r}")` | **YES — 300 characters of the transcription.** THE CARD |
+| 3 | `:96` (same statement) | `resp.text[:300]` where `resp.text` is `None` | no, but it replaces the raise with `TypeError` — §XP4 |
+| 4 | `:85` `client.models.generate_content` | the SDK's own `APIError` | not ours to construct or chain; see §XP9 risk 1 |
+| 5 | `:83` `load_settings()` | `analysis/config.py` -> `normalize_withholding_denominator_mode` | quotes an ENV VAR, never the document. Out of scope |
+| 6 | `:87` `strip_embedded_images` / `_INSTRUCTIONS + ...` | `TypeError` on a non-str input | the interpreter's, content-free |
+| 7 | `:94` `resp.parsed` | none — a plain pydantic FIELD | google-genai 2.6.0 `types.py` :8204-8211 populates it in `_from_response` and swallows `ValidationError`/`JSONDecodeError`, so the parse failure that produced this branch is already discarded upstream. Read, not assumed |
+**One leaking site, no siblings.** After the change the module contains **zero
+f-strings** and exactly two raises, one a literal and one the shared
+constructor.
+## XP2. The hunk
+```python
+     stmt = resp.parsed
+     if not isinstance(stmt, Statement):  # schema violation / empty response
+-        raise RuntimeError(f"extraction did not return a Statement: {resp.text[:300]!r}")
+     return stmt
+```
+and the vocabulary it raises from:
+```python
+_STOP_REASONS = frozenset(member.name for member in types.FinishReason)
+_UNKNOWN_STOP_REASON = "unknown"
+_RESPONSE_STATES = ("empty", "nonempty", "unavailable")
+_REFUSAL = "extraction did not return a Statement (stop_reason={}, response={})"
+def _stop_reason(response: types.GenerateContentResponse) -> str:
+    try:
+        candidates = response.candidates or ()
+        reason = candidates[0].finish_reason if candidates else None
+        name = getattr(reason, "name", reason)
+        if isinstance(name, str) and name in _STOP_REASONS:
+            return name
+    except Exception:
+        return _UNKNOWN_STOP_REASON
+    return _UNKNOWN_STOP_REASON
+def _response_state(response: types.GenerateContentResponse) -> str:
+    try:
+        return "nonempty" if response.text else "empty"
+    except Exception:
+        return "unavailable"
+def _extraction_refusal(response: types.GenerateContentResponse) -> RuntimeError:
+    return RuntimeError(_REFUSAL.format(_stop_reason(response), _response_state(response)))
+```
+Four decisions carry it.
+**The vocabulary is the SDK's, not ours.** `_STOP_REASONS` is read off
+`types.FinishReason` rather than typed out, so the names are fixed by a library
+that has never seen the document, and an SDK upgrade widens the vocabulary
+instead of this file drifting behind it. Anything not in that set — a `None`,
+a raw string from a newer API, an object whose `.name` is something else — is
+reported as `unknown`. Fail-closed: an unrecognised value is exactly the case
+where we cannot prove it carries no document text, so it is never the value
+that gets printed.
+The one thing a reviewer should push on here is whether a finish reason is
+content-free at all: `SPII` and `PROHIBITED_CONTENT` are *chosen because of*
+what the document contained, so the field carries a few bits about it. The
+judgement taken is that this is categorically different from the leak being
+closed and is worth those bits. It says what the API DID — it is drawn from a
+vocabulary fixed by the SDK before this document existed, it is bounded at
+log2(18) bits no matter what the statement says, and it cannot express a name,
+an amount, an account number or a payee. It is also the single fact an operator
+actually needs, and the one the quoting version could not deliver on the half
+of the cases where there was nothing to quote (§XP4). A message that said only
+`extraction did not return a Statement` would be safer by zero bits that matter
+and useless at 3am.
+**No length, and that is a decision.** A character count is the natural third
+field and is *nearly* content-free, and the handoff explicitly permits it. It
+was not taken. It is derived from the document; it puts a digit run into a
+message whose whole defence is that it has none; and it costs the property that
+makes the rest provable — that the set of messages this module can emit is
+finite (54) and enumerable without a statement in hand.
+`test_the_message_set_is_finite_and_enumerable` writes that set out and pins
+the raise inside it, and `test_a_refusal_contains_no_digits` can then be
+asserted in its absolute form rather than as "no run of three or more".
+**The constructor RETURNS.** §MONEYPRIV's pattern: the call site raises from
+outside any handler, so the refusal carries neither `__cause__` nor
+`__context__`. Returning buys a second thing here that it did not buy there —
+`_extraction_refusal`, `_stop_reason` and `_response_state` have all returned
+by the time the exception exists, so the frames holding `response` are not in
+the raised traceback at all.
+**`response.text` has exactly one reader.** It is touched inside
+`_response_state`'s truth test and never bound to a name. An AST guard pins
+that: a second reader — including one that only means to measure the body — is
+a build failure.
+## XP3. The caller census
+Who catches this, and what each does with the message. Nothing below changes
+behaviour: every caller either catches `Exception` (so the class is irrelevant
+to control flow) or catches nothing.
+| caller | handler | what it does with the message | effect of this card |
+|---|---|---|---|
+| `analysis/pipeline.py` :686 | **none** | the primary LLM extraction is unguarded and the exception leaves `analyze_markdown` | the exception that leaves is the same class, with a different message |
+| `analysis/pipeline.py` :705 | `except Exception as e` :712 | already privacy-safe — appends `f"escalation extraction failed ({type(e).__name__}); ..."` to `recon.issues`. Message discarded, class name kept | the class name it records was `RuntimeError` before and after on the quoting path, and moves `TypeError` -> `RuntimeError` on the empty-response path (§XP4) |
+| `webapp/worker.py` :93 | `except Exception as e` | `return markdown, html, None, str(e)` -> `store.set_result(..., analysis_error, ...)` -> `webapp/storage.py` :598 writes it to the `jobs` table -> `webapp/app.py` :880 / :1205 / :1278 serve `analysis_error` in JSON | **this is the live publication path on main.** 300 characters of the statement stopped being what those three routes return |
+| `webapp/worker.py` :334 | `except Exception as e` | `store.set_error(job_id, str(e))`; the paired telemetry emit deliberately records `type(e).__name__` only | same |
+| `batch.py` :264 | `except Exception as e` | `f"{type(e).__name__}: {e}"` into the CSV `error` column, plus `traceback.print_exc()` | the CSV cell and the printed traceback stop carrying it |
+| `coverage_audit.py` :188 | `except Exception as e` | identical CSV shape | same |
+| `analyze.py` :187 | **none** | the CLI renders the traceback to the console | same |
+| `discovery/runner.py` :501 | `except Exception as exc` | `type(exc).__name__` only — already safe, and unreachable anyway (deterministic mode) | none |
+| `corpus_gate.py` :927 | `except Exception as exc` | `f"{type(exc).__name__}: {exc}"` into a failure detail | none — deterministic mode, unreachable |
+| `benchmark/ourside.py` :99, `deterministic_coverage_audit.py` :150, `adb_forensic_audit.py` :445, `balance_forensic_audit.py` :464 | none / deterministic | deterministic mode | none — unreachable |
+**No caller branches on the message, and nothing in the tree read its text.**
+Before the change, `extraction did not return a Statement` occurred exactly
+twice in the repository: at the raise itself and in this card's handoff — no
+test matched on it, no `webapp/static/app.js` branch keyed off it, no
+expectation file held it. The three `pytest.raises(RuntimeError, match=...)`
+assertions against the pipeline all match `"no deterministic parser matched"`,
+which is `pipeline.py` :685's own message and is untouched.
+## XP4. The finding the card did not name: the empty half never raised at all
+The branch is commented `# schema violation / empty response`. On the
+empty-response half it did not deliver: `resp.text` is `None` whenever the
+response has no text part — a safety block, a blocked prompt, no candidates —
+and the old message subscripted it, so `None[:300]` raised
+```
+TypeError: 'NoneType' object is not subscriptable
+```
+from inside the raise statement. The `RuntimeError` the branch documents was
+never constructed, and every consumer that files `type(e).__name__` — the
+escalation note in `recon.issues`, the telemetry `error_type`, the batch CSV —
+recorded a `TypeError` for what is actually a blocked or empty response.
+Measured on the base tree: **3 of the 7 shapes** (`empty_no_parts`,
+`empty_no_candidates`, `prohibited_content`).
+Removing the subscript restores the documented class, and the fixed vocabulary
+makes those three the most useful messages in the set — `(stop_reason=SAFETY,
+response=empty)` and `(stop_reason=PROHIBITED_CONTENT, response=empty)` say
+exactly what happened, which the quoting version could not say even in
+principle because there was nothing to quote.
+**Stated as a behaviour change, not smuggled**: on that path the recorded class
+name moves `TypeError` -> `RuntimeError`. It is unreachable from every proof
+surface in this program (§XP6), it is the class the code says it raises, and
+no caller branches on either.
+## XP5. The census, before and after
+Measured through the real `extract_statement` against locally-built
+`google.genai.types.GenerateContentResponse` objects and a stub client
+(`census.py`, session scratchpad — no hosted model, on either tree).
+`WORD = "ACMEPAYROLL"`, `DIGITS = "4471009238"`, poison = a transcription
+carrying both plus five balances.
+| shape | before | after |
+|---|---|---|
+| `schema_violation_stop` | `RuntimeError('...: \'{"bank": "ACMEPAYROLL BANK NA", "account_number": "4471009238", "beginning_balance": 118432.19, "transactions": [{"date": "2026-01-04", "description": "ACH DEBIT ACMEPAYROLL 4471009238", ...\'')` — leaked `ACMEPAYROLL`, `4471009238`, `118432`, `12345`, `106086` | `extraction did not return a Statement (stop_reason=STOP, response=nonempty)` |
+| `truncated_max_tokens` | same shape, 180 characters of it | `(stop_reason=MAX_TOKENS, response=nonempty)` |
+| `parsed_is_a_dict` | same shape | `(stop_reason=STOP, response=nonempty)` |
+| `recitation_with_text` | same shape | `(stop_reason=RECITATION, response=nonempty)` |
+| `empty_no_parts` | `TypeError: 'NoneType' object is not subscriptable` | `(stop_reason=SAFETY, response=empty)` |
+| `empty_no_candidates` | `TypeError` | `(stop_reason=unknown, response=empty)` |
+| `prohibited_content` | `TypeError` | `(stop_reason=PROHIBITED_CONTENT, response=empty)` |
+**7 shapes: 4 leaking before, 0 after; 3 raising the wrong class before, 0
+after.** `__cause__` and `__context__` are `None` on every shape on both trees
+(the old raise was already outside a handler — the chain was never the leak
+here; the message was), and the success path returns the same object.
+## XP6. Zero movement, structurally
+The card does not require a full-population replay and none was run. The claim
+is structural and it is stronger than a sweep:
+* **`parse_mode="deterministic"` raises before the branch.**
+  `analysis/pipeline.py` :684-686 is, in order:
+  `if parse_mode == "deterministic": raise RuntimeError("no deterministic parser matched this statement")` then
+  `stmt = normalize_statement(extract_statement(...))`. The LLM call is the
+  next statement after the guard that makes it unreachable.
+* **The run of record and every proof surface are deterministic.**
+  `discovery/runner.py` :487, `corpus_gate.py` :765,
+  `deterministic_coverage_audit.py` :150, `benchmark/ourside.py` :99 and both
+  forensic audits all pass `parse_mode="deterministic"`. The gate additionally
+  resolves all 109 offline from native text plus committed OCR artifacts
+  (`check_ocr_coverage`, which fails on any artifact outside the manifest), so
+  the pinned corpus reaches neither a model call nor this branch.
+* **Already pinned by existing tests**, which this card did not have to write:
+  `tests/test_discovery.py` :288 fails the run if `extract_statement` is called
+  at all, and `tests/test_analysis.py` :214 / :291 do the same for the TD
+  Canada native path and for unmatched documents.
+* **Probed, not only read** (`reachability.py`, session scratchpad):
+  `extract_statement` replaced by a recording sentinel, `analyze_markdown(...,
+  parse_mode="deterministic")` over an unclaimed document, structurer opt-in
+  both off and on — `calls=[]` in both, `RuntimeError: no deterministic parser
+  matched this statement`.
+The one seam worth naming is in §XP9 (finding 2): the escalation guard at
+`pipeline.py` :703 does not test `parse_mode`.
+## XP7. The proof of privacy
+`tests/test_extraction_refusal_is_private.py`, 61 tests, 2.3s, no network. It
+drives the real `extract_statement`; the responses are real SDK objects built
+locally, so `.text`, `.candidates` and `.parsed` behave as they do in
+production rather than as a hand-written double imagines.
+`test_no_client_is_ever_built` asserts the module global is still `None` after
+the file has run, which is the $0-vendor claim made structurally rather than
+promised.
+Seven poisoned shapes x four assertions: no canary, no >=3-digit run and no
+whole-transcription fragment in `str(exc)` / the cause-context chain / a
+rendered traceback; **no digit at all**; both chain links `None`; the class
+still `RuntimeError`. Then the message set (54, enumerated), the exact message
+per shape, the `TypeError` finding pinned, the two helpers under hostile input
+(a finish reason that is a poisoned string, an enum-shaped object with a
+foreign `.name`, an unhashable list, an int, an object that raises on every
+attribute access, a `.text` that raises), the success path, and four structural
+guards:
+* every `raise` in the module is the shared constructor or a string literal,
+  and an f-string anywhere inside a `raise` is refused outright;
+* `_extraction_refusal` interpolates only `_stop_reason` and `_response_state`;
+* both helpers return only literals or a name already tested for membership in
+  a module-level vocabulary;
+* `response.text` has exactly one reader in the module.
+## XP8. The mutation kill
+Four mutants, all reverted by the harness (`mutate.py`, session scratchpad):
+| mutant | result |
+|---|---|
+| M1 — the original f-string restored verbatim | **KILLED**, pytest exit 1: 30 failed / 31 passed |
+| M2 — `_stop_reason` echoes the finish reason unchecked | **KILLED**, exit 1: 5 failed |
+| M3 — a response LENGTH added to the template (the field this card declined) | **KILLED**, exit 1: 24 failed |
+| M4 — the refusal chained to a quoting `ValueError` (`from None`, which clears `__cause__` and leaves `__context__`) | **KILLED**, exit 1: 22 failed |
+M1 and M4 each fail the dynamic sweep *and* an AST guard independently; M3 is
+killed by the digit assertion, by the enumeration and by the interpolation
+guard, which is what the "no length" decision bought.
+## XP9. Carried findings and risks
+1. **The SDK's own exceptions still pass through** (`generate_content`, census
+   row 4). They are not constructed or chained here, and google-genai's
+   `APIError` carries the API's error body rather than the prompt — but this
+   card does not close them, and closing them would mean converting an SDK
+   error into our own class, which is a control-flow change the card forbids.
+   Named so it is a known residue rather than an unexamined one.
+2. **`pipeline.py` :703 does not test `parse_mode`.** The escalation call at
+   :705 is guarded on `deterministic_stmt is None and needs_escalation and
+   settings.escalation_model != settings.model` — no mode check. With
+   `GENERIC_STRUCTURER_ENABLED` set, `deterministic_stmt` is `None` while
+   `structured_stmt` is not, so nothing in that condition would stop a
+   *deterministic-mode* run from making a hosted-model call. It is not live
+   today, and the reason is a second, unstated coincidence: the structurer only
+   publishes a statement whose ledger grounds, so `recon.ok` is `True` and
+   `needs_escalation` is `False` — measured over four constructed variants, the
+   structurer refused (returned `None`) on every one that would not reconcile.
+   The offline guarantee on that branch therefore rests on the structurer's
+   grounding rather than on the mode. `pipeline.py` is not this cell's file and
+   the opt-in is off; **recommend a one-line `parse_mode != "deterministic"`
+   clause at :703** in whichever cell owns that module next.
+3. **Frame locals are not closable at this site, and this card does not claim
+   them.** A traceback renderer configured with `capture_locals` (pytest's
+   `--showlocals`, some crash reporters) prints frame variables, and
+   `extract_statement`'s frame holds **both** of them: `markdown`, the whole
+   document as it went to the model, and `resp`, the response object whose
+   `repr` carries the transcription back — with `markdown` also live in
+   `analyze_markdown`'s frame above it. That is a property of every frame in
+   the pipeline, not of this raise; the message, the args, the attached state,
+   the chain and the *default* rendered traceback are what this card closes,
+   and those are what the proof asserts on. Returning the exception from the
+   constructor does keep the helper frames (which also hold `response`) out of
+   the traceback entirely, and
+   `test_no_helper_frame_is_in_the_raised_traceback` now pins that the only
+   frame this module contributes is `extract_statement`'s — so the exposure
+   cannot silently widen even though it cannot be closed here.
+4. **`_STOP_REASONS` tracks the installed SDK.** If google-genai ever returns a
+   finish reason the installed enum does not name, the message says `unknown` —
+   correct and fail-closed, but it means a vocabulary gap presents as a
+   diagnosis gap. The test asserts the enum is non-empty so that an SDK change
+   which empties it fails loudly instead of collapsing every message to
+   `unknown`.
+5. **`webapp/worker.py` :94 remains the publication boundary on main.**
+   §WORKER-PRIVACY closes it in this batch. The two closures are independent
+   and neither is the other's excuse: a boundary can only withhold the messages
+   it knows about, and a source that never puts the transcription in a message
+   is safe in front of a boundary nobody has written yet.
+## XP10. Proofs
+Branch `wave6-extractpriv`, proof tree `559efb4` — the last commit that touches
+a `.py` file. Everything after it is this log (`git diff --stat 559efb4..HEAD
+-- '*.py'` is empty), so the floor below reads the code that ships. One
+sequential chain, each stage appending its own `EXIT=` terminator to a durable
+log, so a completion signal is producible only by completion. Nine other cells
+were on the machine for the first half; the runtimes are contended wall clock
+and are a reading of the host, not of this cell.
+```
+# 1. full default suite (base 4,511; this cell adds 61)
+4572 passed, 34 skipped, 31 deselected, 1 warning   320.42s   SUITE_EXIT=0
+# 2. guards + conformance + registry cross-product, 11 files, 1,287 collected
+1253 passed, 34 skipped, 1 warning                   12.84s   GUARDS_EXIT=0
+#    re-run split for the record, same tree:
+#      test_parser_conformance                        668       CONFORMANCE_EXIT=0
+#      hardcodes/clones/fail-open guards (4 files)    131       GUARDS4_EXIT=0
+#      registry + dispatch + markers + boundary       393 (+34 skipped)  REGISTRY_EXIT=0
+#      this cell's privacy file                        61
+#    registry stays 72 — asserted inside this run by
+#    test_parser_conformance.py :99 and test_parser_registry_entries.py :165
+# 3. the poisoned-response file alone
+61 passed, 1 warning                                  2.27s   PRIVACY_EXIT=0
+# 4. corpus gate (python corpus_gate.py)
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 4 review / 102 validated / 3 withheld
+Runtime:  1097.7s
+RESULT: GREEN                                                 GATE_EXIT=0
+#    every one of the thirteen checks PASS, including adb_doctrine
+#    (109/109 on 'calendar_day_printed_period') and oracle_independence
+# 5. corpus-marked slice (MANDATORY since batch 3) — unchanged at 27; this
+#    cell adds no corpus-marked test, and the slice is the check the gate is
+#    structurally blind to (review<->validated inside its PASS bucket)
+27 passed, 4610 deselected, 1 warning              2425.72s   CORPUS_EXIT=0
+# mutation kill (session scratchpad, not committed)
+4 mutants, 4 KILLED, 0 survivors
+# raise-site census (session scratchpad, not committed)
+7 response shapes: 4 leaking before, 0 after; 3 wrong-class before, 0 after
+```
+**Nothing in the pinned corpus moved**, in either direction: the gate's
+per-document verdict check is green on the committed expectation at the
+canonical post-ceremony split (102/4/3), and the corpus-marked slice — which
+is what catches review<->validated movement inside the gate's PASS bucket — is
+27/27. Neither could have moved: the corpus gate and the slice both analyse in
+`parse_mode="deterministic"`, and this card's only behavioural line is on the
+LLM branch that mode cannot reach (§XP6).
+**The chain was interrupted, not the proofs.** A spend-limit stop killed the
+session while it was waiting on stage 5; the detached chain had already written
+`CHAIN_DONE=2026-08-20T17:00:35` and all five terminators to disk before the
+process tree went away. That is what the terminator convention is for — the
+evidence outlived the agent watching for it. The split in stage 2 was re-run
+afterwards on the same tree.
+## XP11. Commits
+| Commit | Contents |
+|---|---|
+| `bc3899b` | the source fix: the closed-vocabulary refusal, the two helpers, the constructor that returns |
+| `559efb4` | `tests/test_extraction_refusal_is_private.py` — 61 tests, the poisoned-response proof and the four AST guards |
+| `fff8372` | this section (XP0-XP9): census, hunk, caller census, findings |
+| `f864598` | XP2's answer to the finish-reason-bits objection; XP6's overstated `ocr_coverage` claim replaced with what that check actually asserts |
+| (this one) | the proof table and this list |
+## XP12. Review closures (APPROVE WITH FINDINGS — 0 BLOCK, 0 MAJOR)
+The adversarial review verified the card by hand — 17 `FinishReason` members
+to 54 strings, 0 f-strings / 2 raises / one `.text` read, no helper frame in
+the traceback, `TypeError` absent from all 43 archived `telemetry.jsonl`, the
+`worker.py` -> sqlite -> `app.py` path live on main, the sentinel probe six
+ways, all four mutants dead, 61 tests green with sockets hard-blocked — and
+returned six findings. All six are taken.
+**MINOR-1 — the reviewer's surviving mutant.** `err.response = response;
+return err` inside `_extraction_refusal` passed all 61 tests: the message is
+still one of the 54 and the chain is still empty, while the whole
+`GenerateContentResponse` rides on the exception, one `repr()`, one `pickle`
+or one structured logger away from the transcription. The find is that
+`str(exc)` was standing in for "what the exception carries", and those are not
+the same object. Two closures, because the dynamic one cannot see unreached
+branches and the static one cannot see runtime state:
+`test_a_refusal_carries_no_attached_state` asserts `exc.__dict__ == {}` and a
+single string `arg` on every shape, and
+`test_the_refusal_constructor_attaches_nothing_to_the_exception` refuses, in
+the source, any `Assign`/`AugAssign`/`AnnAssign` whose target is an attribute
+or a subscript anywhere in the constructor — which covers `err.response`,
+`err.args += ...` and `err.__cause__ = ...` as one family rather than as three
+spellings. Mutant B is now **KILLED**.
+**MINOR-2 — a membership test is not a rendering licence.** `name in
+_STOP_REASONS` is answered by the candidate's `__hash__`/`__eq__`, and a `str`
+subclass may answer "I am STOP" while its characters and its `__format__` say
+otherwise. Unreachable from the SDK — pydantic mints real enum members — and
+closed anyway, in one line: `_CANONICAL_STOP_REASON` maps each name to this
+module's own copy, and `_stop_reason` returns the LOOKED-UP value rather than
+the object that matched. Both spoof vectors are now cases
+(`bare`, where the liar arrives as the `finish_reason` itself, and `dot_name`,
+where it arrives as an enum-shaped object's `.name`); both render `STOP`.
+**MINOR-3 — the guard now checks what its docstring claims.**
+`test_the_module_reads_the_response_body_in_exactly_one_place` iterated
+`ast.FunctionDef`, which exempted module level, class bodies and `async def` —
+so `_PREVIEW = resp.text[:80]` at import time would have passed the guard whose
+whole point is that there is one reader. `_text_readers` now descends the whole
+tree with a scope stack, and `test_the_reader_guard_actually_looks_outside_functions`
+feeds it one synthetic module per blind spot so the walk cannot narrow again
+without failing. Mutants C and C2 (a second reader at module level, and in a
+class body) are **KILLED**; under the old walk both would have survived.
+**MINOR-4 — canonical proof sets.** §XP10's guard and conformance figures were
+an ad-hoc file mix and did not compare with other cards. The canonical sets,
+measured green on this head:
+| set | files | result |
+|---|---|---|
+| guards (5) | `test_filename_boundary`, `test_no_statement_hardcodes`, `test_r1_hardcodes`, `test_no_parser_helper_clones`, `test_experiments_are_not_wired` | **242 passed** |
+| conformance (7) | `test_parser_conformance`, `test_parser_detection_markers`, `test_parser_registry`, `test_parser_registry_entries`, `test_pipeline_registry_dispatch`, `test_parser_exception_boundary`, `test_diagnostics` | **1126 passed, 34 skipped** |
+**MINOR-5** — §XP9.3 named only `markdown` in `extract_statement`'s frame. It
+holds `resp` too, whose `repr` carries the transcription; the sentence is
+completed there, and the frame set is now pinned by a test rather than merely
+described.
+**MINOR-6 — the harnesses are committed.** `tools/extractpriv_census.py`
+(§XP5), `tools/extractpriv_reachability.py` (§XP6) and
+`tools/extractpriv_mutate.py` (§XP8), each runnable as `python -m tools.<name>`
+in the house idiom, so the three tables are re-derivable instead of asserted.
+The mutate harness now carries all eight mutants; B is the reviewer's verbatim,
+and A, C and C2 are this harness's rendering of the other properties the review
+verified by hand.
+**The corpus-gate adjacency REGFP hit.** Committing the reachability probe
+tripped `test_every_production_caller_of_the_analysis_is_classified`
+immediately, exactly as forecast: it calls `analyze_markdown`, and `tools/` is
+swept as production. Classified in `corpus_gate.EXCLUDED_ANALYSIS_CALLERS`
+rather than declared in `ANALYSIS_CALL_SITES`, and the reason is the honest one
+— it analyses a string literal to prove a call never happens, publishes no
+verdict, and has no intake object, so declaring it would assert that this probe
+*should* supply `sheets`, which is a false statement about what it measures.
+`tests/test_corpus_gate_outcomes.py` 8 passed after the entry.
+### XP12.1 The mutation table, second round
+Eight mutants, `python -m tools.extractpriv_mutate .`, each reverted by the
+harness:
+| mutant | before this round | now |
+|---|---|---|
+| M1 the original f-string | KILLED | **KILLED** |
+| M2 `_stop_reason` echoes unchecked | KILLED | **KILLED** |
+| M3 a response length in the template | KILLED | **KILLED** |
+| M4 the refusal chained to a quoting `ValueError` | KILLED | **KILLED** |
+| A the constructor raises, putting its frame back in the traceback | (not tested) | **KILLED** |
+| B `err.response = response; return err` | **SURVIVED all 61** | **KILLED** |
+| C a second `.text` reader at module level | (would have survived) | **KILLED** |
+| C2 a second `.text` reader in a class body | (would have survived) | **KILLED** |
+**8 mutants, 8 KILLED, 0 survivors** (`MUTATE_EXIT=0`).
+### XP12.2 Proofs for the closure round
+Run on the working tree that became `46f9e6d` (the closure commit; every
+figure below was measured before it was written, on byte-identical content).
+Gate and corpus slice are **not owed by this round** and were not re-run: the closures touch `analysis/extract.py`'s refusal vocabulary, this
+cell's own test file, three new `tools/` scripts and one declaration entry in
+`corpus_gate.py` — no parser, no registry, no analysis-output path, and nothing
+on any surface either proof reads. The structural argument of §XP6 is unchanged
+and is what carries the zero-movement claim; the gate's own GREEN from the
+first round (106/3, verdicts 102/4/3) stands on a tree whose analysis behaviour
+is identical.
+```
+4590 passed, 34 skipped, 31 deselected, 1 warning   140.66s   SUITE2_EXIT=0
+79 passed, 1 warning                                  1.24s   PRIVACY2_EXIT=0
+242 passed, 1 warning                                 9.66s   GUARDS_CANON_EXIT=0
+1126 passed, 34 skipped, 1 warning                    2.87s   CONFORMANCE_CANON_EXIT=0
+34 passed, 9 deselected, 1 warning                    3.52s   GATETESTS_EXIT=0
+8 mutants, 8 KILLED, 0 survivors                              MUTATE_EXIT=0
+```
+4,590 = the pinned 4,511 plus this cell's 79 (61 at review time, 18 added by
+the closures). Registry still 72.
