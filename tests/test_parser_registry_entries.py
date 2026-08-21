@@ -100,6 +100,7 @@ EXPECTED_ORDER = [
     "td_canada_french",
     "td_us",
     "texas_bank",
+    "texas_first_scanned",
     "truist",
     "us_bank",
     "wealthsimple",
@@ -166,10 +167,13 @@ def test_registration_count_matches_the_documented_decision_points():
     template (W3 §SCANC); and the batch-5 train: the THIRD core processor's
     template, whose period sentence is the only thing it shares with the
     second's and which prints no institution field at all (W3 §LCPERIOD);
-    and the batch-6 card: that third processor's FOURTH summary grammar,
+    and the batch-6 cards: that third processor's FOURTH summary grammar,
     whose summary is a counted partition and whose two balances are dated
-    (W3 §GRAM4)."""
-    assert len(pr.registrations()) == 73
+    (W3 §GRAM4); and the Texas First Bank scanned four-way partition, whose
+    ATM/POS grid loses its two money columns to the scan and has its
+    directions solved from the printed counts, totals and daily grid
+    (W3 §SCANNEXT)."""
+    assert len(pr.registrations()) == 74
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():
@@ -201,6 +205,7 @@ def test_each_registration_detects_the_same_way_its_module_does(registration):
         "community_section": "detect_platform",
         "southside_scanned": "detect_southside",
         "apex_scanned": "detect_apex",
+        "texas_first_scanned": "detect_texas_first",
         "found_lead_activity": "activity_detect",
     }.get(registration.id, "detect")
     detect = getattr(module, module_detect)

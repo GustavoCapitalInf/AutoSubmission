@@ -309,6 +309,17 @@ FIXTURES: dict[str, str] = {
     ),
     "td_us": "TD Bank, N.A.\nSTATEMENT OF ACCOUNT\n",
     "texas_bank": "Texas Bank and Trust\nWITHDRAWALS AND OTHER DEBITS (CONTINUED)\n",
+    # The scanned Texas First template. Its evidence is the issuer's own
+    # tele-banking domain out of the page furniture, this template's summary
+    # head, and the daily grid the ATM/POS directions are solved on — the grid
+    # is a DETECTION marker and not merely a parse requirement, because a
+    # printing without it is one this reader cannot direct and claiming it
+    # would strand it (W3 §SCANNEXT).
+    "texas_first_scanned": (
+        "Texas First Bank\nwww.texasfirst.bank\n"
+        "Summary of Activity Since Your Last Statement\n"
+        "Daily Balance Summary\n"
+    ),
     "truist": "TRUIST\nAccount summary Your previous balance\n",
     "us_bank": "U.S. Bank National Association\nAccount Summary\n",
     # The issuer name alone is NOT this parser's evidence: three CIBC
