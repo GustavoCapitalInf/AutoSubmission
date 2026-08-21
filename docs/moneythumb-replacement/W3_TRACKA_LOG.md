@@ -27622,3 +27622,77 @@ guard, which is what the "no length" decision bought.
    and neither is the other's excuse: a boundary can only withhold the messages
    it knows about, and a source that never puts the transcription in a message
    is safe in front of a boundary nobody has written yet.
+
+## XP10. Proofs
+
+Branch `wave6-extractpriv`, proof tree `559efb4` — the last commit that touches
+a `.py` file. Everything after it is this log (`git diff --stat 559efb4..HEAD
+-- '*.py'` is empty), so the floor below reads the code that ships. One
+sequential chain, each stage appending its own `EXIT=` terminator to a durable
+log, so a completion signal is producible only by completion. Nine other cells
+were on the machine for the first half; the runtimes are contended wall clock
+and are a reading of the host, not of this cell.
+
+```
+# 1. full default suite (base 4,511; this cell adds 61)
+4572 passed, 34 skipped, 31 deselected, 1 warning   320.42s   SUITE_EXIT=0
+
+# 2. guards + conformance + registry cross-product, 11 files, 1,287 collected
+1253 passed, 34 skipped, 1 warning                   12.84s   GUARDS_EXIT=0
+#    re-run split for the record, same tree:
+#      test_parser_conformance                        668       CONFORMANCE_EXIT=0
+#      hardcodes/clones/fail-open guards (4 files)    131       GUARDS4_EXIT=0
+#      registry + dispatch + markers + boundary       393 (+34 skipped)  REGISTRY_EXIT=0
+#      this cell's privacy file                        61
+#    registry stays 72 — asserted inside this run by
+#    test_parser_conformance.py :99 and test_parser_registry_entries.py :165
+
+# 3. the poisoned-response file alone
+61 passed, 1 warning                                  2.27s   PRIVACY_EXIT=0
+
+# 4. corpus gate (python corpus_gate.py)
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 4 review / 102 validated / 3 withheld
+Runtime:  1097.7s
+RESULT: GREEN                                                 GATE_EXIT=0
+#    every one of the thirteen checks PASS, including adb_doctrine
+#    (109/109 on 'calendar_day_printed_period') and oracle_independence
+
+# 5. corpus-marked slice (MANDATORY since batch 3) — unchanged at 27; this
+#    cell adds no corpus-marked test, and the slice is the check the gate is
+#    structurally blind to (review<->validated inside its PASS bucket)
+27 passed, 4610 deselected, 1 warning              2425.72s   CORPUS_EXIT=0
+
+# mutation kill (session scratchpad, not committed)
+4 mutants, 4 KILLED, 0 survivors
+
+# raise-site census (session scratchpad, not committed)
+7 response shapes: 4 leaking before, 0 after; 3 wrong-class before, 0 after
+```
+
+**Nothing in the pinned corpus moved**, in either direction: the gate's
+per-document verdict check is green on the committed expectation at the
+canonical post-ceremony split (102/4/3), and the corpus-marked slice — which
+is what catches review<->validated movement inside the gate's PASS bucket — is
+27/27. Neither could have moved: the corpus gate and the slice both analyse in
+`parse_mode="deterministic"`, and this card's only behavioural line is on the
+LLM branch that mode cannot reach (§XP6).
+
+**The chain was interrupted, not the proofs.** A spend-limit stop killed the
+session while it was waiting on stage 5; the detached chain had already written
+`CHAIN_DONE=2026-08-20T17:00:35` and all five terminators to disk before the
+process tree went away. That is what the terminator convention is for — the
+evidence outlived the agent watching for it. The split in stage 2 was re-run
+afterwards on the same tree.
+
+## XP11. Commits
+
+| Commit | Contents |
+|---|---|
+| `bc3899b` | the source fix: the closed-vocabulary refusal, the two helpers, the constructor that returns |
+| `559efb4` | `tests/test_extraction_refusal_is_private.py` — 61 tests, the poisoned-response proof and the four AST guards |
+| `fff8372` | this section (XP0-XP9): census, hunk, caller census, findings |
+| `f864598` | XP2's answer to the finish-reason-bits objection; XP6's overstated `ocr_coverage` claim replaced with what that check actually asserts |
+| (this one) | the proof table and this list |
