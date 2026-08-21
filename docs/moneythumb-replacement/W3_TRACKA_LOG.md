@@ -27509,6 +27509,13 @@ claim.
 | **MINOR-3** | the undetermined bucket worked but was unpinned at the route | pinned end-to-end |
 | **MINOR-4** | `potential_withholding_formula` string survives in refused rows | kept and explained in §PC2.1 — a methodology label whose every named field is refused in the same row |
 
+**Proof floor for the review round** (all exit 0): full default suite 4,553
+passed / 34 skipped / 31 deselected · corpus-marked slice 27 passed · gate
+GREEN 106 PASS / 3 WITHHELD, verdicts 102 validated / 4 review / 3 withheld ·
+canonical guard set **242 passed** · canonical conformance set **1,126 passed /
+34 skipped** · 13-shape fixture harness 13/13 with all seven single-currency
+shapes ADDITIVE · corpus-gate-surface invariance base==head over 104 fields.
+
 **Mutation proof of the widened guard** (Ocean required fail-before /
 pass-after, not merely pass-after):
 
@@ -27552,19 +27559,33 @@ oldest consumers, and in this case the dashboard itself, read first.
    `decision`. Honest-ish (nothing was measured) but arguably a silent zero of
    its own. Pre-existing, not a currency defect, deliberately left alone so the
    single-currency byte-identity claim stays true. Flagged, not fixed.
-4. **Proof-floor set sizes do not match the review's expectation, measured.**
-   The review asked for a "5-file guard set = 242" and a "7-file conformance
-   set = 1126". On this tree the five structural-guard files
-   (`test_r1_hardcodes` 59, `test_no_statement_hardcodes` 40,
-   `test_no_fail_open_money_reads` 25, `test_repair_guard` 15,
-   `test_no_parser_helper_clones` 7) total **146**, and the seven
-   registry/conformance files (`test_parser_conformance` 668,
-   `test_parser_registry_entries` 297, `test_parser_registry` 46,
-   `test_parser_detection_markers` 45, `test_pipeline_registry_dispatch` 17,
-   `test_parser_expectations_baseline` 9, `test_native_rung_parity` 6) collect
-   **1,088** — 1,054 passed / 34 skipped. No file on this tree holds the 96 or
-   47 tests that would close either gap, and no other 5- or 7-file subset sums
-   to the expected figures. Both sets ran GREEN at their true sizes. Most
-   likely the expectation is a COMPOSED batch-6 figure (other cells add guard
-   and boundary tests); Ocean should reconcile against the composed tree rather
-   than against this branch.
+4. **CORRECTED — the cell ran the wrong files, not the wrong tree.** An
+   earlier revision of this finding reported the canonical guard (242) and
+   conformance (1,126) set sizes as unreachable on this tree and speculated
+   they were COMPOSED batch-6 figures. **That was wrong.** Ocean supplied the
+   canonical file lists and both reproduce exactly on this base tree:
+
+   | Set | Canonical files | Result |
+   |---|---|---|
+   | Guard (5) | `test_no_statement_hardcodes` 40 · `test_no_parser_helper_clones` 7 · `test_r1_hardcodes` 59 · `test_experiments_are_not_wired` 2 · `test_filename_boundary` 134 | **242 passed**, exit 0 |
+   | Conformance (7) | `test_parser_conformance` 668 · `test_parser_registry_entries` 297 · `test_parser_detection_markers` 45 · `test_parser_registry` 46 · `test_parser_crash_shapes` 19 · `test_parser_exception_boundary` 22 · `test_count_semantics` 63 | **1,126 passed / 34 skipped**, exit 0 |
+
+   The cell had substituted `test_no_fail_open_money_reads` + `test_repair_guard`
+   into the guard set and `test_pipeline_registry_dispatch` +
+   `test_parser_expectations_baseline` + `test_native_rung_parity` into the
+   conformance set — all real, all green (146 and 1,054/34), but not the named
+   sets every other cell runs. The arithmetic that looked impossible resolves
+   trivially: the conformance set COLLECTS 1,160 and skips 34, so 1,126 is the
+   PASSED count, not the collected count.
+
+   All twelve canonical files are plain default-suite members (no `corpus` or
+   `live` marks), so this branch's full default suite — **4,553 passed, exit
+   0** — already contained every one of them: the canonical sets are proven
+   green by inclusion as well as by the direct runs above.
+
+   **Method note worth keeping:** the cell inferred both sets from filename
+   and content heuristics instead of asking for the canonical list, then read
+   the resulting mismatch as evidence about the TREE rather than about its own
+   inference. When a measurement disagrees with a coordinator's figure, the
+   cheap hypothesis — *I measured a different thing* — must be eliminated
+   before the expensive one.
