@@ -952,14 +952,21 @@ def parse_texas_first_scanned_statement(markdown: str) -> Statement | None:
     atm_debit_cents = stated_debits - sum(row.cents for row in debits) - sum(
         row.cents for row in checks
     )
-    # Fail-fasts, in the same spirit as the closing identity above: cheap
-    # arithmetic that rejects a mis-read grid before the day walk is run. Both
-    # are deliberately redundant with the checks that follow the walk —
-    # measured by mutation, removing either still refuses every document of the
-    # archive family, because a grid whose rows do not add up cannot reproduce
-    # the printed daily balances either. They are kept because a reader that
-    # only ever discovers this inside the walk reports "the day did not close"
-    # for a defect that is really "the grid is short a row".
+    # Cheap arithmetic, run before the day walk, and the two halves are NOT
+    # the same kind of check. Corrected after review found a counterexample to
+    # the claim that both were redundant:
+    #
+    # * the COUNT half is LOAD-BEARING and nothing else in this reader can
+    #   stand in for it. The walk is arithmetic over MONEY, so no printed
+    #   balance constrains a count. A summary stating five debits over grids
+    #   holding four — every total, the identity and every daily balance
+    #   agreeing — passes every other gate here and publishes
+    #   `stated_debit_count=5` beside four debit rows. Removing this line kills
+    #   nothing else; it just publishes that document.
+    # * the TOTAL half genuinely is redundant with the walk (a grid whose money
+    #   does not add up cannot reproduce the printed daily balances either) and
+    #   is kept as a fail-fast, so that a short grid is reported as a short
+    #   grid rather than as "the day did not close".
     if min(atm_credit_count, atm_credit_cents, atm_debit_count, atm_debit_cents) < 0:
         return None
     if atm_credit_count + atm_debit_count != len(atm):
@@ -973,17 +980,23 @@ def parse_texas_first_scanned_statement(markdown: str) -> Statement | None:
     )
     if deposit_indices is None:
         return None
-    # The two readings of the same split, made to agree explicitly.
+    # The two readings of the same split, made to agree explicitly — and again
+    # the two halves are not the same kind of check. An earlier version of this
+    # comment called both "corroboration"; review supplied the counterexample
+    # that makes the first half load-bearing.
     #
-    # Stated precisely, because it would be easy to overclaim here: once the
-    # day walk has a UNIQUE assignment on every day, the split is determined,
-    # and the money half of this pair follows from the arithmetic (summing the
-    # daily residuals gives `atm_credit_cents - atm_debit_cents`, and the
-    # aggregate fail-fast above gives the sum, so the deposit total is fixed).
-    # These are therefore corroboration and not a further independent oracle.
-    # They are kept because the derivation above depends on every one of those
-    # earlier checks still being in place, and a reader that publishes a split
-    # its own summary contradicts is not a thing to leave to a proof.
+    # * the COUNT half is LOAD-BEARING. A summary counting ONE ATM deposit of
+    #   100.00 against a grid whose `60.00` and `40.00` are uniquely both
+    #   deposits agrees on every figure — the totals, the walk, the printed
+    #   balance — and differs only in how many rows the money arrived in.
+    #   Without this line that document publishes three credits against a
+    #   stated credit count of two.
+    # * the MONEY half is corroboration, and the derivation is worth keeping
+    #   because it is what makes the count half's independence visible: summing
+    #   the daily residuals gives `atm_credit_cents - atm_debit_cents`, and the
+    #   aggregate total above gives their sum, so the deposit TOTAL is already
+    #   fixed once every day has a unique assignment. The deposit COUNT is not
+    #   fixed by anything.
     if len(deposit_indices) != atm_credit_count:
         return None
     if sum(atm[i].cents for i in deposit_indices) != atm_credit_cents:
@@ -1027,13 +1040,27 @@ def parse_texas_first_scanned_statement(markdown: str) -> Statement | None:
         stated_total_credits=round(stated_credits / 100, 2),
         stated_total_debits=round(stated_debits / 100, 2),
     )
-    # `account_number` stays None, deliberately. This template prints the
-    # number masked in the header block, and on EVERY archive document of the
-    # class the mask is what the scan destroys: `Account Number: FAKKAT AG`,
-    # `Account Number: *AKKT BGO`. Masks that DO survive elsewhere on the page
-    # belong to the ATM rows' card numbers (`*****5512`, `*****8152`) and to
-    # the cheque images - reading one of those into this field would publish a
-    # card as an account. Honest-unknown is the answer the document supports.
+    # `account_number` stays None: the CONSERVATIVE answer, not the only
+    # possible one. Stated as measured, after review corrected an earlier
+    # version of this comment that overclaimed.
+    #
+    # On the page-1 header the mask is what the scan destroys, on every archive
+    # document of the class: `Account Number: FAKKAT AG`,
+    # `Account Number: *AKKT BGO`. But it is NOT true that every surviving mask
+    # elsewhere is a card. On one chain the account mask survives legibly -
+    # `Account Number: ****7860` in a genuine statement header on page 13 of
+    # one document, and `Account Number **** 7860` in the cheque-page headers
+    # of four - and that IS the account; the card masks on those same documents
+    # are `*****4975`, and on the other chain `*****5512` / `*****8152`.
+    #
+    # So the field could be recovered on four or five of the eight, from a
+    # printing that is labelled and corroborated more than once. It is not
+    # recovered HERE because doing it safely needs its own evidence gate (which
+    # labelled occurrences count, and what to do when a document shows none),
+    # and because publishing an account number on some documents of a family
+    # and not others is a decision worth making deliberately. Carded for batch
+    # 7 as ACCT-MASK-SCAN; until then honest-unknown, which is wrong about
+    # nothing.
     service = _tf_one(_TF_SERVICE_CHARGE_RE, source)
     if service is not None:
         charge = _tf_cents(service.group(1))

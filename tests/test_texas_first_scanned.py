@@ -292,6 +292,64 @@ def test_an_ambiguous_day_refuses_rather_than_choosing():
     assert parse_texas_first_scanned_statement(ambiguous) is None
 
 
+def test_a_stated_debit_count_the_grids_cannot_fill_refuses():
+    """The aggregate COUNT fail-fast is LOAD-BEARING, not redundant.
+
+    Every figure in this document agrees: both summary totals, both sections,
+    the cheque, the closing identity and every printed daily balance. Only a
+    COUNT is wrong — the summary says five debits and the grids hold four — and
+    **nothing in the day walk constrains a count**, because the walk is
+    arithmetic over money. Without this gate the document publishes
+    `stated_debit_count=5` beside four debit transactions and every other
+    oracle waves it through.
+    """
+    understated = document(
+        summary=(
+            "Summary of Activity Since Your Last Statement\n"
+            "Beginning Balance 4/01/26 1,000.00\n"
+            "Deposits / Misc Credits 1 500.00\n"
+            "Withdrawals / Misc Debits 5 500.00\n"
+            "** Ending Balance 4/30/26 1,000.00 **\n"
+        ),
+        credits="4/01 500.00 Deposit\n",
+        debits=(
+            "4/01 100.00 ACME/BILL PAY\n"
+            "4/02 200.00 ACME/BILL PAY\n"
+            "4/03 50.00 ACME/BILL PAY\n"
+        ),
+        checks="4/03 1001 150.00\n",
+        daily="4/01 1,400.00 4/02 1,200.00 4/03 1,000.00\n",
+    )
+    assert detect_texas_first(understated).claims
+    assert parse_texas_first_scanned_statement(understated) is None
+
+
+def test_an_atm_split_whose_row_count_the_summary_denies_refuses():
+    """The deposit-COUNT agreement is LOAD-BEARING, not corroboration.
+
+    The summary counts ONE ATM deposit worth 100.00; the grid's `60.00` and
+    `40.00` are uniquely both deposits under the day walk, which is two rows.
+    The MONEY agrees on every side and the walk reproduces the printed balance
+    exactly, so only this gate notices. Without it the document publishes three
+    credit transactions against a stated credit count of two.
+    """
+    miscounted = document(
+        summary=(
+            "Summary of Activity Since Your Last Statement\n"
+            "Beginning Balance 4/01/26 1,000.00\n"
+            "Deposits / Misc Credits 2 600.00\n"
+            "Withdrawals / Misc Debits 2 200.00\n"
+            "** Ending Balance 4/30/26 1,400.00 **\n"
+        ),
+        credits="4/01 500.00 Deposit\n",
+        debits="4/01 200.00 ACME/BILL PAY\n",
+        atm="4/01 60.00 Debit Transfer\n4/01 40.00 Debit Transfer\n",
+        daily="4/01 1,400.00\n",
+    )
+    assert detect_texas_first(miscounted).claims
+    assert parse_texas_first_scanned_statement(miscounted) is None
+
+
 def test_a_dropped_row_refuses_because_the_printed_counts_do_not_reconcile():
     """The archive's own failure mode: Tesseract loses a row and the summary's
     count is one short of what the grids hold."""
