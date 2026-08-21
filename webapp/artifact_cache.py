@@ -372,7 +372,21 @@ OCR_STAGE_VERSION = 3
 # PreparedDocument across both sweeps; one shared native ladder + the
 # unreadable-text-layer reason channel. Registry 71 -> 72. One composed
 # bump before the round's measurement.
-ANALYSIS_STAGE_VERSION = 13
+# 13 -> 14: composed — coverage-wave batch 6 (thirteen reviewed merges):
+# the APPROVED RBC Canada jurisdiction default (151 statement.currency
+# USD -> CAD, label-only; the four pinned RBC movers; the pinned currency
+# surface, 109/109); registry fingerprint + generic_structurer flag folded
+# into the analysis settings key (rotates every analysis entry by
+# construction); fiserv_premier third printed issue (+4);
+# core_processor_counted (+8); texas_first_scanned (+4 validated, +1
+# review); wilson_muir summary strip + square_checking Location column
+# (+10); columbia_bank fifth grammar (extension, zero movement); sign
+# glyphs read as signs (U+2212/U+2013); the money grammar's refusals, the
+# worker boundary and the LLM branch stop quoting the document; the
+# package layer refuses cross-currency aggregation; telemetry
+# deterministic-coverage repair. Registry 72 -> 74. One composed bump
+# before the round's measurement.
+ANALYSIS_STAGE_VERSION = 14
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 
