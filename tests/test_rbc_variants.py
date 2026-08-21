@@ -1473,15 +1473,43 @@ def test_curj_explicit_us_evidence_beats_the_canadian_default():
         assert stmt.currency == "USD"
 
 
+#: Every alternation branch of `_US_INSTITUTION_RE`, one printing each. The
+#: list is the discriminator's own shape turned into fixtures, so a branch that
+#: is ever deleted has a test standing on it.
+_US_INSTITUTION_PRINTINGS = (
+    "www.rbcbank.com",
+    "RBC Bank (Georgia), N.A.",
+    "RBC Bank Georgia",
+    "RBC Bank USA",
+    "Royal Bank of Canada (USA)",
+    "RBC Centura",
+    "Member FDIC",
+    "ABA 063216608",
+    "RTN 063216608",
+    "Routing Number: 063216608",
+    "Raleigh, NC 27612",
+)
+
+
 def test_curj_an_rbc_us_product_refuses_the_canadian_default():
     """Doctrine §B item 3. There is no RBC U.S. document in the archive — zero
     hits of every U.S. marker across the 178-document RBC name superset — so
-    this is proven on a synthetic printing, and that is said plainly."""
+    this is proven on synthetic printings, and that is said plainly.
+
+    TWO fixtures, because only the second one holds the discriminator to
+    account. A wholly U.S. statement fails all four Canadian proofs as well, so
+    it would still be refused by a build with the U.S. gate deleted outright —
+    it proves the answer, not the mechanism. The second fixture prints all four
+    Canadian proofs AND a U.S. marker, so the ONLY thing refusing it is the
+    discriminator, and deleting the discriminator turns this test red.
+    """
     from analysis.rbc import (
         _J_ACCOUNT_RE, _J_BRANCH_RE, _J_ISSUER_RE, _J_SERVICE_RE,
-        _jurisdiction_currency,
+        _US_INSTITUTION_RE, _jurisdiction_currency,
     )
 
+    # (a) a wholly U.S. statement: refused, and it fails every Canadian proof
+    # independently rather than only on the U.S. gate.
     us_document = plain_statement().replace(
         "ROYAL BANK OF CANADA\n",
         "RBC Bank (Georgia), N.A.\n"
@@ -1491,9 +1519,27 @@ def test_curj_an_rbc_us_product_refuses_the_canadian_default():
         "Account number: 1234567890\nRouting Number: 063216608",
     )
     assert _jurisdiction_currency(us_document) is None
-    # and it fails every Canadian proof independently, not only the U.S. gate
     for proof in (_J_ISSUER_RE, _J_SERVICE_RE, _J_ACCOUNT_RE, _J_BRANCH_RE):
         assert proof.search(us_document) is None
+
+    # (b) the discriminating fixture: every Canadian proof holds, so the page
+    # is one U.S. token away from being a mover. Each token must refuse it.
+    control = canadian(plain_statement())
+    assert _jurisdiction_currency(control) == "CAD"
+    for proof in (_J_ISSUER_RE, _J_SERVICE_RE, _J_ACCOUNT_RE, _J_BRANCH_RE):
+        assert proof.search(control) is not None
+    for token in _US_INSTITUTION_PRINTINGS:
+        swept = control.replace(
+            "Account Summary for this Period",
+            f"{token}\nAccount Summary for this Period",
+        )
+        # the Canadian half is untouched — only the U.S. gate can refuse this
+        for proof in (_J_ISSUER_RE, _J_SERVICE_RE, _J_ACCOUNT_RE, _J_BRANCH_RE):
+            assert proof.search(swept) is not None, (token, proof.pattern[:40])
+        assert _US_INSTITUTION_RE.search(swept) is not None, token
+        assert _jurisdiction_currency(swept) is None, token
+        stmt = parse_rbc_statement(swept)
+        assert stmt is not None and stmt.currency == "USD", token
 
 
 def test_curj_hostile_and_mixed_evidence_fails_closed():
@@ -1605,6 +1651,42 @@ def test_curj_the_source_filename_and_folder_cannot_move_the_currency():
         ) == "CAD", folder
 
 
+def test_curj_rung_1_is_consulted_before_rung_2_structurally(monkeypatch):
+    """The hierarchy's ORDER, pinned independently of today's evidence sets.
+
+    Swapping the two rungs is behaviourally invisible on this archive, and only
+    by coincidence: every currency the explicit reader can return except `CAD`
+    is also in `_CONTRARY_CURRENCY_RE`, so rung 2 would refuse exactly where
+    rung 1 speaks, and on the `CAD CHEQUING ACCOUNT` documents the two rungs
+    happen to agree. That coincidence is a property of the data, not of the
+    doctrine — "explicit currency evidence always has precedence" has to hold
+    for a code the refusal set has never heard of.
+
+    So rung 1 is forced to return one: a page that satisfies all four Canadian
+    proofs, whose explicit reader states `EUR`. The published answer must be
+    `EUR`. Reverse the rungs and this test fails, because the jurisdiction
+    default would answer `CAD` first.
+    """
+    import analysis.rbc as rbc
+
+    document = canadian(plain_statement())
+    assert rbc._jurisdiction_currency(document) == "CAD"      # rung 2 would say CAD
+    monkeypatch.setattr(rbc, "_printed_currency_evidence", lambda _md: {"EUR"})
+    assert rbc._statement_currency(document) == "EUR"
+    stmt = rbc.parse_rbc_statement(document)
+    assert stmt is not None
+    assert stmt.currency == "EUR"
+
+    # and the contradiction case keeps its precedence too: two stated codes
+    # stop at rung 1 and publish nothing, rather than falling through to a
+    # default that would resolve the ambiguity the document created.
+    monkeypatch.setattr(rbc, "_printed_currency_evidence", lambda _md: {"EUR", "JPY"})
+    assert rbc._statement_currency(document) is None
+    stmt = rbc.parse_rbc_statement(document)
+    assert stmt is not None
+    assert stmt.currency == "USD"                              # the schema default
+
+
 def test_curj_the_dollar_symbol_alone_establishes_nothing():
     """`Do not infer currency from the $ symbol alone` (doctrine §A).
 
@@ -1677,6 +1759,121 @@ def test_curj_the_nine_currency_1_corrections_are_untouched():
         "TD Canada Trust 1 MAIN ST, MILTON, ON L9T 7H5",
     )
     assert parse_rbc_statement(td_document) is None
+
+
+#: The discovery run of record the batch-5 CURRENCY-1 corrections were
+#: measured in. Its `rows.csv` is what says WHICH text preparation each
+#: document was actually read under, and the test below selects the matching
+#: artifact rather than whichever one it finds first: enumerating the D-3 store
+#: under a single settings key looks like the run's population but is not it,
+#: because a re-read preparation lives under a different key and would feed the
+#: replay a text the run never saw.
+_RUN_OF_RECORD = "2026-08-16T000943.012887-0000-2e3ea385"
+
+
+def _checkout_ancestor(*relative: str):
+    """The nearest enclosing directory that holds `relative`, or None.
+
+    A git worktree does not carry the gitignored `webapp_data/` or the
+    discovery reports; the checkout it was created from does. Searching
+    upwards is what lets this test run from either.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    for base in (root, *root.parents):
+        candidate = base.joinpath(*relative)
+        if candidate.exists():
+            return candidate
+    return None
+
+
+@pytest.mark.corpus
+def test_curj_the_nine_currency_1_corrections_publish_their_pinned_currency_from_the_archive():
+    """The nine, DEREFERENCED — the executable half of the guard above.
+
+    The unit test beside this one holds the literal list and its shape; it
+    cannot notice a document that actually moved, because it never resolves a
+    sha to a document. This one does: each of the nine is resolved from the D-3
+    OCR artifact store BY DIRECT FILE PATH (the `webapp_data` sqlite index is
+    never opened), replayed through the production analysis entry point, and
+    held to the currency batch 5 corrected it to.
+
+    Fail CLOSED throughout. A sha with no artifact, an artifact whose model
+    does not match what the run of record read, or a document that cannot be
+    analysed is a FAILURE — never a skip. A currency proof that quietly passes
+    when it could not find the evidence is the defect this test exists to
+    remove.
+    """
+    import csv
+    import json
+    from pathlib import Path
+
+    from analysis.pipeline import analyze_markdown
+    from analysis.serialization import report_to_dict
+    from ocr.document import StatementMarkdown
+
+    store = _checkout_ancestor("webapp_data", "artifacts", "ocr")
+    rows_csv = _checkout_ancestor("discovery_reports", _RUN_OF_RECORD, "rows.csv")
+    assert store is not None, (
+        "the D-3 OCR artifact store was not found in this checkout or any "
+        "ancestor; this proof reads the archive and must not be skipped"
+    )
+    assert rows_csv is not None, (
+        f"the run of record {_RUN_OF_RECORD} was not found; its rows.csv is "
+        f"what names the text preparation each document was read under"
+    )
+
+    wanted = {sha: expected for sha, (_parser, expected) in _CURRENCY_1_CORRECTIONS.items()}
+    run_model: dict[str, str] = {}
+    with rows_csv.open(encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            sha = (row.get("content_sha256") or "").upper()
+            if sha in wanted:
+                run_model[sha] = row.get("source_model") or ""
+    missing_rows = sorted(set(wanted) - set(run_model))
+    assert not missing_rows, f"not in the run of record's rows: {missing_rows}"
+
+    # Direct file path only. Artifact filenames are cache keys, not shas, so
+    # the store is swept once; the cheap byte test keeps that affordable.
+    needles = {sha: sha.encode("ascii") for sha in wanted}
+    found: dict[str, dict] = {}
+    for path in sorted(Path(store).glob("*/*.json")):
+        raw = path.read_bytes()
+        for sha, needle in needles.items():
+            if needle not in raw:
+                continue
+            payload = json.loads(raw.decode("utf-8"))
+            if payload.get("input_sha256") != sha:
+                continue
+            document = (payload.get("artifact") or {}).get("document") or {}
+            if not document.get("pages"):
+                continue
+            if (document.get("model") or "") != run_model[sha]:
+                continue          # a preparation the run of record did not read
+            found[sha] = document
+
+    absent = sorted(set(wanted) - set(found))
+    assert not absent, (
+        f"no artifact matching the run of record's source_model for: {absent}"
+    )
+
+    published: dict[str, str] = {}
+    for sha, document in found.items():
+        pages = list(document["pages"])
+        markdown = StatementMarkdown(
+            source_file="", model=document.get("model") or "", pages=pages
+        ).to_markdown()
+        payload = report_to_dict(
+            analyze_markdown(markdown, parse_mode="deterministic", sheets=pages)
+        )
+        published[sha] = (payload.get("statement") or {}).get("currency")
+
+    assert published == wanted, {
+        sha: {"published": published.get(sha), "corrected to": wanted[sha]}
+        for sha in sorted(wanted)
+        if published.get(sha) != wanted[sha]
+    }
 
 
 def test_curj_the_personal_mailing_header_is_read_on_both_layouts():

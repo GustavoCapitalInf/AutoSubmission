@@ -27545,9 +27545,25 @@ anything was pinned:
    base first (doctrine §B, final paragraph). Pinning today's value is what
    turns that future movement into a visible ceremony instead of a silent
    drift.
-3. **The 10 CAD** are all parser-assigned by their own issuer's reader, and 6
-   of them (TD Canada Trust) are the sibling institution doctrine §B names as
-   needing its own evidence base — recorded, not moved.
+3. **The 10 CAD**, and a correction Ocean's forensic review made to an earlier
+   wording of this line. They are NOT all "explicit assignments from printed
+   evidence"; they split two ways, and the difference is the point:
+   * **7 carry printed currency evidence.** The BMO January statement prints a
+     `Currency: CAD` label (`analysis/bmo.py:130`), and the six TD Canada Trust
+     statements print the denomination as a product-line suffix,
+     `ACCOUNT - CAD` (`analysis/td_can.py::_native_printed_currency`). Those
+     six are also the sibling institution doctrine §B names as needing its own
+     evidence base before any TD default is wired — recorded, not moved.
+   * **3 carry NO printed currency token at all**, and their CAD is a
+     hardcoded institution assignment: `analysis/scotia.py:154`,
+     `analysis/cibc.py:410` and the French RBC branch in `analysis/rbc.py`
+     (`stmt.currency = "CAD"` unconditionally after `stmt.bank` is set).
+     Scotiabank, CIBC French and the pinned French RBC statement are therefore
+     **the same latent shape as the ATB class above** — a currency asserted by
+     the reader rather than read from the page — and they belong in the same
+     batch-7 `currency_source` provenance card. They are correct today (all
+     three are Canadian-issued statements of Canadian accounts), and pinning
+     them is what makes any future re-derivation a visible ceremony.
 
 **No surprising value was found that required a STOP.** Nothing in the 109 is
 an unexplained currency: every value is either an explicit read, an explicit
@@ -27680,6 +27696,105 @@ D-3 artifact store were opened read-only, by direct file path; the
 | `6ac2f7d` | the pinned currency surface — `PINNED_CURRENCY` (109, total) + `check_currency`, and its tests |
 | `39d9a38` | fix this cell's own corpus-marked harness defect, and give the proof its negative half |
 | `33d2a9c` | this log section |
+| `6065a9f` | §RC13 proofs and this commit table |
+| (this commit) | the forensic-review closures — §RC15 |
 
-Base `93fb369`. Never merged, never pushed; no stage version bumped — the
-composed `ANALYSIS_STAGE_VERSION` bump is Ocean's at the train.
+Base `93fb369`. Never merged, never pushed; **no stage version bumped** — the
+composed `ANALYSIS_STAGE_VERSION` bump is Ocean's at the train, and the review
+confirmed a bump is REQUIRED (the analysis stage's output changes for 151
+archive documents, so every cached analysis entry must rotate).
+
+**Test count, precisely.** 20 new test functions: 12 CUR-J in
+`tests/test_rbc_variants.py` and 8 surface tests in
+`tests/test_corpus_gate_outcomes.py`. Two of the twenty are corpus-marked (the
+archive replay of the nine CURRENCY-1 corrections, and the end-to-end ceremony
+proof), so the default suite gains **18** and the corpus-marked slice goes
+**27 → 29**. Deselected 31 → 33.
+
+**This ceremony does not alter the official batch-5 historical record.** It is
+batch-6 work measured against the batch-5 run of record
+(`2026-08-16T000943.012887-0000-2e3ea385`); no discovery report, no archived
+run summary and no batch-5 log entry was edited, and the published batch-5
+totals (validated 2,430 / review 15 / withheld 63 / failed 859 / deferred 13)
+stand exactly as recorded.
+
+**Instrument note from the forensic review.** The reviewer's independent
+differential counted **5,331,068** leaf comparisons against this cell's
+**5,316,858** over the same document set. The difference is `sheets`: the
+reviewer's replay did not pass the intake page list, so the page-declaration
+findings differ in both of its payloads. It is not a discrepancy in the
+measurement — both differentials compare a BEFORE and an AFTER produced the
+same way, both report exactly one changed field path, and both name the same
+151 documents. Recorded because the leaf totals will not match on re-run and
+someone would otherwise have to rediscover why.
+
+## RC15. Forensic-review closures (APPROVE WITH FINDINGS — no hard stop)
+
+Ocean's review independently reproduced the ceremony and ratified the surface
+form (a separate total `PINNED_CURRENCY` map rather than a `_Verdict` field or
+an audit-CSV column) on the §RC7 justification. Five closures followed, **tests
+and documentation only — no production change**, proven below by AST identity.
+
+**1. MEDIUM — the nine CURRENCY-1 corrections were asserted, not measured.**
+`test_curj_the_nine_currency_1_corrections_are_untouched` held the literal list
+and its shape but never dereferenced a sha, so a document that actually moved
+would not have failed it. Added
+`test_curj_the_nine_currency_1_corrections_publish_their_pinned_currency_from_the_archive`
+(corpus-marked): each of the nine is resolved from the D-3 OCR artifact store
+**by direct file path** — the `webapp_data` sqlite index is never opened — the
+artifact selected is the one whose `document.model` equals the run of record's
+own `source_model` for that sha, and the document is replayed through
+`analyze_markdown(parse_mode="deterministic", sheets=pages)` and held to the
+currency batch 5 corrected it to. **Fail closed everywhere**: a missing store,
+a sha absent from the run's rows, no artifact matching the run's preparation,
+or an unanalysable document is a FAILURE, never a skip. The literal-list unit
+test is kept as the offline guard.
+
+**2. MEDIUM-LOW — the U.S.-discriminator test did not hold the discriminator to
+account.** Its fixture failed all four Canadian conjuncts independently, so a
+build with `_US_INSTITUTION_RE` deleted still refused it. The test now carries
+a SECOND fixture that satisfies all four Canadian proofs and adds one U.S.
+token, one printing per alternation branch of the discriminator (11 in total),
+asserting for each that the four Canadian proofs still match, that the U.S.
+marker matches, and that the default is refused anyway.
+
+**3. LOW — the rung order was behaviourally invisible.** Swapping rungs 1 and 2
+changes nothing on today's archive, and only by coincidence: every code the
+explicit reader can return except `CAD` is also in `_CONTRARY_CURRENCY_RE`.
+`test_curj_rung_1_is_consulted_before_rung_2_structurally` forces rung 1 to
+return a code outside the refusal set (`EUR`) on a page satisfying all four
+Canadian proofs and requires `EUR` to be published, not `CAD`; it also pins the
+contradiction case's precedence.
+
+**4. LOW — §RC8's ledger wording corrected in place.** See §RC8 item 3: the ten
+pre-existing CAD are 7 with printed evidence and 3 with a hardcoded institution
+assignment, and the 3 are named as the same latent shape as the ATB class.
+
+**5. COSMETIC — §RC14** now carries its own HEAD commit, the precise test
+count, the "batch-5 historical record unaltered" statement, and the reviewer's
+instrument note on the leaf-count difference.
+
+### RC15.1 Mutation kills, with verbatim exit codes
+
+Each mutation was applied to `analysis/rbc.py`, the single named test run, and
+the file restored from an untouched copy.
+
+| Mutation | Test that must die | `pytest` exit |
+|---|---|---|
+| delete the U.S. discriminator (`if _US_INSTITUTION_RE.search(...)` removed) | `test_curj_an_rbc_us_product_refuses_the_canadian_default` | **1** |
+| swap rungs 1 and 2 in `_statement_currency` | `test_curj_rung_1_is_consulted_before_rung_2_structurally` | **1** |
+| `_PRODUCT_CURRENCY["CAD CHEQUING ACCOUNT"]` → `"USD"` | `test_curj_the_nine_currency_1_corrections_publish_their_pinned_currency_from_the_archive` | **1** |
+| file restored | `tests/test_rbc_variants.py` (whole file) | **0** |
+
+### RC15.2 Proofs for this round
+
+| Proof | Result | Exit |
+|---|---|---|
+| `pytest -q -p no:cacheprovider tests/test_rbc_variants.py` | **93 passed**, 1 deselected | **0** |
+| `pytest -q -p no:cacheprovider -m corpus tests/test_rbc_variants.py::…_from_the_archive` | **1 passed** (4.97s; reads the archive read-only) | **0** |
+| collection: `-m corpus` | **29** collected / 4,567 deselected | **0** |
+| collection: default | **4,563** collected / 33 deselected | **0** |
+| AST identity vs `HEAD` for `analysis/rbc.py` and `corpus_gate.py` | **identical — and byte-identical** | — |
+
+No production file changed in this round. The corpus gate and the full
+corpus-marked slice are Ocean's at the train, on the composed tree.
