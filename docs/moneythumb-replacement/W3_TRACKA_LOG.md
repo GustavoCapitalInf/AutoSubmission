@@ -27760,10 +27760,14 @@ constructions exist, tests included; named, not fixed.
 the argument stated rather than assumed.** These six touch `tests/` only —
 `tests/test_money_refusals_are_private.py` and `tests/test_money.py` — and no
 file under `analysis/`, `ocr/`, `webapp/`, `telemetry/` or `discovery/`. The
-production tree is unchanged, and that is asserted as a measurement:
-`analysis/money.py` is **byte-identical** to `8078d74`, `git diff --stat`
-reporting no entry for it at all, so the AST-identity argument used elsewhere
-in this section is not even needed here. A gate run and a 51-minute corpus
+production tree is unchanged, and that is asserted as a measurement at two
+strengths rather than argued: `analysis/money.py` is **byte-identical** to
+`8078d74` (`git diff --quiet` exit 0; LF-normalised sha256 `4098601c…` both
+sides), and — the weaker claim, recorded because it is the one this section
+uses elsewhere and because it chains — its docstring-stripped **AST digest is
+`f126b961…`, the same value carried by the tree the MP7 sweep ran on
+(`9a78876`) and independently reimplemented and matched by the reviewer**. The
+swept tree, the pre-closure tree and the closure tree are one behaviour. A gate run and a 51-minute corpus
 slice re-measure the behaviour of production code; over a tree whose production
 bytes did not move they would reproduce the run already recorded at MP9 and
 prove nothing new. The proofs that CAN change — the full suite, whose
@@ -27771,21 +27775,39 @@ collection this closure could break, and the privacy suite it edits — were
 re-run:
 
 ```
-# analysis/money.py against 8078d74
-git diff --quiet 8078d74 -- analysis/money.py                          EXIT=0
-sha256, LF-normalised, both sides   4098601c535d814af9a463c353c78511d38a2cdea4e9734a596a1dde2c308ffa
+# THE PRODUCTION TREE DID NOT MOVE — the closure commit `5aa4e42` against the
+# pre-closure tree `8078d74`, which is what makes the gate and the slice
+# not-owed rather than skipped:
+git diff --quiet 8078d74 HEAD -- analysis/money.py                     EXIT=0
+raw sha256, LF-normalised, BOTH sides
+    4098601c535d814af9a463c353c78511d38a2cdea4e9734a596a1dde2c308ffa   IDENTICAL
+AST digest (docstrings stripped), BOTH sides
+    f126b96134780e4d1d0761fb962a4cb97051ddc7f4f0fb22957da0f0bc78b1c3   IDENTICAL
 
 # collection holds (this closure edits two test files)
 4879/4910 tests collected (31 deselected)                8.67s  COLLECT_EXIT=0
 
 # full default suite
-4845 passed, 34 skipped, 31 deselected, 1 warning      427.42s  SUITE_EXIT=0
+4845 passed, 34 skipped, 31 deselected, 1 warning      208.65s  SUITE_EXIT=0
 
 # the poisoned-token proof alone (334 unchanged: the guard gained clauses,
 # not cases)
-334 passed                                               1.19s  PRIVACY_EXIT=0
+334 passed                                               0.44s  PRIVACY_EXIT=0
 
-# the two unreachable-branch mutants, on a scratch copy
+# the two unreachable-branch mutants, on a scratch copy of `5aa4e42`
+[baseline] the shipped tree passes all three clauses     exit=0   1 passed
+[KILLED]   V5/M15  `raise _refusal(...) from exc`        exit=1   1 failed
+[KILLED]   V6/M16  the raise moved INSIDE the handler    exit=1   1 failed
 2 mutants, 2 KILLED, 0 survivors                                HARNESS_EXIT=0
+scratch `analysis/money.py` restored to pristine after both (4098601c…)
 ```
+
+The suite and privacy figures above are a re-run after a spend-limit
+interruption; they reproduce the pre-interruption run exactly (4,845 / 334,
+both exit 0) at a different wall clock (208.65s against 427.42s), which is the
+host's load and not this cell's. The `raw sha256` line is worth one sentence of
+warning to whoever repeats it: comparing `git show`'s blob against the working
+file directly reports a MISMATCH on this checkout, because the blob is stored
+LF and the working tree is CRLF. `git diff --quiet` is the authority; the
+hashes above are LF-normalised on both sides.
 
