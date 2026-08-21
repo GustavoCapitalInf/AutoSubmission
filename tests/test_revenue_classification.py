@@ -667,6 +667,9 @@ def test_package_revenue_reconciliation_fails_closed_on_invalid_credit_state():
     analysis = {
         "statement": {
             "bank": "Audit Bank",
+            # A package aggregates only across a proven single currency
+            # (CURRENCY DOCTRINE §F); a real payload always declares one.
+            "currency": "USD",
             "transactions": [{**transaction.model_dump(), "classification": record}],
         },
         "metrics": {"effective_total_deposits": 100.0},

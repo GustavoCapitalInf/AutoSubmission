@@ -803,7 +803,10 @@ def test_package_rollup_weights_each_statement_by_its_own_calendar_days():
             self.analysis_error = None
             self.error = None
             self.analysis = {
-                "statement": {"period_start": "2026-01-01", "period_end": "2026-01-31", "transactions": []},
+                # The package layer aggregates only across a proven single
+                # currency (CURRENCY DOCTRINE §F), so the unit these figures
+                # are in has to be declared like a real payload declares it.
+                "statement": {"currency": "USD", "period_start": "2026-01-01", "period_end": "2026-01-31", "transactions": []},
                 "metrics": {
                     "average_daily_balance": adb,
                     "calendar_day_count": days,
@@ -864,8 +867,12 @@ def test_metrics_retains_full_internal_adb_working():
 def test_existing_dashboard_field_binds_directly_to_authoritative_api_adb():
     javascript = Path("webapp/static/app.js").read_text(encoding="utf-8")
     assert "formatMoney(metrics.average_daily_balance, currency)" in javascript
-    assert "formatMoney(doc.average_daily_balance)" in javascript
-    assert "formatMoney(totals.average_daily_balance)" in javascript
+    # Still bound directly to the authoritative API field with no frontend
+    # recalculation; the second argument only DENOMINATES the same value
+    # (CURRENCY DOCTRINE §D), exactly as the single-statement card above and
+    # the balance cards below already do.
+    assert "formatMoney(doc.average_daily_balance, docCurrency)" in javascript
+    assert "formatMoney(totals.average_daily_balance, currency)" in javascript
     assert "metrics.average_balance" not in javascript
     assert "doc.average_balance" not in javascript
     assert "m.average_balance" not in javascript

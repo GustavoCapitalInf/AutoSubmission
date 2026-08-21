@@ -30546,3 +30546,325 @@ registry), analysis settings key
 `0966DD0883A008F5B5511052B842BE772D6B75A1F8BEBA9949310BB5BB6EBF11` with the
 structurer flag off and
 `1EBC38F974F1A3E2D7F386C622487B06353F96FF22A7A65DBD6CEC50A3A1D77A` with it on.
+# §PKGCURR — the package layer stops mixing currencies (PKG-CURRENCY, batch 6, card 12)
+Branch `wave6-pkgcurrency`, base `0d3b658` (registry 72, v13, OCR v3, suite
+4,511). Charter: `docs/moneythumb-replacement/CURRENCY_DOCTRINE.md` §F, with §A
+and §D binding. CURRENCY-1 (batch 5, §CURRENCY above) made the *statement*
+layer read currency from evidence; nothing had yet taught the *package* layer
+that the values it adds together have units.
+## PC0. Summary
+| | |
+|---|---|
+| The defect | `webapp/app.py::_package_analysis` summed ADB (days-weighted), credits, debits, revenue, lender/insurance rollups and every other financial figure across a package's jobs with zero currency awareness. The word "currency" did not appear anywhere in `webapp/app.py` on the base commit — verified, not assumed |
+| Measurement | READ-ONLY census of **26,096** analysis artifacts by direct file path (`webapp_data/artifacts/analysis/**`, never the sqlite index) |
+| Currency field | `analysis["statement"]["currency"]`, from `Statement.model_dump()` via `analysis/serialization.py::report_to_dict` |
+| Values found | **USD 22,613 · CAD 3,483**, two codes, all uppercase. **0** missing statement sections · **0** missing keys · **0** nulls · **0** non-strings |
+| Undeclared-currency documents today | **zero from the pipeline.** `analysis/schema.py` gives `Statement.currency` a non-null `"USD"` default, so a fresh payload always declares a code |
+| Buckets | single / mixed / undetermined / no-analyzed-documents |
+| Archive movement | **ZERO on the 3,380.** Discovery does not run packages; no parser, no schema, no analysis-stage file was touched |
+| Files changed | `webapp/app.py` (package aggregation region only), `webapp/static/app.js`, 4 test stubs, 1 ADB guard literal, 1 new test module |
+| Suite | 4,511 -> **4,553** (+42) |
+## PC1. The currency-field map (measurement, before any code changed)
+`analysis/schema.py:41` — `currency: str = Field(default="USD", description="ISO currency code.")`
+That default is the single most important measured fact on this card, and it
+cuts two ways:
+1. **It guarantees the field is always there.** Every payload the pipeline
+   produces carries a non-null string. The census confirms it over 26,096
+   artifacts: not one missing key, not one null, not one non-string.
+2. **It makes "proven USD" and "no evidence, defaulted to USD" the same
+   value.** The package layer cannot tell them apart, because the distinction
+   is destroyed one layer below it.
+Consequence for this card: the *undetermined* bucket is **unreachable from a
+current pipeline payload**. It is reachable from a legacy stored analysis — the
+D-1 SQLite store is durable across restarts and schema changes, so a job
+analyzed before the field existed replays through `_package_analysis` with no
+`currency` key — and from hand-built payloads. It is real, not dead code, but
+it is not where today's risk lives.
+The *mixed* bucket, by contrast, is **reachable in production today**: the
+archive holds both codes, so any package combining a U.S. statement with a
+Canadian one is exactly the CAD/USD split the census found. Non-USD carriers:
+| Bank | CAD artifacts |
+|---|---|
+| BMO | 1,137 |
+| Scotiabank | 1,016 |
+| TD Canada Trust | 995 |
+| CIBC | 167 |
+| Banque Royale du Canada | 82 |
+| Wealthsimple | 48 |
+| (bank=None, the honest-unknown-issuer class) | 32 |
+| Royal Bank of Canada | 6 |
+(Artifact counts, not document counts: the store is keyed by input hash plus
+settings key, so it holds several cache generations per document. The *set* of
+values, and the fact that no other value exists, is what the design needed.)
+RBC-CAD (card 13) moves 151 further documents into CAD, enlarging this pool.
+## PC2. The three buckets, and why each is shaped the way it is
+The layer can observe exactly one thing per member: `statement.currency`, or
+nothing. A member is asked to declare a unit **only if it contributes money**.
+> A member with no analysis contributes exactly zero to every money total —
+> every `_num()` call falls back to its default over the empty dicts — so it
+> carries no unit and cannot make a package multi-currency.
+That test is `if analysis:`, not `if ready:`, deliberately. The totals
+accumulation in `_package_analysis` is **outside** the `ready` guard (only
+`monthly` and the ADB weighting are inside it), so a job with an analysis but a
+non-`done` status does contribute money and must therefore declare a unit.
+Keying the currency demand off `ready` would have left exactly that job able to
+inject an undeclared unit into a "proven" pool.
+| Bucket | Trigger | Behaviour |
+|---|---|---|
+| `single` | every money-contributing member declares the same ISO code | aggregate exactly as before; the code surfaced once (§D) |
+| `mixed` | two or more distinct codes | every cross-currency total, ratio and rollup published as `None` |
+| `undetermined` | any money-contributing member declares no code | identical refusal (§B fail-closed) |
+| `no_analyzed_documents` | no member produced an analysis at all | nothing refused |
+**Why the fourth bucket exists.** Every total is a structural zero over an
+empty set. There is no unit to protect, so refusing would invent a problem
+rather than report one — and would change behaviour for an all-failed package,
+which this card has no mandate to touch.
+**Why case is folded.** ISO 4217 codes are uppercase, so `usd` is a *spelling*
+of USD, not a second unit. Splitting a package over a spelling would be a FALSE
+refusal — the failure mode of a fail-closed rule that is worth guarding
+against, not a safe default. Proof: `single_usd_lowercase_code` produces an
+XLSX sheet digest byte-identical to `single_usd_pair` (§PC5).
+### PC2.1 What is refused, and what deliberately is not
+`_CROSS_CURRENCY_TOTAL_KEYS` — 32 keys, spelled out in one auditable frozenset
+next to the doctrine reference. Money, or a ratio of two money figures. A
+ratio is refused too: CAD lender debits over USD eligible deposits is not a
+percentage of anything.
+**Counts survive.** `documents`, `completed`, `failed`, `nsf_count`,
+`lender_debit_count`, `lenders_detected`, every `*_count` — a count is
+unit-free, and an underwriter still needs to know how many statements failed.
+`tests/test_package_currency.py` pins both directions: the 32 that must go
+`None` and the 24 that must survive.
+**Judgements read off a refused figure fail closed with it:**
+`revenue_reconciles` -> `False`, `withholding_review_required` -> `True`,
+`decision` -> `review_required`. A reconciliation asserted over two currencies
+would be the most dangerous single value on the page.
+**Cross-document rollups are refused too** — `funders[].total_debited`,
+`potential_lenders[].{total_debited,eligible_deposit_denominator,potential_withholding_exposure}`,
+`insurance_providers[].total_debited` all sum across the package exactly like a
+total does. The three sorted lists are hoisted into locals *before* the
+refusal, because `sorted(key=lambda r: r["total_debited"])` raises on `None`.
+**Statement-level results are untouched**, which is what makes a mixed package
+still readable: `documents[].currency`, `monthly[].currency`,
+`transactions[].source_currency`.
+**Deprecated ALIASES must be refused with their canonical key — the defect
+the adversarial review caught (BLOCK-1).** `_package_analysis` assigns
+`item["potential_lender_debit_total"] = item["total_debited"]` on every
+potential-lender rollup. Refusing only the canonical key left the alias
+carrying the mixed number into the JSON, the CSV, the XLSX and the rendered
+row — and `lenderRowHtml` reads `potential_lender_debit_total ?? total_debited`,
+the alias FIRST, so the dashboard showed it at exactly the place the refusal
+was designed to bite. Measured on the pre-fix tree, a 1-USD + 1-CAD package
+published `2250.0` (1,000 USD + 1,250 CAD). The alias is now in
+`_CROSS_CURRENCY_ROLLUP_KEYS`; `funders` and `insurance_providers` were swept
+and carry no equivalent alias. **The general lesson: this payload publishes
+six deprecated total aliases and one deprecated rollup alias, and a refusal
+that covers a canonical key but not its alias is not a refusal at all.**
+**Refused ORDER, not just refused values (MINOR-1, Ocean's ruling).** Ranking
+the rollups by their summed money publishes a cross-currency comparison, and
+nulling the figures afterwards leaves that assertion standing in the row
+order — read as fact, and unauditable because the numbers behind it are gone.
+A refused package ranks `funders` and `insurance_providers` by count, then
+name; single-currency packages keep today's `sorted()` call untouched and
+therefore today's order byte-identically. *Measured correction to the
+ruling's premise: `potential_lenders` was ALREADY sorted by name, never by a
+magnitude, so its order never asserted a comparison — left unchanged rather
+than churned, and pinned by test.*
+**Cosmetic residual, deliberately kept (MINOR-4).** A refused
+`potential_lender_N` row still carries the STRING
+`potential_withholding_formula = "abs(potential_lender_debit_total) /
+eligible_deposits * 100"`. It is a methodology label, not a figure, and every
+field it names is refused in the same row, so it documents the refused
+computation rather than asserting a result. Left in place; recorded here so
+the next reader does not have to re-derive that it is harmless.
+### PC2.2 Why `None` is the refusal, and why there are no per-currency subtotals
+`None` is not a new convention — it is this payload's *established* value for
+"not computable". An unvalidated ADB already travels that way
+(`analysis/serialization.py::_metrics_dict`), `package_withholding_rate` is
+already `None` on a zero denominator, `_package_rows` already renders `None` as
+an empty cell, and `formatMoney` already renders it "N/A". A silent zero would
+read as "the package moved no money"; a converted figure would be fabricated
+evidence. The doctrine forbids both.
+A bare `None` is still ambiguous with "missing", so the refusal is *stated*:
+`totals.cross_currency_totals_refused`, `totals.currency_refusal_reason`, and a
+top-level `package["currency"]` block carrying the composition and
+`refused_total_fields` — the exact list, so the refusal is machine-checkable.
+**No per-currency subtotals** (a `totals_by_currency` matrix) were added, and
+this is the one design choice a reviewer should press on. Three reasons:
+(a) doctrine §D forbids exactly this shape at the metric level — "No separate
+CAD-ADB / USD-ADB cards" — and a subtotal matrix is that, multiplied across
+~28 totals; (b) it would silently re-answer a question nobody has ruled on:
+*which* subtotal drives `decision`, the withholding rate, the package verdict;
+(c) nothing is lost — every statement-level figure is present and denominated,
+so the analyst has the evidence. **Carded for Gustavo** as a follow-up product
+decision rather than taken unilaterally here.
+## PC3. The consumer census (done BEFORE the shape was chosen)
+| Consumer | Reads | Outcome |
+|---|---|---|
+| `_package_rows` | `totals` items generically; `documents`/`funders`/... items generically | New `totals` keys and `documents[].currency` flow through automatically. Kept **scalar-only** in `totals` so no dict/list hits `csv.writer` unformatted |
+| `_package_csv` / `_package_xlsx` | `_package_rows` | Gain a `currency` section (dict/list values `json.dumps`'d, matching the `duplicates` loop). A refusal that lived only in the JSON would be invisible to the underwriter reading the sheet, who would read empty money cells as *missing data* rather than as *refused units* |
+| version-3.0 deprecated aliases (`true_revenue`, `confirmed_true_revenue{,_total}`, `potential_revenue_total`, `potential_lender_debits`, `monthly_lender_debits`) | assigned from their canonical totals | All six are in the refused set. An old consumer must not be the one client still handed a mixed number. Pinned by test |
+| `webapp/static/app.js` package view | `totals.*`, `documents[]`, `transactions[]`, rollups | **Found hardcoding USD in five places** — see PC4 |
+| `/package_analysis` route | `_masked(package)` | Generic recursion; new keys pass through |
+| `adb_forensic_audit.py`, `benchmark/ourside.py` | `_package_analysis` over real payloads | Real payloads declare a currency. Unaffected |
+| **`corpus_gate.py` -> `balance_forensic_audit.apply_package_results`** | FOUR per-document balance fields off `_package_analysis`, plus the same four out of the CSV and XLSX at `document_N` | **Missed in the first pass of the census and found by verifying the "discovery does not run packages" claim instead of assuming it.** Safe on inspection and by proof: all four fields are statement-level and never refused, and both export readers address by `(section, field)` — `csv_rows` builds a dict comprehension over `(section, field, value)`, `xlsx_rows` keys on `values[0], values[1]` — so neither the added `currency` section nor the added `currency` column can shift a lookup. Now pinned by `test_the_corpus_gate_package_surface_survives_a_refusal` so the omission cannot recur silently |
+## PC4. A second defect the census found: the dashboard printed every package as USD
+Independent of mixing, and a live doctrine-§D failure: the package view
+hardcoded USD in five places, so a **CAD-only** package — a shape the census
+proves exists in bulk — already rendered its ADB, credits, debits and every
+rollup with a US dollar sign. The ONE metric was denominated wrongly.
+| Site | Was |
+|---|---|
+| `mainTransactionContext()` | `currency: "USD"` for the whole combined ledger |
+| `renderPackageTables()` | `renderLenders(..., "USD")`, `renderInsurance(..., "USD")`, `renderRevenueEvidence(..., "USD")` |
+| per-statement table | `formatMoney(doc.credits)` etc. — the `"USD"` default parameter |
+| every package metric tile | `formatMoney(totals.*)` — same default |
+Fixed by threading the resolved package currency, with each ledger row and each
+per-statement row overriding from its **own** `source_currency` / `currency` —
+a package-wide label would mislabel every row of a mixed package.
+**The first pass of this section was incomplete (MAJOR-1).** Four more package
+call sites still inherited the USD default: the lender summary box in
+`renderPackageTables`, and three in `generateSummary`'s package branch — the
+text an analyst pastes into a credit memo. All four now denominate. The
+section is now closed **exhaustively rather than by spot-check**: a
+paren-balanced scan of all **75** `formatMoney` call sites in the file proves
+**0** rely on the default parameter, and
+`test_no_package_money_is_rendered_with_the_usd_default` runs that same scan
+so the claim cannot silently decay.
+`formatMoney` gains exactly one rule: an **explicit** `null` currency prints the
+magnitude with no unit rather than asserting dollars nobody proved. The `"USD"`
+default parameter is untouched, so every existing single-argument caller
+behaves exactly as before.
+## PC5. Proofs
+### PC5.1 Fixture before/after — the byte-identity proof
+13 representative package shapes, built on **real published analysis payloads**
+pulled read-only from the artifact store (CIBC + Scotiabank CAD, Bank of
+America + U.S. Bank USD), snapshotted on the base tree and again on the
+implemented tree. Verdict per shape: ADDITIVE = every key that existed before
+carries a byte-identical value after and the only differences are new keys.
+| Shape | Verdict | Pre-existing keys changed | CSV lines lost |
+|---|---|---|---|
+| `single_usd_one` | ADDITIVE | 0 | 0 |
+| `single_usd_pair` | ADDITIVE | 0 | 0 |
+| `single_cad_pair` | ADDITIVE | 0 | 0 |
+| `single_usd_with_failed_member` | ADDITIVE | 0 | 0 |
+| `single_usd_with_duplicate` | ADDITIVE | 0 | 0 |
+| `single_usd_lowercase_code` | ADDITIVE | 0 | 0 |
+| `all_members_failed` | ADDITIVE | 0 | 0 |
+| `mixed_cad_usd` | CHANGED (34 refusals) | — | 34 |
+| `mixed_three_way` | CHANGED (37 refusals) | — | 37 |
+| `unknown_missing_key` | CHANGED (37 refusals) | — | 37 |
+| `unknown_blank_value` | CHANGED (37 refusals) | — | 37 |
+| `unknown_null_value` | CHANGED (37 refusals) | — | 37 |
+| `unknown_only_stub` | CHANGED (36 refusals) | — | 36 |
+Every lost CSV line in the refusal shapes is a money row becoming an empty
+cell. `single_usd_lowercase_code` and `single_usd_pair` produce **identical**
+XLSX digests (`8c7f33db11a1` -> `619168465678` on both), which is the
+case-folding proof.
+> **Re-verify the right thing.** Those are digests of
+> `xl/worksheets/sheet1.xml` ALONE, not of the .xlsx file. The whole-file
+> digest is deliberately NOT reproducible: `_rows_xlsx` stamps
+> `docProps/core.xml` with `datetime.now(UTC)`, so two runs of identical
+> data differ. Anyone reproducing this must hash the sheet part.
+The baseline mixing this card removes, measured on the base commit:
+`mixed_cad_usd` published `total_credits 45154.92` and `average_daily_balance
+933.92` — CAD and USD added together.
+### PC5.2 The suite
+Four hand-built suite payloads built a `statement` dict without `currency` — a
+shape no real payload has — and correctly failed the package closed. Declaring
+the unit is the honest fix and makes the stubs representative of what the
+pipeline emits. No assertion or expected figure changed:
+- `tests/test_adb.py::test_package_rollup_weights_each_statement_by_its_own_calendar_days`
+- `tests/test_webapp_app.py::test_package_analysis_aggregates_completed_jobs` (both members)
+- `tests/test_webapp_app.py::test_package_withholding_is_zero_with_deposits_and_no_lender_debits`
+- `tests/test_revenue_classification.py::test_package_revenue_reconciliation_fails_closed_on_invalid_credit_state`
+One ADB-SPLIT guard literal moved with the code it guards:
+`test_existing_dashboard_field_binds_directly_to_authoritative_api_adb` pinned
+`formatMoney(doc.average_daily_balance)` and `formatMoney(totals.average_daily_balance)`;
+both now carry a currency argument. The guard's intent is intact — still bound
+directly to the authoritative API field, still no frontend recalculation, every
+negative assertion untouched — and the denominated form is the convention the
+neighbouring `test_dashboard_balance_cards_bind_to_backend_fields_without_recalculation`
+already pins for the single-statement cards.
+## PC5.3 The adversarial review round (BLOCK, resolved)
+Ocean's review reproduced the census, the bucket logic, the case-folding, the
+byte-identity, the refused-set completeness **for totals**, and the corpus-gate
+invariance — and found one surviving mixed-unit number plus one incomplete
+claim.
+| Finding | What it was | Resolution |
+|---|---|---|
+| **BLOCK-1** | `potential_lender_debit_total`, the deprecated ALIAS of `total_debited`, was not in `_CROSS_CURRENCY_ROLLUP_KEYS`. A 1-USD + 1-CAD package published `2250.0` over JSON/CSV/XLSX, and `lenderRowHtml` reads the alias FIRST | alias refused; funders/insurance swept for equivalents (none); reproduced on head before fixing and re-measured after |
+| **BLOCK-1 guard** | the structural sweep only scanned `totals`, so it could not have caught a rollup leak | widened to every cross-document section, made non-vacuous, and proved mutation-style (see below) |
+| **MAJOR-1** | four package `formatMoney` calls still inherited the USD default — §PC4 had claimed the defect closed | all four denominated; closed exhaustively by paren-balanced scan (0 of 75 sites) rather than by spot-check |
+| **MINOR-1** | refused packages still RANKED rollups by the cross-unit magnitudes | refused packages rank by count then name; single-currency order byte-identical. Premise corrected with measurement: `potential_lenders` was already name-sorted |
+| **MINOR-3** | the undetermined bucket worked but was unpinned at the route | pinned end-to-end |
+| **MINOR-4** | `potential_withholding_formula` string survives in refused rows | kept and explained in §PC2.1 — a methodology label whose every named field is refused in the same row |
+**Proof floor for the review round** (all exit 0): full default suite 4,553
+passed / 34 skipped / 31 deselected · corpus-marked slice 27 passed · gate
+GREEN 106 PASS / 3 WITHHELD, verdicts 102 validated / 4 review / 3 withheld ·
+canonical guard set **242 passed** · canonical conformance set **1,126 passed /
+34 skipped** · 13-shape fixture harness 13/13 with all seven single-currency
+shapes ADDITIVE · corpus-gate-surface invariance base==head over 104 fields.
+**Mutation proof of the widened guard** (Ocean required fail-before /
+pass-after, not merely pass-after):
+```
+pre-fix  test_every_money_row_the_export_emits_is_covered_by_a_declared_currency  FAILED
+         AssertionError: a refused package still publishes cross-document
+         number(s) that are not counts, i.e. mixed units:
+         ['potential_lender_1.potential_lender_debit_total = 1000.0']
+pre-fix  test_the_deprecated_rollup_alias_is_refused_with_its_canonical_key      FAILED
+         assert 1000.0 is None
+pre-fix  test_refused_packages_do_not_rank_rollups_by_a_cross_currency_magnitude FAILED
+         ['ZZZ BIG MONEY', ...] != ['AAA MANY DEBITS', ...]
+post-fix all three PASS
+```
+**Why the alias escaped the first pass, recorded so it does not recur:** the
+shared fixture emitted only `known_funders`, so the export sweep had no
+potential-lender rollup to scan and would have passed vacuously even had it
+been widened. The fixture now emits all three rollup kinds and the sweep
+asserts each section was actually exercised.
+**The generalizable rule this produced:** this payload publishes six deprecated
+TOTAL aliases and one deprecated ROLLUP alias. *A refusal that covers a
+canonical key but not its alias is not a refusal* — the alias is what the
+oldest consumers, and in this case the dashboard itself, read first.
+## PC6. Carried findings for Ocean
+1. **The schema default hides the distinction the doctrine cares about.**
+   `Statement.currency = "USD"` means a document with no currency evidence is
+   published as USD, indistinguishable from a proven-USD document, for all
+   22,613 USD artifacts. The package layer physically cannot fail closed on
+   these, because the information was destroyed below it. Fixing it belongs in
+   `analysis/schema.py` + parsers (a `currency_basis` provenance field, or a
+   nullable currency), is outside this card's ownership, and **would move
+   archive outcomes** — which this card's mandate forbids. Recommend a card.
+   CURRENCY-1 (§CUR1 class D) named the same ambiguity from the other side.
+2. **Per-currency subtotals for mixed packages** — deliberately not invented
+   here (§PC2.2). Needs Gustavo, not a cell.
+3. **An all-failed package still publishes `total_credits: 0.0`** and a
+   `decision`. Honest-ish (nothing was measured) but arguably a silent zero of
+   its own. Pre-existing, not a currency defect, deliberately left alone so the
+   single-currency byte-identity claim stays true. Flagged, not fixed.
+4. **CORRECTED — the cell ran the wrong files, not the wrong tree.** An
+   earlier revision of this finding reported the canonical guard (242) and
+   conformance (1,126) set sizes as unreachable on this tree and speculated
+   they were COMPOSED batch-6 figures. **That was wrong.** Ocean supplied the
+   canonical file lists and both reproduce exactly on this base tree:
+   | Set | Canonical files | Result |
+   |---|---|---|
+   | Guard (5) | `test_no_statement_hardcodes` 40 · `test_no_parser_helper_clones` 7 · `test_r1_hardcodes` 59 · `test_experiments_are_not_wired` 2 · `test_filename_boundary` 134 | **242 passed**, exit 0 |
+   | Conformance (7) | `test_parser_conformance` 668 · `test_parser_registry_entries` 297 · `test_parser_detection_markers` 45 · `test_parser_registry` 46 · `test_parser_crash_shapes` 19 · `test_parser_exception_boundary` 22 · `test_count_semantics` 63 | **1,126 passed / 34 skipped**, exit 0 |
+   The cell had substituted `test_no_fail_open_money_reads` + `test_repair_guard`
+   into the guard set and `test_pipeline_registry_dispatch` +
+   `test_parser_expectations_baseline` + `test_native_rung_parity` into the
+   conformance set — all real, all green (146 and 1,054/34), but not the named
+   sets every other cell runs. The arithmetic that looked impossible resolves
+   trivially: the conformance set COLLECTS 1,160 and skips 34, so 1,126 is the
+   PASSED count, not the collected count.
+   All twelve canonical files are plain default-suite members (no `corpus` or
+   `live` marks), so this branch's full default suite — **4,553 passed, exit
+   0** — already contained every one of them: the canonical sets are proven
+   green by inclusion as well as by the direct runs above.
+   **Method note worth keeping:** the cell inferred both sets from filename
+   and content heuristics instead of asking for the canonical list, then read
+   the resulting mismatch as evidence about the TREE rather than about its own
+   inference. When a measurement disagrees with a coordinator's figure, the
+   cheap hypothesis — *I measured a different thing* — must be eliminated
+   before the expensive one.

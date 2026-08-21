@@ -277,6 +277,9 @@ def test_package_analysis_aggregates_completed_jobs():
     store.set_result(job1.id, "# Jan", "<h1>Jan</h1>", analysis={
         "statement": {
             "bank": "TD Bank",
+            # A package aggregates only across a proven single currency
+            # (CURRENCY DOCTRINE §F); a real payload always declares one.
+            "currency": "USD",
             "period_start": "2026-01-01",
             "period_end": "2026-01-31",
             "beginning_balance": 500,
@@ -303,6 +306,7 @@ def test_package_analysis_aggregates_completed_jobs():
     store.set_result(job2.id, "# Feb", "<h1>Feb</h1>", analysis={
         "statement": {
             "bank": "TD Bank",
+            "currency": "USD",
             "period_start": "2026-02-01",
             "period_end": "2026-02-28",
             "beginning_balance": 900,
@@ -415,7 +419,7 @@ def test_package_withholding_is_zero_with_deposits_and_no_lender_debits():
     client = app.test_client()
     job = store.create("no-lenders.pdf")
     store.set_result(job.id, "# No lenders", "<h1>No lenders</h1>", analysis={
-        "statement": {"bank": "Audit Bank", "transactions": []},
+        "statement": {"bank": "Audit Bank", "currency": "USD", "transactions": []},
         "metrics": {
             "effective_total_deposits": 5000,
             "effective_total_withdrawals": 1000,
