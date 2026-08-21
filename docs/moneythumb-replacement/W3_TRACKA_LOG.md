@@ -27800,8 +27800,9 @@ harness:
 
 ### XP12.2 Proofs for the closure round
 
-Tree `bf4a8b1`. Gate and corpus slice are **not owed by this round** and were
-not re-run: the closures touch `analysis/extract.py`'s refusal vocabulary, this
+Run on the working tree that became `46f9e6d` (the closure commit; every
+figure below was measured before it was written, on byte-identical content).
+Gate and corpus slice are **not owed by this round** and were not re-run: the closures touch `analysis/extract.py`'s refusal vocabulary, this
 cell's own test file, three new `tools/` scripts and one declaration entry in
 `corpus_gate.py` — no parser, no registry, no analysis-output path, and nothing
 on any surface either proof reads. The structural argument of §XP6 is unchanged
