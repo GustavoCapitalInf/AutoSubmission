@@ -27394,6 +27394,19 @@ reported as `unknown`. Fail-closed: an unrecognised value is exactly the case
 where we cannot prove it carries no document text, so it is never the value
 that gets printed.
 
+The one thing a reviewer should push on here is whether a finish reason is
+content-free at all: `SPII` and `PROHIBITED_CONTENT` are *chosen because of*
+what the document contained, so the field carries a few bits about it. The
+judgement taken is that this is categorically different from the leak being
+closed and is worth those bits. It says what the API DID — it is drawn from a
+vocabulary fixed by the SDK before this document existed, it is bounded at
+log2(18) bits no matter what the statement says, and it cannot express a name,
+an amount, an account number or a payee. It is also the single fact an operator
+actually needs, and the one the quoting version could not deliver on the half
+of the cases where there was nothing to quote (§XP4). A message that said only
+`extraction did not return a Statement` would be safer by zero bits that matter
+and useless at 3am.
+
 **No length, and that is a decision.** A character count is the natural third
 field and is *nearly* content-free, and the handoff explicitly permits it. It
 was not taken. It is derived from the document; it puts a digit run into a
@@ -27508,8 +27521,10 @@ is structural and it is stronger than a sweep:
 * **The run of record and every proof surface are deterministic.**
   `discovery/runner.py` :487, `corpus_gate.py` :765,
   `deterministic_coverage_audit.py` :150, `benchmark/ourside.py` :99 and both
-  forensic audits all pass `parse_mode="deterministic"`. The gate makes no
-  model call (its own `ocr_coverage` proves it), so the pinned 109 cannot move.
+  forensic audits all pass `parse_mode="deterministic"`. The gate additionally
+  resolves all 109 offline from native text plus committed OCR artifacts
+  (`check_ocr_coverage`, which fails on any artifact outside the manifest), so
+  the pinned corpus reaches neither a model call nor this branch.
 * **Already pinned by existing tests**, which this card did not have to write:
   `tests/test_discovery.py` :288 fails the run if `extract_statement` is called
   at all, and `tests/test_analysis.py` :214 / :291 do the same for the TD
