@@ -459,3 +459,188 @@ def test_a_document_that_cannot_be_analysed_is_red_not_skipped(expectations, tmp
     check = result.checks[0]
     assert not check.ok
     assert any("could not be analysed" in d for d in check.details), check.details
+
+
+# ---------------------------------------------------------------------------
+# The pinned CURRENCY surface (RBC-CAD card, Gustavo 2026-08-16).
+#
+# Currency was the fourth thing the gate could not see: it is in neither audit
+# CSV, in no expectation file, and `corpus_gate.py` did not mention it — while
+# `webapp/static/app.js` threads `statement.currency` into `Intl.NumberFormat`,
+# so it decides whether every figure an analyst reads is `$` or `CA$`. The RBC
+# ceremony moved 151 published currencies, four of them pinned, with every
+# financial field byte-identical; that movement was gate-invisible and this
+# surface is what makes the next one RED.
+#
+# `check_currency` consumes payloads rather than documents, so its mutation
+# proofs need no corpus and stay in the default suite. One corpus-marked test
+# below closes the loop against the real product on the ceremony document.
+# ---------------------------------------------------------------------------
+
+#: The four documents the approved ceremony moves, and nothing else.
+CEREMONY_CAD = {
+    "RBC/Chequing Statement-DEC+.pdf",
+    "RBC/Chequing Statement-JAN+.pdf",
+    "RBC/Chequing Statement-FEB+.pdf",
+    "RBC/Chequing Statement-MAR+.pdf",
+}
+
+#: The ten documents that already published CAD before this card, each from its
+#: own parser's explicit assignment — measured on the base tree, not assumed.
+PRE_EXISTING_CAD = {
+    "CIBC French/Account Statement 1.pdf",
+    "Others/BMO/BMO_Statement_January_2026 Final-1-2 (1).pdf",
+    "RBC French/12 - Relevé Royale Décembre 2025 - Tommy Aspirot.pdf",
+    "ScotiaBank/Scotiabank -2.pdf",
+    "TD Can/Dec_31-Jan_30_2026 (6).pdf",
+    "TD Can/Feb_27-Mar_31_2026 (2).pdf",
+    "TD Can/Jan_30-Feb_27_2026 (3).pdf",
+    "TD Can/Mar_31-Apr_30_2026.pdf",
+    "TD Can/Nov_28-Dec_31_2025 (7).pdf",
+    "TD Can/TD Bank Bank Statement.pdf",
+}
+
+
+def _manifest() -> list[str]:
+    return corpus_gate.manifest_paths(corpus_gate.read_csv(corpus_gate.BALANCE_CSV))
+
+
+def test_the_currency_surface_is_total_over_the_pinned_manifest():
+    """Every pinned document states a currency, and no entry names a document
+    that is not pinned. Totality is the difference between a surface and a spot
+    check: an exception map would let a new corpus document arrive with no
+    currency stated at all."""
+    manifest = set(_manifest())
+    pinned = set(corpus_gate.PINNED_CURRENCY)
+    assert pinned == manifest, {
+        "unstated": sorted(manifest - pinned),
+        "unknown": sorted(pinned - manifest),
+    }
+    assert len(corpus_gate.PINNED_CURRENCY) == corpus_gate.EXPECTED_PDF_COUNT
+    for rel, code in corpus_gate.PINNED_CURRENCY.items():
+        assert len(code) == 3 and code.isupper() and code.isalpha(), (rel, code)
+
+
+def test_the_pinned_currency_split_is_the_measured_one():
+    """95 USD / 14 CAD, derived from the map rather than restated — and the 14
+    CAD are exactly the ten that already published CAD plus the four the
+    ceremony moves. A fifteenth CAD would be unapproved truth-set movement."""
+    cad = {rel for rel, code in corpus_gate.PINNED_CURRENCY.items() if code == "CAD"}
+    usd = {rel for rel, code in corpus_gate.PINNED_CURRENCY.items() if code == "USD"}
+    assert cad == PRE_EXISTING_CAD | CEREMONY_CAD
+    assert len(cad) == 14 and len(usd) == 95
+    assert len(cad) + len(usd) == corpus_gate.EXPECTED_PDF_COUNT
+
+
+def test_the_pinned_french_rbc_statement_is_not_part_of_the_ceremony():
+    """It published CAD from the French reader before this card and is
+    byte-identical after it, so it is a pre-existing value and not a mover."""
+    french = "RBC French/12 - Relevé Royale Décembre 2025 - Tommy Aspirot.pdf"
+    assert french in PRE_EXISTING_CAD
+    assert french not in CEREMONY_CAD
+    assert corpus_gate.PINNED_CURRENCY[french] == "CAD"
+
+
+def _payloads(currencies: dict[str, str]) -> dict[str, dict]:
+    return {rel: {"statement": {"currency": code}} for rel, code in currencies.items()}
+
+
+def _run_currency(manifest, payloads) -> corpus_gate.Check:
+    result = corpus_gate.Result()
+    corpus_gate.check_currency(result, manifest, payloads)
+    return result.checks[0]
+
+
+def test_the_currency_check_is_green_when_the_product_agrees_with_the_pins():
+    manifest = _manifest()
+    check = _run_currency(manifest, _payloads(dict(corpus_gate.PINNED_CURRENCY)))
+    assert check.ok, check.details
+    assert "109/109" in check.summary
+
+
+def test_a_moved_currency_turns_the_gate_red():
+    """The mutation the whole surface exists for: one document's denomination
+    moves and every financial field stays byte-identical."""
+    manifest = _manifest()
+    published = dict(corpus_gate.PINNED_CURRENCY)
+    published["RBC/Chequing Statement-DEC+.pdf"] = "USD"
+    check = _run_currency(manifest, _payloads(published))
+    assert not check.ok
+    assert any(
+        "publishes currency 'USD', pinned 'CAD'" in detail for detail in check.details
+    ), check.details
+
+    # ...and both directions: a USD document silently becoming CAD is the same
+    # class of movement and equally red.
+    published = dict(corpus_gate.PINNED_CURRENCY)
+    published["ATB/ATB August 2023.pdf"] = "CAD"
+    check = _run_currency(manifest, _payloads(published))
+    assert not check.ok
+    assert any(
+        "publishes currency 'CAD', pinned 'USD'" in detail for detail in check.details
+    ), check.details
+
+
+def test_an_unstated_or_unknown_pin_turns_the_gate_red(monkeypatch):
+    """A pinned document with no currency recorded, and a recorded currency for
+    a document that is not pinned, are both failures — otherwise the map could
+    silently stop covering the corpus."""
+    manifest = _manifest()
+    thinned = dict(corpus_gate.PINNED_CURRENCY)
+    dropped = thinned.pop("Chase/Chase Apr.pdf")
+    monkeypatch.setattr(corpus_gate, "PINNED_CURRENCY", thinned)
+    check = _run_currency(manifest, _payloads(dict(corpus_gate.PINNED_CURRENCY)))
+    assert not check.ok
+    assert any("no expected currency is recorded" in d for d in check.details), check.details
+
+    widened = dict(thinned)
+    widened["Chase/Chase Apr.pdf"] = dropped
+    widened["Nowhere/not-a-corpus-document.pdf"] = "USD"
+    monkeypatch.setattr(corpus_gate, "PINNED_CURRENCY", widened)
+    check = _run_currency(manifest, _payloads(dict(corpus_gate.PINNED_CURRENCY)))
+    assert not check.ok
+    assert any("not in the manifest" in d for d in check.details), check.details
+
+
+def test_a_document_with_no_payload_is_red_not_skipped():
+    """Fail-closed, the same rule the verdict check follows: a currency we
+    could not read is never a pass."""
+    manifest = _manifest()
+    payloads = _payloads(dict(corpus_gate.PINNED_CURRENCY))
+    payloads.pop("Misc/Texas Bank.pdf")
+    check = _run_currency(manifest, payloads)
+    assert not check.ok
+    assert any("its currency is unverified" in d for d in check.details), check.details
+
+
+@pytest.mark.corpus
+def test_the_ceremony_document_publishes_cad_end_to_end(monkeypatch):
+    """The loop closed against the real product: the DEC statement
+    (A26ECE4F32488CECDD59EA5BCF13B4947786456038CBDD17AC52C0F3D9F38EE5) resolves
+    through the production intake ladder and publishes CAD, while its verdict
+    stays `PUBLISHED_OUTCOME` — currency moved, nothing else did.
+
+    `check_currency` is TOTAL over the manifest it is given, so driving it with
+    a one-document manifest requires a one-document map: with the committed 109
+    in place it would (correctly) report the other 108 pins as naming paths
+    outside that manifest. The full 109-vs-109 comparison is
+    `python corpus_gate.py`, not this proof.
+    """
+    rel = "RBC/Chequing Statement-DEC+.pdf"
+    verdict, payload = corpus_gate.production_verdict(
+        corpus_gate.CORPUS / Path(rel), corpus_gate.DEFAULT_CACHE
+    )
+    assert payload["statement"]["currency"] == "CAD"
+    assert payload["statement"]["bank"] == "Royal Bank of Canada"
+    assert verdict == corpus_gate.PUBLISHED_OUTCOME
+    assert corpus_gate.PINNED_CURRENCY[rel] == "CAD"
+
+    monkeypatch.setattr(corpus_gate, "PINNED_CURRENCY", {rel: "CAD"})
+    assert _run_currency([rel], {rel: payload}).ok
+
+    # ...and the same document against the pre-ceremony value is RED, so the
+    # green above is the product agreeing rather than the check being inert.
+    monkeypatch.setattr(corpus_gate, "PINNED_CURRENCY", {rel: "USD"})
+    check = _run_currency([rel], {rel: payload})
+    assert not check.ok
+    assert any("publishes currency 'CAD', pinned 'USD'" in d for d in check.details)
