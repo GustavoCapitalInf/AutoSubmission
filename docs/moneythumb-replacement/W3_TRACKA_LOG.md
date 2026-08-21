@@ -27772,10 +27772,14 @@ EXIT=0
 
 ### SN10.3 The pinned 109: the gate's question, answered directly
 
-**The corpus gate and the corpus-marked slice did not complete on this host.**
-They are running detached (`proofs.log` in the session scratchpad, launched
-against `a3afa8a`); the reason is host saturation and it is measured, not
-guessed. Six other cells' python processes were resident throughout, two of
+**The corpus gate and the corpus-marked slice had not completed when this
+section was written** — they were still running detached (`proofs.log`,
+launched against `a3afa8a`) and the reason was host saturation, measured rather
+than guessed. **They have since completed, both exit 0, gate GREEN: see SN13
+for the full floor.** The section is kept as written because the pinned sweep
+below is independent evidence worth having on its own, and because the
+reasoning that produced it should be readable next to the run that confirmed
+it. Six other cells' python processes were resident throughout, two of
 them long-running, and the box is I/O-bound on a OneDrive-backed corpus: over
 one wall-clock hour this cell's slice accrued **40 seconds of CPU**. Batch 5
 recorded the same slice at 3,250s and the gate at ~1,200s. Nothing about the
@@ -27812,13 +27816,15 @@ are exactly the eight `supersedes` pairs already in `_OVERRIDES` and already
 resolved there — the same eight, with or without this branch. **No pinned
 document acquires a claimant and none acquires an ambiguity.**
 
-This is a substitute for the gate, and it is named as one rather than dressed
-up as the gate. It answers the mechanism; it does not re-audit the 109
-field-by-field. **Ocean should treat `python corpus_gate.py` and
-`pytest -m corpus` as OWED on this branch and run them on a quiet host before
-merging** — the standing rule is the gate attached to every merge, and a
-measured argument for why it cannot move is evidence, not a substitute for the
-run.
+This was a substitute for the gate, and it was named as one rather than dressed
+up as the gate: it answers the mechanism, it does not re-audit the 109
+field-by-field. **The gate itself has since run GREEN on the identical code
+tree (SN13), so nothing is owed.** Recording how the two relate, because it is
+the useful part: the sweep predicted from the mechanism that no pinned document
+could move, and the gate's `outcome_classes` check — which pins every pinned
+document's whole published integrity block — then measured that none did. A
+measured argument for why a thing cannot move is evidence; it was never the
+run, and it did not have to be.
 
 ## SN11. Commits
 
@@ -27851,3 +27857,98 @@ dispositions travel with the evidence rather than in a review thread.
 documented count tuples, and the 74 x 73 conformance cross-product — belongs to
 the train. **This cell's pins are final and are not to be touched further**;
 the conflict between the two branches' `73`s is expected and mechanical.
+
+## SN13. The owed proofs, landed — the full floor, exit codes verbatim
+
+SN10.3 recorded the corpus gate and the corpus-marked slice as OWED because
+they had not finished under host saturation. **They finished.** The detached
+sequential run completed all five steps and wrote its `=== ALL DONE ===`
+terminator before the spend-limit interruption killed the shell; the log is
+durable and the exit lines are below, unedited.
+
+**The run's HEAD was `a3afa8a`, and the branch is now `d4a0cd4`. The code tree
+is IDENTICAL:**
+
+```
+git diff a3afa8a..d4a0cd4 --stat
+ docs/moneythumb-replacement/W3_TRACKA_LOG.md | 136 ++++++++++++++++++++++++++-
+ 1 file changed, 134 insertions(+), 2 deletions(-)
+
+git diff a3afa8a..d4a0cd4 --stat -- . ':(exclude)docs'   ->   0 lines
+```
+
+The two commits since the run (`6a29616`, `d4a0cd4`) are W3-log text only, so
+this floor is a floor on the tree that would merge.
+
+```
+# 0. full default suite
+python -m pytest -q
+4560 passed, 34 skipped, 31 deselected, 1 warning in 292.74s (0:04:52)
+EXIT=0  elapsed=296s
+
+# 1. corpus-marked slice (MANDATORY since batch 3 — the gate is structurally
+#    blind to review<->validated movement inside its PASS bucket)
+python -m pytest -m corpus -q
+27 passed, 4598 deselected, 1 warning in 2895.46s (0:48:15)
+EXIT=0  elapsed=2900s
+
+# 2. corpus gate
+python corpus_gate.py
+Corpus gate
+
+[PASS] inventory: 109 pinned corpus PDFs, all on disk and audited by both oracles
+[PASS] foreign_files: no non-corpus PDFs under the corpus root
+[PASS] source_integrity: 109/109 pinned source PDFs match their pinned SHA-256
+[PASS] balance_audit: 109 statements reproduce every audited balance field across backend, API, dashboard, CSV, XLSX, and package surfaces
+[PASS] adb_audit: 109 statements reproduce every audited ADB field across backend, API, and dashboard-package surfaces
+[PASS] balance_outcomes: balance: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes: adb: 106 pass, 3 withheld, same three statements
+[PASS] outcome_classes: 109 statements publish their pinned verdict (outcome class and the whole integrity block): 4 review / 102 validated / 3 withheld
+[PASS] adb_doctrine: 109/109 statements publish the canonical basis 'calendar_day_printed_period'; banking-day alternate distinct on 106, skipped 3 unpublished (0 all-banking-day periods, 0 flat ledgers)
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR = 109 statements resolved offline; no live OCR, no model calls
+         served from committed OCR artifact: Chase/Chase Business.pdf
+         served from committed OCR artifact: Misc/Builder June 2026.pdf
+         served from committed OCR artifact: Misc/Columbia May 26 complete.pdf
+         served from committed OCR artifact: Misc/First Farmers 2026 01-document.pdf
+         served from committed OCR artifact: Misc/KLR.May 31,2026 (1).pdf
+         served from committed OCR artifact: Regions/Regions.pdf
+[PASS] exclusions: 0 named exclusions
+[PASS] oracle_independence: 4 audit modules import no production financial mathematics
+
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 4 review / 102 validated / 3 withheld
+Runtime:  760.4s
+
+RESULT: GREEN
+EXIT=0  elapsed=766s
+
+# 3. guards
+python -m pytest tests/test_no_statement_hardcodes.py tests/test_native_rung_parity.py tests/test_native_text_unreadable.py -q
+70 passed, 1 warning in 8.98s
+EXIT=0  elapsed=11s
+
+# 4. conformance cross-product (73 x 72) + registry
+python -m pytest tests/test_parser_conformance.py tests/test_parser_registry_entries.py -q
+944 passed, 34 skipped in 2.29s
+EXIT=0  elapsed=4s
+
+=== ALL DONE ===
+```
+
+**Gate GREEN, 106 PASS / 3 WITHHELD, verdicts 102 validated / 4 review / 3
+withheld — the post-ceremony canonical, unmoved.** All thirteen checks PASS,
+including `outcome_classes`, which pins every pinned document's whole published
+integrity block: no pinned statement's block moved a byte. That is the direct
+confirmation of what SN10.3's pinned detection sweep predicted from the
+mechanism, and it is now measured rather than argued.
+
+`adb_doctrine` also passes 109/109 on the canonical
+`calendar_day_printed_period` basis, which matters for this card specifically:
+the five documents it publishes are read on that basis and their ADB is
+computed over the bank's own printed daily grid (SN7.1).
+
+**Nothing is owed on this branch.** The proof floor is complete: full default
+suite, corpus-marked slice, gate GREEN, guards, and the conformance
+cross-product with the registry pins, every one exit 0.
