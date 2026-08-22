@@ -567,6 +567,48 @@ def test_an_other_deposits_section_that_contradicts_only_its_own_total_declines(
     )) is None
 
 
+def test_an_ach_debit_section_that_contradicts_only_its_own_total_declines():
+    #: W3 §REPAIRDOC. The same dangerous shape for the section that used to
+    #: have a repair path, and the mutation proof for its gate: rows 401.00 and
+    #: a printed section total of 400.00, with BOTH remaining oracles satisfied
+    #: — the summary's `Withdrawals/Subtractions` is the sum of the printed
+    #: SECTION totals (400 + 30 + 20), and the ledger the ROWS reconstruct
+    #: reaches the printed ending balance of 149.00.
+    #:
+    #: The parametrized decline above does not prove this gate: on its fixture
+    #: the ledger chain refuses first, so deleting the section gate leaves it
+    #: green. Here the section gate is the only thing standing between the
+    #: reader and a transaction list that disagrees with the figure printed
+    #: under it.
+    #:
+    #: MUTATION: delete the `ach_debits` section gate and this document
+    #: publishes.
+    assert parse(document(
+        ach_debits=ACH_DEBITS.replace("20260403 400.00", "20260403 401.00"),
+        summary=SUMMARY.replace("Ending balance $150.00", "Ending balance $149.00"),
+        grid=GRID.replace("04-03 -100.00", "04-03 -101.00")
+                 .replace("04-05 200.00", "04-05 199.00")
+                 .replace("04-06 170.00", "04-06 169.00")
+                 .replace("04-07 150.00", "04-07 149.00"),
+    )) is None
+
+
+def test_an_ach_credit_section_that_contradicts_only_its_own_total_declines():
+    #: The other half of the pair. Rows 301.00 against a printed section total
+    #: of 300.00; the printed `Deposits/Additions` still equals 200 + 300 and
+    #: the ledger the rows reconstruct still reaches the printed 151.00.
+    #:
+    #: MUTATION: delete the `ach_credits` section gate and this document
+    #: publishes.
+    assert parse(document(
+        ach_credits=ACH_CREDITS.replace("20260405 300.00", "20260405 301.00"),
+        summary=SUMMARY.replace("Ending balance $150.00", "Ending balance $151.00"),
+        grid=GRID.replace("04-05 200.00", "04-05 201.00")
+                 .replace("04-06 170.00", "04-06 171.00")
+                 .replace("04-07 150.00", "04-07 151.00"),
+    )) is None
+
+
 # ---------------------------------------------------------------------------
 # The cheque grid
 # ---------------------------------------------------------------------------
