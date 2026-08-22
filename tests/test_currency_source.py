@@ -33,7 +33,15 @@ import pytest
 
 from analysis.schema import CURRENCY_SOURCES, Statement
 
-ANALYSIS = Path(__file__).resolve().parents[1] / "analysis"
+ROOT = Path(__file__).resolve().parents[1]
+ANALYSIS = ROOT / "analysis"
+
+#: The same exclusion list `tests/test_corpus_gate_outcomes.py` uses for its own
+#: repo-wide sweep, and for the same reason: a developer checkout carries whole
+#: sibling checkouts under `.claude/worktrees/`, so a scan rooted at the repo
+#: would otherwise read another cell's copy of this very file and report it as
+#: an unexpected mention of the field.
+NON_PRODUCTION_DIRS = ("tests", "docs", ".claude", ".git", "build")
 
 
 # ===========================================================================
@@ -603,16 +611,17 @@ def test_only_the_readers_the_schema_and_the_gate_know_the_provenance_exists():
     name it is enumerated: a new mention outside it fails here, and a module
     that stops setting a class it used to set fails here too.
     """
-    root = ANALYSIS.parent
-    skip = {".git", "tests", "docs", "node_modules", "__pycache__",
-            "benchmark_reports", "discovery_reports", "webapp_data"}
     found = set()
-    for path in sorted(root.rglob("*.py")):
-        relative = path.relative_to(root)
-        if set(relative.parts) & skip:
+    for path in sorted(ROOT.rglob("*.py")):
+        relative = path.relative_to(ROOT)
+        if any(part in NON_PRODUCTION_DIRS for part in relative.parts):
             continue
-        if "currency_source" in path.read_text(encoding="utf-8"):
-            found.add(str(relative).replace("\\", "/"))
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):  # pragma: no cover
+            continue
+        if "currency_source" in text:
+            found.add(relative.as_posix())
     assert found == PROVENANCE_MODULES, {
         "unexpected": sorted(found - PROVENANCE_MODULES),
         "silent": sorted(PROVENANCE_MODULES - found),
