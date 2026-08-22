@@ -35443,6 +35443,8 @@ throughout, no hosted model call anywhere including tests).
 | Independent oracle 1 | every Southside document this card publishes reproduces the bank's **own printed daily-balance grid**, cell for cell (1/1, 3/3, 3/3, 13/13). Every document it withholds does not (1/11, 9/14, 1/17, 4/17, 7/19). Nothing in the reader consults that grid for the publish decision — the agreement is a measurement, not a construction |
 | Independent oracle 2 | the nine Southside documents are **three accounts × three consecutive months**, and in all **six** consecutive pairs the earlier statement's ending balance equals the later one's beginning balance to the cent. The reader parses each document alone; it has no cross-document machinery at all |
 | Non-movers pinned | `apex_scanned` shares the Southside module: all **4** of its documents byte-identical. `citizens`' 16 digital byte-identical. The **5 pinned** corpus documents byte-identical (`corpus_gate.py` GREEN) |
+| Archive sweep | the committed instrument at branch HEAD over all **3,380**: **2,533 identical**, **2 moved**, **11 no_payload_now_publishes**, **0 payload_now_raises**. All **13** findings inside the named populations by `content_sha256`; both `moved` documents leaf-diffed |
+| Corpus gate | `python corpus_gate.py` **RESULT: GREEN** — 106/3, verdicts 4 review / 102 validated / 3 withheld, currency 109/109 = 14 CAD / 95 USD, ADB basis 109/109 canonical |
 | Mutation table | **32** mutants, **32 killed**, 0 survivors — after four rounds in which a first table left 4 alive and each survivor was a real hole in the tests |
 | Statement-specific constants | none added. One **removed**: an account TITLE the Southside detector required, now the second R-4b entry in `REMOVED_LITERALS` |
 
@@ -35893,27 +35895,137 @@ NON-MOVERS, byte-identical:
 | `apex_scanned` (shares the module) | `9F1A26F32312`, `A4C49ACBC03D`, `B279C19DFF39` | **identical**; `71864C4034B5` raises again |
 | `citizens`, digital | all **16** | **identical** |
 
-## SF8. Proofs, with verbatim exit codes
+## SF8. The archive sweep
+
+`python -m tools.regfp_zero_movement_sweep`, the committed instrument, run at
+branch HEAD over the whole run of record in seven `--start/--end` chunks whose
+counts add. 7,664.9s of compute on a host shared with nine other cells.
+
+| | |
+|---|---|
+| documents | **3,380** |
+| a payload existed under the baseline key and was compared | **2,535** |
+| `identical` | **2,533** |
+| `moved` | **2** |
+| `no_payload_now_publishes` | **11** |
+| `payload_now_raises` | **0** |
+| `no_payload_raises_again` | 805 |
+| no cached OCR artifact | 29 |
+| documents where the artifact selection had a choice to make | 74 |
+
+**13 findings, and all 13 are inside the two named populations by
+`content_sha256`** — the same 13 documents, with the same verdicts, that the
+family replays in SF7 name one at a time. Not one document outside them moved.
+
+### SF8.1 The leaf-diff the field names do not give
+
+The instrument reports field NAMES. Both `moved` documents are withheld before
+and withheld after, so the question is what moved INSIDE them. Walked to the
+leaves, with the paths grouped and no value printed:
+
+| | `B311029716C1` | `675EB43935FE` |
+|---|---|---|
+| leaves, before → after | 2,282 → 2,639 | 12,327 → 34,305 |
+| moved leaves | 533 | 23,702 |
+| moved leaves **outside the ledger and what the pipeline derives from it** | **0** | **8** |
+| `statement.period_start` / `period_end` | unchanged | unchanged |
+| `statement.beginning_balance` / `ending_balance` | unchanged | unchanged |
+| `statement.stated_total_credits` / `stated_total_debits` | unchanged | unchanged |
+| `statement.currency` | unchanged | unchanged |
+| `metrics.average_daily_balance` | unchanged (withheld) | unchanged (withheld) |
+| `quality.corporate_use` | unchanged | unchanged |
+
+For `B311029716C1` every one of the 533 is `statement.transactions[]`, its
+per-row `classification`, the mirrored `classifications[]` list, the
+`metrics`/`reconciliation` aggregates over those rows, or a `detection`
+evidence entry that indexes into them by `source_location`. Its integrity
+flags are byte-identical, all seven of them; the ledger grew by three rows and
+`debit_coverage` moved from 0.449 to 0.591, which is still a long way short and
+the document is still withheld.
+
+`675EB43935FE`'s eight are `integrity.flags[1..3]`, `integrity.notes[1..3]` and
+`quality.notes[1..2]`, and they are flags being WITHDRAWN, not raised:
+
+```
+before: ledger_sum_mismatch, credit_detail_coverage_mismatch,
+        debit_detail_coverage_mismatch, transaction_detail_not_corporate_reliable
+after:  ledger_sum_mismatch, transaction_detail_not_corporate_reliable
+```
+
+`credit_coverage` **0.000 → 1.000**, `debit_coverage` 0.968 → 0.998, ledger 102
+rows → 168. The `0.0` in that line is not a reconstruction: it is the value the
+RUN OF RECORD stored for this document. This is the one archive statement that
+was already publishing while its ledger contained no credits at all, and it is
+the clearest single justification for cause 2.
+
+### SF8.2 Dispatch, over the whole archive
+
+The sweep answers the payload question. This answers the narrower one it
+subsumes, and answers it for every document: which registrations CLAIM each
+document, at HEAD and at base `e83f746`. Only one detector's predicate differs
+between the trees, so the base claimant set is reconstructed exactly — HEAD's
+set with `southside_scanned` removed, plus it back if and only if the base
+predicate (three string containments, quoted from
+`git show e83f746:analysis/scanned_small_bank.py`) claims. `citizens`'
+`DETECTION_MARKERS` are asserted byte-identical between the trees rather than
+assumed, by the script, before it starts.
+
+Result over 3,380 documents (221.5s): **6** documents' claimant sets differ,
+and they are the six Southside statements the old detector could not see —
+`0E887D8EC752`, `3B0738E968D4`, `90A1EBAC3745`, `955C340F27A7`, `D187495D3CE7`,
+`FD022A8600DA`, each `base=[]` → `head=['southside_scanned']`. Nothing else in
+the archive gains or loses a claimant, so no document elsewhere can have
+changed parser, or gained or lost a co-claimant and with it an ambiguity flag.
+
+**The first run of that script was void and is recorded here rather than
+quietly re-run.** It never imported the module that registers the parsers, so
+`detection_report` returned an empty report for every document and the
+comparison passed vacuously — with a "3 documents differ" answer that looked
+plausible. The script now measures the registry size and REFUSES unless it sees
+74 entries. A comparison that cannot tell "nothing differs" from "nothing was
+loaded" is not a measurement.
+
+## SF9. Proofs, with verbatim exit codes
 
 ```
 5436 passed, 35 skipped, 33 deselected, 1 warning  1118.40s  SUITE_EXIT=0
 242 passed, 1 warning                                77.69s  GUARDS_CANON_EXIT=0
 1151 passed, 35 skipped, 1 warning                   60.75s  CONFORMANCE_CANON_EXIT=0
+corpus_gate.py  RESULT: GREEN                      2223.00s  GATE_EXIT=0
+29 passed, 5475 deselected, 1 warning              3111.36s  CORPUSSLICE_EXIT=0
+collection -m corpus:  29/5504 (5475 deselected)      3.84s  EXIT=0
+collection default:  5471/5504 (33 deselected)        4.10s  EXIT=0
 37 tests collected (tests/test_southside_scanned.py)          COLLECT_EXIT=0
 25 tests collected (tests/test_citizens_scanned.py)           COLLECT_EXIT=0
 32 mutants, 32 KILLED, 0 survivors                            MUTATE_EXIT=0
+archive sweep, 3,380 documents in 7 chunks         7664.90s  SWEEP_EXIT=1*
 census over 3,380 documents, 7 structural nets       53.70s  CENSUS_EXIT=0
 detection sweep over 3,380 documents                155.60s  DETSWEEP_EXIT=0
+dispatch comparison vs e83f746 over 3,380           221.50s  DISPATCH_EXIT=0
 family replay, southside + apex (13 documents)                REPLAY_EXIT=0
 family replay, citizens (21 documents)                        REPLAY_EXIT=0
 before-state measurement (citizens + southside)               BEFORE_EXIT=0
+leaf-diff of the two moved documents                          LEAFDIFF_EXIT=0
 ```
 
-5,436 = the pinned 5,374 plus this card's 62 (37 + 25). Registry still 74;
-the canonical guard set is still 242 and the canonical conformance set still
-1,151 at 74 × 73, because this card registers nothing.
+\* the sweep exits non-zero when it has findings; this card HAS 13 findings, all
+of them named. Per chunk: `[0,500]` 0 moved / 2 publishing, `[500,1000]` 0 / 1,
+`[1000,1500]` 1 / 2, `[1500,2000]` 0 / 2, `[2000,2500]` 1 / 1, `[2500,3000]`
+0 / 1, `[3000,3380]` 0 / 2. The counts add to 2 and 11.
 
-## SF9. Carried risks
+The gate's own lines, verbatim: `outcome_classes: 109 statements publish their
+pinned verdict … 4 review / 102 validated / 3 withheld`; `adb_doctrine:
+109/109 … 'calendar_day_printed_period'`; `currency: 109/109 … 14 CAD / 95
+USD`; `balance_outcomes` and `adb_outcomes` both `106 pass, 3 withheld, same
+three statements`; `ocr_coverage: 103 native-text + 6 committed-OCR = 109
+statements resolved offline; no live OCR, no model calls`.
+
+5,436 = the pinned 5,374 plus this card's 62 (37 + 25); 5,471 collected =
+5,436 passed + 35 skipped. Registry still 74; the canonical guard set is still
+242 and the canonical conformance set still 1,151 at 74 × 73, because this card
+registers nothing.
+
+## SF10. Carried risks
 
 1. **`3B0738E968D4` publishes 3.4% more debit money than the bank states** in
    its withheld payload. The document is withheld and the residue is measured
@@ -35935,8 +36047,26 @@ the canonical guard set is still 242 and the canonical conformance set still
    the statement's own cheque-image sheet declaring a page count the archive
    PDF does not supply. It is an honest flag and it is what keeps
    `90A1EBAC3745` and `13B6B39D629B` at review rather than validated.
+5. **`_southside_summary` takes the FIRST printing of each row, and does not
+   refuse a contradiction.** `texas_first`, in the same module and the same
+   wave lineage, refuses a summary printed twice and disagreeing — because
+   there is no rule that says which printing to believe, and a two-account
+   printing under one heading is what would produce one. The shared mechanism
+   for this already exists (`analysis/tables.py::unique_match`, whose docstring
+   is exactly this argument) and is what the fix should use rather than a
+   private copy.
 
-## SF10. The pinned five
+   Measured before naming it: across all nine Southside documents, **no**
+   summary label — the period, the day count, the previous and ending
+   balances, the two count/total rows, the service charge, the interest — is
+   printed with more than one DISTINCT value. The defect is latent on this
+   archive, and adopting `unique_match` here is therefore a zero-blast-radius
+   change. I did not make it: the archive sweep in SF8 was already running
+   against this exact source, and changing `analysis/` mid-sweep would have
+   left half the archive measured against code that no longer exists. It is
+   carried, with the remedy named, rather than done badly.
+
+## SF11. The pinned five
 
 `citizens` publishes four of the 109 pinned corpus documents (the Citizens
 March / April / May / June 2026 statements, all digital) and
@@ -35946,9 +36076,18 @@ computes for that sha are the same figure). All five are byte-identical:
 the four Citizens are inside the 16 digital documents the family replay found
 identical, the Southside one is the single Southside non-mover, and
 `python corpus_gate.py` re-audits all 109 against both committed CSVs plus the
-pinned outcome, ADB-basis and currency maps.
+pinned outcome, ADB-basis and currency maps. It is GREEN at branch HEAD, on all
+fourteen of its checks, including `source_integrity: 109/109 pinned source PDFs
+match their pinned SHA-256` and `ocr_coverage: … no live OCR, no model calls`.
 
-## SF11. Commits
+The Southside pinned document is the one where this matters most: it is
+`4C96DDA28A67`, the single archive Southside statement the old reader already
+published, it is served to the gate from a committed OCR artifact rather than
+re-scanned, and its whole `report_to_dict` payload came back byte-identical
+under a reader whose detector, summary parser, section boundaries, row grammar
+and date reader were all replaced.
+
+## SF12. Commits
 
 | commit | |
 |---|---|
