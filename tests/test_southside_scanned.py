@@ -327,15 +327,21 @@ def test_a_heading_line_must_carry_a_rule_glyph():
 
 def test_the_cheque_image_sheets_end_the_grid_above_them():
     """The sheets after the ledger are photographs of cheques and deposit
-    tickets, and they carry dates and figures of their own."""
-    with_images = whole() + (
-        "--- Page 2 ---\nSouthside Bank Page: 2 of 2\n"
-        "Credit DDA Deposit\nSUBSTITUTE IMAGE / VIRTUAL DOCUMENT\n"
-        "4/22 999999 9,999.99\n"
-    )
-    stmt = parse_southside_scanned_statement(with_images)
-    assert stmt is not None
-    assert all(abs(t.amount) != 9999.99 for t in stmt.transactions)
+    tickets, and they carry dates and figures of their own. Each marker is
+    tested alone, because a sheet does not always print all of them — and what
+    is at stake is not only a fabricated transaction: a figure absorbed into
+    the DAILY grid becomes a day the bank is taken to have said had activity,
+    which is the corroboration every reconstructed date is checked against."""
+    for marker in ("SUBSTITUTE IMAGE / VIRTUAL DOCUMENT", "DEPOSIT TICKET",
+                   "Credit DDA Deposit", "Southside Bank Page: 2 of 2",
+                   "* Denotes missing check numbers"):
+        with_images = whole() + f"--- Page 2 ---\n{marker}\n4/22 999999 9,999.99\n"
+        grids = _southside_grids(with_images)
+        assert "9,999.99" not in "".join(grids.values()), marker
+        assert "2026-04-22" not in _southside_posted_days(grids["daily"], PERIOD), marker
+        stmt = parse_southside_scanned_statement(with_images)
+        assert stmt is not None, marker
+        assert all(abs(t.amount) != 9999.99 for t in stmt.transactions), marker
 
 
 # ---------------------------------------------------------------------------
@@ -360,6 +366,17 @@ def test_a_two_glyph_residue_is_refused_however_readable_it_looks():
     it as `4/7` looked unique and was wrong on an archive statement."""
     assert _southside_day("47", PERIOD) is None
     assert _southside_day("41", PERIOD) is None
+    # A reading is offered only where a two-digit DAY is left over, which is
+    # what "the template zero-pads the day" means as a rule.
+    assert _southside_day("4017", PERIOD) is None
+
+
+def test_a_cell_that_is_not_all_digits_is_not_a_date_cell():
+    """`ANT` is what one archive row's date column came back as. The reader
+    enumerates readings of DIGITS; it does not guess at letters, and it does
+    not fall over them either."""
+    for token in ("ANT", "4a3", "A/17", "", "4//17"):
+        assert _southside_day(token, PERIOD) is None, token
 
 
 def test_a_lost_solidus_reads_only_when_exactly_one_reading_is_possible():

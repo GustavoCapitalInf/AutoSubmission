@@ -274,6 +274,18 @@ def test_nothing_may_extend_the_cents_themselves():
     assert rows == []
 
 
+def test_a_malformed_amount_never_starts_a_new_row_either():
+    """The same statement said at the row BOUNDARY. A token that is not an
+    amount is not the start of a row, so the text stays inside the row it was
+    printed in and is visible in that row's description — rather than being
+    promoted to a row of its own and then silently dropped, which is how a
+    printed figure disappears without trace."""
+    section = "04/01 500.00 REMOTE DEPOSIT\n04/02 150.007 POS PURCHASE\n"
+    rows = _rows_the_total_agrees_with(section, year=2026, sign=1, printed_total=None)
+    assert [t.amount for t in rows] == [500.00]
+    assert rows[0].description == "REMOTE DEPOSIT 04/02 150.007 POS PURCHASE"
+
+
 # ---------------------------------------------------------------------------
 # CF5 - the two widenings the document's own arithmetic admits
 # ---------------------------------------------------------------------------
@@ -316,12 +328,17 @@ def test_a_slash_less_cheque_date_is_read_only_on_the_printed_cheque_total():
 
 
 def test_a_widened_cheque_date_must_land_inside_the_printed_period():
-    """Without this the widened pattern reads the NEXT cheque's number as a
-    date."""
-    grid = "Check # Amount Date\n1001 100.00 3978\n1002 200.00 04/10\nTotal Debits\n"
-    widened = _checks_the_total_agrees_with(
-        grid, year=2026, period=PERIOD, printed_total=300.00)
-    assert [t.date for t in widened] == ["2026-04-10"]
+    """Without this the widened pattern reads the NEXT cheque's NUMBER as a
+    date. `3978` is not a date at all and falls over on its own; `1231` is a
+    perfectly good date that this statement cannot possibly carry, and only the
+    period says so. A widened read that produces it is discarded whole, which
+    is why the cheque that IS readable comes back alone."""
+    for not_a_date in ("3978", "1231"):
+        grid = (f"Check # Amount Date\n1001 100.00 {not_a_date}\n"
+                "1002 200.00 04/10\nTotal Debits\n")
+        widened = _checks_the_total_agrees_with(
+            grid, year=2026, period=PERIOD, printed_total=300.00)
+        assert [t.date for t in widened] == ["2026-04-10"], not_a_date
 
 
 # ---------------------------------------------------------------------------
