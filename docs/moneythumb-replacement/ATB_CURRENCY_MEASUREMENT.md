@@ -453,7 +453,24 @@ from or written to the analysis stage of the artifact store, and
 
 **Result.**
 
-<!-- FIELDDIFF-SUMMARY -->
+| | |
+|---|---|
+| Documents compared | **271** (267 parsed + 4 terminal) |
+| Leaf field comparisons | **6,795,116** |
+| Median payload size | 20,080 leaf fields |
+| Documents with any payload change | **7** |
+| **Distinct changed field paths across the entire sweep** | **1 — `statement.currency`** |
+| Documents with a NON-currency change | **0** |
+| Direction census over every mover | `{('USD','CAD'): 7}` |
+| Terminal-outcome documents whose exception class changed | **0/4** |
+| Mover set | 5 `atb_pinned` + 2 `atb_discovery`; **0** movers of any other label |
+
+The measurement set is the ATB family of 11 plus every control population of
+§7: the 147 discovery RBC movers, the nine CURRENCY-1 corrections and all 104
+non-ATB entries of the pinned currency surface (which includes the four pinned
+RBC movers, so the RBC 151 are covered 147 + 4). Documents by label:
+`atb_pinned` 5 · `atb_discovery` 6 · `rbc_mover` 147 · `currency1` 9 ·
+`pinned_currency` 104.
 
 No financial amount, no ADB value, no ledger row, no reconciliation verdict, no
 classification, no integrity flag, no note, no risk level and no outcome class
@@ -484,7 +501,19 @@ and it must go RED before the pin edit and GREEN after it.
 *Doctrine §C.7, generalised: the previous ceremony's population must not move,
 and neither must the explicit-evidence corrections.*
 
-<!-- CONTROLS-SUMMARY -->
+**Result: 260 control documents, 6,433,388 leaf comparisons, ZERO documents
+with any changed field path.**
+
+| Control population | Docs | Documents with any payload change |
+|---|---|---|
+| the 147 discovery RBC movers (`RBC_CURRENCY_MEASUREMENT` §9.2) | 147 | **0** |
+| the nine CURRENCY-1 corrections | 9 | **0** |
+| the other 104 entries of `corpus_gate.PINNED_CURRENCY` — every pinned document except the five ATB ones, including the four pinned RBC movers, the pinned French RBC statement, CIBC French, BMO Canada, Scotiabank, the six TD Canada Trust statements and the Desjardins `USD DESJARDINS CORPORATE BUILD-UP ACCOUNT` document | 104 | **0** |
+
+147 + 4 pinned RBC = the whole 151-document RBC ceremony population, measured,
+not argued. The pinned currency surface's 109 entries are covered as 104
+controls + the 5 ATB movers, so **every entry of the surface was analysed twice**
+and only the five named ones differ.
 
 The **nine CURRENCY-1 corrections**, named by sha:
 
@@ -628,6 +657,13 @@ The gate's currency line goes `14 CAD / 95 USD` → `19 CAD / 90 USD`.
    directions through `admissible_text` (§8b, §8c), the ablation table of §1 as
    mutation kills, the S1/S2 USD-product refusals of §3, and a rung-order test
    that forces rung 1 to return a code the refusal set has never heard of.
+   **There is no `tests/test_atb*.py` today** — measured: the string `atb`
+   occurs in `tests/test_analysis.py`, `test_count_semantics.py`,
+   `test_money.py`, `test_parser_registry_entries.py`,
+   `test_revenue_classification.py`, `test_stated_counts.py` and
+   `test_transaction_classifier.py`, and in no module of its own. `rbc` carries
+   92 tests in `tests/test_rbc_variants.py`. The implementing cell is creating
+   ATB's first parser-specific test module, not extending one.
 3. `python corpus_gate.py` RED-then-GREEN across the five-line pin edit, in the
    same commit as the code.
 4. The archive zero-movement sweep, whose only permitted findings are the two
@@ -655,18 +691,23 @@ uncertain — this is a measurement, not an assumption.
 | Population | Docs | Why it is not a mover |
 |---|---|---|
 | ATB `Consolidated Statement`, unclaimed | 4 | they publish **nothing**, so they carry no currency to move. See §10.3 |
-| Non-ATB archive documents | 3,374 | outside the token superset; unreachable by the `atb` registration's REQUIRED markers, which are strictly stronger than the superset predicate |
+| Non-ATB archive documents with readable text | 3,345 | outside the token superset; unreachable by the `atb` registration's REQUIRED markers, which are strictly stronger than the superset predicate |
 | Archive documents with no readable OCR artifact | 29 | no text, no published payload |
+
+3,345 + 29 + 6 = 3,380, the run's distinct shas; the 5 pinned `ATB/*.pdf`
+statements are outside the run entirely.
 
 ### 10.2 One thing this packet does NOT claim
 
 It does not claim ATB is a Canadian institution *because it is named ATB*. The
-rule never reads the institution name alone: `ATB Financial` on its own
-satisfies exactly one of four proofs, and the ablation of §1 shows that
-removing any of the other three kills the default on 11/11. What carries the
-jurisdiction is the CPA institution number 219 on two independent sites, an
-Alberta branch domicile closed by a Canadian postal code, and ATB's own service
-furniture.
+rule never reads the institution name alone — measured:
+`jurisdiction_currency("ATB Financial")` returns **None** and the bare string
+satisfies **none** of the four proofs (`J_ISSUER` False, `J_HEADER` False,
+`J_ACCOUNT` False, `J_SERVICE` False), because each proof requires the name
+*together with* a structural site. What carries the jurisdiction is the CPA
+institution number 219 on two independent sites, an Alberta branch domicile
+closed by a Canadian postal code, and ATB's own service furniture — and the
+ablation of §1 shows that removing any one of them kills the default 11/11.
 
 ### 10.3 The four unclaimed ATB documents, characterised
 
