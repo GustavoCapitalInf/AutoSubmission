@@ -154,7 +154,9 @@ from .money import (
 )
 from .parser_registry import corroborating, make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
-from .tables import dated_cells, section_runs, unique_match
+from .tables import (
+    attributed_descriptions, dated_cells, section_runs, unique_match,
+)
 
 # ---------------------------------------------------------------------------
 # The grammar
@@ -526,30 +528,18 @@ def _summary(markdown: str) -> _Summary | None:
 _SERIAL_RE = re.compile(r"([0-9]{2,8})\s*\*?")
 
 
-def _described(gap: str) -> str:
-    """Everything the bank printed between a row's date and its amount.
-
-    Whitespace only: stripping punctuation would publish something the
-    statement does not carry.
-
-    **What that span actually contains, measured rather than assumed (W3
-    §GRAM4 G7.7).** Usually it is the row's own printed label
-    (`Preauthorized Debit`, `Account Transfer Cr.`) — 168 of the 279 published
-    rows. On the other 111 the flattened layer has put a block of merchant
-    lines between the PREVIOUS row's amount and this row's date, so the block
-    lands in THIS row's description and the row it describes publishes a bare
-    label. Nothing is invented — every character was printed on the document —
-    and no gated field is affected, which is why the fourteen gates cannot see
-    it. Twelve rows are additionally cut mid-token by the 200-character cap.
-
-    `core_processor_daily` publishes descriptions through a byte-identical
-    call, so the class is the whole complex's rather than this reader's.
-    Attributing the block to the preceding row (or publishing bare labels) is
-    a design change across BOTH readers that moves descriptions on already
-    validated documents: carded as DESC-ATTRIB (batch 7) by Ocean's ruling,
-    deliberately not done here.
-    """
-    return re.sub(r"\s+", " ", gap).strip(" |")[:200].strip()
+#: What this template prints as furniture around a description rather than as
+#: part of it: the flattened layer's column rule. Stripping anything else would
+#: publish something the statement does not carry.
+_DESCRIPTION_FURNITURE = " |"
+#: The longest description this reader will publish. A bound has to exist —
+#: a span the layer filled with a page of furniture is not a description — and
+#: `tables.attributed_descriptions` cuts at a token boundary rather than
+#: through a word, because half a token is a string the bank did not print.
+#: With the attribution fixed the bound is headroom rather than a cut: the
+#: longest description the complex's 21 validated documents publish is 121
+#: characters, and no row reaches 200 (W3 §DESCATTRIB DA4).
+_DESCRIPTION_LIMIT = 200
 
 
 def _row_lead(gap: str) -> str:
@@ -575,7 +565,13 @@ def _rows(runs: list[str], *, category: _Category,
         if cells is None:
             return None
         cursor = 0
-        for cell in cells:
+        # The descriptions are read for the RUN, not for a row at a time: what
+        # a row's span owns depends on how many rows' merchant blocks the
+        # flattened layer still had in hand when it flushed into that span
+        # (W3 §DESCATTRIB; `tables.attributed_descriptions`).
+        described = attributed_descriptions(
+            cells, strip=_DESCRIPTION_FURNITURE, limit=_DESCRIPTION_LIMIT)
+        for index, cell in enumerate(cells):
             iso = iso_within_period(cell.date.replace("-", "/"), start, end)
             amount = _magnitude(cell.value)
             if iso is None or amount is None:
@@ -590,7 +586,7 @@ def _rows(runs: list[str], *, category: _Category,
                 description = f"{category.default} {serial.group(1)}" if serial \
                     else category.default
             else:
-                description = _described(cell.described) or category.default
+                description = described[index] or category.default
             postings.append(Transaction(
                 date=iso,
                 description=description,
