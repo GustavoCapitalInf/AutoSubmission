@@ -1026,7 +1026,19 @@ def test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered(tmp_path: 
     # The record's provenance mark is `dispatch.source`, and it is the one
     # field that is SUPPOSED to differ between the two passes.
     assert {r["dispatch"]["source"] for r in cold_records} == {"live"}
-    assert {r["dispatch"]["source"] for r in warm_records} == {"cached"}
+    # ...for every record the cache could serve. A pinned refusal's record is
+    # `live` on BOTH passes for the same reason its row is a miss on both: the
+    # analysis raised, nothing was cached, and there is no stored verdict to
+    # mark as reconstructed. Pinned by shape, not excused: the warm records
+    # that are still `live` must be exactly as many as there are refusals, and
+    # every one of them must be an unclaimed dispatch.
+    warm_live = [r for r in warm_records if r["dispatch"]["source"] == "live"]
+    assert len(warm_live) == len(refusals)
+    assert {r["dispatch"]["outcome"] for r in warm_live} == {"unclaimed"}
+    assert {
+        r["dispatch"]["source"] for r in warm_records
+        if r["dispatch"]["outcome"] == "claimed"
+    } == {"cached"}
 
     cold_by_sha = {r["document"]["content_sha256"]: r for r in cold_records}
     assert len(cold_by_sha) == 109, "109 distinct documents, so a key per record"
