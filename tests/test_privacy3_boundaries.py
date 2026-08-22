@@ -724,29 +724,53 @@ def test_the_declared_review_refusals_pass_through_verbatim():
         assert webapp_app._review_refusal(LookupError(declared)) == declared
 
 
-def test_the_review_allow_list_is_exact_match_and_not_containment():
-    """The mutation this kills is one character: `==` to `in`. A message that
-    CONTAINS a declared literal alongside a quoted cell is not a declared
-    refusal."""
+#: The exact string a non-declared refusal must produce. Written out rather
+#: than derived, because the mutant this kills is one character and a derived
+#: expectation would mutate with it.
+_REDUCED_REVIEW_ERROR = (
+    "revenue review failed: ValueError "
+    "(message withheld; an exception message can quote statement text)"
+)
+
+
+@pytest.mark.parametrize("shape", ["prefix", "suffix", "padded", "upper"])
+def test_the_review_allow_list_is_exact_match_and_not_containment(shape):
+    """The mutation this kills is one character: `==` to `in`.
+
+    THE ASSERTION HAD TO BE STRENGTHENED, and the reason is worth the
+    paragraph, because the first version of this test SURVIVED the mutant
+    (measured, W3 §PRIVACY3 mutation round 1). Under containment the function
+    still returns the tuple MEMBER, not the exception's text — so nothing
+    leaks, `published != poisoned` holds, and a privacy-shaped assertion sees
+    nothing wrong.
+
+    What containment breaks is not privacy, it is TRUTH: an exception that
+    quoted a cell alongside a declared literal would be published as the
+    declared refusal, and `webapp/static/app.js` would show an analyst
+    "transaction source location was not found" for a failure that was
+    something else entirely. The boundary would be lying with one of its own
+    constants. So the assertion is the exact reduced string, not the absence
+    of the token.
+    """
     declared = webapp_app._DECLARED_REVIEW_REFUSALS[0]
-    for poisoned in (
-        f"{declared}: {CANARY} {DIGITS}",
-        f"{CANARY} {DIGITS} - {declared}",
-        f" {declared} ",
-        declared.upper(),
-    ):
-        published = webapp_app._review_refusal(ValueError(poisoned))
-        assert published != poisoned
-        assert CANARY not in published
-        assert DIGITS not in published
+    poisoned = {
+        "prefix": f"{declared}: {CANARY} {DIGITS}",
+        "suffix": f"{CANARY} {DIGITS} - {declared}",
+        "padded": f" {declared} ",
+        "upper": declared.upper(),
+    }[shape]
+
+    published = webapp_app._review_refusal(ValueError(poisoned))
+
+    assert published == _REDUCED_REVIEW_ERROR
+    assert published != declared
+    assert CANARY not in published
+    assert DIGITS not in published
 
 
 def test_an_undeclared_review_refusal_is_reduced_to_its_class():
     published = webapp_app._review_refusal(ValueError(POISONED_REVIEW_MESSAGE))
-    assert published == (
-        "revenue review failed: ValueError "
-        "(message withheld; an exception message can quote statement text)"
-    )
+    assert published == _REDUCED_REVIEW_ERROR
     assert CANARY not in published and DIGITS not in published
 
 
