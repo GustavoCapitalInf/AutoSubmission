@@ -113,12 +113,22 @@ def assert_private(exc: BaseException, token: str) -> None:
     poisoned_runs = set(_digit_runs(token))
     for surface, text in _leak_surfaces(exc).items():
         if surface == "traceback":
-            # A traceback names the source lines it walks, so a line that
-            # MENTIONS the token variable is expected. What may not appear is
-            # the token's own content.
+            # A traceback quotes the SOURCE line of every frame it walks, and a
+            # source line that mentions the `token` VARIABLE is expected — it
+            # cannot contain the token's runtime value. Subtract exactly those
+            # lines, taken from `extract_tb` rather than guessed at by prefix:
+            # a prefix filter ("drop lines starting with `raise`") would also
+            # drop a real leak that happened to start that way, and it drifts
+            # every time the production source is reindented.
+            quoted = {
+                frame.line.strip()
+                for frame in traceback.extract_tb(exc.__traceback__)
+                if frame.line
+            }
             text = "\n".join(
                 line for line in text.splitlines()
-                if not line.strip().startswith(("File ", "raise ", "if ", "try:"))
+                if line.strip() not in quoted
+                and not line.strip().startswith('File "')
             )
         assert CANARY not in text, f"canary in {surface}: {text[:200]}"
         if token.strip():
@@ -262,15 +272,43 @@ def test_the_century_mode_refusal_names_the_legal_values_and_not_the_illegal_one
     assert str(raised.value) == "unknown century mode: expected 'short' or 'always'"
 
 
+#: Exported raisers whose poison is not a TOKEN, so they cannot be driven by
+#: `DATE_INVOCATIONS` and are swept by a test of their own. Declared rather
+#: than left implicit, because the coverage test below is only honest if the
+#: things it skips are named: `period_from_long_dates` takes a whole markdown
+#: document and refuses only on a span that MATCHES `_LONG_PERIOD_RE`, which no
+#: entry in `POISONED_DATE_TOKENS` does — so a coverage test driven by tokens
+#: alone would silently report it clean.
+SWEPT_BY_THEIR_OWN_TEST = {
+    "period_from_long_dates": "test_period_from_long_dates_refuses_privately",
+}
+
+
+def test_the_separately_swept_exports_really_are_swept():
+    """The exemption above may not outlive the test it points at."""
+    for name, test_name in SWEPT_BY_THEIR_OWN_TEST.items():
+        assert name in dt.__all__, f"{name} is no longer exported"
+        assert test_name in globals(), f"{test_name} no longer exists"
+
+
 def test_every_raising_export_of_the_date_grammar_is_swept():
     """A privacy law is a property of the exported surface, and a hand-list
     proves only the members someone remembered (§MONEYPRIV MP6). A reader added
     to `__all__` that RAISES on a poisoned token must join `DATE_INVOCATIONS`
-    or this fails."""
+    or this fails.
+
+    KNOWN LIMIT, stated rather than left for a reviewer to find: this drives
+    each export with one and two positional arguments and a `century` keyword,
+    so it sees the raisers whose poison is a TOKEN. `SWEPT_BY_THEIR_OWN_TEST`
+    names the ones it structurally cannot reach, and a raiser that is in
+    neither place is what this assertion is for.
+    """
     unswept = []
     for name in dt.__all__:
         member = getattr(dt, name)
         if not callable(member) or name in DATE_INVOCATIONS:
+            continue
+        if name in SWEPT_BY_THEIR_OWN_TEST:
             continue
         for token in POISONED_DATE_TOKENS.values():
             for call in (
@@ -1097,6 +1135,84 @@ def test_deterministic_mode_never_calls_the_extractor_even_with_the_structurer_o
         with pytest.raises(RuntimeError):
             pipeline.analyze_markdown(markdown, parse_mode="deterministic")
     assert calls == []
+
+
+def test_the_parse_mode_clause_is_what_stops_the_call_on_the_structurer_branch(
+    monkeypatch,
+):
+    """The clause EXERCISED, not merely asserted on the AST.
+
+    The test above cannot reach the escalation guard: an unclaimed document
+    that the structurer declines raises at `pipeline.py`'s
+    "no deterministic parser matched this statement" before the guard is
+    evaluated. And the branch that DOES reach it cannot occur naturally,
+    because the structurer only publishes a statement whose ledger GROUNDS, so
+    `recon.ok` is True and `needs_escalation` is False (§EXTRACTPRIV XP9
+    finding 2 measured that over four constructed variants).
+
+    That coincidence is the whole finding, so this test removes it: the
+    structurer is replaced by one that publishes a statement which does NOT
+    reconcile, and the settings are given two different models. Every other
+    clause of the guard is then satisfied. With the `parse_mode` clause the
+    extractor is not called; without it — mutant M23 — the recorder fires and
+    this fails. A hosted-model call in deterministic mode is a $0-vendor
+    breach, so it is asserted rather than reasoned about.
+    """
+    from analysis import pipeline
+    from analysis.config import Settings
+    from analysis.schema import Statement, Transaction
+
+    calls: list[str] = []
+
+    def recorder(markdown, **kwargs):
+        calls.append("called")
+        raise AssertionError("deterministic mode reached the hosted model")
+
+    def ungrounded(markdown, **kwargs):
+        """A statement the structurer 'published' whose summary cannot close:
+        the printed totals disagree with the one row, so `reconcile` fails and
+        `needs_escalation` is True."""
+        return Statement(
+            bank=None,
+            account_name=None,
+            account_number=None,
+            period_start="2026-01-01",
+            period_end="2026-01-31",
+            days_in_period=31,
+            beginning_balance=1000.00,
+            ending_balance=9999.00,
+            stated_total_credits=5000.00,
+            stated_total_debits=250.00,
+            transactions=[Transaction(
+                date="2026-01-05",
+                description="A POSTING",
+                amount=100.00,
+                direction="credit",
+                running_balance=1100.00,
+            )],
+        )
+
+    monkeypatch.setattr(pipeline, "extract_statement", recorder)
+    monkeypatch.setattr(pipeline, "structure_unclaimed", ungrounded)
+    monkeypatch.setenv("GENERIC_STRUCTURER_ENABLED", "1")
+    settings = Settings(
+        api_key="",
+        model="model-a",
+        escalation_model="model-b",          # != model, so that clause passes
+    )
+
+    report = pipeline.analyze_markdown(
+        f"UNSUPPORTED BANK STATEMENT {CANARY} {DIGITS}",
+        parse_mode="deterministic",
+        settings=settings,
+    )
+
+    assert calls == [], "deterministic mode made a hosted-model call"
+    assert report.reconciliation.ok is False, (
+        "the fixture must NOT reconcile, or the guard's other clauses would "
+        "have stopped the call and this test would prove nothing"
+    )
+    assert settings.escalation_model != settings.model
 
 
 # ---------------------------------------------------------------------------
