@@ -35420,3 +35420,652 @@ the file restored from an untouched copy.
 
 No production file changed in this round. The corpus gate and the full
 corpus-marked slice are Ocean's at the train, on the composed tree.
+
+# §CURRSRC — currency provenance: every published currency says where it came from
+
+Branch `wave7-currsrc`, base `e83f746`. Batch 7, card 4. Additive; provenance
+only; **no currency VALUE moves anywhere**; no FX, no cross-currency
+aggregation, no conversion in the UI. Gustavo's ruling of 2026-08-21 is the
+scope: *"Keep the three hardcoded CAD pins for now but improve provenance. Do
+not add FX conversion or cross-currency aggregation yet; preserve native
+currency and fail closed across units."* $0.00 vendor; archive, artifact cache
+and discovery reports read-only by direct file path.
+
+## CS0. Summary
+
+| | |
+|---|---|
+| The field | `Statement.currency_source`, a closed six-member `Literal`, default `schema_default` |
+| The vocabulary | `printed` · `product` · `jurisdiction_default` · `institution_default` · `model_extracted` · `schema_default` — CURRENCY_DOCTRINE §B's hierarchy in the data instead of in prose |
+| Currency movement | **zero**. `PINNED_CURRENCY` byte-identical; gate `currency: 109/109 … 14 CAD / 95 USD`; the 151 RBC movers unchanged; the nine CURRENCY-1 corrections unchanged; ATB stays USD pending its packet |
+| Pinned census (109), measured BEFORE pinning | 90 `schema_default` / 7 `institution_default` / 7 `product` / 4 `jurisdiction_default` / 1 `printed` / 0 `model_extracted` |
+| Archive census (3,380 → 2,535 published payloads) | 1,828 `schema_default` / 425 `institution_default` / 147 `jurisdiction_default` / 100 `product` / 35 `printed` / 0 `model_extracted` |
+| Archive differential | 2,535 compared · **2,535 masked-identical** · the only differing leaf anywhere is `statement.currency_source` · 0 `no_payload_now_publishes` · 0 `payload_now_raises` |
+| New pinned surface | `PINNED_CURRENCY_SOURCE` (109, total, RED both directions) + `check_currency_source` |
+| Mutation table | 21 mutants, **21 killed**, 0 survivors |
+| Statement-specific constants | none. Six vocabulary tokens, defined once in `analysis/schema.py` |
+
+## CS1. The vocabulary, and why it is six and not five
+
+The handoff drafted five classes and asked for the set to be finalised and
+justified. Two members needed no change; one whole class was missing and three
+site classifications were wrong. Every correction below is a measurement, not
+a preference.
+
+**Ordered strongest evidence first.** The order is not decoration: it is the
+precedence the readers already implement, and it is what makes a *degrade*
+visible. A document whose printed code stops being read still publishes the
+same three letters; the only thing that moves is a step down this list.
+
+| Class | What the reader must actually have | Earned today by |
+|---|---|---|
+| `printed` | a currency word or ISO code the document prints, read off the page | `bmo.py` (`Currency: XXX`), `cibc.py` (the code on the closing-balance row), `rbc.py` (the `U.S. Funds` line), `wealthsimple.py` (the REQUIRED `AMOUNT (CAD) BALANCE (CAD)` grid header) |
+| `product` | a printed product/account designation that fixes the denomination | `rbc.py` (`CAD CHEQUING ACCOUNT` / `US BUSINESS ACCOUNT`), `td_can.py` (`ACCOUNT - CAD`), `desjardins.py` (`USD DESJARDINS CORPORATE BUILD-UP ACCOUNT`), `releve_facturation.py` (`COMPTE COURANT CANADIEN`) |
+| `jurisdiction_default` | the ratified four-proof conjunction, both refusals first | `rbc.py::_jurisdiction_currency`, and **nothing else in the layer** (AST-guarded) |
+| `institution_default` | nothing but the registration's own detection — the class that OWES evidence | 14 sites across 12 readers |
+| `model_extracted` | nothing the platform verified: the LLM returned it | `extract.py` |
+| `schema_default` | nothing at all; the field's own default `"USD"` is standing | every registration that never sets `currency`, plus `desjardins.py`'s silent arm |
+
+### CS1.1 `model_extracted` — the sixth class, and why it had to exist
+
+`analysis/extract.py::extract_statement` is a live publisher of
+`Statement.currency`: `analysis/pipeline.py` :689 and :708 call it whenever no
+deterministic parser claimed the document and `parse_mode="auto"` (production's
+default; the gate, the discovery runner and every test here are offline). None
+of the five drafted classes describes what it produces — the platform did not
+read the page, there is no product map, no jurisdiction rule and no institution
+assertion, and the model can return `"CAD"`, which is not the schema default
+either. Filing it under any of the five would have been the exact failure the
+card exists to prevent: a source a reader did not earn.
+
+There is a second, sharper reason. `Statement` is that call's
+`response_schema`, so adding a field to the model adds it to the JSON schema
+handed to the model — **`currency_source` is now a field the LLM itself can
+fill.** A model returning `"printed"` would be certifying its own provenance.
+It may not: the value is discarded unconditionally at the boundary and replaced
+with `model_extracted`, the one thing true of the whole branch.
+`tests/test_currency_source.py::TestModelExtracted` drives the real
+`extract_statement` with a stub client (no vendor call; `_get_client` patched,
+the pattern `tests/test_extraction_refusal_is_private.py` established) and
+asserts both halves.
+
+Measured reach: `model_extracted` appears on **0** of the 109 pinned documents
+and **0** of the 2,535 archive payloads, because neither population can reach
+the LLM branch. It is in the vocabulary for the production path, not for the
+corpus.
+
+### CS1.2 Three site classifications that differ from the handoff's census
+
+**`rbc.py:829` is `institution_default`, not `jurisdiction_default`.** The
+handoff's `jurisdiction_default` bullet names `rbc.py:322/:829` as "the
+affirmative four-proof conjunction". Line 322 is that conjunction. Line 829 is
+not: it is the FRENCH reader, which executes
+
+```
+stmt.bank = "Banque Royale du Canada"
+stmt.currency = "CAD"
+```
+
+with no currency read, no U.S.-institution discriminator, no contrary-currency
+refusal and none of the four proofs. It asserts CAD because `detect_french`
+claimed the document — `institution_default` by the handoff's own definition
+(*"the reader asserts the currency from the institution's identity without
+reading it"*), and in agreement with the batch-6 escalation, which lists "the
+three institution-hardcoded CAD (Scotiabank, CIBC French, **RBC French**)"
+among the named future movers owing an evidence packet. Filing it as
+`jurisdiction_default` would have recorded a document as covered by the
+ratified rule when the ratified rule never ran on it, and would have hidden one
+of the three sites this field exists to expose.
+
+**`releve_facturation.py:441` is `product`, not `institution_default`.** It
+cannot be an institution default for a structural reason: this registration
+identifies no institution at all — it publishes `bank=None`, the
+honest-unknown-issuer family. What it has is `_PRODUCT_RE = COMPTE : (COMPTE
+COURANT CANADIEN)`, a REQUIRED marker (`if product is None: return None`) whose
+designation is the only currency evidence on the page, exactly as the file's
+own comment says.
+
+**`desjardins.py`'s fallback arm is `schema_default`, not
+`institution_default`.** `currency=_printed_currency(markdown) or "USD"`: the
+read arm is `product`; the fallback publishes `"USD"` for a **Quebec caisse**.
+"USD because Desjardins" is a claim nobody can make, so the honest statement is
+that nothing was read and the field's own default is standing. This is §CUR6's
+named residual (a real but unattested ISO code falls into this arm), now
+visible in the payload instead of only in a comment.
+
+**One classification the handoff did not name, recorded because it was a
+judgement.** `wealthsimple.py:235` is filed `printed`, and the read is the
+REGISTRATION's rather than the assignment line's: `_GRID_RE` matches only
+`AMOUNT (CAD) BALANCE (CAD)` and is a `required` detection marker, so a
+document reaching the assignment has printed the code over both money columns,
+and one that has not is never claimed at all
+(`test_wealthsimple_refuses_the_whole_document_when_the_code_is_absent`, plus
+the pre-existing `test_a_non_cad_activity_grid_is_not_claimed`). If a reviewer
+prefers `institution_default` here it is a one-line change and no value moves —
+but it would file a page that prints its currency twice as a page that prints
+it never.
+
+## CS2. The census of publishers — every site, and its class
+
+Every assignment to `Statement.currency` in `analysis/`: 30 sites in 22
+modules, plus the LLM boundary, plus the schema default covering everything
+else. Line numbers as of the base tree `e83f746`.
+
+| Reader | Site | Value | Class |
+|---|---|---|---|
+| `bmo.py` | :133 read arm | printed `Currency: XXX` | `printed` |
+| `bmo.py` | :133 fallback arm | `"CAD"` | `institution_default` |
+| `bmo_ca_business.py` | :351 | `"CAD"` | `institution_default` |
+| `bmo_us_activity.py` | :169 | `"USD"` | `institution_default` |
+| `brex.py` | :333 | `"USD"` | `institution_default` |
+| `chase.py` | :199 (the export layout) | `"USD"` | `institution_default` |
+| `cibc.py` | :184 (French) | `"CAD"` | `institution_default` |
+| `cibc.py` | :410 (English) | `"CAD"` | `institution_default` |
+| `cibc.py` | :430 | the code on the closing row | `printed` |
+| `desjardins.py` | :235 read arm | the code before the product name | `product` |
+| `desjardins.py` | :235 fallback arm | `"USD"` | `schema_default` |
+| `farmers_merchants.py` | :120 | `"USD"` | `institution_default` |
+| `found_lead.py` | :368 | `"USD"` | `institution_default` |
+| `mercury.py` | :359 | `"USD"` | `institution_default` |
+| `rbc.py` | :568 rung 1a | the `U.S. Funds` line | `printed` |
+| `rbc.py` | :568 rung 1b | the mailing-header product map | `product` |
+| `rbc.py` | :568 rung 2 | the four-proof conjunction | `jurisdiction_default` |
+| `rbc.py` | :829 (French) | `"CAD"` | `institution_default` |
+| `releve_facturation.py` | :441 | `"CAD"` | `product` |
+| `scanned_small_bank.py` | :259 / :443 / :1033 | `"USD"` ×3 | `institution_default` |
+| `scotia.py` | :154 | `"CAD"` | `institution_default` |
+| `square_checking.py` | :215 | `"USD"` | `institution_default` |
+| `symitar.py` | :319 | `"USD"` | `institution_default` |
+| `td_can.py` | :488 read arm | the `ACCOUNT - CAD` suffix | `product` |
+| `td_can.py` | :488 fallback arm | `"CAD"` | `institution_default` |
+| `td_can.py` | :623 (the table layout) | `"CAD"` | `institution_default` |
+| `td_canada_french.py` | :357 | `"CAD"` | `institution_default` |
+| `wealthsimple.py` | :235 | `"CAD"` | `printed` |
+| `woodforest.py` | :467 | `"USD"` | `institution_default` |
+| `extract.py` | the LLM boundary | whatever the model returned | `model_extracted` |
+| every other registration | — | never set | `schema_default` |
+
+The last row is the largest population and the reason the default is
+`schema_default` and not anything else: ~45 registrations — `fiserv_premier`,
+the whole core-processor complex, `atb`, `bofa`, `chase`'s statement layouts,
+`wells`, `truist`, `pnc`, `citizens`, `huntington`, and the structurer's
+`bank=None` statements — publish `"USD"` without any reader having asked.
+
+## CS3. The pinned census (109), measured BEFORE pinning
+
+Replayed through `corpus_gate.production_verdict` — the same resolver
+`check_outcome_classes` uses, so this is the product's own published payload
+and not a harness's opinion. Enumerated before a single line of
+`PINNED_CURRENCY_SOURCE` was written; there was no surprise to report.
+
+| Class | N | Which documents |
+|---|---|---|
+| `schema_default` | 90 | the 94 documents no reader ever asked about, less the four the RBC ceremony moved. **Includes all five `ATB/*`** |
+| `institution_default` | 7 | CIBC French, Scotiabank, the French RBC statement (the three Canadian hardcodes batch 6 named) + a Chase export, Farmers & Merchants, Southside, Apex |
+| `product` | 7 | the six TD Canada statements (`ACCOUNT - CAD`) + the Desjardins `USD` product |
+| `jurisdiction_default` | 4 | the four RBC statements of the approved ceremony, and no others |
+| `printed` | 1 | the BMO statement whose header states `Currency: CAD` |
+| `model_extracted` | 0 | unreachable offline |
+
+**It reconciles to the batch-6 census of the same 109 exactly.** Batch 6
+measured, on the pre-ceremony tree, "10 parser-CAD, 5 parser-USD including an
+explicit Desjardins USD product, 94 schema-default USD", and of the 14 CAD
+after the ceremony "every CAD explained (7 printed, 3 institution-hardcoded)".
+Mine: 10 pre-existing parser CAD = 1 `printed` + 6 `product` + 3
+`institution_default`; + 4 ceremony `jurisdiction_default` = 14 CAD. 5 parser
+USD = 1 Desjardins `product` + 4 `institution_default`. 90 + 14 + 5 = 109. The
+one difference is this card's whole purpose: batch 6's "7 printed" is 1 code
+stated outright plus 6 read through a product designation, and the vocabulary
+now separates them.
+
+**Currency movers among the 109: 0.** Every published `statement.currency`
+equals its `PINNED_CURRENCY` pin; the map is byte-identical on this branch.
+
+## CS4. The archive census (3,380 documents, 2,535 published payloads)
+
+Measured at branch HEAD over the run of record
+`2026-08-21T014415.938236-0000-7a317445`, by the sweep tool's own method: every
+capability partition enumerated, and the OCR artifact chosen as the one whose
+reconstruction resolves the run's stored analysis payload.
+
+| Class | N | Share of published payloads |
+|---|---|---|
+| `schema_default` | 1,828 | 72.1% |
+| `institution_default` | 425 | 16.8% |
+| `jurisdiction_default` | 147 | 5.8% |
+| `product` | 100 | 3.9% |
+| `printed` | 35 | 1.4% |
+| `model_extracted` | 0 | — |
+| **total** | **2,535** | |
+
+The remaining 845 of the 3,380 publish nothing to carry a class: 816
+`no_payload_raises_again` (unclaimed / ambiguous / parser crash — failures are
+never cached) and 29 `no_ocr_artifact`.
+
+Two cross-checks fall out of the numbers, and both hold.
+
+* **`jurisdiction_default` = 147.** The batch-6 entry records the RBC ceremony
+  as "**147 archive documents** … + the 4 pinned RBC statements" = 151. The
+  jurisdiction rung fires on exactly the archive half of the ceremony
+  population, to the document. Nothing else in the archive takes a native
+  default.
+* **The headline the field was built to expose.** 2,253 of 2,535 published
+  payloads — **88.9%** — carry a denomination the platform never read
+  (`schema_default` + `institution_default`). That number was previously
+  unknowable from the payload: all of it published as an ordinary `"USD"` or
+  `"CAD"` string indistinguishable from the 135 documents that were actually
+  read (`printed` + `product`).
+
+By outcome class (`validated` / `review` / `withheld`):
+
+```
+validated   1,785 schema_default · 405 institution_default · 141 jurisdiction_default
+            ·  94 product        ·  31 printed
+review          7 schema_default ·   9 institution_default
+withheld       36 schema_default ·  11 institution_default ·   6 jurisdiction_default
+            ·   6 product        ·   4 printed
+```
+
+## CS5. The hunks, grouped by reader
+
+Thirty assignment sites in twenty-two modules, plus the model boundary. Every
+hunk is at the currency-assignment site and nowhere else — the file-sharing
+discipline the card set for the readers DECLINES-F owns (`bmo_ca_business.py`,
+`capital_one.py`, `first_citizens.py`), DECLINES-G owns (`scotia.py`) and
+REPAIR-DOCTRINE owns (`columbia_bank.py`). `capital_one.py`,
+`first_citizens.py` and `columbia_bank.py` set no currency at all, so this
+branch does not touch them.
+
+**`printed` — the code the page states.**
+
+```python
+# analysis/bmo.py :134     (read arm; the fallback arm is institution_default)
+currency_source="printed" if currency else "institution_default",
+
+# analysis/cibc.py :433    (inside `if code:`, the closing-balance row)
+                stmt.currency_source = "printed"
+
+# analysis/wealthsimple.py :238
+    stmt.currency_source = "printed"
+
+# analysis/rbc.py :140-141 (the `U.S. Funds` denomination line)
+    if _US_FUNDS_RE.search(markdown):
+        found["USD"] = "printed"
+```
+
+**`product` — a printed designation that fixes the denomination.**
+
+```python
+# analysis/rbc.py :136-140 (the mailing-header product map)
+    found: dict[str, str] = {}
+    for line in _MAILING_HEADER_RE.findall(markdown.upper()):
+        for spelling, code in _PRODUCT_CURRENCY.items():
+            if spelling in line:
+                found[code] = "product"
+
+# analysis/td_can.py :489
+    stmt.currency_source = "product" if printed_currency else "institution_default"
+
+# analysis/desjardins.py :221, :236-237
+    printed_currency = _printed_currency(markdown)
+        currency=printed_currency or "USD",
+        currency_source="product" if printed_currency else "schema_default",
+
+# analysis/releve_facturation.py :445
+        currency_source="product",
+```
+
+**`jurisdiction_default` — the ratified rule, and nothing else in the layer.**
+
+```python
+# analysis/rbc.py :333, :356-364, :586
+def _statement_currency(markdown: str) -> tuple[str, str] | None:
+    printed = _printed_currency_evidence(markdown)
+    if len(printed) == 1:
+        return next(iter(printed.items()))
+    if printed:
+        return None
+    jurisdiction = _jurisdiction_currency(markdown)
+    if jurisdiction is None:
+        return None
+    return jurisdiction, "jurisdiction_default"
+...
+        stmt.currency, stmt.currency_source = statement_currency
+```
+
+The rung and the code leave the function together, for the reason
+`analysis/td_can.py` already reads its currency and its account name off one
+match: a provenance computed by a second pass could disagree with the value it
+claims to explain. `_printed_currency_evidence` went from `set[str]` to
+`dict[str, str]` (code → class) so the distinction is made where the evidence
+is read; where both sites fire for the same code the stated line wins, because
+they agree and the stated line is the stronger evidence.
+
+**`institution_default` — fourteen sites, twelve readers.**
+
+```python
+# analysis/bmo.py :134 (fallback arm, above)
+# analysis/bmo_ca_business.py :351
+    stmt = Statement(bank=edition.bank, currency="CAD", currency_source="institution_default")
+# analysis/bmo_us_activity.py :169
+    stmt = Statement(bank="BMO", currency="USD", currency_source="institution_default")
+# analysis/brex.py :334          currency_source="institution_default",
+# analysis/chase.py :200         currency_source="institution_default",
+# analysis/cibc.py :185          currency_source="institution_default",          (French)
+# analysis/cibc.py :412          stmt.currency_source = "institution_default"    (English)
+# analysis/farmers_merchants.py :120-121
+    stmt = Statement(bank="Farmers & Merchants Bank", currency="USD",
+                     currency_source="institution_default")
+# analysis/found_lead.py :369    currency_source="institution_default",
+# analysis/mercury.py :360       currency_source="institution_default",
+# analysis/rbc.py :848           stmt.currency_source = "institution_default"    (French)
+# analysis/scanned_small_bank.py :259-260, :444-445, :1036  (Southside, Apex, Texas First)
+# analysis/scotia.py :155        stmt.currency_source = "institution_default"
+# analysis/square_checking.py :215
+    stmt = Statement(bank="Square", currency="USD", currency_source="institution_default")
+# analysis/symitar.py :320       stmt.currency_source = "institution_default"
+# analysis/td_can.py :489 (fallback arm, above), :625
+# analysis/td_canada_french.py :358
+# analysis/woodforest.py :468
+```
+
+**`model_extracted` — the boundary.**
+
+```python
+# analysis/extract.py :232-240
+    stmt.currency_source = "model_extracted"
+```
+
+**`schema_default` — the field's own default**, plus one explicit arm
+(`desjardins.py`, above). No hunk anywhere else: that is the point.
+
+## CS6. The pinned provenance surface
+
+`corpus_gate.PINNED_CURRENCY_SOURCE` (109 entries) + `check_currency_source`,
+a **sibling total map** rather than a `(currency, source)` pair inside
+`PINNED_CURRENCY`. The card left the form to me; three reasons for this one:
+
+1. `PINNED_CURRENCY` stays **byte-identical**, so the batch-6 ceremony's
+   surface and the reviewed census comment above it remain exactly what was
+   approved. Re-shaping 109 truth-set entries to add a field beside them is
+   churn on a map whose whole value is that it does not move.
+2. A currency that moved and a provenance that moved are **different
+   findings**, and the gate should name which. Two lines now print:
+   `[PASS] currency: 109/109 …` unchanged, and `[PASS] currency_source:
+   109/109 …` beside it.
+3. It is the form the batch-6 train already ratified for this kind of pin
+   ("RBC-CAD's surface form (a separate total map)").
+
+`check_currency_source` is TOTAL in both directions like its sibling — the map
+must name every pinned path and no other — fails closed on a document whose
+payload could not be produced, and adds a third assertion the currency check
+has no analogue for: every pinned value must be in the gate's OWN copy of the
+vocabulary. That copy is deliberate and follows `EXPECTED_ADB_BASIS`'s
+precedent: an audit that imported `analysis.schema.CURRENCY_SOURCES` would
+widen the moment someone widened the enum, and a surface that agrees with the
+thing it audits by construction is not a surface.
+
+**What it catches that nothing else does.** A reader that stops reading the
+code its document prints and falls back to an institution constant publishes
+the identical three letters. Both audit CSVs, every verdict, the integrity
+block, the ADB surface and `check_currency` itself stay green. The platform's
+knowledge of the document got worse and, before this map, nothing in the tree
+would have said so. That exact mutation is M10/M14 below.
+
+## CS7. Consumers — what carries, and what must never read it
+
+* **Serialization** carries it for free: `report_to_dict` is
+  `report.statement.model_dump()`, so the field appears beside `currency` with
+  no change to `analysis/serialization.py`.
+* **The package layer is untouched.** PKG-CURRENCY's four buckets (`single` /
+  `mixed` / `undetermined` / `no_analyzed_documents`), its 32 refused
+  cross-currency totals and the package's one denominated ADB read
+  `statement.currency` and nothing else. `tests/test_package_currency.py` is
+  **unmodified** and green.
+* **The UI is untouched.** `webapp/static/app.js` reads
+  `statement.currency || "USD"` and hands it to `Intl.NumberFormat`; the new
+  field rides in the payload and no template enumerates statement keys. Whether
+  an analyst should SEE the provenance is a product decision, not this card's.
+* **The CSV/XLSX export gains one row**, `statement,currency_source,<class>`,
+  because `_analysis_rows` flattens the whole statement section. Deliberate and
+  not suppressed: `_EXPORT_SUPPRESSED_KEYS` exists to hide a duplicate of a
+  number, and hiding provenance from the analyst is the opposite of this card.
+* **Nothing computes with it.**
+  `test_only_the_readers_the_schema_and_the_gate_know_the_provenance_exists`
+  enumerates every non-test module in the tree allowed to mention the field at
+  all — the 21 readers, the schema, the model boundary and the gate — and fails
+  on a mention anywhere else, in both directions. The moment a metric, an ADB,
+  a reconciliation or a package total consults the label it has become an input
+  to money, and doctrine §A/§F is at risk from a field that was supposed to be
+  additive.
+
+## CS8. The archive differential — masked and unmasked
+
+Both passes at branch HEAD, over the run of record
+`discovery_reports/2026-08-21T014415.938236-0000-7a317445`, baseline settings
+key `D3370EEBDCB87892A2739BCB0D882A66E72DCBFAB2553101111157B5A231DE24`, in
+seven chunks of ~500 (`--start`/`--end`; the counts add). Read-only, direct
+file paths, sqlite index never opened, `parse_mode="deterministic"` so no model
+call is reachable — $0.00.
+
+**Pass 1 — the committed instrument** (`python -m
+tools.regfp_zero_movement_sweep`), 3,380 documents, 10,435.9s total:
+
+```
+compared_payload 2535 · identical 0 · moved 2535
+no_payload_raises_again 816 · no_ocr_artifact 29 · multi_artifact_documents 74
+no_payload_now_publishes 0 · payload_now_raises 0
+```
+
+Every one of the 2,535 findings has the **same shape**: `verdict: "moved",
+fields: ["statement"]` — one distinct shape in the whole sweep, measured, not
+asserted. `identical 0` is expected and is the card's own prediction: a new
+field on every published statement means no payload can be byte-identical to
+what the run stored. The two counts that would be regressions —
+`no_payload_now_publishes` and `payload_now_raises` — are **0**: the boundary
+between publishing and refusing did not move for any document.
+
+The instrument exits **1** whenever it has findings, so each chunk reported
+`CHUNK_EXIT=1` and the chain `EXIT=1`. That is the tool's contract
+(`return 1 if findings else 0`), not a failure.
+
+**Pass 2 — the leaf-diff, masked and unmasked** (§CURRSRC's own instrument,
+same enumeration and the same key reconstruction), 3,380 documents, 3,494.8s:
+
+```
+compared_payload 2535
+masked_identical             2535     (delete statement.currency_source -> byte-identical)
+masked_moved                    0
+unmasked_only_the_new_field  2535
+unmasked_other_leaves           0
+unmasked leaf paths that differ, archive-wide:  {"statement.currency_source": 2535}
+findings: []                            EXIT=0
+```
+
+That is the proof the card asked for, in both directions on the same
+population: mask the new field and **every** stored payload in the archive is
+reproduced byte for byte; unmask it and the **only** leaf that differs anywhere
+in 2,535 payloads is `statement.currency_source`. No amount, no balance, no
+ADB, no classification, no verdict, no integrity flag moved. The leaf-diff
+prints paths only — never document text, filenames or figures.
+
+## CS9. Tests
+
+45 new test functions — 37 in `tests/test_currency_source.py`, 8 in
+`tests/test_corpus_gate_outcomes.py` — of which **one is corpus-marked** (the
+end-to-end provenance proof on the four ceremony documents and the pinned
+French RBC statement). Default suite 5,374 → **5,418**; corpus-marked slice
+29 → **30**; deselected 33 → 34; skipped unchanged at 35.
+
+`tests/test_currency_source.py` is in three parts.
+
+**The vocabulary** (3): the field defaults to `schema_default`; the annotation
+is the closed six-member `Literal` and equals `CURRENCY_SOURCES`; a value
+outside it is rejected on construction.
+
+**Structural surfaces over the whole `analysis` package** (3 AST tests) — these
+are what survive the next parser cell:
+* a `Statement(...)` built with a `currency` keyword is built with a
+  `currency_source` keyword in the SAME call;
+* a function that assigns `<x>.currency` assigns `<x>.currency_source` in the
+  same body (tuple targets counted, the shape `rbc.py` uses);
+* every literal the layer writes is in the vocabulary, and the scan is proved
+  non-vacuous by asserting it really found four of the classes.
+
+**Earned, class by class** — one publication and one refusal each:
+
+| Class | Publishes it | Refuses it without the evidence |
+|---|---|---|
+| `printed` | BMO's `Currency: CAD`; CIBC's closing-row code; Wealthsimple's required grid header; RBC's `U.S. Funds` | the same BMO document with the line removed → `institution_default`; the same CIBC document with no code → `institution_default`; a Wealthsimple grid printing `(EUR)` → **not claimed at all** |
+| `product` | RBC's `CAD CHEQUING ACCOUNT`; TD's `ACCOUNT - CAD`; Desjardins' `USD` product; the Quebec `COMPTE COURANT CANADIEN` | an unattested `CAD BUSINESS ACCOUNT` spelling → `schema_default`; TD's suffix-less product → `institution_default`; Desjardins with no admissible code → `schema_default`; the Quebec layout with no product line → not claimed |
+| `jurisdiction_default` | the four-proof conjunction | ablating ANY ONE of the four proofs (parametrized ×4) → `schema_default`; contrary `U.S. Funds` evidence beside a product name → `schema_default`; and no other module in the layer may write the class (AST) |
+| `institution_default` | Scotiabank; the French RBC reader | a Scotiabank document with its issuer furniture stripped → not claimed, so no currency and no class |
+| `model_extracted` | the LLM branch | a model that returns `currency_source="printed"` has it discarded |
+| `schema_default` | an ATB statement (no reader asks) | — it is the floor |
+
+Plus two additive-only proofs: the published payload carries the field beside
+the currency, and no module outside the readers, the schema, the model boundary
+and the gate may even MENTION it.
+
+Three existing test files needed a change, each recorded rather than absorbed:
+`tests/test_rbc_variants.py` (5 assertions, for `_statement_currency`'s tuple
+return and `_printed_currency_evidence`'s mapping — no behaviour asserted
+differently); `tests/test_analysis.py` (the ATB fixture hoisted to a module
+constant so §CURRSRC can reuse it; the test body otherwise identical);
+`tests/test_row_grouping.py` (CS11.1).
+
+## CS10. The mutation table
+
+Every gate this card adds or touches, weakened or reverted, with the test that
+dies. Run on a byte-identical COPY of the branch tree so that mutating a
+production module could not corrupt the archive sweeps running concurrently
+against the real worktree; the copy was verified identical to the worktree
+before the table ran and again after it.
+
+**21 mutants, 21 killed, 0 survivors** (pytest exit 1 on each).
+
+| # | Mutation | Test that fails |
+|---|---|---|
+| M1 | `chase.py` builds a Statement with `currency` and no `currency_source` | `test_a_statement_built_with_a_currency_is_built_with_its_source` |
+| M2 | `scotia.py` assigns `currency` and drops the source line | `test_a_reader_that_assigns_a_currency_assigns_its_source` |
+| M3 | BMO claims `printed` unconditionally | `test_bmo_refuses_printed_when_the_header_states_nothing` |
+| M4 | Desjardins' silent arm claims `institution_default` | `test_desjardins_refuses_product_where_the_line_prints_no_code` |
+| M5 | the French RBC reader claims `jurisdiction_default` | `test_the_french_rbc_reader_asserts_rather_than_reads` |
+| M6 | the jurisdiction rung labels itself `printed` | `test_a_proven_rbc_canada_account_that_states_nothing_takes_the_default` |
+| M7 | `extract.py` stops discarding the model's own `currency_source` | `test_a_source_the_model_filled_in_itself_is_discarded` |
+| M8 | the schema default becomes `printed` | `test_the_field_defaults_to_the_truth_about_a_reader_that_never_set_it` |
+| M9 | the annotation becomes `str` (free text) | `test_the_annotation_is_the_closed_set_and_not_free_text` |
+| M10 | the gate stops comparing published vs pinned provenance | `test_a_read_that_degrades_to_a_default_turns_the_gate_red` |
+| M11 | the provenance surface stops being total over the manifest | `test_an_unstated_or_unknown_provenance_pin_turns_the_gate_red` |
+| M12 | the gate stops checking its own copy of the vocabulary | `test_a_provenance_outside_the_vocabulary_turns_the_gate_red` |
+| M13 | a document with no payload passes the provenance check by omission | `test_a_document_with_no_payload_is_red_not_skipped_for_provenance` |
+| M14 | one pinned provenance is quietly re-baselined | `test_the_pinned_provenance_split_is_the_measured_one` |
+| M15 | `analysis/metrics.py` starts reading the provenance | `test_only_the_readers_the_schema_and_the_gate_know_the_provenance_exists` |
+| M16 | Wealthsimple downgrades its required-marker read | `test_wealthsimple_reads_the_code_its_required_grid_header_prints` |
+| M17 | RBC lets the product name outrank the stated line | `test_the_stated_line_outranks_a_product_name_that_agrees_with_it` |
+| M18 | the unknown-issuer layout claims an institution it never named | `test_the_unknown_issuer_quebec_layout_reads_its_product_designation` |
+| M19 | TD Canada's suffix-less arm claims a `product` read | `test_td_canada_refuses_product_where_the_product_has_no_suffix` |
+| M20 | CIBC stops recording the code it read off the closing row | `test_cibc_reads_the_code_printed_on_its_closing_balance_row` |
+| M21 | a second module writes `jurisdiction_default` | `test_no_other_reader_in_the_layer_claims_a_jurisdiction_default` |
+
+## CS11. Carried risks and things Ocean must decide
+
+**1. `ANALYSIS_STAGE_VERSION` MUST be bumped at the train.** The analysis
+settings key on this branch is UNCHANGED — no registration moved, so
+`registry_fingerprint()` is unchanged, and no `Settings` field moved. That is
+exactly why the sweep above could find and compare the run's stored payloads at
+all. It also means a warm cache would keep serving v14 payloads that have no
+`currency_source` key: the gate's new check would read `None` and go red (a
+good failure), but production's exports and any future consumer would silently
+lack the field. `webapp/artifact_cache.py:389` still reads
+`ANALYSIS_STAGE_VERSION = 14`; the composed bump is Ocean's.
+
+**2. `Statement` is the LLM's `response_schema`.** Adding a field changes the
+JSON schema handed to Gemini on the production `parse_mode="auto"` branch. The
+value it returns is discarded, but the request payload is one field larger.
+Unexercised in this wave (every test and every sweep here is offline, $0.00),
+so it is named rather than measured.
+
+**3. The CSV/XLSX export gains a row** (CS7). Deliberate; flagged because it
+changes an analyst-facing artifact's shape by one line.
+
+**4. `institution_default` is now countable, and it is 425 archive payloads
+across 12 readers** — the debt doctrine §B's final paragraph describes. Five of
+the fourteen sites assert CAD from a Canadian institution's identity
+(`bmo.py`'s fallback, `bmo_ca_business.py`, `cibc.py` ×2, `scotia.py`,
+`td_can.py` ×2, `td_canada_french.py`, `rbc.py`'s French reader). Each needs
+its own proven-jurisdiction evidence base before it can become a
+`jurisdiction_default`, exactly as ATB-MEASURE is doing for the five pinned
+`schema_default` ATB documents. The field makes that queue visible; it does not
+shorten it, and nothing here promotes any of them.
+
+**5. `wealthsimple.py` filed as `printed`** on the strength of a REQUIRED
+detection marker rather than a read at the assignment line (CS1.2). A reviewer
+may prefer `institution_default`; one line, no value moves.
+
+**6. `_statement_currency`'s signature changed** from `str | None` to
+`tuple[str, str] | None`, and `_printed_currency_evidence` from `set[str]` to
+`dict[str, str]`. Both are module-private to `analysis/rbc.py`; no caller
+outside the module and its tests exists (grepped).
+
+### CS11.1 Two defects this cell found in its own work
+
+**The frozen row-grouping oracles.** `tests/test_row_grouping.py` freezes each
+parser's pre-promotion body verbatim and asserts the live parser reads every
+document identically. The TD Canada oracle writes `stmt.currency = "CAD"` and
+knows nothing about `currency_source`, so all 28 TD documents in that matrix
+reported a difference on a field the row grouper does not own — 56 failures in
+the first full-suite run. Closed at `277bccc` through the mechanism the file
+already has for exactly this (`_FIELDS_NEWER_THAN_THE_ORACLES`, alongside
+`bank_reported_average_label` and `initialization_transaction_count`) rather
+than by editing an oracle whose whole value is that it has not been edited.
+Worth recording that `currency` itself is already in this position on that
+oracle: the frozen body writes a constant while the live reader has read the
+`ACCOUNT - CAD` suffix since CURRENCY-1, and the two agree on that matrix only
+because every fixture prints CAD.
+
+**A scan that would have been green here and red for Ocean.**
+`test_only_the_readers_the_schema_and_the_gate_know_the_provenance_exists`
+rooted its sweep at the repo root with an exclusion list of its own invention.
+A developer checkout carries whole sibling checkouts under `.claude/worktrees/`,
+so on the main checkout the scan would have read another cell's copy of
+`analysis/schema.py` and reported it as an unexpected mention. Closed at
+`45b1795` by using `NON_PRODUCTION_DIRS`, the exact tuple
+`tests/test_corpus_gate_outcomes.py` already uses for its own repo-wide sweep.
+
+## CS12. Proofs, with verbatim exit codes
+
+All on this branch. The first pass ran on a host shared with nine other batch-7
+cells (up to 24 concurrent python processes); the final pass ran on a quiet
+host. Both are recorded.
+
+| Proof | Result | Exit |
+|---|---|---|
+| `python corpus_gate.py` | **RESULT: GREEN** — every check PASS; 109 pinned PDFs (103 native + 6 committed OCR), 0 foreign; `Outcomes: 106 PASS / 3 WITHHELD`; `Verdicts: 4 review / 102 validated / 3 withheld`; **`[PASS] currency: 109/109 … 14 CAD / 95 USD`**; **`[PASS] currency_source: 109/109 … 7 institution_default / 4 jurisdiction_default / 1 printed / 7 product / 90 schema_default`**; runtime 1370.7s | **0** |
+| canonical guard set (5 files) | **242 passed** (32.1s) | **0** |
+| canonical conformance set (7 files) | **1,151 passed, 35 skipped** (8.0s) | **0** |
+| full default suite | **5,418 passed**, 35 skipped, 34 deselected (316.86s) — 5,374 + 44 new unmarked | **0** |
+| corpus-marked slice | **30 passed**, 5,457 deselected (2,379.78s) — 29 + 1 new corpus-marked | **0** |
+| corpus-marked slice, saturated host (first pass) | 1 failed, 29 passed, 5,457 deselected (5,931.08s) — the single failure `test_detect_sweep_stays_affordable_for_the_discovery_run`, a wall-clock affordability ceiling documented as host-sensitive (batch-4 DETECT-BUDGET). **Re-run alone on the quiet host: 1 passed (66.58s), exit 0.** This branch adds no work to the detect sweep: every hunk executes inside `parse`, none inside `detect` or any detection marker | 1 → **0** |
+| archive sweep, committed instrument (7 chunks) | 3,380 documents, 10,435.9s — 2,535 compared / 2,535 moved / **0 no_payload_now_publishes / 0 payload_now_raises**; one distinct finding shape, `fields: ["statement"]` | **1** (the tool returns 1 whenever it has findings) |
+| archive leaf-diff, masked + unmasked (7 chunks) | 3,380 documents, 3,494.8s — **2,535/2,535 masked-identical**, `unmasked_only_the_new_field 2535`, the only differing leaf archive-wide `statement.currency_source`, findings `[]` | **0** |
+| pinned provenance census (109, before pinning) | 109 rows, 0 errors | **0** |
+| mutation table (21 mutants, isolated tree copy) | `MUTANTS=21 KILLED=21 SURVIVED=0` | **0** |
+
+$0.00 vendor: no hosted model call anywhere, tests included. The archive, the
+D-3 artifact store and `discovery_reports/` were opened read-only by direct
+file path from the main checkout; the `webapp_data` sqlite index was never
+opened; nothing was written to the archive.
+
+## CS13. Commits
+
+| | |
+|---|---|
+| `2cd17ee` | the field, the vocabulary, all thirty reader sites, the model boundary, the pinned provenance surface (`PINNED_CURRENCY_SOURCE` + `check_currency_source`) and the tests |
+| `277bccc` | the frozen row-grouping oracles cannot carry the new field (CS11.1) |
+| `45b1795` | the repo-wide provenance scan must not walk sibling worktrees (CS11.1) |
+| (this commit) | this log section |
+
+Base `e83f746`. Never merged, never pushed; **no stage version bumped** — the
+composed `ANALYSIS_STAGE_VERSION` bump is Ocean's at the train, and CS11 item 1
+argues it is REQUIRED.
