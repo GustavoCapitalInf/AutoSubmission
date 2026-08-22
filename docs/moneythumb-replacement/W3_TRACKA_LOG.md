@@ -36166,7 +36166,8 @@ census quoted in a brief should carry the run id it was taken against.
 | `0d93cd5` | `_yield_only`'s direction clause (M14) and the residual hole named; tests 23 → 24 |
 | `cd7c80a` | M2's test isolates the anchor again after M14's gate made it vacuous |
 | `20d7882` | §DECLINESG G0–G10 |
-| (this one) | §DECLINESG G11–G13: the proof block, the escalations and this table |
+| `160a12d` | G0: two summary figures corrected to what was measured |
+| `37ffea1` | §DECLINESG G11–G13: the proof block, the escalations and this table |
 
 Each module is committed WITH its own test file, so **every commit's tree
 passes its own module tests** — §DECLINESD's D9 lesson (a card that writes one
