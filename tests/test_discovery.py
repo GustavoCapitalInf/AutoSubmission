@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import json
+from collections import Counter
 import subprocess
 import sys
 from pathlib import Path
@@ -892,7 +893,15 @@ def test_dry_run_reproduces_known_truth():
     assert summary["deferred"] == 0
     assert summary["dedup"] == {"unique": 109}
     assert summary["ambiguity_clusters"] == {}
-    assert summary["unknown_layout_clusters"] == {}
+    # An unknown-layout cluster counts documents no registration published, by
+    # folder. W3 §REPAIRDOC put one there and it is named rather than
+    # tolerated: the cluster must be exactly the pinned refusal's folder.
+    assert summary["unknown_layout_clusters"] == dict(
+        Counter(Path(rel).parent.as_posix() for rel in corpus_gate.PINNED_REFUSALS)
+    )
+    # ...and the DECLINED cluster names the registration that detected it and
+    # then refused, which is the fact the refusal actually is.
+    assert summary["declined_clusters"] == {"columbia_bank": 1}
 
     withheld = {
         Path(path).name for path, row in rows.items() if row.outcome_class == "withheld"
@@ -969,9 +978,20 @@ def test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered(tmp_path: 
     warm_rows, warm, warm_records = pass_(cache)
 
     assert {r.cache_analysis for r in cold_rows} == {"miss"}
-    assert {r.cache_analysis for r in warm_rows} == {"hit"}
+    # W3 §REPAIRDOC: a pinned refusal is a MISS on both passes and keeps its
+    # live dispatch, because `webapp/artifact_cache.py` never caches a failure
+    # — there is no payload to serve, so there is nothing to reconstruct FROM.
+    # That is the correct behaviour and it is pinned by name rather than
+    # relaxed away: everything else hits, and the refusal's warm row is
+    # identical to its cold one all the same (asserted below with the rest).
+    refusals = set(corpus_gate.PINNED_REFUSALS)
+    assert {r.relative_path for r in warm_rows if r.cache_analysis == "miss"} == refusals
+    assert {r.cache_analysis for r in warm_rows if r.relative_path not in refusals} == {"hit"}
     assert cold["parser_id_source"] == {PARSER_ID_LIVE_DISPATCH: 109}
-    assert warm["parser_id_source"] == {PARSER_ID_LIVE_DETECT: 109}
+    assert warm["parser_id_source"] == {
+        PARSER_ID_LIVE_DETECT: 109 - len(refusals),
+        PARSER_ID_LIVE_DISPATCH: len(refusals),
+    }
 
     for key in ("outcome", "reasons", "dispatch", "dispatched",
                 "deterministic_coverage", "parsers", "folder_agreement",
@@ -981,13 +1001,15 @@ def test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered(tmp_path: 
         assert warm[key] == cold[key], key
     # Every one of the 109 was reconstructed; none was refused.
     assert warm["dispatch_inconclusive"] == 0
-    assert warm["outcome"] == {"validated": 102, "review": 4, "withheld": 3}
+    assert warm["outcome"] == {
+        "validated": 102, "review": 3, "withheld": 3, "failed": 1,
+    }
     # 102/4/3, not 100/6/3: the batch-5 train composed this test (written on
     # wave5-discobs) with WIRING-2's executed Option-A ceremony, which moved
     # Texas Bank and Regions review->validated. The canonical split is the
     # gate's PINNED_OUTCOMES; the warm==cold reproduction above is the
     # property this test owns.
-    assert warm["deterministic_coverage"] == 1.0
+    assert warm["deterministic_coverage"] == 108 / 109
 
     cold_by_path = {r.relative_path: r for r in cold_rows}
     for row in warm_rows:
@@ -1019,8 +1041,9 @@ def test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered(tmp_path: 
     # The number the card is about, warm and cold, from the shipped summariser.
     assert coverage(cold_records) == coverage(warm_records)
     assert coverage(warm_records) == {
-        "numerator": 109, "denominator": 109, "deferred": 0,
-        "unattributed": 0, "verdicts": {"claimed": 109}, "rate": 1.0,
+        "numerator": 108, "denominator": 109, "deferred": 0,
+        "unattributed": 0, "verdicts": {"claimed": 108, "unclaimed": 1},
+        "rate": 108 / 109,
     }
     # And the two instruments over one run: the telemetry rollup and the
     # discovery rollup are independent code paths reading independent
@@ -1032,8 +1055,14 @@ def test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered(tmp_path: 
         assert coverage(records)["numerator"] == rollup["dispatch"]["claimed"]
 
     # The `--enrich` bridge is no longer load-bearing for a run emitted now:
-    # the records carry their own parser identity, warm or cold.
-    assert all(r["dispatch"]["parser_id"] for r in warm_records)
+    # the records carry their own parser identity, warm or cold. A refusal
+    # names no parser because none published it — the registration that
+    # detected it and declined is in `attempted`, not in `parser_id`.
+    named = [r for r in warm_records if r["dispatch"]["outcome"] == "claimed"]
+    assert len(named) == 109 - len(refusals)
+    assert all(r["dispatch"]["parser_id"] for r in named)
+    unnamed = [r for r in warm_records if r["dispatch"]["outcome"] != "claimed"]
+    assert [r["dispatch"]["attempted"] for r in unnamed] == [["columbia_bank"]]
 
 
 # ---------------------------------------------------------------------------
