@@ -162,6 +162,18 @@ def test_the_dividend_sibling_must_agree_with_the_document_s_own_summary():
     assert parse_symitar_statement(text) is None
 
 
+def test_a_dividend_named_posting_that_takes_money_out_is_not_yield():
+    """Yield is paid INTO the account. Isolates the direction clause: the
+    posting is dividend-anchored, the section's arithmetic closes
+    (5.20 - 0.01 = 5.19) and 5.19 is what `ACCOUNT SUMMARY` states, so only
+    "and is a CREDIT" can be doing the refusing. This is also the shape a
+    counterparty NAMED after the word would take."""
+    text = HEAD + ACTIVE + _money_market(
+        "05/01/26 -0.01 5.19 Dividend Solar Payment", opening="5.20"
+    )
+    assert parse_symitar_statement(text) is None
+
+
 def test_a_sibling_this_reader_cannot_bound_is_never_dismissed_as_idle():
     """The guard in front of the three conditions, and its direction.
 

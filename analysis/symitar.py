@@ -258,7 +258,9 @@ def _yield_only(rows: list[dict], opening: float | None, closing: float | None) 
     ledger exists:
 
     1. every posting is a dividend the platform named as one (`_DIVIDEND_RE`,
-       anchored);
+       anchored) **and is a CREDIT** — yield is paid INTO the account, so a
+       debit under this description is not the account earning anything and
+       the reader has no account of what it is;
     2. the section's own arithmetic closes — the opening balance plus every
        posting equals the last balance the section printed;
     3. that last balance equals the ending balance the DOCUMENT states for
@@ -269,10 +271,24 @@ def _yield_only(rows: list[dict], opening: float | None, closing: float | None) 
     at the L-1 gate exactly as before. Over-refusing costs a document;
     under-refusing publishes one account's statement while another account's
     activity goes unmentioned, so the asymmetry is deliberate.
+
+    **The residual hole, named rather than left to be discovered.** The anchor
+    reads the platform's posting type, and on this corpus every description
+    begins with one (880 of 880). A description that instead began with a
+    counterparty whose NAME starts with the word would be read as a dividend —
+    and the direction clause above is what makes that harmless in the common
+    case, since such a counterparty is being PAID. A dividend-named credit
+    from an outside party remains possible, would have to be the sibling's
+    only posting, and would have to leave the section's arithmetic and the
+    document's own stated closing balance both intact. No archive document of
+    this family prints one; widening or narrowing the keyword class is a
+    measurement, not a guess.
     """
     if not rows or opening is None or closing is None:
         return False
-    if not all(_DIVIDEND_RE.match(row["description"]) for row in rows):
+    if not all(
+        _DIVIDEND_RE.match(row["description"]) and row["amount"] > 0 for row in rows
+    ):
         return False
     last = rows[-1]["balance"]
     if abs(round(opening + sum(row["amount"] for row in rows) - last, 2)) > 0.005:
