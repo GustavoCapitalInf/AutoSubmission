@@ -36013,7 +36013,7 @@ Every exit code below is the verbatim value of the runner's own
 
 | # | proof | result | exit |
 |---|---|---|---|
-| 0 | full default suite, `python -m pytest -q` | **5,437 passed**, 35 skipped, 33 deselected, 481.41s (base 5,374 + 49 this cell + 14 the new registration adds to the enumerated sets) | **0** |
+| 0 | full default suite, `python -m pytest -q` | **5,437 passed**, 35 skipped, 33 deselected (base 5,374 + 49 this cell + 14 the new registration adds to the enumerated sets). Run twice: 481.41s at the tests commit under load, **276.83s re-run at this branch's final HEAD on an idle host**, same counts | **0** |
 | 1 | canonical guards — `test_no_statement_hardcodes` `test_no_parser_helper_clones` `test_r1_hardcodes` `test_experiments_are_not_wired` `test_filename_boundary` | **242 passed** (unchanged at registry 75) | **0** |
 | 2 | canonical conformance — `test_parser_conformance` `test_parser_registry_entries` `test_parser_detection_markers` `test_parser_registry` `test_parser_crash_shapes` `test_parser_exception_boundary` `test_count_semantics` | **1,164 passed**, 35 skipped (1,151 at 74 x 73 → 1,164 at **75 x 74**; the pins moved in the registration's own commit) | **0** |
 | 3 | this cell's file, `tests/test_eq_bank_scanned.py` | **49 passed** | **0** |
@@ -36023,6 +36023,11 @@ Every exit code below is the verbatim value of the runner's own
 | 7 | detection sweep, all 3,380 distinct archive documents (TG8.1) | 3,351 swept / 29 without a usable artifact; **5 claims, sole claimant on each; 0 new ambiguities**; 398.4s | **0** |
 | 8 | committed archive instrument, 4 chunks (TG8.2) | **moved 0 · payload_now_raises 0 · no_payload_now_publishes 3**, all named | 0/1/1/0 |
 | 9 | mutation harness, 25 mutants x the cell's file, run twice (TG6) | run 1 **15/25 killed**; run 2 **20/25 killed**; tree `git status`-clean after each | **0** |
+
+Rows 0, 1, 2 and 3 were re-run at this branch's FINAL head, after the docs
+commit, with an identical result and a clean tree; rows 4-8 were measured at
+the tests commit, which is the same production tree (the docs commit touches
+no code).
 
 ### TG12.1 The one red reading, and why it is not this branch
 
