@@ -36227,7 +36227,7 @@ conformance still 74 x 73. The corpus-marked slice is **29**, the pinned count,
 which is the check the gate is structurally blind to (review<->validated inside
 its PASS bucket).
 
-### P13.3 The closure round (review, tree `HEADSHA`)
+### P13.3 The closure round (review, tree `a77f21b`)
 
 The seven closures touch `tests/` only, so the gate and the corpus-marked slice
 are **not owed** and were not re-run — the production tree is asserted
@@ -36265,7 +36265,8 @@ and its mutant). `5,529 + 17 = 5,546`.
 | `391d862` | `money._refusal` promoted to `money_refusal` (P3.1); the money privacy suite covers the new export (334 → 352) |
 | `4b267cf` | the availability census asserts by FILE and COUNT, not by line number: a guard pinning `discovery/cli.py:208` turns red when an unrelated cell adds a line above it, and a ten-branch train is where that happens |
 | `9fa59d2` | the three self-review hardenings of P5.1 (119) |
-| (this one) | §PRIVACY3 P0-P14 |
+| `c590427` | §PRIVACY3 P0-P14 |
+| `a77f21b` | the review closures: MAJOR-1 recorded and carried (QUEUE-SUPERVISOR), MINOR-1 to MINOR-6 closed, P8.1 / P13.3 / P15 |
 
 ## P15. Adversarial-review closures (APPROVE WITH FINDINGS — 0 BLOCK, 1 MAJOR, 6 MINOR)
 
