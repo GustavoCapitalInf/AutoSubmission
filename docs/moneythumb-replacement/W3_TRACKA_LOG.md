@@ -35541,6 +35541,21 @@ The prototype is a runtime `dataclasses.replace` of the `atb` registration's
 scratchpad subdirectory and no repository file was modified to obtain any number
 in the packet.
 
+**One trap, found by falling into it, that the implementing cell must know.**
+The first prototype run of the ATB test slice failed
+`test_stated_counts.py::test_the_join_resolves_a_payload_from_a_process_that_never_loaded_the_parsers`.
+The cause was the prototype, not the rule: `registry_key_material` names a
+registration's `parse` by `module.__qualname__`
+(`analysis/parser_registry.py::_declared_callable`), so a wrapper that does not
+carry the declared name rotates the registry fingerprint and with it the
+analysis settings key — the parent seeded a payload under one key and the clean
+subprocess computed another. Restoring `__qualname__`/`__module__` gave 957/957.
+**The converse is the ceremony's obligation:** the fingerprint deliberately does
+NOT capture a function's body, so editing `parse_atb_statement` will not rotate
+the analysis cache key by itself, and the 7 movers would go on being served
+stale payloads unless `ANALYSIS_STAGE_VERSION` moves. That bump is Ocean's at
+the train, but it is load-bearing for this ceremony rather than routine.
+
 ## AM5. Proofs, with verbatim exit codes
 
 All run at this branch's HEAD, in the worktree, SEQUENTIALLY, on a machine
