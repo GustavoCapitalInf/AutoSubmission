@@ -141,7 +141,14 @@ _PRODUCT_RE = re.compile(r"^(.+?)\s+-\s+(X+\d+)\s*$", re.MULTILINE)
 #: masks inside their ledger sections, belonging to other instruments). So the
 #: header is read only where the SAME mask is printed a second time, in the
 #: summary strip this reader has already read — the corroboration rule.
-_MASKED_HEADER_RE = re.compile(r"^(?P<name>\S.*?)\s+(?P<mask>X+\d+)\s*$", re.MULTILINE)
+#: Horizontal whitespace on BOTH sides, for the same reason `_SUMMARY_MASK_RE`
+#: below uses it: `\s` spans the newline, so a name on one line and a bare mask
+#: on the next would read as a single header line. Measured: 0 cross-line
+#: matches on all fourteen documents of this family, which makes this a latent
+#: hole closed rather than a defect repaired.
+_MASKED_HEADER_RE = re.compile(
+    r"^(?P<name>\S.*?)[^\S\n]+(?P<mask>X+\d+)[^\S\n]*$", re.MULTILINE
+)
 #: The corroborating printing: the mask the summary strip carries in front of
 #: its own opening label. `[^\S\n]` and not `\s` is load-bearing — `\s` spans
 #: the newline, so on the two READ issues (whose product line sits directly

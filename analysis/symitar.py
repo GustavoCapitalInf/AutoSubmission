@@ -29,8 +29,19 @@ in its OWN equation row as a column separate from `Credits / Deposits`
 taxonomy and not this reader's. It is not read off the word alone:
 `_yield_only` also requires the section's own arithmetic to close and its last
 printed balance to equal the ending balance the document's own `ACCOUNT
-SUMMARY` states for that account, so the skip is corroborated three ways and
-fails closed on any of them. The cost of not reading it was measured: four
+SUMMARY` states for that account, and — where the section prints the
+platform's six-figure equation row — the platform's own `Dividends` column to
+account for every skipped posting with its `Credits / Deposits` column at
+zero. The skip fails closed on any of them.
+
+**Both idle-declarations are published SILENTLY today.** Neither the
+dormant skip nor the yield-only skip leaves any trace in the payload that a
+deposit section existed and was not published — the schema has no field and
+the integrity-flag vocabulary has no member. That visible surface is
+SIBLING-OMISSION-SURFACE (batch 8), which owns both together. The rule also
+carries no materiality bound: a five-dollar sibling and a five-hundred-thousand
+-dollar sibling are skipped alike, because a size bound in a parser would be
+exactly the statement-specific constant R-1 forbids. The cost of not reading it was measured: four
 consecutive statements of one member, whose money-market share account holds
 about five dollars, differ only in whether that account earned a cent — the
 month it earned nothing published, and the three months it earned $0.01 were
@@ -250,12 +261,17 @@ def _account_summary_balances(lines: list[str]) -> dict[str, float]:
     return balances
 
 
-def _yield_only(rows: list[dict], opening: float | None, closing: float | None) -> bool:
+def _yield_only(
+    rows: list[dict],
+    opening: float | None,
+    closing: float | None,
+    equation: list[float] | None,
+) -> bool:
     """Whether a deposit sibling printed no MEMBER activity.
 
-    Three conditions, and all three must hold, because a rule that rested on
-    the first alone would be a posting-type vocabulary deciding whether a
-    ledger exists:
+    Conditions, and all of them must hold, because a rule that rested on the
+    first alone would be a posting-type vocabulary deciding whether a ledger
+    exists:
 
     1. every posting is a dividend the platform named as one (`_DIVIDEND_RE`,
        anchored) **and is a CREDIT** — yield is paid INTO the account, so a
@@ -264,25 +280,51 @@ def _yield_only(rows: list[dict], opening: float | None, closing: float | None) 
     2. the section's own arithmetic closes — the opening balance plus every
        posting equals the last balance the section printed;
     3. that last balance equals the ending balance the DOCUMENT states for
-       this account elsewhere (its equation row, or its `ACCOUNT SUMMARY`).
+       this account elsewhere (its equation row, or its `ACCOUNT SUMMARY`);
+    4. **where the section prints the platform's six-figure equation row, the
+       platform's own `Dividends` column must account for every skipped
+       posting, and its `Credits / Deposits` column must be zero.** That is
+       the bank's own arithmetic deciding the section holds yield and no
+       member deposits — not a threshold this reader invented — and it is what
+       closes the outside-party hole below wherever the row is printed.
 
-    Any of the three failing means the section is a ledger this reader has not
+    Any of them failing means the section is a ledger this reader has not
     accounted for, and the document is then a two-ledger document and refuses
     at the L-1 gate exactly as before. Over-refusing costs a document;
     under-refusing publishes one account's statement while another account's
     activity goes unmentioned, so the asymmetry is deliberate.
 
+    **THE SKIP IS SILENT, AND THIS RULE DOES NOT CLOSE THAT.** Nothing in the
+    published payload says a deposit section existed and was not published:
+    the extraction schema has no field for it and the pipeline's
+    integrity-flag vocabulary has no member for it. The same is already true
+    of the `No Transactions This Period` skip this module has always
+    performed — this rule adds a second way to reach that silence, it does not
+    create it. The visible surface is **SIBLING-OMISSION-SURFACE (batch 8)**,
+    which owns both idle-declarations together because adding it moves
+    already-validated documents across several parsers.
+
+    **THE RULE HAS NO MATERIALITY BOUND, BY DESIGN.** A sibling holding five
+    dollars and a sibling holding five hundred thousand are skipped alike;
+    condition 4 bounds *arithmetic consistency*, not size. A size bound would
+    be a statement-specific constant inside a parser, which the R-1 guard
+    exists to forbid. The honest bound is the disclosure, not a number.
+
     **The residual hole, named rather than left to be discovered.** The anchor
     reads the platform's posting type, and on this corpus every description
     begins with one (880 of 880). A description that instead began with a
-    counterparty whose NAME starts with the word would be read as a dividend —
-    and the direction clause above is what makes that harmless in the common
-    case, since such a counterparty is being PAID. A dividend-named credit
-    from an outside party remains possible, would have to be the sibling's
-    only posting, and would have to leave the section's arithmetic and the
-    document's own stated closing balance both intact. No archive document of
-    this family prints one; widening or narrowing the keyword class is a
-    measurement, not a guess.
+    counterparty whose NAME starts with the word — `Dividend Reinvestment ACME
+    BROKERAGE`, say — would be read as this account's own yield. The direction
+    clause makes the common shape of that harmless (such a counterparty is
+    being PAID), and condition 4 refuses it outright wherever the equation row
+    prints, because an outside credit lands in the platform's
+    `Credits / Deposits` column. **Where the equation row is NOT printed — the
+    issue all three archive movers belong to — the hole stays reachable and
+    its consequence is silent**: an outside dividend-named credit standing as
+    the sibling's only posting, leaving the section's walk and the document's
+    stated closing balance intact, would skip the section with no published
+    trace. No archive document of this family prints one. Widening or
+    narrowing the keyword class is a measurement, not a guess.
     """
     if not rows or opening is None or closing is None:
         return False
@@ -291,8 +333,16 @@ def _yield_only(rows: list[dict], opening: float | None, closing: float | None) 
     ):
         return False
     last = rows[-1]["balance"]
-    if abs(round(opening + sum(row["amount"] for row in rows) - last, 2)) > 0.005:
+    total = sum(row["amount"] for row in rows)
+    if abs(round(opening + total - last, 2)) > 0.005:
         return False
+    if equation is not None:
+        # The platform's own `Dividends` column must account for every posting
+        # skipped here, and its `Credits / Deposits` column must be zero.
+        if abs(round(equation[2] - total, 2)) > 0.005:
+            return False
+        if abs(round(equation[1], 2)) > 0.005:
+            return False
     return abs(round(last - closing, 2)) <= 0.005
 
 
@@ -372,7 +422,7 @@ def parse_symitar_statement(markdown: str, base: Statement | None = None) -> Sta
         # way it is read for the account this parser goes on to publish, so the
         # two can never disagree about where that figure comes from.
         stated_closing = equation[4] if equation else summary_balances.get(section.key)
-        if _yield_only(rows, opening, stated_closing):
+        if _yield_only(rows, opening, stated_closing, equation):
             continue
         active.append((section, rows, opening, equation))
 

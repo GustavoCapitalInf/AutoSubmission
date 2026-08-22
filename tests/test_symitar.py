@@ -311,3 +311,48 @@ def test_a_row_whose_date_cannot_be_resolved_refuses_the_document():
     )
     assert detect(text).claims
     assert parse_symitar_statement(text) is None
+
+
+# ---- condition 4: the platform's own Dividends column (W3 §DECLINESG, MAJOR-1)
+#
+# Where the section prints the six-figure equation row, the bank's own columns
+# decide whether it holds yield and no member deposits. Each test below leaves
+# conditions 1-3 satisfied, so only the named column can be doing the refusing.
+
+
+def _money_market_with_equation(dividends: str, credits: str = "$ 0.00") -> str:
+    """A yield-only money market that ALSO prints the platform's equation row.
+
+    `5.18 + 0.01 = 5.19`, and 5.19 is what `ACCOUNT SUMMARY` states, so
+    conditions 1, 2 and 3 hold in every fixture built from this.
+    """
+    return (
+        "Money Market ( ID 0000 )\n"
+        "Beginning Balance Credits / Deposits Dividends Debits / Withdrawals "
+        "Ending Balance YTD Dividends\n"
+        f"$ 5.18 {credits} {dividends} $ 0.00 $ 5.19 $ 0.03\n"
+        + GRID
+        + "05/01/26 $ 5.18 Beginning Balance 05/01/26 0.01 5.19 Dividend Deposit\n"
+    )
+
+
+def test_the_platform_s_dividends_column_may_account_for_the_skipped_postings():
+    stmt = parse_symitar_statement(HEAD + ACTIVE + _money_market_with_equation("$ 0.01"))
+    assert stmt is not None
+    assert stmt.account_number == "0210"
+    assert len(stmt.transactions) == 2
+
+
+def test_a_dividends_column_short_of_the_skipped_postings_refuses():
+    """The bank says it paid no dividend; this reader read one. The section is
+    then a ledger it has not accounted for."""
+    text = HEAD + ACTIVE + _money_market_with_equation("$ 0.00")
+    assert parse_symitar_statement(text) is None
+
+
+def test_a_non_zero_credits_deposits_column_refuses():
+    """`Credits / Deposits` is the column an OUTSIDE credit lands in. Non-zero
+    means the section took money in that this reader did not read as yield —
+    which is exactly the outside-party shape the anchor cannot see."""
+    text = HEAD + ACTIVE + _money_market_with_equation("$ 0.01", credits="$ 250.00")
+    assert parse_symitar_statement(text) is None

@@ -963,3 +963,31 @@ def test_the_account_title_stays_the_name_of_last_resort():
     assert statement is not None
     assert statement.account_name == "SYNTHETIC HOLDINGS LLC"
     assert statement.account_number is None
+
+
+def test_a_name_and_a_bare_mask_on_two_lines_are_not_one_header():
+    r"""`\s` spans the newline; `[^\S\n]` does not. Written with `\s+` this
+    document reads `ACME HOLDINGS LLC` + `XXXXXX0000` as a single header line,
+    finds the corroborating printing in the strip, and publishes labels the
+    page never printed as one."""
+    document = issue_three_document(header="ACME HOLDINGS LLC\nXXXXXX0000")
+    statement = parse_fiserv_premier_statement(document)
+    assert statement is not None
+    assert (statement.account_name, statement.account_number) == (None, None)
+
+
+def test_the_registered_wording_wins_when_both_wordings_would_read():
+    """Pins the ORDER, not merely the presence, of `_PRODUCT_RE`.
+
+    A `<product> - <mask>` line also matches `_MASKED_HEADER_RE`, with the
+    separator trailing the name. When the strip repeats the mask so the
+    corroboration would succeed too, only trying `_PRODUCT_RE` FIRST publishes
+    the product name without its separator.
+    """
+    document = activity_document().replace(
+        "Previous Balance", "XXXXXX0000 Previous Balance"
+    )
+    statement = parse_fiserv_premier_statement(document)
+    assert statement is not None
+    assert statement.account_name == "SYNTHETIC BUSINESS CHECKING"
+    assert statement.account_number == "XXXXXX0000"
