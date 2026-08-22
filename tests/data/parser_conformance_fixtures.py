@@ -278,7 +278,13 @@ FIXTURES: dict[str, str] = {
         "Shopify Balance\nStatement summary\nTransaction history\n"
         "Posted Date Transaction Date Description Amount Account balance\n"
     ),
-    "southside_scanned": "SOUTHSIDE\nACCOUNT SUMMARY\nBUILDER ACCOUNT\n",
+    # The masthead plus three ROW LABELS of the ACCOUNT SUMMARY grid. What was
+    # here — `BUILDER ACCOUNT` — is one customer's name for one of its
+    # accounts, and the fixture said so out loud for as long as the detector
+    # gated on it (W3 §SCANFINISH SF3).
+    "southside_scanned": (
+        "SOUTHSIDE\nDays in Statement Period\nDeposits/Credits\nChecks/Debits\n"
+    ),
     "square_checking": (
         "Square Checking Routing number:\nsquareup.com/help\n"
         "Block Inc. Broadway, Suite Oakland, CA\n"
