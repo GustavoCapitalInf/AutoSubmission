@@ -644,3 +644,219 @@ def test_the_ceremony_document_publishes_cad_end_to_end(monkeypatch):
     check = _run_currency([rel], {rel: payload})
     assert not check.ok
     assert any("publishes currency 'CAD', pinned 'USD'" in d for d in check.details)
+
+
+# ---------------------------------------------------------------------------
+# The pinned currency PROVENANCE surface (§CURRSRC)
+#
+# `check_currency` above is blind to the failure this one exists for: a reader
+# that stops reading the code its document prints and falls back to an
+# institution constant publishes the identical three letters. Every audit CSV,
+# every verdict and the currency surface itself stay green; the platform's
+# knowledge of the document got worse and nothing said so. These are the
+# mutation proofs for the second map, in the same shape as the first — payloads
+# rather than documents, so they need no corpus and stay in the default suite.
+# ---------------------------------------------------------------------------
+
+#: The 19 pinned documents whose currency a parser read or defaulted rather
+#: than leaving it on the schema default, grouped by the class that produced
+#: it. Measured on this branch before the map was pinned, and written out here
+#: so the split is reviewable as names rather than as a count.
+PINNED_PRINTED = {"Others/BMO/BMO_Statement_January_2026 Final-1-2 (1).pdf"}
+PINNED_PRODUCT = {
+    "Misc/USD FEB 2026.pdf",
+    "TD Can/Dec_31-Jan_30_2026 (6).pdf",
+    "TD Can/Feb_27-Mar_31_2026 (2).pdf",
+    "TD Can/Jan_30-Feb_27_2026 (3).pdf",
+    "TD Can/Mar_31-Apr_30_2026.pdf",
+    "TD Can/Nov_28-Dec_31_2025 (7).pdf",
+    "TD Can/TD Bank Bank Statement.pdf",
+}
+PINNED_INSTITUTION = {
+    "CIBC French/Account Statement 1.pdf",
+    "Chase/Chase Business.pdf",
+    "Misc/Ace_Auto_Final_Cut.pdf",
+    "Misc/Builder June 2026.pdf",
+    "Misc/KLR.May 31,2026 (1).pdf",
+    "RBC French/12 - Relevé Royale Décembre 2025 - Tommy Aspirot.pdf",
+    "ScotiaBank/Scotiabank -2.pdf",
+}
+
+
+def _source_payloads(sources: dict[str, str]) -> dict[str, dict]:
+    return {
+        rel: {"statement": {"currency_source": source}}
+        for rel, source in sources.items()
+    }
+
+
+def _run_currency_source(manifest, payloads) -> corpus_gate.Check:
+    result = corpus_gate.Result()
+    corpus_gate.check_currency_source(result, manifest, payloads)
+    return result.checks[0]
+
+
+def test_the_currency_source_surface_is_total_over_the_pinned_manifest():
+    manifest = set(_manifest())
+    pinned = set(corpus_gate.PINNED_CURRENCY_SOURCE)
+    assert pinned == manifest, {
+        "unstated": sorted(manifest - pinned),
+        "unknown": sorted(pinned - manifest),
+    }
+    assert len(corpus_gate.PINNED_CURRENCY_SOURCE) == corpus_gate.EXPECTED_PDF_COUNT
+    assert set(corpus_gate.PINNED_CURRENCY_SOURCE.values()) <= set(
+        corpus_gate.CURRENCY_SOURCES
+    )
+
+
+def test_the_pinned_provenance_split_is_the_measured_one():
+    """90 schema_default / 7 institution_default / 7 product / 4
+    jurisdiction_default / 1 printed, derived from the map rather than restated
+    — and it reconciles to batch 6's own census of the same 109: 10 pre-existing
+    parser CAD (1 printed + 6 product + 3 institution) plus the 4 ceremony
+    documents, and 5 parser USD (1 Desjardins product + 4 institution)."""
+    pinned = corpus_gate.PINNED_CURRENCY_SOURCE
+    by_class = {
+        name: {rel for rel, source in pinned.items() if source == name}
+        for name in corpus_gate.CURRENCY_SOURCES
+    }
+    assert by_class["printed"] == PINNED_PRINTED
+    assert by_class["product"] == PINNED_PRODUCT
+    assert by_class["institution_default"] == PINNED_INSTITUTION
+    assert by_class["jurisdiction_default"] == CEREMONY_CAD
+    assert by_class["model_extracted"] == set()
+    assert len(by_class["schema_default"]) == 90
+    assert sum(len(names) for names in by_class.values()) == corpus_gate.EXPECTED_PDF_COUNT
+
+    # The provenance of every CAD, cross-checked against the currency map: the
+    # two surfaces must describe the same documents or one of them is stale.
+    usd_by_evidence = {
+        "Misc/USD FEB 2026.pdf",
+        "Chase/Chase Business.pdf",
+        "Misc/Ace_Auto_Final_Cut.pdf",
+        "Misc/Builder June 2026.pdf",
+        "Misc/KLR.May 31,2026 (1).pdf",
+    }
+    cad = {rel for rel, code in corpus_gate.PINNED_CURRENCY.items() if code == "CAD"}
+    assert cad == (
+        PINNED_PRINTED | PINNED_PRODUCT | PINNED_INSTITUTION | CEREMONY_CAD
+    ) - usd_by_evidence
+    assert cad == PRE_EXISTING_CAD | CEREMONY_CAD
+
+    # ...and the five ATB documents are schema_default, which is the whole
+    # reason the class is published: they are a Canadian provincial bank's
+    # statements wearing a field default, named as future movers in batch 6.
+    assert {rel for rel in pinned if rel.startswith("ATB/")} <= by_class["schema_default"]
+
+
+def test_the_currency_source_check_is_green_when_the_product_agrees():
+    manifest = _manifest()
+    check = _run_currency_source(
+        manifest, _source_payloads(dict(corpus_gate.PINNED_CURRENCY_SOURCE))
+    )
+    assert check.ok, check.details
+    assert "109/109" in check.summary
+
+
+def test_a_read_that_degrades_to_a_default_turns_the_gate_red():
+    """THE mutation this surface exists for, and the one `check_currency` cannot
+    see: BMO stops reading its own printed `Currency:` line and falls back to the
+    institution constant. The published code is `CAD` either way."""
+    manifest = _manifest()
+    published = dict(corpus_gate.PINNED_CURRENCY_SOURCE)
+    published["Others/BMO/BMO_Statement_January_2026 Final-1-2 (1).pdf"] = (
+        "institution_default"
+    )
+    check = _run_currency_source(manifest, _source_payloads(published))
+    assert not check.ok
+    assert any(
+        "publishes currency source 'institution_default', pinned 'printed'" in detail
+        for detail in check.details
+    ), check.details
+
+    # ...and the other direction: a reader newly CLAIMING to have read evidence
+    # it did not earn is equally red. A promotion is a ceremony too.
+    published = dict(corpus_gate.PINNED_CURRENCY_SOURCE)
+    published["ATB/ATB August 2023.pdf"] = "jurisdiction_default"
+    check = _run_currency_source(manifest, _source_payloads(published))
+    assert not check.ok
+    assert any(
+        "publishes currency source 'jurisdiction_default', pinned 'schema_default'"
+        in detail
+        for detail in check.details
+    ), check.details
+
+
+def test_an_unstated_or_unknown_provenance_pin_turns_the_gate_red(monkeypatch):
+    manifest = _manifest()
+    thinned = dict(corpus_gate.PINNED_CURRENCY_SOURCE)
+    dropped = thinned.pop("Chase/Chase Apr.pdf")
+    monkeypatch.setattr(corpus_gate, "PINNED_CURRENCY_SOURCE", thinned)
+    check = _run_currency_source(manifest, _source_payloads(dict(thinned)))
+    assert not check.ok
+    assert any("no expected currency source is recorded" in d for d in check.details)
+
+    widened = dict(thinned)
+    widened["Chase/Chase Apr.pdf"] = dropped
+    widened["Nowhere/not-a-corpus-document.pdf"] = "schema_default"
+    monkeypatch.setattr(corpus_gate, "PINNED_CURRENCY_SOURCE", widened)
+    check = _run_currency_source(manifest, _source_payloads(dict(widened)))
+    assert not check.ok
+    assert any("not in the manifest" in d for d in check.details), check.details
+
+
+def test_a_provenance_outside_the_vocabulary_turns_the_gate_red(monkeypatch):
+    """Free text would pass every other assertion in this file while meaning
+    nothing, so the gate holds its own copy of the closed set."""
+    manifest = _manifest()
+    invented = dict(corpus_gate.PINNED_CURRENCY_SOURCE)
+    invented["Chase/Chase Apr.pdf"] = "because_chase"
+    monkeypatch.setattr(corpus_gate, "PINNED_CURRENCY_SOURCE", invented)
+    check = _run_currency_source(manifest, _source_payloads(dict(invented)))
+    assert not check.ok
+    assert any("not in the published vocabulary" in d for d in check.details)
+
+
+def test_a_document_with_no_payload_is_red_not_skipped_for_provenance():
+    manifest = _manifest()
+    payloads = _source_payloads(dict(corpus_gate.PINNED_CURRENCY_SOURCE))
+    payloads.pop("Misc/Texas Bank.pdf")
+    check = _run_currency_source(manifest, payloads)
+    assert not check.ok
+    assert any("its currency source is unverified" in d for d in check.details)
+
+
+@pytest.mark.corpus
+def test_the_ceremony_documents_publish_their_provenance_end_to_end(monkeypatch):
+    """The loop closed against the real product on the one class whose whole
+    correctness is the doctrine: the four ceremony statements publish CAD from
+    `jurisdiction_default` and not from an institution constant, and the pinned
+    French RBC statement — a CAD the reader ASSERTS — publishes
+    `institution_default` beside it."""
+    for rel in sorted(CEREMONY_CAD):
+        _verdict, payload = corpus_gate.production_verdict(
+            corpus_gate.CORPUS / Path(rel), corpus_gate.DEFAULT_CACHE
+        )
+        assert payload["statement"]["currency"] == "CAD"
+        assert payload["statement"]["currency_source"] == "jurisdiction_default"
+        assert corpus_gate.PINNED_CURRENCY_SOURCE[rel] == "jurisdiction_default"
+
+    french = "RBC French/12 - Relevé Royale Décembre 2025 - Tommy Aspirot.pdf"
+    _verdict, payload = corpus_gate.production_verdict(
+        corpus_gate.CORPUS / Path(french), corpus_gate.DEFAULT_CACHE
+    )
+    assert payload["statement"]["currency"] == "CAD"
+    assert payload["statement"]["currency_source"] == "institution_default"
+
+    # ...and the check really is comparing: the same payload against the
+    # promoted class is RED.
+    monkeypatch.setattr(
+        corpus_gate, "PINNED_CURRENCY_SOURCE", {french: "jurisdiction_default"}
+    )
+    check = _run_currency_source([french], {french: payload})
+    assert not check.ok
+    assert any(
+        "publishes currency source 'institution_default', pinned "
+        "'jurisdiction_default'" in d
+        for d in check.details
+    )

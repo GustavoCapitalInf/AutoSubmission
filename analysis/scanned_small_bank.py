@@ -256,7 +256,8 @@ def parse_southside_scanned_statement(markdown: str) -> Statement | None:
     upper = markdown.upper()
 
     text = compact_whitespace(markdown)
-    stmt = Statement(bank="Southside Bank", currency="USD")
+    stmt = Statement(bank="Southside Bank", currency="USD",
+                     currency_source="institution_default")
     # Digits must directly follow the label: an occurrence corrupted by stray
     # OCR quote glyphs is skipped in favor of a clean later occurrence
     # (R-1 item 11 - the previous class of mojibake quote characters never
@@ -440,7 +441,8 @@ def parse_apex_scanned_statement(markdown: str) -> Statement | None:
     source = re.sub(r"(?<=\d)\.(?=\d{3}\.\d{2}\b)", ",", markdown)
     text = compact_whitespace(source)
     holder = _extract_holder_name(markdown)
-    stmt = Statement(bank="Apex Bank", account_name=holder, currency="USD")
+    stmt = Statement(bank="Apex Bank", account_name=holder, currency="USD",
+                     currency_source="institution_default")
     acct = re.search(r"Account Number:\s*([*%A-Z0-9]+)", text, re.IGNORECASE)
     if acct:
         stmt.account_number = acct.group(1)
@@ -1031,6 +1033,7 @@ def parse_texas_first_scanned_statement(markdown: str) -> Statement | None:
         bank="Texas First Bank",
         account_name=_extract_holder_name(source),
         currency="USD",
+        currency_source="institution_default",
         period_start=period_start.isoformat(),
         period_end=period_end.isoformat(),
         beginning_balance=round(beginning_cents / 100, 2),

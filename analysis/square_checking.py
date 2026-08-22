@@ -212,7 +212,7 @@ def parse_square_checking_statement(markdown: str) -> Statement | None:
         return None
     beginning, _activities, ending = summary
 
-    stmt = Statement(bank="Square", currency="USD")
+    stmt = Statement(bank="Square", currency="USD", currency_source="institution_default")
     stmt.period_start = period_start.isoformat()
     stmt.period_end = period_end.isoformat()
     stmt.beginning_balance = beginning

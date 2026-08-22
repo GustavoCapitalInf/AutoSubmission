@@ -317,6 +317,7 @@ def parse_symitar_statement(markdown: str, base: Statement | None = None) -> Sta
     stmt.period_start = start.isoformat()
     stmt.period_end = end.isoformat()
     stmt.currency = "USD"
+    stmt.currency_source = "institution_default"
     stmt.beginning_balance = opening
     stmt.ending_balance = closing
     if equation:

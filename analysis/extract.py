@@ -229,4 +229,13 @@ def extract_statement(markdown: str, *, settings: Settings | None = None,
         # died with `TypeError: 'NoneType' object is not subscriptable` and the
         # RuntimeError this branch documents was never constructed.
         raise _extraction_refusal(resp)
+    # §CURRSRC. `Statement` is this call's `response_schema`, so `currency` is
+    # not the only currency field the model can fill — `currency_source` is in
+    # the schema too, and a model that returned `"printed"` would be certifying
+    # its own provenance. It may not: whatever came back is DISCARDED here and
+    # replaced by the one class that is true of this whole branch, which is
+    # that a language model produced the denomination and the platform did not
+    # verify the evidence. Unconditional, because the model's `"USD"` is not
+    # distinguishable from the field default it may simply have echoed.
+    stmt.currency_source = "model_extracted"
     return stmt

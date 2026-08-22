@@ -355,6 +355,7 @@ def parse_td_canada_french_statement(
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "TD Canada Trust"
     stmt.currency = "CAD"
+    stmt.currency_source = "institution_default"
     stmt.period_start = period_start.isoformat()
     stmt.period_end = period_end.isoformat()
     stmt.beginning_balance = None

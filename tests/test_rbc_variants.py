@@ -1467,7 +1467,7 @@ def test_curj_explicit_us_evidence_beats_the_canadian_default():
             document.replace("U.S. Funds", "").replace("US BUSINESS ACCOUNT", "")
         ) == "CAD"
         # ... and the explicit evidence still wins.
-        assert _statement_currency(document) == "USD"
+        assert _statement_currency(document) == ("USD", "printed" if "U.S. Funds" in document else "product")
         stmt = parse_rbc_statement(document)
         assert stmt is not None
         assert stmt.currency == "USD"
@@ -1671,8 +1671,8 @@ def test_curj_rung_1_is_consulted_before_rung_2_structurally(monkeypatch):
 
     document = canadian(plain_statement())
     assert rbc._jurisdiction_currency(document) == "CAD"      # rung 2 would say CAD
-    monkeypatch.setattr(rbc, "_printed_currency_evidence", lambda _md: {"EUR"})
-    assert rbc._statement_currency(document) == "EUR"
+    monkeypatch.setattr(rbc, "_printed_currency_evidence", lambda _md: {"EUR": "printed"})
+    assert rbc._statement_currency(document) == ("EUR", "printed")
     stmt = rbc.parse_rbc_statement(document)
     assert stmt is not None
     assert stmt.currency == "EUR"
@@ -1680,7 +1680,9 @@ def test_curj_rung_1_is_consulted_before_rung_2_structurally(monkeypatch):
     # and the contradiction case keeps its precedence too: two stated codes
     # stop at rung 1 and publish nothing, rather than falling through to a
     # default that would resolve the ambiguity the document created.
-    monkeypatch.setattr(rbc, "_printed_currency_evidence", lambda _md: {"EUR", "JPY"})
+    monkeypatch.setattr(
+        rbc, "_printed_currency_evidence", lambda _md: {"EUR": "printed", "JPY": "printed"}
+    )
     assert rbc._statement_currency(document) is None
     stmt = rbc.parse_rbc_statement(document)
     assert stmt is not None
@@ -1743,10 +1745,10 @@ def test_curj_the_nine_currency_1_corrections_are_untouched():
     # is the read that is publishing CAD, not a default that happens to agree.
     stated = _mailing(canadian(plain_statement()), "CAD CHEQUING ACCOUNT")
     assert _printed_currency(stated) == "CAD"
-    assert _statement_currency(stated) == "CAD"
+    assert _statement_currency(stated) == ("CAD", "product")
     bare = _mailing(plain_statement(), "CAD CHEQUING ACCOUNT")
     assert _jurisdiction_currency(bare) is None
-    assert _statement_currency(bare) == "CAD"
+    assert _statement_currency(bare) == ("CAD", "product")
 
     # Mechanism 2 (the three `td_canada_native` corrections). Another issuer's
     # statement is not claimed by this parser at all, however Canadian its own

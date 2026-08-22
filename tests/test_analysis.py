@@ -615,8 +615,10 @@ def _sheet_markdown(*pages: str) -> str:
     ).to_markdown()
 
 
-def test_parse_atb_native_text_transactions_from_running_balance():
-    md = """
+#: One synthetic ATB Financial statement of the native-text layout. Hoisted to
+#: module scope so §CURRSRC can reuse it: ATB is the schema-default family the
+#: batch-6 census named as an expected future currency mover.
+ATB_NATIVE_TEXT = """
 Deposit Account Statement
 Statement date August 31, 2023 Transit number 08479-219 Customer number 0002913777 Page number 1 of 1
 Your ATB Financial Branch 08479 Fort McMurray Downtown Branch
@@ -639,7 +641,10 @@ Aug 3 Interac e-Transfer Received $100.00 1,400.00
 Aug 31 Monthly Maintenance Fees $150.00 1,250.00
 Aug 31 Closing balance $1,250.00
 """
-    stmt = parse_atb_statement(md)
+
+
+def test_parse_atb_native_text_transactions_from_running_balance():
+    stmt = parse_atb_statement(ATB_NATIVE_TEXT)
     assert stmt is not None
     assert stmt.bank == "ATB Financial"
     assert stmt.account_number == "00273985278"

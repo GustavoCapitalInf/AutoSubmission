@@ -218,6 +218,7 @@ def parse_desjardins_statement(markdown: str) -> Statement | None:
         return None
     start_date = date.fromisoformat(start)
     end_date = date.fromisoformat(end)
+    printed_currency = _printed_currency(markdown)
     return Statement(
         bank="Desjardins",
         account_name="USD Desjardins Corporate Build-Up Account",
@@ -232,6 +233,13 @@ def parse_desjardins_statement(markdown: str) -> Statement | None:
         # same value it always did — but a Canadian-dollar issue of the same
         # product would now publish CAD instead of being labelled USD by a
         # constant. Where no admissible code is printed the default stands.
-        currency=_printed_currency(markdown) or "USD",
+        currency=printed_currency or "USD",
+        # `schema_default` and NOT `institution_default` on the fallback arm:
+        # this caisse is Canadian, so "USD because Desjardins" is a claim no
+        # one can make. Where the product line prints no admissible code the
+        # honest statement is that nothing was read and the field's own
+        # default `"USD"` is standing — which is what §CUR6's named residual
+        # is, now visible in the payload instead of only in this comment.
+        currency_source="product" if printed_currency else "schema_default",
         transactions=txns,
     )

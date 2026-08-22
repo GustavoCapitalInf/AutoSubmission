@@ -465,6 +465,7 @@ def parse_woodforest_statement(markdown: str, base: Statement | None = None) -> 
     stmt.period_start = start.isoformat()
     stmt.period_end = end.isoformat()
     stmt.currency = "USD"
+    stmt.currency_source = "institution_default"
     stmt.beginning_balance = forward
     stmt.ending_balance = closing
     # Both totals are printed as positive magnitudes under their own column

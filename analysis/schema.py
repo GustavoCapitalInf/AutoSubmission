@@ -6,7 +6,91 @@ metrics, detection) that do all the math. Amounts are always signed: negative =
 money leaving the account (debit), positive = money entering (credit).
 """
 from __future__ import annotations
+from typing import Literal
+
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, computed_field
+
+# ---------------------------------------------------------------------------
+# WHERE A PUBLISHED CURRENCY CAME FROM (CURRENCY_DOCTRINE §B, made explicit)
+# ---------------------------------------------------------------------------
+#
+# `Statement.currency` alone cannot be audited: `"USD"` on a Chase statement
+# that read nothing, `"USD"` on a Desjardins document whose product line prints
+# the code, and `"USD"` on an ATB statement no reader ever asked about are three
+# different facts wearing one label. The doctrine's evidence hierarchy already
+# exists in prose and in each reader's comments; this vocabulary puts it in the
+# DATA, so a consumer can tell a read denomination from an unread assumption
+# without reading the parser.
+#
+# A CLOSED set, ordered here from strongest evidence to weakest. The rule that
+# makes it worth anything: **a reader may not set a source it did not earn.**
+# Each member below names what the reader must actually have to publish it, and
+# `tests/test_currency_source.py` feeds every class a printing that lacks its
+# evidence and asserts the class is refused.
+#
+#   printed
+#       An explicit currency word or ISO code the document itself prints, read
+#       off the page — `Currency: CAD` in BMO's header block, RBC's `U.S. Funds`
+#       denomination line, the code CIBC prints on its closing-balance row, the
+#       `AMOUNT (CAD) BALANCE (CAD)` grid header Wealthsimple's registration
+#       REQUIRES.
+#   product
+#       A printed product/account designation that fixes the denomination
+#       without spelling out a code on its own line — RBC's `CAD CHEQUING
+#       ACCOUNT` / `US BUSINESS ACCOUNT` mailing-header map, TD Canada's
+#       `ACCOUNT - CAD` suffix, Desjardins' `USD DESJARDINS CORPORATE BUILD-UP
+#       ACCOUNT`, the `COMPTE COURANT CANADIEN` product line of the
+#       unknown-issuer Quebec layout. Still evidence the page prints; weaker
+#       than `printed` only because it is read through a product name.
+#   jurisdiction_default
+#       The ratified RBC Canada rule (doctrine §B): a PROVEN bank/jurisdiction
+#       account whose page states no denomination takes its native default —
+#       affirmative conjunction, refusals first, never an absence inference.
+#       Only `analysis/rbc.py::_jurisdiction_currency` earns this today.
+#   institution_default
+#       The reader asserts the denomination from the institution's identity
+#       WITHOUT reading it: `Statement(bank="Chase", currency="USD")`. True of
+#       most U.S. registrations and of five Canadian ones. This is the class
+#       that owes evidence — doctrine §B's final paragraph wants a proven
+#       jurisdiction base before any of these becomes a `jurisdiction_default`,
+#       and naming them in the payload is what makes that debt visible instead
+#       of indistinguishable from a read.
+#   model_extracted
+#       The LLM extraction stage returned the currency (`analysis/extract.py`,
+#       reached from `pipeline.py` only when no deterministic parser claimed the
+#       document and `parse_mode="auto"`). The platform did not verify the
+#       evidence, and the model may not certify its own provenance: whatever
+#       `currency_source` the model fills into the response schema is DISCARDED
+#       and replaced by this class at the boundary.
+#   schema_default
+#       No evidence class was earned and the published value is this field's
+#       default `"USD"` — either because the reader never set `currency` at all
+#       (most registrations, including every ATB document) or because it
+#       explicitly re-asserted the default where its own evidence was absent
+#       (`analysis/desjardins.py`, whose caisse is Canadian: writing
+#       `institution_default` there would assert a USD institution that does
+#       not exist).
+#
+# NOT a currency conversion story. This field records provenance only: no FX,
+# no cross-currency aggregation, no value moves because of it
+# (CURRENCY_DOCTRINE §A/§E/§F, Gustavo 2026-08-21).
+CURRENCY_SOURCES: tuple[str, ...] = (
+    "printed",
+    "product",
+    "jurisdiction_default",
+    "institution_default",
+    "model_extracted",
+    "schema_default",
+)
+
+CurrencySource = Literal[
+    "printed",
+    "product",
+    "jurisdiction_default",
+    "institution_default",
+    "model_extracted",
+    "schema_default",
+]
 
 
 class Transaction(BaseModel):
@@ -39,6 +123,18 @@ class Statement(BaseModel):
     beginning_balance: float | None = Field(default=None, description="Opening balance for the period.")
     ending_balance: float | None = Field(default=None, description="Closing balance for the period.")
     currency: str = Field(default="USD", description="ISO currency code.")
+    #: The evidence class that produced `currency` — see `CURRENCY_SOURCES`
+    #: above. Defaults to `schema_default` so that a reader which never sets
+    #: `currency` publishes the truth about it rather than looking like a read.
+    #: Additive and provenance-only: no financial value depends on it.
+    currency_source: CurrencySource = Field(
+        default="schema_default",
+        description=(
+            "Where `currency` came from: printed | product | "
+            "jurisdiction_default | institution_default | model_extracted | "
+            "schema_default."
+        ),
+    )
 
     # Figures the bank prints in its own summary block. These are authoritative and
     # let us (a) report the bank's own average balance without computing it and

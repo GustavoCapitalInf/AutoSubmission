@@ -233,6 +233,9 @@ def parse_wealthsimple_statement(markdown: str, base: Statement | None = None) -
     # wrong currency by this constant — which is what
     # `test_a_non_cad_activity_grid_is_not_claimed` holds in place.
     stmt.currency = "CAD"
+    # `printed`, not `institution_default`: the code above is the required
+    # grid header, so the page itself printed CAD over both money columns.
+    stmt.currency_source = "printed"
     stmt.beginning_balance = _amount(summary.group(5), summary.group(6))
     stmt.ending_balance = _amount(summary.group(7), summary.group(8))
 

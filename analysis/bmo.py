@@ -131,6 +131,9 @@ def parse_bmo_statement(markdown: str) -> Statement | None:
     stmt = Statement(
         bank="BMO",
         currency=currency.group(1).upper() if currency else "CAD",
+        # Read where the header block states one; asserted from the
+        # institution where it does not.
+        currency_source="printed" if currency else "institution_default",
         period_start=period_start.isoformat(),
         period_end=period_end.isoformat(),
     )

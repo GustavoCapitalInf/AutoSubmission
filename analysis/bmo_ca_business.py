@@ -348,7 +348,9 @@ def _parse(markdown: str, edition: _Edition) -> Statement | None:
         return None
     label, number, (opening, debited, credited, closing) = summary
 
-    stmt = Statement(bank=edition.bank, currency="CAD")
+    # The Canadian editions of this layout print no denomination anywhere;
+    # the reader asserts it from the institution and owes the evidence.
+    stmt = Statement(bank=edition.bank, currency="CAD", currency_source="institution_default")
     stmt.account_number = number
     name = edition.name_label.search(text)
     stmt.account_name = name.group("name").strip() if name else label
