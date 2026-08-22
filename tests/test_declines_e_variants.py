@@ -130,15 +130,21 @@ def test_a_grid_whose_running_balance_does_not_follow_is_refused():
 
 
 def test_a_grid_that_does_not_close_on_the_stated_ending_balance_is_refused():
-    """Every row follows from the one above it and the chain still lands
-    somewhere the summary does not."""
-    grid = (
-        CHASE_GRID
-        .replace("01/31 Monthly Service Fee - 25.00 1,225.00\n",
-                 "01/31 Monthly Service Fee - 25.00 1,225.00\n"
-                 "01/31 Example Late Charge - 10.00 1,215.00\n")
-        .replace("Ending Balance $1,225.00", "Ending Balance $1,215.00")
+    """Isolated on purpose: every row follows from the one above it, the
+    ledger's credit and debit sums are exactly the summary's stated totals, and
+    the only thing wrong is that the summary's own Ending Balance is not where
+    the chain lands. Nothing but the closing check can see this."""
+    summary = CHASE_SUMMARY.replace(
+        "Ending Balance $1,225.00", "Ending Balance $1,235.00"
     )
+    assert parse_chase_statement(chase_document(summary=summary)) is None
+
+
+def test_the_cent_is_the_tolerance():
+    """Every check here is against a figure Chase printed on the same page, so
+    there is nothing for a tolerance to absorb. One cent of drift in the bank's
+    own running balance refuses the document."""
+    grid = CHASE_GRID.replace("-200.00 2,300.00", "-200.00 2,300.01")
     assert parse_chase_statement(chase_document(grid=grid)) is None
 
 
@@ -284,6 +290,22 @@ def test_the_counted_printing_is_read_exactly_as_it_was():
     assert stmt.stated_debit_count == 2
     assert stmt.stated_total_credits == 1500.0
     assert stmt.stated_total_debits == 1275.0
+
+
+def test_the_two_summary_spellings_cannot_read_the_same_row():
+    """Why trying the counted spelling first is belt-and-braces rather than the
+    thing that keeps a counted row safe: the two are DISJOINT under this
+    grammar. An amount must carry cents, and a count cannot, so the count-less
+    pattern finds nothing at all on a counted row — measured here rather than
+    argued, because the day the money grammar admits a cents-less figure the
+    ordering stops being decorative and starts being load-bearing."""
+    counted_row = "Deposits and Additions 3 1,500.00 Ending Balance $1,225.00"
+    bare = re.search(
+        rf"Deposits and Additions\s+({chase._SUMMARY_AMOUNT})",
+        counted_row, re.IGNORECASE,
+    )
+    assert bare is None
+    assert chase._summary_row(counted_row, "Deposits and Additions") == (3, 1500.0)
 
 
 def test_a_mixed_printing_publishes_no_debit_count_at_all():

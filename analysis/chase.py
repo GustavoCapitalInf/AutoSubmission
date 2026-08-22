@@ -497,11 +497,21 @@ def _summary_row(summary: str, label: str) -> tuple[int | None, float | None]:
     on a statement whose summary plainly states both — and the ledger then had
     nothing to be checked against. (W3 §DECLINESE E4.)
 
-    The counted spelling is tried FIRST, so a document that prints counts reads
-    exactly as it did. The count-less spelling is reached only where the counted
-    one does not match, and it leaves the count UNSET rather than deriving one:
-    a count taken from the ledger would manufacture the very oracle
+    The count-less spelling leaves the count UNSET rather than deriving one: a
+    count taken from the ledger would manufacture the very oracle
     `analysis/count_semantics.py` checks the ledger against.
+
+    The counted spelling is tried FIRST, and that ordering is belt-and-braces
+    rather than the thing that keeps a counted row safe — stated plainly
+    because a mutation table will report it as unkillable and that is the truth
+    rather than a gap in the fixtures. The two spellings are DISJOINT under this
+    grammar: `_SUMMARY_AMOUNT` requires cents, an instance count never carries
+    them, and the amount's own leading `\\s*` sits after its sign rather than in
+    front of the figure, so the count-less pattern cannot begin its match past
+    the count. It therefore finds nothing at all on a counted row. Pinned by
+    `test_the_two_summary_spellings_cannot_read_the_same_row`, because the day
+    the money grammar admits a cents-less figure the ordering stops being
+    decorative.
     """
     counted = re.search(
         rf"{re.escape(label)}\s+(\d+)\s+({_SUMMARY_AMOUNT})", summary, re.IGNORECASE
@@ -623,6 +633,13 @@ def _transaction_detail_ledger(
     grid_text = "\n".join(compact_whitespace(line) for line in text.splitlines())
     groups = _grid_rows(list(_grid_lines(grid_text)))
     if not groups:
+        # "There is no grid here", said plainly. Stated honestly: this is
+        # UNKILLABLE and no document can isolate it — with it removed the
+        # checks below compare an empty ledger against the printed balances and
+        # refuse whenever they differ, and where they agree the caller's `txns`
+        # is left empty either way. It is kept because running the summary
+        # comparison over an empty ledger would read as though something had
+        # been checked. (W3 §DECLINESE E6, mutant M5.)
         return None
     txns = [_transaction(carried, group, year=year) for carried, group in groups]
     if any(txn is None for txn in txns):
