@@ -266,29 +266,76 @@ class _Summary:
         return abs(round(walked - self.ending, 2)) < 0.005
 
 
+def _is_summary_cell(line: str) -> bool:
+    """Is this physical line one of the At-A-Glance grid's own cells?
+
+    The four shapes below are the whole vocabulary of that grid: its control
+    row, an unsigned money cell, a money cell carrying its printed sign, and
+    the day count. Anything else on a line is furniture, a heading or another
+    block, and `_summary_block` uses exactly that to know where the grid ends.
+    """
+    return bool(
+        _CONTROL_ROW_RE.match(line)
+        or _BARE_MONEY_RE.match(line)
+        or _SIGNED_MONEY_RE.match(line)
+        or _DAY_COUNT_RE.match(line)
+    )
+
+
+def _summary_block(markdown: str, anchor: re.Match[str]) -> list[str]:
+    """The grid's cell lines, on BOTH sides of its printed column heading.
+
+    `Statement Period Days / Average Ledger Balance` is a COLUMN HEADING of the
+    At-A-Glance grid, not its first line, and the extractor does not always
+    emit it first: on the `3df19105_*1301` statements the control row, the day
+    count and the beginning balance are all emitted ABOVE it. Reading the grid
+    only forwards therefore loses cells the bank printed, and the shape test in
+    `_summary` then refuses a control record that is complete — which is what
+    it did on four documents, one of which posts a wire in and a wire out.
+
+    Backwards the block is bounded by the same four cell shapes the forward
+    scan recognises: the first line above the heading that is not one of them
+    ends it. Nothing the forward scan would reject can therefore enter through
+    the back, and a document whose heading is preceded by its own furniture —
+    which is every printing measured before this one — contributes no lines at
+    all and reads exactly as it did. Forwards the block is bounded by the
+    printed structure, unchanged.
+
+    Order is document order, because the reading of the three unsigned cells is
+    positional (`_summary`).
+    """
+    block: list[str] = []
+    for line in reversed(_lines(markdown[: anchor.start()])):
+        if not _is_summary_cell(line):
+            break
+        block.append(line)
+    block.reverse()
+    for line in _lines(markdown[anchor.end():]):
+        if _BOUNDARY_RE.match(line):
+            break
+        block.append(line)
+    return block
+
+
 def _summary(markdown: str) -> _Summary | None:
     """Read the At-A-Glance control record, or nothing.
 
     The extractor emits this block's cells in an order that varies between
-    documents — `days` may precede or follow the beginning balance, and the
-    ending amount may precede or follow its own sign — so cells are recognised
-    by token shape, not position. Within a shape the printed order is stable:
-    the three unsigned money cells are the beginning balance, the deposits
-    total and the ending balance, in that order.
+    documents — `days` may precede or follow the beginning balance, the ending
+    amount may precede or follow its own sign, and the whole run may precede or
+    follow the block's own column heading (`_summary_block`) — so cells are
+    recognised by token shape, not position. Within a shape the printed order
+    is stable: the three unsigned money cells are the beginning balance, the
+    deposits total and the ending balance, in that order.
 
-    A statement with no activity at all prints no control row; its block then
-    exposes too few cells to tell a beginning balance from an ending one, and
-    this returns None rather than guess.
+    A block that does not expose exactly one control row and exactly three
+    unsigned money cells returns None rather than guess, and what it reads is
+    then believed only if the record closes on its own arithmetic.
     """
     anchor = _SUMMARY_ANCHOR_RE.search(markdown)
     if anchor is None:
         return None
-    tail = markdown[anchor.end():]
-    block: list[str] = []
-    for line in _lines(tail):
-        if _BOUNDARY_RE.match(line):
-            break
-        block.append(line)
+    block = _summary_block(markdown, anchor)
 
     control = None
     bare: list[float] = []
