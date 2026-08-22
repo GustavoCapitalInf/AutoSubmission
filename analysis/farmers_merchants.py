@@ -4,7 +4,7 @@ import re
 from datetime import date
 
 from .date_tokens import iso_from_month_day
-from .money import _refusal, parse_money
+from .money import money_refusal, parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import compact_whitespace
@@ -22,7 +22,7 @@ def _amount(value: str) -> float:
     """
     parsed = parse_money(value)
     if parsed is None:
-        raise _refusal("farmers_merchants._amount", value)
+        raise money_refusal("farmers_merchants._amount", value)
     return parsed
 
 

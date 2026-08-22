@@ -72,6 +72,7 @@ __all__ = [
     "parse_money",
     "parse_money_tokens",
     "read_money",
+    "money_refusal",
     "parse_decimal",
     "parse_signed_decimal",
     "parse_decimal_mixed_separator",
@@ -617,6 +618,32 @@ def _refusal(reader: str, token: str) -> ValueError:
         f"money grammar refused a printed token "
         f"({_refusal_class(token)}; reader={reader})"
     )
+
+
+def money_refusal(reader: str, token: str) -> ValueError:
+    """`_refusal` under a PUBLIC name, for money sites outside this module.
+
+    Added by W3 §PRIVACY3, and the reason is a guard rather than taste.
+    `analysis/bmo.py` and `analysis/farmers_merchants.py` hold the same
+    `_amount` refusal this module's family holds, and repointing them at the
+    shared constructor is the whole fix — but importing `_refusal` by its
+    private name trips
+    `tests/test_no_parser_helper_clones.py::test_no_parser_imports_a_private_helper_from_another_parser`,
+    whose remedy text is exactly "promote the helper into a shared module under
+    `analysis/`". This module is already declared one (`SHARED_UTILITIES`), so
+    the promotion is the name and nothing else.
+
+    `_refusal` stays: every `raise` in this module is still
+    ``raise _refusal(...)``, byte for byte, so §MONEYPRIV's AST chain-guard
+    reads the same file it always did. This wrapper adds a frame that is gone
+    by the time anything is raised, because it RETURNS the exception (§MP2) —
+    the call site writes ``raise money_refusal(...)`` from outside any handler,
+    exactly as the eleven sites in here do.
+
+    Its sibling is `date_tokens.date_refusal`, which is public from birth for
+    the same reason.
+    """
+    return _refusal(reader, token)
 
 
 def read_money(

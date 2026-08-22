@@ -5,7 +5,7 @@ import re
 from datetime import date
 
 from .dates import resolve_year
-from .money import _refusal, parse_money
+from .money import money_refusal, parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import compact_whitespace
@@ -45,7 +45,7 @@ def _amount(value: str) -> float:
     cleaned = value.replace("$", "").strip()
     parsed = parse_money(cleaned)
     if parsed is None:
-        raise _refusal("bmo._amount", value)
+        raise money_refusal("bmo._amount", value)
     return parsed
 
 
