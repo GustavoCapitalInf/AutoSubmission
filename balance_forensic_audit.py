@@ -457,11 +457,56 @@ WITHHELD_DETAILS = {
 }
 
 
+#: What `analysis/pipeline.py` raises for a document no deterministic parser
+#: will publish. Matched by its exact text, never by class: `RuntimeError` is
+#: also what a genuine defect raises, and an audit that swallowed those would
+#: turn a crash into a row.
+DECLARED_REFUSAL = "no deterministic parser matched this statement"
+
+#: The status a row carries when the analysis published nothing to audit.
+REFUSED_STATUS = "REFUSED"
+
+
+def refusal_row(
+    path: Path, root: Path, source_type: str, pdf_bytes: bytes, reason: str
+) -> tuple[dict[str, Any], Job, dict[str, Any]]:
+    """One row for a document the deterministic analysis refuses to publish.
+
+    Identity only — filename, path, source hash, page count, source type — and
+    every audited value column EMPTY, because there is no published figure for
+    an independent one to be compared against. `dashboard_binding_valid` and
+    `exports_valid` are empty for the same reason: nothing was bound and
+    nothing was exported, and writing `True` would assert a surface was checked.
+
+    The `Job` carries no analysis, which is what keeps the refusal out of the
+    package pass (`apply_package_results`): a package built over a document
+    with no analysis would have no document to look up.
+    """
+    row: dict[str, Any] = {field: "" for field in FIELDS}
+    row["statement"] = path.name
+    row["path"] = path.relative_to(root).as_posix()
+    row["sha256"] = hashlib.sha256(pdf_bytes).hexdigest().upper()
+    row["pages"] = pdf_page_count(pdf_bytes)
+    row["source_type"] = source_type
+    row["status"] = REFUSED_STATUS
+    row["root_cause"] = reason
+    row["fix_applied"] = "None required."
+    row["regression_risk"] = "Low"
+    row["confidence"] = "High"
+    job = Job(id=row["sha256"][:16], filename=path.name, status="error", analysis=None)
+    return row, job, {}
+
+
 def audit_source(
     path: Path, root: Path, *, ocr_cache: Path | None = None
 ) -> tuple[dict[str, Any], Job, dict[str, Any]]:
     markdown, source_type, pdf_bytes = source_markdown(path, ocr_cache=ocr_cache)
-    report = analyze_markdown(markdown, parse_mode="deterministic")
+    try:
+        report = analyze_markdown(markdown, parse_mode="deterministic")
+    except RuntimeError as exc:
+        if str(exc) != DECLARED_REFUSAL:
+            raise
+        return refusal_row(path, root, source_type, pdf_bytes, str(exc))
     statement = report.statement
     oracle = independent_balances(statement, markdown)
     payload = report_to_dict(report)
@@ -603,11 +648,17 @@ def apply_package_results(
     jobs: list[Job],
     expected_by_id: dict[str, dict[str, Decimal | None]],
 ) -> None:
+    # A refused document has no analysis, so it is not in the package at all
+    # and there is no package surface to check for it. Pairing first keeps the
+    # `document_{index}` lookups aligned with the package that was actually
+    # built, which a filter applied later would not.
+    paired = [(row, job) for row, job in zip(rows, jobs) if job.analysis is not None]
+    jobs = [job for _, job in paired]
     package = _package_analysis(jobs)
     documents = {document["id"]: document for document in package["documents"]}
     package_csv = csv_rows(_package_csv(package))
     package_xlsx = xlsx_rows(_package_xlsx(package))
-    for index, (row, job) in enumerate(zip(rows, jobs), start=1):
+    for index, (row, job) in enumerate(paired, start=1):
         document = documents[job.id]
         expected = expected_by_id[job.id]
         package_values = {
@@ -650,6 +701,10 @@ def escape(value: Any) -> str:
 
 
 def write_report(rows: list[dict[str, Any]], destination: Path, csv_path: Path) -> None:
+    # A REFUSED row carries identity and no audited figure, so it is named and
+    # counted rather than folded into rates computed over published balances.
+    refused_rows = [row for row in rows if row["status"] == REFUSED_STATUS]
+    rows = [row for row in rows if row["status"] != REFUSED_STATUS]
     passed = sum(row["status"] == "PASS" for row in rows)
     withheld = sum(row["status"] == "WITHHELD_SOURCE_CONTRADICTION" for row in rows)
     failed = sum(row["status"] == "FAIL" for row in rows)
@@ -670,6 +725,13 @@ def write_report(rows: list[dict[str, Any]], destination: Path, csv_path: Path) 
         "## Totals",
         "",
         f"- PDFs/statements audited: **{len(rows)}**",
+        f"- Statements the deterministic analysis refused to publish: "
+        f"**{len(refused_rows)}** "
+        + (
+            ", ".join(sorted(row["statement"] for row in refused_rows))
+            if refused_rows
+            else "(none)"
+        ),
         f"- Banks represented: **{len(banks)}**",
         f"- Parser variants represented: **{len(parsers)}**",
         f"- Digital/native PDFs: **{len(rows) - image_count}**",
@@ -812,7 +874,7 @@ def main() -> None:
     write_report(rows, report_path, csv_path)
     counts = {
         status: sum(row["status"] == status for row in rows)
-        for status in ("PASS", "WITHHELD_SOURCE_CONTRADICTION", "FAIL")
+        for status in ("PASS", "WITHHELD_SOURCE_CONTRADICTION", "FAIL", REFUSED_STATUS)
     }
     print(f"Wrote {len(rows)} rows to {csv_path} and {report_path}: {counts}")
     # A FAIL row means production disagrees with the independent oracle. Exit

@@ -95,12 +95,48 @@ ADB_CSV = ROOT / "docs" / "adb-audit-results.csv"
 BALANCE_CSV = ROOT / "docs" / "balance-metrics-audit-results.csv"
 
 EXPECTED_PDF_COUNT = 109
-EXPECTED_PASS = 106
+EXPECTED_PASS = 105
 EXPECTED_WITHHELD = 3
+EXPECTED_REFUSED = 1
 WITHHELD_STATEMENTS = {
     "Ace_Auto_Final_Cut.pdf",
     "BMO_Statement_January_2026 Final-1-2 (1).pdf",
     "IBC April (1).pdf",
+}
+
+#: The status both audit oracles write for a pinned document the deterministic
+#: analysis REFUSES to publish. See `PINNED_REFUSALS`.
+REFUSED_STATUS = "REFUSED"
+
+#: Pinned documents production refuses to analyse, each with the refusal it is
+#: pinned at, verbatim.
+#:
+#: A refusal is a pinned FACT, not an absence. The document stays in the
+#: manifest, both audit CSVs keep a row for it, and this map is what the gate
+#: holds the refusal to: the analysis must raise `RuntimeError` with exactly
+#: this message. If the document ever publishes again — because a parser was
+#: relaxed, or because a repair came back — the gate goes RED, which is the
+#: same protection a published verdict gets from `PINNED_OUTCOMES`. Deleting
+#: the entry, or the document, is the only way to make it green, and that is a
+#: ceremony.
+#:
+#: CEREMONY, executed 2026-08-21 (REPAIR-DOCTRINE, W3 §REPAIRDOC, Gustavo's
+#: ruling of the same day: "Parsers must never rewrite transaction amounts just
+#: to force reconciliation. Replace repair-by-rewrite with discard-and-flag /
+#: fail-closed."). `analysis/columbia_bank.py` held two repairs that REWROTE a
+#: row's amount to bring a section into agreement with its own printed total,
+#: and this document was the archive's only statement that published because of
+#: them: three of its 108 amounts were parser-written rather than read
+#: (sha256 0CBD2AD897B90137878F81EF608778735CA0DFEAB23D25793F2C6F1DF6C6127D).
+#: With the repairs removed the ACH sections miss their printed totals, the
+#: reader declines exactly as it already did for the cohort's other three
+#: statements, no registration claims the document, and the analysis raises.
+#: It moved `review` / `missing_declared_statement_page` -> refused; its rows in
+#: both audit CSVs moved to the REFUSED shape; and its `PINNED_CURRENCY` entry
+#: was withdrawn, because a document that publishes no statement publishes no
+#: denomination either.
+PINNED_REFUSALS: dict[str, str] = {
+    "Misc/Columbia May 26 complete.pdf": "no deterministic parser matched this statement",
 }
 
 # ----------------------------------------------------------------------
@@ -192,10 +228,9 @@ PINNED_OUTCOMES: dict[str, _Verdict] = {
     # 2026-08-14, re-scoped to three movements 2026-08-15). WIRING-2 executed
     # it, so both now publish `PUBLISHED_OUTCOME` and live outside this map.
     #
-    # These three keep their flags, and they are the reason the fix is not
-    # blunt: Builder supplies 4 sheets for 5 declared pages, Columbia labels
-    # every one of its 4 sheets while declaring 5, and Link Bank labels 19 of
-    # 20. In each a page really is unaccounted for.
+    # Two of the three still keep their flags here, and they are the reason the
+    # fix is not blunt: Builder supplies 4 sheets for 5 declared pages and Link
+    # Bank labels 19 of 20. In each a page really is unaccounted for.
     "Misc/Builder June 2026.pdf": _Verdict(
         "review",
         flags=("missing_declared_statement_page",),
@@ -205,15 +240,10 @@ PINNED_OUTCOMES: dict[str, _Verdict] = {
         risk_level="review",
         possible_document_issue=False,
     ),
-    "Misc/Columbia May 26 complete.pdf": _Verdict(
-        "review",
-        flags=("missing_declared_statement_page",),
-        notes=(
-            "statement declares 5 bank page(s), but page label(s) 5 are absent from the supplied PDF",
-        ),
-        risk_level="review",
-        possible_document_issue=False,
-    ),
+    # `Misc/Columbia May 26 complete.pdf` was the third of them and is now a
+    # pinned REFUSAL instead — see `PINNED_REFUSALS`. Its page really is
+    # unaccounted for too, but the finding no longer has a published statement
+    # to sit on.
     "Misc/Link Bank April statement.pdf": _Verdict(
         "review",
         flags=("missing_declared_statement_page",),
@@ -427,7 +457,11 @@ PINNED_CURRENCY: dict[str, str] = {
     "Misc/Ace_Auto_Final_Cut.pdf": "USD",
     "Misc/Builder June 2026.pdf": "USD",
     "Misc/Checking Account Statements - 1_30_2026 - 4001245.pdf": "USD",
-    "Misc/Columbia May 26 complete.pdf": "USD",
+    # `Misc/Columbia May 26 complete.pdf` is deliberately absent: it is a
+    # pinned REFUSAL and publishes no statement, so it publishes no
+    # denomination either. Pinning one would assert a fact the product does not
+    # state. `check_currency` holds this map to the manifest MINUS the pinned
+    # refusals, so the omission is enforced rather than tolerated.
     "Misc/Consumers March - Monthly Statement.pdf": "USD",
     "Misc/Field Trucking November 2025 .pdf": "USD",
     "Misc/First Farmers 2026 01-document.pdf": "USD",
@@ -886,6 +920,7 @@ def check_outcomes(result: Result, label: str, rows: list[dict[str, str]],
     for row in rows:
         counts[row["status"]] = counts.get(row["status"], 0) + 1
     withheld = {row["statement"] for row in rows if row["status"] == withheld_status}
+    refused = {row["statement"] for row in rows if row["status"] == REFUSED_STATUS}
     details: list[str] = []
     ok = True
 
@@ -897,8 +932,26 @@ def check_outcomes(result: Result, label: str, rows: list[dict[str, str]],
         details.append(
             f"{counts.get(withheld_status, 0)} {withheld_status}, expected {EXPECTED_WITHHELD}"
         )
+    # A REFUSED row is an oracle reporting that the analysis published nothing
+    # to audit. Which documents those are is pinned in `PINNED_REFUSALS` and
+    # held to the product itself by `check_outcome_classes`; here the count is
+    # pinned so a second document cannot quietly join them.
+    if counts.get(REFUSED_STATUS, 0) != EXPECTED_REFUSED:
+        ok = False
+        details.append(
+            f"{counts.get(REFUSED_STATUS, 0)} {REFUSED_STATUS}, expected {EXPECTED_REFUSED}"
+        )
+    expected_refused = {Path(rel).name for rel in PINNED_REFUSALS}
+    if refused != expected_refused:
+        ok = False
+        for name in sorted(refused - expected_refused):
+            details.append(f"{name} is newly refused; a published statement must not stop publishing")
+        for name in sorted(expected_refused - refused):
+            details.append(
+                f"{name} is a pinned refusal and must stay refused, not reinterpreted as passing"
+            )
     for status, count in sorted(counts.items()):
-        if status not in {pass_status, withheld_status}:
+        if status not in {pass_status, withheld_status, REFUSED_STATUS}:
             ok = False
             details.append(f"unexpected status {status} on {count} statement(s)")
     if withheld != WITHHELD_STATEMENTS:
@@ -913,7 +966,8 @@ def check_outcomes(result: Result, label: str, rows: list[dict[str, str]],
     result.add(
         f"{label}_outcomes",
         ok,
-        f"{label}: {EXPECTED_PASS} pass, {EXPECTED_WITHHELD} withheld, same three statements",
+        f"{label}: {EXPECTED_PASS} pass, {EXPECTED_WITHHELD} withheld (same three "
+        f"statements), {EXPECTED_REFUSED} pinned refusal",
         details,
     )
 
@@ -1011,10 +1065,14 @@ def check_adb_doctrine(result: Result, payloads: dict[str, dict]) -> None:
     Two things are enforced, and the difference between them matters.
 
     **The basis and policy stamps are pinned as TOTAL assertions.** Every
-    pinned document must publish `underwriting_adb_basis ==
-    "calendar_day_printed_period"` and `underwriting_adb_policy ==
-    "canonical_v1"` - all 109, including the three withheld ones, because a
-    refused ledger still has to say which methodology refused it. That is the
+    pinned document that publishes a payload must publish
+    `underwriting_adb_basis == "calendar_day_printed_period"` and
+    `underwriting_adb_policy == "canonical_v1"` - including the three withheld
+    ones, because a refused LEDGER still has to say which methodology refused
+    it. A pinned REFUSAL publishes no payload at all, so there is nothing to
+    stamp and nothing to compare; those are counted in the summary line rather
+    than skipped silently, and `check_outcome_classes` is what holds them. That
+    is the
     doctrine made mechanical: no code path can substitute another denominator
     convention without turning this gate red.
 
@@ -1100,7 +1158,8 @@ def check_adb_doctrine(result: Result, payloads: dict[str, dict]) -> None:
         f"{stamped}/{len(payloads)} statements publish the canonical basis "
         f"{EXPECTED_ADB_BASIS!r}; banking-day alternate distinct on {distinct}, "
         f"skipped {skipped} unpublished "
-        f"({exempt_same_days} all-banking-day periods, {exempt_flat} flat ledgers)",
+        f"({exempt_same_days} all-banking-day periods, {exempt_flat} flat ledgers); "
+        f"{len(PINNED_REFUSALS)} pinned refusal(s) publish no payload to stamp",
         details,
     )
 
@@ -1125,17 +1184,26 @@ def check_currency(result: Result, manifest: list[str], payloads: dict[str, dict
     surface costs no extra analysis pass over the corpus.
     """
     details: list[str] = []
-    for rel in sorted(set(manifest) - set(PINNED_CURRENCY)):
+    # The surface is total over the manifest MINUS the pinned refusals. A
+    # document that publishes no statement publishes no denomination, so
+    # pinning one for it would assert something the product never states; the
+    # subtraction is written both ways so neither a missing pin nor a stale one
+    # can pass.
+    denominated = [rel for rel in manifest if rel not in PINNED_REFUSALS]
+    for rel in sorted(set(denominated) - set(PINNED_CURRENCY)):
         details.append(
             f"{rel}: pinned in the manifest but no expected currency is recorded; "
             f"every pinned document must state one"
         )
-    for rel in sorted(set(PINNED_CURRENCY) - set(manifest)):
-        details.append(f"{rel}: a currency is pinned for a path that is not in the manifest")
+    for rel in sorted(set(PINNED_CURRENCY) - set(denominated)):
+        details.append(
+            f"{rel}: a currency is pinned for a path that is not a denominated "
+            f"pinned document"
+        )
 
     counts: dict[str, int] = {}
     verified = 0
-    for rel in manifest:
+    for rel in denominated:
         expected = PINNED_CURRENCY.get(rel)
         payload = payloads.get(rel)
         if payload is None:
@@ -1158,7 +1226,9 @@ def check_currency(result: Result, manifest: list[str], payloads: dict[str, dict
     result.add(
         "currency",
         not details,
-        f"{verified}/{len(manifest)} statements publish their pinned currency: {split}",
+        f"{verified}/{len(denominated)} statements publish their pinned currency: "
+        f"{split} (+{len(manifest) - len(denominated)} pinned refusal(s), which "
+        f"publish no statement and so no denomination)",
         details,
     )
 
@@ -1200,19 +1270,36 @@ def check_outcome_classes(result: Result, corpus: Path, manifest: list[str],
     and to `risk_level` / `possible_document_issue` moving independently of
     both. This compares the product's whole published verdict, per document,
     and fails RED on any difference.
+
+    A path in `PINNED_REFUSALS` is pinned the other way round: the analysis
+    must RAISE, with that exact message. Two movements are possible and both
+    are RED — it publishes a verdict again, or it raises something else —
+    because a refusal that has drifted to a different cause is no longer the
+    fact that was reviewed.
     """
     details: list[str] = []
     counts: dict[str, int] = {}
     payloads: dict[str, dict] = {}
     for rel in manifest:
         expected = PINNED_OUTCOMES.get(rel, PUBLISHED_OUTCOME)
+        refusal = PINNED_REFUSALS.get(rel)
         try:
             actual, payload = production_verdict(corpus / Path(rel), cache)
         except Exception as exc:  # a document we cannot verdict is a failure
+            if refusal is not None and type(exc) is RuntimeError and str(exc) == refusal:
+                counts["refused"] = counts.get("refused", 0) + 1
+                continue
             details.append(f"{rel}: could not be analysed: {type(exc).__name__}: {exc}")
             counts["error"] = counts.get("error", 0) + 1
             continue
         counts[actual.outcome] = counts.get(actual.outcome, 0) + 1
+        if refusal is not None:
+            details.append(
+                f"{rel}: is pinned as a refusal ({refusal!r}) and now publishes a "
+                f"{actual.outcome} verdict; a pinned refusal is a pinned fact and "
+                f"does not move without a ceremony"
+            )
+            continue
         payloads[rel] = payload
         if actual == expected:
             continue

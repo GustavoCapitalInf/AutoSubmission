@@ -51,7 +51,17 @@ from discovery.runner import (
 ROOT = Path(__file__).resolve().parents[1]
 CORPUS = ROOT / "Bank Statements"
 DIGITAL = "Chase/Chase Mar.pdf"
-SCANNED = "Misc/Columbia May 26 complete.pdf"
+#: An image-only corpus statement whose committed OCR artifact a registration
+#: both claims AND publishes — the two properties every use below needs.
+#:
+#: It was `Misc/Columbia May 26 complete.pdf` until W3 §REPAIRDOC removed the
+#: two amount-rewriting repairs from `analysis/columbia_bank.py`; that document
+#: is now a pinned REFUSAL (`corpus_gate.PINNED_REFUSALS`) and publishes
+#: nothing, so it can no longer stand for "a scanned statement the dry run
+#: resolves". First Farmers is the same class of fixture: zero native text, an
+#: artifact committed in `tests/corpus_cache`, and a printed account number
+#: longer than four characters, which is what the redaction test needs.
+SCANNED = "Misc/First Farmers 2026 01-document.pdf"
 
 
 @pytest.fixture
@@ -277,7 +287,7 @@ def test_the_dry_run_reads_scanned_statements_from_committed_artifacts(tmp_path:
     """That is what lets the dry run cover all 109 with zero OCR."""
     row = _runner(CORPUS, MODE_DRY_RUN).process(SCANNED, "Misc")
     assert row.source_path == "committed_artifact"
-    assert row.parser_id == "columbia_bank"
+    assert row.parser_id == "first_farmers"
     assert row.outcome_class in {"validated", "review"}
 
 
@@ -808,7 +818,7 @@ def test_masking_keeps_only_the_last_four_characters():
 
 
 def test_a_real_account_number_never_reaches_the_row():
-    """Columbia's statement carries an account number; only its last 4 survive."""
+    """The scanned statement carries an account number; only its last 4 survive."""
     row = _runner(CORPUS, MODE_DRY_RUN).process(SCANNED, "Misc")
     from analysis.pipeline import analyze_markdown
     from corpus_artifacts import cached_markdown
@@ -852,15 +862,30 @@ def test_dry_run_reproduces_known_truth():
     assert summary["processed"] == 109
     assert summary["deferred"] == 0
     assert summary["dispatched"] == 109
-    assert summary["deterministic_coverage"] == 1.0
-    assert summary["dispatch"] == {"claimed": 109}
+    assert summary["deterministic_coverage"] == 108 / 109
+    assert summary["dispatch"] == {"claimed": 108, "unclaimed": 1}
     # 100/6/3 until WIRING-2's approved ceremony moved Texas Bank and Regions
     # review -> validated on withdrawn FALSE page flags. Regions is one of the
     # six image-only statements, and it only became executable offline once the
     # committed artifacts carried their intake page lists — this runner reads
     # them on the committed-artifact rung, so its agreement with the gate is
     # evidence that both halves of that artifact are in play.
-    assert summary["outcome"] == {"validated": 102, "review": 4, "withheld": 3}
+    #
+    # The one `failed` arrived with W3 §REPAIRDOC: with the two
+    # amount-rewriting repairs gone from `analysis/columbia_bank.py` its one
+    # publishing statement declines, no registration claims the document, and
+    # the analysis raises. It is a pinned REFUSAL, named in
+    # `corpus_gate.PINNED_REFUSALS` and asserted by name below — a document
+    # that failed for any OTHER reason would move this count and go red.
+    assert summary["outcome"] == {
+        "validated": 102, "review": 3, "withheld": 3, "failed": 1,
+    }
+    failed = {
+        path for path, row in rows.items() if row.outcome_class == "failed"
+    }
+    assert failed == set(corpus_gate.PINNED_REFUSALS)
+    assert all(rows[path].outcome_reason == "parser_declined" for path in failed)
+    assert all(rows[path].parser_id is None for path in failed)
     # Nothing can defer on the pinned set: the six image-only statements are
     # served from their committed OCR artifacts.
     assert "deferred" not in summary["outcome"]
@@ -879,7 +904,12 @@ def test_dry_run_reproduces_known_truth():
     )["documents"]
     assert len(expectations) == 109
     for entry in expectations:
-        expected = entry["variant_id"] or entry["parser_id"]
+        # `parser_expectations.json` records what the pre-R-3 or-chain did and
+        # is not rewritten by a later doctrine ceremony; for a pinned refusal
+        # the runner names no parser at all, which the block above pins.
+        expected = None if entry["path"] in corpus_gate.PINNED_REFUSALS else (
+            entry["variant_id"] or entry["parser_id"]
+        )
         assert rows[entry["path"]].parser_id == expected, entry["path"]
         assert rows[entry["path"]].content_sha256 == entry["sha256"]
 

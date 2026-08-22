@@ -396,6 +396,7 @@ def test_a_printed_total_additions_with_no_deposit_section_declines():
     ("other_debits", "Automatic Loan Pay 30.00", "Automatic Loan Pay 31.00"),
     ("deposits", "04-02 Deposit 200.00", "04-02 Deposit 201.00"),
     ("ach_credits", "20260405 300.00", "20260405 301.00"),
+    ("ach_debits", "20260403 400.00", "20260403 401.00"),
 ])
 def test_a_section_whose_rows_miss_its_own_printed_total_declines(section, printed, damaged):
     #: EVERY section against its own printed total, not just the ones a
@@ -404,29 +405,109 @@ def test_a_section_whose_rows_miss_its_own_printed_total_declines(section, print
     #: beneath them would put the disagreement into the transaction list and
     #: leave the summary looking right.
     #:
-    #: The ACH DEBIT section is not in this list, and deliberately: it is the
-    #: one section with a repair path, pinned in the two tests below.
+    #: The ACH DEBIT section is in this list since W3 §REPAIRDOC. It used to be
+    #: the one section with a repair path, and the repair is what kept it out.
     base = {"other_debits": OTHER_DEBITS, "deposits": DEPOSITS,
-            "ach_credits": ACH_CREDITS}[section]
+            "ach_credits": ACH_CREDITS, "ach_debits": ACH_DEBITS}[section]
     assert parse(document(**{section: base.replace(printed, damaged)})) is None
 
 
-def test_one_damaged_ach_debit_row_is_repaired_when_the_grid_names_it():
-    #: The shipped single-delta repair (unchanged by this cell). It moves ONE
-    #: row by the section's whole distance from its printed total, and it keeps
-    #: the result only when the reconstructed ledger then agrees with the daily
-    #: grid. Here one row is the only candidate and the grid confirms it.
-    statement = parse(document(ach_debits=ACH_DEBITS.replace(
-        "20260403 400.00", "20260403 401.00")))
+# ---------------------------------------------------------------------------
+# W3 §REPAIRDOC — a row is published at the figure the text prints, or it is
+# not published
+# ---------------------------------------------------------------------------
+#
+# Two repairs used to sit between the row reader and the section gates. One
+# snapped a row to its counterparty group's modal amount whenever that moved
+# the section nearer its printed total; the other rewrote ONE row BY the
+# section's whole residual and kept the candidate whose reconstruction best
+# matched the daily grid. Both ran BEFORE the gates, so each gate tested its
+# own repair's objective function rather than the document. Gustavo's ruling of
+# 2026-08-21 removed them: "Parsers must never rewrite transaction amounts just
+# to force reconciliation."
+#
+# Each shape below is pinned TWICE: the damaged document refuses, and the same
+# rows publish at the figures they print once the printed total agrees with
+# them. The second half is what says the reader is fail-closed rather than
+# merely broken — a reader that had lost the ability to publish these rows at
+# all would pass the refusal half and fail this one.
+
+#: Three rows of one counterparty at one amount and a fourth a dollar off it.
+#: The removed `_counterparty_key` grouped on the leading non-numeric
+#: description tokens, so all four were one group with a mode of 100.00.
+_REPEATED_ROWS = (
+    "04-03 ACH Debit Example Vendor 20260403 100.00\n"
+    "04-03 ACH Debit Example Vendor 20260403 100.00\n"
+    "04-03 ACH Debit Example Vendor 20260403 100.00\n"
+    "04-03 ACH Debit Example Vendor 20260403 101.00\n"
+)
+
+
+def _repeated_debits(total: str) -> str:
+    return (
+        "ACH and Electronic Payments/Subtractions\n"
+        "Date Description Subtractions\n"
+        + _REPEATED_ROWS
+        + f"Total ACH and Electronic Payments/Subtractions ${total}\n"
+    )
+
+
+def _summary_and_grid_for_401_of_debits(**parts):
+    """`document(...)` with the summary and the grid moved to 401.00 of ACH
+    debits, so a section total of 401.00 is the CONSISTENT printing."""
+    return document(
+        summary=SUMMARY.replace("Withdrawals/Subtractions $450.00",
+                                "Withdrawals/Subtractions $451.00")
+                       .replace("Ending balance $150.00", "Ending balance $149.00"),
+        grid=GRID.replace("04-03 -100.00", "04-03 -101.00")
+                 .replace("04-05 200.00", "04-05 199.00")
+                 .replace("04-06 170.00", "04-06 169.00")
+                 .replace("04-07 150.00", "04-07 149.00"),
+        **parts,
+    )
+
+
+def test_a_row_a_dollar_off_its_counterparty_mode_is_not_snapped_to_it():
+    #: MUTATION: restore `_repair_repeated_amounts` and its call site and this
+    #: document publishes four rows of 100.00 — three read and one WRITTEN,
+    #: against a named counterparty, with every printed total agreeing.
+    assert parse(document(ach_debits=_repeated_debits("400.00"))) is None
+
+
+def test_the_same_four_rows_publish_as_printed_when_the_total_agrees():
+    statement = _summary_and_grid_for_401_of_debits(
+        ach_debits=_repeated_debits("401.00"))
+    statement = parse(statement)
     assert statement is not None
-    assert [t.amount for t in statement.transactions if t.date == "2026-04-03"] == [-400.00]
+    assert sorted(
+        t.amount for t in statement.transactions if t.date == "2026-04-03"
+    ) == [-101.00, -100.00, -100.00, -100.00]
 
 
-def test_two_equally_scoring_candidates_refuse_rather_than_choosing():
-    #: `88AAC06119FC`'s shape: the section misses its printed total by 0.33 and
-    #: the grid puts the whole difference on a day that prints more than one
-    #: row, so every candidate reconstructs the same balances. Choosing would
-    #: publish an amount the bank did not print, against a named counterparty.
+def test_a_single_row_carrying_the_sections_whole_residual_is_not_rewritten():
+    #: MUTATION: restore `_repair_single_section_delta` and its call site and
+    #: this document publishes 400.00 for a row the bank printed at 401.00 —
+    #: the daily grid confirms the candidate, which is exactly the confirmation
+    #: the ruling refuses to accept as a licence to write an amount.
+    assert parse(document(ach_debits=ACH_DEBITS.replace(
+        "20260403 400.00", "20260403 401.00"))) is None
+
+
+def test_the_same_row_publishes_as_printed_when_the_total_agrees():
+    statement = parse(_summary_and_grid_for_401_of_debits(
+        ach_debits=ACH_DEBITS.replace("20260403 400.00", "20260403 401.00")
+                             .replace("Subtractions $400.00", "Subtractions $401.00"),
+    ))
+    assert statement is not None
+    assert [t.amount for t in statement.transactions if t.date == "2026-04-03"] == [-401.00]
+
+
+def test_two_candidate_rows_refuse_rather_than_one_being_chosen():
+    #: `88AAC06119FC`'s shape: the section misses its printed total and the
+    #: grid puts the whole difference on a day that prints more than one row,
+    #: so no candidate is distinguishable. The repair refused here by scoring;
+    #: the reader now refuses because the section does not add up, which is the
+    #: same answer reached without an objective function.
     two_rows = (
         "ACH and Electronic Payments/Subtractions\n"
         "Date Description Subtractions\n"
@@ -435,6 +516,29 @@ def test_two_equally_scoring_candidates_refuse_rather_than_choosing():
         "Total ACH and Electronic Payments/Subtractions $400.00\n"
     )
     assert parse(document(ach_debits=two_rows)) is None
+
+
+def test_every_published_amount_is_a_figure_the_document_prints():
+    #: The doctrine as a property rather than as a list of shapes: whatever the
+    #: reader publishes, each magnitude is a token the text carries. Holds over
+    #: the template and over both consistent variants above.
+    for markdown in (
+        document(),
+        document(other_credits=OTHER_CREDITS,
+                 summary=SUMMARY.replace("Deposits/Additions $500.00",
+                                         "Deposits/Additions $550.00")
+                                .replace("Ending balance $150.00", "Ending balance $200.00"),
+                 grid=GRID.replace("04-02 300.00", "04-02 350.00").replace(
+                     "04-03 -100.00", "04-03 -50.00").replace(
+                     "04-05 200.00", "04-05 250.00").replace(
+                     "04-06 170.00", "04-06 220.00").replace(
+                     "04-07 150.00", "04-07 200.00")),
+        _summary_and_grid_for_401_of_debits(ach_debits=_repeated_debits("401.00")),
+    ):
+        statement = parse(markdown)
+        assert statement is not None
+        for txn in statement.transactions:
+            assert f"{abs(txn.amount):,.2f}" in markdown, txn
 
 
 #: The dangerous shape for a per-section gate: a document whose SUMMARY
@@ -547,6 +651,88 @@ def test_an_out_of_period_grid_cell_is_evidence_but_not_published():
     #: and it is not an in-period snapshot.
     statement = parse(document())
     assert "2026-03-31" not in [b.date for b in statement.stated_daily_balances]
+
+
+# ---------------------------------------------------------------------------
+# W3 §REPAIRDOC — the printed cell is published, and a disagreement with the
+# ledger under it is a finding rather than something to resolve
+# ---------------------------------------------------------------------------
+#
+# `stated_daily_balances` is BANK evidence: `analysis/adb.py` lets a snapshot
+# OVERRIDE the reconstructed carry for its day. This reader used to publish
+# `reconstructed.get(day, snapshots[day])` — its own arithmetic wherever it had
+# any — so the ADB was computed over a series that was part parser and part
+# bank, with nothing saying which day was which.
+
+#: One printed cell the ledger under it does not reconstruct, and everything
+#: else about the document consistent: every section adds to its own printed
+#: total, the section totals add to the summary, and the ledger reaches the
+#: printed ending balance. The disagreement is the ONLY finding, which is what
+#: makes it the shape a substitution could hide.
+CONTRADICTED_GRID = GRID.replace("04-05 200.00", "04-05 210.00")
+
+
+def test_the_daily_grid_publishes_the_printed_cell_not_the_reconstruction():
+    #: MUTATION: restore `reconstructed.get(snapshot_date, snapshots[...])` and
+    #: 200.00 is published for 04-05 — the parser's own arithmetic handed to
+    #: `analysis/adb.py` under the name of a bank-printed balance.
+    statement = parse(document(grid=CONTRADICTED_GRID))
+    assert statement is not None
+    assert ("2026-04-05", 210.00) in [
+        (b.date, b.balance) for b in statement.stated_daily_balances
+    ]
+
+
+def test_a_grid_cell_the_ledger_does_not_reconstruct_is_published_as_a_contradiction():
+    #: MUTATION: drop the reconstruction half of `daily_grid_contradictions`
+    #: and the disagreement is published as evidence with nothing naming it.
+    markdown = document(grid=CONTRADICTED_GRID)
+    notes = cb.daily_grid_contradictions(markdown, parse(markdown))
+    assert len(notes) == 1
+    assert "2026-04-05" in notes[0]
+
+
+def test_a_published_snapshot_that_is_not_the_printed_cell_is_a_contradiction():
+    #: The never-substitute rule made a measured fact rather than a property of
+    #: the code as it stands. The check re-reads the grid from the DOCUMENT, so
+    #: a reader that resumed substituting is caught by it.
+    #:
+    #: MUTATION: drop the published-snapshot half of the check and this
+    #: statement — carrying the reconstruction where the grid prints something
+    #: else — reports only the ledger disagreement.
+    markdown = document(grid=CONTRADICTED_GRID)
+    statement = parse(markdown)
+    substituted = statement.model_copy(update={"stated_daily_balances": [
+        snapshot.model_copy(update={"balance": 200.00})
+        if snapshot.date == "2026-04-05" else snapshot
+        for snapshot in statement.stated_daily_balances
+    ]})
+    notes = cb.daily_grid_contradictions(markdown, substituted)
+    assert any("is not the figure the Daily Balances grid prints" in note for note in notes)
+
+
+def test_a_grid_the_ledger_reconstructs_exactly_reports_nothing():
+    #: The check is not a standing accusation: the template agrees with itself
+    #: on every printed cell and reports nothing.
+    markdown = document()
+    assert cb.daily_grid_contradictions(markdown, parse(markdown)) == []
+
+
+def test_the_registration_declares_the_daily_grid_check():
+    #: MUTATION: drop `integrity_checks` from the columbia_bank override and
+    #: the check never runs, so no disagreement reaches a published flag.
+    registration = next(r for r in pr.registrations() if r.id == "columbia_bank")
+    assert cb.daily_grid_contradictions in registration.integrity_checks
+
+
+def test_the_disagreement_reaches_the_published_integrity_block():
+    #: End to end: the note the parser's check writes becomes a published flag
+    #: on the document, which is what "flag the disagreement" has to mean.
+    from analysis.pipeline import analyze_markdown
+
+    report = analyze_markdown(document(grid=CONTRADICTED_GRID), parse_mode="deterministic")
+    assert "conflicting_statement_summaries" in report.integrity.flags
+    assert any("2026-04-05" in note for note in report.integrity.notes)
 
 
 # ---------------------------------------------------------------------------

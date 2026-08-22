@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import re
-from collections import Counter, defaultdict
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
@@ -169,50 +168,35 @@ def _rows(block: str, *, start: date, end: date, sequence: int) -> tuple[list[_R
     return output, sequence
 
 
-def _counterparty_key(description: str) -> str:
-    normalized = re.sub(r"[^A-Z0-9 ]+", " ", description.upper())
-    normalized = re.sub(r"\s+", " ", normalized).strip()
-    normalized = re.sub(r"^ACH (?:CREDIT|DEBIT) ", "", normalized)
-    tokens: list[str] = []
-    for token in normalized.split():
-        if any(char.isdigit() for char in token):
-            break
-        if token in {"ACHPMT", "HCCLAIMPMT", "HCLAIMPMT", "CLAIMPMT", "EDIRPAY"}:
-            break
-        tokens.append(token)
-        if len(tokens) == 3:
-            break
-    return " ".join(tokens)
-
-
-def _repair_repeated_amounts(rows: list[_Row], target: Decimal) -> list[_Row]:
-    repaired = list(rows)
-    groups: dict[str, list[int]] = defaultdict(list)
-    for index, row in enumerate(repaired):
-        groups[_counterparty_key(row.description)].append(index)
-
-    while True:
-        current = sum((row.amount for row in repaired), Decimal())
-        current_error = abs(current - target)
-        best: tuple[Decimal, int, Decimal] | None = None
-        for indexes in groups.values():
-            counts = Counter(repaired[index].amount for index in indexes)
-            mode, frequency = counts.most_common(1)[0]
-            if frequency < 3 or frequency * 2 < len(indexes):
-                continue
-            for index in indexes:
-                if repaired[index].amount == mode:
-                    continue
-                candidate_error = abs(current - repaired[index].amount + mode - target)
-                if candidate_error >= current_error:
-                    continue
-                candidate = (candidate_error, index, mode)
-                if best is None or candidate < best:
-                    best = candidate
-        if best is None:
-            return repaired
-        _, index, mode = best
-        repaired[index] = replace(repaired[index], amount=mode)
+#: A row is published at the figure the text prints, or it is not published.
+#:
+#: This module used to hold two REPAIRS between `_rows` and the section gates
+#: below — one that replaced a row's amount with its counterparty group's modal
+#: amount whenever that moved the section nearer its printed total, and one that
+#: rewrote a single row's amount BY the section's whole residual and kept the
+#: candidate whose reconstruction best matched the daily grid. Both ran before
+#: the gates, so each gate tested its own repair's objective function rather
+#: than the document, and on the archive's one publishing statement of this
+#: cohort three of the amounts a reader saw were parser-WRITTEN rather than
+#: read. Gustavo's ruling of 2026-08-21 removed them: "Parsers must never
+#: rewrite transaction amounts just to force reconciliation. Replace
+#: repair-by-rewrite with discard-and-flag / fail-closed."
+#:
+#: FAIL CLOSED is what this template takes, and the choice is evidential rather
+#: than stylistic. The defect class the repairs were built for is OCR digit
+#: corruption in a scan; a section total detects it and cannot locate it. On the
+#: cohort's one publishing statement the ACH debit section missed its printed
+#: total by 3,001.00 and the shipped machinery needed BOTH heuristics, on two
+#: different rows, to close that one gap — which is proof by construction that
+#: the grid does not locate the defect to a single row. Publishing the rows as
+#: printed under a flag would put a ledger with at least three known-corrupt
+#: figures, and no way to say which three, in front of an underwriter, and it
+#: would need the ledger-chain gate below weakened as well, because such a
+#: ledger does not reach the printed ending balance. The other five sections of
+#: this template have always failed closed on exactly this condition, and the
+#: cohort's other three statements already refuse on it. Removing the repairs
+#: makes the reader uniform: every section against its own printed total, no
+#: exceptions, no amount ever written.
 
 
 #: A cell of the Daily Balances grid: `mm-dd`, whitespace, and then the figure
@@ -265,55 +249,6 @@ def _ending_by_date(opening: Decimal, rows: list[tuple[_Row, int]]) -> dict[date
         balance += row.amount * sign
         output[row.date] = balance
     return output
-
-
-def _repair_single_section_delta(
-    debit_rows: list[_Row],
-    *,
-    target: Decimal,
-    opening: Decimal,
-    all_credit_rows: list[_Row],
-    other_debits: list[_Row],
-    checks: list[_Row],
-    snapshots: dict[date, Decimal],
-) -> list[_Row] | None:
-    current = sum((row.amount for row in debit_rows), Decimal())
-    delta = current - target
-    if delta == 0:
-        return debit_rows
-
-    groups: dict[str, list[_Row]] = defaultdict(list)
-    for row in debit_rows:
-        groups[_counterparty_key(row.description)].append(row)
-
-    candidates: list[tuple[int, int, list[_Row]]] = []
-    for index, row in enumerate(debit_rows):
-        related = groups[_counterparty_key(row.description)]
-        mode, frequency = Counter(item.amount for item in related).most_common(1)[0]
-        if frequency >= 3 and frequency * 2 >= len(related) and row.amount == mode:
-            continue
-        candidate_amount = row.amount - delta
-        if candidate_amount <= 0 or candidate_amount.as_tuple().exponent != -2:
-            continue
-        candidate_rows = list(debit_rows)
-        candidate_rows[index] = replace(row, amount=candidate_amount)
-        signed_rows = (
-            [(item, 1) for item in all_credit_rows]
-            + [(item, -1) for item in candidate_rows]
-            + [(item, -1) for item in other_debits]
-            + [(item, -1) for item in checks]
-        )
-        reconstructed = _ending_by_date(opening, signed_rows)
-        score = sum(reconstructed.get(day) == amount for day, amount in snapshots.items())
-        candidates.append((score, -index, candidate_rows))
-    if not candidates:
-        return None
-    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    if len(candidates) > 1 and candidates[0][0] == candidates[1][0]:
-        return None
-    if candidates[0][0] < max(3, len(snapshots) * 3 // 4):
-        return None
-    return candidates[0][2]
 
 
 #: A row of the two-column cheque grid (`Check # Amount Date Check # Amount
@@ -533,24 +468,13 @@ def parse_columbia_bank_statement(markdown: str) -> Statement | None:
     deposit_total = Decimal() if deposit_total is None else deposit_total
     other_credit_total = Decimal() if other_credit_total is None else other_credit_total
 
-    ach_debits = _repair_repeated_amounts(ach_debits, ach_debit_total)
-    ach_credits = _repair_repeated_amounts(ach_credits, ach_credit_total)
     snapshots = _daily_snapshots(daily_block, year=period_end.year)
-    ach_debits = _repair_single_section_delta(
-        ach_debits,
-        target=ach_debit_total,
-        opening=opening,
-        all_credit_rows=deposits + other_credits + ach_credits,
-        other_debits=other_debits,
-        checks=checks,
-        snapshots=snapshots,
-    )
-    if ach_debits is None:
-        return None
 
     # Every section against its OWN printed total, then the two summary
     # figures against the sum of the section totals. No row is believed on its
-    # own and no section total is believed without the rows under it.
+    # own and no section total is believed without the rows under it, and a
+    # section that disagrees with the figure the bank printed under it declines
+    # the DOCUMENT rather than being brought into agreement with it.
     if sum((row.amount for row in deposits), Decimal()) != deposit_total:
         return None
     if sum((row.amount for row in other_credits), Decimal()) != other_credit_total:
@@ -593,13 +517,25 @@ def parse_columbia_bank_statement(markdown: str) -> Statement | None:
             update={"running_balance": float(reconstructed[txn_date])}
         )
 
+    # `stated_daily_balances` is BANK evidence: `analysis/adb.py` lets a
+    # snapshot OVERRIDE the reconstructed carry for its day, so whatever is put
+    # here is read as the figure the bank printed. This reader used to publish
+    # `reconstructed.get(day, snapshots[day])` — its own arithmetic wherever it
+    # had any, and the printed cell only where it had none — which handed the
+    # ADB a parser-computed balance under the name of a bank-printed one. The
+    # printed cell is published, always. Where the ledger under the grid
+    # reconstructs a different balance for that day the two are left
+    # disagreeing and `daily_grid_contradictions` publishes the disagreement;
+    # substituting is what turned it invisible. Unreadable cells (the em-dash
+    # placeholder class documented at `_GRID_CELL`) stay omitted.
     daily_evidence: list[StatementDailyBalance] = []
     for snapshot_date in sorted(snapshots):
         if not period_start <= snapshot_date <= period_end:
             continue
-        amount = reconstructed.get(snapshot_date, snapshots[snapshot_date])
         daily_evidence.append(
-            StatementDailyBalance(date=snapshot_date.isoformat(), balance=float(amount))
+            StatementDailyBalance(
+                date=snapshot_date.isoformat(), balance=float(snapshots[snapshot_date])
+            )
         )
 
     name = re.search(r"\n([A-Z][A-Z ]+ (?:PLLC|LLC))\s*\n", markdown)
@@ -622,3 +558,90 @@ def parse_columbia_bank_statement(markdown: str) -> Statement | None:
         stated_daily_balances=daily_evidence,
         transactions=transactions,
     )
+
+
+def _cents(value: float | Decimal) -> Decimal:
+    return Decimal(str(value)).quantize(Decimal("0.01"))
+
+
+def daily_grid_contradictions(markdown: str, stmt: Statement) -> list[str]:
+    """The Daily Balances grid, read again and held against what was published.
+
+    The grid is a SECOND printing of a balance the ledger above it already
+    determines, so a document whose two printings disagree contradicts itself.
+    Neither printing is preferred: the disagreement is reported, which is what
+    a human needs and what preferring one of them destroyed.
+
+    Two findings, and the difference between them matters.
+
+    **A published snapshot that is not the printed cell** is this module's own
+    doctrine violated — parser arithmetic served to `analysis/adb.py` under the
+    name of bank evidence, which is what `stated_daily_balances` used to carry.
+    It cannot happen through `parse_columbia_bank_statement` any more, and this
+    check is what makes that a measured fact on every document rather than a
+    property of the code as it stands today.
+
+    **A printed cell the ledger does not reconstruct** is the document
+    disagreeing with itself. It is a finding, not a defect of the read: the
+    rows are the figures the bank printed, the cell is the figure the bank
+    printed, and only the bank can say which one is wrong.
+
+    The grid is re-read from the DOCUMENT rather than taken from the statement,
+    so the check keeps working against a reader that has stopped publishing the
+    printed cell. Guarded by the registry like every other integrity check.
+    """
+    if not stmt.period_start or not stmt.period_end:
+        return []
+    try:
+        start = date.fromisoformat(stmt.period_start)
+        end = date.fromisoformat(stmt.period_end)
+    except ValueError:
+        return []
+    block = section_between(markdown, r"Daily Balances", r"Overdraft Fee Summary")
+    if not block:
+        return []
+    printed = {
+        day: amount
+        for day, amount in _daily_snapshots(block, year=end.year).items()
+        if start <= day <= end
+    }
+    if not printed:
+        return []
+
+    notes: list[str] = []
+    for snapshot in stmt.stated_daily_balances:
+        try:
+            day = date.fromisoformat(snapshot.date)
+        except ValueError:
+            continue
+        cell = printed.get(day)
+        if cell is not None and _cents(snapshot.balance) != cell:
+            notes.append(
+                f"the daily balance published for {day.isoformat()} "
+                f"({snapshot.balance:,.2f}) is not the figure the Daily Balances "
+                f"grid prints for that day ({float(cell):,.2f})"
+            )
+
+    if stmt.beginning_balance is None:
+        return notes
+    movement: dict[date, Decimal] = {}
+    for txn in stmt.transactions:
+        try:
+            day = date.fromisoformat(txn.date)
+        except ValueError:
+            return notes
+        movement[day] = movement.get(day, Decimal()) + _cents(txn.amount)
+
+    carry = _cents(stmt.beginning_balance)
+    day = start
+    while day <= end:
+        carry += movement.get(day, Decimal())
+        cell = printed.get(day)
+        if cell is not None and cell != carry:
+            notes.append(
+                f"the Daily Balances grid prints {float(cell):,.2f} for "
+                f"{day.isoformat()} but the ledger printed above it reconstructs "
+                f"{float(carry):,.2f}"
+            )
+        day += timedelta(days=1)
+    return notes

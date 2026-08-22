@@ -111,15 +111,19 @@ WITHHELD_REQUIRED_CODES = {
 # Six until WIRING-2's approved ceremony: Texas Bank and Regions were diagnosed
 # `page_coverage` on a flag that was FALSE — their pages are present as
 # unlabelled sheets — and both now publish as validated with no diagnosis at
-# all. The three that remain keep theirs, each because a page really is
+# all. The three that remained kept theirs, each because a page really is
 # unaccounted for.
+#
+# Three, since W3 §REPAIRDOC: `Columbia May 26 complete.pdf` was the fourth and
+# is now a pinned REFUSAL (`corpus_gate.PINNED_REFUSALS`). Its page is still
+# unaccounted for; there is simply no published statement left for the finding
+# to sit on, which is what a refusal means.
 REVIEW_DIAGNOSIS = {
     # a transaction export, not a bank statement — a document class, which is
     # why its evidence is all advisory
     "Chase Business.pdf": "advisory_only",
     # the statement declares bank pages the supplied PDF does not contain
     "Builder June 2026.pdf": "page_coverage",
-    "Columbia May 26 complete.pdf": "page_coverage",
     "Link Bank April statement.pdf": "page_coverage",
 }
 
@@ -225,23 +229,45 @@ def test_telemetry_reproduces_the_gate_outcome_split():
         for rel, record in zip(manifest, records)
         if record["outcome"]["class"] == "withheld"
     }
+    failed = {
+        Path(rel).name
+        for rel, record in zip(manifest, records)
+        if record["outcome"]["class"] == "failed"
+    }
     assert withheld == WITHHELD
     assert classes.count("withheld") == corpus_gate.EXPECTED_WITHHELD == 3
-    assert classes.count("failed") == 0
+    # W3 §REPAIRDOC: one pinned document publishes nothing at all. `failed`
+    # here is the same fact `corpus_gate.PINNED_REFUSALS` pins, seen from the
+    # telemetry side, and the two are tied together by name below so a second
+    # refusal cannot appear here without appearing there.
+    assert failed == {Path(rel).name for rel in corpus_gate.PINNED_REFUSALS}
+    assert classes.count("failed") == corpus_gate.EXPECTED_REFUSED == 1
     assert classes.count("validated") + classes.count("review") == corpus_gate.EXPECTED_PASS
 
-    # R-3's registry claims every corpus document, and telemetry sees it.
-    assert all(record["dispatch"]["outcome"] == "claimed" for record in records)
+    # R-3's registry claims every corpus document it publishes, and telemetry
+    # sees it. The refusal is `unclaimed`, with no parser named: the reader
+    # DETECTED it and then declined, which is a different fact and is carried
+    # by `attempted` rather than by `parser_id`.
+    unclaimed = [record for record in records if record["dispatch"]["outcome"] != "claimed"]
+    assert len(unclaimed) == corpus_gate.EXPECTED_REFUSED
+    assert [record["dispatch"]["outcome"] for record in unclaimed] == ["unclaimed"]
     assert all(record["dispatch"]["source"] == "live" for record in records)
-    assert all(record["dispatch"]["parser_id"] for record in records)
+    assert all(
+        record["dispatch"]["parser_id"]
+        for record in records
+        if record["dispatch"]["outcome"] == "claimed"
+    )
 
     # Coverage is computable from these records with the shipped summariser.
     from telemetry.report import summarize
 
     summary = summarize(records)
     assert summary["total"] == 109
-    assert summary["deterministic_coverage"] == 1.0
+    assert summary["coverage"]["numerator"] == 108
+    assert summary["coverage"]["denominator"] == 109
+    assert summary["deterministic_coverage"] == 108 / 109
     assert summary["outcome"]["withheld"] == 3
+    assert summary["outcome"]["failed"] == 1
 
 
 @pytest.mark.corpus
@@ -270,7 +296,7 @@ def test_withheld_diagnostics_reproduce_the_documented_diagnosis():
     manifest = _manifest()
     records = [_telemetry_for(rel)[0] for rel in manifest]
 
-    diagnosed, review, quiet = {}, {}, 0
+    diagnosed, review, refused, quiet = {}, {}, {}, 0
     for rel, record in zip(manifest, records):
         section = record["diagnostics"]
         outcome = record["outcome"]["class"]
@@ -278,14 +304,21 @@ def test_withheld_diagnostics_reproduce_the_documented_diagnosis():
             diagnosed[Path(rel).name] = section
         elif outcome == "review":
             review[Path(rel).name] = section
+        elif outcome == "failed":
+            refused[Path(rel).name] = section
         else:
             assert outcome == "validated", rel
             assert section == empty_diagnostics(), rel
             quiet += 1
 
     assert quiet == 102
-    assert quiet + len(review) == corpus_gate.EXPECTED_PASS == 106
+    assert quiet + len(review) == corpus_gate.EXPECTED_PASS == 105
     assert set(diagnosed) == WITHHELD
+    # W3 §REPAIRDOC. A pinned refusal published no payload, so there is nothing
+    # for the taxonomy to read and its section is empty — the diagnosis of a
+    # document that produced no analysis is the refusal itself, which
+    # `corpus_gate.PINNED_REFUSALS` carries.
+    assert set(refused) == {Path(rel).name for rel in corpus_gate.PINNED_REFUSALS}
 
     # The review population, enumerated: every one of them is here for a
     # reason that predates the count check.
@@ -394,7 +427,11 @@ def test_the_identity_fields_are_what_they_claim_to_be():
     [
         "Chase/Chase Mar.pdf",
         "Others/IBC/IBC April (1).pdf",
-        "Misc/Columbia May 26 complete.pdf",
+        # A SCANNED statement, so the invariant is proven over OCR text too.
+        # It was the Columbia statement until W3 §REPAIRDOC made that document
+        # a pinned refusal: a record with no payload cannot demonstrate that a
+        # PUBLISHED record leaks nothing.
+        "Misc/First Farmers 2026 01-document.pdf",
     ],
 )
 def test_a_record_leaks_no_customer_data(rel: str):

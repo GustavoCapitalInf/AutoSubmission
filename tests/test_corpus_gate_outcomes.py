@@ -204,22 +204,57 @@ def test_the_pinned_withheld_three_agree_with_the_audit_gate():
 
 
 def test_the_expected_split_is_the_documented_one():
-    """102 validated / 4 review / 3 withheld, derived rather than restated.
+    """102 validated / 3 review / 3 withheld / 1 refused, derived rather than
+    restated.
 
     100/6/3 until WIRING-2 executed the approved ceremony: Texas Bank and
     Regions moved review -> validated on withdrawn FALSE
-    `missing_declared_statement_page` flags. The audits' PASS class is
-    unchanged at 106, which is exactly why this split has to be pinned
-    separately — the two oracles cannot see the movement.
+    `missing_declared_statement_page` flags. 102/4/3 until W3 §REPAIRDOC, whose
+    approved ceremony took the Columbia statement out of the published set
+    altogether: with the two amount-rewriting repairs gone it publishes
+    nothing, so it carries a `PINNED_REFUSALS` entry instead of a verdict. The
+    audits' PASS class moved with it, 106 -> 105, which is the one movement of
+    this ceremony the two oracles CAN see.
     """
     manifest = corpus_gate.manifest_paths(corpus_gate.read_csv(corpus_gate.BALANCE_CSV))
     counts: dict[str, int] = {}
     for rel in manifest:
+        if rel in corpus_gate.PINNED_REFUSALS:
+            counts["refused"] = counts.get("refused", 0) + 1
+            continue
         verdict = corpus_gate.PINNED_OUTCOMES.get(rel, corpus_gate.PUBLISHED_OUTCOME)
         counts[verdict.outcome] = counts.get(verdict.outcome, 0) + 1
-    assert counts == {"validated": 102, "review": 4, "withheld": 3}
+    assert counts == {"validated": 102, "review": 3, "withheld": 3, "refused": 1}
     assert counts["validated"] + counts["review"] == corpus_gate.EXPECTED_PASS
     assert counts["withheld"] == corpus_gate.EXPECTED_WITHHELD
+    assert counts["refused"] == corpus_gate.EXPECTED_REFUSED
+    assert sum(counts.values()) == corpus_gate.EXPECTED_PDF_COUNT
+
+
+def test_a_pinned_refusal_is_pinned_exactly_once_and_nowhere_else():
+    """W3 §REPAIRDOC. A refusal is a fact about a document that publishes
+    NOTHING, so every map that describes a published document must not name it:
+    a verdict, a currency, or an audit PASS row for a refusal would each be an
+    assertion about output that does not exist.
+    """
+    manifest = set(corpus_gate.manifest_paths(corpus_gate.read_csv(corpus_gate.BALANCE_CSV)))
+    assert set(corpus_gate.PINNED_REFUSALS) <= manifest
+    assert len(corpus_gate.PINNED_REFUSALS) == corpus_gate.EXPECTED_REFUSED
+    for rel, reason in corpus_gate.PINNED_REFUSALS.items():
+        assert rel not in corpus_gate.PINNED_OUTCOMES, rel
+        assert rel not in corpus_gate.PINNED_CURRENCY, rel
+        assert reason and reason == reason.strip(), rel
+
+    # Both audit CSVs carry the document with the REFUSED status and no audited
+    # figure — the row stays so the refusal keeps an audit trail.
+    balance = {row["path"]: row for row in corpus_gate.read_csv(corpus_gate.BALANCE_CSV)}
+    for rel, reason in corpus_gate.PINNED_REFUSALS.items():
+        row = balance[rel]
+        assert row["status"] == corpus_gate.REFUSED_STATUS
+        assert row["root_cause"] == reason
+        for column in ("production_opening", "production_ending",
+                       "production_highest", "production_lowest", "transactions"):
+            assert row[column] == "", (rel, column)
 
 
 def test_the_ceremony_documents_publish_no_integrity_flag():
@@ -242,15 +277,17 @@ def test_the_ceremony_documents_publish_no_integrity_flag():
     assert len(bmo.flags) == 6 and len(bmo.notes) == 7
     assert bmo.risk_level == "high" and bmo.possible_document_issue is True
 
-    # ...and the other three flag-carriers keep theirs: the fix is not blunt.
+    # ...and the remaining flag-carriers keep theirs: the fix is not blunt.
+    # `Misc/Columbia May 26 complete.pdf` was a third until W3 §REPAIRDOC; it
+    # publishes nothing now, so it carries a refusal rather than a flag.
     for rel in (
         "Misc/Builder June 2026.pdf",
-        "Misc/Columbia May 26 complete.pdf",
         "Misc/Link Bank April statement.pdf",
     ):
         assert corpus_gate.PINNED_OUTCOMES[rel].flags == (
             "missing_declared_statement_page",
         ), rel
+    assert "Misc/Columbia May 26 complete.pdf" in corpus_gate.PINNED_REFUSALS
 
 
 def test_every_map_entry_is_a_state_the_product_can_actually_reach():
@@ -505,31 +542,45 @@ def _manifest() -> list[str]:
     return corpus_gate.manifest_paths(corpus_gate.read_csv(corpus_gate.BALANCE_CSV))
 
 
-def test_the_currency_surface_is_total_over_the_pinned_manifest():
-    """Every pinned document states a currency, and no entry names a document
-    that is not pinned. Totality is the difference between a surface and a spot
-    check: an exception map would let a new corpus document arrive with no
-    currency stated at all."""
+def test_the_currency_surface_is_total_over_the_denominated_manifest():
+    """Every pinned document that PUBLISHES states a currency, and no entry
+    names anything else. Totality is the difference between a surface and a
+    spot check: an exception map would let a new corpus document arrive with no
+    currency stated at all.
+
+    The subtraction is the pinned refusals (W3 §REPAIRDOC): a document that
+    publishes no statement publishes no denomination, so a pin for one would
+    assert a fact the product never states. It is enforced in both directions
+    here and in `check_currency`, so the omission cannot silently widen."""
     manifest = set(_manifest())
+    denominated = manifest - set(corpus_gate.PINNED_REFUSALS)
     pinned = set(corpus_gate.PINNED_CURRENCY)
-    assert pinned == manifest, {
-        "unstated": sorted(manifest - pinned),
-        "unknown": sorted(pinned - manifest),
+    assert pinned == denominated, {
+        "unstated": sorted(denominated - pinned),
+        "unknown": sorted(pinned - denominated),
     }
-    assert len(corpus_gate.PINNED_CURRENCY) == corpus_gate.EXPECTED_PDF_COUNT
+    assert len(corpus_gate.PINNED_CURRENCY) == (
+        corpus_gate.EXPECTED_PDF_COUNT - corpus_gate.EXPECTED_REFUSED
+    )
     for rel, code in corpus_gate.PINNED_CURRENCY.items():
         assert len(code) == 3 and code.isupper() and code.isalpha(), (rel, code)
 
 
 def test_the_pinned_currency_split_is_the_measured_one():
-    """95 USD / 14 CAD, derived from the map rather than restated — and the 14
-    CAD are exactly the ten that already published CAD plus the four the
-    ceremony moves. A fifteenth CAD would be unapproved truth-set movement."""
+    """94 USD / 14 CAD, derived from the map rather than restated — and the 14
+    CAD are exactly the ten that already published CAD plus the four the RBC
+    ceremony moved. A fifteenth CAD would be unapproved truth-set movement.
+
+    95 USD until W3 §REPAIRDOC withdrew the Columbia pin: that document is a
+    refusal now, so its USD is not a published denomination any more. The CAD
+    side is untouched, which is what says the two ceremonies do not overlap."""
     cad = {rel for rel, code in corpus_gate.PINNED_CURRENCY.items() if code == "CAD"}
     usd = {rel for rel, code in corpus_gate.PINNED_CURRENCY.items() if code == "USD"}
     assert cad == PRE_EXISTING_CAD | CEREMONY_CAD
-    assert len(cad) == 14 and len(usd) == 95
-    assert len(cad) + len(usd) == corpus_gate.EXPECTED_PDF_COUNT
+    assert len(cad) == 14 and len(usd) == 94
+    assert len(cad) + len(usd) == (
+        corpus_gate.EXPECTED_PDF_COUNT - corpus_gate.EXPECTED_REFUSED
+    )
 
 
 def test_the_pinned_french_rbc_statement_is_not_part_of_the_ceremony():
@@ -555,7 +606,8 @@ def test_the_currency_check_is_green_when_the_product_agrees_with_the_pins():
     manifest = _manifest()
     check = _run_currency(manifest, _payloads(dict(corpus_gate.PINNED_CURRENCY)))
     assert check.ok, check.details
-    assert "109/109" in check.summary
+    assert "108/108" in check.summary
+    assert "1 pinned refusal(s)" in check.summary
 
 
 def test_a_moved_currency_turns_the_gate_red():
@@ -599,7 +651,21 @@ def test_an_unstated_or_unknown_pin_turns_the_gate_red(monkeypatch):
     monkeypatch.setattr(corpus_gate, "PINNED_CURRENCY", widened)
     check = _run_currency(manifest, _payloads(dict(corpus_gate.PINNED_CURRENCY)))
     assert not check.ok
-    assert any("not in the manifest" in d for d in check.details), check.details
+    assert any(
+        "not a denominated pinned document" in d for d in check.details
+    ), check.details
+
+    # ...and a currency pinned for a document that publishes NOTHING is the
+    # same failure: it is in the manifest, and it still has no denomination.
+    refusal = next(iter(corpus_gate.PINNED_REFUSALS))
+    widened = dict(corpus_gate.PINNED_CURRENCY)
+    widened[refusal] = "USD"
+    monkeypatch.setattr(corpus_gate, "PINNED_CURRENCY", widened)
+    check = _run_currency(manifest, _payloads(dict(corpus_gate.PINNED_CURRENCY)))
+    assert not check.ok
+    assert any(
+        refusal in d and "not a denominated pinned document" in d for d in check.details
+    ), check.details
 
 
 def test_a_document_with_no_payload_is_red_not_skipped():

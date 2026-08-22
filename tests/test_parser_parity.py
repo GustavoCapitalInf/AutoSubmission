@@ -99,11 +99,30 @@ def test_no_corpus_document_is_ambiguous(documents, sources):
 
 
 def test_every_corpus_document_resolves_to_the_recorded_parser(documents, sources):
-    """The headline parity assertion, in its final form."""
+    """The headline parity assertion, in its final form.
+
+    A path in `corpus_gate.PINNED_REFUSALS` is asserted the other way round,
+    and the JSON is deliberately NOT rewritten for it: that file records what
+    the pre-R-3 or-chain did, and the or-chain did claim this document. What
+    changed is a doctrine ceremony after it (W3 §REPAIRDOC), not R-3's
+    routing — so the recorded registration must still DETECT the document,
+    proving the parser has not lost it, and must now DECLINE it, which
+    `attempted` is what records.
+    """
+    import corpus_gate
+
     mismatches = []
     for row in documents:
         dispatch = pr.resolve(sources[row["path"]])
         expected = _expected_id(row)
+        if row["path"] in corpus_gate.PINNED_REFUSALS:
+            if dispatch.outcome != "unclaimed" or list(dispatch.attempted) != [expected]:
+                mismatches.append(
+                    f"{row['path']}: pinned as a refusal by {expected}, got "
+                    f"{dispatch.outcome} {dispatch.parser_id} "
+                    f"attempted={list(dispatch.attempted)}"
+                )
+            continue
         if dispatch.outcome != "claimed" or dispatch.parser_id != expected:
             mismatches.append(
                 f"{row['path']}: expected {expected}, got {dispatch.outcome}"

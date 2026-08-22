@@ -79,37 +79,28 @@ SOURCES = {
     },
 }
 
+#: Fixtures the deterministic analysis REFUSES, and the refusal each is pinned
+#: at. A refusal is asserted exactly as strictly as a published payload: the
+#: message is compared, not just the exception class.
+#:
+#: `columbia` joined this map on 2026-08-21 (W3 §REPAIRDOC). Its 108 published
+#: transactions included three amounts `analysis/columbia_bank.py` had WRITTEN
+#: rather than read — two repairs rewrote a row's amount to bring a section
+#: into agreement with the total printed under it — and its daily evidence
+#: carried the parser's own reconstruction on one day in place of the cell the
+#: grid prints. Gustavo's ruling of that day removed both. With no amount
+#: rewritten the two ACH sections miss their printed totals, the reader
+#: declines exactly as it already did for the cohort's other three statements,
+#: and no registration publishes the document. Everything this fixture used to
+#: assert — the 108 rows, the ADB of 13,275.65 that matched the printed average
+#: to the cent, the 411,545.17 daily sum — depended on those three written
+#: figures and on the substituted grid cell, which is what makes the exactness
+#: of the old expectation the evidence rather than a counter-argument.
+REFUSED = {
+    "columbia": "no deterministic parser matched this statement",
+}
+
 EXPECTED = {
-    "columbia": {
-        "bank": "Columbia Bank",
-        "parser": "columbia-bank-deterministic",
-        "account": "XXXXXX4166",
-        "period": ("2026-05-01", "2026-05-31"),
-        "opening": 6291.76,
-        "ending": 13904.87,
-        "transactions": 108,
-        "credits": 147052.51,
-        "debits": 139439.40,
-        "daily_sum": 411545.17,
-        "adb": 13275.65,
-        "minimum": 4831.08,
-        "maximum": 37211.56,
-        "printed_average": 13275.65,
-        "revenue": (98103.31, 5002.00, 43947.20, 103105.31),
-        "revenue_counts": (48, 1, 5),
-        "channels": (52, 49, 0, 0, 2, 0),
-        "lenders": (26, 79378.55, 3, 19412.49),
-        "insurance": (0, 0.00),
-        "reversal_pairs": 1,
-        "daily": [
-            9072.74, 9072.74, 9072.74, 14908.58, 9369.15, 14479.21,
-            15322.85, 10705.49, 10705.49, 10705.49, 18768.22, 13726.42,
-            16712.17, 37211.56, 19110.95, 19110.95, 19110.95, 9772.30,
-            4831.08, 7525.18, 13011.28, 9619.35, 9619.35, 9619.35,
-            9619.35, 9677.65, 17084.73, 12285.24, 13904.87, 13904.87,
-            13904.87,
-        ],
-    },
     "first_farmers": {
         "bank": "First Farmers Bank & Trust",
         "parser": "first-farmers-bank-&-trust-deterministic",
@@ -277,6 +268,13 @@ def test_live_tesseract_reproduces_the_committed_artifact_reports(name: str):
     build that produced the committed artifact, which is exactly the drift that
     took the GitHub runner red. Diagnose before re-baselining anything.
     """
+    if name in REFUSED:
+        # A refused fixture is compared the same way: the live read must refuse
+        # too, with the same message. A live read that PUBLISHED would be the
+        # drift this test exists to catch, in the direction that matters most.
+        with pytest.raises(RuntimeError, match=REFUSED[name]):
+            analyze_markdown(_source_markdown(name, live_ocr=True), parse_mode="deterministic")
+        return
     live = analyze_markdown(_source_markdown(name, live_ocr=True), parse_mode="deterministic")
     assert report_to_dict(live) == report_to_dict(_source_report(name))
 
@@ -383,23 +381,31 @@ def test_new_statement_revenue_lender_and_transaction_metrics(name: str):
     assert (metrics.insurance_count, metrics.insurance_total) == expected["insurance"]
 
 
+@pytest.mark.parametrize("name", REFUSED)
+def test_a_refused_fixture_publishes_nothing_at_all(name: str):
+    """W3 §REPAIRDOC. The refusal is the pinned fact, message included.
+
+    Pinned here as well as in `corpus_gate.PINNED_REFUSALS` because the two ask
+    different questions: the gate asks what the PINNED CORPUS publishes through
+    the production intake ladder, this asks what the committed OCR artifact
+    analyses to. A change that made the document publish again would have to
+    get past both.
+    """
+    with pytest.raises(RuntimeError, match=REFUSED[name]):
+        analyze_markdown(_source_markdown(name), parse_mode="deterministic")
+
+
 def test_new_statement_printed_average_terminology_and_integrity():
-    columbia = _source_report("columbia")
     first_farmers = _source_report("first_farmers")
     navigant = _source_report("navigant")
     relay = _source_report("relay")
 
-    assert columbia.statement.stated_average_balance == 13275.65
-    assert columbia.metrics.adb.validations["agrees_with_bank_stated_average"] is True
     assert first_farmers.statement.stated_average_balance == 2979.63
     assert first_farmers.metrics.average_daily_balance == 2979.64
     assert first_farmers.metrics.adb.validations["agrees_with_bank_stated_average"] is False
     assert navigant.statement.stated_average_balance is None
     assert relay.statement.stated_average_balance is None
 
-    assert columbia.integrity.risk_level == "review"
-    assert columbia.integrity.flags == ["missing_declared_statement_page"]
-    assert not columbia.integrity.possible_document_issue
     for report in (first_farmers, navigant, relay):
         assert report.integrity.risk_level == "clear"
         assert not report.integrity.flags
@@ -461,19 +467,22 @@ def test_new_statement_api_and_exports_preserve_authoritative_values():
         )
         for name, payload in payloads.items()
     ]
+    # Three documents, not four, since W3 §REPAIRDOC: `columbia` publishes no
+    # analysis at all now (see `REFUSED`), so it contributes no package member.
+    # Every figure below moved for that one reason — a package total is a sum
+    # over its members and one member left.
     package = _package_analysis(jobs)
-    assert package["totals"]["average_daily_balance"] == 4857.14
-    assert package["totals"]["verified_revenue_total"] == 101667.16
-    assert package["totals"]["unverified_deposit_total"] == 119146.70
-    assert package["totals"]["non_revenue_total"] == 98228.49
-    assert package["totals"]["maximum_revenue"] == 220813.86
+    assert package["totals"]["average_daily_balance"] == 1957.43
+    assert package["totals"]["verified_revenue_total"] == 3563.85
+    assert package["totals"]["unverified_deposit_total"] == 114144.70
+    assert package["totals"]["non_revenue_total"] == 54281.29
+    assert package["totals"]["maximum_revenue"] == 117708.55
     assert [document["average_daily_balance"] for document in package["documents"]] == [
-        13275.65,
         2979.64,
         2770.02,
         122.62,
     ]
-    assert "totals,average_daily_balance,4857.14" in _package_csv(package)
+    assert "totals,average_daily_balance,1957.43" in _package_csv(package)
     assert _package_xlsx(package)[:2] == b"PK"
 
 
