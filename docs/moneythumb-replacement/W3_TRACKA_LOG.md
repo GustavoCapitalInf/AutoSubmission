@@ -35445,6 +35445,9 @@ movement until reviewed."*
 | Controls | the 151 RBC movers, the nine CURRENCY-1 corrections and the other 104 entries of the pinned currency surface: **all byte-identical** |
 | Contradictory / uncertain evidence | **zero documents**, measured — nothing left the packet for uncertainty |
 | Pinned expectation diff | **five lines of `corpus_gate.PINNED_CURRENCY`**, `USD` → `CAD`. The surface goes 14 CAD / 95 USD → 19 CAD / 90 USD |
+| Whole-archive negative | the reconstructed rule over **all 3,351** readable artifacts, every capability partition: `CAD` on **exactly the 6** ATB shas, and the proofs-satisfied histogram is **`{0: 3345, 4: 6}`** — **zero** documents anywhere satisfy 1, 2 or 3 of the four proofs. The conjunction is a cliff, not a slope |
+| Archive sweep at branch HEAD | 3,380 documents · 2,535 compared · 2,535 identical · **0 `moved` · 0 `no_payload_now_publishes` · 0 `payload_now_raises`** · 9,991.7s — zero findings of any class |
+| Review | APPROVE WITH FINDINGS — 0 BLOCK, **1 MAJOR (three claims corrected)**, 6 MINOR, all closed in §AM6. The §9 enumeration was found trustworthy as written and did not move |
 
 ## AM1. What the doctrine required, and what ATB prints
 
@@ -35508,9 +35511,13 @@ where nobody asked — the class RBC-MEASURE's R5 was really requesting.
 anywhere off that site leaves the published answer at `CAD`, because rung 1
 answers first. That is the ratified hierarchy and it is `analysis/rbc.py`'s
 behaviour today, so it is not a new defect — but it is a case doctrine §B item
-4 would want failed closed. Recommendation for whoever writes the consolidated
-reader: when the wide contrary sweep fires and rung 1 answers a different code,
-publish nothing. Scope decision, not this cell's.
+4 would want failed closed. The fix worth considering — when the wide contrary
+sweep fires and rung 1 answers a different code, publish nothing — is **not** a
+later cell's scope decision: `analysis/rbc.py` carries the same
+two-anchored-site shape, so the change would move SHIPPED RBC behaviour on its
+six `CAD CHEQUING ACCOUNT` documents. That makes it a doctrine ruling for
+Gustavo, and Ocean is escalating it (§AM6, MINOR-3). The ATB enumeration does
+not depend on the answer — all 7 movers print no currency at all.
 
 Six more carried risks — a silent-USD ATB issue (residual; **0 attested either
 way**, which makes ATB's base rate weaker evidence than RBC's 12-of-12, and the
@@ -35594,7 +35601,104 @@ diff calls `analyze_markdown` directly and every pytest run used
 read-only, by direct file path; the `webapp_data` sqlite index was never opened.
 
 
-## AM6. Commits
+## AM6. Review closures (APPROVE WITH FINDINGS — 0 BLOCK, 1 MAJOR, 6 MINOR)
+
+The independent adversarial review at `e2ae45d` reproduced the population, the
+7 movers, proof 2, the conjunction and all six ablations, the one-changed-leaf
+result on both archive movers, §8(b)/(c)/(d) and the fingerprint finding, and
+went further than the packet: it ran the reconstructed rule over **all 3,351
+readable artifacts**. **The §9 enumeration was found trustworthy as written and
+is unchanged.** Every finding was re-measured by this cell before the document
+moved; nothing was taken on the reviewer's word, and two of the reviewer's own
+characterisations were narrowed by measurement (below).
+
+**MAJOR-1, three claims that did not reproduce, all corrected in the packet and
+labelled there as corrected at review:**
+
+1. **The print-control header.** §1 read "`ATB0114003_…` 11/11". The generic
+   shape `ATB<7 digits>_<n>_<n>` *is* 11/11, but the literal prefix is
+   **10/11** — `EE09ADA6…` prints `ATB0114001`. The packet now carries both
+   rows and offers only the shape as evidence.
+2. **The transit-shape census.** §0.1 read "`<5>-<3>` in general is common —
+   500 (7), 114 (4), 654 (4), 800 (4)". Those came from
+   `\b\d{5}\s*-\s*(\d{3})\b`, whose optional whitespace turns a balance column
+   beside a negative amount (`12345 -100.00`) into a false transit pair: 38
+   documents. Under the **strict** predicate the rule actually uses,
+   `\b\d{5}-(\d{3})\b`, the archive prints the shape on **12 documents across
+   four codes — `219` 6 · `764` 3 · `000` 2 · `399` 1**. Both predicates and
+   both sets of numbers are now in the packet, labelled. *(Narrowing the
+   review's own summary: `219` is not the only code of that shape — there are
+   four — but it is 6 of the 12 and every one of the six is ATB, which is the
+   load-bearing fact and is stronger than the packet originally claimed.)*
+3. **Fidelity check A.** §0 claimed three artifacts pin the sha. Only
+   `balance-metrics-audit-results.csv` and `parser_expectations.json` carry a
+   `sha256` column; `adb-audit-results.csv` and `new-statement-audit-results.csv`
+   have none. The ADB audit pins the same five by name / folder / bank / parser
+   / status — an independent pin, not a hash pin.
+
+**MINOR-1** the prototype's patterns are now published VERBATIM in §0.1, with a
+scope table that resolves the anchoring ambiguity the reviewer caught: only
+`J_ISSUER` is end-anchored (it must close at `AB <Canadian postal code>`);
+`J_HEADER` is confined to one line but free at both ends; `J_ACCOUNT` and
+`J_SERVICE` are document-wide. That is precisely why §8(b) measures
+`False / True / True / True` on the raw forged string — a filename manufactures
+three of the four proofs and the seam, not the anchors, carries proof 8.
+
+**MINOR-2** the package-layer consequence is now named in §6. `webapp/app.py`
+branches on this field — `_statement_currency` at line 436, the package
+resolution at lines 1162–1178 setting `currency_resolution` to
+`undetermined`/`mixed`/`single` and `package_currency` to `None` unless every
+analysed member agrees, published at 1241–1242 and 1271–1272. After the
+ceremony a package mixing an ATB statement with a USD statement resolves
+`mixed`, `package_currency` becomes `None`, and cross-currency aggregation
+stops. That is doctrine §F working as ratified, not a regression — but "label
+movement ONLY" is a claim about the STATEMENT payload and must say so.
+
+**MINOR-3** R3 is reframed and **escalated by Ocean to Gustavo**. The fix worth
+considering — publish nothing when the wide contrary sweep fires and rung 1
+answers a different code — is not a later cell's scope decision, because
+`analysis/rbc.py` has the same two-anchored-site shape and its six
+`CAD CHEQUING ACCOUNT` documents would come under the same new refusal. It
+changes SHIPPED behaviour, so it is a doctrine ruling. The ATB enumeration does
+not depend on the answer: all 7 movers print no currency at all.
+
+**MINOR-4** the reviewer's whole-archive negative is folded into §6 as a
+measurement this cell reproduced. The rule over all **3,351** readable
+artifacts, every capability partition, union-taken: `CAD` on **exactly the 6**
+ATB shas, and the proofs-satisfied histogram is **`{0: 3345, 4: 6}`** — **zero**
+documents anywhere in the archive satisfy 1, 2 or 3 of the four proofs. The
+conjunction is a cliff, not a slope, so no widening of a single clause can sweep
+anything in. Instrument: `review_closures.py`, private scratchpad, one pass.
+
+**MINOR-5** a duplicated clause in §4, fixed.
+
+**MINOR-6 — the finding that outlives this card. `analysis/atb.py:114`**
+(the review said 113) assigns `account_name="Unlimited Business Banking"`
+unconditionally for every document the registration claims. Measured against
+what the pages print: the five pinned documents do print
+`Unlimited Business Banking`, so the constant is accidentally right for them —
+but **both archive movers print `Business Self-serve`**, and the four unclaimed
+consolidated statements print `Business Self-serve` *and* `Business Growth
+Plus`. It is an R-1-class statement-specific constant — a value read off one
+customer's statements and frozen into a parser — in a file the guard set's
+list-scoped scans do not cover, which is why
+`tests/test_no_statement_hardcodes.py` is green over it at 242/242. **Not a
+currency defect; `analysis/atb.py` was NOT changed.** Recorded as packet §12 R8
+and **carded for batch 8 as ATB-LABEL**, to fold into the eventual ATB ceremony
+card. The right shape is already available: read the product from the
+`A summary of Deposit Account <product>` line the rule's rung 1 parses.
+
+**One process defect of this cell's own, recorded rather than tidied.** The
+first attempt to apply these closures piped a Python patch through a shell
+heredoc. The shell collapsed `\\b` to `\b`, Python read that as a BACKSPACE, and
+six 0x08 bytes were written into the packet in place of regex word-boundary
+anchors. Caught by a byte scan (`897 control bytes: [8, 13]`), repaired, and
+every edit after it was written to a file first. A document that quotes regexes
+cannot be edited through a shell.
+
+No production file changed in this round, and the §9 enumeration did not move.
+
+## AM7. Commits
 
 | | |
 |---|---|
@@ -35605,7 +35709,9 @@ read-only, by direct file path; the `webapp_data` sqlite index was never opened.
 | `475101f` | control-population wording and the exact process timings |
 | `50d57ce` | the guard-set precedent for the literals the rule introduces |
 | `2a6ab7f` | the existing-suite delta (957/957 both ways) and the registry-fingerprint finding |
-| (this commit) | §AM5 proofs and this commit table |
+| `9ea9373` | §AM5 proofs and the commit table |
+| `e2ae45d` | §AM4 carries the registry-fingerprint trap |
+| (this commit) | the review closures — packet §13 + §12 R8, and §AM6 |
 
 Base `e83f746`. Never merged, never pushed; nothing outside
 `docs/moneythumb-replacement/ATB_CURRENCY_MEASUREMENT.md` and this section
