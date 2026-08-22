@@ -162,6 +162,27 @@ def test_the_dividend_sibling_must_agree_with_the_document_s_own_summary():
     assert parse_symitar_statement(text) is None
 
 
+def test_a_sibling_this_reader_cannot_bound_is_never_dismissed_as_idle():
+    """The guard in front of the three conditions, and its direction.
+
+    A section whose opening balance this reader cannot find, or whose ending
+    balance the document states nowhere, is the section it knows LEAST about —
+    so it counts as a ledger and the document refuses. Skipping it instead
+    would dismiss, as idle, precisely the account nothing here can check.
+    """
+    no_opening = (
+        "Money Market ( ID 0000 )\n" + GRID + "05/04/26 -1.00 4.18 Card purchase FUEL STOP\n"
+    )
+    assert parse_symitar_statement(HEAD + ACTIVE + no_opening) is None
+    unstated = (
+        "Vacation Club ( ID 0330 )\n"
+        + GRID
+        + "05/01/26 $ 5.18 Beginning Balance 05/01/26 0.01 5.19 Dividend Deposit\n"
+    )
+    assert "0330" not in HEAD
+    assert parse_symitar_statement(HEAD + ACTIVE + unstated) is None
+
+
 def test_a_sole_deposit_account_that_posted_only_its_dividend_still_refuses():
     """Skipping the only deposit section leaves nothing to publish, and a
     ledger of dividends is not a statement of the member's activity."""
