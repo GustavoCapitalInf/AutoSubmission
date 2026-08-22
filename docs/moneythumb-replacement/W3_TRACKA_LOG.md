@@ -35651,109 +35651,270 @@ contradiction against a complete ledger.
 
 ## E5. The hunks, verbatim
 
-Three hunks in `analysis/chase.py` and nothing else in production.
+`analysis/chase.py` is the only production file this cell changes, and this
+is the whole of that change — `git diff e83f746..HEAD -- analysis/chase.py`,
+unedited:
 
-**E5.1 The import.**
-
-```python
-#: The `TRANSACTION DETAIL` grid reader, CALLED rather than copied. See
-#: `_transaction_detail_ledger`: `chase_savings` reads this exact printed grid
-#: for the savings product and is fenced off from the checking product by an
-#: excluding detection marker, so the reader lives there and the checking
-#: parser borrows it. Promoting the three into a shared module is the right end
-#: state and is a separate cleanup — `analysis/chase_savings.py` is not this
-#: cell's file, and the three imports are registered in
-#: `tests/test_no_parser_helper_clones.py`'s debt register alongside the
-#: `td_canada_french` -> `td_can` pair, which is the same situation.
-from .chase_savings import _grid_lines, _grid_rows, _transaction
+```diff
+diff --git a/analysis/chase.py b/analysis/chase.py
+index 4223c5a..28ea1b9 100644
+--- a/analysis/chase.py
++++ b/analysis/chase.py
+@@ -3,6 +3,16 @@ from __future__ import annotations
+ import re
+ from datetime import date
+ 
++#: The `TRANSACTION DETAIL` grid reader, CALLED rather than copied. See
++#: `_transaction_detail_ledger`: `chase_savings` reads this exact printed grid
++#: for the savings product and is fenced off from the checking product by an
++#: excluding detection marker, so the reader lives there and the checking
++#: parser borrows it. Promoting the three into a shared module is the right end
++#: state and is a separate cleanup — `analysis/chase_savings.py` is not this
++#: cell's file, and the three imports are registered in
++#: `tests/test_no_parser_helper_clones.py`'s debt register alongside the
++#: `td_canada_french` -> `td_can` pair, which is the same situation.
++from .chase_savings import _grid_lines, _grid_rows, _transaction
+ from .date_tokens import iso_from_month_day, period_from_long_dates
+ from .money import MINUS_CLASS, parse_digit_scrubbed, read_money
+ from .parser_registry import make_detector, required
+@@ -475,6 +485,45 @@ _SUMMARY_DEBIT_LABELS = (
+ )
+ 
+ 
++def _summary_row(summary: str, label: str) -> tuple[int | None, float | None]:
++    """One CHECKING SUMMARY row: its INSTANCES cell, where the layout prints
++    one, and its AMOUNT cell.
++
++    The block's own column header names its columns and the issuer prints two
++    of them. The business layout heads the grid ``INSTANCES AMOUNT`` and every
++    row carries a count; the personal layout heads it ``AMOUNT`` alone and no
++    row carries one. Requiring the count read NONE of the second printing's
++    rows, so `stated_total_credits` and `stated_total_debits` came back unset
++    on a statement whose summary plainly states both — and the ledger then had
++    nothing to be checked against. (W3 §DECLINESE E4.)
++
++    The count-less spelling leaves the count UNSET rather than deriving one: a
++    count taken from the ledger would manufacture the very oracle
++    `analysis/count_semantics.py` checks the ledger against.
++
++    The counted spelling is tried FIRST, and that ordering is belt-and-braces
++    rather than the thing that keeps a counted row safe — stated plainly
++    because a mutation table will report it as unkillable and that is the truth
++    rather than a gap in the fixtures. The two spellings are DISJOINT under this
++    grammar: `_SUMMARY_AMOUNT` requires cents, an instance count never carries
++    them, and the amount's own leading `\\s*` sits after its sign rather than in
++    front of the figure, so the count-less pattern cannot begin its match past
++    the count. It therefore finds nothing at all on a counted row. Pinned by
++    `test_the_two_summary_spellings_cannot_read_the_same_row`, because the day
++    the money grammar admits a cents-less figure the ordering stops being
++    decorative.
++    """
++    counted = re.search(
++        rf"{re.escape(label)}\s+(\d+)\s+({_SUMMARY_AMOUNT})", summary, re.IGNORECASE
++    )
++    if counted:
++        return int(counted.group(1)), read_money(counted.group(2), _money)
++    bare = re.search(rf"{re.escape(label)}\s+({_SUMMARY_AMOUNT})", summary, re.IGNORECASE)
++    if bare:
++        return None, read_money(bare.group(1), _money)
++    return None, None
++
++
+ def _parse_native_summary(text: str, stmt: Statement) -> bool:
+     match = re.search(r"CHECKING SUMMARY(.*?)\*end\*summary", text, re.IGNORECASE | re.DOTALL)
+     if not match:
+@@ -488,31 +537,131 @@ def _parse_native_summary(text: str, stmt: Statement) -> bool:
+     # like the rest of the block. (W3 §CHASE-LAYOUTS C6.1.)
+     beginning = re.search(rf"Beginning Balance\s+({_SUMMARY_AMOUNT})", summary, re.IGNORECASE)
+     ending = re.search(rf"Ending Balance(?:\s+\d+)?\s+({_SUMMARY_AMOUNT})", summary, re.IGNORECASE)
+-    deposits = re.search(rf"Deposits and Additions\s+(\d+)\s+({_SUMMARY_AMOUNT})", summary, re.IGNORECASE)
+     if beginning:
+         stmt.beginning_balance = _money(beginning.group(1))
+     if ending:
+         stmt.ending_balance = _money(ending.group(1))
+-    if deposits:
+-        stmt.stated_credit_count = int(deposits.group(1))
+-        stmt.stated_total_credits = abs(read_money(deposits.group(2), _money) or 0.0)
++    credit_count, credit_total = _summary_row(summary, "Deposits and Additions")
++    if credit_total is not None:
++        stmt.stated_credit_count = credit_count
++        stmt.stated_total_credits = abs(credit_total)
+ 
+     debit_total = 0.0
+     debit_count = 0
++    # A stated debit COUNT is the sum over the debit rows, so it is only the
++    # statement's own figure when EVERY row that contributed to the total
++    # printed one. A count summed over the counted rows of a mixed printing
++    # would be a real number describing part of a total — a false
++    # contradiction against a complete ledger, which is the shape
++    # `analysis/count_semantics.py` exists to catch and must not be handed.
++    every_debit_counted = True
+     for label in _SUMMARY_DEBIT_LABELS:
+-        m = re.search(rf"{re.escape(label)}\s+(\d+)\s+({_SUMMARY_AMOUNT})", summary, re.IGNORECASE)
+-        if not m:
++        count, amount = _summary_row(summary, label)
++        if amount is None:
+             continue
+-        debit_count += int(m.group(1))
+-        amount = abs(read_money(m.group(2), _money) or 0.0)
+-        debit_total += amount
++        if count is None:
++            every_debit_counted = False
++        else:
++            debit_count += count
++        debit_total += abs(amount)
+         if label == "Fees":
+-            stmt.stated_service_charge = amount
+-    stmt.stated_debit_count = debit_count or None
++            stmt.stated_service_charge = abs(amount)
++    stmt.stated_debit_count = debit_count if every_debit_counted and debit_count else None
+     stmt.stated_total_debits = round(debit_total, 2) if debit_total else None
+     return stmt.beginning_balance is not None and stmt.ending_balance is not None
+ 
+ 
++#: Exact-cents comparison. Every check in `_transaction_detail_ledger` is
++#: against a figure Chase itself printed on the same page, so there is nothing
++#: for a tolerance to absorb: a penny of drift means the ledger is not the
++#: statement's.
++_EXACT = 0.005
++
++
++def _transaction_detail_ledger(
++    text: str, stmt: Statement, *, year: int
++) -> list[Transaction] | None:
++    """The activity of a checking statement Chase printed as ONE grid.
++
++    This issuer prints the checking product two ways behind the same
++    ``*start*…*end*`` sentinels. The sections above are one of them. The other
++    is a single ``TRANSACTION DETAIL`` grid — ``DATE DESCRIPTION AMOUNT
++    BALANCE`` — whose Amount column carries its own sign and whose Balance
++    column carries the bank's running balance after every row. A reader that
++    knows only the six direction-named sections finds no rows at all in it, and
++    the card-A′ guard below then refuses the document rather than publishing an
++    empty ledger. Correct, and the refusal of a statement that plainly prints
++    its activity. (W3 §DECLINESE E3.)
++
++    **The grid is not read a second time here.** `analysis/chase_savings.py`
++    already reads exactly this grid for the savings product — the same printed
++    columns, the same wrapped-amount-above-its-row rule, the same
++    Beginning/Ending bound furniture — and it is fenced off from the checking
++    product by an EXCLUDING detection marker on ``CHECKING SUMMARY``, whose
++    stated purpose is that a COMBINED statement stays with this module. These
++    documents are not combined statements: they print a checking summary and
++    this grid and no savings summary at all. So the grid reader is called, not
++    copied; a second implementation of one printed grid is the drift
++    `tests/test_no_parser_helper_clones.py` exists to prevent.
++
++    **What licenses publishing it.** Three checks, each against a figure this
++    document printed, and all three must hold:
++
++    1. every group the grid produces is read — a row this reader could not
++       resolve is a row missing from the sums the ledger is then gated on;
++    2. the bank's own running balance. Seeded with the summary's Beginning
++       Balance, each row's amount must carry the running total exactly onto the
++       Balance the bank printed beside it, and the last row's balance must be
++       the summary's Ending Balance. This is a PER-ROW oracle: a mis-read
++       amount, a wrapped cell attached to the wrong row, a dropped row and a
++       swapped Amount/Balance column each break it at the row where it happens;
++    3. where the summary states a credit or debit total, the ledger's own sums
++       equal it. Given check 2 this is redundant about the LEDGER and is not
++       redundant about the SUMMARY: it is the only thing that says the totals
++       this parser publishes as `stated_total_*` were read off the right rows.
++
++    Returns ``None`` when any of them misses, which leaves `txns` empty and
++    hands the document to the card-A′ guard — the same fail-closed answer as
++    before this function existed.
++    """
++    if stmt.beginning_balance is None or stmt.ending_balance is None:
++        return None
++    # `_grid_lines` recognises the grid by its printed column header, so the
++    # line's inter-word spacing has to be the text layer's rather than the
++    # producer's (the §BMO-LAYOUTS M3.1 rule). `compact_whitespace` is the
++    # shared utility that already states it.
++    grid_text = "\n".join(compact_whitespace(line) for line in text.splitlines())
++    groups = _grid_rows(list(_grid_lines(grid_text)))
++    if not groups:
++        # "There is no grid here", said plainly. Stated honestly: this is
++        # UNKILLABLE and no document can isolate it — with it removed the
++        # checks below compare an empty ledger against the printed balances and
++        # refuse whenever they differ, and where they agree the caller's `txns`
++        # is left empty either way. It is kept because running the summary
++        # comparison over an empty ledger would read as though something had
++        # been checked. (W3 §DECLINESE E6, mutant M5.)
++        return None
++    txns = [_transaction(carried, group, year=year) for carried, group in groups]
++    if any(txn is None for txn in txns):
++        return None
++
++    running = stmt.beginning_balance
++    for txn in txns:
++        running = round(running + txn.amount, 2)
++        if txn.running_balance is None or abs(running - txn.running_balance) > _EXACT:
++            return None
++    if abs(running - stmt.ending_balance) > _EXACT:
++        return None
++
++    credits = round(sum(t.amount for t in txns if t.amount > 0), 2)
++    debits = round(-sum(t.amount for t in txns if t.amount < 0), 2)
++    if stmt.stated_total_credits is not None and abs(credits - stmt.stated_total_credits) > _EXACT:
++        return None
++    if stmt.stated_total_debits is not None and abs(debits - stmt.stated_total_debits) > _EXACT:
++        return None
++    return txns
++
++
+ def _parse_txn_table(table: str, *, year: int, sign: int) -> tuple[list[Transaction], list[tuple[str, str]]]:
+     txns: list[Transaction] = []
+     missing_amounts: list[tuple[str, str]] = []
+@@ -679,6 +828,15 @@ def parse_chase_statement(markdown: str) -> Statement | None:
+         #: the two spellings cannot both claim the same block.
+         txns.extend(_parse_native_section(text, "OTHER WITHDRAWALS, FEES & CHARGES", year=year, sign=-1))
+         txns.extend(_parse_native_section(text, "FEES", year=year, sign=-1))
++    if not txns:
++        #: The one-grid printing of the same checking product. Reached only
++        #: when none of the direction-named sections produced a row, so no
++        #: document that prints them can take this path and none can have both
++        #: read: the grid and the sections are alternative printings of the
++        #: same activity, and reading both would double every row.
++        grid = _transaction_detail_ledger(text, stmt, year=year)
++        if grid is not None:
++            txns = grid
+ 
+     if stmt.beginning_balance is None or stmt.ending_balance is None:
+         return None
 ```
 
-**E5.2 The summary row (E4).** `_summary_row` replaces two inline `re.search`
-calls; the debit loop keeps its total and gives up its count on a mixed
-printing.
+And the one hunk outside this card's own files, the clone guard's debt
+register (E15.1 states the scope call it represents) —
+`git diff e83f746..HEAD -- tests/test_no_parser_helper_clones.py`:
 
-```python
-def _summary_row(summary: str, label: str) -> tuple[int | None, float | None]:
-    counted = re.search(
-        rf"{re.escape(label)}\s+(\d+)\s+({_SUMMARY_AMOUNT})", summary, re.IGNORECASE
-    )
-    if counted:
-        return int(counted.group(1)), read_money(counted.group(2), _money)
-    bare = re.search(rf"{re.escape(label)}\s+({_SUMMARY_AMOUNT})", summary, re.IGNORECASE)
-    if bare:
-        return None, read_money(bare.group(1), _money)
-    return None, None
-```
-
-```python
-    credit_count, credit_total = _summary_row(summary, "Deposits and Additions")
-    if credit_total is not None:
-        stmt.stated_credit_count = credit_count
-        stmt.stated_total_credits = abs(credit_total)
-
-    debit_total = 0.0
-    debit_count = 0
-    every_debit_counted = True
-    for label in _SUMMARY_DEBIT_LABELS:
-        count, amount = _summary_row(summary, label)
-        if amount is None:
-            continue
-        if count is None:
-            every_debit_counted = False
-        else:
-            debit_count += count
-        debit_total += abs(amount)
-        if label == "Fees":
-            stmt.stated_service_charge = abs(amount)
-    stmt.stated_debit_count = debit_count if every_debit_counted and debit_count else None
-    stmt.stated_total_debits = round(debit_total, 2) if debit_total else None
-```
-
-**E5.3 The grid, and its three gates (E3).**
-
-```python
-def _transaction_detail_ledger(
-    text: str, stmt: Statement, *, year: int
-) -> list[Transaction] | None:
-    if stmt.beginning_balance is None or stmt.ending_balance is None:
-        return None
-    grid_text = "\n".join(compact_whitespace(line) for line in text.splitlines())
-    groups = _grid_rows(list(_grid_lines(grid_text)))
-    if not groups:
-        return None
-    txns = [_transaction(carried, group, year=year) for carried, group in groups]
-    if any(txn is None for txn in txns):
-        return None
-
-    running = stmt.beginning_balance
-    for txn in txns:
-        running = round(running + txn.amount, 2)
-        if txn.running_balance is None or abs(running - txn.running_balance) > _EXACT:
-            return None
-    if abs(running - stmt.ending_balance) > _EXACT:
-        return None
-
-    credits = round(sum(t.amount for t in txns if t.amount > 0), 2)
-    debits = round(-sum(t.amount for t in txns if t.amount < 0), 2)
-    if stmt.stated_total_credits is not None and abs(credits - stmt.stated_total_credits) > _EXACT:
-        return None
-    if stmt.stated_total_debits is not None and abs(debits - stmt.stated_total_debits) > _EXACT:
-        return None
-    return txns
-```
-
-and its one call site, inside `parse_chase_statement`:
-
-```python
-    if not txns:
-        #: The one-grid printing of the same checking product. Reached only
-        #: when none of the direction-named sections produced a row, so no
-        #: document that prints them can take this path and none can have both
-        #: read: the grid and the sections are alternative printings of the
-        #: same activity, and reading both would double every row.
-        grid = _transaction_detail_ledger(text, stmt, year=year)
-        if grid is not None:
-            txns = grid
+```diff
+diff --git a/tests/test_no_parser_helper_clones.py b/tests/test_no_parser_helper_clones.py
+index d7695b8..370cf9f 100644
+--- a/tests/test_no_parser_helper_clones.py
++++ b/tests/test_no_parser_helper_clones.py
+@@ -55,6 +55,21 @@ ALLOWED_PRIVATE_IMPORTS = {
+     # owned by another cell this cycle.
+     ("td_canada_french.py", "td_can", "_credit_counts_from_balances"),
+     ("td_canada_french.py", "td_can", "_directions_from_credit_counts"),
++    # chase.py reads the `TRANSACTION DETAIL` grid through chase_savings's
++    # reader. It is ONE printed grid — `DATE DESCRIPTION AMOUNT BALANCE`, the
++    # wrapped-amount-above-its-row rule, the Beginning/Ending bound
++    # furniture — that Chase uses for both its savings product and one
++    # printing of its checking product. `chase_savings` is fenced off from the
++    # checking product by an EXCLUDING detection marker on CHECKING SUMMARY,
++    # so the checking parser cannot be routed to it and must call it instead.
++    # Copying the three would fail `test_no_two_functions_in_analysis_share_a_body`
++    # above, and re-deriving them differently would put two answers to one
++    # question in the tree. Promoting the trio into a shared module is the
++    # right end state and is a separate cleanup: chase_savings.py is owned by
++    # another cell. (W3 §DECLINESE E3.)
++    ("chase.py", "chase_savings", "_grid_lines"),
++    ("chase.py", "chase_savings", "_grid_rows"),
++    ("chase.py", "chase_savings", "_transaction"),
+ }
+ 
+ #: Money cleaning belongs in analysis/money.py. This is the signature of the
 ```
 
 ## E6. `huntington.py:681` (8 sha) — NOT taken, and the measurement that says so
