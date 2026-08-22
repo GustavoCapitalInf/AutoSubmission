@@ -466,6 +466,8 @@ def issue_three_document(
         "Date Balance $ 3/02 $90.00 3/03 $140.00 3/04 $109.00 "
         "3/05 $129.00 3/06 $120.00"
     ),
+    header: str = "SYNTHETIC BUSINESS CHECKING ACCOUNT XXXXXX0000",
+    strip_prefix: str = "SYNTHETIC HOLDINGS LLC XXXXXX0000 ",
 ) -> str:
     """The third issue's furniture, printed the way the four documents print it.
 
@@ -482,8 +484,8 @@ def issue_three_document(
         "Address 1 Example Street Springfield, ZZ 00000 "
         "Online Access www.example-bank.com\n"
         f"{period}\n"
-        "SYNTHETIC BUSINESS CHECKING ACCOUNT XXXXXX0000\n"
-        f"{summary}\n"
+        f"{header}\n"
+        f"{strip_prefix}{summary}\n"
         f"{days}\n"
         f"Deposits Date Description Amount\n{deposits}\n"
         f"Other Credits Date Description Amount $\n{other_credits}\n"
@@ -872,3 +874,120 @@ def test_an_absent_daily_grid_refuses_rather_than_waiving_the_oracle():
     assert parse_fiserv_premier_statement(
         issue_three_document().replace("Daily Balance Information\n", "")
     ) is None
+
+
+# ===========================================================================
+# THE ACCOUNT LABELS (W3 §DECLINESG, the FISERV-LABELS card)
+#
+# The third issue prints its product and its masked account number on one line
+# and repeats the mask in the summary strip, and both fields published as None.
+# They are audited columns, so the rule that lifts them is a CORROBORATION
+# rule: two printings agree, or nothing is published.
+# ===========================================================================
+
+
+def test_the_third_issue_reads_the_account_labels_its_page_prints():
+    statement = parse_fiserv_premier_statement(issue_three_document())
+    assert statement is not None
+    assert statement.account_name == "SYNTHETIC BUSINESS CHECKING ACCOUNT"
+    assert statement.account_number == "XXXXXX0000"
+
+
+def test_the_labels_are_the_only_thing_the_rule_changes():
+    """Everything else the third issue publishes is untouched by the labels."""
+    with_labels = parse_fiserv_premier_statement(issue_three_document())
+    without = parse_fiserv_premier_statement(issue_three_document(strip_prefix=""))
+    assert without is not None
+    assert (without.account_name, without.account_number) == (None, None)
+    assert with_labels.model_copy(
+        update={"account_name": None, "account_number": None}
+    ) == without
+
+
+def test_the_corroborating_printing_may_not_be_the_header_s_own_token():
+    r"""THE mutation this rule is built around. The header line sits directly
+    above the summary strip, so a corroboration written with `\s+` — which
+    spans the newline — would find the header's OWN mask and call it a second
+    printing. `[^\S\n]+` is what makes "printed twice" mean printed twice."""
+    document = issue_three_document(strip_prefix="")
+    assert "XXXXXX0000\nPrevious Balance" in document
+    statement = parse_fiserv_premier_statement(document)
+    assert statement is not None
+    assert statement.account_number is None
+
+
+def test_a_second_printing_that_disagrees_publishes_neither_label():
+    statement = parse_fiserv_premier_statement(
+        issue_three_document(strip_prefix="SYNTHETIC HOLDINGS LLC XXXXXX9999 ")
+    )
+    assert statement is not None
+    assert (statement.account_name, statement.account_number) == (None, None)
+
+
+def test_two_account_headers_publish_neither_label():
+    """A document naming two accounts cannot be labelled with one of them; the
+    ledger it publishes is still gated by every other oracle, so the labels go
+    and the statement stays."""
+    statement = parse_fiserv_premier_statement(
+        issue_three_document(
+            header="SYNTHETIC BUSINESS CHECKING ACCOUNT XXXXXX0000\n"
+                   "SYNTHETIC SAVINGS ACCOUNT XXXXXX1111"
+        )
+    )
+    assert statement is not None
+    assert (statement.account_name, statement.account_number) == (None, None)
+
+
+def test_the_registered_product_wording_is_still_the_first_reading():
+    """A document printing `<product> - <mask>` takes the path it took before
+    this rule existed, even when a bare masked header stands beside it."""
+    document = activity_document().replace(
+        "SYNTHETIC BUSINESS CHECKING - XXXXXX0000",
+        "SYNTHETIC OTHER PRODUCT ACCOUNT XXXXXX2222\n"
+        "SYNTHETIC BUSINESS CHECKING - XXXXXX0000",
+    )
+    statement = parse_fiserv_premier_statement(document)
+    assert statement is not None
+    assert statement.account_name == "SYNTHETIC BUSINESS CHECKING"
+    assert statement.account_number == "XXXXXX0000"
+
+
+def test_the_account_title_stays_the_name_of_last_resort():
+    """`Account Title:` is the account HOLDER, not the product. It is used only
+    where no product line was corroborated, and it never supplies a number."""
+    document = issue_three_document(strip_prefix="").replace(
+        "SYNTHETIC BUSINESS CHECKING ACCOUNT XXXXXX0000",
+        "Account Title: SYNTHETIC HOLDINGS LLC",
+    )
+    statement = parse_fiserv_premier_statement(document)
+    assert statement is not None
+    assert statement.account_name == "SYNTHETIC HOLDINGS LLC"
+    assert statement.account_number is None
+
+
+def test_a_name_and_a_bare_mask_on_two_lines_are_not_one_header():
+    r"""`\s` spans the newline; `[^\S\n]` does not. Written with `\s+` this
+    document reads `ACME HOLDINGS LLC` + `XXXXXX0000` as a single header line,
+    finds the corroborating printing in the strip, and publishes labels the
+    page never printed as one."""
+    document = issue_three_document(header="ACME HOLDINGS LLC\nXXXXXX0000")
+    statement = parse_fiserv_premier_statement(document)
+    assert statement is not None
+    assert (statement.account_name, statement.account_number) == (None, None)
+
+
+def test_the_registered_wording_wins_when_both_wordings_would_read():
+    """Pins the ORDER, not merely the presence, of `_PRODUCT_RE`.
+
+    A `<product> - <mask>` line also matches `_MASKED_HEADER_RE`, with the
+    separator trailing the name. When the strip repeats the mask so the
+    corroboration would succeed too, only trying `_PRODUCT_RE` FIRST publishes
+    the product name without its separator.
+    """
+    document = activity_document().replace(
+        "Previous Balance", "XXXXXX0000 Previous Balance"
+    )
+    statement = parse_fiserv_premier_statement(document)
+    assert statement is not None
+    assert statement.account_name == "SYNTHETIC BUSINESS CHECKING"
+    assert statement.account_number == "XXXXXX0000"

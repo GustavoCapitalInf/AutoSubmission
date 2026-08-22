@@ -43,21 +43,28 @@ walked from the opening balance to the closing one; and separate
 `Credit Transactions` / `Debit Transactions` sections with no balance column,
 where the counts and totals are the whole of the evidence.
 
-**A THIRD printed issue exists, is claimed, and is deliberately NOT read**
-(W3 §FISERVISS). Four archive documents print this summary strip — the
-detection conjunction fires on all three markers and the identity closes to the
-cent on all four — over a ledger of a different vocabulary entirely
-(`Deposits` / `Other Credits` / `Debits` / `Checks Cleared` /
-`Daily Balance Information`), under a period line this module does not read
-(`Statement of Account <Month DD, YYYY> thru <Month DD, YYYY>` with the length
-printed separately as `Days in the Statement Period: N`, where the two issues
-above print `Statement Dates 3/01/26 to 3/31/26 (31 days)`). Neither gap is an
-absence: both facts are printed, in wordings no clause here matches. So the
-document is claimed and then refused, twice over, and
-`test_the_third_printed_issue_is_claimed_and_refused_twice_over` pins that
-refusal along with the two repairs it would take to lift it. The issuer is NOT
-among the reasons — all four print a web address and no bank name, which is the
-`bank=None` path above and costs a label, not a document.
+**A THIRD printed issue exists and IS read** (W3 §FISERVISS characterized it;
+§FISERV3 read it). Four archive documents print this summary strip over a
+ledger of a different vocabulary entirely (`Deposits` / `Other Credits` /
+`Debits` / `Checks Cleared` / `Daily Balance Information`), under a second
+period wording (`Statement of Account <Month DD, YYYY> thru <Month DD, YYYY>`
+with the length printed separately as `Days in the Statement Period: N`, where
+the two issues above print `Statement Dates 3/01/26 to 3/31/26 (31 days)`),
+and with an overdraft fee whose row carries an `AMT $x,` reference to the item
+that caused it. All three are read, each behind its own gate: the two period
+facts must corroborate each other, the embedded sections are bounded by the
+document's own re-declared column headers, and an `AMT`-introduced money token
+can never be a row's amount. The issuer is None on all four — they print a web
+address and no bank name, which is the `bank=None` path above and costs a
+label, not a document.
+
+*(This paragraph said the opposite until W3 §DECLINESG. §FISERV3 read the
+issue in batch 6 and left the §FISERVISS wording behind, together with a
+citation to `test_the_third_printed_issue_is_claimed_and_refused_twice_over`,
+a test that no longer exists anywhere in the tree. Recorded rather than
+quietly corrected: a module docstring that describes a refusal the module no
+longer performs is the same class of defect as a test named after a gate it
+does not test.)*
 """
 from __future__ import annotations
 
@@ -113,6 +120,41 @@ _LONG_PERIOD_RE = re.compile(
 _DAYS_RE = re.compile(r"Days in the Statement Period:\s*(\d+)")
 _TITLE_RE = re.compile(r"Account Title:\s*(.+?)\s*$", re.MULTILINE)
 _PRODUCT_RE = re.compile(r"^(.+?)\s+-\s+(X+\d+)\s*$", re.MULTILINE)
+
+#: THE THIRD ISSUE'S ACCOUNT HEADER (W3 §DECLINESG, the FISERV-LABELS card).
+#: The two read issues print `Account Title: <holder>` and
+#: `<product> - <mask>`; the third prints neither, and `account_name` /
+#: `account_number` published as None on four documents that state both on the
+#: page. What it prints instead is a line that IS a product phrase followed by
+#: the mask, with no separator:
+#:
+#:     <product> ACCOUNT XXXXXX0000
+#:
+#: The phrase is published exactly as printed, up to the mask. Reading a
+#: trailing `ACCOUNT` as a separator — the role ` - ` plays in `_PRODUCT_RE` —
+#: would be an inference about what the bank meant by it, and the job here is
+#: to report what it printed.
+#:
+#: A line ending in a mask is not by itself evidence that the mask is THIS
+#: statement's account: a masked number can be printed in a posting's own
+#: description (measured: three of the four documents print one to two further
+#: masks inside their ledger sections, belonging to other instruments). So the
+#: header is read only where the SAME mask is printed a second time, in the
+#: summary strip this reader has already read — the corroboration rule.
+#: Horizontal whitespace on BOTH sides, for the same reason `_SUMMARY_MASK_RE`
+#: below uses it: `\s` spans the newline, so a name on one line and a bare mask
+#: on the next would read as a single header line. Measured: 0 cross-line
+#: matches on all fourteen documents of this family, which makes this a latent
+#: hole closed rather than a defect repaired.
+_MASKED_HEADER_RE = re.compile(
+    r"^(?P<name>\S.*?)[^\S\n]+(?P<mask>X+\d+)[^\S\n]*$", re.MULTILINE
+)
+#: The corroborating printing: the mask the summary strip carries in front of
+#: its own opening label. `[^\S\n]` and not `\s` is load-bearing — `\s` spans
+#: the newline, so on the two READ issues (whose product line sits directly
+#: above the strip) the header's own token would corroborate ITSELF, and "two
+#: printings agree" would be one printing counted twice.
+_SUMMARY_MASK_RE = re.compile(r"(X+\d+)[^\S\n]+Previous Balance")
 
 #: A printed web address. Used for the issuer's identity, never for routing.
 _DOMAIN_RE = re.compile(
@@ -657,6 +699,43 @@ def _plain_rows(text: str, start: date, end: date, sign: int):
     return rows
 
 
+def _account_labels(markdown: str) -> tuple[str | None, str | None]:
+    """`(account_name, account_number)` — the two labels, and what licenses them.
+
+    The registered wordings come first and are returned unchanged, so a
+    document that prints `<product> - <mask>` takes exactly the path it took
+    before this rule existed and the ten documents of the two read issues are
+    byte-identical.
+
+    On a miss the third issue's header is admitted, and ONLY under the
+    corroboration rule: the document must print exactly one line whose whole
+    content is a phrase followed by a mask, and the summary strip must print
+    the SAME mask beside its own opening label. Two printings that agree
+    publish; anything else publishes None, which is the state this branch is
+    replacing and is therefore never worse than it. Exactly one header is
+    required rather than the first of several because two account headers is a
+    document naming two accounts, and labelling it with one of them would be a
+    statement about neither (L-1) — the `square_checking` rule, applied to a
+    label instead of a ledger.
+
+    `Account Title:` stays the name of last resort. It is the account HOLDER,
+    not the product, and the third issue does not print it.
+    """
+    product = _PRODUCT_RE.search(markdown)
+    if product:
+        return product.group(1).strip(), product.group(2)
+    title = _TITLE_RE.search(markdown)
+    fallback = title.group(1).strip() if title else None
+    headers = _MASKED_HEADER_RE.findall(markdown)
+    if len(headers) != 1:
+        return fallback, None
+    name, mask = headers[0]
+    corroborating = _SUMMARY_MASK_RE.search(markdown)
+    if corroborating is None or corroborating.group(1) != mask:
+        return fallback, None
+    return name.strip() or fallback, mask
+
+
 def parse_fiserv_premier_statement(markdown: str) -> Statement | None:
     if not detect(markdown).claims:
         return None
@@ -759,13 +838,11 @@ def parse_fiserv_premier_statement(markdown: str) -> Statement | None:
     # balance sequence the document does not show.
     if all(txn.running_balance is None for txn in transactions):
         transactions.sort(key=lambda txn: txn.date)
-    title = _TITLE_RE.search(markdown)
-    product = _PRODUCT_RE.search(markdown)
+    account_name, account_number = _account_labels(markdown)
     return Statement(
         bank=issuer,
-        account_name=(product.group(1).strip() if product
-                      else title.group(1).strip() if title else None),
-        account_number=product.group(2) if product else None,
+        account_name=account_name,
+        account_number=account_number,
         period_start=start.isoformat(),
         period_end=end.isoformat(),
         days_in_period=days,

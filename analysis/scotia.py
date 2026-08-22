@@ -1,3 +1,37 @@
+"""The Scotiabank Business Account statement.
+
+**A THIRD printed issue of this template exists and is deliberately NOT read**
+(W3 §DECLINESG, card SCOTIA-NOBAL). Three archive documents declare the same
+`Date Description Withdrawals/Debits ($) Deposits/Credits ($) Balance ($)`
+grid, print the same `Account Details:` heading and the same account-level
+`No. of Debits …` strip — and then print **no balance anywhere in the
+document**. Measured on all three:
+
+* the `BALANCE FORWARD` row prints its label and no figure, so the opening
+  balance this reader walks from does not exist and `prev_balance` stays None;
+* every posting row prints exactly ONE money cell, where the two read issues
+  print two (amount and balance);
+* the count identity says what that one cell is: the printed rows number
+  exactly the account-level strip's debits plus credits (135 = 97 + 38,
+  114 = 69 + 45, 129 = 92 + 37), and the printed cells SUM to exactly the
+  strip's two printed totals added together, to the cent, on all three. Every
+  printed value is a row AMOUNT; the `Balance ($)` column is declared in the
+  header and empty in every row;
+* the only line in the whole document containing the word `balance` is that
+  column header.
+
+So the refusal at the end of `parse_scotiabank_statement` is honest and this is
+not a vocabulary gap. The ceiling was measured rather than argued: with every
+printed value taken as the row's amount the three land
+`withheld` / `withheld_adb`, never `validated` — there is no opening balance,
+no closing balance and no daily balance, and the canonical ADB is a
+calendar-day average OF balances. Recovering the lost DIRECTION is tractable
+(each page prints its own debit and credit counts and totals, so the page's
+values are a subset-sum with a uniqueness requirement — §SCAN-NEXT's method),
+but it buys the integrity flags and not the verdict. This belongs to the
+geometry rung, beside §DECLINESD's D6.1: a column that the header declares and
+the text layer has lost.
+"""
 from __future__ import annotations
 
 import re

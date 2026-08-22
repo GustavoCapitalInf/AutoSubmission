@@ -1,3 +1,42 @@
+"""The Consumers Credit Union member statement.
+
+**READ THIS BEFORE WIDENING ANYTHING HERE** (W3 §DECLINESG, cards CONS-L1 and
+CONS-HARDCODE). This module is one of the two in the registry that still
+selects its ledger by a memorized account, and the reason it has not been
+repaired is that repairing it honestly MOVES A PINNED DOCUMENT.
+
+`_primary_checking_section` and the summary pattern below both key on one
+account's own heading. That is an R-1 statement-specific constant; it survives
+because `tests/test_no_statement_hardcodes.py` scopes its account-number scan
+to a named file list and says so in its own docstring, naming this module as
+one of six it would light up.
+
+What the memorized heading is DOING is the part that matters. This is a MEMBER
+statement: it prints `SUMMARY OF ALL ACCOUNTS` and then one section per
+account, each with its own `Beginning Balance / Total Check(s) & Debits (-) /
+Ending Balance / Total Deposit(s) (+)` grid. Measured over the whole claimed
+family (5 archive documents, live detection replay):
+
+* the two documents this parser publishes each print THREE accounts, and all
+  three post in both directions — a share account and TWO checking accounts
+  (161 and 52 dated rows on one, 209 and 59 on the other). The parser
+  publishes the memorized one and says nothing about the other two. One of
+  those two documents is in the PINNED corpus;
+* the three it refuses are a different member: a share account, an
+  `Interest Checking`, a `Simple Checking` and a line of credit. No section
+  matches the memorized heading, `_primary_checking_section` returns the empty
+  string, and the document is refused at the guard below.
+
+So the refusal is not the defect — it is the only honest thing here. Widening
+the section finder to "the first checking product" would publish one of two
+active ledgers under one account's name, which is a statement about neither
+(L-1), and the ceiling was measured: with the finder widened and the summary
+pattern left alone the three still refuse, because the memorized heading is
+written twice. Removing the memorization without solving L-1 would change
+WHICH of three ledgers the two published documents report, one of them pinned
+and audited — truth-set movement, and therefore a ceremony rather than a
+parser fix. Escalated by name, not patched.
+"""
 from __future__ import annotations
 
 import re
