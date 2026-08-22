@@ -35436,7 +35436,7 @@ Ocean's to compose.
 | Population | the run of record's 16 `parser_declined` documents attributed to `bmo_ca_business` (6), `capital_one` (6) and `first_citizens` (4), plus the SN3 #9 `fc_daco2` cohort |
 | Census | every one replayed live; **16/16 reproduce the run's `outcome_class`/`outcome_reason`**, **16/16 agree on `source_model`**, and every refusal site is machine-derived, not read off the code |
 | Card taken | **FC1** — `analysis/first_citizens.py`: the At-A-Glance grid prints on BOTH sides of its own column heading |
-| Cards measured and deliberately left | **BMO1** (6 documents, ceiling **0**) · **CO1** (6 documents, ceiling **0**, L-1) · **FC-DACO2-SCAN** (5 documents, ceiling **0**) · **FC-PRODUCT** (39 documents, ceremony-shaped) |
+| Cards measured and deliberately left | **BMO1** (6 documents, ceiling **0**, already ruled as §BMO-LAYOUTS family E3) · **CO1** (6 documents, ceiling **0**, already ruled as §DECLB DB7's L-1 block) · **FC-DACO2-SCAN** (5 documents, ceiling **0**) · **FC-PRODUCT** (39 documents, ceremony-shaped) |
 | Result | **improved 4, regressed 0** — `first_citizens` 35 → 39 validated over its whole claimed family |
 | Byte-identity | 35 of the 39 documents `first_citizens` claims are byte-identical in the WHOLE published payload; the other 4 are the movers, each named by sha. `bmo_ca_business` (133 claimed) and `capital_one` (28 claimed) are untouched files |
 | Pinned | the 5 pinned documents these registrations claim (capital_one 4, first_citizens 1) are byte-identical in the whole published payload, base vs HEAD |
@@ -35684,6 +35684,15 @@ Six documents, one account, six consecutive months, all refusing at
 of this diagnosis would have been "the four summary cells wrap onto a second
 physical line", which is TRUE and is not the finding.
 
+**This class was already ruled, and this cell did not discover it.**
+§BMO-LAYOUTS M3 files exactly these six as **family E3** — "family A with a
+degraded text layer … `Closing tobls`, `De.posit`, `S0,000.00` for `50,000.00`,
+`010` for `0.10` … unusable input … FAIL CLOSED BY DESIGN", volume 6. What is
+new here is the re-measurement the batch-7 card owes: the defect census over
+the WHOLE claimed family (below), the widening actually BUILT and run to see
+what it would publish (below that), and the two platform cards the exercise
+produced. The ruling itself stands where Cell 9 put it.
+
 Measured over the whole 133-document claimed family:
 
 | trait | 133 claimed | the six |
@@ -35751,15 +35760,32 @@ and bytes are identical to base, which also keeps CURRENCY-SOURCE's line
   `S0,000.00 -> 0.00`, while `so,000.00`, `1s,000.00`, `2s,000.00` and
   `3s,000.00` match nothing. The silent-zero half is the dangerous one, and
   every parser-local money pattern in the layer carrying the same lookbehind
-  has the same hole. Not fixed here because the fix moves a grammar across a
-  133-document family, which is a grammar card and not a decline widening
-  (§MONEYFIX-1's precedent).
+  has the same hole.
+
+  It is a NARROWING (`(?<![\d.,A-Za-z])`) rather than the separator widening
+  §STRUCTFIX-1's Card B proposed — and that distinction is why it is carded
+  rather than taken. **STRUCTFIX-1 STOPPED its card on exactly this regex**
+  after measuring that the proposed alignment moved **30 `bmo_ca_business`
+  documents from `validated/approved` to `withheld/withheld_adb` and improved
+  none** (§STRUCTFIX-1 S4). A narrowing cannot fabricate a figure, but it can
+  remove a cell a healthy document depends on, so it owes the same
+  133-document sweep S4 paid for. That is a grammar card, not a decline
+  widening (§MONEYFIX-1's shape), and this cell did not open it.
 
 ## F5. CO1 — six three-account statements, and L-1 is the answer
 
 Six documents, one account holder, six consecutive months. Five refuse at
 `capital_one.py:394` (no transactions, or no beginning/ending balance, after
 the native read) and one at `capital_one.py:201` (`_period`).
+
+**This class was already ruled too, and the credit belongs to §DECLB.** Its DB7
+files the same six as "**L-1 blocked** — each prints THREE complete
+`Previous Balance … Ending Balance` cycle summaries — three accounts on one
+statement. Not expressible in a single-account extraction schema", and DB7 also
+already reported that `likely_account_count` reads 1 on all six. What this cell
+adds is the family-wide SEPARATOR (DB7 measured the six; the table below
+measures the 22 that publish as well, and the separation is total), the
+machine-derived refusal sites, and the `:201` explanation.
 
 Measured over the whole 28-document claimed family — 22 published, 6 declined:
 
@@ -35788,11 +35814,13 @@ move it from `:201` to `:394` and change nothing else.
 
 **Ceiling 0 until L-1.** `analysis/capital_one.py` is unchanged.
 
-A second, smaller finding for the L-1 card when it comes: `likely_account_count`
-(the O-1 advisory signal) reports **1** on all six of these three-account
-documents and 1 on all 22 single-account ones, so it separates nothing here and
-must not be used as the multi-account oracle. The printed `Deposit Accounts`
-register and the count of `Previous Balance` blocks do separate them perfectly.
+`likely_account_count` (the O-1 advisory signal) reports **1** on all six of
+these three-account documents and 1 on all 22 single-account ones, so it
+separates nothing here and must not be used as the multi-account oracle —
+§DECLB DB7 reported that already and this cell reproduces it on the new run of
+record. What DOES separate them perfectly, both ways, is the printed
+`Deposit Accounts` register and the count of `Previous Balance` blocks, which
+is a ready-made fixture pair for the L-1 card.
 
 ## F6. The DACO2 cohort — EXTENSION, not sibling, and the cohort is five
 
@@ -35814,8 +35842,11 @@ derived the family populations) finds **44** documents carrying both
 
 **The cohort is five, not three.** SN3's census counted only non-digital
 documents, so the two `digital` members were invisible to it — and they are the
-same account, the same series and consecutive months with the other three
-(`Central Bank/d665a2d7_Set {November, December, January, February, march}`).
+same SOURCE and the adjacent months
+(`Central Bank/d665a2d7_Set {November, December, January, February, march}`;
+the three readable members all print account `…827757`, and the two whose body
+did not survive print no account at all, so "same account" is inference on
+those two and the source prefix is what is measured).
 They are also the two documents §FI9 recorded as "first_citizens NO LONGER
 claimed: 2 (R4-3 false positives, correctly dropped)". That was right about the
 claim and wrong about the family: they are genuine statements of this template
@@ -35983,9 +36014,20 @@ answer reached by a path the test does not name.
 ## F8. Why nothing outside the named population can have moved
 
 One `parse` helper changed and nothing else: no detection marker, no
-`detection_text`, no registration, no shared helper, no registry entry. The
-canonical conformance set's full cross product (74 × 73) is green, which pins
-that no registration's detection moved against its fixtures. Movement is
+`detection_text`, no registration, no shared helper, no registry entry. Proven
+rather than asserted — the registry fingerprint, which is the material REGFP
+put into the analysis cache key, is identical on both trees:
+
+```
+base   e83f746   74 registrations   161D81F4E1D7D34DCE342C4EB367D4FA21315F71C31EB91EBAAF4373AB0170F4
+branch HEAD      74 registrations   161D81F4E1D7D34DCE342C4EB367D4FA21315F71C31EB91EBAAF4373AB0170F4
+```
+
+so **no analysis cache entry rotates because of this branch**, and Ocean's
+train pays nothing for it beyond whatever the composed `ANALYSIS_STAGE_VERSION`
+bump costs. The canonical conformance set's full cross product (74 × 73) is
+green, which pins that no registration's detection moved against its fixtures.
+Movement is
 therefore confined to documents `first_citizens` CLAIMS, and that whole claimed
 population — 39 documents by live detection replay — was swept.
 
