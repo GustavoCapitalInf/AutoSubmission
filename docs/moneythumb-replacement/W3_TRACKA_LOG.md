@@ -35420,3 +35420,513 @@ the file restored from an untouched copy.
 
 No production file changed in this round. The corpus gate and the full
 corpus-marked slice are Ocean's at the train, on the composed tree.
+
+---
+
+# §DECLINESE — sixteen declines, four refusal sites, one reader that had memorized a shape its bank prints wider
+
+DECLINES-E, 2026-08-21. Branch `wave7-declinese`, base `e83f746` (main
+`2d377fa` + the batch-7 handoffs). Brief:
+`docs/agent-handoffs/DECLINES-E.md`. One production file, two cards, one new
+test file. `ANALYSIS_STAGE_VERSION` NOT bumped — published output moves on
+four archive documents, so the bump is Ocean's to compose.
+
+## E0. Summary
+
+| | |
+|---|---|
+| Population | the two claimed families in the run of record, by LIVE DETECTION REPLAY: `huntington` **50** distinct shas, `chase` **515** (537 archive paths), `chase_export` **4**. 16 of them are `failed/parser_declined` |
+| Census | **4 distinct (parser, refusal-site) groups**, each named by module and line, each derived by replay under a tracer — not read off the code |
+| Cards worked | **E3** the one-grid printing of the Chase checking product · **E4** the `CHECKING SUMMARY` that prints no `INSTANCES` column (`analysis/chase.py`) |
+| Cards carded, not taken | **E6** `huntington.py:681` (8) · **E7** `huntington.py:662` (4, L-1) · **E8** `chase.py:595` (1) — 13 of the 16, each with a measured diagnosis and, for two of them, a measurement that says no widened read exists |
+| Result | **improved 3, regressed 0** — 3 `failed/parser_declined` → `validated/approved`, plus **1 intra-class mover** (an already-validated document that gains the stated totals its summary prints) |
+| Byte-identity | 565 of the 569 documents the three registrations claim are byte-identical in the WHOLE published payload; the other 4 are named by sha in E9 |
+| Pinned documents | `chase` publishes 11 of the 109 and `huntington` none. All 11 byte-identical (E10) |
+| Files changed | `analysis/chase.py`, `tests/test_chase_closure.py`, `tests/test_declines_e_variants.py`, `tests/test_no_parser_helper_clones.py`. `analysis/huntington.py` UNCHANGED — proven by `git diff --quiet`, not asserted |
+
+## E1. The instrument, and why its enumeration is immune
+
+Every figure below comes from replaying the archive markdown through the real
+pipeline (`analysis.pipeline.analyze_markdown` in deterministic mode +
+`analysis.serialization.report_to_dict` + `telemetry.record.classify_outcome`
++ `discovery.runner._failure_reason`), resolved from the D-3 OCR artifact
+store in the MAIN checkout **by direct file path**. The sqlite index was never
+opened. The ANALYSIS stage is never served from cache. `parse_mode` is
+`deterministic` throughout, so the extraction branch is unreachable and the
+vendor cost is **$0.00**.
+
+**Artifact selection is proven per document, not chosen by an ordering.** The
+harness enumerates all eight `ocr_settings_key` capability partitions (exactly
+as the committed `tools/regfp_zero_movement_sweep` does) and prefers the
+partition whose reconstruction resolves the run's own stored analysis payload
+under the baseline settings key
+`D3370EEBDCB87892A2739BCB0D882A66E72DCBFAB2553101111157B5A231DE24`. That is
+per-document proof that this is the text the run analysed. Where the run
+stored no payload — which is every decline, by `webapp/artifact_cache.py`'s
+contract that failures are never cached — the `source_model` cross-check
+stands in its place.
+
+Measured over the whole run of record, all **3,380** distinct documents and
+not only the declines: **3,351 model checks, 0 mismatches**; 29 documents hold
+no text artifact under any partition (the invalid PDFs and the deferred
+scans). Over the 16 declines specifically: **16/16 reproduce the run's
+`outcome_class`, `outcome_reason` and `attempted` list exactly.**
+
+**Family populations are by live detection replay, never `rows.csv`
+`parser_id`.** For each of the 3,380 documents the reconstructed markdown is
+prepared once and run through each registration's own `detect`. That is what
+turns "chase published 501" into "chase CLAIMS 515", and the difference is
+load-bearing: 10 of the 515 are published by `chase_savings`, which supersedes
+`chase`, and those 10 are the other half of card E3.
+
+**The refusal site is machine-derived.** A `parse` that returns None says
+nothing about WHY. Each decline is replayed under a tracer that records every
+`None` return inside `analysis/` with its call depth; at the moment `parse`
+returns None, the propagation chain is the run of records that is **contiguous
+in the record list AND consecutive in depth** ending there, and its innermost
+non-generator frame is the refusal site.
+
+Both halves of that rule are load-bearing and this cell measured what happens
+without each. Drop CONTIGUITY (scan backwards past records that do not fit)
+and the chain walks out of the live call stack and elects a frame that
+returned long before: on **all four** chase declines it picks
+`chase.py:84 _parse_chase_business_export`, an early return whose None the
+caller deliberately ignores (`if export is not None: return export`). Drop the
+depth rule for "strictly increasing" and §DECLINESD measured that reading
+inventing `huntington.py:354 _blocks.<locals>.flush`. The generator filter is
+required for the same reason it was there: `_parse_section.<locals>.<genexpr>`
+sits at depth 3 in the chase chain and refuses nothing.
+
+## E2. The census — all 16, by (parser, refusal site)
+
+| parser | refusal site | sha | rows | text | card |
+|---|---|---|---|---|---|
+| huntington | `huntington.py:681` | 8 | 8 | digital | **E6 — not taken, no widened read closes** |
+| huntington | `huntington.py:662` | 4 | 4 | digital | **E7 — L-1, a Gustavo architecture question** |
+| chase | `chase.py:716` | 3 | 3 | digital | **E3 — TAKEN** |
+| chase | `chase.py:595` | 1 | 1 | digital | **E8 — not taken, an intake-ladder card** |
+
+The sixteen by `content_sha256`:
+
+| refusal site | documents |
+|---|---|
+| `huntington.py:681` | `0DCABEBAE6D99BE010B8D13643E20FDC879315B9A60A861489177FE1C15A4A2B` · `1EEC7DABB4AB35E0478B64F8BC94100FADC55784DC0377B22154C221618F3FBD` · `4AF6AB4A97E468F3A0103262A4EDBCF2D1133E723FE42F21A6FF670DB77CEE2E` · `5D52C3A69E5A7FA9F1F500D18A259D7B2FEDE8793BBE0CBD273106C6DCF913D8` · `7C351D71B06A3E101B219AB89F13024FAD05ED0010869D94C99BD25F49DEDEE2` · `89F586D7BA16DC32A5B34DE0F4871AC65DFC49B98A72FF83C7F207B14A9A92D6` · `F14DAFC2118B30584C995502CF44C2D1E69CA336CA346C4F0D41F2CEFF24EF4E` · `F7C683846985F86DA3FDC22EE5424AF48AC5DA6A8AD2A7FFE82DF76B886BFB38` |
+| `huntington.py:662` | `2D4E5714444ED7C3C01C96962C3094F1E24759EB7EF4548D5F7851012985B3E0` · `46F2599A8757F72FE1D902373C47CBE0740B3295E610B2DC4223CD685D23B3B1` · `BFA453F0CE2769A0A22B73F97F2804F9D774C55E77DBCCB48DC3C465D0A4436B` · `C15A2E0F14E89FF5E1BFAAB15F4E7123496D17DA9BDAB2BE43E16FC161D3DDDC` |
+| `chase.py:716` | `0A85DE3F8F44B0E9A1784089A2BA3869E2FA3DA9E5E9C4D770D54FD7337C8A2F` · `153180D8DE6122BD5FD79BEB4269AF59B5E8B24E73C0E962C34251F903B267EE` · `E17E4C6C75CF77A72481919BAAB97DBA8B0BACAEC68A2578F5D3030A273390A3` |
+| `chase.py:595` | `681171A74E76ED7D6D6FE4927331A7E38E062EF5ECCB06A1CE1AA7E646BC179F` |
+
+Ranked by (population × fix-confidence) the order inverts. The largest group
+(8) has the LOWEST fix-confidence in the card: it is a printing class in which
+the statement states a service charge it never dates, on a statement that
+prints no daily-balance grid at all, and E6 measures that **no widened read of
+it closes on the printed ending balance**. The group that was taken is third
+by population and first by confidence — a reader that memorized a shape its
+own bank prints wider, with a PER-ROW arithmetic oracle gating the widening.
+
+### E2.1 The two families, by printing class
+
+`huntington`, all 50 claimed, grouped by which of its named blocks the
+document prints:
+
+| `Service Charge Detail` | `Service Charge Summary` | `Balance Activity` | `Daily Balance` | `Total Service Charges (-)` | count | outcome |
+|---|---|---|---|---|---|---|
+| yes | yes | yes | — | yes | 30 | validated |
+| — | — | — | — | **yes** | **8** | **failed (E6)** |
+| — | — | yes | — | — | 6 | validated |
+| — | — | yes | **yes** | — | **4** | **failed (E7, L-1)** |
+| — | yes | yes | — | yes | 2 | validated |
+
+The two failing rows are the only two shapes in the family that are not one
+deposit account with a printed date oracle. Note the fifth row: two documents
+state a service charge, print a `Service Charge Summary` and no
+`Service Charge Detail`, and publish — because the total they state is
+`0.00`, so `service_net` and `charges` are both zero. That is the second of
+the two printings `_validate`'s check 3 was written for, and the eight are a
+THIRD the reader had not seen.
+
+`chase`, all 515 claimed:
+
+| prints `TRANSACTION DETAIL` | prints a direction-named section | count | outcome |
+|---|---|---|---|
+| — | yes | 497 | validated |
+| **yes** | — | 10 | validated (published by `chase_savings`) |
+| — | — | 4 | validated (the printed-empty period, §CHASE-CLOSURE card A′) |
+| **yes** | — | **3** | **failed (E3)** |
+| — | — | 1 | failed (E8) |
+
+## E3. The card that was taken — `chase.py:716`, the one-grid printing (3 sha)
+
+Chase prints the checking product two ways behind the same `*start*…*end*`
+text-layer sentinels. `chase.py` knew one of them: six direction-named
+sections (`DEPOSITS AND ADDITIONS`, `ATM & DEBIT CARD WITHDRAWALS`,
+`ELECTRONIC WITHDRAWALS`, `OTHER WITHDRAWALS`, `OTHER WITHDRAWALS, FEES &
+CHARGES`, `FEES`) plus `CHECKS PAID`. The other is a single `TRANSACTION
+DETAIL` grid — `DATE DESCRIPTION AMOUNT BALANCE` — whose Amount column carries
+its own sign and whose Balance column carries the bank's running balance after
+every row.
+
+On the three declines the reader found **zero** rows: measured, the count of
+each of the seven section headings in those documents is 0 and the count of
+`TRANSACTION DETAIL` is 1, 1 and 2 (it continues across a page break). The
+summary read correctly on all three — both balances, and they differ — so the
+§CHASE-CLOSURE card-A′ guard fired and refused rather than publishing an empty
+ledger. **The guard was right; the reader was short.** §CHASE-CLOSURE said so
+at the time: its four adversarial probes print their unread rows in exactly
+this grid, and its own comment names it "the third Chase family this cell
+turned up (§Z6.1), where a checking statement is printed on the savings grid."
+
+**The grid is CALLED, not copied.** `analysis/chase_savings.py` already reads
+this exact printed grid for the savings product — the same columns, the same
+wrapped-amount-above-its-row rule, the same Beginning/Ending bound furniture —
+and it is structurally unable to claim these documents: its detection carries
+`excluding("checking_summary", ...)`, whose stated purpose is that a COMBINED
+statement stays with `chase`. These three are not combined statements: they
+print a checking summary and this grid and no `SAVINGS SUMMARY` at all. So the
+routing cannot be fixed from `chase.py` (a detection-marker change is outside
+this card and would move conformance off 74 × 73), and a second implementation
+of one printed grid is precisely the drift
+`tests/test_no_parser_helper_clones.py` exists to prevent. `chase.py` imports
+the three helpers and the imports are registered in that guard's debt register
+beside the `td_canada_french` → `td_can` pair, which is the same situation
+recorded the same way. **`analysis/chase_savings.py` is byte-identical**, so
+its ten validated documents cannot move.
+
+**What licenses publishing.** Three checks, all against figures the document
+printed, all of which must hold:
+
+1. **every group the grid produces is read.** A row this reader cannot resolve
+   is a row missing from the sums the ledger is then gated on. This is not
+   redundant with check 2: a dated line carrying no money cell adds nothing to
+   the running balance, so dropping it leaves the chain intact.
+2. **the bank's own running balance, row by row.** Seeded with the summary's
+   Beginning Balance, each row's amount must carry the running total exactly
+   onto the Balance the bank printed beside it, and the last row's balance must
+   be the summary's Ending Balance. A mis-read amount, a wrapped cell attached
+   to the wrong row, a dropped row and a swapped Amount/Balance column each
+   break it at the row where it happens.
+3. **the summary's own category totals.** Where the summary states a credit or
+   debit total, the ledger's sums must equal it. Given check 2 this is
+   redundant about the LEDGER and is NOT redundant about the SUMMARY: it is the
+   only thing that says the totals this parser publishes as `stated_total_*`
+   were read off the right rows.
+
+Measured on all three: every grid group read (35, 289 and 11 rows), the chain
+closes at delta 0.00 on every row, and the ledger's credit and debit sums equal
+the summary's stated totals to the cent.
+
+The grid is reached only inside `if not txns:`, after both the HTML-table
+sections and the native sections have produced nothing — so no document that
+prints the sections can take this path, and the grid and the sections can never
+both be read. Pinned by a fixture that prints both.
+
+## E4. The second half of the same card — the summary with no `INSTANCES` column
+
+`_parse_native_summary` required `label <count> <amount>` on every row. The
+business layout heads its summary grid `INSTANCES AMOUNT` and every row carries
+a count; the personal layout heads it `AMOUNT` alone and no row does. The
+reader therefore read **none** of the second printing's rows and published
+`stated_total_credits = None`, `stated_total_debits = None` and
+`stated_service_charge = None` on a statement whose summary states all three —
+so the ledger had nothing to be checked against, which is what makes check 3
+above possible at all.
+
+**The blast radius was measured before the change, over all 515 claimed
+documents**: 500 have a native summary block in which every row the widening
+could newly read is already read (no change possible), 11 have no native
+summary block at all (the HTML-table path, untouched), and **4** have at least
+one row the counted pattern misses and the count-less pattern finds. Three of
+those four are the E3 declines. The fourth,
+`0D4E4C349B817B9D38B7100843CF5072C4E12AC5448AF90CEFEC22EABEA8AE37`, is already
+`validated`: it prints the count-less summary and the direction-named sections,
+so it publishes today with its stated totals unset. It is the named intra-class
+mover in E9.
+
+Two things are deliberately NOT done. A count is never derived: a count-less
+row leaves `stated_credit_count` / `stated_debit_count` unset, because a count
+taken from the ledger would manufacture the very oracle
+`analysis/count_semantics.py` checks the ledger against. And a MIXED printing
+publishes no debit count at all — a count summed over the counted rows of a
+mixed summary is a real number describing PART of a total, which is a false
+contradiction against a complete ledger.
+
+## E5. The hunks, verbatim
+
+Three hunks in `analysis/chase.py` and nothing else in production.
+
+**E5.1 The import.**
+
+```python
+#: The `TRANSACTION DETAIL` grid reader, CALLED rather than copied. See
+#: `_transaction_detail_ledger`: `chase_savings` reads this exact printed grid
+#: for the savings product and is fenced off from the checking product by an
+#: excluding detection marker, so the reader lives there and the checking
+#: parser borrows it. Promoting the three into a shared module is the right end
+#: state and is a separate cleanup — `analysis/chase_savings.py` is not this
+#: cell's file, and the three imports are registered in
+#: `tests/test_no_parser_helper_clones.py`'s debt register alongside the
+#: `td_canada_french` -> `td_can` pair, which is the same situation.
+from .chase_savings import _grid_lines, _grid_rows, _transaction
+```
+
+**E5.2 The summary row (E4).** `_summary_row` replaces two inline `re.search`
+calls; the debit loop keeps its total and gives up its count on a mixed
+printing.
+
+```python
+def _summary_row(summary: str, label: str) -> tuple[int | None, float | None]:
+    counted = re.search(
+        rf"{re.escape(label)}\s+(\d+)\s+({_SUMMARY_AMOUNT})", summary, re.IGNORECASE
+    )
+    if counted:
+        return int(counted.group(1)), read_money(counted.group(2), _money)
+    bare = re.search(rf"{re.escape(label)}\s+({_SUMMARY_AMOUNT})", summary, re.IGNORECASE)
+    if bare:
+        return None, read_money(bare.group(1), _money)
+    return None, None
+```
+
+```python
+    credit_count, credit_total = _summary_row(summary, "Deposits and Additions")
+    if credit_total is not None:
+        stmt.stated_credit_count = credit_count
+        stmt.stated_total_credits = abs(credit_total)
+
+    debit_total = 0.0
+    debit_count = 0
+    every_debit_counted = True
+    for label in _SUMMARY_DEBIT_LABELS:
+        count, amount = _summary_row(summary, label)
+        if amount is None:
+            continue
+        if count is None:
+            every_debit_counted = False
+        else:
+            debit_count += count
+        debit_total += abs(amount)
+        if label == "Fees":
+            stmt.stated_service_charge = abs(amount)
+    stmt.stated_debit_count = debit_count if every_debit_counted and debit_count else None
+    stmt.stated_total_debits = round(debit_total, 2) if debit_total else None
+```
+
+**E5.3 The grid, and its three gates (E3).**
+
+```python
+def _transaction_detail_ledger(
+    text: str, stmt: Statement, *, year: int
+) -> list[Transaction] | None:
+    if stmt.beginning_balance is None or stmt.ending_balance is None:
+        return None
+    grid_text = "\n".join(compact_whitespace(line) for line in text.splitlines())
+    groups = _grid_rows(list(_grid_lines(grid_text)))
+    if not groups:
+        return None
+    txns = [_transaction(carried, group, year=year) for carried, group in groups]
+    if any(txn is None for txn in txns):
+        return None
+
+    running = stmt.beginning_balance
+    for txn in txns:
+        running = round(running + txn.amount, 2)
+        if txn.running_balance is None or abs(running - txn.running_balance) > _EXACT:
+            return None
+    if abs(running - stmt.ending_balance) > _EXACT:
+        return None
+
+    credits = round(sum(t.amount for t in txns if t.amount > 0), 2)
+    debits = round(-sum(t.amount for t in txns if t.amount < 0), 2)
+    if stmt.stated_total_credits is not None and abs(credits - stmt.stated_total_credits) > _EXACT:
+        return None
+    if stmt.stated_total_debits is not None and abs(debits - stmt.stated_total_debits) > _EXACT:
+        return None
+    return txns
+```
+
+and its one call site, inside `parse_chase_statement`:
+
+```python
+    if not txns:
+        #: The one-grid printing of the same checking product. Reached only
+        #: when none of the direction-named sections produced a row, so no
+        #: document that prints them can take this path and none can have both
+        #: read: the grid and the sections are alternative printings of the
+        #: same activity, and reading both would double every row.
+        grid = _transaction_detail_ledger(text, stmt, year=year)
+        if grid is not None:
+            txns = grid
+```
+
+## E6. `huntington.py:681` (8 sha) — NOT taken, and the measurement that says so
+
+`_validate(summary, txns, fee_txns, service_net, balances)` refuses after the
+ledger is read. The eight are two accounts of one customer over four
+consecutive months each, all in one folder, all digital, all with
+`truncated_pages = 0`.
+
+**Which identity fails, per document.** Deltas are (read − printed); 0.00 means
+the identity closes to the cent.
+
+| sha | summary identity | credit sections | debit sections | fee net | printed daily balances |
+|---|---|---|---|---|---|
+| `0DCABEBA…` | 0.00 | 0.00 | 0.00 | −80.50 | **0** |
+| `1EEC7DAB…` | **−4,636.08** | 0.00 | 0.00 | −95.00 | **0** |
+| `4AF6AB4A…` | 0.00 | 0.00 | **−5,850.00** | −72.00 | **0** |
+| `5D52C3A6…` | 0.00 | 0.00 | **−500.00** | −288.50 | **0** |
+| `7C351D71…` | 0.00 | 0.00 | 0.00 | −189.50 | **0** |
+| `89F586D7…` | 0.00 | 0.00 | **−999.98** | −110.50 | **0** |
+| `F14DAFC2…` | 0.00 | 0.00 | 0.00 | −468.50 | **0** |
+| `F7C68384…` | **+4,636.08** | 0.00 | 0.00 | −8.50 | **0** |
+
+**This corrects §DECLINESD D6.4 in one place.** That section says "On five of
+the eight the section sums already equal the printed `Credits (+)` and
+`Debits (-)` to the cent, and the summary identity closes". Both halves are
+true of different sets. Five have matching section sums; only **three** of
+those also close the summary identity. The other two are the same account's May
+and June statements, and their deltas are exact mirrors because the transition
+balance is overdrawn and **prints without the trailing minus in both places** —
+May's `Ending Balance` cell and June's `Beginning Balance` cell. Restore the
+sign in either and that statement's identity closes exactly. The sign is
+nowhere in either text layer (searched: the magnitude never appears with a
+trailing minus in either document), so it is recoverable only by arithmetic,
+which is not a printed fact.
+
+**The reader reads everything the documents print.** Measured with a residue
+pass over all eight: every line carrying a posting group `MM/DD <figure>` is
+inside a block `_blocks` built. **Residue rows: 0. Residue sum: 0.00, on all
+eight.** The three short debit sections are the DOCUMENT being short, not the
+reader — and every heading in all eight is one of the four the module already
+knows (no unrecognised section exists in any of them).
+
+**The two gates that fail on all eight, and why neither can be widened.** Both
+are structural facts about this printing class, not vocabulary:
+
+* the statement states a `Total Service Charges (-)` OUTSIDE `Debits (-)` and
+  prints **no** `Service Charge Detail` and **no** `Service Charge Summary`.
+  The count of the phrase "service charge" outside the summary line and the
+  cycle-average footnote is **0** in all eight: the fee has no date and no row.
+* the statement prints **no** `Balance Activity` and **no** `Daily Balance`
+  grid. There is no printed date oracle of any kind.
+
+**The decisive measurement.** Remove the daily-balance gate entirely and ask
+whether the published ledger closes on the printed ending balance:
+
+| sha | beginning + every published row − printed ending | stated service charge | equal? |
+|---|---|---|---|
+| `0DCABEBA…` | 80.50 | 80.50 | **yes** |
+| `1EEC7DAB…` | −4,541.08 | 95.00 | no |
+| `4AF6AB4A…` | 5,922.00 | 72.00 | no |
+| `5D52C3A6…` | 788.50 | 288.50 | no |
+| `7C351D71…` | 189.50 | 189.50 | **yes** |
+| `89F586D7…` | 1,110.48 | 110.50 | no |
+| `F14DAFC2…` | 468.50 | 468.50 | **yes** |
+| `F7C68384…` | 4,644.58 | 8.50 | no |
+
+**No widened read of this class closes.** On three the ONLY thing missing is a
+fee the document never dates; on the other five the residual is not even the
+fee. Publishing any of them means either omitting a stated fee from a ledger
+the platform then reconciles, or inventing a date for it — on statements that
+print no daily-balance grid to prove any date. Under the ratified ADB doctrine
+the one user-facing metric is date-derived, so an undated fee on a document
+with no date oracle is exactly the case the doctrine says to refuse.
+
+`tests/test_huntington.py` already pins both halves of this refusal
+(`test_a_service_charge_the_document_never_itemises_is_refused` and
+`test_a_statement_printing_no_end_of_day_balances_is_refused`, both from
+§HUNT-CELL). This cell adds the printing class as it actually is — both defects
+on one document — and the measurement above as a test: give the reader the ONE
+dated balance the summary itself implies (the printed Ending Balance, at the
+printed period end) and it is still refused, by exactly the stated service
+charge. The relaxation is proven to reach that gate by a zero-fee sibling that
+publishes under it.
+
+**§DECLINESD's HUNT-NOFEE card stays escalated**, with the diagnosis
+sharpened: it is not "publishing them means publishing a ledger that omits a
+stated fee" on all eight — on five of the eight the ledger is short of the
+printed ending balance by an amount that is not the fee either, so those five
+would stay refused under any fee ruling whatsoever. **The doctrine question is
+about three documents, not eight.**
+
+## E7. `huntington.py:662` (4 sha) — the L-1 cohort, characterized
+
+Four consecutive monthly statements of one deposit account. The refusal is
+honest under the single-account schema and this cell does not publish one
+account and drop the other.
+
+**What the second account is.** A `Business Overdraft Protection Account` — a
+revolving line of credit this issuer sells as a checking reserve — printed on
+the same statement, under the SAME masked account number as the deposit
+account, with all of its own furniture:
+
+* its own summary line: `Beginning Balance / Payments (-) / Advances (+) /
+  Interest Expense (+) / Ending Balance`;
+* its own credit terms: `Credit Limit`, `Available Credit`, `Payment Due Date`,
+  `Minimum Payment`, and the printed daily periodic rate;
+* its own activity grid, `Date | Loan Advances (+) | Payments & Credits (-) |
+  Description` — a TWO-money-column grid whose column membership the flattened
+  text layer does not preserve, the same shape as `Service Charge Detail`;
+* its own `Daily Balance` grid of dated end-of-day balances.
+
+**It is a live liability with a chained balance.** Over the four months the
+line's own summary reads (opening → closing): 0.00 → 0.00, 0.00 → 0.00,
+0.00 → 832.10, 832.10 → 0.00. April closes non-zero and May opens on exactly
+that figure, so the balance chains ACROSS documents. Advances of 3,792.11 /
+4,922.00 / 4,621.78 / 4,486.90 and payments of 3,794.97 / 4,924.76 / 3,792.82 /
+5,324.40 pass through it each month, with an interest expense the deposit
+account never sees.
+
+**Does the deposit account alone reconcile? Yes — completely.** Measured by
+suppressing the line-of-credit refusal and running the rest of the reader
+unchanged: all four publish, through every one of `_validate`'s four checks,
+with 232 / 251 / 255 / 250 transactions and 19 / 22 / 22 / 20 printed
+end-of-day balances each. So the L-1 ceiling is not "we cannot read it". It is
+this:
+
+**What publishing the deposit account alone would say, and why it is wrong.**
+The deposit ledger carries the reserve movements as ordinary rows — the
+repayments as debits, and **the advances as CREDITS**, described as a checking
+reserve transfer. Measured as a share of each month's published credits, the
+borrowings are **6.08% / 7.65% / 7.82% / 7.49%**. A deposit-only publication
+would therefore report roughly 3,800–4,600 of borrowing per month as deposits,
+with nothing in the published payload to say it is debt — because the only
+place the document says so is the second account this schema cannot carry. The
+interest expense is charged to the line and appears in the deposit ledger not
+at all, so the same publication also under-reports the cost of the facility.
+
+**The L-1 ceiling, stated:** these four cannot be published correctly by any
+change to `analysis/huntington.py`. They need a schema that carries more than
+one account per statement and a revenue layer that can be told a credit is a
+draw on a credit line. That is a Gustavo architecture question. The refusal is
+already tested
+(`tests/test_huntington.py::test_a_statement_carrying_a_second_account_is_declined_not_half_published`)
+and the module already declines at parse rather than at detection, so the
+document is reported as a recognised layout we decline.
+
+**One carried finding, unchanged from §HUNT-CELL and now measured:** the
+refusal keys on the heading of the second-account product this issuer sells
+today. All four of these print that heading. Another second-account product
+under a different heading would not be caught, and the deposit account would
+then be published alone — which is the failure mode above, silently.
+
+## E8. `chase.py:595` (1 sha) — NOT taken, and it is not a parser card
+
+One document, eight pages, `classification = digital`, `truncated_pages = 0`,
+3,595 characters of cached text. Its text layer holds **every** Chase
+`*start*…*end*` section sentinel — summary, deposits and additions, checks
+paid, ATM/debit withdrawals, electronic withdrawals, other withdrawals, fees,
+daily ending balance — and **no content between any pair of them**. Measured:
+the document contains no `CHECKING SUMMARY` string, `_DATED_ROW_RE` matches
+nowhere, and there is no money token anywhere in the text.
+
+`chase.py:595` (`if "CHECKING SUMMARY" not in text: return None`) is the honest
+refusal of that, and this cell does not widen it: a reader relaxed until a
+content-free text layer parses is a reader that publishes a statement nobody
+printed.
+
+**The finding belongs upstream.** The intake ladder classified an
+image-only-in-practice PDF as `digital` because a text layer EXISTS, so the OCR
+ladder never escalated it even though the run of record was `--scanned`. Carded
+as **CHASE-EMPTY-LAYER** and handed to the scanned-path cells: the
+discriminator is text DENSITY against page count and money-token count, not the
+presence of a text layer. This cell pins the refusal and the claim
+(`tests/test_declines_e_variants.py`), so a future intake fix will be visible as
+a change of outcome rather than of behaviour.
