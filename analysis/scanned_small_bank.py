@@ -356,12 +356,20 @@ def _southside_day(token: str, period: tuple[str, str]) -> str | None:
     candidates: set[date] = set()
 
     def admit(month: int, day: int) -> None:
-        try:
-            candidate = date(start.year, month, day)
-        except ValueError:
-            return
-        if start <= candidate <= end:
-            candidates.add(candidate)
+        # The cell carries no year, so BOTH years the period touches are
+        # offered and the period decides. On this template's own printing the
+        # two are the same year and the second offer changes nothing; a period
+        # the scan damaged into spanning a new year would otherwise silently
+        # drop every row on the far side of it, which is the failure this
+        # enumeration exists to refuse. Ambiguity between the two is resolved
+        # the way every other ambiguity here is: not at all.
+        for year in {start.year, end.year}:
+            try:
+                candidate = date(year, month, day)
+            except ValueError:
+                continue
+            if start <= candidate <= end:
+                candidates.add(candidate)
 
     canonical = re.fullmatch(r"(\d{1,2})/(\d{1,2})", token)
     if canonical:
