@@ -458,27 +458,34 @@ def test_the_browser_still_recognises_the_declared_refusal():
 #: pinned by the tests above.
 _WORKER_BOUNDARY_HELPERS = frozenset({"_stage_failure", "_analysis_failure"})
 
-#: THE LEDGER. Every remaining place in `webapp/` where a caught exception
-#: object is used for anything other than its class name. One site, two
-#: expressions, both OUT OF THIS CELL'S OWNERSHIP (`webapp/app.py` belongs to
-#: no batch-6 cell):
+#: The same, for `webapp/app.py` (#PRIVACY3, APP-PRIVACY). `_review_refusal`
+#: is the route's declared boundary: exact-match allow-list of five constants
+#: in that file, everything else reduced to the class name. Its behaviour is
+#: pinned by `tests/test_privacy3_boundaries.py`, including the `==` -> `in`
+#: mutant and the coupling to `analysis/revenue.py`'s actual raises.
+_BOUNDARY_HELPERS = {
+    "worker.py": _WORKER_BOUNDARY_HELPERS,
+    "app.py": frozenset({"_review_refusal"}),
+}
+
+#: THE LEDGER, and it is now EMPTY. Every place in `webapp/` where a caught
+#: exception object was used for anything other than its class name is closed.
 #:
-#:   `revenue_review` returns `str(exc)` as an HTTP 404/400 body for
-#:   `LookupError`/`ValueError` out of `apply_serialized_revenue_review`.
-#:   Non-durable (a response body, not a stored column) and today the three
-#:   reachable messages are fixed literals in `analysis/revenue.py`. The
-#:   exposure is that the `except ValueError` is BROADER than those literals:
-#:   a `ValueError` raised deeper inside `rebuild_serialized_revenue_views`
-#:   would be published verbatim, and the money-grammar family is exactly such
-#:   a raiser (MONEY-PRIVACY, running in parallel, is closing its end).
+#: It held two entries through batch 6, both `webapp/app.py:revenue_review`
+#: returning `str(exc)` as an HTTP 404/400 body out of
+#: `apply_serialized_revenue_review`. Non-durable (a response body, not a
+#: stored column) but not harmless: `webapp/static/app.js` throws
+#: `payload.error` into a `window.alert`, and the `except ValueError` was
+#: BROADER than the fixed literals `analysis/revenue.py` raises, so any
+#: `ValueError` from deeper inside `rebuild_serialized_revenue_views` was
+#: published verbatim. #PRIVACY3 closed both with the same allow-list shape
+#: `_analysis_failure` uses here, and the entries came out - which is what this
+#: comment records, because a ledger that shrinks silently is a ledger nobody
+#: can audit.
 #:
-#: The list is the point: if a new leak appears anywhere in `webapp/`, this
-#: test fails. It does not shrink on its own — closing the app.py sites means
-#: deleting the entry.
-_LEDGERED_EXCEPTION_USES = [
-    "webapp/app.py:revenue_review",
-    "webapp/app.py:revenue_review",
-]
+#: The list is still the point, in the other direction: an EMPTY expectation
+#: means the first new leak anywhere in `webapp/` fails this test.
+_LEDGERED_EXCEPTION_USES: list[str] = []
 
 
 def _exception_object_uses(path: Path, helpers: frozenset[str]) -> list[str]:
@@ -494,6 +501,31 @@ def _exception_object_uses(path: Path, helpers: frozenset[str]) -> list[str]:
     except ValueError:                       # a synthetic file under tmp_path
         relative = path.name
     findings: list[str] = []
+
+    #: #WORKERPRIV m-3, closed by #PRIVACY3. The walk below sees only
+    #: `except X as name` handlers, so three shapes were invisible to it: a
+    #: handler that recovers the exception through `sys.exc_info()`, one that
+    #: renders it with `traceback.format_exc()`, and a bare `except:` doing
+    #: either. None exists in `webapp/` today - which is exactly when to add
+    #: the clause, because the guard that finds nothing is the one nobody
+    #: notices is blind.
+    _RECOVERY_CALLS = {
+        ("sys", "exc_info"), ("traceback", "format_exc"),
+        ("traceback", "print_exc"), ("traceback", "format_exception"),
+    }
+
+    def recovery_findings(handler: ast.ExceptHandler, owner: str) -> None:
+        for node in ast.walk(handler):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+                if (func.value.id, func.attr) in _RECOVERY_CALLS:
+                    findings.append(f"{relative}:{owner}")
+            elif isinstance(func, ast.Name) and func.id in {
+                "exc_info", "format_exc", "print_exc", "format_exception"
+            }:
+                findings.append(f"{relative}:{owner}")
 
     def handler_findings(handler: ast.ExceptHandler, owner: str) -> None:
         allowed: set[int] = set()
@@ -517,8 +549,13 @@ def _exception_object_uses(path: Path, helpers: frozenset[str]) -> list[str]:
     def visit(node: ast.AST, owner: str) -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             owner = node.name
-        if isinstance(node, ast.ExceptHandler) and node.name:
-            handler_findings(node, owner)
+        if isinstance(node, ast.ExceptHandler):
+            # `node.name` is None for a bare `except:` and for `except X:`.
+            # Those cannot bind the exception, but they CAN still recover it
+            # through the recovery calls above (m-3).
+            if node.name:
+                handler_findings(node, owner)
+            recovery_findings(node, owner)
         for child in ast.iter_child_nodes(node):
             visit(child, owner)
 
@@ -539,7 +576,7 @@ def test_the_webapp_exception_ledger_is_complete():
     """The boundary census over ALL of `webapp/`, as an assertion."""
     findings: list[str] = []
     for path in sorted((PROJECT_ROOT / "webapp").rglob("*.py")):
-        helpers = _WORKER_BOUNDARY_HELPERS if path.name == "worker.py" else frozenset()
+        helpers = _BOUNDARY_HELPERS.get(path.name, frozenset())
         findings.extend(_exception_object_uses(path, helpers))
     assert sorted(findings) == sorted(_LEDGERED_EXCEPTION_USES)
 
@@ -554,6 +591,11 @@ def test_the_webapp_exception_ledger_is_complete():
     ("        return type(e).__name__\n", []),
     ("        raise e\n", []),
     ("        return _stage_failure('reading', e)\n", []),
+    # m-3, closed by #PRIVACY3: recovering the exception WITHOUT binding it.
+    ("        return str(sys.exc_info()[1])\n", ["leaky.py:handler"]),
+    ("        return traceback.format_exc()\n", ["leaky.py:handler"]),
+    ("        traceback.print_exc()\n", ["leaky.py:handler"]),
+    ("        return format_exc()\n", ["leaky.py:handler"]),
 ])
 def test_the_source_guard_can_actually_see_a_leak(tmp_path, body, expected):
     """A guard nobody has watched fail is not a guard. Every shape the census
@@ -564,6 +606,42 @@ def test_the_source_guard_can_actually_see_a_leak(tmp_path, body, expected):
         "    try:\n"
         "        pass\n"
         "    except Exception as e:\n" + body,
+        encoding="utf-8",
+    )
+    assert _exception_object_uses(leaky, _WORKER_BOUNDARY_HELPERS) == expected
+
+
+@pytest.mark.parametrize("header,body,expected", [
+    ("    except Exception as e:\n", "        return str(e)\n", ["leaky.py:handler"]),
+    ("    except Exception:\n", "        return traceback.format_exc()\n",
+     ["leaky.py:handler"]),
+    ("    except:\n", "        return traceback.format_exc()\n", ["leaky.py:handler"]),
+    ("    except:\n", "        return str(sys.exc_info()[1])\n", ["leaky.py:handler"]),
+    ("    except Exception:\n", "        return 'a fixed literal'\n", []),
+    ("    except:\n", "        pass\n", []),
+])
+def test_the_source_guard_sees_a_handler_that_never_binds_the_exception(
+    tmp_path, header, body, expected
+):
+    """#WORKERPRIV m-3, closed by #PRIVACY3.
+
+    The census walks `except X as name` handlers and reads every use of
+    `name` - which is blind to the three shapes that recover the exception
+    some OTHER way: `sys.exc_info()`, `traceback.format_exc()`, and a bare
+    `except:` doing either.
+
+    None of them exists in `webapp/` today, and that is the argument FOR
+    closing it now rather than the argument against: a boundary guard that has
+    only ever been true is a guard nobody has watched fail, and `except:` plus
+    `format_exc()` is the shape a debugging session leaves behind.
+    """
+    leaky = tmp_path / "leaky.py"
+    leaky.write_text(
+        "import sys, traceback\n"
+        "from traceback import format_exc\n"
+        "def handler():\n"
+        "    try:\n"
+        "        pass\n" + header + body,
         encoding="utf-8",
     )
     assert _exception_object_uses(leaky, _WORKER_BOUNDARY_HELPERS) == expected
