@@ -35420,3 +35420,513 @@ the file restored from an untouched copy.
 
 No production file changed in this round. The corpus gate and the full
 corpus-marked slice are Ocean's at the train, on the composed tree.
+
+# §DECLINESG — nine declines, not thirteen; two of them lifted, two of them proved unliftable, and the labels a validated document already prints
+
+DECLINES-G, 2026-08-21. Branch `wave7-declinesg`, base `e83f746` (main, the
+batch-7 phase-A handoffs). Brief: `docs/agent-handoffs/DECLINES-G.md`. Four
+production files, two of which change behaviour; three test files; this log.
+`ANALYSIS_STAGE_VERSION` NOT bumped — published output moves on 7 archive
+documents, so the bump is Ocean's to compose.
+
+## G0. Summary
+
+| | |
+|---|---|
+| Claimed families (live detection replay over the run of record's 3,380 distinct documents) | `fiserv_premier` **14** · `scotiabank` **84** · `symitar` **7** · `consumers` **5** = **110** documents, no document claimed by two of them |
+| Declines inside them, at the run of record | **9**, not the brief's 13 — `scotia.py:276` 3 · `symitar.py:302` 3 · `consumers.py:73` 3 · `fiserv_premier` **0** (G7) |
+| Coverage result | **improved 3, regressed 0** — symitar 4 → 7 validated |
+| Label result (FISERV-LABELS) | 4 validated documents gain `account_name` + `account_number`; **no outcome moves, no other field moves** |
+| Refusals proved unliftable, with a measured ceiling | `scotia.py:276` — ceiling **withheld**, never validated (G5) · `consumers.py:73` — L-1, ceiling **0** (G6) |
+| Byte-identity | **103 of the 110** claimed documents are byte-identical in the WHOLE published payload; the other 7 are the named movers |
+| Pinned corpus | `fiserv_premier` and `symitar` — the two modules whose behaviour changed — claim **0** of the pinned 109 by live detection replay. The two that do claim one each (`scotiabank`, `consumers`) carry a **docstring-only** diff, proved by docstring-stripped AST identity. No pinned document can move, structurally |
+| Mutation table | **13/13 killed** on the first table; one survivor found and closed, then **13/13** again |
+
+## G1. The instrument
+
+Every figure below is a live replay. Per document, the OCR artifact is resolved
+from the MAIN checkout's store **by direct file path** — the `webapp_data`
+sqlite index was never opened — by enumerating every one of the eight
+`ocr_settings_key` capability partitions and preferring the artifact whose
+reconstruction resolves the run of record's OWN stored analysis payload under
+the run's baseline settings key
+`D3370EEBDCB87892A2739BCB0D882A66E72DCBFAB2553101111157B5A231DE24`. That is
+`tools/regfp_zero_movement_sweep`'s rule, reused rather than re-invented, and
+it is per-document PROOF that this is the text the run analysed rather than an
+assumption about which rung it used (WORKER-PRIVACY's trap: 55 of the 3,380
+were read under a re-read preparation).
+
+**Family populations are by LIVE DETECTION REPLAY**, never `rows.csv
+parser_id`: for each of the 3,380 documents the reconstructed markdown is
+prepared once (`parser_registry.prepare`) and each of the four registrations'
+own `detect_prepared` is run over it.
+
+**The refusal site is machine-derived, not read off the code** — §DECLINESD's
+D1 tracer, reproduced: every `None` return inside `analysis/` is recorded under
+`sys.settrace`, generator frames filtered (a `yield` emits a return event with
+`arg is None`), and at the moment the registered `parse` returns None the chain
+of returns at CONSECUTIVE depths ending there is the propagation chain. All
+nine declines refuse in the `parse` frame itself, so all nine chains are one
+frame long.
+
+**Reproduction check.** All 110 claimed documents replay to the outcome CLASS
+the run of record recorded for them, before any change: 98 `validated`,
+3 `withheld`, 9 `failed`. $0 vendor — `parse_mode="deterministic"` cannot reach
+the extraction branch.
+
+## G2. The census
+
+Sorted by claimants. Every figure is distinct `content_sha256`; in these four
+families the archive-path count equals the sha count (no within-archive
+duplicates).
+
+| parser | claimants | validated | withheld | declined | refusal site | text |
+|---|---|---|---|---|---|---|
+| `scotiabank` | 84 | 78 | 3 | 3 | `scotia.py:276` | digital |
+| `fiserv_premier` | 14 | 14 | 0 | 0 | — | digital |
+| `symitar` | 7 | 4 | 0 | 3 | `symitar.py:302` | digital |
+| `consumers` | 5 | 2 | 0 | 3 | `consumers.py:73` | digital |
+| **union** | **110** | **98** | **3** | **9** | | |
+
+The nine, by sha (all `Unidentified/`, all `native-pdf-text`, all digital):
+
+| refusal site | content_sha256 |
+|---|---|
+| `symitar.py:302` | `3600FE7830C4A4841891276A27B53A40435F32005785C162B335BA51B9297E1B` |
+| `symitar.py:302` | `9C5B7D628D7511EEBF36E57F85ED335FCEAD4478C716E0EB6F276AD39DAC2047` |
+| `symitar.py:302` | `C067BE96F6B0BE0F2DD249128B2A43DC6FB24473519980595A8BC4B52683C948` |
+| `consumers.py:73` | `394291917794798DEE640E5BD9BA11767490968AA4311AD2933AC351FCF2EFB4` |
+| `consumers.py:73` | `593EC5C237F5C6AA0FB547F2BD211AB5B70A711F051D504AA7310A0EE6E0E253` |
+| `consumers.py:73` | `9B8E7D807228DA2B990F7F82BA50697D116E2F9B7105B85D527BACE19D43DA2D` |
+| `scotia.py:276` | `A63E37F95056FDDEFD6577EDFBE17BBC530EB1C028A5FD0EDF502CF437EE65D4` |
+| `scotia.py:276` | `ADFE654CC9FE211E4F59B9E8CDE4C697BD8B817F849C88C20BDB18190911746B` |
+| `scotia.py:276` | `B49461502EABA7CB3D7A1D26180D226D0C9D1B945520D5DA42EFB87FFB35240C` |
+
+**Ranked by (population × fix-confidence) the three groups are equal in
+population and nothing like equal in confidence**, which is the whole of this
+cell's triage. One is a sibling-account judgement with three independent
+in-document oracles (G3, taken). One is a lost column with no balance anywhere
+in the document and a ceiling BELOW `validated` (G5, refused). One is a
+single-account schema meeting a three-account statement, whose honest repair
+moves a pinned audited document (G6, escalated).
+
+The run of record's whole decline population, for scale: **118 rows / 115
+distinct shas** (§DECLINESD measured 132/124 against the batch-5 run; batch 6
+closed 14 of them). These nine are 7.8% of it.
+
+## G3. SY — symitar: the sibling that earned a cent (3 movers)
+
+`symitar.py:302` is `if len(active) != 1: return None` — the L-1 gate.
+§DECLINESD routed it as an honest refusal of "a document that is not one
+parseable statement". Measured, that is not what these three are.
+
+All three print exactly two deposit sections and no loan section:
+
+| section | rows read | dormant marker | opening | own arithmetic closes | agrees with `ACCOUNT SUMMARY` |
+|---|---|---|---|---|---|
+| `Free Business Checking` | 207 / 135 / 184 | no | yes | yes | yes |
+| `Money Market` | **1** | no | yes | yes | yes |
+
+The single Money Market posting is the credit union crediting the account
+**one cent** of dividend, with the Regulation DD yield disclosure printed
+behind it. The account holds about five dollars.
+
+**The four documents are consecutive monthly statements of ONE member, and the
+fourth is validated.** `0A14AC169DEA…` (March) publishes, because in that
+period the money market's dividend rounded to nothing and the account printed
+`No Transactions This Period`. January, February and April were refused as
+two-ledger documents because it printed one cent. That is the measurement that
+decides this card: the same member, the same two accounts, the same reader, and
+the verdict turns on a rounding.
+
+**What makes skipping it safe, and it is not the word.** The module already
+skips a dormant sibling — a share account with a balance and no postings — and
+has since it was written; the doctrine that a sibling is not a ledger is
+already ratified here. What is new is a second way the platform declares one
+idle. `_yield_only` requires all three of:
+
+1. **every posting is a dividend the platform named as one**, read with an
+   ANCHORED `_DIVIDEND_RE.match` against the description, because this platform
+   prints the posting type first on every row. Measured over the whole claimed
+   family: **880 postings, every one beginning with a posting-type word**
+   (`ACH`, `Draft`, `Card`, `Point`, `ATM`, `Fee`, `Check`, `External`, `Home`,
+   `Bill`, `POS`, `Descriptive`, `Deposit`, `Domestic`, `Wire`, `Withdrawal`,
+   `Privilege`, `Credit`, `Dividend`), and exactly **three** beginning with
+   `Dividend` — the three Money Market rows above. Anchoring is load-bearing
+   rather than tidy: `DIVIDEND` is a real lender name, and a `search` would
+   read `Card purchase DIVIDEND …` as the account's own yield;
+2. **the section's own arithmetic closes** — opening plus every posting equals
+   the last balance the section printed;
+3. **that last balance equals the ending balance the DOCUMENT states for this
+   account elsewhere** — its equation row where one is printed, otherwise its
+   entry in the document's own `ACCOUNT SUMMARY`, read through the same
+   expression the published account's closing balance is read through, so the
+   two can never disagree about where that figure comes from.
+
+Any of the three failing leaves the sibling ACTIVE and the document refused at
+`:302` exactly as before. A document whose ONLY deposit section is yield-only
+refuses too — skipping it empties `active`, and a ledger of dividends is not a
+statement of a member's activity.
+
+**"A dividend is not a deposit" is this platform's own taxonomy, not this
+reader's.** The module's `_EQUATION_HEADER_RE` has always read the platform's
+six-figure equation row — `Beginning Balance | Credits / Deposits | Dividends |
+Debits / Withdrawals | Ending Balance | YTD Dividends` — in which `Dividends`
+is a column SEPARATE from `Credits / Deposits`. The rule uses the distinction
+the bank prints.
+
+**This REVERSES a behaviour a previous cell pinned, and that is stated rather
+than buried.** `test_two_active_deposit_accounts_are_l1_blocked` used a
+dividend posting as its example of a second active ledger, and its docstring
+said so ("A dividend posting makes the money-market account active too"). That
+fixture now posts genuine member activity and still pins the L-1 refusal; the
+dividend case is a separate test. If Ocean or Gustavo rules the other way the
+revert is one hunk (M6 in G9) and three documents.
+
+## G4. FL — fiserv_premier: the labels a validated document already prints (4 label movers)
+
+The carded FISERV-LABELS work (§FISERV3 F9.1, F14.4 MINOR-5). Four documents
+publish `account_name` and `account_number` as None while printing both. This
+moves two AUDITED columns on documents that are already `validated`, so the
+rule is a corroboration rule and not a second pattern.
+
+**What the two issues print.** The ten read documents print
+`Account Title: <holder>` and `<product> - <mask>`; `_PRODUCT_RE` and
+`_TITLE_RE` read them. The four print neither. They print the product and the
+mask on one line with no separator, and repeat the mask in the summary strip:
+
+```
+Statement of Account <Month DD, YYYY> thru <Month DD, YYYY>
+<product> ACCOUNT XXXXXX0000
+<holder> XXXXXX0000 Previous Balance $… Deposits/Credits (…) …
+```
+
+**Why a line ending in a mask is not enough on its own.** A masked number can
+be printed in a posting's own description. Measured over the four: the header
+mask appears twice in each, and three of the four print one to two FURTHER
+masks inside their ledger sections, belonging to other instruments (one, two
+and two respectively). A rule that took "the mask in the document" would have
+had to choose among them.
+
+**The rule.** `_PRODUCT_RE` first, unchanged, so the ten read documents take
+exactly the path they took before. On a miss:
+
+* the document must print **exactly one** line whose whole content is a phrase
+  followed by a mask (`_MASKED_HEADER_RE`); two account headers is a document
+  naming two accounts, and labelling it with one of them would be a statement
+  about neither — `square_checking`'s L-1 rule applied to a label instead of a
+  ledger;
+* the summary strip must carry the **same** mask in front of its own opening
+  label (`_SUMMARY_MASK_RE`);
+* both hold → publish; anything else → None, which is the state this branch
+  replaces and can therefore never be worse than.
+
+Measured over the whole claimed family of 14: `_PRODUCT_RE` hits on exactly the
+ten and misses on exactly the four; `_MASKED_HEADER_RE` finds exactly ONE
+header on all fourteen; the corroborating printing exists on exactly the four
+and agrees on all four; `Previous Balance` occurs exactly once per document, so
+the strip the mask is bound to is the strip `_SUMMARY_RE` reads.
+
+**`[^\S\n]+` and not `\s+`, and this is the sharpest thing in the card.** `\s`
+spans the newline. On the two READ issues the product line sits DIRECTLY above
+the summary strip, so a corroboration written with `\s+` finds the header's OWN
+token one line up and calls it a second printing — "printed twice" becomes one
+printing counted twice, on every document of the family. Measured with `\s+`:
+the corroboration fires on all 14 and agrees on all 14, which looks like a
+stronger result and is a broken one. With `[^\S\n]+` it fires on exactly the 4.
+`test_the_corroborating_printing_may_not_be_the_header_s_own_token` pins it and
+mutation M8 kills its removal.
+
+**The trailing `ACCOUNT` is published, deliberately.** `account_name` is the
+phrase exactly as printed up to the mask. Reading a trailing `ACCOUNT` as a
+separator — the role ` - ` plays in `_PRODUCT_RE` — would be an inference about
+what the bank meant by the word, and over-reading a label is the same class of
+error as over-reading a figure. The alternative is recorded here so the next
+reader knows it was a choice and not an oversight.
+
+**A stale docstring, corrected.** The module's own docstring still said the
+third printed issue "exists, is claimed, and is deliberately NOT read", and
+cited `test_the_third_printed_issue_is_claimed_and_refused_twice_over` — a test
+that exists nowhere in the tree. §FISERV3 read the issue in batch 6 and left
+the §FISERVISS paragraph behind. Corrected here, and recorded because a module
+docstring describing a refusal the module no longer performs is the same class
+of defect as a test named after a gate it does not test.
+
+## G5. SC — scotiabank: a `Balance ($)` column that is declared and empty (0 movers, ceiling measured)
+
+`scotia.py:276` refuses a document whose posting tables printed rows and whose
+`txns` is empty. The three documents are a third printed issue of the template:
+same `Account Details:` heading, same declared grid
+(`Date Description Withdrawals/Debits ($) Deposits/Credits ($) Balance ($)`),
+same account-level `No. of Debits …` strip — and **no balance anywhere in the
+document**.
+
+| | `A63E37F9…` | `ADFE654C…` | `B4946150…` |
+|---|---|---|---|
+| `BALANCE FORWARD` rows printing a figure | **0** | **0** | **0** |
+| posting rows printed | 135 | 114 | 129 |
+| balance-shaped cells per row | **1, on every row** | 1, on every row | 1, on every row |
+| stated debits + stated credits | 97 + 38 = **135** | 69 + 45 = **114** | 92 + 37 = **129** |
+| Σ(printed cells) vs stated debit total + credit total | **equal to the cent** | equal | equal |
+| distinct lines containing the word `balance` | **1** — the column header | 1 | 1 |
+
+Rows equal the stated count and the printed values sum to the stated totals, so
+every printed value is a row AMOUNT and the `Balance ($)` column is empty in
+every row. The two read issues print two cells per row (166 of 166 rows on one
+published sibling), and the three documents already `withheld` in this family
+are the partial version of the same defect (151 of 213 rows with one cell on
+one of them). Because `BALANCE FORWARD` prints no figure, `prev_balance` is
+never set, every row is dropped at the `prev_balance is None` guard, and the
+zero-activity branch then correctly refuses to call 135 printed rows an empty
+period.
+
+**The ceiling was measured, not argued.** With every printed value taken as the
+row's amount and published with no balance, through the real pipeline, all
+three land **`withheld` / `withheld_adb`** — `beginning_balance` None,
+`ending_balance` None, `underwriting_adb` None, and four coverage/count flags.
+Recovering the lost DIRECTION is tractable (each page prints its own debit and
+credit counts and totals, so a page's values are a subset-sum with a uniqueness
+requirement — §SCAN-NEXT's method) and would clear the flags, but it cannot
+manufacture a balance, and the canonical ADB is a calendar-day average OF
+balances. **Claimed is not validated**: this is `failed` → `withheld` at best,
+and under the ADB doctrine refusing is the correct answer.
+
+Carded **SCOTIA-NOBAL** and routed to the geometry rung beside §DECLINESD's
+D6.1: a column the header declares and the text layer has lost. Nothing was
+widened; the module's docstring now carries the measurement.
+
+## G6. CO — consumers: a memorized account inside a three-account statement (0 movers, and a pinned defect)
+
+`consumers.py:73` refuses when `_primary_checking_section` returns the empty
+string. That function looks for ONE account's own heading — product, share code
+and full account number, a statement-specific literal — and the summary pattern
+below it repeats the product and the share code. The three declines are a
+DIFFERENT member.
+
+Measured over the whole claimed family of 5, per printed account section:
+
+| document | accounts printed | active |
+|---|---|---|
+| `05E246C0…` **validated, PINNED** | share + **two** `BusinessPlus Checking` | **3** — 11, 161 and 52 dated rows, all posting in both directions |
+| `4500A258…` validated | share + **two** `BusinessPlus Checking` | **3** — 8, 209 and 59 dated rows |
+| `39429191…` declined | share, `Interest Checking`, `Simple Checking`, a line of credit | 3 deposit accounts + the LOC |
+| `593EC5C2…` declined | the same four | share dormant; two checking accounts active |
+| `9B8E7D80…` declined | the same four | 3 deposit accounts + the LOC |
+
+So the refusal is the only honest thing here, and the ceiling is **0**:
+
+* widening the section finder to "the first checking product" would publish one
+  of two active ledgers under one account's name — a statement about neither
+  (L-1);
+* measured anyway, with the finder widened and the summary pattern left alone,
+  all three STILL refuse — the memorized heading is written twice;
+* and the two documents this parser publishes are already doing the thing the
+  widening would do. Each prints three accounts that all post, and the parser
+  reports one of them and says nothing about the other two. **One of those two
+  is in the pinned 109 and is audited.**
+
+Removing the memorization without solving L-1 changes WHICH of three ledgers a
+pinned audited document reports. That is truth-set movement and therefore a
+ceremony, not a parser fix. Carded **CONS-L1** and **CONS-HARDCODE**, escalated
+in G12; the module's docstring now says all of this at the top so the next cell
+to open the file cannot miss it.
+
+**On the hardcode specifically:** `tests/test_no_statement_hardcodes.py` scopes
+its account-number scan to a named file list and its own docstring names
+`consumers.py` as one of six modules the scan would light up if widened —
+"turning another cell's work red mid-wave is not this guard's call to make".
+This cell OWNS `consumers.py` and could have closed that backlog entry. It did
+not: removing the literal without solving L-1 is the movement above, and adding
+the file to `GUARDED_FILES` would move the canonical guard count (242) every
+other batch-7 cell is reporting against. Both belong to the ceremony.
+
+## G7. The brief said thirteen; the run of record says nine
+
+The brief opens with `fiserv_premier` (4: `fiserv_premier.py:226`) and puts the
+ceiling at 13. Measured at the run of record
+`2026-08-21T014415.938236-0000-7a317445`:
+
+* **`fiserv_premier` declines nothing.** All 14 of its claimants are
+  `validated/approved`, and `fiserv_premier` appears in the `attempted` list of
+  none of the run's 118 declined rows. Its four declines were §FISERV3's four,
+  and §FISERV3 published them in batch 6;
+* `fiserv_premier.py:226` at this base is the middle of a comment paragraph.
+  The line number is §DECLINESD's, taken against the batch-5 run of record and
+  the pre-§FISERV3 module, and carried into this brief unchanged.
+
+The ceiling is therefore **9**, and the fiserv work in this card is the
+FISERV-LABELS hygiene the brief also names — not a decline at all, but two
+audited fields on four documents that already publish. Recorded because a
+census inherited from yesterday's run is a failure mode this project has named
+before: a stale count and a stale line number both read exactly like
+measurements.
+
+## G8. Why nothing can have moved outside the named populations
+
+Two `parse` bodies changed and nothing else: no detection marker, no
+`detection_text`, no shared helper, no registration, no registry entry.
+`scotia.py` and `consumers.py` changed at all only in prose — proved rather
+than asserted, by comparing docstring-stripped ASTs against base `e83f746`:
+
+```
+analysis/scotia.py      base 8C461AD438166D4F737555D3E0871597…  head 8C461AD438166D4F737555D3E0871597…  IDENTICAL
+analysis/consumers.py   base 8B5DB2731BA9CA04C7C6BADE5F04A698…  head 8B5DB2731BA9CA04C7C6BADE5F04A698…  IDENTICAL
+analysis/symitar.py     base 3E16FE7FC0A393E6B9E13C1A75644143…  head 8BE8143D9300B937808D462E031A2827…  DIFFERS
+analysis/fiserv_premier.py base 3792B0B69E6A6CCF5B700218570FB550…  head 0FB6CBB6F62BFB849970C920785AF6D2…  DIFFERS
+```
+
+**Detection did not move.** The canonical conformance set is green at registry
+74 (cross-product 74 × 73), which pins that no registration's detection moved
+against its fixtures; and the family replay resolves the claim set
+independently at both trees — **110 claimants at base, 110 at HEAD, the sets
+identical, and 0 documents whose CLAIMING registrations differ.**
+
+**The fallthrough shape does not occur here.** The one way movement could
+escape a family sweep is a document that a changed parser claims, declines, and
+some OTHER claimant then wins: widening the decliner makes it win instead, and
+the document moves without its payload ever having been in this cell's
+comparison. Measured against the run of record's own dispatch:
+
+| family | claimants | `parser_id` = the family | `parser_id` empty (declined) | won by another parser |
+|---|---|---|---|---|
+| `fiserv_premier` | 14 | 14 | 0 | **0** |
+| `scotiabank` | 84 | 81 | 3 | **0** |
+| `symitar` | 7 | 4 | 3 | **0** |
+| `consumers` | 5 | 2 | 3 | **0** |
+
+Also: **no document is claimed by two of the four**, so the four families are
+disjoint and each replay measures the whole of its own population.
+
+**No pinned document can move, structurally.** By live detection replay over
+the pinned 109, resolved through the corpus gate's own offline intake:
+`fiserv_premier` claims **0**, `symitar` claims **0** — the two modules whose
+behaviour changed touch no pinned document at all. `scotiabank` claims 1
+(`B64A0764…`) and `consumers` claims 1 (`05E246C0…`), and both of those modules
+carry the zero-line behavioural diff proved above. The gate and the
+corpus-marked slice are run anyway (G10); this paragraph is why their result was
+never in doubt.
+
+## G9. The family replay — 110 documents, both trees
+
+Every document any of the four registrations claims, through the real pipeline
+(`analyze_markdown` in deterministic mode → `report_to_dict` →
+`telemetry.record.classify_outcome`), at base `e83f746` and at branch HEAD.
+
+```
+base claimants: 110   head claimants: 110
+claim sets identical: True
+documents whose CLAIMING registrations differ: 0
+byte-identical published payloads: 103
+movers: 7
+```
+
+**103 of 110 byte-identical in the whole published payload.** That is every
+`scotiabank` claimant (84), every `consumers` claimant (5), the four
+`symitar` claimants that already published, and the ten `fiserv_premier`
+documents of the two read issues.
+
+### G9.1 The three coverage movers (symitar)
+
+| content_sha256 | before (run `7a317445`) | after | published |
+|---|---|---|---|
+| `3600FE7830C4A4841891276A27B53A40435F32005785C162B335BA51B9297E1B` | `failed` / `parser_declined` | **`validated` / `approved`** | 207 transactions, integrity flags `[]`, risk `clear`, ADB basis `calendar_day_printed_period`, `adb_ok` true, reconciliation ok |
+| `9C5B7D628D7511EEBF36E57F85ED335FCEAD4478C716E0EB6F276AD39DAC2047` | `failed` / `parser_declined` | **`validated` / `approved`** | 135 transactions, flags `[]`, risk `clear`, same basis, `adb_ok` true, reconciliation ok |
+| `C067BE96F6B0BE0F2DD249128B2A43DC6FB24473519980595A8BC4B52683C948` | `failed` / `parser_declined` | **`validated` / `approved`** | 184 transactions, flags `[]`, risk `clear`, same basis, `adb_ok` true, reconciliation ok |
+
+All three publish `account_name = "Free Business Checking"` and
+`account_number = "0210"` — the account section the reader chose, named by the
+document's own heading. The before-state class/reason is quoted from the run's
+own rows; the replay harness reproduces the CLASS exactly and reports the
+reason as `exception`, because it does not pass the runner's
+`error_reason=_failure_reason(...)` — `parser_declined` is the runner's
+dispatch-aware vocabulary, not a parser behaviour (§FISERV3 F12 recorded the
+same).
+
+### G9.2 The four label movers (fiserv_premier) — the leaf-diff
+
+No outcome moves: all four are `validated` / `approved` before and after. What
+moves inside them was measured leaf by leaf, and the result is exact:
+
+| content_sha256 | differing leaves | leaf names | base values |
+|---|---|---|---|
+| `4B37474294BFC9AB5D5CFCDA64BF5EB15677F8778C6F1712A8DDDE4C687F0C1D` | 634 | `account` ×316, `account_name` ×317, `account_number` ×1 | all `None` |
+| `4D0EACF6D617EDAB6AD7BA7EC7EE16A669CE90995916C73DD4228C5F9999A29E` | 868 | `account` ×433, `account_name` ×434, `account_number` ×1 | all `None` |
+| `8DB2CB78B67CF2235CC62C8ED71A0D3569DCACAA993339040ED02532FF5EA471` | 986 | `account` ×492, `account_name` ×493, `account_number` ×1 | all `None` |
+| `E34083B2FED71FB3565599BE3E4D26B4741A3CEBC7E91CED3451E319798A2513` | 1070 | `account` ×534, `account_name` ×535, `account_number` ×1 | all `None` |
+
+**Every differing leaf, on all four, is named `account`, `account_name` or
+`account_number`, and every base value was `None`.** Zero leaves outside those
+three names; zero non-`None` values overwritten. The counts are large because
+`classification` records carry the statement's account labels, and each
+transaction's record is embedded again in `classifications`, in
+`detection.*_evidence` and in `metrics.*_evidence` — so two published fields
+appear as ~2N + 2 leaves. The arithmetic checks out per document:
+316 records × 2 + `statement.account_name` + `statement.account_number` = 634.
+
+This is what the leaf-diff is FOR. The archive sweep reports field NAMES only,
+so it will report `statement` and `classifications` moving on these four; the
+table above is the proof of what moved inside them.
+
+## G10. The mutation table
+
+Fourteen mutants: every gate this cell adds, plus the two orderings it
+preserves. Each is the gate rewritten to its PERMISSIVE form; a mutant is
+KILLED when this cell's own test file fails, and the killing test is named,
+because a table that only counts is not evidence that the right test is doing
+the work. Run on a `git archive HEAD` scratch copy — no production file is
+written by the harness, and the copy's baseline is asserted green first.
+
+| # | mutated gate | verdict | killed by |
+|---|---|---|---|
+| M1 | `symitar._yield_only` — `all(...)` → `any(...)`: one dividend is enough | KILLED | `..._a_sibling_with_one_ordinary_posting_beside_its_dividend_is_a_second_ledger` |
+| M2 | `_DIVIDEND_RE.match` → `.search`: the dividend read loses its anchor | KILLED | `..._the_dividend_read_is_anchored_at_the_posting_type` |
+| M3 | the sibling need not close its own arithmetic | KILLED | `..._the_dividend_sibling_must_close_its_own_arithmetic` |
+| M4 | the sibling need not agree with the document's own summary | KILLED | `..._the_dividend_sibling_must_agree_with_the_document_s_own_summary` |
+| M5 | **the guard: a sibling with no readable opening or stated closing is skipped anyway** | KILLED (after closure) | `..._a_sibling_this_reader_cannot_bound_is_never_dismissed_as_idle` |
+| M6 | the whole skip reverted — any posting makes a sibling a second ledger | KILLED | `..._a_sibling_that_posted_only_its_own_dividend_is_not_a_second_ledger` |
+| M7 | the third condition corroborates the section against ITSELF (`rows[-1]["balance"]` for `stated_closing`) | KILLED | `..._the_dividend_sibling_must_agree_with_the_document_s_own_summary` |
+| M8 | **`_SUMMARY_MASK_RE` `[^\S\n]+` → `\s+`: the header's own token may corroborate itself** | KILLED | `..._the_labels_are_the_only_thing_the_rule_changes` |
+| M9 | `len(headers) != 1` → `not headers`: the FIRST of several headers is taken | KILLED | `..._two_account_headers_publish_neither_label` |
+| M10 | the two printings need not agree, only both exist | KILLED | `..._a_second_printing_that_disagrees_publishes_neither_label` |
+| M11 | `_MASKED_HEADER_RE` loses its `\s*$`: the mask need not END the line | KILLED | `..._the_third_issue_reads_the_account_labels_its_page_prints` |
+| M12 | `_PRODUCT_RE` is no longer the first reading | KILLED | `..._the_issuer_is_recovered_from_the_disclosure_directory` |
+| M13 | `Account Title:` is no longer the name of last resort | KILLED | `..._the_account_title_stays_the_name_of_last_resort` |
+| M14 | **a dividend-named DEBIT counts as the account's own yield** | KILLED | `..._a_dividend_named_posting_that_takes_money_out_is_not_yield` |
+
+**14/14 KILLED — on the third run, and the two earlier runs are the record
+worth keeping.**
+
+**Run 1 was 12/13: M5 survived.** `_yield_only`'s guard, rewritten to SKIP a
+sibling whose opening balance cannot be read or whose ending balance the
+document states nowhere, passed every test that then existed. It is a correct
+and reachable gate, and its direction is the whole point — that is the sibling
+this reader knows least about, so it must count as a ledger rather than be
+dismissed as idle. Closed in `b81418c` with a test that isolates it.
+
+**M14 is a gate this cell did not originally write, and self-review found the
+hole.** `_DIVIDEND_RE.match` reads the platform's posting type, and every
+description in this family begins with one — but a description beginning with a
+COUNTERPARTY named after the word would have read as the account's own yield.
+Yield is paid INTO an account, so the condition now also requires the posting
+to be a credit (`0d93cd5`). The residual — a dividend-named CREDIT from an
+outside party, standing as a sibling's only posting, leaving the section's
+arithmetic and the document's stated closing balance both intact — is named in
+`_yield_only`'s docstring rather than left to be discovered.
+
+**Run 2 was 13/14: adding M14's gate made M2's test vacuous.**
+`..._the_dividend_read_is_anchored_at_the_posting_type` posted a DEBIT, which
+the new direction clause refuses on its own, so the test passed under the
+mutation it names. Fixed in `cd7c80a`: the fixture is now a dividend-named
+CREDIT whose arithmetic closes on the figure `ACCOUNT SUMMARY` states, so the
+anchor is the only thing left that can refuse it. **Tightening a gate can
+quietly make a sibling gate's test vacuous, and only re-running the whole table
+says so** — which is a reason to keep the table runnable rather than to run it
+once.
+
+**Three further first-draft tests did not isolate the gate they named, and
+reading them is what found those.** In each, two of `_yield_only`'s conditions
+failed at once on the fixture, so the test would have passed under the mutation
+of either. Each fixture was re-balanced so the other conditions HOLD and only
+the named one can be doing the refusing. §DECLINESD's M2 lesson, met twice
+more: **a test named after a gate is not a test of that gate**, and neither is
+a test that trips three gates at once.
