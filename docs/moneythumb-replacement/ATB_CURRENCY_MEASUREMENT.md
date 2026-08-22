@@ -409,9 +409,9 @@ measured through it.
 | **Movers** — pinned `ATB/*.pdf` | 5 | `USD` (schema default) | **`CAD`** |
 | **Movers** — archive, claimed by `atb`, published `withheld`/`withheld_adb` | 2 | `USD` (schema default) | **`CAD`** |
 | Non-movers — ATB `Consolidated Statement`, unclaimed | 4 | publishes nothing | publishes nothing; terminal outcome byte-identical |
-| Control — the 151 RBC movers | 151 | `CAD` | `CAD` (unchanged) |
+| Control — the 151 RBC movers (147 by sha + the 4 pinned by path) | 151 | `CAD` | `CAD` (unchanged) |
 | Control — the nine CURRENCY-1 corrections | 9 | 6 × `CAD`, 3 × `USD` | unchanged |
-| Control — the other 104 entries of the pinned currency surface | 104 | as pinned | unchanged |
+| Control — every other entry of `corpus_gate.PINNED_CURRENCY` | 104 | as pinned | unchanged |
 
 Direction census over every mover: `Counter({('USD','CAD'): 7})`. There is
 **no** CAD→USD movement and no movement to any third code.
@@ -781,8 +781,10 @@ way), so R1 is genuinely larger here in the sense that *nothing in this archive
 demonstrates how an ATB USD statement prints*. The synthetic S1/S2 of §3 are the
 best available substitute and they are labelled as such.
 
-**R2 — the rule is anchored to two ATB layouts.** J_ISSUER/J_HEADER/J_ACCOUNT
-are the `Deposit Account Statement` and `Consolidated Statement` furniture. A
+**R2 — the rule is anchored to two ATB layouts.** J_ISSUER, J_HEADER,
+J_ACCOUNT and J_SERVICE are the furniture of the `Deposit Account Statement`
+and `Consolidated Statement` products, which are the only two ATB layouts this
+archive holds. A
 third ATB layout (a personal account, an online-banking export, a re-issue that
 drops the branch-of-domicile line) fails the conjunction and silently keeps the
 USD default — a false negative, which is the safe direction, but it will look
@@ -821,8 +823,9 @@ expected rather than surprising, exactly as RBC-MEASURE named
 `BFEB79B26E42…`.
 
 **R7 — process.** The measurement was taken on a machine shared with nine
-batch-7 cells. Probes were kept light and sequential; the superset scan ran in
-60.7s over all 3,380 shas, and the double analysis ran as one short foreground
-command plus a detached sequential chunk runner rather than parallel work.
-Nothing else on the machine was touched, and no repository state outside this
-file and the W3 entry changed.
+batch-7 cells. Probes were kept light and sequential: the whole-archive
+superset scan ran 60.7s over all 3,380 shas, the `-219` scan 83.3s, and the
+271-document double analysis ran as one short foreground command plus a
+detached sequential chunk runner (six chunks: 75.9 + 175.8 + 175.7 + 156.2 +
+256.2 + 280.0 seconds, 1,119.8s in total) rather than as parallel work. Nothing else on the machine was
+touched, and no repository state outside this file and the W3 entry changed.
