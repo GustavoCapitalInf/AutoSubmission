@@ -35420,3 +35420,131 @@ the file restored from an untouched copy.
 
 No production file changed in this round. The corpus gate and the full
 corpus-marked slice are Ocean's at the train, on the composed tree.
+
+---
+
+# §ATBMEASURE — the read-only measurement packet the ATB currency question is gated on
+
+Branch `wave7-atbmeasure`, base `e83f746`. Batch 7, card 3. READ-ONLY card: the
+only repository changes are
+`docs/moneythumb-replacement/ATB_CURRENCY_MEASUREMENT.md` and this section. No
+code edit, no expectation edit, no cache write, $0.00 vendor. Gustavo's ruling
+of 2026-08-21: *"ATB gets the full eight-proof measurement packet only; no
+movement until reviewed."*
+
+## AM0. Summary
+
+| | |
+|---|---|
+| Doctrine gate | CURRENCY_DOCTRINE §C's eight proofs, instanced for ATB under §B's final paragraph — **all eight land clean** |
+| Population | **11 ATB documents**: 5 pinned `ATB/*.pdf` + 2 archive movers + 4 archive non-movers. Re-derived from run `7a317445` + live artifact replay, not inherited from the handoff |
+| Superset method | all 3,351 readable OCR artifacts scanned for any ATB-shaped token — **6 archive documents**. The predicate is strictly weaker than the `atb` registration's REQUIRED marker, so the movement measurement is total over the archive, not sampled |
+| Family, live-detected | `atb` 7 (5 pinned + 2 archive) · unclaimed 4. Live `resolve()` agreed with the run's `parser_id` **6/6** |
+| Movement | `statement.currency` `USD` → `CAD` on **7** documents, direction census `{('USD','CAD'): 7}` |
+| Field diff | 271 documents × two full `report_to_dict` payloads = **6,795,116 leaf comparisons**; **one** distinct changed path in the entire sweep: `statement.currency`; **0** documents with any non-currency change |
+| Controls | the 151 RBC movers, the nine CURRENCY-1 corrections and the other 104 entries of the pinned currency surface: **all byte-identical** |
+| Contradictory / uncertain evidence | **zero documents**, measured — nothing left the packet for uncertainty |
+| Pinned expectation diff | **five lines of `corpus_gate.PINNED_CURRENCY`**, `USD` → `CAD`. The surface goes 14 CAD / 95 USD → 19 CAD / 90 USD |
+
+## AM1. What the doctrine required, and what ATB prints
+
+Doctrine §C is written in RBC's names; §B's final paragraph is the general
+rule — *"each requiring its own proven-jurisdiction evidence base"*. So the
+prototype takes no inference from an absence: it requires four affirmative
+structural proofs, and evaluates a U.S. discriminator and a deliberately
+over-wide contrary-currency sweep before any of them.
+
+ATB's four are not RBC's four, and that is the point of a per-institution
+evidence base. They are: the branch-of-domicile line (`Your ATB Financial
+Branch <transit> … AB <Canadian postal code>`, line-anchored at both ends); the
+statement header carrying the Canadian Payments Association transit-institution
+pair with ATB's **own** institution number 219; the same pair at an account
+site (`Transit # <5>-219`); and ATB's own service furniture (`atb.com`, the
+Canadian toll-free `1 800 332-8383`). Ablation over all 11 documents: removing
+any one class returns `None` **11/11**, including relabelling `219` to `001`.
+
+## AM2. The three measurements worth carrying forward
+
+1. **ATB denominates its own consolidated statements, and it denominates them
+   CAD.** Four archive documents print a bare `CAD` header under
+   `Deposits Value on <date>` and again under `Loans Value on <date>` — twice
+   each, on an anchored site. They are the only ATB documents in the archive
+   that name a currency at all, and the jurisdiction rule, run on them anyway,
+   independently returns CAD 4/4. Every ATB document where the bank names its
+   own currency is one the default would have got right. RBC's packet could say
+   that of 6 documents out of 169; ATB's can say it of every document in the
+   family that names a currency.
+2. **The archive's filename trap fires against the filename this time.** The
+   four documents filed as `ATB Chequing Account …` / `RECONCILED - ATB
+   Chequing - …` print `Consolidated Statement`, never the word `Chequing`, and
+   carry `Business Self-serve`, `Business Growth Plus`, `Independent Business
+   Loan - Revolving` and `Business Term Loan` — two deposit accounts and two
+   loans, not a chequing account. A filename-driven rule would have filed four
+   multi-account roll-ups as chequing statements.
+3. **This is the first currency ceremony with a non-empty pinned diff.**
+   RBC-MEASURE's §4.6 found `currency` pinned nowhere and recommended a pinned
+   surface; §RBCCAD built it; the five ATB documents were written into
+   `PINNED_CURRENCY` at `USD` with a comment naming them expected future movers.
+   The ATB ceremony's expectation diff is therefore five real lines that
+   `python corpus_gate.py` checks — RED before the edit, GREEN after. The
+   blindness class is closed and this is the proof that it is.
+
+## AM3. The findings for Ocean and Gustavo
+
+**Provenance class (CURRENCY-SOURCE's question).** `jurisdiction_default`, the
+same class as RBC's — never `institution_default`. `institution_default` would
+assert "accounts at this institution are CAD", which is measurably false: §3's
+S1/S2 show the rule refusing the default and reading `USD` on an ATB
+U.S.-dollar product printing. Three of the four proofs are jurisdiction
+evidence (a CPA institution number that exists only inside the Canadian
+clearing system, an Alberta branch domicile closed by a Canadian postal code, an
+account site carrying the same pair) and only one is institution furniture. The
+vocabulary also needs `printed`/`explicit` for the four consolidated documents,
+which are read and not defaulted, and `schema_default` for the ~1,900 documents
+where nobody asked — the class RBC-MEASURE's R5 was really requesting.
+
+**One live asymmetry, carried as packet R3.** On the four documents that print
+`CAD` on an anchored site, grafting `U.S. Funds` (or `Member FDIC`, or `EUR`)
+anywhere off that site leaves the published answer at `CAD`, because rung 1
+answers first. That is the ratified hierarchy and it is `analysis/rbc.py`'s
+behaviour today, so it is not a new defect — but it is a case doctrine §B item
+4 would want failed closed. Recommendation for whoever writes the consolidated
+reader: when the wide contrary sweep fires and rung 1 answers a different code,
+publish nothing. Scope decision, not this cell's.
+
+Six more carried risks — a silent-USD ATB issue (residual; **0 attested either
+way**, which makes ATB's base rate weaker evidence than RBC's 12-of-12, and the
+synthetics of §3 are the labelled substitute); the rule being anchored to two
+ATB layouts; the two archive movers being merged multi-month packets whose
+eventual split will change the mover count without the rule changing;
+`schema.py`'s `USD` default still doing two jobs; the four unclaimed documents
+becoming movers-by-read the moment any registration claims them; and process —
+are in `ATB_CURRENCY_MEASUREMENT.md` §12.
+
+## AM4. Method notes (for the cell that implements)
+
+OCR artifacts were addressed by **direct file path** over all eight
+`ocr_settings_key` capability partitions, with the artifact selected by whether
+its reconstruction resolves the run's own stored analysis payload key; the
+`webapp_data` sqlite index was never opened. Pinned documents were read through
+`corpus_gate`'s own resolver — `parse_statement(..., allow_visual_ocr=False)`
+with the committed-artifact fallback for the image-only six. Every markdown was
+rebuilt with `source_file=""` and passed through `admissible_text`, so no
+predicate in this packet ever saw a filename. Instrument fidelity was checked
+twice: the artifact store's cached document renders byte-identical admissible
+markdown to a fresh production intake read on all five pinned ATB PDFs, and the
+before-payload reproduces the run of record's own `outcome_class` on 6/6 ATB
+archive documents.
+
+The prototype is a runtime `dataclasses.replace` of the `atb` registration's
+`parse`, guarded on `stmt.bank == "ATB Financial"`. It lives in a private
+scratchpad subdirectory and no repository file was modified to obtain any number
+in the packet.
+
+## AM5. Proofs, with verbatim exit codes
+
+PROOFS_TABLE
+
+## AM6. Commits
+
+COMMITS_TABLE
