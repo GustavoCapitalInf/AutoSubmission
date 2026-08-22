@@ -36091,3 +36091,376 @@ discriminator is text DENSITY against page count and money-token count, not the
 presence of a text layer. This cell pins the refusal and the claim
 (`tests/test_declines_e_variants.py`), so a future intake fix will be visible as
 a change of outcome rather than of behaviour.
+
+## E9. The family replay — every claimed document, before and after
+
+Both sides run in SEPARATE subprocesses so the two module trees never share an
+interpreter: the base side imports `analysis` from the MAIN checkout at
+`e83f746`, the head side from this worktree at HEAD. Both read the SAME
+pre-resolved text cache, so the ONLY difference between the sides is the code.
+Every document any of the three registrations CLAIMS is replayed through the
+real pipeline on both sides and the WHOLE published payload is compared byte
+for byte.
+
+*(A first attempt resolved the artifacts inside each side. It is recorded
+because the failure mode is reusable: the archive artifact store is shared with
+nine other cells, and under their sweeps the base side accumulated 0.3 CPU
+seconds in 35 minutes. Resolving once into a local cache — the same enumeration,
+the same per-document proof — takes 7.0 seconds for all 569.)*
+
+**569 documents · 565 byte-identical · 4 movers.** The base side reproduces
+the run of record's own `outcome_class`/`outcome_reason` on **569/569** documents, and the `source_model`
+cross-check holds on **569/569** — so the population being compared
+is the one the run read, not one this harness assembled.
+
+The movers, every one by `content_sha256`:
+
+| `content_sha256` | run | before | after | fields that differ |
+|---|---|---|---|---|
+| `0A85DE3F8F44B0E9A1784089A2BA3869E2FA3DA9E5E9C4D770D54FD7337C8A2F` | failed/parser_declined | failed/parser_declined | validated/approved | `<publication>` |
+| `0D4E4C349B817B9D38B7100843CF5072C4E12AC5448AF90CEFEC22EABEA8AE37` | validated/approved | validated/approved | validated/approved | `metrics`, `reconciliation`, `statement` |
+| `153180D8DE6122BD5FD79BEB4269AF59B5E8B24E73C0E962C34251F903B267EE` | failed/parser_declined | failed/parser_declined | validated/approved | `<publication>` |
+| `E17E4C6C75CF77A72481919BAAB97DBA8B0BACAEC68A2578F5D3030A273390A3` | failed/parser_declined | failed/parser_declined | validated/approved | `<publication>` |
+
+`<publication>` means the document published NOTHING before — the payload was
+`null`, whose canonical digest is
+`74234E98AFE7498FB5DAF1F36AC2D78ACC339464F950703B8C019892F982B90B` on all
+three — so every field is new and a field-name diff would list the whole
+payload. Their after-digests are
+`33ECFEA5…` / `A1CC4EB4…` / `DA8CA641…`, each distinct.
+
+**The intra-class mover, in leaf detail.** `0D4E4C34…` is `validated/approved`
+before and after; what changes is that a summary the reader could not read is
+now read. Field by field:
+
+| field | before | after |
+|---|---|---|
+| `statement.stated_total_credits` | `None` | the printed figure |
+| `statement.stated_total_debits` | `None` | the printed figure |
+| `statement.stated_service_charge` | `None` | the printed figure |
+| `statement.stated_credit_count` | `None` | `None` (the layout prints none) |
+| `statement.stated_debit_count` | `None` | `None` (the layout prints none) |
+| `reconciliation.summary_ok` | `None` | `True` |
+| `reconciliation.credit_coverage` | `None` | `1.000` |
+| `reconciliation.debit_coverage` | `None` | `1.000` |
+| `metrics.deposits_source` | `line_items` | `bank_stated_reconciled` |
+| `metrics.withdrawals_source` | `line_items` | `bank_stated_reconciled` |
+| `integrity.flags` | `[]` | `[]` |
+| `quality.corporate_use` | `approved` | `approved` |
+
+That is the whole point of E4 in one document: the metric stops being derived
+from our own ledger and starts being the bank's own figure, checked against it.
+The ledger's credit and debit sums equal the newly-read stated totals to the
+cent — measured, which is why `summary_ok` is `True` rather than a flag.
+
+## E10. The pinned corpus
+
+`tests/data/parser_expectations.json` records **11** pinned documents claimed
+by `chase` and **0** by `huntington` or `chase_savings`. Each one's WHOLE
+published payload was measured at `e83f746` and at HEAD, resolved offline
+exactly as `corpus_gate.py` resolves it (`balance_forensic_audit.source_markdown`
+over the committed OCR cache) and run through the real pipeline:
+
+**11 pinned documents; byte-identical: 11; moved: 0.**
+
+| content_sha256 | payload sha256, before AND after |
+|---|---|
+| `040261AC8183C1EFB7259EE0841D1CC3500AE47DE8ED675030AE837CF531705B` | `B9222372717C6BA49D244ADA42E7DEA2C65146C872221505B65FF83FFB5873F8` |
+| `39E4375749C2D5F95C8BC9F955DB15E6523E170E284D34CEF1DFEBF616A49C20` | `80A7911BC01065D8943DB20A3A547D74F2E18141580DC4BA43B6D36D37F32332` |
+| `41C6E62E613E61BBE545F1416EBAF3FC0355ED85CF4F0D549FC79F3611E56A4B` | `F22F14E5728828A9EAB2D40D82A1EB322453B148B11D2F4185B2CD7113B591DF` |
+| `68FCC36863B82190A282DAAF1335C44CCF6A1D6C3FF1FE99B49F90DD3F922163` | `1169CDF91F9D7132AE94BFA906E4F530D6279C562E7A06931183C72DF7A28C34` |
+| `6C828968ED8E9E761A093F6B9B90F914E7FB49C1D211E8C6B79CB9EEEF9DD14C` | `966A1E7AC110B5F8470AB7320C103D7B1D348C4F039FADDDD2BB25D7446BB793` |
+| `737ADA62C170C3720F40BC3DD281D0CD5215908A8E6BBE717C77E630DC0A0E1E` | `654826197359A0BFB361457EB1ADD8F3FEE7648E6EB6A31A41A84592FAF96836` |
+| `8F8AE2F30DEA7BA2A008CDBA5E9E800FC60F7AB4C045AF0ABAD8F12883B4F01D` | `621A1C0A9A4B2B0EF3F7DD184981BE85475937393671F2201DD837740B097405` |
+| `A9DFFEF2126385B20D75CEA65D46543CFB3A28CBE4F1413D331312C6EDDE0C80` | `36B4E6BC833FC19EEF829FB2938C75D4D21023E0DBBEEC81A3619EEE04146FDD` |
+| `D356EB81A8C6995B9C13DFC95891A5270EF0F689CAF8C34B983C352B9E3497FD` | `C23F5BCE430615E309AFCFD95ADC47B50DA9E274A86DEBD30F13A618096CB3DE` |
+| `E12B5A01064319F53DABB08559AB4A94CF49CCFD1862CAD33DAFE2F4B5BFBF05` | `1F32DF8F29271930B531522F631210ACD6C1422EAB3EF2FDAC72EA5AFC01B5CA` |
+| `E5C8D422FDBE927710BBD33F879882D7D2F6F4A324FDB1F0738FFFBF423D5D72` | `4D93C61575D6B82B55CC7CB754B84737B963B9B5C42909E75ABF296462C34490` |
+
+**No pinned document moves, and there is no named pinned mover for Ocean to
+weigh.**
+
+## E11. Why nothing can have moved outside the named population
+
+One production file changed. `analysis/huntington.py`,
+`analysis/chase_savings.py`, `analysis/pipeline.py`, `analysis/reconcile.py`,
+`analysis/parser_registry_entries.py` and `corpus_gate.py` are all UNCHANGED —
+`git diff --quiet e83f746..HEAD -- <file>` exits 0 on every one. No detection
+marker, no `detection_text`, no registration, no shared helper. The canonical
+conformance cross-product (`tests/test_parser_conformance.py`, 74 × 73) is
+green at its exact expected count, which pins that no registration's detection
+moved against its fixtures.
+
+Movement is therefore confined to documents `chase` claims, and the whole
+claimed population was swept. Two shapes could smuggle movement past a family
+sweep, and both are measured rather than argued.
+
+**The FALLTHROUGH.** A document `chase` claims, declines, and some other
+claimant then wins; widening the decliner would make `chase` win instead, and
+the document would move without its payload ever having been compared. On
+`chase` it is REAL: 10 of the 515 are won by `chase_savings`, which supersedes
+`chase`. Those ten are the `TRANSACTION DETAIL` savings documents — the exact
+population an incautious grid widening would steal — and they are inside the
+replay above, compared payload-for-payload like the rest.
+
+| family | claimants | published by the family | published by another parser | declined |
+|---|---|---|---|---|
+| huntington | 50 | 38 | 0 | 12 |
+| chase | 515 | 501 | 10 (`chase_savings`) | 4 |
+| chase_export | 4 | 4 | 0 | 0 |
+
+**The COMBINED statement.** A document printing both a `SAVINGS SUMMARY` and a
+`CHECKING SUMMARY` stays with `chase` by design, and the new grid path could in
+principle read the savings grid as the checking account's activity. The archive
+holds **4** such documents, all `validated`. Measured: none of the four prints
+a `TRANSACTION DETAIL` block at all, and all four read their rows from the
+direction-named sections (67 / 81 / 67 / 115 rows), so the grid path is
+unreachable for them twice over. And structurally, a document that printed both
+grids would have both concatenated into one line stream, whose running balance
+could not chain — the gates fail closed on it rather than publishing a mixture.
+
+## E12. The mutation table
+
+13 mutants over every gate this cell added or touched, each the gate rewritten
+to its permissive form, run on a `git archive HEAD` scratch copy so no
+production file is written by the harness. A mutant is KILLED when
+`tests/test_declines_e_variants.py` fails, and the killing test is NAMED,
+because a table that only counts is not evidence that the right test is doing
+the work.
+
+| # | mutated gate | verdict | killed by |
+|---|---|---|---|
+| M1 | `_summary_row` tries the COUNTED spelling first | **SURVIVED** | — unkillable by construction, see below |
+| M2 | a count the statement does not print is invented | KILLED | `..._a_count_the_statement_does_not_print_is_not_invented` |
+| M3 | a mixed printing publishes a partial debit count | KILLED | `..._a_mixed_printing_publishes_no_debit_count_at_all` |
+| M4 | the grid is walked from a balance that was never read | KILLED | `..._a_summary_whose_balances_are_unreadable_never_reaches_the_grid` |
+| M5 | the "no grid here" early return | **SURVIVED** | — unkillable by construction, see below |
+| M6 | an unresolvable grid row is dropped instead of refusing | KILLED | `..._a_grid_row_this_reader_cannot_resolve_refuses_the_document` |
+| M7 | **the per-row running-balance check** | KILLED | `..._a_grid_whose_running_balance_does_not_follow_is_refused` · `..._the_cent_is_the_tolerance` |
+| M8 | **the chain closes on the summary's Ending Balance** | KILLED | `..._a_grid_that_does_not_close_on_the_stated_ending_balance_is_refused` |
+| M9 | the ledger's credits equal the stated credits | KILLED | `..._a_grid_whose_credits_contradict_the_stated_total_is_refused` |
+| M10 | the ledger's debits equal the stated debits | KILLED | `..._a_grid_whose_debits_contradict_the_stated_total_is_refused` |
+| M11 | the grid is read even when the sections already read | KILLED | `..._the_grid_is_not_read_when_the_named_sections_already_read` |
+| M12 | `_EXACT` widened from a cent to 100.00 | KILLED | three tests, incl. `..._the_cent_is_the_tolerance` |
+| M13 | a printed debit sign subtracts from the stated debit total | KILLED | `..._the_one_grid_printing_is_read_whole` (+2) |
+
+**11/13 KILLED**, and all 13 were APPLIED — the harness reports a needle that
+matches zero or several times rather than silently skipping, which is how M5's
+retarget below was caught rather than being scored as a pass.
+
+The two survivors are recorded in the production code rather than papered over,
+because each is provably behaviour-neutral:
+
+* **M1.** The two summary spellings are DISJOINT under this grammar:
+  `_SUMMARY_AMOUNT` requires cents, an instance count never carries them, and
+  the amount pattern's leading `\s*` sits after its sign rather than in front
+  of the figure, so the count-less pattern cannot begin its match past the
+  count. It therefore finds nothing at all on a counted row and the ordering
+  cannot change a reading. `test_the_two_summary_spellings_cannot_read_the_same_row`
+  pins that PRECONDITION — the day the money grammar admits a cents-less
+  figure, the ordering stops being decorative.
+* **M5.** With the early return gone, the checks below compare an empty ledger
+  against the printed balances and refuse whenever they differ; where they
+  agree the caller's `txns` is left empty either way. It is kept for what it
+  says, not for what it decides.
+
+**Two of this cell's own tests were corrected by the table rather than by
+reading**, and the shape is §DECLINESD's M2 again. The fixture named
+`..._does_not_close_on_the_stated_ending_balance` was being refused by the
+stated-DEBIT-total check instead of the check it is named for — it added a row
+AND moved the grid's own bound, so the ledger's debit sum moved too. It now
+moves the summary's Ending Balance and nothing else, which is the only shape
+that isolates the closing check. And the cent tolerance had no test at all
+until M12 said so.
+
+**A third correction, to the HARNESS.** M5's needle stopped matching the moment
+its own "unkillable" comment was added to the code, and the harness reported
+`NEEDLE MATCHED 0 TIMES — not applied` rather than scoring it. A mutation table
+whose mutant silently fails to apply reads exactly like a table whose mutant
+was killed; the needle is now the `if not groups:` line alone and all 13 apply.
+
+## E13. Proofs, with verbatim exit codes
+
+| proof | result | exit |
+|---|---|---|
+| full default suite | `5402 passed, 35 skipped, 33 deselected, 1 warning in 1095.32s (0:18:15)` | **0** |
+| corpus gate (`python corpus_gate.py`) | `RESULT: GREEN` — 106 PASS / 3 WITHHELD, verdicts 4 review / 102 validated / 3 withheld, currency 109/109 = 14 CAD / 95 USD; runtime 2063.1s | **0** |
+| corpus-marked slice (`pytest -m corpus`) | `29 passed, 5441 deselected, 1 warning in 5161.85s (1:26:01)` | **0** |
+| corpus-marked collection | `29/5470 tests collected (5441 deselected) in 43.72s` | **0** |
+| canonical GUARD set (5 files) | `242 passed, 1 warning in 16.79s` | **0** |
+| canonical CONFORMANCE set (7 files) | `1151 passed, 35 skipped, 1 warning in 4.49s` | **0** |
+| this cell's tests + `test_chase_closure` | `72 passed in 0.53s` | **0** |
+| mutation table, 13 mutants | `TOTAL 11/13 killed` (2 documented unkillable) | **0** |
+| family replay, 569 claimed documents | 565 identical / 4 movers; 569/569 base replays reproduce the run; 569/569 `source_model` checks | **0** |
+| pinned Chase payloads, base vs HEAD | 11 pinned documents; byte-identical 11; moved 0 | — |
+| archive sweep, whole run of record | see E13.1 | 1 / 0 / 0 / 0 / 1 |
+
+Both canonical sets hit their expected counts exactly — guard **242**,
+conformance **1,151** at registry 74 × 73 — which is the check that the sets
+were run whole rather than approximated. Suite 5,374 (base) → **5,402**: this
+cell adds 30 tests and RETIRES 2 (§CHASE-CLOSURE's `countless_summary_rows`
+probe, parametrized across two tests, whose premise E4 removed). The
+corpus-marked slice stays at **29**, the batch-6 count: this cell adds no
+corpus-marked test, and the slice is the check the gate is structurally blind
+to (review↔validated inside its PASS bucket).
+
+### E13.1 The archive sweep — the whole run of record, in five chunks
+
+`python -m tools.regfp_zero_movement_sweep --rows <run>/rows.csv --data-dir
+webapp_data --baseline-settings-key D3370EEB…DE24 --start A --end B`, run at
+branch HEAD. The counts add to the run's own 3,380 distinct documents.
+
+| range | documents | compared | identical | moved | no_payload_now_publishes | payload_now_raises | no_ocr_artifact | raises again | seconds | exit |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 0–700 | 700 | 518 | 517 | 1 | 2 | 0 | 5 | 175 | 2158.3 | **1** |
+| 700–1400 | 700 | 527 | 527 | 0 | 0 | 0 | 5 | 168 | 2413.7 | **0** |
+| 1400–2100 | 700 | 521 | 521 | 0 | 0 | 0 | 6 | 173 | 2280.6 | **0** |
+| 2100–2800 | 700 | 528 | 528 | 0 | 0 | 0 | 6 | 166 | 1609.7 | **0** |
+| 2800–3380 | 580 | 441 | 441 | 0 | 1 | 0 | 7 | 131 | 939.3 | **1** |
+| **total** | **3,380** | **2,535** | **2,534** | **1** | **3** | **0** | **29** | **813** | **9,401.6** | |
+
+Exit 1 is the tool's contract for "this chunk produced findings", not a
+failure. 2,535 + 813 + 29 + 3 = 3,380, so every document in the run is
+accounted for in exactly one bucket. `no_ocr_artifact` 29 is the same 29 this
+cell's own census found (E1). `multi_artifact_documents` totals 74 — the
+documents where the artifact selection had a choice to make and made it by
+resolving the run's own stored payload.
+
+**Every finding, and every one of them is inside the named population:**
+
+| content_sha256 | verdict | fields | card |
+|---|---|---|---|
+| `0A85DE3F8F44B0E9A1784089A2BA3869E2FA3DA9E5E9C4D770D54FD7337C8A2F` | `no_payload_now_publishes` | — | E3 |
+| `153180D8DE6122BD5FD79BEB4269AF59B5E8B24E73C0E962C34251F903B267EE` | `no_payload_now_publishes` | — | E3 |
+| `E17E4C6C75CF77A72481919BAAB97DBA8B0BACAEC68A2578F5D3030A273390A3` | `no_payload_now_publishes` | — | E3 |
+| `0D4E4C349B817B9D38B7100843CF5072C4E12AC5448AF90CEFEC22EABEA8AE37` | `moved` | `metrics`, `reconciliation`, `statement` | E4 |
+
+**`payload_now_raises` is 0 over all 3,380** — the widening added no crash
+anywhere — and there is no finding outside the four documents this cell names.
+The three field NAMES the tool reports for the intra-class mover are opened to
+their leaves in E9 by this cell's own diff, which is what the standing rule
+asks of a card that moves a field on purpose.
+
+## E14. Commits
+
+| Commit | Contents |
+|---|---|
+| `33aeb0b` | E3 + E4 in `analysis/chase.py`; the three allowlist entries in `tests/test_no_parser_helper_clones.py`; `tests/test_chase_closure.py` re-based onto a still-unread block and its retired probe |
+| `70e92e9` | `tests/test_declines_e_variants.py` — the four printing classes as fixtures, 28 tests |
+| `ccd65f5` | the mutation table's two corrections: the isolated closing-balance fixture, the cent-tolerance test, and the two unkillable gates documented in `analysis/chase.py` (30 tests) |
+| `9619f69` | W3 E0–E8 — the census, and the three groups not taken |
+| `374abd6` | W3 E5 carries the verbatim `git diff` rather than a rendering of it |
+| (this one) | W3 E9–E15 — the replay, the pinned corpus, the scope argument, the mutation table, the proofs and the carried findings |
+
+**The branch is bisectable, and that is MEASURED rather than claimed.** Each
+production/test commit's tree was extracted with `git archive` and the whole
+chase + huntington + clone-guard test set run against it:
+
+| commit | tree | exit |
+|---|---|---|
+| `33aeb0b` | `148 passed in 7.95s` | **0** |
+| `70e92e9` | `176 passed in 7.43s` | **0** |
+| `ccd65f5` | `178 passed in 7.18s` | **0** |
+
+Nothing here repeats §DECLINESD's `750e768` defect — a test file committed four
+commits before the implementation it exercises, leaving a RED tree in history.
+The production change and the closure fixtures it re-bases land together in
+`33aeb0b`; the new test file lands in `70e92e9` and references nothing that is
+not already there.
+
+## E15. Carried findings, escalations and risks
+
+**E15.1 The one scope call this cell made, named for Ocean.** The card's "Own"
+list is `analysis/huntington.py`, `analysis/chase.py` and their tests. Card E3
+needed one thing outside it: three entries in `ALLOWED_PRIVATE_IMPORTS` in
+`tests/test_no_parser_helper_clones.py`, a CANONICAL guard file. The hunk is
+additive to a set literal plus its comment, touches no production code and no
+other cell's file, and the guard's own allowlist already carries the same shape
+of debt — `td_canada_french` → `td_can`, added by a cell in exactly this
+position, whose comment says "Promoting the pair into a shared module is the
+right end state and is a separate cleanup: td_can.py is owned by another cell
+this cycle." The two alternatives were both further outside the card: promote
+the reader into a shared module (edits `analysis/chase_savings.py`), or narrow
+`chase_savings`'s excluding marker (a detection-marker change, forbidden by the
+card and it moves conformance off 74 × 73). **Reverting that one hunk reverts
+card E3 and nothing else** — the three imports are its only consumer.
+
+**E15.2 The right end state for E3, for whoever takes it next.** Either promote
+`_grid_lines` / `_grid_rows` / `_transaction` into a module both parsers import,
+or narrow `chase_savings`'s `excluding("checking_summary", …)` to fire only when
+a `SAVINGS SUMMARY` is ALSO present — which is what that marker's own docstring
+justification actually describes ("a COMBINED statement printing both summaries
+stays with `chase`"). The second is the cleaner architecture and is a
+registration card: it moves detection, and the 4 combined statements in the
+archive (E11) are the population it has to be proven against.
+
+**E15.3 HUNT-NOFEE narrows from eight documents to three — a Gustavo doctrine
+question.** §DECLINESD escalated all eight `huntington.py:681` documents. E6
+measures that five of them are short of their own printed ending balance by an
+amount that is NOT the stated fee, so they stay refused under any fee ruling.
+The question is therefore about three documents and is this, exactly:
+
+> A statement states a `Total Service Charges (-)` outside its `Debits (-)`
+> total, itemises it nowhere, and prints no daily-balance grid. Its sections
+> reconcile to its printed credit and debit totals to the cent, and its summary
+> identity closes. Publishing it requires either omitting the stated fee from
+> the ledger (so `beginning + rows != ending`) or dating it (the document never
+> does). Under the ratified ADB doctrine — one user-facing, date-derived,
+> calendar-day metric — is the refusal correct, or is there a bounded exception
+> for a stated-but-undated period fee?
+
+This cell recommends REFUSE and has shipped that refusal, with the class as a
+fixture, so a ruling the other way is a visible change rather than a silent one.
+
+**E15.4 The L-1 cohort, with the cost of getting it wrong measured.** Four
+`huntington.py:662` documents (E7). The deposit account alone reconciles
+completely, and publishing it alone would report 6.08% / 7.65% / 7.82% / 7.49%
+of each month's published credits as deposits when they are draws on a credit
+line the same statement prints, with a chained balance and an interest expense
+the deposit ledger never sees. Architecture question, not a parser fix.
+
+**E15.5 CHASE-EMPTY-LAYER (new card).** One `chase.py:595` document (E8): eight
+pages, `classification = digital`, a text layer holding every Chase section
+sentinel and no content. The intake ladder never escalated it to OCR because a
+text layer EXISTS. The discriminator that would catch it is text density against
+page count and money-token count. Handed to the scanned-path cells; this cell
+pins the refusal so a fix is visible as a change of outcome.
+
+**E15.6 Two mutants unkillable, and recorded in the code rather than the log
+alone.** M1 (the counted spelling tried first) and M5 (the "no grid here" early
+return) are provably behaviour-neutral; each carries a comment in
+`analysis/chase.py` saying so and why, and M1's PRECONDITION — that the two
+summary spellings are disjoint because an amount requires cents — is pinned by
+a test, so the day the money grammar admits a cents-less figure the ordering
+stops being decorative and something fails.
+
+**E15.7 A cross-module coupling this card creates.** The E3 unread-row gate is
+`if any(txn is None for txn in txns)`, and what makes it fire is
+`chase_savings._transaction` returning `None` for a row it cannot resolve. If
+that function is ever changed to return a Transaction on a row it does not
+understand, this gate goes quiet without any test in `chase`'s own file
+failing. `test_a_grid_row_this_reader_cannot_resolve_refuses_the_document`
+exercises the pair end to end, which is the mitigation; the coupling is real and
+is the price of not copying the reader.
+
+**E15.8 A latent year defect in the shared grid reader, not this cell's to
+fix.** `_transaction` dates a row with `iso_from_month_day(mmdd, year)` where
+`year` is the period's END year, and relies on
+`analysis.dates.assign_transaction_years` at `analysis/pipeline.py:91` to
+correct a period that crosses a year boundary. One of the three E3 movers
+(`0A85DE3F…`, period 2025-12-24 → 2026-01-27) exercises exactly that and comes
+out right THROUGH THE PIPELINE — measured, it publishes `validated/approved`.
+Called without the pipeline the parser dates its December rows in the closing
+year. That is pre-existing, shared with `chase_savings` and with `chase`'s own
+section readers, and is recorded rather than fixed.
+
+**E15.9 What E4 will do outside this archive.** The count-less summary reading
+fires on any Chase document whose `CHECKING SUMMARY` prints amounts without an
+`INSTANCES` column. Measured over the 515 claimed here it is 4 documents; on a
+different corpus it will be more, and each will gain `stated_total_*` it did not
+have. That is the intended direction — an oracle restored — and it is not
+gated: `_parse_native_summary` publishes what it reads. The protection is
+downstream, in `analysis/reconcile.py`, which will contradict a stated total the
+ledger does not support and send the document to review rather than approving
+it. Named so the next coverage measurement can attribute a review it did not
+expect.
