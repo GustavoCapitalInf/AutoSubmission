@@ -213,7 +213,7 @@ ZERO_ACTIVITY_AS_PRINTED = (
 )
 
 # ---------------------------------------------------------------------------
-# The four adversarial probe shapes from Ocean's review.
+# The adversarial probe shapes from Ocean's review.
 #
 # Each reaches the zero-activity guard in the dangerous state: the two balances
 # were read and AGREE, every stated field is unset because the summary reader
@@ -221,42 +221,37 @@ ZERO_ACTIVITY_AS_PRINTED = (
 # make that a quiet period — a sweep account or a net-zero month closes where
 # it opened — and each of these documents plainly prints money.
 #
-# Their detail rows sit in a `*start*transaction detail` grid, which is not one
-# of the six section headings `chase.py` reads, so the ledger comes back empty
-# while the rows are right there on the page. That is not a contrivance: it is
-# the third Chase family this cell turned up (§Z6.1), where a checking
-# statement is printed on the savings grid.
-#
 # Before the no-posting-row clause each of these published an EMPTY LEDGER as
 # an authoritative statement, with reconciliation green.
+#
+# TWO THINGS ABOUT THIS SET MOVED IN W3 §DECLINESE, and both moved because the
+# defect being probed was FIXED rather than because the probe was inconvenient:
+#
+# * the probes' unread rows used to sit in a `*start*transaction detail` grid —
+#   §Z6.1's third Chase family, a checking statement printed on the savings
+#   grid. §DECLINESE gave `chase.py` a reader for that grid (three archive
+#   documents), so those rows are no longer unread and the probes would have
+#   stopped reaching the guard at all. They now print an unread `DAILY ENDING
+#   BALANCE` block instead: real Chase furniture, dated rows carrying money,
+#   and a block `chase.py` still has no reader for — which is exactly the
+#   section-blind case the clause exists for.
+# * the fourth probe, `countless_summary_rows`, is RETIRED. §DECLINESE taught
+#   `_parse_native_summary` the count-less printing, so that summary is read
+#   and its stated totals are no longer None — the premise of the probe is
+#   gone. What it used to prove is now proved the other way round, positively,
+#   in tests/test_declines_e_variants.py.
 # ---------------------------------------------------------------------------
 
-#: The rows every probe prints. A dated posting row carrying real money, in a
-#: block whose heading `chase.py` has no reader for.
+#: The rows every probe prints. Dated rows carrying real money, in a block
+#: whose heading `chase.py` has no reader for.
 _UNREAD_GRID = (
-    "*start*transaction detail\n"
-    "TRANSACTION DETAIL\n"
-    "DATE DESCRIPTION AMOUNT BALANCE\n"
-    "01/05 Example Inbound Transfer 500.00 1,500.00\n"
-    "01/28 Example Outbound Transfer - 500.00 1,000.00\n"
-    "*end*transaction detail\n"
+    "*start*daily ending balance\n"
+    "DAILY ENDING BALANCE\n"
+    "DATE AMOUNT\n"
+    "01/05 1,500.00\n"
+    "01/28 1,000.00\n"
+    "*end*daily ending balance\n"
 )
-
-#: 1. Summary rows carrying no instance count. `_parse_native_summary` requires
-#:    `label <n> <amount>`, so a summary printing only the amount matches
-#:    nothing and every stated field stays None — while both balance rows,
-#:    which are matched by their own patterns, read fine.
-PROBE_COUNTLESS_SUMMARY_ROWS = (
-    "JPMorgan Chase Bank, N.A. Member FDIC\n"
-    "January 1, 2026 through January 31, 2026\n"
-    "*start*summary\n"
-    "CHECKING SUMMARY\n"
-    "Beginning Balance $1,000.00\n"
-    "Deposits and Additions $500.00\n"
-    "Electronic Withdrawals -$500.00\n"
-    "Ending Balance $1,000.00\n"
-    "*end*summary\n"
-) + _UNREAD_GRID
 
 #: 2. Section amounts printed without cents. `_SUMMARY_AMOUNT` requires `.dd`,
 #:    so the count rows match nothing; the balances print cents and read.
@@ -307,7 +302,9 @@ PROBE_SHIFTED_HTML_COLUMN = (
 ) + _UNREAD_GRID
 
 PROBE_SHAPES = {
-    "countless_summary_rows": PROBE_COUNTLESS_SUMMARY_ROWS,
+    # `countless_summary_rows` was here and is retired: W3 §DECLINESE E4 gave
+    # the summary reader that printing, so it no longer leaves a stated field
+    # unset. See the note above the fixtures.
     "centless_amounts": PROBE_CENTLESS_AMOUNTS,
     "short_html_cells": PROBE_SHORT_HTML_CELLS,
     "shifted_html_column": PROBE_SHIFTED_HTML_COLUMN,
