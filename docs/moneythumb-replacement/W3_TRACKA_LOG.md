@@ -35440,7 +35440,7 @@ documents, so the bump is Ocean's to compose.
 | Refusals proved unliftable, with a measured ceiling | `scotia.py:276` — ceiling **withheld**, never validated (G5) · `consumers.py:73` — L-1, ceiling **0** (G6) |
 | Byte-identity | **103 of the 110** claimed documents are byte-identical in the WHOLE published payload; the other 7 are the named movers |
 | Pinned corpus | `fiserv_premier` and `symitar` — the two modules whose behaviour changed — claim **0** of the pinned 109 by live detection replay. The two that do claim one each (`scotiabank`, `consumers`) carry a **docstring-only** diff, proved by docstring-stripped AST identity. No pinned document can move, structurally |
-| Mutation table | **14/14 killed** — after two intermediate failures this cell records rather than hides (G10) |
+| Mutation table | **17/17 killed** — after four intermediate failures, three of this cell's and one review's, all recorded (G10) |
 
 ## G1. The instrument
 
@@ -35563,10 +35563,45 @@ idle. `_yield_only` requires all three of:
    expression the published account's closing balance is read through, so the
    two can never disagree about where that figure comes from.
 
-Any of the three failing leaves the sibling ACTIVE and the document refused at
+**4. Where the section prints the platform's six-figure equation row, the
+platform's own `Dividends` column must account for every skipped posting and
+its `Credits / Deposits` column must be zero** (added at review, MAJOR-1). That
+is the bank's own arithmetic deciding the section holds yield and no member
+deposits, so it needs no constant of this reader's — and it is what closes the
+outside-party hole outright wherever the row prints, because an outside credit
+lands in `Credits / Deposits`. The three archive movers belong to the issue
+that does NOT print the row, so this condition is inert on them and is a
+forward guard rather than a repair.
+
+Any of them failing leaves the sibling ACTIVE and the document refused at
 `:302` exactly as before. A document whose ONLY deposit section is yield-only
 refuses too — skipping it empties `active`, and a ledger of dividends is not a
 statement of a member's activity.
+
+**THE SKIP IS SILENT, AND THIS CARD DOES NOT CLOSE THAT.** Nothing in the
+published payload says a deposit section existed and was not published: the
+extraction schema has no field for it and the pipeline's integrity-flag
+vocabulary has no member for it. That is already true of the
+`No Transactions This Period` skip this module has performed since it was
+written — **this rule adds a second way to reach an existing silence, it does
+not create the silence** — and it is why the visible surface is its own card
+rather than a line in this one: **SIBLING-OMISSION-SURFACE (batch 8)**, a
+payload-level statement that a deposit section existed and was not published,
+for BOTH idle-declarations, which moves already-validated documents across
+several parsers.
+
+**THE RULE HAS NO MATERIALITY BOUND, BY DESIGN.** A sibling holding five
+dollars and a sibling holding five hundred thousand are skipped alike; review
+reproduced exactly that (opening 500,000.00, one 1,200.00 dividend-named
+credit, closing agreeing with `ACCOUNT SUMMARY` → published with no mention).
+Condition 4 bounds *arithmetic consistency*, not size. A size bound would be a
+statement-specific constant inside a parser, which the R-1 guard exists to
+forbid, so the honest bound is the disclosure and not a number.
+
+**Doctrine amendment, recorded here and carried into the batch-7 entry by
+Ocean at the train: L-1's "idle sibling" now includes a deposit section whose
+only postings are the account's own yield, and BOTH idle-declarations —
+`No Transactions This Period` and yield-only — are published silently today.**
 
 **"A dividend is not a deposit" is this platform's own taxonomy, not this
 reader's.** The module's `_EQUATION_HEADER_RE` has always read the platform's
@@ -35580,8 +35615,10 @@ than buried.** `test_two_active_deposit_accounts_are_l1_blocked` used a
 dividend posting as its example of a second active ledger, and its docstring
 said so ("A dividend posting makes the money-market account active too"). That
 fixture now posts genuine member activity and still pins the L-1 refusal; the
-dividend case is a separate test. If Ocean or Gustavo rules the other way the
-revert is one hunk (M6 in G9) and three documents.
+dividend case is a separate test. **Ocean RATIFIED the reversal for this
+merge** with the condition-4 tightening above required, the doctrine amendment
+recorded, and the visible surface carded as SIBLING-OMISSION-SURFACE. If it is
+ever revisited the revert is one hunk (M6 in G10) and three documents.
 
 ## G4. FL — fiserv_premier: the labels a validated document already prints (4 label movers)
 
@@ -35668,7 +35705,7 @@ document**.
 | balance-shaped cells per row | **1, on every row** | 1, on every row | 1, on every row |
 | stated debits + stated credits | 97 + 38 = **135** | 69 + 45 = **114** | 92 + 37 = **129** |
 | Σ(printed cells) vs stated debit total + credit total | **equal to the cent** | equal | equal |
-| distinct lines containing the word `balance` | **1** — the column header | 1 | 1 |
+| 70-character context windows containing the word `balance` (not markdown lines) | **1** — the column header | 1 | 1 |
 
 Rows equal the stated count and the printed values sum to the stated totals, so
 every printed value is a row AMOUNT and the `Balance ($)` column is empty in
@@ -35771,8 +35808,8 @@ than asserted, by comparing docstring-stripped ASTs against base `e83f746`:
 ```
 analysis/scotia.py      base 8C461AD438166D4F737555D3E0871597…  head 8C461AD438166D4F737555D3E0871597…  IDENTICAL
 analysis/consumers.py   base 8B5DB2731BA9CA04C7C6BADE5F04A698…  head 8B5DB2731BA9CA04C7C6BADE5F04A698…  IDENTICAL
-analysis/symitar.py     base 3E16FE7FC0A393E6B9E13C1A75644143…  head 8BE8143D9300B937808D462E031A2827…  DIFFERS
-analysis/fiserv_premier.py base 3792B0B69E6A6CCF5B700218570FB550…  head 0FB6CBB6F62BFB849970C920785AF6D2…  DIFFERS
+analysis/symitar.py     base 3E16FE7FC0A393E6B9E13C1A75644143…  head FD72BBA0541B8671…  DIFFERS
+analysis/fiserv_premier.py base 3792B0B69E6A6CCF5B700218570FB550…  head 71DA7692D84A8B9D…  DIFFERS
 ```
 
 **Detection did not move.** The canonical conformance set is green at registry
@@ -35889,12 +35926,34 @@ written by the harness, and the copy's baseline is asserted green first.
 | M9 | `len(headers) != 1` → `not headers`: the FIRST of several headers is taken | KILLED | `..._two_account_headers_publish_neither_label` |
 | M10 | the two printings need not agree, only both exist | KILLED | `..._a_second_printing_that_disagrees_publishes_neither_label` |
 | M11 | `_MASKED_HEADER_RE` loses its `\s*$`: the mask need not END the line | KILLED | `..._the_third_issue_reads_the_account_labels_its_page_prints` |
-| M12 | `_PRODUCT_RE` is no longer the first reading | KILLED | `..._the_issuer_is_recovered_from_the_disclosure_directory` |
+| M12 | **`_PRODUCT_RE` is no longer tried FIRST — a faithful REORDER, not a deletion** | KILLED | `..._the_registered_wording_wins_when_both_wordings_would_read` |
 | M13 | `Account Title:` is no longer the name of last resort | KILLED | `..._the_account_title_stays_the_name_of_last_resort` |
 | M14 | **a dividend-named DEBIT counts as the account's own yield** | KILLED | `..._a_dividend_named_posting_that_takes_money_out_is_not_yield` |
+| M15 | **`_MASKED_HEADER_RE` spans the newline: a name line + a bare mask line read as one header** | KILLED | `..._a_name_and_a_bare_mask_on_two_lines_are_not_one_header` |
+| M16 | **the platform's `Dividends` column need not account for the skipped postings** | KILLED | `..._a_dividends_column_short_of_the_skipped_postings_refuses` |
+| M17 | **the platform's `Credits / Deposits` column need not be zero** | KILLED | `..._a_non_zero_credits_deposits_column_refuses` |
 
-**14/14 KILLED — on the third run, and the two earlier runs are the record
-worth keeping.**
+**17/17 KILLED at the post-review tree, on the fifth run of the table, and
+every earlier run is part of the record.**
+
+**Run 4 (review's, not this cell's) found the table's own defect.** M12 as this
+cell first wrote it DELETED `_PRODUCT_RE` rather than reordering it, so it
+tested the pattern's presence and not its precedence; a FAITHFUL reordering
+survived (`100 passed`), and the killer this cell had named was an issuer test
+that the harness's `-x` had promoted by accident. Both are fixed: the harness
+no longer passes `-x`, so every killer above is the complete list of failing
+tests rather than the first one; M12 is now the faithful reorder; and
+`..._the_registered_wording_wins_when_both_wordings_would_read` pins the
+ORDER — a `<product> - <mask>` line also matches `_MASKED_HEADER_RE` with the
+separator trailing the name, so with the strip repeating the mask, only trying
+the registered wording first publishes the product name without its separator.
+
+**Run 5 also re-anchored M6 and M11**, whose anchor text had drifted with the
+closure edits; a mutation whose anchor does not apply is reported as
+`ANCHOR NOT FOUND` by this harness and counted as unkilled, which is the
+behaviour that caught them.
+
+**Runs 1–3, kept because the failures are the lesson.**
 
 **Run 1 was 12/13: M5 survived.** `_yield_only`'s guard, rewritten to SKIP a
 sibling whose opening balance cannot be read or whose ending balance the
@@ -36042,15 +36101,22 @@ G9.2's leaf-diff is the fine-grained proof that inside those four names nothing
 moves but `account`, `account_name` and `account_number`, on leaves whose base
 value was `None`.
 
-**One bookkeeping note, recorded rather than smoothed over.** `0–845` was
+**Two bookkeeping notes, recorded rather than smoothed over.** `0–845` was
 started once at an earlier tree, ran 32 minutes, and was killed deliberately
 when `0d93cd5` changed production code under it; its shell recorded
 `SWEEP_0_845_EXIT=127`, which is a kill and not a measurement, and the range
-was re-run whole at `160a12d` (the row above). No partial result from the
-killed run is used anywhere. Conversely `845–1690` completed but its
-controlling shell had been stopped by then, so no `EXIT=` line was appended for
-it: its completion evidence is the tool's own end-of-run report line and the
-`--out` JSON it writes only after the last document, both quoted above.
+was re-run whole at `160a12d` (the row above, whose runner recorded that
+rev-parse). No partial result from the killed run is used anywhere.
+
+`845–1690` is the one row this section cannot attribute to a commit id, and
+saying so is more honest than the first draft, which attributed it to
+`160a12d`: it started about 23 minutes before that commit existed, its runner
+recorded no rev-parse, and its controlling shell had been stopped before it
+could append an `EXIT=` line. What CAN be said exactly is what matters — it ran
+against the final PRODUCTION tree, because production has been unchanged since
+`cd7c80a` and every commit after it touches only the log — and its completion
+evidence is the tool's own end-of-run report line plus the `--out` JSON it
+writes only after the last document, both quoted above.
 
 ### G11.2 The corpus gate
 
@@ -36168,6 +36234,9 @@ census quoted in a brief should carry the run id it was taken against.
 | `20d7882` | §DECLINESG G0–G10 |
 | `160a12d` | G0: two summary figures corrected to what was measured |
 | `37ffea1` | §DECLINESG G11–G13: the proof block, the escalations and this table |
+| `4419667` | G13: the commit table names every commit |
+| `546bd35` | the review closures in production: `_yield_only`'s fourth condition (MAJOR-1a), the silence and the absent materiality bound stated (MAJOR-1b), `_MASKED_HEADER_RE` bounded to one line (MINOR-3), the ordering test (MINOR-1); tests 80 → 85 |
+| (this one) | G14 and the G3/G5/G8/G10/G11.1 closures |
 
 Each module is committed WITH its own test file, so **every commit's tree
 passes its own module tests** — §DECLINESD's D9 lesson (a card that writes one
@@ -36181,3 +36250,90 @@ b81418c: 99 passed    0d93cd5: 100 passed   cd7c80a: 100 passed
 ```
 
 The branch is bisectable end to end.
+
+## G14. Adversarial review — APPROVE WITH FINDINGS, and the closures
+
+**Verdict: APPROVE WITH FINDINGS — 0 BLOCK, 1 MAJOR, 6 MINOR.** Everything
+load-bearing was reproduced independently: the census of 110, the
+docstring-stripped AST identity of the two untouched modules, the
+`[^\S\n]+`-versus-`\s+` claim (exactly true), the leaf-diff counts 634 and
+1070, the sweep arithmetic, the pinned 0/0 claim, guards 242, conformance
+1,151, the bisect series, and CONS-L1 to the row.
+
+**Ocean's RULING on the symitar L-1 reversal: RATIFIED for this merge**, with
+the condition-4 tightening required now, the doctrine amendment recorded
+(G3), and the visible-omission surface carded for batch 8.
+
+### G14.1 MAJOR-1 — the skip was silent and unbounded
+
+Review reproduced the shape the rule as first written admits: a sibling with an
+opening balance of 500,000.00 and one 1,200.00 `Dividend …` credit, closing
+agreeing with `ACCOUNT SUMMARY`, **published with no mention anywhere in the
+payload**. Three things were required and all three are done:
+
+* **(a) the platform's own columns now bound it.** Where the section prints the
+  six-figure equation row, `Dividends` must account for every skipped posting
+  and `Credits / Deposits` must be zero. The bank's arithmetic, not a constant
+  of ours. Mutants **M16** and **M17**, each killed by a test that leaves
+  conditions 1–3 satisfied so only the named column can refuse;
+* **(b) the silence is stated** in `analysis/symitar.py`'s module docstring, in
+  `_yield_only`'s docstring and in G3: no schema field, no integrity-flag
+  member, true of the dormant skip already, and no materiality bound BY DESIGN
+  because a size bound in a parser is the statement-specific constant R-1
+  forbids;
+* **(c) the doctrine amendment** is written into G3 verbatim for Ocean to carry
+  into the batch-7 entry.
+
+**This closes MINOR-5 wherever the equation row prints** — an outside party's
+dividend-named credit lands in `Credits / Deposits`, which condition 4 requires
+to be zero. Where the row is NOT printed, which is the issue all three archive
+movers belong to, the hole stays reachable and its consequence stays silent,
+and `_yield_only`'s docstring says exactly that.
+
+**Condition 4 is inert on the three movers** (their sections print no equation
+row) — it is a forward guard, not a repair, and the family replay below is what
+proves it changed nothing.
+
+### G14.2 The five other closures
+
+| # | finding | closure |
+|---|---|---|
+| MINOR-1 | M12 deleted `_PRODUCT_RE` instead of reordering it; a faithful reorder SURVIVED, and `-x` had promoted an unrelated issuer test to "the killer" | harness no longer passes `-x` (every killer is now the complete failing set); M12 is the faithful reorder; `..._the_registered_wording_wins_when_both_wordings_would_read` pins the ORDER |
+| MINOR-2 | G8's HEAD digest for `symitar.py` was stale | refreshed, and now `FD72BBA0541B8671…` / `71DA7692D84A8B9D…` at the post-closure tree |
+| MINOR-3 | `_MASKED_HEADER_RE` used `\s`, which spans the newline | bounded to `[^\S\n]` on both sides; mutant **M15**; measured 0 cross-line matches on all 14, so a latent hole closed, not a defect repaired |
+| MINOR-4 | G11.1 attributed the 845–1690 chunk to `160a12d`, which did not exist when it started | restated: final PRODUCTION tree (unchanged since `cd7c80a`), tree id unrecorded by the runner, completion evidence the tool's end-of-run report and its `--out` JSON |
+| MINOR-6 | G5's "distinct lines containing `balance`" was a 70-char context-window count; G11.1 had a duplicated paragraph | both corrected |
+
+### G14.3 The closure proof set
+
+Production changed in both `symitar.py` and `fiserv_premier.py`, so the
+executable floor was re-run rather than argued away. At `546bd35`:
+
+| proof | result | exit |
+|---|---|---|
+| this cell's three module test files | `105 passed in 1.27s` | **0** |
+| canonical GUARD set (5 files) | `242 passed, 1 warning in 27.51s` | **0** |
+| canonical CONFORMANCE set (7 files) | `1151 passed, 35 skipped, 1 warning in 6.81s` | **0** |
+| full default suite | `5395 passed, 35 skipped, 33 deselected, 1 warning in 306.24s (0:05:06)` | **0** |
+| mutation table, 17 mutants, no `-x` | `17/17 killed` | **0** |
+| family replay, all 21 documents either changed parse can run on | `21/21 identical to the recorded HEAD replay` | **0** |
+
+**Why 21 documents is the whole population, and why no second 3,380-document
+sweep is owed.** Only `symitar.parse` and `fiserv_premier.parse` changed. A
+`parse` runs on exactly the documents its registration CLAIMS, detection did
+not change (the canonical conformance cross-product is green at 74 × 73, which
+pins every registration's detection against its fixtures), and the claim sets
+were re-derived at this tree — 7 symitar claimants and 14 fiserv_premier
+claimants, 21 in all, disjoint. Every one was replayed through the real
+pipeline and compared to the recorded HEAD replay **document by document:
+21/21 byte-identical in the whole published payload, same outcome class**. The
+G9 movers are therefore unchanged — the same 3 coverage movers and the same 4
+label movers — and the G11.1 sweep stands as measured.
+
+The corpus gate is not re-owed: no pinned document is claimed by either changed
+module (G8, measured by live detection replay over the 109), and the two
+modules that do claim one each carry a zero-line behavioural diff.
+
+Suite 5,390 → **5,395** (+5): symitar 24 → 27 (+3) and fiserv_premier 56 → 58
+(+2), the five tests the closures required. No corpus-marked test was added, so the slice
+stays at 29.
