@@ -35930,3 +35930,253 @@ of either. Each fixture was re-balanced so the other conditions HOLD and only
 the named one can be doing the refusing. §DECLINESD's M2 lesson, met twice
 more: **a test named after a gate is not a test of that gate**, and neither is
 a test that trips three gates at once.
+
+## G11. Proofs
+
+All from the worktree at branch HEAD, exit codes verbatim.
+
+**How they were run, stated because it is a deviation.** The box carried twelve
+to twenty-five concurrent python processes from the other batch-7 cells
+throughout — at one point eight sibling `regfp_zero_movement_sweep` runs, four
+`-m corpus` slices and two `corpus_gate.py` runs at once. Under that load a
+single 845-document sweep chunk was taking upwards of forty minutes, and the
+four chunks plus the gate plus the slice, run strictly one after another, was a
+four-hour serial tail. The four sweep chunks are independent by construction —
+`--start/--end` slice the sorted distinct `content_sha256` and the counts add,
+which is what the tool's own docstring says they are for — and the gate and the
+slice read the same frozen tree. So the chunks were run as four parallel
+single commands, and the gate/slice chain beside them, each a detached process
+with its own durable log and its own `EXIT=` terminator, each tracked by a
+watcher this cell polled. Nothing about what is measured changes; only the
+wall-clock attribution does, and no timing figure below should be read as a
+property of this branch.
+
+Every row below was measured at the FINAL tree `cd7c80a` unless the row says
+otherwise; `f2_head.log` records that commit id beside the proofs it produced.
+An earlier pass of the four pytest proofs ran at `c782189` and was discarded
+rather than reported, because `0d93cd5` changed production code after it — the
+rule being that a proof names the tree it measured.
+
+| proof | result | exit |
+|---|---|---|
+| full default suite | `5390 passed, 35 skipped, 33 deselected, 1 warning in 734.47s (0:12:14)` | 0 |
+| canonical GUARD set (5 files) | `242 passed, 1 warning in 56.91s` | 0 |
+| canonical CONFORMANCE set (7 files) | `1151 passed, 35 skipped, 1 warning in 33.70s` | 0 |
+| this cell's three module test files | `100 passed in 4.85s` (base: 84) | 0 |
+| mutation table, 14 mutants | `14/14 killed` | 0 |
+| archive zero-movement sweep, 3,380 documents in 4 chunks | **2,531 identical · 4 moved · 3 no_payload_now_publishes · 0 payload_now_raises** — all 7 findings named | 1 (= "findings exist", the tool's contract) |
+| `python corpus_gate.py` | **GREEN** — 106 PASS / 3 WITHHELD, verdicts 102 validated / 4 review / 3 withheld, currency 109/109 = 14 CAD / 95 USD (2268.3s) | 0 |
+| corpus-marked slice | `29 passed, 5429 deselected, 1 warning in 4231.00s (1:10:31)` | 0 |
+| bisectability: every commit's tree runs its own module tests | `91 / 98 / 98 / 99 / 100 / 100 passed` | 0 |
+
+Both canonical sets hit their expected counts exactly — guard **242**,
+conformance **1151** at registry 74 (cross-product 74 × 73 = 5,402) — which is
+the check that the sets were run whole rather than approximated. No
+registration was added, so neither count moves.
+
+Suite base **5,374** → **5,390**, `+16`: symitar 15 → 24 (`+9`) and
+fiserv_premier 49 → 56 (`+7`). No corpus-marked test was added, so the slice
+count does not move.
+
+**One production change landed after the family replay of G9, and it was
+re-measured rather than argued away.** `0d93cd5` added `_yield_only`'s
+direction clause. Only `symitar.parse` changed and symitar's detection did not,
+so only the seven documents symitar claims could move; all seven were replayed
+at the final tree and compared to the recorded HEAD replay document by
+document: **7/7 byte-identical, same outcome class**. The G9 table therefore
+stands for all 110.
+
+### G11.1 The archive sweep
+
+`python -m tools.regfp_zero_movement_sweep` at branch HEAD, over the run of
+record's own `rows.csv`, against the baseline analysis settings key
+`D3370EEBDCB87892A2739BCB0D882A66E72DCBFAB2553101111157B5A231DE24`, chunked
+`0–845 / 845–1690 / 1690–2535 / 2535–3380`; the counts add.
+
+`python -m tools.regfp_zero_movement_sweep` at branch HEAD `160a12d`, over the
+run of record's own `rows.csv`, against the baseline analysis settings key
+`D3370EEBDCB87892A2739BCB0D882A66E72DCBFAB2553101111157B5A231DE24`, in four
+chunks whose counts add.
+
+| range | docs | compared | identical | moved | no_payload_now_publishes | payload_now_raises | no_ocr_artifact | no_payload_raises_again | multi_artifact | seconds | exit |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `0–845` | 845 | 620 | 620 | 0 | 1 | **0** | 6 | 218 | 20 | 3417.5 | 1 |
+| `845–1690` | 845 | 644 | 642 | 2 | 0 | **0** | 5 | 196 | 20 | 2844.3 | (see below) |
+| `1690–2535` | 845 | 634 | 633 | 1 | 1 | **0** | 11 | 199 | 18 | 3435.2 | 1 |
+| `2535–3380` | 845 | 637 | 636 | 1 | 1 | **0** | 7 | 200 | 16 | 3366.1 | 1 |
+| **total** | **3,380** | **2,535** | **2,531** | **4** | **3** | **0** | **29** | **813** | **74** | | |
+
+**Exit 1 is the tool's contract for "findings exist", not a failure**: it
+returns `1 if findings else 0`. Three chunks report it and every finding is
+named below.
+
+The counts partition the archive exactly, which is the check that the four
+chunks were run whole: `2,535 compared + 813 no_payload_raises_again +
+3 no_payload_now_publishes + 29 no_ocr_artifact = 3,380`, and
+`2,531 identical + 4 moved = 2,535`.
+
+**All seven findings, and every one is inside this cell's named population:**
+
+| verdict | content_sha256 | run outcome | fields |
+|---|---|---|---|
+| `moved` | `4B37474294BFC9AB5D5CFCDA64BF5EB15677F8778C6F1712A8DDDE4C687F0C1D` | validated | `classifications`, `detection`, `metrics`, `statement` |
+| `moved` | `4D0EACF6D617EDAB6AD7BA7EC7EE16A669CE90995916C73DD4228C5F9999A29E` | validated | same four |
+| `moved` | `8DB2CB78B67CF2235CC62C8ED71A0D3569DCACAA993339040ED02532FF5EA471` | validated | same four |
+| `moved` | `E34083B2FED71FB3565599BE3E4D26B4741A3CEBC7E91CED3451E319798A2513` | validated | same four |
+| `no_payload_now_publishes` | `3600FE7830C4A4841891276A27B53A40435F32005785C162B335BA51B9297E1B` | failed | — |
+| `no_payload_now_publishes` | `9C5B7D628D7511EEBF36E57F85ED335FCEAD4478C716E0EB6F276AD39DAC2047` | failed | — |
+| `no_payload_now_publishes` | `C067BE96F6B0BE0F2DD249128B2A43DC6FB24473519980595A8BC4B52683C948` | failed | — |
+
+The four `moved` are exactly G4's four FISERV-LABELS documents, sha for sha,
+and their outcome class is unchanged (`validated` before and after). The three
+`no_payload_now_publishes` are exactly G3's three symitar movers, sha for sha —
+the run cached no payload for them because failures are never cached, so a
+document that begins publishing lands in that bucket by construction rather
+than in `moved`. **`payload_now_raises` is 0 in every chunk: no document that
+published under the run of record stopped publishing.**
+
+**The sweep reports field NAMES only, and on these four that is coarse** — it
+lists `statement`, `classifications`, `detection` and `metrics` because a
+transaction's classification record carries the statement's account labels.
+G9.2's leaf-diff is the fine-grained proof that inside those four names nothing
+moves but `account`, `account_name` and `account_number`, on leaves whose base
+value was `None`.
+
+**One bookkeeping note, recorded rather than smoothed over.** `0–845` was
+started once at an earlier tree, ran 32 minutes, and was killed deliberately
+when `0d93cd5` changed production code under it; its shell recorded
+`SWEEP_0_845_EXIT=127`, which is a kill and not a measurement, and the range
+was re-run whole at `160a12d` (the row above). No partial result from the
+killed run is used anywhere. Conversely `845–1690` completed but its
+controlling shell had been stopped by then, so no `EXIT=` line was appended for
+it: its completion evidence is the tool's own end-of-run report line and the
+`--out` JSON it writes only after the last document, both quoted above.
+
+### G11.2 The corpus gate
+
+`python corpus_gate.py`, run in the worktree at `160a12d`, **exit 0**:
+
+```
+[PASS] inventory · foreign_files · source_integrity · balance_audit · adb_audit
+[PASS] balance_outcomes: balance: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes:     adb:     106 pass, 3 withheld, same three statements
+[PASS] outcome_classes: 109 statements publish their pinned verdict (outcome
+       class and the whole integrity block): 4 review / 102 validated / 3 withheld
+[PASS] adb_doctrine: 109/109 publish the canonical basis
+       'calendar_day_printed_period'; banking-day alternate distinct on 106,
+       skipped 3 unpublished (0 all-banking-day periods, 0 flat ledgers)
+[PASS] currency: 109/109 statements publish their pinned currency: 14 CAD / 95 USD
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR = 109 resolved offline;
+       no live OCR, no model calls
+[PASS] exclusions: 0 named exclusions
+[PASS] oracle_independence: 4 audit modules import no production financial mathematics
+
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 4 review / 102 validated / 3 withheld
+Runtime:  2268.3s
+
+RESULT: GREEN
+GATE_EXIT=0
+```
+
+**106/3 and 102 validated / 4 review / 3 withheld**, and the pinned currency
+surface **109/109 = 14 CAD / 95 USD** — the canonical post-ceremony split,
+unmoved. `outcome_classes` is the check that matters most to a decline cell:
+it pins each pinned document's WHOLE published integrity block, not merely its
+class.
+
+### G11.3 The corpus-marked slice
+
+`python -m pytest -m corpus -q -p no:cacheprovider`, run in the worktree,
+**exit 0**:
+
+```
+29 passed, 5429 deselected, 1 warning in 4231.00s (1:10:31)
+CORPUS_EXIT=0
+```
+
+**29 is the batch-6 count, unchanged**: this cell added 16 tests and none of
+them is corpus-marked. The slice is mandatory in every proof floor because the
+gate is structurally blind to review↔validated movement inside its PASS bucket
+(proven at PIPELINE-FIX-2's first revision), and it is the check that would
+catch a widened parser moving a pinned document between those two classes.
+1:10:31 is host load, not a property of this branch.
+
+**Nothing in the pinned corpus moved, in either direction.** That was already
+structural before it was measured: the two modules whose behaviour changed
+claim NONE of the pinned 109 by live detection replay, and the two that claim
+one each carry docstring-stripped ASTs identical to base (G8).
+
+## G12. Carried findings and escalations
+
+**G12.1 — CONS-L1 / CONS-HARDCODE. A PINNED, audited document publishes one of
+three ledgers, chosen by a memorized account number.** `05E246C0ED6678E6…`
+(`Misc/Consumers March - Monthly Statement.pdf`) prints three accounts — a
+share account and TWO `BusinessPlus Checking` accounts — and all three post in
+both directions (11, 161 and 52 dated rows). `analysis/consumers.py` selects
+one of them by a literal heading carrying that account's own number, and
+publishes it as the statement. The second published document (`4500A258…`) is
+the same shape. This is not introduced by this cell, is unchanged by it, and is
+the same class as the batch-6 REPAIR-DOCTRINE escalation: an audited pinned
+document whose published figures are a choice the reader made rather than a
+reading of the page. The honest fix is L-1 (a schema that carries more than one
+account) or a refusal, and either moves the pinned document → **ceremony**.
+Three further archive documents are refused today for the same reason and are
+the +3 that repair would unlock.
+
+**G12.2 — SCOTIA-NOBAL, to the geometry rung.** G5. Three documents whose
+`Balance ($)` column is declared and empty. Ceiling `withheld`, measured. The
+direction is recoverable by per-page subset-sum with a uniqueness requirement
+(each page prints its own debit and credit counts and totals); the balances are
+not recoverable at all.
+
+**G12.3 — the L-1 reversal is Ocean's to ratify.** G3. The dividend-only
+sibling skip reverses a behaviour a previous cell deliberately pinned. It is
+implemented, corroborated three ways and mutation-killed, and the revert is one
+hunk if the ruling goes the other way.
+
+**G12.4 — `symitar` publishes `days_in_period = None`.** Observed on all three
+movers (and pre-existing on the four documents this family already published).
+The canonical ADB is unaffected — it derives the calendar span from
+`period_start`/`period_end` and reports `underwriting_adb_basis =
+calendar_day_printed_period` with `adb_ok` true on all three — but a consumer
+reading `days_in_period` off the statement gets nothing. Not touched here: it
+is a field this card has no evidence about and no mandate over.
+
+**G12.5 — for CURRENCY-SOURCE.** The three symitar movers publish
+`currency = "USD"` from the module's own explicit assignment
+(`symitar.py` sets it), and the four fiserv label movers publish the schema
+default. Both are US documents and USD is correct; the provenance is that
+card's. `scotia.py:154` was not touched by this cell (file-sharing discipline).
+
+**G12.6 — a stale brief is a measurement-shaped hazard.** G7. Two of the
+brief's numbers (the fiserv decline count, and a source line number) were
+correct against the batch-5 run and the pre-§FISERV3 module, and read exactly
+like facts. The general rule this suggests for the next batch's handoffs: a
+census quoted in a brief should carry the run id it was taken against.
+
+## G13. Commits
+
+| Commit | Contents |
+|---|---|
+| `063304b` | `analysis/symitar.py` — `_DIVIDEND_RE`, `_yield_only`, the activity filter, the module docstring; `tests/test_symitar.py` 15 → 22, including the rewritten L-1 fixture |
+| `92705bc` | `analysis/fiserv_premier.py` — `_MASKED_HEADER_RE`, `_SUMMARY_MASK_RE`, `_account_labels`, and the stale third-issue docstring corrected; `tests/test_fiserv_premier.py` 49 → 56 |
+| `c782189` | `analysis/scotia.py` + `analysis/consumers.py` — the two measured diagnoses, DOCS ONLY (docstring-stripped ASTs identical to base, G8) |
+| `b81418c` | mutation-table closure: M5's test; `tests/test_symitar.py` 22 → 23 |
+| `0d93cd5` | `_yield_only`'s direction clause (M14) and the residual hole named; tests 23 → 24 |
+| `cd7c80a` | M2's test isolates the anchor again after M14's gate made it vacuous |
+| `20d7882` | §DECLINESG G0–G10 |
+| (this one) | §DECLINESG G11–G13: the proof block, the escalations and this table |
+
+Each module is committed WITH its own test file, so **every commit's tree
+passes its own module tests** — §DECLINESD's D9 lesson (a card that writes one
+test file for two modules must commit it with the last of them) does not bite
+here because the test files are already per module. Verified rather than
+assumed, on a `git archive` of each commit:
+
+```
+063304b: 91 passed    92705bc: 98 passed    c782189: 98 passed
+b81418c: 99 passed    0d93cd5: 100 passed   cd7c80a: 100 passed
+```
+
+The branch is bisectable end to end.
