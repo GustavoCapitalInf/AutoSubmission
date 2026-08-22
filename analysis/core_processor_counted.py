@@ -538,7 +538,7 @@ _DESCRIPTION_FURNITURE = " |"
 #: through a word, because half a token is a string the bank did not print.
 #: With the attribution fixed the bound is headroom rather than a cut: the
 #: longest description the complex's 21 validated documents publish is 121
-#: characters, and no row reaches 200 (W3 §DESCATTRIB DA4).
+#: characters, and no row reaches 200 (W3 §DESCATTRIB DA8).
 _DESCRIPTION_LIMIT = 200
 
 
