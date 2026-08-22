@@ -35445,7 +35445,7 @@ throughout, no hosted model call anywhere including tests).
 | Non-movers pinned | `apex_scanned` shares the Southside module: all **4** of its documents byte-identical. `citizens`' 16 digital byte-identical. The **5 pinned** corpus documents byte-identical (`corpus_gate.py` GREEN) |
 | Archive sweep | the committed instrument at branch HEAD over all **3,380**: **2,533 identical**, **2 moved**, **11 no_payload_now_publishes**, **0 payload_now_raises**. All **13** findings inside the named populations by `content_sha256`; both `moved` documents leaf-diffed |
 | Corpus gate | `python corpus_gate.py` **RESULT: GREEN** — 106/3, verdicts 4 review / 102 validated / 3 withheld, currency 109/109 = 14 CAD / 95 USD, ADB basis 109/109 canonical |
-| Mutation table | **32** mutants, **32 killed**, 0 survivors — after four rounds in which a first table left 4 alive and each survivor was a real hole in the tests |
+| Mutation table | **37** mutants, **37 killed**, 0 survivors — 32 built here (a first table left 4 alive, each a real hole) plus 5 the adversarial review found live and untested |
 | Statement-specific constants | none added. One **removed**: an account TITLE the Southside detector required, now the second R-4b entry in `REMOVED_LITERALS` |
 
 ## SF1. The census, measured
@@ -35551,12 +35551,35 @@ survive the scan and nothing here infers a count from a total (SF5).
 
 `3B0738E968D4`'s debit coverage of **1.034** is over-capture — a reader with
 more debit money than the bank states — and it is named here rather than
-tolerated. It is withheld, and its cause is measured: walking the ledger
-against the printed daily grid, the divergences are PAIRED (a step out on one
-day and the exact opposite step back on a later one), which is the signature of
-a cheque dated to the wrong day rather than of an invented amount; the
-non-cancelling residue is a handful of small rows. The document stays withheld
-until that residue is closed, and closing it is not this card.
+tolerated.
+
+**This paragraph originally gave the wrong cause, and the correction is the
+adversarial review's (MAJOR-2), re-measured here.** I had read the divergences
+as paired and the residue as "a handful of small rows". Walking the ledger
+against the bank's own day-over-day DELTA — the right comparison, because a
+day whose two deltas agree is a day read correctly whatever the running error
+is — there are exactly four days that disagree, and they are not alike:
+
+| day | bank's delta | ours | gap | rows |
+|---|---|---|---|---|
+| 05-07 | −2,307.64 | −5,307.64 | **−3,000.00** | 4 |
+| 05-12 | −11,500.00 | −975.00 | +10,525.00 | 1 |
+| 05-14 | −1,875.00 | −12,400.00 | −10,525.00 | 3 |
+| 05-15 | +12,410.35 | +12,550.00 | +139.65 | 2 |
+
+The 10,525.00 excursion IS paired and value-neutral — a cheque dated to the
+wrong day, which costs the daily walk and costs the totals nothing. The
+over-capture is **one amount cell read 3,000.00 too large** in the 05-07 debit
+block, offset by one row correctly refused: a withdrawal whose date cell reads
+`6/15` in a MAY statement, which `_southside_day` declines because it is
+outside the printed period. 3,000.00 − 139.65 = **2,860.35**, which is the
+whole of the over-capture to the cent.
+
+That names the real gap, and it is a gap in this reader's design rather than a
+residue to grind down: **the printed daily-balance grid corroborates DATES here
+and never AMOUNTS.** The bank's own delta for 05-07 says 2,307.64 and the
+reader never asks. Carded for batch 8 as **SS-GRID-AMOUNTS**. The document
+stays withheld either way.
 
 ## SF3. Southside — the five causes, and the hunks
 
@@ -35825,6 +35848,10 @@ every mutation, and the harness refuses to start on a dirty tree.
 | SF6c | the date must be the first token on the line | `test_the_whole_statement_reads_and_its_ledger_reproduces_the_printed_grid` (+6) |
 | SF7a | a reconstructed cheque date needs no corroboration | `test_a_cheque_whose_date_cell_was_reconstructed_needs_the_printed_grid` |
 | SF7b | the out-of-sequence footnote glyph costs the cheque | `test_the_out_of_sequence_asterisk_does_not_cost_the_row` |
+| SF2c | a period cell shaped like a date but not one RAISES | `test_a_period_cell_shaped_like_a_date_but_not_one_refuses` |
+| SF4d | the reprinted summary heading no longer ends the grid above it | `test_the_cheque_image_sheets_end_the_grid_above_them` |
+| SF4e | the DEPOSITS heading need not carry a rule glyph | `test_a_heading_line_must_carry_a_rule_glyph` |
+| SF4f | the grid marks are ordered by their whole tuple again (TypeError) | `test_two_anchors_merged_onto_one_line_do_not_crash_the_reader` |
 | CF1a | the strip's separator must be the exact glyph | `test_the_whole_statement_reads_and_reconciles_to_the_printed_strip` (+12) |
 | CF1b | the strip's own arithmetic is not required | `test_a_strip_whose_arithmetic_does_not_close_publishes_nothing` |
 | CF2a | the credit grid header excludes the rule glyph again | `test_the_credit_grid_header_survives_a_column_rule_between_its_labels` |
@@ -35837,9 +35864,11 @@ every mutation, and the harness refuses to start on a dirty tree.
 | CF5c | a widened cheque date need not land inside the period | `test_a_widened_cheque_date_must_land_inside_the_printed_period` |
 | CF6a | the cheque grid is anchored on the right-hand total again | `test_a_slash_less_cheque_date_is_read_only_on_the_printed_cheque_total` (+2) |
 | CF6b | the footnote glyph is not allowed beside the number | `test_the_out_of_sequence_footnote_glyph_does_not_cost_the_cheque` |
+| CF5d | a widened cheque grid that agrees with nothing is taken anyway | `test_when_neither_reading_matches_the_printed_total_the_strict_one_stands` |
 
-**32 mutants, 32 KILLED, 0 survivors** — and the four that a first table left
-alive are worth recording, because each was a real hole:
+**37 mutants, 37 KILLED, 0 survivors** (32 in the first round, 5 added by the
+review closures: `SF2c`, `SF4d`, `SF4e`, `SF4f`, `CF5d`) — and the four that a
+first table left alive are worth recording, because each was a real hole:
 
 1. the cheque-image sheets' terminal anchors were tested as a SET (one sheet
    carrying all of them), so removing three of the five markers changed
@@ -36025,18 +36054,89 @@ statements resolved offline; no live OCR, no model calls`.
 242 and the canonical conformance set still 1,151 at 74 × 73, because this card
 registers nothing.
 
+### SF9.1 Round two, after the review closures — with durable logs
+
+Production files changed (`analysis/scanned_small_bank.py`,
+`analysis/citizens.py`), so the floor was re-run at
+`1d0783dea120a42eb7af4b75f4d17b55af698bee`. MINOR-3 of the review was that the
+first round's suite / guard / conformance numbers were backed by no durable
+log; every line below is now a file, each terminated by its own `EXIT=` written
+after the command returned.
+
+```
+65 passed                                             0.44s  MODULES_EXIT=0
+242 passed, 1 warning                                22.05s  GUARDS_CANON_EXIT=0
+1151 passed, 35 skipped, 1 warning                    5.36s  CONFORMANCE_CANON_EXIT=0
+5439 passed, 35 skipped, 33 deselected, 1 warning   282.40s  SUITE_EXIT=0
+corpus_gate.py  RESULT: GREEN                       673.10s  GATE_EXIT=0
+37 mutants, 37 KILLED, 0 survivors                            MUTATE_EXIT=0
+family replay, 34 documents, movers=13/34                     REPLAY_EXIT=0
+leaf-diff of the two moved documents                          LEAFDIFF_EXIT=0
+```
+
+Logs, all under the cell's private scratchpad `.../scanfinish/round2/`:
+`modules.log`, `guards.log`, `conformance.log`, `suite.log`, `gate.log`,
+`mutate.log`; plus `round2_replay.log` and `round2_leaf.log` beside them. The
+driver `proofs2.sh` records the HEAD it ran at on its first line and terminates
+`proofs2.log` with `EXIT=0`.
+
+5,439 = the first round's 5,436 plus the three tests the closures added. The
+canonical sets are unmoved at 242 and 1,151; registry still 74.
+
+**The family replay was re-run over every document either changed parse can run
+on** — all 9 Southside, all 21 Citizens, all 4 Apex claimants, 34 in total. The
+argument that this is exhaustive: a parse runs only on a document its
+registration CLAIMS; `detect_apex` and `citizens`' `DETECTION_MARKERS` are
+untouched by this round; `detect_southside`'s claim set over the whole archive
+is pinned at exactly nine by SF8.2 and by the detection sweep, and
+`tests/test_parser_detection_markers.py` (inside the canonical conformance set,
+green) pins detection itself. Result: **the same 13 movers with the same
+verdicts, and all 21 non-movers byte-identical** — identical to the recorded
+HEAD replay of SF7. The two `moved` documents' leaf-diffs reproduce EXACTLY at
+533 moved / 0 outside and 23,702 moved / 8 outside, which is a byte-level way
+of saying the closures moved no payload at all.
+
+The corpus gate was re-run because `citizens` publishes four pinned documents
+and `southside_scanned` one: **GREEN**, `4 review / 102 validated / 3 withheld`,
+`currency: 109/109 … 14 CAD / 95 USD`, `adb_doctrine: 109/109`,
+`ocr_coverage: … no live OCR, no model calls`.
+
+The archive sweep was NOT re-run, and the reason is that it does not need to
+be: the closures changed no payload anywhere in the 34 documents that the two
+changed parsers can reach, proved above at leaf level on the only two documents
+whose payloads differ from the run at all. Ocean's proof obligations for this
+round did not include it.
+
 ## SF10. Carried risks
 
 1. **`3B0738E968D4` publishes 3.4% more debit money than the bank states** in
-   its withheld payload. The document is withheld and the residue is measured
-   (SF2), but an over-capture is worse in kind than an under-capture and it is
-   the one number in this card's output that a reader should not be handed. It
-   is not published; it is named.
-2. **`955C340F27A7` publishes an ADB from zero transactions.** The reasoning is
-   in SF2 and I believe it is right — a month with no activity has a flat
-   balance and the daily grid's one cell agrees — but it is the first document
-   in the corpus to reach `validated` with an empty ledger, and Ocean may want
-   to look at that shape on its own terms.
+   its withheld payload — ONE amount cell read 3,000.00 too large, less one
+   correctly refused out-of-period row (SF2). The document is withheld, but an
+   over-capture is worse in kind than an under-capture and it is the one number
+   in this card's output that a reader should not be handed. The design gap
+   behind it — the daily grid corroborates dates and never amounts — is carded
+   as **SS-GRID-AMOUNTS**.
+1b. **`675EB43935FE`'s cheque grid reads 50.00 MORE than the page's own `Total
+   Checks`** (22 cheques, 26,941.67 against a printed 26,891.67 that the strip
+   identity independently confirms), strictly and widened alike. It is the one
+   document of the five where NEITHER reading matches the printed section
+   total, so `_checks_the_total_agrees_with` keeps the strict one — that branch
+   is now named and argued in place rather than reached by falling off the end,
+   and it has a test and a mutant (CF5d). The document is withheld on
+   `ledger_sum_mismatch` regardless. Found by the adversarial review (MAJOR-3);
+   by my own standard an over-capture must be named, and this one was not.
+   I deliberately did NOT make it a payload-visible note: that would move
+   payloads beyond the replay set this round sanctions, and the disagreement
+   already survives into `reconciliation`, which is what the platform withholds
+   on. Replay result either way: the closure moved nothing — the two `moved`
+   documents' leaf-diffs reproduce at 533/0 and 23,702/8 exactly.
+2. **`955C340F27A7` publishes an ADB from zero transactions.** RULED
+   doctrine-correct as published, no flag required (Ocean, this round): a month
+   with no activity has a flat balance over the printed calendar period and the
+   daily grid's one cell agrees. The positive recognition it deserves — the
+   coverage gates are NULL rather than passed when the stated totals are 0.00,
+   and a quiet month should be a measurement rather than the absence of one —
+   is carded for batch 8 as **ZERO-ACTIVITY-MONTH**.
 3. **The two 1-sheet Southside statements now publish.** The handoff expected
    them to stay failed as fragments. The evidence that they are complete
    statements is in SF2 and is reproducible from the cached OCR text; if Ocean
@@ -36064,7 +36164,9 @@ registers nothing.
    change. I did not make it: the archive sweep in SF8 was already running
    against this exact source, and changing `analysis/` mid-sweep would have
    left half the archive measured against code that no longer exists. It is
-   carried, with the remedy named, rather than done badly.
+   carried, with the remedy named, rather than done badly. Carded for batch 8
+   as **SS-UNIQUE-MATCH**; the reviewer independently confirmed that no label
+   prints twice on any of the nine.
 
 ## SF11. The pinned five
 
@@ -36096,6 +36198,9 @@ and date reader were all replaced.
 | `39b2ab2` | southside: the tests, and the year the date cell does not carry |
 | `bc69ce8` | citizens: the tests, and the one widening that matched nothing |
 | `32f8c43` | SCAN-FINISH: four mutants the tests did not kill |
+| `758f394` | docs: W3 §SCANFINISH — the census, the ceilings, the causes, the mutants |
+| `0c87d86` | docs: W3 §SCANFINISH — the sweep, the gate, the leaf-diff, one void measurement |
+| `1d0783d` | review closures: two crash surfaces, one silent over-read, three live mutants |
 
 Files touched: `analysis/citizens.py`, `analysis/scanned_small_bank.py`
 (the Southside reader only — `apex_scanned` shares the module and is
@@ -36106,3 +36211,42 @@ byte-identical), `tests/test_citizens_scanned.py` (new),
 which quoted the removed account title out loud for as long as the detector
 gated on it). No registration, no `ANALYSIS_STAGE_VERSION` bump — that is
 Ocean's at the train.
+
+## SF13. Review closures (APPROVE WITH FINDINGS — 0 BLOCK, 3 MAJOR, 4 MINOR)
+
+The independent adversarial review of `0c87d86` reproduced every headline
+number — all fourteen per-document rows exact, 6/6 chain pairs, the sweep
+figures re-derived from the chunk JSONs, AST identity for `texas_first` and
+`apex_scanned`, both predecessor defects confirmed at zero blast radius, and
+the `REMOVED_LITERALS` guard confirmed real. It found three MAJOR and four
+MINOR. All seven are closed on this branch; each was reproduced by me before
+it was fixed.
+
+| # | Finding | Closure | Evidence |
+|---|---|---|---|
+| MAJOR-1a | `_southside_grids` sorted marks by the whole `(start, end, name)` tuple; two anchors at the same offsets compare a terminal anchor's `None` against a named anchor's `str` → `TypeError` → a parser CRASH | ordered by position alone | reproduced on `DAILY BALANCE SUMMARY Southside Bank   Page: 2`; test + mutant `SF4f` |
+| MAJOR-1b | a corrupted period cell that still has the SHAPE of a date reaches the conversion and RAISES (`5/41/26`); pre-existing, but the widened summary reader routes four more archive documents through it | the summary's own fail-closed rung: refuse, do not raise | reproduced; test + mutant `SF2c` |
+| MAJOR-2 | SF2's account of `3B0738E9`'s 1.034 over-capture was WRONG | corrected in place with the per-day delta table; real cause named (one amount cell, 3,000.00), real gap carded **SS-GRID-AMOUNTS** | my own re-measurement, SF2 |
+| MAJOR-3 | `675EB43935FE`'s cheque grid over-reads the printed `Total Checks` by exactly 50.00 and `_checks_the_total_agrees_with` fell through in silence | named in SF10 1b; the branch is now argued in place, with a test and mutant `CF5d`; deliberately not a payload-visible note | measured on all five: it is the only NEITHER-MATCHES document |
+| MINOR-1 | three gates live but untested | three tests, mutants `SF4d`, `SF4e`, `CF5d` | all killed |
+| MINOR-2 | the row-boundary comment said 62 rows across four statements | corrected to the measurement: 99 across five (14/38/12/32/3) | mine |
+| MINOR-3 | no durable log behind the suite / guard / conformance numbers | re-run with per-command logs and `EXIT=` terminators | SF9.1 |
+| MINOR-4 | `_southside_summary` first-printing | stays carried, now carded **SS-UNIQUE-MATCH** | SF10 item 5 |
+
+**Ruling recorded** (Ocean, this round): `955C340F27A7`'s zero-transaction
+validated month is **doctrine-correct as published and requires no flag**. The
+positive recognition it argues for is carded for batch 8 as
+**ZERO-ACTIVITY-MONTH** — the coverage gates on such a month are NULL rather
+than passed, and a quiet month should be a measurement rather than the absence
+of one.
+
+Three batch-8 cards fall out of this section: **ZERO-ACTIVITY-MONTH**,
+**SS-GRID-AMOUNTS** (the printed daily grid corroborates dates and never
+amounts), **SS-UNIQUE-MATCH** (`_southside_summary` takes the first printing
+and does not refuse a contradiction).
+
+Two of the three MAJORs were CRASH surfaces rather than wrong numbers, and
+that is the honest lesson of the round: this reader's whole discipline is that
+a decline is an answer and an exception is not, and I had added two ways for it
+to raise — one of them on an input a single OCR line-merge away from the
+archive it was measured on.
