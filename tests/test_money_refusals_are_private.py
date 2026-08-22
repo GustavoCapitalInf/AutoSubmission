@@ -93,6 +93,9 @@ INVOCATIONS = {
     "parse_money": [("parse_money", m.parse_money)],
     "parse_money_tokens": [("parse_money_tokens", m.parse_money_tokens)],
     "read_money": [("read_money", lambda v: m.read_money(v))],
+    # The constructor RETURNS (§MP2), so the case raises what it hands back —
+    # exactly what a call site does. Added with the public name (§PRIVACY3).
+    "money_refusal": [("money_refusal", lambda v: _raise(m.money_refusal("probe", v)))],
     "parse_decimal": [("parse_decimal", m.parse_decimal)],
     "parse_signed_decimal": [("parse_signed_decimal", m.parse_signed_decimal)],
     "parse_decimal_mixed_separator": [
@@ -118,6 +121,11 @@ INVOCATIONS = {
     "pad_leading_decimal": [("pad_leading_decimal", m.pad_leading_decimal)],
     "strip_currency": [("strip_currency", m.strip_currency)],
 }
+
+def _raise(exception: BaseException):
+    """Raise what a constructor RETURNED, so the sweep can read it."""
+    raise exception
+
 
 CASES = [
     (f"{reader}::{shape}", call, token)

@@ -1502,6 +1502,56 @@ def analysis(job_id):
     })
 
 
+#: `analysis/revenue.py`'s DECLARED review refusals (#PRIVACY3, the APP-PRIVACY
+#: half; the pattern is `webapp/worker.py`'s `_DECLARED_ANALYSIS_REFUSALS`).
+#:
+#: `revenue_review` returned `str(exc)` as the HTTP body on both arms, and
+#: `webapp/static/app.js` puts that body straight into a `window.alert`. The
+#: three literals the batch-6 ledger named are real and worth keeping — but the
+#: `except` is BROADER than the raises: any `ValueError` raised deeper inside
+#: `rebuild_serialized_revenue_views` (which `apply_serialized_revenue_review`
+#: calls on its way out) was published verbatim, and the money grammar is
+#: exactly such a raiser. Reduction is now the default.
+#:
+#: FIVE, not three. The batch-6 census (W3 §WORKERPRIV WP6.1) counted only the
+#: raises inside `apply_serialized_revenue_review` itself and missed the two in
+#: `rebuild_serialized_revenue_views`, which its last line calls; both are
+#: reachable through this route and both are fixed literals. Measured, and
+#: `test_every_declared_review_refusal_is_actually_raised` drives each of the
+#: five out of `analysis/revenue.py` so the tuple cannot drift from the raises.
+#:
+#: Matching is EXACT and the value published is the member of this tuple, never
+#: the exception's own string, so what crosses the boundary is provably a
+#: constant in this file. `f"{DECLARED}: {a quoted cell}"` does not match and is
+#: reduced like anything else. Fail-closed: admission is a deliberate edit.
+_DECLARED_REVIEW_REFUSALS: tuple[str, ...] = (
+    "transaction source location was not found",
+    "decision must be confirm, reject, or reset",
+    "only automatically unverified deposits can be reviewed",
+    "every posted credit must have an authoritative classification record",
+    "every posted credit must have a valid revenue classification",
+)
+
+
+def _review_refusal(exc: BaseException) -> str:
+    """The only exception text this route may put in an HTTP body.
+
+    A declared refusal keeps its named reason; anything else is reduced to the
+    class name. The vocabulary matches `webapp/worker.py:_stage_failure` word
+    for word, deliberately: an operator reading a withheld message in a browser
+    alert and a withheld message in the job store should not have to learn that
+    they mean the same thing.
+    """
+    message = str(exc)
+    for declared in _DECLARED_REVIEW_REFUSALS:
+        if message == declared:
+            return declared  # this module's constant, not the exception's text
+    return (
+        f"revenue review failed: {type(exc).__name__} "
+        "(message withheld; an exception message can quote statement text)"
+    )
+
+
 @app.route("/analysis/<job_id>/revenue-review", methods=["POST"])
 def revenue_review(job_id):
     job = store.get(job_id)
@@ -1519,9 +1569,9 @@ def revenue_review(job_id):
             decision=decision,
         )
     except LookupError as exc:
-        return jsonify({"error": str(exc)}), 404
+        return jsonify({"error": _review_refusal(exc)}), 404
     except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"error": _review_refusal(exc)}), 400
     # Free-text actor until authentication exists (D-2b); recorded with the
     # decision timestamp and the prior classification state in the same
     # storage transaction that persists the mutated analysis.
