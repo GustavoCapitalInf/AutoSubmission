@@ -36073,3 +36073,244 @@ branch arm. (DECLINES-D's D8 recorded the failure mode this guards against —
 `git stash push` on a clean tree is a no-op that still exits 0 and makes the
 baseline measure the new code.) **No pinned document moves, and there is no
 pinned mover for Ocean to weigh.**
+
+## F9. Findings and questions for Ocean
+
+**1. §FI5 is wrong about the four documents this card moved, and the log is
+corrected here rather than edited in place.** They print a control row; three
+of them print it above the block's column heading. One of the four is not
+dormant — it posts a wire in and a wire out of 18,348.60. Recorded because the
+failure mode — describing the block the reader assembled instead of the
+printing — is the one this cell kept meeting, and the guard against it is
+cheap: bound a block by the document's own structure, and say what the
+DOCUMENT prints.
+
+**2. `TEXTLAYER-CORRUPT` — a new platform card, and this cell believes it is
+the highest-value finding here.** Six `native-pdf-text` documents in the BMO
+family reach the parsers as confident nonsense because the producer's font maps
+glyphs to the wrong Unicode, digits included. The intake classifies them
+`digital`, never offers them to the OCR ladder, and no reason channel says
+anything. RUNG-SEAM built `unreadable_text_layer` for exactly this shape and no
+archive document currently carries it. A cheap structural detector exists — a
+money-shaped run whose leading character is a letter; a section-total label
+that no longer matches its own template while the rest of the template does —
+but the decision (re-OCR? refuse with a reason? flag?) is a platform decision,
+not a parser one. §BMO-LAYOUTS already ruled the six FAIL-CLOSED-BY-DESIGN, so
+this card is about the CHANNEL, not the verdict. **Question for Ocean: whose
+card?**
+
+**3. `MONEY-LETTER-GLUE`.** `(?<![\d.,])` does not exclude a letter, so
+`S0,000.00` reads back as 0.00 rather than refusing. It is a NARROWING, not the
+separator widening §STRUCTFIX-1's Card B proposed and STOPPED after measuring
+30 documents regressing — but a narrowing can still remove a cell a healthy
+document depends on, so it owes the same 133-document sweep. Carded, not
+opened.
+
+**4. `FC-PRODUCT` — needs a ruling, not a fix.** All 39 documents of the
+`first_citizens` family publish the literal fallback `"Business Banking"`
+because `_account_name`'s regex is anchored one line too strictly and matches
+nowhere in the family. The bank prints at least three different products on
+these statements (`Business Banking II`, `Business Banking III`,
+`Analysis Business Checking`). The correction is an anchoring change of two
+characters and it moves an audited published field on a pinned document, so it
+is TRU-SAVINGS-shaped: **Ocean's call whether it rides a ceremony.**
+
+**5. `FC-DACO2-SCAN` — carded with a measured ceiling of 0, and the ceiling is
+the finding.** The cohort is five documents, not the three SN3 counted. Two
+have no statement body in the text layer at all and are reachable only by the
+paid visual rung. Three carry a complete ledger whose digits Tesseract
+corrupted systematically (`1`→`4`); the printed section totals and the control
+identity DETECT the corruption on all three and LOCALISE it uniquely on none.
+**SN3 row 9 should be re-scored from "MEDIUM, ≤3" to "gain 0 without the visual
+rung", with the corrected count of five.**
+
+**6. The L-1 backlog gains a ready-made separator.** `capital_one`'s six are
+three-account statements (§DECLB DB7's ruling, reproduced), and the printed
+`Deposit Accounts` register plus the count of `Previous Balance` blocks
+separates them from the 22 single-account documents perfectly, both ways.
+`likely_account_count` says 1 on all 28 and must not be the oracle.
+
+**7. The detect-sweep budget is one bad day from red, and it is not this
+branch's doing (F10.2).** The corpus-marked slice's first run FAILED
+`test_detect_sweep_stays_affordable_for_the_discovery_run` at **257.1 ms
+projected against a 250 ms budget** while the box carried ten cells' proofs.
+On a quiet box the same quantity reads **108–148 ms** and is indistinguishable
+between this branch and its base. The growth wall was already carded once; batch
+7 is adding registrations in other cells, and a cell that runs its slice under
+load will keep hitting a cap that is measuring the machine.
+
+## F10. Proofs, with verbatim exit codes
+
+| proof | result | exit |
+|---|---|---|
+| full default suite (final tree) | `5391 passed, 35 skipped, 33 deselected, 1 warning in 268.51s (0:04:28)` | 0 |
+| canonical GUARD set (`test_no_statement_hardcodes` + `test_no_parser_helper_clones` + `test_r1_hardcodes` + `test_experiments_are_not_wired` + `test_filename_boundary`) | `242 passed, 1 warning in 18.95s` | 0 |
+| canonical CONFORMANCE set (`test_parser_conformance` + `test_parser_registry_entries` + `test_parser_detection_markers` + `test_parser_registry` + `test_parser_crash_shapes` + `test_parser_exception_boundary` + `test_count_semantics`) | `1151 passed, 35 skipped, 1 warning in 5.22s` | 0 |
+| this cell's tests + the family's existing tests (`test_declines_f_variants` + `test_first_citizens_layouts` + `test_first_citizens_native_layout`) | `65 passed, 1 deselected in 1.09s` | 0 |
+| mutation table, 13 mutants, on the final tree (baseline `17 passed in 0.45s`) | `13/13 killed` | 0 |
+| `python corpus_gate.py` (taken at `4453223`; the production AST is identical at HEAD - F10.3) | `RESULT: GREEN` - 106 PASS / 3 WITHHELD; verdicts 4 review / 102 validated / 3 withheld; `adb_doctrine` 109/109 canonical basis; `currency` 109/109 = 14 CAD / 95 USD; runtime 1499.6s | 0 |
+| corpus-marked slice, FIRST run (box carrying ten cells' proofs) | `1 failed, 28 passed, 5430 deselected, 1 warning in 6326.23s (1:45:26)` - the wall-clock cap, F10.2 | **1** |
+| corpus-marked slice, re-run on the quiet box, final tree | `29 passed, 5430 deselected, 1 warning in 2392.90s (0:39:52)` | 0 |
+| collection: `-m corpus` | `29/5459 tests collected (5430 deselected) in 49.36s` - the batch-6 count of 29, unchanged | 0 |
+| collection: default | `5426/5459 tests collected (33 deselected) in 50.89s` | 0 |
+| the 5 pinned documents these registrations claim, base vs HEAD, whole published payload | `IDENTICAL` x 5 | 0 |
+| family replays, base vs HEAD, whole published payload | `bmo_ca_business` 133/133 identical - `capital_one` 28/28 identical - `first_citizens` 35/39 identical + 4 named movers | 0 |
+| the archive zero-movement sweep, all 3,380 documents, four chunks (F10.1) | `moved` **0** - `payload_now_raises` **0** - `no_payload_now_publishes` **4**, each one of the four named movers | 1 per chunk (findings present, by design) |
+
+Both canonical sets hit their expected counts exactly - guard **242**,
+conformance **1151** - which is the check that the sets were run whole rather
+than approximated. Suite 5,374 (base) -> **5,391** (+17, this cell's test file);
+no corpus-marked test was added, so the slice stays at 29.
+
+### F10.1 The archive zero-movement sweep — all 3,380, in four chunks
+
+`python -m tools.regfp_zero_movement_sweep --rows <run>/rows.csv --data-dir
+<main>/webapp_data --baseline-settings-key
+D3370EEBDCB87892A2739BCB0D882A66E72DCBFAB2553101111157B5A231DE24 --start A
+--end B`, run at branch HEAD from the worktree. The tool **exits 1 when there
+are findings**, so an exit of 1 on a chunk holding one of this cell's named
+movers is the expected result and not a failure.
+
+| chunk | documents | compared | identical | `moved` | `no_payload_now_publishes` | `payload_now_raises` | `no_ocr_artifact` | seconds | exit |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0–850 | 850 | 623 | 623 | **0** | 1 | **0** | 6 | 2,088.9 | 1 |
+| 850–1700 | 850 | 649 | 649 | **0** | 1 | **0** | 5 | 3,231.2 | 1 |
+| 1700–2550 | 850 | 639 | 639 | **0** | 1 | **0** | 11 | 3,114.2 | 1 |
+| 2550–3380 | 830 | 624 | 624 | **0** | 1 | **0** | 7 | 1,847.0 | 1 |
+| **total** | **3,380** | **2,535** | **2,535** | **0** | **4** | **0** | **29** | 10,281.3 | — |
+
+The counts add: 2,535 compared + 812 `no_payload_raises_again` + 29
+`no_ocr_artifact` + 4 `no_payload_now_publishes` = **3,380**.
+
+The four findings, verbatim, one per chunk:
+
+```
+{"content_sha256":"11CF08F9F935891A9A34B78E98D64BBCABCA5678FDF67386FF5CE74006B5874C","verdict":"no_payload_now_publishes","outcome_class":"failed"}
+{"content_sha256":"5F779C962F5FB70CA520DA6E215DFBE30145C5CDA7FF6A1936339EDAB87AA9C0","verdict":"no_payload_now_publishes","outcome_class":"failed"}
+{"content_sha256":"9B30C2BE4389A90B17B6DD6177005A9F488B837BB7E9D88AEFB7077C94121A4A","verdict":"no_payload_now_publishes","outcome_class":"failed"}
+{"content_sha256":"CC1DB089D295AC391FB8998CCBCC68E72DF2FCB637C855AD512F488C6747D586","verdict":"no_payload_now_publishes","outcome_class":"failed"}
+```
+
+**Every finding is one of the four documents F3.4 names, by `content_sha256`,
+and every one is `no_payload_now_publishes`** — the run cached no analysis
+payload for them because the analysis raised, and the branch now publishes.
+**`moved` is 0 and `payload_now_raises` is 0 across all 3,380 documents**: not
+one document that published under the run of record publishes anything
+different at HEAD, and not one stopped publishing.
+
+### F10.2 The one red proof, and why it is the machine
+
+The corpus-marked slice's FIRST run was **`1 failed, 28 passed, 5430
+deselected, 1 warning in 6326.23s (1:45:26)`, exit 1**. The failure, verbatim:
+
+```
+FAILED tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run
+AssertionError: slowest full-registry detect sweep was 237.8 ms over 74 registrations
+(Others/Altana/Altana may 26.pdf), which projects to 257.1 ms at 80 — the budget is 250 ms
+assert 0.2570842162193101 < 0.25
+```
+
+That is a WALL-CLOCK cap, measured while the box was carrying ten batch-7
+cells' proofs — the run itself took 1:45 against the ~30 minutes the slice
+costs alone. This cell did not dismiss it as a flake; the margin is measured
+three ways.
+
+**(a) Structural.** `_summary_block` is reachable only from `_summary`, which
+is reachable only from `parse_first_citizens_statement`. No `detect` on the
+registry calls into it, and the detect sweep never calls `parse`. The registry
+fingerprint is byte-identical on both trees (F8), so the sweep's work is
+identical by construction.
+
+**(b) Paired, alternating arms, six runs on a quiet box.** The single test,
+`-m corpus`, base tree against branch tree:
+
+```
+round 1 base   exit=0   1 passed in 73.51s
+round 1 branch exit=0   1 passed in 104.51s
+round 2 base   exit=0   1 passed in 105.15s
+round 2 branch exit=0   1 passed in 89.90s
+round 3 base   exit=0   1 passed in 100.12s
+round 3 branch exit=0   1 passed in 89.36s
+```
+
+Six of six pass; the readings interleave, and the slowest single run of the six
+is a BASE run.
+
+**(c) The assertion's own quantity, read out instead of asserted**, on both
+trees — the harness imports the test module's `_sweep_seconds`,
+`SWEEP_SAMPLES`, `PLANNED_REGISTRATIONS` and `SWEEP_BUDGET_SECONDS`, so the
+number is the one the assertion makes:
+
+```
+base   worst=135.2ms  projected=146.2ms  budget=250ms  PASS  (WellsFargo/03-31-26)
+branch worst=112.5ms  projected=121.6ms  budget=250ms  PASS  (WellsFargo/03-31-26)
+base   worst=100.1ms  projected=108.2ms  budget=250ms  PASS  (WellsFargo/04-30-26 1)
+branch worst=136.7ms  projected=147.7ms  budget=250ms  PASS  (Others/Altana/Altana june 26)
+```
+
+**108–148 ms on a quiet box against the 257 ms the loaded run read**, and the
+WORST DOCUMENT is not stable between runs — three different documents win
+across four readings, which is the signature of a load-dominated measurement
+rather than a property of any tree. The slice was then re-run whole on the
+quiet box; see the proof table.
+
+### F10.3 Why the corpus gate is not re-owed for the docstring commit
+
+`c361f31` adds a docstring paragraph and nothing else. Proven rather than
+asserted: with every docstring stripped, the AST of `analysis/first_citizens.py`
+is identical to the reviewed tree at `b93d93b` —
+
+    b93d93b  AD3245E5E0D8F35B74B72D168339A8793BB612EE0A5F42B069D15B2D79010DAC
+    HEAD     AD3245E5E0D8F35B74B72D168339A8793BB612EE0A5F42B069D15B2D79010DAC
+
+`corpus_gate.py` measures PRODUCTION output over the pinned 109; identical
+production ASTs cannot produce different published payloads, so re-running it
+would re-measure the same code (§DECLINESD D8.5's argument). Every proof that
+CAN move with a docstring change — the full suite, the guard and conformance
+sets, this cell's tests and the corpus-marked slice — is re-run on the final
+tree.
+
+## F11. Commits
+
+| Commit | Contents |
+|---|---|
+| `b93d93b` | `analysis/first_citizens.py` - `_is_summary_cell` + `_summary_block`, **and** `tests/test_declines_f_variants.py` (17 tests) in the SAME commit, per DECLINESD D9's lesson that a test file committed before its implementation makes a red tree |
+| `9517c87` | F0-F8 - the census, the three diagnoses, the DACO2 ruling, the mutation table, the zero-movement argument |
+| `4453223` | corrections - credit BMO-LAYOUTS family E3 and DECLB DB7 for two of the three diagnoses, cite STRUCTFIX-1's STOP on the same money regex, add the registry-fingerprint identity proof, downgrade the DACO2 "same account" claim to "same source" where it is inference |
+| `c361f31` | the module docstring cites §DECLINESF and corrects §FI5 - docstring only, AST identity proven (F10.3) |
+| (this one) | F9-F12 - the findings for Ocean, the proofs with exit codes, this table, the carried risks |
+
+**The branch is bisectable.** The implementation and every test that exercises
+it are in one commit (`b93d93b`), and the three commits after it are
+documentation. Measured, not asserted: the full suite, the guard and
+conformance sets, this cell's tests and the corpus-marked slice are all green
+on the final tree.
+
+## F12. Risks carried
+
+* **The three-unsigned-cell reading is positional and the identity does not
+  always disambiguate it.** On a dormant month the cells are `200.00 / 0.00 /
+  200.00` and the control record closes under more than one assignment. What
+  separates them is the SECTION gate: a deposits count of 0 forces the deposits
+  total to 0.00, and `_matches` refuses any other assignment. That gate is
+  mutation-killed (M11/M12), but it is worth naming that the arithmetic alone
+  is not sufficient here and the section agreement is doing the work.
+* **The backward scan is bounded by shape, so a document that prints a grid
+  cell immediately above the heading for some OTHER reason would enter the
+  block.** It cannot enter silently — a fourth unsigned cell, a second day
+  count, a second signed cell and a second control row each refuse — but the
+  refusal would be a new one on a document that reads today. Measured over the
+  39 claimed: zero documents have any backward cell except the four movers.
+* **`bank_reported_average_balance` is now published on four more documents.**
+  It is the bank's evidence lane, gates nothing, and the ADB doctrine's one
+  user-facing metric does not read it. On all four it equals our own ADB to the
+  cent, so the pair corroborates rather than conflicts — but
+  `bank_reported_average_hypothesis` has no vocabulary for "identical", and
+  what it reports on these four is worth checking against the ADB-HYPO card.
+* **`account_name="Business Banking"` is published on the four movers**, the
+  family's pre-existing fallback, and it is not what those documents print.
+  Carded as FC-PRODUCT (F9.4); the movers extend an existing inaccuracy rather
+  than introducing a new one, and this cell chose not to move an audited
+  published field in the same branch as a decline widening.
+* **The detect-sweep budget (F9.7).** Not this branch's, but the next cell to
+  run its slice under load will meet it.
