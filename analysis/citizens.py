@@ -245,8 +245,15 @@ _CHECKS_END = r"(?:Total Debits|Debits\s+\*\*|Deposits & Credits|Current Balance
 
 #: The credit grid's own column header opens it. `Date Amount _ Description`
 #: is the same header as `Date Amount Description` with a column rule between
-#: two of its labels, which is what a photograph of a ruled table looks like.
-_CREDITS_START = r"Deposits & Credits.*?Date Amount\W{0,3}\s*Description\s+"
+#: two of its labels, which is what a photograph of a ruled table looks like —
+#: all five scanned statements in the archive print that shape somewhere on the
+#: page.
+#:
+#: The class is `_MARKER`'s and not `\W`, and the difference is the whole
+#: point: `_` is a WORD character, so `\W` is the one class that excludes the
+#: glyph a photographed column rule most often becomes. Written with `\W` this
+#: widening matched nothing it was written for.
+_CREDITS_START = r"Deposits & Credits.*?Date Amount" + _MARKER + r"\s*Description\s+"
 
 #: ...and the two-column footer closes it. The footer prints `Daily Balance`
 #: over the grid on the left and `Current Balance = <figure>` on the right, and
