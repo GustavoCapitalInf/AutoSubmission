@@ -144,7 +144,8 @@ PINNED_REFUSALS: dict[str, str] = {
 # structurally cannot see.
 # ----------------------------------------------------------------------
 #
-# `check_outcomes` above proves 106 PASS / 3 WITHHELD from the audit CSVs, and
+# `check_outcomes` above proves 105 PASS / 3 WITHHELD / 1 REFUSED from the
+# audit CSVs, and
 # both audits are financial: neither has a `flags`, `notes`, `risk_level` or
 # `possible_document_issue` column (see their `FIELDS`). Three consequences,
 # each measured rather than argued, and each a defect this check exists to
@@ -1373,6 +1374,7 @@ def _stats(source_types: dict[str, str], pinned: int, foreign: int, started: flo
         ),
         "pass": EXPECTED_PASS,
         "withheld": EXPECTED_WITHHELD,
+        "refused": EXPECTED_REFUSED,
         "exclusions": len(KNOWN_EXCLUSIONS),
         "runtime_seconds": round(time.perf_counter() - started, 1),
     }
@@ -1473,7 +1475,8 @@ def render(result: Result) -> str:
                   f"{result.stats['committed_ocr_statements']} committed OCR), "
                   f"{result.stats['exclusions']} exclusions",
               f"Ignored:  {result.stats['foreign_pdfs']} non-corpus PDFs under the corpus root",
-              f"Outcomes: {result.stats['pass']} PASS / {result.stats['withheld']} WITHHELD",
+              f"Outcomes: {result.stats['pass']} PASS / {result.stats['withheld']} WITHHELD"
+              f" / {result.stats['refused']} REFUSED",
               "Verdicts: " + (
                   " / ".join(
                       f"{count} {name}"

@@ -1,6 +1,6 @@
 """The corpus gate's per-document verdict check (WIRING-1 card D).
 
-`corpus_gate.check_outcomes` proves 106 PASS / 3 WITHHELD out of the two
+`corpus_gate.check_outcomes` proves 105 PASS / 3 WITHHELD / 1 REFUSED out of the two
 committed audit CSVs. Neither CSV carries a `flags`, `notes`, `risk_level` or
 `possible_document_issue` column, so both oracles are structurally blind to
 three kinds of truth-set movement, and all three are real:

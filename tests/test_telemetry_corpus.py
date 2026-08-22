@@ -208,9 +208,9 @@ def _telemetry_for(rel: str) -> tuple[dict, dict | None]:
 
 @pytest.mark.corpus
 def test_telemetry_reproduces_the_gate_outcome_split():
-    """The 106/3 anchor, from an independent code path.
+    """The 105/3/1 anchor, from an independent code path.
 
-    The corpus gate proves 106 PASS / 3 WITHHELD by re-running two forensic
+    The corpus gate proves 105 PASS / 3 WITHHELD / 1 REFUSED by re-running two forensic
     oracles. Telemetry reaches the same withheld set by reading the product's
     own serialized payload — no oracle, no audit CSV. `validated` and `review`
     are a FINER partition of the gate's PASS (approval is a different question
@@ -286,10 +286,11 @@ def test_withheld_diagnostics_reproduce_the_documented_diagnosis():
     `withheld | review`, so the property changed shape and is restated rather
     than relaxed: it was "the 106 produce empty diagnostics" and it is now
     "the VALIDATED produce empty diagnostics", with the review documents
-    enumerated in `REVIEW_DIAGNOSIS`. The gate's own 106 PASS / 3 WITHHELD is
-    untouched by WIRING-2's ceremony — 106 PASS = 102 validated + 4 review,
-    where it was 100 + 6 — and this test asserts that identity directly so the
-    two vocabularies stay tied together. The split moving inside PASS while the
+    enumerated in `REVIEW_DIAGNOSIS`. The gate's own PASS count was untouched
+    by WIRING-2's ceremony — 106 PASS = 102 validated + 4 review, where it was
+    100 + 6 — and W3 §REPAIRDOC moved it for the first time, to 105 = 102 + 3,
+    by taking one document out of the published set altogether. This test
+    asserts that identity directly so the two vocabularies stay tied together. The split moving inside PASS while the
     oracles' own number does not is precisely the blindness the gate's verdict
     check was added to close.
     """
