@@ -55,6 +55,21 @@ ALLOWED_PRIVATE_IMPORTS = {
     # owned by another cell this cycle.
     ("td_canada_french.py", "td_can", "_credit_counts_from_balances"),
     ("td_canada_french.py", "td_can", "_directions_from_credit_counts"),
+    # chase.py reads the `TRANSACTION DETAIL` grid through chase_savings's
+    # reader. It is ONE printed grid — `DATE DESCRIPTION AMOUNT BALANCE`, the
+    # wrapped-amount-above-its-row rule, the Beginning/Ending bound
+    # furniture — that Chase uses for both its savings product and one
+    # printing of its checking product. `chase_savings` is fenced off from the
+    # checking product by an EXCLUDING detection marker on CHECKING SUMMARY,
+    # so the checking parser cannot be routed to it and must call it instead.
+    # Copying the three would fail `test_no_two_functions_in_analysis_share_a_body`
+    # above, and re-deriving them differently would put two answers to one
+    # question in the tree. Promoting the trio into a shared module is the
+    # right end state and is a separate cleanup: chase_savings.py is owned by
+    # another cell. (W3 §DECLINESE E3.)
+    ("chase.py", "chase_savings", "_grid_lines"),
+    ("chase.py", "chase_savings", "_grid_rows"),
+    ("chase.py", "chase_savings", "_transaction"),
 }
 
 #: Money cleaning belongs in analysis/money.py. This is the signature of the
