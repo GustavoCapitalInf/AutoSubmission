@@ -486,6 +486,29 @@ with, which is itself weaker than the first marker alone. **Every document the
 rule can reach was therefore measured**, and the remaining 3,374 archive
 documents are unreachable by construction rather than by sampling.
 
+**Existing test-suite delta.** The seven modules that mention `atb`
+(`tests/test_analysis.py`, `test_count_semantics.py`, `test_money.py`,
+`test_parser_registry_entries.py`, `test_revenue_classification.py`,
+`test_stated_counts.py`, `test_transaction_classifier.py`) — **957 passed, 35
+skipped** on the tree as checked out and **957 passed, 35 skipped** with the
+prototype active as a session-wide pytest plugin (`-p no:cacheprovider`, no
+cache written). Not one existing assertion moves.
+
+**A finding from getting that run green, which the implementing cell needs.**
+The first attempt failed one test —
+`test_stated_counts.py::test_the_join_resolves_a_payload_from_a_process_that_never_loaded_the_parsers`
+— and the cause was the prototype, not the rule: `registry_key_material` names
+a registration's `parse` by `module.__qualname__`
+(`analysis/parser_registry.py::_declared_callable`), so a wrapper that does not
+carry the declared name rotates the registry fingerprint and therefore the
+analysis settings key. Giving the wrapper the original `__qualname__` /
+`__module__` restored 957/957. **The converse is the part that matters for the
+ceremony: the fingerprint deliberately does NOT capture a function's body**, so
+changing `parse_atb_statement`'s body does *not* rotate the analysis cache key
+on its own. Cached payloads for the 7 movers would be served stale unless
+`ANALYSIS_STAGE_VERSION` moves — which is Ocean's bump at the train, but it is
+an obligation of this ceremony and not an optional one.
+
 **`corpus_gate.py` was deliberately not re-run under the prototype.** It takes
 >20 minutes on this shared machine, and its inputs are provably unchanged for
 everything except the field it now pins: the outcome class and the whole
@@ -667,7 +690,10 @@ The gate's currency line goes `14 CAD / 95 USD` → `19 CAD / 90 USD`.
 3. `python corpus_gate.py` RED-then-GREEN across the five-line pin edit, in the
    same commit as the code.
 4. The archive zero-movement sweep, whose only permitted findings are the two
-   shas of §9.2.
+   shas of §9.2 — and note that the sweep will only *see* the movement if the
+   analysis key rotates: `registry_key_material` names `parse` by declared name
+   and not by body, so the ceremony depends on the `ANALYSIS_STAGE_VERSION`
+   bump (Ocean's, at the train) to invalidate the 7 movers' cached payloads.
 5. A note on the guard set: every literal the rule introduces is layout
    furniture or an institution discriminator — `ATB Financial`, `Financial
    Branch`, `Transit number`, `Transit #`, the institution code `219`,
