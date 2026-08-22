@@ -48,6 +48,7 @@ from . import (
     core_processor_sectioned,
     demo_national,
     desjardins,
+    eq_bank_scanned,
     farmers_merchants,
     fifth_third,
     first_citizens,
@@ -167,6 +168,14 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("dakota_west", "Dakota West Credit Union", community_section, "DAKOTA_WEST_DETECTION_MARKERS", None, "parse_dakota_west_statement"),
     ("demo_national", "Demo National Bank", demo_national, "DETECTION_MARKERS", None, "parse_demo_national_statement"),
     ("desjardins", "Desjardins", desjardins, "DETECTION_MARKERS", None, "parse_desjardins_statement"),
+    # A scanned Canadian direct-bank statement (W3 §TANGERINE). The SN3 census
+    # filed this family under the working name `tangerine`; the cached OCR
+    # text of all five archive documents names THIS issuer instead, and the
+    # string "tangerine" occurs in none of them — so the label here is the one
+    # the page furniture prints (contact domain, head-office footer,
+    # copyright line), as always. `Statement.currency` is deliberately left at
+    # the schema default: see the §CURRENCY note in the parser's module.
+    ("eq_bank_scanned", "EQ Bank", eq_bank_scanned, "EQ_BANK_DETECTION_MARKERS", "detection_text", "parse_eq_bank_scanned_statement"),
     ("farmers_merchants", "Farmers & Merchants Bank", farmers_merchants, "DETECTION_MARKERS", "detection_text", "parse_farmers_merchants_statement"),
     ("fifth_third", "Fifth Third Bank", fifth_third, "DETECTION_MARKERS", "detection_text", "parse_fifth_third_statement"),
     ("first_citizens", "First Citizens Bank", first_citizens, "DETECTION_MARKERS", None, "parse_first_citizens_statement"),
