@@ -135,12 +135,13 @@ def test_a_sibling_with_one_ordinary_posting_beside_its_dividend_is_a_second_led
 
 
 def test_the_dividend_read_is_anchored_at_the_posting_type():
-    """A merchant whose NAME carries the word is not the account's own yield.
-    Isolates the anchor: the arithmetic closes (6.19 - 1.00 = 5.19) and agrees
-    with `ACCOUNT SUMMARY`, so reading the description with `search` instead of
-    `match` would skip this sibling and publish the document."""
+    """A counterparty whose NAME carries the word is not the account's own
+    yield. Isolates the anchor and nothing else: the posting is a CREDIT, the
+    arithmetic closes (5.18 + 0.01 = 5.19) and 5.19 is what `ACCOUNT SUMMARY`
+    states — so reading the description with `search` instead of `match` would
+    skip this sibling and publish the document."""
     text = HEAD + ACTIVE + _money_market(
-        "05/04/26 -1.00 5.19 Card purchase DIVIDEND SOLAR", opening="6.19"
+        "05/04/26 0.01 5.19 ACH Deposit DIVIDEND SOLAR REFUND"
     )
     assert parse_symitar_statement(text) is None
 
