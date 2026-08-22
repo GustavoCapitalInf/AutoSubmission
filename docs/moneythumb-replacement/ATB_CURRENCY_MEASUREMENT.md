@@ -35,10 +35,10 @@ against `RBC_CURRENCY_MEASUREMENT.md`, which Ocean accepted as the standard.
 | Run of record | `discovery_reports/2026-08-21T014415.938236-0000-7a317445` (validated 2,456 / review 16 / withheld 63 / failed 832 / deferred 13; 3,506 rows, **3,380 distinct shas**), settings key `D3370EEB…1DE24` |
 | Text source — archive | the OCR artifact store addressed **by direct file path** — `webapp_data/artifacts/ocr/<key[:2]>/<key>.json`, key recomputed from `cache_key("ocr", content_sha256, ocr_settings_key(…))` over **all eight** capability partitions. The `webapp_data` sqlite index was never opened |
 | Text source — pinned | `ocr.pipeline.parse_statement(raw, profile=inspect_pdf(raw), force_ocr=False, allow_local_ocr=False, allow_visual_ocr=False)` — byte for byte the resolver `corpus_gate.production_verdict` uses, with `source_file` blanked at the source as well |
-| Coverage | 3,351 of 3,380 shas carry a readable OCR artifact; 29 hold no document under any partition (the `invalid_pdf` refusals and the run's 13 deferred negatives) |
+| Coverage | 3,351 of 3,380 shas carry a readable OCR artifact; **29** hold no document under any of the eight partitions — either no artifact at all or a cached NEGATIVE OCR result (the run's 13 deferred scans), both of which are real cached facts and neither of which has text to measure |
 | Filename blindness | every markdown was rebuilt as `StatementMarkdown(source_file="", …).to_markdown()` and then passed through `analysis.parser_registry.admissible_text`, the production admissibility seam. No probe predicate in this packet ever saw a filename or a folder label. Paths were used only to open bytes |
 | Family population | **live detection replay**, never `rows.csv parser_id` alone: `analysis.parser_registry.resolve()` re-run over every stored markdown of the ATB superset. Live verdict agreed with the run's `parser_id` on **6/6** |
-| Fidelity check A | all five pinned `ATB/*.pdf` files hash on disk to the sha pinned in `docs/adb-audit-results.csv`, `docs/balance-metrics-audit-results.csv` **and** `tests/data/parser_expectations.json` — three independent pins, 5/5 agreement |
+| Fidelity check A | all five pinned `ATB/*.pdf` files hash on disk to the sha pinned in `docs/adb-audit-results.csv`, `docs/balance-metrics-audit-results.csv` **and** `tests/data/parser_expectations.json` — three independent pins, 5/5 agreement. And for all five, the artifact store's cached OCR document renders **byte-identical** admissible markdown to a fresh `parse_statement` read of the bytes on disk (5/5), so the archive instrument and the pinned resolver are reading the same document |
 | Fidelity check B | for the 2 archive movers the selected OCR artifact is the one whose reconstruction **resolves the run's own stored analysis payload key**, which is per-document proof rather than an ordering; and this cell's before-payload reproduces the run of record's own `outcome_class` on **6/6** ATB archive documents (2 `withheld`, 4 `failed`/raises) |
 | Prototype | a scratchpad-only runtime `dataclasses.replace` of the `atb` registration's `parse`. No repository file was modified to obtain any number in this packet |
 
@@ -99,7 +99,7 @@ Rung 2 — four *affirmative* structural proofs, all printed by the document:
   ATB's **own** institution number, 219 (`Statement date … Transit number
   08479-219 Customer number … Page number 1 of 5`).
 * **J_ACCOUNT** — the same CPA transit-institution designator at an *account*
-  site (`00273985278 Transit # 08479-219`). A U.S. deposit account has no
+  site (`<11-digit account number> Transit # 08479-219`). A U.S. deposit account has no
   transit number of this shape, and no U.S. institution is numbered 219 on the
   Canadian rails.
 * **J_SERVICE** — ATB's own service furniture: `atb.com` and/or the Canadian
@@ -118,11 +118,22 @@ Rung 2 — four *affirmative* structural proofs, all printed by the document:
 The jurisdiction default never resolves an ambiguity; it speaks only where the
 page is silent (doctrine §B item 4, fail closed).
 
-**Why ATB's institution number is admissible evidence and a bank name is not.**
-219 is Alberta Treasury Branches' institution number on the Canadian Payments
-Association rails — it exists only inside the Canadian clearing system and only
-for this institution. It is layout-independent structural identity, not a
-statement-specific constant: no amount, no date, no account number and no
+**Why ATB's institution number is admissible evidence and a bank name is not —
+measured, not asserted.** 219 is Alberta Treasury Branches' institution number
+on the Canadian Payments Association rails: it exists only inside the Canadian
+clearing system and only for this institution. Measured over the whole archive,
+by direct artifact scan of all 3,351 readable documents:
+
+| | |
+|---|---|
+| documents carrying the shape `<5 digits>-219` | **6** |
+| of those, documents carrying **no** ATB token | **0** |
+| the shape `<5 digits>-<3 digits>` in general | common — the archive's other Canadian institution codes include `500` (7 docs), `114` (4), `654` (4), `800` (4), `250`, `650`, `764`, … |
+
+So the *shape* is generic Canadian rail furniture and the *code* is
+discriminating: `-219` appears on exactly the six ATB archive documents and
+nowhere else. It is layout-independent structural identity, not a
+statement-specific constant — no amount, no date, no account number and no
 merchant vocabulary is involved.
 
 ---
@@ -156,7 +167,7 @@ printed text only:
 | ATB print-control mailing header (`ATB0114003_…`) | | **11/11** |
 | Product — `Deposit Account Statement` | | 7 (the 7 movers) |
 | Product — `Consolidated Statement` | | 4 (the 4 unclaimed) |
-| Canadian orthography `Chequ…` on the page | | 2 (a `Cheque #` posting, a `Cheque images` counter) |
+| Canadian orthography `Chequ…` on the page | | **2 of 11** — and both are ledger furniture (an `ABM Cheque deposit` posting; a `Cheque images` counter plus two `Cheque #…` postings), never a product name. See §8(e) |
 
 **Over the 7-document movement population, all four jurisdiction proofs hold on
 7/7 — and so do they on all 11.** This is not a residual claim: §6 measures the
@@ -266,24 +277,31 @@ Business Account`.
 
 | | |
 |---|---|
+| the four Canadian proofs | `J_ISSUER` ✓ `J_HEADER` ✓ `J_ACCOUNT` ✓ `J_SERVICE` ✓ — **all four hold** |
+| `US_INSTITUTION` | no hit |
+| `CONTRARY_CURRENCY` | **hit** |
 | rung 1 `printed_currency_evidence` | `{USD}` |
 | rung 2 `jurisdiction_currency` | **None** |
 | published `statement_currency` | **`USD`** |
 
-The document satisfies all four Canadian proofs and is still not defaulted: the
-contrary sweep refuses rung 2, and rung 1 reads what the page says. This is
-doctrine §A's `RBC U.S. Dollar / U.S. Funds account → USD` example, in ATB's
-layout.
+This is the case that matters, and it is the strongest form of proof 3: the
+document is *provably* an ATB Alberta account on all four jurisdiction proofs
+and it is still not defaulted, because the contrary sweep refuses rung 2 and
+rung 1 reads what the page says. Doctrine §A's `RBC U.S. Dollar / U.S. Funds
+account → USD` example, in ATB's layout.
 
-**S2 — the consolidated layout, denominated USD.** The same synthetic exercise
-against the other product: `Deposits Value on Jun 30, 2026` followed by a bare
-`USD` header. rung 1 → `{USD}`, rung 2 → **None**, published → **`USD`**.
+**S2 — the consolidated layout, denominated USD.** The same exercise against
+the other product: `Deposits Value on Jun 30, 2026` followed by a bare `USD`
+header. rung 1 → `{USD}`, rung 2 → **None**, published → **`USD`**. Refused
+twice over — the contrary sweep fires, and this minimal synthetic also carries
+no account-site `Transit #` so `J_ACCOUNT` fails (3 of 4 proofs).
 
 **S3 — a U.S. bank calling itself ATB.** `ATB Financial USA, N.A.`,
 `Member FDIC`, `Routing Number: 053000219`, `Raleigh NC 27612`, a 10-digit
-account number and no transit shape: rung 1 → `{}`, rung 2 → **None**,
-published → **None**. It fails on the U.S. discriminator *and* on all four
-Canadian proofs independently.
+account number and no transit shape: `US_INSTITUTION` **hits**, all four
+Canadian proofs **fail**, rung 1 → `{}`, rung 2 → **None**, published →
+**None**. It is refused on the U.S. discriminator *and* on every Canadian proof
+independently.
 
 **S4 — the hostile case: a genuine ATB page with one foreign token grafted
 onto it.** Control → CAD 11/11. With each token added, over all 11 documents:
@@ -334,7 +352,7 @@ Common to all five, measured rather than assumed:
 * `docs/adb-audit-results.csv` and `docs/balance-metrics-audit-results.csv`
   each carry the document at row **5–9**, `bank ATB Financial`, parser
   `atb-financial-deterministic`, status **PASS**, `underwriting_adb_basis
-  calendar_day_printed_period`, account `00273985278`. **Neither file has a
+  calendar_day_printed_period`, and the same account number on all five. **Neither file has a
   currency column** (measured: `currency` column present = False in all three
   audit CSVs).
 * `docs/new-statement-audit-results.csv` — **document absent** (that file holds
@@ -359,8 +377,8 @@ Common to all five, measured rather than assumed:
 
 Every other field of every one of the five is byte-identical before and after
 (§6). All five are one Alberta business — the same customer number
-`0002913777`, transit `08479-219` (Fort McMurray Downtown Branch), account
-`00273985278`, product `Unlimited Business Banking` — so the five are one
+the same customer number, the same transit `08479-219` (Fort McMurray Downtown
+Branch), the same account number and the product `Unlimited Business Banking` — so the five are one
 account's consecutive months, and moving them moves one account's denomination,
 not five unrelated judgements.
 
@@ -400,11 +418,13 @@ Direction census over every mover: `Counter({('USD','CAD'): 7})`. There is
 
 Mover outcome classes in the run of record / the gate: **validated 5 (pinned)
 · withheld 2 (archive)**. The two withheld documents still publish a payload and
-therefore still publish a currency; their withheld verdict does not change
-(§6). Their `withheld_adb` reason is structural and unrelated to currency —
-both are multi-month merged packets (one carries six `Deposit Account
-Statement` issues over 28 pages, the other five over 24), which is what the
-withholding is about.
+therefore still publish a currency; their outcome class, reason and whole
+integrity block are byte-identical before and after (§6). Both are one Alberta
+business's **multi-month merged packets** — the same customer number
+and transit `07409-219` (Calgary North Hill Branch), product
+`Business Self-serve`: `1B6768E8…` carries six monthly issues (Jan–Jun 2026)
+over 28 pages, `7F2B71AF…` five (Jan–May 2026) over 24. The currency movement
+is correct for every month in both, because every month is the same account.
 
 The pinned currency surface moves **14 CAD / 95 USD → 19 CAD / 90 USD**.
 
@@ -506,20 +526,28 @@ carrying no `ATB` token, no contrary-currency token and no U.S.-institution
 token — was given a source comment printing every ATB proof at once
 (`Statement date August 31, 2023 Transit number 08479-219 … Your ATB Financial
 Branch 08479 Fort McMurray Downtown Branch 11 Haineault St Fort McMurray AB T9H
-1R8 00273985278 Transit # 08479-219 www.atb.com.pdf`).
+1R8 <11-digit account number> Transit # 08479-219 www.atb.com.pdf`).
 
 | | |
 |---|---|
 | an **unanchored** reading of the forged string would find all four proofs | **True** (measured, so the claim is not vacuous) |
-| `jurisdiction_currency`, raw string, boundary bypassed | **None** — the line anchors already refuse it |
+| the four proofs on the **raw** string, boundary bypassed | `J_ISSUER` **False** · `J_HEADER` **True** · `J_ACCOUNT` **True** · `J_SERVICE` **True** |
+| `jurisdiction_currency`, raw string, boundary bypassed | **None** |
 | `admissible_text` removes the comment | **True** (`"source:" not in` the result) |
+| the four proofs **through** the seam, i.e. production | `J_ISSUER` **False** · `J_HEADER` **False** · `J_ACCOUNT` **False** · `J_SERVICE` **False** |
 | `jurisdiction_currency`, through `admissible_text`, i.e. production | **None** |
 
-Direction (b) is closed **twice over**: the two line anchors could never read a
-filename, because a filename arrives as one line that neither begins with the
-branch heading nor ends at a postal code; and the seam removes the comment
-before any parser runs. That the *unanchored* reading is fooled is what makes
-the anchors load-bearing rather than decorative.
+**This is measured rather than assumed, and the measurement is worth stating
+plainly: a filename really can manufacture three of the four proofs.**
+`J_HEADER`, `J_ACCOUNT` and `J_SERVICE` all fire off the unstripped source
+comment. Only `J_ISSUER` refuses it, because it is the one proof anchored to
+*end* at a Canadian postal code and a source comment always ends with the
+intake metadata. So direction (b) is closed by the conjunction plus one anchor
+on the raw string, and by the seam absolutely — and the honest reading is that
+**the seam is doing most of the work here, not the anchors.** An implementation
+that widened `J_ISSUER` (say, to accept the branch line without its postal code)
+would lose the raw-string refusal entirely and be left standing on
+`admissible_text` alone. Both facts belong in the implementing cell's tests.
 
 **(c) A filename cannot suppress it either.** A genuine ATB packet document
 given the source comment `ATB Financial USA, N.A. Member FDIC Routing Number
@@ -546,12 +574,11 @@ Four archive documents are filed as `ATB Chequing Account - June 2026.pdf` and
 `RECONCILED - ATB Chequing - March/April/May 2026.pdf`. Their pages print
 `Consolidated Statement`, never the word `Chequing`; the products they actually
 carry are `Business Self-serve`, `Business Growth Plus`, `Independent Business
-Loan - Revolving` and `Business Term Loan`; and the deposit balances they
-report are in the low hundreds of dollars against six-figure loan balances. A
-filename-driven rule would have filed four multi-account consolidated
-statements as chequing accounts. Conversely the five pinned documents are filed
-under a folder named `ATB` and are ATB — but the packet does not depend on that
-agreement, and §8(b)/(c) prove it cannot.
+Loan - Revolving` and `Business Term Loan` — two deposit accounts and two loan
+accounts, not a chequing account. A filename-driven rule would have filed four
+multi-account roll-ups as chequing statements. Conversely the five pinned
+documents are filed under a folder named `ATB` and are ATB — but the packet does
+not depend on that agreement, and §8(b)/(c) prove it cannot.
 
 ---
 
@@ -649,7 +676,7 @@ The handoff asked three questions of them. Measured answers:
 |---|---|
 | `content_sha256` | `284B775D64C9F1F9464E11C5894260C8B9BD03E44774AF0FC0EC20B5F96E35D5` (12 pp) · `EE09ADA6FCD4637A9FE0208FD5598B4861DA009082289CCBC3EF4FDA3E9DDE69` (12 pp) · `745B2968DC5A01970F0E8DAE6D47AB54BCF79ECEBF3D3CBF6700198F15F62B0E` (10 pp) · `F1DA262D1C28D1AB6BA8E82EEA2BCDA4D51848CE599B11C90F668360F859915D` (10 pp) |
 | **Is it ATB?** | **Yes, on all 11 evidence classes of §1** — `ATB Financial`, the branch-of-domicile line (`Diamond Valley Branch 122 Centre Ave W Diamond Valley AB T0L 0H0`), `Transit number 07239-219`, `Transit #07239-219`, `www.atb.com`, `1 800 332-8383`, the `ATB0114003_…` print-control header, INTERAC e-Transfer rails, Alberta postal codes. All four jurisdiction proofs hold 4/4 |
-| **Which product?** | **`Consolidated Statement`** — a multi-account statement, a different product from the `Deposit Account Statement` the five pinned documents carry. Each contains a `A summary of your accounts on <date>` roll-up followed by per-account sections: two deposit accounts (`Business Self-serve`, `Business Growth Plus`) and one or two loan accounts (`Independent Business Loan - Revolving`, `Business Term Loan`), each with its own `Transit #07239-219`. All four are consecutive months (March, April, May, June 2026) of one Alberta business, customer number `0003130386` |
+| **Which product?** | **`Consolidated Statement`** — a multi-account statement, a different product from the `Deposit Account Statement` the five pinned documents carry. Each contains a `A summary of your accounts on <date>` roll-up followed by per-account sections: two deposit accounts (`Business Self-serve`, `Business Growth Plus`) and one or two loan accounts (`Independent Business Loan - Revolving`, `Business Term Loan`), each with its own `Transit #07239-219`. All four are consecutive months (March, April, May, June 2026) of one Alberta business, on one customer number |
 | **What does it print about currency?** | **`CAD`, explicitly, twice per document** — a bare `CAD` line under `Deposits Value on <date>` and again under `Loans Value on <date>`. It prints no USD spelling of any kind, and no other ISO code |
 | Why no parser claims them | the `atb` registration's two REQUIRED markers are `ATB Financial` (matches) and `Deposit Account Statement` (**does not match** — the title is `Consolidated Statement`). Detection score **0.166667** against a claim threshold; `excluded_by` is `None`, so this is a genuine gap in layout knowledge, not a refusal. `atb` is nevertheless the **top near-miss in the whole registry** for all four (`atb:0.166667; regions:0.125; navigant:0.1; relay:0.1`), and `analyze_markdown` raises `RuntimeError: no deterministic parser matched this statement`, which is the run's `failed`/`no_parser_matched` |
 | **What this means for a future reader** | **The right default is CAD — and for this product it is not a default at all.** A reader born for the ATB consolidated layout must read the printed `CAD` header at rung 1; the jurisdiction default is the fallback it will never need on these four. The value that reader publishes must therefore be provenance-tagged `printed`/`explicit`, not `jurisdiction_default`, or the surface will over-report how much of the corpus is defaulted. This is the single most useful thing the four documents contribute: **ATB denominates its own consolidated statements, and it denominates them CAD** — independent corroboration of the default the seven movers get without a print (§1) |
