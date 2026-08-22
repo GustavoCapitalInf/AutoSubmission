@@ -668,6 +668,16 @@ The gate's currency line goes `14 CAD / 95 USD` → `19 CAD / 90 USD`.
    same commit as the code.
 4. The archive zero-movement sweep, whose only permitted findings are the two
    shas of §9.2.
+5. A note on the guard set: every literal the rule introduces is layout
+   furniture or an institution discriminator — `ATB Financial`, `Financial
+   Branch`, `Transit number`, `Transit #`, the institution code `219`,
+   `atb.com`, the Canadian toll-free, the Canada Post letter alphabet — all
+   registry-local to the `atb` registration. There is no amount, no date, no
+   account number, no period and no merchant or lender vocabulary. This is the
+   same shape `analysis/rbc.py` already carries past
+   `tests/test_no_statement_hardcodes.py` and `tests/test_r1_hardcodes.py`
+   (`rbcroyalbank.com`, `1-800-769-2520`, the CPA transit spellings), so the
+   precedent is established rather than argued.
 
 ---
 
