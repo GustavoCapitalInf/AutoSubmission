@@ -35425,7 +35425,7 @@ corpus-marked slice are Ocean's at the train, on the composed tree.
 
 DECLINES-G, 2026-08-21. Branch `wave7-declinesg`, base `e83f746` (main, the
 batch-7 phase-A handoffs). Brief: `docs/agent-handoffs/DECLINES-G.md`. Four
-production files, two of which change behaviour; three test files; this log.
+production files, two of which change behaviour; two test files; this log.
 `ANALYSIS_STAGE_VERSION` NOT bumped — published output moves on 7 archive
 documents, so the bump is Ocean's to compose.
 
@@ -35440,7 +35440,7 @@ documents, so the bump is Ocean's to compose.
 | Refusals proved unliftable, with a measured ceiling | `scotia.py:276` — ceiling **withheld**, never validated (G5) · `consumers.py:73` — L-1, ceiling **0** (G6) |
 | Byte-identity | **103 of the 110** claimed documents are byte-identical in the WHOLE published payload; the other 7 are the named movers |
 | Pinned corpus | `fiserv_premier` and `symitar` — the two modules whose behaviour changed — claim **0** of the pinned 109 by live detection replay. The two that do claim one each (`scotiabank`, `consumers`) carry a **docstring-only** diff, proved by docstring-stripped AST identity. No pinned document can move, structurally |
-| Mutation table | **13/13 killed** on the first table; one survivor found and closed, then **13/13** again |
+| Mutation table | **14/14 killed** — after two intermediate failures this cell records rather than hides (G10) |
 
 ## G1. The instrument
 
