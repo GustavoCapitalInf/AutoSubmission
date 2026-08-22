@@ -5,6 +5,7 @@ import hashlib
 from collections import Counter
 from pathlib import Path
 
+import corpus_gate
 from analysis.schema import Statement, Transaction
 from balance_forensic_audit import independent_balances
 
@@ -40,15 +41,40 @@ def test_balance_audit_inventory_and_source_hashes_are_complete():
 
 
 def test_balance_audit_has_no_unresolved_production_difference():
-    rows = _rows()
-    statuses = Counter(row["status"] for row in rows)
+    """Every audited statement's production figures equal the oracle's.
 
-    assert len({row["bank"] for row in rows}) == 44
-    assert len({row["parser"] for row in rows}) == 44
+    W3 §REPAIRDOC added the third status. A REFUSED row is not a difference
+    that was resolved and not one that was tolerated: the analysis published
+    NOTHING for that document, so there is no production figure for an
+    independent one to differ from, and every audited column on the row is
+    empty rather than carrying a stale reading. The empties are asserted
+    directly below, so the status cannot become a way to hide a real value.
+
+    The bank and parser counts drop from 44 to 43 for the same reason: the
+    refused document is the only Columbia Bank statement in the pinned corpus,
+    and a row with no analysis names no bank and no parser.
+    """
+    rows = [row for row in _rows() if row["status"] != corpus_gate.REFUSED_STATUS]
+    refused = [row for row in _rows() if row["status"] == corpus_gate.REFUSED_STATUS]
+    statuses = Counter(row["status"] for row in _rows())
+
+    assert len({row["bank"] for row in rows}) == 43
+    assert len({row["parser"] for row in rows}) == 43
     assert statuses == {
-        "PASS": 106,
-        "WITHHELD_SOURCE_CONTRADICTION": 3,
+        "PASS": corpus_gate.EXPECTED_PASS,
+        "WITHHELD_SOURCE_CONTRADICTION": corpus_gate.EXPECTED_WITHHELD,
+        corpus_gate.REFUSED_STATUS: corpus_gate.EXPECTED_REFUSED,
     }
+    assert {row["path"] for row in refused} == set(corpus_gate.PINNED_REFUSALS)
+    for row in refused:
+        assert row["root_cause"] == corpus_gate.PINNED_REFUSALS[row["path"]]
+        for column, value in row.items():
+            if column in {"statement", "path", "sha256", "pages", "source_type",
+                          "status", "root_cause", "fix_applied", "regression_risk",
+                          "confidence"}:
+                continue
+            assert value == "", (row["path"], column, value)
+
     assert all(row["exports_valid"] == "True" for row in rows)
     assert all(row["dashboard_binding_valid"] == "True" for row in rows)
     for row in rows:
