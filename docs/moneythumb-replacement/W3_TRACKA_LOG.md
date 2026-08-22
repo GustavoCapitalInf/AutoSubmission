@@ -35420,3 +35420,743 @@ the file restored from an untouched copy.
 
 No production file changed in this round. The corpus gate and the full
 corpus-marked slice are Ocean's at the train, on the composed tree.
+
+
+---
+# §PRIVACY3 — the date grammar was the money grammar, one module over
+
+Batch 7, card 10. Base main `e83f746` (the batch-7 phase-A handoffs), branch
+`wave7-privacy3`, worktree `.claude/worktrees/mt7-privacy3`. Run of record
+`2026-08-21T014415.938236-0000-7a317445`. Owned files: `analysis/date_tokens.py`,
+`analysis/bmo.py`, `analysis/farmers_merchants.py`, `analysis/td_can.py`,
+`analysis/community_section.py`, `analysis/demo_national.py`,
+`analysis/relay.py`, `analysis/pipeline.py` (the escalation guard only),
+`webapp/app.py`, `webapp/worker.py` (the m-7 arm only), `ocr/availability.py`,
+`tests/test_no_statement_hardcodes.py`, `tests/test_worker_privacy.py`,
+`tests/test_privacy3_boundaries.py` (new), this log.
+
+**The card:** five findings the batch-6 privacy reviews carried and could not
+own — APP-PRIVACY, RAISE-PRIVACY-2, PIPELINE-PARSEMODE, WORKER-PRIVACY m-7,
+G7.3 — bundled because each is a boundary of the same class and none moves an
+outcome.
+
+## P0. Summary
+
+**The census moved the card. The named symptoms were six `ValueError(value)`
+parser sites and twenty `strptime` lines; the measurement found that four of
+those twenty cannot leak at all, that three of the six live in other cells'
+files, and that the biggest site in the class was not on the list — the SHARED
+date grammar, `analysis/date_tokens.py`, which 33 modules import and 16 read a
+leaking function of, and which leaked exactly the way `analysis/money.py` did.**
+
+| | before | after |
+|---|---|---|
+| poisoned cells that leaked (76 shared cells) | **53** | **0** |
+| exception class + returned value, per cell | — | **76 / 76 identical to base** |
+| non-literal `raise` sites in `analysis/` | 17 | 13 (3 deferred to other cells, 10 clean by census) |
+| `strptime` CALLS in `analysis/` that can escape | 17 of 22 | **3** (all in other cells' files) |
+| the `webapp/` exception ledger | 2 entries | **empty** |
+| mutants | — | **27 killed, 0 survivors** |
+| archive movement on the 3,380 | — | **0 movers over 3,380; findings `[]`** |
+
+`analysis/date_tokens.py` is the find. §MONEYPRIV MP8 item 2 said the two date
+sites in its ledger "want the same treatment from a date-side constructor";
+this cell built that constructor and then discovered the constructor's own
+module was the largest raiser of the class, invisible for the same reason
+§MONEYPRIV's four "inherited" sites were: **there is no `raise` to grep for**.
+`iso_from_month_day` and `iso_from_month_day_year` document "raises ValueError
+for a token that is not month/day" and let `int()` be that raise —
+`invalid literal for int() with base 10: '<the printed cell>'` — while `date()`
+supplies the other half.
+
+## P1. The measurement that changed the shape of the card: `date()` quotes
+
+Recorded first because everything downstream rests on it and because it is
+version-dependent. On this tree's CPython (3.14.5), `datetime.date`'s own
+`ValueError` echoes the offending NUMBER back:
+
+```
+date(2026, 13,  1)  -> ValueError: month must be in 1..12, not 13
+date(2026,  2, 30)  -> ValueError: day 30 must be in range 1..28 for month 2 in year 2026
+date(99999, 1,  1)  -> ValueError: year must be in 1..9999, not 99999
+```
+
+Older CPython said only `month must be in 1..12`. So a whole family of date
+sites that were content-free on 3.11 became quoting sites on 3.13+, silently,
+with no code change anywhere. Three consequences this cell acted on:
+
+1. It is a leak WITHOUT A CANARY — the token never appears, only its digits —
+   which is precisely the class §MONEYPRIV MP12 MINOR-6 measured understating
+   its own defect by nine cells. Every proof in this card asserts digit RUNS,
+   not just the canary, and four of the shipped cases (`POISONED_LONG_PERIODS`)
+   carry no canary at all.
+2. `period_from_long_dates`, documented "returns None", could publish a printed
+   day and a printed year out of a `date()` call.
+3. It is the reason the fix wraps `date()` and not only `int()`.
+
+## P2. The raise-site census, before and after
+
+AST, whole `analysis/` package, every non-literal `raise` and every `strptime`
+call, each classified by whether its exception can ESCAPE the enclosing
+function (harness in the session scratchpad; the verdict column is computed
+from the lexically enclosing `try`, not eyeballed).
+
+### P2.1 `raise <Exception>(<not a literal>)` — 17 sites before, 13 after
+
+| # | site | before | after | owner |
+|---|---|---|---|---|
+| 1 | `bmo.py:42` `_amount` | `ValueError(value)` — the money cell | `_refusal("bmo._amount", value)` | **THIS CELL** |
+| 2 | `farmers_merchants.py:19` `_amount` | `ValueError(value)` | `_refusal("farmers_merchants._amount", value)` | **THIS CELL** |
+| 3 | `td_can.py:152` `_native_date_to_iso` | `ValueError(value)` — a date cell | `date_refusal("td_can._native_date_to_iso", value)` | **THIS CELL** |
+| 4 | `date_tokens.py:104` `iso_from_month_day_year` | `ValueError(f"unknown century mode: {century}")` | a fixed literal naming the two legal modes | **THIS CELL** |
+| 5 | `chase.py:47` `_money_required` | `ValueError(value)` | **unchanged** | DECLINES-E — LISTED |
+| 6 | `scanned_small_bank.py:45` `_money` | `ValueError(value)` | **unchanged** | SCAN-FINISH — LISTED |
+| 7 | `scanned_small_bank.py:52` `_iso` | `ValueError(value)` — a date cell | **unchanged** | SCAN-FINISH — LISTED |
+| 8-11 | `count_semantics.py:143/172/174/1205` | schema field names, rule names, direction names | unchanged | clean — read, not assumed |
+| 12-16 | `parser_registry.py:521/523/582/590/678` | registry ids | unchanged | clean (§MONEYPRIV MP8 verified) |
+| 17 | `pipeline.py:526` | `parse_mode`, a caller-supplied API argument | unchanged | clean |
+
+**The card said six sibling sites. There are six, and three of them are other
+cells' files.** The three LISTED sites are named for Ocean in P10.
+
+### P2.2 The `strptime` class — 20 named lines, 22 CALLS, and four that never leaked
+
+| module | lines | calls | before | after | owner |
+|---|---|---|---|---|---|
+| `community_section` | 30, 290, 315, 411, 504, 505, 539×2 | 8 | ESCAPES | `parsed_datetime` | **THIS CELL** |
+| `demo_national` | 37, 38, 72 | 3 | ESCAPES | `parsed_datetime` | **THIS CELL** |
+| `relay` | 172, 173, 203 | 3 | ESCAPES | `parsed_datetime` | **THIS CELL** |
+| `burke_herbert` | 215, 216 | 2 | **already CAUGHT** by its own `try/except ValueError: return None` | unchanged | already closed |
+| `huntington` | 272, 273 | 2 | **already CAUGHT** | unchanged | DECLINES-E — already closed |
+| `columbia_bank` | 449, 450 | 2 | ESCAPES | unchanged | REPAIR-DOCTRINE — LISTED |
+| `scotia` | 162 | 1 | ESCAPES | unchanged | DECLINES-G — LISTED |
+| `dates.py` | 63 | 1 | CAUGHT (the counter-example §MONEYPRIV named) | unchanged | — |
+
+**Two corrections to the batch-6 ledger, both measured.** The count is 22 calls
+on 20 lines (`community_section:539` holds two). And **four of the twenty named
+lines cannot leak at all** — `burke_herbert`'s two and `huntington`'s two sit
+inside a `try` whose handler returns `None`, so their message never leaves the
+function. That is 4 of 20 named as a defect that was already closed, which is
+the kind of thing a mechanical grep produces and a census corrects.
+`test_the_already_closed_strptime_sites_stay_closed` pins both, so "already
+closed" is a measurement rather than a claim and a later edit that moves a call
+out of its handler fails.
+
+### P2.3 The site the card did not name, and the reason it is the biggest one
+
+`analysis/date_tokens.py` — the R-2 shared row-date grammar — held **four**
+leaking sites, none of them a `raise` statement:
+
+| site | the leak |
+|---|---|
+| `iso_from_month_day:72` | `[int(part) for part in token.split(separator, 1)]` → `invalid literal for int() with base 10: '<cell>'`; then `date()` (P1) |
+| `iso_from_month_day_year:105` | the same, three-way; then `date()` |
+| `period_from_long_dates:207-208` | `date(int(sy), start_month, int(sd))` — echoes the printed day and year, out of a helper documented to RETURN NONE |
+| `iso_from_month_day_year:104` | `f"unknown century mode: {century}"` — a caller literal today, but `century` is a parameter |
+
+Its blast radius is the reason it matters. Measured (P6): 33 modules import
+`date_tokens`; **16 of them call one of the four leaking functions** —
+`iso_from_month_day` from 10 modules over 17 production call sites,
+`iso_from_month_day_year` from 5 over 8, `period_from_long_dates` from 3
+(`chase`, `chase_savings`, `regions`). Closing four sites closes sixteen
+readers at once, which is the leverage `money._refusal` bought one module over.
+
+## P3. The fix: a second constructor, the same two decisions
+
+`analysis/date_tokens.py` gains `date_refusal(reader, token) -> ValueError` and
+`parsed_datetime(token, fmt, *, reader) -> datetime`, built to §MONEYPRIV MP2's
+pattern exactly.
+
+**One constructor.** The property being defended is a property of the SET, and a
+property of a set is only as strong as its widest member. `_refusal_class` is a
+closed four-value vocabulary chosen by MEASUREMENT on the token (is it empty,
+does it hold a digit, is it longer than `MAX_DATE_TOKEN_CHARS`), with a single
+interpolation of a module constant.
+
+**The chain is severed, not suppressed.** Every raise stands OUTSIDE the
+`except` that swallowed the conversion error, so the refusal carries neither
+`__cause__` nor `__context__`. The AST guard (P5) has three clauses because the
+property has three ways to break, and the two the dynamic sweep structurally
+cannot see are `from exc` and the raise moved three lines up into the handler.
+`from None` is not a fix and has its own case: it clears `__cause__` and sets a
+RENDERING hint while `__context__` still holds the object.
+
+**Public, unlike `money._refusal`.** The parser layer's own date sites refuse
+through it (`td_can._native_date_to_iso` is a caller), so a parser that grows a
+sixth date shape reaches for this rather than writing a twelfth message.
+
+**One site was deliberately NOT wrapped.** `iso_within_period:273`'s `date()`
+cannot raise: `year_within_period` returns a year only for a candidate it
+already constructed with the same month/day inside its own `try`, so the triple
+is proven before it gets there. A handler that can never fire is noise a later
+reader has to re-derive. Asserted, not argued
+(`test_iso_within_period_cannot_raise_because_the_triple_is_already_proven`).
+
+### P3.1 `money._refusal` became public, because the clone guard said so
+
+The first revision imported it by its private name — which is what §MONEYPRIV
+MP8 prescribed ("`money._refusal` is importable") and what this cell's own
+ledger then carried as a follow-up for somebody else. **The full suite killed
+it**, which is what a full suite is for:
+
+```
+FAILED tests/test_no_parser_helper_clones.py
+       ::test_no_parser_imports_a_private_helper_from_another_parser
+1 failed, 5508 passed, 35 skipped, 33 deselected   725.36s
+```
+
+The guard's own remedy text is "promote the helper into a shared module under
+`analysis/`", and `analysis/money.py` is already declared one
+(`SHARED_UTILITIES = {"money.py", "date_tokens.py", "tables.py"}`), so the
+promotion is the NAME and nothing else. `money_refusal(reader, token)`
+delegates to `_refusal`; every `raise` inside `money.py` is still a bare
+`raise _refusal(...)` byte for byte, so §MONEYPRIV's AST chain-guard reads the
+file it has always read. The two shared grammars are now symmetric —
+`money.money_refusal` and `date_tokens.date_refusal`, both public, both
+returning.
+
+**An `ALLOWED_PRIVATE_IMPORTS` entry was NOT taken.** That set is a debt
+register whose own ratchet test deletes stale entries, and all three existing
+members are a parser reaching into another PARSER (`rbc`→`td_can`,
+`td_canada_french`→`td_can` ×2). Adding debt while the guard names the correct
+fix would be the wrong trade, and the correct fix is four lines.
+
+`test_every_exported_callable_is_swept` then forced the second half: a new name
+in `money.__all__` must have a poisoned-token case, so the money privacy suite
+goes **334 → 352** with a `_raise` helper that raises what the returning
+constructor hands back — exactly what a call site does. (One `INVOCATIONS`
+entry is six poisoned shapes through THREE sweep tests, so +18 and not the
+intuitive +6. `391d862`'s commit message says 340, which was an inference
+written before the count was taken; the measured figure is 352 and P13.2 is
+where it reproduces.)
+
+**Naming convention, stated because it differs from `money.py`'s own.** The
+readers inside `money.py` are bare function names and
+`test_a_refusal_is_a_value_error_in_the_named_vocabulary` asserts
+`reader.isidentifier()`. This cell's parser-layer sites are MODULE-QUALIFIED
+(`bmo._amount`, `farmers_merchants._amount`,
+`td_can._native_date_to_iso`) because three modules have a function called
+`_amount` and a diagnosis that cannot say which file is not a diagnosis. The
+money assertion is unaffected — it sweeps `money.__all__`, and every member of
+that is still a bare name — and this cell's own
+`test_a_parser_money_refusal_names_its_own_site` pins the dotted form.
+
+## P4. The dynamic census: 76 cells, both trees, same harness
+
+Every (site, shape) pair driven through the real callables on the base tree
+(`git archive e83f746` into the session scratchpad) and on the branch. Five
+surfaces per cell: `str`, `repr`, `args`, the `__cause__`/`__context__` chain,
+and a rendered traceback.
+
+```
+BEFORE (e83f746)   CELLS 76 · LEAKING 53 · RETURNED 8 · CLEAN-RAISES 15
+AFTER  (branch)    CELLS 86 · LEAKING  0 · RETURNED 8 · CLEAN-RAISES 78
+```
+
+(86 rather than 76 because `parsed_datetime` is a new entry point with ten
+shapes of its own; the 76 shared cells are what the two trees are compared on.)
+
+Per-site leak counts BEFORE: `relay.row-date` 9, `td_can._native_date_to_iso` 9,
+`community_section._iso` 8, `demo_national.row-date` 8, `iso_from_month_day` 6,
+`iso_from_month_day_year` 6, `period_from_long_dates` 3, `bmo._amount` 2,
+`farmers_merchants._amount` 2. AFTER: **0 everywhere.**
+
+**And the behavioural half, which is the one the zero-movement claim rests on:**
+
+```
+diff  vc_before.txt  vc_after.txt   ->  no differences
+76 cells: exception CLASS and returned VALUE byte-identical between the trees
+```
+
+Only the message moved. Behind `parser_registry._guarded` only
+`type(exc).__name__` crosses, and it is unchanged on all 76.
+
+## P5. The proof: `tests/test_privacy3_boundaries.py`, 119 cases
+
+* Ten poisoned date shapes × three date readers, four long-period spans, six
+  money shapes × two parser sites, ten shapes at `td_can` — asserting that
+  neither the canary, nor the whole token, nor any digit run of three or more
+  survives into any of the five surfaces, and that both chain links are `None`.
+* **Driven by `__all__`, not a hand-list.**
+  `test_every_raising_export_of_the_date_grammar_is_swept` fails the build if an
+  export of `date_tokens` raises on a poisoned token and is not in the sweep
+  table, so a reader added in a later batch cannot escape it.
+* The three-clause AST chain-guard over `date_tokens.py` AND `money.py`, with
+  **nine synthetic mutants — three of which it must NOT flag**, because a guard
+  that flags everything is not a guard either.
+* `test_the_date_refusal_attaches_no_state_to_the_exception` and its static
+  twin, closing §EXTRACTPRIV XP12 MINOR-1's surviving mutant in advance:
+  `str(exc)` stands in for what the exception SAYS, not for what it CARRIES.
+* The `AmountFormat`/`_compiled` residency note (§MONEYPRIV MP8 item 4) turned
+  into a guard: zero `AmountFormat` constructions exist outside
+  `analysis/money.py` — tests included — so `_compiled`'s unbounded
+  `lru_cache(maxsize=None)` has a domain of exactly thirteen patterns and cannot
+  retain one built out of document text. Both halves asserted.
+
+**Two of this cell's own assertions were VACUOUS on first write**, and the
+disclosure is the point. A whole-repository census written as
+`if ".claude" in path.parts: continue` skips the ENTIRE tree when the tests run
+from a worktree under `.claude/worktrees/<cell>/` — every absolute path has
+`.claude` in its parts. `test_no_amount_format_is_constructed_outside_the_money_grammar`
+passed as `assert [] == []`. The filter is now on the path RELATIVE to
+`PROJECT_ROOT`, and
+`test_the_repository_walk_actually_sees_the_repository` is the vacuity check for
+every whole-tree assertion in the file. **Every batch-7 cell working from a
+worktree and writing a repository-wide guard has this hazard.**
+
+### P5.1 Three hardenings this cell found in its own proof
+
+Written down because each is a way a green test can prove less than it reads
+as proving, and two of them are the same failure the reviews keep finding.
+
+1. **The traceback filter dropped lines by PREFIX.** A rendered traceback
+   quotes the source line of every frame it walks, and a source line that
+   mentions the `token` VARIABLE is expected — it cannot contain the runtime
+   value. The first version dropped anything starting with `raise `, `if `,
+   `try:` or `File `, which would also drop a real leak that happened to start
+   that way and drifts whenever production source is reindented. It now
+   subtracts exactly the frames' own source lines, taken from
+   `traceback.extract_tb`. Every refusal still passes under the exact filter,
+   which is the stronger reading of the same result.
+
+2. **The export-coverage test could not see one of the raisers it covers.**
+   `test_every_raising_export_of_the_date_grammar_is_swept` drives each export
+   with a poisoned TOKEN — and `period_from_long_dates` takes a whole markdown
+   document and refuses only on a span matching `_LONG_PERIOD_RE`, which no
+   token does. It was therefore reported clean by a test whose entire purpose
+   is "a hand-list proves only the members someone remembered".
+   `SWEPT_BY_THEIR_OWN_TEST` now names it, with a ratchet asserting the test it
+   points at still exists.
+
+3. **PIPELINE-PARSEMODE was asserted but not EXERCISED.** The natural branch
+   cannot reach the escalation guard, because an unclaimed document the
+   structurer declines raises above it — and the branch that does reach it
+   cannot occur, because the structurer only publishes what grounds. That
+   coincidence IS the finding, so the new test removes it: the structurer is
+   replaced by one publishing a statement that does not reconcile, and the
+   settings are given two different models, so every OTHER clause of the guard
+   is satisfied. Without the `parse_mode` clause the recorder fires.
+   `report.reconciliation.ok is False` is asserted alongside, so the fixture
+   cannot silently stop proving anything.
+
+## P6. The caller census — 200 call sites, 6 inside a `try`, all catching `ValueError`
+
+AST over the whole tree, for all fourteen changed or new callables, with the
+lexically enclosing handlers resolved per call site.
+
+```
+call sites: 200      inside a try: 6
+   iso_from_month_day_year  analysis/core_processor_sectioned.py:479  caught by ValueError
+   iso_from_month_day_year  analysis/core_processor_sectioned.py:480  caught by ValueError
+   _iso                     analysis/scanned_small_bank.py:86/394/921/922  caught by ValueError
+```
+
+The four `scanned_small_bank` rows are that module's OWN `_iso`, untouched by
+this cell. The two that matter are `core_processor_sectioned:479-480`, which
+catch `ValueError` from `iso_from_month_day_year` — and `date_refusal` returns a
+`ValueError`, so the catch fires identically. **No control flow changes
+anywhere.** Production readers of the changed date helpers:
+`iso_from_month_day` 17 call sites over 10 modules (`b1`, `capital_one`,
+`chase`, `chase_savings`, `farmers_merchants`, `first_community`, `linkbank`,
+`santander`, `truist`, `wells`), `iso_from_month_day_year` 8 over 5
+(`bluevine`, `core_processor_sectioned`, `first_farmers`, `texas_bank`,
+`wilson_muir`), `period_from_long_dates` 3 over 3 (`chase`, `chase_savings`,
+`regions`), `iso_within_period` 13 over 5. `run_job` still has exactly one
+production caller, `webapp/app.py:66`, the Flask upload thread.
+
+## P7. APP-PRIVACY — five declared refusals, not three
+
+`webapp/app.py:revenue_review` returned `str(exc)` on both arms.
+`webapp/static/app.js` throws `payload.error` and shows it in a `window.alert`,
+so the declared reasons are load-bearing and a blanket reduction would have
+deleted a live user-facing behaviour — §WORKERPRIV WP6.3's trap exactly.
+
+**The batch-6 census counted three and the measurement says five.** WP6.1 read
+the raises inside `apply_serialized_revenue_review` and missed the two in
+`rebuild_serialized_revenue_views`, which its LAST STATEMENT calls. Both are
+reachable through this route and both are fixed literals.
+`test_every_declared_review_refusal_is_actually_raised` drives each of the five
+out of `analysis/revenue.py` for real, and
+`test_the_allow_list_holds_no_literal_that_nothing_raises` is the ratchet in the
+other direction.
+
+**The `webapp/` exception ledger is now EMPTY.** It held two entries through
+batch 6, both these arms. `_LEDGERED_EXCEPTION_USES = []` means the first new
+leak anywhere in `webapp/` fails the census test, and the comment records what
+came out rather than letting the list shrink silently.
+
+**#WORKERPRIV m-3 closed while the guard was open.** The census walked
+`except X as name` handlers and read every use of `name`, which is blind to
+three shapes: `sys.exc_info()`, `traceback.format_exc()`, and a bare `except:`
+doing either. None exists in `webapp/` today — which is the argument FOR closing
+it, not against: `except:` plus `format_exc()` is the shape a debugging session
+leaves behind. Ten new guard-shape cases, four of them clean.
+
+## P8. WORKER-PRIVACY m-7 — and the arm that re-raises
+
+`run_job` caught `Exception`. A `BaseException` killed the queue thread with a
+traceback on stderr and left the job at `processing` with `error=None` forever:
+no durable write, no telemetry record, and a dashboard polling a job that would
+never move. `mark_interrupted` only reaches it after a RESTART, and a
+long-lived server never restarts.
+
+Two arms, and the second is the one that needed a decision:
+
+* **`except BaseException`** marks the job failed with the same fixed vocabulary
+  and **then re-raises**. Swallowing `SystemExit` would defeat a shutdown and
+  swallowing `KeyboardInterrupt` would defeat Ctrl-C. The defect was never that
+  the thread died; it was that the job did not find out. The stderr traceback is
+  UNCHANGED — **recorded, not decided**: where a worker crash's full text should
+  go is the D-2b/D-7 logging question (§WORKERPRIV WP6.5), and an
+  exception-boundary card does not get to invent a log.
+* **`finally`** fail-closes any job still in `_NON_TERMINAL_STATUSES`, because
+  both `except` arms can themselves be interrupted between `set_error` and
+  `_emit`. It never overwrites a terminal state, and it never raises — a status
+  check that could crash the thread would be a fifth way to strand a job.
+  `test_a_base_exception_inside_the_handler_still_leaves_a_terminal_job` drives
+  exactly that, and `test_the_finally_arm_is_a_no_op_on_the_success_path` pins
+  the four `return`s inside the `try`.
+
+## P9. PIPELINE-PARSEMODE, and the availability decision
+
+**`analysis/pipeline.py`'s escalation guard gains `parse_mode != "deterministic"`
+as its FIRST clause.** §EXTRACTPRIV XP9 finding 2 measured the hole and could not
+own the file: `deterministic_stmt is None` is true on the structurer branch, so
+nothing in the four-clause condition stopped a deterministic-mode run from
+reaching `extract_statement`. The offline guarantee rested on the structurer only
+publishing statements that GROUND (so `recon.ok`, so `needs_escalation is
+False`) — a property of the structurer, not of the mode, and one widened
+grounding rule from becoming a vendor call with no test failing. Zero movement by
+construction: in deterministic mode every document without a `deterministic_stmt`
+AND without a `structured_stmt` has already raised above, so the only documents
+the clause can reach are structurer-published ones, which measure
+`needs_escalation is False` today. **The site the card named as `:703` is at
+`:706` on this tree**; the drift is line numbers, not the site.
+
+**`ocr/availability.py:126` is the one site this cell did NOT reduce, and the
+census is why.** It reached the batch-6 ledger by SHAPE — "the same `str(exc)`
+truncation pattern" (§MONEYPRIV MP8 item 5) — and the shape is where the
+resemblance ends:
+
+* **No document exists in this call graph.** The probe is `GET /v1/models`.
+  Nothing in `probe_visual_ocr`'s parameters (`settings`, `timeout`,
+  `list_models` — asserted from the signature), in `Settings`, or in
+  `_advertised_ids` is a page, a PDF, a markdown string or a cell. Not
+  "unlikely"; no path.
+* **One reader, and it is a console.** `detail` is read only inside
+  `VisualOcrStatus.message()`; `message()` only at `discovery/cli.py:208` and
+  `:214`; both inside `print(..., file=sys.stderr)`. Never durable, never
+  telemetry, never an HTTP body, never an export cell.
+* **Deleting it deletes the diagnosis.** "Connection refused" vs "certificate
+  verify failed" vs "404" is the whole content of a preflight whose job is to
+  stop a 3,506-document run before document 1, and `error_type` alone cannot say
+  which.
+
+What changed instead: one `_unreachable` constructor, a named `MAX_DETAIL_CHARS`
+bound, and — the part that was actually missing — the module docstring's Wave-3
+invariant ("kept for the operator console only and never travels into
+telemetry") turned into a three-clause AST test. **Ocean: if you want it reduced
+anyway, that is a one-line change and the ruling is yours; this cell judged the
+diagnosis worth more than uniformity and made the reasoning checkable rather
+than asserted.**
+
+## P10. The ledger — sites found and NOT owned
+
+Each is another cell's file, each is the same class, and each is named here
+rather than edited.
+
+1. **`analysis/chase.py:47`** `_money_required` — `raise ValueError(value)`, the
+   money cell. **DECLINES-E.** Fix shape: `from .money import _refusal`, then
+   `raise _refusal("chase._money_required", value)`. Behind `_guarded`; same
+   class; zero movement.
+2. **`analysis/scanned_small_bank.py:45`** `_money` and **`:52`** `_iso` —
+   `raise ValueError(value)`, a money cell and a DATE cell. **SCAN-FINISH.**
+   Same shapes; `:52` wants `date_tokens.date_refusal`. Note the four
+   `except ValueError` catches at `:86/394/921/922` in that module: they catch
+   the module's own `_iso`, so the fix must keep `ValueError`.
+3. **`analysis/columbia_bank.py:449-450`** — two escaping `strptime` calls.
+   **REPAIR-DOCTRINE.** Fix shape:
+   `parsed_datetime(dates.group(1), "%B %d, %Y", reader="columbia_bank.period")`.
+4. **`analysis/scotia.py:162`** — one escaping `strptime` call.
+   **DECLINES-G.** Same shape.
+5. **`analysis/extract.py:79`** — the LLM prompt's worked example is
+   `"PREM PMT BCBS OF AL 32.00"`, a real-looking insurer name in the parser
+   layer, which is the class R-1 purged. Found by G7.3 (P11) because closing
+   `_code_lines`'s hole made the prompt visible to the scans for the first time.
+   Not this cell's file, and editing a prompt changes what a model does.
+6. **`date()` raises `OverflowError`, and `OverflowError` is not a
+   `ValueError`.** `date(2026, 1, 4471009238)` →
+   `OverflowError: Python int too large to convert to C long`, an
+   `ArithmeticError`. Every `except ValueError` in the date layer lets it
+   through — `iso_or_none`, `year_within_period`, `dates._with_year`,
+   `dates.parse_date`, and this cell's own four new handlers. **NOT a privacy
+   defect** (the message is a fixed CPython sentence), which is why it is pinned
+   rather than changed; it IS a contract defect, because three of those helpers
+   are documented to return `None`. Changing what they return is a behaviour
+   change with an archive sweep of its own — the same judgement §MONEYPRIV MP3
+   made about `parse_digit_scrubbed`.
+   `test_an_over_long_integer_reaches_date_as_an_overflow_error_not_a_refusal`
+   pins it, including the assertion that the OverflowError stays content-free.
+7. **`analysis/date_tokens.py`'s "returns None" contracts.**
+   `period_from_long_dates` and `iso_or_none` are documented to return `None`
+   and can raise. This cell kept every raise (zero movement) and only changed
+   what it says. Whoever fixes the contract owns the sweep.
+8. **`int()` and `float()` quote their argument, 426 unguarded call sites in
+   `analysis/`.** Out of this card's scope by size, named so the number exists:
+   the class this card closed at four date sites and three parser sites is the
+   same class at 426 arithmetic conversions. Most are behind a regex that
+   already proved the digits, which is why they do not fire; a systematic pass
+   would need its own card and its own sweep.
+
+## P11. G7.3 — both directions, and the hole nobody was looking for
+
+The card: "make the guard's scan exclude docstrings/comments explicitly or prove
+it already does, so a documented example can never trip **or hide** a finding."
+Two cells hit the first half (§LCPERIOD L5.1, §GRAM4 G7.3) and both worked
+around it by rewording prose. The second half had never been looked at.
+
+**Direction 1 — tripping.** `_pattern_strings` yielded EVERY string constant, so
+a docstring quoting a real printed row beside a regex escape tripped a scan
+aimed at PATTERNS. It now excludes docstrings by AST IDENTITY — the four
+positions the language calls a docstring — which is narrower than a delimiter
+test: a triple-quoted string assigned to a name stays scanned. **Blast radius
+measured: 0.** No docstring in the parser layer trips the scan today, because
+both cells that hit it removed the offender at the source. So this closes a
+latent hole and prevents the third reword.
+
+**Direction 2 — hiding, and this one had a live finding.** `_code_lines` blanked
+docstrings with the regex `"""…"""`, which matches EVERY triple-quoted string.
+A module constant written with triple quotes — a prompt, a word list, a
+`re.VERBOSE` pattern — was therefore invisible to the year, amount and
+account-number scans. Measured: two such strings exist in the parser layer, and
+one of them, `analysis/extract.py`'s `_INSTRUCTIONS`, carries exact-cent amounts
+the amount scan is built to find.
+
+`_code_lines` now blanks only real docstrings, character for character (so
+offender line numbers still point at the offending line, and
+`def f(): """doc"""` keeps its `def`). **The measured cost is one module:**
+`extract.py` joins `PATTERN_SCAN_EXEMPT` beside `metrics`/`pipeline`/`reconcile`
+— it is the LLM branch, holds no regex, no reader, no parse gate and no
+registration, and the two distinctive values (`7,329.22`, `3,945.12`) appear in
+no committed expectation and in neither audit CSV, so the example is
+illustrative rather than copied off a pinned document. The exemption carries a
+ratchet (`test_the_extract_exemption_still_describes_a_real_offender`) and a
+blast-radius assertion (`test_closing_the_docstring_hole_flags_exactly_one_module`),
+so a later module that grows a triple-quoted constant with money in it fails
+instead of hiding behind the entry. The insurer name at `:79` is in the ledger
+(P10 item 5).
+
+Eight new tests, each a shape the guard must fail on or must not: the same
+literal in three docstring positions (ignored) and in four code positions
+(found, 4+4 hits), amounts/years/account runs in a docstring and behind a `#`
+(ignored) and in a triple-quoted module constant (found), the line-number
+regression, and the shared-line docstring.
+
+## P12. The mutation table
+
+**27 mutants, 27 KILLED, 0 survivors** (`MUTANTS 27  KILLED 27  SURVIVORS 0`,
+`tree restored: CLEAN`). Each is reverted by the harness and each names the
+test that actually killed it, because a test named after a gate is not a test
+of that gate.
+
+Run against an EXPORTED copy of the branch HEAD (`git archive 9fa59d2` into the
+session scratchpad) rather than against the worktree, so that mutating a
+production file could not corrupt the proof floor and the archive sweep running
+against the real tree at the same time. Cleanliness and the final restore are a
+content snapshot of the thirteen files under mutation — the equivalent of
+`git status` for a tree with no `.git`. Baseline: `207 passed  exit=0`.
+
+| # | mutant | killed by |
+|---|---|---|
+| M1 | `iso_from_month_day` raises the token again | `test_no_date_refusal_quotes_the_token[iso_from_month_day-…]` |
+| M2 | `iso_from_month_day_year` raises the token again | same, `[iso_from_month_day_year-…]` |
+| M3 | `period_from_long_dates` raises the matched span again | `test_period_from_long_dates_refuses_privately` |
+| M4 | `parsed_datetime` lets `strptime`'s own ValueError escape | `test_no_date_refusal_quotes_the_token[parsed_datetime-…]` |
+| M5 | `date_refusal` appends the token to the message | `test_no_date_refusal_quotes_the_token` |
+| M6 | `_refusal_class` returns the token instead of a category | same |
+| M7 | explicit chain — `raise date_refusal(...) from exc` | same |
+| M8 | implicit chain — the raise moved INSIDE the handler | same |
+| M9 | `date_refusal` attaches the token to the exception | `test_the_date_refusal_attaches_no_state_to_the_exception` |
+| M10 | `bmo._amount` raises the cell again | `test_no_parser_money_refusal_quotes_the_cell[bmo._amount-over-bound]` |
+| M11 | `farmers_merchants._amount` raises the cell again | same, `[farmers_merchants._amount-over-bound]` |
+| M12 | `td_can._native_date_to_iso` raises the cell again | `test_the_td_can_native_date_refusal_quotes_nothing` |
+| M13-15 | `community_section`/`demo_national`/`relay` call `datetime.strptime` directly again | `test_the_repointed_modules_call_strptime_nowhere[<module>]` |
+| M16 | the review allow-list becomes containment (`==` → `in`) | `test_the_review_allow_list_is_exact_match_and_not_containment` — **see below** |
+| M17 | `revenue_review` publishes `str(exc)` again | same |
+| M18 | the review boundary helper is bypassed at both arms | `test_the_webapp_exception_ledger_is_complete` |
+| M19 | the `BaseException` arm is deleted | `test_a_base_exception_marks_the_job_failed_and_still_propagates` |
+| M20 | the `BaseException` arm swallows instead of re-raising | same |
+| M21 | the `finally` arm is deleted | `test_a_base_exception_inside_the_handler_still_leaves_a_terminal_job` |
+| M22 | the `finally` arm overwrites a terminal state too | `test_a_base_exception_marks_the_job_failed_and_still_propagates` |
+| M23 | the escalation guard loses its `parse_mode` clause | `test_the_escalation_guard_tests_parse_mode_first` |
+| M24 | `_pattern_strings` reads docstrings again | `test_the_calendar_scan_ignores_the_same_literal_in_a_docstring` |
+| M25 | `_code_lines` blanks every triple-quoted string again | `test_the_code_line_scan_still_sees_a_triple_quoted_module_constant` |
+| M26 | the probe detail loses its bound | `test_the_probe_detail_is_bounded` |
+| M27 | `money_refusal` stops delegating and quotes the token | `test_no_parser_money_refusal_quotes_the_cell` |
+
+**Round 1 (26 mutants, tree `be41d23`): 25 killed, ONE SURVIVOR, and the fix
+was the assertion rather than the code.** M16 — `==` to `in` in
+`_review_refusal` — survived all 114 cases. Under containment the function
+still returns the tuple MEMBER, not the exception's text, so nothing leaks,
+`published != poisoned` holds, and a privacy-shaped assertion sees nothing
+wrong.
+
+What containment breaks is not privacy, it is TRUTH: an exception that quoted a
+cell alongside a declared literal would be published AS that declared refusal,
+and `app.js` would tell an analyst "transaction source location was not found"
+for a failure that was something else. The boundary would be lying with one of
+its own constants. The test now asserts the exact reduced string.
+
+**Round 2 (27 mutants, tree `9fa59d2`): 27 killed, 0 survivors.** Recorded
+because it is the second time in this program that a privacy proof turned out
+to be checking the weaker of two properties — §MONEYPRIV MP12 MINOR-1 was the
+first, and in both cases the mutant is what said so.
+
+## P13. Proofs
+
+Branch `wave7-privacy3`, proof tree `9fa59d2d8bdeb2761ee110cbfb857ac2ea67c0cd` — the HEAD line the
+chain wrote into its own log before it began. One SEQUENTIAL chain, each
+stage appending its own `EXIT=` terminator, so a completion signal is
+producible only by completion. Nine other cells were on the machine
+throughout (21 python processes against 16 logical cores); the runtimes are
+contended wall clock and are a reading of the host, not of this cell.
+
+```
+# full default suite
+5529 passed, 35 skipped, 33 deselected, 1 warning in 835.62s (0:13:55)   SUITE_EXIT=0
+
+# canonical guard set (5 files)
+250 passed, 1 warning in 69.94s (0:01:09)   GUARDS_EXIT=0
+
+# canonical conformance set (7 files)
+1151 passed, 35 skipped, 1 warning in 25.18s   CONFORMANCE_EXIT=0
+
+# this cell's proofs alone
+159 passed, 1 warning in 81.09s (0:01:21)   PRIVACY_EXIT=0
+
+# corpus gate
+RESULT: GREEN   GATE_EXIT=0
+
+# corpus-marked slice
+29 passed, 5568 deselected, 1 warning in 3964.19s (1:06:04)   CORPUS_EXIT=0
+
+```
+
+The gate's own report, verbatim:
+
+```
+[PASS] inventory: 109 pinned corpus PDFs, all on disk and audited by both oracles
+[PASS] foreign_files: no non-corpus PDFs under the corpus root
+[PASS] source_integrity: 109/109 pinned source PDFs match their pinned SHA-256
+[PASS] balance_audit: 109 statements reproduce every audited balance field across backend, API, dashboard, CSV, XLSX, and package surfaces
+[PASS] adb_audit: 109 statements reproduce every audited ADB field across backend, API, and dashboard-package surfaces
+[PASS] balance_outcomes: balance: 106 pass, 3 withheld, same three statements
+[PASS] adb_outcomes: adb: 106 pass, 3 withheld, same three statements
+[PASS] outcome_classes: 109 statements publish their pinned verdict (outcome class and the whole integrity block): 4 review / 102 validated / 3 withheld
+[PASS] adb_doctrine: 109/109 statements publish the canonical basis 'calendar_day_printed_period'; banking-day alternate distinct on 106, skipped 3 unpublished (0 all-banking-day periods, 0 flat ledgers)
+[PASS] currency: 109/109 statements publish their pinned currency: 14 CAD / 95 USD
+[PASS] ocr_coverage: 103 native-text + 6 committed-OCR = 109 statements resolved offline; no live OCR, no model calls
+[PASS] exclusions: 0 named exclusions
+[PASS] oracle_independence: 4 audit modules import no production financial mathematics
+Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
+Ignored:  0 non-corpus PDFs under the corpus root
+Outcomes: 106 PASS / 3 WITHHELD
+Verdicts: 4 review / 102 validated / 3 withheld
+Runtime:  2322.0s
+RESULT: GREEN
+```
+
+### P13.1 The archive zero-movement sweep
+
+`python -m tools.regfp_zero_movement_sweep` — the committed instrument, not
+a rebuild — against the run of record
+`2026-08-21T014415.938236-0000-7a317445`, baseline settings key
+`D3370EEBDCB87892A2739BCB0D882A66E72DCBFAB2553101111157B5A231DE24`, the
+`webapp_data` archive reached by absolute path from the MAIN checkout and
+READ-ONLY. Chunked with `--start/--end`; the counts add.
+
+| range | documents | compared | identical | **moved** | no_payload_now_publishes | payload_now_raises | no_ocr_artifact | raises_again | seconds |
+|---|---|---|---|---|---|---|---|---|---|
+| 0-500 | 500 | 385 | 385 | **0** | 0 | 0 | 4 | 111 | 1832 |
+| 500-1000 | 500 | 358 | 358 | **0** | 0 | 0 | 3 | 139 | 1964 |
+| 1000-1500 | 500 | 384 | 384 | **0** | 0 | 0 | 3 | 113 | 2034 |
+| 1500-2000 | 500 | 370 | 370 | **0** | 0 | 0 | 5 | 125 | 1269 |
+| 2000-2500 | 500 | 374 | 374 | **0** | 0 | 0 | 5 | 121 | 989 |
+| 2500-3000 | 500 | 381 | 381 | **0** | 0 | 0 | 2 | 117 | 700 |
+| 3000-3400 | 380 | 283 | 283 | **0** | 0 | 0 | 7 | 90 | 451 |
+| **TOTAL** | **3380** | **2535** | **2535** | **0** | **0** | **0** | **29** | **816** | |
+
+**Findings: 0.** Every chunk reported `"findings": []`, so there is no
+document to name by `content_sha256` — the named population is empty in all
+three directions the tool can move (`moved`, `no_payload_now_publishes`,
+`payload_now_raises`), which is what this card's expected movement is.
+
+**And the structural half, which is why the measurement was predictable.**
+Every production change in this card is to an exception MESSAGE. The sweep
+compares published payloads and, on the raising path, records
+`no_payload_raises_again` WITHOUT comparing the exception's class or text
+(the run stored none to compare against — W3 §REGFP RF5). So the sites this
+card touched cannot express themselves in the sweep's answer at all: a
+document that raised still raises, and a document that published still
+publishes the same bytes. The unit-level twin of that claim is P4's
+`76 / 76 cells identical in exception CLASS and returned VALUE`.
+
+**The swept tree IS the shipped tree, and here is the exact statement.** The
+sweep chain wrote `=== HEAD: 391d862`. Two commits landed after it
+(`4b267cf`, `9fa59d2`) and both are TESTS ONLY, asserted as a measurement
+rather than read off the diff:
+
+```
+git diff --quiet 391d862 HEAD -- analysis/ ocr/ webapp/ telemetry/ \
+                                  discovery/ tools/ corpus_gate.py
+EXIT=0    the production tree did not move
+```
+
+That is the same argument §MONEYPRIV MP12 and §EXTRACTPRIV XP12.2 made for
+not re-running a gate over a tests-only closure, used here for not
+re-running a three-hour sweep over one.
+
+**The population is the run of record's own, exactly, and the arithmetic
+closes.** `2,535 compared + 29 no_ocr_artifact + 816 no_payload_raises_again =
+3,380`, which is the denominator the run reports. Nothing was skipped and
+nothing was double counted; `multi_artifact_documents 74` is the count of
+documents where more than one capability partition held a document and the tool
+therefore had a choice to make, which is the trap §WORKERPRIV WP6.6 measured
+(55 re-read documents manufacturing two phantom movers under single-key
+enumeration). This instrument resolves that per document by reconstructing the
+run's own analysis cache key, so a wrong pick cannot produce a false MOVER.
+
+Total sweep time 9,238s (2h34m) across seven chunks on a contended host.
+
+### P13.2 The suite delta, measured per file
+
+`5,529 - 5,374 = 155`, and the 155 is not an inference: each file was collected
+on the base tree (`git archive e83f746` into the session scratchpad) and on the
+branch.
+
+| file | base `e83f746` | branch `9fa59d2` | delta |
+|---|---|---|---|
+| `tests/test_privacy3_boundaries.py` | - (new) | **119** | +119 |
+| `tests/test_worker_privacy.py` | 30 | **40** | +10 |
+| `tests/test_no_statement_hardcodes.py` | 40 | **48** | +8 |
+| `tests/test_money_refusals_are_private.py` | 334 | **352** | +18 |
+| | | | **+155** |
+
+The other canonical sets moved as expected and nowhere else: the guard set is
+**242 -> 250** (this cell's eight G7.3 cases) and the conformance set is
+**1,151, unchanged** - no registration, no detection marker, registry still 74,
+conformance still 74 x 73. The corpus-marked slice is **29**, the pinned count,
+which is the check the gate is structurally blind to (review<->validated inside
+its PASS bucket).
+
+## P14. Commits
+
+| Commit | Contents |
+|---|---|
+| `26e124e` | the card: the date-side constructor and `parsed_datetime`; four leaks closed in `date_tokens`; three parser raise sites; fourteen `strptime` calls repointed; the five declared review refusals; the m-7 arm and the `finally`; the escalation clause; `_unreachable`; G7.3 both directions |
+| `d87bef4` | `tests/test_privacy3_boundaries.py` (114) + the emptied ledger + m-3's ten guard shapes |
+| `be41d23` | mutation round 1: M16's assertion strengthened (117) |
+| `391d862` | `money._refusal` promoted to `money_refusal` (P3.1); the money privacy suite covers the new export (334 → 352) |
+| `4b267cf` | the availability census asserts by FILE and COUNT, not by line number: a guard pinning `discovery/cli.py:208` turns red when an unrelated cell adds a line above it, and a ten-branch train is where that happens |
+| `9fa59d2` | the three self-review hardenings of P5.1 (119) |
+| (this one) | §PRIVACY3 P0-P14 |
