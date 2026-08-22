@@ -71,6 +71,7 @@ REMOVED_LITERALS = (
     "LIGHTSPEED",             # item 8 - merchant sign list
     "PRODIGY",                # item 8 - merchant sign list
     "ACE AUTO GLASS",         # R-4b - customer name used as detection evidence
+    "BUILDER ACCOUNT",        # R-4b - customer's ACCOUNT TITLE as detection evidence
 )
 
 #: Literal years (2010-2039) appearing as code constants. Century pivots
@@ -270,6 +271,14 @@ def test_removed_literals_stay_removed_anywhere_in_analysis():
     that file was never on the list. A customer name has no business anywhere
     in the parser layer, so the scan is now scoped to the layer rather than to
     a list someone has to remember to extend.
+
+    W3 §SCANFINISH added the second entry of that class, `BUILDER ACCOUNT` —
+    which is not a product line but the TITLE one Southside customer gave one
+    of its accounts, and which `analysis/scanned_small_bank.py` required before
+    it would recognise the issuer. The class is wider than "a company name":
+    anything the CUSTOMER wrote, an account title included, is the customer's
+    words and cannot be the issuer's evidence. It claimed three of that
+    issuer's nine archive statements and hid the other six.
     """
     offenders = []
     for path in sorted(ANALYSIS_DIR.glob("*.py")):

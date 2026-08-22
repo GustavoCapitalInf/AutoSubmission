@@ -233,10 +233,35 @@ def detection_text(markdown: str) -> str:
     return normalize_mojibake(markdown).upper()
 
 
+#: The issuer's own masthead plus three ROW LABELS of the `ACCOUNT SUMMARY`
+#: grid this parser reads.
+#:
+#: What they replace was an ACCOUNT TITLE: not a product line, but the name one
+#: customer gave one of its accounts, printed in its address block and on the
+#: face of its cheques. The same customer's other account carries a different
+#: title and a third carries none at all, while the product line all nine of
+#: these statements print is one of two ordinary business-checking names. So
+#: the gate was the R-4b class exactly — a customer's own words standing in for
+#: the issuer's — and it is now recorded there, in `REMOVED_LITERALS` in
+#: `tests/test_no_statement_hardcodes.py`, which is the file that may name it
+#: and this one is not. It claimed three of the nine statements this issuer
+#: prints in the archive while the reader could see the other six perfectly
+#: well.
+#:
+#: The grid's HEADING went with it, for a different reason: it is one line of
+#: large print, and on one archive statement the scan destroyed it while
+#: leaving every row of the grid beneath it legible. The row labels are what
+#: `_southside_summary` actually reads, so the detector now claims exactly what
+#: the parser can read.
+#:
+#: Measured over all 3,380 documents of the run of record: this set claims the
+#: nine Southside statements, `parse_southside_scanned_statement` returns a
+#: statement for all nine, and nothing else in the archive is claimed.
 SOUTHSIDE_DETECTION_MARKERS = (
     required("bank_name", lambda t: "SOUTHSIDE" in t),
-    required("summary_section", lambda t: "ACCOUNT SUMMARY" in t),
-    required("product", lambda t: "BUILDER ACCOUNT" in t),
+    required("credit_row", lambda t: "DEPOSITS/CREDITS" in t),
+    required("debit_row", lambda t: "CHECKS/DEBITS" in t),
+    required("period_row", lambda t: "DAYS IN STATEMENT PERIOD" in t),
 )
 
 APEX_DETECTION_MARKERS = (
@@ -247,6 +272,251 @@ APEX_DETECTION_MARKERS = (
 
 detect_southside = make_detector(SOUTHSIDE_DETECTION_MARKERS, detection_text)
 detect_apex = make_detector(APEX_DETECTION_MARKERS, detection_text)
+
+
+#: One money cell of this issuer's print, decimal point INCLUDED as a class.
+#: See `_southside_money` for why the comma belongs in it.
+_SS_MONEY = r"\d[\d,]*[.,]\d{2}"
+
+#: Where each printed grid begins, and everything that ends one.
+#:
+#: The old boundaries were a heading spelled exactly and, for the withdrawals
+#: grid, the literal page separator `--- Page 2 ---`. Both fail on a
+#: photograph, in opposite directions and both silently:
+#:
+#: * a one-page statement HAS no `--- Page 2 ---`, so the withdrawals grid ran
+#:   to the end of `_section`'s failed search and came back empty — two printed
+#:   withdrawals read as none;
+#: * a two-page statement has one in the wrong place, so the grid ran INTO the
+#:   `DAILY BALANCE SUMMARY` beneath it and a daily-balance cell was published
+#:   as a withdrawal (`debit_coverage` 1.248 on one archive statement, which is
+#:   a reader inventing money);
+#: * and a four-page statement whose withdrawals continue on sheet 2 lost every
+#:   row after the break.
+#:
+#: A grid ends where the NEXT GRID begins. That is a fact about the printed
+#: page rather than about the pagination, so it holds however the scan
+#: paginates, and it is what these anchors express: each named grid runs from
+#: the end of its own heading to the start of whichever anchor comes next,
+#: named or terminal. Continuation pages carry no heading of their own — the
+#: bank reprints only the column header — so they fall inside the span they
+#: belong to without a rule of their own.
+#:
+#: The headings are matched on the WORDS that survive rather than on the
+#: asterisks that do not: `*** WITHDRAWALS ***`, `[eee *** WITHDRAWALS **` and
+#: `: ?WITHDRAWALS *** Sos .` are one heading photographed three times. A
+#: heading line is required to carry a rule glyph and, being a heading, it
+#: never carries a dated row.
+_SS_ANCHORS = (
+    ("deposits", r"(?im)^(?=[^\n]*\*)[^\n]*\bDEPOSITS\b[^\n]*$"),
+    ("withdrawals", r"(?im)^(?=[^\n]*\*)[^\n]*\bWITHDRAWALS\b[^\n]*$"),
+    (
+        "checks",
+        r"(?im)^[^\n]*(?:SUMMARY BY CHECK NUMBER|Listed in numerical order"
+        r"|Date\s+Check\s+Number\s+Amount)[^\n]*$",
+    ),
+    ("daily", r"(?im)^[^\n]*(?:DAILY BALANCE SUMMARY|Date\s+Balance\s+Date)[^\n]*$"),
+    # Terminal furniture: the cheque-image sheets and the footnote under the
+    # cheque grid. Nothing after one of these belongs to the grid above it.
+    (
+        None,
+        r"(?im)^[^\n]*(?:Denotes missing check numbers|Southside Bank\s+Page:"
+        r"|SUBSTITUTE IMAGE|DEPOSIT TICKET|Credit DDA Deposit|ACCOUNT SUMMARY)[^\n]*$",
+    ),
+)
+
+
+def _southside_grids(markdown: str) -> dict[str, str]:
+    """The four printed grids, each running to wherever the next one starts."""
+    marks: list[tuple[int, int, str | None]] = []
+    for name, pattern in _SS_ANCHORS:
+        for match in re.finditer(pattern, markdown):
+            marks.append((match.start(), match.end(), name))
+    # Ordered by POSITION alone. Sorting the whole tuple falls through to the
+    # third element whenever two anchors match at the same offsets, and that
+    # element is `None` for the terminal ones — `None < str` is a TypeError,
+    # which the pipeline turns into a parser crash. Two anchors on one line is
+    # not hypothetical here: this template prints `Southside Bank  Page:` on
+    # its own line on six of the nine archive statements, and an OCR line-merge
+    # with the `DAILY BALANCE SUMMARY` heading above it is one bad scan away.
+    # A crash is a worse answer than a decline, and neither is what this input
+    # deserves — the grids are well defined however the marks tie.
+    marks.sort(key=lambda mark: (mark[0], mark[1]))
+    grids = {"deposits": "", "withdrawals": "", "checks": "", "daily": ""}
+    for index, (_start, end, name) in enumerate(marks):
+        stop = marks[index + 1][0] if index + 1 < len(marks) else len(markdown)
+        if name is not None:
+            grids[name] += markdown[end:stop] + "\n"
+    return grids
+
+
+def _southside_day(token: str, period: tuple[str, str]) -> str | None:
+    """One date cell, read strictly; `None` where the scan did not leave one.
+
+    The cell the bank prints is `m/dd`. What arrives is that, or that with the
+    solidus lost (`413`), or with the solidus resolved as a digit (`4101`,
+    `4/17` printed as `47`), or as letters (`ANT`). This reader does not repair
+    a cell: it enumerates the readings that are POSSIBLE for the statement's
+    own period and accepts one only when exactly one exists. A cell with two
+    readings, or none, is not a date and its row is dropped rather than dated
+    by preference.
+    """
+    start, end = (date.fromisoformat(value) for value in period)
+    candidates: set[date] = set()
+
+    def admit(month: int, day: int) -> None:
+        # The cell carries no year, so BOTH years the period touches are
+        # offered and the period decides. On this template's own printing the
+        # two are the same year and the second offer changes nothing; a period
+        # the scan damaged into spanning a new year would otherwise silently
+        # drop every row on the far side of it, which is the failure this
+        # enumeration exists to refuse. Ambiguity between the two is resolved
+        # the way every other ambiguity here is: not at all.
+        for year in {start.year, end.year}:
+            try:
+                candidate = date(year, month, day)
+            except ValueError:
+                continue
+            if start <= candidate <= end:
+                candidates.add(candidate)
+
+    canonical = re.fullmatch(r"(\d{1,2})/(\d{1,2})", token)
+    if canonical:
+        admit(int(canonical.group(1)), int(canonical.group(2)))
+        return candidates.pop().isoformat() if len(candidates) == 1 else None
+    if not re.fullmatch(r"\d{3,4}", token):
+        # A TWO-glyph residue is not a date cell, however readable it looks.
+        # This template zero-pads the day in every cell it prints — `4/01`,
+        # `4/07`, `4/15`, never `4/7` — so `47` cannot be a whole cell that
+        # merely lost its solidus. It is `4/17` with two glyphs gone, or
+        # `4/07`, or `4/27`, and there is nothing in the token to say which.
+        # Reading it as `4/7` looked unique and was WRONG on an archive
+        # statement: the row belonged to the 17th, which the daily grid and
+        # the day's own cheques both witness. Two glyphs, no date.
+        return None
+    for cut in (1, 2):
+        if len(token) - cut == 2:
+            admit(int(token[:cut]), int(token[cut:]))
+    # The solidus resolved as a digit: `4101` for `4/01`, `4724` for `4/24`.
+    # Only `1` and `7` are admitted because those are the glyphs a solidus can
+    # be confused with; and, like every other reading, this one survives only
+    # if it is the sole candidate.
+    if len(token) == 4 and token[1] in "17":
+        admit(int(token[0]), int(token[2:]))
+    return candidates.pop().isoformat() if len(candidates) == 1 else None
+
+
+def _southside_posted_days(daily_grid: str, period: tuple[str, str]) -> frozenset[str]:
+    """Every day the printed daily-balance grid names.
+
+    The grid prints an end-of-day balance for each day the account MOVED, so a
+    day it does not name is a day on which no row was posted. That makes it the
+    corroboration a reconstructed date needs and a canonical one does not: a
+    cell the scan damaged may only be read as a day the bank itself says had
+    activity.
+    """
+    days = {
+        _southside_day(token, period)
+        for token, _amount in re.findall(
+            r"([A-Za-z0-9/]{2,5})\s+(" + _SS_MONEY + r")", daily_grid
+        )
+    }
+    return frozenset(day for day in days if day is not None)
+
+
+def _southside_money(token: str) -> float | None:
+    """A money cell, with the decimal separator read from the token's shape.
+
+    A photograph of this template resolves the decimal point as a comma often
+    enough to matter (`9,000,00`, `225,00`, `2,549,33`). That is not read as a
+    preference for one separator: a thousands group is THREE digits, so a comma
+    followed by exactly two digits at the END of a token cannot be one, and the
+    token has therefore told us which glyph it is. Where the shape is
+    ambiguous — `1,234` — nothing is decided and the shared grammar answers.
+    """
+    return parse_money(re.sub(r",(\d{2})$", r".\1", token.strip()))
+
+
+def _southside_summary(text: str) -> dict[str, object] | None:
+    """The `ACCOUNT SUMMARY` grid, read as the LABELLED GRID it is printed as.
+
+    What this replaces was one regex spanning all seven rows of the grid at
+    once, with `\\D{0,8}` standing in for the furniture between them. Two things
+    defeat that on a photographed statement, and both defeated it here:
+
+    * the furniture is the page's rotated left-margin text, and Tesseract
+      resolves those glyphs as digits as readily as letters (`2 17
+      Checks/Debits`, `... 0.00 2 Interest Paid`). `\\D` excludes a digit by
+      construction, so a single mis-resolved margin glyph took the whole
+      summary down. It did so on four of the nine statements this issuer
+      prints in the archive — including the one already claimed and declined.
+    * one coupled regex fails as a unit. A grid whose seven rows are each
+      labelled does not need to be read as one thing, and reading it row by
+      row means a row the scan damaged costs that row and nothing else.
+
+    The counts are the case in point. One statement prints `Q Checks/Debits
+    0.00` — the digit `0` resolved as a letter — and its count is published as
+    UNKNOWN rather than guessed, while every other figure on the row is read.
+    Nothing infers the count from the total being `0.00`; that would be an
+    inference, and this reader records measurements.
+
+    The grid is accepted only if its own arithmetic closes:
+    `previous + credits - debits == ending`, to the cent. It closes on all nine.
+    """
+    found: dict[str, object] = {}
+    for line in text.splitlines():
+        row = line.strip()
+        m = re.search(
+            r"Statement Dates\s+(\d{1,2}/\d{1,2}/\d{2,4})\s+thru\s+(\d{1,2}/\d{1,2}/\d{2,4})",
+            row, re.IGNORECASE)
+        if m:
+            found.setdefault("start", m.group(1))
+            found.setdefault("end", m.group(2))
+        m = re.search(r"Days in Statement Period\s+(\d+)", row, re.IGNORECASE)
+        if m:
+            found.setdefault("days", int(m.group(1)))
+        for key, label in (
+            ("credit", r"Deposits\s*/\s*Credits"),
+            ("debit", r"Checks\s*/\s*Debits"),
+        ):
+            m = re.search(r"(\S+)?\s*" + label + r"\s+(" + _SS_MONEY + r")\s*$", row, re.IGNORECASE)
+            if m and key + "_total" not in found:
+                count = m.group(1)
+                found[key + "_count"] = int(count) if count and count.isdigit() else None
+                found[key + "_total"] = _southside_money(m.group(2))
+        for key, label in (
+            ("previous", r"Previous Balance"),
+            ("ending", r"Ending Balance"),
+            ("service", r"Total Service Charge"),
+            ("interest", r"Interest Paid"),
+        ):
+            m = re.search(label + r"\s+(" + _SS_MONEY + r")", row, re.IGNORECASE)
+            if m:
+                found.setdefault(key, _southside_money(m.group(1)))
+    required_keys = ("start", "end", "days", "previous", "ending", "credit_total", "debit_total")
+    if any(found.get(key) is None for key in required_keys):
+        return None
+    # A date cell the scan corrupted can still have the SHAPE of a date, and
+    # `_iso` RAISES on one that is only shaped like it (`5/41/26`). A parser
+    # that raises is a parser crash, and a crash is a worse answer than a
+    # decline: this reader has no period it can trust, so it refuses. The
+    # conversion belongs here rather than at the call site because this is the
+    # only place the period is admitted, and every later reading — the year,
+    # the candidate enumeration, the posted-day set — is bounded by it.
+    for key in ("start", "end"):
+        try:
+            found[key] = _iso(str(found[key]))
+        except ValueError:
+            return None
+    identity = (
+        float(found["previous"])  # type: ignore[arg-type]
+        + float(found["credit_total"])  # type: ignore[arg-type]
+        - float(found["debit_total"])  # type: ignore[arg-type]
+        - float(found["ending"])  # type: ignore[arg-type]
+    )
+    if abs(identity) > 0.01:
+        return None
+    return found
 
 
 def parse_southside_scanned_statement(markdown: str) -> Statement | None:
@@ -267,38 +537,33 @@ def parse_southside_scanned_statement(markdown: str) -> Statement | None:
     # Holder from the entity-suffix structural marker, not a memorized
     # customer name (R-1 item 2).
     stmt.account_name = _extract_holder_name(markdown)
-    summary = re.search(
-        r"Statement Dates\s+(?P<start>\d{1,2}/\d{1,2}/\d{2})\s+thru\s+(?P<end>\d{1,2}/\d{1,2}/\d{2})\s+"
-        r"Previous Balance\s+(?P<begin>\d[\d,]*\.\d{2})\s+Days in Statement Period\s+(?P<days>\d+)\s+"
-        r"\D{0,8}(?P<credit_count>\d+)\s+Deposits/Credits\s+(?P<credits>\d[\d,]*\.\d{2})\s+"
-        r"\D{0,8}(?P<debit_count>\d+)\s+Checks/Debits\s+(?P<debits>\d[\d,]*\.\d{2})\s+"
-        r"\D{0,8}Total Service Charge\s+(?P<service>\d[\d,]*\.\d{2})\s+\D{0,8}Interest Paid\s+(?P<interest>\d[\d,]*\.\d{2})\s+"
-        r"Ending Balance\s+(?P<ending>\d[\d,]*\.\d{2})",
-        text,
-        re.IGNORECASE,
-    )
-    if not summary:
+    summary = _southside_summary(markdown)
+    if summary is None:
         return None
-    stmt.period_start = _iso(summary.group("start"))
-    stmt.period_end = _iso(summary.group("end"))
-    stmt.beginning_balance = _money(summary.group("begin"))
-    stmt.ending_balance = _money(summary.group("ending"))
-    stmt.days_in_period = int(summary.group("days"))
-    stmt.stated_credit_count = int(summary.group("credit_count"))
-    stmt.stated_debit_count = int(summary.group("debit_count"))
-    stmt.stated_total_credits = _money(summary.group("credits"))
-    stmt.stated_total_debits = _money(summary.group("debits"))
-    stmt.stated_service_charge = _money(summary.group("service"))
-    stmt.stated_interest_paid = _money(summary.group("interest"))
+    # Already ISO, and already refused if the cell was not a date at all.
+    stmt.period_start = str(summary["start"])
+    stmt.period_end = str(summary["end"])
+    stmt.beginning_balance = summary["previous"]  # type: ignore[assignment]
+    stmt.ending_balance = summary["ending"]  # type: ignore[assignment]
+    stmt.days_in_period = int(summary["days"])  # type: ignore[call-overload]
+    stmt.stated_credit_count = summary["credit_count"]  # type: ignore[assignment]
+    stmt.stated_debit_count = summary["debit_count"]  # type: ignore[assignment]
+    stmt.stated_total_credits = summary["credit_total"]  # type: ignore[assignment]
+    stmt.stated_total_debits = summary["debit_total"]  # type: ignore[assignment]
+    stmt.stated_service_charge = summary.get("service")  # type: ignore[assignment]
+    stmt.stated_interest_paid = summary.get("interest")  # type: ignore[assignment]
 
     year = int(stmt.period_end[:4])
-    deposits = _section(markdown, r"DEPOSITS.*?Date Description Amount", r"WITHDRAWALS")
-    withdrawals = _section(markdown, r"WITHDRAWALS.*?Date Description Amount", r"--- Page 2 ---")
-    checks = _section(markdown, r"SUMMARY BY CHECK NUMBER", r"DAILY BALANCE SUMMARY")
+    period = (stmt.period_start, stmt.period_end)
+    grids = _southside_grids(markdown)
+    posted = _southside_posted_days(grids["daily"], period)
     txns: list[Transaction] = []
-    txns.extend(_parse_southside_line_rows(deposits, year=year, sign=1))
-    txns.extend(_parse_southside_line_rows(withdrawals, year=year, sign=-1))
-    txns.extend(_parse_southside_checks(checks, year=year))
+    txns.extend(_parse_southside_line_rows(
+        grids["deposits"], year=year, sign=1, period=period, posted=posted))
+    txns.extend(_parse_southside_line_rows(
+        grids["withdrawals"], year=year, sign=-1, period=period, posted=posted))
+    txns.extend(_parse_southside_checks(
+        grids["checks"], year=year, period=period, posted=posted))
     txns = _repair_checks_from_image_captions(markdown, txns, stmt)
     txns = _attach_daily_balances(_sort_txns(txns), _daily_balances(markdown))
     txns = _discard_inconsistent_ocr_balances(stmt, txns)
@@ -327,23 +592,71 @@ def _parse_two_column_mdyy_rows(block: str, *, year: int, sign: int) -> list[Tra
     return txns
 
 
-def _parse_southside_line_rows(block: str, *, year: int, sign: int) -> list[Transaction]:
+def _southside_row_date(
+    tokens: list[str], period: tuple[str, str], posted: frozenset[str]
+) -> tuple[str, int] | None:
+    """The row's date and the index after it, or `None`.
+
+    Two passes, and the order is the point. A cell the bank printed CLEANLY is
+    taken first, wherever on the line it stands, because the left margin of
+    this template carries rotated page furniture that the scan drops into the
+    row as one or two stray glyphs — and one of those glyphs can itself be a
+    readable date (`47` is `4/7` in an April statement). Only when no clean
+    cell exists is a damaged one reconstructed, and a reconstruction must
+    additionally name a day the printed daily-balance grid names.
+    """
+    for index, token in enumerate(tokens):
+        if re.fullmatch(r"\d{1,2}/\d{1,2}", token):
+            day = _southside_day(token, period)
+            if day is not None:
+                return day, index + 1
+    for index, token in enumerate(tokens):
+        day = _southside_day(token, period)
+        if day is not None and day in posted:
+            return day, index + 1
+    return None
+
+
+def _parse_southside_line_rows(
+    block: str,
+    *,
+    year: int,
+    sign: int,
+    period: tuple[str, str],
+    posted: frozenset[str],
+) -> list[Transaction]:
+    """`date description amount` rows, one per line, amount last.
+
+    What this replaces stripped a memorised list of OCR glyphs (`ae`, `if`,
+    `cy`, `z`, `ee`, `a`) off the front of each line and then required the date
+    to be the first thing left. That list is a reading of six statements rather
+    than of the template, and a seventh photograph produces a seventh glyph.
+    The structural statement is the one below: on a row of this grid the
+    AMOUNT is the last cell and the DATE is the first cell that is a date; what
+    stands before the date is margin ink and what stands between them is the
+    description.
+    """
     txns: list[Transaction] = []
     for raw in block.splitlines():
-        line = re.sub(r"(?i)^\W*(?:ae|if|cy|z|ee|a)\s+", "", raw.strip())
-        line = re.sub(r"(?i)^\W+", "", line)
-        date_start = re.search(r"\d{1,2}/\d{2}\b|\b\d{3}\s+", line)
-        if date_start:
-            line = line[date_start.start():]
-        line = re.sub(r"^(\d)(\d{2})\s+", r"\1/\2 ", line)
-        m = re.match(r"^(\d{1,2}/\d{2})\s+(.+?)\s+(\d[\d,]*\.\d{2})\s*$", line)
-        if not m:
+        line = raw.strip()
+        amount = re.search(r"(" + _SS_MONEY + r")\s*$", line)
+        if not amount:
             continue
-        mmdd, desc, amount = m.groups()
-        signed = round(abs(_money(amount)) * sign, 2)
+        tokens = line[: amount.start()].split()
+        found = _southside_row_date(tokens, period, posted)
+        if found is None:
+            continue
+        day, after = found
+        description = compact_whitespace(" ".join(tokens[after:]))
+        if not description:
+            continue
+        value = _southside_money(amount.group(1))
+        if value is None:
+            continue
+        signed = round(abs(value) * sign, 2)
         txns.append(Transaction(
-            date=_date_from_mdyy(mmdd, year=year),
-            description=compact_whitespace(desc),
+            date=day,
+            description=description,
             amount=signed,
             direction="credit" if signed > 0 else "debit",
         ))
@@ -417,13 +730,26 @@ def _repair_checks_from_image_captions(
     return txns
 
 
-def _parse_southside_checks(block: str, *, year: int) -> list[Transaction]:
+def _parse_southside_checks(
+    block: str, *, year: int, period: tuple[str, str], posted: frozenset[str]
+) -> list[Transaction]:
+    """`date  check-number  amount`, two or three of them to a printed line."""
     txns: list[Transaction] = []
-    for raw_date, check_no, amount in re.findall(r"(\d{1,2}/\d{2})\s+(\d{3,})\s+(\d[\d,]*\.\d{2})", block):
+    for raw_date, check_no, amount in re.findall(
+        r"([A-Za-z0-9/]{2,5})\s+(\d{3,})\s*\*?\s+(" + _SS_MONEY + r")", block
+    ):
+        day = _southside_day(raw_date, period)
+        if day is None:
+            continue
+        if not re.fullmatch(r"\d{1,2}/\d{1,2}", raw_date) and day not in posted:
+            continue
+        value = _southside_money(amount)
+        if value is None:
+            continue
         txns.append(Transaction(
-            date=_date_from_mdyy(raw_date, year=year),
+            date=day,
             description=f"Check {check_no}",
-            amount=round(-abs(_money(amount)), 2),
+            amount=round(-abs(value), 2),
             direction="debit",
         ))
     return txns
