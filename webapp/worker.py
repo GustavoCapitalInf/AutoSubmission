@@ -50,6 +50,21 @@ _PHASE_PREFLIGHT = "preflight"
 _PHASE_READING = "reading"
 _PHASE_ANALYSIS = "analysis"
 
+#: The job states `run_job` may NOT leave behind (#PRIVACY3, closing
+#: #WORKERPRIV m-7). `queued`/`processing` mean "a worker is still on it"; once
+#: `run_job` has returned or unwound, no worker is, so either one is a job that
+#: will never move again. The store's own vocabulary is
+#: queued/processing/done/error/interrupted (`webapp/jobs.py:35`).
+_NON_TERMINAL_STATUSES = frozenset({"queued", "processing"})
+
+#: What a job that reached neither `set_result` nor an exception arm is marked
+#: with. A fixed literal: by definition there is no exception object here to
+#: name a class from, and there is certainly nothing read out of a document.
+_STUCK_JOB_FAILURE = (
+    "the worker stopped without publishing a result "
+    "(message withheld; an exception message can quote statement text)"
+)
+
 #: The analysis pipeline's DECLARED refusals (#WORKERPRIV D2).
 #:
 #: `analysis/pipeline.py` raises a small number of refusals that are FIXED
@@ -446,3 +461,47 @@ def run_job(
         # fragment of the document (H3_SCHEMA I1).
         _emit(store, job_id, profile, len(pdf_bytes), doc, None, None, None,
               collector, timer, error_type=type(e).__name__)
+    except BaseException as e:
+        # #PRIVACY3, closing #WORKERPRIV m-7. The arm above catches `Exception`,
+        # so a `BaseException` — `KeyboardInterrupt`, `SystemExit`, a
+        # `MemoryError`'s escalation, a `GeneratorExit` — killed the queue
+        # thread with a traceback on stderr and left the job at `processing`
+        # with `error=None` FOREVER: no durable write, no telemetry record, and
+        # a dashboard that polls a job which will never move again. The store's
+        # startup `mark_interrupted` only reaches it after a RESTART; a
+        # long-lived server never restarts.
+        #
+        # Fail-closed: the job is marked failed with the same fixed vocabulary
+        # the arm above uses, so a status is written before anything else
+        # happens.
+        #
+        # AND THEN IT RE-RAISES, which is the whole difference between this arm
+        # and the one above. Swallowing `SystemExit` would defeat a shutdown and
+        # swallowing `KeyboardInterrupt` would defeat Ctrl-C; the defect was
+        # never that the thread died, it was that the job did not find out. The
+        # thread still dies, exactly as it did before, and the stderr traceback
+        # this raise produces is UNCHANGED — recorded, not decided, because
+        # where a worker crash's full text should go is the D-2b/D-7 logging
+        # question (#WORKERPRIV WP6.5), not something an exception-boundary card
+        # gets to invent.
+        store.set_error(job_id, _stage_failure(phase, e))
+        _emit(store, job_id, profile, len(pdf_bytes), doc, None, None, None,
+              collector, timer, error_type=type(e).__name__)
+        raise
+    finally:
+        # The last resort, and it exists because both arms above can themselves
+        # be interrupted: a `BaseException` raised INSIDE a handler (between
+        # `set_error` and `_emit`, or during either) leaves the same stuck job
+        # the arms exist to prevent. A `finally` is the only place that runs on
+        # every exit — including the four `return`s in the body, where the job
+        # is already `done` and this is a no-op read.
+        #
+        # It never overwrites a terminal state and it never raises: a status
+        # check that could itself crash the thread would be a fifth way to
+        # leave the job stuck.
+        try:
+            job = store.get(job_id)
+            if job is not None and job.status in _NON_TERMINAL_STATUSES:
+                store.set_error(job_id, _STUCK_JOB_FAILURE)
+        except Exception:
+            pass

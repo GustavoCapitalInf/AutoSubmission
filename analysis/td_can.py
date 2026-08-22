@@ -18,6 +18,7 @@ from collections import Counter
 from datetime import date
 from typing import NamedTuple
 
+from .date_tokens import date_refusal
 from .money import parse_money, parse_money_tokens, strip_currency
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -147,9 +148,15 @@ def _native_date_token(value: str) -> str | None:
 
 
 def _native_date_to_iso(value: str, *, default_year: int) -> str:
+    """The printed date token as ISO, refusing rather than inventing a date.
+
+    The refusal names this reader and the token's SHAPE, never the cell
+    (`date_tokens.date_refusal`, W3 §PRIVACY3). Control flow is unchanged: the
+    same tokens raise, with the same class, at the same line.
+    """
     m = _DATE_TOKEN_RE.fullmatch(value.upper())
     if not m:
-        raise ValueError(value)
+        raise date_refusal("td_can._native_date_to_iso", value)
     return date(default_year, _MONTHS[m.group(1).upper()], int(m.group(2))).isoformat()
 
 

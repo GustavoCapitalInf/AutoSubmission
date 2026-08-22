@@ -106,7 +106,30 @@ CALENDAR_RE = re.compile(r"(?<![\d\\])\(?(\d{2})\)?(?=\\s|\\-|-|/)")
 #: where an exact-cent constant is a TOLERANCE (`1.00`, `0.98`, `1.02`) rather
 #: than a figure copied off a statement. Verified by reading every match in
 #: each file at the time this exemption was written. No parser is exempt.
-PATTERN_SCAN_EXEMPT = {"metrics.py", "pipeline.py", "reconcile.py"}
+#:
+#: `extract.py` joins them at G7.3 (W3 §PRIVACY3) and the entry is a DISCLOSURE,
+#: not a shrug. Closing `_code_lines`'s triple-quote hole made exactly one
+#: module newly visible to this scan — measured across the whole parser layer,
+#: no other module gains an offender — and its four hits are all inside
+#: `_INSTRUCTIONS`, the LLM prompt: a worked example teaching the model to align
+#: a label column against a value column (`78.68- / 7,329.22 / 3,945.12 / …`,
+#: lines 70-74) plus a description example at line 79.
+#:
+#: Exempt rather than fixed, for three measured reasons. `extract.py` is the
+#: LLM branch, not a parser: it holds no regex, no reader, no parse gate and no
+#: registration, so a constant in it cannot make anything read one statement —
+#: the same property that puts `metrics`/`pipeline`/`reconcile` on this list.
+#: The two distinctive values (`7,329.22`, `3,945.12`) appear in no committed
+#: expectation and in neither audit CSV, so the example is illustrative rather
+#: than copied off a pinned document. And editing a prompt changes what a model
+#: does, which is a measurement this card does not carry.
+#:
+#: CARRIED, and the sharper half: line 79's example is
+#: `"PREM PMT BCBS OF AL 32.00"` — a real-looking insurer name in the parser
+#: layer, which is the class R-1 purged. Named for whoever owns
+#: `analysis/extract.py` next; not this cell's file and not a scan this list
+#: covers.
+PATTERN_SCAN_EXEMPT = {"metrics.py", "pipeline.py", "reconcile.py", "extract.py"}
 
 #: Modules already flagged by this scan when it was written. A ratchet, not a
 #: pardon: nothing new may be added, and the entry shrinks as its owner clears.
@@ -133,18 +156,33 @@ CALENDAR_BASELINE = {"first_community.py"}
 def _code_lines(path: Path):
     """Source lines with comments and docstrings stripped.
 
-    Docstrings are blanked line for line rather than collapsed, so the numbers
-    reported to a failing developer are the numbers in the file. Collapsing
-    them to `""` shifted every subsequent line number by the length of the
-    docstring above it, which made offender reports point at the wrong code.
+    Docstrings are blanked IN PLACE, character for character, so the numbers
+    reported to a failing developer are the numbers in the file. (An earlier
+    revision collapsed each one to `""`, which shifted every subsequent line
+    number by the length of the docstring above it and made offender reports
+    point at the wrong code.)
+
+    G7.3, the second half. The previous implementation matched a triple-quote
+    delimiter with a regex; this one is an AST walk over the four positions the
+    language calls a docstring. The regex was wrong in the direction that HIDES:
+    it
+    blanked every triple-quoted string, docstring or not, so a module constant
+    written with triple quotes was invisible to the year, amount and
+    account-number scans below. Measured on the tree that carried the fix: two
+    such strings exist in the parser layer, and one of them
+    (`analysis/extract.py`'s LLM prompt) carries exact-cent amounts the amount
+    scan is built to find — see `PATTERN_SCAN_EXEMPT`.
     """
     text = path.read_text(encoding="utf-8")
-
-    def blank(match: re.Match[str]) -> str:
-        return '""' + "\n" * match.group(0).count("\n")
-
-    text = re.sub(r'"""(?:[^"]|"(?!""))*"""', blank, text, flags=re.DOTALL)
-    for number, raw in enumerate(text.splitlines(), 1):
+    lines = text.splitlines()
+    tree = ast.parse(text)
+    for node in _docstring_nodes(tree):
+        for row in range(node.lineno - 1, node.end_lineno):
+            line = lines[row]
+            start = node.col_offset if row == node.lineno - 1 else 0
+            stop = node.end_col_offset if row == node.end_lineno - 1 else len(line)
+            lines[row] = line[:start] + " " * (stop - start) + line[stop:]
+    for number, raw in enumerate(lines, 1):
         line = raw.split("#", 1)[0]
         if line.strip():
             yield number, line
@@ -159,11 +197,83 @@ def _parser_modules() -> list[Path]:
     ]
 
 
-def _pattern_strings(path: Path):
-    """Every string constant in a module, with its real line number."""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+def _docstring_nodes(tree: ast.AST):
+    """Every DOCSTRING constant node in `tree`, in no particular order.
+
+    A docstring is the first statement of a Module, ClassDef, FunctionDef or
+    AsyncFunctionDef and nothing else. Recognised by POSITION rather than by
+    delimiter, which is the whole point of G7.3: a triple-quoted string
+    assigned to a name, passed to a call, or sitting in a list is a value the
+    module can compile, compare or embed, and it stays scanned.
+    """
+    holders = (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
     for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        if not isinstance(node, holders):
+            continue
+        body = getattr(node, "body", None)
+        if (
+            body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)
+        ):
+            yield body[0].value
+
+
+def _docstring_ids(tree: ast.AST) -> set[int]:
+    """The `id()` of every DOCSTRING constant in `tree`.
+
+    A docstring is the first statement of a Module, ClassDef, FunctionDef or
+    AsyncFunctionDef and nothing else. Identified by IDENTITY rather than by
+    text or by delimiter, which is what makes the exclusion narrow: a
+    triple-quoted string ASSIGNED to a name is a value the module can compile,
+    compare or embed, so it stays scanned. `tests/test_no_parser_helper_clones.py
+    ::_code_strings` has done it this way since R-2; this file did not, and G7.3
+    is that gap.
+    """
+    ids: set[int] = set()
+    holders = (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+    for node in ast.walk(tree):
+        if not isinstance(node, holders):
+            continue
+        body = getattr(node, "body", None)
+        if (
+            body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)
+        ):
+            ids.add(id(body[0].value))
+    return ids
+
+
+def _pattern_strings(path: Path):
+    """Every string constant a module can COMPILE, with its real line number.
+
+    Docstrings are excluded and comments never reach the AST at all (G7.3, W3
+    §GRAM4 G7.3 / §LCPERIOD L5.1). The scans below hunt for pinned calendar
+    fields inside PATTERNS; a docstring that quotes a real printed row beside a
+    regex escape — which is what evidence for a boundary rule looks like — is
+    not a pattern, and two cells in a row had to reword prose to get past a
+    guard that could not tell the difference. Both directions matter and the
+    second is the dangerous one: a scan that reads docstrings can also be
+    SATISFIED by one, so a module whose only calendar literal moved into a
+    docstring would keep its `CALENDAR_BASELINE` entry alive on evidence that
+    no longer describes any code.
+
+    Narrow on purpose. The regex-based blanking in `_code_lines` removes every
+    triple-quoted string, docstring or not; this walk removes only the four
+    positions the language calls a docstring, so a `re.VERBOSE` pattern written
+    with triple quotes is still scanned here.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    docstrings = _docstring_ids(tree)
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and id(node) not in docstrings
+        ):
             yield node.lineno, node.value
 
 
@@ -343,3 +453,175 @@ def test_no_raw_mojibake_sequences(filename):
         if MOJIBAKE_RE.search(line)
     ]
     assert not offenders, f"raw mojibake byte sequences: {offenders}"
+
+
+# ---------------------------------------------------------------------------
+# G7.3 — what the scans read, asserted (W3 §PRIVACY3)
+#
+# Two cells in a row (§LCPERIOD L5.1, §GRAM4 G7.2/G7.3) hit the same wall: a
+# docstring that quotes a real printed row beside a regex escape — which is
+# exactly what evidence for a boundary rule looks like — tripped a scan aimed
+# at PATTERNS, and both worked around it by rewording prose. G7.3 asked for the
+# scan to exclude docstrings and comments explicitly, or for a proof that it
+# already does, "so a documented example can never trip or hide a finding".
+# Both directions are below, on SYNTHETIC modules: a guard nobody has watched
+# fail is not a guard, and these are the shapes that would make it fail.
+# ---------------------------------------------------------------------------
+
+#: One literal, three positions. `04-01` is a pinned calendar field the moment
+#: it sits inside a pattern, and prose the moment it sits inside a docstring.
+_G73_CALENDAR_EXAMPLE = r"(04-01)\s+"
+
+
+def _g73_module(tmp_path: Path, name: str, source: str) -> Path:
+    path = tmp_path / name
+    path.write_text(source, encoding="utf-8")
+    return path
+
+
+def _calendar_hits(path: Path) -> list[str]:
+    return [
+        match.group(1)
+        for _, text in _pattern_strings(path)
+        if r"\d" in text or r"\s" in text
+        for match in CALENDAR_RE.finditer(text)
+    ]
+
+
+def test_the_calendar_scan_ignores_the_same_literal_in_a_docstring(tmp_path):
+    """Direction 1 — a documented example may not TRIP the scan."""
+    source = (
+        'r"""A module docstring quoting the class as evidence: ' + _G73_CALENDAR_EXAMPLE + '"""\n'
+        "\n"
+        "def reader():\n"
+        '    r"""A function docstring quoting it too: ' + _G73_CALENDAR_EXAMPLE + '"""\n'
+        "    return None\n"
+        "\n"
+        "class Reader:\n"
+        '    r"""And a class docstring: ' + _G73_CALENDAR_EXAMPLE + '"""\n'
+    )
+    assert _calendar_hits(_g73_module(tmp_path, "documented.py", source)) == []
+
+
+def test_the_calendar_scan_still_sees_the_literal_in_real_code(tmp_path):
+    """Direction 2 — the exclusion may not HIDE one. Same literal, four
+    positions the language does NOT call a docstring: a module constant, a
+    call argument, a list member, and a string that is merely the second
+    statement of a function."""
+    source = (
+        '"""Real docstring."""\n'
+        "import re\n"
+        "\n"
+        "PATTERN = " + repr(_G73_CALENDAR_EXAMPLE) + "\n"
+        "COMPILED = re.compile(" + repr(_G73_CALENDAR_EXAMPLE) + ")\n"
+        "ALTERNATES = [" + repr(_G73_CALENDAR_EXAMPLE) + "]\n"
+        "\n"
+        "def reader():\n"
+        '    """Doc."""\n'
+        "    " + repr(_G73_CALENDAR_EXAMPLE) + "\n"
+        "    return None\n"
+    )
+    hits = _calendar_hits(_g73_module(tmp_path, "coded.py", source))
+    # Two hits per occurrence: `(04-` and `01)\s` each satisfy the rule. That is
+    # the rule working, not double counting. Four code positions, so four each.
+    assert hits.count("04") == 4 and hits.count("01") == 4
+
+
+def test_the_code_line_scan_ignores_docstrings_and_comments(tmp_path):
+    """`_code_lines`, the other extractor. An amount in a docstring or behind
+    a `#` is not a constant the module can read."""
+    source = (
+        '"""An example the module documents: 1,234.56 and 9876543210."""\n'
+        "\n"
+        "def reader():\n"
+        '    """Another: 3,945.12 in 2026."""\n'
+        "    return None  # and a comment: 7,329.22 in 2025\n"
+    )
+    path = _g73_module(tmp_path, "documented_lines.py", source)
+    text = " ".join(line for _, line in _code_lines(path))
+    assert AMOUNT_RE.search(text) is None
+    assert YEAR_RE.search(text) is None
+    assert ACCOUNT_RE.search(text) is None
+
+
+def test_the_code_line_scan_still_sees_a_triple_quoted_module_constant(tmp_path):
+    """The hole G7.3's second half closed, replayed.
+
+    The previous implementation blanked every triple-quoted string. A module
+    constant written with triple quotes — a prompt, a word list, a
+    `re.VERBOSE` pattern — was therefore invisible to the year, amount and
+    account-number scans. It is not a docstring: nothing about its POSITION
+    makes it one."""
+    source = (
+        '"""Real docstring, correctly ignored: 1,111.11."""\n'
+        "\n"
+        "PROMPT = " + '"""' + "\\n"
+        "A worked example: 3,945.12 posted in 2026 to account 9876543210\n"
+        + '"""' + "\n"
+    )
+    path = _g73_module(tmp_path, "constant.py", source)
+    text = " ".join(line for _, line in _code_lines(path))
+    assert AMOUNT_RE.search(text) is not None
+    assert YEAR_RE.search(text) is not None
+    assert ACCOUNT_RE.search(text) is not None
+    assert "1,111.11" not in text
+
+
+def test_the_code_line_scan_reports_the_line_numbers_in_the_file(tmp_path):
+    """Blanking is in place, character for character, so an offender report
+    points at the offending line. The regression this replaces shifted every
+    number by the length of the docstring above it."""
+    source = (
+        '"""Line one\n'
+        "line two\n"
+        'line three."""\n'
+        "AMOUNT = 3945.12\n"
+    )
+    path = _g73_module(tmp_path, "numbered.py", source)
+    assert [number for number, _ in _code_lines(path)] == [4]
+
+
+def test_a_docstring_sharing_its_line_with_code_blanks_only_the_docstring(tmp_path):
+    """Character-level blanking, not line-level: `def f(): '''doc'''` must keep
+    its `def`."""
+    path = _g73_module(tmp_path, "inline.py", 'def f(): """doc 1,234.56"""\n')
+    lines = list(_code_lines(path))
+    assert len(lines) == 1
+    assert lines[0][0] == 1
+    assert lines[0][1].strip().startswith("def f():")
+    assert "1,234.56" not in lines[0][1]
+
+
+def test_the_extract_exemption_still_describes_a_real_offender():
+    """A ratchet, like `CALENDAR_BASELINE`: the entry that G7.3 added may not
+    outlive what it excuses. If `analysis/extract.py`'s prompt stops carrying
+    exact-cent amounts, the exemption comes out."""
+    hits = [
+        match.group(0)
+        for _, line in _code_lines(ANALYSIS_DIR / "extract.py")
+        for match in AMOUNT_RE.finditer(line)
+        if float(match.group(0)) >= 1.0
+    ]
+    assert hits, (
+        "analysis/extract.py no longer carries exact-cent amounts; remove it "
+        "from PATTERN_SCAN_EXEMPT"
+    )
+
+
+def test_closing_the_docstring_hole_flags_exactly_one_module():
+    """The blast radius, as an assertion rather than as a claim in a log.
+
+    Closing `_code_lines`'s triple-quote hole made the amount scan see two
+    strings it had been blanking. Only one of them carries a finding, and the
+    exemption above covers it — so this is the whole measured cost of G7.3, and
+    a later module that grows a triple-quoted constant with money in it fails
+    here instead of hiding behind the exemption."""
+    offenders = set()
+    for path in _parser_modules():
+        for _, line in _code_lines(path):
+            for match in AMOUNT_RE.finditer(line):
+                if float(match.group(0)) >= 1.0:
+                    offenders.add(path.name)
+                    break
+    assert offenders <= PATTERN_SCAN_EXEMPT
+    assert "extract.py" in offenders

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
 
+from .date_tokens import parsed_datetime
 from .money import STRICT_LEADING_SIGN, parse_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
+
+#: The two printed date formats this layout uses. Named once so the readers
+#: cannot drift and the refusal law has a single seam per format.
+_LONG_DATE = "%B %d, %Y"
+_ROW_DATE = "%m/%d/%Y"
 
 
 def _money(value: str | None) -> float | None:
@@ -34,8 +39,14 @@ def parse_demo_national_statement(markdown: str) -> Statement | None:
     )
     if not period or not summary:
         return None
-    period_start = datetime.strptime(period.group(1), "%B %d, %Y").date()
-    period_end = datetime.strptime(period.group(2), "%B %d, %Y").date()
+    # `parsed_datetime`, not `datetime.strptime`: strptime's own ValueError is
+    # ``time data '<the printed date>' does not match format '...'`` and would
+    # carry the printed cell across an exception boundary (W3 §PRIVACY3).
+    # Control flow is unchanged - the same cells raise, with the same class.
+    period_start = parsed_datetime(
+        period.group(1), _LONG_DATE, reader="demo_national.period_start").date()
+    period_end = parsed_datetime(
+        period.group(2), _LONG_DATE, reader="demo_national.period_end").date()
     beginning, credit_count, credits, debit_count, debits, ending = summary.groups()
     stmt = Statement(
         bank="Demo National Bank",
@@ -69,7 +80,8 @@ def parse_demo_national_statement(markdown: str) -> Statement | None:
             return None
         txns.append(
             Transaction(
-                date=datetime.strptime(m.group(1), "%m/%d/%Y").date().isoformat(),
+                date=parsed_datetime(
+                    m.group(1), _ROW_DATE, reader="demo_national.row").date().isoformat(),
                 description=re.sub(r"\s+", " ", m.group(2)).strip(),
                 amount=signed,
                 direction="credit" if signed > 0 else "debit",

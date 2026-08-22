@@ -77,6 +77,56 @@ class VisualOcrStatus:
         return f"visual-OCR server ready at {self.base_url} ({self.model})"
 
 
+#: How much of a transport failure's message the operator console may carry.
+#: A bound, not a redaction: an OpenAI-compatible client can raise with a whole
+#: HTML error page attached, and a probe that floods a terminal is a probe
+#: nobody reads.
+MAX_DETAIL_CHARS = 200
+
+
+def _unreachable(settings, exc: BaseException) -> VisualOcrStatus:
+    """THE unreachable status. The one place a probe failure becomes text.
+
+    KEPT, NOT REDUCED — and this is the decision worth the paragraph, because
+    every other `str(exc)` this cell met was reduced (W3 §PRIVACY3).
+    `ocr/availability.py:126` arrived on the batch-6 ledger as "the same
+    `str(exc)` truncation pattern" (§MONEYPRIV MP8 item 5), by SHAPE. The
+    census says the shape is where the resemblance ends:
+
+    * **No document exists in this call graph.** The probe is `GET /v1/models`.
+      Nothing in `probe_visual_ocr`'s parameters, in `Settings`, or in
+      `_advertised_ids` is a page, a PDF, a markdown string or a cell. There is
+      no statement content for this message to quote — not "unlikely to", but
+      no path by which any could arrive.
+    * **One reader, and it is a console.** `detail` is read only by
+      `VisualOcrStatus.message()`, and `message()` only by two
+      `print(..., file=sys.stderr)` calls in `discovery/cli.py`. It is never
+      durable, never telemetry, never an HTTP body, never an export cell.
+      `tests/test_privacy3_boundaries.py` asserts both of those as AST facts,
+      which is the part that was missing: the module docstring has claimed this
+      invariant since Wave 3 and nothing enforced it, so the next card to reach
+      for `.detail` would have found no resistance.
+    * **Deleting it would delete the diagnosis.** "Connection refused" against
+      "certificate verify failed" against "404 page not found" is the whole
+      content of a preflight whose job is to stop a 3,506-document run before
+      document 1. `error_type` alone cannot say which. §WORKERPRIV WP6.3 named
+      exactly this trap on the other side: a card that says "never `str(e)`"
+      reads as if a fixed literal a human depends on were the same object as a
+      quoted cell.
+
+    What DID change: one constructor instead of an inline literal, so the
+    truncation and the class name cannot drift apart across a future second
+    failure branch, and `MAX_DETAIL_CHARS` is a named bound a test can pin.
+    """
+    return VisualOcrStatus(
+        available=False,
+        base_url=settings.base_url,
+        model=settings.model,
+        detail=str(exc)[:MAX_DETAIL_CHARS],
+        error_type=type(exc).__name__,
+    )
+
+
 def _advertised_ids(client) -> tuple[str, ...]:
     listing = client.models.list()
     data = getattr(listing, "data", None) or []
@@ -119,13 +169,7 @@ def probe_visual_ocr(
     try:
         advertised = tuple(str(identifier) for identifier in (list_models() or ()))
     except Exception as exc:
-        return VisualOcrStatus(
-            available=False,
-            base_url=settings.base_url,
-            model=settings.model,
-            detail=str(exc)[:200],
-            error_type=type(exc).__name__,
-        )
+        return _unreachable(settings, exc)
     return VisualOcrStatus(
         available=True,
         base_url=settings.base_url,

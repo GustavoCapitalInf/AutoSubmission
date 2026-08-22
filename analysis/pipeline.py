@@ -703,7 +703,31 @@ def analyze_markdown(markdown: str, *, settings: Settings | None = None,
     # is inconsistent (or fully clean), and prefer whichever extraction's summary
     # reconciles, falling back to fewer overall issues.
     needs_escalation = not recon.ok and (recon.summary_ok is not True)
-    if deterministic_stmt is None and needs_escalation and settings.escalation_model != settings.model:
+    # `parse_mode != "deterministic"` is the FIRST clause, and it is the only
+    # one of the four that is a statement about the CALLER'S CONTRACT rather
+    # than about this document (#PRIVACY3, closing W3 §EXTRACTPRIV XP9 finding
+    # 2). Deterministic mode promises no hosted-model call, and until this line
+    # the promise rested on a coincidence: `deterministic_stmt is None` is true
+    # on the structurer branch (`GENERIC_STRUCTURER_ENABLED`), where
+    # `structured_stmt` is not None, so nothing above stopped a
+    # deterministic-mode run from reaching `extract_statement` below — except
+    # that the structurer only publishes a statement whose ledger GROUNDS, so
+    # `recon.ok` is True and `needs_escalation` is False. That is a property of
+    # the structurer, not of the mode, and one widened grounding rule would have
+    # turned an offline guarantee into a vendor call with no test failing.
+    #
+    # Fail-closed and free: in deterministic mode the branch above has already
+    # raised (`no deterministic parser matched this statement`) for every
+    # document that has no `deterministic_stmt` and no `structured_stmt`, so the
+    # only documents this clause can reach are structurer-published ones, which
+    # measure `needs_escalation is False` today. Zero movement by construction;
+    # the clause exists so it stays zero.
+    if (
+        parse_mode != "deterministic"
+        and deterministic_stmt is None
+        and needs_escalation
+        and settings.escalation_model != settings.model
+    ):
         try:
             alt = normalize_statement(extract_statement(markdown, settings=settings, model=settings.escalation_model))
             alt = apply_statement_repairs(markdown, alt, dispatch=dispatch)

@@ -5,7 +5,7 @@ import re
 from datetime import date
 
 from .dates import resolve_year
-from .money import parse_money
+from .money import _refusal, parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import compact_whitespace
@@ -36,10 +36,16 @@ _WITHDRAWAL_KEYS = (
 
 
 def _amount(value: str) -> float:
+    """The printed cell as a number, refusing rather than inventing one.
+
+    The refusal names this reader and the token's SHAPE, never the cell
+    (`money._refusal`, W3 §MONEYPRIV; this site is §PRIVACY3's). Control flow is
+    unchanged: the same tokens raise, with the same class, at the same line.
+    """
     cleaned = value.replace("$", "").strip()
     parsed = parse_money(cleaned)
     if parsed is None:
-        raise ValueError(value)
+        raise _refusal("bmo._amount", value)
     return parsed
 
 

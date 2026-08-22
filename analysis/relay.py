@@ -4,9 +4,13 @@ import re
 from datetime import datetime
 from decimal import Decimal
 
+from .date_tokens import parsed_datetime
 from .money import parse_decimal
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
+
+#: The one printed date format this layout uses (period ends and row dates).
+_DATE_FORMAT = "%b %d, %Y"
 
 
 #: A transaction row's tail: the four printed columns that carry its meaning.
@@ -169,9 +173,14 @@ def parse_relay_statement(markdown: str) -> Statement | None:
     if not period or not summary or not account:
         return None
 
-    end = datetime.strptime(period.group("end"), "%b %d, %Y").date()
-    start = datetime.strptime(
-        f"{period.group('start')}, {end.year}", "%b %d, %Y"
+    # `parsed_datetime`, not `datetime.strptime`: strptime's own ValueError is
+    # ``time data '<the printed date>' does not match format '...'`` and would
+    # carry the printed cell across an exception boundary (W3 §PRIVACY3). The
+    # `start` token is worse than a cell: it is the printed start SPLICED to
+    # the printed end's year. Control flow is unchanged.
+    end = parsed_datetime(period.group("end"), _DATE_FORMAT, reader="relay.end").date()
+    start = parsed_datetime(
+        f"{period.group('start')}, {end.year}", _DATE_FORMAT, reader="relay.start"
     ).date()
     opening = _money(summary.group("opening"))
     closing = _money(summary.group("closing"))
@@ -200,7 +209,7 @@ def parse_relay_statement(markdown: str) -> Statement | None:
                 return None
             label, match = previous_line, wrapped
         previous_line = ""
-        txn_date = datetime.strptime(match.group("date"), "%b %d, %Y")
+        txn_date = parsed_datetime(match.group("date"), _DATE_FORMAT, reader="relay.row")
         amount = _money(match.group("amount"))
         balance = _money(match.group("balance"))
         description = _description(label, match.group("status"), amount)

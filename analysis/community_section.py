@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
+from .date_tokens import parsed_datetime
 from .money import STRICT_LEADING_SIGN, STRICT_UNSIGNED, parse_amount
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -26,8 +27,31 @@ def _balance(value: str | None) -> float | None:
     return parse_amount(value, STRICT_LEADING_SIGN)
 
 
+#: The one printed date format this platform's paper uses. Named once so the
+#: five readers below cannot drift, and so the refusal law has a single seam.
+_DATE_FORMAT = "%m/%d/%Y"
+
+
+def _strptime(value: str, reader: str) -> datetime:
+    """`_DATE_FORMAT` applied to a printed cell, refusing without quoting it.
+
+    `reader` is this module's own symbol name, concatenated onto the module's:
+    both halves are source symbols, so nothing read out of a document can reach
+    the refusal message (W3 §PRIVACY3).
+    """
+    return parsed_datetime(value, _DATE_FORMAT, reader="community_section." + reader)
+
+
 def _iso(value: str) -> str:
-    return datetime.strptime(value, "%m/%d/%Y").date().isoformat()
+    """The printed date cell as ISO.
+
+    Through `date_tokens.parsed_datetime` rather than `datetime.strptime`
+    directly: `strptime`'s own ValueError is
+    ``time data '<the printed date>' does not match format '...'`` and would
+    carry the cell across an exception boundary (W3 §PRIVACY3). Control flow is
+    unchanged — the same cells raise, with the same class.
+    """
+    return _strptime(value, "_iso").date().isoformat()
 
 
 def _clean(text: str) -> str:
@@ -287,7 +311,7 @@ def _dated_amount_rows(body: str, *, sign: int, year: int) -> list[Transaction]:
         amount = _money(amount_match.group())
         if amount is None:
             continue
-        if datetime.strptime(match.group(), "%m/%d/%Y").year != year:
+        if _strptime(match.group(), "_dated_amount_rows").year != year:
             return []
         txns.append(
             Transaction(
@@ -312,7 +336,7 @@ def _check_rows(block: str, *, year: int) -> list[Transaction]:
             amount = _money(match.group(3))
             if amount is None:
                 continue
-            if datetime.strptime(match.group(2), "%m/%d/%Y").year != year:
+            if _strptime(match.group(2), "_check_rows").year != year:
                 return []
             txns.append(
                 Transaction(
@@ -408,7 +432,7 @@ def _activity_rows(block: str, *, year: int) -> list[Transaction]:
         balance = _balance(monies[-1].group())
         if amount is None or balance is None:
             return []
-        if datetime.strptime(match.group(1), "%m/%d/%Y").year != year:
+        if _strptime(match.group(1), "_activity_rows").year != year:
             return []
         if previous is None:
             return []
@@ -501,8 +525,8 @@ def _parse_sectioned_statement(
     beginning, ending = summary.beginning, summary.ending
     credits, debits = summary.credits, summary.debits
     credit_count, debit_count = summary.credit_count, summary.debit_count
-    start_year = datetime.strptime(start_date, "%m/%d/%Y").year
-    end_year = datetime.strptime(end_date, "%m/%d/%Y").year
+    start_year = _strptime(start_date, "_parse_sectioned_statement").year
+    end_year = _strptime(end_date, "_parse_sectioned_statement").year
     if start_year != end_year:
         return None
 
@@ -536,7 +560,8 @@ def _parse_sectioned_statement(
         account_number=None,
         period_start=_iso(start_date),
         period_end=_iso(end_date),
-        days_in_period=(datetime.strptime(end_date, "%m/%d/%Y").date() - datetime.strptime(start_date, "%m/%d/%Y").date()).days + 1,
+        days_in_period=(_strptime(end_date, "_parse_sectioned_statement").date()
+                        - _strptime(start_date, "_parse_sectioned_statement").date()).days + 1,
         beginning_balance=_balance(beginning),
         ending_balance=_balance(ending),
         stated_total_credits=_money(credits),
