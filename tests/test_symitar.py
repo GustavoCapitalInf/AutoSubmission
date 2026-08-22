@@ -77,17 +77,95 @@ def test_a_dormant_sibling_does_not_fail_close_the_document():
 
 
 def test_two_active_deposit_accounts_are_l1_blocked():
-    """A dividend posting makes the money-market account active too. Two
-    deposit ledgers cannot be represented by the single-account schema, so the
-    document is declined rather than published under one account's name."""
-    second = (
-        "Money Market ( ID 0000 )\n"
-        + GRID
-        + "05/01/26 $ 5.18 Beginning Balance 05/01/26 0.01 5.19 Dividend Deposit\n"
-    )
-    text = HEAD + ACTIVE + second
+    """Two deposit ledgers cannot be represented by the single-account schema,
+    so the document is declined rather than published under one account's
+    name."""
+    text = HEAD + ACTIVE + _money_market("05/02/26 -25.00 -19.81 Card purchase FUEL STOP")
     assert detect(text).claims
     assert parse_symitar_statement(text) is None
+
+
+# ----------------------------------- the sibling that posted only its yield
+#
+# W3 §DECLINESG. Until this card the fixture above used a DIVIDEND posting as
+# its example of a second active ledger, and three archive documents were
+# refused for earning one cent. A dividend is the credit union crediting the
+# account the yield it earned, which this platform names in its own equation
+# row as a column separate from `Credits / Deposits`; it is not member
+# activity, and `_yield_only` reads it only under three conditions that must
+# all hold.
+
+
+def _money_market(body: str, *, opening: str = "5.18") -> str:
+    return (
+        "Money Market ( ID 0000 )\n"
+        + GRID
+        + f"05/01/26 $ {opening} Beginning Balance {body}\n"
+    )
+
+
+DIVIDEND_ONLY = _money_market("05/01/26 0.01 5.19 Dividend Deposit Annual Percentage Yield Earned")
+
+
+def test_a_sibling_that_posted_only_its_own_dividend_is_not_a_second_ledger():
+    stmt = parse_symitar_statement(HEAD + ACTIVE + DIVIDEND_ONLY)
+    assert stmt is not None
+    assert stmt.account_name == "Free Business Checking"
+    assert stmt.account_number == "0210"
+    assert len(stmt.transactions) == 2
+    assert all("Dividend" not in t.description for t in stmt.transactions)
+
+
+def test_the_dividend_sibling_skip_is_byte_identical_to_the_dormant_one():
+    """The published payload must not depend on WHICH way the platform
+    declared the sibling idle."""
+    assert parse_symitar_statement(HEAD + ACTIVE + DIVIDEND_ONLY) == parse_symitar_statement(SIMPLE)
+
+
+def test_a_sibling_with_one_ordinary_posting_beside_its_dividend_is_a_second_ledger():
+    """Isolates the FIRST condition: the other two hold here — the section's
+    arithmetic closes (6.18 + 0.01 - 1.00 = 5.19) and 5.19 is what
+    `ACCOUNT SUMMARY` states — so only "every posting is a dividend" can be
+    doing the refusing."""
+    text = HEAD + ACTIVE + _money_market(
+        "05/01/26 0.01 6.19 Dividend Deposit 05/04/26 -1.00 5.19 Card purchase FUEL STOP",
+        opening="6.18",
+    )
+    assert parse_symitar_statement(text) is None
+
+
+def test_the_dividend_read_is_anchored_at_the_posting_type():
+    """A merchant whose NAME carries the word is not the account's own yield.
+    Isolates the anchor: the arithmetic closes (6.19 - 1.00 = 5.19) and agrees
+    with `ACCOUNT SUMMARY`, so reading the description with `search` instead of
+    `match` would skip this sibling and publish the document."""
+    text = HEAD + ACTIVE + _money_market(
+        "05/04/26 -1.00 5.19 Card purchase DIVIDEND SOLAR", opening="6.19"
+    )
+    assert parse_symitar_statement(text) is None
+
+
+def test_the_dividend_sibling_must_close_its_own_arithmetic():
+    """Isolates the SECOND condition: the posting is a dividend and the last
+    printed balance is exactly the 5.19 `ACCOUNT SUMMARY` states, but the
+    section's own walk does not reach it (5.18 + 0.05 = 5.23). A section whose
+    arithmetic this reader cannot close is a ledger it has not accounted for."""
+    text = HEAD + ACTIVE + _money_market("05/01/26 0.05 5.19 Dividend Deposit")
+    assert parse_symitar_statement(text) is None
+
+
+def test_the_dividend_sibling_must_agree_with_the_document_s_own_summary():
+    """`ACCOUNT SUMMARY` states 5.19 for this account. A section that closes
+    its own arithmetic on a different figure is contradicted by the document
+    and is not skipped."""
+    text = HEAD + ACTIVE + _money_market("05/01/26 0.01 5.30 Dividend Deposit", opening="5.29")
+    assert parse_symitar_statement(text) is None
+
+
+def test_a_sole_deposit_account_that_posted_only_its_dividend_still_refuses():
+    """Skipping the only deposit section leaves nothing to publish, and a
+    ledger of dividends is not a statement of the member's activity."""
+    assert parse_symitar_statement(HEAD + DIVIDEND_ONLY) is None
 
 
 def test_a_loan_section_is_not_a_deposit_ledger():
