@@ -1143,8 +1143,23 @@ def test_the_probe_detail_has_exactly_one_reader_and_it_is_a_console():
     into a telemetry record, a `JobStore` column, a Flask response or an export
     cell fails here - which is the resistance that was missing when this site
     reached the batch-6 ledger.
+
+    Asserted by FILE and COUNT, never by line number. A guard that pins
+    `discovery/cli.py:208` turns red the moment an unrelated cell adds a line
+    above it, and a composed train of ten branches is exactly where that
+    happens; the line numbers stay in the failure message, where they help,
+    instead of in the expectation, where they only break.
     """
-    detail_readers = [
+    detail_readers = sorted({
+        relative
+        for relative, tree in _repository_modules()
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and node.attr == "detail"
+        and isinstance(node.value, ast.Name)
+        and node.value.id in {"self", "status"}
+    })
+    detail_sites = [
         f"{relative}:{node.lineno}"
         for relative, tree in _repository_modules()
         for node in ast.walk(tree)
@@ -1153,9 +1168,10 @@ def test_the_probe_detail_has_exactly_one_reader_and_it_is_a_console():
         and isinstance(node.value, ast.Name)
         and node.value.id in {"self", "status"}
     ]
-    assert detail_readers == ["ocr/availability.py:70"], detail_readers
+    assert detail_readers == ["ocr/availability.py"], detail_sites
+    assert len(detail_sites) == 1, detail_sites
 
-    message_calls = [
+    message_sites = [
         f"{relative}:{node.lineno}"
         for relative, tree in _repository_modules()
         if relative != "ocr/availability.py"
@@ -1164,7 +1180,10 @@ def test_the_probe_detail_has_exactly_one_reader_and_it_is_a_console():
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "message"
     ]
-    assert message_calls == ["discovery/cli.py:208", "discovery/cli.py:214"], message_calls
+    assert sorted({site.split(":")[0] for site in message_sites}) == [
+        "discovery/cli.py"
+    ], message_sites
+    assert len(message_sites) == 2, message_sites
 
     printed = 0
     tree = ast.parse((PROJECT_ROOT / "discovery" / "cli.py").read_text(encoding="utf-8"))
