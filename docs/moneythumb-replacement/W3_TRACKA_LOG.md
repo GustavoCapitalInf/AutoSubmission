@@ -35543,8 +35543,57 @@ in the packet.
 
 ## AM5. Proofs, with verbatim exit codes
 
-PROOFS_TABLE
+All run at this branch's HEAD, in the worktree, SEQUENTIALLY, on a machine
+shared with nine batch-7 cells (26 python processes and nine concurrent
+archive sweeps at the time these ran).
+
+| Proof | Result | Exit |
+|---|---|---|
+| `pytest -q -p no:cacheprovider` (full default suite) | **5,374 passed**, 35 skipped, 33 deselected (463.43s) | **0** |
+| CANONICAL guard set (`test_no_statement_hardcodes`, `test_no_parser_helper_clones`, `test_r1_hardcodes`, `test_experiments_are_not_wired`, `test_filename_boundary`) | **242 passed** (32.40s) | **0** |
+| CANONICAL conformance set (`test_parser_conformance`, `test_parser_registry_entries`, `test_parser_detection_markers`, `test_parser_registry`, `test_parser_crash_shapes`, `test_parser_exception_boundary`, `test_count_semantics`) | **1,151 passed**, 35 skipped (8.82s) | **0** |
+| ATB slice (the 7 modules that mention `atb`), tree as checked out | **957 passed**, 35 skipped (140.94s) | **0** |
+| ATB slice, **with the prototype active** as a session plugin | **957 passed**, 35 skipped (151.62s) — not one existing assertion moves | **0** |
+| `git diff --stat e83f746..HEAD` | 2 files, both `docs/moneythumb-replacement/*.md`; **0 non-doc files changed**; clean tree | — |
+| archive zero-movement sweep, `--start 0 --end 700` | 700 documents · 518 compared · **518 identical · 0 moved · 0 no_payload_now_publishes · 0 payload_now_raises** · 5 no_ocr_artifact · 13 multi-artifact (2,079.0s) | **0** |
+| archive zero-movement sweep, `--start 700 --end 1400` | 700 · 527 compared · **527 identical · 0 moved · 0 / 0 boundary** · 5 no_ocr_artifact · 18 multi-artifact (2,782.0s) | **0** |
+| archive zero-movement sweep, `--start 1400 --end 2100` | 700 · 521 compared · **521 identical · 0 moved · 0 / 0 boundary** · 6 no_ocr_artifact · 16 multi-artifact (2,579.2s) | **0** |
+| archive zero-movement sweep, `--start 2100 --end 2800` | 700 · 528 compared · **528 identical · 0 moved · 0 / 0 boundary** · 6 no_ocr_artifact · 16 multi-artifact (1,606.9s) | **0** |
+| archive zero-movement sweep, `--start 2800 --end 3400` | 580 · 441 compared · **441 identical · 0 moved · 0 / 0 boundary** · 7 no_ocr_artifact · 11 multi-artifact (944.6s) | **0** |
+| **archive sweep, five chunks added** | **3,380 documents · 2,535 compared · 2,535 identical · 0 `moved` · 0 `no_payload_now_publishes` · 0 `payload_now_raises` · 816 `no_payload_raises_again` · 29 `no_ocr_artifact` · 74 multi-artifact · 9,991.7s** — **ZERO findings of any class**, so nothing had to be inside a named population | **0** |
+| `python corpus_gate.py` | **RESULT: GREEN** — every check PASS; 109 pinned PDFs (103 native + 6 committed OCR), 0 foreign, 0 exclusions; `Outcomes: 106 PASS / 3 WITHHELD`; `Verdicts: 4 review / 102 validated / 3 withheld`; **`[PASS] currency: 109/109 statements publish their pinned currency: 14 CAD / 95 USD`**; runtime 760.0s | **0** |
+| `pytest -q -p no:cacheprovider -m corpus` | **not run** — the corpus-marked slice takes ~45 minutes on this machine and the branch is docs-only (0 non-doc files changed, proven above), so its inputs cannot have moved; `python corpus_gate.py` above re-proves the same 109 documents through the product's own resolver. Named rather than skipped silently; Ocean's at the train | — |
+
+The gate's currency line is the pre-ceremony state this packet proposes to
+move: **14 CAD / 95 USD** today, **19 CAD / 90 USD** after the five-line
+`PINNED_CURRENCY` edit of the packet's §9.1. It is GREEN at this branch's HEAD
+because **no movement was executed** — the ruling was a measurement packet
+only.
+
+Suite unchanged at 5,374; registry 74; guard set 242 and conformance set 1,151
+both exactly the counts the handoff records. $0.00 vendor: every analysis in
+this cell ran `parse_mode="deterministic"`, which cannot reach the extraction
+branch, and no hosted model was called anywhere. No cache written — the field
+diff calls `analyze_markdown` directly and every pytest run used
+`-p no:cacheprovider`. The archive and the OCR artifact store were opened
+read-only, by direct file path; the `webapp_data` sqlite index was never opened.
+
 
 ## AM6. Commits
 
-COMMITS_TABLE
+| | |
+|---|---|
+| `e2b4599` | the packet, proofs 0–5 and 8–12 (field diff pending) |
+| `394c626` | `-219` measured archive-wide; the S1/S2/S3 evidence rows; the honest proof-8(b) finding; account identifiers masked |
+| `fe42625` | proofs 6 and 7 — 271 documents, 6,795,116 leaf comparisons, one changed field path |
+| `21f61f9` | this W3 section |
+| `475101f` | control-population wording and the exact process timings |
+| `50d57ce` | the guard-set precedent for the literals the rule introduces |
+| `2a6ab7f` | the existing-suite delta (957/957 both ways) and the registry-fingerprint finding |
+| (this commit) | §AM5 proofs and this commit table |
+
+Base `e83f746`. Never merged, never pushed; nothing outside
+`docs/moneythumb-replacement/ATB_CURRENCY_MEASUREMENT.md` and this section
+changed, and **no movement was executed** — Gustavo's ruling was a measurement
+packet only.
+

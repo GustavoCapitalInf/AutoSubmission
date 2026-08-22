@@ -40,7 +40,8 @@ against `RBC_CURRENCY_MEASUREMENT.md`, which Ocean accepted as the standard.
 | Family population | **live detection replay**, never `rows.csv parser_id` alone: `analysis.parser_registry.resolve()` re-run over every stored markdown of the ATB superset. Live verdict agreed with the run's `parser_id` on **6/6** |
 | Fidelity check A | all five pinned `ATB/*.pdf` files hash on disk to the sha pinned in `docs/adb-audit-results.csv`, `docs/balance-metrics-audit-results.csv` **and** `tests/data/parser_expectations.json` — three independent pins, 5/5 agreement. And for all five, the artifact store's cached OCR document renders **byte-identical** admissible markdown to a fresh `parse_statement` read of the bytes on disk (5/5), so the archive instrument and the pinned resolver are reading the same document |
 | Fidelity check B | for the 2 archive movers the selected OCR artifact is the one whose reconstruction **resolves the run's own stored analysis payload key**, which is per-document proof rather than an ordering; and this cell's before-payload reproduces the run of record's own `outcome_class` on **6/6** ATB archive documents (2 `withheld`, 4 `failed`/raises) |
-| Prototype | a scratchpad-only runtime `dataclasses.replace` of the `atb` registration's `parse`. No repository file was modified to obtain any number in this packet |
+| Prototype | a scratchpad-only runtime `dataclasses.replace` of the `atb` registration's `parse`, carrying the original `__qualname__` so the registry fingerprint does not rotate (§6). No repository file was modified to obtain any number in this packet |
+| Branch is docs-only | `git diff --stat e83f746..HEAD` — two `docs/moneythumb-replacement/*.md` files, **0 non-doc files changed**, clean tree. Confirmed by measurement, not by assertion: the archive zero-movement sweep over all **3,380** shas at this branch's HEAD returns **0 findings of any class** (§6) |
 
 **The superset, and why the movement measurement is total rather than
 sampled.** All 3,351 readable artifacts were scanned for any ATB-shaped token —
@@ -509,13 +510,27 @@ on its own. Cached payloads for the 7 movers would be served stale unless
 `ANALYSIS_STAGE_VERSION` moves — which is Ocean's bump at the train, but it is
 an obligation of this ceremony and not an optional one.
 
-**`corpus_gate.py` was deliberately not re-run under the prototype.** It takes
->20 minutes on this shared machine, and its inputs are provably unchanged for
-everything except the field it now pins: the outcome class and the whole
-integrity block are proven byte-identical for all five pinned ATB documents by
-the field diff above, and the one check that *would* move is `check_currency`,
-whose expected movement is precisely §9.1. The implementing cell owes that run,
-and it must go RED before the pin edit and GREEN after it.
+**`corpus_gate.py` WAS run at this branch's HEAD, and is GREEN** — every check
+PASS, 109 pinned PDFs (103 native + 6 committed OCR), 0 foreign, 0 exclusions,
+`Outcomes: 106 PASS / 3 WITHHELD`, `Verdicts: 4 review / 102 validated / 3
+withheld`, and `[PASS] currency: 109/109 statements publish their pinned
+currency: 14 CAD / 95 USD` (760.0s, exit 0). It is green because **no movement
+was executed**: the ruling was a measurement packet only. It was *not* re-run
+under the prototype, because the prototype is a scratchpad runtime patch and the
+gate spawns its own resolution; the one check that would move is
+`check_currency`, and its expected movement is exactly §9.1. The implementing
+cell owes that run and it must go **RED before the five-line pin edit and GREEN
+after it** — which is the whole reason the pin exists.
+
+**The archive zero-movement sweep at this branch's HEAD.** Five chunks, added:
+**3,380 documents · 2,535 compared · 2,535 identical · 0 `moved` · 0
+`no_payload_now_publishes` · 0 `payload_now_raises` · 816
+`no_payload_raises_again` · 29 `no_ocr_artifact` · 74 multi-artifact ·
+9,991.7s** — **zero findings of any class**, so no finding had to be justified
+against a named population. The branch changed no production file
+(`git diff --stat e83f746..HEAD`: two `docs/moneythumb-replacement/*.md` files,
+0 non-doc files), so this is the expected result and it is recorded as a
+measurement rather than assumed from the diff.
 
 ---
 
