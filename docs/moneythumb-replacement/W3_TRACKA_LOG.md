@@ -36026,7 +36026,7 @@ rule being that a proof names the tree it measured.
 | archive zero-movement sweep, 3,380 documents in 4 chunks | **2,531 identical · 4 moved · 3 no_payload_now_publishes · 0 payload_now_raises** — all 7 findings named | 1 (= "findings exist", the tool's contract) |
 | `python corpus_gate.py` | **GREEN** — 106 PASS / 3 WITHHELD, verdicts 102 validated / 4 review / 3 withheld, currency 109/109 = 14 CAD / 95 USD (2268.3s) | 0 |
 | corpus-marked slice | `29 passed, 5429 deselected, 1 warning in 4231.00s (1:10:31)` | 0 |
-| bisectability: every commit's tree runs its own module tests | `91 / 98 / 98 / 99 / 100 / 100 passed` | 0 |
+| bisectability: every commit's tree runs its own module tests | `91 / 98 / 98 / 99 / 100 / 100 / 105 passed` (the seven production commits, `546bd35` included) | 0 |
 
 Both canonical sets hit their expected counts exactly — guard **242**,
 conformance **1151** at registry 74 (cross-product 74 × 73 = 5,402) — which is
@@ -36245,8 +36245,9 @@ here because the test files are already per module. Verified rather than
 assumed, on a `git archive` of each commit:
 
 ```
-063304b: 91 passed    92705bc: 98 passed    c782189: 98 passed
-b81418c: 99 passed    0d93cd5: 100 passed   cd7c80a: 100 passed
+063304b:  91 passed   92705bc:  98 passed   c782189: 98 passed
+b81418c:  99 passed   0d93cd5: 100 passed   cd7c80a: 100 passed
+546bd35: 105 passed
 ```
 
 The branch is bisectable end to end.
