@@ -474,7 +474,7 @@ def test_the_whole_statement_is_still_read_when_a_day_glyph_is_recoverable():
 
 # --- gates the first mutation run proved untested ---------------------------
 #
-# Five of the ten survivors of the first twelve-gate run were NOT redundant;
+# Five of the ten survivors of the first 25-mutant run were NOT redundant;
 # each of these tests is the counterexample that proves it. The other five are
 # listed in W3 §TANGERINE with the derivation that makes them redundant.
 
