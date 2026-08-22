@@ -144,13 +144,26 @@ def test_a_row_whose_own_block_the_layer_flushed_later_still_publishes_its_label
 @READERS
 def test_a_description_over_the_bound_is_cut_at_a_token_boundary(module):
     """A cut mid-token publishes a string the bank did not print — §LCPERIOD
-    L5.3's class, one field along."""
-    block = " ".join(["EXAMPLEWORD"] * 40)
-    run = f"\n02-03 Preauthorized Debit\n{block}\n10.00\n"
-    published = descriptions(module, run)[0]
-    assert len(published) <= module._DESCRIPTION_LIMIT
-    assert published.endswith("EXAMPLEWORD")
-    assert f"Preauthorized Debit {block}".startswith(published)
+    L5.3's class, one field along.
+
+    The first form of this test proved nothing, and §GRAM4 G7.4 is why it was
+    caught: its filler happened to put a space exactly at the bound, so cutting
+    AT the bound and cutting at the boundary produced the same string and the
+    mutation survived. The fixture now asserts its own premise before it
+    asserts the behaviour.
+    """
+    limit = module._DESCRIPTION_LIMIT
+    block = " ".join(["EXAMPLE"] * 60)
+    whole = f"Preauthorized Debit {block}"
+    assert 0 < len(whole[:limit].rsplit(" ", 1)[-1]) < len("EXAMPLE"), (
+        "the fixture must put the bound INSIDE a token, or a cut at the bound "
+        "and a cut at the boundary are the same string and this tests nothing"
+    )
+    published = descriptions(module, f"\n02-03 Preauthorized Debit\n{block}\n10.00\n")[0]
+    assert len(published) <= limit
+    assert whole.startswith(published)
+    assert published.rsplit(" ", 1)[-1] == "EXAMPLE"
+    assert published != whole[:limit]
 
 
 @READERS
