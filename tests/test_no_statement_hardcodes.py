@@ -221,30 +221,13 @@ def _docstring_nodes(tree: ast.AST):
 
 
 def _docstring_ids(tree: ast.AST) -> set[int]:
-    """The `id()` of every DOCSTRING constant in `tree`.
+    """`_docstring_nodes` by identity, for the callers that only need a
+    membership test. One walk, not two (review MINOR-4).
 
-    A docstring is the first statement of a Module, ClassDef, FunctionDef or
-    AsyncFunctionDef and nothing else. Identified by IDENTITY rather than by
-    text or by delimiter, which is what makes the exclusion narrow: a
-    triple-quoted string ASSIGNED to a name is a value the module can compile,
-    compare or embed, so it stays scanned. `tests/test_no_parser_helper_clones.py
-    ::_code_strings` has done it this way since R-2; this file did not, and G7.3
-    is that gap.
+    `tests/test_no_parser_helper_clones.py::_code_strings` has excluded
+    docstrings this way since R-2; this file did not, and G7.3 is that gap.
     """
-    ids: set[int] = set()
-    holders = (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-    for node in ast.walk(tree):
-        if not isinstance(node, holders):
-            continue
-        body = getattr(node, "body", None)
-        if (
-            body
-            and isinstance(body[0], ast.Expr)
-            and isinstance(body[0].value, ast.Constant)
-            and isinstance(body[0].value.value, str)
-        ):
-            ids.add(id(body[0].value))
-    return ids
+    return {id(node) for node in _docstring_nodes(tree)}
 
 
 def _pattern_strings(path: Path):
@@ -453,6 +436,59 @@ def test_no_raw_mojibake_sequences(filename):
         if MOJIBAKE_RE.search(line)
     ]
     assert not offenders, f"raw mojibake byte sequences: {offenders}"
+
+
+def _registered_parser_modules() -> set[str]:
+    """The file name of every module the REGISTRY dispatches to.
+
+    Imported here rather than at module scope so the registry load is paid only
+    by the tests that need it. `parser_registry_entries` is the module whose
+    import performs the registrations.
+    """
+    from analysis import parser_registry_entries          # noqa: F401
+    from analysis.parser_registry import registrations
+
+    return {
+        registration.parse.__module__.rsplit(".", 1)[-1] + ".py"
+        for registration in registrations()
+    }
+
+
+def test_no_registered_parser_module_is_exempt_from_the_amount_scan():
+    """The exemption list may never cover a module the registry DISPATCHES to
+    (review MINOR-3).
+
+    `PATTERN_SCAN_EXEMPT` was pinned against two names — `first_citizens.py` and
+    `citizens.py`, the two the scan was written for. That is a pin against the
+    last accident, not against the class. The rule the list actually encodes is
+    "this module is not a parser": `metrics`, `pipeline`, `reconcile` are the
+    deterministic math layer and `extract` is the LLM branch, and none of the
+    four holds a regex, a reader, a parse gate or a registration. So the
+    assertion is the registry's own answer to that question, and it scales with
+    the registry instead of with somebody's memory.
+    """
+    registered = _registered_parser_modules()
+    assert len(registered) >= 60, (
+        f"the registry did not load ({len(registered)} modules); this test "
+        "would pass vacuously"
+    )
+    leaked = sorted(registered & PATTERN_SCAN_EXEMPT)
+    assert leaked == [], (
+        "a REGISTERED parser module is exempt from the exact-amount scan; a "
+        f"memorized section total in it would never be seen: {leaked}"
+    )
+
+
+def test_the_registered_parser_guard_can_actually_see_a_leak():
+    """The mutant, because a guard nobody has watched fail is not a guard: put
+    a real registered parser into a copy of the exempt set and the predicate
+    must catch it."""
+    registered = _registered_parser_modules()
+    assert "bmo.py" in registered, "fixture drifted: bmo is no longer registered"
+    mutated = PATTERN_SCAN_EXEMPT | {"bmo.py"}
+    assert sorted(registered & mutated) == ["bmo.py"]
+    # and the four real entries are still not parsers, which is why they pass
+    assert registered & PATTERN_SCAN_EXEMPT == set()
 
 
 # ---------------------------------------------------------------------------

@@ -536,6 +536,13 @@ def test_the_already_closed_strptime_sites_stay_closed(module, function):
 CHAIN_GUARDED = {
     "analysis/date_tokens.py": frozenset({"date_refusal"}),
     "analysis/money.py": frozenset({"_refusal"}),
+    # The three parser raise sites this cell owns (review MINOR-2). The dynamic
+    # sweep already drives all three, but the AST guard is what covers a raise
+    # nothing executes - and a parser is exactly where a fourth one arrives, in
+    # a commit about something else.
+    "analysis/bmo.py": frozenset({"money_refusal"}),
+    "analysis/farmers_merchants.py": frozenset({"money_refusal"}),
+    "analysis/td_can.py": frozenset({"date_refusal"}),
 }
 
 
@@ -1083,6 +1090,102 @@ def test_the_non_terminal_vocabulary_matches_the_stores_own():
 
 
 # ---------------------------------------------------------------------------
+# 7b. MAJOR-1 — the QUEUE is not the JOB, and this cell only closed the job
+# ---------------------------------------------------------------------------
+
+def test_the_queue_supervisor_strands_after_a_reraise_KNOWN_LIMITATION(
+    monkeypatch, tmp_path
+):
+    """A DEFECT THIS CELL DELIBERATELY DID NOT FIX, pinned so nobody rediscovers
+    it and nobody mistakes m-7 for having closed it (adversarial review
+    MAJOR-1).
+
+    `webapp/app.py:_process_job_queue` calls `run_job` with no handler, and the
+    only place that resets `_job_worker_active` is the loop's own `return`. So
+    when `run_job` unwinds - which is exactly what this cell's `BaseException`
+    arm now (correctly) makes it do - the thread dies with the flag still
+    `True`, `_enqueue_job` never starts another worker, and every later upload
+    sits at `queued` with `error=None` forever.
+
+    IT IS NOT A REGRESSION, and that is a measurement rather than a defence.
+    Three-way, on this tree and on the base tree:
+
+        BASE   (no BaseException arm)  job1 processing/error=None ·
+                                       job2 queued · flag True · depth 1
+        BRANCH (m-7 arm, re-raises)    job1 ERROR/named reason ·
+                                       job2 queued · flag True · depth 1
+        BRANCH (arm swallowing)        job1 error · job2 error ·
+                                       flag False · depth 0
+
+    The queue half is byte-identical before and after; what m-7 changed is
+    job1, which is precisely what m-7 named ("leaves the job stuck at
+    `processing` with `error=None`"). The third row is what a fix looks like
+    and is NOT taken here: swallowing a `SystemExit` would defeat a shutdown,
+    so the supervisor is what needs the `try/finally`, and that is a change to
+    thread-lifecycle behaviour in a file this card owns only an exception
+    boundary in. Carded as **QUEUE-SUPERVISOR** for batch 8.
+
+    This test asserts the CURRENT behaviour. When QUEUE-SUPERVISOR lands it
+    will fail, and that is the point: the fix has to come here and delete it.
+    """
+    from collections import deque
+
+    from webapp import app as webapp_module
+
+    store = JobStore(Storage(tmp_path / "queue"))
+    first = store.create("one.pdf")
+    second = store.create("two.pdf")
+
+    def raising_run_job(job_id, pdf_bytes, filename, target, force_ocr=False,
+                        parse_mode="auto"):
+        target.set_status(job_id, "processing")
+        # what this cell's BaseException arm does, then re-raises
+        target.set_error(job_id, _STUCK_JOB_FAILURE)
+        raise KeyboardInterrupt("interrupted in the worker thread")
+
+    monkeypatch.setattr(webapp_module, "store", store)
+    monkeypatch.setattr(webapp_module, "run_job", raising_run_job)
+    monkeypatch.setattr(webapp_module, "_job_worker_active", True)
+    monkeypatch.setattr(webapp_module, "_job_queue", deque([
+        (first.id, b"%PDF-1", "one.pdf", False, "auto"),
+        (second.id, b"%PDF-2", "two.pdf", False, "auto"),
+    ]))
+
+    with pytest.raises(KeyboardInterrupt):
+        webapp_module._process_job_queue()
+
+    # The job boundary DID hold - that is this cell's half, and it works.
+    assert store.get(first.id).status == "error"
+    assert store.get(first.id).error == _STUCK_JOB_FAILURE
+
+    # The queue supervisor did not - that is QUEUE-SUPERVISOR's half.
+    assert webapp_module._job_worker_active is True, (
+        "QUEUE-SUPERVISOR landed: _job_worker_active is reset now, so delete "
+        "this test and its W3 P8.1 paragraph"
+    )
+    assert len(webapp_module._job_queue) == 1, (
+        "QUEUE-SUPERVISOR landed: the queue drains now"
+    )
+    assert store.get(second.id).status == "queued"
+    assert store.get(second.id).error is None
+
+
+def test_the_queue_supervisor_has_no_handler_around_run_job():
+    """The structural half of the same finding, so it cannot be fixed by
+    accident and left undocumented: the call is bare."""
+    tree = ast.parse((PROJECT_ROOT / "webapp" / "app.py").read_text(encoding="utf-8"))
+    supervisor = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "_process_job_queue"
+    )
+    guarded = any(isinstance(node, (ast.Try,)) for node in ast.walk(supervisor))
+    assert not guarded, (
+        "_process_job_queue grew a try/finally - QUEUE-SUPERVISOR has landed; "
+        "update W3 P8.1 and delete the KNOWN_LIMITATION test above"
+    )
+
+
+# ---------------------------------------------------------------------------
 # 8. PIPELINE-PARSEMODE — deterministic mode may not reach a hosted model
 # ---------------------------------------------------------------------------
 
@@ -1248,44 +1351,93 @@ def test_no_document_can_reach_the_probe():
     }
 
 
+#: Every production `.detail` attribute read in the tree, and WHY each one is
+#: allowed. The receiver's NAME is deliberately not part of the rule: the first
+#: version of this guard matched `self`/`status` only, and the adversarial
+#: review walked straight past it with
+#: `def telemetry_detail(probe): return probe.detail` (review MINOR-1). A rule
+#: keyed on what someone called their variable is not a rule.
+ALLOWED_DETAIL_READERS = {
+    "ocr/availability.py":
+        "VisualOcrStatus.message() - THE reader, and it renders to a console",
+    "ocr/native_text.py":
+        "_PageRefusal.detail - a DIFFERENT dataclass on a different object; it "
+        "reaches deterministic_coverage_audit's CSV, which W3 SS-WORKERPRIV WP1 "
+        "already ledgers as an internal artifact",
+}
+
+
+def _detail_attribute_sites() -> list[str]:
+    return [
+        f"{relative}:{node.lineno}"
+        for relative, tree in _repository_modules()
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and node.attr == "detail"
+    ]
+
+
+def _indirect_detail_reads(modules=None) -> list[str]:
+    """The three ways to read `detail` WITHOUT writing `.detail`.
+
+    `getattr(obj, "detail")` names the field as a string; `asdict(status)` and
+    `vars(status)` / `status.__dict__` take the whole dataclass, `detail`
+    included, and hand it to whatever wanted a dict - a telemetry record, a
+    JSON body, a CSV row. The attribute walk cannot see any of them.
+
+    The dataclass-wide clauses are scoped to modules that actually hold a
+    `VisualOcrStatus`, which `test_only_the_availability_module_names_the_status_class_in_production`
+    pins at one. Elsewhere `asdict` is the serialization layer's ordinary idiom
+    over unrelated dataclasses, and flagging those would be noise, not a guard.
+    """
+    findings: list[str] = []
+    for relative, tree in (modules if modules is not None else _repository_modules()):
+        names_status = any(
+            isinstance(node, ast.Name) and node.id == "VisualOcrStatus"
+            for node in ast.walk(tree)
+        )
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "getattr"
+                and len(node.args) > 1
+                and isinstance(node.args[1], ast.Constant)
+                and node.args[1].value == "detail"
+            ):
+                findings.append(f"{relative}:{node.lineno}: getattr(..., 'detail')")
+            if not names_status:
+                continue
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in {"asdict", "vars"}
+            ):
+                findings.append(f"{relative}:{node.lineno}: {node.func.id}(...)")
+            if isinstance(node, ast.Attribute) and node.attr == "__dict__":
+                findings.append(f"{relative}:{node.lineno}: __dict__")
+    return findings
+
+
 def test_the_probe_detail_has_exactly_one_reader_and_it_is_a_console():
     """The invariant `ocr/availability.py`'s module docstring has claimed since
     Wave 3 - "kept for the operator console only and never travels into
     telemetry (H-3 sensitivity invariant)" - asserted for the first time.
 
-    Three clauses. `detail` is read only inside `VisualOcrStatus.message()`;
-    `message()` is called only from `discovery/cli.py`; and both of those calls
-    are inside a `print(..., file=sys.stderr)`. A later card that routes either
-    into a telemetry record, a `JobStore` column, a Flask response or an export
-    cell fails here - which is the resistance that was missing when this site
-    reached the batch-6 ledger.
+    Four clauses, and clause 1 is the one the review widened. `detail` is read
+    only in the files `ALLOWED_DETAIL_READERS` names, by ANY receiver;
+    `message()` is called only from `discovery/cli.py`; both of those calls sit
+    inside a `print(..., file=sys.stderr)`; and nothing in production reaches
+    the field the other three ways.
 
-    Asserted by FILE and COUNT, never by line number. A guard that pins
+    Asserted by FILE and COUNT, never by line number: a guard that pins
     `discovery/cli.py:208` turns red the moment an unrelated cell adds a line
-    above it, and a composed train of ten branches is exactly where that
-    happens; the line numbers stay in the failure message, where they help,
-    instead of in the expectation, where they only break.
+    above it, and a composed train of ten branches is where that happens. The
+    line numbers stay in the failure message, where they help.
     """
-    detail_readers = sorted({
-        relative
-        for relative, tree in _repository_modules()
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Attribute)
-        and node.attr == "detail"
-        and isinstance(node.value, ast.Name)
-        and node.value.id in {"self", "status"}
-    })
-    detail_sites = [
-        f"{relative}:{node.lineno}"
-        for relative, tree in _repository_modules()
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Attribute)
-        and node.attr == "detail"
-        and isinstance(node.value, ast.Name)
-        and node.value.id in {"self", "status"}
-    ]
-    assert detail_readers == ["ocr/availability.py"], detail_sites
-    assert len(detail_sites) == 1, detail_sites
+    detail_sites = _detail_attribute_sites()
+    files = sorted({site.rsplit(":", 1)[0] for site in detail_sites})
+    assert files == sorted(ALLOWED_DETAIL_READERS), detail_sites
+    assert sum(s.startswith("ocr/availability.py") for s in detail_sites) == 1, detail_sites
 
     message_sites = [
         f"{relative}:{node.lineno}"
@@ -1296,7 +1448,7 @@ def test_the_probe_detail_has_exactly_one_reader_and_it_is_a_console():
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "message"
     ]
-    assert sorted({site.split(":")[0] for site in message_sites}) == [
+    assert sorted({s.rsplit(":", 1)[0] for s in message_sites}) == [
         "discovery/cli.py"
     ], message_sites
     assert len(message_sites) == 2, message_sites
@@ -1320,3 +1472,60 @@ def test_the_probe_detail_has_exactly_one_reader_and_it_is_a_console():
         assert keywords.get("file") == "sys.stderr", keywords
         printed += 1
     assert printed == 2
+
+    assert _indirect_detail_reads() == [], _indirect_detail_reads()
+
+
+def test_only_the_availability_module_names_the_status_class_in_production():
+    """The scope clause `_indirect_detail_reads` rests on. If a second
+    production module ever holds a `VisualOcrStatus`, the `asdict`/`vars`
+    clause has to widen with it, and this is what says so."""
+    holders = sorted({
+        relative
+        for relative, tree in _repository_modules()
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name) and node.id == "VisualOcrStatus"
+    })
+    assert holders == ["ocr/availability.py"], holders
+
+
+#: The reviewer's bypass, verbatim, plus the three indirect reads. Each must be
+#: FOUND; the three clean shapes must not be.
+_DETAIL_MUTANTS = [
+    ("reviewer-bypass-any-receiver",
+     "def telemetry_detail(probe):\n    return probe.detail\n", 1, 0),
+    ("bare-name-receiver",
+     "def f(x):\n    return x.detail\n", 1, 0),
+    ("getattr-by-string",
+     "def f(x):\n    return getattr(x, 'detail')\n", 0, 1),
+    ("asdict-the-whole-status",
+     "from dataclasses import asdict\n"
+     "def f(status: VisualOcrStatus):\n    return asdict(status)\n", 0, 1),
+    ("vars-the-whole-status",
+     "def f(status: VisualOcrStatus):\n    return vars(status)\n", 0, 1),
+    ("dunder-dict",
+     "def f(status: VisualOcrStatus):\n    return status.__dict__\n", 0, 1),
+    ("clean-class-name-only",
+     "def f(status: VisualOcrStatus):\n    return type(status).__name__\n", 0, 0),
+    ("clean-unrelated-asdict",
+     "from dataclasses import asdict\ndef f(report):\n    return asdict(report)\n", 0, 0),
+    ("clean-unrelated-attribute",
+     "def f(row):\n    return row.details\n", 0, 0),
+]
+
+
+@pytest.mark.parametrize("name,source,attribute_hits,indirect_hits", _DETAIL_MUTANTS,
+                         ids=[case[0] for case in _DETAIL_MUTANTS])
+def test_the_detail_guard_can_actually_see_each_bypass(
+    name, source, attribute_hits, indirect_hits
+):
+    """Watched failing, in both halves. The first case is the review's own
+    mutant: the previous guard keyed on the receiver being called `self` or
+    `status`, so renaming it to `probe` walked straight through."""
+    tree = ast.parse(source)
+    attribute_sites = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and node.attr == "detail"
+    ]
+    assert len(attribute_sites) == attribute_hits, name
+    assert len(_indirect_detail_reads([("mutant.py", tree)])) == indirect_hits, name

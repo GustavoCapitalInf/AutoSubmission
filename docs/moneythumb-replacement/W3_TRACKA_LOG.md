@@ -35780,6 +35780,20 @@ out of `analysis/revenue.py` for real, and
 `test_the_allow_list_holds_no_literal_that_nothing_raises` is the ratchet in the
 other direction.
 
+**What the ratchet pins, stated precisely (review MINOR-5).**
+`test_the_allow_list_holds_no_literal_that_nothing_raises` asserts
+`set(_DECLARED_REVIEW_REFUSALS) == set(_REVIEW_REFUSAL_DRIVERS)` — the
+allow-list against the FIVE literals this cell drives out of
+`analysis/revenue.py` for real. So a SIXTH fixed literal added to `revenue.py`
+later would not be admitted by that test; it would simply not be in the tuple,
+and `_review_refusal` would REDUCE it to a class name. That is the fail-closed
+direction and it is the one to want: the user loses a named reason (a
+diagnosis) and never gains a leak (a disclosure), and the fix is a deliberate
+two-line edit — add the literal and add its driver — which is exactly the
+ceremony an allow-list should demand. The failure mode the ratchet actually
+prevents is the opposite one: a STALE entry, a permission nobody needs, which
+would let a future raise of that same text straight through.
+
 **The `webapp/` exception ledger is now EMPTY.** It held two entries through
 batch 6, both these arms. `_LEDGERED_EXCEPTION_USES = []` means the first new
 leak anywhere in `webapp/` fails the census test, and the comment records what
@@ -35816,6 +35830,45 @@ Two arms, and the second is the one that needed a decision:
   `test_a_base_exception_inside_the_handler_still_leaves_a_terminal_job` drives
   exactly that, and `test_the_finally_arm_is_a_no_op_on_the_success_path` pins
   the four `return`s inside the `try`.
+
+### P8.1 The QUEUE is not the JOB — MAJOR-1, recorded and carried
+
+**m-7 closed the JOB's fail-closed status. It did not close the QUEUE's, and
+the adversarial review was right to separate them.**
+
+`webapp/app.py:_process_job_queue` calls `run_job` with no handler, and the
+only place that resets `_job_worker_active` is the loop's own `return`. So when
+`run_job` unwinds — which is exactly what P8's `BaseException` arm now
+correctly makes it do — the worker thread dies with the flag still `True`,
+`_enqueue_job` never starts another worker, and every later upload sits at
+`queued` with `error=None` for the life of the process.
+
+**It is not a regression, and that is a measurement rather than a defence.**
+Three-way, the branch against a harness modelling the base tree's `run_job`:
+
+| tree | job1 | job2 | `_job_worker_active` | queue depth |
+|---|---|---|---|---|
+| BASE (no `BaseException` arm) | **`processing`, `error=None`** | `queued`, `error=None` | `True` | 1 |
+| BRANCH (m-7 arm, re-raises) | **`error`, named reason** | `queued`, `error=None` | `True` | 1 |
+| BRANCH (arm swallowing instead) | `error` | `error` | `False` | 0 |
+
+The queue half is **byte-identical before and after**; the row that moved is
+job1, which is precisely what m-7 named. The third row is what a fix looks
+like and is deliberately NOT taken: swallowing a `SystemExit` would defeat a
+shutdown and swallowing a `KeyboardInterrupt` would defeat Ctrl-C, so the
+`try/finally` belongs on the SUPERVISOR, not on the arm — and that is a
+thread-lifecycle change in a file this card owns only an exception boundary in.
+
+**Carded as QUEUE-SUPERVISOR for batch 8.** The shape is a `try/finally` around
+the `run_job` call in `_process_job_queue` that resets `_job_worker_active` and
+re-raises, plus a decision about whether a dead worker should drain or re-arm.
+Two tests pin the CURRENT behaviour so the defect cannot be rediscovered and
+cannot be fixed silently:
+`test_the_queue_supervisor_strands_after_a_reraise_KNOWN_LIMITATION` asserts
+the stranding, and `test_the_queue_supervisor_has_no_handler_around_run_job`
+asserts the bare call on the AST. **Both fail the moment QUEUE-SUPERVISOR
+lands, and their failure messages say so and name this paragraph** — which is
+the only way a "known limitation" test earns its place.
 
 ## P9. PIPELINE-PARSEMODE, and the availability decision
 
@@ -35879,11 +35932,24 @@ rather than edited.
    `parsed_datetime(dates.group(1), "%B %d, %Y", reader="columbia_bank.period")`.
 4. **`analysis/scotia.py:162`** — one escaping `strptime` call.
    **DECLINES-G.** Same shape.
-5. **`analysis/extract.py:79`** — the LLM prompt's worked example is
-   `"PREM PMT BCBS OF AL 32.00"`, a real-looking insurer name in the parser
-   layer, which is the class R-1 purged. Found by G7.3 (P11) because closing
-   `_code_lines`'s hole made the prompt visible to the scans for the first time.
-   Not this cell's file, and editing a prompt changes what a model does.
+5. **`analysis/extract.py:79` — carded as EXTRACT-PROMPT for batch 8
+   (review MINOR-6).** The LLM prompt's worked example is
+   `"PREM PMT BCBS OF AL 32.00"` — a real-looking insurer name in the parser
+   layer, which is the class R-1 purged — and the summary row beside it
+   (`78.68- / 7,329.22 / 3,945.12 / …`) carries five exact-cent constants.
+   Found by G7.3 (P11), because closing `_code_lines`'s triple-quote hole made
+   the prompt visible to the scans for the first time in the program's history.
+
+   **It now sits behind an exemption, and an exemption is a debt, so it gets a
+   card rather than a comment.** `PATTERN_SCAN_EXEMPT` gained `extract.py` with
+   a ratchet, and the honest reading is that the guard can no longer see this
+   module at all. EXTRACT-PROMPT owns: replacing the insurer name and the five
+   amounts with synthetic ones, re-measuring what the model does (a prompt edit
+   is a behaviour change on the LLM branch and needs its own evidence), and
+   then DELETING the `extract.py` entry from `PATTERN_SCAN_EXEMPT` —
+   `test_the_extract_exemption_still_describes_a_real_offender` is what will
+   fail and tell them to. Not this cell's file, and not a change an
+   exception-boundary card gets to make.
 6. **`date()` raises `OverflowError`, and `OverflowError` is not a
    `ValueError`.** `date(2026, 1, 4471009238)` →
    `OverflowError: Python int too large to convert to C long`, an
@@ -36101,6 +36167,18 @@ document that raised still raises, and a document that published still
 publishes the same bytes. The unit-level twin of that claim is P4's
 `76 / 76 cells identical in exception CLASS and returned VALUE`.
 
+**The zero-movement claim has two halves and needs both (review MINOR-5).**
+The sweep's `findings: []` over 3,380 is the ARCHIVE half: no document's
+published payload differs from what the run of record stored. P4's
+`76 / 76 cells identical in exception CLASS and returned VALUE` is the UNIT
+half: at every site this card touched, the same input still produces the same
+class and the same value, and only the message differs. Neither is sufficient
+alone — the sweep cannot see a message change at all (it records
+`no_payload_raises_again` without comparing text), and the unit census cannot
+see a document it was not handed. Together they close both directions: nothing
+the archive publishes moved, and nothing at the sites themselves moved except
+the words.
+
 **The swept tree IS the shipped tree, and here is the exact statement.** The
 sweep chain wrote `=== HEAD: 391d862`. Two commits landed after it
 (`4b267cf`, `9fa59d2`) and both are TESTS ONLY, asserted as a measurement
@@ -36149,6 +36227,34 @@ conformance still 74 x 73. The corpus-marked slice is **29**, the pinned count,
 which is the check the gate is structurally blind to (review<->validated inside
 its PASS bucket).
 
+### P13.3 The closure round (review, tree `HEADSHA`)
+
+The seven closures touch `tests/` only, so the gate and the corpus-marked slice
+are **not owed** and were not re-run — the production tree is asserted
+unchanged at P15. The proofs that CAN change were re-run in full, one
+sequential chain, each stage its own terminator:
+
+```
+# A. this cell's four test files
+#    (privacy3 134 + worker_privacy 40 + hardcodes 50 + money_refusals 352)
+576 passed, 1 warning in 27.04s                                CELL_EXIT=0
+
+# B. canonical guard set (5 files)   250 -> 252: MINOR-3's two registry pins
+252 passed, 1 warning in 23.44s                              GUARDS_EXIT=0
+
+# C. canonical conformance set (7 files)   unchanged; registry still 74
+1151 passed, 35 skipped, 1 warning in 5.58s            CONFORMANCE_EXIT=0
+
+# D. full default suite   5,529 -> 5,546
+5546 passed, 35 skipped, 33 deselected, 1 warning in 323.57s   SUITE_EXIT=0
+```
+
+**The +17 reproduces**: `tests/test_privacy3_boundaries.py` 119 -> **134**
+(+15: nine `.detail` mutants, the status-class scope pin, three new
+`CHAIN_GUARDED` modules, and MAJOR-1's two queue pins) and
+`tests/test_no_statement_hardcodes.py` 48 -> **50** (+2: MINOR-3's registry pin
+and its mutant). `5,529 + 17 = 5,546`.
+
 ## P14. Commits
 
 | Commit | Contents |
@@ -36160,3 +36266,83 @@ its PASS bucket).
 | `4b267cf` | the availability census asserts by FILE and COUNT, not by line number: a guard pinning `discovery/cli.py:208` turns red when an unrelated cell adds a line above it, and a ten-branch train is where that happens |
 | `9fa59d2` | the three self-review hardenings of P5.1 (119) |
 | (this one) | §PRIVACY3 P0-P14 |
+
+## P15. Adversarial-review closures (APPROVE WITH FINDINGS — 0 BLOCK, 1 MAJOR, 6 MINOR)
+
+The review reproduced every load-bearing claim independently — guards 250,
+conformance 1,151, the sweep's 3,380 with `findings: []`, a 90/90 poison probe
+of its own, 8/8 of its own mutants killed — and **upheld the
+`ocr/availability.py` non-reduction** (Ocean's ruling: accepted). All seven
+findings are taken.
+
+**MAJOR-1 — the queue supervisor strands after the re-raise.** Recorded and
+carried, not fixed here: §P8.1 above has the three-way measurement showing the
+stranding is byte-identical on the base tree, the reasoning for why the
+`try/finally` belongs on the supervisor rather than on the arm, and the
+**QUEUE-SUPERVISOR** card for batch 8. Two tests pin the current behaviour and
+both name P8.1 in their failure messages, so the fix cannot land silently.
+
+**MINOR-1 — the availability reader-guard was name-based, and the reviewer
+walked past it.** The first version matched an `Attribute` whose receiver was a
+`Name` in `{self, status}`; `def telemetry_detail(probe): return probe.detail`
+went straight through. **A rule keyed on what someone called their variable is
+not a rule.** It is now four clauses: every `.detail` read in the tree by ANY
+receiver must be in `ALLOWED_DETAIL_READERS` (two entries, each with its
+reason — `ocr/availability.py`'s single reader, and `ocr/native_text.py`'s
+`_PageRefusal.detail`, a different dataclass on a different object); exactly
+one of them is in `availability.py`; `message()` still has two callers, both
+`print(..., file=sys.stderr)`; and `_indirect_detail_reads` covers the three
+ways to read the field WITHOUT writing `.detail` — `getattr(x, "detail")`,
+`asdict(status)`/`vars(status)`, and `status.__dict__`. Nine mutants, the
+reviewer's verbatim among them, **six that must be found and three that must
+not**; plus `test_only_the_availability_module_names_the_status_class_in_production`,
+which is the scope clause the dataclass-wide half rests on.
+
+**MINOR-2 — the AST chain guard now covers the three parser raise sites.**
+`CHAIN_GUARDED` gains `analysis/bmo.py`, `analysis/farmers_merchants.py` and
+`analysis/td_can.py` with their constructors. The dynamic sweep already drove
+all three; the AST guard is what covers a raise nothing executes, and a parser
+module is exactly where a fourth one arrives in a commit about something else.
+
+**MINOR-3 — `PATTERN_SCAN_EXEMPT` is pinned against the REGISTRY, not against
+two remembered names.** The old assertion named `first_citizens.py` and
+`citizens.py`: a pin against the last accident, not against the class. The rule
+the list actually encodes is "this module is not a parser", so the assertion is
+now the registry's own answer — **no module the registry dispatches to may
+appear in the exempt set**, measured over all 74 registrations / 64 distinct
+parse modules, with a vacuity floor (`>= 60`) so it cannot pass on an unloaded
+registry, and a mutant that puts a real registered parser (`bmo.py`) into a
+copy of the set and checks the predicate catches it. It scales with the
+registry instead of with somebody's memory.
+
+**MINOR-4 — one docstring walk, not two.** `_docstring_ids` is now
+`{id(node) for node in _docstring_nodes(tree)}`.
+
+**MINOR-5 — two clarifications, both in the prose above.** §P7 now states what
+the APP-PRIVACY ratchet actually pins and which way it fails (a sixth literal
+in `revenue.py` is silently REDUCED, never leaked — the fail-closed direction,
+and the ratchet's real job is catching a STALE entry). §P13.1 now states that
+the zero-movement claim has two halves and needs both: the sweep's
+`findings: []` is the archive half, P4's `76/76 class+value identity` is the
+unit half, and neither is sufficient alone because the sweep cannot see a
+message change at all.
+
+**MINOR-6 — EXTRACT-PROMPT is a batch-8 card, not a comment.** §P10 item 5 now
+names it and says what it owns: the insurer name and the five exact-cent
+constants in `analysis/extract.py`'s prompt, the re-measurement a prompt edit
+needs, and the DELETION of the `extract.py` entry from `PATTERN_SCAN_EXEMPT`
+that closes the debt this cell had to open.
+
+**Why no sweep is owed for this round, argued rather than assumed.** All seven
+closures touch `tests/` only — `tests/test_privacy3_boundaries.py` and
+`tests/test_no_statement_hardcodes.py` — and the production tree is asserted
+unchanged as a measurement:
+
+```
+git diff --quiet c590427 HEAD -- analysis/ ocr/ webapp/ telemetry/ \
+                                 discovery/ tools/ corpus_gate.py
+EXIT=0    no production file moved
+```
+
+The same argument §MONEYPRIV MP12 and §EXTRACTPRIV XP12.2 made for a gate over
+a tests-only closure. The proofs that CAN change were re-run in full (§P13.3).
