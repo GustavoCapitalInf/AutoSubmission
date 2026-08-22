@@ -355,12 +355,18 @@ def test_withheld_diagnostics_reproduce_the_documented_diagnosis():
     # The rollup answers the W3-2 question in one call over the same records.
     rollup = diagnostics_rollup(records)
     assert rollup["total"] == 109
-    assert rollup["diagnosed"] == 7  # the 3 withheld + the 4 review
+    assert rollup["diagnosed"] == 6  # the 3 withheld + the 3 review
     assert rollup["classes"] == {
         "source_contradiction": 1, "summary_identity": 1, "detail_coverage": 1,
-        # 5 until the ceremony withdrew two FALSE page_coverage diagnoses.
-        "page_coverage": 3, "advisory_only": 1,
+        # 5 until WIRING-2's ceremony withdrew two FALSE page_coverage
+        # diagnoses; 3 until W3 §REPAIRDOC took a third page_coverage document
+        # out of the published set. A refusal has no payload, so the taxonomy
+        # has nothing to read and it is not `diagnosed` — the refusal itself is
+        # the diagnosis, and `corpus_gate.PINNED_REFUSALS` is where it lives.
+        "page_coverage": 2, "advisory_only": 1,
     }
+    assert rollup["diagnosed"] == len(diagnosed) + len(review)
+    assert rollup["total"] - rollup["diagnosed"] == quiet + len(refused)
     # One count code in the whole pinned corpus, on the document whose debit
     # detail the gate already refuses.
     assert rollup["codes"]["integrity:debit_count_mismatch"] == 1
