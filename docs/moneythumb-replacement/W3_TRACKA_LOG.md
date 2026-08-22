@@ -35565,10 +35565,29 @@ DETAIL` grid — `DATE DESCRIPTION AMOUNT BALANCE` — whose Amount column carri
 its own sign and whose Balance column carries the bank's running balance after
 every row.
 
-On the three declines the reader found **zero** rows: measured, the count of
-each of the seven section headings in those documents is 0 and the count of
-`TRANSACTION DETAIL` is 1, 1 and 2 (it continues across a page break). The
-summary read correctly on all three — both balances, and they differ — so the
+On the three declines the reader found **zero** rows. Measured, with the
+predicate named because the number depends on it — this replaces an earlier
+sentence in this section that reported "1, 1 and 2", which no predicate
+produces and which review caught:
+
+| predicate (per document, in order `0A85DE3F` / `153180D8` / `E17E4C6C`) | count |
+|---|---|
+| blocks `_native_blocks(text, "TRANSACTION DETAIL")` returns — the one the reader uses | **2 / 8 / 2** |
+| `*start*transaction detail` sentinels | 2 / 8 / 2 |
+| `TRANSACTION DETAIL` alone on its own line | 2 / 8 / 2 |
+| `DATE DESCRIPTION AMOUNT BALANCE` column-header lines | 2 / 8 / 2 |
+| the bare substring, case-SENSITIVE | 2 / 8 / 2 |
+| the bare substring, case-INSENSITIVE | 6 / 28 / 8 |
+| blocks any of the seven direction-named section headings returns | **0 / 0 / 0** |
+| grid rows `_grid_rows` groups | 35 / 289 / 11 |
+
+The case-insensitive substring is the one that reconciles with review's
+6/28/8, and it is larger for a reason worth recording rather than waving at:
+each block contributes its `*start*`, its heading and its `*end*` (3 each), and
+`153180D8` and `E17E4C6C` additionally print a `*start*post transaction detail
+message` block whose own name contains the phrase — 8×3+4 = 28 and 2×3+2 = 8.
+There is exactly one OCR partition per document, so none of this is
+double-counting across artifacts. The summary read correctly on all three — both balances, and they differ — so the
 §CHASE-CLOSURE card-A′ guard fired and refused rather than publishing an empty
 ledger. **The guard was right; the reader was short.** §CHASE-CLOSURE said so
 at the time: its four adversarial probes print their unread rows in exactly
@@ -35613,6 +35632,24 @@ printed, all of which must hold:
 Measured on all three: every grid group read (35, 289 and 11 rows), the chain
 closes at delta 0.00 on every row, and the ledger's credit and debit sums equal
 the summary's stated totals to the cent.
+
+**One shape check 2 cannot see, named because review found it and reproduced
+it.** A printed row whose Date column is lost is not a row to
+`tables.group_rows`: it is absorbed into its predecessor, and the merged group
+is read as ONE transaction from its LAST two money cells — the absorbed row's
+own. The predecessor's amount is therefore dropped whatever it says, and when
+that amount is `0.00` the printed balances are unchanged by the drop, so the
+chain still closes, both stated totals still match, and the document publishes
+one row short with the two descriptions run together. Reproduced as a fixture
+in `tests/test_declines_e_variants.py` (and BOUNDED by a second one: on a
+consistent printing a non-zero predecessor moves every balance below it, and
+the chain breaks at that row). This is the `group_rows` contract rather than
+anything this card adds — `chase_savings` reads the same grid through the same
+helper and has the same exception — and it is **measured not to occur on the
+archive**: the three movers' published token multisets are exact against the
+printed grids and the whole-archive sweep is clean. Closing it needs a
+row-count oracle this grid does not print. The docstring of
+`_transaction_detail_ledger` now says so at the point of the claim.
 
 The grid is reached only inside `if not txns:`, after both the HTML-table
 sections and the native sections have produced nothing — so no document that
@@ -36283,22 +36320,23 @@ was killed; the needle is now the `if not groups:` line alone and all 13 apply.
 
 | proof | result | exit |
 |---|---|---|
-| full default suite | `5402 passed, 35 skipped, 33 deselected, 1 warning in 1095.32s (0:18:15)` | **0** |
+| full default suite | `5405 passed, 35 skipped, 33 deselected, 1 warning in 340.99s (0:05:40)` | **0** |
 | corpus gate (`python corpus_gate.py`) | `RESULT: GREEN` — 106 PASS / 3 WITHHELD, verdicts 4 review / 102 validated / 3 withheld, currency 109/109 = 14 CAD / 95 USD; runtime 2063.1s | **0** |
 | corpus-marked slice (`pytest -m corpus`) | `29 passed, 5441 deselected, 1 warning in 5161.85s (1:26:01)` | **0** |
 | corpus-marked collection | `29/5470 tests collected (5441 deselected) in 43.72s` | **0** |
 | canonical GUARD set (5 files) | `242 passed, 1 warning in 16.79s` | **0** |
 | canonical CONFORMANCE set (7 files) | `1151 passed, 35 skipped, 1 warning in 4.49s` | **0** |
-| this cell's tests + `test_chase_closure` | `72 passed in 0.53s` | **0** |
+| this cell's tests + `test_chase_closure` | `75 passed in 0.75s` | **0** |
 | mutation table, 13 mutants | `TOTAL 11/13 killed` (2 documented unkillable) | **0** |
 | family replay, 569 claimed documents | 565 identical / 4 movers; 569/569 base replays reproduce the run; 569/569 `source_model` checks | **0** |
 | pinned Chase payloads, base vs HEAD | 11 pinned documents; byte-identical 11; moved 0 | — |
 | archive sweep, whole run of record | see E13.1 | 1 / 0 / 0 / 0 / 1 |
+| review closures: docstring-stripped AST of `analysis/chase.py`, reviewed tree vs final | `BF4D3D018875FCF51D951B4EEEF46C1197658ADE2012F863` both sides — **IDENTICAL** | — |
 
 Both canonical sets hit their expected counts exactly — guard **242**,
 conformance **1,151** at registry 74 × 73 — which is the check that the sets
-were run whole rather than approximated. Suite 5,374 (base) → **5,402**: this
-cell adds 30 tests and RETIRES 2 (§CHASE-CLOSURE's `countless_summary_rows`
+were run whole rather than approximated. Suite 5,374 (base) → **5,405**: this
+cell adds 33 tests and RETIRES 2 (§CHASE-CLOSURE's `countless_summary_rows`
 probe, parametrized across two tests, whose premise E4 removed). The
 corpus-marked slice stays at **29**, the batch-6 count: this cell adds no
 corpus-marked test, and the slice is the check the gate is structurally blind
@@ -36350,7 +36388,8 @@ asks of a card that moves a field on purpose.
 | `ccd65f5` | the mutation table's two corrections: the isolated closing-balance fixture, the cent-tolerance test, and the two unkillable gates documented in `analysis/chase.py` (30 tests) |
 | `9619f69` | W3 E0–E8 — the census, and the three groups not taken |
 | `374abd6` | W3 E5 carries the verbatim `git diff` rather than a rendering of it |
-| (this one) | W3 E9–E15 — the replay, the pinned corpus, the scope argument, the mutation table, the proofs and the carried findings |
+| `4a811cd` | W3 E9–E15 — the replay, the pinned corpus, the scope argument, the mutation table, the proofs and the carried findings |
+| (this one) | the review closures: MINOR-1 the predicate table, MINOR-2 the named exception with its fixture and its bound, MINOR-3 the load-bearing import edge |
 
 **The branch is bisectable, and that is MEASURED rather than claimed.** Each
 production/test commit's tree was extracted with `git archive` and the whole
@@ -36393,6 +36432,22 @@ justification actually describes ("a COMBINED statement printing both summaries
 stays with `chase`"). The second is the cleaner architecture and is a
 registration card: it moves detection, and the 4 combined statements in the
 archive (E11) are the population it has to be proven against.
+
+**E15.2a The import edge runs from the SUPERSEDED parser to the SUPERSEDING
+one, and that makes E15.2 load-bearing.** `chase_savings` supersedes `chase`;
+the new import goes `chase` → `chase_savings`, i.e. against the precedence
+arrow. It is test-covered (`test_the_grid_reader_is_the_one_chase_savings_already_ships`
+pins the function identities, and the E3 fixtures exercise the borrowed reader
+end to end), and it is the direction the excluding marker forces — but it means
+**E15.2 is no longer only a tidy-up**. Narrowing
+`chase_savings`'s `excluding("checking_summary", …)` to fire only when a
+`SAVINGS SUMMARY` is ALSO present would route these documents to
+`chase_savings` directly and DELETE this edge; doing it without knowing the
+edge exists would leave `chase.py` importing three helpers it no longer needs
+from a module it no longer depends on, or worse, remove them and silently drop
+the checking grid. Carded for batch 8 as **CHASE-SAVINGS-MARKER**, and the
+population it must be proven against is named in E11: the 10 `chase_savings`
+documents, the 3 E3 movers and the 4 combined savings+checking statements.
 
 **E15.3 HUNT-NOFEE narrows from eight documents to three — a Gustavo doctrine
 question.** §DECLINESD escalated all eight `huntington.py:681` documents. E6
@@ -36464,3 +36519,86 @@ downstream, in `analysis/reconcile.py`, which will contradict a stated total the
 ledger does not support and send the document to review rather than approving
 it. Named so the next coverage measurement can attribute a review it did not
 expect.
+
+## E16. Review closures (APPROVE WITH FINDINGS — 0 BLOCK, 0 MAJOR, 3 MINOR)
+
+Independent adversarial review of `4a811cd` reproduced E5 byte-for-byte,
+killed nine mutants independently, confirmed M1 and M5 genuinely unkillable,
+ran eight adversarial perturbations of real grid text (all refused), audited
+the movers' token multisets (22/22 and 70/70 exact), reproduced both huntington
+tables to the cent on all eight, and confirmed the unsigned overdrawn
+transition and the L-1 characterization on all four. Ocean accepted the
+`ALLOWED_PRIVATE_IMPORTS` scope call. Three MINOR findings, all closed here.
+
+**MINOR-1 — an evidence record that no predicate produced.** E3 said the
+`TRANSACTION DETAIL` count was "1, 1 and 2". It is not, under any reading:
+review measured 6/28/8, 2/8/2, 2/8/2 and 2/8/2 for four different predicates,
+and this cell reproduced all four plus three more. E3 now carries the predicate
+TABLE above, names the one the reader actually uses (`_native_blocks`, 2/8/2),
+and reconciles review's case-insensitive 6/28/8 arithmetically (three phrase
+occurrences per block, plus the `post transaction detail message` block whose
+own name contains the phrase). The finding is not that the number was small —
+it is that a ledger sentence carried a number with no predicate attached, which
+is the one thing these logs exist not to do.
+
+**MINOR-2 — a docstring over-claim, with review's counter-example reproduced.**
+Check 2's comment said a dropped row breaks the chain "at the row where it
+happens". Not always. Reproduced in-process: a printed row that loses its Date
+column is absorbed by `tables.group_rows` into its predecessor; the merged
+group is read as ONE transaction from its LAST two money cells; and when the
+predecessor's Amount is `0.00` the printed balances are unchanged, so the chain
+closes, both stated totals match, and the document publishes **one row where
+the grid prints two**, with the descriptions run together. Measured on the
+fixture: `len(transactions) == 1`, amount −100.00, balance 900.00, description
+carrying both rows' text.
+
+The docstring now names the exception at the point of the claim, and two
+fixtures pin it: one for the exception, one for its BOUND. The bound needed a
+correction of its own and it is worth recording — the first version moved the
+absorbing row's Amount but left the absorbed row's printed Balance where it
+was, which is not a statement any bank prints. It was refused, but for
+self-contradiction rather than by the gate under test, which is exactly the
+§DECLINESD M2 shape a second time. The shipped bound moves the whole downstream
+printing, and a third test asserts that the same grid with its Date column
+intact publishes both rows and reconciles — so the refusal is evidence about
+the gate rather than about a broken fixture.
+
+Scope: this is the `group_rows` contract, not something this card introduced;
+`chase_savings` reads the same grid through the same helper and has the same
+exception. Measured NOT to occur on the archive — token multisets exact, sweep
+clean. Closing it needs a row-count oracle this grid does not print.
+
+**MINOR-3 — the import edge is load-bearing.** Recorded at E15.2a: the edge
+runs from the superseded parser to the superseding one, and narrowing
+`chase_savings`'s excluding marker would delete it. Carded for batch 8 as
+**CHASE-SAVINGS-MARKER** with the population it must be proven against.
+
+### E16.1 Proofs for the closures
+
+`analysis/chase.py` changed, and the change is a DOCSTRING. Proven rather than
+asserted, so the question of whether the archive sweep is re-owed is answered
+by measurement: the docstring-stripped AST of the reviewed tree and of the
+final tree are the same object —
+
+    analysis/chase.py, docstrings stripped, 4a811cd : BF4D3D018875FCF51D951B4EEEF46C1197658ADE2012F863
+    analysis/chase.py, docstrings stripped, HEAD    : BF4D3D018875FCF51D951B4EEEF46C1197658ADE2012F863
+
+(the RAW ASTs differ, as they must — `189385D3…` → `A57D1618…` — which is what
+says the compare is doing work rather than comparing a file with itself). No
+executable code changed, so no published payload can move and **the sweep is
+not re-owed**; every other proof that CAN move with a test-file change is
+re-run on the final tree.
+
+| proof | result | exit |
+|---|---|---|
+| full default suite | `5405 passed, 35 skipped, 33 deselected, 1 warning in 340.99s (0:05:40)` | **0** |
+| this cell's tests + `test_chase_closure` | `75 passed in 0.75s` | **0** |
+| canonical GUARD set (5 files) | `242 passed, 1 warning in 21.71s` | **0** |
+| canonical CONFORMANCE set (7 files) | `1151 passed, 35 skipped, 1 warning in 6.42s` | **0** |
+| docstring-stripped AST compare | `IDENTICAL` | — |
+
+Suite 5,402 → **5,405**: exactly the three closure fixtures, no other movement.
+Guard 242 and conformance 1,151 are unmoved at registry 74 × 73. The corpus
+gate and the corpus-marked slice are not re-owed for the same reason the sweep
+is not: both measure PRODUCTION output over the pinned 109, the production AST
+is unchanged, and identical production code cannot produce a different payload.

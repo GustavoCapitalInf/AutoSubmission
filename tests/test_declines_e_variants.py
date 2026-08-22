@@ -177,6 +177,114 @@ def test_a_grid_row_this_reader_cannot_resolve_refuses_the_document():
     assert parse_chase_statement(chase_document(grid=grid)) is None
 
 
+#: The one shape check 2 cannot see, kept as a fixture so it is visible rather
+#: than discovered. Row two has LOST its Date column, so `tables.group_rows`
+#: absorbs it into row one; row one's Amount is exactly 0.00, so the merged
+#: group's arithmetic is indistinguishable from row two's alone.
+ABSORBED_ROW_SUMMARY = (
+    "*start*summary\n"
+    "Chase Premier Plus Checking\n"
+    "CHECKING SUMMARY\n"
+    "AMOUNT\n"
+    "Beginning Balance $1,000.00\n"
+    "Deposits and Additions 0.00\n"
+    "Electronic Withdrawals -100.00\n"
+    "Ending Balance $900.00\n"
+    "*end*summary\n"
+)
+ABSORBED_ROW_GRID = (
+    "*start*transaction detail\n"
+    "TRANSACTION DETAIL\n"
+    "DATE DESCRIPTION AMOUNT BALANCE\n"
+    "Beginning Balance $1,000.00\n"
+    "01/10 Example Zero Adjustment 0.00 1,000.00\n"
+    "Example Vendor Payment -100.00 900.00\n"
+    "Ending Balance $900.00\n"
+    "*end*transaction detail\n"
+)
+
+
+def test_a_row_that_lost_its_date_column_is_absorbed_and_the_chain_cannot_see_it():
+    """The named exception to check 2, PINNED rather than claimed absent.
+
+    `tables.group_rows` starts a row at the printed Date column, so a row that
+    lost its date is not a row: it joins its predecessor. The merged group is
+    read as one transaction taking the last two money cells — the absorbed
+    row's own — and when the predecessor's Amount is 0.00 the running balance
+    is unchanged by the merge. Every gate therefore passes on a ledger that is
+    one row short with the two descriptions run together.
+
+    This asserts today's behaviour, which is WRONG about the document and right
+    about the arithmetic. It is the `group_rows` contract, shared with
+    `chase_savings`, and closing it needs a row-count oracle this grid does not
+    print. Pinned so a future fix shows up as this test failing rather than as
+    a silent change. Measured NOT to occur on the archive: the three movers'
+    published token multisets are exact against the printed grids, and the
+    whole-archive sweep is clean.
+    """
+    stmt = parse_chase_statement(
+        CHASE_HEADER + ABSORBED_ROW_SUMMARY + ABSORBED_ROW_GRID
+    )
+    assert stmt is not None
+    assert len(stmt.transactions) == 1, "the grid prints two rows"
+    only = stmt.transactions[0]
+    assert only.amount == -100.0
+    assert only.running_balance == 900.0
+    assert "Example Zero Adjustment" in only.description
+    assert "Example Vendor Payment" in only.description
+
+
+ABSORBED_ROW_SUMMARY_NONZERO = ABSORBED_ROW_SUMMARY.replace(
+    "Electronic Withdrawals -100.00", "Electronic Withdrawals -150.00"
+).replace("Ending Balance $900.00", "Ending Balance $850.00")
+ABSORBED_ROW_GRID_NONZERO = (
+    ABSORBED_ROW_GRID
+    .replace("01/10 Example Zero Adjustment 0.00 1,000.00",
+             "01/10 Example Adjustment -50.00 950.00")
+    .replace("Example Vendor Payment -100.00 900.00",
+             "Example Vendor Payment -100.00 850.00")
+    .replace("Ending Balance $900.00", "Ending Balance $850.00")
+)
+
+
+def test_the_absorbed_row_is_only_invisible_when_it_costs_the_chain_nothing():
+    """What BOUNDS the exception, on a document a bank could actually print.
+
+    The absorbed row's predecessor is dropped whatever its Amount says — the
+    merged group is read from its LAST two money cells. What decides whether
+    that is visible is the printed BALANCE column: in a real statement the
+    absorbed row's balance already includes its predecessor's amount, so
+    skipping a non-zero predecessor lands the chain somewhere the bank did not
+    print and check 2 refuses at that row. Only a predecessor whose amount is
+    0.00 leaves the printed balances unchanged, which is why the exception
+    above exists at all and why it is narrow.
+
+    Note what this test had to fix about itself: moving the predecessor's
+    Amount alone leaves the successor's printed Balance contradicting its own
+    page, and a document that contradicts itself is refused for the wrong
+    reason. The whole downstream printing moves with it here.
+    """
+    assert parse_chase_statement(
+        CHASE_HEADER + ABSORBED_ROW_SUMMARY_NONZERO + ABSORBED_ROW_GRID_NONZERO
+    ) is None
+
+
+def test_the_bounding_fixture_is_a_consistent_printing():
+    """A refusal is only evidence about the gate it is meant to exercise if the
+    document is otherwise sound. The same grid with its Date column intact —
+    the only difference — publishes both rows and reconciles."""
+    intact = ABSORBED_ROW_GRID_NONZERO.replace(
+        "Example Vendor Payment -100.00 850.00",
+        "01/20 Example Vendor Payment -100.00 850.00",
+    )
+    stmt = parse_chase_statement(
+        CHASE_HEADER + ABSORBED_ROW_SUMMARY_NONZERO + intact
+    )
+    assert stmt is not None
+    assert [t.amount for t in stmt.transactions] == [-50.0, -100.0]
+    assert [t.running_balance for t in stmt.transactions] == [950.0, 850.0]
+
+
 def test_the_grid_is_not_read_when_the_named_sections_already_read():
     """The grid and the six sections are alternative printings of the same
     activity. Reading both would double every row, so the grid is reached only

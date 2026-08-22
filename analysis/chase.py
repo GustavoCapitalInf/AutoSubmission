@@ -613,8 +613,23 @@ def _transaction_detail_ledger(
        Balance, each row's amount must carry the running total exactly onto the
        Balance the bank printed beside it, and the last row's balance must be
        the summary's Ending Balance. This is a PER-ROW oracle: a mis-read
-       amount, a wrapped cell attached to the wrong row, a dropped row and a
-       swapped Amount/Balance column each break it at the row where it happens;
+       amount, a wrapped cell attached to the wrong row and a swapped
+       Amount/Balance column each break it at the row where it happens.
+
+       **It does not see every dropped row, and the exception is named rather
+       than left to be discovered.** A printed row whose Date column is lost is
+       not a row at all to `tables.group_rows` — it is absorbed into its
+       predecessor, and the merged group is then read as ONE transaction taking
+       the LAST two money cells, which are the absorbed row's own. When the
+       predecessor's Amount is exactly 0.00 the arithmetic is unchanged: the
+       chain still closes, both stated totals still match, and the document
+       publishes one row short with the two descriptions run together.
+       Reproduced as a fixture (`..._a_row_that_lost_its_date_column_is_absorbed`),
+       and it is the `group_rows` contract rather than anything this function
+       adds — `chase_savings` reads the same grid through the same helper and
+       has the same exception. Not present on the archive: the movers' token
+       multisets are exact and the whole-archive sweep is clean. What would
+       close it is a row-count oracle the grid does not print;
     3. where the summary states a credit or debit total, the ledger's own sums
        equal it. Given check 2 this is redundant about the LEDGER and is not
        redundant about the SUMMARY: it is the only thing that says the totals
