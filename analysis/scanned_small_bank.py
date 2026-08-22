@@ -332,7 +332,16 @@ def _southside_grids(markdown: str) -> dict[str, str]:
     for name, pattern in _SS_ANCHORS:
         for match in re.finditer(pattern, markdown):
             marks.append((match.start(), match.end(), name))
-    marks.sort()
+    # Ordered by POSITION alone. Sorting the whole tuple falls through to the
+    # third element whenever two anchors match at the same offsets, and that
+    # element is `None` for the terminal ones — `None < str` is a TypeError,
+    # which the pipeline turns into a parser crash. Two anchors on one line is
+    # not hypothetical here: this template prints `Southside Bank  Page:` on
+    # its own line on six of the nine archive statements, and an OCR line-merge
+    # with the `DAILY BALANCE SUMMARY` heading above it is one bad scan away.
+    # A crash is a worse answer than a decline, and neither is what this input
+    # deserves — the grids are well defined however the marks tie.
+    marks.sort(key=lambda mark: (mark[0], mark[1]))
     grids = {"deposits": "", "withdrawals": "", "checks": "", "daily": ""}
     for index, (_start, end, name) in enumerate(marks):
         stop = marks[index + 1][0] if index + 1 < len(marks) else len(markdown)
@@ -487,6 +496,18 @@ def _southside_summary(text: str) -> dict[str, object] | None:
     required_keys = ("start", "end", "days", "previous", "ending", "credit_total", "debit_total")
     if any(found.get(key) is None for key in required_keys):
         return None
+    # A date cell the scan corrupted can still have the SHAPE of a date, and
+    # `_iso` RAISES on one that is only shaped like it (`5/41/26`). A parser
+    # that raises is a parser crash, and a crash is a worse answer than a
+    # decline: this reader has no period it can trust, so it refuses. The
+    # conversion belongs here rather than at the call site because this is the
+    # only place the period is admitted, and every later reading — the year,
+    # the candidate enumeration, the posted-day set — is bounded by it.
+    for key in ("start", "end"):
+        try:
+            found[key] = _iso(str(found[key]))
+        except ValueError:
+            return None
     identity = (
         float(found["previous"])  # type: ignore[arg-type]
         + float(found["credit_total"])  # type: ignore[arg-type]
@@ -519,8 +540,9 @@ def parse_southside_scanned_statement(markdown: str) -> Statement | None:
     summary = _southside_summary(markdown)
     if summary is None:
         return None
-    stmt.period_start = _iso(str(summary["start"]))
-    stmt.period_end = _iso(str(summary["end"]))
+    # Already ISO, and already refused if the cell was not a date at all.
+    stmt.period_start = str(summary["start"])
+    stmt.period_end = str(summary["end"])
     stmt.beginning_balance = summary["previous"]  # type: ignore[assignment]
     stmt.ending_balance = summary["ending"]  # type: ignore[assignment]
     stmt.days_in_period = int(summary["days"])  # type: ignore[call-overload]

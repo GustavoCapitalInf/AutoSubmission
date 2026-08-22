@@ -315,7 +315,8 @@ def test_a_heading_the_scan_mangled_around_its_words_still_bounds_its_grid():
 
 def test_a_heading_line_must_carry_a_rule_glyph():
     """A heading is set with rules; a DESCRIPTION that happens to contain the
-    word is a ledger row and must not open a grid."""
+    word is a ledger row and must not open a grid. Both headings, because both
+    words turn up in this issuer's printed descriptions."""
     grids = _southside_grids(
         "*** DEPOSITS ***\n4/01 Regular Deposit 500.00\n"
         "4/02 REFUND OF WITHDRAWALS FEE 5.00\n"
@@ -323,6 +324,42 @@ def test_a_heading_line_must_carry_a_rule_glyph():
     )
     assert "REFUND OF WITHDRAWALS FEE" in grids["deposits"]
     assert grids["withdrawals"] == ""
+
+    grids = _southside_grids(
+        "*** WITHDRAWALS ***\n4/01 Telephone transfer 500.00\n"
+        "4/02 REVERSAL OF DEPOSITS FEE 5.00\n"
+        "*** DAILY BALANCE SUMMARY ***\n4/01 100.00\n"
+    )
+    assert "REVERSAL OF DEPOSITS FEE" in grids["withdrawals"]
+    assert grids["deposits"] == ""
+
+
+def test_two_anchors_merged_onto_one_line_do_not_crash_the_reader():
+    """A scan merges lines. The daily-balance heading and the page footer under
+    it are separate lines on six of the nine archive statements, and one merge
+    puts two anchors at the same offsets — where ordering the marks by their
+    whole tuple compares a terminal anchor's `None` against a named anchor's
+    `str` and raises `TypeError`. Through the pipeline that is a parser CRASH,
+    and a crash is a worse answer than a decline."""
+    grids = _southside_grids("DAILY BALANCE SUMMARY Southside Bank   Page: 2\n")
+    assert "Page" not in grids["daily"]
+    stmt = parse_southside_scanned_statement(
+        whole().replace("*** DAILY BALANCE SUMMARY ***",
+                        "*** DAILY BALANCE SUMMARY *** Southside Bank   Page: 1")
+    )
+    assert stmt is not None
+
+
+def test_a_period_cell_shaped_like_a_date_but_not_one_refuses():
+    """`5/41/26` has the shape of a date and is not one. The conversion RAISES
+    on it, and a parser that raises is a parser crash: the document becomes an
+    exception class in the telemetry instead of a decline with a reason. The
+    widened summary reader routes four more archive documents through that
+    conversion than the reader it replaced."""
+    for broken in ("5/41/26", "13/01/26", "4/00/26"):
+        maimed = whole().replace("thru 4/30/26", f"thru {broken}")
+        assert _southside_summary(maimed) is None, broken
+        assert parse_southside_scanned_statement(maimed) is None, broken
 
 
 def test_the_cheque_image_sheets_end_the_grid_above_them():
@@ -334,7 +371,7 @@ def test_the_cheque_image_sheets_end_the_grid_above_them():
     which is the corroboration every reconstructed date is checked against."""
     for marker in ("SUBSTITUTE IMAGE / VIRTUAL DOCUMENT", "DEPOSIT TICKET",
                    "Credit DDA Deposit", "Southside Bank Page: 2 of 2",
-                   "* Denotes missing check numbers"):
+                   "* Denotes missing check numbers", "ACCOUNT SUMMARY"):
         with_images = whole() + f"--- Page 2 ---\n{marker}\n4/22 999999 9,999.99\n"
         grids = _southside_grids(with_images)
         assert "9,999.99" not in "".join(grids.values()), marker

@@ -327,6 +327,20 @@ def test_a_slash_less_cheque_date_is_read_only_on_the_printed_cheque_total():
     assert sorted(t.date for t in widened) == ["2026-04-03", "2026-04-10"]
 
 
+def test_when_neither_reading_matches_the_printed_total_the_strict_one_stands():
+    """The widened grid is adopted ONLY on the printed total, and `only` is the
+    whole of the safety claim: a widened read that agrees with nothing is not
+    better evidence than the strict one, it is a second guess. One archive
+    statement is exactly this case — its cheque grid reads 50.00 more than the
+    page's own `Total Checks`, both strictly and widened (W3 §SCANFINISH SF10)
+    — so this is the branch that document actually takes."""
+    grid = "Check # Amount Date\n1001 100,00 0403\n1002 200.00 04/10\nTotal Debits\n"
+    rows = _checks_the_total_agrees_with(
+        grid, year=2026, period=PERIOD, printed_total=999.00)
+    assert [t.date for t in rows] == ["2026-04-10"]
+    assert round(sum(abs(t.amount) for t in rows), 2) == 200.00
+
+
 def test_a_widened_cheque_date_must_land_inside_the_printed_period():
     """Without this the widened pattern reads the NEXT cheque's NUMBER as a
     date. `3978` is not a date at all and falls over on its own; `1231` is a

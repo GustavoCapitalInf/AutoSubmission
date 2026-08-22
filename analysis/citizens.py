@@ -130,8 +130,9 @@ def _parse_inline_rows(
     # row's amount disappears into the first row's description and the ledger
     # is short by it, silently. `(?!\d)` says the same thing about the token
     # that matters (nothing may EXTEND the cents) without making the ink that
-    # follows part of the test. Sixty-two rows across the four scanned
-    # statements in the archive print that trailing glyph.
+    # follows part of the test. Measured over the archive: 99 printed rows
+    # across the FIVE scanned statements carry a non-space, non-digit glyph
+    # immediately after their cents (14 / 38 / 12 / 32 / 3).
     point = r"[.,]" if cents_comma else r"\."
     _amount = r"(?:\d[\d,]*" + point + r"\d{2}|\.\d{2})(?!\d)"
     rows = re.split(r"\s+(?=\d{2}/\d{2}\s+" + _amount + r")", compact)
@@ -291,6 +292,15 @@ def _checks_the_total_agrees_with(
     widened = _parse_checks(markdown, year=year, period=period)
     if abs(sum(abs(txn.amount) for txn in widened) - printed_total) <= 0.01:
         return widened
+    # NEITHER reading agrees with the printed total, and that is its own
+    # finding rather than a default. It happens on one archive statement
+    # (W3 §SCANFINISH SF10): the strict grid reads 50.00 MORE cheque money than
+    # the page's own `Total Checks`, and the widened grid reads the same. A
+    # widened read that agrees with nothing is not better evidence than the
+    # strict one — it is a second guess — so the strict reading stands and the
+    # disagreement survives into `reconciliation`, where the coverage ratio and
+    # `ledger_sum_mismatch` are what the platform withholds on. Nothing here
+    # reconciles the two by choosing.
     return strict
 
 
