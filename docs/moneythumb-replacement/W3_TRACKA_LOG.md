@@ -44213,9 +44213,13 @@ import rather than by reading import lines — so the stage the sweep recomputes
 cannot reach either file. Every reference to `ocr/native_text.py` inside
 `analysis/` is a comment.
 
-Run anyway, because the rule asks for it. Chunk 0–1000 at the branch tree:
-**1,000 documents, 749 identical, 0 moved, 0 `no_payload_now_publishes`, 0
-`payload_now_raises`**, 244 raising again, 7 with no OCR artifact, 3,183.0s.
+Run anyway, because the rule asks for it, in chunks whose counts add:
+
+| chunk | documents | identical | moved | now publishes | now raises | seconds | exit |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 0–1000 | 1,000 | 749 | **0** | **0** | **0** | 3,183.0 | 0 |
+| 1000–2000 | 1,000 | 762 | **0** | **0** | **0** | 2,087.0 | 0 |
+
 Zero, exactly as the construction predicts. The remaining three chunks were
 relaunched after a sibling cell's process sweep killed this cell's driver
 mid-run (it matched any `sweep.sh`, not only its own); chunk 0-1000's report
