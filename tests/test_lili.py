@@ -138,7 +138,7 @@ SKIN_A_FEES_PRINTED_POSITIVE = (
     + "Checking Account Summary Total Checking Amount\n"
     "Beginning balance on 1 September, 2027 $137.41\n"
     "Deposits and other credits $512.63\n"
-    "Withdrawals and other debits $-294.92\n"
+    "Withdrawals and other debits $-308.19\n"
     "Fees $13.27\n"
     "Ending balance on 30 September, 2027 $355.12\n"
     "Checking Account Activity - Main Account\n"
