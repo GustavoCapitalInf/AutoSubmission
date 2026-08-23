@@ -44059,6 +44059,14 @@ Deliberately not published:
 * `stated_credit_count` / `stated_debit_count` — not printed. The reader needs
   no count: the chain is its coverage oracle.
 
+**And what it costs the sweep.** The registration declares NO `normalize`, so
+it adds no new text preparation to a registry sweep — it reads the same
+`admissible_text` every other unnormalized registration already shares — and
+its three markers are plain substring tests. Registry 76 is still inside the
+detect-budget contract's `PLANNED_REGISTRATIONS = 80`, and
+`tests/test_parser_parity.py`'s budget assertion passes in the conformance
+set below.
+
 ## LI8. The mutation table
 
 `python tools/lili_mutate.py .` — 32 mutants, applied one at a time to a
