@@ -44245,6 +44245,7 @@ readers already take is the right span.
 | `python corpus_gate.py` | **GREEN** — 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 102 validated / 3 review / 3 withheld / 1 refused; currency 108/108 = 14 CAD / 94 USD; currency_source 108/108 = 89 schema_default / 7 institution_default / 7 product / 4 jurisdiction_default / 1 printed (1,628.1s) | **0** |
 | the geometry-oracle score, shipped vs repaired | 269 rows paired 1:1 both ways · 75 → **252** exact · **0** FOREIGN | — |
 | the pinned 109 through the production ladder, rung live vs disabled | 5 claimed · **0** verdict movement · 2 payloads byte-identical · 3 move one diagnostic leaf | — |
+| corpus-marked slice, saturated host (twenty-two other python processes) | 1 failed / **29 passed**, 5,920 deselected (5,541.6s) — the one red is DC10.1 | **1** |
 | that timing test alone, at branch HEAD, same saturated host | 1 failed — slowest sweep **234.9 ms** over 75 registrations, projecting **250.5 ms** against a 250 ms budget (352.9s) | **1** |
 | that timing test alone, `ocr/native_text.py` reverted to base `10cc722` | 1 failed — projecting **260.6 ms**, i.e. WORSE than the branch (250.9s) | **1** |
 | privacy: the family's 4,276 printed tokens against the branch diff | 12 whole-token collisions, **0 document-specific**, 0 figures / accounts / dates / names | — |
