@@ -362,25 +362,42 @@ def test_a_document_with_no_ledger_is_not_a_statement():
 # The enumeration's budgets — a refusal is an answer, an hour of CPU is not
 # ---------------------------------------------------------------------------
 
-def test_a_day_with_more_rows_than_the_budget_is_refused_not_enumerated():
+def test_the_row_cap_refuses_a_day_the_other_two_budgets_would_allow():
     """Bounded recursion depth as well as bounded work: without the cap a
     pathological day would reach `RecursionError`, and an exception is not an
-    answer."""
+    answer.
+
+    The case is chosen so ONLY this budget can fire — the day has a single
+    solution found on the first path, so neither the node budget nor the
+    solution cap is reached. One row fewer and the same day is solved.
+    """
     from analysis.bank_ozk import _MAX_DAY_ROWS, _day_solutions
 
-    assert _day_solutions([100] * (_MAX_DAY_ROWS + 1), 0) is None
+    over = _MAX_DAY_ROWS + 1
+    assert _day_solutions([100] * over, over * 100) is None
     assert _day_solutions([100] * _MAX_DAY_ROWS, _MAX_DAY_ROWS * 100) == [
         frozenset(range(_MAX_DAY_ROWS))
     ]
 
 
-def test_a_day_with_too_many_solutions_to_enumerate_is_refused():
-    """Forty equal amounts on a zero-step day admit C(40,20) sign assignments.
-    The budget stops the walk and the document is declined; nothing partial is
-    published and nothing runs for an hour."""
+def test_the_node_budget_stops_a_walk_the_other_two_budgets_would_allow():
+    """Twenty-two rows is inside the row cap and the day has NO solution, so
+    the solution cap is never reached either — but the search tree is two
+    million nodes wide. The budget stops it, and a stopped walk is a refusal.
+    """
     from analysis.bank_ozk import _day_solutions
 
-    assert _day_solutions([200] * 40, 0) is None
+    assert _day_solutions([2] * 22, 2) is None
+
+
+def test_the_solution_cap_refuses_a_day_the_other_two_budgets_would_allow():
+    """Fourteen equal amounts on a zero-step day: inside the row cap, and its
+    whole tree is inside the node budget, but it admits C(14,7) assignments.
+    Enumerating them all would be pointless work on a day no printed count can
+    resolve anyway."""
+    from analysis.bank_ozk import _day_solutions
+
+    assert _day_solutions([2] * 14, 0) is None
 
 
 def test_an_unreachable_step_is_an_empty_answer_and_not_a_budget_refusal():
