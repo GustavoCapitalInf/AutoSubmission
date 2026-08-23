@@ -44248,6 +44248,17 @@ readers already take is the right span.
 
 ## DC10 Proofs, exit codes verbatim
 
+Every headline number in this section comes out of one of four committed
+instruments, so a reviewer re-derives rather than re-measures:
+
+```
+python -m tools.desccols_census   --rows <run>/rows.csv --corpus "<checkout>/Bank Statements"
+python -m tools.desccols_movement --rows <run>/rows.csv --data-dir <checkout>/webapp_data     --corpus "<checkout>/Bank Statements" --baseline-settings-key 24675EF0…
+python -m tools.desccols_proofs {oracle|pinned|fallback|boundary} <the same arguments>
+python tools/desccols_mutate.py .
+```
+
+
 | Proof | Result | Exit |
 |---|---|---|
 | full default suite, at the FINAL production tree | **5,881 passed**, 35 skipped, 34 deselected (750.93s) | **0** |
