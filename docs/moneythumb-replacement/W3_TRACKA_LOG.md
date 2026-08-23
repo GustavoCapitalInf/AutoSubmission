@@ -43786,6 +43786,12 @@ clean printing would leave the tampered five in the run's undifferentiated
 seen" — where nothing names them. They are claimed so that they can be
 refused BY NAME.
 
+It is also the right queue on §DISPATCH-REPORTING's own argument.
+`parser_declined` means "a parser recognised it, ran, and returned None" —
+the cheaper queue, the one that needs an existing reader WIDENED rather than
+a new one written. That is exactly what the second printing needs if it ever
+becomes readable: it is this platform's other printing, not another bank.
+
 ## LI2. THE INTEGRITY FINDING — one block, five statements (fraud-relevant)
 
 **This is the section the card asked for by name, and it is for Ocean and
