@@ -661,6 +661,25 @@ def test_a_reading_written_in_non_ascii_digits_refuses_rather_than_converts(
     assert parse_welch_state_bank_statement(document(**{field: value})) is None
 
 
+def test_an_account_number_written_in_non_ascii_digits_in_BOTH_readings_refuses():
+    """The isolating case for the account number, and the one the parametrized
+    list above cannot make.
+
+    Mutating one reading is caught by the other: the summary's account number
+    and the masthead's must agree, so a non-ASCII digit on either side alone
+    refuses through the DISAGREEMENT and says nothing about the digit class.
+    The exposure is a printing that is non-ASCII in both places — the two
+    readings then agree, every other gate closes, and only the digit class
+    stands between the reader and an account number it publishes in glyphs the
+    template does not print.
+    """
+    shifted = nd("1234567")
+    assert parse_welch_state_bank_statement(document(
+        masthead=MASTHEAD.replace("ACCOUNT NUMBER 1234567", "ACCOUNT NUMBER " + shifted),
+        summary=SUMMARY.replace("Account Number 1234567", "Account Number " + shifted),
+    )) is None
+
+
 def test_an_empty_document_is_declined_rather_than_crashed():
     assert parse_welch_state_bank_statement("") is None
 
