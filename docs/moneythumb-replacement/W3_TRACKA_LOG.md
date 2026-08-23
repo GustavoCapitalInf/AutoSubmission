@@ -44151,9 +44151,15 @@ readers already take is the right span.
    documents are served their pre-change text out of the cache indefinitely.
    It is Ocean's at merge and it costs the archive a cold OCR read.
 2. **The rung reads `get_text("dict")` on every native-text document.**
-   Measured through the census, which does the same pass: 701.7s over 3,380
-   documents, ~0.21s each. That is added to a COLD OCR run only — a warm
-   artifact never reaches the ladder — and it is the price of the geometry.
+   Measured as an A/B on the same 199-document stratified sample (every 17th
+   document of the run of record), the ladder run twice with the rung live and
+   with it returning None, the memoised page read cleared between documents so
+   neither pass is served the other's work: **264.4s with the rung against
+   195.8s without — +68.6s, +35%, +0.34s per document** on a host running
+   twenty other python processes. Extrapolated over 3,380 documents that is
+   ~+1,160s on a COLD OCR pass; a warm artifact never reaches the ladder at
+   all. It is the price of the geometry, and it is measured rather than
+   estimated. (6 of the 199 were claimed, 3.0%, against 2.4% archive-wide.)
 3. **The repair is confined to the ledger region, and the region is found by
    ink.** A page whose furniture happens to satisfy all nine gates would be
    re-serialised. It cannot invent, drop or alter a token (G7), and it cannot
