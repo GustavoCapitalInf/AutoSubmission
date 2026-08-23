@@ -44233,6 +44233,39 @@ the required floor.
 
 ## LI11. Proofs, with verbatim exit codes
 
+Every line below has a durable log in this cell's scratchpad, each ending in
+its own `EXIT=<code>` terminator appended by the runner rather than by pytest,
+so a run that died mid-way is visible as one that did not.
+
+**Where each ran.** The chain ran at `cd2fa0b`; the guard set, the conformance
+set and the full suite were then re-run at the branch head. Between the two,
+`git diff cd2fa0b..HEAD -- analysis/ webapp/ ocr/ discovery/ telemetry/
+corpus_gate.py` is **empty except for one AST-identical docstring correction
+in `analysis/lili.py`**, proven node-by-node before it was committed — so the
+gate, the corpus-marked slice and the archive sweep, which execute only the
+production layer, carry over unchanged.
+
+| proof | result | exit |
+|---|---|---:|
+| `python -m pytest -q` (full default suite) at `cd2fa0b` | 5,919 passed, 36 skipped, 34 deselected (700.8s) | 0 |
+| `python -m pytest -q` (full default suite) at the branch head | 5,919 passed, 36 skipped, 34 deselected (868.3s) | 0 |
+| canonical guard set (5 modules) at `cd2fa0b` and at the head | 252 passed, both | 0 |
+| canonical conformance set (7 modules) at `cd2fa0b` and at the head | 1,176 passed, 36 skipped (76 × 75 = 5,700 cross-product), both | 0 |
+| `python corpus_gate.py` | **RESULT: GREEN** — 109 pinned PDFs, 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 1 refused / 3 review / 102 validated / 3 withheld; `currency 108/108 = 14 CAD / 94 USD (+1 pinned refusal)`; `currency_source 108/108 = 89 schema_default / 7 institution_default / 7 product / 4 jurisdiction_default / 1 printed (+1 pinned refusal)`; `adb_doctrine 108/108` | 0 |
+| `python -m pytest -q -m corpus` (corpus-marked slice) | FILL_CORPUS | FILL |
+| `python tools/lili_mutate.py .` | 32 mutants, 32 KILLED, 0 survivors | 0 |
+| `python -m tools.lili_family_replay` | 20 claimed, 11 published, 9 declined by a named gate; dispatch 11 `lili` / 9 `attempted=['lili']`, 0 ambiguous; 1,818 postings; 0 field-sanity failures; 7 of 7 consecutive month pairs join | 0 |
+| `python -m tools.lili_nontarget_probe` | 3,351 documents with cached text of 3,380; 0 claims outside the family; 0 ambiguous; the four genre siblings unmoved | FILL |
+| `python -m tools.lili_integrity_fingerprint` | the five tampered members named, the overlap matrix printed | 0 |
+| `python -m tools.lili_privacy_scan` | money 0 / digits 0 / dates 0 AUTHORED; 9 adjudicated name-class coincidences | 0 |
+| `python -m tools.regfp_zero_movement_sweep` × 4 chunks | FILL_SWEEP | FILL |
+
+The suite moved 5,857 → 5,919 (+62): 49 are this reader's own tests and the
+rest are the conformance cross-product growing with the 76th registration.
+The registry-count pin, the cross-product docstring and the conformance
+fixture moved in the SAME commit as the registration (`a9643a8`), as the wave
+requires.
+
 ## LI12. Privacy — the measurement
 
 `tools/lili_privacy_scan.py` builds the family's printed tokens out of the
