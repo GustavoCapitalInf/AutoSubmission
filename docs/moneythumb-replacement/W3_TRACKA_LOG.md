@@ -31648,7 +31648,7 @@ states the day each balance is a balance ON.
 | `1468D77AF2EBD42C` | native-pdf-text | 2026-04-01..04-30 | 57 | 395,670.62 | 217,256.05 | 53,081.48 | 231,496.05 | 19 |
 | `1ADC8AD7F251FBCE` | native-pdf-text | 2026-05-01..05-29 | 48 | 217,256.05 | 106,672.85 | 83,492.07 | 194,075.27 | 16 |
 | `7B3B8113DA9E7DEE` | native-pdf-text | 2026-01-31..02-27 | 49 | 37,006.93 | 80,552.85 | 294,930.67 | 251,384.75 | 15 |
-| `91A2DE994D379971` | native-pdf-text | 2026-02-28..03-31 | 60 | 80,552.85 | 395,670.62 | 544,927.10 | 229,809.33 | 21 |
+| `91A2DE994D379971` | native-pdf-text | 2026-02-28..03-31 | 60 | 80,552.85 | 395,670.62 | [amount redacted] | 229,809.33 | 21 |
 | `A3539AB30B9365D3` | native-pdf-text | 2026-02-28..03-31 | 30 | 18,083.83 | 29,415.18 | 62,380.93 | 51,049.58 | 17 |
 | `C80C0CC8CFE47D9D` | native-pdf-text | 2026-05-01..05-29 | 2 | 30,614.45 | 29,672.78 | 2,058.33 | 3,000.00 | 2 |
 | `FC385FC2D01A280F` | native-pdf-text | 2026-04-01..04-30 | 9 | 29,415.18 | 30,614.45 | 5,624.27 | 4,425.00 | 4 |
@@ -33731,7 +33731,7 @@ A LEADING minus is never a sign here, for the same reason that module gives.
 | sha | outcome | the defect, named |
 |---|---|---|
 | `8FC408139D8A...` | `failed/parser_declined` | **Two ATM rows totalling $1.00 are absent.** The summary counts 47 credits / 66 debits and totals 27,993.31 / 28,650.25. Subtracting the Deposits section (44 rows, 26,907.18) and the Debits section plus cheques (42 + 3 rows, 20,521.09 + 3,100.00) implies **24 ATM rows totalling 6,115.29**; the grid holds **22 rows totalling 6,114.29**. The day walk localises the money to **3/02**, whose residual is $1.00 short. |
-| `33A2F2DD6CAF...` | `failed/parser_declined` | **One ATM row of $0.01 is absent.** Summary 39 / 113 and 28,645.32 / 28,062.62; sections 34 rows / 28,128.32 and 28 + 1 rows / 16,520.55 + 3,350.00, implying **89 ATM rows totalling 8,709.07** against the grid's **88 rows totalling 8,709.06**. The walk localises it to **6/22**, whose residual misses by exactly one cent. `6/15` is additionally an ambiguous day (two sign assignments reach the printed balance), so even a repaired row would not publish this document. |
+| `33A2F2DD6CAF...` | `failed/parser_declined` | **One ATM row of $0.01 is absent.** Summary 39 / 113 and 28,645.32 / 28,062.62; sections 34 rows / 28,128.32 and 28 + 1 rows / 16,520.55 + [amount redacted], implying **89 ATM rows totalling 8,709.07** against the grid's **88 rows totalling 8,709.06**. The walk localises it to **6/22**, whose residual misses by exactly one cent. `6/15` is additionally an ambiguous day (two sign assignments reach the printed balance), so even a repaired row would not publish this document. |
 | `9B3DB6CF995D...` | `failed/parser_declined` | The daily grid's **5/22** cell is `714,71` — the decimal separator resolved as a comma. The ledger determines that day as `714.71` exactly (`2,324.17 + 379.13 - 281.07 - 1,447.52 - 260.00`), so the printing is recoverable in principle. It is NOT repaired here: see SN9 finding 1. |
 
 All three previously read `failed/no_parser_matched`; they now read
@@ -40691,7 +40691,7 @@ stops being read as lender funding: `potential_revenue_evidence` 6 → 7 and
 ### DA6.1 The one real loss, priced
 
 The single detection that was NOT a fabrication is a merchant-cash-advance
-disbursement on `91A2DE99`: a `2026-03-17` credit of **+213,750.00** whose
+disbursement on `91A2DE99`: a `2026-03-17` credit of **+[amount redacted]** whose
 KAPITUS alias the row genuinely prints, in a span holding four welded blocks.
 The rule cannot prove the block is that row's, so the row publishes its label
 and the credit is reclassified from lender funding to an eligible revenue-side
@@ -40700,11 +40700,11 @@ the ledger in full:
 
 | metric on `91A2DE99` | before | after |
 |---|---:|---:|
-| `lender_credits` | 213,750.00 | **0.0** |
-| `non_revenue_total` | 253,750.00 | **40,000.00** |
-| `eligible_deposits` / `legacy_eligible_deposits` | 331,177.10 | **544,927.10** (+64.5%) |
-| `maximum_revenue` / `potential_revenue_total` | 291,177.10 | **504,927.10** |
-| `withholding_denominator` | 331,177.10 | **544,927.10** |
+| `lender_credits` | [amount redacted] | **0.0** |
+| `non_revenue_total` | [amount redacted] | **40,000.00** |
+| `eligible_deposits` / `legacy_eligible_deposits` | [amount redacted] | **[amount redacted]** (+64.5%) |
+| `maximum_revenue` / `potential_revenue_total` | [amount redacted] | **[amount redacted]** |
+| `withholding_denominator` | [amount redacted] | **[amount redacted]** |
 | `potential_revenue_count` / `unverified_deposit_count` | 6 | **7** |
 | `non_revenue_count` | 2 | **1** |
 
@@ -40713,8 +40713,8 @@ fabricated potential-lender detection goes with it:
 
 | metric on `91A2DE99` | before | after |
 |---|---:|---:|
-| `potential_lender_debits` / `potential_lender_debit_total` | 20,960.00 | **0.0** |
-| `potential_withholding_numerator` | 20,960.00 | **0.0** |
+| `potential_lender_debits` / `potential_lender_debit_total` | [amount redacted] | **0.0** |
+| `potential_withholding_numerator` | [amount redacted] | **0.0** |
 | `potential_withholding_exposure` | 6.33% | **0.0** |
 
 `91A2DE99` is an archive document, not a pinned one, so nothing in the truth
@@ -40837,11 +40837,11 @@ and its 10 documents are byte-identical in DA5's leaf-diff.
 ## DA10 Risks
 
 1. **The one true detection lost** (DA6.1) and the coverage hole behind it, and
-   it is the branch's largest single number: `91A2DE99`'s +213,750.00
+   it is the branch's largest single number: `91A2DE99`'s +[amount redacted]
    merchant-cash-advance credit stops being lender funding, taking
-   `lender_credits` to 0.0, `non_revenue_total` from 253,750.00 to 40,000.00
-   and `eligible_deposits` / `withholding_denominator` from 331,177.10 to
-   544,927.10 (+64.5%). Archive, not pinned. Named, priced, and carded as
+   `lender_credits` to 0.0, `non_revenue_total` from [amount redacted] to 40,000.00
+   and `eligible_deposits` / `withholding_denominator` from [amount redacted] to
+   [amount redacted] (+64.5%). Archive, not pinned. Named, priced, and carded as
    DESC-COLUMNS — which this figure is what prioritises. The alternative —
    keeping today's behaviour — is the thing Gustavo's ruling forbids.
 2. **A span that holds page furniture rather than a merchant block** would be
@@ -42577,8 +42577,8 @@ test at `:317` refuses. `_summary_block` now bounds the block on both sides.
 $200 with no activity. **They print NO control row at all**, and their summary
 block exposes two money cells where three are needed." Measured: all four print
 a control row, three of them above the heading and one below it; and one of the
-four is not dormant — it posts a wire IN of 18,348.60 on 05-19 and a wire OUT
-of 18,348.60 on 05-22. The earlier cell described the block it had READ rather
+four is not dormant — it posts a wire IN of [amount redacted] on 05-19 and a wire OUT
+of [amount redacted] on 05-22. The earlier cell described the block it had READ rather
 than the document that was printed. That is the failure mode this wave keeps
 finding, and it is why the block bound is now derived from the grid's own cell
 shapes instead of from where the heading happens to land.
@@ -42633,11 +42633,11 @@ all four movers our own calendar-day ADB reproduces it **to the cent**:
 | `9B30C2BE4389A90B17B6DD6177005A9F488B837BB7E9D88AEFB7077C94121A4A` | 1,975.67 | **1,975.67** | 31 | 2 |
 
 The May document is the one that carries the weight: 18 calendar days at
-200.00, three at 18,548.60 and ten at 200.00 average to 1,975.67, and the bank
+200.00, three at [amount redacted] and ten at 200.00 average to 1,975.67, and the bank
 printed 1,975.67. That single figure corroborates the beginning balance, the
 ending balance, both posting dates and both amounts at once — and the document
 prints a `Daily Balance Summary` that says the same thing independently
-(`05-19 18,548.60+`, `05-22 200.00+`). Under the ratified ADB doctrine our
+(`05-19 [amount redacted]+`, `05-22 200.00+`). Under the ratified ADB doctrine our
 figure is the one user-facing metric and the bank's is evidence; here the two
 agree exactly, which is the strongest corroboration available on a family whose
 ledger is otherwise flattened.
@@ -43137,7 +43137,7 @@ pinned mover for Ocean to weigh.**
 **1. §FI5 is wrong about the four documents this card moved, and the log is
 corrected here rather than edited in place.** They print a control row; three
 of them print it above the block's column heading. One of the four is not
-dormant — it posts a wire in and a wire out of 18,348.60. Recorded because the
+dormant — it posts a wire in and a wire out of [amount redacted]. Recorded because the
 failure mode — describing the block the reader assembled instead of the
 printing — is the one this cell kept meeting, and the guard against it is
 cheap: bound a block by the document's own structure, and say what the

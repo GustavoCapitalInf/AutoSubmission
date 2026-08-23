@@ -6,9 +6,9 @@ Ocean reviews and merges; you never merge or push.
 - **Agent:** DESC-COLUMNS - DESC-ATTRIB (batch 7) removed every FOREIGN
   description from the core-processor complex (30 → 0) and with them 14
   fabricated lender/insurance detections - and it could not claim one REAL
-  detection: on `91A2DE99…` the 2026-03-17 +213,750.00 KAPITUS disbursement
+  detection: on `91A2DE99…` the 2026-03-17 +[amount redacted] KAPITUS disbursement
   sits in a span where four blocks are welded, so the count-based rule
-  refuses it and `eligible_deposits` rises from 331,177.10 to 544,927.10
+  refuses it and `eligible_deposits` rises from [amount redacted] to [amount redacted]
   (+64.5%) with `lender_credits` → 0. The true 4- and 5-posting weekly
   schedules on `1468D77A…` / `1ADC8AD7…` carry no lender attribution at all.
   The flattened text layer welds the merchant column; the PDF's word
@@ -41,7 +41,7 @@ Ocean reviews and merges; you never merge or push.
    prove the unaffected documents' inputs are byte-identical.
 3. Movement: descriptions and the derived classifications/lender metrics on
    the named documents; amounts, dates, directions, counts, totals, grids,
-   ADB, verdicts byte-identical (leaf-diff). The $213,750 row must come back
+   ADB, verdicts byte-identical (leaf-diff). The [amount redacted] row must come back
    as a lender credit if and only if the coordinates say so.
 4. Mutation table; fixtures (invented PDFs or synthetic coordinate layers);
    the sweep.
