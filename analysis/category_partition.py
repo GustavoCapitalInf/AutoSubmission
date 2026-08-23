@@ -127,9 +127,10 @@ symbol anywhere — not in the summary, not in the grids, not on a row. The
 census measured that directly. Under CURRENCY_DOCTRINE §B a jurisdiction
 default is affirmative evidence about a PROVEN institution, and this reader
 proves no institution at all: it publishes `bank=None` by construction. So
-`currency` is left at the schema default and `currency_source` says
-`schema_default`, which is the truth about it. The family is named as a future
-mover if the platform ever proves the institution behind these mastheads.
+this reader sets no denomination at all and the schema default stands, which
+means the payload records it as a default rather than as a reading — the truth
+about it. The family is named as a future mover if the platform ever proves the
+institution behind these mastheads.
 """
 from __future__ import annotations
 
