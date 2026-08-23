@@ -88,6 +88,8 @@ def main() -> int:
               f"{'date fingerprint':18} {'reference fingerprint':22}")
     print(header)
     groups: dict[tuple[str, str], list[str]] = {}
+    reference_sets: dict[str, set[str]] = {}
+    date_sets: dict[str, set[str]] = {}
     for sha in family_shas(args.census, args.family):
         text = cached_text(artifacts, sha)
         if text is None:
@@ -129,8 +131,21 @@ def main() -> int:
         references = sorted(set(_REFERENCE_RE.findall(block)))
         date_fp, reference_fp = _digest(historical), _digest(references)
         groups.setdefault((date_fp, reference_fp), []).append(sha)
+        reference_sets[sha[:16]] = set(references)
+        date_sets[sha[:16]] = set(historical)
         print(f"{sha[:16]:18} {total:6} {len(historical):7} {drifted:6} "
               f"{len(references):5} {date_fp:18} {reference_fp:22}")
+
+    if len(reference_sets) > 1:
+        keys = sorted(reference_sets)
+        print("\nHow much of each block the others share — SIZES only, never a "
+              "token:")
+        for name, label in ((date_sets, "historical dates"), (reference_sets, "references")):
+            print(f"  {label}")
+            print("            " + " ".join(f"{k[:8]:>9}" for k in keys))
+            for a in keys:
+                row = " ".join(f"{len(name[a] & name[b]):>9}" for b in keys)
+                print(f"    {a[:8]:8} {row}   (own size {len(name[a])})")
 
     print("\nDocuments sharing one (historical date, reference) fingerprint:")
     for fingerprint, shas in sorted(groups.items()):

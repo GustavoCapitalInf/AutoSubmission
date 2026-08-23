@@ -43818,14 +43818,43 @@ FE2C9E80A4001C76       12       9      0    10 a4f1b09b1244f9c1   336a4fc89c7c7c
 
 Read it as follows.
 
-1. **The same seven historical dates, in four different declared periods.**
-   `064c814ee689be89` is the fingerprint of the sorted set of postings dated
-   outside the period in a year the period does not touch. It is IDENTICAL on
-   four of the five. The fifth carries nine such dates — the same block with
-   two more — and no clean member of the family carries any.
-2. **The same ten reference numbers.** `336a4fc89c7c7c6b` is identical on
-   three of the five. The remaining two carry eight, and their text layers
-   drop two of the ten; the eight they keep are drawn from the same set.
+1. **The same historical dates, in five different declared periods.**
+   `064c814ee689be89` is the fingerprint of the sorted list of postings dated
+   outside the period in a year the period does not touch: seven such
+   postings, over six distinct dates, and the fingerprint is IDENTICAL on four
+   of the five. The fifth carries nine, over eight distinct dates. The tool's
+   overlap matrix settles what the fingerprints only suggest:
+
+   ```
+   historical dates      0388628F  D6945B6F  E9FA142E  FD250EFB  FE2C9E80
+     0388628F                   6         6         6         6         6   (own 6)
+     D6945B6F                   6         6         6         6         6   (own 6)
+     E9FA142E                   6         6         6         6         6   (own 6)
+     FD250EFB                   6         6         6         6         6   (own 6)
+     FE2C9E80                   6         6         6         6         8   (own 8)
+   ```
+
+   **All five share the same six dates.** Four carry exactly those six; the
+   fifth carries those six and two more. No clean member of the family carries
+   a single out-of-period date.
+2. **And the same reference numbers.** `336a4fc89c7c7c6b` is identical on
+   three of the five — pairwise intersection 10 against own size 10, so those
+   three carry the SAME TEN reference numbers. The other two carry eight
+   each, seven of which are in that ten, and seven of which they share with
+   each other:
+
+   ```
+   references            0388628F  D6945B6F  E9FA142E  FD250EFB  FE2C9E80
+     0388628F                  10        10         7         7        10   (own 10)
+     D6945B6F                  10        10         7         7        10   (own 10)
+     E9FA142E                   7         7         8         7         7   (own 8)
+     FD250EFB                   7         7         7         8         7   (own 8)
+     FE2C9E80                  10        10         7         7        10   (own 10)
+   ```
+
+   Seven reference numbers are common to all five. Reference numbers are the
+   platform's own per-authorization identifiers: two statements of the same
+   account in different months do not share one, and five do not share seven.
 3. **Drifted rows on top of the pasted ones.** Two documents additionally
    print postings dated in their own period's year but outside its range,
    and on one of them a posting is dated AFTER its own period ends. A closed
