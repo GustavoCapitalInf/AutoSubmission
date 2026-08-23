@@ -199,7 +199,19 @@ _SUMMARY_TOTAL_ROW = re.compile(
     r"\btotals?\b[\s:.\-]*(?:\$?\(?-?\d[\d,]*\.\d{2}|$)",
     re.I,
 )
-_MONEY_RE = re.compile(r"\d[\d,]*\.\d{2}")
+#: MONEY PRESENCE, not money parsing: "is there an amount printed here?" Two
+#: properties this pattern must have, both learned from documents:
+#:
+#: * a money figure prints exactly TWO decimals, so the right-hand digit bound
+#:   is load-bearing. Without it `0.0000%` on an interest-rate line reads as
+#:   the amount `0.00` and the proximity test below is satisfied by a rate.
+#: * the decimal mark is a COMMA wherever the statement is printed in French,
+#:   and the thousands separator is then a space (`1 234,56`). This module is
+#:   shared by every bank in the archive, Canadian ones included; a
+#:   presence test that only knows `1,234.56` reports "no money on this page"
+#:   for a whole French statement and silently disables the checks below on
+#:   exactly the documents whose column structure is hardest to read.
+_MONEY_RE = re.compile(r"\d[\d, ]*[.,]\d{2}(?!\d)")
 # The same printed section total, wrapped. Where the total's label and column
 # captions fill the line, the bank's own date for that total is printed BELOW
 # it, alone -- "Totals Amount Account balance as of" / "12/31/2025" /
@@ -239,6 +251,42 @@ _MONEY_RE = re.compile(r"\d[\d,]*\.\d{2}")
 # but never from passing to failing. The cost of being wrong is a coverage
 # check that is quieter than it should be, never a false validation.
 _WRAPPED_TOTAL_LABEL = re.compile(r"^totals?\b", re.I)
+#: A date whose whole remainder is a PERCENTAGE is a rate line, not a posting.
+#: The sectioned core-processor platform prints one under `Interest Rate
+#: Changes` — `Interest Rate As Of Date  Interest Rate` and then the period's
+#: first day beside `0.0000%` — and the bank prints no transaction for it, so
+#: read as a posting it invents an activity day and fails
+#: `posting_dates_cover_source` for a reason that is not true of the document.
+#:
+#: Structure-keyed: what makes this a rate is that the remainder is ENTIRELY a
+#: number and a percent sign, which is not what a description looks like. A
+#: posting row whose description merely contains a rate ("APR 24.99% FINANCE
+#: CHARGE 45.00") keeps its date, because there the percentage is followed by
+#: more description.
+#:
+#: Direction of effect, as for `_SUMMARY_TOTAL_ROW`: this can only REMOVE
+#: dates from `source_posting_dates`, so a document can go from failing to
+#: passing but never from passing to failing.
+_RATE_ONLY_REMAINDER = re.compile(r"-?\d[\d,]*(?:[.,]\d+)?\s*%\Z")
+#: A page-number line, as the printed furniture that OPENS a page rather than
+#: as a word inside a row. `_NOT_A_POSTING_ROW` already refuses a line that
+#: carries this shape itself; this one is consulted for the line ABOVE.
+_PAGE_NUMBER_LINE = re.compile(r"^\s*page\s*:?\s*\d+", re.I)
+#: A table's own column caption. A line that names a date column AND a money
+#: column while carrying no money is announcing the table that FOLLOWS it, so
+#: money printed after it belongs to that table's first row and not to
+#: whatever was printed above the caption. Used to bound the money-proximity
+#: lookahead below.
+_COLUMN_CAPTION_DATE = re.compile(r"\bdate\b", re.I)
+_COLUMN_CAPTION_MONEY = re.compile(
+    r"\b(?:amount|balance|debit|credit|withdrawal|deposit)s?\b", re.I
+)
+#: Dot leaders are typographic filler, not content. One issuer prints its
+#: daily-balance block as `.......... DAILY BALANCE` and its grid caption as
+#: `Date.......................................Balance`, so the section
+#: heading below never matches and the grid's rows are read as postings of the
+#: account whose ledger the statement publishes.
+_DOT_LEADERS = re.compile(r"\.{3,}")
 # A date-token grid ("01/01 -225.43 01/12 4.68 01/22 -14.82") is a balance
 # summary, not a posting row: real posting rows carry one date, not several.
 _DATE_TOKEN_RE = re.compile(
@@ -248,7 +296,10 @@ _DATE_TOKEN_RE = re.compile(
 )
 
 _DAILY_BALANCE_SECTION_START = re.compile(
-    r"^\s*(?:daily balances?|daily balance (?:summary|history)|balance by date)\s*$",
+    r"^\s*(?:daily balances?|daily balance (?:summary|history)|balance by date"
+    #: The grid's COLUMN CAPTION, for the layouts that print no heading above
+    #: it. Two words and nothing else on the line is a caption, not a row.
+    r"|date\s+balance)\s*$",
     re.I,
 )
 _DAILY_BALANCE_SECTION_END = re.compile(
@@ -264,6 +315,19 @@ def _is_posting_row(line: str) -> bool:
     if _SUMMARY_TOTAL_ROW.search(line):
         return False
     return len(_DATE_TOKEN_RE.findall(line)) <= 1
+
+
+def _is_column_caption(line: str) -> bool:
+    """Does this line announce a table rather than print a row of one?"""
+    return (
+        not _MONEY_RE.search(line)
+        and bool(_COLUMN_CAPTION_DATE.search(line))
+        and bool(_COLUMN_CAPTION_MONEY.search(line))
+    )
+
+
+def _without_leaders(line: str) -> str:
+    return _DOT_LEADERS.sub(" ", line) if ".." in line else line
 
 
 def source_posting_dates(markdown: str, period_start: date, period_end: date) -> set[date]:
@@ -311,7 +375,7 @@ def source_posting_dates(markdown: str, period_start: date, period_end: date) ->
     found: set[date] = set()
     in_daily_balance_section = False
     for index, line in enumerate(lines):
-        if _DAILY_BALANCE_SECTION_START.match(line):
+        if _DAILY_BALANCE_SECTION_START.match(_without_leaders(line)):
             in_daily_balance_section = True
             continue
         if in_daily_balance_section:
@@ -347,13 +411,64 @@ def source_posting_dates(markdown: str, period_start: date, period_end: date) ->
         # check can go from failing to passing on a document, never the reverse.
         if re.fullmatch(r"balances?", remainder, re.I) and not _MONEY_RE.search(line):
             continue
-        if len(remainder) < 3 and not _MONEY_RE.search(line):
-            previous = next(
-                (l.strip() for l in reversed(lines[:index]) if l.strip()), ""
-            )
-            if _WRAPPED_TOTAL_LABEL.match(previous) and not _MONEY_RE.search(previous):
+        # An `Interest Rate Changes` row: the period's first day beside a rate.
+        if _RATE_ONLY_REMAINDER.match(remainder):
+            continue
+        if not _MONEY_RE.search(line):
+            # THE PAGE-HEADER BLOCK. A statement's masthead line — its
+            # statement date, the holder and the account — is printed at the
+            # top of every page and begins with a date, so it reads as a
+            # posting row of whatever table the page goes on to print. What
+            # identifies it is not its wording (which is customer data) but
+            # its POSITION: it sits in the run of moneyless lines that a page
+            # number opens. Bounded to three lines, the same budget the
+            # lookahead below uses, so the walk cannot run up the page.
+            behind: list[str] = []
+            for candidate in reversed(lines[:index]):
+                if not candidate.strip():
+                    continue
+                if _MONEY_RE.search(candidate):
+                    break
+                behind.append(candidate)
+                if len(behind) == 3:
+                    break
+            if any(_PAGE_NUMBER_LINE.match(entry) for entry in behind):
                 continue
-            lookahead = [l for l in lines[index + 1: index + 5] if l.strip()][:3]
+            if len(remainder) < 3:
+                previous = behind[0].strip() if behind else ""
+                if _WRAPPED_TOTAL_LABEL.match(previous) and not _MONEY_RE.search(previous):
+                    continue
+                # THE COLUMN-PER-LINE LAYOUT. Where the flattening puts each
+                # cell on its own line, a row's DESCRIPTION is the next line
+                # rather than this one, so the labels that
+                # `_NOT_A_POSTING_ROW` refuses on a flattened row never reach
+                # it: `Beginning Balance` and `Ending Balance` are printed
+                # under their own date and are counted as activity days the
+                # statement never had. Read the description where this layout
+                # prints it. Mirror of the wrapped-total lookback above.
+                following = next(
+                    (l.strip() for l in lines[index + 1:] if l.strip()), ""
+                )
+                if _NOT_A_POSTING_ROW.search(following) or _SUMMARY_TOTAL_ROW.search(
+                    following
+                ):
+                    continue
+            # A posting row prints an amount: on the row, or — in the
+            # column-per-line layout — within the next few lines. Requiring
+            # it of EVERY moneyless candidate is what refuses a marketing
+            # sentence that opens with a date ("June 15 is ... Day, and now is
+            # a great time to ...") without needing to recognise prose. The
+            # lookahead stops at a column caption because money printed after
+            # a caption belongs to the table the caption announces.
+            lookahead: list[str] = []
+            for candidate in lines[index + 1: index + 5]:
+                if not candidate.strip():
+                    continue
+                if _is_column_caption(candidate):
+                    break
+                lookahead.append(candidate)
+                if len(lookahead) == 3:
+                    break
             if not any(_MONEY_RE.search(l) for l in lookahead):
                 continue
         found.add(parsed)
