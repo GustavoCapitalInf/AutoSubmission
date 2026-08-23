@@ -1309,6 +1309,14 @@ def parse_native_printed_rows(
             pages[index] = repaired
     except _UnreadableTextLayer:
         return None
+    finally:
+        # Closed like `parse_native_woodforest` does: this rung opens a second
+        # handle on every native-text document in the archive, and a sweep that
+        # leaks one per document is a sweep that runs out of them.
+        try:
+            document.close()
+        except Exception:  # noqa: BLE001 — a close failure is not an answer
+            pass
     if pages == list(base.pages):
         return None
     return StatementMarkdown(source_file=source_file,
