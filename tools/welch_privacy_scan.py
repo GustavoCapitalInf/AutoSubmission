@@ -55,6 +55,13 @@ DIGIT_RUN_RE = re.compile(r"\d{3,}")
 FULL_DATE_RE = re.compile(r"\b\d{1,2}/\d{1,2}/\d{2,4}\b")
 WORD_RE = re.compile(r"[A-Za-z]{4,}")
 
+#: The tracked text formats. Everything else in the tree is a PDF of the
+#: validated corpus, which is not source and cannot be what this branch added.
+TEXT_SUFFIXES = frozenset(
+    "py md txt json csv yml yaml toml cfg ini html js ts tsx jsx css sh bat "
+    "gitignore in rst".split()
+)
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -66,22 +73,38 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def _tracked_text(ref: str) -> str:
-    """Every tracked file's contents at `ref`, concatenated and upper-cased."""
-    names = subprocess.run(
-        ["git", "ls-tree", "-r", "--name-only", ref],
+    """Every tracked file's contents at `ref`, concatenated and upper-cased.
+
+    One `git cat-file --batch` for the whole tree rather than one `git show`
+    per path: this repository tracks thousands of files and the per-file form
+    spends minutes in process creation alone.
+    """
+    listing = subprocess.run(
+        ["git", "ls-tree", "-r", ref],
         cwd=ROOT, capture_output=True, text=True, check=True,
-    ).stdout.split("\n")
-    chunks = []
-    for name in names:
-        name = name.strip()
-        if not name:
+    ).stdout
+    blobs = []
+    for line in listing.splitlines():
+        head, _, name = line.partition("\t")
+        parts = head.split()
+        if len(parts) < 3 or parts[1] != "blob":
             continue
-        blob = subprocess.run(
-            ["git", "show", f"{ref}:{name}"],
-            cwd=ROOT, capture_output=True, check=False,
-        )
-        chunks.append(blob.stdout.decode("utf-8", errors="replace"))
-    return "\n".join(chunks).upper()
+        # TEXT files only. The tracked corpus under `Bank Statements/` is PDFs;
+        # streaming hundreds of megabytes of them to ask whether a word occurs
+        # in "tracked source" is both slow and the wrong question — a token
+        # cannot have been introduced to SOURCE by this branch if it already
+        # sits in a source file, and a PDF is not one.
+        if name.strip().rsplit(".", 1)[-1].lower() not in TEXT_SUFFIXES:
+            continue
+        blobs.append(parts[2])
+    batch = subprocess.run(
+        ["git", "cat-file", "--batch"],
+        cwd=ROOT,
+        input=("\n".join(blobs) + "\n").encode(),
+        capture_output=True,
+        check=True,
+    ).stdout
+    return batch.decode("utf-8", errors="replace").upper()
 
 
 def _added_lines(base: str) -> str:
