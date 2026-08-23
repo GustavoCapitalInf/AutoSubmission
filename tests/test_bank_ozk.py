@@ -224,6 +224,22 @@ def test_a_grid_date_printed_twice_with_two_values_is_refused():
     assert parse_bank_ozk_statement(document(grid=grid)) is None
 
 
+def test_a_contradictory_grid_cell_is_refused_even_when_the_rest_would_close():
+    """The test above is also caught by the grid-close check, so it does not
+    prove this gate. Here the SECOND reading of the repeated day is one the
+    whole ledger closes on — every day's step solves, both totals reproduce and
+    the grid ends on the printed current balance — so taking the last reading
+    would publish a statement built on a cell the document printed twice, two
+    different ways. (W3 §FROSTOZK's mutation table, mutant O8.)"""
+    grid = GRID.replace("02/02 100.00", "02/02 100.00 02/02 105.00")
+    rows = (
+        "OTHER TRANSACTIONS DATE DESCRIPTION DEBITS CREDITS "
+        "02/02 SAMPLE ALPHA 5.00 02/03 SAMPLE DELTA 5.00\n"
+    )
+    block = summary(credits_count=2, credits="10.00", debits_count=0, debits="0.00")
+    assert parse_bank_ozk_statement(document(block=block, rows=rows, grid=grid)) is None
+
+
 def test_a_negative_grid_balance_prints_its_minus_in_front():
     rows = (
         "OTHER TRANSACTIONS DATE DESCRIPTION DEBITS CREDITS "
