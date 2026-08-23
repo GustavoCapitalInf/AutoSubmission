@@ -43904,11 +43904,11 @@ third reading that joins them.
   the printed beginning to the printed ending, every step exact;
 * **the rows' GROSS debits equal the two printed debit terms added.** This
   platform's `Withdrawals and other debits` term EXCLUDES its `Fees` term —
-  verified on all 15 clean members, where the row-sum of negatives equals
-  withdrawals + fees exactly and equals withdrawals alone on none of them
-  except where the fee term is zero. That is why `stated_total_debits` and
+  verified on all 15 clean members: the row-sum of negatives equals
+  withdrawals + fees to the cent on 15 of 15, and equals withdrawals ALONE on
+  only the 3 whose fee term is zero. That is why `stated_total_debits` and
   `stated_service_charge` are published apart, and it is the reading a
-  two-field read would get wrong.
+  two-field read would get wrong on twelve of these fifteen documents.
 
 Together they are a complete-coverage oracle and this template needs one,
 because it prints **no transaction count at all**. A dropped posting breaks
@@ -44005,9 +44005,10 @@ dollar sign. The affirmative evidence is US — a depository disclosure naming a
 Member FDIC national association, a debit card issued under a Visa U.S.A.
 licence, a wire service provided by a second Member FDIC bank, and US
 account-holder addresses — and it agrees with the schema default. **The reader
-therefore claims no currency of its own: it publishes neither `currency` nor
-`currency_source`, and all 11 published documents carry `USD` /
-`schema_default`.** The pinned currency surface and the pinned provenance
+therefore claims no currency of its own: it SETS neither the code nor its
+provenance, so both fall to the schema default, and all 11 published
+documents carry `USD` / `schema_default` — measured through
+`tools/lili_family_replay.py`, not assumed.** The pinned currency surface and the pinned provenance
 surface are untouched (108/108 and 108/108, §LI11).
 
 Naming this family `institution_default` would be more precise than the
