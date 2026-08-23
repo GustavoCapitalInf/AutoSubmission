@@ -23,7 +23,11 @@ basis, and `check_currency` holds every pinned document to its published
 `statement.currency`. Currency is the fourth blind spot: it appears in neither
 audit CSV, so 151 archive documents (four of them pinned) could change the
 denomination an analyst reads with every financial field byte-identical. See
-`PINNED_CURRENCY`.
+`PINNED_CURRENCY`. `check_currency_source` is its sibling and covers the fifth
+blind spot: the EVIDENCE a denomination rests on can degrade — a read of the
+document's own printed code falling back to a constant asserted from the
+issuer — while the three letters, and therefore every other check here, stay
+identical. See `PINNED_CURRENCY_SOURCE`.
 
 **That check runs only in the gate.** `pytest -q` does not verify the 109-entry
 map — the unmarked tests check its shape and prove the mechanism by mutation on
@@ -516,6 +520,154 @@ PINNED_CURRENCY: dict[str, str] = {
     "WellsFargo/113025 WellsFargo.pdf": "USD",
 }
 
+#: The same 109 pinned documents, and the EVIDENCE CLASS each published
+#: currency came from (`Statement.currency_source`, §CURRSRC). A sibling TOTAL
+#: map rather than a second value inside `PINNED_CURRENCY`, for three reasons:
+#: `PINNED_CURRENCY` stays byte-identical, so the batch-6 ceremony's surface and
+#: the census comment above it remain exactly what was reviewed; a currency that
+#: moved and a provenance that moved are different findings and the gate names
+#: which; and the ratified surface form for this kind of pin is a separate total
+#: map.
+#:
+#: MEASURED on this branch before it was pinned, by replaying the same
+#: `production_verdict` resolver `check_outcome_classes` uses, and enumerated in
+#: the cell's report rather than generated as a baseline. The split is
+#: 90 schema_default / 7 institution_default / 7 product / 4 jurisdiction_default
+#: / 1 printed, and it reconciles to the batch-6 census exactly:
+#:
+#:  * 90 `schema_default` — the 94 documents no reader ever asked about, less
+#:    the four the RBC ceremony moved. Includes the five `ATB/*` documents,
+#:    which is the point of publishing the class at all: they are a Canadian
+#:    provincial bank's statements labelled USD by a field default, and they now
+#:    SAY so instead of looking like the read that `Chase/*` also is not.
+#:  * 7 `institution_default` — the three Canadian hardcodes batch 6 named as
+#:    owing an evidence packet (CIBC French, Scotiabank, the French RBC
+#:    statement) plus four U.S. ones (a Chase export, Farmers & Merchants,
+#:    Southside, Apex).
+#:  * 7 `product` — the six TD Canada statements whose product line prints
+#:    `ACCOUNT - CAD`, and the Desjardins `USD DESJARDINS CORPORATE BUILD-UP
+#:    ACCOUNT`. Batch 6 counted these inside its "7 printed"; the vocabulary
+#:    separates a code read off a product designation from one stated outright.
+#:  * 4 `jurisdiction_default` — the four RBC statements of the approved
+#:    ceremony, and the only documents in the corpus taking a native default.
+#:  * 1 `printed` — the BMO statement whose header block states `Currency: CAD`.
+#:
+#: RED on movement in either direction, exactly like the currency itself: a
+#: document that stops reading its evidence and falls back to a default keeps
+#: publishing the same code, and this map is the only thing in the gate that
+#: would see it.
+PINNED_CURRENCY_SOURCE: dict[str, str] = {
+    "ATB/ATB August 2023.pdf": "schema_default",
+    "ATB/ATB Dec 2023.pdf": "schema_default",
+    "ATB/ATB Nov 2023.pdf": "schema_default",
+    "ATB/ATB October statement 2023.pdf": "schema_default",
+    "ATB/ATB Sep 2023.pdf": "schema_default",
+    "Amex/Amex Apr2026.pdf": "schema_default",
+    "Amex/Amex June2026.pdf": "schema_default",
+    "Amex/Amex May2026.pdf": "schema_default",
+    "BofA/BofA 2026-05-29.pdf": "schema_default",
+    "BofA/BofA Statement.pdf": "schema_default",
+    "BofA/BofA.pdf": "schema_default",
+    "BofA/Bofa 2026-02-27.pdf": "schema_default",
+    "BofA/eStmt_2026-01-30 (3) (1).pdf": "schema_default",
+    "BofA/eStmt_2026-02-27 (3) (1).pdf": "schema_default",
+    "BofA/eStmt_2026-03-31 (3) (1).pdf": "schema_default",
+    "BofA/eStmt_2026-04-30 (1).pdf": "schema_default",
+    "CIBC French/Account Statement 1.pdf": "institution_default",
+    "CapitalOne/capital one april 2026.pdf": "schema_default",
+    "CapitalOne/capital one february 2026.pdf": "schema_default",
+    "CapitalOne/capital one march 2026.pdf": "schema_default",
+    "CapitalOne/capital one may 2026.pdf": "schema_default",
+    "Chase/Chase Apr.pdf": "schema_default",
+    "Chase/Chase Business.pdf": "institution_default",
+    "Chase/Chase Jun.pdf": "schema_default",
+    "Chase/Chase Mar.pdf": "schema_default",
+    "Chase/Chase May.pdf": "schema_default",
+    "Chase/Chase Salomomon February 27 2026.pdf": "schema_default",
+    "Chase/Chase Salomon Dec 2025.pdf": "schema_default",
+    "Chase/Chase Salomon January.pdf": "schema_default",
+    "Chase/Chase Salomon March 2026.pdf": "schema_default",
+    "Chase/chase jun 30.pdf": "schema_default",
+    "Chase/chase may 29.pdf": "schema_default",
+    "Citizen/Citizen June 2026.pdf": "schema_default",
+    "Citizen/Citizens April 2026.pdf": "schema_default",
+    "Citizen/Citizens March 2026.pdf": "schema_default",
+    "Citizen/Citizens May 2026.pdf": "schema_default",
+    "Misc/7429_Statement_October_2025_Statement.pdf": "schema_default",
+    "Misc/Ace_Auto_Final_Cut.pdf": "institution_default",
+    "Misc/Builder June 2026.pdf": "institution_default",
+    "Misc/Checking Account Statements - 1_30_2026 - 4001245.pdf": "schema_default",
+    "Misc/Columbia May 26 complete.pdf": "schema_default",
+    "Misc/Consumers March - Monthly Statement.pdf": "schema_default",
+    "Misc/Field Trucking November 2025 .pdf": "schema_default",
+    "Misc/First Farmers 2026 01-document.pdf": "schema_default",
+    "Misc/KLR.May 31,2026 (1).pdf": "institution_default",
+    "Misc/Link Bank April statement.pdf": "schema_default",
+    "Misc/MidFlorida.pdf": "schema_default",
+    "Misc/Texas Bank.pdf": "schema_default",
+    "Misc/USD FEB 2026.pdf": "product",
+    "Misc/WMB May 25.pdf": "schema_default",
+    "Navy Fed/APRIL 2026.pdf": "schema_default",
+    "Navy Fed/JUNE 2026.pdf": "schema_default",
+    "Navy Fed/MARCH 2026.pdf": "schema_default",
+    "Navy Fed/MAY 2026.pdf": "schema_default",
+    "Others/Altana/Altana april 26.pdf": "schema_default",
+    "Others/Altana/Altana june 26.pdf": "schema_default",
+    "Others/Altana/Altana may 26.pdf": "schema_default",
+    "Others/B1/b1 april 2026.pdf": "schema_default",
+    "Others/B1/b1 feb 2026 (1).pdf": "schema_default",
+    "Others/B1/b1 march 2026.pdf": "schema_default",
+    "Others/BMO/BMO_Statement_January_2026 Final-1-2 (1).pdf": "printed",
+    "Others/Banco/Banco Popular April 2026.pdf": "schema_default",
+    "Others/Banco/Banco Popular Junio 2026.pdf": "schema_default",
+    "Others/Banco/Banco Popular May 2026.pdf": "schema_default",
+    "Others/Bluevine/bluevine_Statement_2026-04-02T21_36_47.777670Z (1).pdf": "schema_default",
+    "Others/First Citizen/First Citizens Bank.pdf": "schema_default",
+    "Others/IBC/IBC April (1).pdf": "schema_default",
+    "Others/Navigant Credit Union 2026-06-30.pdf": "schema_default",
+    "Others/Relay Operations-June-2026.pdf": "schema_default",
+    "Others/Santander/Santander_April26.pdf": "schema_default",
+    "Others/Santander/Santander_February 2026.pdf": "schema_default",
+    "Others/Santander/Santander_March 2026.pdf": "schema_default",
+    "Others/Secu/Secu.pdf": "schema_default",
+    "PNC/PNC_Statement-2026-01-29.pdf": "schema_default",
+    "PNC/PNC_Statement-2026-02-26.pdf": "schema_default",
+    "PNC/PNC_Statement-2026-03-30.pdf": "schema_default",
+    "PNC/PNC_Statement-2026-04-29.pdf": "schema_default",
+    "PNC/PNC_Statement-2026-05-28.pdf": "schema_default",
+    "RBC French/12 - Relevé Royale Décembre 2025 - Tommy Aspirot.pdf": "institution_default",
+    "RBC/Chequing Statement-DEC+.pdf": "jurisdiction_default",
+    "RBC/Chequing Statement-FEB+.pdf": "jurisdiction_default",
+    "RBC/Chequing Statement-JAN+.pdf": "jurisdiction_default",
+    "RBC/Chequing Statement-MAR+.pdf": "jurisdiction_default",
+    "Regions/Regions-29-2026 (3).pdf": "schema_default",
+    "Regions/Regions.pdf": "schema_default",
+    "Regions/Regions_03-31-2026 (3) (1).pdf": "schema_default",
+    "Regions/Regions_04-30-2026 (2) (1).pdf": "schema_default",
+    "ScotiaBank/Scotiabank -2.pdf": "institution_default",
+    "TD Can/Dec_31-Jan_30_2026 (6).pdf": "product",
+    "TD Can/Feb_27-Mar_31_2026 (2).pdf": "product",
+    "TD Can/Jan_30-Feb_27_2026 (3).pdf": "product",
+    "TD Can/Mar_31-Apr_30_2026.pdf": "product",
+    "TD Can/Nov_28-Dec_31_2025 (7).pdf": "product",
+    "TD Can/TD Bank Bank Statement.pdf": "product",
+    "TD/TD BANK NARROW APR.pdf": "schema_default",
+    "TD/TD BANK NARROW FEB.pdf": "schema_default",
+    "TD/TD BANK NARROW JAN.pdf": "schema_default",
+    "TD/TD BANK NARROW MAR.pdf": "schema_default",
+    "Truist/Truist AUTO February, 2026.pdf": "schema_default",
+    "Truist/Truist AUTO March 2026.pdf": "schema_default",
+    "Truist/Truist April, 2026.pdf": "schema_default",
+    "Truist/Truist February, 2026.pdf": "schema_default",
+    "Truist/Truist March, 2026.pdf": "schema_default",
+    "US Bank/US Bank 2026-03-31 Statement.pdf": "schema_default",
+    "US Bank/US Bank 2026-04-30 Statement.pdf": "schema_default",
+    "WellsFargo/02-28-26 WellsFargo.pdf": "schema_default",
+    "WellsFargo/03-31-26 WellsFargo.pdf": "schema_default",
+    "WellsFargo/04-30-26 WellsFargo 1.pdf": "schema_default",
+    "WellsFargo/113025 WellsFargo.pdf": "schema_default",
+}
+
 #: Do production's analysis callers hand `analyze_markdown` the intake object's
 #: page list yet?
 #:
@@ -929,6 +1081,21 @@ def check_outcomes(result: Result, label: str, rows: list[dict[str, str]],
 EXPECTED_ADB_BASIS = "calendar_day_printed_period"
 EXPECTED_ADB_POLICY = "canonical_v1"
 
+#: The gate's OWN copy of the `currency_source` vocabulary, held here for the
+#: same reason `EXPECTED_ADB_BASIS` is: an audit that imported
+#: `analysis.schema.CURRENCY_SOURCES` would widen automatically the moment
+#: someone widened the enum, and a surface that agrees with the thing it audits
+#: by construction is not a surface. Adding a class to the product means adding
+#: it here too, deliberately.
+CURRENCY_SOURCES = (
+    "printed",
+    "product",
+    "jurisdiction_default",
+    "institution_default",
+    "model_extracted",
+    "schema_default",
+)
+
 
 def production_verdict(path: Path, cache: Path) -> tuple[_Verdict, dict]:
     """The published verdict for one pinned statement, resolved as production does.
@@ -1163,6 +1330,76 @@ def check_currency(result: Result, manifest: list[str], payloads: dict[str, dict
     )
 
 
+def check_currency_source(result: Result, manifest: list[str],
+                          payloads: dict[str, dict]) -> None:
+    """Every pinned document publishes the currency PROVENANCE that is pinned.
+
+    `check_currency` above proves no denomination moved. This proves no
+    denomination changed its reason, which the currency check is structurally
+    blind to: a reader that stops reading the code its document prints and falls
+    back to an institution constant publishes the identical three letters, and
+    the only difference in the whole payload is this field. That is a real
+    regression — the platform's knowledge of the document got worse — and this
+    is the surface that sees it.
+
+    TOTAL in both directions like its sibling: the map must name every pinned
+    path and no other, every value must be in `Statement`'s closed vocabulary,
+    and a document whose payload could not be produced is reported rather than
+    passing by omission.
+
+    Reuses the payloads `check_outcome_classes` already produced, so the
+    provenance surface costs no extra analysis pass over the corpus.
+    """
+    details: list[str] = []
+    for rel in sorted(set(manifest) - set(PINNED_CURRENCY_SOURCE)):
+        details.append(
+            f"{rel}: pinned in the manifest but no expected currency source is "
+            f"recorded; every pinned document must state where its currency came from"
+        )
+    for rel in sorted(set(PINNED_CURRENCY_SOURCE) - set(manifest)):
+        details.append(
+            f"{rel}: a currency source is pinned for a path that is not in the manifest"
+        )
+    for rel, source in sorted(PINNED_CURRENCY_SOURCE.items()):
+        if source not in CURRENCY_SOURCES:
+            details.append(
+                f"{rel}: pins currency source {source!r}, which is not in the "
+                f"published vocabulary {list(CURRENCY_SOURCES)}"
+            )
+
+    counts: dict[str, int] = {}
+    verified = 0
+    for rel in manifest:
+        expected = PINNED_CURRENCY_SOURCE.get(rel)
+        payload = payloads.get(rel)
+        if payload is None:
+            details.append(
+                f"{rel}: no payload was produced, so its currency source is unverified"
+            )
+            continue
+        actual = (payload.get("statement") or {}).get("currency_source")
+        counts[str(actual)] = counts.get(str(actual), 0) + 1
+        if expected is None:
+            continue
+        if actual != expected:
+            details.append(
+                f"{rel}: publishes currency source {actual!r}, pinned {expected!r}; "
+                f"the evidence a denomination rests on does not move without a "
+                f"ceremony, even when the denomination itself does not"
+            )
+        else:
+            verified += 1
+
+    split = " / ".join(f"{n} {name}" for name, n in sorted(counts.items()))
+    result.add(
+        "currency_source",
+        not details,
+        f"{verified}/{len(manifest)} statements publish their pinned currency "
+        f"provenance: {split}",
+        details,
+    )
+
+
 #: The gate's own federal-bank-holiday test, kept independent of
 #: `analysis.adb`'s: this file may not import the production financial modules,
 #: and a check that borrowed the engine's calendar could not detect the engine
@@ -1366,6 +1603,7 @@ def run_gate(corpus: Path, cache: Path) -> Result:
     verdicts, payloads = check_outcome_classes(result, corpus, manifest, cache)
     check_adb_doctrine(result, payloads)
     check_currency(result, manifest, payloads)
+    check_currency_source(result, manifest, payloads)
     check_ocr_coverage(result, source_types, manifest, cache)
     check_exclusions(result)
     check_oracle_independence(result)

@@ -331,6 +331,7 @@ def parse_brex_statement(markdown: str) -> Statement | None:
         beginning_balance=float(beginning),
         ending_balance=float(ending),
         currency="USD",
+        currency_source="institution_default",
         stated_total_credits=float(abs(credits)),
         stated_total_debits=float(abs(debits)),
         stated_service_charge=None if fees is None else float(abs(fees)),

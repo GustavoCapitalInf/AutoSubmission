@@ -207,6 +207,7 @@ def _parse_chase_business_export(markdown: str) -> Statement | None:
         beginning_balance=beginning,
         ending_balance=ending,
         currency="USD",
+        currency_source="institution_default",
         transactions=transactions,
     )
     return stmt

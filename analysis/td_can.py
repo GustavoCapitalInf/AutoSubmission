@@ -493,6 +493,7 @@ def _parse_native_td_canada(markdown: str, base: Statement | None = None) -> Sta
     # never disagree about the same printed line.
     printed_currency = _native_printed_currency(markdown)
     stmt.currency = printed_currency or "CAD"
+    stmt.currency_source = "product" if printed_currency else "institution_default"
     stmt.beginning_balance = None
     stmt.ending_balance = None
     stmt.stated_total_credits = None
@@ -628,6 +629,7 @@ def parse_td_canada_statement(markdown: str, base: Statement | None = None) -> S
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "TD Canada Trust"
     stmt.currency = "CAD"
+    stmt.currency_source = "institution_default"
     stmt.beginning_balance = None
     stmt.ending_balance = None
     stmt.stated_total_credits = None

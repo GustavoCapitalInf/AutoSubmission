@@ -182,6 +182,7 @@ def parse_cibc_french_statement(markdown: str) -> Statement | None:
     stmt = Statement(
         bank="CIBC",
         currency="CAD",
+        currency_source="institution_default",
         period_start=date(year, _month(start_month), int(start_day)).isoformat(),
         period_end=date(year, _month(end_month), int(end_day)).isoformat(),
         beginning_balance=beginning,
@@ -408,6 +409,7 @@ def parse_cibc_statement(markdown: str, base: Statement | None = None) -> Statem
     stmt.period_start = start.isoformat()
     stmt.period_end = end.isoformat()
     stmt.currency = "CAD"
+    stmt.currency_source = "institution_default"
 
     for raw in markdown.splitlines():
         line = re.sub(r"\s+", " ", raw).strip()
@@ -428,6 +430,7 @@ def parse_cibc_statement(markdown: str, base: Statement | None = None) -> Statem
             code = re.search(r"\b([A-Z]{3})\b", m.group(1))
             if code:
                 stmt.currency = code.group(1)
+                stmt.currency_source = "printed"
         # The two total rows print their direction as their own cell, so the
         # marker is consumed OUTSIDE the figure and both totals stay
         # magnitudes. Neither row prints an instance count, so both stated

@@ -186,6 +186,7 @@ def parse_scotiabank_statement(markdown: str, base: Statement | None = None) -> 
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "Scotiabank"
     stmt.currency = "CAD"
+    stmt.currency_source = "institution_default"
 
     acct = re.search(r"Business Account\s+([0-9 ]{8,})", markdown, re.IGNORECASE)
     if acct:

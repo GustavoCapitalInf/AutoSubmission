@@ -233,6 +233,17 @@ def parse_wealthsimple_statement(markdown: str, base: Statement | None = None) -
     # wrong currency by this constant — which is what
     # `test_a_non_cad_activity_grid_is_not_claimed` holds in place.
     stmt.currency = "CAD"
+    # `printed`, not `institution_default`: the code above is the required
+    # grid header, so the page itself printed CAD over both money columns.
+    #
+    # The read is the REGISTRATION's, not this line's, and the class therefore
+    # rests entirely on `_GRID_RE` staying a `required` detection marker that
+    # matches only the CAD spelling. `tests/test_currency_source.py::
+    # TestPrinted::test_wealthsimple_refuses_the_whole_document_when_the_code
+    # _is_absent` pins that coupling from the other end — a grid printing any
+    # other code is not claimed at all — so relaxing `_GRID_RE` fails there and
+    # whoever relaxes it must re-justify this class rather than inherit it.
+    stmt.currency_source = "printed"
     stmt.beginning_balance = _amount(summary.group(5), summary.group(6))
     stmt.ending_balance = _amount(summary.group(7), summary.group(8))
 

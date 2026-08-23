@@ -123,7 +123,8 @@ def parse_farmers_merchants_statement(markdown: str) -> Statement | None:
     if not detect(markdown).claims:
         return None
 
-    stmt = Statement(bank="Farmers & Merchants Bank", currency="USD")
+    stmt = Statement(bank="Farmers & Merchants Bank", currency="USD",
+                     currency_source="institution_default")
     # The holder line is the one carrying a "doing business as" clause — a
     # generic legal-entity marker. It used to name this statement's account
     # holder outright (a second R-1 residual in this file, found by the

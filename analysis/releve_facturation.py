@@ -439,6 +439,10 @@ def parse_releve_facturation_statement(markdown: str) -> Statement | None:
         # the account is denominated in, and the only one on the page - the
         # column headers print a bare `($)`.
         currency="CAD",
+        # `product`: the denomination is read through the required product
+        # designation, not asserted from an institution — this layout has
+        # none (`bank=None`, the honest-unknown-issuer registration).
+        currency_source="product",
         stated_total_credits=oracle.credit_total,
         stated_total_debits=oracle.debit_total,
         stated_credit_count=oracle.credit_count,

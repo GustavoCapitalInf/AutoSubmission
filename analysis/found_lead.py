@@ -366,6 +366,7 @@ def parse_found_lead_statement(markdown: str) -> Statement | None:
         beginning_balance=float(beginning),
         ending_balance=float(ending),
         currency="USD",
+        currency_source="institution_default",
         stated_total_credits=float(abs(credits)),
         stated_total_debits=float(abs(debits)),
         # A memo line inside the debit total (see the module docstring), so it

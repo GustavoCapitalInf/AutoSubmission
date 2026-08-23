@@ -111,27 +111,35 @@ _PRODUCT_CURRENCY = {
 }
 
 
-def _printed_currency_evidence(markdown: str) -> set[str]:
-    """Every currency this document PRINTS, as a set.
+def _printed_currency_evidence(markdown: str) -> dict[str, str]:
+    """Every currency this document PRINTS, mapped to the class that read it.
 
     Two independent evidence sites, both of them the layout's own furniture and
     both positionally anchored: the `U.S. Funds` denomination line, and the
     product name inside the mailing header.
 
-    The SET is the interesting object and not only its single-element case: an
-    empty set means "this document states no denomination", while a two-element
-    set means "this document contradicts itself". Those are different facts and
-    the jurisdiction default below must treat them differently — it may speak
-    where the page is silent and may not resolve a contradiction — so the
-    evidence is exposed here rather than collapsed inside `_printed_currency`.
+    The KEY SET is the interesting object and not only its single-element case:
+    an empty mapping means "this document states no denomination", while a
+    two-key one means "this document contradicts itself". Those are different
+    facts and the jurisdiction default below must treat them differently — it
+    may speak where the page is silent and may not resolve a contradiction — so
+    the evidence is exposed here rather than collapsed inside
+    `_printed_currency`.
+
+    The VALUE is `currency_source` provenance and nothing else: `printed` for
+    the denomination line, which states a currency outright, and `product` for
+    the mailing header's product name, which fixes one without spelling it out
+    on its own line. Where both sites fire for the same code the stated line
+    wins — it is the stronger evidence, and the pair is not a contradiction
+    because they agree. No published VALUE depends on this distinction.
     """
-    found: set[str] = set()
-    if _US_FUNDS_RE.search(markdown):
-        found.add("USD")
+    found: dict[str, str] = {}
     for line in _MAILING_HEADER_RE.findall(markdown.upper()):
         for spelling, code in _PRODUCT_CURRENCY.items():
             if spelling in line:
-                found.add(code)
+                found[code] = "product"
+    if _US_FUNDS_RE.search(markdown):
+        found["USD"] = "printed"
     return found
 
 
@@ -150,7 +158,7 @@ def _printed_currency(markdown: str) -> str | None:
     found = _printed_currency_evidence(markdown)
     if len(found) != 1:
         return None
-    return found.pop()
+    return next(iter(found))
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +330,7 @@ def _jurisdiction_currency(markdown: str) -> str | None:
     return "CAD"
 
 
-def _statement_currency(markdown: str) -> str | None:
+def _statement_currency(markdown: str) -> tuple[str, str] | None:
     """The ratified evidence hierarchy, in one place and in order.
 
     1. **explicit statement currency evidence** — what the document itself
@@ -335,15 +343,25 @@ def _statement_currency(markdown: str) -> str | None:
 
     Returning None for rung 3 is deliberately not the same act as returning
     `"USD"`: this function's answer is what the document supports, and today's
-    schema default is a separate fact about the field. Recording WHICH rung
-    answered is `currency_source` provenance, carded separately.
+    schema default is a separate fact about the field.
+
+    The answer is `(code, currency_source)`: WHICH rung spoke is published
+    beside the code it produced (§CURRSRC), so a reader of the payload can tell
+    a denomination this document stated from the jurisdiction default applied
+    where it stated nothing. The rung and the code come out of one evaluation
+    for the same reason the currency and the account name do in
+    `analysis/td_can.py` — a provenance computed by a second pass could
+    disagree with the value it claims to explain.
     """
     printed = _printed_currency_evidence(markdown)
     if len(printed) == 1:
-        return printed.pop()
+        return next(iter(printed.items()))
     if printed:
         return None
-    return _jurisdiction_currency(markdown)
+    jurisdiction = _jurisdiction_currency(markdown)
+    if jurisdiction is None:
+        return None
+    return jurisdiction, "jurisdiction_default"
 
 
 def _summary_amount(token: str) -> float | None:
@@ -565,7 +583,7 @@ def parse_rbc_statement(markdown: str, base: Statement | None = None) -> Stateme
     # one. See `_statement_currency`.
     statement_currency = _statement_currency(markdown)
     if statement_currency is not None:
-        stmt.currency = statement_currency
+        stmt.currency, stmt.currency_source = statement_currency
     entries: list[tuple[str, str, bool]] = []
     default_year: int | None = None
     in_activity = False
@@ -827,6 +845,9 @@ def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) ->
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "Banque Royale du Canada"
     stmt.currency = "CAD"
+    # The French reader asserts the denomination from the issuer it detected;
+    # it reads no currency word and applies no jurisdiction conjunction.
+    stmt.currency_source = "institution_default"
 
     # The full printed period line is required - day, month, and year for
     # both bounds. No default years, no hardcoded month/day (R-1 item 7:

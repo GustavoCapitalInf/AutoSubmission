@@ -166,7 +166,7 @@ def parse_bmo_us_activity_statement(markdown: str) -> Statement | None:
     service_charges = _amount(summary.group(6))
     ending = _amount(summary.group(7))
 
-    stmt = Statement(bank="BMO", currency="USD")
+    stmt = Statement(bank="BMO", currency="USD", currency_source="institution_default")
     stmt.period_start = period_start.isoformat()
     stmt.period_end = period_end.isoformat()
     stmt.beginning_balance = beginning

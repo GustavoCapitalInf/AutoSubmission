@@ -360,8 +360,21 @@ def test_chase_check_rows_reads_every_block_as_the_frozen_oracle_did(block):
 #:   `bank_reported_average_label`      tests/test_td_french_layouts.py,
 #:                                      tests/test_analysis.py (per parser)
 #:   `initialization_transaction_count` tests/test_woodforest.py
+#:   `currency_source`                   tests/test_currency_source.py (one
+#:                                       publication and one refusal test per
+#:                                       evidence class, plus the AST surfaces
+#:                                       and the pinned gate map)
+#:
+#: `currency_source` is the §CURRSRC provenance field. It is the same situation
+#: `currency` itself is already in on the TD oracle — the frozen body writes
+#: `stmt.currency = "CAD"` while the live reader has since learned to read the
+#: `ACCOUNT - CAD` suffix, and the two agree on this matrix only because every
+#: fixture prints CAD. The provenance of that read is a field the oracle has no
+#: way to carry, and back-filling it would edit a body whose whole value is
+#: that it has not been edited.
 _FIELDS_NEWER_THAN_THE_ORACLES = (
     "bank_reported_average_label",
+    "currency_source",
     "initialization_transaction_count",
 )
 

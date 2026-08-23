@@ -357,6 +357,7 @@ def parse_mercury_statement(markdown: str) -> Statement | None:
         beginning_balance=float(beginning),
         ending_balance=float(ending),
         currency="USD",
+        currency_source="institution_default",
         # Mercury prints withdrawals as a negative figure; the schema wants the
         # magnitude.
         stated_total_credits=float(credits),
