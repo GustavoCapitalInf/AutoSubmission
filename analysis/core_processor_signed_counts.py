@@ -235,9 +235,14 @@ _CHECK_ROW_RE = re.compile(
 #: the grid section, never document-wide.
 _DAILY_PAIR_RE = re.compile(_DAY + r" (" + _SIGNED_FIG + r")(?![0-9,.])")
 
-_TITLE_RE = re.compile(
-    r"^Statement of Account\s+(.*?)\s+Account Title:\s*(.*?)\s*$", re.MULTILINE
+#: The product phrase, bounded on BOTH sides by the template's own labels, so
+#: nothing has to be enumerated for it to be read. Horizontal whitespace only:
+#: `\s` spans the newline, and a heading on one line with `Account Title:` on
+#: the next would then read the whole intervening line as a product name.
+_PRODUCT_RE = re.compile(
+    r"^Statement of Account[^\S\n]+(\S.*?)[^\S\n]+Account Title:", re.MULTILINE
 )
+_TITLE_RE = re.compile(r"Account Title:\s*(.+?)\s*$", re.MULTILINE)
 #: The account mask, taken only from the two lines that LABEL it. A masked
 #: number printed inside a posting's description belongs to another
 #: instrument, so an unlabelled mask is not evidence about this statement.
@@ -410,9 +415,10 @@ def _account(markdown: str) -> tuple[str | None, str | None]:
     accounts, and labelling it with one of them would be a statement about
     neither.
     """
+    named = _PRODUCT_RE.search(markdown)
     titled = _TITLE_RE.search(markdown)
-    product = titled.group(1).strip() if titled else ""
-    holder = titled.group(2).strip() if titled else ""
+    product = named.group(1).strip() if named else ""
+    holder = titled.group(1).strip() if titled else ""
     masks = {mask for pattern in _ACCOUNT_RES for mask in pattern.findall(markdown)}
     return (product or holder or None), (masks.pop() if len(masks) == 1 else None)
 
