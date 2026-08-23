@@ -43704,3 +43704,455 @@ containers, every one of the 22 changed paths ends in `.account_name`.
 
 `payload_now_raises` is **0**: no document that published under the run of
 record stopped publishing at HEAD.
+
+# §COREENC — the FOURTH core-processor template: the enclosures / average-ledger block
+
+CORE-ENCLOSURES, 2026-08-23. Branch `wave8-coreenc`, base `10cc722` (main, the
+batch-8 census and handoffs). Brief: `docs/agent-handoffs/CORE-ENCLOSURES.md`.
+One new production module, one new registration (registry **75 → 76**), three
+supersedes edges on existing registrations, one new test module, one new
+instrument under `tools/`. `ANALYSIS_STAGE_VERSION` NOT bumped — published
+output moves on 48 archive documents, so the bump is Ocean's to compose.
+
+## C0. Summary
+
+| | |
+|---|---|
+| Census family | rank 1 `core_enclosures_avgledger_leading_counts`, n=58, all `digital` / `failed` / `no_parser_matched` in the run of record (verified, 58/58) |
+| Re-derived population | **71 named documents** — the 58 of the census family plus the **13** the new registration also claims: the 10 this platform prints under `burke_herbert` (3), `farmers_merchants` (3) and `linkbank` (4), and 3 scanned printings of the same block that no registration claimed before |
+| Detection | two required markers reach **67 of the archive's 3,380 documents** — 54 census members + the 13 above. Nothing else. The four misfiles the census verifier named are refused BY THE FURNITURE, not by an exclusion |
+| Ceiling, stated before implementation | 40 publish with a printed daily grid; 8 publish without one; 6 refuse at the ledger; 4 refuse at detection |
+| Result | **48 of 58 publish** — **46 `validated/approved`**, 1 `review/integrity_flags`, 1 `withheld/withheld_adb` — measured by replaying the run of record through the real pipeline. 6 decline at the ledger, 4 are never claimed |
+| Movement outside the family | the 13 claimed outsiders **all decline at parse** — the reader publishes nothing on any of them |
+| Supersedes | `burke_herbert`, `farmers_merchants` and `linkbank` each supersede the new registration, exactly as `first_farmers` supersedes `core_processor_sectioned` and `b1` supersedes `core_processor_daily` |
+| Mutation | **32 mutants applied as documented, 32 killed, 0 survived** |
+| Privacy | the standing scan over 32,167 archive literals against the whole branch diff |
+| Registry | 75 → 76; conformance cross-product 76 × 75 |
+
+## C1. The instrument, and the population re-derivation
+
+Nothing below is read from the census. Every document was re-derived by live
+detection replay over the cached OCR text of the run of record
+(`discovery_reports/2026-08-23T020128.909387-0000-356a4269`, mode `--scanned`),
+resolved from the D-3 artifact store in the MAIN checkout **by direct file
+path across every capability partition of `ocr_settings_key`**. The
+`webapp_data` sqlite index was never opened, no model call was made, and the
+whole card cost $0.00.
+
+Two instruments are committed because they produce headline numbers:
+
+* `tools/coreenc_family_replay.py` — replays a NAMED population through the
+  real pipeline (`analysis.pipeline.analyze_markdown` deterministic +
+  `analysis.serialization.report_to_dict` + `telemetry.record.classify_outcome`
+  + `discovery.runner._failure_reason`) and reports the outcome class each
+  document reaches at HEAD against what the run recorded. It prints no
+  document text, amount, name, account number or date;
+* `tools/regfp_zero_movement_sweep.py` — §REGFP's committed instrument, used
+  unchanged, for the archive-wide zero-movement proof.
+
+**The census family is exactly what the census says it is.** All 58 shas
+resolve in the run of record and all 58 are `digital` / `failed` /
+`no_parser_matched` with no `parser_id` — measured, not assumed.
+
+## C2. Zero population overlap with the other batch-8 cells
+
+* **CORE-ISSUES-2** owns census ranks 5 (`business_classic_statement_of_account`,
+  n=8) and 11 (`poplar_bluff_activity_summary_running`, n=6). Intersection with
+  my 58: **0** and **0**. More strongly: across all 91 census families and 472
+  shas, **no sha appears in two families** (asserted mechanically).
+* **CP-SECTIONED-SCAN** owns 22 non-digital documents of the
+  `PAGE: / ACCOUNT: / TELEPHONE:` sectioned template plus 4 `lake_city`. My 58
+  are all `digital`. The three SCANNED documents my registration newly claims
+  are not theirs either, and this is measured rather than argued: each scores
+  **0.0** on `core_processor_sectioned`, is unclaimed by `core_processor_daily`
+  and `core_processor_counted`, prints no `TOTAL DAYS IN STATEMENT PERIOD` and
+  no `TELEPHONE:` contact block.
+* **DESC-COLUMNS** has no population of its own; it moves the extraction rung.
+  Its subject overlaps this card in one place, named in C9.
+
+## C3. The template, measured
+
+Furniture census over all 58 members of the family (occurrences per document,
+counted mechanically):
+
+| printing | members |
+|---|---|
+| `Statement Dates <m/dd/yy> thru <m/dd/yy>` | 57 |
+| `Average Ledger` (incl. `… Bal.` / `… Balance`) | 57 |
+| `Interest Paid` | 57 |
+| `Days in the/this statement period <n>` | 53 |
+| an enclosures token (`Number of Enclosures` / `Number of Images` / `Acct. Enclosures`) | 49 |
+| `Average Collected` | 51 |
+| a daily-balance grid | 45 |
+| the ASCII pipe box (`Total For This Period` / `Year-to-Date`) | 28 |
+| a cheque/deposit IMAGE appendix | 30 |
+| a `SUMMARY …` restatement block | 12 |
+
+Label drift, over the 54 addressable members, is complete: previous balance is
+`Previous Balance` (50) or `Balance Last Statement` (4); the day count is
+`Days in the statement period` (50) or `Days This Statement Period` (4); the
+credit row is `Deposits/Credits` (50) or `Deposits` (4); the debit row is
+`Checks/Debits` (46), `Debits` (4) or `Checks/Charges` (4); the fee is
+`Service Charge` (42), `Maintenance Charge` (4) or `Monthly Service Fee` /
+`Service Fee` (8); the closing balance is `Ending Balance` (27),
+`Current Balance` (23) or `Balance This Statement` (4). Each of the six sums to
+exactly 54, which is what says the alternations are complete rather than
+lucky.
+
+**Two structural facts make the read cheap and safe, and both are measured
+54/54:** the whole two-column summary block is emitted on ONE physical line,
+and the closing-balance label occurs exactly ONCE in the entire document. The
+strip is therefore that line, cut at the closing balance — and the cut is
+load-bearing: an interest-bearing member prints its YEAR-TO-DATE interest after
+the closing balance under the same label as the period's own.
+
+## C4. Detection — the pairing, not the phrase
+
+The two required markers are the period sentence and **the credit count row
+welded to the `Average Ledger` cell it shares a printed line with**. Measured
+over every one of the 3,380 documents of the run of record that hold cached
+text (3,351 do):
+
+| predicate | documents |
+|---|---|
+| `Statement Dates … thru …` alone | 79, across eight printed identities |
+| `AVERAGE LEDGER` alone | 726 (343 of them Bank of America) |
+| both | 70 |
+| **the pairing + the period sentence (what is registered)** | **67** |
+
+The 67 are the 54 addressable census members and the 13 of C0. The pairing is
+what separates this template from **census rank 62**
+(`bangor_savings_three_count_summary`, 3 documents), which prints the same
+vocabulary with THREE counted rows and puts its WITHDRAWALS row in the cell
+this one puts its credit row in. Registering on `Average Ledger` alone would
+claim those 3; registering on the pairing does not, and that is a fact about
+the template rather than a carve-out.
+
+**The four misfiles the census verifier named are refused by the furniture.**
+`8CCAE7DD` (a different processor: no enclosures token, no `Average Ledger`, no
+`Average Collected`, a plain-text fee box and a description-leading row order —
+and the only true L-1 in the cohort) and the three order-scrambled text layers
+`5ED19A08`, `0D1BCE71`, `12EAD3A8` all fail one or both required markers. No
+exclusion marker was needed and none was written.
+
+## C5. The per-document ceiling, stated before implementation
+
+Measured with a throwaway extractor over the cached text of all 58 BEFORE the
+production module existed, then reproduced by the module itself:
+
+| outcome | documents | why |
+|---|---|---|
+| publishes, printed daily grid reconciles | **40** | both counts, both totals, the summary identity and the grid all close |
+| publishes, no daily grid printed | **8** | the same four printed gates close; the template prints no per-day evidence, and `analysis/adb.py` reconstructs the calendar-day series from the ledger they prove |
+| refuses at the ledger | **6** | 3 weld a wrapped description across the date column so the layer emits the row's date twice; 3 carry a `mm/dd`-shaped token inside a merchant description |
+| refuses at detection | **4** | the census verifier's four misfiles |
+
+The prediction and the result are the same 48/6/4, and the pipeline then
+resolves the 48 into **46 `validated/approved`**, 1 `review` and 1 `withheld`
+(C5.1). The honest ceiling the
+census verifier gave was 30–36 of 58 and the census's own estimate was 40.6;
+the measured answer is **48 published**, and the reason the verifier's estimate
+was low is named in C6: the third gate it called mechanically impossible for
+93% of the cohort is not needed, because the FIRST two gates are four printed
+figures rather than two.
+
+### C5.1 The two published documents that are not `validated`, and why each is right
+
+Both were diagnosed rather than assumed, by running the real pipeline and
+reading the integrity block:
+
+* **`68D4F9F0…` → `review/integrity_flags`**, flag
+  `missing_declared_statement_page`: the statement declares six bank pages and
+  one of the page labels is absent from the PDF. Nothing to do with this
+  reader — its `credit_coverage` and `debit_coverage` are both 1.0, its
+  `summary_ok` is True and its `sum_delta` is 0.0. A page really is missing,
+  and review is the honest outcome;
+* **`90A62FB5…` → `withheld/withheld_adb`**, flags
+  `credit_detail_coverage_mismatch` and
+  `transaction_detail_not_corporate_reliable`: its `credit_coverage` is
+  **1.077**. This is the C6 scope fact reaching a DIFFERENT shared check. The
+  bank credited interest, posted it in the deposit ledger, and left it out of
+  the `N Deposits/Credits` total; on this document the interest is 7.7% of
+  that total, which is outside `analysis/pipeline.py`'s ±2% coverage band.
+  `analysis/reconcile.py`'s coverage ratio has no scope mapping — the
+  `CountMapping` machinery covers the COUNT and there is nothing equivalent
+  for the money — so the platform withholds. That is fail-closed and safe, and
+  it is carded rather than worked around: publishing a `stated_total_credits`
+  that included the interest would be a figure the bank did not print. The
+  other four members that post interest are inside the band and validate.
+
+## C6. The gates
+
+1. **the summary's own identity** — `previous + credits − debits − service
+   charge + interest == ending`. This template prints the service charge and
+   the interest OUTSIDE both direction totals, which is what makes the identity
+   an independent fifth reading rather than a restatement. It is checked on the
+   printed figures alone, before any of them is used to judge a ledger;
+2. **the credit count** and **the credit total**;
+3. **the debit count** and **the debit total**;
+4. **the daily-balance grid where the template prints one** — every day it
+   prints equals the walked end-of-day balance, and every day the ledger posts
+   on appears in it.
+
+**The census's third gate is not this reader's third gate.** The verifier was
+right that `last-row-of-day == grid balance` is impossible on 54 of 58 (only 4
+print a running balance) and right that the cumulative chain is not independent
+of the sum. This reader does not use it: gate 4 IS the cumulative chain, and it
+is the FOURTH reading rather than the second, because gates 2 and 3 are four
+separately printed figures — two counts and two totals — and gate 1 a fifth. A
+dropped row moves a count; a mis-read amount moves a total; a mis-signed row
+moves both; and all three then move the chain.
+
+### The printed counts exclude two rows the ledger posts
+
+Measured over the 54 addressable members: every document whose captured credit
+rows outnumber the printed credit count does so by exactly one, and the excess
+is exactly the printed `Interest Paid` figure (**5 documents**); every document
+whose debit rows outnumber the printed debit count has an excess equal to
+exactly the printed service charge (**13 documents**, one posting it as two
+rows). The bank counts its deposit categories and bills its interest and its
+fee on separate summary lines. Both postings are published; the count gate is
+stated in the scope the bank counts in, and each allowance is admitted ONLY for
+the figure the bank printed.
+
+That is the third class `analysis/count_semantics.py` describes. This
+registration is therefore left at the table's DEFAULT (`UNSURVEYED`,
+incomparable — the safe direction, which emits no flag) and the reason is
+recorded as data in `SECTION_LEVEL_ORACLES` rather than as a paragraph someone
+must remember: a `CountMapping` can express `+1 when a service charge was
+billed` and there is no `PRINTED_EVIDENCE_FIELDS` entry for `+1 when interest
+was credited`, so declaring the half it can express would manufacture a flag on
+every interest-bearing member.
+
+## C7. The blocks, and the three printings that decide what they are
+
+The template names each block and repaints the name on every page, so
+`tables.section_runs` over the banner alternation is the split, and the banner
+declares the direction — **never the sign of the amount**. Measured over the 54:
+the debit blocks print 3,485 rows with a trailing minus and 954 without (the
+collapsed cheque grids print magnitudes), the credit blocks 1,005 without a
+sign and 2 with. A reader keyed on the sign books a quarter of the debit side
+as deposits. Only the date-order issue (`ACTIVITY IN DATE ORDER`,
+`Transaction Activity`) prints one undivided ledger, and there the printed sign
+is the only evidence there is.
+
+Three further printings each needed a rule, and each rule is the platform's own
+statement rather than a heuristic:
+
+* **a block the platform calls a SUMMARY restates the ledger exactly when the
+  ledger prints a running balance.** The archive splits perfectly on it: of the
+  12 members carrying a `Summary by Check Number` / `Summary of Deposits` /
+  `Summary of Withdrawals` block, the 8 whose ledger header names a `Balance`
+  column restate rows the ledger already posted, and the 4 whose header does
+  not print cheques that appear nowhere else. A de-duplication rule was built
+  first and rejected: on one member a cheque and an unrelated card payment
+  share a day and an amount, and the de-dup silently dropped a real row;
+* **the cheque/deposit IMAGE appendix is a boundary, never a block.** 30
+  members restate every item after the grid as a LABELLED `Date:` / `Amount:`
+  pair — the only rows on the page that are not columnar. Without the boundary
+  the grid's run swallows them and every restated amount is read as a grid
+  cell;
+* **the cross-reference cheque row is a pointer, not a posting.** One issuer's
+  cheque grid prints `date serial -See above-` where the ledger above carries
+  the item in full. Left in place the date closes no cell and the document is
+  lost; read as a row the cheque posts twice. It is skipped, and the count gate
+  proves the call on all four members that print one.
+
+The fee-detail block (`Service Charges and Itemized Fees`,
+`Service Charge Detail`) is read as a block and published as no rows: it
+itemizes the one `Total Service Charge` posting the debit ledger already
+carries.
+
+## C8. What the reader refuses, and why that is the right answer
+
+Six members decline at the ledger, in two classes, and both are documents this
+reader cannot read rather than gaps in it:
+
+* **three** weld a wrapped description across the date column, so the layer
+  emits the row's date twice with a fragment between them and the first
+  emission closes no cell;
+* **three** carry a `mm/dd`-shaped token inside a merchant description, which
+  opens a cell the next figure does not close.
+
+`tables.dated_cells` returns None on both and the document is declined whole.
+Dropping the row instead is exactly how a ledger comes to disagree with a
+printed total while still looking complete — and two mutants (M31, M32) pin
+that the reader declines rather than drops even when dropping would leave both
+printed counts intact.
+
+## C9. Descriptions — 849 of 5,872 published rows carry a block label
+
+`tables.attributed_descriptions` is the only description path used, as the
+handoff requires. Measured over the 48 published documents: **5,872 published
+rows, of which 849 (14.5%) publish the block's own label rather than a printed
+description**. 778 of the 849 are the four members that print
+`date <amount> <description>` — the amount BEFORE the description — so nothing
+at all is printed between the date and the amount and the attribution rule has
+nothing to attribute. The remaining 71 are cheque-grid rows whose serial cell
+is blank.
+
+Named, not repaired. Recovering that column is the extraction-rung work
+DESC-COLUMNS owns (batch 8, card 10); the amounts, dates, directions, counts,
+totals and grid on those four documents are all proven by the gates.
+
+## C10. Currency — the schema default, and the reason it is not a jurisdiction default
+
+Measured over all 58: **zero** occurrences of `CAD`, `USD`, `CANADA`, any
+Canadian province, any Canadian postal pattern or `Transit`. The evidence that
+these are US accounts is a bare `$` on 45, a `Member FDIC` footer on 10, and US
+mailing addresses and NANP numbers on every sampled member — institution
+furniture, not a printed denomination. Under
+`docs/moneythumb-replacement/CURRENCY_DOCTRINE.md` this reader publishes the
+schema default with `currency_source = schema_default` and claims no evidence
+class it does not have. It is the mirror image of the RBC-CAD case and it names
+itself here as a future mover if a US jurisdiction-default packet is ever
+approved.
+
+## C11. The supersedes edges
+
+`burke_herbert`, `farmers_merchants` and `linkbank` each read ONE issuer's
+printing of this template — `burke_herbert`'s own module says so, in the
+comment that calls `ACTIVITY IN DATE ORDER` "a mainframe platform's banner, not
+this bank's". The general reader claims all 10 of their archive documents on
+the summary strip they print verbatim, so without the edges those 10 resolve
+`ambiguous` and go to review: 3 of them are validated today and would regress,
+3 are withheld and 4 are in review.
+
+The edges are safe in the STRONG sense in one direction and the OBSERVED sense
+in the other, and the difference is stated rather than glossed. The general
+reader consults nothing that identifies an issuer at all (it publishes
+`bank=None` by construction), while each of the three requires its own printed
+domain or product-and-section conjunction, which the general reader never looks
+for — so neither can shadow the other by accident. Stranding is the observed
+half: a document carrying one of the three issuers' markers that the issuer's
+own reader declined would never be offered to the general reader. **Measured:
+the general reader declines all 10 at parse anyway**, so no document is lost
+today, and this card deliberately does not move another reader's 10 documents
+on the way past. The pinned corpus holds none of the ten.
+
+## C12. The mutation table
+
+32 mutants, each applied by an exact string replacement that had to match
+exactly once (a mutant that did not apply as documented would be reported
+NOT-APPLIED rather than scored), run WITHOUT `-x` so every killer is named, on
+a clean tree, restored with `git checkout --` and byte-compared after each
+restore. Harness: the private scratchpad's `mutate.py`; log:
+`mutation3.log`. **32 applied, 32 killed, 0 survived.**
+
+The first run killed 21 of 32. Every one of the eleven survivors was a real gap
+and every one is closed rather than argued away — the four count/total gates
+were masked by the daily grid, because a wrong count also moves a walked
+balance, so those tests now stand on documents that print no grid where the
+gate under test is the only one that can see the defect.
+
+## C13. Findings and questions for Ocean
+
+1. **`SECTION_LEVEL_ORACLES` gains a third entry.** The printed counts of this
+   template exclude two named row classes and the `CountMapping` schema can
+   express only one of them. If Ocean wants the comparison ON, the schema needs
+   a `stated_interest_paid` member of `PRINTED_EVIDENCE_FIELDS` and a second
+   rule; that is a `count_semantics` card, not this one, and the default is
+   quiet either way.
+2. **`burke_herbert` / `farmers_merchants` / `linkbank` band change.** The three
+   move from band 100 to band 10 with their supersedes edges, following
+   `first_farmers` and `b1`. Band affects dispatch ORDER only, never which
+   survivor is parsed; it is recorded here because it moves the pinned
+   `EXPECTED_ORDER` list.
+3. **`analysis/reconcile.py`'s coverage ratio has no scope mapping.** C5.1's
+   withheld document is the case: a template that bills interest outside its
+   own credit total trips a ±2% band whenever the interest is more than 2% of
+   it. One document of 58 today. A `count_semantics`-style mapping on the
+   MONEY side is the fix and it is not this card's file.
+4. **The 3 scanned documents this registration newly claims** move from
+   `failed/no_parser_matched` to `failed/parser_declined`. They are named in
+   C0/C2, they belong to no other cell, and the move is the honest one: a
+   parser recognised the template and could not read the scan.
+
+## C14. Risks carried
+
+1. **The banner vocabulary is a list, and a list under-matches.** Detection is
+   structural (the two-column pairing) and cannot under-match on an issuer
+   nobody has met; the BLOCK banners are the template's printed headings and a
+   new one would make the reader miss a section — which the count gate turns
+   into a refusal, never a wrong answer. Stated so the failure mode is known:
+   this registration degrades to a decline, not to a bad read.
+2. **The 4 members that publish only block labels** (C9). Their money is
+   proven; their merchant column is not recoverable from the flattened layer.
+3. **8 documents publish with no printed per-day evidence.** Their ADB is
+   reconstructed by `analysis/adb.py` from a ledger proven against four printed
+   figures. If Ocean prefers those withheld, the change is one line and the
+   card is named.
+
+## C15. Proofs, with verbatim exit codes
+
+| proof | result | exit |
+|---|---|---|
+| `python corpus_gate.py` | **GREEN** — 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 1 refused / 3 review / 102 validated / 3 withheld; ADB doctrine 108/108 `calendar_day_printed_period`; currency 108/108 = 14 CAD / 94 USD (+1 pinned refusal); currency_source 108/108 = 89 schema_default / 7 institution_default / 7 product / 4 jurisdiction_default / 1 printed (+1 pinned refusal); 0 exclusions | `GATE_EXIT=0` |
+| full default suite | **5,917 passed**, 35 skipped, 34 deselected (5,857 at base) | `SUITE_EXIT=0` |
+| canonical guard set (5 modules) | **252 passed** — unchanged at registry 76 | `GUARD_EXIT=0` |
+| canonical conformance set (7 modules) | **1,177 passed**, 35 skipped (1,164 at 75 × 74; the cross-product is now 76 × 75) | `CONFORM_EXIT=0` |
+| corpus-marked slice (`pytest -m corpus`) | recorded in C18 | recorded in C18 |
+| the reader's own module | 46 passed | included above |
+| mutation harness, 32 mutants, no `-x` | **32 applied, 32 killed, 0 survived** | `EXIT=0` |
+| archive-wide detection + parse probe (3,380 documents, 3,351 with cached text) | 67 claimed, 0 crashes | `EXIT=0` |
+| population replay (71 named documents, real pipeline) | 57 moved / 14 unmoved, transitions in C0 and C11 | `EXIT=0` |
+| `tools.regfp_zero_movement_sweep`, six chunks over all 3,380 | recorded in C18 | recorded in C18 |
+
+An earlier full-suite run at an intermediate tree was `SUITE_EXIT=1` on two
+assertions, and both are recorded rather than quietly fixed: `SECTION_LEVEL_ORACLES`
+is pinned in TWO test modules and only one had been updated, and
+`tools/coreenc_family_replay.py` calls the analysis and so had to be classified
+in `corpus_gate.EXCLUDED_ANALYSIS_CALLERS`. Neither is in the canonical guard
+or conformance sets, which were green throughout — the full suite is what
+found them.
+
+## C16. The privacy scan
+
+The standing rule made a measurement. From the cached text of all **71** named
+documents the scan builds every literal the rule names — **8,442** printed
+figures, **4,717** account-number-shaped runs, **710** date tokens, **14,636**
+digit-bearing alphanumeric tokens and **3,662** capitalised words that are not
+this template's own printed vocabulary, **32,167** literals in all — and
+intersects them, through the same tokenizer, with the added lines of the whole
+branch diff.
+
+**It found six, and all six were mine.** Two real figures in the ledger-token
+comment, two more welded into the detection marker's worked example, a real
+cheque amount and serial in the image-appendix comment, and a merchant
+fragment in the refusals section — every one of them illustrating a SHAPE, and
+every one now written as the shape (`<figure>`, `<n>`, `<serial>`,
+`<mm>/<dd>`). Comment-only, AST-identical, `baa63d1`.
+
+**The residual, and what it is.** A raw intersection over-reports and is
+reported as a ceiling rather than a finding: `100.00`, `1/05` and `document`
+occur in the archive AND in half the repository. The finding is the residual
+after one filter with a precise meaning — a literal is evidence of a leak only
+if the tracked repository did not already carry it at base. Base vocabulary:
+464 tracked text files at `10cc722`.
+
+At the final tree the raw intersection is **187** and the residual is **13**,
+and every one of the 13 is traced to its own added line rather than argued
+away: `235.00` and `81.00` are the invented statement's fee-test ending and
+its credit-total mutation; `1/01/26`, `1/08`, `1/12`, `1/22`, `1/28` and
+`2/12` are the invented statement's own dates; `11.00-`, `130.00-`, `40.00-`
+and `5.00-` are its invented signed amounts; and `BANNER` is the identifier
+`_BANNER_RE`. `git diff -S` places twelve of the thirteen in
+`tests/test_core_processor_enclosures.py` (one of them also in the invented
+conformance fixture) and the thirteenth in the module's own source. **No
+archive-sourced literal survives anywhere in the branch**, and the collision is
+what a hundred invented round figures cost against an archive that prints
+8,442 distinct ones.
+
+The instrument is the private scratchpad's `privacy_scan.py`; it is not
+committed because it reads archive text, and the residual it reports is a
+count rather than a list of what remains.
+
+## C17. Commits
+
+* `b01ade0` — COREENC: the FOURTH core-processor template â€” the enclosures / average-ledger block (registry 76)
+* `81a420f` — COREENC: the reader's gates, tested on invented documents; cheque grids publish their serial
+* `691b2ce` — COREENC: the eleven mutants the first test set left alive
+* `a3b0d14` — COREENC: the four count-gate tests really stand alone now
+* `baa63d1` — COREENC: six archive literals out of the production module (privacy)
+* `0f8c656` — COREENC: rewrap three comments the privacy edit left broken mid-sentence
+* `57b29f1` — COREENC: the two pins outside the canonical sets that the full suite found
