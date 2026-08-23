@@ -317,7 +317,9 @@ def test_a_captured_credit_count_that_disagrees_with_the_printed_one_is_refused(
 
 
 def test_a_captured_credit_total_that_disagrees_with_the_printed_one_is_refused():
-    body = (_CREDIT_BLOCK.replace("80.00", "81.00") + _DEBIT_BLOCK + _GRID_BLOCK)
+    """The same count and a different total, and no grid: the TOTAL is the
+    only gate that can see it."""
+    body = (_CREDIT_BLOCK.replace("80.00", "81.00") + _DEBIT_BLOCK)
     assert _parse(body=body) is None
 
 
@@ -329,7 +331,7 @@ def test_a_captured_debit_count_that_disagrees_with_the_printed_one_is_refused()
 
 
 def test_a_captured_debit_total_that_disagrees_with_the_printed_one_is_refused():
-    body = (_CREDIT_BLOCK + _DEBIT_BLOCK.replace("10.00-", "11.00-") + _GRID_BLOCK)
+    body = (_CREDIT_BLOCK + _DEBIT_BLOCK.replace("10.00-", "11.00-"))
     assert _parse(body=body) is None
 
 
@@ -392,6 +394,63 @@ def test_a_cheque_the_grid_cross_references_instead_of_pricing_is_not_a_row():
     stmt = _parse(body=body)
     assert stmt is not None
     assert len(stmt.transactions) == 4
+
+
+def test_the_cross_reference_rule_skips_only_the_platform_s_own_pointer():
+    """A cheque grid that carries a cross-reference AND a date closing no cell
+    is still declined: the pointer is skipped because the platform says the
+    amount is printed elsewhere, and a bare unreadable date says nothing."""
+    body = (_CREDIT_BLOCK + _DEBIT_BLOCK
+            + "CHECKS IN NUMBER ORDER Date Check No Amount\n"
+              "1/08 1001 -See above- 1/20 1002 -See above- 1/22 EXAMPLE\n")
+    assert _parse(body=body) is None
+
+
+def test_a_date_shaped_token_that_is_not_a_calendar_day_is_not_a_row_date():
+    """A description carrying `26/04` — the tail of a reference number this
+    platform prints on ACH rows — is not a row. Measured on the archive: with
+    a digit-run row-date class three members of this family lose their whole
+    read, and one prints 75 such tokens in a glyph-damaged disclosure block."""
+    body = (_CREDIT_BLOCK
+            + "CHECKS AND WITHDRAWALS Date Description Amount\n"
+              "1/08 EXAMPLE CARD PURCHASE 50.00- REF 26/04 EXAMPLE TRACE\n"
+              "1/20 EXAMPLE TRANSFER OUT 10.00-\n")
+    stmt = _parse(body=body)
+    assert stmt is not None
+    assert len(stmt.transactions) == 4
+
+
+def test_the_issue_that_prints_the_amount_before_the_description_is_read():
+    """Four members print `date -amount description`, with the sign LEADING.
+    Measured: without the leading-minus half of the ledger token five members
+    of this family lose their whole read. The row's description trails its
+    amount on that arrangement, so nothing is printed before the amount and
+    the row publishes the block's own label — named, not repaired; the column
+    belongs to the extraction rung (DESC-COLUMNS)."""
+    body = (_CREDIT_BLOCK
+            + "CHECKS AND WITHDRAWALS Date Description Amount\n"
+              "1/08 -50.00 EXAMPLE CARD PURCHASE\n"
+              "1/20 -10.00 EXAMPLE TRANSFER OUT\n")
+    stmt = _parse(body=body)
+    assert stmt is not None
+    assert [(row.amount, row.direction) for row in stmt.transactions] == [
+        (120.00, "credit"), (-50.00, "debit"), (80.00, "credit"), (-10.00, "debit")]
+    assert [row.description for row in stmt.transactions[1::2]] == ["Debit", "Debit"]
+
+
+def test_an_unreadable_row_declines_the_document_even_when_its_run_is_droppable():
+    """The section is printed across two runs and the second holds only a
+    mangled date: dropping that run would leave both printed counts intact,
+    which is exactly how a ledger comes to look complete while missing a row."""
+    body = (_CREDIT_BLOCK
+            + "DEPOSITS AND OTHER CREDITS Date Description Amount\n1/28 EXAMPLE\n"
+            + _DEBIT_BLOCK)
+    assert _parse(body=body) is None
+
+
+def test_a_row_outside_the_period_declines_even_when_dropping_it_would_reconcile():
+    body = (_CREDIT_BLOCK + "2/05 EXAMPLE PAYOUT THREE 5.00\n" + _DEBIT_BLOCK)
+    assert _parse(body=body) is None
 
 
 # ---------------------------------------------------------------------------
