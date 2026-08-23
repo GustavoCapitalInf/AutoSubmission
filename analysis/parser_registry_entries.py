@@ -35,6 +35,7 @@ from . import (
     brex,
     burke_herbert,
     capital_one,
+    category_partition,
     chase,
     chase_savings,
     cibc,
@@ -117,6 +118,18 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("brex", "Brex", brex, "DETECTION_MARKERS", "detection_text", "parse_brex_statement"),
     ("burke_herbert", "Burke & Herbert Bank", burke_herbert, "DETECTION_MARKERS", "detection_text", "parse_burke_herbert_statement"),
     ("capital_one", "Capital One", capital_one, "DETECTION_MARKERS", None, "parse_capital_one_statement"),
+    # A community-bank core whose summary is a signed category PARTITION
+    # (W3 §GLANCE). Not the same processor as the three `core_processor_*`
+    # templates above and below: it shares none of their summary grammars,
+    # names its own sections, and marks the DIRECTION of a category and of a
+    # row with a trailing plus rather than with a column. The label names the
+    # PLATFORM because these documents print no institution field — a masthead
+    # welded to a PO box, a `Branch Name` that is a branch office, a bare
+    # contact domain, and on one of them nothing at all — so `Statement.bank`
+    # is None under the honest-unknown-issuer ruling. Disjoint from every
+    # other registration by its two required markers, so no band and no
+    # `supersedes` edge.
+    ("category_partition", "Category Partition Statement Platform", category_partition, "DETECTION_MARKERS", None, "parse_category_partition_statement"),
     ("chase", "Chase", chase, "DETECTION_MARKERS", "detection_text", "parse_chase_statement"),
     ("chase_export", "Chase Transaction Export", chase, "EXPORT_DETECTION_MARKERS", "detection_text", "parse_chase_export_statement"),
     ("chase_savings", "Chase Savings", chase_savings, "DETECTION_MARKERS", "detection_text", "parse_chase_savings_statement"),

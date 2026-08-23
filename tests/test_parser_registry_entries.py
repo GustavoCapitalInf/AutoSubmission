@@ -56,6 +56,10 @@ EXPECTED_ORDER = [
     "brex",
     "burke_herbert",
     "capital_one",
+    # The batch-8 signed category partition (W3 §GLANCE): disjoint from
+    # every other registration by its two required markers, so it takes the
+    # ordinary band.
+    "category_partition",
     "chase",
     "cibc",
     "cibc_french",
@@ -176,8 +180,12 @@ def test_registration_count_matches_the_documented_decision_points():
     (W3 §SCANNEXT); and the batch-7 cards: the scanned Canadian
     direct-bank statement whose two money columns the scan flattens and
     whose row directions are solved from the running balance printed on
-    every row (W3 §TANGERINE)."""
-    assert len(pr.registrations()) == 75
+    every row (W3 §TANGERINE); and the batch-8 card: the community-bank
+    core whose summary is a signed category partition, whose category and
+    row directions are read off a trailing plus and confirmed by the
+    partition's own arithmetic, and which refuses the printings that offer
+    no per-day ledger evidence (W3 §GLANCE)."""
+    assert len(pr.registrations()) == 76
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():
