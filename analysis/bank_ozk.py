@@ -212,11 +212,18 @@ _ROW_DATE_RE = re.compile(r"(?<![\d/])(0[1-9]|1[0-2])/(0[1-9]|[12]\d|3[01])(?!\d
 # The per-day solve
 # ---------------------------------------------------------------------------
 
-#: Budgets. A day whose sign assignment cannot be enumerated inside them is a
-#: refusal, never a partial answer: this reader would rather decline a
-#: document than publish one side of an unsolved ledger.
+#: Budgets, and all three are refusals rather than partial answers: this reader
+#: would rather decline a document than publish one side of an unsolved ledger.
+#:
+#: They are also what makes the enumeration TOTAL. Subset-sum is exponential in
+#: the worst case, and a parser that can be made to run for an hour on a
+#: printing nobody has seen is a denial-of-service dressed as thoroughness. The
+#: row cap additionally bounds the recursion depth, so a pathological day
+#: cannot reach `RecursionError` — an exception is not an answer, and a
+#: refusal is. The busiest day of the archive family carries 15 rows.
+_MAX_DAY_ROWS = 64
+_MAX_DAY_NODES = 200_000
 _MAX_DAY_SOLUTIONS = 64
-_MAX_GLOBAL_SOLUTIONS = 2
 
 
 def _day_solutions(amounts: list[int], residual: int) -> list[frozenset[int]] | None:
@@ -227,6 +234,8 @@ def _day_solutions(amounts: list[int], residual: int) -> list[frozenset[int]] | 
     when the enumeration exceeds its budget — which is a refusal, distinct
     from the empty list, which means the day's printed step is unreachable.
     """
+    if len(amounts) > _MAX_DAY_ROWS:
+        return None
     total = sum(amounts)
     doubled = residual + total
     if doubled < 0 or doubled > 2 * total or doubled % 2:
@@ -238,10 +247,15 @@ def _day_solutions(amounts: list[int], residual: int) -> list[frozenset[int]] | 
 
     solutions: list[frozenset[int]] = []
     overflow = False
+    nodes = 0
 
     def walk(index: int, accumulated: int, chosen: list[int]) -> None:
-        nonlocal overflow
+        nonlocal overflow, nodes
         if overflow:
+            return
+        nodes += 1
+        if nodes > _MAX_DAY_NODES:
+            overflow = True
             return
         if index == len(amounts):
             if accumulated == target:

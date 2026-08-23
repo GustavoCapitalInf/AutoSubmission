@@ -476,16 +476,24 @@ def parse_frost_statement(markdown: str) -> Statement | None:
     daily = sections.get("DAILY BALANCE", [])
     if not daily:
         return None
-    dated: list[tuple[str, int]] = []
+    printed_by_day: dict[str, int] = {}
     for row in daily:
         iso = _iso(row, issued)
         if iso is None:
             return None
-        dated.append((iso, row.cents))
+        # One day, one printed balance. A grid that prints a day twice with two
+        # different figures is the document contradicting itself about its own
+        # ledger, and there is no rule that says which cell to believe — taking
+        # either would be picking one. A repeat that AGREES is free
+        # corroboration and is accepted. No archive document of this family
+        # prints a duplicate at all, so this closes a hole rather than
+        # describing one.
+        if printed_by_day.setdefault(iso, row.cents) != row.cents:
+            return None
     # The grid is printed column-major, so it arrives out of order; sorting by
     # date is what recovers the walk. Its two ends are a second, independent
     # reading of the two balances the strip printed.
-    dated.sort()
+    dated = sorted(printed_by_day.items())
     if dated[0][1] != summary["opening"] or dated[-1][1] != summary["closing"]:
         return None
 

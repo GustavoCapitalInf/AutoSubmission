@@ -356,3 +356,36 @@ def test_the_currency_is_the_institution_default():
 
 def test_a_document_with_no_ledger_is_not_a_statement():
     assert parse_bank_ozk_statement(SERVICE + HEADER + summary() + "BALANCE BY DATE\n") is None
+
+
+# ---------------------------------------------------------------------------
+# The enumeration's budgets — a refusal is an answer, an hour of CPU is not
+# ---------------------------------------------------------------------------
+
+def test_a_day_with_more_rows_than_the_budget_is_refused_not_enumerated():
+    """Bounded recursion depth as well as bounded work: without the cap a
+    pathological day would reach `RecursionError`, and an exception is not an
+    answer."""
+    from analysis.bank_ozk import _MAX_DAY_ROWS, _day_solutions
+
+    assert _day_solutions([100] * (_MAX_DAY_ROWS + 1), 0) is None
+    assert _day_solutions([100] * _MAX_DAY_ROWS, _MAX_DAY_ROWS * 100) == [
+        frozenset(range(_MAX_DAY_ROWS))
+    ]
+
+
+def test_a_day_with_too_many_solutions_to_enumerate_is_refused():
+    """Forty equal amounts on a zero-step day admit C(40,20) sign assignments.
+    The budget stops the walk and the document is declined; nothing partial is
+    published and nothing runs for an hour."""
+    from analysis.bank_ozk import _day_solutions
+
+    assert _day_solutions([200] * 40, 0) is None
+
+
+def test_an_unreachable_step_is_an_empty_answer_and_not_a_budget_refusal():
+    """The two must stay distinguishable: `[]` means the day's printed step is
+    unreachable, `None` means the reader could not finish looking."""
+    from analysis.bank_ozk import _day_solutions
+
+    assert _day_solutions([100, 300], 50) == []

@@ -385,3 +385,21 @@ def test_the_average_is_withheld_because_no_period_is_printed():
 
 def test_a_bare_mention_of_the_bank_is_not_a_statement():
     assert not detect("Transfer to FROST BUSINESS CHECKING account\n").claims
+
+
+def test_a_grid_day_printed_twice_with_two_values_is_refused():
+    """The grid's two ENDS are checked against the strip; nothing else checks a
+    cell in the middle, so a day printed twice two different ways would
+    otherwise publish two balances for one date and let `analysis/adb.py`
+    choose. No archive document of this family prints a duplicate, so this
+    closes a hole rather than describing one."""
+    doubled = DAILY.replace("02-04        2,500.10", "02-04        2,500.10 | 02-04        2,500.11")
+    assert parse_frost_statement(document(daily=doubled)) is None
+
+
+def test_a_grid_day_printed_twice_with_the_same_value_is_corroboration():
+    doubled = DAILY.replace("02-04        2,500.10", "02-04        2,500.10 | 02-04        2,500.10")
+    stmt = parse_frost_statement(document(daily=doubled))
+    assert stmt is not None
+    dates = [entry.date for entry in stmt.stated_daily_balances]
+    assert dates == sorted(set(dates))
