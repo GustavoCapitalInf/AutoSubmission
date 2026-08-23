@@ -780,9 +780,14 @@ def _matches_the_relationship_block(markdown: str, summary: _Summary) -> bool:
     single-account schema must not publish one of them (L-1). The roll-up it
     closes on is then a third printing of this statement's closing balance.
     """
-    row = _GLANCE_ROW_RE.search(markdown)
-    if row is None:
+    rows = list(_GLANCE_ROW_RE.finditer(markdown))
+    if not rows:
         return True
+    # Printed twice and differently is the document contradicting itself about
+    # its own relationship; printed twice identically is a page header.
+    if len({found.group(1) for found in rows}) != 1:
+        return False
+    row = rows[0]
     if len(_AMOUNT_RE.findall(row.group(1))) != 1:
         return False
     total = unique_match(markdown, _GLANCE_TOTAL_RE)
@@ -856,9 +861,15 @@ def parse_category_partition_statement(markdown: str) -> Statement | None:
                 return None
             rows.extend(found)
 
-    charge = unique_match(markdown, _SERVICE_CHARGE_TOTAL_RE)
-    charged = _signed(charge) if charge else None
-    if charge is not None and (charged is None or charged[1] != ""):
+    # The service-charge recap's own total. Printed at all and not printed
+    # ONCE — two different figures under one label — is the document
+    # contradicting itself, and the uncounted-category gate below is exactly
+    # what would then be checked against a figure nobody can choose.
+    printed = list(_SERVICE_CHARGE_TOTAL_RE.finditer(markdown))
+    if printed and len({found.groups() for found in printed}) != 1:
+        return None
+    charged = _signed(printed[0]) if printed else None
+    if printed and (charged is None or charged[1] != ""):
         return None
     total_charge = charged[0] if charged else None
 
@@ -867,10 +878,18 @@ def parse_category_partition_statement(markdown: str) -> Statement | None:
     if not _matches_the_relationship_block(markdown, summary):
         return None
 
+    # A collected grid's CELLS are refused, but the seed line it shares with
+    # the ledger grid says `Beginning Ledger Balance` and is read: it is this
+    # platform's third printing of the opening balance.
+    if _COLLECTED_GRID_HEADING in sections and not _grid_seed(
+        sections[_COLLECTED_GRID_HEADING], summary
+    ):
+        return None
+
     # The per-day oracle. One of the two, or nothing is published.
-    grid = _grid(sections.get(_LEDGER_GRID_HEADING, []), summary=summary) \
-        if _LEDGER_GRID_HEADING in sections else None
+    grid = None
     if _LEDGER_GRID_HEADING in sections:
+        grid = _grid(sections[_LEDGER_GRID_HEADING], summary=summary)
         if grid is None or not _matches_the_printed_grid(rows, grid, summary):
             return None
     if unified and not _walks_to_the_printed_ending(rows, summary):
