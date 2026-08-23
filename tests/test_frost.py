@@ -56,8 +56,8 @@ DEPOSITS = (
     "DATE      TRANSACTION                         AMOUNT     |  "
     "DATE      TRANSACTION                         AMOUNT\n"
     "|\n"
-    "02-02     SAMPLE TELLER CREDIT                500.00     |  "
-    "02-03     SAMPLE TELLER CREDIT              1,000.00\n"
+    "02-02     SAMPLE CREDIT ROW                 500.00     |  "
+    "02-03     SAMPLE CREDIT ROW               1,000.00\n"
     "DATE             AMOUNT     TRANSACTION              DESCRIPTION\n"
     "02-04               .10     SAMPLE ELECTRONIC        SAMPLE MEMO\n"
 )
@@ -343,8 +343,8 @@ def test_the_credit_count_check_is_live_and_can_fail():
 
     split = DEPOSITS.replace(
         "02-04               .10     SAMPLE ELECTRONIC        SAMPLE MEMO\n",
-        "02-04               .05     SAMPLE ELECTRONIC        SAMPLE MEMO\n"
-        "02-04               .05     SAMPLE ELECTRONIC        SAMPLE MEMO\n",
+        "02-04               .04     SAMPLE ELECTRONIC        SAMPLE MEMO\n"
+        "02-04               .06     SAMPLE ELECTRONIC        SAMPLE MEMO\n",
     )
     report = analyze_markdown(document(deposits=split), parse_mode="deterministic")
     assert report.statement.bank == "Frost Bank"

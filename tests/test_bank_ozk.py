@@ -279,10 +279,10 @@ def _one_row(description: str) -> str:
         "SAMPLE TRANSFER 10.00 via Online",
         # An amount QUOTED inside the description, marked by the symbol the
         # money column never carries. A first-amount rule would take it.
-        "SAMPLE CHK# 0000 AMT $1,800.00, SAMPLE FEE 10.00",
+        "SAMPLE CHK# 0000 AMT $3,300.00, SAMPLE FEE 10.00",
         # The same quoting, AFTER the row's own amount: a last-amount rule
         # without the mask would take the quoted figure instead.
-        "SAMPLE FEE 10.00 REVERSAL OF $1,800.00",
+        "SAMPLE FEE 10.00 REVERSAL OF $3,300.00",
     ],
 )
 def test_a_row_survives_the_split_and_amount_traps(description):

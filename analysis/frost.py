@@ -91,7 +91,7 @@ from .tables import unique_match
 # Printed money and printed dates
 # ---------------------------------------------------------------------------
 
-#: One printed amount. Sub-dollar figures print with NO integer part (`.13`),
+#: One printed amount. Sub-dollar figures print with NO integer part (`.07`),
 #: and an overdrawn balance prints its minus AFTER the digits, so both
 #: spellings are part of the token. `analysis.money.EITHER_MINUS_PADDED` is the
 #: surveyed format that reads exactly that pair.
