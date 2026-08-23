@@ -44102,9 +44102,13 @@ set below.
 pristine copy of `analysis/lili.py`, each anchor asserted present and each
 mutant asserted to change something before it is scored, the suite run
 **WITHOUT `-x`** so every killer is named, and the target restored in a
-`finally` that prints the restore. Run on a CLEAN tree at `1b19041`.
+`finally` that prints the restore. Run on a CLEAN tree at the branch's final
+production commit `cd2fa0b`; the log is `F_mutation.log` and it ends
+`restored analysis/lili.py` / `32 mutants, 32 KILLED, 0 survivors` / `EXIT=0`.
+The commits after `cd2fa0b` are documentation and instruments only — no
+`analysis/` byte moves — so the table below is the table for the merged tree.
 
-**32 mutants, 32 KILLED, 0 survivors.**
+**32 mutants, 32 KILLED, 0 survivors. EXIT=0.**
 
 | # | mutant | killed by |
 |---|---|---|
