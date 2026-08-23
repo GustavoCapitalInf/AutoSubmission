@@ -44227,9 +44227,90 @@ claimed by lili AND another      : 0
 
 **Zero claims outside the named population, and zero ambiguity: no document in
 the archive is claimed by `lili` and by another registration.** 3,351 is 8.4×
-the required floor.
+the required floor, it contains all 176 scanned documents and all 694 the run
+labels Canadian, and it spans all 69 folder labels — so the stratification the
+wave asks for is satisfied by containment rather than by sampling.
+
+**The genre siblings, in the same pass.** The card requires `bluevine`,
+`mercury`, `relay` and `square_checking` to stay byte-identical, and they do
+(`git diff 10cc722..HEAD` over those four files is zero lines). But that is
+not the risk: a new registration breaks a neighbour by CLAIMING one of its
+documents or by making a dispatch ambiguous. So for every document the run of
+record dispatched to one of the four, the probe re-runs that sibling's own
+detection and this card's:
+
+```
+  bluevine             41 documents, still claimed   41
+  mercury              31 documents, still claimed   31
+  relay                31 documents, still claimed   31
+  square_checking      32 documents, still claimed   32
+```
+
+**135 of 135 still claimed by their own sibling, and none of the 135 claimed
+by `lili`.** The archive sweep in §LI10 is the second, independent statement
+of the same property: a sibling that lost or shared a document would show
+there as a `moved` payload, and `moved` is 0.
 
 ## LI10. The archive sweep
+
+`python -m tools.regfp_zero_movement_sweep --rows <run of record>/rows.csv
+--data-dir <checkout>/webapp_data --baseline-settings-key 24675EF0… --start A
+--end B`, run at the branch's final production tree in four chunks whose
+counts add. It answers the question this card owes: **does any document's
+published analysis differ from what the run of record stored for it, and is
+every difference inside the named population?**
+
+| chunk | docs | identical | moved | no_payload_now_publishes | payload_now_raises | no_payload_raises_again | no_ocr | seconds |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0–850 | 850 | 629 | 0 | 1 | 0 | 214 | 6 | 1246.8 |
+| 850–1700 | 850 | 654 | 0 | 4 | 0 | 187 | 5 | 1006.6 |
+| 1700–2550 | 850 | 645 | 0 | 4 | 0 | 190 | 11 | 706.2 |
+| 2550–3380 | 830 | 630 | 0 | 2 | 0 | 191 | 7 | 485.6 |
+| **total** | **3380** | **2558** | **0** | **11** | **0** | **782** | **29** | **3445.2** |
+
+2558 + 0 + 11 + 782 + 29 = **3380**.
+
+* **`moved` is 0.** Not one document that published under the run of record
+  publishes anything different at HEAD.
+* **`payload_now_raises` is 0.** Not one document that published under the run
+  of record stopped publishing.
+* **`no_payload_now_publishes` is 11, and it is EXACTLY the eleven** this card
+  names in §LI0 — checked by sha, not by count. The sweep prints them and the
+  set is identical to the published list:
+
+```
+22C6933C0602DDDC77F74EFAB7AB63CF3A30C62D716910C3D063BCF0F50BDFBF
+454A07BD54196A56C68578BF6E10B9F9AAF4D8C67AE31B1472FAB8B43B9EC03C
+4857279C9994E7496A2EF80551F24692ED22F4FD223EFE13428B015927587544
+687611256EA2F23F72612C7986D312EEDCC7DFD39EA50055D56AFEA575098EAF
+7F25D12A150F3BFD4C04B8408F523EA977C5BAB45A67A4550DE3E57228065403
+823941CE532B788117E8D8B1B538D0E5F725D7700E71CDAD350F65FD9E7AFD98
+9380A2576223B558E974173A4D5D5E35F22B54E868ED01A834253A76D48F6118
+A2E648774BE757F6862EC008D7551D777F1541B6C6D805E243D2B9CA1F1D06D1
+A683FCE227D9023920DA4CAD3DFC5B6EE473BFE2F1854785D5691478D859EF16
+C76CEFA267138E0C98B167C05214516AFCBBB771BEA5FCE08A129146E2B3B22E
+D33DB2B551B1F86AA14869074875E6A006389BD371FEA99C1AE93436B7AA70C8
+```
+
+The other nine of the twenty stay in `no_payload_raises_again`: they raised
+before and they raise again, and what changed is only the REASON the run
+records for them (`no_parser_matched` → `parser_declined`, §LI1), which is a
+telemetry field the sweep does not compare because the run stored no payload
+to compare it against.
+
+**This sweep is also the genre-sibling replay the card asks for.** The four
+siblings must stay byte-identical and they are — `git diff 10cc722..HEAD --
+analysis/bluevine.py analysis/mercury.py analysis/relay.py
+analysis/square_checking.py` is zero lines — but byte-identity is not the risk
+a new registration carries. A registration breaks a neighbour by CLAIMING one
+of its documents or by making a dispatch ambiguous, and either would show here
+as a `moved` payload. `moved` is 0 over 2,558 compared payloads, and
+§LI9 measures the same property directly at detection.
+
+The per-chunk exit code is 1 rather than 0 and that is the instrument being
+right: `--fail-on-regression`-style, it exits non-zero when it has findings to
+report, and the findings are the eleven expected movers. The chain's own
+terminator is `EXIT=0`.
 
 ## LI11. Proofs, with verbatim exit codes
 
@@ -44252,13 +44333,13 @@ production layer, carry over unchanged.
 | canonical guard set (5 modules) at `cd2fa0b` and at the head | 252 passed, both | 0 |
 | canonical conformance set (7 modules) at `cd2fa0b` and at the head | 1,176 passed, 36 skipped (76 × 75 = 5,700 cross-product), both | 0 |
 | `python corpus_gate.py` | **RESULT: GREEN** — 109 pinned PDFs, 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 1 refused / 3 review / 102 validated / 3 withheld; `currency 108/108 = 14 CAD / 94 USD (+1 pinned refusal)`; `currency_source 108/108 = 89 schema_default / 7 institution_default / 7 product / 4 jurisdiction_default / 1 printed (+1 pinned refusal)`; `adb_doctrine 108/108` | 0 |
-| `python -m pytest -q -m corpus` (corpus-marked slice) | FILL_CORPUS | FILL |
+| `python -m pytest -q -m corpus` (corpus-marked slice) | 30 passed, 5,959 deselected (3,904.3s — 1:05:04 on a host running ten other cells) | 0 |
 | `python tools/lili_mutate.py .` | 32 mutants, 32 KILLED, 0 survivors | 0 |
 | `python -m tools.lili_family_replay` | 20 claimed, 11 published, 9 declined by a named gate; dispatch 11 `lili` / 9 `attempted=['lili']`, 0 ambiguous; 1,818 postings; 0 field-sanity failures; 7 of 7 consecutive month pairs join | 0 |
-| `python -m tools.lili_nontarget_probe` | 3,351 documents with cached text of 3,380; 0 claims outside the family; 0 ambiguous; the four genre siblings unmoved | FILL |
+| `python -m tools.lili_nontarget_probe` | 3,351 documents with cached text of 3,380; 0 claims outside the family; 0 ambiguous; 135 of 135 sibling documents still claimed by their own sibling | 0 |
 | `python -m tools.lili_integrity_fingerprint` | the five tampered members named, the overlap matrix printed | 0 |
 | `python -m tools.lili_privacy_scan` | money 0 / digits 0 / dates 0 AUTHORED; 9 adjudicated name-class coincidences | 0 |
-| `python -m tools.regfp_zero_movement_sweep` × 4 chunks | FILL_SWEEP | FILL |
+| `python -m tools.regfp_zero_movement_sweep` × 4 chunks | 3,380 documents, 2,558 identical, **moved 0**, **payload_now_raises 0**, `no_payload_now_publishes` 11 = exactly the named eleven (§LI10) | 0 (per-chunk 1: the instrument exits non-zero when it has findings, and the findings are the eleven) |
 
 The suite moved 5,857 → 5,919 (+62): 49 are this reader's own tests and the
 rest are the conformance cross-product growing with the 76th registration.
