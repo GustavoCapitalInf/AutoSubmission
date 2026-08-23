@@ -44097,6 +44097,14 @@ magnitudes are non-negative; both balances are present; no daily balances are
 published; the bank label is the platform; `account_name` is None. **11 of 11
 clean, over 1,818 postings.**
 
+**A cross-document oracle no single-document gate can supply.** The 11
+published statements are 4 accounts of consecutive months, and each month's
+printed closing balance should be the next month's printed opening. Using
+only figures this reader published: **7 consecutive month pairs, 7 that join
+to the cent, 0 discontinuities.** The replay computes it and exits non-zero if
+one pair fails, so the platform's answer for this family is internally
+consistent across documents and not only inside each one.
+
 **And what it costs the sweep.** The registration declares NO `normalize`, so
 it adds no new text preparation to a registry sweep — it reads the same
 `admissible_text` every other unnormalized registration already shares — and

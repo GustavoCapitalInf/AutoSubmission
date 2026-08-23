@@ -274,6 +274,7 @@ def main() -> int:
     verdicts: dict[str, int] = {}
     unsound: list[str] = []
     postings_published = 0
+    published_by_account: dict[str, list] = {}
     for sha in shas:
         found = cached_document(artifacts, sha)
         if found is None:
@@ -300,6 +301,8 @@ def main() -> int:
             if problems:
                 unsound.append(f"{sha[:16]} {problems}")
             postings_published += len(statement.transactions)
+            published_by_account.setdefault(
+                statement.account_number or "", []).append(statement)
         outcome = _verdict(markdown, pages)
         verdicts[outcome] = verdicts.get(outcome, 0) + 1
         rows = "" if statement is None else f"  postings={len(statement.transactions)}"
@@ -314,6 +317,26 @@ def main() -> int:
           f"claimed by another registration {ambiguous}")
     for verdict, count in sorted(tally.items()):
         print(f"  {count:3}  {verdict}")
+    # --- the cross-document oracle: consecutive months must join
+    joined = pairs = 0
+    print()
+    for index, (_account, statements) in enumerate(sorted(published_by_account.items()), 1):
+        statements.sort(key=lambda s: s.period_start)
+        months = [s.period_start[:7] for s in statements]
+        print(f"account #{index}: {len(statements)} published, months {months}")
+        for first, second in zip(statements, statements[1:]):
+            end = date.fromisoformat(first.period_end)
+            start = date.fromisoformat(second.period_start)
+            if (start - end).days != 1:
+                continue
+            pairs += 1
+            if abs(first.ending_balance - second.beginning_balance) <= 0.005:
+                joined += 1
+            else:
+                print(f"    DISCONTINUITY {first.period_end} -> {second.period_start}")
+    print(f"consecutive month pairs {pairs}; pairs whose printed closing balance "
+          f"equals the next printed opening {joined}")
+
     print(f"postings published: {postings_published}")
     print(f"published statements failing a field-sanity property: {len(unsound)}")
     for entry in unsound:
@@ -321,7 +344,7 @@ def main() -> int:
     print("verdicts:")
     for outcome, count in sorted(verdicts.items()):
         print(f"  {count:3}  {outcome}")
-    return 0 if not unsound else 1
+    return 0 if not unsound and joined == pairs else 1
 
 
 if __name__ == "__main__":
