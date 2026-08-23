@@ -38432,6 +38432,7 @@ rule being that a proof names the tree it measured.
 | mutation table, 14 mutants | `14/14 killed` | 0 |
 | archive zero-movement sweep, 3,380 documents in 4 chunks | **2,531 identical · 4 moved · 3 no_payload_now_publishes · 0 payload_now_raises** — all 7 findings named | 1 (= "findings exist", the tool's contract) |
 | `python -m tools.regfp_zero_movement_sweep --start 0 --end 1000` | 1,000 documents · 749 identical · **0 moved** · **0 now-publishes** · **0 now-raises** (3,183.0s) | **0** |
+| the same `--start 1000 --end 2000` | 1,000 documents · 762 identical · **0 moved** · **0 now-publishes** · **0 now-raises** (2,087.0s) | **0** |
 | `python corpus_gate.py` | **GREEN** — 106 PASS / 3 WITHHELD, verdicts 102 validated / 4 review / 3 withheld, currency 109/109 = 14 CAD / 95 USD (2268.3s) | 0 |
 | corpus-marked slice | `29 passed, 5429 deselected, 1 warning in 4231.00s (1:10:31)` | 0 |
 | bisectability: every commit's tree runs its own module tests | `91 / 98 / 98 / 99 / 100 / 100 / 105 passed` (the seven production commits, `546bd35` included) | 0 |
