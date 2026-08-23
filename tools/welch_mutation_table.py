@@ -20,7 +20,9 @@ round to each of them:
 
     python -m tools.welch_mutation_table [--out table.json]
 
-Exit 0 when every mutant is killed; 1 names the survivors.
+Exit 0 when every mutant is either killed or carries a disclosed algebraic
+reason no document could isolate it; 1 names any UNDISCLOSED survivor,
+which is a gate nothing tests.
 """
 from __future__ import annotations
 
