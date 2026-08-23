@@ -411,6 +411,15 @@ _OVERRIDES: dict[str, dict] = {
     # prints every posting in a grid whose heading declares its direction
     # independently of the sign on the amount.
     "brex": {"integrity_checks": (brex.printed_total_contradictions,)},
+    # Citizens prints a total for each of its three activity sections beside
+    # the balance strip. Where the strict and the widened reading of a section
+    # BOTH disagree with it the reader keeps the strict one and said nothing —
+    # including on one archive statement where the strict cheque grid takes
+    # more money than the page states (W3 §SCANFINISH SF10 1b, closed as part
+    # of SCAN-HYGIENE). Which section, and in which direction, is the finding.
+    "citizens": {
+        "integrity_checks": (citizens.printed_section_total_contradictions,)
+    },
     # Southside's `DAILY BALANCE SUMMARY` prints an end-of-day balance for each
     # day the account moved, so consecutive cells partition the period and each
     # step is the bank's own statement of what the account did between them.

@@ -420,3 +420,68 @@ def parse_citizens_statement(markdown: str) -> Statement | None:
         return None
     stmt.transactions = txns
     return stmt
+
+
+def printed_section_total_contradictions(markdown: str, stmt: Statement) -> list[str]:
+    """Each printed section total, held against the rows this reader takes
+    from that section.
+
+    THE FINDING THIS EXISTS FOR IS THE OVER-READ. `_checks_the_total_agrees_with`
+    and `_rows_the_total_agrees_with` each try a strict reading, then a widened
+    one, and adopt the widened one only where it makes the section sum EXACTLY
+    the total the page prints. There is a third case they must have an answer
+    for: NEITHER reading agrees. The strict reading stands — a widened read
+    that agrees with nothing is a second guess, not better evidence — and until
+    now that branch was silent. On one archive statement it takes 50.00 MORE
+    cheque money than the page's own `Total Checks` states, which is an
+    over-capture, and an over-capture is worse in kind than an under-capture:
+    the platform's coverage ratios express it as a number above 1.000 and
+    nothing names it (W3 §SCANFINISH SF10 1b, closed here).
+
+    Sections rather than the whole ledger, and that is the point. The ledger's
+    disagreement already survives into `reconciliation` as one aggregate;
+    what a human needs is WHICH printed section the reader and the page
+    disagree about, and by how much, in the direction it disagrees. Under-reads
+    are reported by the same rule and for the same reason: three of the five
+    scanned statements print a `Total Debits` this reader falls short of, and
+    "which section" is the first question anybody asks of that.
+
+    NEITHER READING IS PREFERRED AND NOTHING IS REPAIRED — the rows are the
+    figures the bank printed and the section total is the figure the bank
+    printed. Re-read from the DOCUMENT rather than partitioned out of the
+    published ledger, so the check keeps working against a reader that changes
+    how it splits a row into a section. Total by construction: a check that
+    raises is a document routed to review for no finding.
+    """
+    period = _period(markdown)
+    summary = _summary(markdown)
+    if period is None or summary is None:
+        return []
+    start, end = period
+    try:
+        year = int(end[:4])
+    except (TypeError, ValueError):
+        return []
+    _beginning, printed_checks, printed_debits, printed_credits, _ending = summary
+    sections = (
+        ("Total Checks", printed_checks, _checks_the_total_agrees_with(
+            markdown, year=year, period=(start, end), printed_total=printed_checks)),
+        ("Total Debits", printed_debits, _rows_the_total_agrees_with(
+            _debits_section(markdown), year=year, sign=-1, printed_total=printed_debits)),
+        ("Deposits & Credits", printed_credits, _rows_the_total_agrees_with(
+            section_between(markdown, _CREDITS_START, _CREDITS_END),
+            year=year, sign=1, printed_total=printed_credits)),
+    )
+    notes: list[str] = []
+    for label, printed, rows in sections:
+        if printed is None:
+            continue
+        read = round(sum(abs(txn.amount) for txn in rows), 2)
+        if abs(read - printed) <= 0.01:
+            continue
+        direction = "more" if read > printed else "less"
+        notes.append(
+            f"the rows read from the {label} section sum to {read:,.2f}, "
+            f"{direction} than the {printed:,.2f} the same page states for it"
+        )
+    return notes
