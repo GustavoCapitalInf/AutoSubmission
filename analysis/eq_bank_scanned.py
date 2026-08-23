@@ -61,13 +61,14 @@ class killers of a scanned registration, so they are named):
 * a header, account number or period whose two READINGS disagree.
 
   That last one is narrower than it first sounds and the difference is worth
-  stating rather than leaving to be discovered. `_sole` compares the MATCHES
-  its pattern found: two pages that both parse as a header and disagree refuse
-  the document. A page whose header the scan garbled BELOW the pattern is not
-  a second reading at all — it matches nothing, contributes nothing, and the
-  remaining good reading is taken. So this refuses contradiction, not
-  illegibility, and a document whose only legible header is on one page is
-  read from that page.
+  stating rather than leaving to be discovered. `tables.unique_match` — the
+  shared helper, which a private near-copy of this module's own stood in for
+  until W3 §SCANHYG — compares the MATCHES its pattern found: two pages that
+  both parse as a header and disagree refuse the document. A page whose header
+  the scan garbled BELOW the pattern is not a second reading at all — it
+  matches nothing, contributes nothing, and the remaining good reading is
+  taken. So this refuses contradiction, not illegibility, and a document whose
+  only legible header is on one page is read from that page.
 
 WHAT IT DOES NOT SET, deliberately: `Statement.currency`. See §CURRENCY below.
 """
@@ -86,6 +87,7 @@ from .date_tokens import (
 from .money import MINUS_CLASS, parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
+from .tables import unique_match
 from .td_can import normalize_mojibake
 
 #: A printed figure on this template: always two decimals, always behind a `$`.
@@ -175,22 +177,6 @@ def _cents(token: str) -> int | None:
     if amount is None:
         return None
     return int(round(amount * 100))
-
-
-def _sole(pattern: re.Pattern[str], source: str):
-    """The document's single reading of a term, or None.
-
-    `search` alone takes the first occurrence and never notices a second, so a
-    statement whose summary or header is printed twice — a continuation page
-    reprinting it, a two-account document, an OCR duplication — could publish
-    one reading under another's heading and look ordinary. A repeat that
-    AGREES is free corroboration and is accepted; a repeat that disagrees is
-    the document contradicting itself, and refuses it.
-    """
-    found = pattern.findall(source)
-    if not found or len(set(found)) > 1:
-        return None
-    return pattern.search(source)
 
 
 class _Row:
@@ -391,8 +377,8 @@ def parse_eq_bank_scanned_statement(markdown: str) -> Statement | None:
         return None
     source = normalize_mojibake(markdown)
 
-    header = _sole(_HEADER_RE, source)
-    title = _sole(_TITLE_RE, source)
+    header = unique_match(source, _HEADER_RE)
+    title = unique_match(source, _TITLE_RE)
     if header is None or title is None:
         return None
     start_month = MONTH_NUMBERS.get(header.group("start_month").strip().casefold())
@@ -420,7 +406,7 @@ def parse_eq_bank_scanned_statement(markdown: str) -> Statement | None:
 
     summary: dict[str, int] = {}
     for name, pattern in _SUMMARY_TERMS.items():
-        term = _sole(pattern, source)
+        term = unique_match(source, pattern)
         if term is None:
             return None
         value = _cents(term.group(1))
@@ -480,6 +466,42 @@ def parse_eq_bank_scanned_statement(markdown: str) -> Statement | None:
     if credit_total != summary["deposits"] or debit_total != summary["withdrawals"]:
         return None
 
+    # THE ONE-DAY CLOSING EXTENSION IS A WIDENING, AND A WIDENING IS ADMITTED
+    # ONLY ON THE DOCUMENT'S OWN EVIDENCE.
+    #
+    # `_resolve_dates` reads rows dated `period_end + 1` because this issuer
+    # posts the following cycle's opening interest credit into this statement
+    # and dates it there, and its own printed closing balance includes it. That
+    # is the justification for the widening, and until now it was not the
+    # CONDITION of it: the window was a date bound and nothing more, so a DEBIT
+    # on that day — or an unrelated credit that is no accrual at all — parsed
+    # exactly like the interest posting, carried no flag and reached the
+    # payload as an ordinary transaction (W3 §TANGERINE TG9.3, closed here).
+    # This platform admits a widening only where the document accepts it: the
+    # comma-decimal and the slash-less cheque date next door are held to their
+    # section's printed total, and this one is held to the shape of the thing
+    # it exists for.
+    #
+    # What this reader can be SURE of is the rows' kind and their place, so
+    # that is what it gates on, and the SIZE of the accrual — the printed
+    # `Total interest earned` against their sum, and the in-period ledger
+    # against `closing - sum` — is a comparison between two printings and
+    # belongs where a contradiction between two printings belongs, in
+    # `closing_accrual_contradictions` below. Whether the ADB may then be
+    # published is neither: `analysis/adb.py` refuses any out-of-period row and
+    # that refusal is Gustavo's bundled ruling (TG9 + TG10), untouched here.
+    out_of_period = [index for index, day in enumerate(dates) if day > period_end]
+    if out_of_period:
+        # Contiguous and last. Implied by the non-decreasing gate above, which
+        # is why it is stated rather than relied on: each check's redundancy
+        # here depends on every other one holding.
+        if out_of_period != list(range(len(dates) - len(out_of_period), len(dates))):
+            return None
+        for index in out_of_period:
+            posting = transactions[index]
+            if posting.direction != "credit" or posting.amount <= 0:
+                return None
+
     stmt = Statement(
         bank="EQ Bank",
         account_name=header.group("holder").strip(),
@@ -509,7 +531,7 @@ def parse_eq_bank_scanned_statement(markdown: str) -> Statement | None:
     # `stated_credit_count`, `stated_debit_count`, `days_in_period` and
     # `bank_reported_average_balance` stay unset: a count derived from our own
     # parse is not a figure the bank stated.
-    interest = _sole(_INTEREST_RE, source)
+    interest = unique_match(source, _INTEREST_RE)
     if interest is not None:
         earned = _cents(interest.group(1))
         if earned is not None:
@@ -528,3 +550,78 @@ def parse_eq_bank_scanned_statement(markdown: str) -> Statement | None:
     ]
     stmt.transactions = transactions
     return stmt
+
+
+def closing_accrual_contradictions(markdown: str, stmt: Statement) -> list[str]:
+    """The postings this issuer dates AFTER its printed period end, held
+    against the two other printings of the same fact on the same page.
+
+    WHY THIS IS A FINDING AND NOT NOISE. The reader's date window extends one
+    day past the printed period because the bank posts the following cycle's
+    opening interest credit into this statement and dates it there, and its own
+    printed closing balance includes it. The document states the SIZE of that
+    accrual twice more — as the summary's `Total interest earned` term, and as
+    the gap between the printed closing balance and the balance the in-period
+    ledger reaches. Where the three do not agree, the page contradicts itself
+    about what those trailing rows are, and that is what a human needs to see:
+    the reader has admitted rows outside the printed period on the strength of
+    a story the document does not corroborate.
+
+    Where they DO agree the check says nothing, which is the archive's case on
+    every document of this family that parses. The corroboration is then a
+    measurement anyone can reproduce, and it is the evidence base for the
+    closing-accrual seam that would let `analysis/adb.py` publish these
+    documents' averages — a seam that is Gustavo's bundled ruling (W3
+    §TANGERINE TG9 + TG10) and is NOT implemented here or anywhere on this
+    branch.
+
+    The interest term is re-read from the DOCUMENT rather than taken from
+    `stated_interest_paid`, so the check compares two independent printings
+    even against a reader that stops publishing the term. Total by
+    construction: a check that raises is a document routed to review for no
+    finding.
+    """
+    if not stmt.period_end or stmt.ending_balance is None or stmt.beginning_balance is None:
+        return []
+    try:
+        period_end = date.fromisoformat(stmt.period_end)
+    except ValueError:
+        return []
+    trailing: list[Transaction] = []
+    in_period_total = 0
+    for txn in stmt.transactions:
+        try:
+            day = date.fromisoformat(txn.date)
+        except (TypeError, ValueError):
+            return []
+        if day > period_end:
+            trailing.append(txn)
+        else:
+            in_period_total += int(round(txn.amount * 100))
+    if not trailing:
+        return []
+
+    notes: list[str] = []
+    accrued = sum(int(round(txn.amount * 100)) for txn in trailing)
+    plural = "" if len(trailing) == 1 else "s"
+    printed = unique_match(normalize_mojibake(markdown), _INTEREST_RE)
+    term = _cents(printed.group(1)) if printed is not None else None
+    if term is None:
+        notes.append(
+            f"{len(trailing)} posting{plural} dated after the printed period end, and no "
+            "legible interest term on the page to corroborate them against"
+        )
+    elif term != accrued:
+        notes.append(
+            f"the {len(trailing)} posting{plural} dated after the printed period end sum to "
+            f"{accrued / 100:,.2f}, which is not the {term / 100:,.2f} the same page states "
+            "as interest earned"
+        )
+    in_period_closing = int(round(stmt.beginning_balance * 100)) + in_period_total
+    if int(round(stmt.ending_balance * 100)) - accrued != in_period_closing:
+        notes.append(
+            f"the ledger inside the printed period reaches {in_period_closing / 100:,.2f}, "
+            f"which is not the printed closing balance less those postings "
+            f"({(int(round(stmt.ending_balance * 100)) - accrued) / 100:,.2f})"
+        )
+    return notes

@@ -1202,22 +1202,6 @@ def _tf_cents(token: str) -> int | None:
     return None if value is None else int(round(value * 100))
 
 
-def _tf_one(pattern: re.Pattern[str], source: str):
-    """The document's single reading of a summary term, or None.
-
-    `search` alone would take the first occurrence and never notice a second,
-    so a statement whose summary is printed twice — a continuation page
-    reprinting it, a two-account document, an OCR duplication — could publish
-    one account's figures under another's heading and look perfectly ordinary.
-    A repeat that AGREES is free corroboration and is accepted; a repeat that
-    disagrees is the document contradicting itself and refuses it.
-    """
-    matches = pattern.findall(source)
-    if not matches or len(set(matches)) > 1:
-        return None
-    return pattern.search(source)
-
-
 def _tf_iso(mmdd: str, *, start: date, end: date) -> str | None:
     """The posting date's ISO form, or None when it is not inside the period.
 
@@ -1431,10 +1415,10 @@ def parse_texas_first_scanned_statement(markdown: str) -> Statement | None:
         return None
     source = normalize_mojibake(markdown)
 
-    begin = _tf_one(_TF_SUMMARY_BEGIN_RE, source)
-    end = _tf_one(_TF_SUMMARY_END_RE, source)
-    credit_summary = _tf_one(_TF_SUMMARY_CREDITS_RE, source)
-    debit_summary = _tf_one(_TF_SUMMARY_DEBITS_RE, source)
+    begin = unique_match(source, _TF_SUMMARY_BEGIN_RE)
+    end = unique_match(source, _TF_SUMMARY_END_RE)
+    credit_summary = unique_match(source, _TF_SUMMARY_CREDITS_RE)
+    debit_summary = unique_match(source, _TF_SUMMARY_DEBITS_RE)
     if not (begin and end and credit_summary and debit_summary):
         return None
     try:
@@ -1582,12 +1566,12 @@ def parse_texas_first_scanned_statement(markdown: str) -> Statement | None:
     # and not others is a decision worth making deliberately. Carded for batch
     # 7 as ACCT-MASK-SCAN; until then honest-unknown, which is wrong about
     # nothing.
-    service = _tf_one(_TF_SERVICE_CHARGE_RE, source)
+    service = unique_match(source, _TF_SERVICE_CHARGE_RE)
     if service is not None:
         charge = _tf_cents(service.group(1))
         if charge is not None:
             stmt.stated_service_charge = round(charge / 100, 2)
-    average = _tf_one(_TF_AVERAGE_RE, source)
+    average = unique_match(source, _TF_AVERAGE_RE)
     if average is not None:
         printed_average = parse_money(average.group(1))
         if printed_average is not None:
