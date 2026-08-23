@@ -44229,7 +44229,8 @@ readers already take is the right span.
 
 | Proof | Result | Exit |
 |---|---|---|
-| full default suite | **5,881 passed**, 35 skipped, 34 deselected (480.05s) | **0** |
+| full default suite, at the FINAL production tree | **5,881 passed**, 35 skipped, 34 deselected (750.93s) | **0** |
+| full default suite, at the reviewed tree | **5,881 passed**, 35 skipped, 34 deselected (480.05s) | **0** |
 | full default suite, before the instrument was classified | 1 failed / 5,880 passed — `test_every_production_caller_of_the_analysis_is_classified` | **1** |
 | CANONICAL guard set (5 files) | **252 passed** (30.94s) | **0** |
 | CANONICAL conformance set (7 files) | **1,164 passed**, 35 skipped (8.69s) | **0** |
