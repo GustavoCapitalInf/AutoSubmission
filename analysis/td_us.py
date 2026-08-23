@@ -73,19 +73,126 @@ def _summary(markdown: str, stmt: Statement) -> Statement:
     return stmt.model_copy(update=updates) if updates else stmt
 
 
-def _section(markdown: str, heading: str) -> tuple[str, float | None]:
-    heading_pattern = re.escape(heading)
+#: The seven headings TD prints over `DAILY ACCOUNT ACTIVITY`, in the order the
+#: statement prints them. They are the bank's own section legend — not a
+#: merchant or counterparty vocabulary — and they appear TWICE on every
+#: statement: once in `ACCOUNT SUMMARY` as `<heading> <total>`, and once as the
+#: heading of the detail section itself.
+_SECTION_HEADINGS = (
+    "Deposits", "Electronic Deposits", "Other Credits",
+    "Checks Paid", "Electronic Payments", "Other Withdrawals", "Service Charges",
+)
+#: A money token sitting on the rest of the heading's own line. That is what
+#: makes an occurrence the SUMMARY line (`<heading> <total>`) rather than a
+#: section heading: the detail heading carries no figure of its own, and on a
+#: scan it stands alone with whatever Tesseract left beside it.
+_MONEY_ON_THE_SAME_LINE = r"(?![^\S\n]*\$?-?[\d,]+\.\d{2})"
+#: ...and the column legend the bank prints under every detail heading, which
+#: is the second half of the same discriminator. It is matched on `POSTING`
+#: alone (and on the cheque section's own legend) because that is the part of
+#: it Tesseract keeps: across the scanned statements of this family the rest of
+#: the line arrives as `POSTING BATE DESCRIPTION AGRCUNT`, `POSTING DATE
+#: DESCRUPTION SSROLINT` and `POSTING DATE ?- DESCRIPTION AMOUNT`, and
+#: requiring the legend verbatim discarded whole sections over it.
+#:
+#: The WINDOW is what keeps the page footer from opening a section: `Bank
+#: Deposits FDIC insured | TD Bank, N.A. ...` matches the `Deposits` heading
+#: (the existing `(?<!Electronic )` guard is about the other heading, not this
+#: one), and before this the verbatim legend was the only thing stopping it. A
+#: real heading's legend is a line or two below it; the footer's nearest
+#: `POSTING` is a page away.
+_LEGEND_WITHIN = r"(?=.{0,40}?(?:POSTING|No\. ?Checks|DATE SERIAL NO))"
+#: A heading opens a section; the same words inside a sentence do not. TD's
+#: cheque legend carries the footnote `*Indicates break in serial sequence or
+#: check processed electronically and listed under Electronic Payments`, whose
+#: last two words are a section heading followed — within the window above — by
+#: the legend `DATE SERIAL NO. AMOUNT`. A heading is preceded by a line break,
+#: by `DAILY ACCOUNT ACTIVITY`, or by the previous section's `Subtotal:
+#: <total>`; never by a lower-case word.
+#:
+#: `(?-i: ... )` because the heading itself is matched case-insensitively and
+#: the whole content of this rule is a case distinction: under `IGNORECASE` the
+#: class also matches `Y`, and `DAILY ACCOUNT ACTIVITY Electronic Deposits` —
+#: the flattened text layer's own way of opening the detail block — is rejected
+#: as prose.
+_NOT_MID_SENTENCE = r"(?-i:(?<![a-z])(?<![a-z] ))"
+#: The line the bank closes each detail section with.
+_SUBTOTAL_RE = re.compile(r"Subtotal:\s*(?P<total>[\d,]+\.\d{2})")
+
+
+def _heading_pattern(heading: str) -> str:
+    """The heading as printed, at the start of its own line."""
     if heading == "Deposits":
-        heading_pattern = r"(?<!Electronic )\bDeposits\b"
-    pattern = re.compile(
-        rf"{heading_pattern}\s+(?:POSTING DATE DESCRIPTION AMOUNT|No\. Checks:.*?DATE SERIAL NO\. AMOUNT.*?)"
-        rf"(?P<body>.*?)Subtotal:\s+(?P<total>[\d,]+\.\d{{2}})",
-        re.IGNORECASE | re.DOTALL,
-    )
-    m = pattern.search(markdown)
+        return r"(?<!Electronic )\bDeposits\b"
+    return re.escape(heading)
+
+
+def _section(markdown: str, heading: str) -> tuple[str, float | None]:
+    """One detail section's body and the `Subtotal:` the bank printed under it.
+
+    Two properties this has to have, and did not.
+
+    **It may not cross into another section.** The body used to be an
+    unconstrained `.*?` up to the first `Subtotal:`, so a section whose OWN
+    subtotal line came through mangled ran on to the NEXT section's — taking
+    that section's rows with it and reporting that section's figure as its
+    total. Measured over the 40 archive documents of this family: 7 such
+    bindings in 5 documents, one of them a plain heading-to-heading crossing
+    (W3 §WITHHELDTD). The body is now tempered against every OTHER heading, so
+    a section with no readable subtotal of its own matches nothing and is
+    skipped — the rows it held are lost, `reconcile` measures the shortfall
+    against the bank's stated totals, and the document fails closed there.
+    A reprint of THIS section's own heading (`... (continued)`, printed at
+    every page break) is not another section and is deliberately admitted.
+
+    **The column legend is furniture, not a gate.** Requiring
+    `POSTING DATE DESCRIPTION AMOUNT` immediately after the heading discarded
+    whole sections over OCR noise beside the heading or inside the legend
+    itself (`... ARMOUNT`, `DESCRUPTION SSROLINT`, a stray glyph between the
+    two lines) — 8 printed sections missed across the same 40 documents, every
+    one of them on a document the ADB already refused. The legend now sits in
+    the body, where the row reader steps over it exactly as it steps over the
+    page furniture already there, and the summary line is excluded by the one
+    thing that actually distinguishes it: it carries the section's money on the
+    heading's own line.
+    """
+    opened = None
+    for start, end, name in _heading_marks(markdown):
+        if opened is None:
+            if name == heading:
+                opened = end
+            continue
+        if name != heading:                     # the next section starts here
+            return _closed(markdown[opened:start])
+    if opened is None:
+        return "", None
+    return _closed(markdown[opened:])
+
+
+def _closed(slice_: str) -> tuple[str, float | None]:
+    """A section slice cut back to the `Subtotal:` the bank printed under it."""
+    m = _SUBTOTAL_RE.search(slice_)
     if not m:
         return "", None
-    return m.group("body"), abs(read_money(m.group("total"), _money) or 0.0)
+    return slice_[:m.start()], abs(read_money(m.group("total"), _money) or 0.0)
+
+
+def _heading_marks(markdown: str) -> list[tuple[int, int, str]]:
+    """Every detail-section heading in the document, in printed order.
+
+    Linear and computed once per lookup rather than expressed as a regex that
+    tempers `.` against six alternatives: the tempered form is quadratic in the
+    document, and on the 15k-character scans of this family it made a parse
+    take minutes.
+    """
+    marks: list[tuple[int, int, str]] = []
+    for heading in _SECTION_HEADINGS:
+        pattern = (_NOT_MID_SENTENCE + _heading_pattern(heading)
+                   + _MONEY_ON_THE_SAME_LINE + _LEGEND_WITHIN)
+        for m in re.finditer(pattern, markdown, re.IGNORECASE | re.DOTALL):
+            marks.append((m.start(), m.end(), heading))
+    marks.sort()
+    return marks
 
 
 def _line_items(section_text: str, *, year: int, sign: int) -> list[Transaction]:

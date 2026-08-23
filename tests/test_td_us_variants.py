@@ -25,8 +25,16 @@ U2 the section subtotal that does not add up
 """
 from __future__ import annotations
 
+import pytest
+
 from analysis.pipeline import analyze_markdown
-from analysis.td_us import detect, parse_td_us_statement
+from analysis.td_us import (
+    _heading_marks,
+    _line_items,
+    _section,
+    detect,
+    parse_td_us_statement,
+)
 
 #: The layout sentinels this parser recognises itself in, plus an invented
 #: account. Nothing below is a real institution's customer data.
@@ -177,3 +185,133 @@ def test_a_document_whose_sections_do_add_up_is_unaffected():
     assert report.reconciliation.sum_delta == 0.00
     assert report.quality.corporate_use == "approved"
     assert report.integrity.flags == []
+
+
+# ---------------------------------------------------------------------------
+# W3 §WITHHELDTD — a section is bounded by the bank's own headings.
+#
+# Every fixture below is INVENTED: the layout sentinels and the column legend
+# are TD's own furniture (the same ones the parser keys on), the OCR damage is
+# written by hand rather than copied from a scan, and every counterparty, date,
+# amount and account number is made up.
+# ---------------------------------------------------------------------------
+
+#: Two detail sections, each with its own rows and its own printed subtotal.
+_TWO_SECTIONS = (
+    "STATEMENT OF ACCOUNT\n"
+    "Page: 1 of 1 Statement Period: Jan 01 2026-Jan 31 2026 "
+    "Cust Ref #: 0000000000-000-X-*** Primary Account #: 000-0000000\n"
+    "EXAMPLE COMPANY LLC 1 EXAMPLE WAY EXAMPLETOWN NY 10000\n"
+    "TD Business Simple Checking\n"
+    "ACCOUNT SUMMARY Beginning Balance 1,000.00 Electronic Deposits 300.00\n"
+    "Average Collected Balance 900.00 Days in Period 31\n"
+    "Other Withdrawals 40.00 Service Charges 3.00 Ending Balance 1,257.00\n"
+    "DAILY ACCOUNT ACTIVITY\n"
+    "Electronic Deposits\n"
+    "POSTING DATE DESCRIPTION AMOUNT\n"
+    "01/05 ACH DEPOSIT, EXAMPLE PAYER PAYROLL 300.00\n"
+    "{deposit_subtotal}\n"
+    "Other Withdrawals\n"
+    "POSTING DATE DESCRIPTION AMOUNT\n"
+    "01/09 WIRE TRANSFER FEE 40.00\n"
+    "{withdrawal_subtotal}\n"
+    "Service Charges\n"
+    "POSTING DATE DESCRIPTION AMOUNT\n"
+    "01/31 PAPER STATEMENT FEE 3.00\n"
+    "Subtotal: 3.00\n"
+    "Bank Deposits FDIC Insured | TD Bank, N.A. | Equal Housing Lender\n"
+)
+
+
+def _two_sections(deposit_subtotal="Subtotal: 300.00",
+                  withdrawal_subtotal="Subtotal: 40.00"):
+    return _TWO_SECTIONS.format(deposit_subtotal=deposit_subtotal,
+                                withdrawal_subtotal=withdrawal_subtotal)
+
+
+def test_a_section_stops_at_the_next_heading_rather_than_the_next_subtotal():
+    """The defect this replaces: a section whose OWN subtotal line came through
+    mangled ran on to the next section's, took its rows, and published that
+    section's figure as its own total. Here `Other Withdrawals` loses its
+    subtotal to a decimal-comma misread, and must NOT become the Service
+    Charges section wearing its name."""
+    text = _two_sections(withdrawal_subtotal="Subtotal: 40,00")
+    body, total = _section(text, "Other Withdrawals")
+    assert total is None
+    assert "PAPER STATEMENT FEE" not in body
+    # ...and the section that owns those rows still reads them, under its name.
+    charges_body, charges_total = _section(text, "Service Charges")
+    assert charges_total == 3.00
+    assert "PAPER STATEMENT FEE" in charges_body
+
+
+def test_a_section_with_no_readable_subtotal_contributes_nothing():
+    """Fail closed: the rows are not published under a total the bank did not
+    print for them. The shortfall then shows up against the stated totals."""
+    text = _two_sections(withdrawal_subtotal="Subtotal: 40,00")
+    statement = parse_td_us_statement(text)
+    assert [t.amount for t in statement.transactions] == [300.00, -3.00]
+    assert analyze_markdown(text, parse_mode="deterministic").reconciliation.ok is False
+
+
+def test_a_continued_reprint_of_the_same_heading_does_not_end_the_section():
+    """TD reprints the heading at every page break. That is the same section,
+    and its later rows belong to it."""
+    text = _two_sections().replace(
+        "01/05 ACH DEPOSIT, EXAMPLE PAYER PAYROLL 300.00\n",
+        "01/05 ACH DEPOSIT, EXAMPLE PAYER PAYROLL 100.00\n"
+        "Electronic Deposits (continued)\n"
+        "POSTING DATE DESCRIPTION AMOUNT\n"
+        "01/06 ACH DEPOSIT, EXAMPLE PAYER PAYROLL 200.00\n",
+    )
+    body, total = _section(text, "Electronic Deposits")
+    assert total == 300.00
+    assert len(_line_items(body, year=2026, sign=1)) == 2
+
+
+def test_the_account_summary_line_is_not_a_section_heading():
+    """`<heading> <total>` in ACCOUNT SUMMARY names the same section and opens
+    nothing: the detail heading carries no figure of its own."""
+    marks = [name for _start, _end, name in _heading_marks(_two_sections())]
+    assert marks == ["Electronic Deposits", "Other Withdrawals", "Service Charges"]
+
+
+def test_the_page_footer_does_not_open_a_deposits_section():
+    """`Bank Deposits FDIC Insured ...` contains the `Deposits` heading and the
+    `(?<!Electronic )` guard has nothing to say about it. What keeps it out is
+    that no column legend follows it."""
+    assert _section(_two_sections(), "Deposits") == ("", None)
+
+
+def test_the_cheque_footnote_does_not_open_an_electronic_payments_section():
+    """TD's own cheque legend ends `...listed under Electronic Payments`, and
+    the legend `DATE SERIAL NO. AMOUNT` follows it one line later. A heading is
+    never preceded by a lower-case word."""
+    text = _two_sections().replace(
+        "Electronic Deposits\nPOSTING DATE DESCRIPTION AMOUNT\n",
+        "Checks Paid No. Checks: 2 *Indicates break in serial sequence or check "
+        "processed electronically and listed under Electronic Payments\n"
+        "DATE SERIAL NO. AMOUNT\n"
+        "01/04 1001 120.00 01/07 1002 180.00\n"
+        "Subtotal: 300.00\n"
+        "Electronic Deposits\nPOSTING DATE DESCRIPTION AMOUNT\n",
+    )
+    marks = [name for _start, _end, name in _heading_marks(text)]
+    assert "Electronic Payments" not in marks
+    assert _section(text, "Checks Paid")[1] == 300.00
+
+
+@pytest.mark.parametrize("damage", [
+    "Electronic Deposits Xxx\nPOSTING DATE DESCRIPTION AMOUNT Yyy",
+    "Electronic Deposits\nPOSTING DATE DESCRIPTION AMQUNT",
+    "Electronic Deposits\n \nPOSTING BATE DESCRIPTION ARMOUNT",
+    "Electronic Deposits (continued) z\nPOSTING DATE DESCRIPTION AMOUNT g",
+])
+def test_ocr_damage_around_the_legend_does_not_lose_the_section(damage):
+    """The legend is furniture, and a scan damages furniture. Requiring it
+    verbatim discarded whole sections — and with them the rows that close the
+    ledger."""
+    text = _two_sections().replace(
+        "Electronic Deposits\nPOSTING DATE DESCRIPTION AMOUNT", damage, 1
+    )
+    assert _section(text, "Electronic Deposits")[1] == 300.00
