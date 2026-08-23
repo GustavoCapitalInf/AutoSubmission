@@ -453,13 +453,14 @@ def _posting_date(
     token of the right shape that no calendar holds (`02/30`) and a day this
     statement's period does not contain.
 
-    `int()` here is TOTAL, and the anchors above are why: their date groups are
-    `[0-9]`, not `\d`. `\d` is every Unicode decimal digit, and a decorative or
-    mis-mapped glyph that happened to land in that category would be converted
-    to a day rather than noticed. Under `[0-9]` such a token is not a date
-    ANCHOR at all: its row never parses, the printed count no longer matches,
-    and the document refuses — which is the stronger answer, because a
-    conversion guard here could only drop the row silently.
+    `int()` here is TOTAL, and the anchors above are why: their date groups
+    spell `[0-9]` rather than using the shorthand digit class, which matches
+    every Unicode decimal digit. A decorative or mis-mapped glyph that happened
+    to land in that category would otherwise be converted into a day rather
+    than noticed. Spelled out, such a token is not a date ANCHOR at all: its
+    row never parses, the printed count no longer matches, and the document
+    refuses — the stronger answer, because a conversion guard here could only
+    ever drop the row silently.
     """
     return iso_unique_in_period(
         int(span.group("month")), int(span.group("day")),

@@ -315,6 +315,134 @@ def test_a_signed_ledger_amount_refuses_because_the_banner_states_direction():
 
 
 # ---------------------------------------------------------------------------
+# The four printed oracles have ONE degree of redundancy, and these are the
+# documents that separate them. See `tools/welch_mutation_table.py`: with the
+# per-direction COUNTS and the daily grid held fixed, the closing identity, the
+# two printed TOTALS and the replay's arrival at the printed ending balance are
+# four constraints of which any three imply the fourth. So no single one of
+# them can be isolated by any document — and a PAIR can, which is what these
+# two fixtures do.
+# ---------------------------------------------------------------------------
+
+#: One credit and one debit ON THE SAME DAY, so that overstating both by the
+#: same amount leaves the day's NET — and therefore the whole daily grid, and
+#: therefore the closing identity — untouched.
+SUMMARY_ONE_EACH = (
+    "Account Number 1234567 Beginning Balance 1,000.00 "
+    "Days in Statement Period 30 "
+    "1 Deposits/Other Credits 300.00 "
+    "1 Checks/Other Debits 100.00 Ending Balance 1,200.00\n"
+)
+CREDITS_ONE_EACH = (
+    "Deposits/Other Credits\n"
+    "Date Description Amount Sample Credit One 06/03 300.00\n"
+)
+DEBITS_ONE_EACH = (
+    "Other Debits\n"
+    "Date Description Amount Sample Debit One 06/03 100.00\n"
+)
+GRID_ONE_EACH = (
+    "Daily Ending Balance\n"
+    "DATE BALANCE DATE BALANCE DATE BALANCE 06/01 1,000.00 06/03 1,200.00\n"
+)
+
+
+def one_each(*, credits: str = CREDITS_ONE_EACH, debits: str = DEBITS_ONE_EACH,
+             grid: str = GRID_ONE_EACH, summary: str = SUMMARY_ONE_EACH):
+    return parsed(summary=summary, credits=credits, debits=debits, checks="", grid=grid)
+
+
+def test_the_one_each_control_document_reads():
+    stmt = one_each()
+    assert stmt is not None
+    assert len(stmt.transactions) == 2
+
+
+def test_two_compensating_overstatements_are_caught_only_by_the_printed_totals():
+    """A credit and a debit on one day, each overstated by the same amount.
+
+    Both printed COUNTS still match, the day's net is unchanged so every
+    printed daily balance still replays, the walk still lands on the printed
+    ending balance, and the printed summary still closes. The only evidence
+    left is the two printed per-direction TOTALS, and they are what refuses it.
+    """
+    assert one_each(
+        credits=CREDITS_ONE_EACH.replace("06/03 300.00", "06/03 350.00"),
+        debits=DEBITS_ONE_EACH.replace("06/03 100.00", "06/03 150.00"),
+    ) is None
+
+
+def test_a_summary_that_does_not_close_is_refused_by_the_identity_either_way():
+    """The other half of the pair: with the totals fixed, the closing identity
+    and the replay's arrival at the printed ending balance are the SAME
+    constraint read from two ends, and this document fails both."""
+    assert one_each(
+        summary=SUMMARY_ONE_EACH.replace("Ending Balance 1,200.00", "Ending Balance 1,200.01")
+    ) is None
+
+
+#: A day whose postings NET TO ZERO — the only shape on which a grid day
+#: printed twice survives the per-day balance walk, because adding zero twice
+#: lands on the same printed figure both times.
+SUMMARY_ZERO_NET = (
+    "Account Number 1234567 Beginning Balance 1,000.00 "
+    "Days in Statement Period 30 "
+    "1 Deposits/Other Credits 50.00 "
+    "1 Checks/Other Debits 50.00 Ending Balance 1,000.00\n"
+)
+CREDITS_ZERO_NET = (
+    "Deposits/Other Credits\n"
+    "Date Description Amount Sample Credit One 06/03 50.00\n"
+)
+DEBITS_ZERO_NET = (
+    "Other Debits\n"
+    "Date Description Amount Sample Debit One 06/03 50.00\n"
+)
+GRID_ZERO_NET = (
+    "Daily Ending Balance\n"
+    "DATE BALANCE DATE BALANCE DATE BALANCE 06/01 1,000.00 06/03 1,000.00\n"
+)
+
+
+def test_the_zero_net_control_document_reads():
+    stmt = parsed(summary=SUMMARY_ZERO_NET, credits=CREDITS_ZERO_NET,
+                  debits=DEBITS_ZERO_NET, checks="", grid=GRID_ZERO_NET)
+    assert stmt is not None
+    assert len(stmt.stated_daily_balances) == 2
+
+
+def test_a_grid_that_prints_one_day_twice_refuses_even_when_the_walk_survives():
+    """The isolating document for the distinct-days rule: on a zero-net day the
+    balance walk cannot notice the repeat, so only the rule itself refuses —
+    and it must, because a repeated date would publish two `stated_daily_balances`
+    entries for one calendar day."""
+    assert parsed(
+        summary=SUMMARY_ZERO_NET, credits=CREDITS_ZERO_NET, debits=DEBITS_ZERO_NET,
+        checks="",
+        grid=GRID_ZERO_NET.replace("06/03 1,000.00", "06/03 1,000.00 06/03 1,000.00"),
+    ) is None
+
+
+def test_a_posting_outside_the_period_refuses_even_when_the_grid_agrees():
+    """The isolating document for the period bound: a posting dated after the
+    printed period end, WITH a grid that prints that day too, so every other
+    oracle closes on it. Only `iso_unique_in_period` refuses — and it must,
+    because `analysis/adb.py` cannot compute a period average over a day the
+    period does not contain."""
+    assert parsed(
+        summary=SUMMARY_ONE_EACH,
+        credits=CREDITS_ONE_EACH.replace("06/03 300.00", "07/02 300.00"),
+        debits=DEBITS_ONE_EACH,
+        checks="",
+        grid=(
+            "Daily Ending Balance\n"
+            "DATE BALANCE DATE BALANCE DATE BALANCE "
+            "06/01 1,000.00 06/03 900.00 07/02 1,200.00\n"
+        ),
+    ) is None
+
+
+# ---------------------------------------------------------------------------
 # The whole-line rule
 # ---------------------------------------------------------------------------
 
