@@ -44235,7 +44235,9 @@ readers already take is the right span.
 | CANONICAL guard set (5 files) | **252 passed** (30.94s) | **0** |
 | CANONICAL conformance set (7 files) | **1,164 passed**, 35 skipped (8.69s) | **0** |
 | this cell's three extraction files | **54 passed** (15.49s) | **0** |
-| `python tools/desccols_mutate.py .` | **10 applied, 9 killed, 1 named expected survivor** | **0** |
+| `python tools/desccols_mutate.py .` at the FINAL production tree | **10 applied, 9 killed, 1 named expected survivor**, file restored, tree clean | **0** |
+| `python tools/desccols_mutate.py .` at the reviewed tree | the same 10 / 9 / 1 | **0** |
+| `python -m tools.desccols_census --start 0 --end 600` at the final tree | 600 documents · 567 welded · 429 amount-welded · 4 clean · 29 no native text (381.5s) — the full census's proportions reproduced | **0** |
 | `python -m tools.desccols_census` over 3,380 documents | 3,189 native-text · 3,156 welded · 2,419 amount-welded · 33 clean (701.7s) | **0** |
 | `python -m tools.desccols_movement` over 3,380 documents | 76 claimed · 3,112 unchanged · 21 moved (7 + 14) · 0 now-raises (3,682.1s) | **1** (it exits 1 on any movement) |
 | the fallback, on `analysis_input_sha`, 483-document stratified sample (27 scanned) | 12 claimed · **447 identical** · **0 different** · 24 no native text | **0** |
