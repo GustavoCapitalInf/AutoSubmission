@@ -43704,3 +43704,768 @@ containers, every one of the 22 changed paths ends in `.account_name`.
 
 `payload_now_raises` is **0**: no document that published under the run of
 record stopped publishing at HEAD.
+
+
+# §COREISS2 — two more printed issues of the same core, read as SIBLINGS
+
+Batch 8, card 4. Base main `10cc722` (the batch-8 handoffs and the committed
+census of the 598 digital no-parser documents), branch `wave8-coreiss2`,
+worktree `.claude/worktrees/mt8-coreiss2`. Run of record
+`2026-08-23T020128.909387-0000-356a4269`. Owned files: two new readers, the
+registry table, their tests and fixtures, two committed instruments, this log.
+No `core_processor_*` module owned by CORE-ENCLOSURES and no line of
+`analysis/fiserv_premier.py` was touched — measured, both diffs are 0 lines.
+
+**The card:** census ranks 5 (`business_classic_statement_of_account`, n=8)
+and 11 (`poplar_bluff_activity_summary_running`, n=6), each described as "the
+same core as rank 1, a different summary issue", with one ruling to make on
+each: EXTEND `fiserv_premier` — its fourth printed issue, the §FISERV3
+discipline — or register a SIBLING, on evidence.
+
+## CI0. Summary — +14, and both rulings are SIBLING
+
+**Exactly the fourteen named documents move `failed` → `validated`. Nothing
+else moves anywhere in the archive**, and that is the four-chunk sweep's
+answer over all 3,380 documents, not an argument. 2,221 transactions published
+across the fourteen, every one inside a printed count and a printed total, and
+on the eight signed-counts documents inside the bank's own printed
+daily-balance grid as well.
+
+| | before (run `356a4269`) | after |
+|---|---|---|
+| `core_processor_signed_counts` claims / publishes | — | **8 / 8** |
+| `core_processor_activity_summary` claims / publishes | — | **6 / 6** |
+| the fourteen, outcome class | 14 × `failed` / `no_parser_matched` | **14 × `validated` / `approved`** |
+| `fiserv_premier` claims | 14 | **14** (module untouched) |
+| registry | 75 | **77** |
+| conformance cross-product | 75 × 74 | **77 × 76** |
+
+Both new registrations are DISJOINT BY CONSTRUCTION from every existing one —
+no `supersedes` edge, no band — and that is a measurement over the whole
+archive rather than a claim: their marker conjunctions hit exactly 8 and
+exactly 6 of the artifact store's 3,396 documents, they intersect each other
+on 0, and no other registration claims either population.
+
+## CI1. The instrument
+
+Every figure below is a live replay. The fourteen documents' markdown was
+resolved from the OCR artifact store **by direct file path** — the
+`webapp_data` sqlite index was never opened — by recomposing the run's own
+cache key (`cache_key(STAGE_OCR, content_sha256, ocr_settings_key(...))` over
+all eight capability partitions) and passing the result through
+`admissible_text` exactly as `analyze_markdown` does. Outcome classes come
+from the real pipeline: `report_to_dict(analyze_markdown(text,
+parse_mode="deterministic", sheets=<the stored page list>))` then
+`telemetry.record.classify_outcome`. `rows.csv` is quoted only for the
+fourteen documents' recorded BEFORE state, never to derive a population
+(§COUNTSP3's cache-hit hole).
+
+The whole-archive measurements enumerate the store — **10,246 OCR artifact
+files, 3,396 distinct documents by payload `input_sha256`** — and evaluate
+each candidate marker over `admissible_text(...).upper()`, which is exactly
+what `detection_text` hands the markers.
+
+Both instruments are committed: `tools/coreiss2_probe.py` (whole-archive
+probe, family replay, privacy grep) and `tools/coreiss2_mutation.py` (the
+36-mutant table). Both are read-only, reach payloads by direct path, and cost
+$0.00 — no code path in either reaches a model. Neither re-types a
+population: they parse the two families' sha lists out of the COMMITTED
+census, so a family stays defined in one place.
+
+**One instrument correction, recorded because it changed an answer.** The
+first outcome replay called `analyze_markdown` without `sheets=`, and two
+Poplar Bluff documents came back `review` / `integrity_flags` on
+`missing_declared_statement_page` — the two duplex members whose first
+physical sheet is a mailer and whose printed numbering therefore starts at
+`Page: 2 of 9`. That flag is `analysis/pipeline.py`'s, and its withdrawal
+clause needs the intake object's page list, which the discovery run supplies
+and the first probe did not. With the page list passed — as the run passes it
+— the clause fires (18 sheets ≥ 9 declared pages, 1 missing label ≤ the
+unlabelled sheet count) and both documents are `validated`. The measurement
+stands only because the probe was made to match the run: a probe that is not
+the pipeline is not evidence about the pipeline.
+
+## CI2. The two rulings, and the evidence for each
+
+### CI2.1 Rank 5 — SIBLING, because two of three required markers are absent
+
+The census filed this family as "fiserv_premier's parenthesised-counts issue",
+and the near miss is real: `fiserv_premier` scores **0.125 on all eight**,
+measured live at base. The ruling turns on WHICH of its markers fire.
+`fiserv_premier` declares three REQUIRED markers and this issue prints one.
+Measured over all 3,396 documents:
+
+| marker | archive | this 8 | `fiserv_premier`'s 14 |
+|---|---|---|---|
+| `STATEMENT OF ACCOUNT` | 333 | 8 | 14 |
+| `PREVIOUS BALANCE` | 311 | **0** | 14 |
+| `DEPOSITS/CREDITS (N)` | 14 | **0** | 14 |
+| `CREDITS (N) +$` and `DEBITS (N) -$` | 8 | 8 | **0** |
+
+`PREVIOUS BALANCE` is not an incidental label there. `fiserv_premier`'s own
+docstring records it as the ANTI-COLLISION clause and gives the number: the
+counts clause alone reaches 216 of 236 Wells Fargo documents, and the opening
+balance is what keeps them out. An "extension" would delete two of three
+required markers, one of them that clause.
+
+That is not what §FISERV3 did. Its third printed issue kept all three markers
+intact and widened only the period WORDING and the ledger VOCABULARY behind
+them — the summary strip was the registered one, unchanged. Here the strip is
+a different grammar: the counts carry a SIGN on their totals, the balances are
+DATED and named `Beginning`/`Ending` rather than `Previous`/`Ending`, and the
+statistics are printed a second time under a second `Summary` heading with
+their own label spellings (`Average Ledger Bal`, `Average Collected Bal`,
+`Service Charge(s)`, `Images Included`). The section vocabulary is disjoint
+too — `Transaction Activity` / `Credit Transactions` / `Debit Transactions` /
+`Deposits` / `Other Credits` / `Checks Cleared` there, `Deposits & Credits` /
+`Debits & Withdrawals` / `Checks in Number Order` here — and of the four
+cohorts this issue is the only one that prints its debits with a TRAILING
+minus (8/8; 0 of `fiserv_premier`'s 14, 0 of `linkbank`'s 4, 0 of
+`farmers_merchants`' 3).
+
+**Ruling: sibling.** `core_processor_signed_counts`, disjoint by construction.
+
+### CI2.2 Rank 11 — SIBLING, and the collision to fear is rank 1, not fiserv
+
+This family prints LEADING counts, the issue `linkbank`, `farmers_merchants`
+and `capital_one` read — and all three are ISSUER-keyed (`linkbank` requires
+the domain `LINKBANK.COM`). This template prints no institution at all: a
+post-office box with its US city, state and ZIP, and a telephone number — a
+jurisdiction, but no name. There is no issuer IDENTITY to key
+on and no issuer registration to extend.
+
+`fiserv_premier` is the wrong parent twice over: it requires `PREVIOUS
+BALANCE` and the PARENTHESISED counts, neither of which this family prints,
+and its docstring states that the leading-counts issue is deliberately
+DISJOINT from the one it reads.
+
+The registration danger the census verifier named is real, but it points
+elsewhere — at rank 1 (`core_enclosures_avgledger_leading_counts`, n=58,
+CORE-ENCLOSURES's population), which prints the same leading-counts idiom. The
+anti-collision clause is the box and its cycle length. Measured over all
+3,396:
+
+| marker | archive | this 6 |
+|---|---|---|
+| `PREVIOUS BALANCE` | 311 | **0** |
+| `BALANCE LAST STATEMENT` | 46 | **0** |
+| `DAYS IN (THE) STATEMENT PERIOD` | 303 | **0** |
+| `ACTIVITY SUMMARY` on its own line | 58 | 6 |
+| `DAYS IN CYCLE <n>` | 48 | 6 |
+| `BALANCE THIS STATEMENT` | 55 | 6 |
+| this registration's conjunction | **6** | 6 |
+
+Rank 1's period vocabulary and this one's do not meet on a single document of
+the archive.
+
+**Ruling: sibling.** `core_processor_activity_summary`, disjoint by
+construction.
+
+### CI2.3 Zero population overlap, by sha
+
+The census's 91 families list 472 distinct shas with **no sha in two
+families**. Rank 5 ∩ rank 11 = 0; rank 1 ∩ rank 5 = 0; rank 1 ∩ rank 11 = 0;
+and no other census family intersects either of mine. Independently — and this
+is the stronger statement, because it does not depend on the census being
+right about who owns what — the whole-archive probe shows the two new
+registrations claim exactly their own 14 and nothing else.
+
+## CI3. `core_processor_signed_counts` — the hunk, and the eight movers
+
+One new module and one registry entry. Five printed facts gate the document,
+all of them, exactly: the summary's own identity; the printed length against
+the inclusive span of the two DATED balances; the row count per direction; the
+row total per direction; and the printed `Daily Balance Information` grid
+walked day by day from the opening balance.
+
+Three findings decided its shape, each a measurement over the eight:
+
+1. **The printed debit count and total INCLUDE `Checks in Number Order`.** A
+   reader of `Debits & Withdrawals` alone is short by 9 to 19 items on every
+   document. Per document, ledger + cheques: 77+12=89, 84+13=97, 83+9=92,
+   99+11=110, 110+15=125, 84+9=93, 59+11=70, 133+19=152 — and each of those
+   eight sums is the printed `Debits (M)` exactly.
+2. **`Statement Date:` is not the period end.** It disagrees with the DATED
+   `Ending Balance` on **4 of 8**, and the periods do not align to calendar
+   months (printed lengths 28, 28, 30, 30, 30, 31, 31, 32). A reader that
+   trusts it re-bounds every row and re-bases the average while every count
+   and total still reconciles — a green extraction with a bad denominator,
+   which is the failure the ADB doctrine exists to prevent.
+3. **The trailing minus is the direction, and position is never the amount.**
+   One document prints a correction row carrying two money tokens INSIDE its
+   description before its own amount; a "first money token" rule and a "last
+   money token" rule each read a different wrong figure, and only the
+   trailing-minus filter survives. Measured: 1 such row in 1 of the 8; 1–3
+   lines per document carrying TWO postings concatenated onto one physical
+   line (8/8); and at least one amount pushed onto the FOLLOWING physical line
+   on 8/8 — which is why the section is read as one whitespace-normalized
+   token stream rather than line by line.
+
+The eight movers, `failed` / `no_parser_matched` → `validated` / `approved`:
+
+| content_sha256 (16) | txns | daily snapshots | printed days |
+|---|---|---|---|
+| `15E5D7BB9EB121DA` | 109 | 22 | 30 |
+| `46E7AB7C9A3BCF69` | 107 | 19 | 28 |
+| `6634A1FD32BDA050` | 101 | 22 | 31 |
+| `89880D7E1B8BA583` | 146 | 22 | 30 |
+| `B3B10CF00AEB92A8` | 164 | 20 | 31 |
+| `BFDD966CB63A8441` | 113 | 18 | 28 |
+| `DC5D6A42B0789545` | 87 | 21 | 32 |
+| `E750D4F9F8DCBCB2` | 206 | 21 | 30 |
+
+1,033 transactions and 165 printed daily-balance snapshots published.
+`Statement.bank` is None on all eight: this template prints no masthead, no
+FDIC line, no PO box and no web address, and an unnamed issuer costs a label,
+not a document.
+
+## CI4. `core_processor_activity_summary` — the hunk, and the six movers
+
+Six printed facts gate the document: `Days in Cycle` against the inclusive
+span of the printed `Statement Dates`; the summary's identity; the RESTATED
+trio (`Statement Balance` / `Debits` / `Credits`, printed a second time under
+the box) against the trio inside the box; both counts; both totals; and the
+per-row running-balance chain walked from the printed opening balance to the
+printed closing one.
+
+Three findings decided its shape:
+
+1. **The minus leads the sigil.** `-$1,234.56`, never `1,234.56-`, and a
+   negative running balance prints the same way. This is the family's
+   ORDINARY form, not its exception: **1,079 of the 1,188 ledger rows carry a
+   leading minus on their AMOUNT** (the 3 rows in 1 document that carry a
+   negative BALANCE are the rarity, and an earlier draft of this paragraph
+   quoted that 3 as if it were the whole exposure — it understated the gate by
+   two orders of magnitude). Taking the leading minus out of the money token
+   is mutant N13, and its family replay is **0/6**: the reader does not lose
+   the overdraft rows of one document, it loses every debit of every document
+   and all six refuse.
+2. **A non-posting line inside the ledger region is skipped, not refused.**
+   The processor emits a bare imaging sequence number once per physical page
+   and sometimes lands it BETWEEN two postings. Measured: 4 to 10 such lines
+   per document, 6/6. Skipping is only safe because the chain is checked —
+   refusing instead costs all six (mutant N10).
+3. **The reader never reads a page index.** Two members are duplex renders
+   whose first physical sheet is a mailer, so printed `Page: 2 of 9` sits on
+   PDF page 3. Nothing here consults a page number; the region is bounded by
+   the template's own banners.
+
+The six movers, `failed` / `no_parser_matched` → `validated` / `approved`:
+
+| content_sha256 (16) | txns | printed days |
+|---|---|---|
+| `5A93EF5AFFB05B3D` | 254 | 30 |
+| `6A27035D392A42A2` | 222 | 31 |
+| `9F0675CB72FAA03C` | 148 | 28 |
+| `D7C3E697A8F37862` | 174 | 31 |
+| `F7653841A17D4E72` | 139 | 30 |
+| `FB68D20C79B9B406` | 251 | 31 |
+
+1,188 transactions published, every one carrying its printed running balance.
+`Statement.bank` is None on all six.
+
+## CI5. The ADB, measured — and it is the doctrine's own case
+
+Neither family's average is taken from the bank. The canonical calendar-day
+ADB over the printed period is computed by `analysis/adb.py` as always, and
+the bank's printed figure is published beside it as evidence. The variance is
+worth recording because it is exactly what the ratified doctrine predicts:
+
+* **signed counts** — the printed `Daily Balance Information` grid is
+  banking-day sparse, and the canonical ADB forward-fills it to calendar days.
+  Against the bank's own `Average Ledger Bal`: **|Δ| ≤ $0.01 on seven of the
+  eight, $0.09 on the eighth.** The two answers agree because the bank's
+  convention here IS the calendar-day one.
+* **activity summary** — nothing prints a daily grid at all; the day-level
+  truth is the running-balance chain, and the ADB is reconstructed from it.
+  Against the bank's printed `Average Ledger Balance`: **|Δ| between $0.56 and
+  $1.32**, on averages of the order of thousands, because the bank truncates
+  each day to whole dollars. Under the doctrine that is a pass — bank averages
+  are evidence-only — but it is the one arithmetic in that family that does
+  not close to the cent, and it is recorded rather than smoothed over.
+
+`Days in Cycle` equals the calendar-day count of the printed period on 6/6 and
+`Days in the Statement Period` equals the inclusive span of the two dated
+balances on 8/8, so the doctrine's denominator is corroborated on the page in
+both families — and both readers REQUIRE that corroboration before publishing.
+
+## CI6. Currency — the schema default, deliberately, and named as a mover
+
+Neither template prints a currency code: 0 occurrences of `USD`, `CAD`, any
+Canadian province or any FX line across all fourteen. Neither prints an
+INSTITUTION either — the signed-counts issue prints no masthead, no FDIC line,
+no PO box and no web address at all; the activity-summary issue prints a
+post-office box and a telephone number and no name.
+
+The distinction the two families draw here is worth keeping. The
+signed-counts template prints NO postal furniture of its own at all (measured:
+0 of 8 carry an issuer letterhead), so the only address on the page is the
+addressee's. The activity-summary template prints, on **6 of 6**, a letterhead
+giving the issuer's post-office box with its US city, state and ZIP beside a
+US telephone number — which IS affirmative postal-jurisdiction evidence about
+the issuer, and is precisely what a future `jurisdiction_default` ruling would
+rest on. This card does not make that ruling: the doctrine's admitted
+jurisdiction defaults are named ones, and a reader that minted a new one would
+be inventing policy. The evidence is recorded so the CURRENCY-SOURCE line
+inherits it as measured rather than having to re-derive it.
+
+Both readers therefore leave `currency` at the schema default with
+`currency_source = schema_default`, which is what `fiserv_premier` and all
+three `core_processor_*` registrations already do, and what §TANGERINE's
+reader did for the same reason. The ratified doctrine makes a jurisdiction
+default AFFIRMATIVE evidence, never an absence rule, and the affirmative
+evidence available here is the ADDRESSEE's postal address — a fact about the
+customer, not about the account's denomination. **Both families are named here
+as future movers** should an issuer packet ever be built for them; the
+published figure would not change (both are USD in fact), only the provenance
+label. The pinned currency and provenance surfaces are untouched: none of the
+fourteen is in the pinned corpus, and the gate's 108/108 split is byte-identical.
+
+## CI7. The mutation table — 36 mutants, 35 killed, run WITHOUT `-x`
+
+Every mutant is one documented textual substitution applied by
+`tools/coreiss2_mutation.py` to a CLEAN tree. The harness refuses to start on
+a dirty one, requires each anchor to match EXACTLY ONCE (an anchor that has
+moved is reported, never silently skipped), restores with `git checkout --`
+and asserts the restore after every mutant. Both unit-test files run without
+`-x` so every killer is named, and `tools.coreiss2_probe replay` runs as a
+SECOND, independent killer over the archive's own text.
+
+"replay moved" means the family replay stopped publishing something (8/8 and
+6/6 unmutated).
+
+### `core_processor_signed_counts`
+
+| # | mutant | replay moved | killers |
+|---|---|---|---|
+| M01 | the counts marker no longer requires the printed SIGN | no | 1 — `…unsigned_credit_total_does_not_satisfy_the_counts_marker` |
+| M02 | the CREDIT label loses its bare-label lookbehind | no | 1 — `…bare_counts_marker[credit-label-slash-prefixed]` |
+| M02b | the DEBIT label loses its bare-label lookbehind | no | 1 — `…bare_counts_marker[debit-label-slash-prefixed]` |
+| M03 | the balance marker no longer requires DATED balances | no | 1 — `test_undated_balances_do_not_satisfy_the_period_marker` |
+| M04 | the printed length need not equal the dated span | no | 1 — `test_a_printed_length_that_contradicts_the_dated_span_refuses` |
+| M05 | the period END is read from `Statement Date:` | **yes** | 11 |
+| M06 | the summary identity is not checked | no | 1 — `test_the_identity_is_checked_independently_of_the_daily_grid` |
+| M07 | `Checks in Number Order` dropped from the debits | **yes** | 11 |
+| M08 | the debit amount is the FIRST money token, minus optional | **yes** | 11 |
+| M09 | the credit description may cross a `$` | no | 1 — `test_a_credit_description_cannot_cross_a_money_token` |
+| M10 | the ledger is never terminated by the statistics summary | **yes** | 12 |
+| M11 | the printed daily grid is not walked | no | 3 |
+| M12 | a row on a day the grid never prints is allowed | no | 1 — `test_a_row_on_a_day_the_grid_never_prints_refuses…` |
+| M13 | the grid need not be printed in date order | no | 1 — `test_a_grid_printed_out_of_order_refuses` |
+| M14 | a page break carries the section blindly | no | 1 — `test_a_page_break_suspends_a_section…` |
+| M15 | a cheque row's amount cell need not be money | **yes** | 11 |
+| M16 | the FIRST labelled mask is published | no | 1 — `test_two_account_masks_under_a_label_publish_no_account_number` |
+| M17 | the printed CREDIT count is not checked | no | 1 — `test_the_credit_count_is_checked_independently_of_the_credit_total` |
+| M18 | neither printed TOTAL is checked | no | 1 — `test_both_printed_totals_are_checked_independently_of_the_identity` |
+
+### `core_processor_activity_summary`
+
+| # | mutant | replay moved | killers |
+|---|---|---|---|
+| N01 | the cycle-length clause loosened to `DAYS IN` | no | 1 — `test_the_box_alone_without_the_cycle_length_is_not_claimed` |
+| N02 | the closing-balance label dropped from the marker | no | 1 — `test_the_product_line_without_the_closing_label_is_not_claimed` |
+| N03 | the box heading may appear anywhere, not on its own line | no | 1 — `test_the_box_heading_must_be_printed_on_its_own_line` |
+| N04 | `Days in Cycle` need not equal the printed span | no | 2 |
+| N05 | more than one Activity Summary box is allowed | no | 1 — `test_two_activity_summary_boxes_refuse…` |
+| N06 | the restated trio need not agree with the box | no | 1 — `test_the_restated_trio_must_agree_with_the_box` |
+| N07 | the summary identity is not checked | no | 1 — `test_the_identity_is_checked_independently_of_the_chain` |
+| N08 | the running-balance chain is not walked | no | 1 — `test_a_break_in_the_running_balance_chain_refuses` |
+| N09 | a zero-amount row is filed instead of refusing | no | 1 — `test_a_zero_amount_row_refuses_even_when_every_other_oracle_closes` |
+| N10 | a non-posting line refuses instead of being skipped | **yes** | 7 |
+| N11 | a page break does not close the ledger region | no | 1 — `test_a_page_break_closes_the_ledger_region…` |
+| N12 | the ledger is not cut at the cheque recap banner | no | 1 — `test_the_ledger_is_cut_at_the_cheque_recap_banner` |
+| N13 | the money token loses its LEADING minus | **yes** | 7 |
+| N14 | the row description is read non-greedily | no | **0 — SURVIVES, a proven no-op** |
+| N15 | the last row need not land on the printed closing balance | no | 1 — `test_the_last_row_must_land_on_the_printed_closing_balance` |
+| N16 | neither printed count is checked | no | 1 — `test_both_printed_counts_are_checked_independently_of_the_totals` |
+| N17 | neither printed total is checked | no | 1 — `test_both_printed_totals_are_checked_independently_of_the_identity` |
+
+### CI7.1 The first run left FIFTEEN survivors, and that is the finding
+
+Run 1 of this table killed 21 of 35. The fifteen survivors were not fifteen
+useless gates — they were fifteen gates whose tests could not tell them apart
+from a neighbouring gate, which is the same class of defect as a test named
+after a gate it does not test:
+
+* the two lookbehinds and the two signs were tested TOGETHER, so either half
+  could be deleted and the other would still refuse the document (M01, M02);
+* the summary identity and the grid / chain were tested by inputs that broke
+  both at once (M06, N07, N15, and the grid's own closing clause). Printed
+  interest that the closing balance does not account for separates them in
+  either direction, and that is now the fixture;
+* the counts and the totals were likewise tested together (M17, M18, N16,
+  N17). One posting printed as two that sum to it isolates a count; both
+  totals moved by the same amount isolates a total;
+* the credit description's `[^$]` bound and the grid's ordering check needed
+  inputs no other gate can see: a debit-shaped token inside the credit section
+  (M09), and two CARRY-FORWARD days carrying the same balance, which the walk
+  cannot tell apart (M13);
+* the zero-amount refusal was tested by an input that also broke a total
+  (N09); the printed debit count is now moved to accommodate the extra row, so
+  every other oracle closes and only the refusal can turn the document away;
+* two FIXTURE defects, both corrected toward the archive: the daily grid now
+  carries the carry-forward days the real grids print, and the cheque recap
+  now follows the last posting on the SAME page, which is where all six
+  archive documents print it (N12).
+
+Final run, on the committed harness and the final fixtures: **36 mutants, 35
+killed, 1 survivor**, exit 0.
+
+### CI7.2 N14 is a no-op mutant, and the docstring said otherwise
+
+`(.*)` → `(.*?)` in the row grammar changes no PUBLISHED reading: the pattern
+is anchored to the end of the line and requires two money tokens there, so a
+non-greedy description still has to grow until it reaches them. It is a
+SEMANTIC no-op and not a byte-identical one, and the distinction is the
+reviewer's: over 468,421 constructed lines the raw description group differs
+by a trailing space on 12,870 of them, and the reader's own `re.sub`
+whitespace normalization erases that difference before anything is published.
+The claim in the record is therefore "no published reading changes", not
+"nothing changes". The module
+comment claimed the greediness was what took the LAST two tokens. It was
+wrong, and it now records the measurement instead. The mutant is kept in the
+committed table and declared as a known no-op rather than "killed" by a test
+written to make the table look complete.
+
+## CI8. The whole-archive probe
+
+Not a 400-document stratified sample. Every document in the OCR artifact
+store, enumerated by direct file path — **3,396 documents, including all 179
+whose intake model is not `native-pdf-text` and all 873 whose text mentions
+Canada or CAD** — with the two new registrations' live `detect` over
+`admissible_text`, and `parse` wherever either claims:
+
+```
+core_processor_signed_counts:    claims=8 published=8
+        outside_family=[]  family_not_claimed=[]  family_not_published=[]
+core_processor_activity_summary: claims=6 published=6
+        outside_family=[]  family_not_claimed=[]  family_not_published=[]
+both_claimed(ambiguous)=0
+```
+
+Claimed equals validated on both, neither reader reaches a document outside
+its named population, and no document is claimed by both.
+
+## CI9. Nothing else moves — the archive zero-movement sweep
+
+`python -m tools.regfp_zero_movement_sweep` at branch HEAD `3b1ed5a` against
+the run of record, **all 3,380 distinct shas in four chunks**, baseline
+settings key
+`24675EF06C2E08DD6803362ACD56045607BBFD3B80642A849D08D0DF541B5CAC`.
+
+| chunk | documents | compared | identical | **moved** | **payload_now_raises** | **no_payload_now_publishes** | raises_again | no OCR | multi-artifact | s |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 0..845 | 845 | 626 | 626 | **0** | **0** | **1** | 212 | 6 | 20 | 2558.4 |
+| 845..1690 | 845 | 649 | 649 | **0** | **0** | **4** | 187 | 5 | 20 | 2178.7 |
+| 1690..2535 | 845 | 640 | 640 | **0** | **0** | **3** | 191 | 11 | 18 | 1483.7 |
+| 2535..3380 | 845 | 643 | 643 | **0** | **0** | **6** | 189 | 7 | 16 | 1108.6 |
+| **total** | **3,380** | **2,558** | **2,558** | **0** | **0** | **14** | **779** | **29** | **74** | 7,329.4 |
+
+2,558 + 779 + 29 + 14 = 3,380, so every document is accounted for in exactly
+one bucket. **`moved` is 0**: no document that published under the run of
+record publishes anything different at HEAD. **`payload_now_raises` is 0**: no
+document that published stopped publishing. And the fourteen
+`no_payload_now_publishes` findings are, by content_sha256, exactly the
+fourteen this card names — `15E5D7BB…`; `46E7AB7C…`, `5A93EF5A…`,
+`6634A1FD…`, `6A27035D…`; `89880D7E…`, `9F0675CB…`, `B3B10CF0…`;
+`BFDD966C…`, `D7C3E697…`, `DC5D6A42…`, `E750D4F9…`, `F7653841…`,
+`FB68D20C…` — and nothing else.
+
+The per-chunk distribution **1 / 4 / 3 / 6** was computed BEFORE the sweep ran,
+from the tool's own ordering (`sorted(distinct content_sha256)`) and the chunk
+boundaries. Each chunk returned exactly its predicted count.
+
+Each chunk exits 1 because the tool exits non-zero whenever it has a finding
+to report; the driver loop's own terminator is `EXIT=0`.
+
+### CI9.1 The FIRST sweep was contaminated, and the prediction is what caught it
+
+The first four-chunk run was killed and re-run, and only the clean run is
+reported above. Chunk 2 of that first run returned **3 where 4 were owed**:
+`46E7AB7C…` was in the slice (index 894 of 3,380, inside 845..1690) and was
+not reported.
+
+Not a bad prediction and not a defect in the reader. Running the sweep's own
+per-document logic on that document at the final tree — same partition
+enumeration, same baseline key, same `analyze_markdown(..., sheets=pages)` —
+gives `before=None`, no exception, and a published statement: the finding the
+chunk should have made. All fourteen have exactly ONE OCR partition, so the
+tool's first-candidate fallback for no-payload documents cannot be the cause
+either.
+
+**The cause was mine: I ran the mutation harness concurrently with the
+sweep.** The harness mutates `analysis/core_processor_signed_counts.py` in
+place and restores it, and chunk 2's Python process began — and imported the
+analysis layer — inside that window. Which mutant is not a guess. Applying
+each 7/8 mutant to an in-memory copy of the module and replaying the eight:
+
+```
+M08 (the debit amount is the FIRST money token, minus optional): drops ['46E7AB7C']
+M15 (a cheque row's amount cell need not be money):              drops ['E750D4F9']
+```
+
+M08 drops exactly the document chunk 2 failed to report — the one document of
+the family whose correction row embeds two money tokens inside its
+description. The clean re-run reports it.
+
+Two things to carry forward. First, "long proofs SEQUENTIAL" is not about host
+load: a mutation harness and any proof that imports the mutated layer are
+mutually exclusive, and the harness cannot detect the collision, because from
+its side the tree is clean between mutants. Second, this was caught only
+because the expected findings were computed before the chunks ran. A sweep
+read only after the fact would have reported 13 movers and a plausible story
+about the fourteenth, and the story would have been wrong.
+
+**An operational incident to report alongside it.** Killing the contaminated
+sweep, I matched processes on the command-line substring `sweep.sh`, which is
+not specific to this cell: 18 `bash.exe` processes matched and were signalled
+where at most two could have been mine. Every other cell's `python.exe` worker
+survived — verified immediately afterwards: eight `regfp_zero_movement_sweep`,
+eight `corpus_gate.py` and six `pytest -m corpus` processes were still running
+— so no other cell's computation was killed outright. But if another cell was
+driving its chunks from a shell loop of that name, that loop is gone and its
+remaining chunks will not have started. Ocean should check with the other
+batch-8 cells. The correct filter was the one used for the python workers,
+which included this cell's scratchpad path.
+
+## CI10. Findings and questions for Ocean
+
+1. **Both rulings are SIBLING, and the census's "nearest reader" was the wrong
+   parent in both cases.** Recorded because that field is a similarity
+   judgement made from printed identity, and twice here the nearest reader by
+   FURNITURE was the wrong parent by REGISTRATION. What decides it is which of
+   the candidate's REQUIRED markers the family prints, and both families print
+   one of three.
+2. **The two families are 14 documents but 2 borrowers and 2 template
+   instances.** Both are one account's consecutive monthly statements. The
+   coverage gain is real; the template-diversity gain is two. A future cell
+   meeting either template under another issuer gets it for free — both
+   registrations are keyed on the processor's own furniture and neither names
+   a bank — but that generalisation is untested, because the archive holds one
+   issuer per family.
+3. **`missing_declared_statement_page` and the duplex mailer.** The two mailer
+   members clear that flag only because `analysis/pipeline.py`'s withdrawal
+   clause counts unlabelled sheets, and only when the caller supplies the
+   intake page list. That is correct behaviour and it is load-bearing for this
+   family. No change proposed; named so a future change to that clause knows
+   it has two more dependents.
+4. **A question that is not mine to settle:** both readers publish
+   `currency_source = schema_default` because neither template prints an
+   issuer. If the open CURRENCY-SOURCE line ever wants a `jurisdiction_default`
+   for US-addressed documents with no printed issuer, these fourteen are the
+   cleanest test case available — no FX, no Canadian exposure, no package
+   cross-currency risk — and both families are named here as movers for it.
+
+## CI11. Proofs, with verbatim exit codes
+
+| proof | result | exit |
+|---|---|---|
+| full default suite — `python -m pytest -q` | `5950 passed, 35 skipped, 34 deselected` in 475.91s (5,857 at base) | **0** |
+| CANONICAL guard set — the five files | `252 passed` (252 at base: unchanged) | **0** |
+| CANONICAL conformance set — the seven files | `1190 passed, 35 skipped` (1,164 at 75×74; this is 77×76) | **0** |
+| the two new unit files alone | `65 passed` (35 signed-counts, 30 activity-summary) | **0** |
+| `python corpus_gate.py` | **GREEN** — 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 1 refused / 3 review / 102 validated / 3 withheld; currency 108/108 = 14 CAD / 94 USD (+1 pinned refusal); currency_source 108/108 = 89 schema_default / 7 institution_default / 7 product / 4 jurisdiction_default / 1 printed (+1 pinned refusal); ADB basis `calendar_day_printed_period` 108/108. Runtime 1506.3s | **0** |
+| corpus-marked slice — `python -m pytest -m corpus -q` | `1 failed, 29 passed, 5989 deselected` in 5224.03s — the one red is the host-sensitive detect budget, see below | **1** |
+| that test alone, on a quiet host | `1 passed` in 69.03s | **0** |
+| mutation table — `python -m tools.coreiss2_mutation` | 36 mutants, 35 killed, 1 declared no-op, `UNEXPECTED []` | **0** |
+| whole-archive probe — `python -m tools.coreiss2_probe probe` | 3,396 documents; 8/8 and 6/6 claimed and published; 0 outside either family; 0 ambiguous | **0** |
+| family replay — `python -m tools.coreiss2_probe replay` | `core_processor_signed_counts=8/8 core_processor_activity_summary=6/6` | **0** |
+| privacy grep (both passes) — `python -m tools.coreiss2_probe privacy` | 5,585 figure/date/account tokens and 1,052 novel archive WORDS vs the whole branch diff, this log included, `FOUND: figures/dates/accounts=0 words=0` | **0** |
+| archive zero-movement sweep — 4 chunks, 3,380 documents | moved 0, payload_now_raises 0, 14 named movers | chunks **1** (findings present), driver **0** |
+
+### CI11.1 The one red reading, and both measurements of it
+
+`tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run`
+went red inside the corpus-marked slice and passes alone. Both readings, in
+full:
+
+| | worst document | worst sweep | projected to 80 registrations | budget | verdict |
+|---|---|---|---|---|---|
+| inside the slice, host carrying four cells' sweeps and gates (24 `python.exe`) | `Others/First Citizen/First Citizens Bank.pdf` | 302.2 ms over 77 registrations | **314.0 ms** | 250 ms | RED |
+| alone, quiet host (4 `python.exe`) | `Others/Altana/Altana june 26.pdf` | 150.5 ms over 77 registrations | **156.4 ms** | 250 ms | GREEN, 63% of budget |
+
+This is batch 7's case again, and the second reading is not the only reason to
+call it scheduling noise: the two readings do not even agree on WHICH document
+is slowest, which a systematic cost increase would not do. It is also
+arithmetically not this card's to cause — the test divides the measured sweep
+by `len(registrations)` before projecting to 80, so adding two registrations
+moves the numerator and the denominator together and leaves the projection
+unchanged in expectation.
+
+### CI11.2 The sweep ran at the final PRODUCTION tree
+
+The sweep ran at `3b1ed5a`; the only commit after it is this log. Between the
+commit the first (killed) sweep started from and `3b1ed5a`, the two analysis
+modules changed only in comments, and that is asserted rather than eyeballed:
+`ast.dump(ast.parse(old)) == ast.dump(ast.parse(new))` is True for both.
+
+## CI12. The privacy grep
+
+The rule is measured, not asserted, by `tools/coreiss2_probe privacy`. From
+the fourteen documents' cached OCR text: **3,081 distinct printed money
+figures** (exact zeros excluded — a printed zero is the absence of a figure,
+both templates print one on their fee lines, and so does every synthetic
+fixture already in this tree), **494 full dates** and **2,010 account masks
+and long digit runs**: 5,585 tokens, each compared against every added line of
+the whole branch diff INCLUDING this log. The line count moves with every
+commit — it is 3,015 at the branch tip — and `FOUND` has been 0 at each one.
+
+**FOUND: 0 figures/dates/accounts, 0 words.**
+
+The WORD pass is the second half of the same instrument, and it is committed
+rather than described: every alphabetic token of the fourteen documents MINUS
+every alphabetic token already present anywhere in `main`'s tracked source.
+The subtraction is what makes the number mean anything — without it the
+overlap is ordinary English and template labels. **1,052 archive words are
+novel to main's tracked source; 0 of them appear in the diff.** (The
+reviewer's independent implementation counted 904 novel tokens on a different
+word floor and also found 0; the two agree on the answer and differ only on
+what counts as a word.)
+
+One honest note on the figure pass. It compares WHOLE TOKENS, because a naive
+substring test reports an invented five-figure amount as a hit on a real
+two-figure one that happens to be its last four characters — every money
+figure ends in a shorter money figure. Under the naive reading the same diff
+shows 56 such prefixes-of-invented-figures; they are reported here rather
+than quietly dropped.
+
+Getting to 0 was not free, and the first measurement is the finding. It caught
+**seven module illustrations that were verbatim printed rows of real
+documents** — a card descriptor with its merchant name, an analysis charge, a
+correction row's own amount, a cheque row, a daily-grid pair, the summary
+strip and a dated opening balance — plus **three descriptor words** that had
+never appeared in tracked source before this branch, plus **four whole-token
+collisions** between invented fixture values and archive figures (both
+conformance fixtures printed a period that one archive document of the
+signed-counts family actually prints, and two invented card descriptors
+carried a figure the archive prints). Both fixtures are now built on
+distinctive invented figures in a statement month neither family prints, and
+the module illustrations use those same invented figures, so each reader and
+its tests describe one imaginary document.
+
+## CI13. Commits
+
+| | |
+|---|---|
+| `c76a59e` | the two sibling registrations, with the registry pins in the same commit |
+| `4eda422` | the unit tests, on invented fixtures |
+| `1e58e9f` | the first mutation run left 15 gates untested — closed |
+| `032a5e8` | each bare-label lookbehind tested on its own (M02, M02b) |
+| `1b25b84` | PRIVACY: archive content out of tracked source (batch-7 BLOCK class) |
+| `aee5ca8` | PRIVACY: the last three whole-token collisions |
+| `dd6af1f` | PRIVACY: the descriptor's embedded figure |
+| `3b1ed5a` | the instruments, committed under `tools/` |
+| `3f70973` | this log section |
+| `2cea331` | the log's own privacy re-measurement |
+| the commit carrying CI15 | the five MINOR closures: the leading-minus measurement, the letterhead as jurisdiction evidence, N14 narrowed to a semantic no-op, the word pass folded into the committed instrument, the description bound restated as fail-closed |
+
+## CI14. Risks carried
+
+1. **One borrower per family.** A registration or parsing error fails all
+   eight or all six at once; the outcome is 8-or-0 and 6-or-0, never a
+   fraction. What mitigates it is the number of independent printed oracles
+   each reader must satisfy — five and six — not population diversity.
+2. **Both readers publish no bank.** `Statement.bank` is None on all fourteen.
+   That is the honest answer for templates that print no institution and it is
+   what four existing registrations already do, but it means these documents
+   carry no issuer label into underwriting output.
+3. **The fee terms are untested arithmetic in both families.** `Service
+   Charge` and `Interest Paid` are zero on all fourteen, so each reader's
+   decision to treat them as SEPARATE from the two transaction totals is not
+   corroborated by the corpus. It is kept because getting it wrong fails
+   CLOSED — the identity misses and the document refuses rather than
+   publishing a wrong balance.
+4. **N14 stands as a live no-op in the committed table**, declared rather than
+   removed, so a future reader can re-measure the claim instead of trusting
+   this one.
+5. **The signed-counts daily grid must fit the region this reader gathers.**
+   All eight print it as a single line; a printing that wrapped it past a page
+   break would lose the tail and the document would refuse rather than publish
+   a short grid. Fail-closed, and untested against a printing that does it.
+6. **The bash-process kill in CI9.1 may have stopped another cell's driver
+   loop.** No other cell's worker died, but Ocean should confirm with the
+   batch-8 cells before treating their sweeps as complete.
+
+## CI15. Review closures — APPROVE WITH FINDINGS: 0 BLOCK, 1 MAJOR, 5 MINOR
+
+The independent adversarial review reproduced both sibling rulings
+archive-wide, all fourteen oracles end-to-end with a grammar of its own, the
+trailing-minus read, both wrap paths, ten mutants including N14 over 468,421
+constructed lines, the four clean sweep chunks, and the privacy passes. What
+follows is what it found and what changed.
+
+**MAJOR-1 — the generic process kill.** Handled wave-wide by Ocean; no branch
+action. It is recorded at CI9.1 and as risk 6, unedited, because the branch's
+own account of what this cell did should not be tidied by the fact that
+someone else cleaned it up.
+
+**MINOR-1 — the record contradicted the committed evidence, and understated
+this card's own gate.** CI4's first finding cited "3 such rows in 1 of the 6"
+and said N13 "drops that whole document". Re-measured here: **1,079 of the
+1,188 ledger rows carry a leading minus on their AMOUNT**; the 3 rows are the
+ones carrying a negative BALANCE, a different and much rarer thing; and
+`mutation_table.json` records N13's replay as **0/6**, not 5/6. The prose now
+says what the measurement says. Worth stating plainly: the error was in the
+direction of making this card's own reader look less necessary than it is.
+
+**MINOR-2 — the letterhead is jurisdiction evidence, and the record hid it.**
+Three places (CI2.2, CI6, the rank-11 module docstring, and the registry
+comment) said the template prints "a post-office box and a telephone number
+and no name". Measured: it prints, on **6 of 6**, a post-office box WITH its US
+city, state and ZIP beside a US telephone number — which is exactly the
+affirmative postal-jurisdiction evidence a future `jurisdiction_default`
+ruling would rest on. The signed-counts family prints no such letterhead at
+all (**0 of 8**), so the two families differ on precisely this point. Both
+records now carry the measurement, and the CURRENCY-SOURCE line inherits it
+instead of having to re-derive it. The published value does not change: this
+card still declines to mint a jurisdiction default a reader has no mandate to
+mint.
+
+**MINOR-3 — N14 is a SEMANTIC no-op, not a byte-identical one.** The
+declaration said the mutant "changes nothing on any input". The reviewer
+measured that the raw description group differs by a trailing space on 12,870
+of 468,421 constructed lines, which the reader's own whitespace normalization
+then erases. Claim narrowed to "no PUBLISHED reading changes", in the module
+comment and in CI7.2.
+
+**MINOR-4 — the word pass had no committed instrument.** The alphabetic-token
+headline was produced by a scratchpad script, which is the one thing a
+headline number may not be. Folded into `tools/coreiss2_probe.py privacy` as a
+second pass: **1,052 archive words novel to `main`'s tracked source, 0 in the
+diff**, alongside 5,585 figure/date/account tokens and 0. (The reviewer's
+independent implementation found 904 novel tokens and 0 hits; the two agree on
+the answer and differ only on what counts as a word.)
+
+**MINOR-5 — an over-claim about the description bound.** The docstring said a
+description "can never run into the next row's amount and merge two postings".
+The reviewer constructed the case where it can: a wrapped amount lost at a page
+break lets the description reach the FOLLOWING row's trailing-minus token.
+Both constructed cases refuse on the printed count and the printed total, so
+the property is FAIL-CLOSED rather than impossible, and both the docstring and
+the `_DEBIT_ROW_RE` comment now say so.
+
+### CI15.1 What is owed for these changes, and why no replay or sweep is
+
+Every production change in this closure is a docstring or a comment. That is
+asserted rather than asserted-and-hoped: the **docstring-stripped AST** of each
+touched module is byte-identical across the closure.
+
+| module | `2cea331` | HEAD | identical |
+|---|---|---|---|
+| `analysis/core_processor_signed_counts.py` | `B9DC38DEF963DA750057546121001334` | `B9DC38DEF963DA750057546121001334` | **yes** |
+| `analysis/core_processor_activity_summary.py` | `CF15360C60D52C6D7815B5255AF32428` | `CF15360C60D52C6D7815B5255AF32428` | **yes** |
+| `analysis/parser_registry_entries.py` | `ED39860DE201DCE96C75B13B8177E41A` | `ED39860DE201DCE96C75B13B8177E41A` | **yes** |
+
+(SHA-256 of the stripped `ast.dump`, first 32 hex. Comments never reach the
+AST at all; the stripping is what covers the docstrings.) No parse, no
+detection and no dispatch can differ, so **the family replay and the
+3,380-document archive sweep are not re-owed** — the sweep at CI9 stands as
+the card's zero-movement proof. What IS owed is the changed instrument, and
+the gates that read the tree.
+
+| proof | result | exit |
+|---|---|---|
+| `python -m tools.coreiss2_probe privacy` (now two passes) | 5,585 figure/date/account tokens and 1,052 novel words vs the whole branch diff — `FOUND: figures/dates/accounts=0 words=0` | **0** |
+| CANONICAL guard set (five files) | `252 passed` | **0** |
+| CANONICAL conformance set (seven files) | `1190 passed, 35 skipped` | **0** |
+| the two unit files | `65 passed` | **0** |

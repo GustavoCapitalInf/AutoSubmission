@@ -154,6 +154,18 @@ FIXTURES: dict[str, str] = {
     # summary balances, which is exactly what separates the two registrations
     # on the archive. No `Total days` line here, and none in the sibling's
     # fixture's summary — that asymmetry is the cross-product's job to prove.
+    # W3 §COREISS2 rank 11: the `Activity Summary` box and its cycle length,
+    # over a product line whose counts LEAD their labels and whose closing
+    # figure is `Balance this Statement`. Every figure invented.
+    "core_processor_activity_summary": (
+        "Statement of Account Statement Dates:  8/01/26 thru 8/31/26\n"
+        "Activity Summary\n"
+        "Account Number 8802417 Days in Cycle 31 "
+        "Average Ledger Balance $0.00 Avg Collected Balance $0.00\n"
+        "Sample Free Business Checking Beginning Balance $0.00 "
+        "0 Deposits/Credits $0.00 0 Checks/Debits $0.00 "
+        "Service Charge $0.00 Interest Paid $0.00 Balance this Statement $0.00\n"
+    ),
     "core_processor_counted": (
         "This statement: February 27, 2026 Last statement: January 30, 2026\n"
         "Beginning balance (1/30/2026)\n"
@@ -165,6 +177,17 @@ FIXTURES: dict[str, str] = {
         "LAST STATEMENT 07/31/25 0.00 AVG AVAILABLE BALANCE 0.00 "
         "THIS STATEMENT 08/29/25 0.00\n"
         "TOTAL DAYS IN STATEMENT PERIOD 08/01/25 THROUGH 08/29/25: 29\n"
+    ),
+    # W3 §COREISS2 rank 5: the signed parenthesised counts under a bare
+    # `Summary`, over the two DATED balances. Every figure invented, and the
+    # summary deliberately carries no `Previous Balance` — that label belongs
+    # to `fiserv_premier`'s registration and the cross-product proves it.
+    "core_processor_signed_counts": (
+        "Statement of Account SAMPLE BUSINESS CHECKING Account Title: Sample Holder\n"
+        "Beginning Balance 7/02/26 $ 0.00\n"
+        "Summary\n"
+        "Credits (0) +$0.00 Interest Paid +$0.00 Debits (0) -$0.00\n"
+        "Ending Balance 7/31/26 $ 0.00\n"
     ),
     "dakota_west": "dakotawestcu.com\nThank you for being a member of Dakota West Credit Union.\n",
     "demo_national": "SAMPLE BUSINESS BANK STATEMENT\nBank: Demo National Bank\n",

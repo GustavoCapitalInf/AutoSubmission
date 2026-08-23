@@ -43,9 +43,11 @@ from . import (
     columbia_bank,
     community_section,
     consumers,
+    core_processor_activity_summary,
     core_processor_counted,
     core_processor_daily,
     core_processor_sectioned,
+    core_processor_signed_counts,
     demo_national,
     desjardins,
     eq_bank_scanned,
@@ -132,6 +134,22 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     # inventing one would be the hardcode this registration exists to avoid.
     ("community_section", "Core Statement Platform", community_section, "PLATFORM_DETECTION_MARKERS", "detection_text", "parse_community_section_statement"),
     ("consumers", "Consumers Credit Union", consumers, "DETECTION_MARKERS", None, "parse_consumers_statement"),
+    # A core processor's `Activity Summary` running-balance issue (W3
+    # §COREISS2, census rank 11). Registered as a SIBLING rather than as an
+    # extension of any of the four readers of the LEADING-counts summary:
+    # three of those (`linkbank`, `farmers_merchants`, `capital_one`) are
+    # issuer-keyed and this template prints no institution at all, and the
+    # fourth (`fiserv_premier`) requires `Previous Balance` and the
+    # PARENTHESISED counts, neither of which this issue prints. `Days in
+    # Cycle` inside an `Activity Summary` box is the anti-collision clause
+    # against the archive's large `Days in the statement period` cohort, and
+    # the two vocabularies meet on 0 of 3,396 documents - so the
+    # registrations are disjoint by construction, with no `supersedes` edge
+    # and no band, and the conformance cross-product is what holds them
+    # apart. The label names the TEMPLATE: what this one prints for an
+    # issuer is a letterhead post-office box with its US city, state and ZIP
+    # and a telephone number - a jurisdiction, never a name.
+    ("core_processor_activity_summary", "Core Processor Activity Summary Platform", core_processor_activity_summary, "DETECTION_MARKERS", "detection_text", "parse_core_processor_activity_summary_statement"),
     # The FOURTH summary grammar of that same third core processor
     # (W3 §GRAM4, carded at §LCPERIOD L7.3). It shares the period SENTENCE
     # with the entry below and prints no `Total days` line, no
@@ -165,6 +183,18 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     # logo, and inventing one would be the hardcode this registration exists to
     # avoid.
     ("core_processor_sectioned", "Core Processor Sectioned Platform", core_processor_sectioned, "DETECTION_MARKERS", "detection_text", "parse_core_processor_sectioned_statement"),
+    # A core processor's SIGNED-COUNTS issue (W3 §COREISS2, census rank 5).
+    # The census filed it as `fiserv_premier`'s parenthesised-counts issue and
+    # it is a SIBLING instead: of that registration's three required markers
+    # this issue prints only `Statement of Account`, and the two it does not
+    # print include the ANTI-COLLISION clause (`Previous Balance`) that keeps
+    # 216 Wells Fargo documents out of it. Its own summary states each
+    # direction's count in parentheses with a SIGNED total, over two DATED
+    # balances - measured on 8 of 3,396 documents, and on none of
+    # `fiserv_premier`'s fourteen. Disjoint by construction, so no
+    # `supersedes` edge and no band. The label names the TEMPLATE: this one
+    # prints no institution anywhere in its text layer.
+    ("core_processor_signed_counts", "Core Processor Signed Counts Platform", core_processor_signed_counts, "DETECTION_MARKERS", "detection_text", "parse_core_processor_signed_counts_statement"),
     ("dakota_west", "Dakota West Credit Union", community_section, "DAKOTA_WEST_DETECTION_MARKERS", None, "parse_dakota_west_statement"),
     ("demo_national", "Demo National Bank", demo_national, "DETECTION_MARKERS", None, "parse_demo_national_statement"),
     ("desjardins", "Desjardins", desjardins, "DETECTION_MARKERS", None, "parse_desjardins_statement"),
