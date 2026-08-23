@@ -90,9 +90,13 @@ here.
 §WHAT IT DOES NOT PUBLISH, deliberately. `account_name`: the template prints
 no product line — `Checking Account Summary` is furniture, not a product —
 so the field stays None rather than carrying furniture. `stated_daily_
-balances`: there is no daily grid anywhere in the family, so the calendar-day
-ADB is withheld by the ADB doctrine rather than manufactured from postings.
-Transaction counts: not printed.
+balances`: there is no daily grid, no average-balance line and no interest
+line anywhere in the family, so nothing is published there and nothing is
+manufactured. The calendar-day ADB is the engine's to compute from the
+printed opening and the postings, which is the canonical basis the ADB
+doctrine ratified; all 11 published documents reach `validated/approved` with
+it. Transaction counts: not printed, and not needed — the chain is this
+reader's coverage oracle.
 """
 from __future__ import annotations
 
