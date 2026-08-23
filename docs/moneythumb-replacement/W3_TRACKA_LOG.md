@@ -44100,15 +44100,18 @@ gate under test is the only one that can see the defect.
 | full default suite | **5,917 passed**, 35 skipped, 34 deselected (5,857 at base) | `SUITE_EXIT=0` |
 | canonical guard set (5 modules) | **252 passed** — unchanged at registry 76 | `GUARD_EXIT=0` |
 | canonical conformance set (7 modules) | **1,177 passed**, 35 skipped (1,164 at 75 × 74; the cross-product is now 76 × 75) | `CONFORM_EXIT=0` |
-| corpus-marked slice (`pytest -m corpus`) | recorded in C18 | recorded in C18 |
+| corpus-marked slice (`pytest -m corpus`) | **30 passed**, 5,956 deselected (59:00 on the final tree) | `CORPUS_EXIT=0` |
 | the reader's own module | 46 passed | included above |
 | mutation harness, 32 mutants, no `-x` | **32 applied, 32 killed, 0 survived** | `EXIT=0` |
 | archive-wide detection + parse probe (3,380 documents, 3,351 with cached text) | 67 claimed, 0 crashes | `EXIT=0` |
 | population replay (71 named documents, real pipeline) | 57 moved / 14 unmoved, transitions in C0 and C11 | `EXIT=0` |
-| `tools.regfp_zero_movement_sweep`, six chunks over all 3,380 | recorded in C18 | recorded in C18 |
+| `tools.regfp_zero_movement_sweep`, six chunks over all 3,380 | **identical 2,558 / moved 0 / payload_now_raises 0 / no_payload_now_publishes 48**, all 48 inside the census family (C18.1) | chunk `EXIT=1` (the tool's findings-exist code), chain `EXIT=0` |
 
-An earlier full-suite run at an intermediate tree was `SUITE_EXIT=1` on two
-assertions, and both are recorded rather than quietly fixed: `SECTION_LEVEL_ORACLES`
+Two red readings are recorded rather than quietly fixed. The corpus-marked
+slice read `CORPUS_EXIT=1` twice on the detect-sweep BUDGET test while 14 to 20
+python processes shared the machine, and green on a quiet host — C18.3 has the
+measurement that separates the two. And an earlier full-suite run at an
+intermediate tree was `SUITE_EXIT=1` on two assertions: `SECTION_LEVEL_ORACLES`
 is pinned in TWO test modules and only one had been updated, and
 `tools/coreenc_family_replay.py` calls the analysis and so had to be classified
 in `corpus_gate.EXCLUDED_ANALYSIS_CALLERS`. Neither is in the canonical guard
@@ -44165,3 +44168,98 @@ count rather than a list of what remains.
 * `baa63d1` — COREENC: six archive literals out of the production module (privacy)
 * `0f8c656` — COREENC: rewrap three comments the privacy edit left broken mid-sentence
 * `57b29f1` — COREENC: the two pins outside the canonical sets that the full suite found
+
+## C18. Closure proofs — the archive sweep, the pinned document, and one red reading explained
+
+### C18.1 The archive sweep: zero movement outside the named population
+
+`python -m tools.regfp_zero_movement_sweep` at the final production tree,
+against the run of record's own baseline settings key
+`24675EF06C2E08DD6803362ACD56045607BBFD3B80642A849D08D0DF541B5CAC`, in six
+chunks whose counts add to the whole archive:
+
+| | |
+|---|---|
+| documents | **3,380** (the whole archive) |
+| `compared_payload` | 2,558 |
+| `identical` | **2,558** |
+| `moved` | **0** |
+| `payload_now_raises` | **0** |
+| `no_payload_now_publishes` | **48** |
+| `no_payload_raises_again` | 745 |
+| `no_ocr_artifact` | 29 |
+| `multi_artifact_documents` | 74 |
+
+**Every one of the 48 findings is inside the census family**, and they are
+exactly the 48 documents this card publishes. Not one document that published
+under the run of record moved a byte, and not one stopped publishing. Chunk
+exit codes `1` throughout are the tool's own "findings exist" code, which a
+coverage card owes rather than avoids; the chain terminator is `EXIT=0`.
+
+The three scanned documents this registration newly claims and then declines
+are invisible to this instrument by construction and are not a gap in it: they
+had no payload before and raise again now, so they land in
+`no_payload_raises_again`, and the tool deliberately does not compare exception
+classes (its own §REGFP RF5 note). They are measured instead by the population
+replay in C0, which reads the outcome the discovery report ranks by.
+
+### C18.2 The pinned corpus document, measured leaf by leaf
+
+`AF6BD563…` (`Link Bank April statement.pdf`) is one of the pinned 109 and is
+the one document where a pinned record and this registration meet. Four
+measurements, and they answer the question in the order it has to be asked:
+
+1. **does this registration claim it?** Yes, at detection — the claimant set
+   before `supersedes` pruning is `[linkbank 0.5, core_processor_enclosures
+   1.0]`, and the new reader scores HIGHER;
+2. **is it gated?** Yes. `resolve` returns `claimed` with candidates exactly
+   `(('linkbank', 0.5),)`. The `linkbank` edge prunes the general reader before
+   any parse runs, so this reader never touches the document;
+3. **does its published payload change in any leaf?** No. Recomputed at HEAD
+   against the payload the run of record stored under the baseline key:
+   **51,594 leaves on each side, 0 differing, the whole payload byte-identical.**
+   It is correspondingly absent from the sweep's 48 findings;
+4. **does the gate agree?** Yes — `corpus_gate.py` pins every pinned document's
+   full published integrity block and is GREEN at the final tree.
+
+**No pinned document moves, and no truth-set pin is edited by this card.**
+`tests/data/parser_expectations.json`, the audit CSVs, the corpus PDFs and
+`PINNED_REFUSALS` are untouched by the branch (measured with `git diff -S` and
+`--name-only` over `10cc722...HEAD`). The pins this card does edit are the
+REGISTRY pins the handoff requires in the same commit as the registration: the
+registration count 75 → 76, `EXPECTED_ORDER`, the supersedes-edge dict, the
+conformance cross-product 76 × 75, and `SECTION_LEVEL_ORACLES`. There is no
+pinned movement here and therefore no ceremony to ask for.
+
+### C18.3 One red reading, and why it is the machine rather than the card
+
+The corpus-marked slice read RED twice on
+`tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run`,
+at 243.4 ms and 246.6 ms for the slowest corpus document, projecting to 256.3
+and 259.6 ms against a 250 ms budget. Both runs were taken while **14 to 20
+python processes** shared this machine — six concurrent archive sweeps, four
+corpus gates and four corpus slices from the other batch-8 cells. That is the
+exact failure the constant's own docstring records: "Three cells of the batch-4
+wave read this test red on an unmodified base while ten agents shared the
+machine." Best-of-5 does not rescue a reading when every one of the five
+samples is contended.
+
+Re-measured on a quiet host (5 python processes), on the same slowest document
+and through the same `pr._surviving_claimants` seam, best of nine:
+
+| | ms | projected at 80 |
+|---|---:|---:|
+| the sweep WITH `core_processor_enclosures` (76 registrations) | **71.5** | **75.3** |
+| the sweep WITHOUT it (75 registrations) | 78.2 | 83.4 |
+| the sweep WITH it, re-measured | 69.9 | 73.6 |
+
+The budget is 250 ms and the reading is 71.5 ms — 3.4× under it. **This
+registration's share is not measurable above the noise**: removing it made the
+sweep *slower* by 6.7 ms, where an average registration costs 0.94 ms. That is
+what the projection's own arithmetic predicts, and it is worth saying out loud
+because it is the reason a new registration cannot move this test: the
+assertion divides by `len(registrations)`, so a registration of average cost
+leaves the projection exactly where it was.
+
+The slice was re-run at the final tree on the quiet host and its result is in
+the table below.
