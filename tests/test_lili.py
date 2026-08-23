@@ -257,6 +257,65 @@ SKIN_B_OUT_OF_PERIOD = (
 )
 
 
+#: A period that does NOT start on the first of its month. The archive has one
+#: (a period running from late one month to the end of the next), and it is
+#: what makes the lower bound of the period reading pinnable: a rule that
+#: slackened to "the first of the period-start month" would be invisible on a
+#: calendar-month period and is caught here.
+MID_MONTH_HEADER = (
+    "Account Number Statement Period 999900000000 "
+    "15 September, 2027 - 14 October, 2027\n"
+)
+MID_MONTH_SUMMARY = (
+    "Checking Account Summary Total Checking Amount\n"
+    "Beginning balance on 15 September, 2027 $137.41\n"
+    "Deposits and other credits $512.63\n"
+    "Withdrawals and other debits $-308.19\n"
+    "Fees $-13.27\n"
+    "Ending balance on 14 October, 2027 $328.58\n"
+)
+MID_MONTH_LEDGER = (
+    "Checking Account Activity - Main Account\n"
+    "Date Authorization Code Description Amount Balance\n"
+    "09/16/2027 111111111 A MERCHANT NOWHERE ZZUS $-308.19 $-170.78\n"
+    "09/17/2027 222222222 A MOVEMENT IN $512.63 $341.85\n"
+    "10/14/2027 333333333 A PERIODIC LEVY (Applies From 09/08/2027) $-13.27 $328.58\n"
+)
+SKIN_A_MID_MONTH = MID_MONTH_HEADER + MID_MONTH_SUMMARY + MID_MONTH_LEDGER + CONTACT
+
+#: A line that BEGINS with a date and that the row pattern cannot parse — here
+#: because the posting carries no authorization code. It moves no money and
+#: repeats the balance above it, so every arithmetic gate is content with it
+#: dropped: only the coverage reading can see that a printed line was silently
+#: not read.
+SKIN_A_UNPARSED_LEDGER_LINE = (
+    HEADER + SUMMARY
+    + "Checking Account Activity - Main Account\n"
+    "Date Authorization Code Description Amount Balance\n"
+    "09/03/2027 111111111 A MERCHANT NOWHERE ZZUS $-308.19 $-170.78\n"
+    "09/17/2027 222222222 A MOVEMENT IN $512.63 $341.85\n"
+    "09/22/2027 A HOLD WITH NO CODE $0.00 $341.85\n"
+    "09/30/2027 333333333 A PERIODIC LEVY (Applies From 09/08/2027) $-13.27 $328.58\n"
+    + CONTACT
+)
+
+#: Six clean printings that carry a date OUTSIDE the declared period without
+#: any of them being a claim about when money moved. Every one of these was
+#: refused by this reader's first revision, and every one must publish.
+SKIN_A_LEGITIMATE_OUT_OF_PERIOD_DATES = (
+    HEADER + SUMMARY
+    + "Checking Account Activity - Main Account\n"
+    "Date Authorization Code Description Amount Balance\n"
+    "09/03/2027 111111111 A MERCHANT NOWHERE ZZUS $-308.19 $-170.78\n"
+    "09/17/2027 222222222 A MOVEMENT IN REF 04/02/2026 $512.63 $341.85\n"
+    "09/30/2027 333333333 A PERIODIC LEVY (Applies From 08/25/2027) $-13.27 $328.58\n"
+    "Statement printed 10/02/2027\n"
+    "These terms were last revised 01/14/2019.\n"
+    "Report an error no later than 11/29/2027.\n"
+    + CONTACT
+)
+
+
 def _swap(document: str, before: str, after: str) -> str:
     assert before in document, before
     return document.replace(before, after, 1)
@@ -401,11 +460,73 @@ def test_a_posting_date_that_is_not_a_calendar_date_refuses_the_document():
     ) is None
 
 
-def test_a_non_calendar_date_inside_a_description_refuses_the_document():
-    """Away from the date column, only the §INTEGRITY gate ever looks at this
-    token — and it must answer, not raise."""
-    assert parse_lili_statement(
+def test_a_non_calendar_date_inside_a_description_does_not_refuse():
+    """Description text is not a claim about when money moved. The row's own
+    leading date, amount and balance have already been verified, so a
+    malformed date inside its description changes nothing — and it must not
+    raise either."""
+    statement = parse_lili_statement(
         _swap(SKIN_A, "(Applies From 09/08/2027)", "(Applies From 13/45/2027)")
+    )
+    assert statement is not None
+    assert "13/45/2027" in statement.transactions[2].description
+
+
+def test_a_line_that_begins_with_a_date_must_be_a_posting():
+    """MINOR-3, and the reading that refuses the second printing. A printed
+    ledger line the row pattern cannot parse is silently dropped by every
+    other gate when it moves no money — so coverage is checked on ROWS, not
+    only on money. Measured over the 15 clean members: 2,718 line-leading
+    dates, 2,718 parsed postings, exact on every document."""
+    assert parse_lili_statement(SKIN_A_UNPARSED_LEDGER_LINE) is None
+
+
+def test_a_posting_on_the_first_day_of_the_period_publishes():
+    assert parse_lili_statement(
+        _swap(SKIN_A, "09/03/2027 111111111", "09/01/2027 111111111")
+    ) is not None
+
+
+def test_a_posting_one_day_before_the_period_is_refused():
+    assert parse_lili_statement(
+        _swap(SKIN_A, "09/03/2027 111111111", "08/31/2027 111111111")
+    ) is None
+
+
+def test_a_posting_on_the_last_day_of_the_period_publishes():
+    assert parse_lili_statement(
+        _swap(SKIN_A, "09/03/2027 111111111", "09/30/2027 111111111")
+    ) is not None
+
+
+def test_a_posting_one_day_after_the_period_is_refused():
+    assert parse_lili_statement(
+        _swap(SKIN_A, "09/03/2027 111111111", "10/01/2027 111111111")
+    ) is None
+
+
+def test_a_period_that_does_not_start_on_the_first_publishes():
+    statement = parse_lili_statement(SKIN_A_MID_MONTH)
+    assert statement is not None
+    assert statement.period_start == "2027-09-15"
+    assert statement.period_end == "2027-10-14"
+    assert statement.days_in_period == 30
+
+
+def test_a_posting_earlier_in_the_period_start_month_is_refused():
+    """The lower bound is the period's own first day, not the first of the
+    month it falls in. On a calendar-month period those are the same day and
+    a slackened bound would be invisible; on this period they are two weeks
+    apart."""
+    assert parse_lili_statement(
+        _swap(SKIN_A_MID_MONTH, "09/16/2027 111111111", "09/03/2027 111111111")
+    ) is None
+
+
+def test_a_posting_later_in_the_period_end_month_is_refused():
+    """The upper bound, pinned the same way."""
+    assert parse_lili_statement(
+        _swap(SKIN_A_MID_MONTH, "10/14/2027 333333333", "10/29/2027 333333333")
     ) is None
 
 
@@ -414,15 +535,26 @@ def test_an_unreadable_posting_refuses_even_when_skipping_it_would_reconcile():
     assert parse_lili_statement(SKIN_A_UNREADABLE_POSTING_THAT_NETS_TO_NOTHING) is None
 
 
-def test_a_date_inside_a_description_is_read_by_the_same_gate():
-    """The fee rows of this template carry a date in their text. Inside the
-    period it is fine; outside it, it refuses — measured over the family's 15
-    clean members, zero of 2,729 printed date tokens fall outside, and on the
-    five that are not clean, 42 do."""
+def test_a_fee_effective_date_before_the_period_publishes():
+    """The fee rows of this template print the start of the plan CYCLE they
+    bill for, and a cycle can begin before the statement period does — so an
+    effective date outside the period is an ordinary printing, not a finding.
+    Measured over the 15 clean members: 11 description dates, all of them a
+    fee row's effective date."""
     assert parse_lili_statement(SKIN_A) is not None
     assert parse_lili_statement(
-        _swap(SKIN_A, "(Applies From 09/08/2027)", "(Applies From 12/09/2019)")
-    ) is None
+        _swap(SKIN_A, "(Applies From 09/08/2027)", "(Applies From 08/25/2027)")
+    ) is not None
+
+
+def test_six_clean_printings_that_carry_an_out_of_period_date_publish():
+    """A merchant string with a date in it, a fee cycle that began before the
+    period, a footer print date, a terms-revision date and an error-resolution
+    deadline. Every one of these was refused by this reader's first revision,
+    which checked every date the document printed wherever it printed it."""
+    statement = parse_lili_statement(SKIN_A_LEGITIMATE_OUT_OF_PERIOD_DATES)
+    assert statement is not None
+    assert len(statement.transactions) == 3
 
 
 # ---------------------------------------------------------------------------

@@ -46,51 +46,79 @@ MUTATIONS: dict[str, tuple[str, str]] = {
     ),
 
     # ---------------------------------------------------------------- §INTEGRITY
-    # M03 — the gate removed entirely: rows from another statement are read.
+    # The gate is TWO readings over one date class. Each is broken alone,
+    # and each bound of the period reading is slackened separately, because
+    # a bound that is only ever checked on a calendar-month period is not
+    # checked at all.
+    #
+    # M03 — the whole gate removed.
     "M03_integrity_gate_removed": (
-        "    if not _dates_are_all_inside(markdown, start, end):\n        return None\n",
+        "    if _ledger_dates_are_sound(markdown, start, end) is not None:\n        return None\n",
         "",
     ),
-    # M04 — the gate compares only the YEAR, so a row a month outside the
-    #       period reads as in-period.
-    "M04_integrity_compares_only_the_year": (
-        "        if not start <= printed <= end:\n            return False",
-        "        if not start.year <= printed.year <= end.year:\n            return False",
+    # M04 — the COVERAGE reading removed: a printed ledger line the row
+    #       pattern cannot parse is dropped in silence again.
+    "M04_coverage_reading_removed": (
+        '    if {match.start() for match in leading} != {match.start() for match in rows}:\n        return "a line that begins with a date is not a posting"\n',
+        "",
     ),
-    # M05 — a token that is not a calendar date is skipped instead of
-    #       refusing, so the gate stops seeing the malformed ones.
-    "M05_integrity_skips_non_calendar_tokens": (
-        "        except ValueError:\n            return False",
-        "        except ValueError:\n            continue",
+    # M05 — coverage weakened from POSITIONS to a count comparison.
+    "M05_coverage_counts_not_positions": (
+        "    if {match.start() for match in leading} != {match.start() for match in rows}:",
+        "    if len(leading) < len(rows):",
     ),
-    # M06 — the gate looks only at the ledger's own date column, which is
-    #       where the effective date inside a description escapes it.
-    "M06_integrity_ignores_dates_in_descriptions": (
-        '_PRINTED_DATE_RE = re.compile(r"(?<![\\d/])(\\d{2})/(\\d{2})/(\\d{4})(?![\\d/])")',
-        '_PRINTED_DATE_RE = re.compile(r"(?m)^(\\d{2})/(\\d{2})/(\\d{4})")',
+    # M06 — the PERIOD reading removed, coverage left in place.
+    "M06_period_reading_removed": (
+        '        if not start <= posted <= end:\n            return "a printed date outside the declared period"\n',
+        "",
     ),
-
+    # M07 — the lower bound slackened to the first of the period-start month.
+    #       Invisible on a calendar-month period, which is why the suite
+    #       carries a period that starts mid-month.
+    "M07_lower_bound_slackened_to_the_month": (
+        "        if not start <= posted <= end:",
+        "        if not start.replace(day=1) <= posted <= end:",
+    ),
+    # M08 — the upper bound slackened the same way, to the month's end.
+    "M08_upper_bound_slackened_to_the_month": (
+        "        if not start <= posted <= end:",
+        "        if not start <= posted or (posted.year, posted.month) > (end.year, end.month):",
+    ),
+    # M09 — a date the calendar does not have RAISES instead of answering.
+    "M09_period_reading_raises_on_a_non_date": (
+        '        except ValueError:\n            return "a printed date outside the declared period"\n',
+        "        except ValueError:\n            raise\n",
+    ),
+    # M10 — the gate runs AFTER the shape is read. Recorded as an EQUIVALENT
+    #       mutant and expected to SURVIVE: every gate here answers by
+    #       declining, so ORDER changes which reason the replay attributes
+    #       and nothing a caller can observe. It is in the table so that
+    #       "order is not observable" is a measurement, not a promise.
+    "M10_gate_after_the_shape_read_EQUIVALENT": (
+        "    if _ledger_dates_are_sound(markdown, start, end) is not None:\n        return None\n\n    summary = _summary(markdown)\n    if summary is None:\n        return None\n",
+        "    summary = _summary(markdown)\n    if summary is None:\n        return None\n    if _ledger_dates_are_sound(markdown, start, end) is not None:\n        return None\n",
+    ),
     # ---------------------------------------------------------------------- §L-1
     # M07 — the second money column is not seen: the checking column is read
     #       and the collateral account is silently dropped.
-    "M07_l1_column_gate_removed": (
+    "M11_l1_column_gate_removed": (
         "    if len(summary[0]) != 1:\n        return None\n",
         "",
     ),
     # M08 — the census's own framing of the hazard: read a column rather than
     #       refuse. Takes the LAST figure, which is the printed Total.
-    "M08_l1_reads_the_total_column": (
+    "M12_l1_reads_the_total_column": (
         "    if len(summary[0]) != 1:\n        return None\n",
         "",
     ),
     # M09 — the second ledger is not seen.
-    "M09_l1_ledger_gate_removed": (
+    "M13_l1_ledger_gate_removed": (
         "    if len(_LEDGER_HEAD_RE.findall(markdown)) != 1:\n        return None\n",
         "",
     ),
     # M10 — the ledger gate weakened to "at least one", the shape a reader
     #       that only wanted to find the table would write.
-    "M10_l1_ledger_gate_at_least_one": (
+    "M14_l1_ledger_gate_at_least_one": (
         "    if len(_LEDGER_HEAD_RE.findall(markdown)) != 1:",
         "    if len(_LEDGER_HEAD_RE.findall(markdown)) < 1:",
     ),
@@ -259,7 +287,7 @@ MUTATIONS: dict[str, tuple[str, str]] = {
 #: Mutants that need a second edit alongside the first.
 PRELUDE: dict[str, tuple[str, str]] = {
     # M08 reads the LAST column rather than refusing a multi-column grid.
-    "M08_l1_reads_the_total_column": (
+    "M12_l1_reads_the_total_column": (
         "    beginning, deposits, withdrawals, fees, ending = (row[0] for row in summary)",
         "    beginning, deposits, withdrawals, fees, ending = (row[-1] for row in summary)",
     ),

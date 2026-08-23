@@ -133,8 +133,9 @@ def gate(text: str) -> str:
     if header is None:
         return "header_unreadable_or_contradictory"
     _account, start, end = header
-    if not lili._dates_are_all_inside(text, start, end):
-        return "INTEGRITY_printed_date_outside_the_printed_period"
+    integrity = lili._ledger_dates_are_sound(text, start, end)
+    if integrity is not None:
+        return "INTEGRITY: " + integrity
     summary = lili._summary(text)
     if summary is None:
         return "summary_not_line_anchored"

@@ -72,6 +72,57 @@ def _period(text: str) -> tuple[date, date] | None:
     return start, end
 
 
+#: The five summary terms, in printed order. The second printing puts each
+#: label and its figure on SEPARATE lines, so reading them needs a stated
+#: pairing rule rather than a line anchor.
+_TERMS = ("Beginning balance on", "Deposits and other credits",
+          "Withdrawals and other debits", "Fees", "Ending balance on")
+
+#: DELIBERATELY LOOSER than the shared money grammar: cents-less and
+#: double-decimal figures are exactly what these documents print, and the
+#: point here is to read what they printed, never to publish it. Reading them
+#: with the strict grammar is what made an earlier revision of W3 §LILI report
+#: one of these documents as unpairable and attribute another's residual to
+#: it.
+_LOOSE_MONEY_RE = re.compile(r"\$-?[\d,]+(?:\.\d+)?")
+
+
+def _summary_residuals(text: str) -> tuple[float, float] | None:
+    """`(as printed, with the two debit terms negated)`, or None.
+
+    THE PAIRING RULE, stated because the answer depends on it: each label, in
+    printed order, takes the first money token at or after it — on its own
+    line or on one of the next two — that no earlier label has already taken.
+    All five must pair, or the document is reported unpairable rather than
+    guessed at.
+    """
+    lines = text.splitlines()
+    values: dict[str, float] = {}
+    taken: set[int] = set()
+    for index, line in enumerate(lines):
+        for term in _TERMS:
+            if term not in line or term in values:
+                continue
+            for offset in range(index, min(index + 3, len(lines))):
+                if offset in taken:
+                    continue
+                begin = line.index(term) + len(term) if offset == index else 0
+                found = _LOOSE_MONEY_RE.search(lines[offset], begin)
+                if found is None:
+                    continue
+                try:
+                    values[term] = float(found.group(0).replace("$", "").replace(",", ""))
+                except ValueError:
+                    continue
+                taken.add(offset)
+                break
+    if len(values) != len(_TERMS):
+        return None
+    beginning, deposits, withdrawals, fees, ending = (values[term] for term in _TERMS)
+    return (round(beginning + deposits + withdrawals + fees - ending, 2),
+            round(beginning + deposits - abs(withdrawals) - abs(fees) - ending, 2))
+
+
 def _digest(values) -> str:
     return hashlib.sha256("".join(sorted(values)).encode("utf-8")).hexdigest()[:16]
 
@@ -146,6 +197,19 @@ def main() -> int:
             for a in keys:
                 row = " ".join(f"{len(name[a] & name[b]):>9}" for b in keys)
                 print(f"    {a[:8]:8} {row}   (own size {len(name[a])})")
+
+    print("\nDoes each one's own printed summary close? "
+          "(pairing rule in `_summary_residuals`)")
+    for sha in family_shas(args.census, args.family):
+        if sha[:16] not in date_sets:
+            continue
+        text = cached_text(artifacts, sha)
+        residuals = None if text is None else _summary_residuals(text)
+        if residuals is None:
+            print(f"  {sha[:16]}  not all five terms pair to a figure")
+        else:
+            print(f"  {sha[:16]}  as printed {residuals[0]:>10.2f} | "
+                  f"debit terms negated {residuals[1]:>8.2f}")
 
     print("\nDocuments sharing one (historical date, reference) fingerprint:")
     for fingerprint, shas in sorted(groups.items()):

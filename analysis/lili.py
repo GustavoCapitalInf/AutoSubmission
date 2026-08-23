@@ -50,15 +50,22 @@ summary nets out — a credit and its reversal — breaks the gross-debit
 reading while leaving every printed balance consistent. This template prints
 no transaction count, and it needs none.
 
-§INTEGRITY — WHY A CLEAN-LOOKING DOCUMENT IS REFUSED. Every date this
-template prints inside a statement is a date inside that statement's own
-period: the posting dates, and the effective date some fee rows carry in
-their description. A date the document prints outside the period it declares
-is not an OCR defect and not a wrap — it is a row that belongs to a different
-statement, and the platform must not reconcile around it. So EVERY printed
-`mm/dd/yyyy` must fall inside the printed period, and a token that is not a
-calendar date at all fails the same way. This gate runs BEFORE the shape is
-read, so a tampered document is refused as tampered rather than as unreadable.
+§INTEGRITY — WHY A CLEAN-LOOKING DOCUMENT IS REFUSED. A posting dated outside
+the period the document declares is not an OCR defect and not a wrap: it is a
+row that belongs to a different statement, and the platform must not
+reconcile around it. Two readings enforce that, over ONE class of date — the
+date that BEGINS a line, which on this template is a posting and nothing
+else. Every such line must be a posting the row pattern parsed (so a block of
+rows the pattern cannot read cannot pass as text nobody looked at), and every
+posting's date must fall inside the printed period.
+
+Dates that are not evidence about when money moved are deliberately NOT
+checked: the effective date a fee row prints inside its description for a
+plan cycle that may have begun before the period, and anything outside a
+posting altogether — a footer's print date, a disclosure's revision date, an
+error-resolution deadline. Measured over the 15 clean members: 2,718
+line-leading dates, all postings, all in period; 11 description dates, all
+fee effective dates; zero line-leading dates that are not postings.
 
 §L-1 — THE SECOND ACCOUNT. One printing of Skin A adds a credit-builder card
 whose collateral is held in its own account: the summary grows from one money
@@ -158,10 +165,12 @@ _ROW_RE = re.compile(
     re.MULTILINE,
 )
 
-#: Every posting-shaped date the document prints, wherever it prints it —
-#: including the effective date a fee row carries inside its description.
-#: Bounded on both sides so a longer digit run cannot supply one (§INTEGRITY).
-_PRINTED_DATE_RE = re.compile(r"(?<![\d/])(\d{2})/(\d{2})/(\d{4})(?![\d/])")
+#: A line that BEGINS with a date. On this template that is a posting and
+#: nothing else: measured over the family's 15 clean members, every one of
+#: 2,718 line-leading dates is the leading date of a posting the row pattern
+#: parses, and there are no others. It is the anchor for both readings in
+#: §INTEGRITY.
+_LEADING_DATE_RE = re.compile(r"(?m)^(\d{2})/(\d{2})/(\d{4})(?![\d/])")
 
 #: The five printed summary terms, in the order the template prints them.
 #: Each must appear on its own line, exactly once, followed by its own run of
@@ -254,22 +263,53 @@ def _header(text: str) -> tuple[str, date, date] | None:
     return next(iter(readings))
 
 
-def _dates_are_all_inside(text: str, start: date, end: date) -> bool:
-    """Whether every printed `mm/dd/yyyy` falls inside the printed period.
+def _ledger_dates_are_sound(text: str, start: date, end: date) -> str | None:
+    """The name of the §INTEGRITY reading that refuses `text`, or None.
 
-    The §INTEGRITY gate. A token that is not a calendar date at all (a
-    thirteenth month, a thirty-first of February) answers False for the same
-    reason a June date in a February statement does: the document is printing
-    something it did not compute.
+    TWO READINGS, over ONE class of date, and the class is the point. An
+    earlier revision of this reader checked EVERY `mm/dd/yyyy` the document
+    printed, anywhere, which is wrong in both directions: it would refuse a
+    page footer's print date, a disclosure's revision date, an
+    error-resolution deadline, a merchant string that happens to carry a
+    date, and the effective date a fee row prints in its DESCRIPTION for a
+    plan cycle that began before the period — none of which is evidence about
+    when money moved. Measured over the 15 clean members: 2,718 line-leading
+    dates, every one the leading date of a posting the row pattern parses;
+    11 dates inside a description, every one a fee row's effective date; and
+    zero line-leading dates that are not postings. So:
+
+    * **coverage** — every line that BEGINS with a date must be a posting the
+      row pattern parsed. This is what the second printing fails: it prints
+      twelve line-leading dates and the row pattern parses none of them, so
+      its pasted block cannot slip through as text the reader simply did not
+      look at. It is also what catches a posting whose money the grammar
+      refuses, which would otherwise be dropped in silence.
+    * **period** — every posting's own leading date must fall inside the
+      printed period, strictly. A posting dated outside the period the
+      document declares is a posting from a different statement.
+
+    A date the reader cannot resolve to a calendar day fails the period
+    reading for the same reason a five-year-old date does: the document is
+    printing something it did not compute.
+
+    Text inside a description, and text outside every posting, are NOT
+    date-checked. They carry no claim about when money moved, and the row
+    they sit on has already had its date, its amount and its balance verified.
     """
-    for match in _PRINTED_DATE_RE.finditer(text):
+    rows = list(_ROW_RE.finditer(text))
+    leading = list(_LEADING_DATE_RE.finditer(text))
+    if {match.start() for match in leading} != {match.start() for match in rows}:
+        return "a line that begins with a date is not a posting"
+    for match in rows:
         try:
-            printed = date(int(match.group(3)), int(match.group(1)), int(match.group(2)))
+            posted = date(
+                int(match.group("year")), int(match.group("month")), int(match.group("day"))
+            )
         except ValueError:
-            return False
-        if not start <= printed <= end:
-            return False
-    return True
+            return "a printed date outside the declared period"
+        if not start <= posted <= end:
+            return "a printed date outside the declared period"
+    return None
 
 
 def _summary(text: str) -> list[list[float]] | None:
@@ -346,9 +386,12 @@ def parse_lili_statement(markdown: str) -> Statement | None:
         return None
     account, start, end = header
 
-    # §INTEGRITY, before the shape: a document printing rows from outside its
-    # own period is refused as tampered, not as unreadable.
-    if not _dates_are_all_inside(markdown, start, end):
+    # §INTEGRITY, before the shape is read. Both readings answer with the NAME
+    # of what they found; the name is what `tools/lili_family_replay.py`
+    # attributes a refusal to. Gate ORDER is not observable at this boundary —
+    # every gate here answers by declining — so the order buys attribution,
+    # not behaviour, and W3 §LILI says so rather than implying otherwise.
+    if _ledger_dates_are_sound(markdown, start, end) is not None:
         return None
 
     summary = _summary(markdown)
