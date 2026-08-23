@@ -36641,7 +36641,7 @@ All on the FINAL tree unless the row says otherwise. Exit codes verbatim.
 | family replay, `first_citizens`, base vs final HEAD | 39 claimed - **26 byte-identical, 13 movers** (4 coverage + 9 label-only) | 0 |
 | the 5 pinned documents, base vs final HEAD, whole payload | `IDENTICAL` x 5, the first_citizens one included | 0 |
 | registry fingerprint, base vs final HEAD | `74  161D81F4E1D7D34DCE342C4EB367D4FA21315F71C31EB91EBAAF4373AB0170F4` on both | 0 |
-| archive zero-movement sweep, all 3,380, re-run at final HEAD | ZMS2_RESULT | ZMS2_EXIT |
+| archive zero-movement sweep, all 3,380, re-run at final HEAD (F13.9) | `identical` **2,526** · `moved` **9** · `no_payload_now_publishes` **4** · `payload_now_raises` **0** — **13 findings, 0 outside the named population** | 1 per chunk holding a finding (by design) |
 
 Suite 5,391 -> **5,400** (+9 closure tests; the cell's file is 17 -> 26).
 Guard **242** and conformance **1151** hit their expected counts exactly. The
@@ -36662,3 +36662,32 @@ to this closure and was not used.
 The earlier commits are unchanged: `b93d93b` (the widening + its tests),
 `9517c87` (F0-F8), `4453223` (the credit corrections), `c361f31` (the docstring),
 `a9203ba` (F9-F12) - the tree review read.
+
+
+### F13.9 The archive sweep, re-run at the final HEAD
+
+The sweep in F10.1 describes the reviewed tree. Production moved twice since,
+so it was re-run whole rather than argued forward — 3,380 documents, four
+chunks, 2,402.8s on a quiet box.
+
+| chunk | compared | identical | `moved` | `no_payload_now_publishes` | `payload_now_raises` | seconds | exit |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 0–850 | 623 | 621 | 2 | 1 | **0** | 790.2 | 1 |
+| 850–1700 | 649 | 644 | 5 | 1 | **0** | 582.6 | 1 |
+| 1700–2550 | 639 | 637 | 2 | 1 | **0** | 527.6 | 1 |
+| 2550–3380 | 624 | 624 | 0 | 1 | **0** | 502.4 | 1 |
+| **total** | **2,535** | **2,526** | **9** | **4** | **0** | 2,402.8 | — |
+
+2,526 + 9 + 4 + 812 `no_payload_raises_again` + 29 `no_ocr_artifact` =
+**3,380**.
+
+**All 13 findings are inside the named population, checked by sha against the
+list in F3.4 and F13.3: 0 outside.** The nine `moved` are the nine label movers
+and the four `no_payload_now_publishes` are the four coverage movers. The
+instrument reports FIELD NAMES only, and on all nine it reports the same four
+containers — `['classifications', 'detection', 'metrics', 'statement']` — which
+is why F13.3's leaf diff is the evidence that matters: inside those four
+containers, every one of the 22 changed paths ends in `.account_name`.
+
+`payload_now_raises` is **0**: no document that published under the run of
+record stopped publishing at HEAD.
