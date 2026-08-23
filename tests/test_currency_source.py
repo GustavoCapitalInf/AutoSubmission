@@ -597,6 +597,7 @@ PROVENANCE_MODULES = {
     "analysis/td_can.py",
     "analysis/td_canada_french.py",
     "analysis/wealthsimple.py",
+    "analysis/welch_state_bank.py",
     "analysis/woodforest.py",
     "corpus_gate.py",
 }

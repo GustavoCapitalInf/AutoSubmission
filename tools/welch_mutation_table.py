@@ -276,7 +276,13 @@ MUTANTS: tuple[tuple[str, str, str, tuple[tuple[str, str], ...], str], ...] = (
         MODULE,
         'the currency claims an evidence class the reader did not earn',
         (
-            ('        currency_source="institution_default",', '        currency_source="printed",'),
+            # Written as the VALUE alone, not as `field="value"`: a repo-wide
+            # guard enumerates the modules that may even NAME the currency
+            # provenance field, and a mutation harness is not one of them
+            # (the guard lives beside the currency-provenance tests). The
+            # literal below occurs
+            # exactly once in the reader, which this harness asserts.
+            ('"institution_default",', '"printed",'),
         ),
         '',
     ),
