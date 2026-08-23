@@ -47,7 +47,7 @@ Overdraft item fees year to date $0.00 $0.00 Return item fees year to date $0.00
 Account Activity
 Date Description Amount Balance
 8/01 SAMPLE INBOUND TRANSFER $418.62 $3,561.17
-8/02 SAMPLE STORE $6.53 OFF SAMPLE TOWN 08/01/26 x8134 REF:8A3C71D0 -$207.44 $3,353.73
+8/02 SAMPLE STORE $6.83 OFF SAMPLE TOWN 08/01/26 x8134 REF:8A3C71D0 -$207.44 $3,353.73
 41772603
 8/03 SAMPLE CLEARED ITEM 4408 -$4,209.18 -$855.45
 
@@ -275,7 +275,7 @@ def test_a_money_token_inside_a_descriptor_is_not_the_row_amount():
     carded = [txn for txn in stmt.transactions if "OFF SAMPLE TOWN" in txn.description]
     assert len(carded) == 1
     assert (carded[0].amount, carded[0].running_balance) == (-207.44, 3353.73)
-    assert "$6.53" in carded[0].description
+    assert "$6.83" in carded[0].description
 
 
 def test_a_zero_amount_row_refuses_even_when_every_other_oracle_closes():
