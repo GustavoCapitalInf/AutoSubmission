@@ -27,6 +27,7 @@ from . import (
     b1,
     balance_by_date,
     banco_popular,
+    bank_ozk,
     bluevine,
     bmo,
     bmo_ca_business,
@@ -56,6 +57,7 @@ from . import (
     first_farmers,
     fiserv_premier,
     found_lead,
+    frost,
     huntington,
     ibc,
     linkbank,
@@ -109,6 +111,10 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("balance_by_date", "Balance By Date Statement Platform", balance_by_date, "DETECTION_MARKERS", None, "parse_balance_by_date_statement"),
     ("banco_popular", "Banco Popular", banco_popular, "DETECTION_MARKERS", None, "parse_banco_popular_statement"),
     ("bank_of_america", "Bank of America", bofa, "DETECTION_MARKERS", "detection_text", "parse_bofa_statement"),
+    # Bank OZK prints no wordmark; the issuer evidence is its own customer
+    # service block, and the DIRECTION of a row is not in the text layer at
+    # all — it is solved against the printed daily balances (W3 §FROSTOZK).
+    ("bank_ozk", "Bank OZK", bank_ozk, "DETECTION_MARKERS", None, "parse_bank_ozk_statement"),
     ("bluevine", "Bluevine", bluevine, "DETECTION_MARKERS", None, "parse_bluevine_statement"),
     ("bmo", "BMO", bmo, "DETECTION_MARKERS", "detection_text", "parse_bmo_statement"),
     ("bmo_ca_business", "BMO", bmo_ca_business, "DETECTION_MARKERS", "detection_text", "parse_bmo_ca_business_statement"),
@@ -193,6 +199,10 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     # construction and the conformance cross-product holds them apart.
     ("found_lead", "Lead Bank (Found)", found_lead, "DETECTION_MARKERS", "detection_text", "parse_found_lead_statement"),
     ("found_lead_activity", "Lead Bank (Found) Month-to-Date Activity", found_lead, "ACTIVITY_DETECTION_MARKERS", "detection_text", "parse_found_lead_statement"),
+    # The Frost Bank mainframe printing: a six-figure summary strip bound by
+    # the rule-drawn header above it, and no printed statement period
+    # (W3 §FROSTOZK).
+    ("frost", "Frost Bank", frost, "DETECTION_MARKERS", None, "parse_frost_statement"),
     ("huntington", "Huntington National Bank", huntington, "DETECTION_MARKERS", "detection_text", "parse_huntington_statement"),
     ("ibc", "IBC Bank", ibc, "DETECTION_MARKERS", None, "parse_ibc_statement"),
     ("linkbank", "LINKBANK", linkbank, "DETECTION_MARKERS", None, "parse_linkbank_statement"),

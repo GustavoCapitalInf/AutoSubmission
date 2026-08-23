@@ -48,6 +48,7 @@ EXPECTED_ORDER = [
     "balance_by_date",
     "banco_popular",
     "bank_of_america",
+    "bank_ozk",
     "bluevine",
     "bmo",
     "bmo_ca_business",
@@ -79,6 +80,7 @@ EXPECTED_ORDER = [
     "fiserv_premier",
     "found_lead",
     "found_lead_activity",
+    "frost",
     "huntington",
     "ibc",
     "linkbank",
@@ -177,7 +179,7 @@ def test_registration_count_matches_the_documented_decision_points():
     direct-bank statement whose two money columns the scan flattens and
     whose row directions are solved from the running balance printed on
     every row (W3 §TANGERINE)."""
-    assert len(pr.registrations()) == 75
+    assert len(pr.registrations()) == 77
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():

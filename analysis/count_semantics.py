@@ -1162,6 +1162,131 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
             ),
         ),
     },
+    # W3 §FROSTOZK. The Texas mainframe printing, and the reason this table
+    # has a THIRD state that is neither `comparable` nor `unsurveyed`: one
+    # direction of one bank can be comparable while the other is not, and
+    # saying so is the whole content of the entry.
+    "frost": {
+        "credit": CountSemantics(
+            comparable=True,
+            scope="whole_direction",
+            reason=(
+                "The boxed summary strip prints `NO.` under `DEPOSITS` beside "
+                "`AMOUNT` (analysis/frost.py::_summary_layout, assigned in "
+                "`parse_frost_statement`), and it counts every row of the "
+                "`DEPOSITS/CREDITS` section, which is the only section this "
+                "reader posts as `credit`. Measured over all 9 archive "
+                "documents of the family: 9/9 agree, 0 disagreements, 0 flags "
+                "raised, over deposit counts from 5 to 41. "
+                "NOT A TAUTOLOGY, and that is a deliberate build decision "
+                "rather than luck. The reader's acceptance gates are the "
+                "strip's own arithmetic, the two printed TOTALS and the two "
+                "ends of the daily-balance grid — no gate reads a COUNT — so "
+                "a document whose deposit rows this reader over- or "
+                "under-counted while still summing to the printed total (a "
+                "row split in two, a duplicated zero-amount row) publishes "
+                "and this check flags it. Gating on the count instead would "
+                "have made the agreement true by construction on the one "
+                "direction where it carries information, which is the shape "
+                "`burke_herbert` below has to disclose and this one does not."
+            ),
+        ),
+        "debit": CountSemantics(
+            comparable=False,
+            scope="named_row_classes_excluded",
+            reason=(
+                "The printed `NO.` under `WITHDRAWALS` counts a NARROWER set "
+                "of rows than this reader's debit rows, while the printed "
+                "`AMOUNT` beside it counts the WIDER one — the split that "
+                "makes a count check a false-positive generator on a ledger "
+                "reconciling to the cent. Measured over all 9 archive "
+                "documents with `tools/frostozk_family_replay.py`: the "
+                "captured debit rows exceed the printed figure by 0, 9, 4, 0, "
+                "8, 5, 0, 0 and 3, and on 9 of 9 that excess is EXACTLY the "
+                "number of rows in two named classes — rows the bank printed "
+                "under its own `SERVICE CHARGE/FEE` transaction type (10 "
+                "across the family, 2 on each of the 5 documents that carry "
+                "any) and rows printed with a ZERO amount (19 across the "
+                "family; the bank prints an inquiry that moved no money in "
+                "its withdrawals section). The two classes never overlap. "
+                "Meanwhile the printed `AMOUNT` reproduces the sum of ALL of "
+                "them, 9/9 — which is why the reader can gate on the total "
+                "and must not gate on the count. "
+                "WHY NO `CountMapping`: the adjustment would be "
+                "`+ (service-charge rows) + (zero-amount rows)`, and both "
+                "terms are facts about OUR ROWS. This family prints no "
+                "service-charge summary cell at all — no `stated_service_"
+                "charge`, no printed fee total, no count of inquiries — so "
+                "there is no bank-printed figure the mapping could read, and "
+                "a mapping keyed on the captured side is exactly what "
+                "`PRINTED_EVIDENCE_FIELDS` exists to forbid. Incomparable is "
+                "therefore the measured answer and not an unread default: the "
+                "difference is understood exactly, and it is still not "
+                "expressible as printed evidence. "
+                "FALSIFIER: if a Frost printing appears whose withdrawal "
+                "`NO.` equals the row count on a document carrying a "
+                "`SERVICE CHARGE/FEE` row, the scope claim above is wrong and "
+                "this entry becomes a plain `whole_direction` comparable."
+            ),
+        ),
+    },
+    # W3 §FROSTOZK. The Arkansas sentence-summary layout, whose reader SOLVES
+    # the direction of each row against the printed daily balances and uses
+    # these two counts as the constraint that makes the solve unique. Both
+    # directions are therefore tautological, and the entry exists to say so:
+    # `UNSURVEYED` would read as "not yet examined" when the truth is
+    # "examined, and structurally silent" (the `burke_herbert` idiom).
+    "bank_ozk": {
+        "credit": CountSemantics(
+            comparable=True,
+            scope="whole_direction",
+            reason=(
+                "The summary sentence prints `PLUS <N> DEPOSITS AND OTHER "
+                "CREDITS` (analysis/bank_ozk.py::_SUMMARY_RE), one figure for "
+                "the whole direction, and the reader posts every row of the "
+                "two printed grids and no others. Measured over all 8 archive "
+                "documents: 8/8 agree, 0 disagreements, 0 flags raised. "
+                "DISCLOSURE: that 8/8 is a TAUTOLOGY and carries no "
+                "information. This layout does not print the direction of a "
+                "row anywhere — the text layer collapses its `DEBITS` and "
+                "`CREDITS` columns onto one position — so the reader recovers "
+                "direction by solving each day against the printed "
+                "`BALANCE BY DATE` step and uses THIS COUNT as the cross-day "
+                "constraint that picks between a day's competing sign "
+                "assignments. It also refuses any document whose captured row "
+                "count is not `N + M`. A claimed document therefore agrees by "
+                "construction, and the entry is written anyway because a live "
+                "check that cannot fail is worse undisclosed than disclosed. "
+                "The independent oracles for this bank are the summary's own "
+                "arithmetic, the printed day count against the two printed "
+                "as-of dates, and the printed credit and debit TOTALS — which "
+                "come from the summary block while each day's credit sum is "
+                "fixed by the daily grid, so their agreement is two printed "
+                "sources meeting rather than one restating itself."
+            ),
+        ),
+        "debit": CountSemantics(
+            comparable=True,
+            scope="whole_direction",
+            reason=(
+                "The summary sentence prints `LESS <M> CHECKS AND OTHER "
+                "DEBITS`, one figure for the whole direction, and it INCLUDES "
+                "the cheque block — the reader posts `CHECK TRANSACTIONS` and "
+                "`OTHER TRANSACTIONS` into the one direction the figure "
+                "covers, so nothing is folded on one side only. 8/8 agree "
+                "over the whole family, and tautologically, for the reason "
+                "the credit direction states: the reader refuses a document "
+                "whose captured rows are not `N + M`, so `M` follows from `N` "
+                "and the row count. RECORDED so nobody re-derives it: unlike "
+                "`frost` above, this bank's printed debit count and printed "
+                "debit total cover the SAME rows — the fees this layout bills "
+                "post as ordinary rows of the debit grid and are inside both "
+                "figures, which the row-count equality proves on all 8 — and "
+                "that is why the two families sit on opposite sides of this "
+                "table despite printing the same kind of summary."
+            ),
+        ),
+    },
 }
 
 #: Applied to any parser that populated a printed count but is not in

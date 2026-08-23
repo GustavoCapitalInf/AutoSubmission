@@ -58,6 +58,20 @@ FIXTURES: dict[str, str] = {
     ),
     "banco_popular": "Banco Popular\nFLEXICUENTA DE NEGOCIOS\n",
     "bank_of_america": "BANK OF AMERICA\nACCOUNT SUMMARY\nbankofamerica.com\n",
+    # Bank OZK prints no wordmark anywhere. The issuer evidence is its own
+    # customer-service block — a post box and a toll-free number, both
+    # institution furniture — and this fixture carries that plus the sentence
+    # summary and the daily-grid heading the reader requires. The product name,
+    # the account number and every figure here are invented.
+    "bank_ozk": (
+        "CUSTOMER SERVICE CENTER P.O. BOX 196 OZARK, AR 72949 800-274-4482\n"
+        "SAMPLE CHECKING* ACCOUNT - 000000\n"
+        "PREVIOUS STATEMENT BALANCE AS OF 01/31/26: 100.00 PLUS 1 DEPOSITS "
+        "AND OTHER CREDITS: 50.00 LESS 1 CHECKS AND OTHER DEBITS: 20.00 "
+        "CURRENT STATEMENT BALANCE AS OF 02/28/26: 130.00 NUMBER OF DAYS IN "
+        "THIS STATEMENT PERIOD: 28\n"
+        "BALANCE BY DATE\n"
+    ),
     "bluevine": "Bluevine Inc.\nActivity summary\n",
     "bmo": "BMO Bank of Montreal\nAccount Summary Totals\n",
     "bmo_ca_business": (
@@ -235,6 +249,17 @@ FIXTURES: dict[str, str] = {
     # The issuer name alone is not the claim — a statement of another bank that
     # records an ATM withdrawal at a Huntington branch prints it too. The claim
     # needs this issuer's own summary grid and its service-mark footer.
+    # The Frost mainframe printing: the information ladder (institution
+    # furniture), the product banner, and the two lines that head the boxed
+    # summary strip. The account number is invented and no figure appears.
+    "frost": (
+        "FOR INFORMATION CALL\n"
+        "000-000-0000 OR 1-800-513-7678\n"
+        "FROST BUSINESS CHECKING :  ACCOUNT NO.  00 0000000 ______\n"
+        "|          DEPOSITS           |       WITHDRAWALS           |\n"
+        "BALANCE LAST STATEMENT    |  NO.  |  AMOUNT  |  NO.  |  AMOUNT  |"
+        "   BALANCE THIS STATEMENT\n"
+    ),
     "huntington": (
         "THE HUNTINGTON NATIONAL BANK\n"
         "Beginning Balance $1,000.00 Credits (+) 0.00 Debits (-) 0.00 "
