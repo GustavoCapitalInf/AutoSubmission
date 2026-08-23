@@ -84,12 +84,14 @@ MUTATIONS: dict[str, tuple[str, list[tuple[str, str]]]] = {
     # "change as little as possible", so a printed withdrawal can be handed
     # the deposit label.
     "M5_ranking_ignores_the_printed_codes": (CAN, [
-        ("        key = (contradictions, moved)\n", "        key = (0, moved)\n"),
+        ("        ranked.append(((contradictions, moved), resolved))\n",
+         "        ranked.append(((0, moved), resolved))\n"),
     ]),
     # M6 — the ranking keeps only the codes and drops minimal change, so an
     # uncoded group is settled by the enumeration's order.
     "M6_ranking_ignores_minimal_change": (CAN, [
-        ("        key = (contradictions, moved)\n", "        key = (contradictions, 0)\n"),
+        ("        ranked.append(((contradictions, moved), resolved))\n",
+         "        ranked.append(((contradictions, 0), resolved))\n"),
     ]),
     # M7 — the code reading goes back to two-valued: "TD says withdrawal" and
     # "TD says nothing" become the same answer again.
