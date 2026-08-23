@@ -809,6 +809,17 @@ EXCLUDED_ANALYSIS_CALLERS = {
         "read-only extraction differential; publishes no verdict, and supplies "
         "the ladder's own page partition for the text it is measuring"
     ),
+    # W3 §DESCCOLS' four remaining measurements — the geometry-oracle score,
+    # the pinned probe, the fail-closed fallback and the publish/refuse
+    # boundary. Excused on the same two grounds as the differential above: no
+    # verdict is published (counts, classes and content_sha256 only — the
+    # pinned probe prints the outcome CLASSES either side of a comparison,
+    # never a figure), and every call supplies the ladder's own page partition
+    # for the text being measured.
+    "tools/desccols_proofs.py": (
+        "read-only measurement pack; publishes no verdict, and supplies the "
+        "ladder's own page partition for the text it is measuring"
+    ),
     # W3 §DESCATTRIB's geometry oracle. Its `detections` subcommand analyses a
     # document to ask which classifier detections the attribution rule removes
     # and whether the text each was matched on was ever printed for the row it

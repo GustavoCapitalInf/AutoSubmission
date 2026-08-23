@@ -67,6 +67,7 @@ LADDER_BINDINGS = {
     # measuring something production does not run — GEOM-1's lesson, one
     # directory over.
     "tools.desccols_movement": "native_statement",
+    "tools.desccols_proofs": "native_statement",
 }
 
 #: `tests/` calls individual extractors on purpose (a rung is unit-tested by
