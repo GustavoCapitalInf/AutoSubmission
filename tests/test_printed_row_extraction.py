@@ -543,3 +543,89 @@ def test_a_line_printed_left_of_the_anchor_ends_the_ledger():
     assert "CONTINUED OVERLEAF" in printed
     assert not any("CONTINUED OVERLEAF" in line and line != "CONTINUED OVERLEAF"
                    for line in printed)
+
+
+def test_a_row_with_several_money_cells_can_never_pass_the_amount_last_gate():
+    """Why there is no separate multi-column gate, pinned rather than argued.
+
+    An explicit `at most one money cell per row` gate was written first and the
+    mutation harness proved it changed no answer. The reason is structural: the
+    cells of a row are in printed reading order, so a row's FIRST money cell
+    can only be its LAST printed cell when it is the only one. Anything with
+    two money cells therefore fails the amount-last gate before any
+    multi-column rule could be consulted.
+
+    Asserted over every arrangement of up to five cells rather than on one
+    example, because the claim is about the ordering and not about a layout.
+    """
+    import itertools
+
+    import ocr.native_text as native_text
+
+    for size in range(2, 6):
+        for shape in itertools.product("md", repeat=size):
+            money = [index for index, kind in enumerate(shape) if kind == "m"]
+            if len(money) < 2:
+                continue
+            assert money[0] != size - 1, (
+                f"a row shaped {''.join(shape)} would reach the multi-column case")
+    # and the gate the rung actually applies is that same comparison
+    assert "if money[0] != row[-1]:" in native_text.__loader__.get_source(
+        "ocr.native_text")
+
+
+def test_a_region_whose_blocks_do_not_weld_is_left_alone():
+    """G5, isolated. The rows here are printed as two blocks on each band — a
+    grid block and a description block — and NO block spans more than one
+    band, so the flattening loses no row boundary and there is nothing to give
+    back. Re-serialising anyway would still change the text (three lines
+    instead of six) and rotate the document's cache key for a reading that is
+    already correct.
+
+    Hand-built rather than drawn, for the reason the straddle pin gives: which
+    lines MuPDF groups into a block is MuPDF's decision, and every synthetic
+    PDF that puts a column in three consecutive bands has it group that column
+    into one spanning block — i.e. into a weld. The arrangement this gate
+    exists for cannot be produced on demand, so it is stated directly.
+    """
+    import ocr.native_text as native_text
+
+    rows = [("4-1", "101.00", "ORCHARD SUPPLY QUARTERLY"),
+            ("4-2", "202.00", "MERIDIAN LEASING CO MONTHLY"),
+            ("4-3", "303.00", "ZEPHYR UTILITIES BILL")]
+
+    class _Page:
+        def get_text(self, mode, *args, **kwargs):
+            blocks = []
+            for index, (date, amount, detail) in enumerate(rows):
+                top = 111.0 + index * 10.0
+                blocks.append({"type": 0, "lines": [
+                    {"bbox": (23.0, top, 37.0, top + 8.0), "spans": [{"text": date}]},
+                    {"bbox": (65.0, top, 146.0, top + 8.0),
+                     "spans": [{"text": "Scheduled Transfer"}]},
+                    {"bbox": (530.0, top, 569.0, top + 8.0), "spans": [{"text": amount}]},
+                ]})
+                blocks.append({"type": 0, "lines": [
+                    {"bbox": (149.0, top + 0.7, 400.0, top + 8.7),
+                     "spans": [{"text": detail}]},
+                ]})
+            return {"blocks": blocks}
+
+    flattened = "\n".join(
+        line for date, amount, detail in rows
+        for line in (f"{date} Scheduled Transfer {amount}", detail))
+    page = _Page()
+
+    # the premise: every band holds two blocks and no block spans two bands
+    printed = native_text._printed_lines(page)
+    bands = native_text._row_bands(printed)
+    assert len(bands) == len(rows)
+    assert all(len({printed[p].block for p in band}) == 2 for band in bands)
+    spans: dict[int, set[int]] = {}
+    for index, band in enumerate(bands):
+        for position in band:
+            spans.setdefault(printed[position].block, set()).add(index)
+    assert all(len(seen) == 1 for seen in spans.values())
+    assert native_text._candidate_regions(printed, bands), "must reach the weld gate"
+
+    assert native_text._printed_row_page(page, flattened) == flattened
