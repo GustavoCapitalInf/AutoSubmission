@@ -454,7 +454,8 @@ def test_the_unsurveyed_witness_is_a_real_registration_that_prints_a_count():
 
 
 def test_the_section_level_oracles_are_disclosed_and_never_compared():
-    assert set(SECTION_LEVEL_ORACLES) == {"pnc", "wells_fargo"}
+    assert set(SECTION_LEVEL_ORACLES) == {
+        "core_processor_enclosures", "pnc", "wells_fargo"}
     assert not set(SECTION_LEVEL_ORACLES) & set(SEMANTICS)
     for parser_id in SECTION_LEVEL_ORACLES:
         for direction in DIRECTIONS:

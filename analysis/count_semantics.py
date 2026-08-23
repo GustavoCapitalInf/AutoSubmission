@@ -1192,6 +1192,16 @@ UNSURVEYED = CountSemantics(
 SECTION_LEVEL_ORACLES = {
     "pnc": "prints a per-SECTION item count the Statement schema cannot hold (W3_TRACKA_LOG.md sec 3.3, sec 3.7 item 3); no per-direction field is assigned",
     "wells_fargo": "prints a per-account `Totals` line that no parser reads (W3_TRACKA_LOG.md sec W7.4)",
+    "core_processor_enclosures": (
+        "prints BOTH per-direction counts, and both EXCLUDE a row class the "
+        "ledger posts: the credit count excludes the interest the bank "
+        "credited (5 of 54 archive members) and the debit count excludes the "
+        "service charge it billed (13, one posting it as two rows). A "
+        "CountMapping could express the debit half and there is no printed "
+        "evidence field for the credit half, so declaring it would flag every "
+        "interest-bearing member; the parser gates both scopes internally "
+        "instead (W3_TRACKA_LOG.md sec COREENC)"
+    ),
 }
 
 

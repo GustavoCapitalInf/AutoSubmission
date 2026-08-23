@@ -45,6 +45,7 @@ from . import (
     consumers,
     core_processor_counted,
     core_processor_daily,
+    core_processor_enclosures,
     core_processor_sectioned,
     demo_national,
     desjardins,
@@ -157,6 +158,21 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     # `Statement.bank` is None on every document it publishes, under the
     # honest-unknown-issuer ruling.
     ("core_processor_daily", "Core Processor Daily Balances Platform", core_processor_daily, "DETECTION_MARKERS", None, "parse_core_processor_daily_statement"),
+    # A FOURTH core processor's template (W3 sec COREENC), and the largest
+    # unclaimed printed identity in the archive: the enclosures /
+    # average-ledger summary block, printed under roughly thirty small-bank
+    # mastheads. Registered on the template's own furniture like its three
+    # predecessors, and for the same reason - most members print no
+    # institution in the text layer at all, so `Statement.bank` is None and
+    # the label here names the PLATFORM. It is NOT a printed variant of the
+    # three entries around it: it shares none of their period grammars
+    # (`Statement Dates m/dd/yy thru m/dd/yy`), prints a count on BOTH
+    # directions where `core_processor_daily` prints none and
+    # `core_processor_counted` prints six, and prints its service charge and
+    # its interest OUTSIDE both direction totals. Measured over the archive,
+    # the two required markers reach 67 documents and none of them is claimed
+    # by any of the three.
+    ("core_processor_enclosures", "Core Processor Enclosures Platform", core_processor_enclosures, "DETECTION_MARKERS", "detection_text", "parse_core_processor_enclosures_statement"),
     # A SECOND core processor's template, registered the way W3 §JHA-CELL
     # established for the first: on the template's own furniture, with the
     # issuer read out of each document and published as `Statement.bank`. The
@@ -339,6 +355,35 @@ _OVERRIDES: dict[str, dict] = {
     # three resolve `ambiguous` and the gate's per-document verdict check goes
     # red. Measured both ways.
     "b1": {"band": 10, "supersedes": frozenset({"core_processor_daily"})},
+    # The three issuers that already had their own reader on the FOURTH
+    # core-processor template `core_processor_enclosures` now registers
+    # generically (W3 sec COREENC). The relationship is the one `first_farmers`
+    # and `b1` already stand in: each of the three is a narrower document
+    # class of the same template, and the general reader claims all ten of
+    # their archive documents on the template furniture alone - the summary
+    # strip they print verbatim - so without these edges those ten resolve
+    # `ambiguous` and go to review. Three of them are validated today and
+    # would regress.
+    #
+    # The edges are safe in the strong sense rather than the observed one:
+    # the general reader consults nothing that identifies an issuer at all
+    # (it publishes `bank=None` by construction), while `burke_herbert` and
+    # `linkbank` each require their own printed domain and `farmers_merchants`
+    # its own product-and-section conjunction, none of which the general
+    # reader looks for. Neither can therefore shadow the other by accident.
+    #
+    # Stranding is named rather than claimed away, as on every edge already
+    # shipped: a document carrying one of the three issuers' markers that the
+    # issuer's own reader then declined would never be offered to the general
+    # reader. Measured over the archive that is not hypothetical for
+    # `farmers_merchants` (3 documents withheld today) or `linkbank` (4 in
+    # review), and the edge deliberately leaves them where their issuer's own
+    # reader puts them: this card's population is the census family, and
+    # moving another reader's ten documents on the way past is exactly the
+    # unnamed movement the wave forbids.
+    "burke_herbert": {"band": 10, "supersedes": frozenset({"core_processor_enclosures"})},
+    "farmers_merchants": {"band": 10, "supersedes": frozenset({"core_processor_enclosures"})},
+    "linkbank": {"band": 10, "supersedes": frozenset({"core_processor_enclosures"})},
     # BMO prints a second summary block; where the two disagree the document
     # contradicts itself. Registered here so the orchestrator never names BMO.
     "bmo": {"integrity_checks": (bmo.summary_contradictions,)},
