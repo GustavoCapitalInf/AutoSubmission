@@ -58,6 +58,7 @@ from . import (
     found_lead,
     huntington,
     ibc,
+    lili,
     linkbank,
     mercury,
     midflorida,
@@ -195,6 +196,13 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("found_lead_activity", "Lead Bank (Found) Month-to-Date Activity", found_lead, "ACTIVITY_DETECTION_MARKERS", "detection_text", "parse_found_lead_statement"),
     ("huntington", "Huntington National Bank", huntington, "DETECTION_MARKERS", "detection_text", "parse_huntington_statement"),
     ("ibc", "IBC Bank", ibc, "DETECTION_MARKERS", None, "parse_ibc_statement"),
+    # A fintech platform's business checking, banked by a Member FDIC
+    # national association whose name the back page prints. Registered on
+    # the platform's own support address plus the two summary terms it
+    # names its directions with, so BOTH of its printings are claimed and
+    # the tampered one is refused by name rather than falling through
+    # unclaimed (W3 §LILI).
+    ("lili", "Lili", lili, "DETECTION_MARKERS", None, "parse_lili_statement"),
     ("linkbank", "LINKBANK", linkbank, "DETECTION_MARKERS", None, "parse_linkbank_statement"),
     ("mercury", "Mercury", mercury, "DETECTION_MARKERS", "detection_text", "parse_mercury_statement"),
     ("midflorida", "MIDFLORIDA Credit Union", midflorida, "DETECTION_MARKERS", None, "parse_midflorida_statement"),

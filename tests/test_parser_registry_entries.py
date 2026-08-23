@@ -81,6 +81,7 @@ EXPECTED_ORDER = [
     "found_lead_activity",
     "huntington",
     "ibc",
+    "lili",
     "linkbank",
     "mercury",
     "navigant",
@@ -177,7 +178,7 @@ def test_registration_count_matches_the_documented_decision_points():
     direct-bank statement whose two money columns the scan flattens and
     whose row directions are solved from the running balance printed on
     every row (W3 §TANGERINE)."""
-    assert len(pr.registrations()) == 75
+    assert len(pr.registrations()) == 76
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():

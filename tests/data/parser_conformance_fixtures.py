@@ -242,6 +242,15 @@ FIXTURES: dict[str, str] = {
         "Huntington Bancshares Incorporated\n"
     ),
     "ibc": "IBC\nBiz Rite Account Recap\n",
+    # The platform's own support address plus the two summary terms it names
+    # its directions with. Both of the family's printings carry all three,
+    # which is the point: the shredded printing is claimed so that it can be
+    # REFUSED by name (W3 §LILI).
+    "lili": (
+        "support@lili.co\n"
+        "Deposits and other credits\n"
+        "Withdrawals and other debits\n"
+    ),
     "linkbank": "LINKBANK.COM\nActivity in Date Order\n",
     "mercury": (
         "Mercury | help@mercury.com\n"
