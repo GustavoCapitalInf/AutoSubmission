@@ -35,13 +35,21 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, computed_field
 #       `AMOUNT (CAD) BALANCE (CAD)` grid header Wealthsimple's registration
 #       REQUIRES.
 #   product
-#       A printed product/account designation that fixes the denomination
-#       without spelling out a code on its own line — RBC's `CAD CHEQUING
-#       ACCOUNT` / `US BUSINESS ACCOUNT` mailing-header map, TD Canada's
-#       `ACCOUNT - CAD` suffix, Desjardins' `USD DESJARDINS CORPORATE BUILD-UP
-#       ACCOUNT`, the `COMPTE COURANT CANADIEN` product line of the
-#       unknown-issuer Quebec layout. Still evidence the page prints; weaker
-#       than `printed` only because it is read through a product name.
+#       The denomination is read THROUGH a printed product/account
+#       designation — RBC's `CAD CHEQUING ACCOUNT` / `US BUSINESS ACCOUNT`
+#       mailing-header map, TD Canada's `ACCOUNT - CAD` suffix, Desjardins'
+#       `USD DESJARDINS CORPORATE BUILD-UP ACCOUNT`, the `COMPTE COURANT
+#       CANADIEN` product line of the unknown-issuer Quebec layout.
+#
+#       The designation may or may not spell the code out: TD Canada's and
+#       Desjardins' do, RBC's `CAD CHEQUING ACCOUNT` does, and the Quebec
+#       layout's names a jurisdiction instead. What separates this class from
+#       `printed` is not whether a code appears but WHERE it is read — inside
+#       a product name the reader had to recognise first, rather than as a
+#       statement of denomination the page makes on its own line. That is a
+#       narrower claim about the same evidence, which is the direction this
+#       vocabulary errs in: a class is filed weaker than the evidence
+#       supports, never stronger.
 #   jurisdiction_default
 #       The ratified RBC Canada rule (doctrine §B): a PROVEN bank/jurisdiction
 #       account whose page states no denomination takes its native default —

@@ -35460,9 +35460,9 @@ same three letters; the only thing that moves is a step down this list.
 | Class | What the reader must actually have | Earned today by |
 |---|---|---|
 | `printed` | a currency word or ISO code the document prints, read off the page | `bmo.py` (`Currency: XXX`), `cibc.py` (the code on the closing-balance row), `rbc.py` (the `U.S. Funds` line), `wealthsimple.py` (the REQUIRED `AMOUNT (CAD) BALANCE (CAD)` grid header) |
-| `product` | a printed product/account designation that fixes the denomination | `rbc.py` (`CAD CHEQUING ACCOUNT` / `US BUSINESS ACCOUNT`), `td_can.py` (`ACCOUNT - CAD`), `desjardins.py` (`USD DESJARDINS CORPORATE BUILD-UP ACCOUNT`), `releve_facturation.py` (`COMPTE COURANT CANADIEN`) |
+| `product` | the denomination read THROUGH a printed product/account designation | `rbc.py` (`CAD CHEQUING ACCOUNT` / `US BUSINESS ACCOUNT`), `td_can.py` (`ACCOUNT - CAD`), `desjardins.py` (`USD DESJARDINS CORPORATE BUILD-UP ACCOUNT`), `releve_facturation.py` (`COMPTE COURANT CANADIEN`) |
 | `jurisdiction_default` | the ratified four-proof conjunction, both refusals first | `rbc.py::_jurisdiction_currency`, and **nothing else in the layer** (AST-guarded) |
-| `institution_default` | nothing but the registration's own detection — the class that OWES evidence | 14 sites across 12 readers |
+| `institution_default` | nothing but the registration's own detection — the class that OWES evidence | **21 sites across 17 modules** (AST-counted at HEAD, an `IfExp` arm counted once) |
 | `model_extracted` | nothing the platform verified: the LLM returned it | `extract.py` |
 | `schema_default` | nothing at all; the field's own default `"USD"` is standing | every registration that never sets `currency`, plus `desjardins.py`'s silent arm |
 
@@ -35741,7 +35741,7 @@ claims to explain. `_printed_currency_evidence` went from `set[str]` to
 is read; where both sites fire for the same code the stated line wins, because
 they agree and the stated line is the stronger evidence.
 
-**`institution_default` — fourteen sites, twelve readers.**
+**`institution_default` — twenty-one sites, seventeen modules.**
 
 ```python
 # analysis/bmo.py :134 (fallback arm, above)
@@ -35989,15 +35989,22 @@ so it is named rather than measured.
 **3. The CSV/XLSX export gains a row** (CS7). Deliberate; flagged because it
 changes an analyst-facing artifact's shape by one line.
 
-**4. `institution_default` is now countable, and it is 425 archive payloads
-across 12 readers** — the debt doctrine §B's final paragraph describes. Five of
-the fourteen sites assert CAD from a Canadian institution's identity
-(`bmo.py`'s fallback, `bmo_ca_business.py`, `cibc.py` ×2, `scotia.py`,
-`td_can.py` ×2, `td_canada_french.py`, `rbc.py`'s French reader). Each needs
-its own proven-jurisdiction evidence base before it can become a
-`jurisdiction_default`, exactly as ATB-MEASURE is doing for the five pinned
-`schema_default` ATB documents. The field makes that queue visible; it does not
-shorten it, and nothing here promotes any of them.
+**4. `institution_default` is now countable: 425 archive payloads written by
+21 assignment sites across 17 modules** — the debt doctrine §B's final
+paragraph describes. **Nine of the twenty-one sites, across seven readers,**
+assert CAD from a Canadian institution's identity — `bmo.py:131` (the fallback
+arm), `bmo_ca_business.py:353`, `cibc.py:182` (French) and `:412` (English),
+`rbc.py:850` (French), `scotia.py:155`, `td_can.py:489` (the fallback arm) and
+`:625`, `td_canada_french.py:358`. Each needs its own proven-jurisdiction
+evidence base before it can become a `jurisdiction_default`, exactly as
+ATB-MEASURE is doing for the five pinned `schema_default` ATB documents. The
+field makes that queue visible; it does not shorten it, and nothing here
+promotes any of them.
+
+*(Both counts corrected at the review: the first version of this section said
+"14 sites across 12 readers" and "five of the fourteen", which were hand counts
+made before the last readers were annotated. The numbers above are AST-counted
+at HEAD, and the CS5 enumeration below has always listed all 21.)*
 
 **5. `wealthsimple.py` filed as `printed`** on the strength of a REQUIRED
 detection marker rather than a read at the assignment line (CS1.2). A reviewer
@@ -36069,3 +36076,155 @@ opened; nothing was written to the archive.
 Base `e83f746`. Never merged, never pushed; **no stage version bumped** — the
 composed `ANALYSIS_STAGE_VERSION` bump is Ocean's at the train, and CS11 item 1
 argues it is REQUIRED.
+
+## CS14. Review closures (APPROVE WITH FINDINGS — 0 BLOCK, 0 MAJOR, 7 MINOR)
+
+Ocean's independent adversarial review reproduced the differential on its own
+population (130 documents, 95 compared, **95 masked-identical, 0 value moved**,
+the only added key anywhere `statement.currency_source`), re-ran the pinned
+surface RED in both directions, killed five gate mutants, four AST-guard
+mutants and the model-boundary mutant independently, confirmed the
+frozen-oracle mechanism is the sanctioned one, identified and judged the new
+corpus-marked test correct, and **agreed with every classification including
+the three overrules of the card**. Seven MINOR findings; all closed or carried
+below. **Documentation and comments only — no production AST changed** (proof
+in CS15).
+
+### CS14.1 F1 — the evidence record was wrong about its own count
+
+CS1 and CS5 said `institution_default` was "14 sites across 12 readers"; CS11
+item 4 said "five of the fourteen sites assert CAD" and then listed nine. Both
+were hand counts made before the last readers were annotated, and the CS5
+enumeration had listed all 21 the whole time. Corrected above from an AST count
+at HEAD:
+
+```
+institution_default: 21 sites across 17 modules      (an IfExp arm counted once)
+printed:              3 sites across  3 modules
+product:              3 sites across  3 modules
+schema_default:       1 site
+model_extracted:      1 site
+```
+
+and the Canadian subset, measured by pairing each `institution_default` site
+with the currency written beside it: **9 sites across 7 readers** — `bmo.py`,
+`bmo_ca_business.py`, `cibc.py` ×2, `rbc.py`, `scotia.py`, `td_can.py` ×2,
+`td_canada_french.py`. This is the recurring batch-6 MAJOR class
+(*evidence-record accuracy*) reappearing in a cell that had the enumeration
+right and the summary wrong; recorded rather than quietly fixed.
+
+### CS14.2 F2 — the `product` definition contradicted its own examples
+
+The schema comment defined `product` as a designation that fixes the
+denomination *"without spelling out a code on its own line"*, which is false of
+TD Canada's `ACCOUNT - (CAD|USD)` and of Desjardins' `USD …` — both spell the
+code out. Reworded to the rule actually applied: **the denomination is read
+THROUGH a printed product/account designation**, and what separates the class
+from `printed` is not whether a code appears but WHERE it is read — inside a
+product name the reader had to recognise first, rather than as a statement of
+denomination the page makes on its own line. The comment now also states the
+direction the vocabulary errs in: a class is filed weaker than the evidence
+supports, never stronger.
+
+### CS14.3 F3 — wealthsimple's class rests on a detection marker
+
+`printed` there is earned by the REQUIRED `_GRID_RE` marker, not by the
+assignment line. The assignment site now says so, and names
+`test_wealthsimple_refuses_the_whole_document_when_the_code_is_absent` as the
+test pinning the coupling from the other end, so that relaxing `_GRID_RE` fails
+that test and whoever relaxes it must re-justify the class rather than inherit
+it.
+
+### CS14.4 F4–F6 — three pre-existing warts the field now exposes: card CURRENCY-CONTRADICTION
+
+None of these is introduced here, none moves a value, and all three are
+newly VISIBLE because the payload now states an evidence class. Carried as one
+batch-8 card alongside the `institution_default` debt (CS11 item 4).
+
+**F4 — there is no class for "asserted over CONTRADICTORY printed evidence."**
+`analysis/td_can.py:487-489`: `_native_printed_currency` returns `None` when the
+document prints two different `ACCOUNT - <code>` suffixes (a statement of
+several accounts in different denominations), and the reader then publishes
+`"CAD"` as `institution_default` — **indistinguishable in the payload from a
+page that printed nothing at all**. `analysis/rbc.py` treats the same shape
+differently and correctly: a two-code contradiction stops at rung 1 and
+publishes nothing, so the schema default stands. The vocabulary as ratified
+cannot express "the page said two things and I overrode both", and that is the
+one state where an unread denomination is actively contradicted by the
+document. Either td_can adopts RBC's refusal, or the vocabulary gains a seventh
+member; both are movement decisions, not this card's.
+
+**F5 — `cibc.py:432` labels any three-capital token `printed`.** The reader
+takes `\b([A-Z]{3})\b` from the closing-balance row and publishes it as the
+account's currency; the class now asserts the platform READ a denomination
+there. Pre-existing (CURRENCY-1), and the row is narrow, but the token is not
+drawn from a closed set the way `analysis/desjardins.py::_ADMISSIBLE_CURRENCIES`
+is — which is the same defect Desjardins' comment already documents having
+fixed for itself ("a matcher that published whatever three letters it captured
+would publish `PCA`"). The fix shape is that closed set.
+
+**F6 — Desjardins' silent arm publishes a contradiction inside one payload.**
+On the `schema_default` arm the reader still writes
+`account_name="USD Desjardins Corporate Build-Up Account"` — a name asserting a
+denomination beside a provenance saying nothing was read. This is exactly the
+class of intra-payload contradiction `analysis/td_can.py::_native_product_name`
+was written to prevent ("`currency="USD"` beside a name asserting `- CAD` …
+which is what the currency-evidence invariant exists to prevent"). The field
+did not create it; it made it legible.
+
+### CS14.5 F7(a) — the model's response schema, measured
+
+Risk 2 of CS11 (adding a field to `Statement` changes the JSON schema handed to
+Gemini) is largely retired by measurement rather than argument. Offline, no
+network:
+
+```
+google.genai._transformers.t_schema(None, Statement)["properties"]["currency_source"]
+  {"type": "STRING",
+   "enum": ["printed","product","jurisdiction_default",
+            "institution_default","model_extracted","schema_default"],
+   "default": "schema_default",
+   "title": "Currency Source",
+   "description": "Where `currency` came from: …"}
+  required: None      -> currency_source is NOT required
+```
+
+So the model is offered a constrained enum with a default, not free text. The
+residual the reviewer names is real and stays named: **the discard runs after
+pydantic validation**, so a model returning a value outside the enum would make
+`extract_statement` raise and refuse a document that previously published.
+The emitted enum makes that unlikely; it does not make it impossible.
+
+The cleaner shape — keep a platform-owned provenance field OUT of the model's
+`response_schema` entirely — is **not a one-line `exclude`**, measured:
+
+```
+Field(..., exclude=True)  ->  still in the response_schema:  True
+Field(..., exclude=True)  ->  survives model_dump (the payload): False
+```
+
+`exclude` is exactly backwards: it leaves the field in front of the model and
+deletes it from the published payload. Doing this properly means giving
+`extract_statement` a narrower response model and mapping it onto `Statement`
+at the boundary, which is a batch-8 card, not a closure. **No change now.**
+
+### CS14.6 F7(b) — a note for the train
+
+`check_currency_source` pins a class per pinned document, and the class is a
+property of **which reader claimed the document**. A sibling merge that changes
+claiming — a new registration, a `supersedes` edge, a widened detection marker
+— can therefore move a pinned document's provenance with its currency, its
+verdict and every financial field byte-identical. That is the surface working
+as designed, and it means `check_currency_source` must be re-run on the
+COMPOSED tree, not inherited from this branch's green. Ocean is doing so.
+
+### CS14.7 Proofs for the closure round
+
+Documentation and comments only; the production AST is unchanged, so the
+standing floor is not re-owed.
+
+| Proof | Result | Exit |
+|---|---|---|
+| production AST identity vs `393a4da` (docstrings stripped, all 84 `analysis/*.py` + `corpus_gate.py`) | 94 modules compared, **0 differ** | **0** |
+| `pytest tests/test_currency_source.py` | **37 passed** (5.72s) | **0** |
+| canonical guard set (5 files) | **242 passed** (15.79s) | **0** |
