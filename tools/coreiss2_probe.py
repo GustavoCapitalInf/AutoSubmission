@@ -15,10 +15,15 @@ the OCR artifact store:
   claimed" number.
 * **replay** — the family replay: how many of each census family publish. This
   is the number the mutation harness uses as its second, independent killer.
-* **privacy** — the standing privacy rule, measured. Every printed money
-  figure, full date, account mask and long digit run in the two families'
-  documents, compared against every added line of the branch diff. Prints the
-  count and nothing else about the tokens.
+* **privacy** — the standing privacy rule, measured, in TWO passes. The FIGURE
+  pass takes every printed money figure, full date, account mask and long
+  digit run in the two families' documents; the WORD pass takes every
+  alphabetic token of those same documents that is not already present
+  anywhere in the BASE revision's tracked source, which is the definition of
+  "a word that entered the tree from the archive" and is what makes the
+  measurement immune to template furniture and to ordinary English. Both are
+  compared against every added line of the branch diff. Prints counts and
+  nothing else about the tokens.
 
 READ-ONLY, in the two ways the wave requires. Nothing is written anywhere;
 and the `webapp_data` sqlite index is never opened — OCR payloads are reached
@@ -91,6 +96,14 @@ _CAPABILITY_KEYS = [
 #: ends in a shorter money figure.
 _PRIVACY_TOKEN_RE = re.compile(
     r"X{2,}\d+|\d{1,2}/\d{1,2}/\d{2,4}|\d[\d,]*\.\d{2}(?!\d)|(?<!\d)\d{5,}(?!\d)"
+)
+#: A word, for the WORD pass. Three characters is the floor at which a token is
+#: a word rather than an initial or a fragment of punctuation.
+_WORD_RE = re.compile(r"[A-Za-z]{3,}")
+#: Tracked files whose bytes are not prose; reading them would only add noise.
+_BINARY_SUFFIXES = frozenset(
+    {".png", ".jpg", ".jpeg", ".gif", ".pdf", ".ico", ".gz", ".zip", ".xlsx",
+     ".woff", ".woff2", ".pyc"}
 )
 
 
@@ -217,12 +230,14 @@ def run_replay(artifacts: Path) -> int:
 
 def run_privacy(artifacts: Path, diff_from: str) -> int:
     tokens: set[str] = set()
+    archive_words: set[str] = set()
     figures = dates = accounts = 0
     for _, family, _ in READERS:
         for sha in sorted(census_family(family)):
             markdown = document_text(artifacts, sha)
             if markdown is None:
                 continue
+            archive_words |= {word.lower() for word in _WORD_RE.findall(markdown)}
             for token in _PRIVACY_TOKEN_RE.findall(markdown):
                 # A printed ZERO is the absence of a figure rather than a
                 # figure: both templates print one on their fee lines, as does
@@ -249,13 +264,38 @@ def run_privacy(artifacts: Path, diff_from: str) -> int:
     hits = sum(
         1 for line in added for token in _PRIVACY_TOKEN_RE.findall(line) if token in tokens
     )
+    # --- the WORD pass ------------------------------------------------------
+    # Every alphabetic token of the two families MINUS every alphabetic token
+    # already present in the BASE revision's tracked source. The subtraction is
+    # what makes this measurable at all: without it the overlap is every
+    # ordinary English word and every template label, and the number means
+    # nothing. What survives is the archive's own vocabulary — a merchant, a
+    # holder, a descriptor keyword — and none of it may appear in the diff.
+    tracked = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", diff_from],
+        cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+    ).stdout.split()
+    known: set[str] = set()
+    for relative in tracked:
+        if Path(relative).suffix.lower() in _BINARY_SUFFIXES:
+            continue
+        blob = subprocess.run(
+            ["git", "show", f"{diff_from}:{relative}"],
+            cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        ).stdout
+        known |= {word.lower() for word in _WORD_RE.findall(blob)}
+    novel = archive_words - known
+    added_words = {word.lower() for word in _WORD_RE.findall("\n".join(added))}
+    word_hits = novel & added_words
+
     print(
         f"privacy tokens from the two families: figures={figures} dates={dates} "
         f"accounts/long-digits={accounts} total={len(tokens)}"
     )
+    print(f"archive words NOVEL to {diff_from}'s tracked source: {len(novel)}")
     print(f"added lines in the branch diff: {len(added)}")
-    print(f"FOUND: {hits}")
-    return 1 if hits else 0
+    print(f"FOUND: figures/dates/accounts={hits} words={len(word_hits)}")
+    return 1 if (hits or word_hits) else 0
 
 
 def main() -> int:

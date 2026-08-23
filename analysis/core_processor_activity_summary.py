@@ -93,11 +93,16 @@ publishing the first while dropping the second is what the single-account
 schema forbids.
 
 CURRENCY: the schema default, deliberately - this template prints no
-institution NAME, only a post-office box and a telephone number, so there is
-no issuer identity to take a jurisdiction default from and the ratified
-doctrine makes a jurisdiction default affirmative evidence rather than an
-absence rule. Named as a future mover if an issuer packet is ever built
-(W3 §COREISS2).
+institution NAME, so there is no issuer IDENTITY to take an institution
+default from. What it does print, on 6 of 6, is a letterhead giving the
+issuer's post-office box with its US city, state and ZIP and a US telephone
+number - which is affirmative postal-JURISDICTION evidence about the issuer,
+and is exactly what a future `jurisdiction_default` ruling would rest on.
+This reader does not make that ruling: the ratified doctrine's currently
+admitted jurisdiction defaults are named ones, so publishing a new one here
+would be this reader inventing policy. The schema default is published and
+the family is NAMED as a future mover, with the evidence recorded so the
+CURRENCY-SOURCE line inherits it as measured (W3 §COREISS2).
 """
 from __future__ import annotations
 
@@ -200,10 +205,13 @@ _LEDGER_END_RE = re.compile(r"^Checks in Number Order\s*$")
 #: are the LAST two on the line — the running balance is always last and the
 #: amount always second-to-last — and it is the END-OF-LINE ANCHOR that makes
 #: that true, not the greedy `(.*)`. Measured (W3 §COREISS2 mutant N14):
-#: replacing `(.*)` with `(.*?)` changes nothing on any input, because a
+#: replacing `(.*)` with `(.*?)` changes no PUBLISHED reading, because a
 #: non-greedy description still has to grow until two money tokens reach the
-#: end of the line. Recorded so the next reader does not believe the
-#: greediness is doing work it is not.
+#: end of the line. It is a semantic no-op, not a byte-identical one: over
+#: 468,421 constructed lines the raw description group differs by a trailing
+#: space on 12,870 of them, and `re.sub` normalization then erases the
+#: difference before anything is published. Recorded so the next reader does
+#: not believe the greediness is doing work it is not.
 _ROW_RE = re.compile(
     r"^([0-9]{1,2}/[0-9]{1,2})\s+(.*)\s+(" + _CASH + r")\s+(" + _CASH + r")\s*$"
 )

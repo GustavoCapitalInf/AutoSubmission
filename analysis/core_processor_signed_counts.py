@@ -82,8 +82,13 @@ before its own amount (measured: one row, one document) - so "the first money
 token on the line" and "the last money token on the line" both read the wrong
 figure, and only the trailing-minus filter survives. `_DEBIT_ROW_RE`'s
 description class can therefore cross a money token ONLY when that token does
-not carry the marker, which also means a description can never run into the
-next row's amount and merge two postings.
+not carry the marker, which is what keeps a description out of the next row's
+amount. It is a bound, not an impossibility: if a wrapped amount is lost
+before the row is read - a page break falling between a descriptor and its
+amount - the description CAN reach the following row's trailing-minus token
+and merge two postings. Both constructed cases refuse, on the printed count
+and on the printed total, so the failure is fail-closed rather than
+unreachable.
 
 L-1: this template statements ONE account, and the count gate is what proves
 it. A second account section would carry its own summary strip and its own
@@ -217,8 +222,11 @@ _CREDIT_ROW_RE = re.compile(
 )
 #: `7/02 SAMPLE ANALYSIS CHARGE $103.71-`, and the correction row
 #: `7/03 FR... CK DEP AS $412.09 S/B$304.80 $107.29-`. The description may cross
-#: a money token ONLY when that token carries no trailing minus, so it can
-#: never span the next row's amount and merge two postings.
+#: a money token ONLY when that token carries no trailing minus, which bounds
+#: it out of the next row's amount on every input this archive prints. Where
+#: a wrapped amount goes missing the bound can still be crossed and two
+#: postings merge - fail-closed, not impossible: the printed count and the
+#: printed total both refuse the document.
 _DEBIT_ROW_RE = re.compile(
     _DAY + r" ((?:\$" + _FIG + r"(?!" + MINUS_CLASS + r")|[^$])+?) "
     r"\$(" + _FIG + MINUS_CLASS + r")(?![0-9,.])"

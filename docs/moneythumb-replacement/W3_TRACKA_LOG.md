@@ -43830,7 +43830,8 @@ minus (8/8; 0 of `fiserv_premier`'s 14, 0 of `linkbank`'s 4, 0 of
 This family prints LEADING counts, the issue `linkbank`, `farmers_merchants`
 and `capital_one` read — and all three are ISSUER-keyed (`linkbank` requires
 the domain `LINKBANK.COM`). This template prints no institution at all: a
-post-office box, a telephone number, nothing else. There is no issuer to key
+post-office box with its US city, state and ZIP, and a telephone number — a
+jurisdiction, but no name. There is no issuer IDENTITY to key
 on and no issuer registration to extend.
 
 `fiserv_premier` is the wrong parent twice over: it requires `PREVIOUS
@@ -43930,10 +43931,15 @@ printed closing one.
 Three findings decided its shape:
 
 1. **The minus leads the sigil.** `-$1,234.56`, never `1,234.56-`, and a
-   negative running balance prints the same way. A reader anchored on `$`
-   loses exactly the overdraft rows — measured: 3 such rows in 1 of the 6, and
-   the family replay drops that whole document when the leading minus is taken
-   out of the money token (mutant N13).
+   negative running balance prints the same way. This is the family's
+   ORDINARY form, not its exception: **1,079 of the 1,188 ledger rows carry a
+   leading minus on their AMOUNT** (the 3 rows in 1 document that carry a
+   negative BALANCE are the rarity, and an earlier draft of this paragraph
+   quoted that 3 as if it were the whole exposure — it understated the gate by
+   two orders of magnitude). Taking the leading minus out of the money token
+   is mutant N13, and its family replay is **0/6**: the reader does not lose
+   the overdraft rows of one document, it loses every debit of every document
+   and all six refuse.
 2. **A non-posting line inside the ledger region is skipped, not refused.**
    The processor emits a bare imaging sequence number once per physical page
    and sometimes lands it BETWEEN two postings. Measured: 4 to 10 such lines
@@ -43990,6 +43996,18 @@ Canadian province or any FX line across all fourteen. Neither prints an
 INSTITUTION either — the signed-counts issue prints no masthead, no FDIC line,
 no PO box and no web address at all; the activity-summary issue prints a
 post-office box and a telephone number and no name.
+
+The distinction the two families draw here is worth keeping. The
+signed-counts template prints NO postal furniture of its own at all (measured:
+0 of 8 carry an issuer letterhead), so the only address on the page is the
+addressee's. The activity-summary template prints, on **6 of 6**, a letterhead
+giving the issuer's post-office box with its US city, state and ZIP beside a
+US telephone number — which IS affirmative postal-jurisdiction evidence about
+the issuer, and is precisely what a future `jurisdiction_default` ruling would
+rest on. This card does not make that ruling: the doctrine's admitted
+jurisdiction defaults are named ones, and a reader that minted a new one would
+be inventing policy. The evidence is recorded so the CURRENCY-SOURCE line
+inherits it as measured rather than having to re-derive it.
 
 Both readers therefore leave `currency` at the schema default with
 `currency_source = schema_default`, which is what `fiserv_premier` and all
@@ -44095,9 +44113,15 @@ killed, 1 survivor**, exit 0.
 
 ### CI7.2 N14 is a no-op mutant, and the docstring said otherwise
 
-`(.*)` → `(.*?)` in the row grammar cannot change any reading: the pattern is
-anchored to the end of the line and requires two money tokens there, so a
-non-greedy description still has to grow until it reaches them. The module
+`(.*)` → `(.*?)` in the row grammar changes no PUBLISHED reading: the pattern
+is anchored to the end of the line and requires two money tokens there, so a
+non-greedy description still has to grow until it reaches them. It is a
+SEMANTIC no-op and not a byte-identical one, and the distinction is the
+reviewer's: over 468,421 constructed lines the raw description group differs
+by a trailing space on 12,870 of them, and the reader's own `re.sub`
+whitespace normalization erases that difference before anything is published.
+The claim in the record is therefore "no published reading changes", not
+"nothing changes". The module
 comment claimed the greediness was what took the LAST two tokens. It was
 wrong, and it now records the measurement instead. The mutant is kept in the
 committed table and declared as a known no-op rather than "killed" by a test
@@ -44246,7 +44270,7 @@ which included this cell's scratchpad path.
 | mutation table — `python -m tools.coreiss2_mutation` | 36 mutants, 35 killed, 1 declared no-op, `UNEXPECTED []` | **0** |
 | whole-archive probe — `python -m tools.coreiss2_probe probe` | 3,396 documents; 8/8 and 6/6 claimed and published; 0 outside either family; 0 ambiguous | **0** |
 | family replay — `python -m tools.coreiss2_probe replay` | `core_processor_signed_counts=8/8 core_processor_activity_summary=6/6` | **0** |
-| privacy grep — `python -m tools.coreiss2_probe privacy` | 5,585 tokens vs 2,840 added lines (the final diff, this log included), `FOUND: 0` | **0** |
+| privacy grep (both passes) — `python -m tools.coreiss2_probe privacy` | 5,585 figure/date/account tokens and 1,052 novel archive WORDS vs the whole branch diff, this log included, `FOUND: figures/dates/accounts=0 words=0` | **0** |
 | archive zero-movement sweep — 4 chunks, 3,380 documents | moved 0, payload_now_raises 0, 14 named movers | chunks **1** (findings present), driver **0** |
 
 ### CI11.1 The one red reading, and both measurements of it
@@ -44283,19 +44307,27 @@ figures** (exact zeros excluded — a printed zero is the absence of a figure,
 both templates print one on their fee lines, and so does every synthetic
 fixture already in this tree), **494 full dates** and **2,010 account masks
 and long digit runs**: 5,585 tokens, each compared against every added line of
-the whole branch diff INCLUDING this log (2,840 lines).
+the whole branch diff INCLUDING this log. The line count moves with every
+commit — it is 3,015 at the branch tip — and `FOUND` has been 0 at each one.
 
-**FOUND: 0.**
+**FOUND: 0 figures/dates/accounts, 0 words.**
 
-Two honest notes on the instrument. It compares WHOLE TOKENS, because a naive
+The WORD pass is the second half of the same instrument, and it is committed
+rather than described: every alphabetic token of the fourteen documents MINUS
+every alphabetic token already present anywhere in `main`'s tracked source.
+The subtraction is what makes the number mean anything — without it the
+overlap is ordinary English and template labels. **1,052 archive words are
+novel to main's tracked source; 0 of them appear in the diff.** (The
+reviewer's independent implementation counted 904 novel tokens on a different
+word floor and also found 0; the two agree on the answer and differ only on
+what counts as a word.)
+
+One honest note on the figure pass. It compares WHOLE TOKENS, because a naive
 substring test reports an invented five-figure amount as a hit on a real
 two-figure one that happens to be its last four characters — every money
-figure ends in a shorter money figure. Under the naive
-reading the same diff shows 56 such prefixes-of-invented-figures; they are
-reported here rather than quietly dropped. Second, a separate WORD
-measurement: every alphabetic token of the fourteen documents that is not
-already present anywhere in main's tracked source (13,554 distinct tokens) —
-**0**.
+figure ends in a shorter money figure. Under the naive reading the same diff
+shows 56 such prefixes-of-invented-figures; they are reported here rather
+than quietly dropped.
 
 Getting to 0 was not free, and the first measurement is the finding. It caught
 **seven module illustrations that were verbatim printed rows of real
@@ -44324,7 +44356,8 @@ its tests describe one imaginary document.
 | `dd6af1f` | PRIVACY: the descriptor's embedded figure |
 | `3b1ed5a` | the instruments, committed under `tools/` |
 | `3f70973` | this log section |
-| `<final>` | the log's own privacy re-measurement and this row |
+| `2cea331` | the log's own privacy re-measurement |
+| the commit carrying CI15 | the five MINOR closures: the leading-minus measurement, the letterhead as jurisdiction evidence, N14 narrowed to a semantic no-op, the word pass folded into the committed instrument, the description bound restated as fail-closed |
 
 ## CI14. Risks carried
 
@@ -44352,3 +44385,87 @@ its tests describe one imaginary document.
 6. **The bash-process kill in CI9.1 may have stopped another cell's driver
    loop.** No other cell's worker died, but Ocean should confirm with the
    batch-8 cells before treating their sweeps as complete.
+
+## CI15. Review closures — APPROVE WITH FINDINGS: 0 BLOCK, 1 MAJOR, 5 MINOR
+
+The independent adversarial review reproduced both sibling rulings
+archive-wide, all fourteen oracles end-to-end with a grammar of its own, the
+trailing-minus read, both wrap paths, ten mutants including N14 over 468,421
+constructed lines, the four clean sweep chunks, and the privacy passes. What
+follows is what it found and what changed.
+
+**MAJOR-1 — the generic process kill.** Handled wave-wide by Ocean; no branch
+action. It is recorded at CI9.1 and as risk 6, unedited, because the branch's
+own account of what this cell did should not be tidied by the fact that
+someone else cleaned it up.
+
+**MINOR-1 — the record contradicted the committed evidence, and understated
+this card's own gate.** CI4's first finding cited "3 such rows in 1 of the 6"
+and said N13 "drops that whole document". Re-measured here: **1,079 of the
+1,188 ledger rows carry a leading minus on their AMOUNT**; the 3 rows are the
+ones carrying a negative BALANCE, a different and much rarer thing; and
+`mutation_table.json` records N13's replay as **0/6**, not 5/6. The prose now
+says what the measurement says. Worth stating plainly: the error was in the
+direction of making this card's own reader look less necessary than it is.
+
+**MINOR-2 — the letterhead is jurisdiction evidence, and the record hid it.**
+Three places (CI2.2, CI6, the rank-11 module docstring, and the registry
+comment) said the template prints "a post-office box and a telephone number
+and no name". Measured: it prints, on **6 of 6**, a post-office box WITH its US
+city, state and ZIP beside a US telephone number — which is exactly the
+affirmative postal-jurisdiction evidence a future `jurisdiction_default`
+ruling would rest on. The signed-counts family prints no such letterhead at
+all (**0 of 8**), so the two families differ on precisely this point. Both
+records now carry the measurement, and the CURRENCY-SOURCE line inherits it
+instead of having to re-derive it. The published value does not change: this
+card still declines to mint a jurisdiction default a reader has no mandate to
+mint.
+
+**MINOR-3 — N14 is a SEMANTIC no-op, not a byte-identical one.** The
+declaration said the mutant "changes nothing on any input". The reviewer
+measured that the raw description group differs by a trailing space on 12,870
+of 468,421 constructed lines, which the reader's own whitespace normalization
+then erases. Claim narrowed to "no PUBLISHED reading changes", in the module
+comment and in CI7.2.
+
+**MINOR-4 — the word pass had no committed instrument.** The alphabetic-token
+headline was produced by a scratchpad script, which is the one thing a
+headline number may not be. Folded into `tools/coreiss2_probe.py privacy` as a
+second pass: **1,052 archive words novel to `main`'s tracked source, 0 in the
+diff**, alongside 5,585 figure/date/account tokens and 0. (The reviewer's
+independent implementation found 904 novel tokens and 0 hits; the two agree on
+the answer and differ only on what counts as a word.)
+
+**MINOR-5 — an over-claim about the description bound.** The docstring said a
+description "can never run into the next row's amount and merge two postings".
+The reviewer constructed the case where it can: a wrapped amount lost at a page
+break lets the description reach the FOLLOWING row's trailing-minus token.
+Both constructed cases refuse on the printed count and the printed total, so
+the property is FAIL-CLOSED rather than impossible, and both the docstring and
+the `_DEBIT_ROW_RE` comment now say so.
+
+### CI15.1 What is owed for these changes, and why no replay or sweep is
+
+Every production change in this closure is a docstring or a comment. That is
+asserted rather than asserted-and-hoped: the **docstring-stripped AST** of each
+touched module is byte-identical across the closure.
+
+| module | `2cea331` | HEAD | identical |
+|---|---|---|---|
+| `analysis/core_processor_signed_counts.py` | `B9DC38DEF963DA750057546121001334` | `B9DC38DEF963DA750057546121001334` | **yes** |
+| `analysis/core_processor_activity_summary.py` | `CF15360C60D52C6D7815B5255AF32428` | `CF15360C60D52C6D7815B5255AF32428` | **yes** |
+| `analysis/parser_registry_entries.py` | `ED39860DE201DCE96C75B13B8177E41A` | `ED39860DE201DCE96C75B13B8177E41A` | **yes** |
+
+(SHA-256 of the stripped `ast.dump`, first 32 hex. Comments never reach the
+AST at all; the stripping is what covers the docstrings.) No parse, no
+detection and no dispatch can differ, so **the family replay and the
+3,380-document archive sweep are not re-owed** — the sweep at CI9 stands as
+the card's zero-movement proof. What IS owed is the changed instrument, and
+the gates that read the tree.
+
+| proof | result | exit |
+|---|---|---|
+| `python -m tools.coreiss2_probe privacy` (now two passes) | 5,585 figure/date/account tokens and 1,052 novel words vs the whole branch diff — `FOUND: figures/dates/accounts=0 words=0` | **0** |
+| CANONICAL guard set (five files) | `252 passed` | **0** |
+| CANONICAL conformance set (seven files) | `1190 passed, 35 skipped` | **0** |
+| the two unit files | `65 passed` | **0** |

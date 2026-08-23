@@ -147,7 +147,8 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     # registrations are disjoint by construction, with no `supersedes` edge
     # and no band, and the conformance cross-product is what holds them
     # apart. The label names the TEMPLATE: what this one prints for an
-    # issuer is a post-office box and a telephone number, never a name.
+    # issuer is a letterhead post-office box with its US city, state and ZIP
+    # and a telephone number - a jurisdiction, never a name.
     ("core_processor_activity_summary", "Core Processor Activity Summary Platform", core_processor_activity_summary, "DETECTION_MARKERS", "detection_text", "parse_core_processor_activity_summary_statement"),
     # The FOURTH summary grammar of that same third core processor
     # (W3 §GRAM4, carded at §LCPERIOD L7.3). It shares the period SENTENCE
