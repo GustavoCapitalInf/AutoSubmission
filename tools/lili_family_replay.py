@@ -44,6 +44,7 @@ import itertools
 import json
 import re
 import sys
+from datetime import date
 from pathlib import Path
 
 from analysis import parser_registry_entries  # noqa: F401  — populates the registry
@@ -158,6 +159,44 @@ def gate(text: str) -> str:
     return "PUBLISHED"
 
 
+def _sanity(statement, start: date, end: date) -> list[str]:
+    """Properties every published statement must have, checked not assumed.
+
+    The gates in the reader decide WHETHER to publish. These are twelve
+    properties of what it published — the shape a downstream consumer is
+    entitled to assume — and they are checked here rather than trusted,
+    because a reader can pass every arithmetic gate and still hand the
+    schema a direction that disagrees with its own sign.
+    """
+    problems: list[str] = []
+    if statement.days_in_period != (end - start).days + 1:
+        problems.append("days_in_period")
+    if any(t.running_balance is None for t in statement.transactions):
+        problems.append("a posting with no running balance")
+    if any(not (start <= date.fromisoformat(t.date) <= end)
+           for t in statement.transactions):
+        problems.append("a posting dated outside the period")
+    if any(t.direction not in ("debit", "credit") for t in statement.transactions):
+        problems.append("a direction outside the vocabulary")
+    if any((t.amount < 0) != (t.direction == "debit") for t in statement.transactions):
+        problems.append("a direction that disagrees with its own sign")
+    if not (statement.account_number or "").isdigit():
+        problems.append("account_number")
+    if statement.stated_total_debits is None or statement.stated_total_debits < 0:
+        problems.append("stated_total_debits")
+    if statement.stated_service_charge is None or statement.stated_service_charge < 0:
+        problems.append("stated_service_charge")
+    if statement.beginning_balance is None or statement.ending_balance is None:
+        problems.append("a missing balance")
+    if statement.stated_daily_balances:
+        problems.append("daily balances this family does not print")
+    if statement.bank != "Lili":
+        problems.append("bank")
+    if statement.account_name is not None:
+        problems.append("account_name should stay unset")
+    return problems
+
+
 def _l1_packet(text: str) -> str:
     """The three-column packet, for a document the §L-1 gate refuses.
 
@@ -233,6 +272,8 @@ def main() -> int:
     published = claimed = ambiguous = missing = 0
     tally: dict[str, int] = {}
     verdicts: dict[str, int] = {}
+    unsound: list[str] = []
+    postings_published = 0
     for sha in shas:
         found = cached_document(artifacts, sha)
         if found is None:
@@ -252,6 +293,13 @@ def main() -> int:
         ambiguous += bool(rivals)
         published += statement is not None
         tally[verdict] = tally.get(verdict, 0) + 1
+        if statement is not None:
+            problems = _sanity(statement,
+                               date.fromisoformat(statement.period_start),
+                               date.fromisoformat(statement.period_end))
+            if problems:
+                unsound.append(f"{sha[:16]} {problems}")
+            postings_published += len(statement.transactions)
         outcome = _verdict(markdown, pages)
         verdicts[outcome] = verdicts.get(outcome, 0) + 1
         rows = "" if statement is None else f"  postings={len(statement.transactions)}"
@@ -266,10 +314,14 @@ def main() -> int:
           f"claimed by another registration {ambiguous}")
     for verdict, count in sorted(tally.items()):
         print(f"  {count:3}  {verdict}")
+    print(f"postings published: {postings_published}")
+    print(f"published statements failing a field-sanity property: {len(unsound)}")
+    for entry in unsound:
+        print(f"    UNSOUND {entry}")
     print("verdicts:")
     for outcome, count in sorted(verdicts.items()):
         print(f"  {count:3}  {outcome}")
-    return 0
+    return 0 if not unsound else 1
 
 
 if __name__ == "__main__":
