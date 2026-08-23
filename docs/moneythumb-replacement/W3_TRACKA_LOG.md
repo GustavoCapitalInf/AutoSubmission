@@ -44215,7 +44215,12 @@ cannot reach either file. Every reference to `ocr/native_text.py` inside
 Run anyway, because the rule asks for it. Chunk 0–1000 at the branch tree:
 **1,000 documents, 749 identical, 0 moved, 0 `no_payload_now_publishes`, 0
 `payload_now_raises`**, 244 raising again, 7 with no OCR artifact, 3,183.0s.
-Zero, exactly as the construction predicts. The same demonstration one
+Zero, exactly as the construction predicts. The remaining three chunks were
+relaunched after a sibling cell's process sweep killed this cell's driver
+mid-run (it matched any `sweep.sh`, not only its own); chunk 0-1000's report
+survived that intact because the tool writes its JSON before the driver's own
+terminator, which is the argument for a durable per-chunk artifact rather than
+one log at the end. The same demonstration one
 population deeper: `tools/descattrib_movement.py`, batch 7's leaf-diff, run
 over all 31 documents of this complex at branch HEAD, reports **0 moved
 descriptions and no movement elsewhere on every one** — on the very documents
