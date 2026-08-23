@@ -44103,9 +44103,15 @@ contract being `1 if other_movement or no_payload`. The census above is what
 covers those 27, and it covers them exactly: all 27 still refuse, at the same
 gate, with the same `attempted` list.
 
-**The archive sweep.** `python -m tools.regfp_zero_movement_sweep` at this
-branch's final production tree, over the whole run of record in five chunks
-whose counts add — see CPS11.3.
+**The archive sweep**, the one this card owes once, at its final production
+tree: `python -m tools.regfp_zero_movement_sweep` over the whole run of
+record in five chunks whose counts add (CPS11.4). **3,380 documents; 2,558
+carry a stored payload and 2,558 of them are IDENTICAL; `moved` 0,
+`no_payload_now_publishes` 0, `payload_now_raises` 0.** The remaining 822 are
+the 793 the run refused and still refuses and the 29 with no OCR artifact —
+the invalid PDFs and the cached negatives — and both counts match the census
+exactly. There is no finding to explain, inside this card's named population
+or outside it.
 
 ## CPS10. Findings, cards and questions for Ocean
 
@@ -44313,7 +44319,25 @@ EXIT=0
 ### CPS11.4 The archive sweep, and the privacy scan
 
 ```
-SWEEP_BLOCK
+# the archive sweep, at this branch's final production tree, in five chunks
+# whose counts add. Host discipline: launched only with the machine free.
+$ python -m tools.regfp_zero_movement_sweep --rows <run>/rows.csv     --data-dir <main>/webapp_data --baseline-settings-key 24675EF0...41B5CAC     --start A --end B --out <private>/sweep_A_B.json
+{"range":[   0, 700],"documents":700,"compared_payload":523,"identical":523,"moved":0,"no_payload_now_publishes":0,"payload_now_raises":0,"no_payload_raises_again":172,"no_ocr_artifact":5,"multi_artifact_documents":13,"seconds":2375.9}
+EXIT=0
+{"range":[ 700,1400],"documents":700,"compared_payload":531,"identical":531,"moved":0,"no_payload_now_publishes":0,"payload_now_raises":0,"no_payload_raises_again":164,"no_ocr_artifact":5,"multi_artifact_documents":18,"seconds":1831.4}
+EXIT=0
+{"range":[1400,2100],"documents":700,"compared_payload":529,"identical":529,"moved":0,"no_payload_now_publishes":0,"payload_now_raises":0,"no_payload_raises_again":165,"no_ocr_artifact":6,"multi_artifact_documents":16,"seconds":1288.1}
+EXIT=0
+{"range":[2100,2800],"documents":700,"compared_payload":531,"identical":531,"moved":0,"no_payload_now_publishes":0,"payload_now_raises":0,"no_payload_raises_again":163,"no_ocr_artifact":6,"multi_artifact_documents":16,"seconds":958.0}
+EXIT=0
+{"range":[2800,3400],"documents":580,"compared_payload":444,"identical":444,"moved":0,"no_payload_now_publishes":0,"payload_now_raises":0,"no_payload_raises_again":129,"no_ocr_artifact":7,"multi_artifact_documents":11,"seconds":672.8}
+EXIT=0
+
+  TOTAL  documents 3,380  ==  compared_payload 2,558 + no_payload_raises_again 793
+                             + no_ocr_artifact 29
+         identical 2,558 of 2,558
+         moved 0 · no_payload_now_publishes 0 · payload_now_raises 0
+         multi_artifact_documents 74 · 7,126.2 s
 ```
 
 ```
@@ -44321,9 +44345,12 @@ SWEEP_BLOCK
 $ git diff 10cc722..HEAD > <private>/branch.diff
 $ python -m tools.cpscan_privacy_grep --rows <run>/rows.csv     --data-dir <main>/webapp_data --baseline-settings-key 24675EF0...41B5CAC     --sha-file <private>/mine19.txt --diff <private>/branch.diff     --repo . --base-rev 10cc722
 {"documents_named": 19, "documents_read": 19, "literals": 3755,
- "literals_already_in_the_base_tree": 680, "added_diff_lines": 1810,
+ "literals_already_in_the_base_tree": 680, "added_diff_lines": 1847,
  "hits": 0, "hit_locations": []}
 EXIT=0
+   run over the diff of the tree that became the commit below this one, so
+   `added_diff_lines` counts every line of this section except the handful
+   that record this result; re-run against the committed diff it is 0 again.
 
 # and the instrument is not blind: fed the one line this branch removed
 $ python -m tools.cpscan_privacy_grep ... --diff <private>/leak_probe.diff
@@ -44338,7 +44365,8 @@ EXIT=1
 | `1fcf96d` | the census instrument, and the two row-date grammar corrections |
 | `91392a9` | the mutation harness, and the boundary hole its M02 test found |
 | `79a6f85` | the ceiling instrument and the privacy scan |
-| `FINAL_COMMIT` | this W3 section |
+| `441c562` | this W3 section |
+| this commit | the sweep block, the final replay, and the privacy count |
 
 Four instruments under `tools/`, two production modules, two test modules,
 this log. No registration, no registry pin, no `ANALYSIS_STAGE_VERSION` bump,
