@@ -44310,7 +44310,9 @@ python tools/desccols_mutate.py .
 | `python -m tools.descattrib_movement` over the complex's 31 at branch HEAD | **0 moved descriptions, 0 movement elsewhere on all 31** — the batch-7 leaf-diff reads from STORED text and is blind to this card, which is the point | **0** |
 | `python -m tools.descattrib_oracle sectioned` at branch HEAD | 19 rows on 5 documents, **19 exact**, 5 unpaired — §DESCATTRIB DA9 reproduced | **0** |
 | `python corpus_gate.py` | **GREEN** — 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 102 validated / 3 review / 3 withheld / 1 refused; currency 108/108 = 14 CAD / 94 USD; currency_source 108/108 = 89 schema_default / 7 institution_default / 7 product / 4 jurisdiction_default / 1 printed (1,628.1s) | **0** |
-| the geometry-oracle score, shipped vs repaired | 269 rows paired 1:1 both ways · 75 → **252** exact · **0** FOREIGN | — |
+| `python -m tools.desccols_proofs oracle` at the final tree | 269 rows, paired 1:1, **252 exact / 17 prefix / 0 FOREIGN** | **0** |
+| the same `--shipped` (the before half) | 269 rows, paired 1:1, **75 exact / 194 prefix / 0 FOREIGN** | **0** |
+| `python -m tools.desccols_proofs pinned` at the final tree | 5 claimed / 104 not claimed / **0 outcome movement** / 3 moved leaves, all `metrics.adb.source_posting_days` | **0** |
 | the pinned 109 through the production ladder, rung live vs disabled | 5 claimed · **0** verdict movement · 2 payloads byte-identical · 3 move one diagnostic leaf | — |
 | corpus-marked slice, saturated host (twenty-two other python processes) | 1 failed / **29 passed**, 5,920 deselected (5,541.6s) — the one red is DC10.1 | **1** |
 | that timing test alone, at branch HEAD, same saturated host | 1 failed — slowest sweep **234.9 ms** over 75 registrations, projecting **250.5 ms** against a 250 ms budget (352.9s) | **1** |
