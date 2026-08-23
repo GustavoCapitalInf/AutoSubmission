@@ -508,6 +508,73 @@ def test_a_described_row_publishes_the_text_between_its_date_and_its_amount():
     assert [row.description for row in statement.transactions] == ["ACH Debit", "Deposit"]
 
 
+# ---------------------------------------------------------------------------
+# W3 §DESCATTRIB — a description stays attached to its own posting
+# ---------------------------------------------------------------------------
+
+#: The interleaving printing the sibling grammar's documents really print, on
+#: this reader's template: two rows' merchant blocks welded onto ONE line
+#: inside the second row's span, then a third row whose span holds a flush the
+#: layer proves is its own. Three rows on the day the single row used to post
+#: on, summing to the same printed total, so the summary and the grid stand.
+INTERLEAVED_DEBITS = (
+    "DEBITS\n"
+    "Date Description Subtractions\n"
+    "04-02 ' ACH Debit 100.00 04-02 ' ACH Debit\n"
+    "EXAMPLE FIRST VENDOR EXAMPLE SECOND VENDOR\n"
+    "50.00 04-02 ' ACH Debit\n"
+    "EXAMPLE THIRD VENDOR\n"
+    "100.00\n"
+)
+
+
+def interleaved():
+    statement = parse(document(debits=INTERLEAVED_DEBITS))
+    assert statement is not None
+    return [row.description for row in statement.transactions
+            if row.direction == "debit"]
+
+
+def test_an_interleaved_block_pair_is_published_on_neither_of_its_rows():
+    """This reader's 13 validated documents print their merchant blocks BELOW
+    the amount, where no row's span can reach them — measured, not assumed
+    (W3 §DESCATTRIB DA3). The rule is still shared, because the printing is
+    the layer's rather than the template's and this reader is one re-extraction
+    away from the sibling's."""
+    assert interleaved()[:2] == ["ACH Debit", "ACH Debit"]
+
+
+def test_a_block_the_layer_proves_is_one_rows_own_is_published_on_that_row():
+    assert interleaved()[2] == "ACH Debit EXAMPLE THIRD VENDOR"
+
+
+def test_no_row_publishes_a_merchant_printed_for_another_row():
+    published = " ".join(interleaved())
+    assert "EXAMPLE FIRST" not in published
+    assert "EXAMPLE SECOND" not in published
+
+
+def test_the_reader_attributes_through_the_shared_call_and_not_beside_it():
+    """Patching the shared function must change what this reader publishes.
+    Importing the name proves nothing about the call site; this does."""
+    marker = "REPLACED BY THE HARNESS"
+    original = cpd.attributed_descriptions
+    try:
+        cpd.attributed_descriptions = (
+            lambda runs, **kwargs: [[marker] * len(cells) for cells in runs])
+        assert interleaved() == [marker] * 3
+    finally:
+        cpd.attributed_descriptions = original
+
+
+def test_a_merchant_block_printed_below_its_amount_reaches_no_rows_span():
+    """The printing this reader's whole archive population uses: the block
+    lands between one row's amount and the next row's date, which is no row's
+    description span, and every row publishes the label printed beside it."""
+    assert parse(document()) is not None
+    assert interleaved()[0] == "ACH Debit"
+
+
 def test_case_sensitivity_is_load_bearing_where_it_cuts_the_summary_strip():
     """Prose printed BETWEEN the account field and the summary is where the
     case-sensitive split earns its keep, and the first form of this test did

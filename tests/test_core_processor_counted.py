@@ -687,6 +687,72 @@ def test_a_description_printed_below_its_amount_is_not_swallowed_into_the_next_r
     assert statement.transactions[1].description == "Preauthorized Credit"
 
 
+#: The interleaving printing, in the pieces the archive prints it in: two
+#: rows' merchant blocks welded onto ONE line inside the second row's span,
+#: and then a third row whose span holds a flush the layer proves is its own
+#: (W3 §DESCATTRIB). Three rows on one day, so the grid moves by one figure.
+INTERLEAVED_DEBITS = (
+    "ELECTRONIC DEBITS\n"
+    "Date Description Debits\n"
+    "2-5 Preauthorized Debit 10.00 2-5 Preauthorized Debit\n"
+    "EXAMPLE FIRST PAYABLES CCD EXAMPLE SECOND PAYABLES CCD\n"
+    "20.00 2-5 Preauthorized Debit\n"
+    "EXAMPLE THIRD PAYABLES CCD\n"
+    "30.00\n"
+)
+
+
+def interleaved():
+    """The document above, with the summary and the grid it implies."""
+    return published(
+        summary=SUMMARY.replace("Electronic db (1) - 50.00", "Electronic db (3) - 60.00")
+        .replace("- $250.00", "- $260.00")
+        .replace("Ending balance (2/27/2026)\n$150.00",
+                 "Ending balance (2/27/2026)\n$140.00"),
+        debits=INTERLEAVED_DEBITS,
+        grid=GRID.replace("2-5 150.00", "2-5 140.00"),
+    )
+
+
+def debits_of(statement):
+    return [row.description for row in statement.transactions
+            if row.direction == "debit" and row.date == "2026-02-05"]
+
+
+def test_an_interleaved_block_pair_is_published_on_neither_of_its_rows():
+    """The reader-level form of §DESCATTRIB's oracle. The layer welded two
+    rows' merchant blocks with a single space and no boundary to cut at; a
+    reader that publishes them attributes one row's merchant to the other."""
+    assert debits_of(interleaved())[:2] == ["Preauthorized Debit", "Preauthorized Debit"]
+
+
+def test_a_block_the_layer_proves_is_one_rows_own_is_published_on_that_row():
+    """Fail-closed, not fail-silent: where the layer leaves exactly one row's
+    block outstanding the block IS published, on the row it belongs to."""
+    assert debits_of(interleaved())[2] == "Preauthorized Debit EXAMPLE THIRD PAYABLES CCD"
+
+
+def test_no_row_publishes_a_merchant_printed_for_another_row():
+    """The property, rather than a string: this is the defect the card is for,
+    and on the archive it is what the KAPITUS and ONDECK rows were suffering."""
+    published_text = " ".join(debits_of(interleaved()))
+    assert "EXAMPLE FIRST" not in published_text
+    assert "EXAMPLE SECOND" not in published_text
+
+
+def test_the_reader_attributes_through_the_shared_call_and_not_beside_it():
+    """Patching the shared function must change what this reader publishes.
+    Importing the name proves nothing about the call site; this does."""
+    marker = "REPLACED BY THE HARNESS"
+    original = cpc.attributed_descriptions
+    try:
+        cpc.attributed_descriptions = (
+            lambda runs, **kwargs: [[marker] * len(cells) for cells in runs])
+        assert debits_of(interleaved()) == [marker] * 3
+    finally:
+        cpc.attributed_descriptions = original
+
+
 def test_a_section_broken_across_a_page_keeps_both_of_its_runs():
     continued = CREDITS + (
         "ELECTRONIC CREDITS (Continued)\nDate Description Credits\n"

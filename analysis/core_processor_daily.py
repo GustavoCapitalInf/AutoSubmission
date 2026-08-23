@@ -142,7 +142,9 @@ from .money import (
 )
 from .parser_registry import corroborating, make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
-from .tables import dated_cells, section_runs, unique_match
+from .tables import (
+    attributed_descriptions, dated_cells, section_runs, unique_match,
+)
 
 # ---------------------------------------------------------------------------
 # The grammar
@@ -524,9 +526,18 @@ def _sections(markdown: str) -> dict[str, list[str]]:
     return section_runs(markdown, _SECTION_RE)
 
 
-def _described(gap: str) -> str:
-    """The description the bank printed between a row's date and its amount."""
-    return re.sub(r"\s+", " ", gap).strip(" '.-|*")[:200].strip()
+#: What this template prints as furniture around a description rather than as
+#: part of it. The apostrophe is the platform's own column rule: it prints
+#: `04-01 ' Outgoing Wire-Olb` and the quote is not part of the label.
+_DESCRIPTION_FURNITURE = " '.-|*"
+#: The longest description this reader will publish. A bound has to exist — a
+#: span the layer filled with a page of furniture is not a description — and
+#: `tables.attributed_descriptions` cuts at a token boundary rather than
+#: through a word, because half a token is a string the bank did not print.
+#: No row of this reader's 13 validated documents comes near it: every one of
+#: them prints its whole description on the row's own line and its merchant
+#: block BELOW the amount, where no row's span can reach (W3 §DESCATTRIB DA3).
+_DESCRIPTION_LIMIT = 200
 
 
 def _row_lead(gap: str) -> str:
@@ -551,12 +562,27 @@ def _rows(runs: list[str], *, credit: bool | None, start: date, end: date,
     disagree with a printed total by one row while still looking complete.
     """
     rows: list[Transaction] = []
+    read = []
     for run in runs:
         cells = dated_cells(run, date_pattern=_DATE_RE, value_pattern=_FIGURE_RE)
         if cells is None:
             return None
+        read.append((run, cells))
+    # The descriptions are read for the whole SECTION, not for a row or even a
+    # run at a time: what a row's span owns depends on how many rows' merchant
+    # blocks the flattened layer still had in hand when it flushed into that
+    # span, and a block outstanding when a page break ends one run lands in the
+    # FIRST span of the next (W3 §DESCATTRIB DA4.1). This template prints its
+    # blocks below the amount rather than inside the span, so the rule
+    # attributes nothing here — and that is a measurement, not an assumption:
+    # the same call is what the sibling grammar needs.
+    described = attributed_descriptions(
+        [cells for _run, cells in read],
+        strip=_DESCRIPTION_FURNITURE, limit=_DESCRIPTION_LIMIT,
+    )
+    for (run, cells), texts in zip(read, described):
         cursor = 0
-        for cell in cells:
+        for index, cell in enumerate(cells):
             iso = iso_within_period(cell.date.replace("-", "/"), start, end)
             amount = _magnitude(cell.value)
             if iso is None or amount is None:
@@ -570,7 +596,7 @@ def _rows(runs: list[str], *, credit: bool | None, start: date, end: date,
                 serial = _SERIAL_RE.fullmatch(_row_lead(gap))
                 description = f"{default} {serial.group(1)}" if serial else default
             else:
-                description = _described(cell.described) or default
+                description = texts[index] or default
             rows.append(Transaction(
                 date=iso,
                 description=description,
