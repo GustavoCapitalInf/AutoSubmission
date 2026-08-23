@@ -43977,6 +43977,17 @@ the chain at the row after it; a fabricated one breaks it too; and a credit
 and its reversal — a pair the summary nets out and every printed balance
 absorbs — breaks the gross-debit reading and nothing else.
 
+**With one hole, which the review found and §INTEGRITY's coverage reading now
+closes.** All three of those readings are about MONEY, so a printed ledger
+line the row pattern cannot parse is invisible to every one of them when it
+moves no money: a zero-amount line repeating the balance above it would have
+been dropped in silence. Coverage is therefore checked on ROWS as well —
+every line that begins with a date must be a posting the pattern parsed —
+and it is pinned by `test_a_line_that_begins_with_a_date_must_be_a_posting`.
+Measured inert on the archive today (2,718 line-leading dates, 2,718 parsed
+postings, exact on all 15, and no zero-amount rows anywhere), which is
+precisely why nothing but a fixture could have found it.
+
 **Two gates were REMOVED as unreachable rather than shipped untested**, both
 by algebra over the other three rather than by taste, and both stated here
 because a gate no mutant can reach is a gate no test tests:
