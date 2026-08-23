@@ -798,6 +798,17 @@ EXCLUDED_ANALYSIS_CALLERS = {
         "read-only description leaf-diff; publishes no verdict, and already "
         "supplies the reconstructed page partition"
     ),
+    # W3 §DESCCOLS' reach-and-movement differential, excused on the same two
+    # grounds. It publishes no verdict — counts, classes, leaf PATHS and string
+    # LENGTHS, never a value. And it supplies the page list the analysis must
+    # have: the pages the LADDER produced at this tree, which is the partition
+    # a wired caller would hand it for exactly this text. That is the whole
+    # point of the instrument — it measures the new extraction, so it must
+    # analyse the new extraction's own partition rather than the archive's.
+    "tools/desccols_movement.py": (
+        "read-only extraction differential; publishes no verdict, and supplies "
+        "the ladder's own page partition for the text it is measuring"
+    ),
     # W3 §DESCATTRIB's geometry oracle. Its `detections` subcommand analyses a
     # document to ask which classifier detections the attribution rule removes
     # and whether the text each was matched on was ever printed for the row it
