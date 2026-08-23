@@ -44008,9 +44008,19 @@ analysis run on the ladder's text at this tree — and all 37 refuse again. This
 card moves no document across the boundary between publishing and refusing, in
 either direction.
 
-**Every mover is inside a named population**, and the populations belong to
-other cells this batch: the 7 `core_processor_counted` documents are
-CORE-ENCLOSURES' reader, and they are named in full —
+**Every mover is inside a named population, and the coordination note is
+precise.** No batch-8 cell edits the existing core-processor modules —
+CORE-ENCLOSURES adds a NEW sibling registration and is told not to touch them;
+CORE-ISSUES-2 the same; CP-SECTIONED-SCAN owns `core_processor_sectioned` and
+`core_processor_daily`'s scanned refusal sites only. So the 7 movers are
+documents nobody's code change touches and this rung's text change moves.
+
+**CORE-ENCLOSURES needs this named specifically.** Its sibling-coexistence
+proof is "a family replay of every existing claimant — their published
+payloads byte-identical". Run on base that holds. Run on a tree that also
+carries this branch, these seven documents' payloads DIFFER from base, and the
+difference is this card's, not theirs. They are named in full so that replay
+can subtract them —
 
 ```
 026EE24630D7A7A2C1071472DBD05E478DA2ACA9F3B85F74EA90BF5ACBB3D937
@@ -44024,7 +44034,9 @@ FC385FC2D01A280FB256720E89A349A4048D3A15BEC8F8D948CBE769BA6FE472
 
 — all seven `validated` before and after. `core_processor_daily` (13
 documents) and `core_processor_sectioned` (10) are untouched, so
-CP-SECTIONED-SCAN's population does not move at all.
+CP-SECTIONED-SCAN's population does not move at all; and the other 14 movers
+(12 `regions`, 2 `us_bank`) belong to no batch-8 cell and move one diagnostic
+leaf each.
 
 ### DC6.1 The shipped measurement is undisturbed, checked with its own oracle
 
