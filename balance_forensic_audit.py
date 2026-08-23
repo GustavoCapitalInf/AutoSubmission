@@ -503,8 +503,12 @@ def audit_source(
     markdown, source_type, pdf_bytes = source_markdown(path, ocr_cache=ocr_cache)
     try:
         report = analyze_markdown(markdown, parse_mode="deterministic")
-    except RuntimeError as exc:
-        if str(exc) != DECLARED_REFUSAL:
+    except Exception as exc:
+        # The same rule as the ADB oracle's and as
+        # `corpus_gate.check_outcome_classes`: exact type, exact message. Three
+        # guards, one rule, so a refusal recognised by one is recognised by all
+        # three and a crash is refused by all three.
+        if type(exc) is not RuntimeError or str(exc) != DECLARED_REFUSAL:
             raise
         return refusal_row(path, root, source_type, pdf_bytes, str(exc))
     statement = report.statement

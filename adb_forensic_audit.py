@@ -478,8 +478,14 @@ def refusal_row(path: Path, root: Path, reason: str) -> dict[str, Any]:
 def audit_one(path: Path, root: Path, markdown: str) -> dict[str, Any]:
     try:
         report = analyze_markdown(markdown, parse_mode="deterministic")
-    except RuntimeError as exc:
-        if str(exc) != DECLARED_REFUSAL:
+    except Exception as exc:
+        # `type(exc) is RuntimeError`, not `except RuntimeError`, and the same
+        # rule `corpus_gate.check_outcome_classes` applies to the same refusal:
+        # a SUBCLASS of RuntimeError is a different failure with its own cause,
+        # and matching one here would file a crash as a measured fact. The
+        # message is compared as well, so a genuine defect — which is also a
+        # RuntimeError often enough — still propagates and is still a crash.
+        if type(exc) is not RuntimeError or str(exc) != DECLARED_REFUSAL:
             raise
         return refusal_row(path, root, str(exc))
     stmt = report.statement
