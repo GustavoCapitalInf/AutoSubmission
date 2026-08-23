@@ -43870,27 +43870,44 @@ Read it as follows.
    Seven reference numbers are common to all five. Reference numbers are the
    platform's own per-authorization identifiers: two statements of the same
    account in different months do not share one, and five do not share seven.
+2b. **Two of them number a 2021 posting and a 2026 posting one apart.** In
+   `0388628F…` and `D6945B6F…` there is a pair of authorization codes
+   differing by exactly 1 whose dates are five years apart, and in each
+   document it is a different pair. A platform's authorization codes are
+   issued in sequence as authorizations happen; two consecutive codes cannot
+   be five years apart. Whatever produced these documents renumbered rows
+   without renumbering their dates.
+
 3. **Drifted rows on top of the pasted ones.** Two documents additionally
    print postings dated in their own period's year but outside its range,
    and on one of them a posting is dated AFTER its own period ends. A closed
    statement cannot post a row from the future.
-4. **Their own summaries do not close, and their debit terms are printed as
-   inflows.** Pairing each of the five printed summary labels with the money
-   token that follows it and closing the sum: with the signs AS PRINTED the
-   residuals are 278.62, 7,402.00, a round thousand dollars and 10,002.00 on
-   the four documents whose terms can be paired at all — every one of them
-   prints its debit terms positive. Negating the two debit terms brings three
-   of the four to ten cents, exactly nothing and a single dollar, and leaves
-   the fourth at that same round thousand. **Not one of the five closes on
-   itself as printed, and one of them does not close even after its signs are
-   repaired.** The fifth cannot be paired at all: only four of its five terms
-   carry a figure within reach of their label.
+4. **Their own summaries do not close as printed, and every one prints its
+   debit terms as inflows.** `tools/lili_integrity_fingerprint.py` pairs each
+   printed label with the first money token at or after it that no earlier
+   label has taken — a rule it states, because on this printing the labels
+   and the figures are on separate lines and the answer depends on it:
 
-   (Two of those residuals are written in words rather than as figures for
-   one reason only: the family happens to PRINT those two amounts somewhere,
-   and §LI12's scan cannot tell a computed residual from a copied balance.
-   The measurement is in `tools/lili_privacy_scan.py`'s terms, and this is
-   what keeping it honest costs.)
+   ```
+   0388628F8E576D31  as printed     278.62 | debit terms negated     0.10
+   D6945B6F0F238A91  as printed    7402.00 | debit terms negated     0.00
+   E9FA142EE9E0134D  not all five terms pair to a figure
+   FD250EFBC9599CA6  as printed   10002.00 | debit terms negated     1.00
+   FE2C9E80A4001C76  as printed   30000.00 | debit terms negated     0.00
+   ```
+
+   **Not one of the four closes on itself as printed.** Read the two debit
+   terms as debits and two of the four close EXACTLY, one is out by ten cents
+   and one by a single dollar. The fifth cannot be paired at all.
+
+   (An earlier revision of this section reported this wrongly, and the
+   correction is the reviewer's: it read the figures with the SHARED money
+   grammar, which refuses the cents-less figure one of these documents
+   prints, so that document came back "unpairable" and another's residual was
+   attributed to it — making it look worse than it is. The instrument now
+   reads these documents with a deliberately looser pattern, because the point
+   is to read what they printed, never to publish it.)
+
 5. **Malformed money.** THREE of the five carry figures the shared money
    grammar refuses outright: five tokens in all, in three shapes — a figure
    printed with no cents (three of them), a figure with two decimal points,
