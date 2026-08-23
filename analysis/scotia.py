@@ -35,8 +35,9 @@ the text layer has lost.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date
 
+from .date_tokens import parsed_datetime
 from .money import parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -194,7 +195,10 @@ def parse_scotiabank_statement(markdown: str, base: Statement | None = None) -> 
     period = re.search(r"Business Account\s+[0-9 ]+\s+([A-Za-z]{3}\s+\d{1,2}\s+\d{4})\s+([A-Za-z]{3}\s+\d{1,2}\s+\d{4})", markdown)
     if period:
         for attr, raw in (("period_start", period.group(1)), ("period_end", period.group(2))):
-            parsed = datetime.strptime(raw, "%b %d %Y").date()
+            # RAISE-PRIVACY-3 (#HYGIENE8), W3 §PRIVACY3 P10 item 4: an
+            # escaping `strptime` whose ValueError quotes the printed period.
+            parsed = parsed_datetime(
+                raw, "%b %d %Y", reader="scotia.period").date()
             setattr(stmt, attr, parsed.isoformat())
 
     # The account-level grid, which is printed once above `Account Details`

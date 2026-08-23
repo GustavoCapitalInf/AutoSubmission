@@ -342,49 +342,43 @@ def test_iso_within_period_cannot_raise_because_the_triple_is_already_proven():
 
 
 # ---------------------------------------------------------------------------
-# CARRIED FINDING, pinned rather than fixed: `date()` raises OverflowError, and
-# OverflowError is not a ValueError
+# CARRIED FINDING, now CLOSED by #HYGIENE8 (RAISE-PRIVACY-3): `date()` raises
+# OverflowError, and OverflowError is not a ValueError
 # ---------------------------------------------------------------------------
 
-def test_an_over_long_integer_reaches_date_as_an_overflow_error_not_a_refusal():
-    """Found by this cell's own poisoned sweep, and DELIBERATELY NOT FIXED.
+def test_the_overflow_contract_is_closed_and_the_scope_of_the_constructor_claim():
+    """This section used to PIN the defect
+    (`test_an_over_long_integer_reaches_date_as_an_overflow_error_not_a_refusal`).
 
     `datetime.date(2026, 1, 4471009238)` raises `OverflowError: Python int too
-    large to convert to C long`, and `OverflowError` is an `ArithmeticError`,
-    not a `ValueError`. Every `except ValueError` in the date layer therefore
-    lets it through - `iso_or_none`, `year_within_period`, `dates._with_year`,
-    `dates.parse_date`, and this cell's own four new handlers.
+    large to convert to C long`, an `ArithmeticError` and not a `ValueError`, so
+    every `except ValueError` in the date layer let it through. It was never a
+    privacy defect - the message is a fixed CPython sentence - but it WAS a
+    contract defect, and §PRIVACY3 carried it because changing what those
+    helpers return is a behaviour change with a sweep of its own.
 
-    NOT a privacy defect: the message is a fixed sentence of CPython's with no
-    document content in it, which is why this cell pins the behaviour instead
-    of changing it. It IS a contract defect - three of those helpers are
-    documented to return `None` rather than raise - and changing what they
-    return is a behaviour change with an archive sweep of its own, which is the
-    same judgement §MONEYPRIV MP3 made about `parse_digit_scrubbed`. Carried
-    for whoever owns the date layer next.
-
-    Pinned so a future fix has to come here and say so, and so the "one
-    constructor" claim above is read with its real scope: every refusal the
-    date grammar RAISES goes through `date_refusal`; an OverflowError is not
-    one of the things it raises.
+    #HYGIENE8 took the sweep and closed it: every conversion guard in
+    `analysis/date_tokens.py` now catches both, so each entry point honours the
+    contract its own docstring states. The census, the eleven entry points and
+    the mutants are in `tests/test_raise_privacy3.py`; what stays here is the
+    two things this file asserted about ITS OWN scope.
     """
     from datetime import date as _date
 
     huge = int(DIGITS)
+    # 1. the mechanism is unchanged - `date()` still overflows, so the closure
+    #    is a handler and not a CPython accident.
     with pytest.raises(OverflowError) as raised:
         _date(2026, 1, huge)
     assert DIGITS not in str(raised.value)
-
-    with pytest.raises(OverflowError):
-        dt.iso_or_none(2026, 1, huge)
-    with pytest.raises(OverflowError):
-        dt.year_within_period(1, huge, _date(2026, 1, 1), _date(2026, 12, 31))
-    with pytest.raises(OverflowError) as raised:
+    # 2. the "one constructor" claim above is about what the date grammar
+    #    RAISES, and the helpers documented to return None still return it.
+    assert dt.iso_or_none(2026, 1, huge) is None
+    assert dt.year_within_period(1, huge, _date(2026, 1, 1), _date(2026, 12, 31)) is None
+    with pytest.raises(ValueError) as raised:
         dt.iso_from_month_day(f"1/{DIGITS}", 2026)
-    assert DIGITS not in str(raised.value), (
-        "the OverflowError itself must stay content-free; if CPython ever "
-        "echoes the integer, this finding becomes a privacy defect"
-    )
+    assert "date grammar refused a printed token" in str(raised.value)
+    assert DIGITS not in str(raised.value)
 
 
 # ---------------------------------------------------------------------------
@@ -543,6 +537,16 @@ CHAIN_GUARDED = {
     "analysis/bmo.py": frozenset({"money_refusal"}),
     "analysis/farmers_merchants.py": frozenset({"money_refusal"}),
     "analysis/td_can.py": frozenset({"date_refusal"}),
+    # RAISE-PRIVACY-3 (#HYGIENE8): the five sites §P10 listed in other cells'
+    # files. `columbia_bank` and `scotia` hold no `raise` at all - their leak
+    # was an escaping `strptime`, closed by repointing it at
+    # `date_tokens.parsed_datetime` - and they are registered anyway for the
+    # same reason bmo and farmers_merchants were: the guard's job is the raise
+    # that ARRIVES, and a period reader is exactly where the next one lands.
+    "analysis/chase.py": frozenset({"money_refusal"}),
+    "analysis/scanned_small_bank.py": frozenset({"money_refusal", "date_refusal"}),
+    "analysis/columbia_bank.py": frozenset({"money_refusal", "date_refusal"}),
+    "analysis/scotia.py": frozenset({"money_refusal", "date_refusal"}),
 }
 
 

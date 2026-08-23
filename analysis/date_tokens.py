@@ -129,7 +129,7 @@ def parsed_datetime(token: str, fmt: str, *, reader: str) -> datetime:
     """
     try:
         parsed = datetime.strptime(token, fmt)
-    except ValueError:
+    except (ValueError, OverflowError):
         parsed = None  # -> the one refusal, below and unchained
     if parsed is None:
         raise date_refusal(reader, token)
@@ -150,10 +150,25 @@ def iso_or_none(year: int, month: int, day: int) -> str | None:
     place rather than each growing a `try`. Guessing what the digits were meant
     to be is never an option: the row is dropped and reconciliation decides
     whether what remains is publishable.
+
+    **`OverflowError` is caught here and at every other conversion guard in
+    this module** (RAISE-PRIVACY-3, #HYGIENE8, closing the contract defect W3
+    §PRIVACY3 P10 items 6-7 pinned rather than fixed). `date(2026, 1, N)` for
+    an N past a C long raises `OverflowError`, which is an `ArithmeticError`
+    and not a `ValueError`, so a bare `except ValueError` let it out of a
+    function whose whole contract is "or None". Measured over this module's
+    eleven entry points, EIGHT let it escape; the two that did not were saved
+    by a regex bound on the token rather than by a handler, which is exactly
+    the kind of protection that disappears when a caller changes.
+
+    The message is a fixed CPython sentence, so this was never a privacy
+    defect - it is a fail-closed one, and the rule is now uniform: a conversion
+    guard in this module catches both, so a reader does not have to work out
+    which arithmetic a particular `date()` call can overflow on.
     """
     try:
         return date(year, month, day).isoformat()
-    except ValueError:
+    except (ValueError, OverflowError):
         return None
 
 
@@ -170,7 +185,7 @@ def iso_from_month_day(token: str, year: int, *, separator: str = "/") -> str:
     try:
         month, day = [int(part) for part in token.split(separator, 1)]
         iso = date(year, month, day).isoformat()
-    except ValueError:
+    except (ValueError, OverflowError):
         iso = None  # -> the one refusal, below and unchained
     if iso is None:
         raise date_refusal("iso_from_month_day", token)
@@ -217,7 +232,7 @@ def iso_from_month_day_year(token: str, *, century: str = "short") -> str:
         if century == "always" or year < 100:
             year += 2000
         iso = date(year, month, day).isoformat()
-    except ValueError:
+    except (ValueError, OverflowError):
         iso = None  # -> the one refusal, below and unchained
     if iso is None:
         raise date_refusal("iso_from_month_day_year", token)
@@ -295,7 +310,7 @@ def iso_from_named_month_day(month: str, day: str | int, year: str | int) -> str
         return None
     try:
         return iso_or_none(int(year), number, int(day))
-    except ValueError:
+    except (ValueError, OverflowError):
         return None
 
 
@@ -330,7 +345,7 @@ def period_from_long_dates(markdown: str) -> tuple[str, str] | None:
             date(int(sy), start_month, int(sd)).isoformat(),
             date(int(ey), end_month, int(ed)).isoformat(),
         )
-    except ValueError:
+    except (ValueError, OverflowError):
         span = None  # -> the one refusal, below and unchained
     if span is None:
         raise date_refusal("period_from_long_dates", m.group(0))
@@ -355,7 +370,7 @@ def iso_unique_in_period(month: int, day: int, *, start: date, end: date) -> str
     for year in {start.year, end.year}:
         try:
             candidate = date(year, month, day)
-        except ValueError:
+        except (ValueError, OverflowError):
             continue
         if start <= candidate <= end:
             hits.append(candidate)
@@ -378,7 +393,7 @@ def year_within_period(month: int, day: int, start: date, end: date) -> int | No
     for year in dict.fromkeys((start.year, end.year)):
         try:
             candidate = date(year, month, day)
-        except ValueError:
+        except (ValueError, OverflowError):
             continue
         if start <= candidate <= end:
             return year

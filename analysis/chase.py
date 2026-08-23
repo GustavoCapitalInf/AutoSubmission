@@ -14,7 +14,7 @@ from datetime import date
 #: `td_canada_french` -> `td_can` pair, which is the same situation.
 from .chase_savings import _grid_lines, _grid_rows, _transaction
 from .date_tokens import iso_from_month_day, period_from_long_dates
-from .money import MINUS_CLASS, parse_digit_scrubbed, read_money
+from .money import MINUS_CLASS, money_refusal, parse_digit_scrubbed, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import clean_cell, compact_whitespace, group_rows, table_rows, tables_after
@@ -54,7 +54,14 @@ def _money(value: str) -> float | None:
 def _money_required(value: str) -> float:
     amount = _money(value)
     if amount is None:
-        raise ValueError(value)
+        # RAISE-PRIVACY-3 (#HYGIENE8), the site W3 §PRIVACY3 P10 item 1 named
+        # and could not own. `raise ValueError(value)` put the printed cell in
+        # the message, and the message crosses `webapp/worker.py`'s boundary
+        # into the durable store. `money_refusal` is the shared constructor:
+        # the token is MEASURED into a four-value class and never quoted, and
+        # because it RETURNS the exception this raise stands outside any
+        # handler, so nothing attaches a `__cause__` either.
+        raise money_refusal("chase._money_required", value)
     return amount
 
 
