@@ -246,6 +246,110 @@ def test_the_chain_guard_would_catch_a_naked_raise_in_one_of_them():
 
 
 # ---------------------------------------------------------------------------
+# 3b. The reader NAME is a source symbol, never the document
+# ---------------------------------------------------------------------------
+
+#: Every constructor in the refusal family, and how to find its two arguments.
+#: `parsed_datetime(token, fmt, *, reader)`; the three refusal constructors are
+#: `(reader, token)`.
+_REFUSAL_CALLS = ("parsed_datetime", "date_refusal", "money_refusal", "_refusal")
+
+
+def _refusal_call_sites():
+    """(path, lineno, name, reader_expr, token_expr) for every call in the
+    production tree. Tests are excluded: a test may legitimately build a reader
+    name out of a fixture."""
+    skip = {".git", ".claude", ".venv", "__pycache__", "node_modules"}
+    for path in sorted(PROJECT_ROOT.rglob("*.py")):
+        try:
+            relative = path.relative_to(PROJECT_ROOT)
+        except ValueError:
+            continue
+        if set(relative.parts) & skip or relative.parts[0] == "tests":
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = (func.id if isinstance(func, ast.Name)
+                    else func.attr if isinstance(func, ast.Attribute) else None)
+            if name not in _REFUSAL_CALLS:
+                continue
+            keywords = {kw.arg: kw.value for kw in node.keywords}
+            if name == "parsed_datetime":
+                token = node.args[0] if node.args else keywords.get("token")
+                reader = keywords.get("reader")
+            else:
+                reader = node.args[0] if node.args else keywords.get("reader")
+                token = node.args[1] if len(node.args) > 1 else keywords.get("token")
+            yield relative.as_posix(), node.lineno, name, reader, token
+
+
+def test_no_refusal_call_derives_its_reader_name_from_the_token():
+    """A MUTANT FOUND THIS GAP, and it is the sharpest thing this card learned.
+
+    Every proof above is about what the CONSTRUCTOR does with `token`: it is
+    measured into a four-value class and never quoted. None of them says
+    anything about `reader`, which is interpolated verbatim — and a call site
+    can put the document into the message by writing
+    ``reader=f"scotia.period {raw}"``. Mutant R11 did exactly that and survived
+    a poisoned sweep, a chain guard and a strptime census, because no test
+    drove the parser rather than the seam.
+
+    The rule is the one the family's docstrings already state ("the reader's
+    NAME, a symbol in this file"): a reader expression may not mention any name
+    the token expression mentions. It is stronger than "must be a literal",
+    which would fail four honest sites: the two constructors forwarding their
+    own parameter, `money.py`'s `getattr(reader, "__name__", ...)`, and
+    `community_section._strptime`'s module prefix concatenation.
+    """
+    sites = list(_refusal_call_sites())
+    assert len(sites) >= 25, f"the walk found only {len(sites)} call sites"
+    offenders = []
+    for path, lineno, name, reader, token in sites:
+        if reader is None or token is None:
+            offenders.append(f"{path}:{lineno}: {name} - arguments not resolvable")
+            continue
+        shared = ({n.id for n in ast.walk(reader) if isinstance(n, ast.Name)}
+                  & {n.id for n in ast.walk(token) if isinstance(n, ast.Name)})
+        if shared:
+            offenders.append(
+                f"{path}:{lineno}: {name} builds its reader name out of "
+                f"{sorted(shared)}, which is the token"
+            )
+    assert offenders == [], offenders
+
+
+def test_the_reader_name_rule_can_see_the_mutant_that_beat_the_others():
+    """The guard watched failing, on R11's exact shape and on the honest ones
+    it must NOT flag."""
+    def offenders_for(source: str) -> int:
+        tree = ast.parse(source)
+        found = 0
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                continue
+            if node.func.id != "parsed_datetime":
+                continue
+            keywords = {kw.arg: kw.value for kw in node.keywords}
+            token, reader = node.args[0], keywords["reader"]
+            found += bool(
+                {n.id for n in ast.walk(reader) if isinstance(n, ast.Name)}
+                & {n.id for n in ast.walk(token) if isinstance(n, ast.Name)}
+            )
+        return found
+
+    assert offenders_for('parsed_datetime(raw, F, reader=f"scotia.period {raw}")') == 1
+    assert offenders_for('parsed_datetime(raw, F, reader="scotia.period " + raw)') == 1
+    assert offenders_for('parsed_datetime(raw, F, reader="scotia.period")') == 0
+    assert offenders_for('parsed_datetime(v, F, reader="cs." + reader)') == 0
+
+
+# ---------------------------------------------------------------------------
 # 4. The OverflowError contract — CLOSED, not carried
 # ---------------------------------------------------------------------------
 
