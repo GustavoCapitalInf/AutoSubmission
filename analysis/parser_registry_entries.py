@@ -365,6 +365,15 @@ _OVERRIDES: dict[str, dict] = {
     "square_checking": {
         "integrity_checks": (square_checking.activity_count_contradictions,)
     },
+    # Columbia's Daily Balances grid reprints, for a subset of the period's
+    # days, a balance the ledger above it already determines. The reader
+    # publishes the printed CELL and never its own arithmetic, so where the two
+    # disagree the document contradicts itself and the disagreement is the
+    # finding (W3 §REPAIRDOC). Registered rather than resolved in the parser:
+    # preferring the reconstruction is exactly what this card removed.
+    "columbia_bank": {
+        "integrity_checks": (columbia_bank.daily_grid_contradictions,)
+    },
     # Mercury closes its grid with the statement balance printed a second time
     # and states its own period length in days; neither is used to build the
     # statement, so both are free second opinions.

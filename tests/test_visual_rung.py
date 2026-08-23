@@ -30,7 +30,16 @@ from ocr.document import StatementMarkdown
 
 ROOT = Path(__file__).resolve().parents[1]
 CORPUS = ROOT / "Bank Statements"
-SCANNED = "Misc/Columbia May 26 complete.pdf"
+#: An image-only corpus statement whose committed OCR artifact a
+#: registration both claims AND publishes: the offline rung has to be able
+#: to succeed for "the visual rung was not reached" to mean anything.
+#:
+#: It was `Misc/Columbia May 26 complete.pdf` until W3 §REPAIRDOC removed the
+#: two amount-rewriting repairs from `analysis/columbia_bank.py`. That
+#: document now DECLINES at parse — it is a pinned refusal
+#: (`corpus_gate.PINNED_REFUSALS`) — so as a fixture it would silently invert
+#: every assertion here from "claimed offline" to "unclaimed".
+SCANNED = "Misc/First Farmers 2026 01-document.pdf"
 DIGITAL = "Chase/Chase Mar.pdf"
 
 #: A real image-only statement: the profile reports zero native text, so the
@@ -54,7 +63,7 @@ def _claimable() -> str:
         from corpus_artifacts import cached_markdown
 
         CLAIMABLE = cached_markdown(SCAN_BYTES, ROOT / "tests" / "corpus_cache")
-        assert CLAIMABLE, "the Columbia committed artifact is the claimable fixture"
+        assert CLAIMABLE, "the committed artifact is the claimable fixture"
     return CLAIMABLE
 
 
@@ -281,7 +290,7 @@ def test_an_offline_read_that_claims_never_reaches_the_rung(scan_tree: Path, mon
     _forbid_visual(monkeypatch)
 
     row = _runner(scan_tree).process("BankZ/scan.pdf", "BankZ")
-    assert row.parser_id == "columbia_bank"
+    assert row.parser_id == "first_farmers"
     assert row.source_path == "local_tesseract"
     assert row.visual_rung == "not_attempted"
 
@@ -324,7 +333,7 @@ def test_a_document_no_offline_rung_can_read_is_recovered_by_the_visual_rung(
     assert row.visual_rung == "recovered"
     assert row.source_path == "visual"
     assert row.source_model == "baidu/Unlimited-OCR"
-    assert row.parser_id == "columbia_bank"
+    assert row.parser_id == "first_farmers"
     assert row.outcome_class in {"validated", "review"}
     # It is no longer deferred: the mode exists to attempt exactly this.
     assert row.outcome_class != "deferred"
@@ -356,7 +365,7 @@ def test_an_unclaimed_tesseract_read_is_re_read_and_upgraded(scan_tree: Path, mo
     row = _runner(scan_tree).process("BankZ/scan.pdf", "BankZ")
     assert row.visual_rung == "upgraded"
     assert row.source_path == "visual"
-    assert row.parser_id == "columbia_bank"
+    assert row.parser_id == "first_farmers"
     assert row.outcome_class in {"validated", "review"}
 
 
@@ -538,7 +547,7 @@ def test_a_cached_analysis_does_not_trigger_a_spurious_escalation(
     _forbid_visual(monkeypatch)
 
     first = _runner(scan_tree, cache=cache).process("BankZ/scan.pdf", "BankZ")
-    assert first.cache_analysis == "miss" and first.parser_id == "columbia_bank"
+    assert first.cache_analysis == "miss" and first.parser_id == "first_farmers"
     assert first.parser_id_source == PARSER_ID_LIVE_DISPATCH
 
     second = _runner(scan_tree, cache=cache).process("BankZ/scan.pdf", "BankZ")
@@ -649,7 +658,7 @@ def test_the_upgrade_is_visible_in_the_record(scan_tree: Path, monkeypatch):
 
     assert record["outcome"]["fallback_reason"] == "visual_ocr_upgraded"
     assert record["source"]["path"] == "visual"
-    assert record["dispatch"]["parser_id"] == "columbia_bank"
+    assert record["dispatch"]["parser_id"] == "first_farmers"
     assert record["stages"]["visual_analysis"]["ms"] >= 0
 
 
@@ -669,9 +678,9 @@ def test_the_report_ranks_what_the_visual_rung_bought():
         return DocumentRow(**base)
 
     rows = [
-        row(visual_rung="upgraded", dispatch_outcome="claimed", parser_id="columbia_bank",
+        row(visual_rung="upgraded", dispatch_outcome="claimed", parser_id="first_farmers",
             outcome_class="validated", outcome_reason="approved"),
-        row(visual_rung="upgraded", dispatch_outcome="claimed", parser_id="columbia_bank",
+        row(visual_rung="upgraded", dispatch_outcome="claimed", parser_id="first_farmers",
             outcome_class="validated", outcome_reason="approved"),
         row(visual_rung="recovered", dispatch_outcome="claimed", parser_id="chase",
             outcome_class="validated", outcome_reason="approved"),

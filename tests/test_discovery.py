@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import json
+from collections import Counter
 import subprocess
 import sys
 from pathlib import Path
@@ -51,7 +52,17 @@ from discovery.runner import (
 ROOT = Path(__file__).resolve().parents[1]
 CORPUS = ROOT / "Bank Statements"
 DIGITAL = "Chase/Chase Mar.pdf"
-SCANNED = "Misc/Columbia May 26 complete.pdf"
+#: An image-only corpus statement whose committed OCR artifact a registration
+#: both claims AND publishes — the two properties every use below needs.
+#:
+#: It was `Misc/Columbia May 26 complete.pdf` until W3 §REPAIRDOC removed the
+#: two amount-rewriting repairs from `analysis/columbia_bank.py`; that document
+#: is now a pinned REFUSAL (`corpus_gate.PINNED_REFUSALS`) and publishes
+#: nothing, so it can no longer stand for "a scanned statement the dry run
+#: resolves". First Farmers is the same class of fixture: zero native text, an
+#: artifact committed in `tests/corpus_cache`, and a printed account number
+#: longer than four characters, which is what the redaction test needs.
+SCANNED = "Misc/First Farmers 2026 01-document.pdf"
 
 
 @pytest.fixture
@@ -277,7 +288,7 @@ def test_the_dry_run_reads_scanned_statements_from_committed_artifacts(tmp_path:
     """That is what lets the dry run cover all 109 with zero OCR."""
     row = _runner(CORPUS, MODE_DRY_RUN).process(SCANNED, "Misc")
     assert row.source_path == "committed_artifact"
-    assert row.parser_id == "columbia_bank"
+    assert row.parser_id == "first_farmers"
     assert row.outcome_class in {"validated", "review"}
 
 
@@ -808,7 +819,7 @@ def test_masking_keeps_only_the_last_four_characters():
 
 
 def test_a_real_account_number_never_reaches_the_row():
-    """Columbia's statement carries an account number; only its last 4 survive."""
+    """The scanned statement carries an account number; only its last 4 survive."""
     row = _runner(CORPUS, MODE_DRY_RUN).process(SCANNED, "Misc")
     from analysis.pipeline import analyze_markdown
     from corpus_artifacts import cached_markdown
@@ -852,22 +863,45 @@ def test_dry_run_reproduces_known_truth():
     assert summary["processed"] == 109
     assert summary["deferred"] == 0
     assert summary["dispatched"] == 109
-    assert summary["deterministic_coverage"] == 1.0
-    assert summary["dispatch"] == {"claimed": 109}
+    assert summary["deterministic_coverage"] == 108 / 109
+    assert summary["dispatch"] == {"claimed": 108, "unclaimed": 1}
     # 100/6/3 until WIRING-2's approved ceremony moved Texas Bank and Regions
     # review -> validated on withdrawn FALSE page flags. Regions is one of the
     # six image-only statements, and it only became executable offline once the
     # committed artifacts carried their intake page lists — this runner reads
     # them on the committed-artifact rung, so its agreement with the gate is
     # evidence that both halves of that artifact are in play.
-    assert summary["outcome"] == {"validated": 102, "review": 4, "withheld": 3}
+    #
+    # The one `failed` arrived with W3 §REPAIRDOC: with the two
+    # amount-rewriting repairs gone from `analysis/columbia_bank.py` its one
+    # publishing statement declines, no registration claims the document, and
+    # the analysis raises. It is a pinned REFUSAL, named in
+    # `corpus_gate.PINNED_REFUSALS` and asserted by name below — a document
+    # that failed for any OTHER reason would move this count and go red.
+    assert summary["outcome"] == {
+        "validated": 102, "review": 3, "withheld": 3, "failed": 1,
+    }
+    failed = {
+        path for path, row in rows.items() if row.outcome_class == "failed"
+    }
+    assert failed == set(corpus_gate.PINNED_REFUSALS)
+    assert all(rows[path].outcome_reason == "parser_declined" for path in failed)
+    assert all(rows[path].parser_id is None for path in failed)
     # Nothing can defer on the pinned set: the six image-only statements are
     # served from their committed OCR artifacts.
     assert "deferred" not in summary["outcome"]
     assert summary["deferred"] == 0
     assert summary["dedup"] == {"unique": 109}
     assert summary["ambiguity_clusters"] == {}
-    assert summary["unknown_layout_clusters"] == {}
+    # An unknown-layout cluster counts documents no registration published, by
+    # folder. W3 §REPAIRDOC put one there and it is named rather than
+    # tolerated: the cluster must be exactly the pinned refusal's folder.
+    assert summary["unknown_layout_clusters"] == dict(
+        Counter(Path(rel).parent.as_posix() for rel in corpus_gate.PINNED_REFUSALS)
+    )
+    # ...and the DECLINED cluster names the registration that detected it and
+    # then refused, which is the fact the refusal actually is.
+    assert summary["declined_clusters"] == {"columbia_bank": 1}
 
     withheld = {
         Path(path).name for path, row in rows.items() if row.outcome_class == "withheld"
@@ -879,7 +913,12 @@ def test_dry_run_reproduces_known_truth():
     )["documents"]
     assert len(expectations) == 109
     for entry in expectations:
-        expected = entry["variant_id"] or entry["parser_id"]
+        # `parser_expectations.json` records what the pre-R-3 or-chain did and
+        # is not rewritten by a later doctrine ceremony; for a pinned refusal
+        # the runner names no parser at all, which the block above pins.
+        expected = None if entry["path"] in corpus_gate.PINNED_REFUSALS else (
+            entry["variant_id"] or entry["parser_id"]
+        )
         assert rows[entry["path"]].parser_id == expected, entry["path"]
         assert rows[entry["path"]].content_sha256 == entry["sha256"]
 
@@ -939,9 +978,20 @@ def test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered(tmp_path: 
     warm_rows, warm, warm_records = pass_(cache)
 
     assert {r.cache_analysis for r in cold_rows} == {"miss"}
-    assert {r.cache_analysis for r in warm_rows} == {"hit"}
+    # W3 §REPAIRDOC: a pinned refusal is a MISS on both passes and keeps its
+    # live dispatch, because `webapp/artifact_cache.py` never caches a failure
+    # — there is no payload to serve, so there is nothing to reconstruct FROM.
+    # That is the correct behaviour and it is pinned by name rather than
+    # relaxed away: everything else hits, and the refusal's warm row is
+    # identical to its cold one all the same (asserted below with the rest).
+    refusals = set(corpus_gate.PINNED_REFUSALS)
+    assert {r.relative_path for r in warm_rows if r.cache_analysis == "miss"} == refusals
+    assert {r.cache_analysis for r in warm_rows if r.relative_path not in refusals} == {"hit"}
     assert cold["parser_id_source"] == {PARSER_ID_LIVE_DISPATCH: 109}
-    assert warm["parser_id_source"] == {PARSER_ID_LIVE_DETECT: 109}
+    assert warm["parser_id_source"] == {
+        PARSER_ID_LIVE_DETECT: 109 - len(refusals),
+        PARSER_ID_LIVE_DISPATCH: len(refusals),
+    }
 
     for key in ("outcome", "reasons", "dispatch", "dispatched",
                 "deterministic_coverage", "parsers", "folder_agreement",
@@ -951,13 +1001,15 @@ def test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered(tmp_path: 
         assert warm[key] == cold[key], key
     # Every one of the 109 was reconstructed; none was refused.
     assert warm["dispatch_inconclusive"] == 0
-    assert warm["outcome"] == {"validated": 102, "review": 4, "withheld": 3}
+    assert warm["outcome"] == {
+        "validated": 102, "review": 3, "withheld": 3, "failed": 1,
+    }
     # 102/4/3, not 100/6/3: the batch-5 train composed this test (written on
     # wave5-discobs) with WIRING-2's executed Option-A ceremony, which moved
     # Texas Bank and Regions review->validated. The canonical split is the
     # gate's PINNED_OUTCOMES; the warm==cold reproduction above is the
     # property this test owns.
-    assert warm["deterministic_coverage"] == 1.0
+    assert warm["deterministic_coverage"] == 108 / 109
 
     cold_by_path = {r.relative_path: r for r in cold_rows}
     for row in warm_rows:
@@ -974,7 +1026,19 @@ def test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered(tmp_path: 
     # The record's provenance mark is `dispatch.source`, and it is the one
     # field that is SUPPOSED to differ between the two passes.
     assert {r["dispatch"]["source"] for r in cold_records} == {"live"}
-    assert {r["dispatch"]["source"] for r in warm_records} == {"cached"}
+    # ...for every record the cache could serve. A pinned refusal's record is
+    # `live` on BOTH passes for the same reason its row is a miss on both: the
+    # analysis raised, nothing was cached, and there is no stored verdict to
+    # mark as reconstructed. Pinned by shape, not excused: the warm records
+    # that are still `live` must be exactly as many as there are refusals, and
+    # every one of them must be an unclaimed dispatch.
+    warm_live = [r for r in warm_records if r["dispatch"]["source"] == "live"]
+    assert len(warm_live) == len(refusals)
+    assert {r["dispatch"]["outcome"] for r in warm_live} == {"unclaimed"}
+    assert {
+        r["dispatch"]["source"] for r in warm_records
+        if r["dispatch"]["outcome"] == "claimed"
+    } == {"cached"}
 
     cold_by_sha = {r["document"]["content_sha256"]: r for r in cold_records}
     assert len(cold_by_sha) == 109, "109 distinct documents, so a key per record"
@@ -989,8 +1053,9 @@ def test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered(tmp_path: 
     # The number the card is about, warm and cold, from the shipped summariser.
     assert coverage(cold_records) == coverage(warm_records)
     assert coverage(warm_records) == {
-        "numerator": 109, "denominator": 109, "deferred": 0,
-        "unattributed": 0, "verdicts": {"claimed": 109}, "rate": 1.0,
+        "numerator": 108, "denominator": 109, "deferred": 0,
+        "unattributed": 0, "verdicts": {"claimed": 108, "unclaimed": 1},
+        "rate": 108 / 109,
     }
     # And the two instruments over one run: the telemetry rollup and the
     # discovery rollup are independent code paths reading independent
@@ -1002,8 +1067,14 @@ def test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered(tmp_path: 
         assert coverage(records)["numerator"] == rollup["dispatch"]["claimed"]
 
     # The `--enrich` bridge is no longer load-bearing for a run emitted now:
-    # the records carry their own parser identity, warm or cold.
-    assert all(r["dispatch"]["parser_id"] for r in warm_records)
+    # the records carry their own parser identity, warm or cold. A refusal
+    # names no parser because none published it — the registration that
+    # detected it and declined is in `attempted`, not in `parser_id`.
+    named = [r for r in warm_records if r["dispatch"]["outcome"] == "claimed"]
+    assert len(named) == 109 - len(refusals)
+    assert all(r["dispatch"]["parser_id"] for r in named)
+    unnamed = [r for r in warm_records if r["dispatch"]["outcome"] != "claimed"]
+    assert [r["dispatch"]["attempted"] for r in unnamed] == [["columbia_bank"]]
 
 
 # ---------------------------------------------------------------------------

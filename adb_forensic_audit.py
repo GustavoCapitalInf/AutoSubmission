@@ -441,8 +441,53 @@ def printed_explanation(
     return "The raw ledger closes, but the bank-printed average uses an undisclosed alternate balance basis."
 
 
+#: What `analysis/pipeline.py` raises for a document no deterministic parser
+#: will publish. Matched by its exact text, never by class: `RuntimeError` is
+#: also what a genuine defect raises, and an audit that swallowed those would
+#: turn a crash into a row.
+DECLARED_REFUSAL = "no deterministic parser matched this statement"
+
+#: The status a row carries when the analysis published nothing to audit.
+REFUSED_STATUS = "REFUSED"
+
+
+def refusal_row(path: Path, root: Path, reason: str) -> dict[str, Any]:
+    """One row for a document the deterministic analysis refuses to publish.
+
+    Every audited value column is EMPTY, because there is no published figure
+    to compare an independent one against — not zero, not a carried-over
+    reading. What the row asserts is exactly the fact that was measured: this
+    document produced no analysis, and this is the refusal it produced instead.
+
+    The row exists so that a refusal stays in the audit rather than dropping
+    out of it. A pinned document that vanished from the CSV would take its
+    whole audit trail with it, and the gate would then be green about a
+    document nobody was checking (`corpus_gate.PINNED_REFUSALS`).
+    """
+    row: dict[str, Any] = {field: "" for field in FIELDS}
+    row["statement"] = path.name
+    row["folder"] = (
+        path.parent.relative_to(root).as_posix() if path.parent != root else "."
+    )
+    row["status"] = REFUSED_STATUS
+    row["root_cause"] = reason
+    row["confidence"] = "high"
+    return row
+
+
 def audit_one(path: Path, root: Path, markdown: str) -> dict[str, Any]:
-    report = analyze_markdown(markdown, parse_mode="deterministic")
+    try:
+        report = analyze_markdown(markdown, parse_mode="deterministic")
+    except Exception as exc:
+        # `type(exc) is RuntimeError`, not `except RuntimeError`, and the same
+        # rule `corpus_gate.check_outcome_classes` applies to the same refusal:
+        # a SUBCLASS of RuntimeError is a different failure with its own cause,
+        # and matching one here would file a crash as a measured fact. The
+        # message is compared as well, so a genuine defect — which is also a
+        # RuntimeError often enough — still propagates and is still a crash.
+        if type(exc) is not RuntimeError or str(exc) != DECLARED_REFUSAL:
+            raise
+        return refusal_row(path, root, str(exc))
     stmt = report.statement
     independent = independent_ledger(stmt, markdown)
     payload = report_to_dict(report)
@@ -568,6 +613,11 @@ def escape(value: Any) -> str:
 
 
 def write_report(rows: list[dict[str, Any]], destination: Path, csv_path: Path) -> None:
+    # A REFUSED row has no audited figures in it at all, so it is named and
+    # counted rather than folded into statistics computed over published
+    # ledgers. Every rate below is over the documents that produced one.
+    refused_rows = [row for row in rows if row["status"] == REFUSED_STATUS]
+    rows = [row for row in rows if row["status"] != REFUSED_STATUS]
     passed = sum(row["status"] == "PASS" for row in rows)
     withheld = sum(row["status"] == "WITHHELD" for row in rows)
     failed = sum(row["status"] == "FAIL" for row in rows)
@@ -589,6 +639,13 @@ def write_report(rows: list[dict[str, Any]], destination: Path, csv_path: Path) 
         "## Result",
         "",
         f"- Statements audited: **{len(rows)}**",
+        f"- Statements the deterministic analysis refused to publish: "
+        f"**{len(refused_rows)}** "
+        + (
+            ", ".join(sorted(row["statement"] for row in refused_rows))
+            if refused_rows
+            else "(none)"
+        ),
         f"- Valid independent ledgers passed end to end: **{passed}**",
         f"- Correctly withheld invalid source ledgers: **{withheld}**",
         f"- Incorrect production outputs after fixes: **{failed}**",
@@ -749,7 +806,10 @@ def main() -> None:
     report_path = Path(args.report)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     write_report(rows, report_path, csv_path)
-    counts = {status: sum(row["status"] == status for row in rows) for status in ("PASS", "WITHHELD", "FAIL")}
+    counts = {
+        status: sum(row["status"] == status for row in rows)
+        for status in ("PASS", "WITHHELD", "FAIL", REFUSED_STATUS)
+    }
     print(f"Wrote {len(rows)} rows to {csv_path} and {report_path}: {counts}")
     # A FAIL row means production disagrees with the independent oracle. Exit
     # non-zero so a caller (CI, a shell pipeline) cannot mistake it for success.

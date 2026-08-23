@@ -40959,3 +40959,562 @@ of each other on a 100s test. The saturated reading (440.9 ms) is against
 | `fa4ec52` | the mutation harness, and the cap fixture that proved nothing until it asserted its own premise |
 | `02bff9a` | this section, as it stood at review |
 | this commit | the review's three MAJORs and four MINORs: the section-wide carry (MAJOR-1) with its fixtures and M9, the oracle committed as `tools/descattrib_oracle.py` (MAJOR-2), and the priced loss in DA6.1 (MAJOR-3) |
+
+---
+
+# §REPAIRDOC — the APPROVED repair ceremony: columbia_bank stops writing amounts
+
+Branch `wave7-repairdoc`, base `e83f746`. Batch 7, card 1. PROTECTED CEREMONY
+cell: Gustavo's ruling of 2026-08-21 is the scope, pinned-diff discipline
+throughout, $0.00 vendor, archive and caches read-only.
+
+> "APPROVED. Proceed with the pinned ceremony. Parsers must never rewrite
+> transaction amounts just to force reconciliation. Replace repair-by-rewrite
+> with discard-and-flag / fail-closed. Require exact before/after proof and
+> zero unrelated movement."
+
+## RD0. Summary
+
+| | |
+|---|---|
+| Doctrine | a row is published at the figure the text prints, or it is not published. Both amount-REWRITING repairs are deleted from `analysis/columbia_bank.py`; nothing replaces them that writes an amount |
+| Shape chosen | **(a) FAIL CLOSED**, by evidence — §RD3 |
+| Pinned movement | **one document**, `0CBD2AD897B90137878F81EF608778735CA0DFEAB23D25793F2C6F1DF6C6127D` (`Misc/Columbia May 26 complete.pdf`): `review` / `missing_declared_statement_page` → **REFUSED**. 32,650 payload leaves → 0 |
+| Amounts that were WRITTEN | exactly **3** of 108, proven twice by independent methods that agree row for row — §RD1 |
+| Daily evidence that was SUBSTITUTED | exactly **1** of 21 published cells — §RD2 |
+| Family | **4** documents, by live detection replay over the run of record's 3,380 distinct shas (3,351 with OCR text). The other three refused before and refuse identically after — §RD4 |
+| Archive movement | the sweep's every finding inside that family — §RD8 |
+| Gate | GREEN. 105 PASS / 3 WITHHELD / **1 REFUSED**; verdicts 102 validated / 3 review / 3 withheld / 1 refused; currency 108/108 (94 USD / 14 CAD) + 1 refusal |
+| Mutation table | 10 mutants, 10 KILLED, 0 survivors — and it found two survivors on the first run, which is §RD7 |
+| Statement-specific constants | none added. Two literal-carrying helpers (`_counterparty_key`'s token stop-list) were DELETED |
+
+## RD1. The three written amounts, measured on the unchanged base tree
+
+Both repairs sat between the row reader and the section gates
+(`columbia_bank.py:536-549` at `e83f746`), so each gate tested its own repair's
+objective function rather than the document. Instrumented on the committed OCR
+artifact at `e83f746`, every call recorded:
+
+| Call | Section | Rows | Sum before | Sum after | Printed total |
+|---|---|---|---|---|---|
+| `_repair_repeated_amounts` | ACH debits | 50 | 116,443.92 | 116,442.92 | 113,442.92 |
+| `_repair_repeated_amounts` | ACH credits | 53 | 172,050.51 | 142,050.51 | 142,050.51 |
+| `_repair_single_section_delta` | ACH debits | 50 | 116,442.92 | 113,442.92 | 113,442.92 |
+
+Three rows moved, and only three:
+
+| Date | Seq | Printed | Published | By |
+|---|---|---|---|---|
+| 2026-05-15 | 28 | 4,500.00 | **1,500.00** | single-delta |
+| 2026-05-22 | 94 | 40,962.30 | **10,962.30** | modal |
+| 2026-05-29 | 50 | 3,036.83 | **3,035.83** | modal |
+
+**There is no fourth, proven two ways that do not share a premise.**
+
+1. *By construction.* The only transform between `_rows` / `_CHEQUE_ROW` (which
+   take the amount straight out of the regex capture) and the published
+   `Transaction` list is those two functions. Every call was intercepted and
+   every changed row enumerated: three.
+2. *By re-reading the document.* An independent probe loads the base module out
+   of git, parses the artifact with it, and asks of each published transaction
+   whether the magnitude it publishes is the money token printed at the end of
+   the source line carrying its own description. Result at `e83f746`:
+   **108 published, 3 whose own printed line does not carry the published
+   magnitude, 0 rows whose printed line could not be located at all** — the
+   same three, with the same printed figures. At `HEAD`: *the reader publishes
+   nothing for this document.*
+
+   The second probe is not the first one wearing a hat, and the distinction is
+   the point. "Is this magnitude printed anywhere in the document" would have
+   missed two of the three: a MODAL repair writes a figure that IS printed —
+   on the three other rows of the same counterparty group that gave it its
+   mode. It also has to parse the token with the module's own reader, because
+   this family's scans render the cents separator as a comma often enough that
+   a naive string test manufactures three false positives (99,00 / 791,32 /
+   5809,02) and misses two real ones.
+
+## RD2. The substituted daily-balance cell
+
+`stated_daily_balances` is BANK evidence: `analysis/adb.py` lets a snapshot
+OVERRIDE the reconstructed carry for its day, and the daily series it builds
+is what the canonical ADB is the mean of. The reader published
+`reconstructed.get(day, snapshots[day])` — its own arithmetic wherever it had
+any, the printed cell only where it had none.
+
+Measured at `e83f746`: the grid yields **22** readable cells, 21 of them
+in-period (2026-04-30 is the prior period's closing day and is not published).
+**Exactly one** published cell differed from the figure the grid prints:
+
+| Date | Grid prints | Published |
+|---|---|---|
+| 2026-05-20 | 7,825.18 | **7,525.18** |
+
+**Corrected at forensic review (MINOR-1); the first draft of this section got
+the mechanism wrong.** The ADB audit's own columns - `daily_balance_sum
+411,545.17`, `independent_candidate_adb 13,275.65`, and therefore the phrase
+`"Exact cent match to the bank-printed figure."` - are the INDEPENDENT oracle's,
+and the oracle never reads `stated_daily_balances`: it re-derives the grid from
+the markdown itself, found none it recognises for this bank
+(`raw_daily_balance_snapshots 0`), and fell to `evidence_basis
+raw_line_items`. Re-measured on this branch, both ways:
+
+| | oracle `candidate_adb` | oracle `daily_sum` | production ADB | published |
+|---|---|---|---|---|
+| as shipped (7,525.18) | 13,275.65 | 411,545.17 | 13,275.65 | 13,275.65 |
+| printed cell (7,825.18) | **13,275.65** | **411,545.17** | 13,285.33 | **None - withheld** |
+
+The oracle is invariant. What the substitution was load-bearing for is the
+ROW'S PASS: with the printed cell, `analysis/adb.py`'s only failing required
+check is `running_balances_support_daily_ledger`, so production withholds the
+ADB entirely while the oracle still publishes 13,275.65 - `matches` is False
+and the audit row is **FAIL**, not PASS. So the substitution did not
+manufacture the phrase; it manufactured the AGREEMENT the phrase describes, by
+suppressing the one disagreement the platform would otherwise have refused
+over. 13,285.33 is production's unpublished figure, not a moved oracle
+number.
+
+Under this card the printed cell is published, always, and the disagreement is
+reported instead of resolved (§RD5).
+
+## RD3. Why (a) fail closed, and not (b) publish-with-a-flag
+
+The card allowed either, "by evidence". Five measurements, all on this
+template:
+
+1. **The section total alone cannot localise the defect - but the defect is
+   largely localisable, and the first draft of this section overstated the
+   case. Corrected at forensic review (MAJOR-1).** Re-measured on this branch,
+   scoring both ledgers against constraints the bank PRINTED:
+
+   | | ACH debit total | ACH credit total | chain vs printed ending | independent line-item ADB vs printed average 13,275.65 | printed grid cells reconstructed |
+   |---|---|---|---|---|---|
+   | REPAIRED | exact | exact | drift **0.00** | **13,275.65 - exact** | **20 / 21** |
+   | AS PRINTED | +3,001.00 | +30,000.00 | drift **+26,999.00** | 21,307.81 | 10 / 21 |
+
+   The printed-average agreement is genuine corroboration: the independent
+   line-item ADB was never an input to either heuristic. The GRID agreement is
+   not independent - `_repair_single_section_delta` scores its candidates BY
+   grid agreement, so that column is partly the repair's own objective
+   function and cannot self-certify. And the one cell the repaired ledger
+   misses (05-20, printed 7,825.18 against 7,525.18) is isolated and
+   self-correcting: 05-21 onward reconstruct exactly, which is the signature of
+   a 5->8 corruption in the GRID cell rather than in any ledger row.
+
+   **So the honest reading is that the three repaired figures are, on the
+   evidence, very likely the true ones, and the price of this ceremony is
+   real: a 108-transaction statement that probably reads correctly becomes
+   un-analysable.** Fail-closed is right anyway, on two grounds that do not
+   depend on localisability - the ruling is categorical (no published amount
+   may be one a parser wrote, however well corroborated), and the gates are
+   structural (removing the rewrites makes both ACH sections refuse on their
+   own printed totals, and publishing as-printed would additionally require
+   weakening the ledger-chain gate at `:574` over a ledger that misses the
+   printed ending by 26,999.00 and yields an ADB of 21,307.81). Reported to
+   Gustavo as a price, not hidden inside a claim about what the grid could
+   see.
+2. **The class is OCR digit corruption**, not a layout defect: 4→1 in a leading
+   digit, 4→1 again, and 6→5. Three corrupt figures in one scan, and no
+   evidence that says which three.
+3. **(b) would have to weaken three gates, not one.** The rows as printed do
+   not reach the printed ending balance, so the ledger-chain gate at
+   `:574` would have to become a flag as well. Publishing a ledger that does
+   not close is the opposite direction from the ruling.
+4. **The module already fails closed on this condition in five sections.** The
+   two ACH sections were the exception, and the repair is what made them one.
+   Removing it makes the reader uniform.
+5. **The cohort's other three statements already refuse for exactly this
+   reason**, and that refusal was accepted in batch 6 (§COLUMBIA5). Publishing
+   this one under a flag would have made the family's behaviour depend on how
+   many of its corrupt rows a heuristic happened to be able to move.
+
+**And DISCARD-AND-FLAG, the third shape the ruling names, measured rather than
+waved past (MINOR-5).** Dropping the three rows and adjusting no total - the
+handoff is explicit that a discard which adjusts a total is a rewrite - leaves:
+
+    ACH debits   108,907.09 against a printed 113,442.92   (-4,535.83)
+    ACH credits  131,088.21 against a printed 142,050.51  (-10,962.30)
+    ledger chain   7,478.40 against a printed ending 13,904.87 (-6,426.47)
+    count          105 rows published, 108 printed
+
+Every section disagreement it was meant to cure gets WORSE, the ledger chain
+breaks in a new direction, and the published transaction count stops matching
+the document. Discard-and-flag is the right shape when a row is unreadable and
+the rest of the ledger closes without it; here the rows are perfectly readable
+and it is their VALUES that are in doubt, so removing them destroys evidence
+without repairing anything. Fail-closed dominates it on every measured
+constraint.
+
+The consequence is stated plainly: `columbia_bank` is now a registration that
+CLAIMS four archive documents and publishes none of them. That is the
+fail-closed answer this template's own printed totals give on all four scans,
+and the registration still earns its place — the detection is exact (§RD4) and
+a refusal is a measurement.
+
+## RD4. The family, by live detection replay
+
+Populated the way the wave requires — by replaying `columbia_bank.detect` over
+every distinct `content_sha256` in the run of record, reading each document's
+OCR text from the artifact partition whose reconstruction resolves the run's
+own stored analysis payload (the `regfp` selection rule) — never from
+`rows.csv` `parser_id`.
+
+    3,380 distinct shas · 3,351 with OCR text · 29 with no OCR artifact
+    claimants: 4, every one at detection score 0.5 with all four markers matched
+
+| content_sha256 | base | HEAD |
+|---|---|---|
+| `0CBD2AD8…C6127D` | claimed / `review` / `integrity_flags`, 108 txns | **unclaimed / RuntimeError / `failed`** |
+| `2E667295…ECFAA4` | unclaimed / RuntimeError / `failed` | identical |
+| `6ADFE63F…B9BDDB` | unclaimed / RuntimeError / `failed` | identical |
+| `88AAC061…89F0EE` | unclaimed / RuntimeError / `failed` | identical |
+
+Leaf-by-leaf over the full `report_to_dict` payloads: the pinned document goes
+32,650 leaves → 0; the other three had no payload before and have none after,
+with every recorded field — dispatch outcome, attempted list, exception class
+and the refusal MESSAGE — byte-identical. The census matches the module's own
+docstring claim (`MARKETPLACE CHECKING` in exactly 4 of 3,351), independently
+re-derived rather than trusted.
+
+## RD5. The disagreement is published, not resolved
+
+There is no parser→flag channel in `Statement`, and inventing one would have
+touched every parser. The registry already has the right seam:
+`Registration.integrity_checks`, whose findings become the published
+`conflicting_statement_summaries` flag with the check's own note under it.
+
+`columbia_bank.daily_grid_contradictions` is registered there and reports two
+things, which are different facts:
+
+* **a published snapshot that is not the printed cell** — this module's own
+  doctrine violated, i.e. parser arithmetic served to `analysis/adb.py` under
+  the name of bank evidence. It cannot happen through the reader any more; the
+  check is what makes that a measured fact on every document rather than a
+  property of today's code. The grid is re-read from the DOCUMENT, so a reader
+  that resumed substituting is still caught.
+* **a printed cell the ledger does not reconstruct** — the document
+  disagreeing with itself. Both printings are the bank's; only the bank can say
+  which is wrong, so neither is preferred.
+
+Proven end to end on a synthetic document whose only defect is one such cell:
+the parser publishes 210.00 (printed), the check writes the note, and
+`analyze_markdown` publishes `conflicting_statement_summaries` with the date in
+it.
+
+## RD6. The pinned before/after, field by field
+
+**Verdict** (`corpus_gate.PINNED_OUTCOMES` → `PINNED_REFUSALS`)
+
+| Field | Before | After |
+|---|---|---|
+| outcome class | `review` | **refused** (the analysis raises) |
+| flags | `('missing_declared_statement_page',)` | — no published statement |
+| notes | 1 (`statement declares 5 bank page(s), but page label(s) 5 are absent…`) | — |
+| risk_level | `review` | — |
+| possible_document_issue | `False` | — |
+| refusal | — | `RuntimeError("no deterministic parser matched this statement")`, pinned verbatim |
+
+**Currency** (`corpus_gate.PINNED_CURRENCY`): entry `USD` **withdrawn**. The map
+is now total over the manifest MINUS the pinned refusals (108: 94 USD / 14 CAD),
+enforced in both directions; a pin for a refusal is RED.
+
+**`docs/balance-metrics-audit-results.csv`** — one row, 39 columns moved, all in
+one direction (a figure → empty):
+
+    status                       PASS -> REFUSED
+    root_cause                   "Exact source-derived balance match."
+                                 -> "no deterministic parser matched this statement"
+    bank, account, parser, period, calendar_days, transactions,
+    daily_balance_evidence, source/expected/production/api/csv/xlsx/package
+    × opening/ending/highest/lowest, the four differences,
+    detail_ledger_reconciles, summary_reconciles, running_balances_reconcile,
+    dashboard_binding_valid, exports_valid, underwriting_adb_basis,
+    underwriting_adb_policy, bank_reported_average_label,
+    bank_reported_average_variance   -> ""
+
+    kept: statement, path, sha256 (4 pages, scanned/local_ocr),
+          fix_applied, regression_risk, confidence
+
+**`docs/adb-audit-results.csv`** — one row, 39 columns moved the same way:
+
+    status      PASS -> REFUSED
+    root_cause  "Exact cent match to the bank-printed figure."
+                -> "no deterministic parser matched this statement"
+    bank, parser, period_start, period_end, opening_balance, opening_source,
+    closing_balance, calendar_days, bank_stated_days, day_count_valid,
+    leap_day_in_period, transactions, posting_days, same_day_groups,
+    max_same_day_transactions, no_activity_days, undated_transactions,
+    out_of_period_transactions, raw_daily_balance_snapshots, evidence_basis,
+    daily_balance_sum, independent_candidate_adb, independent_ledger_valid,
+    printed_adb_label, printed_adb, backend_adb, api_adb, dashboard_adb,
+    backend_difference, printed_difference, printed_percentage_difference,
+    running_balance_evidence_valid, closing_drift, underwriting_adb_basis,
+    underwriting_adb_policy, bank_reported_average_label,
+    bank_reported_average_variance   -> ""
+
+    kept: statement, folder, confidence
+
+Neither row was hand-edited. Both were RE-DERIVED by the oracles themselves,
+which had to learn the shape first: `audit_one` and `audit_source` now catch
+the analysis's declared refusal — matched on its exact text, never on
+`RuntimeError`, so a genuine crash is still a crash — and return a row that
+asserts only what was measured. `apply_package_results` pairs rows to jobs
+before building the package, because a refused document has no analysis and
+therefore no package member. That is what keeps both CSVs at 109 rows,
+regenerable, and keeps the refusal inside the audit trail rather than dropping
+it out of the manifest.
+
+## RD7. What the mutation table found (and it was not a formality)
+
+First run: **8 killed, 2 survivors**. Deleting either ACH section gate left
+`test_a_section_whose_rows_miss_its_own_printed_total_declines[ach_debits]` and
+`[ach_credits]` GREEN — on those fixtures the LEDGER CHAIN refuses first, so
+the tests named for the section gates were passing for another gate's reason.
+Exactly the trap the standing rules name.
+
+The fix is the shape the other three sections already had a test for: every
+other oracle satisfied — the summary's direction total is the sum of the
+printed SECTION totals, and the ledger the ROWS reconstruct reaches the printed
+ending — with the section's disagreement the only contradiction left.
+
+| Mutation | Test that must die | `pytest` exit |
+|---|---|---|
+| re-introduce `_repair_repeated_amounts` and its call | `test_a_row_a_dollar_off_its_counterparty_mode_is_not_snapped_to_it` | **1** |
+| re-introduce `_repair_single_section_delta` and its call | `test_a_single_row_carrying_the_sections_whole_residual_is_not_rewritten` | **1** |
+| restore `reconstructed.get(...)` in the daily evidence | `test_the_daily_grid_publishes_the_printed_cell_not_the_reconstruction` | **1** |
+| drop the reconstruction half of `daily_grid_contradictions` | `test_a_grid_cell_the_ledger_does_not_reconstruct_is_published_as_a_contradiction` | **1** |
+| drop the published-snapshot half of `daily_grid_contradictions` | `test_a_published_snapshot_that_is_not_the_printed_cell_is_a_contradiction` | **1** |
+| drop `integrity_checks` from the `columbia_bank` registration | `test_the_registration_declares_the_daily_grid_check` | **1** |
+| delete the ACH-debit section gate | `test_an_ach_debit_section_that_contradicts_only_its_own_total_declines` | **1** |
+| delete the ACH-credit section gate | `test_an_ach_credit_section_that_contradicts_only_its_own_total_declines` | **1** |
+| drop the `PINNED_REFUSALS` entry | `test_a_pinned_refusal_is_pinned_exactly_once_and_nowhere_else` | **1** |
+| widen the ADB oracle's refusal guard to accept a `RuntimeError` SUBCLASS | `test_the_refusal_guard_is_one_rule_in_both_oracles` | **1** |
+| widen the balance oracle's refusal guard to accept a `RuntimeError` SUBCLASS | `test_the_refusal_guard_is_one_rule_in_both_oracles` | **1** |
+| re-add a `PINNED_CURRENCY` pin for the refusal | `test_the_currency_surface_is_total_over_the_denominated_manifest` | **1** |
+
+**12 mutants, 12 KILLED, 0 survivors** (10 at first review, plus the two the
+MINOR-3 closure added). Every mutation is applied to the source,
+run, and reverted with the restoration verified byte-for-byte; a node that
+fails to COLLECT aborts the harness rather than counting as a kill (the first
+run's `[ach_debits]` id was wrong and pytest exited 4, which proves nothing).
+
+## RD8. The archive sweep
+
+`tools.regfp_zero_movement_sweep` at branch HEAD, four chunks over the run of
+record's 3,380 distinct shas, against the baseline settings key
+`D3370EEBDCB87892A2739BCB0D882A66E72DCBFAB2553101111157B5A231DE24`.
+
+| Chunk | Docs | Compared | Identical | `moved` | `no_payload_now_publishes` | `payload_now_raises` | No artifact | Seconds | Exit |
+|---|---|---|---|---|---|---|---|---|---|
+| 0–845 | 845 | 620 | 619 | **0** | **0** | **1** | 6 | 2614.6 | 1 |
+| 845–1690 | 845 | 644 | 644 | **0** | **0** | **0** | 5 | 3040.4 | 0 |
+| 1690–2535 | 845 | 634 | 634 | **0** | **0** | **0** | 11 | 2345.0 | 0 |
+| 2535–3380 | 845 | 637 | 637 | **0** | **0** | **0** | 7 | 1461.3 | 0 |
+| **total** | **3,380** | **2,535** | **2,534** | **0** | **0** | **1** | **29** | **9,461.3** | **1** |
+
+The counts close: 2,535 compared + 816 `no_payload_raises_again` + 29
+`no_ocr_artifact` = 3,380. 74 documents held more than one capability
+partition, so the artifact selection had a choice to make on 74 and resolved
+each by the run's own analysis key.
+
+**One finding in the entire archive, and it is the one this card names:**
+
+    {"content_sha256":"0CBD2AD897B90137878F81EF608778735CA0DFEAB23D25793F2C6F1DF6C6127D",
+     "verdict":"payload_now_raises","exception":"RuntimeError","outcome_class":"review"}
+
+`moved` is **0** and `no_payload_now_publishes` is **0** over all 3,380: no
+document's published analysis differs from what the run of record stored for
+it, and no document that refused before publishes now. The one document whose
+boundary moved is the pinned one, and it moved in the fail-closed direction.
+The three other members of the family are inside `no_payload_raises_again`
+(816) both before and after — the sweep cannot distinguish them there by
+design, which is why §RD4's own replay diffs their refusals directly.
+
+Derived, and stated as derived: the run of record's split becomes
+`review 16 → 15`, `failed 832 → 833` on a re-run. `validated` is unchanged at
+**2,456** — this document was never in it.
+
+## RD9. Tests
+
+**Suite movement: 5,374 → 5,387 (+13 unmarked).** Corpus-marked slice
+unchanged at **29**; skipped unchanged at 35; deselected 33.
+
+The +13, exactly: `tests/test_columbia_bank.py` 49 → 62 (+13), of which the
+§REPAIRDOC family is the two rewrite classes pinned twice each, the two ACH
+section gates' dangerous-shape pair, the structural "every published amount is
+a figure the document prints", and the six daily-grid tests;
+`tests/test_corpus_gate_outcomes.py` +1 (`test_a_pinned_refusal_is_pinned_exactly
+_once_and_nowhere_else`); `tests/test_new_statement_corpus.py` −1 (the columbia
+fixture leaves two parametrized tests and gains one refusal test).
+
+Nothing was deleted to make room. Four tests that USED the pinned document as
+"a scanned statement that publishes" now use `Misc/First Farmers 2026
+01-document.pdf`, which is the same class of fixture — zero native text, a
+committed artifact, an account number longer than four characters — so every
+assertion they made is still being made, on a document that can still make it.
+
+### RD9.1 Proofs, with verbatim exit codes
+
+All run on this branch, sequentially or as detached processes with their own
+`EXIT=` terminators, on a machine shared with nine other cells.
+
+| Proof | Result | Exit |
+|---|---|---|
+| `python corpus_gate.py` (updated pins live) | **RESULT: GREEN** — every check PASS; `Outcomes: 105 PASS / 3 WITHHELD / 1 REFUSED`; `Verdicts: 1 refused / 3 review / 102 validated / 3 withheld`; `currency: 108/108 … 14 CAD / 94 USD (+1 pinned refusal(s))`; runtime 894.2s | **0** |
+| `pytest -q -p no:cacheprovider` | **5,387 passed**, 35 skipped, 33 deselected (270.96s) | **0** |
+| `pytest -q -p no:cacheprovider -m corpus` | **29 passed**, 5,426 deselected (2071.59s) | **0** |
+| CANONICAL guard set (5 files) | **242 passed** (23.95s) | **0** |
+| CANONICAL conformance set (7 files) | **1,151 passed**, 35 skipped (7.26s) | **0** |
+| mutation table (12 mutants) | **12 KILLED, 0 survivors**; tree restored and verified byte-for-byte after each | **0** |
+| archive sweep, 4 chunks × 845 | 3,380 documents, **0 moved**, **0 no_payload_now_publishes**, **1 payload_now_raises** (9,461.3s) | **1** (findings) |
+| family replay, base and HEAD | 3,380 shas swept twice; 4 claimants both times, leaf-diffed | **0** |
+| base-tree pinned measurement (instrumented) | 3 written amounts, 1 substituted grid cell | **0** |
+| independent re-read of the base tree | 3 written amounts, 0 rows unlocated — the same three | **0** |
+
+$0.00 vendor: `parse_mode="deterministic"` throughout, no hosted model call
+anywhere including the tests. The archive and the D-3 artifact store were
+opened READ-ONLY by direct file path; the `webapp_data` sqlite index was never
+opened. Nothing was written to the archive or to any shared cache — the one
+warm/cold proof builds its cache in `tmp_path`.
+
+## RD10. Carried risks and findings for Ocean
+
+1. **`columbia_bank` now publishes nothing in the archive.** Four claims, four
+   refusals. Coverage is unchanged in the headline number — the document was
+   `review`, never `validated` — but the run-of-record split moves
+   `review 16 → 15`, `failed 832 → 833`.
+2. **`analysis/bank_repairs.py::repair_capital_one_running_amount` rewrites a
+   transaction amount** by the same doctrine this card removed: it replaces a
+   row's amount with the difference of two adjacent printed running balances
+   when that closes the ledger. It is a different module, a different family
+   and a different seam (PIPELINE-5 owns `apply_statement_repairs`), so this
+   cell did not touch it — but the ruling is written about parsers in general
+   and this is the same class. **Carded, not fixed.** Recommend a batch-8 card.
+3. **`Transaction.running_balance` on this template is parser arithmetic.** The
+   schema says "Account balance printed after this transaction, if any" and
+   Columbia's ledger sections print no per-row balance; the reader fills the
+   last row of each date from its own reconstruction. It is what makes
+   `adb._validate`'s `running_balances_support_daily_ledger` able to see a
+   grid disagreement at all, so removing it would REDUCE the integrity signal
+   unless something replaces it. Out of this card's scope, named here.
+4. **The refusal files under `unknown_layout_clusters` (MINOR-4), and that
+   is a taxonomy gap rather than a defect of this card.**
+   `discovery/report.py:191` buckets a document nothing published by FOLDER
+   under "unknown layout", and it also moves the pinned
+   `deterministic_coverage` from 1.0 to 108/109. But `columbia_bank` DETECTS
+   this document at 0.5 and declines on the document's own printed totals -
+   the layout is known, the document fails itself. `declined_clusters`
+   (`{"columbia_bank": 1}`) says that correctly; `unknown_layout_clusters` does
+   not. Both are now pinned by name in the dry-run acceptance test so neither
+   can drift, and a third refusal class - **REFUSAL-CLASS: "claimed layout,
+   document fails its own totals"** - is carded for batch 8 alongside
+   **BANK-REPAIRS-CAPONE** (risk 2).
+5. **`daily_grid_contradictions` has ZERO live coverage today (MINOR-6).** All
+   four members of the family refuse, so the check never runs on an archive
+   document: its "published, not resolved" behaviour is PROSPECTIVE, proven
+   only on synthetic fixtures and end to end through `analyze_markdown` on
+   one. It is registered now because the alternative - leaving the
+   never-substitute rule as a property of today's code - is the thing this
+   card exists to stop. Stated plainly so nobody reads §RD5 as a description
+   of something currently happening in the archive.
+6. **The two audit oracles now have a refusal branch.** It is guarded on the
+   declared refusal text and on nothing else, so a crash is still a crash. It
+   is nevertheless a new path through an INDEPENDENT oracle, and Ocean should
+   read it as such at merge.
+7. **Fixtures moved off this document.** `tests/test_discovery.py`,
+   `tests/test_visual_rung.py` and `tests/test_telemetry_corpus.py` used the
+   Columbia statement as "a scanned statement that publishes". They now use
+   `Misc/First Farmers 2026 01-document.pdf`, which is the same class of
+   fixture (zero native text, committed artifact, account number longer than
+   four characters). No assertion was weakened.
+8. **The two committed audit REPORTS (`docs/adb-forensic-audit.md`,
+   `docs/balance-metrics-production-audit.md`) still show this document's old
+   PASS row.** They were already stale before this card — last regenerated
+   `b70496c` (08-07) and `f746b9f` (08-04) against CSVs last regenerated
+   `44a5f4a` (08-15) — no test or gate reads them, and regenerating them is a
+   two-oracle full run. Left alone deliberately rather than half-refreshed;
+   named so the staleness is on the record rather than newly introduced. The
+   generators DO now handle a refusal (they name and count it and keep it out
+   of rates computed over published ledgers), so the next regeneration is
+   correct.
+
+## RD11. Commits
+
+| | |
+|---|---|
+| `4c2a89b` | the ceremony: both repairs removed, the printed grid cell published, `daily_grid_contradictions` registered, `PINNED_REFUSALS` + the two oracles' REFUSED row + both audit CSV rows + every affected test, in one commit |
+| `d46fec0` | the gate's own roll-up line names the refusal |
+| `2612a03` | the two ACH section gates get a test that actually tests them (the mutation table's two survivors) |
+| `456be13` | the balance audit's own status assertion learns the third status |
+| `8c5e1c1` | the two corpus-marked discovery acceptance tests learn the refusal |
+| `680afca` | the diagnostics rollup counts six diagnosed documents, not seven |
+| `6ec1066` | the warm pass's TELEMETRY arm learns the refusal too |
+| `9c02267` | the W3 log section |
+| `6f21e8d` | review MINOR-3: the refusal guard is one rule in all three places |
+| (this commit) | the review closures - §RD12, and the MAJOR-1 / MINOR-1 / MINOR-2 corrections above |
+
+Base `e83f746`. Never merged, never pushed; no stage version bumped — the
+composed `ANALYSIS_STAGE_VERSION` bump is Ocean's at the train, and it is
+REQUIRED here: one archive document's analysis output changes from a payload to
+a refusal, so every cached analysis entry must rotate.
+
+**Corrected at forensic review (MINOR-2): the cache key is NOT unchanged.**
+`registry_key_material` hashes each registration's declared `integrity_checks`
+names, so registering `daily_grid_contradictions` rotates the digest, and the
+digest is a field of the analysis settings key. Measured on this branch by
+reverting `analysis/parser_registry_entries.py` alone and restoring it
+byte-for-byte:
+
+| | base `e83f746` | HEAD |
+|---|---|---|
+| `registry_fingerprint()` | `161D81F4E1D7D34DCE342C4EB367D4FA21315F71C31EB91EBAAF4373AB0170F4` | `8603A34581973EA24003DF8640C7CC658DB65D940EB4FF52736963F525CBC1F8` |
+| `analysis_settings_key("deterministic")` | `D3370EEBDCB87892A2739BCB0D882A66E72DCBFAB2553101111157B5A231DE24` | `038C8C5699E282E075AACC20AB8918B4F35CDD8D6116FAF8416052E46AE20065` |
+
+The base value is byte-identical to the run of record's baseline key, which is
+also an independent confirmation that §RD8's sweep ran against the right
+baseline. So a warm cache cannot serve the old payload here **by
+construction** - but that safety is INCIDENTAL: it comes from the
+integrity-check registration, not from the change that matters. The parse body
+- the two deleted repairs and the daily-evidence line - is invisible to the
+digest, exactly as `webapp/artifact_cache.py` documents. Had this card removed
+the repairs and registered nothing, the key would not have moved. The train
+bump therefore remains policy and remains REQUIRED.
+
+## RD12. Forensic-review closures (APPROVE WITH FINDINGS - 0 BLOCK, 1 MAJOR, 6 MINOR)
+
+Ocean's adversarial review confirmed the ceremony by four independent
+instruments and returned one MAJOR and six MINOR. Every one is closed below,
+and every number quoted back was RE-MEASURED on this branch rather than
+copied - two of them changed what this log says.
+
+| Finding | Closure |
+|---|---|
+| **MAJOR-1** the localisability claim is refuted | §RD3 #1 rewritten. The repaired ledger satisfies five printed constraints (both ACH totals, the printed ending, the printed Average Balance via an INDEPENDENT line-item ADB, 20/21 grid cells) against 10/21 and a +26,999.00 drift as printed; the grid column is partly the repair's own objective function and cannot self-certify, but the printed-average agreement is genuine. The ceremony's real price is now stated: a 108-transaction statement that probably reads correctly becomes un-analysable. Fail-closed stands on the ruling (categorical) and the gates (structural), not on localisability. |
+| **MINOR-1** RD2 mis-attributed the ADB columns | §RD2 rewritten. The oracle falls to `raw_line_items` and is INVARIANT to the substitution (13,275.65 / 411,545.17 both ways, re-measured). The substitution was load-bearing for the row's PASS - with the printed cell `running_balances_support_daily_ledger` fails, production withholds, and the row is FAIL - not for the "exact cent match" phrase. |
+| **MINOR-2** RD11 wrongly said the key was unchanged | §RD11 corrected with both digests measured at base and HEAD. `registry_fingerprint` 161D81F4... -> 8603A345..., analysis settings key D3370EEB... -> 038C8C56.... The base value equals the run of record's baseline key, which also confirms §RD8 swept the right baseline. The safety is INCIDENTAL to the integrity-check registration; the parse body is invisible to the digest, so the train bump remains policy and remains required. |
+| **MINOR-3** the three refusal guards were not one rule | Production change: both oracles moved from `except RuntimeError` to the gate's `type(exc) is RuntimeError` + exact message. Proven through the real entry points over five exception shapes, and the first draft of that test - which restated the condition instead of driving it - was rewritten before it could pass vacuously. Two new mutants, both killed. |
+| **MINOR-4** the refusal files as `unknown_layout_clusters` | Recorded in §RD10 #4 with the coverage movement; `declined_clusters` is the accurate signal and both are now pinned by name. **REFUSAL-CLASS** carded for batch 8 alongside **BANK-REPAIRS-CAPONE**. |
+| **MINOR-5** discard-and-flag was never evaluated | §RD3 now measures it: every section disagreement gets worse (-4,535.83 / -10,962.30), the chain breaks the other way (-6,426.47) and the count drops to 105 against 108 printed rows. It is the right shape for an unreadable row, not for a readable row of doubtful value. |
+| **MINOR-6** `daily_grid_contradictions` has no live coverage | Stated in §RD10 #5: all four family members refuse, so the check is PROSPECTIVE and proven only on fixtures. |
+
+### RD12.1 Proofs for this round, verbatim
+
+| Proof | Result | Exit |
+|---|---|---|
+| `python corpus_gate.py` (MINOR-3 is production in both oracles) | **RESULT: GREEN**; `Outcomes: 105 PASS / 3 WITHHELD / 1 REFUSED`; runtime 612.5s | **0** |
+| audit-module tests (`test_balance_metrics_audit`, `test_adb`, `test_adb_doctrine`, `test_corpus_gate`, `test_corpus_gate_outcomes`) | **135 passed**, 10 deselected (7.06s) | **0** |
+| CANONICAL guard set | **242 passed** (17.01s) | **0** |
+| CANONICAL conformance set | **1,151 passed**, 35 skipped (5.01s) | **0** |
+| `pytest -q -p no:cacheprovider` (durable log) | **5,392 passed**, 35 skipped, 33 deselected (195.73s) | **0** |
+| mutation table (12 mutants) | **12 KILLED, 0 survivors** | **0** |
+
+Suite 5,387 -> **5,392** (+5: the MINOR-3 guard test's five exception shapes).
+Corpus-marked slice unchanged at 29 and unaffected by this round - no
+corpus-marked test's inputs moved. Registry still 74; the fingerprint moved
+once, at the integrity-check registration, and is recorded in §RD11.
+
+One process note worth carrying, because it cost a run: the mutation harness
+restores with `git checkout --`, so it silently reverts UNCOMMITTED work in a
+file it mutates. It ate the MINOR-3 edit on its first pass. It is only ever
+correct to run it on a clean tree, and it now retries transient
+`PermissionError`s (OneDrive holds handles open on this box) rather than
+reporting a write failure as a surviving mutant.
