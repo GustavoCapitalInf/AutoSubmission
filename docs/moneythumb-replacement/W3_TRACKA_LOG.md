@@ -43721,7 +43721,7 @@ discovery reports read-only by direct file path; no hosted model anywhere.
 | Still withheld, honestly | 5 — `pnc` x4 (geometry, carded) and `wells_fargo` `A4E41C80` (a ratified fail-closed pin refuses the lift; see WG6) |
 | What the card predicted | "read the printed daily grid" for 14 documents. Measured: only ONE of the four defects is a grid reader. The other three are a region anchored in a disclosure paragraph, a page sign-off welded onto a row, and a compatibility branch that shifted a ledger by one row |
 | Doctrine change | **none**. `analysis/adb.py` is untouched; no check was relaxed, promoted or removed; the required-check set is byte-identical |
-| Pinned documents | 20 in the six families (navy_federal 4, pnc 5, regions 4, wells_fargo 4, first_community 1, mission_valley 1, dakota_west 1) — all byte-identical |
+| Pinned documents | corpus gate GREEN with the pinned verdicts unchanged; the 20 pinned in the six families are all byte-identical and none is among the archive's 51 movers. ONE pinned document elsewhere moved — `413AD4C2FBFB71A0` (`ibc`), one leaf, `metrics.adb.source_posting_days`, a diagnostic count; class, checks and every gated field unchanged (WG10) |
 
 ## WG1. The cell reproduced independently, before any code changed
 
@@ -44001,12 +44001,12 @@ Exit codes verbatim; every log kept in the cell's private scratchpad.
 | proof | result |
 |---|---|
 | full default suite | **5,875 passed**, 35 skipped, 34 deselected (base 5,857; +18) — exit 0 |
-| corpus-marked slice | PENDING |
-| `python corpus_gate.py` | PENDING |
-| CANONICAL guard set | PENDING |
-| CANONICAL conformance set | PENDING |
-| mutation table | PENDING |
-| full-archive differential | PENDING |
+| corpus-marked slice | **30 passed**, 5,914 deselected — exit 0 |
+| `python corpus_gate.py` | **GREEN.** 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 1 refused / 3 review / 102 validated / 3 withheld; currency 108/108 = 14 CAD / 94 USD; currency_source 108/108 = 89 schema_default / 7 institution_default / 7 product / 4 jurisdiction_default / 1 printed — exit 0 |
+| CANONICAL guard set | **252 passed** (unchanged at registry 75) — exit 0 |
+| CANONICAL conformance set | **1,164 passed**, 35 skipped (75 x 74; no registration touched) — exit 0 |
+| mutation table | **13 mutants, 13 killed, 0 survivors, 0 not-applied** |
+| full-archive differential | 3,380 documents · 2,558 compared · 2,507 identical · **51 moved** · `no_payload_now_publishes` **0** · `payload_now_raises` **0** |
 
 ### The archive differential
 
@@ -44015,7 +44015,82 @@ Exit codes verbatim; every log kept in the cell's private scratchpad.
 counts add. The instrument reports field NAMES only; where this card moves a
 field on purpose, the leaf-level evidence is in WG8 and WG4.
 
-PENDING
+### The mutation table
+
+Run WITHOUT `-x` on a clean tree, over `tests/test_adb.py tests/test_community_section_layouts.py tests/test_analysis.py tests/test_declines_c_variants.py`. Every mutant is a literal substitution that must appear EXACTLY once, or the harness reports NOT APPLIED rather than passing — the trap batch 7 named, and it caught one of mine on its first run. Three mutants from the first run are gone from this table because the rules they attacked were deleted (WG5).
+
+| mutant | file | verdict | killed by |
+|---|---|---|---|
+| M1 money-presence loses its two-decimal bound | analysis/dates.py | KILLED | test_a_four_decimal_rate_is_not_read_as_money_by_the_proximity_test; test_an_interest_rate_row_is_not_a_posting_date |
+| M2 money-presence loses the comma decimal | analysis/dates.py | KILLED | test_the_money_presence_test_reads_a_comma_decimal_amount |
+| M5 the page-header lookback never fires | analysis/dates.py | KILLED | test_a_masthead_line_under_a_page_number_is_not_a_posting_date |
+| M6 the page-header lookback does not stop at a money line | analysis/dates.py | KILLED | test_a_posting_row_below_a_page_number_keeps_its_date |
+| M7 the bare-date forward label test never fires | analysis/dates.py | KILLED | test_a_boundary_row_labelled_on_the_next_line_is_not_a_posting_date |
+| M8 money proximity is required only of a bare date (the old rule) | analysis/dates.py | KILLED | test_a_four_decimal_rate_is_not_read_as_money_by_the_proximity_test; test_a_marketing_sentence_opening_with_a_date_is_not_a_posting_date; test_a_masthead_line_under_a_page_number_is_not_a_posting_date; test_an_interest_rate_row_is_not_a_posting_date; test_the_money_lookahead_stops_at_a_column_caption |
+| M9 the money lookahead does not stop at a column caption | analysis/dates.py | KILLED | test_the_money_lookahead_stops_at_a_column_caption |
+| M10 dot leaders are not stripped before the section heading | analysis/dates.py | KILLED | test_a_dot_leadered_daily_balance_block_is_a_grid_not_a_ledger |
+| M11 the bare `Date Balance` caption does not open a section | analysis/dates.py | KILLED | test_a_dot_leadered_daily_balance_block_is_a_grid_not_a_ledger |
+| M13 the grid reads the balance column unsigned | analysis/community_section.py | KILLED | test_an_overdrawn_day_is_read_from_the_grid_with_its_sign |
+| M15 the page sign-off is not cut from a row | analysis/regions.py | KILLED | test_a_row_welded_to_the_page_sign_off_is_still_read; test_the_sign_off_is_cut_from_the_row_and_not_from_the_document |
+| M16 the compatibility branch fires on every credit again | analysis/navy_federal.py | KILLED | test_a_credit_that_carries_its_own_date_keeps_it |
+| M17 the compatibility branch never fires | analysis/navy_federal.py | KILLED | test_parse_navy_federal_statement_handles_reordered_credit_rows; test_the_platforms_other_row_order_still_reads_its_credit |
+
+| chunk | documents | compared | identical | moved | `no_payload_now_publishes` | `payload_now_raises` |
+|---|---|---|---|---|---|---|
+| `--start 0 --end 850` | 850 | 629 | 613 | 16 | 0 | 0 |
+| `--start 850 --end 1700` | 850 | 654 | 637 | 17 | 0 | 0 |
+| `--start 1700 --end 2550` | 850 | 645 | 641 | 4 | 0 | 0 |
+| `--start 2550 --end 3400` | 830 | 630 | 616 | 14 | 0 | 0 |
+| **total** | **3,380** | **2,558** | **2,507** | **51** | **0** | **0** |
+
+`no_ocr_artifact` 29 · `no_payload_raises_again` 793 · `multi_artifact_documents` 74.
+The four chunks' counts add to the archive; the sweep's own exit code is 1 on
+every chunk, which is the instrument reporting movement, not a failure — this
+card moves documents on purpose and the next table is what it owes for that.
+
+**Every one of the 51 is inside a named population, and the leaf-diff says
+which leaves moved.** The instrument is
+`tools/withheldgrids_leaf_diff.py`, committed; it prints dotted paths and a
+change class and never a value on either side.
+
+| population | movers | the leaves that moved | did any published figure move? |
+|---|---|---|---|
+| the card's named 17 (WG8) | 17 | the whole `metrics.adb` ledger, which a withheld document does not publish at all; plus corrected `description` / `classification` leaves on the four navy_federal and three regions documents whose rows were mis-dated or missing | **yes, and that is the card** — each is a withheld document that now publishes |
+| the six families' OTHER live-detected documents | 22 | exactly three shapes: `statement.transactions[].running_balance` (19 leaves — the overdrawn grid days the unsigned pattern dropped, now read), `metrics.adb.source_posting_days` (12), and one `detection.known_funders[].transactions[].running_balance` echoing the first | **no.** No `metrics.adb.underwriting_adb`, no validation, no verdict, no class |
+| everything else in the archive (`td_us` 7, `woodforest` 4, `ibc` 1) | 12 | **exactly one leaf each: `metrics.adb.source_posting_days`** | **no.** A diagnostic COUNT of the posting dates the source prints. `missing_posting_dates` does not appear in the diff on any of them, so `posting_dates_cover_source` decides the same way it did |
+
+The card's five non-movers are absent from the list, as they should be: the
+four `pnc` documents are untouched by any hunk, and `A4E41C80` is byte-identical
+because its reading was reverted (WG6).
+
+### The pinned surface
+
+`python corpus_gate.py` is GREEN with the pinned verdicts unchanged — 105 PASS
+/ 3 WITHHELD / 1 REFUSED, verdicts 1 refused / 3 review / 102 validated / 3
+withheld, currency 108/108 = 14 CAD / 94 USD, currency_source 108/108 = 89
+schema_default / 7 institution_default / 7 product / 4 jurisdiction_default /
+1 printed. The gate pins every pinned document's whole published integrity
+block, so this is the byte-identity proof for all 109.
+
+Of the 20 pinned documents in this card's six families — navy_federal 4,
+pnc 5, regions 4, wells_fargo 4, first_community 1, mission_valley 1,
+dakota_west 1 — **not one appears among the archive's 51 movers.** The
+navy_federal four all take the native `NFCU_TX|` marker path and never reach
+the branch this card narrowed; the regions four print no row in the position
+where the page sign-off welds; the community_section three print no overdrawn
+day in their grid, or no grid at all; wells and pnc are untouched.
+
+**ONE pinned document moved, and it is not in this card's families:**
+`413AD4C2FBFB71A0` (`ibc`), whose single differing leaf is
+`metrics.adb.source_posting_days` — the count of posting dates the source
+prints, which fell by one when the heuristic stopped reading a pipe-delimited
+header record as a posting row. Its class is unchanged (withheld, as in the
+run of record), its `missing_posting_dates` is unchanged and empty, so
+`posting_dates_cover_source` decides exactly as before, and the corpus gate
+passes it on every audited field. It is reported here rather than folded into
+the total because "no pinned document moved" would not have been true, and a
+diagnostic count is still a byte.
+
 
 ### Privacy
 
@@ -44025,14 +44100,24 @@ capitalised multi-word name from this cell's 42 documents — the 22 named
 above plus the 20 pinned documents in the six families — **12,510 distinct
 literals**, and grepped the whole branch diff (594 added lines) for each.
 
-* raw hits: 110, of which 101 are one- or two-token coincidences of invented
-  round figures and dates (`$0.00`, `01/02`, `0000`) that any archive contains;
+* raw hits: **113**, of which 104 are one- or two-token coincidences of
+  invented round figures and dates (`$0.00`, `01/02`, `0000`) — shapes any
+  archive of 3,380 statements contains many times over;
 * distinctive hits (a 6+ digit run, or a multi-word capitalised name): **9**;
-* of those, 8 are invented fixture values (`$1,000.00`, `$1,100.00`,
-  `01/01/2026`, and substrings of the invented account `7000000001`);
-* **1 was real** and is fixed: see WG11 item 6.
+* all nine are invented fixture values: `$1,000.00` and `$1,100.00` from the
+  navy_federal fixture, the fixture dates `01/01/26`, `01/01/2026`,
+  `01/02/2026`, `01/03/2026`, `06/01/2026`, and `000001` / `0000001` as
+  substrings of the invented account number `7000000001`.
 
-**Final count of real archive literals in the branch diff: 0.**
+An earlier run of this scan, against the same 42 documents, returned a TENTH
+distinctive hit that was real — a ten-digit account number printed on two
+pinned Regions statements, which had been sitting in `tests/test_analysis.py`
+on main since that fixture was written and which this cell's new fixture had
+copied. All three occurrences are now an invented number, and the scan no
+longer finds it (WG11 item 6).
+
+**Final count of real archive literals in the branch diff: 0.** The diff is
+1,127 added lines.
 
 ## WG11. Risks and carried findings
 
