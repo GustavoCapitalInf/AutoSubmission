@@ -1,0 +1,186 @@
+"""Replay `analysis/lili.py` over its census family and name every outcome.
+
+W3 §LILI's family instrument, committed so the log's headline numbers are
+re-derivable by review rather than asserted:
+
+    python -m tools.lili_family_replay --data-dir <checkout>/webapp_data
+
+READ-ONLY. Nothing is written anywhere; the `webapp_data` sqlite index is
+never opened — OCR payloads are reached by DIRECT file path, enumerating every
+capability partition of `ocr_settings_key` exactly as
+`tools/regfp_zero_movement_sweep.py` does. It makes no model call and costs
+$0.00: only `detect` and `parse` run.
+
+THE POPULATION IS NOT A LIST IN THIS FILE. It is read out of the committed
+census — `docs/moneythumb-replacement/CENSUS_BATCH8_DIGITAL.md`, the family
+whose key `--family` names — so the instrument and the staffing record cannot
+drift apart, and so this tool carries no archive-derived data of its own. A
+`content_sha256` is a hash, not content; nothing else about a document is
+printed. In particular NO document text, amount, name, account number or date
+is read out of this tool.
+
+WHAT IT PRINTS, per document: whether the registry claims it, whether any
+OTHER registration also claims it (an ambiguity this card must not create),
+and — where the reader declines — WHICH named gate declined it. The gate
+attribution replays `parse_lili_statement`'s own sequence of gates against the
+same helpers the reader uses, and the tool asserts on every document that the
+attribution and `parse` agree: a `PUBLISHED` attribution must produce a
+`Statement` and every other attribution must produce `None`. That assertion is
+what makes the attribution a measurement rather than a reading of the source.
+
+Gate ORDER is not observable at the parse boundary — every gate answers by
+declining — so the order this tool reports is the order the reader applies,
+and its value is exactly that: it says which fact about a document is the
+first one that disqualifies it, which is what a refusal has to be able to say.
+"""
+from __future__ import annotations
+
+import argparse
+import itertools
+import json
+import re
+import sys
+from pathlib import Path
+
+from analysis import parser_registry_entries  # noqa: F401  — populates the registry
+from analysis import lili
+from analysis.parser_registry import admissible_text, registrations
+from ocr.document import StatementMarkdown
+from webapp.artifact_cache import STAGE_OCR, cache_key, ocr_settings_key
+
+REPO = Path(__file__).resolve().parent.parent
+DEFAULT_CENSUS = REPO / "docs" / "moneythumb-replacement" / "CENSUS_BATCH8_DIGITAL.md"
+DEFAULT_FAMILY = "lili_sunrise_banks_checking"
+
+#: Every capability partition an OCR artifact can have been written under.
+_OCR_KEYS = [
+    ocr_settings_key(force_ocr=force, allow_local_ocr=local, allow_visual_ocr=visual)
+    for force, local, visual in itertools.product((False, True), repeat=3)
+]
+
+_SHA_RE = re.compile(r"^[0-9A-F]{64}$")
+
+
+def family_shas(census: Path, family: str) -> list[str]:
+    """The `content_sha256` list the committed census records for `family`."""
+    lines = census.read_text(encoding="utf-8").splitlines()
+    start = next(
+        (i for i, line in enumerate(lines) if line.startswith("### ") and f"`{family}`" in line),
+        None,
+    )
+    if start is None:
+        raise SystemExit(f"census has no family `{family}`")
+    shas: list[str] = []
+    for line in lines[start:]:
+        if line.startswith("### ") and shas:
+            break
+        if _SHA_RE.match(line.strip()):
+            shas.append(line.strip())
+    if not shas:
+        raise SystemExit(f"census family `{family}` lists no shas")
+    return shas
+
+
+def cached_text(artifacts: Path, sha: str) -> str | None:
+    """The document's cached OCR markdown, by direct artifact path."""
+    best = None
+    for key in _OCR_KEYS:
+        composed = cache_key(STAGE_OCR, sha.upper(), key)
+        path = artifacts / STAGE_OCR / composed[:2] / f"{composed}.json"
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        document = (payload.get("artifact") or {}).get("document")
+        if not isinstance(document, dict):
+            continue
+        rendered = StatementMarkdown(
+            source_file="", model=str(document.get("model") or ""),
+            pages=[str(page) for page in (document.get("pages") or [])],
+        ).to_markdown()
+        if best is None or len(rendered) > len(best):
+            best = rendered
+    return best
+
+
+def gate(text: str) -> str:
+    """The first of `parse_lili_statement`'s gates that declines `text`."""
+    if not lili.detect(text).claims:
+        return "not_claimed"
+    header = lili._header(text)
+    if header is None:
+        return "header_unreadable_or_contradictory"
+    _account, start, end = header
+    if not lili._dates_are_all_inside(text, start, end):
+        return "INTEGRITY_printed_date_outside_the_printed_period"
+    summary = lili._summary(text)
+    if summary is None:
+        return "summary_not_line_anchored"
+    if len(summary[0]) != 1:
+        return f"L1_summary_money_columns={len(summary[0])}"
+    heads = len(lili._LEDGER_HEAD_RE.findall(text))
+    if heads != 1:
+        return f"L1_ledger_column_heads={heads}"
+    beginning, deposits, withdrawals, fees, ending = (row[0] for row in summary)
+    if withdrawals > 0 or fees > 0:
+        return "debit_term_printed_as_an_inflow"
+    if abs(beginning + deposits + withdrawals + fees - ending) > lili._CENT:
+        return "summary_does_not_close_on_itself"
+    postings = lili._postings(text)
+    if postings is None:
+        return "posting_unreadable"
+    if not lili._chain_holds(postings, beginning, ending):
+        return "chain_does_not_walk_beginning_to_ending"
+    debited = sum(-posting.amount for posting in postings if posting.amount < 0)
+    if abs(debited + withdrawals + fees) > lili._CENT:
+        return "gross_debits_do_not_total_to_the_printed_terms"
+    return "PUBLISHED"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data-dir", required=True, type=Path)
+    parser.add_argument("--census", default=DEFAULT_CENSUS, type=Path)
+    parser.add_argument("--family", default=DEFAULT_FAMILY)
+    args = parser.parse_args()
+
+    artifacts = args.data_dir / "artifacts"
+    others = [r for r in registrations() if r.id != "lili"]
+    shas = family_shas(args.census, args.family)
+
+    published = claimed = ambiguous = missing = 0
+    tally: dict[str, int] = {}
+    for sha in shas:
+        markdown = cached_text(artifacts, sha)
+        if markdown is None:
+            missing += 1
+            print(f"{sha[:16]}  no cached OCR artifact")
+            continue
+        text = admissible_text(markdown)
+        claims = lili.detect(text).claims
+        rivals = sorted(r.id for r in others if r.detect(text).claims)
+        verdict = gate(text)
+        statement = lili.parse_lili_statement(text)
+        assert (verdict == "PUBLISHED") == (statement is not None), (
+            f"{sha[:16]}: gate attribution {verdict!r} disagrees with parse"
+        )
+        claimed += bool(claims)
+        ambiguous += bool(rivals)
+        published += statement is not None
+        tally[verdict] = tally.get(verdict, 0) + 1
+        rows = "" if statement is None else f"  postings={len(statement.transactions)}"
+        rival_note = "" if not rivals else f"  ALSO CLAIMED BY {rivals}"
+        print(f"{sha[:16]}  claimed={claims}  {verdict}{rows}{rival_note}")
+
+    print(f"\n{len(shas)} documents: claimed {claimed}, published {published}, "
+          f"declined {claimed - published}, no artifact {missing}, "
+          f"claimed by another registration {ambiguous}")
+    for verdict, count in sorted(tally.items()):
+        print(f"  {count:3}  {verdict}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -38,14 +38,16 @@ THE ORACLE IS DOUBLE and this reader uses both halves. The five summary terms
 close on each other (beginning + deposits + withdrawals + fees == ending, with
 the signs the statement prints), and the running balance chains from the
 printed beginning to the printed ending. A third check joins them: the rows'
-own credits must equal the printed Deposits, and the rows' own debits must
-equal the printed Withdrawals PLUS the printed Fees — this platform's
-`Withdrawals and other debits` term excludes its `Fees` term, which is why
-`stated_total_debits` and `stated_service_charge` are published separately.
+own GROSS debits must equal the printed Withdrawals PLUS the printed Fees —
+this platform's `Withdrawals and other debits` term excludes its `Fees` term,
+which is why `stated_total_debits` and `stated_service_charge` are published
+separately, and which a two-field read would get wrong.
 
 Together they are a complete-coverage oracle: a dropped posting breaks the
-chain at the row after it, and a fabricated one breaks the row-versus-summary
-totals. This template prints no transaction count, and it needs none.
+chain at the row after it, a fabricated one breaks it too, and a pair the
+summary nets out — a credit and its reversal — breaks the gross-debit
+reading while leaving every printed balance consistent. This template prints
+no transaction count, and it needs none.
 
 §INTEGRITY — WHY A CLEAN-LOOKING DOCUMENT IS REFUSED. Every date this
 template prints inside a statement is a date inside that statement's own
@@ -109,15 +111,15 @@ _MONEY = r"\$" + MINUS_CLASS + r"?[\d,]+\.\d{2}"
 
 #: The trailing run of figures on a summary term's line: one figure on the
 #: single-account printing, three on the credit-builder printing.
-_MONEY_RUN = r"(?:" + _MONEY + r"\s*)+"
+_MONEY_RUN = r"(?:" + _MONEY + r"[ \t]*)+"
 _MONEY_TOKEN_RE = re.compile(_MONEY)
 
 #: A day-first long date — `1 March, 2026`, `01 May, 2026`. Group-free, so it
 #: can be embedded twice in the header pattern; `_LONG_DATE_PARTS` reads the
 #: pieces back out of whatever it matched.
-_LONG_DATE = r"\d{1,2}\s+(?:" + MONTH_NAME_ALT + r"),\s+\d{4}"
+_LONG_DATE = r"\d{1,2}[ \t]+(?:" + MONTH_NAME_ALT + r"),[ \t]+\d{4}"
 _LONG_DATE_PARTS = re.compile(
-    r"(\d{1,2})\s+(" + MONTH_NAME_ALT + r"),\s+(\d{4})", re.IGNORECASE
+    r"(\d{1,2})[ \t]+(" + MONTH_NAME_ALT + r"),[ \t]+(\d{4})", re.IGNORECASE
 )
 
 #: The one header, in either of the two orders the platform prints it. The
@@ -135,7 +137,7 @@ _HEADER_RE = re.compile(
 #: The ledger's column head. Counted, not just found: a second one is a
 #: second account (§L-1).
 _LEDGER_HEAD_RE = re.compile(
-    r"^Date\s+Authorization\s+Code\s+Description\s+Amount\s+Balance\s*$",
+    r"^Date[ \t]+Authorization[ \t]+Code[ \t]+Description[ \t]+Amount[ \t]+Balance[ \t]*$",
     re.IGNORECASE | re.MULTILINE,
 )
 
@@ -144,8 +146,8 @@ _LEDGER_HEAD_RE = re.compile(
 #: together without a delimiter, and a description that happens to contain a
 #: figure must not steal the amount column.
 _ROW_RE = re.compile(
-    r"^(?P<month>\d{2})/(?P<day>\d{2})/(?P<year>\d{4})\s+\d+\s+"
-    r"(?P<description>\S.*)\s+(?P<amount>" + _MONEY + r")\s+(?P<balance>" + _MONEY + r")\s*$",
+    r"^(?P<month>\d{2})/(?P<day>\d{2})/(?P<year>\d{4})[ \t]+\d+[ \t]+"
+    r"(?P<description>\S.*)[ \t]+(?P<amount>" + _MONEY + r")[ \t]+(?P<balance>" + _MONEY + r")[ \t]*$",
     re.MULTILINE,
 )
 
@@ -161,19 +163,19 @@ _PRINTED_DATE_RE = re.compile(r"(?<![\d/])(\d{2})/(\d{2})/(\d{4})(?![\d/])")
 #: §INTEGRITY.
 _SUMMARY_TERMS = (
     ("beginning", re.compile(
-        r"^Beginning balance on\s+" + _LONG_DATE + r"\s+(" + _MONEY_RUN + r")$",
+        r"^Beginning balance on[ \t]+" + _LONG_DATE + r"[ \t]+(" + _MONEY_RUN + r")$",
         re.IGNORECASE | re.MULTILINE)),
     ("deposits", re.compile(
-        r"^Deposits and other credits\s+(" + _MONEY_RUN + r")$",
+        r"^Deposits and other credits[ \t]+(" + _MONEY_RUN + r")$",
         re.IGNORECASE | re.MULTILINE)),
     ("withdrawals", re.compile(
-        r"^Withdrawals and other debits\s+(" + _MONEY_RUN + r")$",
+        r"^Withdrawals and other debits[ \t]+(" + _MONEY_RUN + r")$",
         re.IGNORECASE | re.MULTILINE)),
     ("fees", re.compile(
-        r"^Fees\s+(" + _MONEY_RUN + r")$",
+        r"^Fees[ \t]+(" + _MONEY_RUN + r")$",
         re.IGNORECASE | re.MULTILINE)),
     ("ending", re.compile(
-        r"^Ending balance on\s+" + _LONG_DATE + r"\s+(" + _MONEY_RUN + r")$",
+        r"^Ending balance on[ \t]+" + _LONG_DATE + r"[ \t]+(" + _MONEY_RUN + r")$",
         re.IGNORECASE | re.MULTILINE)),
 )
 
@@ -233,6 +235,11 @@ def _header(text: str) -> tuple[str, date, date] | None:
         start = _long_date(bounds[0])
         end = _long_date(bounds[1])
         if start is None or end is None or end < start:
+            # `end < start` is a precondition on the published
+            # `days_in_period`, not a refusal any document reaches: the
+            # §INTEGRITY gate below refuses every reversed period that
+            # prints a posting, and a document that prints none is refused for
+            # having no ledger. Kept because the field is published.
             return None
         readings.add((match.group("account"), start, end))
     if len(readings) != 1:
@@ -347,9 +354,14 @@ def parse_lili_statement(markdown: str) -> Statement | None:
         return None
     beginning, deposits, withdrawals, fees, ending = (row[0] for row in summary)
 
-    # The template prints its debit terms as debits. A debit term printed
-    # positive is a summary that disagrees with its own signs.
-    if deposits < 0 or withdrawals > 0 or fees > 0:
+    # The template prints its two debit terms as debits, and both are
+    # published as magnitudes, so a term printed the other way would publish
+    # an outflow for money the document printed coming in. There is no third
+    # branch for `deposits`: with the three arithmetic gates below all closed,
+    # the rows' credits are forced to equal the Deposits term and a sum of
+    # positive amounts cannot be negative, so a negative Deposits term is
+    # already unreachable.
+    if withdrawals > 0 or fees > 0:
         return None
     if abs(beginning + deposits + withdrawals + fees - ending) > _CENT:
         return None
@@ -359,10 +371,15 @@ def parse_lili_statement(markdown: str) -> Statement | None:
         return None
     if not _chain_holds(postings, beginning, ending):
         return None
-    credited = sum(posting.amount for posting in postings if posting.amount > 0)
+    # The rows' own GROSS debits must equal the two debit terms added: this is
+    # the reading that proves the Withdrawals/Fees split the two published
+    # fields rest on, and the only one that can see a pair of postings the
+    # summary nets out. Its credit-side twin is deliberately absent: with the
+    # chain and the summary both closed, the rows' gross credits are already
+    # determined (chain gives credits - debits == deposits + withdrawals +
+    # fees), so a credits check could refuse nothing this does not, and no
+    # mutant could reach it.
     debited = sum(-posting.amount for posting in postings if posting.amount < 0)
-    if abs(credited - deposits) > _CENT:
-        return None
     if abs(debited + withdrawals + fees) > _CENT:
         return None
 
