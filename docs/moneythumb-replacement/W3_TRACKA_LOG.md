@@ -43704,3 +43704,497 @@ containers, every one of the 22 changed paths ends in `.account_name`.
 
 `payload_now_raises` is **0**: no document that published under the run of
 record stopped publishing at HEAD.
+
+---
+
+# §DESCCOLS — the merchant column, read back out of the line boxes (batch 8, card 10, P1)
+
+W3 §DESCATTRIB closed a wrong answer by refusing to publish it: on the
+core-processor complex a row's span could hold another posting's merchant
+text, so the rule stopped publishing any span it could not prove was one
+block, 30 foreign descriptions went to 0, and 14 of the 15 lender/insurance
+detections that disappeared with them were fabrications. The fifteenth was
+real — a six-figure merchant-cash-advance credit on `91A2DE99` whose alias the
+row genuinely prints — and DA6.1 priced its loss and carded this cell:
+*"recover the merchant column on this complex by re-extraction."*
+
+The text DESC-ATTRIB refused is still in the document. This card gives it back
+at the rung that lost it.
+
+## DC1 The census: the weld is the flattening's default, not a family
+
+`ocr/native_text.py::_native_pages` reads MuPDF BLOCKS and joins the lines
+inside a block with a single space. A block is MuPDF's grouping, not a printed
+row, so when one block's lines are printed on several rows that join welds
+tokens from different rows into one line of text — and the boundary is then
+unrecoverable, which is the whole of the DESC-ATTRIB harm.
+
+`tools/desccols_census.py`, committed before any code change, measures that on
+the geometry rather than on the text. A **band** is the set of printed lines
+sharing a row of the page, membership by vertical OVERLAP of the printed line
+boxes (at least half the shorter box) rather than by a point tolerance,
+because a tolerance is a constant nobody can justify across type sizes. A
+**welded line** is a line of today's flattened text whose source lines come
+from more than one band.
+
+Over the run of record's 3,380 distinct documents, 701.7s, exit 0:
+
+| | documents |
+|---|---:|
+| in the run of record | 3,380 |
+| holding native text (the generic rung's own quorum) | 3,189 |
+| **welding at least one line** | **3,156 (99.0%)** |
+| welding an AMOUNT-BEARING line | 2,419 |
+| clean | 33 |
+| holding no native text | 191 |
+
+Counted as LINES rather than as documents, the same census reads **196,984
+welded lines** (median 31 per document, worst 818) of which **77,309 carry an
+amount** (median 9, worst 516); and **2,140 documents** hold at least one pair
+of INTERLEAVED blocks — the two-stream signature specifically, where one
+block's lines alternate down the page with another's — 13,235 such pairs in
+all.
+
+**That number is the design constraint, and it arrived before the design.**
+A rung that repaired every welded document would rewrite the analysis input of
+99% of the archive. So the load-bearing half of this card is not the emission,
+it is the GATE: what the rung declines.
+
+## DC2 What is emitted, and the nine gates that decide where
+
+`parse_native_printed_rows` reads the page's printed lines with their boxes,
+groups them into bands, and emits **one line per printed ROW** — its cells in
+printed reading order — for a region that satisfies every gate. Every line of
+the page outside such a region is emitted exactly as `_native_pages` emits it
+and in the same place, so a page with no repairable region is byte-identical
+and on a page with one only the region's own lines move. A document where no
+page changes is NOT claimed: the ladder falls through to the generic rung and
+the answer is exactly today's.
+
+| gate | what it requires | why |
+|---|---|---|
+| G1 | an ANCHOR column; a band indented right CONTINUES the row above, a band starting left ENDS the region | a row starts where the row column starts |
+| G2 | ≥3 row starts | two bands are a coincidence, not a grid |
+| G3 | ≥3 rows carry a money cell, right edges agreeing | a printed right-aligned money column is what makes it a ledger |
+| G4 | ≥3 rows carry a DESCRIPTIVE cell | without one there is nothing to give back |
+| G5 | the region actually WELDS | otherwise the repair is a no-op that rotates cache keys |
+| G6 | no block straddles the region | half a re-serialised block is a guess |
+| G7 | TOKEN CONSERVATION on the emitted page | nothing invented, dropped or altered — a proof, not an argument |
+| G8 | the money cell is the row's LAST printed cell | the condition under which a reader's span can hold the description at all |
+
+**G8 is the gate that decides whether the repair can help, and it is the one
+measurement that changed the design.** A reader's span runs from a row's date
+to the first figure after it, so a description is recoverable only where the
+amount is printed after everything else the row says. A tenth gate — *at most
+one money cell per row*, written to exclude multi-column balance ladders and
+cheque lists — was DELETED after the mutation harness proved it changed no
+answer: a row with two money cells can never have its FIRST money as its last
+printed cell, so G8 already excludes the whole class. That equivalence is now
+a test over every arrangement of up to five cells rather than an argument.
+
+Nothing above names an institution, a product or a merchant. The region is
+found by where the ink is.
+
+## DC3 The complex: what moves, and what does not
+
+Population by live detection replay against the text the run of record
+analysed (registry 75, all 3,380 shas): 8 `core_processor_counted`, 13
+`core_processor_daily`, 10 `core_processor_sectioned` — §DESCATTRIB DA1's 31,
+reproduced.
+
+| reader | documents | claimed by the rung | text byte-identical |
+|---|---:|---:|---:|
+| `core_processor_counted` | 8 | **7** | 1 |
+| `core_processor_daily` | 13 | **0** | 13 |
+| `core_processor_sectioned` | 10 | **0** | 9 (+1 scanned, no native text) |
+
+**`core_processor_daily` moves nothing, and that is G8 doing its work rather
+than luck.** That template prints the amount on the row's FIRST line and the
+merchant detail BELOW it. Re-serialising it moves the detail no closer to a
+reader's span — measured, its 13 documents' descriptions came back
+byte-identical — and it costs: an early build without G8 repaired them anyway
+and one document lost its daily-balance grid outright
+(`metrics.adb.daily_balance_sum` → null). The gate was written from that
+measurement.
+
+Description leaves moved over the 7 claimed documents:
+
+| class | leaves |
+|---|---:|
+| **lengthened** (the old value is a PREFIX of the new) | **177** |
+| **replaced** | **39** |
+| shortened | **0** |
+| total | **216** |
+
+Lengthened is the signature of a description growing back to its full printed
+form; replaced is a row that was carrying another posting's text. **None is
+shortened**: no row loses printing it was entitled to.
+
+### DC3.1 Scored against §DESCATTRIB's own oracle, not against this cell's
+
+The instrument that decides whether this worked is not mine. `tools/
+descattrib_oracle.py::oracle_rows` reads each row's TRUE description from the
+PDF's WORD boxes — a different extraction from the line boxes this rung reads
+— and §DESCATTRIB validated it before using it. Run over the 8
+`core_processor_counted` documents, on the shipped text and on the repaired
+text, with the reader's own `dated_cells` + `attributed_descriptions` in
+between:
+
+| | rows | exact | a prefix of the row's own printing | FOREIGN |
+|---|---:|---:|---:|---:|
+| shipped (v15, post-DESC-ATTRIB) | 269 | 75 | 194 | **0** |
+| this card | 269 | **252** | 17 | **0** |
+
+**75 → 252 exact, and FOREIGN stays 0.** The +177 is exactly the 177
+`lengthened` description leaves above, arrived at from the other direction.
+The oracle paired all 269 rows 1:1 on (section, date, amount) on both trees
+and refused none — so the row COUNT, dates and amounts are identical before
+and after, which is the proof that no row was split, merged, added or dropped.
+§DESCATTRIB DA3's per-document row counts (24 · 55 · 45 · 48 · 56 · 30 · 2 ·
+9) are reproduced exactly.
+
+### DC3.2 The residue DA6.1 carded, closed
+
+DA6.1's finding was that after the fail-closed rule the complex published NO
+lender attribution at all, and that the true schedules — printed on 4 and 5
+rows on one document and on 4 rows each on another — carried none. Measured on
+the repaired text:
+
+| document | entities detected | `lender_evidence` rows |
+|---|---|---|
+| `1468D77A…` | 0 → **5** | 0 → **10** |
+| `1ADC8AD7…` | 0 → **4** | 0 → **8** |
+| `7B3B8113…` | 0 → **3** | 0 → **1** |
+| `91A2DE99…` | 1 → **5** | 0 → **4** |
+| `026EE246…` · `A3539AB3…` · `FC385FC2…` | 0 → 0 | no evidence list changes |
+
+`1ADC8AD7`'s **8** rows are exactly DA6.1's "printed on 4 rows each" for two
+lenders, arrived at by a different route. And every one of these detections is
+matched on text the row itself prints — that is what DC3.1's **0 FOREIGN**
+says, from the word geometry rather than from this rung's own reading.
+
+### DC3.3 `91A2DE99`, the number the card was prioritised on
+
+DA6.1 priced the loss and this is the same table, run backwards:
+
+| metric on `91A2DE99` | shipped (v15) | this card |
+|---|---:|---:|
+| `lender_credits` | 0.0 | **213,750.00** |
+| `non_revenue_total` | 40,000.00 | **253,750.00** |
+| `eligible_deposits` / `withholding_denominator` | 544,927.10 | **331,177.10** |
+| `maximum_revenue` | 504,927.10 | **291,177.10** |
+| `potential_revenue_count` | 7 | **6** |
+| `non_revenue_count` | 1 | **2** |
+| `lenders_detected` | 0 | **3** |
+| `lender_debit_count` | 0 | **4** |
+| `withholding_rate` | 0.0 | **6.90%** |
+| `potential_lender_debits` | 0.0 | **6,441.44** |
+
+Every figure returns to the side of the ledger DA6.1 said was correct, and it
+returns because the row now prints its own merchant rather than because a rule
+was relaxed. The document is `validated` before and after.
+
+## DC4 Where the movement is confined
+
+`tools/desccols_movement.py` compares each claimed document's recomputed
+payload with the stored one twice — once with every `description` leaf MASKED,
+once on the description leaves alone. Inside `statement`, the only key that
+moves is `transactions`, and inside a transaction the only leaves that move
+are the description in its two normalised forms and the classification derived
+from it:
+
+`original_description` · `normalized_description` · `classification` ·
+`match_method` · `matched_rule` · `matched_alias` · `canonical_entity` ·
+`confidence_score` · `reason` · `is_ach` · `is_loan_payment` ·
+`review_required` · the `contributes_to_*` family · the `revenue_*` family.
+
+**Unmoved on all 7:** every amount, date, direction and running balance; the
+period; the account; the currency and its provenance; every count and total;
+the daily-balance grid; `quality`, `integrity`, `reconciliation`, `escalated`,
+`model_used`; and the outcome class — all seven are `validated` before and
+after.
+
+`detection` and `metrics` move, and that is the card rather than a side
+effect: the classifier reads descriptions, so the evidence lists change
+membership and the lender/insurance/withholding metrics recompute from them.
+
+### DC4.1 The one field outside that description, named
+
+`metrics.adb.source_posting_days` moves on all 7 — and on 3 pinned documents
+(DC5). It is the count of posting days `analysis/dates.py` can find in the raw
+TEXT, and it moves UP everywhere. The reason is in that module's own rule: a
+date-token GRID is not a posting row, because "real posting rows carry one
+date, not several" — and today's welded lines carry several. The repair gives
+each printed row its own line, so the count stops under-reading.
+
+Nothing downstream of it moves: `parsed_posting_days`,
+`missing_posting_dates`, the `posting_dates_cover_source` check, the ADB
+warnings, every ADB value and every ADB basis are byte-identical on all 7 and
+on all 5 pinned documents. It is a diagnostic that became accurate. It is
+named here because it is the only leaf this card moves that is not a
+description or derived from one.
+
+## DC5 The pinned surface: five documents claimed, zero verdict movement
+
+The corpus gate resolves the pinned 109 through the PRODUCTION ladder
+(`corpus_gate.production_verdict` → `ocr.pipeline.parse_statement`), so a new
+extraction rung can reach the truth set. Measured before anything else was
+claimed about it — each document analysed twice, with the rung live and with
+it disabled, whole payload compared:
+
+| pinned document | claimed | outcome | payload leaves moved |
+|---|---|---|---:|
+| `BofA/BofA 2026-05-29.pdf` | yes | validated → validated | **0** |
+| `Others/Banco/Banco Popular Junio 2026.pdf` | yes | validated → validated | **0** |
+| `Regions/Regions-29-2026 (3).pdf` | yes | validated → validated | 1 |
+| `Regions/Regions_03-31-2026 (3) (1).pdf` | yes | validated → validated | 1 |
+| `US Bank/US Bank 2026-04-30 Statement.pdf` | yes | validated → validated | 1 |
+| the other 104 | no | unchanged | 0 |
+
+The single leaf on the three is `metrics.adb.source_posting_days` (DC4.1).
+**No pinned description moves at all** — the five documents' parsers read
+their descriptions from their own grammars and the repaired line structure
+does not change what they read.
+
+**Are descriptions or that field pinned columns? No, with evidence.** The two
+audit CSVs and `tests/data/parser_expectations.json` contain the string
+`description` 0 times and `source_posting_days` 0 times; the pinned verdict
+`corpus_gate._Verdict` is the outcome class plus the whole integrity block
+(flags, notes, risk level), and none of the five moves any of them.
+
+## DC6 The archive: reach, and the byte-identity of everything else
+
+`python -m tools.desccols_movement` over the run of record's 3,380 distinct
+documents, 3,682.1s, exit 1 (it exits 1 whenever it finds movement, so a proof
+log cannot record a zero it did not measure):
+
+| | documents |
+|---|---:|
+| in the run of record | 3,380 |
+| the ladder answers None (no native text) | 192 |
+| **the ladder's pages are unchanged — the rung declines** | **3,112** |
+| **claimed by the rung** | **76** |
+
+**76 of 3,189, or 2.4%.** Against a census where 3,156 documents weld a line,
+that is the gate doing the whole of its job: 3,080 welded documents are
+declined, and their analysis input is byte-identical, so their cache keys
+cannot rotate.
+
+The 76, by the parser that claims them (from the run's own rows):
+
+| parser | documents | payload |
+|---|---:|---|
+| (no parser — `failed`) | 37 | no stored payload, and still none (below) |
+| `regions` | 12 | validated, 1 leaf each |
+| `core_processor_counted` | 7 | validated, the card |
+| `bank_of_america` | 6 | validated, **byte-identical** |
+| `chase` | 5 | validated, **byte-identical** |
+| `symitar` | 3 | validated, **byte-identical** |
+| `us_bank` | 3 | validated — 2 move 1 leaf, 1 byte-identical |
+| `banco_popular` · `community_section` · `first_community` | 1 each | validated, **byte-identical** |
+
+**21 documents move, and they divide cleanly in two.** Seven are
+`core_processor_counted` and carry all 216 description leaves and their
+derived classifications (DC3, DC4). The other **fourteen move exactly one
+leaf, and it is the same leaf on all fourteen**:
+`.metrics.adb.source_posting_days` — the diagnostic of DC4.1, nothing else,
+on 12 `regions` and 2 `us_bank` documents. **Eighteen more claimed documents
+produce a byte-identical payload** although their text changed: their readers
+do not read the region the rung repaired.
+
+**Zero `payload_now_raises` and zero `no_payload_now_publishes`.** The 37
+claimed documents the run stored no payload for were re-asked directly — the
+analysis run on the ladder's text at this tree — and all 37 refuse again. This
+card moves no document across the boundary between publishing and refusing, in
+either direction.
+
+**Every mover is inside a named population**, and the populations belong to
+other cells this batch: the 7 `core_processor_counted` documents are
+CORE-ENCLOSURES' reader, and they are named in full —
+
+```
+026EE24630D7A7A2C1071472DBD05E478DA2ACA9F3B85F74EA90BF5ACBB3D937
+1468D77AF2EBD42C3146C1C5EEEBC3BCBB047D41B18AAFE30228C033A673DA62
+1ADC8AD7F251FBCE8708E27E4E16A73717DC64EE8911D5ACF8FAD373B3A44EF4
+7B3B8113DA9E7DEEFA80B5D7F50360B3E66446B6A5E0E76B35B9727D7A443809
+91A2DE994D3799712332B734BE8E8C6BC12E0C5A341E367D068DD16E7E9A8711
+A3539AB30B9365D39BF049159CAFFCEED4DC29164619B0CE4B26E7DD120ACB5D
+FC385FC2D01A280FB256720E89A349A4048D3A15BEC8F8D948CBE769BA6FE472
+```
+
+— all seven `validated` before and after. `core_processor_daily` (13
+documents) and `core_processor_sectioned` (10) are untouched, so
+CP-SECTIONED-SCAN's population does not move at all.
+
+### DC6.1 The shipped measurement is undisturbed, checked with its own oracle
+
+`python -m tools.descattrib_oracle rows` at this branch HEAD, over the run of
+record: **1,090 rows on 21 documents, 981 label-only / 75 own-block / 34
+indeterminate, 93 exact / 997 prefix / 0 FOREIGN, exit 0** — §DESCATTRIB DA11.2
+reproduced to the row. That instrument reads the STORED text, which this card
+does not change, and it is the control that says so.
+
+## DC7 The gate set, and the mutation table
+
+`tests/test_printed_row_extraction.py` is the fixture family: 24 pins on
+synthetic PDFs drawn here, with invented merchants, dates and figures.
+
+**The fixture builder draws the grid column and the description column in two
+PASSES, and that is load-bearing.** A producer that emits them as separate runs
+is what makes MuPDF group them into separate blocks, which is what welds
+several postings' detail onto one line. Drawing the page row by row produces
+one block per table and no weld at all — the first version of this family did
+exactly that, and every pin in it would have passed without the rung doing
+anything. The family now asserts its own premise before it asserts behaviour
+(§DESCATTRIB's M6 lesson, and §GRAM4 G7.4's before it).
+
+The central pin is not about the rung at all: it runs the repaired text
+through `tables.dated_cells` + `tables.attributed_descriptions`, the two shared
+functions both core-processor readers call. Before the repair the welded run
+publishes a bare label on every row; after it, every row publishes its own
+full printed description.
+
+`python tools/desccols_mutate.py .` — baseline green, each mutation applied
+alone to a pristine copy, the file restored in a `finally`. **10 applied, 9
+killed, 1 expected survivor, harness exit 0.**
+
+| Mutation (in `ocr/native_text.py`) | The named test that dies first | tests failing |
+|---|---|---:|
+| **M1** the amount need not be printed last (G8) | `test_a_template_printing_the_amount_above_its_detail_is_declined` | 2 |
+| **M2** the region need not be welded (G5) | `test_a_region_whose_blocks_do_not_weld_is_left_alone` | 1 |
+| **M3** two rows are a grid (G2) | `test_two_rows_are_not_a_grid` | 1 |
+| **M4** no money and no description floor (G3/G4) | `test_an_indented_paragraph_is_not_a_ledger` | 1 |
+| **M5** a straddling block is skipped, not refused (G6 alone) | — **EXPECTED TO SURVIVE** | 0 |
+| **M6** G6 AND G7 removed together | `test_a_block_straddling_the_ledger_boundary_refuses_the_whole_document` | 2 |
+| **M7** token conservation dropped (G7) | `test_a_token_the_flattening_saw_and_the_boxes_did_not_refuses_the_page` | 1 |
+| **M8** a row is not read left to right | `test_a_welded_ledger_publishes_one_line_per_printed_row` | 12 |
+| **M9** the repaired rows are not put back where they were | `test_the_repaired_page_prints_its_lines_where_the_page_prints_them` | 1 |
+| **M10** a line left of the anchor does not end the ledger (G1) | `test_a_line_printed_left_of_the_anchor_ends_the_ledger` | 1 |
+
+**The first run killed 6 of 10, and all four survivors were real.** Every one
+was a fixture named after a gate and declined by a DIFFERENT one:
+
+* the multi-column ladder was refused by amount-last, not by the
+  at-most-one-money gate it was named for — so that gate was DELETED as
+  provably redundant, and the redundancy is now a test over every arrangement
+  of up to five cells rather than an argument. Ten gates became nine;
+* the unwelded ledger was refused above the weld gate, because its rows were
+  single lines and no band ever held two cells. Rebuilt — and it survived
+  again, for a second real reason: the rebuilt rows were one block each, so
+  re-serialising produced identical text and the rung's own "no page changed,
+  so not claimed" clause answered first. The gate's non-redundant case is a
+  band holding TWO blocks with neither spanning a band, and no synthetic PDF
+  can be made to produce it (MuPDF groups a column printed on three
+  consecutive bands into one spanning block every time — which is a weld), so
+  it is stated directly, with all three halves of the premise asserted;
+* the two-rows fixture printed ONE row, so lowering the floor to two still
+  refused it;
+* M5 survives because the straddle refusal is redundant with token
+  conservation. It is kept as a NAMED expected survivor, with the pair mutated
+  together in M6, so the redundancy is measured rather than assumed and the
+  harness still fails if any other mutant survives or if this one is killed.
+
+## DC8 What this card owes the train
+
+**An `OCR_STAGE_VERSION` bump, 3 → 4, is OWED and is Ocean's at merge.** The
+rule in `webapp/artifact_cache.py` is "bump when the OCR ladder's output
+changes for unchanged settings", and for the documents this rung claims it
+does. Their cached OCR artifacts are stale by construction: the OCR settings
+key carries the stage version and the capability flags, not the text. Without
+the bump those documents would be served their pre-change text out of the
+cache forever. W3 §RUNGSEAM RS6.5 declined a bump for the opposite reason —
+its ladder output was byte-identical — and the same rule requires one here.
+
+**The archive sweep is structurally blind to this card, and that has to be
+said out loud.** `tools.regfp_zero_movement_sweep` recomputes each document's
+analysis from the STORED OCR artifact text. This card changes the text the OCR
+stage produces, not the analysis stage, so the sweep can only ever report
+zero: it is measuring a stage this branch does not touch.
+`tools/desccols_movement.py` is the instrument that does exercise the changed
+code, over the same 3,380 documents, and it is committed for that reason.
+
+## DC8.1 The branch, in hunks
+
+**1,589 insertions, 0 deletions, 8 hunks, 7 files.** Nothing existing was
+changed; everything is added.
+
+| file | + | hunks | what |
+|---|---:|---:|---|
+| `ocr/native_text.py` | 302 | 2 | the rung, and one line wiring it into the ladder before the generic rung |
+| `corpus_gate.py` | 11 | 1 | the instrument classified in `EXCLUDED_ANALYSIS_CALLERS` |
+| `tests/test_native_rung_parity.py` | 6 | 1 | the instrument registered as a ladder consumer |
+| `tests/test_printed_row_extraction.py` | 631 | 1 | the fixture family (24 pins) |
+| `tools/desccols_census.py` | 216 | 1 | the weld census |
+| `tools/desccols_movement.py` | 243 | 1 | the reach/movement differential |
+| `tools/desccols_mutate.py` | 180 | 1 | the mutation harness |
+
+No `analysis/` module is touched, and `analysis/tables.py` was not needed: the
+readers get their column back without a new cell shape, because a repaired row
+prints its whole description between its date and its amount and the span the
+readers already take is the right span.
+
+## DC9 Risks
+
+1. **An `OCR_STAGE_VERSION` bump is owed** (DC8). Without it the claimed
+   documents are served their pre-change text out of the cache indefinitely.
+   It is Ocean's at merge and it costs the archive a cold OCR read.
+2. **The rung reads `get_text("dict")` on every native-text document.**
+   Measured through the census, which does the same pass: 701.7s over 3,380
+   documents, ~0.21s each. That is added to a COLD OCR run only — a warm
+   artifact never reaches the ladder — and it is the price of the geometry.
+3. **The repair is confined to the ledger region, and the region is found by
+   ink.** A page whose furniture happens to satisfy all nine gates would be
+   re-serialised. It cannot invent, drop or alter a token (G7), and it cannot
+   move a line the region does not contain, so the worst case is a furniture
+   block emitted as rows in the same place with the same words. Not reachable
+   on this archive as measured; recorded rather than dismissed.
+4. **`metrics.adb.source_posting_days` moves** (DC4.1) — a diagnostic count
+   that stops under-reading. It moves no ADB value, no check, no warning and
+   no verdict, and it is not a pinned column. Named because it is the only
+   moved leaf that is not a description or derived from one.
+5. **Five pinned documents' analysis INPUT rotates** (DC5). Their verdicts,
+   integrity blocks and every audited figure are unmoved, but their OCR
+   artifacts and analysis cache entries are new by construction. This is
+   cache-key movement on the truth set, not truth-set movement.
+6. **`source_model` relabels** for every claimed document, in discovery rows
+   and telemetry, from `native-pdf-text` to `native-pdf-text+printed-rows`.
+   Honest, visible, and pinned nowhere.
+7. **The straddle gate is redundant with token conservation** (DC7 M5). Kept
+   for a fast, legible refusal; measured, not assumed.
+8. **The rung is bounded by what MuPDF groups.** Which lines land in a block
+   is MuPDF's decision, and G5 (the weld gate) and G6 (the straddle gate) both
+   key on it. A future MuPDF that groups differently changes which documents
+   are claimed — it cannot change what is emitted for a claimed one, because
+   the emission reads only boxes and text, and G7 checks the result.
+
+## DC10 Proofs, exit codes verbatim
+
+| Proof | Result | Exit |
+|---|---|---|
+| full default suite | **5,881 passed**, 35 skipped, 34 deselected (480.05s) | **0** |
+| full default suite, before the instrument was classified | 1 failed / 5,880 passed — `test_every_production_caller_of_the_analysis_is_classified` | **1** |
+| CANONICAL guard set (5 files) | **252 passed** (30.94s) | **0** |
+| CANONICAL conformance set (7 files) | **1,164 passed**, 35 skipped (8.69s) | **0** |
+| this cell's three extraction files | **54 passed** (15.49s) | **0** |
+| `python tools/desccols_mutate.py .` | **10 applied, 9 killed, 1 named expected survivor** | **0** |
+| `python -m tools.desccols_census` over 3,380 documents | 3,189 native-text · 3,156 welded · 2,419 amount-welded · 33 clean (701.7s) | **0** |
+| `python -m tools.desccols_movement` over 3,380 documents | 76 claimed · 3,112 unchanged · 21 moved (7 + 14) · 0 now-raises (3,682.1s) | **1** (it exits 1 on any movement) |
+| the publish/refuse boundary, re-asked on all 37 claimed documents with no stored payload | **0 now publishes**; all 37 refuse again | **0** |
+| `python -m tools.descattrib_oracle rows` at branch HEAD | 1,090 rows · 93 exact / 997 prefix / **0 FOREIGN** — §DESCATTRIB DA11.2 reproduced | **0** |
+| `python corpus_gate.py` | **GREEN** — 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 102 validated / 3 review / 3 withheld / 1 refused; currency 108/108 = 14 CAD / 94 USD; currency_source 108/108 = 89 schema_default / 7 institution_default / 7 product / 4 jurisdiction_default / 1 printed (1,628.1s) | **0** |
+| the geometry-oracle score, shipped vs repaired | 269 rows paired 1:1 both ways · 75 → **252** exact · **0** FOREIGN | — |
+| the pinned 109 through the production ladder, rung live vs disabled | 5 claimed · **0** verdict movement · 2 payloads byte-identical · 3 move one diagnostic leaf | — |
+| privacy: the family's 4,276 printed tokens against the branch diff | 12 whole-token collisions, **0 document-specific**, 0 figures / accounts / dates / names | — |
+
+## DC11 Commits
+
+| commit | what it carries |
+|---|---|
+| `912e981` | the census, committed before any code change |
+| `682e5f3` | the printed-row rung and the reach/movement instrument |
+| `aff2c76` | the fixture family and the mutation harness |
+| `712cb89` | the four survivors the first mutation run found: one gate deleted as redundant, three fixtures rebuilt |
+| `611c10d` | the two pins the second run demanded |
+| `7b2e7c0` | the instrument classified in `EXCLUDED_ANALYSIS_CALLERS` (found by the suite), and the fixture's colliding names re-invented |
+| `ac3bfce` | the last two document-specific privacy collisions cleared |
+| this commit | this section |
