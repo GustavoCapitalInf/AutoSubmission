@@ -44294,13 +44294,47 @@ at all, and ordinary English.
 
 ## LI13. Commits
 
+28 commits on `wave8-lili`, base `10cc722`, never merged and never
+pushed. The tree touches 13 files: one new reader, one registry entry, two
+count pins, one conformance fixture, one `EXCLUDED_ANALYSIS_CALLERS` entry,
+one test module, five instruments and this log. `git diff 10cc722..HEAD
+--numstat` shows deleted lines in exactly two files — the two count pins —
+and **zero deleted lines in the shared W3 log**.
+
+**Production and instruments.**
 ```
-a9643a8  register the Lili / Sunrise Banks printing — parser, registry entry,
-         conformance fixture and BOTH count pins in one commit (75 -> 76)
-d2697a9  the gate tests, the family replay instrument, the mutation harness
-cdbd164  close the five surviving mutants; the non-target probe
+a9643a8  register the Lili / Sunrise Banks business-checking printing (W3 §LILI)
+d2697a9  the gate tests, the family replay instrument and the mutation harness
+cdbd164  close the five surviving mutants and add the non-target probe
 a47a9c9  fixtures invented AWAY from the family, and the scan that proves it
 1b19041  the fees-as-inflow document did not isolate its gate
+1071690  the forensic fingerprint instrument, and the verdict in the replay
+b734bcf  two repo-wide guards the partial suites had not reached
+f95d360  the genre siblings are replayed in the probe's own pass
+dff9043  the replay prints the L-1 binding packet for every multi-column document
+d7c5e1a  the fingerprints said 'the same block'; the overlap matrix proves it
+f406a73  the registration-count docstring names what the 76th registration is
+c9c7e9a  the replay checks twelve field properties of everything it publishes
+```
+
+**Documentation.**
+```
+3bf2574  W3 §LILI — the section, with the proof numbers still to land
+2fc7c74  §LILI §LI2 - two claims replaced by their measurements
+0fcbfc6  §LILI §LI1 - why claiming the tampered printing is also the right QUEUE
+9a7708a  §LI12 privacy at EXIT=0, and the four things the scan changed
+f85ef91  §LI3 and §LI6 sharpened to what was measured
+e39a9ab  §LI4 carries the measured L-1 packet, not an assertion
+57f27f3  §LILI ties its two findings to the batch-7 escalations they discharge
+9cf586e  §LI8 M32 and §LI12 threshold note match what the tools now do
+37c8432  §LI12 round 2 no longer re-prints the figure it is about
+cd2fa0b  §LI14 F2 names all three readings that bind the checking column
+1c7db0d  §LI7 records what the registration costs a registry sweep
+8c35257  §LI8 records the mutation run at the final production tree (32/32, EXIT=0)
+ef95969  §LI8's killer column is transcribed from the log, not remembered
+25b1ae4  repair ef95969, which deleted 7,780 lines of OTHER cells' W3 sections
+0d5a11c  §LI15 R6 records the shared-log damage and the check that proves the repair
+12e1e61  §LI7 adds the twelve-property field-sanity check over the 11 published (11/11 clean, 1,818 postings)
 ```
 
 ## LI14. Findings and questions for Ocean
