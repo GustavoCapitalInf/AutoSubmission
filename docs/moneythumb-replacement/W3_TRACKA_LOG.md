@@ -43704,3 +43704,677 @@ containers, every one of the 22 changed paths ends in `.account_name`.
 
 `payload_now_raises` is **0**: no document that published under the run of
 record stopped publishing at HEAD.
+
+# §CPSCAN — the leading zero was never a mis-dating, and nineteen honest refusals
+
+CP-SECTIONED-SCAN, batch 8, card 7. Base main `10cc722`, branch
+`wave8-cpscan`, worktree `.claude/worktrees/mt8-cpscan`. Brief:
+`docs/agent-handoffs/CP-SECTIONED-SCAN.md`. Run of record
+`2026-08-23T020128.909387-0000-356a4269`. Owned files:
+`analysis/core_processor_sectioned.py`, `analysis/core_processor_daily.py`,
+their two test modules, four instruments under `tools/`, this log.
+`ANALYSIS_STAGE_VERSION` NOT bumped — no archive document moves.
+
+## CPS0. Summary
+
+| | |
+|---|---|
+| Population | SN3 row 2's 15 unclaimed non-digital documents of the sectioned core-processor template + SN3 row 7's 4 `lake_city` documents = **19**, every one named by `content_sha256` at CPS3 |
+| Census | the whole complex re-derived by live detection replay: **59 documents** — 39 on the sectioned template, 20 on the daily one — reproducing §SCANNEXT SN14.2 and §DECLINESD D5.3 exactly, including the split SN14.2 and its reviewer disagreed about |
+| Ceiling | **0 of 19.** Every one fails on a printing the scan destroyed, and the refusal is honest in all nineteen. Named per document, with the printed check that disagrees, at CPS3 |
+| Archive movement | **improved 0, regressed 0.** 59/59 documents of the complex dispatch identically; the 32 it publishes are byte-identical over 1,808 description leaves and every other leaf |
+| What changed anyway | three grammar corrections the census evidence forced, two of which correct a false statement in a module's own record: the leading-zero glyph (154 real rows the reader was dropping and blaming the scan for), the calendar bound (4 false posting dates a scan's stray space created), and the vertical bar the boundary class had never excluded |
+| Mutation | **18 mutants, 18 killed, 0 survivors**, run without `-x`; M02 survived its first run and that is how the boundary hole was found |
+
+## CPS1. The instrument, and why its enumeration is immune
+
+Four instruments, all committed, all read-only, all $0 — no hosted model call
+is reachable from any of them, and `parse_mode="deterministic"` closes the
+extraction branch in the one that runs the pipeline:
+
+* `tools/cpscan_census.py` — the population. Live detection replay over the
+  run of record's own `rows.csv`, artifacts resolved **by direct file path**
+  (the `webapp_data` sqlite index is never opened), plus a `sys.settrace`
+  refusal-site tracer that names the module and source LINE of the `return`
+  that declined. Comprehension and generator frames are excluded by name: an
+  exhausted generator returns `None` at whatever line its expression sits on,
+  and counting that as a refusal would attribute a decline to the line of a
+  `sum()`.
+* `tools/cpscan_ceiling.py` — per document, WHICH printed check disagrees.
+  Row counts, agreement booleans and grid-day counts; **no figure**, which is
+  the batch-7 privacy rule applied to a diagnostic and costs this report
+  nothing it needed.
+* `tools/cpscan_mutate.py` — the mutation harness (CPS8).
+* `tools/cpscan_privacy_grep.py` — the literal scan (CPS11.4).
+
+The artifact selection is `tools.regfp_zero_movement_sweep`'s: a document can
+hold one cached OCR artifact per capability partition, and the artifact whose
+reconstruction resolves the run's own stored analysis payload is PROOF of
+which text the run read rather than an assumption about the rung. Over the
+whole run of record — all **3,380** distinct documents, not only the family —
+the census reports **0 documents with an unproven text choice** and **29 with
+no OCR artifact at all** (the invalid PDFs and the cached negatives). Over the
+59 of the complex, **59/59 match the run's own `source_model`**.
+
+The population is by LIVE DETECTION, never by the run's `parser_id` column:
+that column records what the registry looked like when the run was taken, and
+§SCANNEXT SN3 is explicit that the measurement which matters for staffing is
+CLAIMED BY — every registration whose detector claims — because a parser that
+claims and then PUBLISHES leaves `dispatch.attempted` empty.
+
+## CPS2. The census
+
+**The complex is 59 documents**, by live detection over all 3,380:
+
+| claimed by | documents | published by | refused |
+|---|---:|---|---:|
+| `core_processor_sectioned` alone | 32 | `core_processor_sectioned` 10 | 22 |
+| `core_processor_sectioned` + `first_farmers` | 7 | `first_farmers` 6 | 1 |
+| `core_processor_daily` alone | 17 | `core_processor_daily` 13 | 4 |
+| `core_processor_daily` + `b1` | 3 | `b1` 3 | 0 |
+| **total** | **59** | **32** | **27** |
+
+The sectioned template is 39 documents, which is exactly the 39 `_PERIOD_RE`
+reaches in §SCANB's own measurement, and the daily one is 20, exactly the 20
+§LCPERIOD measured. Neither number was copied; both were re-derived.
+
+**SN14.2, reproduced and confirmed.** Restricting to the 208 non-digital
+documents (176 scanned, 16 mixed, 16 unknown; 29 of them hold no OCR
+artifact): the sectioned template's non-digital cohort is **22 — 7 validated,
+15 unclaimed** — and the 7 validated are **6 `first_farmers` + 1
+`core_processor_sectioned`**. That is SN14.2's split, not its reviewer's, and
+it includes the Stock Yards document SN3's first draft had filed as a
+singleton. Ocean's instruction to re-check before staffing is discharged:
+**the row is right as SN14.2 corrected it.**
+
+**The refusal sites, re-derived.** §DECLINESD D5.3 named 14 declines at
+`core_processor_sectioned:751` and D6.1 named 8 at `tables.unique_match`.
+Both reproduce at the base tree, to the document:
+
+| site (base tree `10cc722`) | what it is | documents |
+|---|---|---:|
+| `core_processor_sectioned:751` | the summary gate — the ledger does not reproduce the printed counts and totals | 14 (13 scanned, 1 digital) |
+| `core_processor_sectioned:727` | no complete summary strip | 8 (7 digital, 1 mixed) |
+| `first_farmers:114` | the running-balance issue; a row's amount does not equal the change in its printed balance | 1 (scanned) |
+| `core_processor_daily:746` | a ledger section `tables.dated_cells` could not split | 4 (scanned) |
+
+The 8 at `:727` split further, and the split matters for routing: **4 refuse
+at `_summary:514`** (the period line or a balance row absent — all digital)
+and **4 at `_counts:460`** via `unique_match` (three digital and the one
+mixed document; that is D6.1's geometry class, where the strip's LABELS and
+its FIGURES stand in different runs of the text layer). Seven of the eight
+are digital and are not this card's population; the geometry rung owns them.
+
+## CPS3. The 19, per document, and the ceiling
+
+Measured with `tools/cpscan_ceiling.py` at this branch's HEAD. `rows short`
+is the ledger's row count minus the count the summary printed, per direction;
+`totals` is whether each printed total reconciles to the cent; `grid` is the
+printed daily-balance grid walked against the ledger. **No figure appears
+here, by design.**
+
+### CPS3.1 The sectioned fifteen
+
+| content_sha256 (12) | class | rows short CR/DR | totals CR/DR | identity | grid printed/disagreeing/missing | ceiling |
+|---|---|---|---|---|---|---|
+| `9AACD0850F64` | scanned | 0 / 0 | agree / agree | closes | 17 / 1 / 1 | **refused — the grid alone** |
+| `0808DD1E79FA` | scanned | 0 / 0 | agree / differ | closes | 19 / 17 / 0 | refused |
+| `3E1F4145F821` | scanned | 0 / 0 | agree / differ | closes | 22 / 20 / 0 | refused |
+| `8CC1F233682E` | scanned | 0 / 0 | agree / differ | closes | 18 / 15 / 0 | refused |
+| `95246AAF1A2D` | scanned | 0 / 0 | differ / agree | closes | 20 / 19 / 0 | refused |
+| `627D9AE36DD2` | scanned | 0 / 0 | differ / agree | closes | 17 / 2 / 0 | refused |
+| `8AD1943146C5` | scanned | 0 / −1 | agree / differ | closes | 19 / 19 / 1 | refused |
+| `DCF3A85ECE6C` | scanned | −2 / −12 | differ / differ | closes | 18 / 16 / 3 | refused |
+| `3E907CEFE6B6` | scanned | −3 / −11 | differ / differ | closes | 15 / 12 / 5 | refused |
+| `9FD4C16EA736` | scanned | −4 / −14 | differ / differ | closes | 18 / 16 / 2 | refused |
+| `337FE9AA2F77` | scanned | −5 / −49 | differ / differ | closes | 5 / 5 / 6 | refused |
+| `8CC3F4922CCB` | scanned | −14 / −56 | differ / differ | closes | 5 / 3 / 7 | refused |
+| `7088F5912CF2` | scanned | −11 / −98 | differ / differ | closes | 0 / 0 / 1 | refused |
+| `EF1C5806D1A5` | mixed | — | summary unread | — | absent | refused — **CPS-ZEROTOTAL** |
+| `8035EE1A5453` | scanned | — | summary unread | — | — | refused — `first_farmers:114` |
+
+**The printed identity closes on every one of the thirteen that reads a
+summary.** That is D5.3's finding and it survives re-measurement: the summary
+strip is intact on all thirteen, and it is the LEDGER that is short.
+
+Two documents are not the summary gate's:
+
+* **`EF1C5806D1A5…` (mixed, the Stock Yards document)** prints a zero-activity
+  statement: its two count rows read `CREDITS 00` and `DEBITS 00` — no count,
+  and a total carrying no decimal point. `_FIGURE` requires cents, so the
+  strip yields nothing and the reader refuses at the summary. Reading `00` as
+  a zero total is a REPAIR of a mark the scan dropped, and the wave refuses
+  rather than repairs, so nothing was widened. **Carded as CPS-ZEROTOTAL with
+  the full measurement (CPS10.1)**: it is one document, it is doctrine-shaped,
+  and it is Gustavo's call rather than a cell's.
+* **`8035EE1A5453…`** is the running-balance issue, claimed by `first_farmers`
+  under the shipped `supersedes` edge and refused at `first_farmers:114`: one
+  row's printed running balance did not survive the scan (it is rendered as
+  letters), so the row's own amount cannot be reconciled against it. That
+  module is not this card's file. **Carded as FF-SCAN-BALANCE (CPS10.2).**
+
+### CPS3.2 The `lake_city` four
+
+All four refuse inside `core_processor_daily._rows`, where
+`tables.dated_cells` returns `None` because a date cell in a ledger section
+has no amount before the next one starts.
+
+| content_sha256 (12) | sections `dated_cells` refuses | daily-balance grid | ceiling |
+|---|---|---|---|
+| `0FFA1DA3837F` | CREDITS | **heading absent** — the scan destroyed it | refused |
+| `2FC2A756EE5A` | CREDITS | **heading absent** | refused |
+| `790B4EA8224B` | CREDITS | **heading absent** | refused |
+| `DE92B503B2EF` | CREDITS, DEBITS, CHECKS | present, unreadable | refused |
+
+**SN3 row 7's `<=4` gain is wrong and the real ceiling is 0**, for a reason
+that has nothing to do with the row grammar. This template's grid is
+REQUIRED — it prints no transaction count, so the per-day grid is the only
+per-day evidence there is — and on three of the four the `DAILY BALANCES`
+heading did not survive the scan at all, which puts the grid's own rows
+inside the CREDITS section and leaves the reader with two checks instead of
+five. Repairing every date token in all four would not publish one of them.
+
+Three sub-causes were separated inside the CREDITS failures, and only one is
+ours:
+
+1. **a fragment of a card purchase's own date**, standing alone because the
+   scan put a space inside it — CPS5, and now closed;
+2. **a decimal point OCR read as a comma** in a deposit's amount. The row is
+   real, its figure is not readable as money, and reading a comma as a
+   decimal point is the repair the doctrine forbids;
+3. **the mangled grid**, whose rows land in the CREDITS run and whose
+   balances are letters.
+
+`2FC2A756EE5A…` and `790B4EA8224B…` are two distinct `content_sha256` whose
+reconstructed text is identical character for character — two PDFs of one
+printing. Recorded because a reader of the table would otherwise think a line
+had been duplicated.
+
+## CPS4. The leading zero was never a mis-dating
+
+`analysis/core_processor_sectioned.py` carried this, in its module docstring
+and again at `_TOKEN_START`:
+
+> without the boundary, a date whose leading zero OCR turned into a letter
+> still matches one character in, as a single-digit month — and the
+> glyph-corrupted row is then silently published on the wrong day.
+
+**The second clause is false.** `_ROW_DATE` accepted a one-OR-two-digit
+month, so `o2/11` matched one character in reads month 2 — and `02/11` IS
+month 2. A leading zero carries no value. Nothing was ever published on the
+wrong day by that path: the boundary was making the row invisible, the count
+check was then refusing the document, and the module's own record attributed
+the loss to the scan.
+
+What it cost, measured over all 39 documents of the template, in every ledger
+and grid run: **154 rows on 10 documents** carry a zero-shaped letter where a
+leading zero stands. **None of the 29 documents the template and its
+superseding sibling publish carries one** — so the reading cannot reach a
+published document, and that is a measurement rather than an argument.
+
+The correction is `_LEADING_ZERO = [0oO]`, admitted ONLY in the leading
+position of a two-character month or day, and that restriction is what makes
+it a reading rather than a repair:
+
+* a printed month whose second character is the digit `d` can only have been
+  `0d` or `1d`;
+* a leading `1` is rendered by the ONE-shaped marks `l`, `I` and `|`, never
+  by `o` or `O`;
+* so a zero-shaped mark in that position leaves the month `d` either way, and
+  the value published does not depend on which of them the page carries.
+
+The one-shaped marks stay refused, because for them the boundary's original
+argument holds exactly as written: `l2/11` read one character in posts a
+December row in February, which is a wrong day INSIDE the period and
+therefore a mis-dating no gate downstream can see.
+
+**The proof that the reading is exact is the archive's, not mine.**
+`9AACD0850F64…` was short one credit row and one debit row. With its three
+`o`-dated rows read, its ledger reproduces **the printed credit count, the
+printed debit count, the printed credit total and the printed debit total,
+all four to the cent**, and its refusal moves from the summary gate to the
+grid gate — the only refusal site in the whole complex that moves (CPS9).
+Four independent printings agreeing is not a reading that guessed.
+
+**Every added match is a ledger row.** The four documents whose printed
+counts already matched exactly (`0808DD1E`, `3E1F4145`, `8CC1F233`,
+`95246AAF`) still match exactly after the change. Had the class admitted one
+token that was not a row, those counts would have gone POSITIVE, and a
+positive count delta is the signature of an invented row. They stay 0/0 on
+all four.
+
+The widening is bounded by a calendar. `_ROW_MONTH` and `_ROW_DAY` now spell
+a printed month and a printed day, which is what stops `o0/11` being read as
+month 0 — and is a tightening in its own right, since `[0-9]{1,2}` called
+`26/26` a date. Measured over the same 39: **no row or grid cell matched
+under the old form and fails under the new one.**
+
+## CPS5. The space a scan put inside a card date
+
+`analysis/core_processor_daily.py`'s docstring is precise about why its date
+grammar carries boundaries on both sides: the template prints a card
+purchase's own date inside the description as `mm-dd-yy`, and without the
+LEFT-hand boundary the tail `01-26` is a second posting date whose month the
+period cannot place, "which this reader refuses the whole document for".
+
+That holds only while the printing is contiguous. Two of the four `lake_city`
+scans print it with a space in the middle; the boundary sees the space, lets
+the fragment through, and `dated_cells` opens a cell on a date that is not
+one. **4 such fragments on 2 documents**, all four inside a ledger section,
+and their months are 18 and 26.
+
+`18` is not a month; neither is `26`. The bound is the same calendar shape
+the sectioned template now carries, and it costs nothing: over the template's
+20 documents **no row or grid cell that matched under `[0-9]{2}-[0-9]{2}`
+fails under it**, and the 16 documents this registration and its superseding
+sibling publish are byte-identical.
+
+The zero glyph is deliberately NOT admitted in this module. Measured over the
+same 20 documents, in every ledger and grid run: **zero occurrences.** A
+grammar widened past its evidence is a grammar nothing tests.
+
+## CPS6. The boundary hole the mutation table found
+
+M02 — "the class widened to the one-shaped marks" — SURVIVED its first run,
+and the survivor was worth more than the fifteen kills around it.
+
+The behavioural test named after the rule passed under the mutant, because
+the class and the READING are two independent admissions: a letter the
+pattern takes is still refused a layer down by
+`date_tokens.iso_within_period`, which splits on `/` and requires both halves
+to be digits. Rewritten as an assertion about the GRAMMAR rather than about a
+parse, the test failed on one of its three cases — `|2/11`.
+
+`_TOKEN_START` was spelled `(?<![0-9A-Za-z.,/])`: digits, letters and the two
+separators. The vertical bar is neither, so it never excluded one — and `|`
+is the third mark a scan renders a `1` as. `l2/11` and `I2/11` were refused;
+`|2/11` was read as February.
+
+The bar is now in the class. The ASTERISK deliberately is not: this platform
+prints `*02/05` where a cheque breaks the serial sequence, the mark abuts the
+date it precedes, and a boundary class that swallowed it would lose every
+sequence-gap cheque row and then refuse the document on its own count check.
+M18 is the mutant that says so.
+
+Reachability, measured over the complex's 59 documents: **no date token is
+preceded by `|`, `I`, `l` or `!` — 0 of 4,123** — and **no figure token by
+`|` — 0 of 5,849**. The closure costs nothing today and closes a mis-dating
+that would have been silent.
+
+## CPS7. What the oracle refuses, and why no reader change reaches it
+
+The `DAILY BALANCE` grid localises a disagreement to a single day, which is
+what makes the count-exact documents diagnosable rather than merely short. On
+`95246AAF1A2D…` the whole discrepancy is one step, on one day, in the credit
+direction — and the section it sits in is **printed in ascending order of
+amount**. The row carrying the discrepancy is the only one in the section
+that breaks that order, and the difference between it and the value the order
+requires is exactly the step the grid reports: an inserted digit, in the
+amount column, on a scan.
+
+That is the class killer, and it is worth stating as a rule rather than as an
+anecdote. The bank printed a figure; the scan printed a different one; the
+statement's own sort order proves which. **Using that proof to write the
+figure back is precisely what the repair doctrine forbids** — parsers never
+write an amount — so the reader refuses, and the refusal is the right answer
+rather than a gap. Three more documents (`0808DD1E`, `3E1F4145`, `8CC1F233`)
+carry the same shape with their discrepancy in the debit direction, and
+`0808DD1E` additionally has a grid CELL whose leading digits the scan
+changed, which the walk exposes as a step that appears on one day and partly
+disappears on the next.
+
+D6.2 carded these five as CPS-AMOUNT, "a bounded, oracle-rich target". The
+target is real and the oracle is real; what the oracle can do is PROVE the
+scan is wrong, not say what the bank printed. **CPS-AMOUNT should be closed
+as not-doable under the repair doctrine** (CPS10.3).
+
+## CPS8. The mutation table
+
+`python tools/cpscan_mutate.py .` — 18 mutants, run without `-x` so every
+killer is named, over both test modules. Both directions are mutated on
+purpose: a widening-only harness would pass a grammar that had quietly
+stopped matching a date the platform really prints.
+
+| # | mutant | verdict | killed by |
+|---|---|---|---|
+| M01 | the zero-shaped letters back out of the class | KILLED | `…leading_zero_a_scan_printed_as_a_letter_is_still_that_zero[o]`, `[O]` |
+| M02 | the class widened to the ONE-shaped marks | KILLED | `…one_shaped_letter_is_not_admitted_by_the_zero_class[l2/12]`, `[I2/12]`, `[\|2/12]`, `…pattern_and_the_reading_admit_exactly_the_same_letters` |
+| M03 | the glyph allowed in the TRAILING position of the month | KILLED | `…zero_shaped_letter_anywhere_but_a_leading_zero_is_not_a_date[1o/12]`, `[1O/05]` |
+| M04 | sectioned month bound removed | KILLED | `…token_no_calendar_can_hold_is_not_a_date[26/12]`, `[00/12]`, `[13/01]`, and both glyph cases |
+| M05 | sectioned day bound removed | KILLED | `…token_no_calendar_can_hold_is_not_a_date[03/45]`, `[03/00]` |
+| M06 | daily month bound removed | KILLED | `…space_a_scan_put_inside_a_card_date…`, `…is_not_a_posting_date[18-26]`, `[26-26]`, `[13-01]`, `[00-02]` |
+| M07 | daily day bound removed | KILLED | `…is_not_a_posting_date[04-00]`, `[04-32]`, `[04-45]` |
+| M08 | daily month admits a thirteenth | KILLED | `…is_not_a_posting_date[13-01]` |
+| M09 | daily day admits a thirty-second | KILLED | `…is_not_a_posting_date[04-32]` |
+| M10 | daily month loses the teens | KILLED | `…every_printed_calendar_field_still_matches[10-31]`, `[12-29]` |
+| M11 | daily day loses the thirties | KILLED | 35 tests — the whole published fixture |
+| M12 | sectioned month loses the teens | KILLED | `…every_printed_calendar_field_still_matches[10/31]`, `[12/29]` |
+| M13 | sectioned day loses the thirties | KILLED | `…every_printed_calendar_field_still_matches[9/30]`, `[10/31]`, `[03/31]` |
+| M14 | the glyph matched but never resolved to its digit | KILLED | `…still_that_zero[o]`, `[O]` |
+| M15 | the reading forgets the capital glyph | KILLED | `…still_that_zero[O]` |
+| M16 | `_TOKEN_START` dropped from the date token | KILLED | `…is_not_a_date[26/12]`, `[13/01]`, `…closing_balance_is_not_taken_from_the_disclosures_below_the_ledger` |
+| M17 | the vertical bar back out of the boundary class | KILLED | `…one_shaped_letter_is_not_admitted_by_the_zero_class[\|2/12]` |
+| M18 | the asterisk added to the boundary class | KILLED | `…serial_gap_marker_abuts_its_own_row_and_is_not_a_boundary` |
+
+**18 killed, 0 survivors.** M02's first-run survival is recorded here and in
+the harness's own comment, because the lesson is the wave's standing one: a
+test named after a gate is not a test of that gate, and here the behavioural
+test was firing through the translation table instead of through the class.
+
+## CPS9. Nothing moves, and the one thing that does
+
+**The census, at base and at HEAD.** `tools/cpscan_census.py` over all 3,380
+documents, twice: **59/59 identical** in `claimed_by`, `dispatch_outcome`,
+`dispatch_parser_id`, `dispatch_attempted` and `dispatch_crashed`. Nothing
+starts publishing and nothing stops.
+
+**The one thing that moves is a refusal SITE.** 48 of the 49 traced sites
+shift by the constant offset this branch's docstring edits add (+64 in the
+sectioned module, +27 in the daily one). The forty-ninth is
+`9AACD0850F64…`, which moves from the summary gate to the GRID gate:
+
+```
+9AACD0850F64  core_processor_sectioned:751  ->  core_processor_sectioned:824
+              (the summary gate)                (_matches_the_printed_grid)
+```
+
+That is CPS4's proof restated as a line number, and it is the whole of this
+branch's effect on the archive: one document's refusal is now attributed to
+the printing that is actually corrupt.
+
+**The family replay.** `tools/descattrib_movement.py` — the committed
+leaf-diff — over every document the complex's two `parse` functions can run
+on, comparing the live payload at this tree against the payload the run of
+record STORED:
+
+```
+{"documents": 32, "rows": 1808, "moved_descriptions": 0, "shortened": 0,
+ "lengthened": 0, "replaced": 0, "other_movement": 0, "no_payload": 27}
+EXIT=1
+```
+
+32 is every published document of the complex (10 `core_processor_sectioned`
++ 6 `first_farmers` + 13 `core_processor_daily` + 3 `b1`), and **0 leaves
+move** — not a description, not an amount, not a date, not a count, not the
+grid, not the ADB, not the verdict, not a flag. `no_payload: 27` is the 27
+REFUSED documents, which have no stored analysis payload to compare against;
+**the tool's exit code is 1 for that reason and not for a movement**, its
+contract being `1 if other_movement or no_payload`. The census above is what
+covers those 27, and it covers them exactly: all 27 still refuse, at the same
+gate, with the same `attempted` list.
+
+**The archive sweep.** `python -m tools.regfp_zero_movement_sweep` at this
+branch's final production tree, over the whole run of record in five chunks
+whose counts add — see CPS11.3.
+
+## CPS10. Findings, cards and questions for Ocean
+
+### CPS10.1 CPS-ZEROTOTAL — a zero-activity statement, and one dropped mark (Gustavo)
+
+`EF1C5806D1A584BD…`, the Stock Yards document, is the only document in the
+whole 39 whose summary prints its two totals with **no decimal point**: the
+count rows read `CREDITS 00` and `DEBITS 00`. Everything else about it is
+consistent with a month in which nothing happened — the opening and closing
+balances are equal, and the platform's three undated statistics are equal to
+both — and it prints no ledger section at all.
+
+Three separate things would have to be decided to publish it, and only the
+first is a grammar question:
+
+1. is `00` a zero total, or a `.00` whose leading mark the scan dropped, or
+   an unreadable token? The archive attests `CREDITS .00` on two other
+   documents, so the platform's zero form HAS a decimal point, which makes
+   `00` a dropped mark rather than a second printed form. **Reading it is a
+   repair**, and this cell did not make one;
+2. may a statement publish with NO ledger section? Today `parse` requires at
+   least one, and this document's only match is the words `DEPOSITS NOT SHOWN
+   ON THIS STATEMENT` inside a disclosure — so the guard is satisfied by
+   furniture, which is its own small finding;
+3. what does the ADB doctrine say about a period with no transactions and no
+   daily-balance grid, where every printed statistic says the balance never
+   moved?
+
+**Escalated, not fixed.** The measurement is above; the ruling is not a
+cell's. Cost of leaving it: one document, `failed`.
+
+### CPS10.2 FF-SCAN-BALANCE — `first_farmers`, one row's balance (card)
+
+`8035EE1A5453C75D…` refuses at `first_farmers:114`, where a row's printed
+amount is checked against the change in its printed running balance. The scan
+rendered one balance cell as letters, so the check cannot close. The reader is
+right to refuse and the module is not this card's file; recorded so the
+document is not re-censused as an unexplained decline. Ceiling: refused.
+
+### CPS10.3 CPS-AMOUNT should be closed as not-doable (ruling requested)
+
+§DECLINESD D6.2 carded the count-exact `:751` documents as "a bounded,
+oracle-rich target". CPS7 measured the target: the printed summary, the printed
+counts and the `DAILY BALANCE` grid do localise every discrepancy to one row
+on one day, and on `95246AAF` the section's own ascending sort names the row
+outright. What they cannot do is say what the bank printed. Acting on them
+means writing an amount, which the batch-7 repair doctrine forbids outright.
+**Recommend closing CPS-AMOUNT as measured-and-refused rather than leaving it
+on the queue as an unclaimed gain.**
+
+### CPS10.4 CPS-SERIAL — the cheque-serial read the sibling module already fixed (card)
+
+`core_processor_sectioned._SERIAL_RE` is an END-ANCHORED search over the
+whole gap between two rows. `core_processor_daily` carried the identical
+defect and closed it in §GRAM4 with a structural read — the row's OWN printed
+line, `fullmatch` — after its review found three constructions that publish a
+serial the bank never printed (`Continued on page 27` becoming `Check 27`, a
+masked account number becoming `Check 0000`, and a gap longer than the
+description truncation splitting a serial mid-token).
+
+Measured on this template: **all 28 CHECKS rows across the 10 published
+documents have their serial as the row's own leading cell**, so the defect is
+not reachable on today's published output. It IS reachable on a refused one —
+`0808DD1E79FA…` prints a cheque whose leading serial digit the scan destroyed,
+and the reader publishes the surviving three digits as the cheque number,
+which is an identifier the bank never printed.
+
+Not taken here for two reasons and both are scope: this card owns the scanned
+REFUSAL sites, and the honest fix lifts a helper into `analysis/tables.py`,
+which DESC-COLUMNS is working in this batch. **Carded with the measurement.**
+
+### CPS10.5 SN3 row 7's ceiling is 0, not `<=4` (roadmap correction)
+
+CPS3.2. The `lake_city` four cannot publish under any date-grammar change,
+because three of them print no readable `DAILY BALANCES` heading and the
+fourth's grid is unreadable — and this template REQUIRES the grid, having no
+printed count to check instead. The row should be struck from the scanned
+roadmap rather than re-staffed.
+
+### CPS10.6 A `str.isdigit()` path in a shared helper (noted, unreachable from here)
+
+`date_tokens.iso_within_period` admits a token on `part.isdigit()` and then
+calls `int(part)`. `str.isdigit()` is True for superscripts and `int()` raises
+`ValueError` on them, which is the standing rule's named fail-open shape.
+**Unreachable from either of this card's modules** — both feed it tokens their
+own `[0-9]`-and-glyph patterns produced, measured at 0 occurrences over the
+complex's 59 documents — so nothing was changed in a file this card does not
+own. Recorded for whoever owns `date_tokens.py` next.
+
+### CPS10.7 A disclosure heading satisfies the sectioned reader's ledger guard
+
+Noted at CPS10.1 item 2 and worth its own line: `parse` requires at least one
+of the four ledger section names to be present, and `_SECTION_RE` matches the
+words wherever they are printed in capitals — including inside the
+`DEPOSITS NOT SHOWN ON THIS STATEMENT` disclosure. No archive document
+publishes through that path today (the four gates behind it all refuse), but
+the guard is weaker than it reads. Not taken: closing it means a heading
+grammar, which is a card rather than a line.
+
+
+## CPS11. Proofs, with verbatim exit codes
+
+Every command was run from the worktree `.claude/worktrees/mt8-cpscan` at this
+branch's HEAD; the archive and the run of record are reached by absolute path
+in the MAIN checkout and are read-only throughout. The long runs were detached
+Git-bash processes writing durable logs terminated by their own `EXIT=` line.
+The host was shared with the other batch-8 cells — up to 21 concurrent Python
+processes — which is why two of the wall clocks below are what they are.
+
+### CPS11.1 The proof floor
+
+```
+# full default suite
+$ python -m pytest -q
+5894 passed, 35 skipped, 34 deselected, 1 warning in 294.89s (0:04:54)
+EXIT=0
+   5,857 at the base commit + 37 this branch adds
+
+# corpus-marked slice
+$ python -m pytest -q -m corpus
+30 passed, 5933 deselected, 1 warning in 3553.97s (0:59:13)
+EXIT=0
+
+# corpus gate
+$ python corpus_gate.py
+[PASS] outcome_classes: 109 statements publish their pinned verdict (outcome
+       class and the whole integrity block): 1 refused / 3 review /
+       102 validated / 3 withheld
+[PASS] currency: 108/108 statements publish their pinned currency:
+       14 CAD / 94 USD (+1 pinned refusal(s) ...)
+[PASS] currency_source: 108/108 statements publish their pinned currency
+       provenance: 7 institution_default / 4 jurisdiction_default /
+       1 printed / 7 product / 89 schema_default (+1 pinned refusal(s) ...)
+Outcomes: 105 PASS / 3 WITHHELD / 1 REFUSED
+Verdicts: 1 refused / 3 review / 102 validated / 3 withheld
+RESULT: GREEN
+EXIT=0
+
+# canonical guards (5 files)
+$ python -m pytest tests/test_no_statement_hardcodes.py \
+    tests/test_no_parser_helper_clones.py tests/test_r1_hardcodes.py \
+    tests/test_experiments_are_not_wired.py tests/test_filename_boundary.py -q
+252 passed, 1 warning in 84.12s (0:01:24)
+EXIT=0
+
+# canonical conformance + registry (7 files)
+$ python -m pytest tests/test_parser_conformance.py \
+    tests/test_parser_registry_entries.py tests/test_parser_detection_markers.py \
+    tests/test_parser_registry.py tests/test_parser_crash_shapes.py \
+    tests/test_parser_exception_boundary.py tests/test_count_semantics.py -q
+1164 passed, 35 skipped, 1 warning in 39.50s
+EXIT=0
+   registry 75, unchanged — this card registers nothing
+```
+
+One of the corpus gate's six committed-OCR statements is a `first_farmers`
+document, so a pinned document of this very complex is inside that GREEN.
+
+### CPS11.2 This card's own gates
+
+```
+# the two module test files
+$ python -m pytest tests/test_core_processor_sectioned.py \
+    tests/test_core_processor_daily.py -q
+229 passed in 0.89s
+EXIT=0
+
+# the mutation harness, without -x
+$ python tools/cpscan_mutate.py .
+BASELINE failures: []
+18 mutants: 18 KILLED, 0 SURVIVED
+restored: analysis/core_processor_sectioned.py, analysis/core_processor_daily.py
+EXIT=0
+```
+
+### CPS11.3 The census, the replay and the sweep
+
+```
+# the census, over all 3,380 documents of the run of record
+$ python -m tools.cpscan_census --rows <run>/rows.csv --data-dir <main>/webapp_data \
+    --baseline-settings-key 24675EF0...41B5CAC --classification all
+documents 3380  no_ocr_artifact 29  unproven_text 0  members 59  registry_size 75
+EXIT=0
+   base vs HEAD: 0 of 59 differ in claimed_by, dispatch_outcome,
+   dispatch_parser_id, dispatch_attempted or dispatch_crashed
+
+# the family replay — every document the complex's parse can run on
+$ python -m tools.descattrib_movement --rows <run>/rows.csv \
+    --data-dir <main>/webapp_data --baseline-settings-key 24675EF0...41B5CAC \
+    --sha-file <private>/complex59.txt
+{"documents": 32, "rows": 1808, "moved_descriptions": 0, "shortened": 0,
+ "lengthened": 0, "replaced": 0, "other_movement": 0, "no_payload": 27}
+EXIT=1
+   EXIT 1 is the tool's `1 if other_movement or no_payload` contract, and it
+   is the no_payload arm: the 27 REFUSED documents of the complex have no
+   stored analysis payload to compare against. other_movement is 0.
+
+# the ceiling instrument, over the named 19
+$ python -m tools.cpscan_ceiling --rows <run>/rows.csv --data-dir <main>/webapp_data \
+    --baseline-settings-key 24675EF0...41B5CAC --sha-file <private>/mine19.txt
+documents 19
+EXIT=0
+```
+
+### CPS11.4 The archive sweep, and the privacy scan
+
+```
+SWEEP_BLOCK
+```
+
+```
+# the privacy scan, over the branch's whole diff
+$ git diff 10cc722..HEAD > <private>/branch.diff
+$ python -m tools.cpscan_privacy_grep --rows <run>/rows.csv     --data-dir <main>/webapp_data --baseline-settings-key 24675EF0...41B5CAC     --sha-file <private>/mine19.txt --diff <private>/branch.diff     --repo . --base-rev 10cc722
+{"documents_named": 19, "documents_read": 19, "literals": 3755,
+ "literals_already_in_the_base_tree": 680, "added_diff_lines": 1810,
+ "hits": 0, "hit_locations": []}
+EXIT=0
+
+# and the instrument is not blind: fed the one line this branch removed
+$ python -m tools.cpscan_privacy_grep ... --diff <private>/leak_probe.diff
+{"added_diff_lines": 1, "hits": 3, ...}
+EXIT=1
+```
+
+## CPS12. Commits
+
+| commit | what |
+|---|---|
+| `1fcf96d` | the census instrument, and the two row-date grammar corrections |
+| `91392a9` | the mutation harness, and the boundary hole its M02 test found |
+| `79a6f85` | the ceiling instrument and the privacy scan |
+| `FINAL_COMMIT` | this W3 section |
+
+Four instruments under `tools/`, two production modules, two test modules,
+this log. No registration, no registry pin, no `ANALYSIS_STAGE_VERSION` bump,
+no merge, no push.
+
+## CPS13. Risks carried
+
+1. **The zero-glyph class is a widening, and this card moves nothing with
+   it.** Its whole present value is a correction to the record and 154 rows
+   that stop being attributed to the scan; its future value is the next
+   document of this template whose only defect is a leading zero. The
+   argument that it cannot change a value is a proof (CPS4), the archive
+   evidence that it adds no false row is four count-exact documents that stay
+   count-exact, and every added row still has to survive five printed checks.
+   If a reviewer wants it out, removing it is a two-line revert and the
+   calendar bound and the boundary fix stand on their own.
+2. **`586B9481FFE2…` is a DIGITAL document of the sectioned template, is not
+   in this card's named population, and its measured state changes.** The
+   zero glyph recovers one of its debit rows, so it is short 2 rather than 3.
+   Its OUTCOME does not change — it refuses at the same gate, and the sweep
+   and the census both confirm it — but a cell working the digital cohort of
+   this module (CORE-ISSUES-2) will measure it differently after this branch
+   than before. Named here rather than left to be discovered.
+3. **Both of this card's files are shared with the batch-8 complex.**
+   CORE-ISSUES-2 and DESC-COLUMNS work the same modules or the helper under
+   them. This branch touches only the two date grammars, one boundary class
+   and two docstrings, so the textual overlap is small — but the composition
+   is Ocean's, and if a train orders DESC-COLUMNS' `tables.py` work first the
+   family replay above should be re-run rather than assumed.
+4. **The refusal-site tracer is a diagnostic, not a contract.** It reports the
+   line of the `return` that declined, which moves whenever a docstring does.
+   The census compares dispatch OUTCOMES, not line numbers; CPS9's table of 49
+   shifted sites is presented as evidence of a mechanical offset with one
+   exception, and should not be read as a stable identifier.
+5. **The ceiling of 0 is a statement about today's OCR, not about the
+   documents.** Eleven of the fifteen sectioned refusals would publish from a
+   better scan; the identity closes on all thirteen that read a summary. If
+   the visual rung is ever pointed at this cohort, the census and the ceiling
+   instrument re-run in seconds and will say so.

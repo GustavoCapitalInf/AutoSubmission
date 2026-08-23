@@ -392,7 +392,7 @@ def test_the_gates_are_blind_to_a_same_day_same_direction_redistribution():
 
 @pytest.mark.parametrize("glyph", ["o", "O"])
 def test_a_leading_zero_a_scan_printed_as_a_letter_is_still_that_zero(glyph):
-    """W3 §CPSCAN CP4. The predecessor of this test asserted a refusal here,
+    """W3 §CPSCAN CPS4. The predecessor of this test asserted a refusal here,
     on the reasoning that the corrupted token "matches one character in, as a
     single-digit month, and the row is published on a day the bank never
     printed". For a LEADING ZERO that reasoning is false: a leading zero

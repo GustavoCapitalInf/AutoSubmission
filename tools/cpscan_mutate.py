@@ -1,4 +1,4 @@
-"""Mutation harness for the two row-date grammars (W3 §CPSCAN CP8).
+"""Mutation harness for the two row-date grammars (W3 §CPSCAN CPS8).
 
 Every weakening and every over-tightening of the leading-zero class and the
 calendar bound, one at a time, with the NAMED tests that die for each:

@@ -365,7 +365,7 @@ def test_a_date_may_not_begin_inside_another_date():
 
 
 def test_a_space_a_scan_put_inside_a_card_date_leaves_no_posting_behind():
-    """W3 §CPSCAN CP5 — the left-hand boundary's other half.
+    """W3 §CPSCAN CPS5 — the left-hand boundary's other half.
 
     The boundary above only holds while the card date is CONTIGUOUS. Two
     archive scans of this template print `02- 18-26`, and there the boundary

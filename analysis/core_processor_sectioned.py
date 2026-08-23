@@ -64,7 +64,7 @@ Both halves are load-bearing:
   boundary is what makes it invisible instead so the count check can catch it.
 
 An earlier form of this record claimed the same for a leading ZERO, and that
-claim was wrong (W3 §CPSCAN CP4). A leading zero carries no value: `o2/11`
+claim was wrong (W3 §CPSCAN CPS4). A leading zero carries no value: `o2/11`
 matched one character in reads month 2, and `02/11` is month 2. Nothing moves.
 What the boundary was doing there was costing the reader 154 real ledger and
 grid rows across 10 archive documents, and then reporting their absence as a
@@ -95,7 +95,7 @@ from .tables import section_runs, unique_match
 #: is read rather than refused: see `_LEADING_ZERO`.
 #:
 #: The VERTICAL BAR is in the class for exactly the letters' reason and was
-#: missing from it (W3 §CPSCAN CP8, mutant M02's test): `|` is the third mark
+#: missing from it (W3 §CPSCAN CPS8, mutant M02's test): `|` is the third mark
 #: a scan renders a `1` as, and being punctuation it slipped past a class
 #: written as "digits and letters". `l2/11` and `I2/11` were refused and
 #: `|2/11` was read as February. The asterisk deliberately stays OUT: this
@@ -130,7 +130,7 @@ _SHORT_DATE = r"[0-9]{2}/[0-9]{2}/[0-9]{2}"
 #: the archive's 39 documents of this template: **154 ledger and grid rows on
 #: 10 documents** carry a zero-shaped letter in that position, and **none of
 #: the 29 documents this registration or its superseding sibling publishes
-#: carries one** (W3 §CPSCAN CP4).
+#: carries one** (W3 §CPSCAN CPS4).
 _LEADING_ZERO = r"[0oO]"
 
 #: `m/d`, the form every ledger row prints, bounded to a printed CALENDAR
@@ -143,7 +143,7 @@ _LEADING_ZERO = r"[0oO]"
 #: it should never have made. It is also a tightening in its own right — the
 #: `[0-9]{1,2}` this replaces called `26/26` a date — and it costs nothing:
 #: over the same 39 documents **no row or grid cell matched under the old
-#: form and fails under this one** (W3 §CPSCAN CP4).
+#: form and fails under this one** (W3 §CPSCAN CPS4).
 _ROW_MONTH = r"(?:" + _LEADING_ZERO + r"[1-9]|1[0-2]|[1-9])"
 _ROW_DAY = r"(?:" + _LEADING_ZERO + r"[1-9]|[12][0-9]|3[01]|[1-9])"
 _ROW_DATE = _ROW_MONTH + r"/" + _ROW_DAY

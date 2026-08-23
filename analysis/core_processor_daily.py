@@ -192,7 +192,7 @@ _FIGURE_END = r"(?![\w.,])"
 #: fragments on 2 documents**, all four in a ledger section, and **no row or
 #: grid cell that matched under the unbounded `[0-9]{2}-[0-9]{2}` fails under
 #: this one** — the 16 documents this registration and its superseding sibling
-#: publish are byte-identical (W3 §CPSCAN CP5).
+#: publish are byte-identical (W3 §CPSCAN CPS5).
 #:
 #: The zero-shaped glyph class `core_processor_sectioned._LEADING_ZERO` reads
 #: is deliberately NOT admitted here: this template's scans do not print one.
