@@ -82,13 +82,10 @@ _SECTION_HEADINGS = (
     "Deposits", "Electronic Deposits", "Other Credits",
     "Checks Paid", "Electronic Payments", "Other Withdrawals", "Service Charges",
 )
-#: A money token sitting on the rest of the heading's own line. That is what
-#: makes an occurrence the SUMMARY line (`<heading> <total>`) rather than a
-#: section heading: the detail heading carries no figure of its own, and on a
-#: scan it stands alone with whatever Tesseract left beside it.
-_MONEY_ON_THE_SAME_LINE = r"(?![^\S\n]*\$?-?[\d,]+\.\d{2})"
-#: ...and the column legend the bank prints under every detail heading, which
-#: is the second half of the same discriminator. It is matched on `POSTING`
+#: The column legend the bank prints under every detail heading, and the thing
+#: that tells a heading from the ACCOUNT SUMMARY line naming the same section
+#: (`<heading> <total>`): the summary's nearest legend is the whole summary
+#: block away. It is matched on `POSTING`
 #: alone (and on the cheque section's own legend) because that is the part of
 #: it Tesseract keeps: across the scanned statements of this family the rest of
 #: the line arrives as `POSTING BATE DESCRIPTION AGRCUNT`, `POSTING DATE
@@ -153,8 +150,15 @@ def _section(markdown: str, heading: str) -> tuple[str, float | None]:
     one of them on a document the ADB already refused. The legend now sits in
     the body, where the row reader steps over it exactly as it steps over the
     page furniture already there, and the summary line is excluded by the one
-    thing that actually distinguishes it: it carries the section's money on the
-    heading's own line.
+    thing that actually distinguishes it: the summary's nearest column legend is
+    the whole summary block away.
+
+    A lookahead excluding a money token on the heading's own line was written
+    first, as a second and more direct way of saying "this is the summary
+    line". It is not here, because it was measured to change nothing: over all
+    40 archive documents of this family the set of heading marks is IDENTICAL
+    with and without it, and no fixture of this layout can distinguish the two.
+    An untestable gate is worse than no gate.
     """
     opened = None
     for start, end, name in _heading_marks(markdown):
@@ -187,8 +191,7 @@ def _heading_marks(markdown: str) -> list[tuple[int, int, str]]:
     """
     marks: list[tuple[int, int, str]] = []
     for heading in _SECTION_HEADINGS:
-        pattern = (_NOT_MID_SENTENCE + _heading_pattern(heading)
-                   + _MONEY_ON_THE_SAME_LINE + _LEGEND_WITHIN)
+        pattern = _NOT_MID_SENTENCE + _heading_pattern(heading) + _LEGEND_WITHIN
         for m in re.finditer(pattern, markdown, re.IGNORECASE | re.DOTALL):
             marks.append((m.start(), m.end(), heading))
     marks.sort()

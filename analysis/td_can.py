@@ -374,7 +374,15 @@ def _credit_count_candidates(amounts: list[int], delta: int) -> list[dict[int, i
         return []
 
     multiplicity = Counter(amounts)
-    values = sorted(multiplicity, reverse=True)   # largest first prunes hardest
+    # A `$0.00` posting (a returned ACH) reaches this parser, and the
+    # arithmetic has nothing whatever to say about its column: calling it a
+    # deposit changes no subtotal and no balance. It is therefore not a
+    # dimension of this search — which is also why there is no `left // value`
+    # here that could divide by zero. The consequence is stated where it bites:
+    # on a group this function is asked about, a `$0.00` row TD coded as a
+    # deposit is published as a withdrawal, no money moves either way, and the
+    # bank's printed COUNT is the evidence that says so.
+    values = sorted((value for value in multiplicity if value), reverse=True)
     #: `remaining[i]` is everything `values[i:]` can still contribute, so a
     #: branch that cannot reach the target from here is abandoned rather than
     #: walked to the end.
@@ -400,13 +408,7 @@ def _credit_count_candidates(amounts: list[int], delta: int) -> list[dict[int, i
         if index >= len(values) or left < 0 or remaining[index] < left:
             return True
         value = values[index]
-        # A genuine `$0.00` posting (a returned ACH) reaches this parser, and
-        # its direction is exactly what the arithmetic cannot decide: taking it
-        # as a credit changes no subtotal. Guarding the division keeps that a
-        # branch of the enumeration rather than a `ZeroDivisionError` inside a
-        # parser, and leaves the choice to the codes and the printed counts.
-        reachable = multiplicity[value] if value == 0 else left // value
-        for taken in range(min(multiplicity[value], reachable) + 1):
+        for taken in range(min(multiplicity[value], left // value) + 1):
             taken_so_far.append(taken)
             complete = walk(index + 1, left - value * taken, taken_so_far)
             taken_so_far.pop()

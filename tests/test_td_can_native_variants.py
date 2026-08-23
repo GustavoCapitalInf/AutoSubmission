@@ -704,18 +704,20 @@ class TestPrintedBalanceOutranksTheCodes:
         assert _credit_target([2000, 1000], 0) == 1500
         assert _credit_count_candidates([2000, 1000], 0) == []
 
-    def test_a_zero_amount_row_does_not_divide_by_itself(self):
-        """A genuine `$0.00` posting (a returned ACH) reaches this parser, and
-        `left // value` on it is a `ZeroDivisionError` inside a parser. The
-        guard is the point of this test; the RESIDUAL is worth stating with it.
+    def test_a_zero_amount_row_is_not_a_dimension_of_the_search(self):
+        """A genuine `$0.00` posting (a returned ACH) reaches this parser. The
+        arithmetic has nothing to say about its column — calling it a deposit
+        changes no subtotal — so it is not searched over, and the candidate
+        carries no entry for it. Two consequences, both deliberate: there is no
+        `left // value` that can divide by zero, and a `$0.00` row TD coded as
+        a deposit is published as a withdrawal on a group this branch reaches.
+        No money moves either way, and the bank's printed COUNT says so."""
+        assert _credit_count_candidates([1000, 0], 1000) == [{1000: 1}]
+        assert _credit_count_candidates([1000, 0, 0], 1000) == [{1000: 1}]
 
-        A zero row moves no subtotal, so the arithmetic has nothing to say
-        about its column, and the enumeration leaves it out of the credit set
-        rather than doubling every candidate list to represent a choice it
-        cannot make. On a group this branch actually reaches, that means a
-        `$0.00` row TD coded as a deposit would be published as a withdrawal —
-        no money either way, and the bank's printed COUNT is what says so."""
-        assert _credit_count_candidates([1000, 0], 1000) == [{1000: 1, 0: 0}]
+    def test_a_group_of_nothing_but_zero_rows_does_not_raise(self):
+        """The degenerate shape the guard above used to exist for."""
+        assert _credit_count_candidates([0, 0], 0) == [{}]
 
     def test_the_enumeration_reports_its_own_bound_rather_than_running_long(self):
         """Fifty distinct powers-of-two-ish amounts reach one target in far

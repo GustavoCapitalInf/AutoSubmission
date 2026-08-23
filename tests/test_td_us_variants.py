@@ -277,10 +277,26 @@ def test_the_account_summary_line_is_not_a_section_heading():
 
 
 def test_the_page_footer_does_not_open_a_deposits_section():
-    """`Bank Deposits FDIC Insured ...` contains the `Deposits` heading and the
-    `(?<!Electronic )` guard has nothing to say about it. What keeps it out is
-    that no column legend follows it."""
-    assert _section(_two_sections(), "Deposits") == ("", None)
+    """`Bank Deposits FDIC Insured ...` contains the `Deposits` heading, and the
+    `(?<!Electronic )` guard is about the OTHER heading and has nothing to say
+    about it. What keeps it out is that no column legend follows it.
+
+    The footer is placed MID-document on purpose. TD prints it at the foot of
+    every page, so on a real multi-page statement there are sections after it —
+    and a footer at the end of a fixture is a footer that could not have done
+    any damage even if it were admitted, which is a test that proves nothing.
+    Here, admitting it would open a `Deposits` section over the whole of the
+    next page and publish that page's withdrawals as DEPOSITS."""
+    header = "Other Withdrawals\nPOSTING DATE DESCRIPTION AMOUNT\n"
+    text = _two_sections().replace(
+        header,
+        "Bank Deposits FDIC Insured | TD Bank, N.A. | Equal Housing Lender\n"
+        "Page: 2 of 2 Primary Account #: 000-0000000\n" + header,
+        1,
+    )
+    assert _section(text, "Deposits") == ("", None)
+    statement = parse_td_us_statement(text)
+    assert [t.amount for t in statement.transactions] == [300.00, -40.00, -3.00]
 
 
 def test_the_cheque_footnote_does_not_open_an_electronic_payments_section():
