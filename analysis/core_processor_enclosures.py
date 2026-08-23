@@ -502,11 +502,12 @@ _ROLE_BANNERS = (
     ("charge", r"SERVICE CHARGES?\s+(?:DETAIL|BREAKDOWN)"
                r"|SERVICE CHARGES AND ITEMIZED FEES|ITEMIZED FEES", r""),
     ("summary_credit", r"SUMMARY OF DEPOSITS", r""),
-    ("summary_debit", r"SUMMARY OF WITHDRAWALS|SUMMARY BY CHECK NUMBER", r""),
+    ("summary_checks", r"SUMMARY BY CHECK NUMBER", r""),
+    ("summary_debit", r"SUMMARY OF WITHDRAWALS", r""),
     ("credit", r"DEPOSITS AND (?:OTHER )?(?:ADDITIONS|CREDITS)", r""),
+    ("checks", r"CHECKS IN (?:NUMERICAL|NUMBER|SERIAL NUMBER) ORDER|CHECKS PAID", r""),
     ("debit", r"(?:ELECTRONIC )?CHECKS AND (?:OTHER )?(?:WITHDRAWALS|DEBITS)"
-              r"|WITHDRAWALS AND (?:DEDUCTIONS|DEBITS)|OTHER DEBITS"
-              r"|CHECKS IN (?:NUMERICAL|NUMBER|SERIAL NUMBER) ORDER|CHECKS PAID", r""),
+              r"|WITHDRAWALS AND (?:DEDUCTIONS|DEBITS)|OTHER DEBITS", r""),
     ("dated", r"ACTIVITY IN DATE ORDER|TRANSACTION ACTIVITY", r""),
     ("credit", r"CREDITS", r"(?=\s*" + _COLUMN_HEADER + r")"),
     ("debit", r"DEBITS", r"(?=\s*" + _COLUMN_HEADER + r")"),
@@ -597,13 +598,21 @@ _DESCRIPTION_LIMIT = 200
 #: `Date Check No Amount` grid. The platform marks a break in the sequence with
 #: a trailing `*` and prints a cheque it holds no serial for as a bare pair.
 _SERIAL_RE = re.compile(r"([0-9]{2,8})\s*\*?")
-#: What a row of a block that prints no description is published as.
-_DEFAULT_DESCRIPTIONS = {
-    "credit": "Deposit",
-    "debit": "Debit",
-    "summary_credit": "Deposit",
-    "summary_debit": "Check",
-    "dated": "Transaction",
+#: Every block role this reader reads, in the order it reads them, with what
+#: the role says about its rows: the direction the BANNER declares (None where
+#: the block is the date-order issue's undivided ledger and the printed sign is
+#: the only evidence), whether the block is a collapsed `Date Check No Amount`
+#: grid whose leading cell is a serial rather than a description, whether it is
+#: a block the platform calls a SUMMARY, and the label to publish where the
+#: block prints no description of its own.
+_ROLE_READING = {
+    "credit": ("credit", False, False, "Deposit"),
+    "debit": ("debit", False, False, "Debit"),
+    "checks": ("debit", True, False, "Check"),
+    "dated": (None, False, False, "Transaction"),
+    "summary_credit": ("credit", False, True, "Deposit"),
+    "summary_debit": ("debit", False, True, "Debit"),
+    "summary_checks": ("debit", True, True, "Check"),
 }
 
 
@@ -617,7 +626,7 @@ class _Posting:
     description: str
 
 
-def _section_rows(runs: list[str], *, role: str, printed_sign: bool) -> list[_Posting] | None:
+def _section_rows(runs: list[str], *, role: str) -> list[_Posting] | None:
     """Every posting one section printed, or None if a row is unreadable.
 
     None rather than "skip". A row whose amount is not money, or that prints no
@@ -626,10 +635,11 @@ def _section_rows(runs: list[str], *, role: str, printed_sign: bool) -> list[_Po
     still looking complete. The exception is the platform's own cross-reference
     marker, which says in words that the amount is printed elsewhere.
 
-    `printed_sign` is true only for the date-order issue, which prints one
-    undivided ledger; everywhere else the direction is the BLOCK the bank
-    printed the row in, never the sign of the amount.
+    The direction is the BLOCK the bank printed the row in, never the sign of
+    the amount — except in the date-order issue, which prints one undivided
+    ledger and no column to read.
     """
+    direction, serialled, _restated, default = _ROLE_READING[role]
     read: list[tuple[str, list]] = []
     for run in runs:
         cells = dated_cells(_without_cross_references(run),
@@ -641,14 +651,13 @@ def _section_rows(runs: list[str], *, role: str, printed_sign: bool) -> list[_Po
         [cells for _run, cells in read],
         strip=_DESCRIPTION_FURNITURE, limit=_DESCRIPTION_LIMIT,
     )
-    default = _DEFAULT_DESCRIPTIONS[role]
     postings: list[_Posting] = []
     for (_run, cells), texts in zip(read, described):
         for index, cell in enumerate(cells):
             amount = _ledger_amount(cell.value)
             if amount is None:
                 return None
-            if role == "summary_debit":
+            if serialled:
                 serial = _SERIAL_RE.fullmatch(cell.described.strip(" |*"))
                 description = f"{default} {serial.group(1)}" if serial else default
             else:
@@ -656,7 +665,7 @@ def _section_rows(runs: list[str], *, role: str, printed_sign: bool) -> list[_Po
             postings.append(_Posting(
                 day=cell.date,
                 amount=abs(amount),
-                credit=(amount > 0) if printed_sign else role.endswith("credit"),
+                credit=(amount > 0) if direction is None else direction == "credit",
                 description=description,
             ))
     return postings
@@ -695,13 +704,13 @@ def _ledger(markdown: str, blocks: dict[str, list[tuple[str, list[str]]]]) -> li
     charge the debit ledger already carries. The SUMMARY blocks are read only
     where the ledger prints no running balance — see the module docstring.
     """
-    restated = bool(_RUNNING_BALANCE_RE.search(markdown))
+    running = bool(_RUNNING_BALANCE_RE.search(markdown))
     postings: list[_Posting] = []
-    for role in ("credit", "debit", "dated", "summary_credit", "summary_debit"):
-        if restated and role.startswith("summary"):
+    for role, (_direction, _serialled, restated, _default) in _ROLE_READING.items():
+        if running and restated:
             continue
         for _name, runs in blocks.get(role, []):
-            found = _section_rows(runs, role=role, printed_sign=(role == "dated"))
+            found = _section_rows(runs, role=role)
             if found is None:
                 return None
             postings.extend(found)
