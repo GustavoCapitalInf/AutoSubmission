@@ -1097,6 +1097,15 @@ def _wells_rows(page) -> list[str]:
 #       no gain, and — measured on this archive — costs one document its
 #       daily-balance grid. Templates of that shape are declined here.
 #
+#       It also subsumes the multi-column case entirely, which is why there is
+#       no separate gate for one. A balance ladder or a cheque list printed
+#       side by side carries several money cells per row, and a row's FIRST
+#       money can only be its LAST printed cell when it is the only one — so
+#       G8 excludes the whole class. An explicit `at most one money cell per
+#       row` gate was written first and `tools/desccols_mutate.py` proved it
+#       changed no answer; it is deleted, and the equivalence is pinned as a
+#       test over every arrangement of up to five cells.
+#
 # Nothing above names an institution, a product or a merchant: the region is
 # found by where the ink is, and the same code reads any bank that prints a
 # described ledger in this arrangement.
