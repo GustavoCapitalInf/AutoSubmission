@@ -44229,9 +44229,11 @@ at all, and ordinary English.
    and two of the family's own period dates were quoted in a pattern comment.
    Every fixture moved to a month of a calendar year the family does not
    contain, with cents no member prints.
-2. A worked example inside the tool's own docstring — `2.63` is "in" `512.63`
-   — spelled a figure the family prints. Replaced with two of this reader's
-   invented figures.
+2. The worked example inside the tool's own docstring, the one illustrating
+   the substring problem, spelled a figure the family prints. Replaced with
+   two of this reader's invented figures — and the irony is the point: a scan
+   that finds a copy in its own explanation of what a copy looks like is a
+   scan that is actually reading the branch.
 3. This log's own summary named a folder LABEL the family's text also
    contains, and two emphasis capitals collided with ALL-CAPS merchant
    strings. Reworded.
