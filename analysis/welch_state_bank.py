@@ -186,16 +186,16 @@ _GRID_HEAD_RE = re.compile(r"^(?:DATE BALANCE\s*)+", re.IGNORECASE)
 #: precedes it on the line, which is why this pattern is an ANCHOR rather than
 #: a whole-row match.
 _LEDGER_ANCHOR_RE = re.compile(
-    rf"(?<![\d/])(?P<month>\d{{1,2}})/(?P<day>\d{{1,2}})\s+(?P<amount>{_FIGURE})"
+    rf"(?<![\d/])(?P<month>[0-9]{{1,2}})/(?P<day>[0-9]{{1,2}})\s+(?P<amount>{_FIGURE})"
 )
 #: One cleared check: date, check number with its optional gap marker, amount.
 _CHECK_ANCHOR_RE = re.compile(
-    rf"(?<![\d/])(?P<month>\d{{1,2}})/(?P<day>\d{{1,2}})\s+"
-    rf"(?P<number>\d{{1,10}})\*?\s+(?P<amount>{_FIGURE})"
+    rf"(?<![\d/])(?P<month>[0-9]{{1,2}})/(?P<day>[0-9]{{1,2}})\s+"
+    rf"(?P<number>[0-9]{{1,10}})\*?\s+(?P<amount>{_FIGURE})"
 )
 #: One printed end-of-day balance.
 _GRID_ANCHOR_RE = re.compile(
-    rf"(?<![\d/])(?P<month>\d{{1,2}})/(?P<day>\d{{1,2}})\s+(?P<balance>{_FIGURE})"
+    rf"(?<![\d/])(?P<month>[0-9]{{1,2}})/(?P<day>[0-9]{{1,2}})\s+(?P<balance>{_FIGURE})"
 )
 
 WELCH_DETECTION_MARKERS = (
@@ -451,15 +451,19 @@ def _posting_date(
     Rows print no year. `iso_unique_in_period` decides it from the period and
     refuses where the period does not decide uniquely — which also refuses a
     token of the right shape that no calendar holds (`02/30`) and a day this
-    statement's period does not contain. `isdecimal`, not `isdigit`: the
-    latter admits the superscripts, which `int()` then rejects with a
-    `ValueError` out of the parser instead of a refusal.
+    statement's period does not contain.
+
+    `int()` here is TOTAL, and the anchors above are why: their date groups are
+    `[0-9]`, not `\d`. `\d` is every Unicode decimal digit, and a decorative or
+    mis-mapped glyph that happened to land in that category would be converted
+    to a day rather than noticed. Under `[0-9]` such a token is not a date
+    ANCHOR at all: its row never parses, the printed count no longer matches,
+    and the document refuses — which is the stronger answer, because a
+    conversion guard here could only drop the row silently.
     """
-    month_token, day_token = span.group("month"), span.group("day")
-    if not (month_token.isdecimal() and day_token.isdecimal()):
-        return None
     return iso_unique_in_period(
-        int(month_token), int(day_token), start=period_start, end=period_end
+        int(span.group("month")), int(span.group("day")),
+        start=period_start, end=period_end,
     )
 
 
