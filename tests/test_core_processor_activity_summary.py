@@ -64,18 +64,13 @@ Account Activity (Continued)
 Date Description Amount Balance
 4/04 SAMPLE MAINTENANCE ITEM -$100.00 -$300.00
 4/05 SAMPLE INBOUND TRANSFER $500.00 $200.00
-00000005
-
---- Page 6 ---
-
-Account Number:  1234567 Statement Dates:  4/01/26 thru 4/30/26
 Checks in Number Order
 Date Check No Amount Date Check No Amount Date Check No Amount
 4/03 101 $1,400.00
 * Indicates Break in Check Number Sequence
-00000006
+00000005
 
---- Page 7 ---
+--- Page 6 ---
 
 Account Number:  1234567 Statement Dates:  4/01/26 thru 4/30/26
 1234567 04/01/26 0 $400.00 1234567 04/05/26 0 $500.00
@@ -135,6 +130,15 @@ def test_the_box_alone_without_the_cycle_length_is_not_claimed():
     assert reader.detect(text).claims is False
 
 
+def test_the_box_heading_must_be_printed_on_its_own_line():
+    """A statement that MENTIONS an activity summary in its disclosure prose
+    has not printed the box; only a line that is the heading has."""
+    text = STATEMENT.replace(
+        "\nActivity Summary\n", "\nSee your Activity Summary below for details.\n", 1
+    )
+    assert reader.detect(text).claims is False
+
+
 def test_the_product_line_without_the_closing_label_is_not_claimed():
     text = STATEMENT.replace("Balance this Statement $200.00", "Current Balance $200.00")
     assert reader.detect(text).claims is False
@@ -161,6 +165,42 @@ def test_the_summary_identity_must_close_before_a_row_is_read():
         "Interest Paid $0.00 Balance this Statement $200.00",
         "Interest Paid $0.00 Balance this Statement $210.00",
     ).replace("Statement Balance $200.00", "Statement Balance $210.00")
+    assert parsed(text) is None
+
+
+def test_the_identity_is_checked_independently_of_the_chain():
+    """Printed interest that the closing balance does not account for.
+
+    Both counts, both totals, the restated trio and the whole running-balance
+    chain still close on this input, so only the identity can refuse it.
+    """
+    text = STATEMENT.replace(
+        "Service Charge $0.00 Interest Paid $0.00", "Service Charge $0.00 Interest Paid $50.00"
+    )
+    assert parsed(text) is None
+
+
+def test_both_printed_counts_are_checked_independently_of_the_totals():
+    """One posting printed as two that sum to it, chained correctly: every
+    total and the whole chain still close, and only the count disagrees."""
+    text = STATEMENT.replace(
+        "4/01 SAMPLE INBOUND TRANSFER $400.00 $1,400.00",
+        "4/01 SAMPLE INBOUND ONE $150.00 $1,150.00\n"
+        "4/01 SAMPLE INBOUND TWO $250.00 $1,400.00",
+    )
+    assert parsed(text) is None
+
+
+def test_both_printed_totals_are_checked_independently_of_the_identity():
+    """Both printed totals moved by the same amount, in the box and in the
+    restatement: the identity still closes and both counts still match."""
+    text = (
+        STATEMENT
+        .replace("2 Deposits/Credits $900.00", "2 Deposits/Credits $850.00")
+        .replace("3 Checks/Debits $1,700.00", "3 Checks/Debits $1,650.00")
+        .replace("Debits $1,700.00", "Debits $1,650.00")
+        .replace("Credits $900.00", "Credits $850.00")
+    )
     assert parsed(text) is None
 
 
@@ -213,10 +253,22 @@ def test_a_money_token_inside_a_descriptor_is_not_the_row_amount():
     assert "$5.00" in carded[0].description
 
 
-def test_a_zero_amount_row_refuses_because_it_has_no_direction():
-    text = STATEMENT.replace(
-        "4/04 SAMPLE MAINTENANCE ITEM -$100.00 -$300.00",
-        "4/04 SAMPLE MAINTENANCE ITEM $0.00 -$200.00",
+def test_a_zero_amount_row_refuses_even_when_every_other_oracle_closes():
+    """A zero row carries no sign, and this ledger prints one undivided
+    section, so there is nothing to recover its direction from.
+
+    The printed debit count and total are moved to ACCOMMODATE the extra row
+    here, so the chain, the identity, the restated trio and both totals all
+    still close: only the refusal itself can turn this document away.
+    """
+    text = (
+        STATEMENT
+        .replace("3 Checks/Debits $1,700.00", "4 Checks/Debits $1,700.00")
+        .replace(
+            "4/04 SAMPLE MAINTENANCE ITEM -$100.00 -$300.00",
+            "4/04 SAMPLE MAINTENANCE ITEM -$100.00 -$300.00\n"
+            "4/04 SAMPLE ZERO ITEM $0.00 -$300.00",
+        )
     )
     assert parsed(text) is None
 
@@ -231,12 +283,20 @@ def test_two_activity_summary_boxes_refuse_rather_than_publishing_one_account():
 
 
 def test_the_last_row_must_land_on_the_printed_closing_balance():
+    """Interest credited OUTSIDE the ledger, which is the only shape that can
+    separate this check from the identity.
+
+    With `Interest Paid` and `Service Charge` both zero — as every archive
+    document of this family prints them — the identity plus the two totals
+    plus the chain already force the last balance onto the closing figure, so
+    this gate is invisible there. It is the gate that fires the day a fee or a
+    credit is printed in the box and not in the ledger.
+    """
     text = (
         STATEMENT
-        .replace("Credits $900.00", "Credits $400.00")
-        .replace("2 Deposits/Credits $900.00", "1 Deposits/Credits $400.00")
-        .replace("Balance this Statement $200.00", "Balance this Statement $-300.00")
-        .replace("4/05 SAMPLE INBOUND TRANSFER $500.00 $200.00\n", "")
+        .replace("Service Charge $0.00 Interest Paid $0.00", "Service Charge $0.00 Interest Paid $50.00")
+        .replace("Balance this Statement $200.00", "Balance this Statement $250.00")
+        .replace("Statement Balance $200.00", "Statement Balance $250.00")
     )
     assert parsed(text) is None
 

@@ -196,10 +196,14 @@ _LEDGER_COLUMNS_RE = re.compile(r"^Date\s+Description\s+Amount\s+Balance\s*$")
 #: What ENDS the ledger. Everything after it - the cheque grid and the trailing
 #: image index - RESTATES rows that are already postings.
 _LEDGER_END_RE = re.compile(r"^Checks in Number Order\s*$")
-#: `4/01 DDA REGULAR DEPOSIT $6,764.00 $47,427.99`. The description is greedy
-#: so the two money tokens taken are the LAST two on the line: the running
-#: balance is always last and the amount always second-to-last, while a card
-#: descriptor may itself carry a `$`.
+#: `4/01 DDA REGULAR DEPOSIT $6,764.00 $47,427.99`. The two money tokens taken
+#: are the LAST two on the line — the running balance is always last and the
+#: amount always second-to-last — and it is the END-OF-LINE ANCHOR that makes
+#: that true, not the greedy `(.*)`. Measured (W3 §COREISS2 mutant N14):
+#: replacing `(.*)` with `(.*?)` changes nothing on any input, because a
+#: non-greedy description still has to grow until two money tokens reach the
+#: end of the line. Recorded so the next reader does not believe the
+#: greediness is doing work it is not.
 _ROW_RE = re.compile(
     r"^([0-9]{1,2}/[0-9]{1,2})\s+(.*)\s+(" + _CASH + r")\s+(" + _CASH + r")\s*$"
 )

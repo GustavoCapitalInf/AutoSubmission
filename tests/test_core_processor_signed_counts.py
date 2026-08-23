@@ -10,6 +10,8 @@ Each test is named after the gate it kills, and the mutation table in W3
 """
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from analysis import core_processor_signed_counts as reader
@@ -48,7 +50,7 @@ $200.00-
 Checks in Number Order Date Check Number Amount
 3/04 101 $300.00 3/06 102 -See above- (*) Indicates gap in check number sequence
 Summary Average Ledger Bal $1,500.00 Interest Paid $.00 Days in the Statement Period 30 Average Collected Bal $1,500.00 Service Charge(s) $.00 Images Included 2
-Daily Balance Information 3/02 1,400.00 3/03 1,600.00 3/04 1,800.00 3/05 1,600.00
+Daily Balance Information 3/02 1,400.00 3/03 1,600.00 3/04 1,800.00 3/05 1,600.00 3/06 1,600.00 3/09 1,600.00
 Page 3
 
 --- Page 4 ---
@@ -80,7 +82,8 @@ def test_the_five_printed_oracles_close_and_the_statement_publishes():
     assert (stmt.stated_total_credits, stmt.stated_total_debits) == (1300.00, 700.00)
     assert len(stmt.transactions) == 7
     assert [snapshot.date for snapshot in stmt.stated_daily_balances] == [
-        "2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05",
+        "2026-03-02", "2026-03-03", "2026-03-04",
+        "2026-03-05", "2026-03-06", "2026-03-09",
     ]
     assert stmt.bank_reported_average_balance == 1500.00
     assert stmt.bank_reported_average_label == "Average Ledger Bal"
@@ -110,19 +113,21 @@ def test_the_slash_prefixed_counts_of_another_registration_are_not_claimed():
     """
     other = (
         "Statement of Account\n"
-        "Previous Balance $1,000.00 Deposits/Credits (3) $1,300.00 "
-        "Checks/Debits (4) $700.00 Ending Balance $1,600.00\n"
+        "Previous Balance $1,000.00 Deposits/Credits (3) +$1,300.00 "
+        "Checks/Debits (4) -$700.00 Ending Balance $1,600.00\n"
         "Beginning Balance 3/02/26 $ 1,000.00\n"
         "Ending Balance 3/31/26 $ 1,600.00\n"
     )
     assert reader.detect(other).claims is False
 
 
-def test_an_unsigned_total_does_not_satisfy_the_counts_marker():
-    text = STATEMENT.replace(
-        "Credits (3) +$1,300.00 Interest Paid +$.00 Debits (4) -$700.00",
-        "Credits (3) $1,300.00 Interest Paid $.00 Debits (4) $700.00",
-    )
+def test_an_unsigned_credit_total_does_not_satisfy_the_counts_marker():
+    text = STATEMENT.replace("Credits (3) +$1,300.00", "Credits (3) $1,300.00")
+    assert reader.detect(text).claims is False
+
+
+def test_an_unsigned_debit_total_does_not_satisfy_the_counts_marker():
+    text = STATEMENT.replace("Debits (4) -$700.00", "Debits (4) $700.00")
     assert reader.detect(text).claims is False
 
 
@@ -147,6 +152,48 @@ def test_a_printed_length_that_contradicts_the_dated_span_refuses():
 
 def test_the_summary_identity_must_close_before_a_row_is_read():
     text = STATEMENT.replace("Ending Balance 3/31/26 $ 1,600.00", "Ending Balance 3/31/26 $ 1,650.00")
+    assert parsed(text) is None
+
+
+def test_the_identity_is_checked_independently_of_the_daily_grid():
+    """Printed interest that the closing balance does not account for.
+
+    Both counts, both totals and every day of the grid still close on this
+    input, so only the summary's own identity can refuse it.
+    """
+    text = STATEMENT.replace("Interest Paid +$.00", "Interest Paid +$50.00")
+    assert parsed(text) is None
+
+
+def test_the_grid_is_checked_independently_of_the_summary_identity():
+    """The mirror: the identity closes on the printed interest, and the grid
+    ends one interest payment short of the printed closing balance."""
+    text = (
+        STATEMENT
+        .replace("Interest Paid +$.00", "Interest Paid +$50.00")
+        .replace("Ending Balance 3/31/26 $ 1,600.00", "Ending Balance 3/31/26 $ 1,650.00")
+    )
+    assert parsed(text) is None
+
+
+def test_the_credit_count_is_checked_independently_of_the_credit_total():
+    """One posting printed as two that sum to it: every total still closes,
+    the grid still closes, and only the printed count disagrees."""
+    text = STATEMENT.replace(
+        "3/02 ALPHA INBOUND CCD CO#0000000000 26/03/02 ID # - 000000 TRACE # - 000000 $500.00",
+        "3/02 ALPHA INBOUND ONE $200.00 3/02 ALPHA INBOUND TWO $300.00",
+    )
+    assert parsed(text) is None
+
+
+def test_both_printed_totals_are_checked_independently_of_the_identity():
+    """Both printed totals moved by the same amount: the identity still
+    closes, the grid still closes, both counts still match."""
+    text = (
+        STATEMENT
+        .replace("Credits (3) +$1,300.00", "Credits (3) +$1,250.00")
+        .replace("Debits (4) -$700.00", "Debits (4) -$650.00")
+    )
     assert parsed(text) is None
 
 
@@ -175,6 +222,24 @@ def test_a_reference_amount_inside_a_description_is_never_the_row_amount():
     assert len(correction) == 1
     assert correction[0].amount == -100.00
     assert "$250.00" in correction[0].description and "S/B$150.00" in correction[0].description
+
+
+def test_a_credit_description_cannot_cross_a_money_token():
+    """With an unconstrained description the engine spans a debit-shaped token
+    into the FOLLOWING posting's amount and merges two rows into one — dated
+    from the first and valued from the second."""
+    text = STATEMENT.replace(
+        "3/03 BETA INBOUND $300.00 3/04 GAMMA INBOUND $500.00",
+        "3/03 BETA INBOUND $300.00- 3/04 GAMMA INBOUND $500.00",
+    )
+    rows = reader._rows(
+        reader._sections(text)["credit"], reader._CREDIT_ROW_RE,
+        date(2026, 3, 2), date(2026, 3, 31), 1,
+    )
+    assert [(row.date, row.amount) for row in rows] == [
+        ("2026-03-02", 500.00), ("2026-03-04", 500.00),
+    ]
+    assert parsed(text) is None
 
 
 def test_two_postings_concatenated_onto_one_line_are_two_rows():
@@ -225,8 +290,8 @@ def test_a_row_on_a_day_the_grid_never_prints_refuses_even_when_both_totals_clos
         STATEMENT
         .replace("Credits (3) +$1,300.00", "Credits (4) +$1,350.00")
         .replace("Debits (4) -$700.00", "Debits (5) -$750.00")
-        .replace("3/03 BETA INBOUND $300.00", "3/06 EPSILON INBOUND $50.00 3/03 BETA INBOUND $300.00")
-        .replace("3/02 SAMPLE ANALYSIS CHARGE $100.00-", "3/02 SAMPLE ANALYSIS CHARGE $100.00- 3/06 ZETA CHARGE $50.00-")
+        .replace("3/03 BETA INBOUND $300.00", "3/10 EPSILON INBOUND $50.00 3/03 BETA INBOUND $300.00")
+        .replace("3/02 SAMPLE ANALYSIS CHARGE $100.00-", "3/02 SAMPLE ANALYSIS CHARGE $100.00- 3/10 ZETA CHARGE $50.00-")
     )
     assert parsed(text) is None
 
@@ -237,8 +302,10 @@ def test_the_grid_must_end_on_the_printed_closing_balance():
 
 
 def test_a_grid_printed_out_of_order_refuses():
+    """Two carry-forward days carrying the same balance: the walk cannot see
+    the swap, so only the ordering check can."""
     text = STATEMENT.replace(
-        "3/02 1,400.00 3/03 1,600.00", "3/03 1,600.00 3/02 1,400.00"
+        "3/06 1,600.00 3/09 1,600.00", "3/09 1,600.00 3/06 1,600.00"
     )
     assert parsed(text) is None
 
