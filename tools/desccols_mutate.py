@@ -8,7 +8,10 @@ re-derivable rather than asserted:
 
 A test named after a gate is not a test of that gate — §GRAM4 G7.4's finding,
 and §DESCATTRIB's M6 repeated it on its own gate set — so every mutation here
-is required to kill a NAMED test and the harness prints the names.
+is required to kill a NAMED test and the harness prints the names. The first
+run of this harness found four survivors and every one of them was a fixture
+declined by a DIFFERENT gate than the one it was named after; three fixtures
+were rebuilt and one gate was deleted as redundant.
 
 Run WITHOUT `-x`, so a mutation that kills several tests names all of them and
 a mutation that kills none is reported as SURVIVED rather than hidden behind
@@ -32,55 +35,68 @@ TESTS = [
     "tests/test_native_text_unreadable.py",
 ]
 
+_AMOUNT_LAST = (
+    "            if money[0] != row[-1]:\n"
+    "                return None                                    # G8\n"
+)
+_STRADDLE = (
+    "            if len(inside) != len(positions):\n"
+    "                return None                                    # G6\n"
+)
+_STRADDLE_SKIPPED = (
+    "            if len(inside) != len(positions):\n"
+    "                continue\n"
+)
+_CONSERVATION = (
+    "    if sorted(text.split()) != sorted(flattened.split()):\n"
+    "        return None                                            # G7\n"
+)
+_FLOORS = (
+    "    if len(edges) < _ROW_GRID_MINIMUM or described < _ROW_GRID_MINIMUM:\n"
+    "        return None                                            # G3 / G4\n"
+)
+
 #: label -> [(anchor, replacement), ...]. Applied to a pristine copy of RUNG.
 MUTATIONS: dict[str, list[tuple[str, str]]] = {
-    # G9 — the amount need no longer be the row's last printed cell, so a
-    # template that prints the merchant detail BELOW the amount is
-    # re-serialised too, for text a reader's span still cannot reach.
-    "M1_the_amount_need_not_be_printed_last": [
-        ("            if money[0] != row[-1]:\n"
-         "                return None                                    # G9\n", ""),
-    ],
-    # G3 — a row may carry several money cells, so a multi-column balance
-    # ladder or cheque list is re-serialised: dates and figures with no
-    # description in them, moved for nothing.
-    "M2_a_row_may_carry_several_money_cells": [
-        ("        if len(money) > 1:\n"
-         "            return None                                        # G3\n", ""),
-    ],
-    # G6 — the region need not actually be welded, so a ledger the flattening
+    # G8 — the amount need no longer be the row's last printed cell, so a
+    # template printing the merchant detail BELOW the amount is re-serialised
+    # for text a reader's span still cannot reach; and a multi-column balance
+    # ladder, whose first money is never its last cell, loses the only gate
+    # that excluded it.
+    "M1_the_amount_need_not_be_printed_last": [(_AMOUNT_LAST, "")],
+    # G5 — the region need not actually be welded, so a ledger the flattening
     # already prints one line per row is claimed and every affected document's
     # cache key rotates for an identical reading.
-    "M3_the_region_need_not_be_welded": [
+    "M2_the_region_need_not_be_welded": [
         ("        if welded:\n            regions.append(rows)\n",
          "        regions.append(rows)\n"),
     ],
     # G2 — two bands are a grid. A coincidence is now rewritten.
-    "M4_two_rows_are_a_grid": [
+    "M3_two_rows_are_a_grid": [
         ("_ROW_GRID_MINIMUM = 3\n", "_ROW_GRID_MINIMUM = 2\n"),
     ],
-    # G4/G5 — the money and description floors dropped, so an indented
+    # G3/G4 — the money and description floors dropped, so an indented
     # paragraph with the shape of a row grid and none of its substance is
     # re-serialised.
-    "M5_no_money_and_no_description_floor": [
-        ("    if len(edges) < _ROW_GRID_MINIMUM or described < _ROW_GRID_MINIMUM:\n"
-         "        return None                                            # G4 / G5\n",
-         ""),
+    "M4_no_money_and_no_description_floor": [(_FLOORS, "")],
+    # G6 alone — a block straddling the region boundary is skipped rather than
+    # refused. EXPECTED TO SURVIVE, and kept for that reason: G6 is redundant
+    # with G7, because a half-serialised block either duplicates or drops
+    # tokens and conservation then refuses the page. Recording it as a
+    # measured redundancy is the honest alternative to deleting a gate that
+    # still makes the refusal fast and legible.
+    "M5_a_straddling_block_is_skipped_not_refused_EXPECTED_TO_SURVIVE": [
+        (_STRADDLE, _STRADDLE_SKIPPED),
     ],
-    # G7 — a block straddling the region boundary is skipped rather than
-    # refused, so half of it is re-serialised and half is left where it was.
-    "M6_a_straddling_block_is_skipped_not_refused": [
-        ("            if len(inside) != len(positions):\n"
-         "                return None                                    # G7\n",
-         "            if len(inside) != len(positions):\n"
-         "                continue\n"),
+    # G6 AND G7 — the straddle refusal and the backstop that makes it
+    # redundant. With both gone the straddling block is half re-serialised and
+    # half left where it was, and the page is published corrupted.
+    "M6_the_straddle_refusal_and_its_backstop_both_removed": [
+        (_STRADDLE, _STRADDLE_SKIPPED), (_CONSERVATION, ""),
     ],
-    # G8 — token conservation dropped, so a divergence between the two
+    # G7 — token conservation dropped, so a divergence between the two
     # extraction modes alters the document instead of refusing it.
-    "M7_token_conservation_dropped": [
-        ("    if sorted(text.split()) != sorted(flattened.split()):\n"
-         "        return None                                            # G8\n", ""),
-    ],
+    "M7_token_conservation_dropped": [(_CONSERVATION, "")],
     # The reading order inside a row: cells come out in MuPDF's order rather
     # than left to right, so a row's amount can precede its own description.
     "M8_a_row_is_not_read_left_to_right": [
@@ -99,6 +115,13 @@ MUTATIONS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
+#: The one mutant this harness expects to survive, and why: see its comment
+#: above. Named here so its SURVIVED line is a measurement rather than a hole,
+#: and so any OTHER survivor — or this one being killed — still fails the run.
+EXPECTED_SURVIVORS = {
+    "M5_a_straddling_block_is_skipped_not_refused_EXPECTED_TO_SURVIVE",
+}
+
 
 def failures(root: pathlib.Path) -> list[str]:
     completed = subprocess.run(
@@ -114,7 +137,7 @@ def failures(root: pathlib.Path) -> list[str]:
 def main(argv: list[str]) -> int:
     root = pathlib.Path(argv[1] if len(argv) > 1 else ".").resolve()
     original = (root / RUNG).read_text(encoding="utf-8")
-    survived = []
+    survived: list[str] = []
     try:
         clean = failures(root)
         print(f"BASELINE failures: {clean}")
@@ -144,7 +167,13 @@ def main(argv: list[str]) -> int:
     finally:
         (root / RUNG).write_text(original, encoding="utf-8")
         print("restored:", RUNG)
-    return 1 if survived else 0
+    unexpected = sorted(set(survived) - EXPECTED_SURVIVORS)
+    resurrected = sorted(EXPECTED_SURVIVORS - set(survived))
+    if unexpected:
+        print("SURVIVED and should not have:", ", ".join(unexpected))
+    if resurrected:
+        print("EXPECTED TO SURVIVE but was killed:", ", ".join(resurrected))
+    return 1 if unexpected or resurrected else 0
 
 
 if __name__ == "__main__":

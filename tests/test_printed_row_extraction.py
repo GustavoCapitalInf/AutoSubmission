@@ -251,8 +251,11 @@ def test_a_template_printing_the_amount_above_its_detail_is_declined():
 
 
 def test_a_multi_column_balance_ladder_is_left_alone():
-    """G3. Four (date, figure) pairs side by side on each row: dates and
-    figures only, no description to recover."""
+    """G8, and the reason there is no separate multi-column gate: four (date,
+    figure) pairs side by side means the row's FIRST money is never its last
+    printed cell, so the amount-last gate declines it. Measured rather than
+    reasoned about — an explicit `at most one money cell` gate was written
+    first and `tools/desccols_mutate.py` proved it changed no answer."""
     doc = fitz.open()
     page = doc.new_page()
     y = 100.0
@@ -269,25 +272,44 @@ def test_a_multi_column_balance_ladder_is_left_alone():
 
 
 def test_a_ledger_the_layer_did_not_weld_is_not_claimed():
-    """G6. Each printed row is its own block, so the flattening already emits
-    one line per row and the repair would rotate a cache key for nothing."""
+    """G5. Every gate above passes — an anchor column, four rows, a
+    right-aligned money column, a description — and no block spans more than
+    one band, so the flattening ALREADY prints one line per row. Claiming it
+    would rotate the document's cache key for an identical reading.
+
+    The rows are drawn one at a time with a wide pitch, which is what makes
+    MuPDF give each its own block. The fixture asserts that premise: without
+    it the region would be refused higher up and this would pin nothing.
+    """
     doc = fitz.open()
     page = doc.new_page()
-    y = 100.0
-    page.insert_text((DATE_X, y), "WIDGET DEBITS", fontsize=FONT_SIZE)
-    y += 11.0
-    for date, label, detail, amount in WELDED_ROWS:
-        page.insert_textbox(
-            fitz.Rect(DATE_X, y - 8.0, AMOUNT_RIGHT, y + 4.0),
-            f"{date} {label} {' '.join(detail)} {amount}", fontsize=FONT_SIZE)
-        y += 22.0
+    page.insert_text((DATE_X, 100.0), "WIDGET DEBITS", fontsize=FONT_SIZE)
+    y = 120.0
+    for date, label, lines, amount in WELDED_ROWS:
+        page.insert_text((DATE_X, y), date, fontsize=FONT_SIZE)
+        page.insert_text((LABEL_X, y), label, fontsize=FONT_SIZE)
+        page.insert_text((DETAIL_X, y), lines[0], fontsize=FONT_SIZE)
+        _right(page, y, amount)
+        y += 30.0
     page.insert_textbox(fitz.Rect(DATE_X, 700, 560, 780), FILLER, fontsize=FONT_SIZE)
-    _declined(doc.tobytes())
+    raw = doc.tobytes()
+
+    import ocr.native_text as native_text
+    with fitz.open(stream=raw, filetype="pdf") as opened:
+        printed = native_text._printed_lines(opened[0])
+        bands = native_text._row_bands(printed)
+        regions = native_text._candidate_regions(printed, bands)
+    assert regions, "the fixture must reach the weld gate, not be refused above it"
+    assert len(regions[0][1]) >= 3
+
+    _declined(raw)
 
 
 def test_two_rows_are_not_a_grid():
-    """G2. Three printed rows are the smallest thing this rung calls a grid."""
-    _declined(_ledger_pdf(WELDED_ROWS[:1], header=False))
+    """G2. Three printed rows are the smallest thing this rung calls a grid,
+    and the fixture prints exactly TWO — one short — so a mutant that lowers
+    the floor by one repairs it and dies here."""
+    _declined(_ledger_pdf(WELDED_ROWS[:2], header=False))
 
 
 def test_an_indented_paragraph_is_not_a_ledger():

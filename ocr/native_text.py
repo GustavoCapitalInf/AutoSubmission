@@ -1063,29 +1063,31 @@ def _wells_rows(page) -> list[str]:
 #       region — the page has moved on to something else.
 #   G2  at least three row starts. Two bands are not a grid, they are a
 #       coincidence, and this rung has no business rewriting a coincidence.
-#   G3  AT MOST ONE money cell per row. A row with several is a multi-column
-#       grid printed side by side (a daily-balance ladder, a cheque list); its
-#       cells are dates and figures, there is no description to recover, and
-#       re-serialising it would move a reading for nothing.
-#   G4  at least three rows carry a money cell, and those cells' right edges
+#   G3  at least three rows carry a money cell, and those cells' right edges
 #       agree: a printed right-aligned money column, which is what makes the
 #       region a ledger rather than an indented paragraph.
-#   G5  at least three rows carry a DESCRIPTIVE cell — one that is neither the
+#   G4  at least three rows carry a DESCRIPTIVE cell — one that is neither the
 #       row's anchor nor its money. Without one there is no description and
 #       nothing to give back.
-#   G6  the region actually WELDS: some block spans more than one of its bands
+#   G5  the region actually WELDS: some block spans more than one of its bands
 #       and carries a descriptive cell. Without this the flattening already
 #       prints one line per row and the repair would be a no-op that rotated
 #       every affected document's cache key for nothing.
-#   G7  no block has lines both inside and outside the region. A block that
+#   G6  no block has lines both inside and outside the region. A block that
 #       straddles the boundary cannot be half re-serialised and half left
 #       alone, and guessing which half is which is exactly the kind of repair
-#       this platform refuses. The whole DOCUMENT is refused.
-#   G8  TOKEN CONSERVATION. The page's whitespace-separated tokens must be the
+#       this platform refuses. The whole DOCUMENT is refused. G6 is REDUNDANT
+#       with G7 and is kept for the fast, comprehensible refusal rather than
+#       for correctness: measured, removing it alone changes no answer,
+#       because a half-serialised block either duplicates or drops tokens and
+#       G7 then refuses the page. `tools/desccols_mutate.py` records that as a
+#       surviving mutant on purpose, with the pair mutated together to show
+#       what they hold between them.
+#   G7  TOKEN CONSERVATION. The page's whitespace-separated tokens must be the
 #       same multiset before and after. Only line boundaries and within-line
 #       order may move; nothing may be invented, dropped or altered. The check
 #       is on the emitted text, so it is a proof rather than an argument.
-#   G9  the money cell is the row's LAST printed cell. This is the gate that
+#   G8  the money cell is the row's LAST printed cell. This is the gate that
 #       decides whether the repair can help at all, and it is worth stating in
 #       full: a reader's span runs from a row's date to the first figure after
 #       it, so the description is recoverable only where the amount is printed
@@ -1194,7 +1196,7 @@ def _candidate_regions(lines, bands) -> list[tuple[int, list[int]]]:
 
 
 def _described_rows(lines, bands, end: int, starts: list[int]) -> list[list[int]] | None:
-    """The region's rows, or None where G3/G4/G5/G9 refuse it."""
+    """The region's rows, or None where G3/G4/G8 refuse it."""
     rows = []
     for order, start in enumerate(starts):
         stop = starts[order + 1] if order + 1 < len(starts) else end
@@ -1203,21 +1205,19 @@ def _described_rows(lines, bands, end: int, starts: list[int]) -> list[list[int]
     edges, described = [], 0
     for row in rows:
         money = [p for p in row if _ROW_MONEY_RE.match(lines[p].text)]
-        if len(money) > 1:
-            return None                                        # G3
         if money:
             if money[0] != row[-1]:
-                return None                                    # G9
+                return None                                    # G8
             edges.append(lines[money[0]].right)
         if any(p != row[0] and p not in money for p in row):
             described += 1
     if len(edges) < _ROW_GRID_MINIMUM or described < _ROW_GRID_MINIMUM:
-        return None                                            # G4 / G5
+        return None                                            # G3 / G4
     common = max(edges, key=lambda edge: sum(
         1 for other in edges if abs(other - edge) <= _ROW_COLUMN_TOLERANCE))
     if sum(1 for edge in edges
            if abs(edge - common) <= _ROW_COLUMN_TOLERANCE) < _ROW_GRID_MINIMUM:
-        return None                                            # G4
+        return None                                            # G3
     return rows
 
 
@@ -1249,11 +1249,11 @@ def _printed_row_page(page, flattened: str) -> str | None:
             if not inside:
                 continue
             if len(inside) != len(positions):
-                return None                                    # G7
+                return None                                    # G6
             if len({band_of[p] for p in inside}) > 1 and any(
                     p not in anchors and not _ROW_MONEY_RE.match(lines[p].text)
                     for p in inside):
-                welded = True                                  # G6
+                welded = True                                  # G5
         if welded:
             regions.append(rows)
     if not regions:
@@ -1271,7 +1271,7 @@ def _printed_row_page(page, flattened: str) -> str | None:
     units.sort()
     text = "\n".join(unit[2] for unit in units)
     if sorted(text.split()) != sorted(flattened.split()):
-        return None                                            # G8
+        return None                                            # G7
     return text
 
 
