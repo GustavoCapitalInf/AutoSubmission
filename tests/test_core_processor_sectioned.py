@@ -390,13 +390,39 @@ def test_the_gates_are_blind_to_a_same_day_same_direction_redistribution():
 # Look-alike glyphs are refused, never absorbed
 # ===========================================================================
 
-def test_a_date_whose_leading_zero_ocr_read_as_a_letter_is_not_read_as_a_date():
-    """The boundary rule, measured on the archive: without it the corrupted
-    token matches one character in, as a single-digit month, and the row is
-    published on a day the bank never printed. With it the row is invisible and
-    the count check refuses the document — which is the honest outcome for a
-    scan we cannot read."""
-    assert parse(swap("1001 03/12 100.00", "1001 o3/12 100.00")) is None
+@pytest.mark.parametrize("glyph", ["o", "O"])
+def test_a_leading_zero_a_scan_printed_as_a_letter_is_still_that_zero(glyph):
+    """W3 §CPSCAN CP4. The predecessor of this test asserted a refusal here,
+    on the reasoning that the corrupted token "matches one character in, as a
+    single-digit month, and the row is published on a day the bank never
+    printed". For a LEADING ZERO that reasoning is false: a leading zero
+    carries no value, so month 3 read out of `o3/12` is the month `03/12`
+    prints. The refusal cost 154 real rows across 10 archive documents and
+    bought nothing (`_LEADING_ZERO`)."""
+    statement = parse(swap("1001 03/12 100.00", f"1001 {glyph}3/12 100.00"))
+    assert statement is not None
+    cheque = [row for row in statement.transactions if row.description.startswith("Check")]
+    assert [(row.date, row.amount) for row in cheque] == [("2026-03-12", -100.0)]
+
+
+@pytest.mark.parametrize("glyph", ["l", "I", "|"])
+def test_a_leading_one_a_scan_printed_as_a_letter_is_refused(glyph):
+    """The half of the boundary that stands. A leading `1` IS significant, so
+    reading `l2/12` one character in would post a December row in February —
+    the silent mis-dating the boundary exists to prevent. The row goes
+    invisible instead and the printed count refuses the document."""
+    assert parse(swap("1001 03/12 100.00", f"1001 {glyph}2/12 100.00")) is None
+
+
+@pytest.mark.parametrize("token", ["26/12", "03/45", "00/12", "03/00", "13/01"])
+def test_a_token_no_calendar_can_hold_is_not_a_date(token):
+    """The bound `_LEADING_ZERO` is written inside. A scan that puts a space
+    in the middle of a `mm-dd-yy` printed in a description leaves a fragment
+    like `26/26` standing alone, and reading it as a date opens a ledger cell
+    on something that is not one."""
+    document = swap("CARD PURCHASE HARDWARE CO 03/20 500.00",
+                    f"CARD PURCHASE {token} 900.00 HARDWARE CO 03/20 500.00")
+    assert parse(document) is not None
 
 
 def test_a_look_alike_digit_from_another_script_is_not_money():

@@ -364,6 +364,35 @@ def test_a_date_may_not_begin_inside_another_date():
     assert parse(document(debits=with_card_date)) is not None
 
 
+def test_a_space_a_scan_put_inside_a_card_date_leaves_no_posting_behind():
+    """W3 §CPSCAN CP5 — the left-hand boundary's other half.
+
+    The boundary above only holds while the card date is CONTIGUOUS. Two
+    archive scans of this template print `02- 18-26`, and there the boundary
+    sees a space and lets `18-26` through as a posting date; `dated_cells`
+    then opens a cell on it, finds no amount before the next real row, and
+    refuses the document. The month bound is what says `18` is not a month."""
+    split_card_date = DEBITS + "SEATTLE WA 02- 18-26 11:02 AM XXXXXXXXXXXX1494\n"
+    statement = parse(document(debits=split_card_date))
+    assert statement is not None
+    assert len(statement.transactions) == 2
+
+
+@pytest.mark.parametrize("fragment", ["18-26", "26-26", "00-02", "04-00", "04-45"])
+def test_a_token_no_calendar_can_hold_is_not_a_posting_date(fragment):
+    """The bound, one impossible field at a time. Each of these matched the
+    unbounded `[0-9]{2}-[0-9]{2}` and opened a ledger cell on something no
+    calendar can hold."""
+    assert cpd._DATE_RE.search(f" {fragment} ") is None
+
+
+@pytest.mark.parametrize("printed", ["01-01", "09-30", "10-31", "12-29"])
+def test_every_printed_calendar_field_still_matches(printed):
+    """The bound is a tightening and must not cost a real date: the month's
+    two ranges and the day's three each have to keep matching."""
+    assert cpd._DATE_RE.search(f" {printed} ").group(1) == printed
+
+
 def test_a_letter_look_alike_in_a_date_is_refused_rather_than_absorbed():
     """What the archive's scans of this template really substitute: a Cyrillic
     `З` for a three, a lower-case `o` for a leading zero. The row must become
