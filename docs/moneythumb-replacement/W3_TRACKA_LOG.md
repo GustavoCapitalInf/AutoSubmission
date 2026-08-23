@@ -42433,3 +42433,1274 @@ counts, `flags: []` and `corporate_use: approved`, and the same two
 `failed/parser_declined`. And `eq_bank_scanned` claims **0 of the 109 pinned
 corpus documents**, measured, so a change confined to its parse function cannot
 move the corpus gate.
+
+# §DECLINESF — three decline groups, one text-layer forgery, and the scanned cohort that is an extension
+
+DECLINES-F, 2026-08-21. Branch `wave7-declinesf`, base `e83f746` (main, the
+batch-7 phase-A handoffs). Brief: `docs/agent-handoffs/DECLINES-F.md`. One
+production file changed, one test file added. `ANALYSIS_STAGE_VERSION` NOT
+bumped — published output moves on four archive documents, so the bump is
+Ocean's to compose.
+
+## F0. Summary
+
+| | |
+|---|---|
+| Population | the run of record's 16 `parser_declined` documents attributed to `bmo_ca_business` (6), `capital_one` (6) and `first_citizens` (4), plus the SN3 #9 `fc_daco2` cohort |
+| Census | every one replayed live; **16/16 reproduce the run's `outcome_class`/`outcome_reason`**, **16/16 agree on `source_model`**, and every refusal site is machine-derived, not read off the code |
+| Card taken | **FC1** — `analysis/first_citizens.py`: the At-A-Glance grid prints on BOTH sides of its own column heading |
+| Cards measured and deliberately left | **BMO1** (6 documents, ceiling **0**, already ruled as §BMO-LAYOUTS family E3) · **CO1** (6 documents, ceiling **0**, already ruled as §DECLB DB7's L-1 block) · **FC-DACO2-SCAN** (5 documents, ceiling **0**) · **FC-PRODUCT** (39 documents) — **re-scoped by review and TAKEN, F13.3** |
+| Result | **improved 4, regressed 0** — `first_citizens` 35 → 39 validated over its whole claimed family; and, after review, **13 label-only `account_name` movers** (F13.3) |
+| Byte-identity | at the reviewed tree, 35 of 39 byte-identical in the WHOLE published payload; at the FINAL tree **26 of 39**, the other 13 being the 4 coverage movers plus 9 label-only movers, every changed leaf path ending in `.account_name` (F13.3). `bmo_ca_business` (133 claimed) and `capital_one` (28 claimed) are untouched files |
+| Pinned | the 5 pinned documents these registrations claim (capital_one 4, first_citizens 1) are byte-identical in the whole published payload, base vs HEAD |
+| DACO2 ruling | **EXTENSION, not sibling** — no new registration, registry stays **74** |
+
+## F1. The instrument, and why its enumeration is immune
+
+Every figure below comes from replaying the run of record
+(`discovery_reports/2026-08-21T014415.938236-0000-7a317445`, mode `--scanned`)
+through the real pipeline — `analysis.pipeline.analyze_markdown` in
+deterministic mode + `analysis.serialization.report_to_dict` +
+`telemetry.record.classify_outcome` + `discovery.runner._failure_reason` —
+resolved from the D-3 OCR artifact store in the MAIN checkout **by direct file
+path**. **The `webapp_data` sqlite index was never opened.**
+
+Two instrument hazards this wave has already paid for are answered by
+construction rather than assumed away.
+
+* **One settings partition is not the run's population** (WORKER-PRIVACY's
+  finding, W3 §WORKERPRIV). This harness never enumerates the store. It starts
+  from the run's own `rows.csv` and resolves each document by CONTENT.
+* **The store holds several OCR vintages per document** (SIGN-READER's finding,
+  W3 §SCANNEXT SN1), so "the first artifact found" is not the artifact the run
+  read. Every capability partition reachable from `ocr_settings_key` (8 flag
+  combinations) is probed by direct path and the partition SELECTED is the one
+  whose stored `model` equals that document's own `source_model` column. A
+  document with no model-agreeing artifact is reported UNRESOLVED, never
+  guessed.
+
+The resolution is then PROVEN a second way: the replay must reproduce the row's
+`outcome_class` and `outcome_reason`. Measured on the 16 declines,
+**16/16 reproduce and 16/16 agree on `source_model`**; measured over all three
+claimed families at the BASE tree — 133 + 28 + 39 = **200 documents, 200/200
+reproduce the run of record exactly**. A differential built on a different text
+preparation would have failed loudly instead of manufacturing a mover.
+
+**Family populations are by LIVE DETECTION REPLAY**, never `rows.csv
+parser_id`: the reconstructed markdown of all 3,380 distinct documents is run
+through every registration's own `detect` (via `prepare` + `safe_detect`, the
+production seam). 29 documents have no usable artifact — 16 with no artifact at
+all (the invalid PDFs) and 13 holding a cached NEGATIVE (the deferred scans) —
+the same split SCAN-NEXT measured on the previous run of record. Claimed:
+
+```
+bmo_ca_business         133   (127 published + 6 declined)
+bmo_ca_business_french    4
+capital_one              28   ( 22 published + 6 declined)
+first_citizens           39   ( 35 published + 4 declined)
+```
+
+**The refusal site is machine-derived.** A `parse` that returns None says
+nothing about WHY. Each decline is replayed under a tracer that records every
+`None` return inside `analysis/`; at the moment the registered parse function
+returns None, the chain of returns at CONSECUTIVE depths (d → d+1, an actual
+caller→callee chain) ending there is the propagation chain, and its innermost
+non-generator frame is the refusal site. This is DECLINES-D's D1 method,
+re-derived here rather than trusted: the sites it produces are exactly the ones
+that card named, at the same line numbers, on a different run of record.
+
+## F2. The census — all 16, by (parser, refusal site)
+
+Every row is one distinct `content_sha256`; there are no within-archive
+duplicates in this population (16 rows, 16 shas).
+
+| parser | refusal site | sha | text | account | months |
+|---|---|---:|---|---|---|
+| `bmo_ca_business` | `bmo_ca_business.py:262` | 6 | digital | one (`BMO/fb803c60_*`) | Oct 2025 – Mar 2026, consecutive |
+| `capital_one` | `capital_one.py:394` | 5 | digital | one (`Capital One/cd9cd210_*`) | Jan–Jun 2026 minus Feb |
+| `capital_one` | `capital_one.py:201` | 1 | digital | the same account | Feb 2026 |
+| `first_citizens` | `first_citizens.py:317` | 4 | digital | one (`Unidentified/3df19105_*1301`) | Feb–May 2026, consecutive |
+
+Three groups, three accounts, three consecutive-month chains. That is the first
+finding of the census and it is worth stating before any diagnosis: **none of
+these sixteen documents is a layout this platform meets more than once.** Each
+is one account's printing, and the question in each case is whether the
+printing is readable at all.
+
+The propagation chains the tracer recorded, one per distinct site (the
+generator frame is the one the filter drops, and it is exactly the
+`td_can.normalize_mojibake` genexpr §DECLINESD named for this module):
+
+```
+bmo_ca_business  bmo_ca_business.py:262
+     bmo_ca_business.py:468  parse_bmo_ca_business_statement
+     bmo_ca_business.py:348  _parse
+     bmo_ca_business.py:262  _summary_row
+     td_can.py:69            normalize_mojibake.<locals>.<genexpr>   [GENERATOR - dropped]
+capital_one      capital_one.py:394
+     capital_one.py:394      parse_capital_one_statement
+capital_one      capital_one.py:201
+     capital_one.py:303      parse_capital_one_statement
+     capital_one.py:201      _period
+first_citizens   first_citizens.py:317
+     first_citizens.py:664   parse_first_citizens_statement
+     first_citizens.py:317   _summary
+```
+
+These are the same four sites, at the same line numbers, that §DECLINESD's D2
+census named on the PREVIOUS run of record — re-derived here by an independent
+implementation of the same method rather than copied, which is the only reason
+this cell can say the sites are measured rather than inherited.
+
+## F3. FC1 — the grid prints on both sides of its own heading (4 movers)
+
+`Your Account(s) At A Glance` is a two-column box. The native-text extractor
+flattens it into a run of column headings and a run of cells, and
+`analysis/first_citizens.py` has read it by TOKEN SHAPE rather than by offset
+since the FC-E rebuild, precisely because the order varies (§FI4: "`days`
+precedes the beginning balance on 14 documents and follows it on 4").
+
+What the module still assumed is that the box's own column heading —
+`Statement Period Days / Average Ledger Balance` — is emitted FIRST. It is not.
+On these four documents the extractor emits part of the box above it:
+
+* three of them (Feb, Mar, Apr) put the **control row**, the **beginning
+  balance** and the **day count** above the heading;
+* one (May) puts the **beginning balance** above it.
+
+Read only forwards, the block then exposes **two** unsigned money cells where
+three are needed to tell a beginning balance from an ending one, and the shape
+test at `:317` refuses. `_summary_block` now bounds the block on both sides.
+
+**§FI5 recorded this population wrongly, and the correction matters.** It said:
+"The 4 declines are the whole `3df19105_*1301` set — dormant accounts holding
+$200 with no activity. **They print NO control row at all**, and their summary
+block exposes two money cells where three are needed." Measured: all four print
+a control row, three of them above the heading and one below it; and one of the
+four is not dormant — it posts a wire IN of 18,348.60 on 05-19 and a wire OUT
+of 18,348.60 on 05-22. The earlier cell described the block it had READ rather
+than the document that was printed. That is the failure mode this wave keeps
+finding, and it is why the block bound is now derived from the grid's own cell
+shapes instead of from where the heading happens to land.
+
+### F3.1 What makes reading the near side of the heading safe
+
+Backwards the block is bounded by exactly the four cell shapes the forward scan
+already recognises — the control row, an unsigned money cell, a signed money
+cell, the day count — and stops at the first line above the heading that is not
+one of them. Three consequences, all of them measured rather than argued:
+
+1. **Nothing the forward scan would reject can enter through the back.** The
+   admitted vocabulary is identical in both directions.
+
+   **This point was over-claimed in the first revision and review was right to
+   name it (MAJOR-2).** It said over-collection "fails CLOSED", full stop.
+   That is true of SECOND instances only: the control row and the three
+   unsigned cells are each protected by a count gate, but `days` and the
+   average ledger balance are OPTIONAL — the record reads without them — so a
+   FIRST one arriving from the back has no second to contradict it and would
+   publish unopposed. A stray `7` above the heading, on a printing whose
+   forward block prints no day count, publishes `days_in_period=7`; and
+   `days_in_period` is not evidence-only, since `metrics.py` falls back to it
+   where a validated daily ledger is absent. Reachable on 0 of the 39 today,
+   and closed anyway — see F13.2.
+2. **Every printing measured before this card contributes zero backward
+   lines**, because the line immediately above the heading on those documents
+   is the bank's own `Account Number : … Enclosures In Statement:` furniture.
+   35 of the 39 claimed documents are byte-identical in the whole published
+   payload, which is that statement measured rather than asserted.
+3. **A backward scan that over-collects fails CLOSED.** A fourth unsigned cell,
+   a second day count, a second signed cell or a second control row each refuse
+   the document. The mutation table (F7) isolates each of those four gates.
+
+The record is then believed only if it closes on the bank's own arithmetic
+(`beginning + deposits + other credits − checks − other debits − monthly
+service charge = ending`) and only if every section's parsed count AND total
+equal the count and total the bank printed for it. Both gates are unchanged and
+both are re-proven by mutation.
+
+### F3.2 The oracle that corroborates the four, and it is not one this reader consults
+
+The template prints `Average Ledger Balance`, which this module publishes into
+the evidence lane (`bank_reported_average_balance`) and reads for nothing. On
+all four movers our own calendar-day ADB reproduces it **to the cent**:
+
+| sha | printed `Average Ledger Balance` | our ADB | days | transactions |
+|---|---:|---:|---:|---:|
+| `5F779C962F5FB70CA520DA6E215DFBE30145C5CDA7FF6A1936339EDAB87AA9C0` | 200.00 | **200.00** | 28 | 0 |
+| `CC1DB089D295AC391FB8998CCBCC68E72DF2FCB637C855AD512F488C6747D586` | 200.00 | **200.00** | 31 | 0 |
+| `11CF08F9F935891A9A34B78E98D64BBCABCA5678FDF67386FF5CE74006B5874C` | 200.00 | **200.00** | 30 | 0 |
+| `9B30C2BE4389A90B17B6DD6177005A9F488B837BB7E9D88AEFB7077C94121A4A` | 1,975.67 | **1,975.67** | 31 | 2 |
+
+The May document is the one that carries the weight: 18 calendar days at
+200.00, three at 18,548.60 and ten at 200.00 average to 1,975.67, and the bank
+printed 1,975.67. That single figure corroborates the beginning balance, the
+ending balance, both posting dates and both amounts at once — and the document
+prints a `Daily Balance Summary` that says the same thing independently
+(`05-19 18,548.60+`, `05-22 200.00+`). Under the ratified ADB doctrine our
+figure is the one user-facing metric and the bank's is evidence; here the two
+agree exactly, which is the strongest corroboration available on a family whose
+ledger is otherwise flattened.
+
+### F3.3 The hunk
+
+```python
+def _is_summary_cell(line: str) -> bool:
+    """Is this physical line one of the At-A-Glance grid's own cells?"""
+    return bool(
+        _CONTROL_ROW_RE.match(line)
+        or _BARE_MONEY_RE.match(line)
+        or _SIGNED_MONEY_RE.match(line)
+        or _DAY_COUNT_RE.match(line)
+    )
+
+
+def _summary_block(markdown: str, anchor: re.Match[str]) -> list[str]:
+    """The grid's cell lines, on BOTH sides of its printed column heading."""
+    block: list[str] = []
+    for line in reversed(_lines(markdown[: anchor.start()])):
+        if not _is_summary_cell(line):
+            break
+        block.append(line)
+    block.reverse()
+    for line in _lines(markdown[anchor.end():]):
+        if _BOUNDARY_RE.match(line):
+            break
+        block.append(line)
+    return block
+```
+
+and, in `_summary`, the forward-only block builder is replaced by one call:
+
+```python
+    anchor = _SUMMARY_ANCHOR_RE.search(markdown)
+    if anchor is None:
+        return None
+    block = _summary_block(markdown, anchor)
+```
+
+Order is DOCUMENT order — `block.reverse()` is load-bearing, because the three
+unsigned cells are read positionally as beginning, deposits total, ending.
+Mutant M3 removes it and dies.
+
+### F3.4 The movers, named
+
+Full-family replay, `first_citizens`, 39 documents by live detection replay,
+base `e83f746` vs branch HEAD, whole `report_to_dict` payload hashed.
+
+**35 byte-identical · 4 movers**, every mover `failed/parser_declined` →
+`validated/approved`:
+
+| content_sha256 | before | after |
+|---|---|---|
+| `11CF08F9F935891A9A34B78E98D64BBCABCA5678FDF67386FF5CE74006B5874C` | failed/parser_declined | validated/approved |
+| `5F779C962F5FB70CA520DA6E215DFBE30145C5CDA7FF6A1936339EDAB87AA9C0` | failed/parser_declined | validated/approved |
+| `9B30C2BE4389A90B17B6DD6177005A9F488B837BB7E9D88AEFB7077C94121A4A` | failed/parser_declined | validated/approved |
+| `CC1DB089D295AC391FB8998CCBCC68E72DF2FCB637C855AD512F488C6747D586` | failed/parser_declined | validated/approved |
+
+All four publish `risk_level=clear` and `flags=[]`. None of the four is a
+within-archive duplicate, so the class instrument and the row instrument both
+report 4.
+
+## F4. BMO1 — the text layer is a forgery of the printing, and the ceiling is 0
+
+Six documents, one account, six consecutive months, all refusing at
+`bmo_ca_business.py:262` (`_summary_row` finds no account row). The first draft
+of this diagnosis would have been "the four summary cells wrap onto a second
+physical line", which is TRUE and is not the finding.
+
+**This class was already ruled, and this cell did not discover it.**
+§BMO-LAYOUTS M3 files exactly these six as **family E3** — "family A with a
+degraded text layer … `Closing tobls`, `De.posit`, `S0,000.00` for `50,000.00`,
+`010` for `0.10` … unusable input … FAIL CLOSED BY DESIGN", volume 6. What is
+new here is the re-measurement the batch-7 card owes: the defect census over
+the WHOLE claimed family (below), the widening actually BUILT and run to see
+what it would publish (below that), and the two platform cards the exercise
+produced. The ruling itself stands where Cell 9 put it.
+
+Measured over the whole 133-document claimed family:
+
+| trait | 133 claimed | the six |
+|---|---:|---:|
+| prints `Closing totals` — the ledger's own section-total row | **127** | **0** |
+| prints `Closing tobls` instead | **6** | **6** |
+| prints `Account I <digits>` where the template prints `Account #` | **6** | **6** |
+| carries a letter INSIDE a grouped money token | **4** | **4** |
+
+Every defect is inside the six and nowhere else in the family. The four
+letter-in-money tokens are `1s,000.00`, `2s,000.00`, `3s,000.00` and
+`S0,000.00`/`so,000.00`.
+
+This is one PDF producer whose embedded font maps glyphs to the wrong Unicode:
+`#`→`I`, `5`→`s`/`S`, `ta`→`b` (`totals`→`tobls`, `Total`→`Tobi`), `-`→`·`, and
+a lost decimal point (`$0.10 0.10` prints as `$010 010`). **Digits are among the
+corrupted glyphs**, which is what settles the card.
+
+**The widening was built and measured before it was refused.** With the most
+permissive summary reader available — accept `I` as the printed `#`, and join
+the following physical line when the label row carries fewer than four money
+cells — all six documents parse and all six publish. What they publish:
+
+* the ledger's `Closing totals` row is no longer recognised as the section
+  total (it prints `Closing tobls`), so **the printed section total is read as
+  a POSTING** on all six — a transaction the bank never posted, of −15,003.70,
+  −15,003.50, −46,107.70 and, on `BA9D67DF60A5`, a **CREDIT of +25,003.70**;
+* the corrupted money tokens fail in two ways and both are measured against the
+  module's own grammar. `S0,000.00` (the Dec `Closing tobls` credited total)
+  matches as `0,000.00` and reads **0.00** — a 50,000.00 figure published as
+  zero, silently, because the `(?<![\d.,])` lookbehind does not exclude a
+  LETTER. `so,000.00`, `1s,000.00`, `2s,000.00` and `3s,000.00` match nothing at
+  all, so the row loses a cell, the `cells[-2]` / `cells[-1]` pair shifts, and
+  the running BALANCE is published as the row's amount — which is what
+  `1BB68B31D9D0`'s December 10 row does under the widening;
+* one of the six (`0B1E11FD0B02`) fails the printed summary identity outright:
+  25,533.70 − 15,003.50 + 15,000.00 = 25,530.20 against a printed closing
+  balance of 25,530.00, because a digit in one of those five figures is wrong
+  and the document cannot say which;
+* the pipeline flags every one of the six —
+  `ledger_sum_mismatch`, `running_balance_breaks`,
+  `credit_detail_coverage_mismatch`,
+  `transaction_detail_not_corporate_reliable` — and all six land
+  `withheld/withheld_adb`, two of them at `risk=high`.
+
+**Ceiling 0.** `failed` → `withheld` at the price of publishing a fabricated
+transaction on six documents is not forward movement, and a reader relaxed
+until a mis-rendered glyph parses is a reader that publishes a figure the bank
+never printed. Nothing in `analysis/bmo_ca_business.py` changed; the file's AST
+and bytes are identical to base, which also keeps CURRENCY-SOURCE's line
+(`:351`) untouched by this branch.
+
+**Two findings carded out of it.**
+
+* **TEXTLAYER-CORRUPT (new card, platform-level).** A `native-pdf-text`
+  document whose glyph map is broken is classified `digital`, is never offered
+  to the OCR ladder, and reaches the parsers as confident nonsense. RUNG-SEAM's
+  `unreadable_text_layer` reason channel is the right home for it and no
+  document in the archive currently carries that reason. Six documents here are
+  the evidence; the detector is not this card's to write.
+* **MONEY-LETTER-GLUE (new card, money grammar).** `bmo_ca_business._MONEY_EN`'s
+  lookbehind is `(?<![\d.,])`, which does not exclude a LETTER — so
+  `S0,000.00` yields `0,000.00` and reads as **0.00** rather than refusing.
+  Measured against the module's own grammar:
+  `S0,000.00 -> 0.00`, while `so,000.00`, `1s,000.00`, `2s,000.00` and
+  `3s,000.00` match nothing. The silent-zero half is the dangerous one, and
+  every parser-local money pattern in the layer carrying the same lookbehind
+  has the same hole.
+
+  It is a NARROWING (`(?<![\d.,A-Za-z])`) rather than the separator widening
+  §STRUCTFIX-1's Card B proposed — and that distinction is why it is carded
+  rather than taken. **STRUCTFIX-1 STOPPED its card on exactly this regex**
+  after measuring that the proposed alignment moved **30 `bmo_ca_business`
+  documents from `validated/approved` to `withheld/withheld_adb` and improved
+  none** (§STRUCTFIX-1 S4). A narrowing cannot fabricate a figure, but it can
+  remove a cell a healthy document depends on, so it owes the same
+  133-document sweep S4 paid for. That is a grammar card, not a decline
+  widening (§MONEYFIX-1's shape), and this cell did not open it.
+
+## F5. CO1 — six three-account statements, and L-1 is the answer
+
+Six documents, one account holder, six consecutive months. Five refuse at
+`capital_one.py:394` (no transactions, or no beginning/ending balance, after
+the native read) and one at `capital_one.py:201` (`_period`).
+
+**This class was already ruled too, and the credit belongs to §DECLB.** Its DB7
+files the same six as "**L-1 blocked** — each prints THREE complete
+`Previous Balance … Ending Balance` cycle summaries — three accounts on one
+statement. Not expressible in a single-account extraction schema", and DB7 also
+already reported that `likely_account_count` reads 1 on all six. What this cell
+adds is the family-wide SEPARATOR (DB7 measured the six; the table below
+measures the 22 that publish as well, and the separation is total), the
+machine-derived refusal sites, and the `:201` explanation.
+
+Measured over the whole 28-document claimed family — 22 published, 6 declined:
+
+| trait | the 22 published | the 6 declined |
+|---|---:|---:|
+| `Previous Balance` blocks printed | **1** on every one | **3** on every one |
+| a `Deposit Accounts` register printed | **0** on every one | **2** on every one |
+| `_native_summary` reads the control block | 22 | **0** |
+
+The six are three-account statements: `Business Analyzed Checking`,
+`Spark Basic Checking` and `Business Advantage Savings` under one holder, with
+a printed `Deposit Accounts Total` over all three, and one `ACCOUNT DETAIL`
+grid. The separation is total and it is the cleanest L-1 population this cell
+has seen: **22/22 single-account publish, 6/6 three-account decline.** This is
+DECLINES-D's D6.3 class (`huntington:662`, `community_section:896`,
+`navy_federal:127`, `symitar:302`) and the same answer applies — the extraction
+schema carries one account per statement, and publishing the first block's
+balances against a grid that covers one of three accounts would be a statement
+about neither.
+
+The `:201` document is the same class refusing one step earlier: its period
+prints `FOR PERIOD FEBRUARY 01, 2026  -  FEBRUARY 28, 20` because the year's
+last two digits wrapped to the next emitted run, exactly as
+`Ending Balance 05/31/` + `26` does on its siblings. Widening the year would
+move it from `:201` to `:394` and change nothing else.
+
+**Ceiling 0 until L-1.** `analysis/capital_one.py` is unchanged.
+
+`likely_account_count` (the O-1 advisory signal) reports **1** on all six of
+these three-account documents and 1 on all 22 single-account ones, so it
+separates nothing here and must not be used as the multi-account oracle —
+§DECLB DB7 reported that already and this cell reproduces it on the new run of
+record. What DOES separate them perfectly, both ways, is the printed
+`Deposit Accounts` register and the count of `Previous Balance` blocks, which
+is a ready-made fixture pair for the L-1 card.
+
+## F6. The DACO2 cohort — EXTENSION, not sibling, and the cohort is five
+
+SN3 row 9 named `fc_daco2` as "3 documents, 18k–35k chars,
+`Central Bank Operations - DACO2`, claimed by none — adjacent to the shipped
+`first_citizens` reader; settle sibling/supersedes before registering."
+
+### F6.1 The census, corrected
+
+A live marker sweep over all 3,380 distinct documents (the same pass that
+derived the family populations) finds **44** documents carrying both
+`Central Bank Operations` and a `DAC[O0]2` token:
+
+| group | n | classification | claimed by | outcome in the run |
+|---|---:|---|---|---|
+| the shipped family | 35 | digital | `first_citizens` | validated/approved |
+| the FC1 movers | 4 | digital | `first_citizens` | failed/parser_declined |
+| **the unclaimed cohort** | **5** | 3 mixed · **2 digital** | none | failed/no_parser_matched |
+
+**The cohort is five, not three.** SN3's census counted only non-digital
+documents, so the two `digital` members were invisible to it — and they are the
+same SOURCE and the adjacent months
+(`Central Bank/d665a2d7_Set {November, December, January, February, march}`;
+the three readable members all print account `…827757`, and the two whose body
+did not survive print no account at all, so "same account" is inference on
+those two and the source prefix is what is measured).
+They are also the two documents §FI9 recorded as "first_citizens NO LONGER
+claimed: 2 (R4-3 false positives, correctly dropped)". That was right about the
+claim and wrong about the family: they are genuine statements of this template
+whose page-1 body did not survive the text layer.
+
+### F6.2 The ruling: EXTENSION
+
+Twenty printed furniture strings of the shipped digital template were tested
+against the cohort. On the three Tesseract members the match is **18/20**
+(Nov), **17/20** (Dec) and **16/20** (Feb); on a shipped digital document of
+the family it is **18/20** by the same measure. Every miss is accounted for and
+none of them is a template difference: `Deposits To Your Account` is a section
+a month with no deposits does not print (and the shipped comparator misses it
+too), `Master Treasury Management Services Agreement` is a notice the bank ran
+for part of 2026 only (the shipped comparator misses it too), and the two
+remaining misses are the OCR mangling a string that IS printed —
+`Direct Customer Inauity Calls To` for `Direct Customer Inquiry Calls To`, and
+`P.0. Box 27131` for `P.O. Box 27131`. Shared, verbatim: the
+`Central Bank Operations - DAC02 / P.O. Box 27131 / Raleigh, NC 27611-7131`
+processing-centre block; `Statement Period: <Month> <D>, <YYYY> Thru … Account
+Number : …`; the product line and `Account Number : … Enclosures In Statement`;
+the control record's whole field set (`Beginning Balance`, `Statement Period
+Days`, `Deposits`, `Average Ledger Balance`, `Other Credits`, `Checks`,
+`Other Debits`, `Monthly Service Charge`, `Ending Balance`) with the SAME
+right-hand sign convention; the four section headers `Deposits To Your
+Account` / `Other Credits To Your Account` / `Checks Paid From Your Account` /
+`Other Debits From Your Account`, each over `Date Description Amount`;
+`Daily Balance Summary`; `*Prior Check Number(s) Not Included or Out of
+Sequence.`; the balance-your-checkbook worksheet; and the Master Treasury
+Management Services Agreement notice. The masthead prints `First Citizens Bank`
+outright.
+
+**This is the same printing of the same template by the same processing
+centre.** It is an EXTENSION of the shipped `first_citizens` family, not a
+sibling — so **no new registration, no `supersedes` edge, and the registry
+stays at 74.** What differs is not the document but the intake: the digital
+path flattens the At-A-Glance box into heading-runs and cell-runs, and
+Tesseract preserves its printed two-column shape (`Beginning Balance
+2,554.55+ / Statement Period Days 28` on one line). The same box, two shapes.
+
+### F6.3 Does a ledger survive the scan — and what the oracle refuses
+
+**The two digital members: no.** `Set January` (15,993 chars) and `Set march`
+(10,404 chars) hold 7/20 and 8/20 of the template furniture. Their page-1
+statement body — the At-A-Glance box, the period line, every posting section —
+is absent from the text layer; what survived is the masthead, the check-sequence
+footnote, and the legal boilerplate on later pages. There is no evidence to
+parse. The only route is the visual rung (`--scanned-visual`), which is a
+GPU/vendor call: **out of scope at $0, reported rather than spent.**
+
+**The three Tesseract members: structurally yes, arithmetically no.** All three
+carry the control record, all four section headers, hundreds of ledger rows and
+the `Daily Balance Summary` heading. The oracles then refuse them:
+
+| sha | control record as scanned | what refuses it |
+|---|---|---|
+| `A5EDEA12752F…` (Feb) | **closes at residual 0.00** — 2,554.55 + 24,500.00 − 6,800.00 − 15,606.52 = 4,648.03 = printed ending | the LEDGER contradicts it in two sections (below) |
+| `ADAF9691931C…` (Dec) | **breaks by −220,000.00** | the printed checks total reads `241,825.00`; the identity is satisfied exactly by `21,825.00` — ONE inserted `4`, and it is the only single-token re-reading that closes (`24,825.00` leaves −2,603.37; no re-reading of the credits total closes at all) |
+| `3E131B2B1FF0…` (Nov) | **breaks by −428,000.00** | the printed other-debits total reads `47 5978 .32`; the identity is satisfied exactly by `47,978.32` AND exactly by reading the deposits as `12,800.00` with the debits as `17,978.32` — **two repairs, both closing every printed figure**. The deposits row prints no count at all, and the deposits SECTION's five rows sum to 165,800.00 against its printed 42,800.00 |
+
+February is the decisive one, because it is the member whose control record
+needs no repair at all:
+
+* `8 Other Credits 24,500.00+` over eight printed rows that sum, as scanned, to
+  **27,500.00**. The gap is 3,000.00 and the row that explains it is
+  `4,600.00`, which is `1,600.00` with a `1` read as a `4`.
+* `3 Checks 6,800.00-` over `3027 02-04 4,000.00`, `4239* 02-12 4,000.00`,
+  `4241* 02-02 1,800.00` — **9,800.00**. Exactly one of the two `4,000.00`
+  cells must be `1,000.00`, **and the printed total cannot say which.** The two
+  readings differ in the posting DATE of a 3,000.00 movement (02-04 against
+  02-12), so they give different daily balances and a different ADB.
+* the same substitution corrupts DATES: two credit rows print `02-413` and
+  `02-417` while their own descriptions repeat the date as `02-13` and
+  **`02-16`** — the document disagrees with itself about a posting day.
+* the account number prints `004064827757` on page 1 and `001064827757` on
+  pages 2 and 3, and the period start prints `February 4` on page 1 and
+  `February 1` thereafter.
+
+So: the template is ours, the ledger is there, and **Tesseract's systematic
+`1`→`4` substitution corrupts money, dates and the account number in a way the
+in-document oracles DETECT and cannot LOCALISE.** Publishing any of the three
+requires choosing a digit the bank did not print. **Ceiling 0**, and the
+refusal is the finding.
+
+### F6.4 Detection deliberately NOT widened
+
+The cohort could be made to refuse with a REASON rather than as
+`no_parser_matched` by relaxing `first_citizens`' second detection marker (the
+Tesseract printing carries `Average Ledger Balance` but neither
+`Your Account(s) At A Glance` nor the flattened column heading). SCAN-NEXT's
+SN5.2 rightly values that — "the reason moves, the class does not". It is not
+taken here, for three measured reasons: the outcome class does not change on
+any of the five; a marker as generic as `Average Ledger Balance` paired with a
+bank NAME is exactly the R4-3 false-claim shape §FI3 removed from this module;
+and a detection-marker edit rotates `registry_key_material`, which regenerates
+every analysis cache entry in Ocean's train for zero validated documents.
+**Carded as `FC-DACO2-SCAN`** with this section as its census.
+
+## F6.5 FC-PRODUCT — a memorized product name on all 39 (**taken; see F13.3**)
+
+Measured while replaying the family: **all 39 documents `first_citizens`
+claims publish `account_name="Business Banking"`**, which is the literal
+fallback in `_account_name`. Its regex requires the line ABOVE the product line
+to START with `Account Number`, and on every document in this family that line
+starts with `Statement Period:` and prints the number at its END — so the regex
+matched nowhere in the family and the fallback was the only value ever
+published.
+
+The printed products, measured over the 39 after the fix:
+
+| printed product | documents |
+|---|---:|
+| `Business Banking` | 26 |
+| `Analysis Business Checking` | 5 |
+| `Professional Business Checking` | 4 |
+| `Business Banking II` | 4 |
+
+**13 of the 39 were publishing a FALSE product name.**
+
+*Corrections to the first revision of this paragraph, both from review
+(MINOR-2).* It listed `Business Banking III`, which is printed on the DACO2
+scanned member `A5EDEA12752F` and on none of the shipped 39; and it omitted
+`Professional Business Checking`, which four of the 39 print.
+
+The first revision carded this rather than taking it, on the TRU-SAVINGS
+argument that it moves an audited published field on a pinned document. Review
+re-scoped it and was right to: **the pinned `Others/First Citizen/First
+Citizens Bank.pdf` prints `Business Banking` literally, so its payload is
+byte-identical before and after**, and `account_name` is pinned in neither
+`tests/data/parser_expectations.json` nor the balance-metrics audit CSV. There
+is no ceremony here — only a two-character anchor and a literal that should
+never have shipped. **Implemented in this cell; F13.3 names all 13 movers.**
+
+## F7. The mutation table (**superseded by F13.1 — one row of it was a lie**)
+
+Review reproduced this table and found that **M3 was mislabelled**: the
+mutation the harness applied replaced the backward block with `[]`, which is
+M1 under a second name, so the append-after-forward mutant this row claims to
+have killed was never run, and `block.reverse()` was never mutated at all.
+Review then ran both: the documented append-after-forward mutant IS killed, and
+**`block.reverse()` deleted on its own SURVIVED** — every mover carries at most
+one unsigned cell above the heading, so the call is a no-op on the measured
+corpus and no fixture could see it. The table below is left as it was written,
+because a log that quietly repairs its own evidence is worse than one that
+records the repair; **F13.1 is the table that stands.**
+
+Every reachable gate in the changed code, rewritten to its permissive form, run
+against `tests/test_declines_f_variants.py` on a `git archive HEAD` scratch copy
+— no production file is written by the harness. A mutant is KILLED when the
+cell's test file fails, and the killing test is NAMED, because a test named
+after a gate is not a test of that gate (§DECLINESD D8.4).
+
+Baseline, unmutated: `17 passed in 0.54s`, exit 0.
+
+| # | mutated gate | verdict | killed by |
+|---|---|---|---|
+| M1 | the backward scan removed entirely | KILLED | `test_reads_the_grid_whichever_side_of_its_heading_the_cells_print_on` (+6) |
+| M2 | the backward scan's stop removed (skip, do not stop) | KILLED | `test_the_backward_scan_stops_at_the_first_line_that_is_not_a_grid_cell` |
+| M3 | the backward cells appended, not prepended (order lost) | KILLED | `test_the_three_unsigned_cells_keep_their_printed_order_across_the_heading` (+6) |
+| M4 | `_is_summary_cell` always true | KILLED | `test_the_backward_scan_stops_at_the_first_line_that_is_not_a_grid_cell` |
+| M5 | the forward boundary removed | KILLED | `test_the_forward_scan_stops_at_the_printed_boundary` (+6) |
+| M6 | the three-unsigned-cell count relaxed (take the first three) | KILLED | `test_declines_a_grid_whose_backward_scan_reaches_a_fourth_unsigned_cell` |
+| M7 | the one-day-count rule removed | KILLED | `test_declines_a_grid_with_a_second_day_count_above_the_heading` |
+| M8 | the one-signed-cell rule removed | KILLED | `test_declines_a_grid_with_a_second_signed_cell_above_the_heading` |
+| M9 | a second control row accepted (keep the first) | KILLED | `test_declines_a_grid_printing_a_control_row_on_each_side_of_the_heading` |
+| M10 | the control record's own arithmetic no longer gates it | KILLED | `test_declines_a_control_record_that_does_not_close_on_its_own_arithmetic` |
+| M11 | the section TOTAL agreement removed | KILLED | `test_declines_a_section_the_printed_total_contradicts` |
+| M12 | the section COUNT agreement removed | KILLED | `test_declines_a_section_the_printed_count_contradicts` |
+| M13 | the missing-control-row refusal removed | KILLED | `test_a_month_with_no_activity_still_needs_its_control_row` |
+
+**13/13 KILLED.** Nine of the thirteen are killed by exactly ONE test, and that
+test is the one named after the gate.
+
+**Two fixtures were rewritten during this table, and the reason is the point.**
+
+* `test_declines_a_grid_whose_backward_scan_reaches_a_fourth_unsigned_cell`
+  first used a stray `9,999.00`. M6 died against it — but it died on the
+  CLOSES gate, not on the cell count, because a beginning balance of 9,999.00
+  fails the arithmetic anyway. The fixture now uses `500.00`, chosen so that
+  the permissive reading (take the first three cells) CLOSES exactly
+  (500 + 1,000 + 500 − 250 − 750 = 1,000) and passes every section check. Only
+  the count of unsigned cells then separates a document that reads from a
+  document that publishes someone else's beginning balance.
+* the forward-boundary test first asserted on the parse. It passed with the
+  boundary deleted, because a runaway forward scan collects the sections' own
+  figures and trips the three-cell count instead. It now asserts on the block
+  itself.
+
+Both are the G7.4 / M2 shape this project has named twice before: the right
+answer reached by a path the test does not name.
+
+## F8. Why nothing outside the named population can have moved
+
+One `parse` helper changed and nothing else: no detection marker, no
+`detection_text`, no registration, no shared helper, no registry entry. Proven
+rather than asserted — the registry fingerprint, which is the material REGFP
+put into the analysis cache key, is identical on both trees:
+
+```
+base   e83f746   74 registrations   161D81F4E1D7D34DCE342C4EB367D4FA21315F71C31EB91EBAAF4373AB0170F4
+branch HEAD      74 registrations   161D81F4E1D7D34DCE342C4EB367D4FA21315F71C31EB91EBAAF4373AB0170F4
+```
+
+so **no analysis cache entry rotates because of this branch**, and Ocean's
+train pays nothing for it beyond whatever the composed `ANALYSIS_STAGE_VERSION`
+bump costs. The canonical conformance set's full cross product (74 × 73) is
+green, which pins that no registration's detection moved against its fixtures.
+Movement is
+therefore confined to documents `first_citizens` CLAIMS, and that whole claimed
+population — 39 documents by live detection replay — was swept.
+
+The one shape that could smuggle movement past a family sweep is the
+FALLTHROUGH: a document `first_citizens` claims, declines, and some OTHER
+claimant then wins; widening the decliner would make it win instead. Measured
+over the 39: `first_citizens` is the SOLE claimant on 39 of 39, and the run's
+`parser_id` is `first_citizens` on the 35 it published and empty on the 4 it
+declined. **No document in the family had a second claimant to fall through
+to**, so the family sweep is complete.
+
+`analysis/bmo_ca_business.py` and `analysis/capital_one.py` are byte-identical
+to base (`git diff e83f746 --stat` names only `analysis/first_citizens.py` and
+the new test file), so their claimed documents cannot move — and both families
+were replayed whole anyway, base against HEAD, over the same whole-payload
+hash:
+
+| family | claimed | sole claimant | byte-identical | movers |
+|---|---:|---:|---:|---:|
+| `bmo_ca_business` | 133 | 133 | **133** | **0** |
+| `capital_one` | 28 | 28 | **28** | **0** |
+| `first_citizens` | 39 | 39 | **35** | **4** |
+
+### F8.1 The pinned corpus
+
+`tests/data/parser_expectations.json` pins five documents claimed by these
+three registrations — four `capital_one` and one `first_citizens`. Each was
+resolved through the corpus gate's own offline path (native text, committed OCR
+artifact fallback, never live OCR) and analysed whole at BASE and at HEAD:
+
+The hex column is the **PAYLOAD hash** — `sha256(json.dumps(payload,
+sort_keys=True, default=str))` over the whole `report_to_dict` blob — and NOT
+the document's `content_sha256`. Review asked for the header and it is right to:
+the two are the same shape and mean opposite things.
+
+```
+pinned path                                   payload sha256 (base == HEAD)
+CapitalOne/capital one april 2026.pdf         F0F395EFD4A1B6675EEA05A02F4608F083050AA60D64F5AA44D84AD925BBCD47
+CapitalOne/capital one february 2026.pdf      32BB3E22983550B40DE510586C4F25C3126587A0D186C4D6CD4C1BE53B24A71C
+CapitalOne/capital one march 2026.pdf         F8BF4AF35BC7FA67878C7F3C5582C7092418BC169E854A21DFEBFEAF304DE92F
+CapitalOne/capital one may 2026.pdf           F77267DCEB1F2FA49056F9E09C8F40F7CF72F12724F88F44E977EBABD771375E
+Others/First Citizen/First Citizens Bank.pdf  E83803094971357D333BE442791CA03431709C314FC1F633431F721162EFA232
+```
+
+**Identical on all five**, and the two arms are proven to be different trees:
+the harness prints whether the loaded `analysis.first_citizens` carries
+`_summary_block`, and it printed `False` on the base arm and `True` on the
+branch arm. (DECLINES-D's D8 recorded the failure mode this guards against —
+`git stash push` on a clean tree is a no-op that still exits 0 and makes the
+baseline measure the new code.) **No pinned document moves, and there is no
+pinned mover for Ocean to weigh.**
+
+## F9. Findings and questions for Ocean
+
+**1. §FI5 is wrong about the four documents this card moved, and the log is
+corrected here rather than edited in place.** They print a control row; three
+of them print it above the block's column heading. One of the four is not
+dormant — it posts a wire in and a wire out of 18,348.60. Recorded because the
+failure mode — describing the block the reader assembled instead of the
+printing — is the one this cell kept meeting, and the guard against it is
+cheap: bound a block by the document's own structure, and say what the
+DOCUMENT prints.
+
+**2. `TEXTLAYER-CORRUPT` — a new platform card, and this cell believes it is
+the highest-value finding here.** Six `native-pdf-text` documents in the BMO
+family reach the parsers as confident nonsense because the producer's font maps
+glyphs to the wrong Unicode, digits included. The intake classifies them
+`digital`, never offers them to the OCR ladder, and no reason channel says
+anything. RUNG-SEAM built `unreadable_text_layer` for exactly this shape and no
+archive document currently carries it. A cheap structural detector exists — a
+money-shaped run whose leading character is a letter; a section-total label
+that no longer matches its own template while the rest of the template does —
+but the decision (re-OCR? refuse with a reason? flag?) is a platform decision,
+not a parser one. §BMO-LAYOUTS already ruled the six FAIL-CLOSED-BY-DESIGN, so
+this card is about the CHANNEL, not the verdict. **Question for Ocean: whose
+card?**
+
+**3. `MONEY-LETTER-GLUE`.** `(?<![\d.,])` does not exclude a letter, so
+`S0,000.00` reads back as 0.00 rather than refusing. It is a NARROWING, not the
+separator widening §STRUCTFIX-1's Card B proposed and STOPPED after measuring
+30 documents regressing — but a narrowing can still remove a cell a healthy
+document depends on, so it owes the same 133-document sweep. Carded, not
+opened.
+
+**4. `FC-PRODUCT` — needs a ruling, not a fix.** All 39 documents of the
+`first_citizens` family publish the literal fallback `"Business Banking"`
+because `_account_name`'s regex is anchored one line too strictly and matches
+nowhere in the family. The bank prints at least three different products on
+these statements (`Business Banking II`, `Business Banking III`,
+`Analysis Business Checking`). The correction is an anchoring change of two
+characters and it moves an audited published field on a pinned document, so it
+is TRU-SAVINGS-shaped: **Ocean's call whether it rides a ceremony.**
+
+**5. `FC-DACO2-SCAN` — carded with a measured ceiling of 0, and the ceiling is
+the finding.** The cohort is five documents, not the three SN3 counted. Two
+have no statement body in the text layer at all and are reachable only by the
+paid visual rung. Three carry a complete ledger whose digits Tesseract
+corrupted systematically (`1`→`4`); the printed section totals and the control
+identity DETECT the corruption on all three and LOCALISE it uniquely on none.
+**SN3 row 9 should be re-scored from "MEDIUM, ≤3" to "gain 0 without the visual
+rung", with the corrected count of five.**
+
+**6. The L-1 backlog gains a ready-made separator.** `capital_one`'s six are
+three-account statements (§DECLB DB7's ruling, reproduced), and the printed
+`Deposit Accounts` register plus the count of `Previous Balance` blocks
+separates them from the 22 single-account documents perfectly, both ways.
+`likely_account_count` says 1 on all 28 and must not be the oracle.
+
+**7. The detect-sweep budget is one bad day from red, and it is not this
+branch's doing (F10.2).** The corpus-marked slice's first run FAILED
+`test_detect_sweep_stays_affordable_for_the_discovery_run` at **257.1 ms
+projected against a 250 ms budget** while the box carried ten cells' proofs.
+On a quiet box the same quantity reads **108–148 ms** and is indistinguishable
+between this branch and its base. The growth wall was already carded once; batch
+7 is adding registrations in other cells, and a cell that runs its slice under
+load will keep hitting a cap that is measuring the machine.
+
+## F10. Proofs, with verbatim exit codes
+
+| proof | result | exit |
+|---|---|---|
+| full default suite (final tree) | `5391 passed, 35 skipped, 33 deselected, 1 warning in 268.51s (0:04:28)` | 0 |
+| canonical GUARD set (`test_no_statement_hardcodes` + `test_no_parser_helper_clones` + `test_r1_hardcodes` + `test_experiments_are_not_wired` + `test_filename_boundary`) | `242 passed, 1 warning in 18.95s` | 0 |
+| canonical CONFORMANCE set (`test_parser_conformance` + `test_parser_registry_entries` + `test_parser_detection_markers` + `test_parser_registry` + `test_parser_crash_shapes` + `test_parser_exception_boundary` + `test_count_semantics`) | `1151 passed, 35 skipped, 1 warning in 5.22s` | 0 |
+| this cell's tests + the family's existing tests (`test_declines_f_variants` + `test_first_citizens_layouts` + `test_first_citizens_native_layout`) | `65 passed, 1 deselected in 1.09s` | 0 |
+| mutation table, 13 mutants, on the final tree (baseline `17 passed in 0.45s`) | `13/13 killed` | 0 |
+| `python corpus_gate.py` (taken at `4453223`; the production AST is identical at HEAD - F10.3) | `RESULT: GREEN` - 106 PASS / 3 WITHHELD; verdicts 4 review / 102 validated / 3 withheld; `adb_doctrine` 109/109 canonical basis; `currency` 109/109 = 14 CAD / 95 USD; runtime 1499.6s | 0 |
+| corpus-marked slice, FIRST run (box carrying ten cells' proofs) | `1 failed, 28 passed, 5430 deselected, 1 warning in 6326.23s (1:45:26)` - the wall-clock cap, F10.2 | **1** |
+| corpus-marked slice, re-run on the quiet box, final tree | `29 passed, 5430 deselected, 1 warning in 2392.90s (0:39:52)` | 0 |
+| collection: `-m corpus` | `29/5459 tests collected (5430 deselected) in 49.36s` - the batch-6 count of 29, unchanged | 0 |
+| collection: default | `5426/5459 tests collected (33 deselected) in 50.89s` | 0 |
+| the 5 pinned documents these registrations claim, base vs HEAD, whole published payload | `IDENTICAL` x 5 | 0 |
+| family replays, base vs HEAD, whole published payload | `bmo_ca_business` 133/133 identical - `capital_one` 28/28 identical - `first_citizens` 35/39 identical + 4 named movers | 0 |
+| the archive zero-movement sweep, all 3,380 documents, four chunks (F10.1) | `moved` **0** - `payload_now_raises` **0** - `no_payload_now_publishes` **4**, each one of the four named movers | 1 per chunk (findings present, by design) |
+
+Both canonical sets hit their expected counts exactly - guard **242**,
+conformance **1151** - which is the check that the sets were run whole rather
+than approximated. Suite 5,374 (base) -> **5,391** (+17, this cell's test file);
+no corpus-marked test was added, so the slice stays at 29.
+
+### F10.1 The archive zero-movement sweep — all 3,380, in four chunks
+
+`python -m tools.regfp_zero_movement_sweep --rows <run>/rows.csv --data-dir
+<main>/webapp_data --baseline-settings-key
+D3370EEBDCB87892A2739BCB0D882A66E72DCBFAB2553101111157B5A231DE24 --start A
+--end B`, run at branch HEAD from the worktree. The tool **exits 1 when there
+are findings**, so an exit of 1 on a chunk holding one of this cell's named
+movers is the expected result and not a failure.
+
+| chunk | documents | compared | identical | `moved` | `no_payload_now_publishes` | `payload_now_raises` | `no_ocr_artifact` | seconds | exit |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0–850 | 850 | 623 | 623 | **0** | 1 | **0** | 6 | 2,088.9 | 1 |
+| 850–1700 | 850 | 649 | 649 | **0** | 1 | **0** | 5 | 3,231.2 | 1 |
+| 1700–2550 | 850 | 639 | 639 | **0** | 1 | **0** | 11 | 3,114.2 | 1 |
+| 2550–3380 | 830 | 624 | 624 | **0** | 1 | **0** | 7 | 1,847.0 | 1 |
+| **total** | **3,380** | **2,535** | **2,535** | **0** | **4** | **0** | **29** | 10,281.3 | — |
+
+The counts add: 2,535 compared + 812 `no_payload_raises_again` + 29
+`no_ocr_artifact` + 4 `no_payload_now_publishes` = **3,380**.
+
+The four findings, verbatim, one per chunk:
+
+```
+{"content_sha256":"11CF08F9F935891A9A34B78E98D64BBCABCA5678FDF67386FF5CE74006B5874C","verdict":"no_payload_now_publishes","outcome_class":"failed"}
+{"content_sha256":"5F779C962F5FB70CA520DA6E215DFBE30145C5CDA7FF6A1936339EDAB87AA9C0","verdict":"no_payload_now_publishes","outcome_class":"failed"}
+{"content_sha256":"9B30C2BE4389A90B17B6DD6177005A9F488B837BB7E9D88AEFB7077C94121A4A","verdict":"no_payload_now_publishes","outcome_class":"failed"}
+{"content_sha256":"CC1DB089D295AC391FB8998CCBCC68E72DF2FCB637C855AD512F488C6747D586","verdict":"no_payload_now_publishes","outcome_class":"failed"}
+```
+
+**Every finding is one of the four documents F3.4 names, by `content_sha256`,
+and every one is `no_payload_now_publishes`** — the run cached no analysis
+payload for them because the analysis raised, and the branch now publishes.
+**`moved` is 0 and `payload_now_raises` is 0 across all 3,380 documents**: not
+one document that published under the run of record publishes anything
+different at HEAD, and not one stopped publishing.
+
+### F10.2 The one red proof, and why it is the machine
+
+The corpus-marked slice's FIRST run was **`1 failed, 28 passed, 5430
+deselected, 1 warning in 6326.23s (1:45:26)`, exit 1**. The failure, verbatim:
+
+```
+FAILED tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run
+AssertionError: slowest full-registry detect sweep was 237.8 ms over 74 registrations
+(Others/Altana/Altana may 26.pdf), which projects to 257.1 ms at 80 — the budget is 250 ms
+assert 0.2570842162193101 < 0.25
+```
+
+That is a WALL-CLOCK cap, measured while the box was carrying ten batch-7
+cells' proofs — the run itself took 1:45 against the ~30 minutes the slice
+costs alone. This cell did not dismiss it as a flake; the margin is measured
+three ways.
+
+**(a) Structural.** `_summary_block` is reachable only from `_summary`, which
+is reachable only from `parse_first_citizens_statement`. No `detect` on the
+registry calls into it, and the detect sweep never calls `parse`. The registry
+fingerprint is byte-identical on both trees (F8), so the sweep's work is
+identical by construction.
+
+**(b) Paired, alternating arms, six runs on a quiet box.** The single test,
+`-m corpus`, base tree against branch tree:
+
+```
+round 1 base   exit=0   1 passed in 73.51s
+round 1 branch exit=0   1 passed in 104.51s
+round 2 base   exit=0   1 passed in 105.15s
+round 2 branch exit=0   1 passed in 89.90s
+round 3 base   exit=0   1 passed in 100.12s
+round 3 branch exit=0   1 passed in 89.36s
+```
+
+Six of six pass; the readings interleave, and the slowest single run of the six
+is a BASE run.
+
+**(c) The assertion's own quantity, read out instead of asserted**, on both
+trees — the harness imports the test module's `_sweep_seconds`,
+`SWEEP_SAMPLES`, `PLANNED_REGISTRATIONS` and `SWEEP_BUDGET_SECONDS`, so the
+number is the one the assertion makes:
+
+```
+base   worst=135.2ms  projected=146.2ms  budget=250ms  PASS  (WellsFargo/03-31-26)
+branch worst=112.5ms  projected=121.6ms  budget=250ms  PASS  (WellsFargo/03-31-26)
+base   worst=100.1ms  projected=108.2ms  budget=250ms  PASS  (WellsFargo/04-30-26 1)
+branch worst=136.7ms  projected=147.7ms  budget=250ms  PASS  (Others/Altana/Altana june 26)
+```
+
+**108–148 ms on a quiet box against the 257 ms the loaded run read**, and the
+WORST DOCUMENT is not stable between runs — three different documents win
+across four readings, which is the signature of a load-dominated measurement
+rather than a property of any tree. The slice was then re-run whole on the
+quiet box; see the proof table.
+
+### F10.3 Why the corpus gate is not re-owed for the docstring commit
+
+`c361f31` adds a docstring paragraph and nothing else. Proven rather than
+asserted: with every docstring stripped, the AST of `analysis/first_citizens.py`
+is identical to the reviewed tree at `b93d93b` —
+
+    b93d93b  AD3245E5E0D8F35B74B72D168339A8793BB612EE0A5F42B069D15B2D79010DAC
+    HEAD     AD3245E5E0D8F35B74B72D168339A8793BB612EE0A5F42B069D15B2D79010DAC
+
+`corpus_gate.py` measures PRODUCTION output over the pinned 109; identical
+production ASTs cannot produce different published payloads, so re-running it
+would re-measure the same code (§DECLINESD D8.5's argument). Every proof that
+CAN move with a docstring change — the full suite, the guard and conformance
+sets, this cell's tests and the corpus-marked slice — is re-run on the final
+tree.
+
+## F11. Commits
+
+| Commit | Contents |
+|---|---|
+| `b93d93b` | `analysis/first_citizens.py` - `_is_summary_cell` + `_summary_block`, **and** `tests/test_declines_f_variants.py` (17 tests) in the SAME commit, per DECLINESD D9's lesson that a test file committed before its implementation makes a red tree |
+| `9517c87` | F0-F8 - the census, the three diagnoses, the DACO2 ruling, the mutation table, the zero-movement argument |
+| `4453223` | corrections - credit BMO-LAYOUTS family E3 and DECLB DB7 for two of the three diagnoses, cite STRUCTFIX-1's STOP on the same money regex, add the registry-fingerprint identity proof, downgrade the DACO2 "same account" claim to "same source" where it is inference |
+| `c361f31` | the module docstring cites §DECLINESF and corrects §FI5 - docstring only, AST identity proven (F10.3) |
+| (this one) | F9-F12 - the findings for Ocean, the proofs with exit codes, this table, the carried risks |
+
+**The branch is bisectable.** The implementation and every test that exercises
+it are in one commit (`b93d93b`), and the three commits after it are
+documentation. Measured, not asserted: the full suite, the guard and
+conformance sets, this cell's tests and the corpus-marked slice are all green
+on the final tree.
+
+## F12. Risks carried
+
+* **The three-unsigned-cell reading is positional and the identity does not
+  always disambiguate it.** On a dormant month the cells are `200.00 / 0.00 /
+  200.00` and the control record closes under more than one assignment. What
+  separates them is the SECTION gate: a deposits count of 0 forces the deposits
+  total to 0.00, and `_matches` refuses any other assignment. That gate is
+  mutation-killed (M11/M12), but it is worth naming that the arithmetic alone
+  is not sufficient here and the section agreement is doing the work.
+* **The backward scan is bounded by shape, so a document that prints a grid
+  cell immediately above the heading for some OTHER reason would enter the
+  block.** It cannot enter silently — a fourth unsigned cell, a second day
+  count, a second signed cell and a second control row each refuse — but the
+  refusal would be a new one on a document that reads today. Measured over the
+  39 claimed: zero documents have any backward cell except the four movers.
+* **`bank_reported_average_balance` is now published on four more documents.**
+  It is the bank's evidence lane, gates nothing, and the ADB doctrine's one
+  user-facing metric does not read it. On all four it equals our own ADB to the
+  cent, so the pair corroborates rather than conflicts — but
+  `bank_reported_average_hypothesis` has no vocabulary for "identical", and
+  what it reports on these four is worth checking against the ADB-HYPO card.
+* **`account_name="Business Banking"` is published on the four movers**, the
+  family's pre-existing fallback, and it is not what those documents print.
+  Carded as FC-PRODUCT (F9.4); the movers extend an existing inaccuracy rather
+  than introducing a new one, and this cell chose not to move an audited
+  published field in the same branch as a decline widening.
+* **The detect-sweep budget (F9.7).** Not this branch's, but the next cell to
+  run its slice under load will meet it.
+
+## F13. Review closures (APPROVE WITH FINDINGS — 0 BLOCK, 3 MAJOR, 3 MINOR)
+
+Independent adversarial review of `wave7-declinesf` at `a9203ba`. Everything
+load-bearing reproduced — the registry-fingerprint identity, the 39/35/4
+replay, the backward-cell counts (3, 3, 3, 1 on the movers against 0 on the
+other 35), the pinned identity, the §FI5 correction, the 1,975.67 ADB by hand,
+the L-1 separator and the four sweep JSONs — and every adversarial printing the
+reviewer built was refused. The DACO2 EXTENSION ruling was endorsed on an
+independently-built furniture measure. Three MAJOR and three MINOR findings
+close below; two of the three MAJOR moved production code.
+
+### F13.1 MAJOR-1 — the mutation table had a row that was a lie
+
+F7's **M3 was mislabelled.** The harness replaced the backward block with `[]`
+— which is M1 under a second name — so the append-after-forward mutant the row
+claims to have killed was never run, and `block.reverse()` was never mutated at
+all. Review ran both and found the documented append mutant IS killed, while
+**`block.reverse()` deleted on its own SURVIVED**: every straddling printing in
+the archive carries at most ONE unsigned cell above the heading, so the call is
+a no-op on the measured corpus and no fixture could reach it.
+
+Closed three ways. The harness now (a) applies the append-after-forward
+mutation it names (`block = after + before`) and (b) carries
+`before.reverse()` deleted as a mutant of its own; and (c) a new fixture
+`two_above()` gives the grid **two** unsigned cells above the heading with a
+beginning balance (2,000.00) that differs from the deposits total (1,000.00),
+so reversal is observable. Read bottom-up the two swap, the record still CLOSES
+on the bank's arithmetic (1,000 + 2,000 + 500 − 250 − 750 = 2,500) and only the
+section check refuses it — which is the honest statement of what kills that
+mutant. The harness also hashes each mutated tree and reports when one mutant
+reproduces another's tree, so the mislabelling cannot recur silently.
+
+**The table that stands — 20 mutants, 20 KILLED, 0 duplicate trees.** Baseline
+unmutated: `26 passed in 0.35s`, exit 0.
+
+| # | mutated gate | verdict | killed by |
+|---|---|---|---|
+| M1 | the backward scan removed entirely | KILLED | `..._reads_the_grid_whichever_side_of_its_heading_the_cells_print_on` (+7) |
+| M2 | the backward scan's stop removed (skip, do not stop) | KILLED | `..._the_backward_scan_stops_at_the_first_line_that_is_not_a_grid_cell` |
+| **M3** | **the backward run APPENDED after the forward run** | KILLED | `..._a_bare_cell_alone_above_the_heading_is_still_admitted` (+8) |
+| **M3b** | **`before.reverse()` deleted (backward run read bottom-up)** | KILLED | `..._a_grid_with_two_unsigned_cells_above_the_heading_keeps_their_order` · `..._the_backward_run_is_placed_before_the_forward_run` |
+| M4 | `_is_summary_cell` always true | KILLED | `..._the_backward_scan_stops_at_the_first_line_that_is_not_a_grid_cell` (+2) |
+| **M4b** | **`_cell_kind` returns a shape for every line** | KILLED | `..._declines_a_day_count_that_arrives_from_above_without_its_control_row` (+4) |
+| M5 | the forward boundary removed | KILLED | `..._the_forward_scan_stops_at_the_printed_boundary` (+12) |
+| M6 | the three-unsigned-cell count relaxed | KILLED | `..._declines_a_grid_whose_backward_scan_reaches_a_fourth_unsigned_cell` |
+| M7 | the one-day-count rule removed | KILLED | `..._declines_a_grid_with_a_second_day_count_above_the_heading` |
+| M8 | the one-signed-cell rule removed | KILLED | `..._declines_a_grid_with_a_second_signed_cell_above_the_heading` |
+| M9 | a second control row accepted | KILLED | `..._declines_a_grid_printing_a_control_row_on_each_side_of_the_heading` |
+| M10 | the control record's arithmetic no longer gates it | KILLED | `..._declines_a_control_record_that_does_not_close_on_its_own_arithmetic` |
+| M11 | the section TOTAL agreement removed | KILLED | `..._declines_a_section_the_printed_total_contradicts` |
+| M12 | the section COUNT agreement removed | KILLED | `..._declines_a_section_the_printed_count_contradicts` |
+| M13 | the missing-control-row refusal removed | KILLED | `..._declines_a_block_that_prints_no_control_row_at_all` |
+| **M14** | **the provenance rule removed entirely** | KILLED | `..._declines_a_day_count_that_arrives_from_above_without_its_control_row` · `..._declines_a_signed_cell_...` |
+| **M15** | **the provenance rule no longer guards the DAY COUNT** | KILLED | `..._declines_a_day_count_that_arrives_from_above_without_its_control_row` |
+| **M16** | **the provenance rule no longer guards the SIGNED cell** | KILLED | `..._declines_a_signed_cell_that_arrives_from_above_without_its_control_row` |
+| **M17** | **the product line falls back to a memorized literal again** | KILLED | `..._publishes_no_product_name_when_no_product_line_is_printed` |
+| **M18** | **the product-line anchor tightened back to the line start** | KILLED | `..._publishes_the_product_line_the_bank_printed` |
+
+Bold = added or repaired at this closure. **20/20 KILLED.**
+
+**M13 survived once during this closure, and that is worth recording.** After
+MAJOR-2 landed, the fixture named after the control-row requirement began
+tripping the PROVENANCE rule first — the dormant printing's day count above the
+heading no longer had a control row for company — so deleting `control is None`
+changed nothing that fixture could see. It is the M2/G7.4 shape a third time,
+now caught by the table instead of by review:
+`test_declines_a_block_that_prints_no_control_row_at_all` prints every optional
+cell BELOW the heading, leaves the backward run empty, and isolates the gate
+again.
+
+### F13.2 MAJOR-2 — over-collection did NOT fail closed, and now does
+
+The claim in F3.1 and F12 was that a backward scan which over-collects fails
+closed. True of SECOND instances only. The control row and the three unsigned
+cells are protected by count gates; `days` and the average ledger balance are
+**optional**, so a FIRST one arriving from above the heading has nothing to
+contradict it. Review's two printings:
+
+* a stray `7` above the heading, forward block printing no day count →
+  **`days_in_period=7` published**, and `days_in_period` is not evidence-only:
+  `metrics.py:467,471` falls back to it where a validated daily ledger is
+  absent;
+* a stray signed cell above the heading, forward block printing none →
+  **`bank_reported_average_balance=-9999.99` published**.
+
+Reachable on **0 of the 39** today. Closed anyway, because "no document reaches
+it" is a fact about this archive and not about the reader.
+
+**The rule.** `_summary_block` now returns its two runs SEPARATELY, and
+`_summary` refuses when an optional cell arrives from above the heading without
+the control row arriving with it:
+
+```python
+    before, after = _summary_block(markdown, anchor)
+    kinds = [_cell_kind(line) for line in before]
+    if _OPTIONAL_CELLS.intersection(kinds) and "control" not in kinds:
+        return None
+    block = before + after
+```
+
+The control row is the printing that says the grid straddles its heading at
+all; an optional cell that arrives without it is an optional cell with no
+evidence of straddling behind it. Measured on the four straddling printings:
+three carry `control + beginning + days` above the heading (the rule admits
+them) and one carries `beginning` alone (no optional cell, so the rule is
+silent). **No document in the 39 is refused by it.**
+
+The stricter rule review offered as an alternative — an optional cell must come
+from the SAME side as the control row — was measured and rejected: on the three
+dormant printings the control row is ABOVE the heading while the average ledger
+balance is BELOW it, so that rule refuses three documents this card exists to
+publish.
+
+`_cell_kind` is new and is the single reading of a line's shape, shared by
+`_is_summary_cell` and by the provenance rule. Two readings of one line would
+be two chances to disagree — mutant M4b is that hazard, and it dies.
+
+**A residue, stated rather than hidden:** a stray day count above the heading
+on a printing whose control row is ALSO above it is still admitted, because it
+is indistinguishable from the real one by provenance. It is not
+indistinguishable by count — if the real day count is also printed, `len(days)
+> 1` refuses — so the residue is exactly "a printing that lost its real day
+count and gained a stray one in the same run". No such document exists in the
+archive, and closing it further would need a reading of the day count's own
+column, which the flattened text does not carry.
+
+### F13.3 MAJOR-3 — FC-PRODUCT re-scoped from ceremony to plain fix, and taken
+
+The first revision carded this on the TRU-SAVINGS argument. Review re-scoped it
+and was right: the pinned document prints `Business Banking` literally, so its
+payload does not move, and `account_name` is pinned in neither
+`tests/data/parser_expectations.json` nor the balance-metrics audit CSV. There
+is no audited field movement to weigh — only a two-character anchor and a
+literal that should never have shipped.
+
+**The hunk.** The anchor is relaxed at both ends, and the literal is replaced by
+the honest unknown:
+
+```python
+    match = re.search(
+        r"^.*Account Number\s*:.*$\n^(.+)$\n^.*Account Number\s*:",
+        markdown,
+        re.IGNORECASE | re.MULTILINE,
+    )
+    return compact_whitespace(match.group(1)) if match else None
+```
+
+`None`, not a fallback literal: an unread product is not a product this reader
+may name — §DECLB's rule for `us_bank`'s and `capital_one`'s memorized product
+names, applied to the third instance of the same class. Measured over the 39:
+**0 unread**, so the fallback is unreachable on this archive and is kept only
+as the fail-closed answer; mutant M17 pins that it stays `None`.
+
+**Result over the whole claimed family, replayed base against final HEAD:
+26 byte-identical, 13 movers.** Four of the thirteen are the coverage movers of
+F3.4, whose whole payload appears; the other **nine are label-only**:
+
+| content_sha256 | before | after |
+|---|---|---|
+| `05C6362692047071377599200F12874346EEE410489B8F404447E61183DE347F` | `Business Banking` | `Professional Business Checking` |
+| `135A84E957ED67E945A342440BFB493F0896D1D13E11688EAC72CCE988169B14` | `Business Banking` | `Professional Business Checking` |
+| `47FEBD0C20378FC1ED328D930DCB7C16C302308DF992014E0B5B9C6769F5A532` | `Business Banking` | `Professional Business Checking` |
+| `B888EE5E289424FEE51DAA7252C1FA3522710F0037771B60A9C669F111F132F7` | `Business Banking` | `Professional Business Checking` |
+| `445A57F355EDEB5F2710E5D7533CADC718D48AC7A7B7B2BE1436134D32BECD4F` | `Business Banking` | `Business Banking II` |
+| `4B63431DA76107E8662A98412FC09ACCAD21EE0562491315B42C294FB759B6E1` | `Business Banking` | `Business Banking II` |
+| `63639ACF01418B3FC2EB2B07B5EFB3D7010B02A58FEBEFA89046022179A2A533` | `Business Banking` | `Business Banking II` |
+| `AD2B678AC4756E07D27B51C703840CDD4AACC6396F3526EBDB79248A1CA446BC` | `Business Banking` | `Business Banking II` |
+| `6C86D090BE64E53D98CCDACEA48AC328B19DECA3BDF46D66F7AD6BD1DF8B9EC8` | `Business Banking` | `Analysis Business Checking` |
+
+and the four coverage movers publish `Analysis Business Checking`
+(`11CF08F9…`, `5F779C96…`, `9B30C2BE…`, `CC1DB089…`), which is what those
+documents print. 26 + 4 + 9 = 39, and the resulting distribution is the one
+F6.5 tabulates.
+
+**What moved inside the nine, proven with a leaf diff rather than asserted.**
+The union of EVERY changed leaf path across all nine documents is 22 paths, and
+**every one of them ends in `.account_name`**:
+
+```
+statement.account_name
+statement.transactions[].classification.account_name
+classifications[].account_name
+detection.manual_review[].account_name
+detection.potential_revenue_evidence[].account_name
+detection.unverified_deposit_evidence[].account_name
+detection.true_revenue_evidence[].account_name
+detection.verified_revenue_evidence[].account_name
+detection.non_revenue_evidence[].account_name
+detection.insurance_evidence[].account_name
+detection.lender_evidence[].account_name
+detection.known_funders[].evidence[].account_name
+detection.known_funders[].transactions[].classification.account_name
+detection.insurance_providers[].evidence[].account_name
+detection.insurance_providers[].transactions[].classification.account_name
+metrics.potential_revenue_evidence[].account_name
+metrics.unverified_deposit_evidence[].account_name
+metrics.true_revenue_evidence[].account_name
+metrics.verified_revenue_evidence[].account_name
+metrics.non_revenue_evidence[].account_name
+metrics.insurance_evidence[].account_name
+metrics.lender_evidence[].account_name
+```
+
+One field, echoed through the classification and evidence lanes. **No balance,
+amount, date, count, coverage figure, flag, risk level or ADB moved on any of
+the nine**, and none of the nine changes outcome class.
+
+### F13.4 MINOR-1 — the pinned block's hex column is a PAYLOAD hash
+
+Corrected in F8.1 with a column header. It is
+`sha256(json.dumps(payload, sort_keys=True, default=str))` over the whole
+`report_to_dict` blob, not a `content_sha256`; the two are the same shape and
+mean opposite things.
+
+### F13.5 MINOR-2 — the product list in F6.5
+
+Corrected: `Business Banking III` is printed on the DACO2 scanned member
+`A5EDEA12752F` and on none of the shipped 39, and `Professional Business
+Checking` — four of the 39 — was omitted. F6.5 now carries the measured
+distribution over the family.
+
+### F13.6 MINOR-3 — the DACO2 furniture measure, published so it is checkable
+
+The twenty printed strings scored in F6.2, verbatim, in the order the harness
+tests them (case-insensitive substring, over the whole reconstructed markdown):
+
+```
+ 1  Central Bank Operations
+ 2  P.O. Box 27131
+ 3  Raleigh, NC 27611-7131
+ 4  Statement Period:
+ 5  Account Number
+ 6  Enclosures In Statement
+ 7  Beginning Balance
+ 8  Ending Balance
+ 9  Statement Period Days
+10  Average Ledger Balance
+11  Monthly Service Charge
+12  Deposits To Your Account
+13  Other Credits To Your Account
+14  Checks Paid From Your Account
+15  Other Debits From Your Account
+16  Daily Balance Summary
+17  Prior Check Number(s) Not Included or Out of Sequence
+18  Direct Customer Inquiry
+19  FOLLOW THESE EASY STEPS TO BALANCE YOUR CHECKING ACCOUNT
+20  Master Treasury Management Services Agreement
+```
+
+Two of the twenty are *sensitive to the OCR rather than to the template* —
+strings 2 and 18, which the Tesseract members print as `P.0. Box 27131` and
+`Direct Customer Inauity Calls To` — and two more are *sensitive to the month
+and the year* — strings 12 and 20, a section a zero-deposit month does not
+print and a notice the bank ran for part of 2026 only. The shipped digital
+comparator misses those last two as well.
+
+**Review's independent measure scores the three Tesseract members 19, 19 and 20
+of 20 against a shipped digital comparator's 17 and 14** — i.e. their string set
+is more OCR-tolerant and more month-tolerant than this cell's, and it scores the
+scanned members ABOVE the digital ones. Both measures reach the same ruling from
+opposite directions, which is the strongest form the evidence takes: on this
+cell's list the scanned members score at or just below a shipped document, and
+on the reviewer's they score above it. **EXTENSION either way, and both lists
+are now published so a third party can score it a third way.**
+
+### F13.7 Proofs on the final tree
+
+All on the FINAL tree unless the row says otherwise. Exit codes verbatim.
+
+| proof | result | exit |
+|---|---|---|
+| full default suite | `5400 passed, 35 skipped, 33 deselected, 1 warning in 174.59s (0:02:54)` | 0 |
+| canonical GUARD set | `242 passed, 1 warning in 14.39s` | 0 |
+| canonical CONFORMANCE set | `1151 passed, 35 skipped, 1 warning in 3.58s` | 0 |
+| this cell's tests + the family's existing tests | `74 passed, 1 deselected in 0.85s` | 0 |
+| mutation table, 20 mutants (baseline `26 passed in 0.35s`) | `20/20 killed`, 0 duplicate trees | 0 |
+| `python corpus_gate.py` | `RESULT: GREEN` - 106 PASS / 3 WITHHELD; `outcome_classes` 4 review / 102 validated / 3 withheld; `adb_doctrine` 109/109 canonical basis; `currency` 109/109 = 14 CAD / 95 USD; `ocr_coverage` 103 native + 6 committed, no live OCR and no model calls; runtime 526.1s | 0 |
+| corpus-marked slice | `29 passed, 5439 deselected, 1 warning in 1736.74s (0:28:56)` | 0 |
+| family replay, `first_citizens`, base vs final HEAD | 39 claimed - **26 byte-identical, 13 movers** (4 coverage + 9 label-only) | 0 |
+| the 5 pinned documents, base vs final HEAD, whole payload | `IDENTICAL` x 5, the first_citizens one included | 0 |
+| registry fingerprint, base vs final HEAD | `74  161D81F4E1D7D34DCE342C4EB367D4FA21315F71C31EB91EBAAF4373AB0170F4` on both | 0 |
+| archive zero-movement sweep, all 3,380, re-run at final HEAD (F13.9) | `identical` **2,526** · `moved` **9** · `no_payload_now_publishes` **4** · `payload_now_raises` **0** — **13 findings, 0 outside the named population** | 1 per chunk holding a finding (by design) |
+
+Suite 5,391 -> **5,400** (+9 closure tests; the cell's file is 17 -> 26).
+Guard **242** and conformance **1151** hit their expected counts exactly. The
+slice stays at **29** - no corpus-marked test was added at any point.
+
+**The corpus gate is re-owed here and was re-run**, unlike at the docstring
+commit: production changed, so the F10.3 AST-identity argument does not apply
+to this closure and was not used.
+
+### F13.8 Commits of the closure
+
+| Commit | Contents |
+|---|---|
+| `fd88f74` | `analysis/first_citizens.py` + `tests/test_declines_f_variants.py` - MAJOR-2 (the provenance rule, `_cell_kind`, `_summary_block` returning both runs) and MAJOR-3 (the product-line anchor, the literal replaced by None), with the tests in the same commit |
+| `2c03a7b` | the fixture that isolates the control-row requirement again, after the mutation table caught M13 surviving |
+| (this one) | F13 - the closure record: the repaired mutation table, the two production closures, the three MINOR corrections, the furniture list, and the proofs above |
+
+The earlier commits are unchanged: `b93d93b` (the widening + its tests),
+`9517c87` (F0-F8), `4453223` (the credit corrections), `c361f31` (the docstring),
+`a9203ba` (F9-F12) - the tree review read.
+
+
+### F13.9 The archive sweep, re-run at the final HEAD
+
+The sweep in F10.1 describes the reviewed tree. Production moved twice since,
+so it was re-run whole rather than argued forward — 3,380 documents, four
+chunks, 2,402.8s on a quiet box.
+
+| chunk | compared | identical | `moved` | `no_payload_now_publishes` | `payload_now_raises` | seconds | exit |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 0–850 | 623 | 621 | 2 | 1 | **0** | 790.2 | 1 |
+| 850–1700 | 649 | 644 | 5 | 1 | **0** | 582.6 | 1 |
+| 1700–2550 | 639 | 637 | 2 | 1 | **0** | 527.6 | 1 |
+| 2550–3380 | 624 | 624 | 0 | 1 | **0** | 502.4 | 1 |
+| **total** | **2,535** | **2,526** | **9** | **4** | **0** | 2,402.8 | — |
+
+2,526 + 9 + 4 + 812 `no_payload_raises_again` + 29 `no_ocr_artifact` =
+**3,380**.
+
+**All 13 findings are inside the named population, checked by sha against the
+list in F3.4 and F13.3: 0 outside.** The nine `moved` are the nine label movers
+and the four `no_payload_now_publishes` are the four coverage movers. The
+instrument reports FIELD NAMES only, and on all nine it reports the same four
+containers — `['classifications', 'detection', 'metrics', 'statement']` — which
+is why F13.3's leaf diff is the evidence that matters: inside those four
+containers, every one of the 22 changed paths ends in `.account_name`.
+
+`payload_now_raises` is **0**: no document that published under the run of
+record stopped publishing at HEAD.

@@ -58,6 +58,14 @@ independent readings of the same table therefore have to agree before any
 description is published, and where they do not the section keeps its label.
 No amount, date, count or balance depends on the overlay — it is text only,
 and a document extracted without the rows parses exactly as it did before.
+
+The At-A-Glance box arrives in two shapes and the difference is the
+extractor's, not the bank's: most documents emit the box's column heading
+(`Statement Period Days / Average Ledger Balance`) before its cells, and some
+emit part of the cell run ABOVE it. `_summary_block` therefore bounds the block
+on both sides, by the grid's own cell shapes — W3_TRACKA_LOG §DECLINESF, which
+also corrects §FI5: the four `3df19105_*1301` documents DO print a control row,
+and one of them is not dormant.
 """
 from __future__ import annotations
 
@@ -192,14 +200,31 @@ def _account(markdown: str) -> str | None:
     return match.group(1) if match else None
 
 
-def _account_name(markdown: str) -> str:
-    """The printed product line, which sits between the period and the account."""
+def _account_name(markdown: str) -> str | None:
+    """The printed product line, which sits between the two account-number lines.
+
+    The bank prints the account number twice around it — once at the end of the
+    `Statement Period:` line and once on its own line with the enclosure count —
+    and the product name is what stands between them.
+
+    The first of those two lines does NOT begin with `Account Number`; it begins
+    with `Statement Period:`, and the number is printed at its end. Anchoring
+    the pattern at the start of that line therefore matched **nothing in this
+    family**: measured over all 39 documents this parser claims, the regex
+    matched 0 of them and every one published the fallback literal
+    `"Business Banking"` — false on 13 of the 39, which print
+    `Business Banking II`, `Professional Business Checking` or
+    `Analysis Business Checking`. The literal is gone: an unread product is not
+    a product this reader may name, so it returns None and the field publishes
+    as the honest unknown (the same rule §DECLB applied to `us_bank`'s and
+    `capital_one`'s memorized product names).
+    """
     match = re.search(
-        r"^Account Number\s*:.*$\n^(.+)$\n^Account Number\s*:",
+        r"^.*Account Number\s*:.*$\n^(.+)$\n^.*Account Number\s*:",
         markdown,
         re.IGNORECASE | re.MULTILINE,
     )
-    return compact_whitespace(match.group(1)) if match else "Business Banking"
+    return compact_whitespace(match.group(1)) if match else None
 
 
 def _resolve(month: int, day: int, start: date, end: date) -> date | None:
@@ -266,29 +291,115 @@ class _Summary:
         return abs(round(walked - self.ending, 2)) < 0.005
 
 
+#: The grid's four cell shapes, in the order `_summary` reads them. Kept as one
+#: reading because three callers ask the same question of the same line — is
+#: this a cell at all (`_is_summary_cell`), which side of the heading did an
+#: OPTIONAL cell arrive from (`_summary`), and what does it hold (`_summary`
+#: again) — and two readings of one line are two chances to disagree.
+_CELL_SHAPES = (
+    ("control", _CONTROL_ROW_RE),
+    ("bare", _BARE_MONEY_RE),
+    ("signed", _SIGNED_MONEY_RE),
+    ("days", _DAY_COUNT_RE),
+)
+
+#: The two cells the record can do without: `days` and the average ledger
+#: balance. Both are OPTIONAL, so neither is protected by a count gate the way
+#: the control row and the three unsigned cells are, and a first one arriving
+#: from the wrong side of the heading would publish unopposed.
+_OPTIONAL_CELLS = frozenset({"signed", "days"})
+
+
+def _cell_kind(line: str) -> str | None:
+    """Which of the grid's four cell shapes this physical line is, or None."""
+    for kind, pattern in _CELL_SHAPES:
+        if pattern.match(line):
+            return kind
+    return None
+
+
+def _is_summary_cell(line: str) -> bool:
+    """Is this physical line one of the At-A-Glance grid's own cells?
+
+    Anything else on a line is furniture, a heading or another block, and
+    `_summary_block` uses exactly that to know where the grid ends.
+    """
+    return _cell_kind(line) is not None
+
+
+def _summary_block(markdown: str, anchor: re.Match[str]) -> tuple[list[str], list[str]]:
+    """The grid's cell lines either side of its printed column heading.
+
+    `Statement Period Days / Average Ledger Balance` is a COLUMN HEADING of the
+    At-A-Glance grid, not its first line, and the extractor does not always
+    emit it first: on the `3df19105_*1301` statements the control row, the day
+    count and the beginning balance are all emitted ABOVE it. Reading the grid
+    only forwards therefore loses cells the bank printed, and the shape test in
+    `_summary` then refuses a control record that is complete — which is what
+    it did on four documents, one of which posts a wire in and a wire out.
+
+    Backwards the block is bounded by the same four cell shapes the forward
+    scan recognises: the first line above the heading that is not one of them
+    ends it. Nothing the forward scan would reject can therefore enter through
+    the back, and a document whose heading is preceded by its own furniture —
+    which is every printing measured before this one — contributes no lines at
+    all and reads exactly as it did. Forwards the block is bounded by the
+    printed structure, unchanged.
+
+    The two runs are returned SEPARATELY because provenance is load bearing:
+    `_summary` refuses an optional cell that arrives from above the heading
+    without the control row arriving with it. Each run is in document order —
+    `before.reverse()` is what puts the backward run back into it, and the
+    three unsigned cells are read positionally.
+    """
+    before: list[str] = []
+    for line in reversed(_lines(markdown[: anchor.start()])):
+        if not _is_summary_cell(line):
+            break
+        before.append(line)
+    before.reverse()
+    after: list[str] = []
+    for line in _lines(markdown[anchor.end():]):
+        if _BOUNDARY_RE.match(line):
+            break
+        after.append(line)
+    return before, after
+
+
 def _summary(markdown: str) -> _Summary | None:
     """Read the At-A-Glance control record, or nothing.
 
     The extractor emits this block's cells in an order that varies between
-    documents — `days` may precede or follow the beginning balance, and the
-    ending amount may precede or follow its own sign — so cells are recognised
-    by token shape, not position. Within a shape the printed order is stable:
-    the three unsigned money cells are the beginning balance, the deposits
-    total and the ending balance, in that order.
+    documents — `days` may precede or follow the beginning balance, the ending
+    amount may precede or follow its own sign, and the whole run may precede or
+    follow the block's own column heading (`_summary_block`) — so cells are
+    recognised by token shape, not position. Within a shape the printed order
+    is stable: the three unsigned money cells are the beginning balance, the
+    deposits total and the ending balance, in that order.
 
-    A statement with no activity at all prints no control row; its block then
-    exposes too few cells to tell a beginning balance from an ending one, and
-    this returns None rather than guess.
+    A block that does not expose exactly one control row and exactly three
+    unsigned money cells returns None rather than guess, and what it reads is
+    then believed only if the record closes on its own arithmetic.
+
+    Those two counts protect the control row and the three unsigned cells. They
+    do NOT protect `days` and the average ledger balance, which are OPTIONAL:
+    the record is read without them, so a FIRST one has no second to contradict
+    it and would publish unopposed. That matters because `days_in_period` is
+    not evidence-only — `metrics.py` falls back to it where a validated daily
+    ledger is absent. The provenance rule below is what closes it: an optional
+    cell may arrive from above the heading only in the company of the control
+    row, which is the printing that says the grid straddles the heading at all.
+    Measured over the 39 documents this parser claims, that is exactly what the
+    four straddling printings do and no document is refused by it.
     """
     anchor = _SUMMARY_ANCHOR_RE.search(markdown)
     if anchor is None:
         return None
-    tail = markdown[anchor.end():]
-    block: list[str] = []
-    for line in _lines(tail):
-        if _BOUNDARY_RE.match(line):
-            break
-        block.append(line)
+    before, after = _summary_block(markdown, anchor)
+    kinds = [_cell_kind(line) for line in before]
+    if _OPTIONAL_CELLS.intersection(kinds) and "control" not in kinds:
+        return None
+    block = before + after
 
     control = None
     bare: list[float] = []
