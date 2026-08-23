@@ -44012,3 +44012,130 @@ There is no registration to write and no template to learn, exactly as the row's
 own note suspected ("a parser reads them and the ADB is what refuses"). The
 ranking's *unclaimed* column was the wrong measurement for this row, which is
 the same trap SN3's own header called out for rows 2, 3 and 5.
+
+## TD12. The proof floor (exit codes verbatim)
+
+Every number below is from a durable log with its own `EXIT=` terminator, on
+the branch's final tree. Production (`analysis/`) has been unchanged since
+`24c476c`, which predates both the gate and the slice; the commits after it
+touch tests, tools and this log only, which is why those two runs are the
+final tree's and not an earlier one's.
+
+| proof | result | exit |
+|---|---|---:|
+| full default suite | **5,903 passed, 35 skipped, 34 deselected** (564.7s) — 5,857 at base + 46 | 0 |
+| canonical guards (5 files) | **252 passed** (47.1s) — unchanged at registry 75 | 0 |
+| canonical conformance (7 files) | **1,164 passed, 35 skipped** (17.3s) — 75 × 74, no registry change | 0 |
+| `python corpus_gate.py` | **GREEN** (1,915.4s) — 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 102 validated / 3 review / 3 withheld / 1 refused; `currency_source 108/108` | 0 |
+| corpus-marked slice | **30 passed, 5,942 deselected** (4,345.3s) | 0 |
+| mutation table | **16 killed / 0 survived / 0 duplicate trees** + 1 INERT | 0 |
+| privacy scan | **A 0 / B 0**, 61 adjudicated collisions | 0 |
+
+**The pinned answer, first.** The gate is GREEN with the same 105/3/1 and the
+same 102/3/3/1 verdicts as the base tree, and the corpus-marked slice is 30
+green. Independently, 5 of the 6 pinned `td_canada` documents are in the
+discovery archive and the family replay finds them **byte-identical**,
+including `960E4D60`, which carries one of the 39 ambiguous date groups and is
+therefore the pin this card came closest to. **No pinned document moved, in any
+field, and no ceremony is required.**
+
+## TD13. The archive sweep, at the final production tree
+
+`python -m tools.regfp_zero_movement_sweep --rows <run 356a4269>/rows.csv
+--data-dir webapp_data --baseline-settings-key 24675EF0…5CAC`, four chunks,
+each with its own `EXIT=` terminator.
+
+| chunk | compared | identical | `moved` | `no_payload_now_publishes` | `payload_now_raises` | seconds | exit |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 0–850 | 629 | 626 | 3 | 0 | **0** | 2,656.9 | 0 |
+| 850–1700 | 654 | 648 | 6 | 0 | **0** | 2,137.6 | 0 |
+| 1700–2550 | 645 | 643 | 2 | 0 | **0** | 1,500.2 | 0 |
+| 2550–3380 | 630 | 627 | 3 | 0 | **0** | 1,089.1 | 0 |
+| **total** | **2,558** | **2,544** | **14** | **0** | **0** | 7,383.8 | — |
+
+2,544 + 14 + 793 `no_payload_raises_again` + 29 `no_ocr_artifact` = **3,380**.
+
+**All 14 findings are inside the named population, and the population has no
+member the sweep did not report: 14 of 14, 0 outside, 0 missing.** No document
+that published under the run of record stopped publishing
+(`payload_now_raises` 0), and no document that refused started
+(`no_payload_now_publishes` 0) — the eleven lifted documents were already
+publishing a `withheld_adb` payload, so a lift shows here as `moved`, which is
+what it is.
+
+| sha16 | run-of-record class | this card |
+|---|---|---|
+| `6E2635D8B95E51B0` | withheld | **validated** |
+| `477E2FD610A1C4A8` | withheld | **validated** |
+| `5E682B9B2C697A80` | withheld | **validated** |
+| `F841051765A5ABDB` | withheld | **validated** |
+| `21C3FFF212E9E61D` | withheld | **validated** |
+| `EA5C61862BB8DA56` | withheld | **validated** |
+| `59BD662C0D4FE1A7` | withheld | **validated** |
+| `654AB29A910A5DB9` | withheld | **validated** |
+| `A3A50C108B7F4646` | withheld | **validated** |
+| `4DE22E685A04F9D7` | withheld | **validated** |
+| `BDA1DE2F3481295F` | withheld | **validated** |
+| `1131B8910ECF19D7` | validated | validated — label-only (TD6) |
+| `D3396D14BA8A6A4A` | withheld | withheld — 36 rows recovered, one OCR-damaged amount refuses |
+| `2A0B516B2C7D652E` | withheld | withheld — one row fewer, a section that no longer swallows its neighbour |
+
+The tool reports FIELD NAMES only. On the eleven lifts the named containers are
+the whole payload, which is what a `withheld_adb` document publishing a
+validated one looks like; TD6 is where the one label-only mover is opened to
+the leaf, because that is the finding where the container list would otherwise
+be the only evidence.
+
+## TD14. Privacy
+
+`python -m tools.withheldtd_privacy_scan --rows … --data-dir … --base 10cc722`
+over all **126** documents of the three families (8,717 distinct distinctive
+tokens, 28,259 three-token printed phrases):
+
+* **A. distinctive tokens in the branch diff: 0** — no figure with non-zero
+  cents, no account number, no long serial, no non-furniture capitalised run.
+* **B. three-token printed phrases in the branch diff: 0** — nothing that looks
+  like a block copied out of a document.
+* C. 61 adjudicated collisions, printed with their counts: round figures a
+  fixture built before any document was read cannot avoid (`100.00` is printed
+  278 times across the corpus), and the bank's own furniture — column legends,
+  section headings, transaction codes, the issuer line, the FDIC footer — which
+  the parsers key on by construction.
+
+The scan found three strings in new fixtures that were TD's own wording rather
+than invented: two fee labels and one vocabulary row. All three are now
+invented, and nothing structural depended on them. `$0.00` vendor spend: no
+hosted model call anywhere in this card, tests included.
+
+## TD15. Risks, pinned first
+
+1. **Pinned: none open.** Gate GREEN at 105/3/1, slice 30 green, and 5 of the 6
+   pinned `td_canada` byte-identical in the archive replay. The pin this came
+   closest to is `960E4D60`, which carries an ambiguous date group and is
+   unchanged because the code reading there already reproduces the printed
+   change — the property M-INERT-1 exists to keep runnable.
+2. **The tie-break can misattribute a row, and cannot misstate money.** Where
+   two admissible splits have the same credit-row COUNT, no printed evidence
+   distinguishes them and the reader takes the smallest change from its default.
+   Every monetary figure is identical across them; what can be wrong is which
+   row is called a deposit, which feeds revenue attribution. On the 11 groups
+   this card actually resolves, the printed counts agree, so no such case is
+   live today.
+3. **A `$0.00` row TD coded as a deposit is published as a withdrawal** on a
+   group the new branch reaches. No money moves; the printed count is the
+   evidence. Not observed on this archive, and recorded rather than guarded,
+   because a guard on a branch nothing reaches is a claim a reader cannot check.
+4. **`2A0B516B` loses a row it used to capture.** It was captured under the
+   wrong heading with the wrong total; the section that owns it prints
+   `Subtotal:` with a comma where the decimal point belongs, and reading that
+   figure is what the repair doctrine forbids. The document is withheld either
+   way. A `SUBTOTAL-GLYPH` card could read it as a money grammar question — it
+   is not one this card may answer.
+5. **One `td_us` cross-boundary binding survives and is unreachable**
+   (`A7E4B895E2A96F96`, no readable `Statement Period:`, so `_section` is never
+   called). If a future change makes that document parse, the binding becomes
+   live; the fixture that pins the rule is in place.
+6. **`stated_daily_balances` is still unpublished on both TD grids** (TD10). It
+   moves no verdict and costs a label change on 86 documents including five
+   pinned — a ceremony-shaped card, with a measured trap: 71 of the 86 print a
+   date twice with two different balances.
