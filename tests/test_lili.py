@@ -173,6 +173,85 @@ SKIN_A_FEES_PRINTED_POSITIVE = (
 )
 
 
+#: Three money columns whose SECOND column is idle, so the total column and
+#: the checking column carry the same figures. Reading the wrong column is
+#: invisible here — which is exactly why it isolates the §L-1 COLUMN reading
+#: from the chain: with the columns identical, only "this summary prints more
+#: than one money column" can refuse it.
+SKIN_A_THREE_COLUMNS_IDLE_COLLATERAL = (
+    HEADER
+    + "Checking Account Summary Checking Account\n"
+    "BusinessBuild\n"
+    "Collateral\n"
+    "Beginning balance on 1 March, 2026 $100.00 $0.00 $100.00\n"
+    "Deposits and other credits $500.00 $0.00 $500.00\n"
+    "Withdrawals and other debits $-300.00 $0.00 $-300.00\n"
+    "Fees $-10.00 $0.00 $-10.00\n"
+    "Ending balance on 31 March, 2026 $290.00 $0.00 $290.00\n"
+    + LEDGER + DISCLOSURE
+)
+
+#: A summary whose Beginning and Deposits terms are both wrong, in step, so
+#: that the summary still closes on itself and the rows still total to the two
+#: debit terms. Only the chain ANCHORED AT THE PRINTED BEGINNING can see it:
+#: a walk that started from the first row's own implied opening would arrive
+#: at the printed ending and find nothing wrong.
+SKIN_A_OPENING_ANCHOR_BROKEN = (
+    HEADER
+    + "Checking Account Summary Total Checking Amount\n"
+    "Beginning balance on 1 March, 2026 $150.00\n"
+    "Deposits and other credits $450.00\n"
+    "Withdrawals and other debits $-300.00\n"
+    "Fees $-10.00\n"
+    "Ending balance on 31 March, 2026 $290.00\n"
+    + LEDGER + DISCLOSURE
+)
+
+#: A posting whose date is not a calendar date, placed where SKIPPING it would
+#: leave the chain, the summary and the gross debits all intact — a zero
+#: amount against an unchanged balance. Only "a posting I cannot read refuses
+#: the document" can see it.
+SKIN_A_UNREADABLE_POSTING_THAT_NETS_TO_NOTHING = (
+    HEADER + SUMMARY
+    + "Checking Account Activity - Main Account\n"
+    "Date Authorization Code Description Amount Balance\n"
+    "03/02/2026 111111111 A MERCHANT SOMEWHERE STUS $-300.00 $-200.00\n"
+    "03/20/2026 222222222 Wire Transfer $500.00 $300.00\n"
+    "13/45/2026 666666666 A HELD AUTHORISATION STUS $0.00 $300.00\n"
+    "03/31/2026 333333333 Plan Fee (Effective Date 03/09/2026) $-10.00 $290.00\n"
+    + DISCLOSURE
+)
+
+#: A month whose summary closes with no movement at all and whose ledger head
+#: is printed with nothing under it. This template prints no "no transactions
+#: this period" banner, so a ledger with no rows and a ledger this reader
+#: failed to read are the same text, and it is refused.
+SKIN_A_LEDGER_HEAD_WITH_NO_ROWS = (
+    HEADER
+    + "Checking Account Summary Total Checking Amount\n"
+    "Beginning balance on 1 March, 2026 $100.00\n"
+    "Deposits and other credits $0.00\n"
+    "Withdrawals and other debits $0.00\n"
+    "Fees $0.00\n"
+    "Ending balance on 31 March, 2026 $100.00\n"
+    "Checking Account Activity - Main Account\n"
+    "Date Authorization Code Description Amount Balance\n"
+    + DISCLOSURE
+)
+
+#: A description carrying its own figures, on a line whose trailing anchor has
+#: to be what binds the amount and the balance columns.
+SKIN_A_FIGURE_INSIDE_A_DESCRIPTION = (
+    HEADER + SUMMARY
+    + "Checking Account Activity - Main Account\n"
+    "Date Authorization Code Description Amount Balance\n"
+    "03/02/2026 111111111 A MERCHANT SOMEWHERE STUS $-300.00 $-200.00\n"
+    "03/20/2026 222222222 Wire Transfer REF $9.99 $1.00 $500.00 $300.00\n"
+    "03/31/2026 333333333 Plan Fee (Effective Date 03/09/2026) $-10.00 $290.00\n"
+    + DISCLOSURE
+)
+
+
 def _swap(document: str, before: str, after: str) -> str:
     assert before in document, before
     return document.replace(before, after, 1)
@@ -261,17 +340,18 @@ def test_the_reader_claims_no_currency_and_no_product_name_of_its_own():
     assert statement.stated_debit_count is None
 
 
-def test_a_description_that_contains_a_figure_does_not_steal_the_amount_column():
+def test_a_description_that_contains_figures_does_not_steal_the_amount_column():
     """Merchant, city and country run together with no delimiter on this
     template, so the amount is the SECOND-TO-LAST money token of the line and
-    the balance is the last — never the first pair that appears."""
-    statement = parse_lili_statement(
-        _swap(SKIN_A, "Wire Transfer $500.00", "Wire Transfer REF $9.99 $500.00")
-    )
+    the balance is the last — never the first pair that appears. It is the
+    row pattern's END ANCHOR that binds those two columns, with the greedy
+    description behind it."""
+    statement = parse_lili_statement(SKIN_A_FIGURE_INSIDE_A_DESCRIPTION)
     assert statement is not None
     assert statement.transactions[1].amount == 500.00
     assert statement.transactions[1].running_balance == 300.00
     assert "$9.99" in statement.transactions[1].description
+    assert "$1.00" in statement.transactions[1].description
 
 
 # ---------------------------------------------------------------------------
@@ -314,6 +394,13 @@ def test_a_posting_date_that_is_not_a_calendar_date_refuses_the_document():
     ) is None
 
 
+def test_an_unreadable_posting_refuses_even_when_skipping_it_would_reconcile():
+    """A row this reader cannot date is not a row it may leave out: here the
+    unreadable posting moves no money and repeats the balance above it, so
+    every arithmetic gate closes with it dropped."""
+    assert parse_lili_statement(SKIN_A_UNREADABLE_POSTING_THAT_NETS_TO_NOTHING) is None
+
+
 def test_a_non_calendar_date_inside_a_description_refuses_the_document():
     """Away from the date column, only the §INTEGRITY gate ever looks at this
     token — and it must answer, not raise."""
@@ -350,6 +437,15 @@ def test_the_credit_builder_printing_as_the_archive_prints_it_is_refused():
     documents exist beside it."""
     assert detect(SKIN_A_TWO_ACCOUNTS).claims
     assert parse_lili_statement(SKIN_A_TWO_ACCOUNTS) is None
+
+
+def test_a_second_money_column_is_refused_even_when_it_is_idle():
+    """With the collateral column all zeros the total column and the checking
+    column agree, so no arithmetic gate can tell them apart — and the reader
+    still refuses, because a printed second column is a second account and
+    this template prints no "no transactions this period" banner that would
+    make the sibling an admitted idle one."""
+    assert parse_lili_statement(SKIN_A_THREE_COLUMNS_IDLE_COLLATERAL) is None
 
 
 def test_a_second_ledger_is_refused_even_when_the_summary_has_one_column():
@@ -517,15 +613,12 @@ def test_a_posting_pair_the_summary_nets_out_is_refused():
 
 
 def test_a_first_posting_that_does_not_step_from_the_printed_beginning_is_refused():
-    """The chain is anchored at the printed beginning, not at the first row's
-    own printed balance: both summary figures move here so the summary still
-    closes on itself, and only the anchored walk can see it."""
-    document = SKIN_A
-    document = _swap(document, "Beginning balance on 1 March, 2026 $100.00",
-                     "Beginning balance on 1 March, 2026 $150.00")
-    document = _swap(document, "Ending balance on 31 March, 2026 $290.00",
-                     "Ending balance on 31 March, 2026 $340.00")
-    assert parse_lili_statement(document) is None
+    """The chain is anchored at the printed BEGINNING, not at the first row's
+    own implied opening. Beginning and Deposits move together here, so the
+    summary still closes, the last printed balance is still the printed
+    ending, and the gross debits still total to the two debit terms — a walk
+    that started from the first row would find nothing wrong."""
+    assert parse_lili_statement(SKIN_A_OPENING_ANCHOR_BROKEN) is None
 
 
 def test_a_description_that_cleans_away_to_nothing_refuses_the_document():
@@ -540,3 +633,11 @@ def test_an_unreadable_ledger_refuses_rather_than_publishing_a_partial_one():
     """No postings at all is not an empty statement — it is a ledger this
     reader could not read."""
     assert parse_lili_statement(HEADER + SUMMARY + DISCLOSURE) is None
+
+
+def test_a_ledger_head_with_no_rows_under_it_refuses_rather_than_publishing_zero():
+    """The summary closes with no movement, so every arithmetic gate is happy
+    with an empty ledger. This template prints no "no transactions this
+    period" banner, so a month that had none and a ledger this reader failed
+    to read are the same text, and both fail closed."""
+    assert parse_lili_statement(SKIN_A_LEDGER_HEAD_WITH_NO_ROWS) is None

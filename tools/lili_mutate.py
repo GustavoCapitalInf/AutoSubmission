@@ -187,12 +187,21 @@ MUTATIONS: dict[str, tuple[str, str]] = {
     ),
 
     # -------------------------------------------------------------- the rows
-    # M24 — the description is non-greedy, so the FIRST pair of money tokens
-    #       on the line is taken and a figure inside a description becomes the
-    #       amount.
-    "M24_description_is_non_greedy": (
-        'r"(?P<description>\\S.*)[ \\t]+(?P<amount>"',
-        'r"(?P<description>\\S.*?)[ \\t]+(?P<amount>"',
+    # M24 — the two money columns lose their binding: the end anchor goes and
+    #       the description becomes non-greedy together, so the FIRST pair of
+    #       money tokens on the line is taken and a figure inside a
+    #       description becomes the amount.
+    #
+    #       Either half ALONE is an equivalent mutant and is recorded here as
+    #       one rather than dressed up as a kill: with the end anchor in
+    #       place, backtracking pins the last two tokens whether the
+    #       description is greedy or not; with the description greedy,
+    #       backtracking from the end of the line does the same without the
+    #       anchor. It is the PAIR that binds the columns, and this mutant
+    #       breaks the pair.
+    "M24_row_columns_unbound": (
+        'r"(?P<description>\\S.*)[ \\t]+(?P<amount>" + _MONEY + r")[ \\t]+(?P<balance>" + _MONEY + r")[ \\t]*$",',
+        'r"(?P<description>\\S.*?)[ \\t]+(?P<amount>" + _MONEY + r")[ \\t]+(?P<balance>" + _MONEY + r")",',
     ),
     # M25 — a row whose date is not a calendar date is skipped rather than
     #       refusing the document.
