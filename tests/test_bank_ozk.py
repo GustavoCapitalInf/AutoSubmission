@@ -406,3 +406,27 @@ def test_an_unreachable_step_is_an_empty_answer_and_not_a_budget_refusal():
     from analysis.bank_ozk import _day_solutions
 
     assert _day_solutions([100, 300], 50) == []
+
+
+def test_the_cross_day_search_has_a_budget_too():
+    """The global walk aborts as soon as two solutions exist, so its expensive
+    shape is a document with ONE solution or none and a wide tree. Thirty days
+    each admitting two credit counts is 2^30 count paths and exactly one that
+    sums to the target; the budget stops it and a stopped search is a
+    refusal."""
+    from analysis.bank_ozk import _unique_global
+
+    per_day = [[frozenset(), frozenset({0}), frozenset({1})] for _ in range(30)]
+    counts = [[0, 1] for _ in range(30)]
+    assert _unique_global(per_day, counts, 0) is not None  # the trivial one
+    assert _unique_global(per_day, counts, 30) is None  # 2^30 ways, budget stops it
+
+
+def test_the_cross_day_search_still_answers_a_small_one_exactly():
+    from analysis.bank_ozk import _unique_global
+
+    per_day = [[frozenset({0}), frozenset({1, 2})], [frozenset({0})]]
+    counts = [[1, 2], [1]]
+    assert _unique_global(per_day, counts, 2) == [frozenset({0}), frozenset({0})]
+    assert _unique_global(per_day, counts, 3) == [frozenset({1, 2}), frozenset({0})]
+    assert _unique_global(per_day, counts, 9) is None

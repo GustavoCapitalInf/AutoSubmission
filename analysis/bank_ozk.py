@@ -224,6 +224,10 @@ _ROW_DATE_RE = re.compile(r"(?<![\d/])(0[1-9]|1[0-2])/(0[1-9]|[12]\d|3[01])(?!\d
 _MAX_DAY_ROWS = 64
 _MAX_DAY_NODES = 200_000
 _MAX_DAY_SOLUTIONS = 64
+#: The same discipline over the CROSS-DAY search. It aborts as soon as two
+#: global solutions exist, so the expensive shape is a document with one
+#: solution or none and a wide tree; this bounds that too.
+_MAX_GLOBAL_NODES = 200_000
 
 
 def _day_solutions(amounts: list[int], residual: int) -> list[frozenset[int]] | None:
@@ -292,9 +296,16 @@ def _unique_global(
         highs[index] = highs[index + 1] + max(counts[index])
 
     found: list[list[frozenset[int]]] = []
+    nodes = 0
+    overflow = False
 
     def walk(index: int, accumulated: int, chosen: list[frozenset[int]]) -> None:
-        if len(found) > 1:
+        nonlocal nodes, overflow
+        if overflow or len(found) > 1:
+            return
+        nodes += 1
+        if nodes > _MAX_GLOBAL_NODES:
+            overflow = True
             return
         if index == len(per_day):
             if accumulated == credit_count:
@@ -307,10 +318,12 @@ def _unique_global(
             chosen.append(solution)
             walk(index + 1, accumulated + len(solution), chosen)
             chosen.pop()
-            if len(found) > 1:
+            if overflow or len(found) > 1:
                 return
 
     walk(0, 0, [])
+    if overflow:
+        return None
     return found[0] if len(found) == 1 else None
 
 
@@ -345,7 +358,7 @@ def _rows(text: str, start: date, end: date) -> tuple[list[_Row], list[_Row]] | 
     cheques: list[_Row] = []
     for region in _regions(text, _CHECK_HEAD_RE):
         for match in re.finditer(
-            r"(?<![\d/])(\d{2,8})\*?\s+(\d{2}/\d{2})\s+(" + _CENTS + r")", region
+            r"(?<![\d/.])(\d{2,8})\*?\s+(\d{2}/\d{2})\s+(" + _CENTS + r")", region
         ):
             iso = iso_unique_in_period(
                 int(match.group(2)[0:2]), int(match.group(2)[3:5]), start=start, end=end
