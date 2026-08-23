@@ -43742,6 +43742,12 @@ ground. FZ7 is the measured packet for the ruling that would change that: 6 of
 9 would validate under a derived period, and the other 3 would not, for a
 reason worth reading.
 
+**THE ACCOUNTING, so no rollup can round it up.** This card is **+8
+validated** and **+9 withheld**. It is never "+17": seventeen documents are
+CLAIMED and seventeen PUBLISH, and nine of those publish a ledger with the
+average deliberately withheld. Wherever this section says 17 it is counting
+documents, never coverage.
+
 **Bank OZK** prints almost nothing that helps: the text layer collapses the
 `DEBITS` and `CREDITS` columns onto one position, so the direction of a row is
 absent — and the census proved it is worse than absent, since identically
@@ -43931,21 +43937,25 @@ Two is a refusal.
 
 Measured at HEAD with the committed instrument:
 
-The instrument's own field names, so the table and the log say the same thing:
+The instrument's own field names, so the table and the log say the same thing.
 `locally_ambiguous_days` is how many of the grid's days admit more than one
-sign assignment on their own, and `days_needing_the_printed_count` is how many
-of those the cross-day constraint had to settle.
+sign assignment on their own. `global_unique` is the READER'S OWN ANSWER: the
+instrument calls `_unique_global`, which returns a solution only when exactly
+one exists. (The column that stood here before the review reported a PROXY —
+whether the minimum achievable credit count already equalled the printed one —
+which does not establish uniqueness at all. MINOR-1; the instrument was
+corrected, not the number.)
 
-| document | grid days | cheque rows | other rows | `locally_ambiguous_days` | `days_needing_the_printed_count` | published |
+| document | grid days | cheque rows | other rows | `locally_ambiguous_days` | `global_unique` | published |
 |---|---|---|---|---|---|---|
-| `12CB962E…` | 19 | 0 | 36 | 0 | 0 | yes |
-| `27FB6812…` | 21 | 14 | 72 | **1** | **1** | yes |
-| `3261C8B1…` | 20 | 11 | 70 | 0 | 0 | yes |
-| `4A1403F4…` | 19 | 13 | 82 | 0 | 0 | yes |
-| `6E589801…` | 17 | 0 | 39 | 0 | 0 | yes |
-| `6F85B52C…` | 20 | 17 | 70 | 0 | 0 | yes |
-| `78A4F9E9…` | 20 | 0 | 40 | 0 | 0 | yes |
-| `9BE2AD7D…` | 21 | 0 | 57 | 0 | 0 | yes |
+| `12CB962E…` | 19 | 0 | 36 | 0 | True | yes |
+| `27FB6812…` | 21 | 14 | 72 | **1** | True | yes |
+| `3261C8B1…` | 20 | 11 | 70 | 0 | True | yes |
+| `4A1403F4…` | 19 | 13 | 82 | 0 | True | yes |
+| `6E589801…` | 17 | 0 | 39 | 0 | True | yes |
+| `6F85B52C…` | 20 | 17 | 70 | 0 | True | yes |
+| `78A4F9E9…` | 20 | 0 | 40 | 0 | True | yes |
+| `9BE2AD7D…` | 21 | 0 | 57 | 0 | True | yes |
 
 One ambiguous day in the whole family — 1 of the 157 days these eight grids
 carry — on the document the census named, and the printed count settles it.
@@ -43970,6 +43980,14 @@ figures can:
   sum is compared against a figure that came from the SUMMARY BLOCK. Two
   printed sources meeting, on 8 of 8;
 * **the printed day count**, against the two printed as-of dates. 8 of 8.
+
+**What the totals do NOT check, stated here because the module docstring used
+to overstate it (MAJOR-1).** Each day's credit sum is `(residual + S) / 2` —
+identical for every sign assignment of that day — so the totals cannot
+discriminate between two assignments and are not a check on DIRECTION. They
+check the ROW SPLIT and the GRID READING. The residue that leaves is a grid
+cell misread by EXACTLY twice some row's amount, which moves that row across
+the ledger and leaves every oracle intact; FZ11 carries it.
 
 A fourth, weaker one is worth recording because it is external to everything
 above: the four `INTEREST PLUS` members print the bank's own `AVERAGE LEDGER
@@ -44155,11 +44173,19 @@ counterfactual measured rather than estimated
 | ADB publishes, every required check passing | **6** |
 | ADB still withheld | **3** |
 
-The three are not noise and the reason is worth the ruling's time. On exactly
-the three cycles whose calendar month-end falls on a WEEKEND, the bank's cycle
-date is the preceding banking day while its two service-charge rows post on the
-month-end — so two postings are dated after the last cell of the bank's own
-daily grid. Under the derived period those rows fall outside it and both
+The three are not noise and the reason is worth the ruling's time — and the
+quantifier matters, because an earlier draft of this paragraph got it wrong
+(MINOR-3). **FIVE** of the nine documents sit on a cycle whose calendar
+month-end falls on a WEEKEND, so the cycle date is the preceding banking day.
+On those five the bank's grid could carry a late posting; on **three** of them
+it actually does, because those three are the ones that also bill a service
+charge, and the charge posts on the month-end. The other two weekend-cycle
+documents bill none, so nothing posts late and they publish. It is the
+CONJUNCTION — a weekend month-end AND a billed charge — that breaks the derived
+period, not the weekend alone.
+
+On those three, two postings are dated after the last cell of the bank's own
+daily grid; under the derived period they fall outside it and both
 `transactions_within_period` and `ledger_reconciles_to_closing` go red. The
 platform's calendar-day doctrine and this bank's banking-day cycle disagree,
 and the disagreement is visible in exactly 3 of 9 documents.
@@ -44218,6 +44244,26 @@ answer is no, the 9 stay withheld and the reader is already correct. If the
 answer is yes, the reader also has to drop the carry-in snapshot, and FZ7 says
 why.
 
+**THE ADMISSIBILITY RULE the adversarial review proposed, recorded because it
+is more useful than this one answer.** A derived period is admissible only if
+BOTH hold:
+
+1. it is checkable against a SECOND printed figure on the SAME document — not
+   against the neighbouring statement, and not against a pattern across the
+   family; and
+2. no posted row of any document in the family falls outside it.
+
+Bank OZK passes both: the printed `NUMBER OF DAYS IN THIS STATEMENT PERIOD` is
+the second figure, and 0 rows fall outside on 8 of 8. **Frost fails both** —
+there is no second figure on the page, and 6 rows across 3 documents fall
+outside. The rule explains the two families' opposite treatment on this card
+without appealing to either family's outcome.
+
+**Ocean's recommendation to Gustavo is REFUSE**, on the ground the rule makes
+explicit: a derived period imports a BANKING-day boundary into a CALENDAR-day
+metric, and a third of the family contradicts it. Recorded here so the decision
+and its reasoning travel with the measurement.
+
 **Q2 (a disclosure, not a request).** The three Frost documents in Q1 are the
 first archive evidence of a bank whose own daily-balance grid does not cover
 its own last posting date. That is a printed contradiction, not an extraction
@@ -44258,7 +44304,7 @@ cells throughout, which is why the wall-clock figures are what they are.
 | non-target probe | `… --claims-only frost --claims-only bank_ozk` over all 3,380 shas → `SUMMARY {"claimed:bank_ozk": 8, "claimed:frost": 9, "no_cached_text": 29, "scored": 3351}` — `EXIT=0`; both claimed sets `diff`-identical to the named lists |
 | mutation table | 41 mutants, no `-x`, clean tree, restored with `git checkout --` → **39 KILLED, 2 SURVIVED, 0 NOT-APPLIED, 0 INVALID, 0 collection errors** — `EXIT=0` |
 | FROST-PERIOD packet | `frost_period_packet.py` (read-only, no production change) → **WOULD PUBLISH 6/9** — `EXIT=0` |
-| privacy scan | 3,374 literals from the 17 against the whole branch diff → **0 full dates, 0 digit runs of five or more, 0 money literals carrying cents** — `EXIT=0` |
+| privacy scan | 2,429 literals from the 17 against the whole branch diff → **money carrying cents 0 · full dates 0 · digit runs ≥5 0 remaining** (1 raw, 1 declared furniture, named in the log) **· words 193 of 752, reviewed** — `VERDICT: CLEAN`, `EXIT=0`. The instrument first asserts its own file carries no control byte (`[]`) and that all 6 of its patterns match their own shape |
 | archive sweep | 14 contiguous chunks of 250 covering **all 3,380 documents**, 6,534.2s — see below |
 
 ### FZ10.1 The archive sweep, chunk by chunk and added
@@ -44326,32 +44372,80 @@ the average withheld for want of a printed period; zero integrity flags):
 17 published, 8 validated. The other nine are an honest refusal of one metric
 on documents whose ledgers reconcile to the cent.
 
-### FZ10.3 The privacy scan, and the three literals it caught
+### FZ10.3 The privacy scan — the instrument was inert, and what it hid
 
-The scan builds its literal set from the cached OCR text of the seventeen —
-1,284 money tokens, 124 full dates, 1,214 digit runs of five or more, 752 words
-of four or more characters, **3,374 literals** — and counts each one's
-occurrences in the complete branch diff.
+**This is the card's worst finding and it is the cell's own.** The first
+version of the scan was written through a SHELL HEREDOC, which ate the
+backslash of every `\b` and left a literal `0x08` BACKSPACE byte in its place.
+Two of the four patterns — the full-date pattern and the digit-run pattern —
+therefore could not match anything, and the two zeros this section reported for
+them were VACUOUS. The adversarial review found it. It is the identical defect
+ATB-MEASURE found in batch 7, which is what makes it worth this much space: a
+heredoc is not an editor, and an instrument that reports a zero it cannot fail
+to report is worse than no instrument.
 
-* **full dates: 0 hits.** **Digit runs of five or more: 0 hits.**
-* **Money carrying real CENTS: 0 hits.** It was THREE on the first run, and all
-  three were figures this cell had taken from the census's quotation of real
-  rows rather than invented: a sub-dollar example in a module docstring, a
-  split-row test fixture, and a quoted-amount trap. All three are now figures
-  checked absent from the archive. Sixteen whole-dollar round numbers still
-  intersect (`10.00`, `500.00`, `1,000.00`) and are coincidence: they are what
-  anybody invents.
-* **Words: 185 of 752 appear.** Reviewed by hand, and every one is the
-  printing's own structural vocabulary (`BALANCE`, `DEPOSITS`, `WITHDRAWALS`,
-  `SERIAL`, `STATEMENT`), ordinary English, platform vocabulary that coincides,
-  or declared institution furniture (`FROST`, `OZARK`, `TEXAS`, `FDIC`, `P.O.`).
-  One place name — the obligor's city, quoted from the census — was found on
-  the first pass and removed. No customer, person or merchant name appears.
+The repaired scan refuses to run at all if the defect returns. It asserts its
+own file carries no control byte but tab, LF and CR (`[]` at HEAD), and it
+probes each of its six patterns against a synthetic instance of the shape that
+pattern names, refusing on any inert one (`all 6 patterns match their own
+shape`). Both checks print before any measurement.
 
-The institution furniture this card deliberately carries is a bank's public
-toll-free number, its post box, and its service centre's town, state and ZIP —
-justified in both module docstrings, and the only issuer evidence two of the
-eight OZK documents carry.
+**What the repair found: five archive full-date literals in the diff**, every
+one a real printed date, four of them introduced by this cell. Described rather
+than quoted — a leak documented by re-printing it has not been closed, and this
+table is inside the diff the scan reads:
+
+| # | shape | where it was | what it was |
+|---|---|---|---|
+| 1 | `mm-dd-yyyy` | `tests/test_frost.py`, the MASTHEAD cycle date | a real `STATEMENT ISSUED` date, printed on two documents |
+| 2 | `mm-dd-yyyy` | `tests/test_frost.py`, the year-boundary variant | a second real cycle date, printed on two documents |
+| 3 | `mm-dd-yyyy` | `tests/test_frost.py`, the two-issued-dates refusal | a third real cycle date, printed on two documents |
+| 4 | `mm/dd/yy` | `tests/test_bank_ozk.py`, the inverted-as-of test | a real `BALANCE AS OF` date on four OZK documents (mitigated: the same literal is already on base in unrelated fixtures) |
+| 5 | `dd/mm/dd` | `analysis/bank_ozk.py` comment AND `tests/test_bank_ozk.py` | the exact date-shaped wire-reference token from ONE document, copied via the census quotation; not on base |
+
+Six of the nine Frost cycle dates were reachable from one test file. Both
+module docstrings asserted that no archive date appeared in them, and as
+committed that assertion was FALSE. Closed by moving both fixtures into a year
+the archive does not contain — every Frost fixture date to 2027, every OZK
+fixture date to 2027, the two split-trap tokens to invented shapes that
+exercise the same guards — and by rewriting both docstrings to say the claim is
+CHECKED and to name the instrument that checks it.
+
+**The four class counts at HEAD, all four reported:**
+
+| class | literals in the archive set | in the diff | verdict |
+|---|---|---|---|
+| money carrying real CENTS | 1,284 money tokens surveyed | **0** | must be 0 |
+| money, whole-dollar round | — | 16 | coincidence: `10.00`, `500.00`, `1,000.00` are what anybody invents |
+| full dates | 124 | **0** | must be 0 |
+| digit runs ≥ 5 | 269 | 1 raw → **0 remaining** | see the carve-out below |
+| words ≥ 4 | 752 | 193 | reviewed by hand |
+
+(The archive literal set is 2,429 distinct literals. It was reported as 3,374 while the digit-run pattern was inert — that pattern was matching a looser shape and inflating its own class, which is a second way the broken instrument misreported itself.)
+
+**THE FURNITURE CARVE-OUT, printed as its own line rather than applied
+silently** — the review was right that a zero with an undisclosed exemption is
+a claim and not a measurement. The digit-run class subtracts exactly four
+declared literals: the two Frost toll-free fragments, the OZK toll-free number,
+and the OZK service-centre ZIP. Of those, exactly **one** actually occurs in
+the diff and is named in the log line: the ZIP `72949`. The other three are
+declared and unused. Institution furniture — a bank's public toll-free number,
+its post box and its service centre's ZIP — is accepted as furniture on the
+condition that the carve-out is stated, and this is that statement. It is also
+load-bearing: that block is the only issuer evidence two of the eight OZK
+documents carry.
+
+**Words: 193 of 752.** Reviewed by hand; every one is the printing's own
+structural vocabulary (`BALANCE`, `DEPOSITS`, `WITHDRAWALS`, `SERIAL`,
+`STATEMENT`), ordinary English, platform vocabulary that coincides, or the
+declared furniture. One place name — an obligor's city, quoted from the
+census — was found on an earlier pass and removed. No customer, person or
+merchant name appears.
+
+**Money carrying cents was also 3 on an earlier pass** and those three were
+likewise census quotations rather than inventions: a sub-dollar example in a
+module docstring, a split-row test fixture and a quoted-amount trap. All are
+now figures checked absent from the archive.
 
 ## FZ11. Risks carried
 
@@ -44379,3 +44473,29 @@ eight OZK documents carry.
 5. **`first`-versus-`last` amount on an OZK row is undecided by the archive**
    (FZ4.4). Documented, pinned, and named here so it is a known limit rather
    than a discovery.
+6. **The one misreading the OZK oracles cannot see** (MAJOR-1). A grid cell
+   misread by EXACTLY twice some row's amount moves that row across the ledger
+   and leaves every check intact: the day still solves, both printed totals
+   still reproduce, both counts still agree. It needs one printed figure to be
+   misread into another printed figure's double, which is not a shape a native
+   text layer produces — but the oracles do not exclude it, and saying the
+   totals are "an independent check on the whole solve" (as the module
+   docstring did until this review) claims they do.
+7. **The OZK reader's false-refusal shape, named** (MINOR-6). A day carrying
+   two rows of EQUAL magnitude on opposite sides admits two global solutions
+   that the printed counts cannot separate — each credits exactly one row — so
+   the reader refuses a document that is perfectly well determined to a human
+   reading the columns. No archive document has one; the cost is a refusal and
+   never a wrong ledger, which is the right direction, but it is a real class
+   of document this reader will decline.
+8. **For SCAN-HYGIENE, which owns the `_sole` consolidation** (MINOR-4 and
+   MINOR-5, record only, nothing owed by this card). First:
+   `analysis.tables.unique_match` compares `match.groups()`, which is `()` for
+   a pattern with no capture groups — so on a group-less pattern it degrades
+   silently to first-match rather than refusing a contradictory second reading.
+   All six of this card's call sites pass grouped patterns, so nothing here is
+   affected. Second: `analysis/eq_bank_scanned.py` still carries a private
+   `_sole`, and the clone guard cannot see it because that guard hashes
+   function BODIES; it is a semantic near-clone and NOT behaviourally
+   equivalent — it refuses on differing matches where the group-less path of
+   `unique_match` would not.

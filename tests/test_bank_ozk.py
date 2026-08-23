@@ -19,7 +19,7 @@ SERVICE = (
 )
 
 HEADER = (
-    "Statement Date: 02/28/2026\n"
+    "Statement Date: 08/31/2027\n"
     "Account Number: 000000\n"
     "SAMPLE CHECKING* ACCOUNT - 000000\n"
 )
@@ -28,8 +28,8 @@ HEADER = (
 def summary(*, credits_count: int = 2, credits: str = "13.00",
             debits_count: int = 2, debits: str = "3.00",
             previous: str = "100.00", current: str = "110.00",
-            previous_as_of: str = "01/31/26", current_as_of: str = "02/28/26",
-            days: int = 28) -> str:
+            previous_as_of: str = "07/30/27", current_as_of: str = "08/31/27",
+            days: int = 32) -> str:
     return (
         f"PREVIOUS STATEMENT BALANCE AS OF {previous_as_of}: {previous} "
         f"PLUS     {credits_count}   DEPOSITS AND OTHER CREDITS: {credits} "
@@ -43,13 +43,13 @@ def summary(*, credits_count: int = 2, credits: str = "13.00",
 #: determine — 3.00 against 1.00 + 2.00 — followed by a day that does.
 ROWS = (
     "OTHER TRANSACTIONS DATE DESCRIPTION DEBITS CREDITS "
-    "02/02 SAMPLE ALPHA 3.00 02/02 SAMPLE BETA 1.00 02/02 SAMPLE GAMMA 2.00 "
-    "02/03 SAMPLE DELTA 10.00\n"
+    "08/02 SAMPLE ALPHA 3.00 08/02 SAMPLE BETA 1.00 08/02 SAMPLE GAMMA 2.00 "
+    "08/03 SAMPLE DELTA 10.00\n"
 )
 
 GRID = (
     "BALANCE BY DATE\n"
-    "DATE AMOUNT            DATE AMOUNT 02/02 100.00 02/03 110.00\n"
+    "DATE AMOUNT            DATE AMOUNT 08/02 100.00 08/03 110.00\n"
 )
 
 
@@ -96,19 +96,19 @@ def test_it_does_not_claim_a_mixed_case_balance_by_date_platform():
 
 def test_the_period_opens_the_day_after_the_previous_statement_closed():
     stmt = parse_bank_ozk_statement(document())
-    assert (stmt.period_start, stmt.period_end) == ("2026-02-01", "2026-02-28")
-    assert stmt.days_in_period == 28
+    assert (stmt.period_start, stmt.period_end) == ("2027-07-31", "2027-08-31")
+    assert stmt.days_in_period == 32
 
 
 def test_a_printed_day_count_that_contradicts_the_two_as_of_dates_refuses():
     """The document states both endpoints and then states the length; where the
     two disagree the period is not printed evidence and nothing is published."""
-    assert parse_bank_ozk_statement(document(block=summary(days=27))) is None
+    assert parse_bank_ozk_statement(document(block=summary(days=31))) is None
 
 
 def test_an_inverted_pair_of_as_of_dates_refuses():
     assert parse_bank_ozk_statement(
-        document(block=summary(previous_as_of="03/31/26", current_as_of="02/28/26", days=28))
+        document(block=summary(previous_as_of="09/30/27", current_as_of="08/31/27", days=32))
     ) is None
 
 
@@ -145,7 +145,7 @@ def test_a_day_the_printed_count_cannot_separate_is_refused():
     reader. A refusal is an answer."""
     rows = (
         "OTHER TRANSACTIONS DATE DESCRIPTION DEBITS CREDITS "
-        "02/02 SAMPLE ALPHA 1.00 02/02 SAMPLE BETA 1.00 02/03 SAMPLE DELTA 10.00\n"
+        "08/02 SAMPLE ALPHA 1.00 08/02 SAMPLE BETA 1.00 08/03 SAMPLE DELTA 10.00\n"
     )
     block = summary(credits_count=2, credits="11.00", debits_count=1, debits="1.00")
     assert parse_bank_ozk_statement(document(block=block, rows=rows)) is None
@@ -153,18 +153,18 @@ def test_a_day_the_printed_count_cannot_separate_is_refused():
 
 def test_a_day_whose_step_no_assignment_reproduces_is_refused():
     assert parse_bank_ozk_statement(
-        document(grid=GRID.replace("02/02 100.00", "02/02 100.50"))
+        document(grid=GRID.replace("08/02 100.00", "08/02 100.50"))
     ) is None
 
 
 def test_cheques_are_known_debits_and_seed_their_day():
     checks = (
         "CHECK TRANSACTIONS SERIAL DATE AMOUNT SERIAL DATE AMOUNT "
-        "1000 02/02 1.00 1001* 02/02 2.00\n"
+        "1000 08/02 1.00 1001* 08/02 2.00\n"
     )
     rows = (
         "OTHER TRANSACTIONS DATE DESCRIPTION DEBITS CREDITS "
-        "02/02 SAMPLE ALPHA 3.00 02/03 SAMPLE DELTA 10.00\n"
+        "08/02 SAMPLE ALPHA 3.00 08/03 SAMPLE DELTA 10.00\n"
     )
     stmt = parse_bank_ozk_statement(document(checks=checks, rows=rows))
     assert stmt is not None
@@ -182,16 +182,16 @@ def test_the_captured_row_count_must_be_the_two_printed_counts():
     it — the day's step is unchanged and both printed totals still reproduce —
     so this check is the only thing standing between a phantom row and
     publication."""
-    extra = ROWS.rstrip("\n") + " 02/03 SAMPLE EPSILON 0.00\n"
+    extra = ROWS.rstrip("\n") + " 08/03 SAMPLE EPSILON 0.00\n"
     assert parse_bank_ozk_statement(document(rows=extra)) is None
 
 
 def test_the_grid_must_close_on_the_printed_current_balance():
-    assert parse_bank_ozk_statement(document(grid=GRID.replace("02/03 110.00", "02/03 110.01"))) is None
+    assert parse_bank_ozk_statement(document(grid=GRID.replace("08/03 110.00", "08/03 110.01"))) is None
 
 
 def test_a_row_dated_on_a_day_the_grid_does_not_carry_is_refused():
-    rows = ROWS.replace("02/03 SAMPLE DELTA", "02/04 SAMPLE DELTA")
+    rows = ROWS.replace("08/03 SAMPLE DELTA", "08/04 SAMPLE DELTA")
     assert parse_bank_ozk_statement(document(rows=rows)) is None
 
 
@@ -201,7 +201,7 @@ def test_an_off_grid_row_is_refused_and_never_silently_dropped():
     carries a ZERO amount, so DROPPING it leaves the row count, both totals and
     every day's step intact and the document would publish. Only refusing
     catches it. (W3 §FROSTOZK's mutation table, mutant O4.)"""
-    rows = ROWS.rstrip("\n") + " 02/04 SAMPLE EPSILON 0.00\n"
+    rows = ROWS.rstrip("\n") + " 08/04 SAMPLE EPSILON 0.00\n"
     block = summary(credits_count=2, debits_count=3)
     assert parse_bank_ozk_statement(document(block=block, rows=rows)) is None
 
@@ -215,12 +215,12 @@ def test_a_date_shaped_token_the_period_cannot_place_is_never_silently_dropped()
 
 
 def test_a_grid_day_with_no_rows_is_refused():
-    grid = GRID.replace("02/03 110.00", "02/03 110.00 02/05 110.00")
+    grid = GRID.replace("08/03 110.00", "08/03 110.00 08/05 110.00")
     assert parse_bank_ozk_statement(document(grid=grid)) is None
 
 
 def test_a_grid_date_printed_twice_with_two_values_is_refused():
-    grid = GRID.replace("02/03 110.00", "02/03 110.00 02/03 111.00")
+    grid = GRID.replace("08/03 110.00", "08/03 110.00 08/03 111.00")
     assert parse_bank_ozk_statement(document(grid=grid)) is None
 
 
@@ -231,10 +231,10 @@ def test_a_contradictory_grid_cell_is_refused_even_when_the_rest_would_close():
     the grid ends on the printed current balance — so taking the last reading
     would publish a statement built on a cell the document printed twice, two
     different ways. (W3 §FROSTOZK's mutation table, mutant O8.)"""
-    grid = GRID.replace("02/02 100.00", "02/02 100.00 02/02 105.00")
+    grid = GRID.replace("08/02 100.00", "08/02 100.00 08/02 105.00")
     rows = (
         "OTHER TRANSACTIONS DATE DESCRIPTION DEBITS CREDITS "
-        "02/02 SAMPLE ALPHA 5.00 02/03 SAMPLE DELTA 5.00\n"
+        "08/02 SAMPLE ALPHA 5.00 08/03 SAMPLE DELTA 5.00\n"
     )
     block = summary(credits_count=2, credits="10.00", debits_count=0, debits="0.00")
     assert parse_bank_ozk_statement(document(block=block, rows=rows, grid=grid)) is None
@@ -243,11 +243,11 @@ def test_a_contradictory_grid_cell_is_refused_even_when_the_rest_would_close():
 def test_a_negative_grid_balance_prints_its_minus_in_front():
     rows = (
         "OTHER TRANSACTIONS DATE DESCRIPTION DEBITS CREDITS "
-        "02/02 SAMPLE ALPHA 110.00 02/03 SAMPLE DELTA 120.00\n"
+        "08/02 SAMPLE ALPHA 110.00 08/03 SAMPLE DELTA 120.00\n"
     )
     block = summary(credits_count=1, credits="120.00", debits_count=1,
                     debits="110.00", current="110.00")
-    grid = GRID.replace("02/02 100.00", "02/02 -10.00")
+    grid = GRID.replace("08/02 100.00", "08/02 -10.00")
     stmt = parse_bank_ozk_statement(document(block=block, rows=rows, grid=grid))
     assert stmt is not None
     assert [e.balance for e in stmt.stated_daily_balances] == [-10.00, 110.00]
@@ -261,8 +261,8 @@ def test_a_negative_grid_balance_prints_its_minus_in_front():
 def _one_row(description: str) -> str:
     return (
         "OTHER TRANSACTIONS DATE DESCRIPTION DEBITS CREDITS "
-        f"02/02 SAMPLE ALPHA 3.00 02/02 SAMPLE BETA 1.00 02/02 SAMPLE GAMMA 2.00 "
-        f"02/03 {description}\n"
+        f"08/02 SAMPLE ALPHA 3.00 08/02 SAMPLE BETA 1.00 08/02 SAMPLE GAMMA 2.00 "
+        f"08/03 {description}\n"
     )
 
 
@@ -270,9 +270,9 @@ def _one_row(description: str) -> str:
     "description",
     [
         # A date-shaped token whose day field is three digits long.
-        "SAMPLE INVOICE 03/2026 10.00",
+        "SAMPLE INVOICE 05/2028 10.00",
         # A six-figure reference whose first pair is not a month.
-        "SAMPLE WIRE REF OF 26/04/01 10.00",
+        "SAMPLE WIRE REF OF 31/07/02 10.00",
         # A trace number printed AFTER the amount, with no decimal.
         "SAMPLE POS PURCHASE 10.00 000000",
         # A wrapped description continuation printed after the amount.
@@ -337,7 +337,7 @@ def test_a_second_account_number_refuses_the_document():
 def test_the_daily_grid_is_published_as_the_bank_printed_it():
     stmt = parse_bank_ozk_statement(document())
     assert [(e.date, e.balance) for e in stmt.stated_daily_balances] == [
-        ("2026-02-02", 100.00), ("2026-02-03", 110.00),
+        ("2027-08-02", 100.00), ("2027-08-03", 110.00),
     ]
 
 

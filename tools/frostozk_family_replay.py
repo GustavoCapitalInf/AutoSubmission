@@ -153,6 +153,7 @@ def _ozk_solve(markdown: str) -> str:
     credit_count = int(summary.group(3))
 
     locally_ambiguous = 0
+    per_day: list[list] = []
     counts: list[list[int]] = []
     balance = previous
     for day, printed_balance in sorted(grid.items()):
@@ -164,19 +165,21 @@ def _ozk_solve(markdown: str) -> str:
             return "unsolved_day"
         if len(solutions) > 1:
             locally_ambiguous += 1
+        per_day.append(solutions)
         counts.append(sorted({len(solution) for solution in solutions}))
         balance = printed_balance
 
-    # How many days the printed count still leaves open, once the cross-day
-    # constraint has chosen. Zero on every document the reader publishes.
-    residual_ambiguous = 0
-    total = sum(min(count) for count in counts)
-    if total != credit_count:
-        residual_ambiguous = sum(1 for count in counts if len(count) > 1)
+    # `global_unique` is the reader's OWN answer, not a proxy for it. The
+    # field this replaced reported zero whenever the minimum achievable credit
+    # count already equalled the printed one, which does not establish that the
+    # global solve is unique — it only says one particular choice reaches the
+    # target. Calling `_unique_global` is the rigorous form: it returns a
+    # solution only when exactly one exists.
+    solution = bank_ozk._unique_global(per_day, counts, credit_count)
     return (
         f"grid_days={len(grid)} cheque_rows={len(cheques)} other_rows={len(others)} "
         f"locally_ambiguous_days={locally_ambiguous} "
-        f"days_needing_the_printed_count={residual_ambiguous} "
+        f"global_unique={solution is not None} "
         f"published={statement is not None}"
     )
 

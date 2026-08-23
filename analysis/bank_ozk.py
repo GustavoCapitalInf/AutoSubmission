@@ -37,23 +37,37 @@ The reader:
    solutions under that constraint and publishes only when there is EXACTLY
    ONE. Two solutions is a refusal, not a coin toss.
 
-The printed credit and debit TOTALS are then a genuinely independent check on
-the whole solve: each day's credit sum is fixed by the daily grid, and their
-sum has to reproduce a figure that came from the summary block instead.
+WHAT THE PRINTED TOTALS DO AND DO NOT CHECK, because an earlier draft of this
+docstring overstated it and the review was right to say so. Each day's credit
+sum is `(residual + S) / 2` — a figure fixed by the printed balances and
+IDENTICAL for every sign assignment of that day — so the totals cannot
+discriminate between two assignments and are not a check on DIRECTION at all.
+What they check, against a figure that came from the summary block rather than
+from the grid, is the ROW SPLIT and the GRID READING: a row lost, a row
+invented, or a grid cell misread by an arbitrary amount moves them.
 
-THE PRINTED SHAPE (INVENTED figures; no amount, name, account number or date
-from any archive document appears in this module, in `tests/test_bank_ozk.py`
-or in W3 §FROSTOZK)::
+The residue that leaves is named rather than papered over: a grid cell misread
+by EXACTLY twice some row's amount moves that row across the ledger and leaves
+every oracle intact — the day still solves, both totals still reproduce, the
+counts still agree. Nothing here can see it. It needs a misreading of one
+printed figure into another printed figure's double, which is not a shape the
+text layer produces, and it is recorded in W3 §FZ11 as a carried risk.
+
+THE PRINTED SHAPE. Every figure, name, account number and date below and in
+`tests/test_bank_ozk.py` is INVENTED, and the fixture's period deliberately
+sits in a year the archive does not contain. A CHECKED claim, not a promise —
+W3 §FZ10.3 records the scan, the inert first version of it, and the literals
+its repair found, two of which were in this module's own comments::
 
     SAMPLE CHECKING* ACCOUNT - 000000
-    PREVIOUS STATEMENT BALANCE AS OF 01/31/26: 100.00 PLUS 1 DEPOSITS AND
+    PREVIOUS STATEMENT BALANCE AS OF 07/30/27: 100.00 PLUS 1 DEPOSITS AND
     OTHER CREDITS: 50.00 LESS 1 CHECKS AND OTHER DEBITS: 20.00 CURRENT
-    STATEMENT BALANCE AS OF 02/28/26: 130.00 NUMBER OF DAYS IN THIS
-    STATEMENT PERIOD: 28
-    OTHER TRANSACTIONS DATE DESCRIPTION DEBITS CREDITS 02/03 SAMPLE IN 50.00
-    02/04 SAMPLE OUT 20.00
+    STATEMENT BALANCE AS OF 08/31/27: 130.00 NUMBER OF DAYS IN THIS
+    STATEMENT PERIOD: 32
+    OTHER TRANSACTIONS DATE DESCRIPTION DEBITS CREDITS 08/03 SAMPLE IN 50.00
+    08/04 SAMPLE OUT 20.00
     BALANCE BY DATE
-    DATE AMOUNT            DATE AMOUNT 02/03 150.00 02/04 130.00
+    DATE AMOUNT            DATE AMOUNT 08/03 150.00 08/04 130.00
 
 WHAT THIS READER REFUSES: a summary whose arithmetic does not close; a printed
 day count that contradicts the two as-of dates; a `MM/DD` token the period
@@ -203,8 +217,8 @@ def _regions(text: str, head: re.Pattern[str]) -> list[str]:
 
 
 #: A row's leading date. Bounded on both sides so a date-shaped fragment of a
-#: longer token cannot open a row: `03/2026` inside a description fails the
-#: right-hand guard, and the `04/01` of `26/04/01` fails the left-hand one.
+#: longer token cannot open a row: `05/2028` inside a description fails the
+#: right-hand guard, and the `07/02` of `31/07/02` fails the left-hand one.
 _ROW_DATE_RE = re.compile(r"(?<![\d/])(0[1-9]|1[0-2])/(0[1-9]|[12]\d|3[01])(?!\d)")
 
 
@@ -426,6 +440,13 @@ def parse_bank_ozk_statement(markdown: str) -> Statement | None:
 
     grid: dict[str, int] = {}
     for region in _regions(markdown, _DAILY_HEAD_RE):
+        # The column head, dropped so its own `DATE`/`AMOUNT` words cannot be
+        # read as data. `[-1]` takes the text after the LAST head, which on a
+        # region carrying two heads would discard the cells under the first.
+        # No document of this family prints two (measured: 0 dates dropped on
+        # all 8), and the direction of the residue is fail-closed — a dropped
+        # grid day loses its rows' step and the day-solve refuses the document
+        # rather than publishing a short ledger.
         region = region.split("DATE AMOUNT")[-1]
         for match in _ROW_DATE_RE.finditer(region):
             iso = iso_unique_in_period(

@@ -4,10 +4,17 @@ WHAT THE ARCHIVE HOLDS. Nine documents, two accounts, four and five
 consecutive months, each month's printed `BALANCE THIS STATEMENT` the next
 month's printed `BALANCE LAST STATEMENT`.
 
-THE PRINTED SHAPE. A monospace print stream with rule-drawn furniture. The
-figures below are INVENTED — they are the invented figures the tests use, and
-no amount, name, account number or date from any archive document appears in
-this module, in `tests/test_frost.py` or in W3 §FROSTOZK::
+THE PRINTED SHAPE. A monospace print stream with rule-drawn furniture. Every
+figure, name, account number and date below and in `tests/test_frost.py` is
+INVENTED, and the fixture's cycle deliberately sits in a year the archive does
+not contain.
+
+That is a CHECKED claim and not a promise, and the distinction is the point: an
+earlier revision of this docstring made the promise while the tests carried
+three real cycle dates, and the scan that was supposed to catch them had been
+written through a shell heredoc that ate its own word-boundary escapes and
+could not match a date at all. W3 §FZ10.3 records the inert instrument, the
+literals its repair found, and the four class counts it now reports::
 
     |          DEPOSITS           |       WITHDRAWALS           |
     |_____________________________|_____________________________|

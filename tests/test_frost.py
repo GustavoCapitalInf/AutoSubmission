@@ -21,7 +21,7 @@ MASTHEAD = (
     "000-000-0000 OR 1-800-513-7678\n"
     "P.O. Box 0000 Example City, Texas 00000 Member FDIC\n"
     "STATEMENT ISSUED\n"
-    "02-27-2026\n"
+    "09-25-2027\n"
     "Page 1 of 1\n"
 )
 
@@ -56,18 +56,18 @@ DEPOSITS = (
     "DATE      TRANSACTION                         AMOUNT     |  "
     "DATE      TRANSACTION                         AMOUNT\n"
     "|\n"
-    "02-02     SAMPLE CREDIT ROW                 500.00     |  "
-    "02-03     SAMPLE CREDIT ROW               1,000.00\n"
+    "09-02     SAMPLE CREDIT ROW                 500.00     |  "
+    "09-03     SAMPLE CREDIT ROW               1,000.00\n"
     "DATE             AMOUNT     TRANSACTION              DESCRIPTION\n"
-    "02-04               .10     SAMPLE ELECTRONIC        SAMPLE MEMO\n"
+    "09-04               .10     SAMPLE ELECTRONIC        SAMPLE MEMO\n"
 )
 
 WITHDRAWALS = (
     "-------------------------------------  OTHER WITHDRAWALS/DEBITS  "
     "-----------------------------------\n"
     "DATE             AMOUNT     TRANSACTION              DESCRIPTION\n"
-    "02-05            700.00     SAMPLE DEBIT             SAMPLE MEMO\n"
-    "02-06               .20     SERVICE CHARGE/FEE       SAMPLE CHARGE\n"
+    "09-05            700.00     SAMPLE DEBIT             SAMPLE MEMO\n"
+    "09-06               .20     SERVICE CHARGE/FEE       SAMPLE CHARGE\n"
 )
 
 DAILY = (
@@ -76,10 +76,10 @@ DAILY = (
     "DATE         BALANCE                 |  DATE         BALANCE"
     "                 |  DATE         BALANCE\n"
     "|                                       |\n"
-    "01-30        1,000.00                 | 02-04        2,500.10"
-    "                 | 02-06        1,799.90\n"
-    "02-02        1,500.00                 | 02-05        1,800.10\n"
-    "02-03        2,500.00\n"
+    "08-30        1,000.00                 | 09-04        2,500.10"
+    "                 | 09-06        1,799.90\n"
+    "09-02        1,500.00                 | 09-05        1,800.10\n"
+    "09-03        2,500.00\n"
 )
 
 FOOTER = "Please examine your bank statement upon receipt and report any differences.\n"
@@ -150,7 +150,7 @@ def test_it_reads_the_strip_the_sections_and_the_grid():
 def test_the_two_up_deposit_block_is_two_transactions_not_one():
     """The pipe packs two logical rows onto one physical line."""
     stmt = parse_frost_statement(document())
-    assert [t.date for t in stmt.transactions][:2] == ["2026-02-02", "2026-02-03"]
+    assert [t.date for t in stmt.transactions][:2] == ["2027-09-02", "2027-09-03"]
 
 
 def test_a_sub_dollar_amount_prints_with_no_integer_part():
@@ -164,7 +164,7 @@ def test_the_daily_grid_is_sorted_and_carries_the_prior_cycle_cell():
     stmt = parse_frost_statement(document())
     dates = [entry.date for entry in stmt.stated_daily_balances]
     assert dates == sorted(dates)
-    assert dates[0] == "2026-01-30"
+    assert dates[0] == "2027-08-30"
     assert stmt.stated_daily_balances[0].balance == 1000.00
     assert stmt.stated_daily_balances[-1].balance == 1799.90
 
@@ -230,7 +230,7 @@ def test_the_strip_arithmetic_catches_what_the_totals_and_the_grid_cannot():
     strip stops closing on itself. Only this check sees it. (W3 §FROSTOZK's
     mutation table, mutant F4.)"""
     louder = VALUE_LINE.replace("1,500.10", "1,600.10")
-    extra = DEPOSITS + "02-04            100.00     SAMPLE ELECTRONIC        SAMPLE MEMO\n"
+    extra = DEPOSITS + "09-04            100.00     SAMPLE ELECTRONIC        SAMPLE MEMO\n"
     assert parse_frost_statement(document(values=louder, deposits=extra)) is None
 
 
@@ -256,21 +256,21 @@ def test_a_line_inside_a_section_that_is_not_a_row_is_refused():
 
 
 def test_a_captured_credit_total_that_misses_the_printed_one_is_refused():
-    dropped = DEPOSITS.replace("02-04               .10     SAMPLE ELECTRONIC        SAMPLE MEMO\n", "")
+    dropped = DEPOSITS.replace("09-04               .10     SAMPLE ELECTRONIC        SAMPLE MEMO\n", "")
     assert parse_frost_statement(document(deposits=dropped)) is None
 
 
 def test_a_captured_debit_total_that_misses_the_printed_one_is_refused():
-    dropped = WITHDRAWALS.replace("02-06               .20     SERVICE CHARGE/FEE       SAMPLE CHARGE\n", "")
+    dropped = WITHDRAWALS.replace("09-06               .20     SERVICE CHARGE/FEE       SAMPLE CHARGE\n", "")
     assert parse_frost_statement(document(withdrawals=dropped)) is None
 
 
 def test_the_grid_must_open_on_the_printed_opening_balance():
-    assert parse_frost_statement(document(daily=DAILY.replace("01-30        1,000.00", "01-30        1,000.01"))) is None
+    assert parse_frost_statement(document(daily=DAILY.replace("08-30        1,000.00", "08-30        1,000.01"))) is None
 
 
 def test_the_grid_must_close_on_the_printed_closing_balance():
-    assert parse_frost_statement(document(daily=DAILY.replace("02-06        1,799.90", "02-06        1,799.91"))) is None
+    assert parse_frost_statement(document(daily=DAILY.replace("09-06        1,799.90", "09-06        1,799.91"))) is None
 
 
 def test_a_document_with_no_grid_is_refused():
@@ -288,15 +288,15 @@ def test_a_document_with_no_ledger_is_not_a_statement():
 def test_a_month_after_the_cycle_month_belongs_to_the_year_before():
     """A January cycle whose grid opens on the previous December."""
     january = document(
-        masthead=MASTHEAD.replace("02-27-2026", "01-30-2026"),
-        deposits=DEPOSITS.replace("02-0", "01-0"),
-        withdrawals=WITHDRAWALS.replace("02-0", "01-0"),
-        daily=DAILY.replace("01-30        1,000.00", "12-31        1,000.00").replace("02-0", "01-0"),
+        masthead=MASTHEAD.replace("09-25-2027", "01-29-2027"),
+        deposits=DEPOSITS.replace("09-0", "01-0"),
+        withdrawals=WITHDRAWALS.replace("09-0", "01-0"),
+        daily=DAILY.replace("08-30        1,000.00", "12-31        1,000.00").replace("09-0", "01-0"),
     )
     stmt = parse_frost_statement(january)
     assert stmt is not None
-    assert stmt.stated_daily_balances[0].date == "2025-12-31"
-    assert stmt.stated_daily_balances[-1].date == "2026-01-06"
+    assert stmt.stated_daily_balances[0].date == "2026-12-31"
+    assert stmt.stated_daily_balances[-1].date == "2027-01-06"
 
 
 def test_an_overdrawn_grid_cell_prints_its_minus_after_the_digits():
@@ -304,15 +304,15 @@ def test_an_overdrawn_grid_cell_prints_its_minus_after_the_digits():
     reader that dropped the trailing minus would invert a day's balance."""
     overdrawn = document(
         values=VALUE_LINE.replace("1,799.90 ___", "1,799.90 ___"),
-        daily=DAILY.replace("02-05        1,800.10", "02-05        1,800.10- OD"),
+        daily=DAILY.replace("09-05        1,800.10", "09-05        1,800.10- OD"),
     )
     stmt = parse_frost_statement(overdrawn)
     assert stmt is not None
-    assert [e.balance for e in stmt.stated_daily_balances if e.date == "2026-02-05"] == [-1800.10]
+    assert [e.balance for e in stmt.stated_daily_balances if e.date == "2027-09-05"] == [-1800.10]
 
 
 def test_two_different_statement_issued_dates_refuse_the_document():
-    assert parse_frost_statement(document() + "STATEMENT ISSUED   03-31-2026\n") is None
+    assert parse_frost_statement(document() + "STATEMENT ISSUED   10-29-2027\n") is None
 
 
 def test_two_different_account_banners_refuse_the_document():
@@ -342,9 +342,9 @@ def test_the_credit_count_check_is_live_and_can_fail():
     from analysis.pipeline import analyze_markdown
 
     split = DEPOSITS.replace(
-        "02-04               .10     SAMPLE ELECTRONIC        SAMPLE MEMO\n",
-        "02-04               .04     SAMPLE ELECTRONIC        SAMPLE MEMO\n"
-        "02-04               .06     SAMPLE ELECTRONIC        SAMPLE MEMO\n",
+        "09-04               .10     SAMPLE ELECTRONIC        SAMPLE MEMO\n",
+        "09-04               .04     SAMPLE ELECTRONIC        SAMPLE MEMO\n"
+        "09-04               .06     SAMPLE ELECTRONIC        SAMPLE MEMO\n",
     )
     report = analyze_markdown(document(deposits=split), parse_mode="deterministic")
     assert report.statement.bank == "Frost Bank"
@@ -393,12 +393,12 @@ def test_a_grid_day_printed_twice_with_two_values_is_refused():
     otherwise publish two balances for one date and let `analysis/adb.py`
     choose. No archive document of this family prints a duplicate, so this
     closes a hole rather than describing one."""
-    doubled = DAILY.replace("02-04        2,500.10", "02-04        2,500.10 | 02-04        2,500.11")
+    doubled = DAILY.replace("09-04        2,500.10", "09-04        2,500.10 | 09-04        2,500.11")
     assert parse_frost_statement(document(daily=doubled)) is None
 
 
 def test_a_grid_day_printed_twice_with_the_same_value_is_corroboration():
-    doubled = DAILY.replace("02-04        2,500.10", "02-04        2,500.10 | 02-04        2,500.10")
+    doubled = DAILY.replace("09-04        2,500.10", "09-04        2,500.10 | 09-04        2,500.10")
     stmt = parse_frost_statement(document(daily=doubled))
     assert stmt is not None
     dates = [entry.date for entry in stmt.stated_daily_balances]
