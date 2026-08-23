@@ -829,15 +829,40 @@ FOURTH UNCODED ROW 100.00 FEB01 100.00
         assert _amounts(stmt) == [-400.0, 300.0, 200.0, -100.0]
         assert reconcile(stmt).ok
 
-    def test_a_differing_credit_count_is_left_to_the_printed_counts(self):
-        """Not every tie is unbreakable. `{500}` and `{300, 200}` reach the
-        same subtotal with ONE and TWO deposit rows, so the bank's printed
-        count can certify the choice — the reader takes the smallest change and
-        the platform checks it, rather than refusing."""
-        stmt = parse_native_td_canada_statement(_statement("""
+    #: Not every tie is unbreakable, and building one that is not takes care.
+    #: With every row uncoded, "rows moved off the default" IS the credit count,
+    #: so two readings that tie on it cannot differ in count. Writing
+    #: `moved = k + C - 2j` and `contradictions = (C - j) + d` over k credited
+    #: rows, j of them credit-coded and d of them debit-coded, a tie on both
+    #: keys needs `k1 - k2 = 2(j1 - j2)` and `d1 - d2 = j1 - j2` — one reading
+    #: credits one more credit-coded row AND one more debit-coded row than the
+    #: other, and two more rows in total. This is the smallest such ledger:
+    #: `{300}` against `{100, 100, 100}`, both totalling the printed 300.00
+    #: deposit subtotal, both contradicting two printed codes, both moving two
+    #: rows — and calling ONE row a deposit against THREE.
+    SEPARABLE = """
 BALANCE FORWARD JAN31 100.00
-FIRST UNCODED ROW 500.00 FEB01
-SECOND UNCODED ROW 300.00 FEB01
-THIRD UNCODED ROW 200.00 FEB01 100.00
-"""))
-        assert _amounts(stmt) == [500.0, -300.0, -200.0]
+UNLISTED ALPHA MSP 300.00 FEB01
+UNLISTED BETA MSP 100.00 FEB01
+UNLISTED GAMMA MSP 100.00 FEB01
+SEND E-TFR ***a1B 100.00 FEB01 100.00
+"""
+
+    def test_a_tie_the_printed_counts_can_separate_is_not_refused(self):
+        """The printed credit count is 3 on one reading and 1 on the other, so
+        the bank's own footer can certify the choice. Both keys being spent,
+        the enumeration's fixed order decides — and refusing here would
+        withhold a document the evidence CAN settle."""
+        candidates = _credit_count_candidates([30000, 10000, 10000, 10000], 0)
+        assert sorted(sum(c.values()) for c in candidates) == [1, 3]
+        stmt = parse_native_td_canada_statement(_statement(self.SEPARABLE))
+        assert _amounts(stmt) == [-300.0, 100.0, 100.0, 100.0]
+
+    def test_and_the_printed_count_is_what_certifies_it(self):
+        """Printed `Credits 3`: the reading agrees and the document publishes.
+        The chooser never reads that footer — it is the check, not the input,
+        and on the other reading it would have said so."""
+        md = _statement(self.SEPARABLE, credits="3 300.00", debits="1 300.00")
+        stmt = parse_native_td_canada_statement(md)
+        assert sum(1 for t in stmt.transactions if t.direction == "credit") == 3
+        assert reconcile(stmt).ok
