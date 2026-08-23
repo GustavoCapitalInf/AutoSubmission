@@ -150,7 +150,7 @@ from .tables import compact_whitespace, dated_cells, section_runs, unique_match
 #: A token may not begin part-way through another token, and may not be
 #: continued by one. `(` is inside the class for a reason this family supplies
 #: rather than for symmetry: one printing welds an authorization stamp
-#: `(mm/dd/yy hh:mm:ss)` INSIDE a row's description, in the same notation as
+#: `(mm/dd/yy hh:mm:ss)` within a row's description, in the same notation as
 #: the row date, and a date-anchored reader that admits it shatters the row
 #: (51 of them on one document). A row date is never parenthesised here; the
 #: stamp always is.
@@ -163,14 +163,14 @@ _DATE_END = r"(?![\w/-])"
 _FIGURE_END = r"(?![\w.,+" + MINUS_GLYPHS + r"])"
 
 #: `mm/dd/yy`, and only ever two year digits. The page header prints
-#: `Statement Date: 06/30/2026` on every page of every document, and the right
-#: boundary above is what keeps that four-digit year from reading as a row
+#: `Statement Date:` with a FOUR-digit year on every page of every document,
+#: and the right boundary above is what keeps that year from reading as a row
 #: date whose row has no amount — the refusal that would cost every document
 #: in the family.
 _ROW_DATE = r"(?:1[0-2]|0?[1-9])/(?:3[01]|[12][0-9]|0?[1-9])/[0-9]{2}"
 #: `1,234.56`. NOT the bare sub-dollar `.56`: this platform prints the leading
-#: zero (`0.02`, `0.45` are on the archive documents) and admitting the bare
-#: form would let the relationship block's `Your Total Loans = .00` read as an
+#: zero on every sub-dollar amount the family prints, and admitting the bare
+#: form would let the relationship block's bare sub-dollar loan total read as an
 #: amount.
 _FIGURE = r"[0-9][0-9,]*\.[0-9]{2}"
 #: The sign this platform prints AFTER a figure, at most one space away. Which

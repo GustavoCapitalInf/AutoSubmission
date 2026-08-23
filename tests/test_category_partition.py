@@ -1,20 +1,26 @@
 """W3 §GLANCE — the signed category partition, and the grid it refuses to read.
 
 **Every document in this module is INVENTED.** No name, account number, date,
-balance or amount here is copied from any archive statement; the eight archive
-documents that motivated the registration are named by `content_sha256` in the
-branch log and in the commit message and are reproduced nowhere. That is the
-standing batch-8 privacy rule, and it is also the better test: a test that
-needs a real statement to make its point is a test of that statement rather
-than of the rule.
+balance or amount here is copied from any archive statement, and that is a
+measurement rather than an intention: every money figure, date token, digit run
+and masked account form the family's eight documents print was extracted and
+grepped against this branch's whole diff, and the count is zero. The eight are
+named by `content_sha256` in the branch log and in the commit message and are
+reproduced nowhere.
+
+The category LABELS here are invented too, and deliberately so. The reader
+memorises no category name — it reads each category's direction off the
+trailing plus the platform prints on the amount — so a fixture whose categories
+are called `Alpha Credits` and `Beta Debits` tests the rule, while one reusing
+the platform's own names would let a memorised list pass unnoticed.
 
 The module carries the card's MUTATION TABLE (`MUTANTS` below). Each row names
 a gate, transforms the document as the row's description says, and asserts the
 outcome. Two properties are asserted about the table itself rather than
 assumed: every mutant must actually CHANGE the document it is applied to (a
-mutant that edits nothing pins nothing — the batch-7 lesson), and every
-distinct mutated tree must be distinct from every other (a duplicated row is a
-gate reported as covered twice and tested once).
+mutant that edits nothing pins nothing — the batch-7 lesson), and every mutated
+tree must be distinct from every other (a duplicated row is a gate reported as
+covered twice and tested once).
 """
 from __future__ import annotations
 
@@ -35,122 +41,122 @@ from analysis.count_semantics import counts_comparable
 # ---------------------------------------------------------------------------
 
 U_MASTHEAD = (
-    "INVENTED BANK EXAMPLETOWN PO BOX 0 EXAMPLETOWN, EXAMPLE  00000 "
-    "Tel: (000) 000-0000\n"
-    "HOLDER NAME 1 EXAMPLE STREET EXAMPLETOWN EX 00000-0000\n"
-    "Statement Date: 04/30/2026 Account No.: XX0000 Page: 1\n"
+    "INVENTED ISSUER ONE PO BOX 7 EXAMPLETOWN, EXAMPLE  91742 "
+    "Tel: (432) 555-0173\n"
+    "HOLDER ALPHA 7 EXAMPLE ROAD EXAMPLETOWN EX 91742-0173\n"
+    "Statement Date: 09/30/2025 Account No.: XX9174 Page: 1\n"
 )
 U_GLANCE = (
     "ACCOUNTS AT A GLANCE Account No. Sub Acct. Account Title Acct Type "
-    "Balance XX0000 Invented Business Checking Deposit 125.00\n"
-    "Your Total Deposits = 125.00 And Your Total Loans = .00\n"
+    "Balance XX9174 Invented Alpha Account Deposit 58,997.63\n"
+    "Your Total Deposits = 58,997.63 And Your Total Loans = 6.02\n"
 )
 U_SUMMARY = (
-    "Invented Business Checking SUMMARY Type :     REG    Status :    Active\n"
-    "Category Number Amount Balance Forward From 03/31/26 100.00 "
-    "Deposits 1 200.00+ Debits 1 120.00 Automatic Withdrawals 1 50.00 "
-    "TOTAL SERVICE CHARGE 5.00 Ending Balance On 04/30/26 125.00\n"
+    "Invented Alpha Account SUMMARY Type :     REG    Status :    Active\n"
+    "Category Number Amount Balance Forward From 08/29/25 41,003.77 "
+    "Alpha Credits 1 62,005.11+ Beta Debits 1 33,001.13 "
+    "Gamma Debits 1 11,002.29 Zeta Charge 7.83 "
+    "Ending Balance On 09/30/25 58,997.63\n"
 )
 U_LEDGER = (
     "STATEMENT PERIOD ACTIVITY\n"
     "Date Check/Description Amount Balance "
-    "04/01/26 EXAMPLE DEPOSIT 200.00+ 300.00 "
-    "04/02/26 CHK#1001 120.00 180.00\n"
-    "Continued 0/000/1\n"
-    "Statement Date: 04/30/2026 Account No.: XX0000 Page: 2 "
+    "09/01/25 EXAMPLE ROW ALPHA 62,005.11+ 103,008.88 "
+    "09/02/25 EXAMPLE ROW BETA 33,001.13 70,007.75\n"
+    "Continued 21/1997/1\n"
+    "Statement Date: 09/30/2025 Account No.: XX9174 Page: 2 "
     "STATEMENT PERIOD ACTIVITY (cont.)\n"
     "Date Check/Description Amount Balance "
-    "04/03/26 EXAMPLE AUTOMATIC WITHDRAWAL 50.00 130.00 "
-    "04/30/26 TOTAL SERVICE CHARGE 5.00 125.00\n"
+    "09/03/25 EXAMPLE ROW GAMMA 11,002.29 59,005.46 "
+    "09/30/25 EXAMPLE ROW DELTA 7.83 58,997.63\n"
 )
 U_CHECK_RECAP = (
     "CHECKS AND OTHER DEBITS * indicates a gap in the check numbers\n"
-    "Date Check # Amount 04/02/26 1001 120.00\n"
+    "Date Check # Amount 09/02/25 4417 33,001.13\n"
 )
 U_ITEMIZED = (
     "ITEMIZED SERVICE CHARGE\n"
     "Date Description Status Amount\n"
-    "04/30/26 EXAMPLE MINIMUM BALANCE FEE 5.00 TOTAL SERVICE CHARGE : 5.00\n"
+    "09/30/25 EXAMPLE CHARGE ALPHA 7.83 TOTAL SERVICE CHARGE : 7.83\n"
 )
 U_GRID = (
-    "DAILY BALANCE SUMMARY Beginning Ledger Balance on 03/31/26 was 100.00 "
+    "DAILY BALANCE SUMMARY Beginning Ledger Balance on 08/29/25 was 41,003.77 "
     "Date Balance Date Balance Date Balance "
-    "04/01/26 300.00 04/02/26 180.00 04/03/26 130.00 04/30/26 125.00\n"
-    "This Statement Cycle Reflects 30 Days\n"
+    "09/01/25 103,008.88 09/02/25 70,007.75 09/03/25 59,005.46 "
+    "09/30/25 58,997.63\n"
+    "This Statement Cycle Reflects 32 Days\n"
 )
 U_IMAGES = (
-    "HOLDER NAME Account No. : XX0000 Stmt. Date : 04/30/2026\n"
+    "HOLDER ALPHA Account No. : XX9174 Stmt. Date : 09/30/2025\n"
     "IMAGE STATEMENT\n"
-    "AM: 120.00 CK: 1001 DT: 04/02 SQ: 00000000 Paid\n"
-    "End Statement 0/000/3E\n"
+    "AM: 33,001.13 CK: 4417 DT: 09/02 SQ: 61743072 Paid\n"
+    "End Statement 21/1997/3E\n"
 )
 
 
 def unified(*, masthead=U_MASTHEAD, glance=U_GLANCE, summary=U_SUMMARY,
             ledger=U_LEDGER, recap=U_CHECK_RECAP, itemized=U_ITEMIZED,
             grid=U_GRID, images=U_IMAGES) -> str:
-    """The UNIFIED issue: one running-balance table, a cheque recap, a ledger
-    daily grid."""
+    """The UNIFIED issue: one running-balance table, a cheque recap that
+    restates rows the table already carries, and a ledger daily grid."""
     return masthead + glance + summary + ledger + recap + itemized + grid + images
 
 
 S_MASTHEAD = (
     "Contact Us\n"
-    "Branch Name Example Office\n"
-    "Phone Number (000) 000-0000\n"
-    "Address 1 Example Street Exampletown EX 00000\n"
+    "Branch Name Example Branch\n"
     "Online Access WWW.EXAMPLE.INVALID\n"
-    "Statement Date: 04/30/2026 Account No.: 0000000 Page: 1\n"
+    "Statement Date: 09/30/2025 Account No.: 9174063 Page: 1\n"
 )
 S_GLANCE = (
     "ACCOUNTS AT A GLANCE\n"
     "Account No. Sub Acct. Account Title Acct Type Balance "
-    "0000000 INVENTED SMALL BUSINESS Deposit 125.00\n"
-    "Your Total Deposits = 125.00 And Your Total Loans = .00\n"
+    "9174063 INVENTED BETA ACCOUNT Deposit 58,997.63\n"
+    "Your Total Deposits = 58,997.63 And Your Total Loans = 6.02\n"
 )
 S_SUMMARY = (
-    "INVENTED SMALL BUSINESS SUMMARY Type :     **REG    Status :    Active\n"
-    "Category Number Amount Balance Forward From 03/31/26 100.00 "
-    "Deposits 1 200.00+ Debits 0.00 Card Activity 2 170.00 "
-    "SERVICE CHARGE 5.00 Ending Balance On 04/30/26 125.00 "
-    "Average Balance (Ledger) 140.00+\n"
+    "INVENTED BETA ACCOUNT SUMMARY Type :     **REG    Status :    Active\n"
+    "Category Number Amount Balance Forward From 08/29/25 41,003.77 "
+    "Alpha Credits 1 62,005.11+ Zero Category 0.00 "
+    "Delta Debits 2 44,003.42 Epsilon Charge 7.83 "
+    "Ending Balance On 09/30/25 58,997.63 "
+    "Average Balance (Ledger) 44,444.44+\n"
 )
 S_CREDITS = (
     "ALL CREDIT ACTIVITY\n"
-    "Date Description Amount 04/01/26 EXAMPLE MOBILE DEPOSIT 200.00\n"
+    "Date Description Amount 09/01/25 EXAMPLE ROW ALPHA 62,005.11\n"
 )
 S_DEBITS = (
     "ELECTRONIC DEBITS\n"
     "Date Description Amount "
-    "04/02/26 0000 EXA PUR EXAMPLE MERCHANT EXAMPLETOWN EX "
-    "(04/02/26 01:02:03) 120.00\n"
-    "Continued 0/000/1\n"
-    "Statement Date: 04/30/2026 Account No.: 0000000 Page: 2 "
+    "09/02/25 EXAMPLE ROW BETA (09/02/25 01:02:03) 33,001.13\n"
+    "Continued 8/4173/1\n"
+    "Statement Date: 09/30/2025 Account No.: 9174063 Page: 2 "
     "ELECTRONIC DEBITS (cont.)\n"
-    "Date Description Amount "
-    "04/03/26 0000 EXA PUR EXAMPLE MERCHANT EXAMPLETOWN EX 50.00\n"
+    "Date Description Amount 09/03/25 EXAMPLE ROW GAMMA 11,002.29\n"
 )
 S_OTHER = (
     "CHECKS AND OTHER DEBITS * indicates a gap in the check numbers\n"
-    "Date Description Amount 04/30/26 SERVICE CHARGE 5.00\n"
+    "Date Description Amount 09/30/25 EXAMPLE ROW DELTA 7.83\n"
 )
 S_GRID = (
-    "DAILY BALANCE SUMMARY Beginning Ledger Balance on 03/31/26 was 100.00\n"
+    "DAILY BALANCE SUMMARY Beginning Ledger Balance on 08/29/25 was 41,003.77\n"
     "Date Balance Date Balance Date Balance "
-    "04/01/26 300.00 04/02/26 180.00 04/03/26 130.00 04/30/26 125.00\n"
+    "09/01/25 103,008.88 09/02/25 70,007.75 09/03/25 59,005.46 "
+    "09/30/25 58,997.63\n"
 )
 S_ITEMIZED = (
     "ITEMIZED SERVICE CHARGE\n"
     "Date Description Status Amount\n"
-    "04/30/26 EXAMPLE EXCESSIVE ITEM FEE 5.00\n"
-    "TOTAL SERVICE CHARGE : 5.00\n"
-    "This Statement Cycle Reflects 30 Days\n"
+    "09/30/25 EXAMPLE CHARGE ALPHA 7.83\n"
+    "TOTAL SERVICE CHARGE : 7.83\n"
+    "This Statement Cycle Reflects 32 Days\n"
 )
 S_IMAGES = (
-    "HOLDER NAME Account No. : 0000000 Stmt. Date : 04/30/2026\n"
+    "HOLDER BETA Account No. : 9174063 Stmt. Date : 09/30/2025\n"
     "IMAGE STATEMENT\n"
-    "AMT: 5.00 SEQ: 00000000 CK:   DT: 04/30/26  ST: Paid\n"
-    "End Statement 0/000/3E\n"
+    "AMT: 7.83 SEQ: 61743072 CK:   DT: 09/30/25  ST: Paid\n"
+    "End Statement 8/4173/3E\n"
 )
 
 
@@ -158,7 +164,8 @@ def sectioned(*, masthead=S_MASTHEAD, glance=S_GLANCE, summary=S_SUMMARY,
               credits=S_CREDITS, debits=S_DEBITS, other=S_OTHER, grid=S_GRID,
               itemized=S_ITEMIZED, images=S_IMAGES) -> str:
     """The SECTIONED issue: named direction sections, no running balance, an
-    authorization stamp welded inside one description."""
+    authorization stamp welded into one description, and a zero-amount
+    category the platform prints with no item count."""
     return (masthead + glance + summary + credits + debits + other + grid
             + itemized + images)
 
@@ -177,15 +184,17 @@ def published(markdown: str):
 # Detection
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("document", [unified(), sectioned()], ids=["unified", "sectioned"])
+@pytest.mark.parametrize("document", [unified(), sectioned()],
+                         ids=["unified", "sectioned"])
 def test_both_printed_issues_are_recognised_by_the_partition(document):
     assert cp.detect(document).claims
 
 
-@pytest.mark.parametrize("document", [unified(), sectioned()], ids=["unified", "sectioned"])
+@pytest.mark.parametrize("document", [unified(), sectioned()],
+                         ids=["unified", "sectioned"])
 def test_upper_casing_the_document_is_not_this_platform(document):
-    """The registration has no normalization and the case is what holds it
-    apart from a scanned template printing `BALANCE FORWARD FROM`."""
+    """The registration has no normalization, and the case is what holds it
+    apart from the scanned template that prints `BALANCE FORWARD FROM`."""
     assert not cp.detect(document.upper()).claims
 
 
@@ -193,14 +202,46 @@ def test_the_relationship_block_is_furniture_rather_than_the_marker():
     """One of the eight archive documents prints no `ACCOUNTS AT A GLANCE` and
     no masthead at all; the census named the family after that block and the
     adversarial verification refuted it. Detection must not depend on it."""
-    without = sectioned(masthead="Statement Date: 04/30/2026 Account No.: 0000000 Page: 1\n",
-                        glance="")
+    without = sectioned(
+        masthead="Statement Date: 09/30/2025 Account No.: 9174063 Page: 1\n",
+        glance="")
     assert cp.detect(without).claims
     assert parse(without) is not None
 
 
 def test_a_header_with_no_ledger_is_not_a_statement():
     assert parse(U_MASTHEAD + U_GLANCE + U_SUMMARY) is None
+
+
+#: The one issuer in the archive that already had its own reader for this
+#: template. Its two markers, as `analysis/wilson_muir.py` declares them.
+_ISSUER_SPECIFIC = "WILSON & MUIR BK & TRUST\nSMALL BUSINESS PACKAGE SUMMARY Type"
+
+
+def _issuer_printing() -> str:
+    """The same invented statement under the one masthead that has a reader."""
+    return unified().replace("Invented Alpha Account SUMMARY Type", _ISSUER_SPECIFIC)
+
+
+def test_the_issuer_specific_reader_of_this_template_supersedes_the_general_one():
+    """The archive taught this edge, not the census: 14 documents of one issuer
+    print this same partition and are read today by `wilson_muir`. The general
+    reader claims them too, so without the edge all 14 resolve `ambiguous` and
+    every one of them is validated today."""
+    document = _issuer_printing()
+    assert cp.detect(document).claims, "the general reader does claim this printing"
+    dispatch = pr.resolve(document)
+    assert dispatch.outcome != "ambiguous"
+    assert [identifier for identifier, _score in dispatch.candidates] == ["wilson_muir"]
+
+
+def test_the_issuer_specific_reader_does_not_claim_the_general_printings():
+    """The other direction. `wilson_muir` requires the issuer's own NAME, which
+    this reader never looks for, so neither can shadow the other by accident."""
+    from analysis import wilson_muir
+
+    for document in (unified(), sectioned()):
+        assert not wilson_muir.detect(document).claims
 
 
 def test_the_registration_is_the_sole_claimant_of_both_issues():
@@ -219,58 +260,68 @@ def test_the_registration_is_the_sole_claimant_of_both_issues():
 
 def test_the_unified_issue_publishes_its_whole_ledger_with_running_balances():
     statement = published(unified())
-    assert [(row.date, row.direction, row.amount, row.running_balance) for row in
-            statement.transactions] == [
-        ("2026-04-01", "credit", 200.0, 300.0),
-        ("2026-04-02", "debit", -120.0, 180.0),
-        ("2026-04-03", "debit", -50.0, 130.0),
-        ("2026-04-30", "debit", -5.0, 125.0),
+    assert [(row.date, row.direction, row.amount, row.running_balance)
+            for row in statement.transactions] == [
+        ("2025-09-01", "credit", 62005.11, 103008.88),
+        ("2025-09-02", "debit", -33001.13, 70007.75),
+        ("2025-09-03", "debit", -11002.29, 59005.46),
+        ("2025-09-30", "debit", -7.83, 58997.63),
     ]
     assert statement.stated_credit_count == 1
     assert statement.stated_debit_count == 3
-    assert statement.stated_total_credits == 200.0
-    assert statement.stated_total_debits == 175.0
-    assert statement.stated_service_charge == 5.0
+    assert statement.stated_total_credits == 62005.11
+    assert statement.stated_total_debits == 44011.25
+    assert statement.stated_service_charge == 7.83
 
 
 def test_the_sectioned_issue_takes_each_row_direction_from_its_section():
     statement = published(sectioned())
-    assert [(row.date, row.direction, row.amount) for row in statement.transactions] == [
-        ("2026-04-01", "credit", 200.0),
-        ("2026-04-02", "debit", -120.0),
-        ("2026-04-03", "debit", -50.0),
-        ("2026-04-30", "debit", -5.0),
+    assert [(row.date, row.direction, row.amount)
+            for row in statement.transactions] == [
+        ("2025-09-01", "credit", 62005.11),
+        ("2025-09-02", "debit", -33001.13),
+        ("2025-09-03", "debit", -11002.29),
+        ("2025-09-30", "debit", -7.83),
     ]
     assert all(row.running_balance is None for row in statement.transactions)
+
+
+def test_a_zero_amount_category_accounts_for_no_rows():
+    """The platform prints no item count beside a category that moved nothing,
+    and the count gate must read that as zero rather than as unknown."""
+    assert published(sectioned()).stated_debit_count == 3
 
 
 def test_an_authorization_stamp_inside_a_description_is_not_a_row_date():
     """The stamp is printed in the SAME notation as the row date. A reader that
     admits it splits the row and loses the amount."""
-    statement = published(sectioned())
-    stamped = next(row for row in statement.transactions if row.date == "2026-04-02")
-    assert stamped.amount == -120.0
+    stamped = next(row for row in published(sectioned()).transactions
+                   if row.date == "2025-09-02")
+    assert stamped.amount == -33001.13
     assert "01:02:03" in stamped.description
 
 
 def test_the_period_opens_the_day_after_the_balance_forward_is_dated():
     statement = published(unified())
-    assert (statement.period_start, statement.period_end) == ("2026-04-01", "2026-04-30")
-    assert statement.days_in_period == 30
+    assert (statement.period_start, statement.period_end) == ("2025-08-30", "2025-09-30")
+    assert statement.days_in_period == 32
 
 
 def test_the_printed_cycle_length_is_the_calendar_count_the_doctrine_reports_on():
     statement = published(unified())
-    assert cp._CYCLE_DAYS_RE.search(unified()).group(1) == str(statement.days_in_period)
+    printed = cp._CYCLE_DAYS_RE.search(unified())
+    assert printed is not None
+    assert printed.group(1) == str(statement.days_in_period)
 
 
 def test_the_ledger_grid_is_published_as_in_period_daily_evidence():
     statement = published(unified())
-    assert [(entry.date, entry.balance) for entry in statement.stated_daily_balances] == [
-        ("2026-04-01", 300.0),
-        ("2026-04-02", 180.0),
-        ("2026-04-03", 130.0),
-        ("2026-04-30", 125.0),
+    assert [(entry.date, entry.balance)
+            for entry in statement.stated_daily_balances] == [
+        ("2025-09-01", 103008.88),
+        ("2025-09-02", 70007.75),
+        ("2025-09-03", 59005.46),
+        ("2025-09-30", 58997.63),
     ]
 
 
@@ -280,8 +331,8 @@ def test_the_product_is_published_and_the_issuer_is_not():
     an institution field (the honest-unknown-issuer ruling)."""
     assert published(unified()).bank is None
     assert published(sectioned()).bank is None
-    assert published(unified()).account_name == "Invented Business Checking"
-    assert published(sectioned()).account_name == "INVENTED SMALL BUSINESS"
+    assert published(unified()).account_name == "Invented Alpha Account"
+    assert published(sectioned()).account_name == "INVENTED BETA ACCOUNT"
 
 
 def test_the_currency_is_the_schema_default_and_says_so():
@@ -293,7 +344,7 @@ def test_the_currency_is_the_schema_default_and_says_so():
 
 def test_the_bank_printed_average_is_evidence_and_never_the_platforms_own():
     statement = published(sectioned())
-    assert statement.bank_reported_average_balance == 140.0
+    assert statement.bank_reported_average_balance == 44444.44
     assert statement.bank_reported_average_label == "Average Balance (Ledger)"
     adb = compute_average_daily_balance(statement)
     assert adb.underwriting_adb != statement.bank_reported_average_balance
@@ -311,10 +362,11 @@ def test_the_printed_counts_are_published_but_never_compared():
 
 def test_the_reconstructed_ledger_supports_a_calendar_day_average():
     for document in (unified(), sectioned()):
-        adb = compute_average_daily_balance(published(document), source_markdown=document)
+        adb = compute_average_daily_balance(published(document),
+                                            source_markdown=document)
         assert adb.ok is True
         assert adb.underwriting_adb is not None
-        assert adb.calendar_day_count == 30
+        assert adb.calendar_day_count == 32
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +374,7 @@ def test_the_reconstructed_ledger_supports_a_calendar_day_average():
 # ---------------------------------------------------------------------------
 
 def _collected(document: str) -> str:
-    """The same statement, with the platform's OTHER grid heading."""
+    """The same statement, under the platform's OTHER grid heading."""
     return document.replace("DAILY BALANCE SUMMARY", "COLLECTED BALANCE SUMMARY")
 
 
@@ -337,7 +389,7 @@ def test_a_collected_grid_is_not_daily_ledger_evidence_and_the_document_is_decli
 
 
 def test_the_decline_is_the_missing_oracle_and_not_the_arithmetic():
-    """Everything else about the document still reads: the same statement with
+    """Everything else about the document still reads: the same statement under
     the ledger heading publishes, so the refusal is about the evidence class
     and nothing else."""
     assert parse(sectioned()) is not None
@@ -351,7 +403,7 @@ def test_a_collected_grid_cell_is_never_published_as_a_daily_balance():
     statement = published(_collected(unified()))
     assert statement.stated_daily_balances == []
     assert [row.running_balance for row in statement.transactions] == [
-        300.0, 180.0, 130.0, 125.0
+        103008.88, 70007.75, 59005.46, 58997.63
     ]
 
 
@@ -359,8 +411,8 @@ def test_the_collected_grids_own_seed_is_still_read_as_the_opening_balance():
     """Both headings print `Beginning Ledger Balance on <date> was <amount>`,
     and both call it a LEDGER balance. Only the CELLS are refused."""
     broken = _collected(unified()).replace(
-        "Beginning Ledger Balance on 03/31/26 was 100.00",
-        "Beginning Ledger Balance on 03/31/26 was 101.00",
+        "Beginning Ledger Balance on 08/29/25 was 41,003.77",
+        "Beginning Ledger Balance on 08/29/25 was 41,003.78",
     )
     assert parse(broken) is None
 
@@ -395,87 +447,95 @@ MUTANTS: tuple[Mutant, ...] = (
     Mutant("M02", "detection: the partition column header",
            unified, _sub("Category Number Amount ", ""), "detect"),
     Mutant("M03", "detection: the dated closing balance",
-           unified, _sub("Ending Balance On 04/30/26", "Ending Balance"), "detect"),
+           unified, _sub("Ending Balance On 09/30/25", "Ending Balance"), "detect"),
     Mutant("M04", "detection: the dated balance forward",
-           sectioned, _sub("Balance Forward From 03/31/26", "Balance Forward"), "detect"),
+           sectioned, _sub("Balance Forward From 08/29/25", "Balance Forward"),
+           "detect"),
     # --- the sign map ------------------------------------------------------
     Mutant("M05", "sign map: the trailing plus on a credit category",
-           unified, _sub("Deposits 1 200.00+", "Deposits 1 200.00"), None),
+           unified, _sub("Alpha Credits 1 62,005.11+", "Alpha Credits 1 62,005.11"),
+           None),
     Mutant("M06", "sign map: a trailing plus added to a debit category",
-           unified, _sub("Automatic Withdrawals 1 50.00", "Automatic Withdrawals 1 50.00+"),
+           unified, _sub("Gamma Debits 1 11,002.29", "Gamma Debits 1 11,002.29+"),
            None),
     Mutant("M07", "sign map: a trailing MINUS on a category amount is refused",
-           unified, _sub("Debits 1 120.00", "Debits 1 120.00-"), None),
+           unified, _sub("Beta Debits 1 33,001.13", "Beta Debits 1 33,001.13-"), None),
     Mutant("M08", "sign map: a trailing PLUS on a grid balance is refused",
-           unified, _sub("04/02/26 180.00", "04/02/26 180.00+"), None),
+           unified, _sub("09/02/25 70,007.75", "09/02/25 70,007.75+"), None),
     Mutant("M09", "sign map: the trailing plus on a unified credit row",
-           unified, _sub("EXAMPLE DEPOSIT 200.00+", "EXAMPLE DEPOSIT 200.00"), None),
+           unified, _sub("EXAMPLE ROW ALPHA 62,005.11+", "EXAMPLE ROW ALPHA 62,005.11"),
+           None),
     Mutant("M10", "sign map: a trailing minus on a unified row amount is refused",
-           unified, _sub("EXAMPLE AUTOMATIC WITHDRAWAL 50.00",
-                         "EXAMPLE AUTOMATIC WITHDRAWAL 50.00-"), None),
-    # --- the partition's own arithmetic -----------------------------------
+           unified, _sub("EXAMPLE ROW GAMMA 11,002.29 59,005.46",
+                         "EXAMPLE ROW GAMMA 11,002.29- 59,005.46"), None),
+    # --- the partition's own arithmetic ------------------------------------
     Mutant("M11", "identity: the printed ending balance",
-           unified, _sub("Ending Balance On 04/30/26 125.00",
-                         "Ending Balance On 04/30/26 125.01"), None),
+           unified, _sub("Ending Balance On 09/30/25 58,997.63",
+                         "Ending Balance On 09/30/25 58,997.64"), None),
     Mutant("M12", "identity: the printed balance forward",
-           sectioned, _sub("Balance Forward From 03/31/26 100.00",
-                           "Balance Forward From 03/31/26 100.01"), None),
+           sectioned, _sub("Balance Forward From 08/29/25 41,003.77",
+                           "Balance Forward From 08/29/25 41,003.78"), None),
     Mutant("M13", "count gate: a credit category's printed count",
-           unified, _sub("Deposits 1 200.00+", "Deposits 2 200.00+"), None),
+           unified, _sub("Alpha Credits 1 62,005.11+", "Alpha Credits 2 62,005.11+"),
+           None),
     Mutant("M14", "count gate: a debit category's printed count",
-           sectioned, _sub("Card Activity 2 170.00", "Card Activity 3 170.00"), None),
+           sectioned, _sub("Delta Debits 2 44,003.42", "Delta Debits 3 44,003.42"),
+           None),
     Mutant("M15", "count gate: the uncounted category is exactly one posting",
-           sectioned, _sub("Date Description Amount 04/30/26 SERVICE CHARGE 5.00",
-                           "Date Description Amount 04/30/26 SERVICE CHARGE 2.00 "
-                           "04/30/26 SERVICE CHARGE 3.00"), None),
+           sectioned, _sub("Date Description Amount 09/30/25 EXAMPLE ROW DELTA 7.83",
+                           "Date Description Amount 09/30/25 EXAMPLE ROW DELTA 5.41 "
+                           "09/30/25 EXAMPLE ROW DELTA 2.42"), None),
     Mutant("M16", "amount gate: a debit row's amount",
-           sectioned, _sub("EXAMPLE MERCHANT EXAMPLETOWN EX 50.00",
-                           "EXAMPLE MERCHANT EXAMPLETOWN EX 51.00"), None),
+           sectioned, _sub("EXAMPLE ROW GAMMA 11,002.29",
+                           "EXAMPLE ROW GAMMA 11,002.30"), None),
     Mutant("M17", "recap gate: the printed service-charge total",
-           unified, _sub("TOTAL SERVICE CHARGE : 5.00", "TOTAL SERVICE CHARGE : 6.00"),
+           unified, _sub("TOTAL SERVICE CHARGE : 7.83", "TOTAL SERVICE CHARGE : 8.71"),
            None),
     Mutant("M18", "partition is read END TO END: text no entry accounts for",
-           unified, _sub("Ending Balance On 04/30/26 125.00",
-                         "Ending Balance On 04/30/26 125.00 Unaccounted Trailer"), None),
+           unified, _sub("Ending Balance On 09/30/25 58,997.63",
+                         "Ending Balance On 09/30/25 58,997.63 Unaccounted Trailer"),
+           None),
     # --- the period --------------------------------------------------------
     Mutant("M19", "period: the printed cycle length",
-           unified, _sub("This Statement Cycle Reflects 30 Days",
-                         "This Statement Cycle Reflects 29 Days"), None),
+           unified, _sub("This Statement Cycle Reflects 32 Days",
+                         "This Statement Cycle Reflects 31 Days"), None),
     Mutant("M20", "period: a row dated outside the printed period",
-           unified, _sub("04/03/26 EXAMPLE AUTOMATIC WITHDRAWAL",
-                         "05/03/26 EXAMPLE AUTOMATIC WITHDRAWAL"), None),
+           unified, _sub("09/03/25 EXAMPLE ROW GAMMA", "10/03/25 EXAMPLE ROW GAMMA"),
+           None),
     # --- the per-day oracle ------------------------------------------------
     Mutant("M21", "grid: a cell that disagrees with the walked ledger",
-           unified, _sub("04/03/26 130.00", "04/03/26 131.00"), None),
+           unified, _sub("09/03/25 59,005.46 09/30/25 58,997.63",
+                         "09/03/25 59,005.47 09/30/25 58,997.63"), None),
     Mutant("M22", "grid: a day the ledger posts on missing from the grid",
-           unified, _sub(" 04/03/26 130.00", ""), None),
+           unified, _sub(" 09/03/25 59,005.46 09/30/25", " 09/30/25"), None),
     Mutant("M23", "grid: a day printed twice",
-           unified, _sub("04/30/26 125.00\nThis Statement",
-                         "04/30/26 125.00 04/30/26 125.00\nThis Statement"), None),
+           unified, _sub("09/30/25 58,997.63\nThis Statement",
+                         "09/30/25 58,997.63 09/30/25 58,997.63\nThis Statement"), None),
     Mutant("M24", "grid seed: the amount",
-           sectioned, _sub("Beginning Ledger Balance on 03/31/26 was 100.00",
-                           "Beginning Ledger Balance on 03/31/26 was 110.00"), None),
+           sectioned, _sub("Beginning Ledger Balance on 08/29/25 was 41,003.77",
+                           "Beginning Ledger Balance on 08/29/25 was 41,003.78"), None),
     Mutant("M25", "grid seed: the date",
-           sectioned, _sub("Beginning Ledger Balance on 03/31/26",
-                           "Beginning Ledger Balance on 03/30/26"), None),
+           sectioned, _sub("Beginning Ledger Balance on 08/29/25",
+                           "Beginning Ledger Balance on 08/28/25"), None),
     Mutant("M26", "the oracle itself: a collected grid leaves the sectioned "
                   "issue with none",
            sectioned, _sub("DAILY BALANCE SUMMARY", "COLLECTED BALANCE SUMMARY"), None),
     Mutant("M27", "the oracle itself: no grid at all on the sectioned issue",
            sectioned, lambda text: text.replace(S_GRID, ""), None),
     Mutant("M28", "walk: a printed running balance",
-           unified, _sub("CHK#1001 120.00 180.00", "CHK#1001 120.00 181.00"), None),
-    Mutant("M29", "walk: two rows of one day swapped out of printed order",
-           unified, _sub("04/01/26 EXAMPLE DEPOSIT 200.00+ 300.00 "
-                         "04/02/26 CHK#1001 120.00 180.00",
-                         "04/02/26 CHK#1001 120.00 180.00 "
-                         "04/01/26 EXAMPLE DEPOSIT 200.00+ 300.00"), None),
+           unified, _sub("EXAMPLE ROW BETA 33,001.13 70,007.75",
+                         "EXAMPLE ROW BETA 33,001.13 70,007.76"), None),
+    Mutant("M29", "walk: two rows swapped out of printed order",
+           unified, _sub("09/01/25 EXAMPLE ROW ALPHA 62,005.11+ 103,008.88 "
+                         "09/02/25 EXAMPLE ROW BETA 33,001.13 70,007.75",
+                         "09/02/25 EXAMPLE ROW BETA 33,001.13 70,007.75 "
+                         "09/01/25 EXAMPLE ROW ALPHA 62,005.11+ 103,008.88"), None),
     # --- the row grammar ---------------------------------------------------
     Mutant("M30", "unified rows carry EXACTLY two figures",
-           unified, _sub("CHK#1001 120.00 180.00", "CHK#1001 REF 9.99 120.00 180.00"),
-           None),
+           unified, _sub("EXAMPLE ROW BETA 33,001.13 70,007.75",
+                         "EXAMPLE ROW BETA REF 8.71 33,001.13 70,007.75"), None),
     Mutant("M31", "the authorization stamp's own parentheses",
-           sectioned, _sub("(04/02/26 01:02:03)", "04/02/26 01:02:03"), None),
+           sectioned, _sub("(09/02/25 01:02:03)", "09/02/25 01:02:03"), None),
     # The row's text is untouched: only the SECTION it is printed in changes,
     # and that alone moves both direction counts. It is the mutant form of the
     # census's sign trap — one description printed as a credit in one section
@@ -483,41 +543,44 @@ MUTANTS: tuple[Mutant, ...] = (
     Mutant("M32", "direction follows the SECTION: a debit row moved into the "
                   "credit section moves both counts",
            sectioned, lambda text: text.replace(
-               "Date Description Amount 04/01/26 EXAMPLE MOBILE DEPOSIT 200.00\n",
-               "Date Description Amount 04/01/26 EXAMPLE MOBILE DEPOSIT 200.00 "
-               "04/03/26 0000 EXA PUR EXAMPLE MERCHANT EXAMPLETOWN EX 50.00\n"
+               "Date Description Amount 09/01/25 EXAMPLE ROW ALPHA 62,005.11\n",
+               "Date Description Amount 09/01/25 EXAMPLE ROW ALPHA 62,005.11 "
+               "09/03/25 EXAMPLE ROW GAMMA 11,002.29\n"
            ).replace(
-               "Date Description Amount "
-               "04/03/26 0000 EXA PUR EXAMPLE MERCHANT EXAMPLETOWN EX 50.00\n"
+               "Date Description Amount 09/03/25 EXAMPLE ROW GAMMA 11,002.29\n"
                "CHECKS AND OTHER DEBITS", "CHECKS AND OTHER DEBITS"), None),
     Mutant("M33", "cheque recap: a row the unified table does not carry",
-           unified, _sub("Date Check # Amount 04/02/26 1001 120.00",
-                         "Date Check # Amount 04/02/26 1001 121.00"), None),
+           unified, _sub("Date Check # Amount 09/02/25 4417 33,001.13",
+                         "Date Check # Amount 09/02/25 4417 33,001.14"), None),
     # --- L-1 ---------------------------------------------------------------
     Mutant("M34", "L-1: a second account listed in the relationship block",
-           unified, _sub("Deposit 125.00\n", "Deposit 125.00 XX0001 Invented Savings "
-                                             "Deposit 9.00\n"), None),
+           unified, _sub("Invented Alpha Account Deposit 58,997.63\n",
+                         "Invented Alpha Account Deposit 58,997.63 "
+                         "XX9175 Invented Gamma Account Deposit 8.71\n"), None),
     Mutant("M35", "L-1: the relationship roll-up disagrees with the closing balance",
-           unified, _sub("Your Total Deposits = 125.00", "Your Total Deposits = 126.00"),
-           None),
+           unified, _sub("Your Total Deposits = 58,997.63",
+                         "Your Total Deposits = 58,997.64"), None),
     Mutant("M36", "L-1: a second account number in a page header",
-           unified, _sub("Account No.: XX0000 Page: 2", "Account No.: XX0001 Page: 2"),
+           unified, _sub("Account No.: XX9174 Page: 2", "Account No.: XX9175 Page: 2"),
            None),
     Mutant("M37", "L-1: a second partition on the page",
-           sectioned, lambda text: text.replace(S_SUMMARY, S_SUMMARY + S_SUMMARY.replace(
-               "Deposits 1 200.00+", "Deposits 2 200.00+")), None),
+           sectioned, lambda text: text.replace(
+               S_SUMMARY,
+               S_SUMMARY + S_SUMMARY.replace("Alpha Credits 1", "Alpha Credits 2")),
+           None),
     # --- control arms: these must change NOTHING ---------------------------
     Mutant("C01", "control: the grid's three-up cells arrive out of document order",
-           unified, _sub("04/01/26 300.00 04/02/26 180.00 04/03/26 130.00 04/30/26 125.00",
-                         "04/03/26 130.00 04/30/26 125.00 04/01/26 300.00 04/02/26 180.00"),
-           "same"),
+           unified, _sub("09/01/25 103,008.88 09/02/25 70,007.75 "
+                         "09/03/25 59,005.46 09/30/25 58,997.63",
+                         "09/03/25 59,005.46 09/30/25 58,997.63 "
+                         "09/01/25 103,008.88 09/02/25 70,007.75"), "same"),
     Mutant("C02", "control: an extra page break inside the ledger",
-           unified, _sub("04/03/26 EXAMPLE AUTOMATIC WITHDRAWAL",
-                         "Continued 0/000/2\nStatement Date: 04/30/2026 "
-                         "Account No.: XX0000 Page: 3 "
+           unified, _sub("09/03/25 EXAMPLE ROW GAMMA",
+                         "Continued 21/1997/2\nStatement Date: 09/30/2025 "
+                         "Account No.: XX9174 Page: 3 "
                          "STATEMENT PERIOD ACTIVITY (cont.)\n"
                          "Date Check/Description Amount Balance "
-                         "04/03/26 EXAMPLE AUTOMATIC WITHDRAWAL"), "same"),
+                         "09/03/25 EXAMPLE ROW GAMMA"), "same"),
     Mutant("C03", "control: the relationship block is absent entirely",
            sectioned, lambda text: text.replace(S_GLANCE, ""), "same"),
 )
@@ -578,23 +641,23 @@ def test_every_gate_is_killed_by_its_own_mutant(mutant: Mutant):
 
 @pytest.mark.parametrize("printed,damaged", [
     # a month and a day that are not one
-    ("Balance Forward From 03/31/26", "Balance Forward From 13/45/26"),
-    # a shape that IS a date and a day that is not
-    ("Balance Forward From 03/31/26", "Balance Forward From 02/30/26"),
+    ("Balance Forward From 08/29/25", "Balance Forward From 13/45/25"),
+    # a shape that IS a date, and a day that is not
+    ("Balance Forward From 08/29/25", "Balance Forward From 02/30/25"),
     # an integer part past the money grammar's digit bound
-    ("Ending Balance On 04/30/26 125.00",
-     "Ending Balance On 04/30/26 9999999999999999.00"),
+    ("Ending Balance On 09/30/25 58,997.63",
+     "Ending Balance On 09/30/25 9999999999999999.00"),
     # an item count longer than any count this platform prints
-    ("Deposits 1 200.00+", "Deposits 99999 200.00+"),
+    ("Alpha Credits 1 62,005.11+", "Alpha Credits 99999 62,005.11+"),
     # a column header with nothing to the right of it
-    ("Category Number Amount Balance Forward From 03/31/26 100.00 ",
+    ("Category Number Amount Balance Forward From 08/29/25 41,003.77 ",
      "Category Number Amount "),
     # a cycle length that is not the period's
-    ("This Statement Cycle Reflects 30 Days", "This Statement Cycle Reflects 999 Days"),
+    ("This Statement Cycle Reflects 32 Days", "This Statement Cycle Reflects 999 Days"),
     # a figure whose cents the layer lost
-    ("Deposits 1 200.00+", "Deposits 1 200.0+"),
-    # an account number the second page disagrees about
-    ("Account No.: XX0000 Page: 1", "Account No.: XX000 Page: 1"),
+    ("Alpha Credits 1 62,005.11+", "Alpha Credits 1 62,005.1+"),
+    # an account number one page disagrees about
+    ("Account No.: XX9174 Page: 1", "Account No.: XX917 Page: 1"),
 ])
 def test_a_mangled_summary_token_declines_rather_than_raising(printed, damaged):
     """Fail closed, and closed means an ANSWER: `None`, never an exception."""
@@ -603,10 +666,11 @@ def test_a_mangled_summary_token_declines_rather_than_raising(printed, damaged):
     assert parse(document) is None
 
 
-@pytest.mark.parametrize("token", ["04/31/26", "13/01/26", "00/01/26", "04/00/26"])
+@pytest.mark.parametrize("token", ["09/31/25", "13/01/25", "00/01/25", "09/00/25"])
 def test_an_impossible_row_date_declines_rather_than_raising(token: str):
-    document = unified().replace("04/03/26 EXAMPLE AUTOMATIC WITHDRAWAL",
-                                 f"{token} EXAMPLE AUTOMATIC WITHDRAWAL", 1)
+    document = unified().replace("09/03/25 EXAMPLE ROW GAMMA",
+                                 f"{token} EXAMPLE ROW GAMMA", 1)
+    assert document != unified()
     assert parse(document) is None
 
 

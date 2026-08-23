@@ -352,6 +352,30 @@ _OVERRIDES: dict[str, dict] = {
     # three resolve `ambiguous` and the gate's per-document verdict check goes
     # red. Measured both ways.
     "b1": {"band": 10, "supersedes": frozenset({"core_processor_daily"})},
+    # The same relationship a FOURTH template over (W3 §GLANCE), and this one
+    # the archive taught rather than the census: `wilson_muir` reads ONE
+    # issuer's printing of the signed category partition that
+    # `category_partition` now registers generically, so the general reader
+    # claims all 14 of this issuer's archive documents too. Without this edge
+    # those 14 - every one of them validated today - resolve `ambiguous` and go
+    # to review, which is a regression. Measured both ways over the run of
+    # record: 14 ambiguous with the general registration and no edge, 0 with
+    # it, and 0 before it existed.
+    #
+    # The edge is safe in the strong sense in one direction and in the OBSERVED
+    # one in the other. `wilson_muir` requires this issuer's own NAME, which
+    # the general reader never looks for - it publishes `bank=None` by
+    # construction and consults nothing that identifies an issuer - so neither
+    # can shadow the other by accident.
+    #
+    # Stranding is the observed half, and it is not close: this issuer prints
+    # its account number as `#` and three digits, which the general reader's
+    # account slot refuses, so it declines all 14 at `_summary` today and no
+    # document is lost. A future printing of this issuer's that the general
+    # reader COULD publish would be routed to `wilson_muir` and never offered
+    # to it - the archive holds none, and the same is true of every supersedes
+    # edge already shipped. Named, not claimed away.
+    "wilson_muir": {"band": 10, "supersedes": frozenset({"category_partition"})},
     # BMO prints a second summary block; where the two disagree the document
     # contradicts itself. Registered here so the orchestrator never names BMO.
     "bmo": {"integrity_checks": (bmo.summary_contradictions,)},

@@ -40,6 +40,9 @@ EXPECTED_ORDER = [
     "mission_valley",
     "rbc_french",
     "td_canada_native",
+    # The issuer-specific reader of the signed category partition that
+    # `category_partition` now registers generically (W3 §GLANCE).
+    "wilson_muir",
     # band 100 — everything else, alphabetically
     "altana",
     "american_express",
@@ -110,7 +113,6 @@ EXPECTED_ORDER = [
     "us_bank",
     "wealthsimple",
     "wells_fargo",
-    "wilson_muir",
     "woodforest",
     "zions",
 ]
@@ -337,6 +339,17 @@ def test_only_the_promoted_sub_dispatches_supersede_anything():
         "mission_valley": ["community_section"],
         "rbc_french": ["rbc"],
         "td_canada_native": ["td_canada"],
+        # W3 §GLANCE: the same relationship a FOURTH template over, and this
+        # one the archive taught rather than the census. `category_partition`
+        # registers the signed category partition on the template furniture
+        # alone, so it claims every document of the issuer whose printing of
+        # it `wilson_muir` reads. Evidence, measured over the run of record
+        # `356a4269` by `tools/glance_detection_probe.py` and named in the
+        # commit message: the general reader claims 22 of the 3,351 documents
+        # with cached text — its own 8 and this issuer's 14, every one of the
+        # 14 validated today. Without the edge those 14 resolve `ambiguous`;
+        # with it, 0 do. No pinned corpus document prints this template.
+        "wilson_muir": ["category_partition"],
     }, (
         "supersedes edges changed; each new edge needs the corpus document that "
         "proved it necessary, recorded in the commit message"
