@@ -43980,6 +43980,19 @@ that is the gate doing the whole of its job: 3,080 welded documents are
 declined, and their analysis input is byte-identical, so their cache keys
 cannot rotate.
 
+**All 76 are `digital` at intake and all 76 read `native-pdf-text` in the run
+of record.** The rung only ever takes a document the GENERIC rung had — never
+one a bank-specific rung claimed, never one OCR produced — which is the ladder
+order holding, measured rather than inferred from where the call sits. None of
+the 76 is in a Canadian-labelled folder, so no currency or provenance surface
+is anywhere near this card.
+
+The population also discharges the stratified non-target probe the wave asks
+of a new registration: this is not a registration, but its reach is
+registration-shaped, and the probe is the whole archive — 3,380 documents,
+every scanned document and every Canadian document included, of which 3,304
+are untouched.
+
 The 76, by the parser that claims them (from the run's own rows):
 
 | parser | documents | payload |
