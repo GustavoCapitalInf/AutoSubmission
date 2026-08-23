@@ -177,7 +177,11 @@ def test_registration_count_matches_the_documented_decision_points():
     (W3 §SCANNEXT); and the batch-7 cards: the scanned Canadian
     direct-bank statement whose two money columns the scan flattens and
     whose row directions are solved from the running balance printed on
-    every row (W3 §TANGERINE)."""
+    every row (W3 §TANGERINE); and the batch-8 cards: the fintech
+    business-checking printing whose ledger carries a running balance on every
+    row, and whose SECOND, shredded printing is claimed only so that it can be
+    refused for printing postings from outside the period it declares
+    (W3 §LILI)."""
     assert len(pr.registrations()) == 76
 
 
