@@ -127,9 +127,8 @@ Two printings this module refuses rather than repairs
   description across the date column so the layer emits the row's date twice
   with a fragment between, and three carry a `mm/dd` token inside a merchant
   description (a card statement's `Member <mm>/<dd>` renewal note). Both are
-  documents this reader cannot read, not gaps to paper over:
-  `tables.dated_cells` returns None and the
-  document is declined whole. Dropping the row instead would publish a ledger
+  documents this reader cannot read rather than gaps to paper over:
+  `tables.dated_cells` returns None and the document is declined whole. Dropping the row instead would publish a ledger
   that disagrees with a printed total while still looking complete.
 
 The issuer, and the currency
@@ -203,9 +202,8 @@ _SUMMARY_FIGURE = (_TOKEN_START + r"\$?(" + _MONEY + r")" + _FIGURE_END
 
 #: A LEDGER figure: the sign is welded to the figure, on either side. Both are
 #: printed — `<figure>-` in the sectioned issue's debit blocks and `-<figure>`
-#: in the
-#: one issue that prints the amount before the description — and neither
-#: carries a space, so this token admits none. Without that bound the OCR
+#: in the one issue that prints the amount before its description — and
+#: neither carries a space, so this token admits none. Without that bound the OCR
 #: layer's own `--- Page N ---` separator reads as a signed figure: measured,
 #: it stands two spaces after a figure 117 times in this family and is never a
 #: sign.
@@ -258,11 +256,11 @@ _DEBIT_WORDS = r"(?:CHECKS?/DEBITS?|CHECKS?/CHARGES?|CHECKS?|DEBITS?)"
 #: in the left cell and its ledger-average statistic in the right cell of the
 #: SAME printed line, and the flattened layer welds them into
 #: `<n> Deposits/Credits <total> Average Ledger <figure>`. Measured over the
-#: whole archive, the
-#: conjunction of this and the period sentence reaches 67 documents — the 54
-#: addressable members of the census family, the ten this platform prints under
-#: the three mastheads that already have their own readers, and three scanned
-#: printings of the same block. Nothing else in 3,380 documents.
+#: whole archive, the conjunction of this and the period sentence reaches 67
+#: documents — the 54 addressable members of the census family, the ten this
+#: platform prints under the three mastheads that already have their own
+#: readers, and three scanned printings of the same block. Nothing else in
+#: 3,380 documents.
 #:
 #: The count is optional here and required by the summary read below, because
 #: one scanned member prints `Deposits/Credits .00 Average Ledger` with the
