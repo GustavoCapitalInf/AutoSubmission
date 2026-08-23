@@ -44246,7 +44246,7 @@ which included this cell's scratchpad path.
 | mutation table — `python -m tools.coreiss2_mutation` | 36 mutants, 35 killed, 1 declared no-op, `UNEXPECTED []` | **0** |
 | whole-archive probe — `python -m tools.coreiss2_probe probe` | 3,396 documents; 8/8 and 6/6 claimed and published; 0 outside either family; 0 ambiguous | **0** |
 | family replay — `python -m tools.coreiss2_probe replay` | `core_processor_signed_counts=8/8 core_processor_activity_summary=6/6` | **0** |
-| privacy grep — `python -m tools.coreiss2_probe privacy` | 5,585 tokens vs 2,194 added lines, `FOUND: 0` | **0** |
+| privacy grep — `python -m tools.coreiss2_probe privacy` | 5,585 tokens vs 2,840 added lines (the final diff, this log included), `FOUND: 0` | **0** |
 | archive zero-movement sweep — 4 chunks, 3,380 documents | moved 0, payload_now_raises 0, 14 named movers | chunks **1** (findings present), driver **0** |
 
 ### CI11.1 The one red reading, and both measurements of it
@@ -44283,7 +44283,7 @@ figures** (exact zeros excluded — a printed zero is the absence of a figure,
 both templates print one on their fee lines, and so does every synthetic
 fixture already in this tree), **494 full dates** and **2,010 account masks
 and long digit runs**: 5,585 tokens, each compared against every added line of
-the whole branch diff (2,194 lines).
+the whole branch diff INCLUDING this log (2,840 lines).
 
 **FOUND: 0.**
 
@@ -44323,6 +44323,8 @@ its tests describe one imaginary document.
 | `aee5ca8` | PRIVACY: the last three whole-token collisions |
 | `dd6af1f` | PRIVACY: the descriptor's embedded figure |
 | `3b1ed5a` | the instruments, committed under `tools/` |
+| `3f70973` | this log section |
+| `<final>` | the log's own privacy re-measurement and this row |
 
 ## CI14. Risks carried
 
