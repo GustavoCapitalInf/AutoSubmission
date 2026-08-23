@@ -43868,7 +43868,16 @@ after the heading. Measured over all 40 documents of the family:
 * **8 printed sections missed**, every one on a document the ADB already
   refused, each over OCR damage to the legend or to the heading's own line.
 
-Sections are now sliced at the bank's heading marks and cut back to the
+After the change, re-measured over the same 40: **1 binding still contains
+another heading, and it is unreachable in production.** It is on
+`A7E4B895E2A96F96`, whose `Statement Period:` line does not survive its text
+layer, so `parse_td_us_statement` returns at `:196` before `_section` is called
+at all — verified, not assumed (`_period` is `None`). The other five bindings
+the probe reports are the section's own `(continued)` reprints. On every
+document the parser actually reads a section from, a section's rows and total
+now come from that section.
+
+Sections are sliced at the bank's heading marks and cut back to the
 `Subtotal:` inside their own slice. A heading qualifies on two structural facts:
 a legend token within a bounded window — which is what keeps the page footer's
 `Bank Deposits FDIC insured…` from opening a `Deposits` section, the existing
