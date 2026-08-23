@@ -121,7 +121,7 @@ def _ledger_pdf(rows, *, heading="WIDGET DEBITS", amount_last=True, header=True)
 WELDED_ROWS = [
     ("1-4", "Scheduled Transfer", ["ORCHARD SUPPLY QUARTERLY"], "101.00"),
     ("1-5", "Scheduled Transfer",
-     ["MERIDIAN LEASING CO MONTHLY", "AGREEMENT 55-42 SERIES B"], "202.00"),
+     ["MERIDIAN LEASING CO PERIODIC", "AGREEMENT 55-42 SERIES B"], "202.00"),
     ("1-6", "Scheduled Transfer", ["QUILLON UTILITIES LODGEMENT"], "303.00"),
     ("1-7", "Scheduled Transfer",
      ["ATLAS FREIGHT NETWORK ACCT", "99-1 REMITTANCE"], "404.00"),
@@ -131,7 +131,7 @@ WELDED_ROWS = [
 #: extractor: the row's own line, in reading order.
 WELDED_LINES = [
     "1-4 Scheduled Transfer ORCHARD SUPPLY QUARTERLY 101.00",
-    "1-5 Scheduled Transfer MERIDIAN LEASING CO MONTHLY AGREEMENT 55-42 SERIES B 202.00",
+    "1-5 Scheduled Transfer MERIDIAN LEASING CO PERIODIC AGREEMENT 55-42 SERIES B 202.00",
     "1-6 Scheduled Transfer QUILLON UTILITIES LODGEMENT 303.00",
     "1-7 Scheduled Transfer ATLAS FREIGHT NETWORK ACCT 99-1 REMITTANCE 404.00",
 ]
@@ -211,7 +211,7 @@ def test_the_recovered_row_reaches_the_reader(welded):
     after = published(welded, parse_native_printed_rows)
     assert after == [
         "Scheduled Transfer ORCHARD SUPPLY QUARTERLY",
-        "Scheduled Transfer MERIDIAN LEASING CO MONTHLY AGREEMENT 55-42 SERIES B",
+        "Scheduled Transfer MERIDIAN LEASING CO PERIODIC AGREEMENT 55-42 SERIES B",
         "Scheduled Transfer QUILLON UTILITIES LODGEMENT",
         "Scheduled Transfer ATLAS FREIGHT NETWORK ACCT 99-1 REMITTANCE",
     ]
@@ -386,7 +386,7 @@ def test_a_row_may_wrap_more_than_once_and_still_be_one_line():
     rows = [
         ("1-4", "Scheduled Transfer", ["ORCHARD SUPPLY QUARTERLY"], "101.00"),
         ("1-5", "Scheduled Transfer",
-         ["MERIDIAN LEASING CO MONTHLY", "AGREEMENT 55-42 SERIES B",
+         ["MERIDIAN LEASING CO PERIODIC", "AGREEMENT 55-42 SERIES B",
           "REMITTANCE ADVICE ENCLOSED"], "202.00"),
         ("1-6", "Scheduled Transfer", ["QUILLON UTILITIES LODGEMENT"], "303.00"),
     ]
@@ -394,7 +394,7 @@ def test_a_row_may_wrap_more_than_once_and_still_be_one_line():
     assert document is not None
     printed = [line for line in _lines(document) if line[:1].isdigit()]
     assert printed[1] == (
-        "1-5 Scheduled Transfer MERIDIAN LEASING CO MONTHLY "
+        "1-5 Scheduled Transfer MERIDIAN LEASING CO PERIODIC "
         "AGREEMENT 55-42 SERIES B REMITTANCE ADVICE ENCLOSED 202.00")
 
 
@@ -422,7 +422,7 @@ def test_a_block_straddling_the_ledger_boundary_refuses_the_whole_document():
                 (0, 131.0, 139.0, 65.0, 146.0, "Scheduled Transfer"),
                 (0, 131.0, 139.0, 530.0, 569.0, "303.00"),
                 (1, 111.7, 119.7, 149.0, 400.0, "ORCHARD SUPPLY QUARTERLY"),
-                (1, 121.7, 129.7, 149.0, 400.0, "MERIDIAN LEASING CO MONTHLY"),
+                (1, 121.7, 129.7, 149.0, 400.0, "MERIDIAN LEASING CO PERIODIC"),
                 (1, 131.7, 139.7, 149.0, 400.0, "QUILLON UTILITIES LODGEMENT"),
             ]
             blocks: dict[int, dict] = {}
@@ -435,7 +435,7 @@ def test_a_block_straddling_the_ledger_boundary_refuses_the_whole_document():
     flattened = "\n".join((
         "WIDGET DEBITS 1-4 Scheduled Transfer 101.00 1-5 Scheduled Transfer "
         "202.00 1-6 Scheduled Transfer 303.00",
-        "ORCHARD SUPPLY QUARTERLY MERIDIAN LEASING CO MONTHLY "
+        "ORCHARD SUPPLY QUARTERLY MERIDIAN LEASING CO PERIODIC "
         "QUILLON UTILITIES LODGEMENT",
     ))
     assert native_text._printed_row_page(_Page(), flattened) is None
@@ -462,7 +462,7 @@ def _one_ledger_page():
                 (0, 131.0, 139.0, 65.0, 146.0, "Scheduled Transfer"),
                 (0, 131.0, 139.0, 530.0, 569.0, "303.00"),
                 (1, 111.7, 119.7, 149.0, 400.0, "ORCHARD SUPPLY QUARTERLY"),
-                (1, 121.7, 129.7, 149.0, 400.0, "MERIDIAN LEASING CO MONTHLY"),
+                (1, 121.7, 129.7, 149.0, 400.0, "MERIDIAN LEASING CO PERIODIC"),
                 (1, 131.7, 139.7, 149.0, 400.0, "QUILLON UTILITIES LODGEMENT"),
             ]
             blocks: dict[int, dict] = {}
@@ -474,7 +474,7 @@ def _one_ledger_page():
     flattened = "\n".join((
         "1-4 Scheduled Transfer 101.00 1-5 Scheduled Transfer 202.00 "
         "1-6 Scheduled Transfer 303.00",
-        "ORCHARD SUPPLY QUARTERLY MERIDIAN LEASING CO MONTHLY QUILLON UTILITIES LODGEMENT",
+        "ORCHARD SUPPLY QUARTERLY MERIDIAN LEASING CO PERIODIC QUILLON UTILITIES LODGEMENT",
     ))
     return _Page(), flattened
 
@@ -487,7 +487,7 @@ def test_the_hand_built_page_is_repaired_when_its_tokens_agree():
     page, flattened = _one_ledger_page()
     assert native_text._printed_row_page(page, flattened) == "\n".join((
         "1-4 Scheduled Transfer ORCHARD SUPPLY QUARTERLY 101.00",
-        "1-5 Scheduled Transfer MERIDIAN LEASING CO MONTHLY 202.00",
+        "1-5 Scheduled Transfer MERIDIAN LEASING CO PERIODIC 202.00",
         "1-6 Scheduled Transfer QUILLON UTILITIES LODGEMENT 303.00",
     ))
 
@@ -591,7 +591,7 @@ def test_a_region_whose_blocks_do_not_weld_is_left_alone():
     import ocr.native_text as native_text
 
     rows = [("1-4", "101.00", "ORCHARD SUPPLY QUARTERLY"),
-            ("1-5", "202.00", "MERIDIAN LEASING CO MONTHLY"),
+            ("1-5", "202.00", "MERIDIAN LEASING CO PERIODIC"),
             ("1-6", "303.00", "QUILLON UTILITIES LODGEMENT")]
 
     class _Page:

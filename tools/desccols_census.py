@@ -48,7 +48,7 @@ from pathlib import Path
 
 #: A printed money cell, in the shared money grammar's plainest form. Used only
 #: to CLASS a welded line as amount-bearing; nothing is read from it.
-MONEY = re.compile(r"\d[\d,]*\.\d{2}")
+MONEY_RE = re.compile(r"\d[\d,]*\.\d{2}")
 
 
 def page_lines(page) -> list[tuple[int, float, float, float, float, str]]:
@@ -109,7 +109,7 @@ def measure_page(page) -> dict:
         if len({band_of[p] for p in positions}) > 1:
             welded_blocks += 1
             welded_lines += 1  # the block IS one line of today's flattened text
-            if any(MONEY.search(lines[p][5]) for p in positions):
+            if any(MONEY_RE.search(lines[p][5]) for p in positions):
                 amount_welded += 1
 
     spans = {block: (min(band_of[p] for p in ps), max(band_of[p] for p in ps))
