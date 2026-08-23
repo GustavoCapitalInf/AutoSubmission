@@ -386,7 +386,23 @@ OCR_STAGE_VERSION = 3
 # package layer refuses cross-currency aggregation; telemetry
 # deterministic-coverage repair. Registry 72 -> 74. One composed bump
 # before the round's measurement.
-ANALYSIS_STAGE_VERSION = 14
+# 14 -> 15: composed — coverage-wave batch 7 (ten reviewed merges + one
+# train composition): the APPROVED REPAIR-DOCTRINE ceremony (columbia_bank
+# loses both amount-rewriting repairs and publishes the printed daily-grid
+# cell with disagreement flagged; the pinned Columbia statement moves to a
+# pinned REFUSAL — a parse-BODY change the registry key material does not
+# capture, which is the bump's load-bearing reason); DESC-ATTRIB (count-based
+# description attribution across the core-processor complex: 4 documents'
+# descriptions shorten, 15 classifier detections change); CURRENCY-SOURCE
+# (`statement.currency_source` added to EVERY published payload — a warm
+# cache would serve payloads without the field); DECLINES-E chase grid (+3);
+# DECLINES-F first_citizens At-A-Glance (+4) + FC-PRODUCT labels; DECLINES-G
+# symitar yield-only sibling (+3) + FISERV-LABELS; SCAN-FINISH southside +
+# citizens (+3 validated, +2 review, +6 withheld); SCAN-TANGERINE = the
+# eq_bank_scanned registration (+3 withheld); PRIVACY-3 and ATB-MEASURE move
+# nothing. Registry 74 -> 75. One composed bump before the round's
+# measurement.
+ANALYSIS_STAGE_VERSION = 15
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 
