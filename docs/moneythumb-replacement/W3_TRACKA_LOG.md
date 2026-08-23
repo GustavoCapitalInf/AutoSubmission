@@ -44536,15 +44536,33 @@ template by its summary terms, never by an account-number prefix.
 
 ## LI15. Risks carried
 
-**R1 — the §INTEGRITY gate is whole-document.** It checks every printed
-`mm/dd/yyyy` in the admissible text, not only the ledger's date column,
-because the effective date inside a fee row's description is exactly where a
-pasted row hides. Measured false positives on the clean set: 0 of 2,729 date
-tokens over 15 documents. The risk is a future printing that prints a genuine
-out-of-period date in boilerplate — a copyright line, a terms-effective date.
-It would refuse the document rather than mis-read it, and it would show up as
-a decline on a family that had been validating. Bounded, fail-closed, and
-named here so a future cell recognises it.
+**R1 — the §INTEGRITY gate is scoped by date CLASS, and the class is what
+was measured.** It reads ONE class: the date that BEGINS a line, which on
+this template is a posting and nothing else. Over the 15 clean members:
+**2,718 line-leading dates, every one a posting the row pattern parses, every
+one inside the period; 11 dates inside a description, every one a fee row's
+effective date; zero line-leading dates that are not postings.** Description
+text and everything outside a posting are NOT date-checked, because they make
+no claim about when money moved and the row they sit on has already had its
+date, amount and balance verified.
+
+The first revision of this reader checked every printed date anywhere, and
+the review was right that this is a false-positive channel rather than
+caution: a fee row prints the start of the plan CYCLE it bills for, and a
+cycle can begin before the period, so an ordinary statement can legitimately
+print a prior-month date. Five more clean printings do the same — a merchant
+string carrying a date, a footer print date, a terms-revision date, an
+error-resolution deadline. All six were refused; all six now publish and are
+pinned by `test_six_clean_printings_that_carry_an_out_of_period_date_publish`
+and `test_a_fee_effective_date_before_the_period_publishes`.
+
+What the narrowing costs: a pasted block whose lines do NOT begin with a date
+and which contributes no parsed posting is invisible to this gate. It also
+contributes no money, so it cannot move a figure; and if it contributed a
+parsed posting, the period reading would see it. The residual risk is a page
+footer that begins a line with a bare date, which would now be refused as an
+unparsed ledger line — fail-closed, no member of the family does it, and
+named here.
 
 **R2 — the ledger reading counts column heads, and that rests on a measured
 property of this template.** The head is printed ONCE per ledger regardless of
@@ -44562,12 +44580,17 @@ head with no rows under it, a shape the archive does not currently contain: if
 a future printing puts rows under a second head, the chain gate refuses first
 and the L-1 reason is not the one reported.
 
-**R3 — the gate ORDER is not observable at the parse boundary.** Every gate
-answers by declining, so no test can pin that §INTEGRITY runs before the shape
-read; only `tools/lili_family_replay.py`'s attribution reports it, and the
-tool asserts only that its attribution agrees with `parse`. The order is a
-property of the REASON a document is refused, not of whether it is, and it is
-carried as documentation plus an instrument rather than as a test.
+**R3 — the gate ORDER is not observable at the parse boundary, and that is
+now a measurement rather than an aside.** Every gate here answers by
+declining, so no test at the `parse` boundary can distinguish the orders.
+Mutant M10 moves §INTEGRITY to run AFTER the shape read and is carried in the
+table as an EQUIVALENT mutant, expected to survive and recorded as surviving
+— which is the honest way to state it. What the order buys is the REASON the
+replay attributes, and the published reason is the same for all nine
+refusals: `parser_declined`. So the reader's own reason strings are neutral
+(`a printed date outside the declared period`, `a line that begins with a
+date is not a posting`); "tampering" appears in §LI2, where the corroborating
+evidence that justifies the word lives, and nowhere in the code.
 
 **R4 — 11 validated documents are four accounts.** The twenty documents are
 five accounts of consecutive monthly statements, so real template diversity
@@ -44582,7 +44605,7 @@ section carries the identical header, so the rewrite spanned from that header
 to my own paragraph and deleted 7,780 lines of other cells' sections. Caught
 by grepping for my own paragraph and finding it 7,000 lines too early;
 restored from `ef95969^` and redone scoped, with the script asserting the line
-count before writing. Net effect of this branch on the file is now 679
+count before writing. Net effect of this branch on the file is now 873
 insertions and ZERO deletions, which is the check a reviewer should run
 (`git diff 10cc722..HEAD -- W3_TRACKA_LOG.md | grep -c "^-[^-]"` → 0). Named
 here because the same trap is open to every cell that scripts an edit to this
