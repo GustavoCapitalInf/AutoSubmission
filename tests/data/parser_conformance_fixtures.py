@@ -171,6 +171,16 @@ FIXTURES: dict[str, str] = {
     "desjardins": (
         "CAISSE DESJARDINS\nDESJARDINS CORPORATE BUILD-UP ACCOUNT\n"
     ),
+    # The issuer's own contact domain out of the summary block, this
+    # template's summary head, and the ledger column head — the last one is a
+    # DETECTION marker and not merely a parse requirement, because the running
+    # balance it names is what solves every row's direction and a printing
+    # without it is one this reader cannot direct (W3 §TANGERINE).
+    "eq_bank_scanned": (
+        "eqbank.ca/contact-us\n"
+        "Your activity summary\n"
+        "Date Description Withdrawals Deposits Balance\n"
+    ),
     "farmers_merchants": (
         "FARMERS AND MERCHANTS BANK\nDEPOSITS AND CREDITS\n"
     ),

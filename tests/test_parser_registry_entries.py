@@ -72,6 +72,7 @@ EXPECTED_ORDER = [
     "core_processor_sectioned",
     "demo_national",
     "desjardins",
+    "eq_bank_scanned",
     "farmers_merchants",
     "fifth_third",
     "first_citizens",
@@ -172,8 +173,11 @@ def test_registration_count_matches_the_documented_decision_points():
     (W3 §GRAM4); and the Texas First Bank scanned four-way partition, whose
     ATM/POS grid loses its two money columns to the scan and has its
     directions solved from the printed counts, totals and daily grid
-    (W3 §SCANNEXT)."""
-    assert len(pr.registrations()) == 74
+    (W3 §SCANNEXT); and the batch-7 cards: the scanned Canadian
+    direct-bank statement whose two money columns the scan flattens and
+    whose row directions are solved from the running balance printed on
+    every row (W3 §TANGERINE)."""
+    assert len(pr.registrations()) == 75
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():

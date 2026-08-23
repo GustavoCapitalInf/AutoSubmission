@@ -41518,3 +41518,918 @@ file it mutates. It ate the MINOR-3 edit on its first pass. It is only ever
 correct to run it on a clean tree, and it now retries transient
 `PermissionError`s (OneDrive holds handles open on this box) rather than
 reporting a write failure as a surviving mutant.
+
+# §TANGERINE — the census named the wrong bank, and the running balance is the reader
+
+## TG0. Summary
+
+SN3 row 6, staffed. Five scanned documents, one account, five consecutive
+months, every month's printed closing balance the next month's printed opening
+balance. **The family is not `tangerine`.** The string does not occur in the
+cached OCR text of any of the five; what every page of all five prints is
+EQ Bank / Equitable Bank, Toronto — a `.ca` contact domain in the summary
+block, a head-office address and a copyright line in the footer. Registered as
+`eq_bank_scanned`, registry 74 → 75.
+
+The card is the direction of a row, and this template solves it outright: it
+prints a RUNNING BALANCE on every row, so a row's direction is the sign of the
+step between two printed balances and its amount must be that step's
+magnitude. That is also a complete-coverage oracle, which this template needs
+because it prints **no transaction counts at all** — nothing else here would
+notice a dropped row.
+
+**Movement: 3 of 5 `failed/no_parser_matched` → `withheld/withheld_adb`; the
+other 2 → `failed/parser_declined`.** Not the five validations the card
+anticipated, and the reason is a single measured structural fact that is
+Ocean's to rule on, not mine to fix: **this issuer's printed closing balance
+includes postings it dates AFTER the printed period end**, and
+`analysis/adb.py` — a do-not-touch module (MASTER_PLAN §4) — refuses any
+document with an out-of-period transaction. The refusal is correct under
+today's doctrine. TG9 is the measurement packet for the narrow, declared,
+fail-closed seam that would convert all three (and, with TG11 finding 2, all
+five) to `validated`; it is the exact mirror of the already-approved
+`initialization_transaction_count` at the opening edge.
+
+**A privacy choice, stated so review sees it was deliberate — and one place
+the first revision of this branch got it wrong.** This family is one PERSONAL
+account, and its ledger names private individuals as counterparties. No holder
+name, account number, address, counterparty, balance, amount or date from any
+archive document appears **in this section, in the committed tests, or in
+`analysis/eq_bank_scanned.py` itself**. `webapp_data/` is gitignored by design
+and `tests/test_parser_crash_shapes.py` states the norm: no archive content is
+reproduced anywhere in this repository.
+
+The module clause is the correction. Review (BLOCK-1) found that the parser's
+own docstring illustrated "the printed shape" with a four-line summary block
+that was **verbatim the printed summary of one archive document** — a named
+private individual's account — while this paragraph's first draft claimed
+coverage only for the log and the tests. The figures are now invented, the
+tests' statement month is deliberately one that no archive document of this
+family prints, and the claim is enforced by measurement rather than by care:
+
+```
+760 literals built from all five documents' cached OCR text
+    money 692 | account / long digit runs 3 | phone 2 | postal 1
+    full dates 10 | counterparty + holder name tokens 50 | street lines 2
+each one grepped against the WHOLE branch diff (e83f746 .. working tree)
+FOUND: 0
+```
+
+Every claim below is therefore stated RELATIONALLY (residual zero, agreement
+counts, "accrual equals the printed interest term") rather than as a figure,
+and each one reproduces from the committed reader plus the run of record's own
+artifacts.
+
+## TG1. The census named the wrong bank
+
+SN3 row 6 reads `tangerine | <Month> 2026 Statement + Your activity summary,
+account <the number, printed in full in that row> | 5 | none | <=5 | MEDIUM`.
+The printed identity and the count are right; the issuer is not. (The account
+number is masked here and not because it is secret from this file — SN3 prints
+it — but because this section is where a reader of the family's record starts,
+and repeating a private individual's account number costs nothing to avoid.)
+
+Measured over the cached OCR text of all five (direct artifact path, all eight
+capability partitions enumerated, `webapp_data`'s sqlite index never opened):
+
+| marker | occurrences, per document |
+|---|---|
+| `tangerine`, case-insensitive | **0, 0, 0, 0, 0** |
+| the issuer's `.ca` contact domain | 1 each (the summary block) |
+| the head-office footer line | once per page — 3, 4, 4, 4, 2 |
+| the copyright line naming the parent bank | once per page — 3, 4, 4, 4, 2 |
+| `CAD` / `USD` / `US$` / `C$` / `CDN` | **0 on all five** |
+
+The archive's own `folder_label` on all five is a THIRD bank again — the
+filing, not the issuer, exactly the trap SN3's own table called out. So the
+registration is named after what the page furniture prints, as every
+registration in this registry is.
+
+## TG2. Characterized before a line of code
+
+Five documents, 3/4/4/4/2 pages, 2,394–6,918 characters, all
+`failed/no_parser_matched` in the run of record with an EMPTY `attempted`
+column — nothing claimed them — and all five `dedup_status=unique`,
+`source_model=local-tesseract-ocr`.
+
+The printed shape: a summary block of four terms that close on each other
+(`Opening balance`, `Total deposits +`, `Total withdrawals -`,
+`Closing balance =`), a fifth term printed beside them (`Total interest
+earned`), then one `Activity details` grid repeated under its column head
+`Date Description Withdrawals Deposits Balance` on every page.
+
+Measured over all five, before any reader existed:
+
+| property | measured |
+|---|---|
+| summary identity `opening + deposits − withdrawals − closing` | **0 cents on 5/5** |
+| ledger rows, total | **330** (66 · 77 · 87 · 74 · 26) |
+| balance walk from the printed opening, per row | **330/330 steps equal the printed amount; 0 breaks** |
+| final walk balance vs printed closing balance | **equal on 5/5** |
+| Σ credit rows vs printed `Total deposits` | **0 cents on 5/5** |
+| Σ debit rows vs printed `Total withdrawals` | **0 cents on 5/5** |
+| printed minus glyph vs balance-derived direction | **330/330 agree** |
+| page declarations `Page N of M` | consistent on every page of all five |
+| header (holder · account · period), pages that disagree | **0** |
+| title `<Month> <Year> Statement` vs period start | agrees on 5/5 |
+| rows dated in the month AFTER the printed period | **2 on every one of the five** |
+
+## TG3. The chain
+
+Five consecutive months of one account, and each month's printed closing
+balance is the next month's printed opening balance — the property that made
+`texas_first` VERY HIGH confidence at SN3 row 1. Measured as a relation so no
+figure is printed: for each of the four consecutive pairs,
+
+```
+closing(month n) − opening(month n+1) == 0.00      4/4 pairs
+```
+
+and each month's own identity closes to `0.00` independently. The chain is
+therefore four independent cross-checks on five independently-read summaries,
+and it holds exactly.
+
+## TG4. What the reader does
+
+**The direction is arithmetic.** The scan flattens the `Withdrawals` and
+`Deposits` columns into one run of text, so the column a figure sat in is not
+recoverable from position. The bank prints a minus before a withdrawal's
+figure and it survived on 330/330 rows here — but a minus is one glyph, and a
+reader that took it as the ANSWER would silently invert a row the first time
+Tesseract dropped one. So the step between two printed balances decides, and
+the glyph is checked against it.
+
+**A description vocabulary would be wrong on this family, not merely
+inelegant, and the archive proves it.** One row reads `Interac e-Transfer
+sent to es <name>` and is a CREDIT — the reversal of the identically worded
+debit two rows above it — and `Interac e-Transfer cancelled …` is a credit on
+two of the five. Memorising either would be reading our own list instead of
+the document (R-1 item 2) and would get those rows backwards.
+
+**The walk is the completeness oracle.** This template prints no counts, so
+`texas_first`'s count fail-fasts have no analogue here. What replaces them is
+that the walk is anchored at the printed opening balance and must arrive at
+the printed closing balance: a row dropped in the middle breaks the next row's
+step, and a row dropped at either end breaks an anchor.
+
+**The posting date, where the scan destroyed it.** Tesseract renders some day
+numbers as a stray glyph. Three rules, each a refusal and none a repair:
+
+1. the year comes from the printed period and nowhere else — a bare month/day
+   resolves only if exactly ONE candidate year puts it inside
+   `period_start .. period_end + 1 day`;
+2. a day token holding no digit is DERIVED FROM THE PRINTED ORDER or not at
+   all — bounded by its nearest resolved neighbours, accepted only where that
+   bound is a single day AND that day falls in the month the row itself
+   prints. Two candidate days refuses the whole document;
+3. the resolved sequence must be non-decreasing, which is what catches a day
+   token whose digits are legible and WRONG. A `10` scanned as `1O` reads as
+   day 1 in the middle of a run of 9s and 11s; it still sums, still reconciles
+   to the closing balance, and corrupts the daily ledger — and therefore the
+   ADB — with nothing else in the reader able to notice.
+
+**The one-day extension at the closing edge is measured, not assumed.** All
+ten out-of-period rows across the five are dated exactly `period_end + 1`. The
+window is widened by that one day and no more.
+
+## TG5. The implementation
+
+`analysis/eq_bank_scanned.py`, new module, and one row in
+`analysis/parser_registry_entries.py`. Registry 74 → 75; the pins move in the
+same commit (`tests/test_parser_conformance.py` count and the 75 × 74 = 5,550
+cross-product docstring, `tests/test_parser_registry_entries.py` order list and
+count) plus the conformance fixture.
+
+**Detection** — three required markers, all structural furniture:
+
+```python
+EQ_BANK_DETECTION_MARKERS = (
+    # The issuer's own contact domain, printed in the summary block.
+    required("issuer_contact_domain", lambda t: "EQBANK.CA" in t),
+    # This template's summary head.
+    required("summary_head", lambda t: "YOUR ACTIVITY SUMMARY" in t),
+    # The ledger column head — and specifically the RUNNING BALANCE column
+    # this reader's direction oracle is built on. Required at DETECTION and
+    # not merely at parse: a printing without it is one whose row directions
+    # this reader cannot solve, and claiming it would strand a document
+    # another reader could take.
+    required(
+        "running_balance_columns",
+        lambda t: re.search(r"WITHDRAWALS\s+DEPOSITS\s+BALANCE", t) is not None,
+    ),
+)
+```
+
+**The walk**, which is the whole card:
+
+```python
+    transactions: list[Transaction] = []
+    credit_total = debit_total = 0
+    balance = summary["opening"]
+    for row, day in zip(rows, dates):
+        step = row.balance - balance
+        if abs(step) != row.cents or step == 0:
+            return None
+        credit = step > 0
+        # The printed minus, checked against the arithmetic rather than
+        # trusted instead of it. Two independent readings of one fact: the
+        # glyph the bank printed, and the difference between two balances it
+        # printed. Where they disagree the document is not readable with
+        # confidence, and this reader would rather be the one that says so.
+        if row.printed_minus == credit:
+            return None
+```
+
+**An illegible day is derived from the printed order or refused:**
+
+```python
+    for index, entry in enumerate(resolved):
+        if entry is not None:
+            continue
+        before = next((d for d in reversed(resolved[:index]) if d is not None), None)
+        after = next((d for d in resolved[index + 1 :] if d is not None), None)
+        lower = before if before is not None else period_start
+        if after is None or lower != after:
+            return None
+        month = MONTH_NUMBERS.get(rows[index].month.strip().casefold())
+        if month != after.month:
+            return None
+        resolved[index] = after
+
+    dates = [entry for entry in resolved if entry is not None]
+    if len(dates) != len(rows):
+        return None
+    if any(later < earlier for earlier, later in zip(dates, dates[1:])):
+        return None
+```
+
+**A line inside a ledger region that is not a row fails the document closed**,
+and so does a region whose page footer never closed it:
+
+```python
+            match = _ROW_RE.match(stripped)
+            if match is None:
+                return None
+            ...
+        if inside:
+            # The region never closed: this page's footer declaration is not
+            # legible, so where its grid ended is not known.
+            return None
+```
+
+**The one-day closing extension**, stated where it is used:
+
+```python
+    latest = period_end + timedelta(days=1)
+```
+
+## TG6. The gates, measured by mutation
+
+Twenty-six mutants, one per gate, each applied to `analysis/eq_bank_scanned.py`
+with the file restored afterwards, `tests/test_eq_bank_scanned.py` re-run
+against each (harness in the session scratchpad, not committed; the tree was
+`git status`-clean after both runs).
+
+**The first run killed 15 of 25. Five of the ten survivors were NOT redundant**
+— that is the whole value of running the harness rather than trusting the test
+names — and each now has the counterexample that proves it. M26 is review's
+(MAJOR-1) and was added in the third run. **The final run kills 21 of 26.**
+
+| # | the gate the mutant removes | run 1 | run 2 | killed by |
+|---|---|---|---|---|
+| M01 | detection: issuer contact domain required | KILLED | **KILLED** | `test_each_required_marker_is_actually_required` |
+| M02 | detection: summary head required | KILLED | **KILLED** | same |
+| M03 | detection: running-balance column head required | KILLED | **KILLED** | `…_left_for_another_reader` (2 tests) |
+| M04 | `_sole`: a disagreeing repeat refuses | KILLED | **KILLED** | `…_summary_term_printed_twice_with_two_values_refuses` (2 tests) |
+| M05 | the title must agree with the period | KILLED | **KILLED** | `test_a_title_that_contradicts_the_printed_period_refuses` |
+| **M06** | **the period-ordering check** | survived | **KILLED** | `test_a_period_that_ends_one_day_before_it_starts_refuses` |
+| M07 | the summary closing-identity fail-fast | survived | survived (by derivation) | — |
+| M08 | an unreadable line inside a region refuses | KILLED | **KILLED** | `test_a_line_inside_the_ledger_that_is_not_a_row_refuses` |
+| **M09** | **the region-closed check** | survived | **KILLED** | `test_a_page_that_prints_no_footer_declaration_at_all_refuses` |
+| M10 | rows are read only inside a ledger region | KILLED | **KILLED** | 24 tests |
+| M11 | the period bounds a legible day | KILLED | **KILLED** | `test_a_row_dated_before_the_period_refuses` (2 tests) |
+| M12 | the one-day closing extension | KILLED | **KILLED** | 12 tests |
+| M13 | an illegible day needs both bounds to coincide | KILLED | **KILLED** | `…_between_two_different_days_refuses` (2 tests) |
+| M14 | a derived day must be in the printed month | KILLED | **KILLED** | `…_lands_in_another_month_refuses` |
+| M15 | the printed order must be non-decreasing | KILLED | **KILLED** | `test_a_legible_day_that_breaks_the_printed_order_refuses` |
+| M16 | the 1..31 day bound | survived | survived (by derivation) | — |
+| **M17** | **amount == the step between two printed balances** | survived | **KILLED** | `…_refuses_even_when_the_totals_agree` |
+| **M18** | **the zero-step refusal** | survived | **KILLED** | `…_refuses_even_when_it_prints_a_minus` |
+| M19 | the printed minus is checked against the arithmetic | KILLED | **KILLED** | `…_a_minus_the_scan_dropped_refuses…` (2 tests) |
+| M20 | the walk must reach the printed closing balance | survived | survived (by derivation) | — |
+| M21 | credit side == the bank's printed deposits | survived | survived (coupled) | — |
+| M22 | debit side == the bank's printed withdrawals | survived | survived (coupled) | — |
+| M23 | **NEITHER** total is checked | KILLED | **KILLED** | `test_two_grids_whose_totals_the_bank_denies_refuse` |
+| M24 | out-of-period days are not daily snapshots | KILLED | **KILLED** | `…_is_not_a_daily_snapshot_of_the_period` (2 tests) |
+| **M25** | **the empty-ledger refusal** | survived | **KILLED** | `…_is_not_a_statement_even_when_the_summary_closes` |
+
+| **M26** | **the day token is read with `isdecimal`, not `isdigit`** | (added run 3) | **KILLED** | `…_refuses_instead_of_raising` and `…_is_read_not_raised` |
+
+**21 killed, 5 survive.**
+
+### TG6.0 M26 — the crash review found (MAJOR-1)
+
+`str.isdigit()` is True for the superscripts U+00B9 U+00B2 U+00B3 and `int()`
+rejects them, so the first revision's day reader
+
+```python
+digits = "".join(character for character in row.day_token if character.isdigit())
+...
+day = int(digits)
+```
+
+**raised `ValueError` out of the parser** on a scan that renders a day as a
+superscript — the exact class `tests/test_parser_crash_shapes.py` exists for,
+and the failure mode this reader is least entitled to, since it refuses five
+other kinds of illegible day cleanly. `isdecimal()` is exactly the set `int()`
+accepts, so the conversion is now total, and a character outside it makes the
+token illegible — a refusal `_resolve_dates` already knows how to make.
+
+Two tests, because a raising reader and a refusing reader differ VISIBLY only
+where the printed order does determine the day: one asserts the refusal, the
+other asserts that such a document still publishes rather than raising.
+
+### TG6.1 What the first table would have got wrong
+
+Five of the ten first-run survivors were load-bearing, and each was reachable
+by a document that satisfies every OTHER gate:
+
+* **M06.** At exactly ONE day of inversion the date solver's window
+  (`period_start .. period_end + 1`) is still non-empty, so every row dated on
+  the start day resolves and nothing else notices the period runs backwards.
+* **M09.** With the page furniture gone ENTIRELY there is no unreadable line
+  left for M08 to trip over, and the reader publishes a page whose end it
+  never found.
+* **M17.** Two rows whose printed figures are wrong by opposite amounts sum to
+  the bank's own total, walk to the bank's own closing balance, and satisfy
+  the summary identity. Only the per-row agreement says the grid is misread;
+  without it the document publishes two amounts the bank never printed.
+* **M18.** A printed minus makes a zero-step row agree with M19, so the
+  zero-step refusal is the only thing left. The printed balances do not
+  account for the row, so its direction is not in the document.
+* **M25.** A zero-activity summary closes on itself trivially and matches both
+  printed totals, so a header publishes as a statement.
+
+### TG6.2 The five that survive, and the derivation that makes each redundant
+
+Stated precisely rather than waved at, and each is kept as an explicit
+fail-fast because a short grid should be reported as a short grid rather than
+as "the ledger did not close".
+
+* **M07 and M20 imply each other, given M17 and M21/M22.** The walk gives
+  `final = opening + Σsteps`, M17 makes every step the printed amount, and
+  M21/M22 make the two sides equal the printed totals; so
+  `final = opening + deposits − withdrawals`. The identity check and the
+  final-balance check are then two spellings of one equation.
+* **M16 is implied by `iso_unique_in_period`.** The mechanism as first
+  written here was wrong, and review (MINOR-4) corrected it: `date(2026, 4, 44)`
+  does raise `ValueError`, but INSIDE `iso_unique_in_period`, which catches it
+  and moves on to the next candidate year. With no candidate surviving, the
+  helper RETURNS None — a refusal, not an exception — and `_resolve_dates`
+  refuses the document on it. The 1..31 bound is therefore redundant with a
+  refusal rather than with a raise, and nothing raises here at all.
+* **M21 and M22 are mathematically coupled.** The walk fixes
+  `credits − debits`, so a credit total wrong by `d` implies a debit total
+  wrong by `d`: neither can fire alone. Removing BOTH is a real defect and is
+  killed by M23.
+
+## TG7. The movers, named
+
+Every row from a live replay of the run of record's own OCR artifact through
+this branch's pipeline, classified with the runner's own `classify_outcome`
+and `_failure_reason`.
+
+| content_sha256 | run of record | branch | what moved |
+|---|---|---|---|
+| `5C65DFB2A096997B9C8FE919F34E1BB14AD81A6968924FBB162F3DD9E24D2E11` | `failed/no_parser_matched` | **`withheld/withheld_adb`** | 3-page month fully read: 66 transactions, 21 in-period daily snapshots, issuer/holder/account/period/both balances/both stated totals/stated interest published; integrity flags `[]`; `corporate_use` **approved**; ADB refused — TG9 |
+| `75AE79521F5DC0B1C66744BA0DC5988D2B13D1630D1D3327280B135888901659` | `failed/no_parser_matched` | **`withheld/withheld_adb`** | 4-page month: 77 transactions, 22 snapshots; flags `[]`; approved; ADB refused — TG9 |
+| `958322F16B7F21EA170626543B77A5816076AC8E45EF9924537AFF9A92068B87` | `failed/no_parser_matched` | **`withheld/withheld_adb`** | 2-page month: 26 transactions, 15 snapshots; flags `[]`; approved; ADB refused — TG9 |
+| `E630CB66DBDB3C1DD3EC57B78BD735EC4CC41FA7659750E710161DA424A06E8C` | `failed/no_parser_matched` | `failed/parser_declined` | nothing published; `attempted=('eq_bank_scanned',)`. One day token is a stray glyph whose legible neighbours are **two days apart** — three candidate days |
+| `B0E16E92A1ECFDFB95F3925FBFB63B3959918DD4DB7EB6A9DD97B8F85D7459D8` | `failed/no_parser_matched` | `failed/parser_declined` | nothing published; `attempted=('eq_bank_scanned',)`. **Three** day tokens are the same stray glyph, whose legible neighbours are **one day apart** — two candidate days each |
+
+Three improvements on the outcome ladder (`failed` → `withheld`), two
+reason-only moves inside `failed` — the class does not move, the information
+does: a reader now looks at them and declines with a stated defect instead of
+"nothing even claimed it".
+
+### TG7.1 The two refusals, with their exact defects
+
+Both are the same class and neither is repairable from the cache. The scan
+renders a day number as a stray non-digit glyph, and the printed chronology
+bounds the row without determining it:
+
+The day-token census over all 330 rows, measured (token shapes only — no
+dates, and the two glyphs are quoted because the card turns on them):
+
+| document | rows | tokens all digits | digits + one stray glyph | no digit at all | bound the printed order gives | outcome |
+|---|---:|---:|---|---|---|---|
+| `5C65DFB2…` | 66 | 62 | 3 x `8&` | 1 x `g` | the neighbours agree on ONE day | **derived — parses** |
+| `75AE7952…` | 77 | 77 | — | — | — | parses |
+| `E630CB66…` | 87 | 86 | — | 1 x `&` | neighbours **two days apart** → three candidates | **refuses** |
+| `B0E16E92…` | 74 | 71 | — | 3 x `&` | neighbours **one day apart** → two candidates each | **refuses** |
+| `958322F1…` | 26 | 26 | — | — | — | parses |
+
+**What was deliberately NOT done.** The obvious rescue is a glyph-confusion
+table — `&` is a plausible mis-read of one specific digit, and combining that
+with the bound resolves all four affected rows uniquely. It is not in this
+branch, and the reason is evidence rather than taste: **on a third document
+the same `&` appears three times immediately AFTER a legible digit** (`8&`),
+in the same day-token position, where it can only be column bleed. A glyph
+that is noise in one position and a digit in another is not evidence of
+either, and this reader takes the digit that survived in `8&` only because the
+non-decreasing-order gate re-checks the result. Carded at TG11 finding 2.
+
+## TG8. Nothing else moves
+
+**1. The detection sweep, every distinct document in the run of record.** This
+branch's only registry change is an ADDITION with no `supersedes` edge and no
+change to any existing marker, so a document's base claimant set is exactly
+its branch claimant set minus `eq_bank_scanned` — one sweep is a complete
+differential. Every one of the eight OCR capability partitions is enumerated
+per document, by direct file path, and a document counts as claimed if ANY
+partition is claimed (the widest reading).
+
+```
+registrations: 75
+swept 3351 documents in 398.4s
+no usable artifact (deferred / absent): 29
+eq_bank_scanned claims 5 documents
+  5C65DFB2...  ['eq_bank_scanned']
+  75AE7952...  ['eq_bank_scanned']
+  958322F1...  ['eq_bank_scanned']
+  B0E16E92...  ['eq_bank_scanned']
+  E630CB66...  ['eq_bank_scanned']
+NEW AMBIGUITIES: 0
+multi-claim documents at HEAD: 65   (all pre-existing; none involves this registration)
+```
+
+Exactly the five, **SOLE claimant on each**, zero new ambiguities: the
+remaining 3,346 documents keep their base claimant set exactly, so none of
+them can have changed. That is also the card's stratified non-target probe,
+and it is the whole archive rather than a 400-document sample of it.
+
+**2. The committed archive instrument**, `tools.regfp_zero_movement_sweep`,
+run at this branch's HEAD over the whole archive in four chunks against the
+run of record's own baseline settings key
+`D3370EEBDCB87892A2739BCB0D882A66E72DCBFAB2553101111157B5A231DE24`:
+
+```
+python -m tools.regfp_zero_movement_sweep --rows <run>/rows.csv     --data-dir <main>/webapp_data     --baseline-settings-key D3370EEBDCB87892A2739BCB0D882A66E72DCBFAB2553101111157B5A231DE24     --start A --end B --out <private>
+
+chunk    0.. 845   identical 620  moved 0  no_ocr 6   raises_again 219  now_publishes 0   2225.6s  CHUNK_EXIT=0
+chunk  845..1690   identical 644  moved 0  no_ocr 5   raises_again 194  now_publishes 2   2775.4s  CHUNK_EXIT=1
+chunk 1690..2535   identical 634  moved 0  no_ocr 11  raises_again 199  now_publishes 1   2787.0s  CHUNK_EXIT=1
+chunk 2535..3380   identical 637  moved 0  no_ocr 7   raises_again 201  now_publishes 0   1888.7s  CHUNK_EXIT=0
+--------------------------------------------------------------------------------------------------
+TOTAL  3,380 documents   identical 2,535   moved 0   no_ocr_artifact 29
+                         no_payload_raises_again 813   no_payload_now_publishes 3
+                         payload_now_raises 0          multi_artifact_documents 74
+                         2,535 + 0 + 29 + 813 + 3 + 0 = 3,380        9,676.7s wall
+```
+
+The two non-zero `CHUNK_EXIT`s are the tool reporting that the chunk HAS
+findings, not a crash, and the findings are these three lines and nothing
+else:
+
+```
+{"content_sha256":"5C65DFB2A0...","outcome_class":"failed","verdict":"no_payload_now_publishes"}
+{"content_sha256":"75AE79521F...","outcome_class":"failed","verdict":"no_payload_now_publishes"}
+{"content_sha256":"958322F16B...","outcome_class":"failed","verdict":"no_payload_now_publishes"}
+```
+
+**`moved: 0` over 2,535 compared payloads and `payload_now_raises: 0` over the
+whole archive.** Every finding is inside the named population by
+`content_sha256`, and all three are the expected direction: a document the run
+of record could not analyse at all now analyses. No document that published
+before publishes anything different, and none that published before has
+stopped.
+
+## TG9. The finding that decides this card's value: the closing accrual
+
+**The measurement.** Every one of the five prints, at the foot of its ledger,
+postings the bank dates in the NEXT cycle, and its own printed closing balance
+includes them. Measured on the three documents that parse (relations only, no
+figures):
+
+| property | measured |
+|---|---|
+| trailing rows dated after `period_end` | **2 on each** |
+| all of them dated exactly `period_end + 1` | **true on each** |
+| all of them positive credits | **true on each** |
+| they are the LAST rows chronologically | **true on each** |
+| their sum − the printed `Total interest earned` | **0.00 on each** |
+| `printed closing balance − their sum − in-period closing balance` | **0.00 on each** |
+
+The last two lines are the packet's point: **the document itself states the
+size of the accrual**, in a summary term printed beside the four that close on
+each other, and the in-period ledger closes exactly on
+`closing balance − that term`.
+
+**What the platform does with it, and why that is correct today.**
+`analysis/adb.py` computes the calendar-day ADB over the printed period
+correctly — the trailing rows are excluded rather than moved to a boundary
+day, and they touch no in-period daily balance — and then refuses to publish
+it, because exactly three REQUIRED validations fail and all three trace to the
+same two rows:
+
+```
+transactions_within_period            False
+final_balance_matches_statement_closing  False
+ledger_reconciles_to_closing          False
+```
+
+`metrics.average_daily_balance` is therefore `None` and `classify_outcome`
+returns `withheld/withheld_adb`. Integrity flags are `[]` and `corporate_use`
+is `approved` on all three: nothing else about these documents is in doubt.
+
+**Why this cell did not fix it.** `analysis/adb.py` is on the MASTER_PLAN §4
+do-not-touch list, and this card's declared ownership is one registration,
+registry entries, tests and the W3 log. Widening a REQUIRED ADB validation is
+also precisely the kind of change the platform has ruled must be narrow,
+declared and approved: the opening-edge analogue —
+`Statement.initialization_transaction_count` — went to Gustavo as
+WOODFOREST-INIT and was "approved narrow, fail-closed default".
+
+**The seam this asks for, stated as conditions rather than code.** A
+`closing_accrual_transaction_count` the PARSER declares and `adb.py`
+re-verifies itself, reachable only when ALL hold:
+
+1. the parser declared exactly `N` trailing postings;
+2. every out-of-period row is dated exactly `period_end + 1` (re-enforced in
+   `adb.py`, not inherited — the boundary rule the initialization event already
+   sets);
+3. they are the last `N` rows chronologically and there is no pre-period row;
+4. every one is a credit with a positive amount;
+5. their sum equals the statement's printed `stated_interest_paid`;
+6. the in-period ledger closes exactly on `ending_balance − sum`, and does NOT
+   close on `ending_balance`;
+7. the ADB divisor stays the printed period's calendar length and no row is
+   moved to a boundary day;
+8. the accrual is never folded into any in-period daily balance.
+
+Every one of the eight is measured true on all three documents that parse, and
+conditions 5 and 6 are what make the packet self-corroborating: two
+independent printings — a summary term and a ledger row — agreeing to the cent.
+
+**What it is worth.** Three documents `withheld → validated` today, five with
+TG11 finding 2. The ADB the engine already computes and refuses is the figure
+the seam would publish; it is not recomputed by it.
+
+### TG9.1 THIS SEAM IS SEQUENCED BEHIND TG10, AND THE FIRST DRAFT DID NOT SAY SO
+
+The first revision of this section presented TG9 and TG10 as two independent
+findings. **They are not independent, and review (MAJOR-2) is right that the
+omission matters more than either.** The withhold is currently the only thing
+keeping this family's currency label off a screen: `statement.currency` is
+`"USD"` in the payload TODAY, on a Toronto personal account, because that is
+the schema default and this reader deliberately writes nothing. If the accrual
+seam lands ALONE, all three documents become `validated`, and CURRENCY_DOCTRINE
+§D then renders exactly one denominated figure —
+`Average Daily Balance: $x USD` — for a Canadian account. That is the doctrine
+producing a wrong label, not a missing one, and it would be this branch that
+created the path to it.
+
+**Ocean's ruling, recorded:** the currency stays the schema default on this
+branch (which is what the card requires); TG9 and TG10 go to Gustavo as ONE
+bundled doctrine question; and no seam that publishes a USD-labelled Canadian
+ADB is merged. Either the currency is decided first, or the seam publishes
+`withheld` until it is.
+
+### TG9.2 The safe shape for the seam, as review specified it
+
+Four conditions on top of the eight at TG9, recorded here so whoever writes it
+inherits them rather than rediscovering them:
+
+1. **Sequence behind TG10.** Above.
+2. **`adb.py` RE-DERIVES all eight; it never trusts a parser-declared count.**
+   This is how `initialization_transaction_count` was ruled — that layer
+   re-enforces `day == start - 1` itself rather than inheriting the boundary
+   from the declaring parser, on the stated principle that *a consuming layer
+   that trusts its caller to have checked is a consuming layer with no check*.
+   The trailing analogue gets the same treatment or none.
+3. **Condition 5 is MANDATORY, not corroborating.** `stated_interest_paid`
+   must be PRESENT and EQUAL to the trailing sum; absent means refuse. This
+   closes the hole named at TG9.3: today the accrual is only ever checked
+   against the printed interest term by ME, in this log, over five documents —
+   nothing in the code requires it.
+4. **Decide what `ending_balance` MEANS, and flag the divergence.** Today all
+   three publish an `ending_balance` (the printed closing, which includes the
+   accrual) that their own daily series never reaches, with `flags: []`. Either
+   `ending_balance` is the printed closing and the divergence from the
+   period-end balance is flagged, or it is the period-end balance and the
+   printed closing is published beside it — but it cannot silently be one while
+   every downstream consumer assumes the other.
+
+### TG9.3 What the reader does NOT check, stated because it is a gap
+
+A row dated `period_end + 1` is accepted by this reader **whatever it is**. The
+window `period_start .. period_end + 1` is a date bound and nothing more: a
+DEBIT on that day, or an unrelated credit that is not interest at all, parses
+exactly like the interest postings, carries no flag and no note, and reaches
+the payload as an ordinary transaction. Nothing today reads the printed
+`Total interest earned` term against it — that identity holds 5/5 across this
+family, but it holds as a MEASUREMENT IN THIS LOG, not as a gate in the code.
+
+What contains it today is `analysis/adb.py`, which withholds the ADB for any
+out-of-period row regardless of kind. That is real containment and it is why
+this is a gap rather than a defect — but it is containment by the very check
+TG9 asks to relax, so the two must move together. Condition 3 above is exactly
+this hole closed, and it belongs in `adb.py` where the re-derivation lives.
+
+## TG10. Currency: named as a future mover, not asserted
+
+`Statement.currency` is **not set by this reader**, and the omission is the
+decision. The field therefore carries the schema default, `"USD"`, and this
+parser asserts nothing.
+
+What the evidence actually is. Every printed figure carries a bare `$`. The
+cached OCR text of all five contains **no `CAD`, no `USD`, and no other
+currency token anywhere** — measured, TG1. The issuer evidence is Canadian and
+affirmative: a `.ca` contact domain, an Ontario head office in the footer of
+every page, a Canadian-format postal code in the holder's address, and
+domestic-rail payment postings.
+
+CURRENCY_DOCTRINE §A/§B is why that is not enough on its own authority: a
+proven jurisdiction gives a NATIVE DEFAULT, never the `$` symbol and never the
+absence of contrary evidence, and §C prices asserting one at a READ-ONLY
+measurement packet over the whole affected population before any pinned
+movement. This cell did not run that packet and will not smuggle a currency in
+under a registration card.
+
+**Named, therefore, as a future currency mover:** `eq_bank_scanned`, 5
+documents, currently on the schema default, candidate CAD under a jurisdiction
+default. It is the same shape as the RBC ceremony and the open ATB packet, and
+it belongs with them — the doctrine's own §B says the shape "generalizes to
+other cross-border institutions, each requiring its own proven-jurisdiction
+evidence base before any default is wired". It should be routed to
+CURRENCY-SOURCE (which is building `currency_source` provenance this batch) or
+to whichever cell inherits the ATB packet, not decided here.
+
+Note for whoever takes it: because these three documents are `withheld`, no
+currency label of theirs reaches a published METRIC today, so the packet has no
+pinned-movement risk from this family — but the pinned currency surface is
+109/109 and this family is not in it, so the census for the packet is exactly
+these five.
+
+**And the label is live in the payload even so — this is TG9's precondition,
+not a separate note.** `statement.currency == "USD"` is in the analysis payload
+of all three documents right now; only the `withheld_adb` outcome keeps the
+denominated figure off a screen. So the accrual seam at TG9 and this ruling are
+ONE question in two halves: relaxing the withhold without deciding the currency
+publishes `Average Daily Balance: $x USD` for a Toronto personal account, which
+CURRENCY_DOCTRINE §D would then render as the single canonical denominated
+metric. **Ocean's ruling: the currency stays the schema default on this branch,
+TG9 + TG10 are escalated to Gustavo as one bundled doctrine question, and no
+seam that publishes a USD-labelled Canadian ADB is merged.** See TG9.1.
+
+## TG11. Findings and questions for Ocean
+
+**1. The closing-accrual seam (TG9) — the whole card's value turns on it.**
+Three documents are one narrow, declared, fail-closed `adb.py` condition away
+from `validated`, the eight conditions are measured true, and `adb.py` is not
+mine. This is the mirror of an exception the platform has already approved
+once. **Question: does Ocean want this carded to a cell that owns `adb.py`, or
+routed to Gustavo as a doctrine question first?** My reading is that it is a
+doctrine question — "is a posting the bank dates after the period end but
+counts in its own closing balance part of the period?" — and the ADB doctrine's
+answer (calendar-day printed period) is already the right one; what is missing
+is only the seam that lets a parser SAY that is what it found.
+
+**2. The day-glyph card (+2 documents).** Both refusals are one stray glyph
+class. A single-glyph confusion table, applied ONLY where the printed
+chronological bound leaves exactly one candidate consistent with it, resolves
+all four affected rows uniquely. I did not build it because the same glyph
+appears elsewhere in the family as bleed AFTER a legible digit, so it is not
+unambiguously a digit — which means the card needs its own evidence gate
+(when is a glyph a digit?) and its own mutation kill. Worth +2 documents and
+it is a scanned-OCR capability, not an EQ Bank one: it would apply to any
+scanned family. Suggested name `SCAN-DAY-GLYPH`.
+
+**3. SN3 row 6's issuer was wrong, and the ranking's other rows were derived
+the same way.** Row 6 named a bank that does not appear in the text. The count
+(5), the printed identity and the "unclaimed" column were all correct, so the
+staffing decision was sound — but any batch-8 cell staffing from SN3 should
+read the artifact before naming a registration, and SN3's own note about
+`folder_label` not being the issuer applies to the family names as well.
+
+**4. Folder-label disagreement, all five.** The archive files all five under a
+different bank's folder. Telemetry-only, but it is a clean measured example
+for whoever owns folder-agreement reporting.
+
+**5. `withheld` is the honest outcome and it is still forward movement.** I
+want this stated plainly rather than dressed up: the card was expected to
+deliver up to five validations and delivers three ladder improvements and two
+reason improvements. Everything the statements print is now extracted,
+verified against four independent oracles, and stored; what is withheld is one
+metric, for one stated reason, which is the platform behaving exactly as
+designed.
+
+**6. DETECT-BUDGET cannot gate registry growth (batch-8 card:
+DETECT-BUDGET-GATE).** Measured at TG12.1 rather than argued: the assertion is
+`worst * 80 / len(registrations)`, `worst` is ~99% registry-independent
+first-touch cost, so the projected figure FALLS with every registration added.
+The gate that exists to keep routing cheap as the registry grows gets easier
+the more it grows. `tests/test_parser_parity.py` is the platform's, and the
+fix changes a stop-the-line contract, so this is named rather than touched.
+
+**7. The two things this cell learned that generalise past this family.** A
+docstring is tracked source and the privacy rule applies to it exactly as it
+applies to a test fixture (TG14.1) — the useful form of the rule is not "do
+not paste archive content" but "build the literal set and grep the diff", and
+that instrument is twenty lines and reusable by any scanned card. And
+`str.isdigit()` is not `int()`'s domain (TG14.2): any parser reading a digit
+out of scanned text with `isdigit` has the same latent `ValueError`. Both are
+worth a sentence in whatever brief batch 8's scanned cells get.
+
+## TG12. Proofs, with verbatim exit codes
+
+Every exit code below is the verbatim value of a runner's own `EXIT=`
+terminator, read from a durable log. **MINOR-3 closed:** the first revision
+quoted the suite and the budget numbers from a terminal, with no log to point
+at; every row now names the log that produced it, and the review-closure round
+re-ran the whole floor into `floor2.log`.
+
+**Round 1** is the branch as first submitted; **round 2** is the same floor
+re-run after the review closures (BLOCK-1 docstring, MAJOR-1 `isdecimal`, the
+test file's invented month and figures).
+
+| # | proof | round 1 | round 2 (closures) | exit | log |
+|---|---|---|---|---|---|
+| 0 | full default suite | 5,437 passed · 35 skipped · 33 deselected | **5,439 passed** · 35 skipped · 33 deselected · 189.45s (+2: the superscript pair) | **0** | `floor2.log` |
+| 1 | canonical guards (5 files) | 242 passed | **242 passed** · 15.70s (unchanged at registry 75) | **0** | `floor2.log` |
+| 2 | canonical conformance (7 files) | 1,164 passed · 35 skipped | **1,164 passed** · 35 skipped · 4.31s — 1,151 at 74x73 → **1,164 at 75x74**; pins in the registration's own commit | **0** | `floor2.log` |
+| 3 | `tests/test_eq_bank_scanned.py` | 49 passed | **51 passed** · 0.27s | **0** | `floor2.log` |
+| 4 | family replay of the five, this tree | 3 withheld / 2 declined | **identical** — 3 `withheld/withheld_adb` (66/21, 77/22, 26/15 txns/snapshots; `adb: null`; `flags: []`; `corporate_use: approved`; `currency: "USD"` the schema default) and 2 `failed/parser_declined` with `attempted=('eq_bank_scanned',)` | **0** | `floor2.log` |
+| 5 | `python corpus_gate.py` | GREEN — 106 PASS / 3 WITHHELD; verdicts **102 / 4 / 3**; currency **109/109 = 14 CAD / 95 USD**; 1,740.6s | **GREEN** — 106 PASS / 3 WITHHELD; verdicts **102 / 4 / 3**; currency **109/109 = 14 CAD / 95 USD**; 596.0s | **0** | `corpus.log` / `corpus2.log` |
+| 6 | corpus-marked slice | run A 28 passed **1 failed** (budget, under load, exit 1); run B **29 passed** · 2,353.37s | **29 passed** · 5,478 deselected · 1,710.58s (the budget test among them) | **0** | `corpus.log` / `slice2.log` / `corpus2.log` |
+| 7 | detection sweep, all 3,380 distinct archive documents (TG8.1) | 3,351 swept / 29 without a usable artifact; **5 claims, sole claimant on each; 0 new ambiguities**; 398.4s | detection is unchanged by the closures — no marker moved, and `tests/test_parser_conformance.py`'s 75x74 cross-product re-pins it every run | **0** | `detect_sweep.log` |
+| 8 | committed archive instrument, 4 chunks (TG8.2) | **moved 0 · payload_now_raises 0 · no_payload_now_publishes 3**, all named | unchanged: the closures touch a docstring, a day-token character class that no archive document of this family exercises, and tests — proven by row 4's identical payloads | 0/1/1/0 | `archive_sweep.log` |
+| 9 | mutation harness (TG6) | run 1 15/25 · run 2 20/25 | **run 3: 21 of 26 killed**, M26 added by review; tree `git status`-clean after each | **0** | `mutation_run3.log` |
+| 10 | BLOCK-1 archive-literal scan (TG0) | — | 760 literals from all five documents vs the whole branch diff: **FOUND 0** | **0** | `leakscan` |
+| 11 | zero claims over the 109 pinned corpus documents | — | **0 of 109** — so a change confined to this parse function cannot move the gate | **0** | `corpus_claims.log` |
+
+### TG12.1 The one red reading, and what re-measuring it actually showed
+
+`test_detect_sweep_stays_affordable_for_the_discovery_run` (the batch-4
+DETECT-BUDGET contract) read
+
+```
+slowest full-registry detect sweep was 402.2 ms over 75 registrations
+(BofA/BofA.pdf), which projects to 429.0 ms at 80 - the budget is 250 ms
+```
+
+while this cell's own four archive-sweep chunks were saturating the machine —
+the slice took 6,008s against the ~20 minutes its own docstring quotes. The
+test's docstring already records this exact failure mode: *"Three cells of the
+batch-4 wave read this test red on an unmodified base while ten agents shared
+the machine."* On an idle host it passes alone (**1 passed, 97.62s, exit 0**)
+and inside the whole slice (**29 passed, 2,353.37s, exit 0**).
+
+**The mechanism, corrected (MINOR-2).** The first revision explained the
+reading by timing each registration's `safe_detect` over an ALREADY-PREPARED
+document — which excludes the very pass it was blaming. Re-measured properly,
+with the 75- and 74-registration arms **alternated sample by sample inside the
+same loop** so drift falls on both equally, and with `_surviving_claimants`
+(which prepares the text itself) as the timed unit:
+
+| arm | worst | projected at 80 | median document | verdict |
+|---|---:|---:|---:|---|
+| **75** — with this registration | 101.2 ms | **108.0 ms** | 16.87 ms | PASS |
+| **74** — with it popped out in memory | 77.0 ms | **83.3 ms** | 16.72 ms | PASS |
+
+marginal cost of this registration: **median +0.123 ms / mean +0.355 ms per
+document** — and review's independent alternated run measured **−0.69 ms**.
+*The sign flips between runs*, which is the finding: the marginal is below the
+noise floor. Decomposing one sweep of the worst document:
+
+```
+whole sweep                                 101.2 ms
+text preparation alone (steady state)         0.7 ms
+ALL 75 detectors over the prepared text       0.48 ms
+this registration alone                       5.8 us   (median 5.8 us)
+```
+
+So ~99% of the reading is neither the registry nor the steady-state
+preparation; it is first-touch cost on whichever document happens to be hit
+cold, which is also why the "worst document" is a different document on almost
+every run (three different ones across four measurements here).
+
+**The structural defect this exposes, named (batch-8 card: DETECT-BUDGET-GATE).**
+The assertion is
+
+```python
+projected = worst * PLANNED_REGISTRATIONS / len(registrations)
+assert projected < SWEEP_BUDGET_SECONDS
+```
+
+`worst` is ~99% registry-independent, so dividing it by `len(registrations)`
+means **the projection FALLS as the registry grows**: every registration added
+makes DETECT-BUDGET easier to pass. It cannot gate registry growth, which is
+the one thing its name and its RFC-risk-7 provenance say it is for. What it
+does still gate is a single pathological detector — and that it catches by
+inflating `worst`, not by the division. Fixing it is not this cell's
+(`tests/test_parser_parity.py` belongs to the platform, and the fix changes a
+stop-the-line contract), so it is measured, named, and carded.
+
+The detect-sweep budget is HELD at registry 75 on the measurement, and the red
+reading is recorded here rather than quietly re-run: a stop-the-line gate that
+goes red deserves a measurement, not an assurance.
+
+## TG13. Commits
+
+| commit | what |
+|---|---|
+| `eb5d242` | the registration — `analysis/eq_bank_scanned.py`, the registry row, and the pins in the SAME commit (`test_parser_conformance` count + the 75 x 74 = 5,550 cross-product docstring, `test_parser_registry_entries` order list + count, the conformance fixture) |
+| `ed43f2e` | `tests/test_eq_bank_scanned.py` — the gate tests, including the five the first mutation run proved untested |
+| `8bc457d` | W3 §TANGERINE (TG0–TG13) |
+| `f719435` | the proof table records the final-HEAD re-run |
+| this commit | **the review closures** — BLOCK-1, MAJOR-1, MAJOR-2 and MINOR-1..6 (TG14) |
+
+## TG14. Review closures — 1 BLOCK, 2 MAJOR, 6 MINOR, all closed
+
+The independent adversarial review reproduced everything in this section and
+went further than it: it extended the accrual identity to **5/5** (including
+the two documents this reader declines, whose ledgers it read independently of
+the date gate), fuzzed the five derivation-redundant mutation survivors over
+**6,000 documents at 0 divergences**, probed **1,102 documents** — all 179
+scanned plus all 621 Canadian — and found **5 sole claims**, and re-measured
+the detect budget with its own alternated differential. The parser held. What
+follows is what did not.
+
+### TG14.1 BLOCK-1 — archive content in tracked source
+
+**The finding.** `analysis/eq_bank_scanned.py` illustrated "the printed shape"
+with a four-line summary block that was **verbatim the printed summary of one
+archive document** — a named private individual's personal account. TG0's
+privacy paragraph claimed coverage for this log and for the tests and said
+nothing about the module, so the paragraph was true and the branch was not.
+
+**Why it is a BLOCK and not a nit.** `webapp_data/` is gitignored *by design*
+and `tests/test_parser_crash_shapes.py` states the norm in as many words: no
+archive content is reproduced anywhere in this repository. A docstring is
+tracked source; it ships, it is read by everyone who opens the module, and the
+four figures together are a fingerprint of one person's month.
+
+**Closed.** The figures are invented (and are the same invented figures the
+tests use, so the module and its tests illustrate one document). The tests'
+statement month is now deliberately one no archive document of this family
+prints, which removes the date collisions too. TG0 now covers the module
+explicitly. And the claim is enforced by measurement rather than by care: 760
+literals built from all five documents' cached OCR text — 692 money figures,
+3 account/long-digit runs, 2 phone numbers, 1 postal code, 10 full dates, 50
+counterparty and holder name tokens, 2 street lines — each grepped against the
+whole branch diff. **FOUND: 0.**
+
+Two honest notes on the instrument. It is a SUBSTRING test, so before the fix
+it also reported sixteen ROUND amounts — the two-and-three-significant-digit
+kind that a 330-row ledger and any invented fixture will share by coincidence,
+and which are not quoted here for the reason this whole paragraph exists; the
+fix removed those too
+by choosing distinctive invented figures, so the 0 is a clean 0 and needs no
+argument about which hits "count". And `Interac e-Transfer` survives in the
+module and tests deliberately: it is a national payment rail printed on
+millions of statements and it is the evidence for the no-vocabulary argument,
+not a fact about this account.
+
+### TG14.2 MAJOR-1 — a crash surface in the day reader
+
+Closed at TG6.0 and M26. `str.isdigit()` is True for U+00B9/B2/B3 and `int()`
+rejects them: a day rendered as a superscript raised `ValueError` out of the
+parser. `isdecimal()` is exactly `int()`'s domain, so the conversion is total
+and the token simply becomes illegible — a refusal this function already makes
+five other ways. Two tests; the mutant is killed by both.
+
+### TG14.3 MAJOR-2 — TG9 and TG10 are one question, not two
+
+Closed at TG9.1, TG9.2, TG9.3 and TG10. The first draft presented the accrual
+seam and the currency as independent findings; they are sequenced, because the
+`withheld` outcome is the only thing keeping a USD label off a Toronto personal
+account's ADB. Ocean's ruling is recorded in both places: the currency stays
+the schema default on this branch, TG9 + TG10 go to Gustavo as ONE bundled
+doctrine question, and no seam publishing a USD-labelled Canadian ADB is
+merged. Review's four safe-shape conditions for the seam are recorded at TG9.2,
+and TG9.3 records what this reader does NOT check — a `period_end + 1` row that
+is not an accrual at all (a debit, an unrelated credit) parses with no flag and
+is contained only by `adb.py`.
+
+### TG14.4 The six MINORs
+
+| # | finding | closed |
+|---|---|---|
+| MINOR-1 | TG7's movers table gave the wrong bounds ("three days apart"/"two days apart") against TG7.1's measured ones | TG7 now reads **two days apart → three candidates** and **one day apart → two candidates each**, matching TG7.1 and the measurement |
+| MINOR-2 | TG12.1's mechanism timed detection over an already-prepared document, excluding the pass it blamed | TG12.1 rewritten around an **alternated fresh-`prepare` differential**; the marginal cost is below the noise floor (sign flips between runs) and the structural defect is named: the budget assertion divides a registry-independent cost by the registry size, so it gets EASIER with every registration. Batch-8 card **DETECT-BUDGET-GATE** |
+| MINOR-3 | no durable log behind the suite or the budget numbers | every TG12 row now names its log; the whole floor re-run into `floor2.log`, the budget into `budget2.log`, the mutants into `mutation_run3.log` |
+| MINOR-4 | TG6.2 said `date(2026, 4, 44)` "raises before the bound is consulted" | corrected: it raises INSIDE `iso_unique_in_period`, which catches it and RETURNS None. The bound is redundant with a refusal, not with a raise — nothing raises here |
+| MINOR-5 | `_resolve_dates` §3 over-claimed what monotonicity catches | the docstring now states the residual: a wrong day that still lands BETWEEN its neighbours is published silently, and nothing in the document contradicts it — a limit of the evidence, not of the reader |
+| MINOR-6 | the module docstring said a header "two pages disagree about" refuses | corrected: `_sole` compares MATCHES, so it refuses contradiction and not illegibility — a header garbled below the pattern is invisible and the good reading is taken |
+
+### TG14.5 What did not change
+
+No detection marker moved, so the family population is untouched and
+`tests/test_parser_conformance.py`'s 75 x 74 cross-product re-pins it on every
+run. The family replay at the closure tree is IDENTICAL to the one at TG7 —
+the same three `withheld/withheld_adb` with the same transaction and snapshot
+counts, `flags: []` and `corporate_use: approved`, and the same two
+`failed/parser_declined`. And `eq_bank_scanned` claims **0 of the 109 pinned
+corpus documents**, measured, so a change confined to its parse function cannot
+move the corpus gate.
