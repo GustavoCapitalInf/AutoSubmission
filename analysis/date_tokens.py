@@ -38,6 +38,9 @@ __all__ = [
     "iso_unique_in_period",
     "iso_within_period",
     "year_within_period",
+    "MAX_DAY_CELL_GLYPHS",
+    "day_readings",
+    "sole_day",
 ]
 
 _MONTH_DAY_RE = re.compile(r"(\d{2})/(\d{2})")
@@ -404,3 +407,85 @@ def iso_within_period(token: str, start: date, end: date) -> str | None:
     # is proven before it gets here. No refusal handler, because a handler that
     # can never fire is noise a later reader has to re-derive (W3 §PRIVACY3).
     return date(year, month, day).isoformat() if year else None
+
+
+# ---------------------------------------------------------------------------
+# SCAN-DAY-GLYPH — when is a glyph in a scanned day cell a digit?
+# ---------------------------------------------------------------------------
+
+#: The widest scanned day cell this enumeration will read. The cell a bank
+#: prints holds one or two glyphs; a third is room for one piece of stray ink
+#: beside them. Anything longer is not a day cell that lost a glyph, it is a
+#: capture that ran into the column next door, and enumerating it would be
+#: guessing at scale (10**n readings) rather than reading.
+MAX_DAY_CELL_GLYPHS = 3
+
+
+def day_readings(token: str) -> frozenset[int]:
+    """Every day-of-month a SCANNED day cell could be printing.
+
+    THE QUESTION THIS ANSWERS is when a glyph in a day cell is a digit, and it
+    is a real one: the same glyph is both, on the same family, on different
+    documents. On one scanned statement `&` stands three times immediately
+    after a legible `8`, in the day column, where it can only be column bleed —
+    reading it as a digit would date the row to the eighty-somethingth of the
+    month. On two others the same `&` stands ALONE in that column, where it can
+    only be a digit the scan destroyed. A glyph that is noise in one position
+    and a digit in another is evidence of neither, so nothing here memorises
+    what any glyph "is" (W3 §TANGERINE TG7.1, closed here as SCAN-DAY-GLYPH).
+
+    THE RULE, and it needs no glyph table at all. A DECIMAL glyph is what the
+    bank printed: the scan mangles a printed glyph, it does not invent a
+    legible digit where none was, and a reader that doubted the digits that
+    survived could read nothing at all. A NON-DECIMAL glyph is uncertain
+    exactly twice over — it is either a digit the scan mangled, or ink that is
+    not part of the cell — so both readings are enumerated, every combination,
+    in place. What survives is every day cell the token could be, and the
+    CALLER decides using what the document already determines (`sole_day`).
+
+    That is the discipline `scanned_small_bank._southside_day` already applies
+    to a lost solidus, generalised and shared: enumerate the readings that are
+    possible and accept one only when exactly one is.
+
+    Returns the empty set for a token no reading makes a day of — a cell longer
+    than `MAX_DAY_CELL_GLYPHS`, a cell whose surviving digits are `88`, a cell
+    whose every glyph is noise. An empty answer is a refusal, and it is never
+    an exception: `str.isdigit()` is True for the superscripts `int()` rejects,
+    so `isdecimal` is used throughout and the conversion below is total.
+    """
+    if not token or len(token) > MAX_DAY_CELL_GLYPHS:
+        return frozenset()
+    readings = {""}
+    for glyph in token:
+        if glyph.isdecimal():
+            readings = {prefix + glyph for prefix in readings}
+            continue
+        readings = {
+            prefix + suffix
+            for prefix in readings
+            for suffix in ("", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9")
+        }
+    days = set()
+    for reading in readings:
+        # One or two glyphs is what this cell holds. A three-digit reading is
+        # not a day, and the empty reading is not a cell.
+        if not 1 <= len(reading) <= 2:
+            continue
+        day = int(reading)
+        if 1 <= day <= 31:
+            days.add(day)
+    return frozenset(days)
+
+
+def sole_day(token: str, admissible) -> int | None:
+    """The one day a scanned cell can be printing, or None if it prints more.
+
+    `admissible` is everything the DOCUMENT already determines about this row —
+    the printed period, the month the row itself prints, the days its legible
+    neighbours bound it between. The gate is the intersection: a cell resolves
+    only where exactly one of its possible readings is a day the document
+    admits. Two readings mean the document does not say which, and dating the
+    row by preference would publish a chronology the bank never printed.
+    """
+    days = day_readings(token) & frozenset(admissible)
+    return next(iter(days)) if len(days) == 1 else None

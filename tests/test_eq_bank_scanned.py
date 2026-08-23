@@ -449,6 +449,58 @@ def test_the_digit_that_survived_a_stray_glyph_is_read():
     assert resolve("Sep 8& Card Load - $268.13 $1,300.90\n") == [date(2026, 9, 8)]
 
 
+# --- SCAN-DAY-GLYPH: the stray glyph is enumerated, not deleted (W3 §SCANHYG)
+
+
+def test_a_glyph_beside_a_digit_is_ink_because_no_other_reading_is_a_day():
+    """`8&` is not resolved by deleting the glyph — it is resolved by finding
+    that the only reading which IS a day treats it as ink. Read as a digit the
+    cell would be the eighty-somethingth of the month, and there is no such
+    day, so the document itself settles it. No glyph table is consulted, which
+    matters because the same glyph stands alone in the day column on other
+    documents of the same family, where it can only be a digit."""
+    assert resolve("Sep 8& Card Load - $268.13 $1,300.90\n") == [date(2026, 9, 8)]
+    assert resolve("Sep 1&1 Card Load - $268.13 $1,300.90\n") == [date(2026, 9, 11)]
+
+
+def test_a_glyph_BEFORE_a_digit_is_not_resolved_by_deleting_it():
+    """THE HOLE THIS GATE CLOSES. `&8` is the 8th, the 18th or the 28th. The
+    reader this replaced deleted every non-decimal glyph and took what was
+    left, so it answered the 8th — silently, on a document whose printed order
+    admits the 18th just as well."""
+    assert resolve(
+        "Sep 2 Inbound transfer $531.62 $1,569.03\n"
+        "Sep &8 Card Load - $268.13 $1,300.90\n"
+        "Sep 20 Inbound transfer $180.57 $1,481.47\n"
+    ) is None
+
+
+def test_a_glyph_before_a_digit_READS_where_the_printed_order_leaves_one_day():
+    """The same cell, and the gate is not merely stricter: where the printed
+    order rules out the 18th and the 28th, the 8th is what the document says."""
+    assert resolve(
+        "Sep 2 Inbound transfer $531.62 $1,569.03\n"
+        "Sep &8 Card Load - $268.13 $1,300.90\n"
+        "Sep 9 Inbound transfer $180.57 $1,481.47\n"
+    ) == [date(2026, 9, 2), date(2026, 9, 8), date(2026, 9, 9)]
+
+
+def test_a_day_cell_wider_than_a_day_cell_never_reaches_the_enumeration():
+    """The shared enumeration refuses a cell wider than
+    `MAX_DAY_CELL_GLYPHS`, and on THIS reader that bound is never the binding
+    one: `_ROW_RE` already caps the day cell at three glyphs, so a wider one is
+    a line inside a ledger region that is not a row, and the document refuses
+    there. Stated as a measurement rather than assumed, because the bound is
+    the shared helper's and the next reader to take it may have no such row
+    grammar."""
+    from analysis.date_tokens import MAX_DAY_CELL_GLYPHS, day_readings
+
+    assert MAX_DAY_CELL_GLYPHS == 3
+    assert day_readings("1&&&") == frozenset()
+    assert _read_rows(page("Sep 1&&& Card Load - $268.13 $1,300.90\n")) is None
+    assert parsed("Sep 1&&& Card Load - $268.13 $1,300.90\n") is None
+
+
 def test_a_legible_day_that_breaks_the_printed_order_refuses():
     """The mis-read this catches and nothing else can: a `10` scanned as `1O`
     reads as day 1 in the middle of a run of 9s and 11s. It still sums, still

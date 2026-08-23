@@ -76,7 +76,13 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
-from .date_tokens import MONTH_NAME_ALT, MONTH_NUMBERS, iso_unique_in_period
+from .date_tokens import (
+    MONTH_NAME_ALT,
+    MONTH_NUMBERS,
+    day_readings,
+    iso_unique_in_period,
+    sole_day,
+)
 from .money import MINUS_CLASS, parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
@@ -255,6 +261,25 @@ def _read_rows(source: str) -> list[_Row] | None:
     return rows
 
 
+def _admissible_days(month: int, *, lower: date, upper: date) -> dict[int, str]:
+    """`day-of-month -> the one ISO date it can mean`, for a row printing
+    `month` somewhere inside `lower .. upper`.
+
+    Everything the DOCUMENT determines about a row's date before its own cell
+    is read: the window, and the month the row itself prints. The year comes
+    out of `iso_unique_in_period` and therefore only where the window decides
+    it uniquely, which is the same refusal a bare month/day gets everywhere
+    else in this platform. Thirty-one bounded probes rather than a walk, so a
+    period the scan damaged into spanning years cannot turn this into a loop.
+    """
+    found: dict[int, str] = {}
+    for day in range(1, 32):
+        iso = iso_unique_in_period(month, day, start=lower, end=upper)
+        if iso is not None:
+            found[day] = iso
+    return found
+
+
 def _resolve_dates(
     rows: list[_Row], *, period_start: date, period_end: date
 ) -> list[date] | None:
@@ -270,15 +295,27 @@ def _resolve_dates(
        closing balance includes it. That one day is the whole extension: a row
        dated further out is a mis-read and refuses the document.
 
-    2. A DAY THE SCAN DESTROYED IS DERIVED FROM THE PRINTED ORDER, OR NOT AT
-       ALL. Tesseract renders some day numbers as a stray glyph (`&`, `g`),
-       and a token holding no digit at all says nothing. Such a row's date is
-       bounded by its legible neighbours, and is accepted ONLY where that
-       bound is a single day — the nearest resolved date before it equals the
-       nearest resolved date after it, and that date falls in the month the
-       row itself prints. Two candidate days means the document does not
-       determine the date, and publishing either would publish a chronology
-       the bank did not print.
+    2. A DAMAGED DAY CELL IS ENUMERATED, AND ONE READING IS ACCEPTED ONLY WHERE
+       ONE IS POSSIBLE. Tesseract renders some day numbers as a stray glyph
+       (`&`, `g`) and sometimes leaves the glyph BESIDE the digit it damaged
+       (`8&`). `date_tokens.day_readings` answers the question that separates
+       those two — when is a glyph in a day cell a digit? — without memorising
+       what any glyph is: a decimal glyph is what the bank printed, a
+       non-decimal glyph is either a digit or ink, and every combination is
+       enumerated. `sole_day` then intersects those readings with what the
+       document already determines, in two passes:
+
+       * the printed period and the row's own printed month, which is enough
+         for `8&` (a second digit beside the 8 would date the row to the
+         eighty-somethingth of the month, so the glyph can only be ink);
+       * failing that, the days its nearest LEGIBLE neighbours bound it
+         between, which is enough for a lone glyph in a run of one day.
+
+       Two surviving readings means the document does not determine the date,
+       and dating the row by preference would publish a chronology the bank did
+       not print. THE READER THIS REPLACED deleted every non-decimal glyph and
+       took what was left, so `1&` in a period containing both the 1st and the
+       14th read as the 1st, silently and with nothing to notice it.
 
     3. THE SEQUENCE MUST BE NON-DECREASING. This grid is printed in date
        order, so monotonicity is a fact about the document, and it catches a
@@ -299,30 +336,31 @@ def _resolve_dates(
        guarantee that every published date is right.
     """
     latest = period_end + timedelta(days=1)
-    resolved: list[date | None] = []
+    months: list[int] = []
     for row in rows:
         month = MONTH_NUMBERS.get(row.month.strip().casefold())
-        # `isdecimal`, NOT `isdigit`. `str.isdigit()` is True for the
-        # superscripts (U+00B9 U+00B2 U+00B3) and `int()` rejects them, so a
-        # scan that renders a day as a superscript would raise out of this
-        # parser instead of refusing — the crash class
-        # `tests/test_parser_crash_shapes.py` exists for. `isdecimal()` is
-        # exactly the set `int()` accepts, so the conversion below is total
-        # and a character outside it makes the token illegible, which is a
-        # refusal this function already knows how to make.
-        digits = "".join(character for character in row.day_token if character.isdecimal())
         if month is None:
             return None
-        if not digits:
-            resolved.append(None)
+        months.append(month)
+
+    resolved: list[date | None] = []
+    for row, month in zip(rows, months):
+        window = _admissible_days(month, lower=period_start, upper=latest)
+        readings = day_readings(row.day_token)
+        if not readings:
+            # No reading of this cell is a day at all: `88`, or a cell that ran
+            # into the column next door.
+            return None
+        day = sole_day(row.day_token, window)
+        if day is not None:
+            resolved.append(date.fromisoformat(window[day]))
             continue
-        day = int(digits)
-        if not 1 <= day <= 31:
+        if row.day_token.isdecimal():
+            # A cell every glyph of which survived has exactly ONE reading, so
+            # arriving here means the printed period does not admit it: the row
+            # is dated outside the statement it is printed on.
             return None
-        iso = iso_unique_in_period(month, day, start=period_start, end=latest)
-        if iso is None:
-            return None
-        resolved.append(date.fromisoformat(iso))
+        resolved.append(None)
 
     for index, entry in enumerate(resolved):
         if entry is not None:
@@ -330,12 +368,15 @@ def _resolve_dates(
         before = next((d for d in reversed(resolved[:index]) if d is not None), None)
         after = next((d for d in resolved[index + 1 :] if d is not None), None)
         lower = before if before is not None else period_start
-        if after is None or lower != after:
+        if after is None:
+            # Nothing legible after it: the printed order bounds this row on
+            # one side only, and one side is not a bound.
             return None
-        month = MONTH_NUMBERS.get(rows[index].month.strip().casefold())
-        if month != after.month:
+        window = _admissible_days(months[index], lower=lower, upper=after)
+        day = sole_day(rows[index].day_token, window)
+        if day is None:
             return None
-        resolved[index] = after
+        resolved[index] = date.fromisoformat(window[day])
 
     dates = [entry for entry in resolved if entry is not None]
     if len(dates) != len(rows):

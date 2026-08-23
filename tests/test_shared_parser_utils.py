@@ -678,3 +678,68 @@ def test_dated_cells_bounds_each_cell_so_the_caller_can_read_what_precedes_a_row
     assert run[:first.start] == "2068 "
     assert run[first.end:second.start] == " 2070 * "
     assert run[first.start:first.end] == "3-9 143.86"
+
+
+# ---------------------------------------------------------------------------
+# SCAN-DAY-GLYPH — when is a glyph in a scanned day cell a digit? (W3 §SCANHYG)
+# ---------------------------------------------------------------------------
+
+
+def test_a_legible_digit_is_what_the_bank_printed():
+    """The scan mangles a printed glyph; it does not invent a legible digit
+    where none was. A reader that doubted the digits that survived could read
+    nothing at all."""
+    assert dt.day_readings("8") == frozenset({8})
+    assert dt.day_readings("18") == frozenset({18})
+    assert dt.day_readings("08") == frozenset({8})
+
+
+def test_a_stray_glyph_BESIDE_a_legible_digit_can_only_be_ink():
+    """The `8&` shape, and it needs no glyph table: read as a digit the stray
+    glyph would date the row to the eighty-somethingth of the month, and there
+    is no such day. So the only reading that IS a day is the one that treats it
+    as ink — derived, not assumed."""
+    assert dt.day_readings("8&") == frozenset({8})
+    assert dt.day_readings("1&1") == frozenset({11})
+
+
+def test_a_stray_glyph_STANDING_ALONE_is_every_single_digit_day():
+    """The same glyph in the other position, and the reason a confusion table
+    would be wrong: the cell says only that ONE glyph was printed there."""
+    assert dt.day_readings("&") == frozenset(range(1, 10))
+    assert dt.day_readings("g") == dt.day_readings("&")
+
+
+def test_a_stray_glyph_BEFORE_a_digit_is_not_resolved_by_deleting_it():
+    """`&8` is `8`, `18` or `28`, and the reader this gate replaced answered
+    `8` by deleting the glyph — silently, and with nothing able to notice."""
+    assert dt.day_readings("&8") == frozenset({8, 18, 28})
+
+
+def test_a_cell_no_reading_makes_a_day_of_returns_nothing():
+    for token in ("", "88", "99", "0", "abcd", "1234"):
+        assert dt.day_readings(token) == frozenset(), token
+
+
+def test_a_cell_wider_than_the_bound_is_not_enumerated():
+    """Longer than a day cell plus one piece of stray ink is a capture that ran
+    into the column next door; enumerating it would be guessing at scale."""
+    assert dt.MAX_DAY_CELL_GLYPHS == 3
+    assert dt.day_readings("&&&") != frozenset()
+    assert dt.day_readings("&&&&") == frozenset()
+
+
+def test_a_superscript_is_a_stray_glyph_and_never_a_crash():
+    """`str.isdigit()` is True for U+00B2 and `int()` rejects it. This module
+    uses `isdecimal` throughout, so the conversion is total."""
+    assert dt.day_readings("\u00b2") == frozenset(range(1, 10))
+    assert dt.day_readings("1\u00b2") == frozenset({1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19})
+
+
+def test_sole_day_resolves_only_where_the_document_admits_one_reading():
+    assert dt.sole_day("g", {9}) == 9
+    assert dt.sole_day("g", {8, 9}) is None
+    assert dt.sole_day("&", {7, 8, 9}) is None
+    assert dt.sole_day("8&", range(1, 32)) == 8
+    assert dt.sole_day("8&", {1, 2, 3}) is None
+    assert dt.sole_day("", {1}) is None
