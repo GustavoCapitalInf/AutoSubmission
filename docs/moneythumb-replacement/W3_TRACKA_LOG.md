@@ -43704,3 +43704,302 @@ containers, every one of the 22 changed paths ends in `.account_name`.
 
 `payload_now_raises` is **0**: no document that published under the run of
 record stopped publishing at HEAD.
+
+# §WITHHELDTD — the TD families' printed balances, read as the authority they are: eleven date groups, eleven documents
+
+WITHHELD-TD, 2026-08-23. Branch `wave8-withheldtd`, base `10cc722`. Brief:
+`docs/agent-handoffs/WITHHELD-TD.md`. Card 8 of coverage-wave batch 8, staffed
+from the withheld-61 report in `CENSUS_BATCH8_DIGITAL.md`.
+
+## TD0. Summary
+
+| | |
+|---|---|
+| Population | `td_canada_native` 73 · `td_canada_french` 13 · `td_us` 40 (claimants in the run of record `356a4269`), plus the 10 pinned TD documents (`td_canada` 6, `td_us` 4). The card's 14 withheld are 6 + 4 + 4 of those. |
+| The defect, named | **One class covers 10 of the 14.** Both TD Canada issues recover the lost DEPOSIT/CREDIT column from the balance the bank prints at the end of each date group. Where that arithmetic admitted more than one split, the shipped reader dropped the *subtotal* along with the row question and kept the transaction-code reading — which on 11 groups contradicts the page. Those 11 groups sit in exactly 10 documents, and those 10 documents ARE the withheld cohort. |
+| The measurement | 1,700 date groups over the 86 TD Canada documents: **1,661 determined outright, 39 admitting several splits, 0 where the printed arithmetic is inconsistent** (no odd parity, no unreachable target, anywhere in the archive). Of the 39, **28 are groups where the code reading already reproduces the printed change** — byte-identical by construction — and **11 are not**. |
+| Movement (TD Canada) | 86 replayed, **75 byte-identical**, 11 moved: **10 withheld → validated**, 1 label-only (TD6). |
+| Movement (td_us) | 38 replayed, **35 byte-identical**, 3 moved: **1 withheld → validated**, 2 payload-only on documents that stay withheld (TD8). |
+| The independent oracle agrees | `analysis/count_semantics.py` marks the printed per-direction COUNT comparable for both TD Canada issues *because* it is an oracle on this solver, which never reads it. On all 11 TD Canada movers the captured credit and debit counts now equal the bank's printed counts, and `credit_count_mismatch` / `debit_count_mismatch` are gone from all 10 lifted documents. The §COUNTSP3 entry predicted this population exactly: "all 4 disagreeing are already `withheld/withheld_adb` … each disagrees SYMMETRICALLY … which is the solver putting n rows in the wrong column and is exactly the defect class this check exists to name." |
+| Pinned | `td_canada` 5 of 6 are in the discovery archive and replay **byte-identical**; the 6th and all 4 pinned `td_us` are pinned-corpus-only and are covered by the gate and the corpus-marked slice. **No pinned document moves. No ceremony is required.** |
+| Files | `analysis/td_can.py`, `analysis/td_canada_french.py`, `analysis/td_us.py`, three test files, `tests/test_no_parser_helper_clones.py` (allowlist), `tools/withheldtd_mutate.py` (new), this log. No registry change, no new registration, `ANALYSIS_STAGE_VERSION` untouched (Ocean's at merge). |
+| Mutation table | 16 mutants, **16 killed, 0 survived, 0 duplicate trees**, plus 1 documented INERT (TD9). The first run named three survivors; all three were closed by changing the CODE or the FIXTURE, none by relabelling the mutant. |
+
+## TD1. The instrument, and what it was allowed to touch
+
+Everything below is measured from the D-3 artifact cache at
+`webapp_data/artifacts/`, **by direct file path only** — the sqlite index is
+never opened. Artifact selection is `tools/regfp_zero_movement_sweep.py`'s:
+every capability partition of `ocr_settings_key` is enumerated, and the
+partition whose reconstruction resolves the run of record's own stored analysis
+payload is the one the run analysed. `analyze_markdown(..., parse_mode=
+"deterministic")` is called directly, never through `cached_analysis`, so no
+artifact is written. **Zero OCR, zero model calls, $0.00, no write of any kind
+to the archive.**
+
+Before/after is measured in one process: the base-commit copy of each changed
+file is loaded from its git blob into its own module and the registry is
+rebuilt. `clear_registry()` first — the registry holds function OBJECTS, so a
+reload without it raises `duplicate parser id` and the whole comparison would
+have run against the branch on both sides.
+
+**The population is provably the whole of it.** `resolve` builds `candidates`
+from every surviving claimant before any parse runs and returns `ambiguous`
+immediately when there is more than one, so a document a TD parser claims is a
+document whose `candidates` name it, and on every one of the 126 it was the
+sole survivor. A parser that starts publishing where it used to refuse
+therefore cannot displace another parser anywhere in the archive.
+
+## TD2. Census of the 14, by content sha256
+
+| sha16 | parser | printed daily evidence | what actually failed |
+|---|---|---|---|
+| `6E2635D8B95E51B0` | td_canada_native | day-terminal `BALANCE` on every posting day | one date group where the code reading misses the printed change |
+| `477E2FD610A1C4A8` | td_canada_native | same | same |
+| `5E682B9B2C697A80` | td_canada_native | same | same |
+| `F841051765A5ABDB` | td_canada_native | same | same |
+| `21C3FFF212E9E61D` | td_canada_native | same | same |
+| `EA5C61862BB8DA56` | td_canada_native | same | same |
+| `59BD662C0D4FE1A7` | td_canada_french | day-terminal `SOLDE` on every posting day | same |
+| `654AB29A910A5DB9` | td_canada_french | same | same — this document and the one above are the same statement filed under two shas |
+| `A3A50C108B7F4646` | td_canada_french | same | **two** such date groups |
+| `4DE22E685A04F9D7` | td_canada_french | same | same |
+| `BDA1DE2F3481295F` | td_us (scanned) | `DAILY BALANCE SUMMARY` grid | a whole printed credit section unread: OCR noise beside the heading defeated the section reader |
+| `D3396D14BA8A6A4A` | td_us (scanned) | grid | the debit section unread for the same reason; **still withheld** on one OCR-damaged amount |
+| `2A0B516B2C7D652E` | td_us (scanned) | grid | genuine row loss inside one section; **still withheld** |
+| `1A8B92DC61678F71` | td_us (scanned) | grid | genuine row loss inside one section; **still withheld** |
+
+**The census's headline was a symptom, not the cause.**
+`stated_daily_balance_count` is 0 on all 14, and it reads as "the reader is not
+consuming the printed daily evidence". On the two TD Canada issues the reader
+consumes it as the *direction oracle* on every one of 1,700 groups; what it did
+not do was honour it when the codes disagreed. Publishing the balances as
+`stated_daily_balances` as well is measured separately in TD10, is NOT done
+here, and would not have lifted a single document:
+`ledger_reconciles_to_closing` is required whenever a closing balance is printed
+and is line-item arithmetic that no daily-balance snapshot can satisfy.
+
+## TD3. The rule, stated exactly
+
+For each date group with a printed anchor and a printed closing balance, with
+`S` the sum of the group's absolute amounts and `delta` the printed change:
+
+1. `target = (delta + S) / 2` — the cents the DEPOSIT/CREDIT column must total.
+   No integer target (odd parity), or one outside `[0, S]`, means the printed
+   balance and the printed amounts disagree: the arithmetic refuses and the
+   reading stands on the codes. **Measured 0 such groups archive-wide.**
+2. The balances single one split out → take it. *(unchanged)*
+3. They admit several AND the code reading already totals `target` → the code
+   reading IS one of those splits, so keep it, to the row. *(unchanged; this is
+   why 28 of the 39 ambiguous groups are byte-identical)*
+4. They admit several and the code reading does NOT total `target` → the codes
+   are contradicting the page. `_split_supported_by_codes` ranks the admissible
+   splits: **fewest rows contradicting a code the bank PRINTED**, then **fewest
+   rows moved off the default reading**, then the enumeration's fixed order.
+   *(new — 11 groups)*
+5. More candidates or more search nodes than the bounds allow → the reader says
+   nothing and the codes stand. *(fail closed)*
+
+**What this can and cannot get wrong.** Every candidate reproduces the printed
+end-of-group balance, so the group's net movement, the daily balances, the ADB
+and both direction TOTALS are identical whichever is chosen: **the ranking
+cannot move a monetary figure.** It moves which rows are called deposits, and
+therefore the credit and debit COUNTS — which TD prints and which
+`count_semantics` holds this parser to. A wrong choice is caught by evidence the
+ranking never reads.
+
+**The code reading had to become three-valued for step 4 to mean anything.**
+`_native_credit_like` collapsed "TD says this left the account" and "TD says
+nothing" into the same `False`. `_native_direction_code` /
+`_french_direction_code` return `True | False | None`, and
+`_native_credit_like` is `code is True` — the same boolean, from the same tests
+in the same order. Both halves of each channel pair are now read (`TD ATM W/D`,
+`GC <n>-CASH WITHDRA`); `CANCEL` / `RECLAIM E-TFR` stay `None`, which is what
+the shipped comment already said they were.
+
+## TD4. Why the codes lose, on the documents' own evidence
+
+On six of the eleven groups the chosen split contradicts one or more code
+readings, and it is worth saying plainly which is the weaker evidence. The
+printed balance is arithmetic the BANK computed; a "code" is our reading of a
+description prefix. The documents decided between them: after the change, all
+ten lifted documents' captured credit totals, debit totals, credit counts and
+debit counts equal the bank's printed figures exactly, and every integrity flag
+clears. That is four independent printed quantities agreeing with a reading
+derived from a fifth.
+
+## TD5. The shared reader, and a cross-language defect it hid
+
+`td_canada_french` used to import the solver and its equal-amount tie-break and
+orchestrate them into a per-group loop of its own. Two copies of one loop is how
+the two issues drifted: the shared tie-break `_directions_from_credit_counts`
+scores rows with `_native_credit_like`, and the French module was handing it
+FRENCH descriptions, on which the English code table matches almost nothing — so
+on an equal-amount group the tie fell to document order rather than to TD's own
+French codes. `_resolve_directions_from_balances` is now the single entry point
+and takes the issue's code readers as arguments. The private-import allowlist in
+`tests/test_no_parser_helper_clones.py` narrows from two entries to one.
+
+## TD6. The one label-only mover
+
+`1131B8910ECF19D7` (td_canada_french, validated before and after). Four rows in
+two equal-amount pairs swap their direction labels, because the French tie-break
+now reads French codes. **150 changed leaves, every one under
+`.classifications[i]`, `.statement.transactions[i]`, or the two `*_evidence` row
+lists in `.detection` / `.metrics`; the four rows' `|amount|` is unchanged; ZERO
+numeric leaves changed anywhere in the payload.** The ADB, every metric total,
+the reconciliation, the verdict and the integrity block are byte-identical. It
+is a correction: the deposit label moves onto the row TD coded as a deposit.
+
+## TD7. td_us — a detail section is bounded by the bank's own headings
+
+The four scanned `td_us` withholds are a different defect, and SN3 row 4's
+`td_soa` family turns out to be the same six documents (TD11). `_section` bound
+a heading to `.*?Subtotal:` with nothing stopping it at the next section, and
+required the column legend `POSTING DATE DESCRIPTION AMOUNT` verbatim right
+after the heading. Measured over all 40 documents of the family:
+
+* **7 bindings whose captured body contained another heading occurrence, in 5
+  documents.** Four are the section's OWN `(continued)` reprint, which is
+  legitimate; **3 are true cross-boundary bindings, in 2 documents** — one
+  section publishing another section's rows under its name, and another
+  section's figure as its total. Every one is on a document that does not
+  validate, so nothing validated was ever attributed across a boundary.
+* **8 printed sections missed**, every one on a document the ADB already
+  refused, each over OCR damage to the legend or to the heading's own line.
+
+Sections are now sliced at the bank's heading marks and cut back to the
+`Subtotal:` inside their own slice. A heading qualifies on two structural facts:
+a legend token within a bounded window — which is what keeps the page footer's
+`Bank Deposits FDIC insured…` from opening a `Deposits` section, the existing
+`(?<!Electronic )` guard being about the other heading and having nothing to say
+about it — and not being preceded by a lower-case word, which is what keeps the
+cheque legend's own footnote, ending `…listed under Electronic Payments`, from
+opening one. A section with no readable subtotal of its own matches nothing: its
+rows are not published under a total the bank never printed for them.
+
+The scan is linear (one pass per heading, sorted once) and not a `.` tempered
+against six alternatives: the tempered form is quadratic in the document and
+took a 15k-character scan into minutes. That was measured, not feared — the
+first implementation was the tempered one and the replay had to be killed.
+
+## TD8. td_us movement, named
+
+| sha16 | before | after | what moved |
+|---|---|---|---|
+| `BDA1DE2F3481295F` | withheld / withheld_adb | **validated** | the printed credit section is read (0% → 100% of the stated credit total); the ledger closes on the printed closing balance; all three integrity flags clear |
+| `D3396D14BA8A6A4A` | withheld / withheld_adb | withheld / withheld_adb | 36 debit rows recovered where 1 was read; `posting_dates_cover_source` now passes 18/18. It stays withheld on ONE OCR-damaged amount, which the bank's own printed subtotal catches — an honest refusal on a defect this card does not own |
+| `2A0B516B2C7D652E` | withheld / withheld_adb | withheld / withheld_adb | one row fewer. The section whose subtotal came through with a comma where the decimal point belongs is now skipped rather than silently merged into the next one, and the row it held is lost with it. Repairing that figure is the one thing the repair doctrine forbids |
+
+The other 35 are byte-identical. The two `parser_declined` documents
+(`7645F0A8583CD86F`, `A7E4B895E2A96F96`) still decline, for the reasons
+§TDFIX-1 T2 recorded: an unreadable opening figure, and no readable
+`Statement Period:` line.
+
+## TD9. Mutation table
+
+`python tools/withheldtd_mutate.py .` — run WITHOUT `-x`, every mutated tree
+hashed, every mutant asserted to have changed the file it names. **16 killed,
+0 survived, 0 duplicates, exit 0.**
+
+| mutant | what it weakens | tests that die |
+|---|---|---:|
+| M1 | `_credit_target` accepts an odd `delta + S` | 1 |
+| M2 | `_credit_target` accepts a target outside `[0, S]` | 2 |
+| M3 | `_credit_target` loses its group-size bound | 1 |
+| M4 | `$0.00` rows become a dimension of the search | 2 |
+| M5 | the ranking stops reading the bank's printed codes | 3 |
+| M6 | the ranking drops minimal change | 5 |
+| M7 | the code reading goes back to two-valued | 11 |
+| M8 | the ATM channel's withdrawal half goes unread | 2 |
+| M9 | the deposit channel's withdrawal half goes unread | 2 |
+| M10 | the French tie-break uses the English code table | 43 |
+| M11 | a `(continued)` reprint ends the section | 1 |
+| M12 | the subtotal search leaves the slice | 2 |
+| M14 | the column legend stops being required | 17 |
+| M15 | a heading may sit inside a sentence | 1 |
+| M16 | the legend must follow the heading immediately | 3 |
+| M17 | the sentence guard folds case | 5 |
+| M-INERT-1 | the "codes already agree" shortcut is removed | **0, by design** |
+
+**The three survivors of the first run, and how each was closed.**
+
+* **M4** survived because the branch it guarded is UNREACHABLE — zero is always
+  last in the descending walk, so either the target is already met and the walk
+  has returned, or the suffix prune fires first. A guard on a branch no input
+  reaches is a claim a reader cannot check. Zero-amount rows are now excluded
+  from the search outright, which is the honest statement of what the arithmetic
+  can say about them, and leaves no division to guard.
+* **M13** (a second ACCOUNT-SUMMARY discriminator on `td_us`: no money token on
+  the heading's own line) survived because it is redundant. No fixture of this
+  layout distinguishes it from the legend window, and **over all 40 archive
+  documents the set of heading marks is IDENTICAL with and without it.** An
+  untested gate is worse than no gate: the gate is deleted, and there is no M13.
+* **M14** survived because the fixture put TD's page footer at the END of the
+  document, where admitting it could do no damage whatever the rule said. The
+  footer prints at the foot of EVERY page; the fixture now places one
+  mid-document with a section after it, where admitting it would publish the
+  next page's withdrawals as deposits.
+
+**M-INERT-1 is the byte-identity argument, kept runnable.** Removing the "the
+codes already reach the target" shortcut moves no test, because the ranking that
+then runs scores the code reading at `(0 contradictions, 0 rows moved)` —
+strictly minimal, and unique, since distance 0 means the same split. The
+shortcut avoids the enumeration's bounds; it is not a semantic gate, and the
+reading is the shipped one either way.
+
+**Recorded because it happened here.** Hard-killing a mutation harness leaves
+the tree mutated: M1's parity mutation was baked into `_credit_target` by a
+`Stop-Process`, and survived a `git status` because that file was legitimately
+modified anyway. The next run caught it as a RED BASELINE, which is the property
+that made it recoverable — a harness that does not check its own baseline would
+have reported every later mutant as killed by a test that was already failing.
+
+## TD10. `stated_daily_balances`: measured, and deliberately NOT published
+
+The card asks for the day-terminal balances to be published as
+`stated_daily_balances`. They are not, and this is the measurement behind that.
+
+**What it would buy: nothing on any verdict.** `analysis/adb.py` uses a snapshot
+to OVERRIDE the reconstructed end-of-day balance, which can move
+`final_balance_matches_statement_closing`; it does not touch
+`ledger_reconciles_to_closing`, which is `opening + Σ signed amounts == printed
+closing` and is REQUIRED whenever a closing balance is printed. All 14 withheld
+documents fail that check, so no snapshot lifts any of them. What lifts them is
+reading the balance column correctly in the first place, which is TD3.
+
+**What it would cost.** On the TD Canada families the printed balances and the
+reconstruction agree once the directions are right — measured: **86 of 86 now
+have `adb.ok`** — so publishing them changes `stated_daily_balance_count` from 0
+to n and relabels each covered day's `source` from `reconstructed` to
+`bank_daily_summary`: a payload change on all 86 documents including five pinned
+ones, with no financial figure moving anywhere. That is a `PINNED_CURRENCY`-shaped
+label ceremony, not a coverage card, and this card's brief is byte-identity
+outside its named movers.
+
+**The trap, measured, for whoever executes it.** TD prints a balance per date
+GROUP, not per day, and a page break splits a day into two groups with two
+different balances for the same date. `adb.py` treats a duplicate snapshot date
+as invalid and fails `bank_daily_balance_dates_valid`, which is REQUIRED — so a
+naive "publish every printed balance" reader moves these documents from
+validated to WITHHELD. This is not a corner: **71 of the 86 documents print at
+least one such date, 186 dates in all.** The reader must publish the LAST
+balance printed for each date, and its test must be built on a page-split day.
+
+## TD11. SN3 row 4 (`td_soa`) corrected: it is the `td_us` scans, not six unclaimed documents
+
+SN3 ranked `td_soa` — TD Bank `STATEMENT OF ACCOUNT`, `America's Most Convenient
+Bank` — at **6 unclaimed** with a gain of ≤5. Re-measured over the whole
+non-digital population of the run of record (192 documents, every one's cached
+text read):
+
+* **6 documents carry TD furniture, and they are the six this card already
+  owns.** Four are `td_us` withholds, one is a `td_us` decline
+  (`7645F0A8583CD86F`), and one is a 385-character single-page fragment
+  (`CF86634770A186B5`) that is not a statement.
+* **`td_us` claims five of the six.** The unclaimed count was 1, not 6.
+
+There is no registration to write and no template to learn, exactly as the row's
+own note suspected ("a parser reads them and the ADB is what refuses"). The
+ranking's *unclaimed* column was the wrong measurement for this row, which is
+the same trap SN3's own header called out for rows 2, 3 and 5.

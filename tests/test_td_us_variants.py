@@ -54,7 +54,7 @@ TD_OVERDRAWN = (
     "Days in Period 31\n"
     "Electronic Payments 425.00 Ending Balance -25.00\n"
     "DAILY ACCOUNT ACTIVITY Electronic Deposits POSTING DATE DESCRIPTION AMOUNT\n"
-    "01/05 ACH DEPOSIT, EXAMPLE PAYER PAYROLL 500.00\n"
+    "01/05 INBOUND, EXAMPLE PAYER PAYROLL 500.00\n"
     "Subtotal: 500.00 Electronic Payments POSTING DATE DESCRIPTION AMOUNT\n"
     "01/09 ACH DEBIT, EXAMPLE COUNTERPARTY 425.00\n"
     "Subtotal: 425.00\n"
@@ -209,15 +209,15 @@ _TWO_SECTIONS = (
     "DAILY ACCOUNT ACTIVITY\n"
     "Electronic Deposits\n"
     "POSTING DATE DESCRIPTION AMOUNT\n"
-    "01/05 ACH DEPOSIT, EXAMPLE PAYER PAYROLL 300.00\n"
+    "01/05 INBOUND, EXAMPLE PAYER PAYROLL 300.00\n"
     "{deposit_subtotal}\n"
     "Other Withdrawals\n"
     "POSTING DATE DESCRIPTION AMOUNT\n"
-    "01/09 WIRE TRANSFER FEE 40.00\n"
+    "01/09 EXAMPLE OUTBOUND FEE 40.00\n"
     "{withdrawal_subtotal}\n"
     "Service Charges\n"
     "POSTING DATE DESCRIPTION AMOUNT\n"
-    "01/31 PAPER STATEMENT FEE 3.00\n"
+    "01/31 EXAMPLE MONTHLY FEE 3.00\n"
     "Subtotal: 3.00\n"
     "Bank Deposits FDIC Insured | TD Bank, N.A. | Equal Housing Lender\n"
 )
@@ -238,11 +238,11 @@ def test_a_section_stops_at_the_next_heading_rather_than_the_next_subtotal():
     text = _two_sections(withdrawal_subtotal="Subtotal: 40,00")
     body, total = _section(text, "Other Withdrawals")
     assert total is None
-    assert "PAPER STATEMENT FEE" not in body
+    assert "EXAMPLE MONTHLY FEE" not in body
     # ...and the section that owns those rows still reads them, under its name.
     charges_body, charges_total = _section(text, "Service Charges")
     assert charges_total == 3.00
-    assert "PAPER STATEMENT FEE" in charges_body
+    assert "EXAMPLE MONTHLY FEE" in charges_body
 
 
 def test_a_section_with_no_readable_subtotal_contributes_nothing():
@@ -258,11 +258,11 @@ def test_a_continued_reprint_of_the_same_heading_does_not_end_the_section():
     """TD reprints the heading at every page break. That is the same section,
     and its later rows belong to it."""
     text = _two_sections().replace(
-        "01/05 ACH DEPOSIT, EXAMPLE PAYER PAYROLL 300.00\n",
-        "01/05 ACH DEPOSIT, EXAMPLE PAYER PAYROLL 100.00\n"
+        "01/05 INBOUND, EXAMPLE PAYER PAYROLL 300.00\n",
+        "01/05 INBOUND, EXAMPLE PAYER PAYROLL 100.00\n"
         "Electronic Deposits (continued)\n"
         "POSTING DATE DESCRIPTION AMOUNT\n"
-        "01/06 ACH DEPOSIT, EXAMPLE PAYER PAYROLL 200.00\n",
+        "01/06 INBOUND, EXAMPLE PAYER PAYROLL 200.00\n",
     )
     body, total = _section(text, "Electronic Deposits")
     assert total == 300.00

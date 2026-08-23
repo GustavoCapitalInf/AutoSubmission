@@ -451,7 +451,7 @@ class TestC1AdditiveCreditCodes:
         ("REVERSAL GC 0000-CASH WITHDRA", None),
         # A counterparty name is never a code, whichever way it usually falls.
         ("UNLISTED VENDOR ABC", None),
-        ("MONTHLY PLAN FEE", None),
+        ("UNLISTED EXAMPLE ROW", None),
     ])
     def test_the_code_vocabulary(self, description, code):
         assert _native_direction_code(description) is code
