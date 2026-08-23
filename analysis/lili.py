@@ -2,25 +2,26 @@
 
 WHAT THE ARCHIVE HOLDS. Twenty documents that all print the same platform's
 support address, and two printings that share almost nothing else. Every
-figure below is INVENTED — the same invented figures `tests/test_lili.py`
-uses. No amount, name, account number or date from any archive document
+figure, date and description below is INVENTED — the same invented ones
+`tests/test_lili.py` uses, in a period and a calendar year the family does
+not contain. No amount, name, account number or date from any archive document
 appears in this module, in its tests, or in W3 §LILI.
 
 SKIN A (15 documents, four accounts, born-digital text) is the printing this
 reader publishes:
 
-    Account Number Statement Period 999900000000 1 March, 2026 - 31 March, 2026
+    Account Number Statement Period 999900000000 1 September, 2027 - 30 September, 2027
     Checking Account Summary Total Checking Amount
-    Beginning balance on 1 March, 2026 $100.00
-    Deposits and other credits $500.00
-    Withdrawals and other debits $-300.00
-    Fees $-10.00
-    Ending balance on 31 March, 2026 $290.00
+    Beginning balance on 1 September, 2027 $137.41
+    Deposits and other credits $512.63
+    Withdrawals and other debits $-308.19
+    Fees $-13.27
+    Ending balance on 30 September, 2027 $328.58
     Checking Account Activity - Main Account
     Date Authorization Code Description Amount Balance
-    03/02/2026 111111111 A MERCHANT SOMEWHERE STUS $-300.00 $-200.00
-    03/20/2026 222222222 Wire Transfer $500.00 $300.00
-    03/31/2026 333333333 Plan Fee (Effective Date 03/09/2026) $-10.00 $290.00
+    09/03/2027 111111111 A MERCHANT NOWHERE ZZUS $-308.19 $-170.78
+    09/17/2027 222222222 A TRANSFER IN $512.63 $341.85
+    09/30/2027 333333333 A PLAN CHARGE (Applies From 09/08/2027) $-13.27 $328.58
 
 Five printed summary terms, one per line, each followed by its own figure;
 then one ledger under one column head, fully collapsed to one line per
@@ -114,7 +115,8 @@ _MONEY = r"\$" + MINUS_CLASS + r"?[\d,]+\.\d{2}"
 _MONEY_RUN = r"(?:" + _MONEY + r"[ \t]*)+"
 _MONEY_TOKEN_RE = re.compile(_MONEY)
 
-#: A day-first long date — `1 March, 2026`, `01 May, 2026`. Group-free, so it
+#: A day-first long date — `1 September, 2027`, `01 September, 2027`. The
+#: day may be printed with or without its leading zero. Group-free, so it
 #: can be embedded twice in the header pattern; `_LONG_DATE_PARTS` reads the
 #: pieces back out of whatever it matched.
 _LONG_DATE = r"\d{1,2}[ \t]+(?:" + MONTH_NAME_ALT + r"),[ \t]+\d{4}"
