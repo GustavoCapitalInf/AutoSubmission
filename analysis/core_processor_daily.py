@@ -179,7 +179,7 @@ _FIGURE_END = r"(?![\w.,])"
 #: a posting date. It does that only while the printing is contiguous — and a
 #: scan is free to put a space in the middle of one:
 #:
-#:     SEATTLE WA 02- 18-26 11:02 AM XXXXXXXXXXXX1678
+#:     EXAMPLETOWN XX 02- 18-26 11:02 AM XXXXXXXXXX0000
 #:
 #: There the boundary sees a space before `18-26` and lets it through, and
 #: `tables.dated_cells` then opens a cell on a date that is not one, finds no

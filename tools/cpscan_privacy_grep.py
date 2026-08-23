@@ -20,7 +20,7 @@ definition of those:
 * MONEY FIGURES — every `1,234.56` and every bare `.56` the document prints,
   in both the printed form and the comma-stripped one, because a docstring
   that dropped the comma would still be quoting the balance;
-* ACCOUNT AND CARD NUMBERS — masked runs (`XXXXXXXXXXX1001`, `****4975`) and
+* ACCOUNT AND CARD NUMBERS — masked runs (`XXXXXXXXXX0000`, `****0000`) and
   their trailing digits;
 * REFERENCE RUNS — any digit run of five or more, which is where this
   platform's cheque serials, terminal ids, ACH traces and telephone numbers
@@ -41,16 +41,38 @@ count, a page number and `2026` are not identifying, they are unavoidable in
 any measurement a log has to report, and including them would make the count
 a number nobody could drive to zero and therefore nobody would read.
 
+ALSO OUT, and this one is the difference between a number and a noise floor:
+**any literal that already stands in the tracked tree at `--base-rev`.** The
+question a branch scan asks is what THIS BRANCH put there. Six of the classes
+above are word- and number-shaped, so they collide with ordinary source text
+by construction — `subtractions` is a summary field, `transactions` is a
+schema attribute, `100.00` is a figure two invented fixtures already carried
+before this branch existed. A scan that reported those would report fifty
+hits on a clean branch, and fifty hits nobody can act on is worse than none.
+The baseline is read with `git archive <base-rev>`, so it is the tracked tree
+at that commit exactly — not the working directory, which carries scratch
+files, and not `HEAD`, which would exclude the branch's own additions and
+make the scan vacuous.
+
 READ-ONLY and $0. The report is COUNTS and diff LINE NUMBERS only — printing
 a hit would be the leak the tool exists to prevent.
 """
 from __future__ import annotations
 
 import argparse
+import io
 import itertools
 import json
 import re
+import subprocess
+import tarfile
 from pathlib import Path
+
+#: Extensions a literal can hide in. A `.pdf` or a `.png` in the tracked tree
+#: is not source a docstring could have quoted into, and decoding one as text
+#: would put megabytes of binary into the baseline and mask real hits.
+TEXT_SUFFIXES = {".py", ".md", ".txt", ".ini", ".cfg", ".toml", ".yml", ".yaml",
+                 ".json", ".csv", ".html", ".js", ".css", ".sh", ".ps1", ""}
 
 MONEY = re.compile(r"[0-9][0-9,]*\.[0-9]{2}|(?<![0-9])\.[0-9]{2}")
 MASKED = re.compile(r"[Xx*•·]{3,}[0-9]{2,}")
@@ -78,8 +100,35 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--baseline-settings-key", required=True)
     parser.add_argument("--sha-file", required=True, type=Path)
     parser.add_argument("--diff", required=True, type=Path)
+    parser.add_argument("--repo", type=Path, default=Path("."),
+                        help="the git repository the baseline tree is read from")
+    parser.add_argument("--base-rev", default=None,
+                        help="literals already in the tracked tree at this rev are not this branch's")
     parser.add_argument("--out", type=Path, default=None)
     return parser.parse_args(argv)
+
+
+def baseline_text(repo: Path, rev: str) -> str:
+    """Every tracked TEXT file of `rev`, concatenated.
+
+    `git archive` rather than a directory walk: the working tree carries
+    untracked scratch, and a literal that happens to sit in an uncommitted log
+    is not a literal the branch may quote.
+    """
+    completed = subprocess.run(
+        ["git", "-C", str(repo), "archive", "--format=tar", rev],
+        capture_output=True, check=True,
+    )
+    chunks: list[str] = []
+    with tarfile.open(fileobj=io.BytesIO(completed.stdout)) as archive:
+        for member in archive:
+            if not member.isfile() or Path(member.name).suffix.lower() not in TEXT_SUFFIXES:
+                continue
+            handle = archive.extractfile(member)
+            if handle is None:
+                continue
+            chunks.append(handle.read().decode("utf-8", errors="replace"))
+    return "\n".join(chunks)
 
 
 def literals(text: str) -> set[str]:
@@ -144,6 +193,13 @@ def main(argv: list[str] | None = None) -> int:
         read += 1
         tokens |= literals(chosen[0])
 
+    inherited = 0
+    if args.base_rev:
+        baseline_source = baseline_text(args.repo, args.base_rev)
+        before = len(tokens)
+        tokens = {token for token in tokens if token not in baseline_source}
+        inherited = before - len(tokens)
+
     diff_lines = args.diff.read_text(encoding="utf-8", errors="replace").splitlines()
     # Only the ADDED side of the diff is tracked source. A removed line is
     # leaving the tree, and the diff header's own paths are not content.
@@ -160,6 +216,7 @@ def main(argv: list[str] | None = None) -> int:
         "documents_named": len(shas),
         "documents_read": read,
         "literals": len(tokens),
+        "literals_already_in_the_base_tree": inherited,
         "added_diff_lines": len(added),
         "hits": len(hits),
         "hit_locations": hits[:50],
