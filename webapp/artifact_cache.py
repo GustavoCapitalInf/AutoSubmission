@@ -394,8 +394,8 @@ OCR_STAGE_VERSION = 3
 # capture, which is the bump's load-bearing reason); DESC-ATTRIB (count-based
 # description attribution across the core-processor complex: 4 documents'
 # descriptions shorten, 15 classifier detections change); CURRENCY-SOURCE
-# (`statement.currency_source` added to EVERY published payload — a warm
-# cache would serve payloads without the field); DECLINES-E chase grid (+3);
+# (the currency-PROVENANCE field added to EVERY published statement — a
+# warm cache would serve payloads without it); DECLINES-E chase grid (+3);
 # DECLINES-F first_citizens At-A-Glance (+4) + FC-PRODUCT labels; DECLINES-G
 # symitar yield-only sibling (+3) + FISERV-LABELS; SCAN-FINISH southside +
 # citizens (+3 validated, +2 review, +6 withheld); SCAN-TANGERINE = the
