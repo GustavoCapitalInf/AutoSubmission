@@ -23,12 +23,13 @@ the ranking that then runs scores the code reading at `(0 contradictions, 0
 rows moved)`, which is strictly minimal. That is not a hole — it is the
 byte-identity argument, and it is worth being able to re-run.
 
-A gate no mutant here can kill is a gate that was DELETED rather than
-documented. `td_us` carried a second discriminator for the ACCOUNT SUMMARY
-line — no money token on the heading's own line — which no fixture of this
-layout could distinguish from the legend window that already excludes it, and
-which was measured to change no heading mark on any of the 40 archive
-documents. It is gone; there is no M13.
+M13 was briefly deleted rather than tested: the ACCOUNT SUMMARY discriminator
+changes no heading mark on any of the 40 archive documents, and the first
+attempt at a killing fixture failed, so the gate was removed as untestable. The
+adversarial review produced the fixture — a summary line whose last heading
+falls inside the next section's legend window — and the gate and its mutant are
+both back. "No fixture can distinguish them" is a claim about the fixtures
+tried, and it was wrong.
 
 The target files are restored in a `finally`, and the harness prints the
 restore, so a run that dies mid-way is visible as one that did not.
@@ -114,6 +115,19 @@ MUTATIONS: dict[str, tuple[str, list[tuple[str, str]]]] = {
     "M9_deposit_channel_withdrawal_code_unread": (CAN, [
         ("    if _GC_CASH_WITHDRAWAL_RE.match(text):\n        return False\n", ""),
     ]),
+    # M18 — a group tied past every oracle is resolved by the walk's own order
+    # instead of refused (review MAJOR-2).
+    "M18_an_unbreakable_tie_is_guessed": (CAN, [
+        ("    if _tied_beyond_the_printed_counts(tied):\n        return None\n", ""),
+    ]),
+    # M19 — the certificate the refusal rests on: two readings that rank alike
+    # but count DIFFERENTLY are separable by the printed counts, and refusing
+    # them too would withhold documents the platform can check.
+    "M19_every_tie_refuses_even_a_separable_one": (CAN, [
+        ("    counts = [sum(resolved) for resolved in tied]\n"
+         "    return len(set(counts)) < len(counts)\n",
+         "    return True\n"),
+    ]),
     # ------------------------------------------------------------- td_french
     # M10 — the French issue scores its rows with the ENGLISH code table
     # again, which is what the shared tie-break did before this card.
@@ -136,6 +150,13 @@ MUTATIONS: dict[str, tuple[str, list[tuple[str, str]]]] = {
          "        if name != heading:                     # the next section starts here\n"
          "            return _closed(markdown[opened:])\n"),
     ]),
+    # M13 — the ACCOUNT SUMMARY line is admitted as a section heading. It is
+    # excluded by the legend window on every archive document, and NOT on the
+    # shape where the summary's last line runs into the first detail legend.
+    "M13_summary_line_opens_a_section": (US, [
+        ('                   + _MONEY_ON_THE_SAME_LINE + _LEGEND_WITHIN)',
+         '                   + _LEGEND_WITHIN)'),
+    ]),
     # M14 — the legend stops being required, so the page footer's `Bank
     # Deposits FDIC insured...` opens a Deposits section.
     "M14_no_legend_required": (US, [
@@ -151,6 +172,12 @@ MUTATIONS: dict[str, tuple[str, list[tuple[str, str]]]] = {
     # shipped behaviour: OCR noise between the two discards the section.
     "M16_the_legend_must_be_immediate": (US, [
         ("(?=.{0,40}?(?:POSTING", "(?=.{0,1}?(?:POSTING"),
+    ]),
+    # M20 — the subtotal line stops being read case-insensitively on a family
+    # that arrives through Tesseract (review MINOR-3).
+    "M20_subtotal_is_case_sensitive": (US, [
+        (r'r"Subtotal:\s*(?P<total>[\d,]+\.\d{2})", re.IGNORECASE',
+         r'r"Subtotal:\s*(?P<total>[\d,]+\.\d{2})"'),
     ]),
     # M17 — the case-sensitivity scope comes off the sentence guard, so
     # `DAILY ACCOUNT ACTIVITY Electronic Deposits` reads as prose.

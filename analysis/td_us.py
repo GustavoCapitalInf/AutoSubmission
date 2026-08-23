@@ -82,10 +82,19 @@ _SECTION_HEADINGS = (
     "Deposits", "Electronic Deposits", "Other Credits",
     "Checks Paid", "Electronic Payments", "Other Withdrawals", "Service Charges",
 )
-#: The column legend the bank prints under every detail heading, and the thing
-#: that tells a heading from the ACCOUNT SUMMARY line naming the same section
-#: (`<heading> <total>`): the summary's nearest legend is the whole summary
-#: block away. It is matched on `POSTING`
+#: A money token on the rest of the heading's own line. That is the ACCOUNT
+#: SUMMARY line naming the same section (`<heading> <total>`); a detail heading
+#: carries no figure of its own. The legend window below excludes the summary
+#: line on all 40 archive documents by itself — measured, the heading-mark sets
+#: are identical with and without this — but it is NOT redundant: a summary
+#: line that happens to fall within the window of the next section's legend
+#: opens a spurious mark, and the real section is then lost entirely, because
+#: the slice runs from the summary to the next heading and holds no
+#: `Subtotal:`. The layout can produce that, so the gate stays and a fixture
+#: pins it (W3 §WITHHELDTD, review MINOR-1).
+_MONEY_ON_THE_SAME_LINE = r"(?![^\S\n]*\$?-?[\d,]+\.\d{2})"
+#: The column legend the bank prints under every detail heading, and the second
+#: half of the same discriminator. It is matched on `POSTING`
 #: alone (and on the cheque section's own legend) because that is the part of
 #: it Tesseract keeps: across the scanned statements of this family the rest of
 #: the line arrives as `POSTING BATE DESCRIPTION AGRCUNT`, `POSTING DATE
@@ -114,7 +123,11 @@ _LEGEND_WITHIN = r"(?=.{0,40}?(?:POSTING|No\. ?Checks|DATE SERIAL NO))"
 #: as prose.
 _NOT_MID_SENTENCE = r"(?-i:(?<![a-z])(?<![a-z] ))"
 #: The line the bank closes each detail section with.
-_SUBTOTAL_RE = re.compile(r"Subtotal:\s*(?P<total>[\d,]+\.\d{2})")
+#: `re.IGNORECASE` because the base pattern carried it and this is a scanned
+#: family: `SUBTOTAL:` and `subtotal:` are both a subtotal line. Inert on
+#: this archive (194 of 194 arrive exactly cased) and kept because dropping
+#: it was a silent narrowing, not a decision (review MINOR-3).
+_SUBTOTAL_RE = re.compile(r"Subtotal:\s*(?P<total>[\d,]+\.\d{2})", re.IGNORECASE)
 
 
 def _heading_pattern(heading: str) -> str:
@@ -147,18 +160,14 @@ def _section(markdown: str, heading: str) -> tuple[str, float | None]:
     whole sections over OCR noise beside the heading or inside the legend
     itself (`... ARMOUNT`, `DESCRUPTION SSROLINT`, a stray glyph between the
     two lines) — 8 printed sections missed across the same 40 documents, every
-    one of them on a document the ADB already refused. The legend now sits in
-    the body, where the row reader steps over it exactly as it steps over the
-    page furniture already there, and the summary line is excluded by the one
-    thing that actually distinguishes it: the summary's nearest column legend is
-    the whole summary block away.
-
-    A lookahead excluding a money token on the heading's own line was written
-    first, as a second and more direct way of saying "this is the summary
-    line". It is not here, because it was measured to change nothing: over all
-    40 archive documents of this family the set of heading marks is IDENTICAL
-    with and without it, and no fixture of this layout can distinguish the two.
-    An untestable gate is worse than no gate.
+    one of them on a document the ADB already refused. Four of those eight come
+    back and 3 are newly missed, on the two documents whose own subtotals are
+    damaged: the family reads 187 printed sections where it read 186, and the
+    four that came back are the four that mattered (review MINOR-6). The legend
+    now sits in the body, where the row reader steps over it exactly as it
+    steps over the page furniture already there, and the summary line is
+    excluded by `_MONEY_ON_THE_SAME_LINE` above and by the legend window
+    together.
     """
     opened = None
     for start, end, name in _heading_marks(markdown):
@@ -191,7 +200,8 @@ def _heading_marks(markdown: str) -> list[tuple[int, int, str]]:
     """
     marks: list[tuple[int, int, str]] = []
     for heading in _SECTION_HEADINGS:
-        pattern = _NOT_MID_SENTENCE + _heading_pattern(heading) + _LEGEND_WITHIN
+        pattern = (_NOT_MID_SENTENCE + _heading_pattern(heading)
+                   + _MONEY_ON_THE_SAME_LINE + _LEGEND_WITHIN)
         for m in re.finditer(pattern, markdown, re.IGNORECASE | re.DOTALL):
             marks.append((m.start(), m.end(), heading))
     marks.sort()

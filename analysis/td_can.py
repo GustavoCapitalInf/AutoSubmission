@@ -215,8 +215,11 @@ _GC_DEPOSIT_RE = re.compile(r"GC \d+-DEPOSIT\b")
 #: read: the withdrawal half fell through to the default, which made "TD says
 #: this left the account" indistinguishable from "TD says nothing". The
 #: distinction is the whole of what `_split_supported_by_codes` ranks on, so
-#: the silent half is spelled out here. `_native_credit_like` is unaffected —
-#: both spellings were, and remain, not-a-credit.
+#: the silent half is spelled out here. `_native_credit_like` is MEASURED
+#: inert, not unaffected: reading a withdrawal half now returns before the
+#: trailing-code test, so `GC 4021-CASH WITHDRA GST` reads not-a-credit here
+#: where it read a credit before. That is the more correct answer, and there
+#: are 0 such rows across the 126 documents of the three families.
 _GC_CASH_WITHDRAWAL_RE = re.compile(r"GC \d+-CASH WITHDRA")
 
 
@@ -269,7 +272,15 @@ def _native_direction_code(description: str) -> bool | None:
 
 
 def _native_credit_like(description: str) -> bool:
-    """Sign from TD's own transaction codes, never from counterparty names."""
+    """Sign from TD's own transaction codes, never from counterparty names.
+
+    MEASURED inert against the reading it replaces, not identical to it. A
+    description carrying BOTH a withdrawal code and a trailing credit code
+    (`TD ATM W/D 0123 PAY`) used to reach the trailing test and read as a
+    credit; it now returns at the withdrawal code and reads as one. That is the
+    more correct answer — TD prints the channel first — and the archive is
+    silent on it: 0 such rows across the 126 documents of the three families.
+    """
     return _native_direction_code(description) is True
 
 
@@ -513,7 +524,7 @@ def _split_supported_by_codes(
     *,
     direction_code: Callable[[str], bool | None],
     credit_like: Callable[[str], bool],
-) -> list[bool]:
+) -> list[bool] | None:
     """Of the splits the printed balances admit, the one TD's own codes support.
 
     Reached only where the code reading CONTRADICTS the printed balance, so
@@ -525,18 +536,29 @@ def _split_supported_by_codes(
     moved off the default reading at all; then the enumeration's own order,
     which is fixed.
 
-    What this can and cannot get wrong is worth stating exactly. Every
-    candidate reproduces the printed end-of-group balance, so the daily
-    balances, the ADB, and both direction totals are the same whichever is
-    chosen: this ranking cannot move a monetary figure. It moves which rows are
-    called deposits, and therefore the credit and debit COUNTS — which TD
-    prints and which `analysis/count_semantics.py` marks comparable for both
-    issues of this layout, so a wrong choice here is caught by evidence this
-    function never reads.
+    What this can and cannot get wrong, stated at the right level. Every
+    candidate reproduces the printed end-of-group balance, so no AGGREGATE
+    moves whichever is chosen: the group's net, the daily balances, the ADB and
+    both direction TOTALS are identical across the candidates. A PER-ROW signed
+    amount is a different matter and does move — `amount` is published as
+    `+row.amount` or `-row.amount`, so changing a row's direction changes the
+    sign of a published transaction amount, and with it that row's revenue
+    classification. What certifies the choice is the credit and debit COUNTS,
+    which TD prints and which `analysis/count_semantics.py` marks comparable
+    for both issues of this layout: a wrong choice moves a count, and the
+    platform flags it on evidence this function never reads.
+
+    Which is why this REFUSES rather than guesses when the count cannot
+    certify. Two candidates that tie on both keys AND carry the same number of
+    credit rows are indistinguishable to every oracle the platform has — the
+    balances admit both, the codes rank them equally, and the printed count
+    cannot tell them apart. Returning None leaves the group on the code
+    reading, which by construction here does NOT reproduce the printed change,
+    so the ledger does not close and the document withholds. Not observed on
+    this archive; `_tied_beyond_the_printed_counts` is where it is decided.
     """
     coded = [credit_like(row.description) for row in rows]
-    best_key: tuple[int, int] | None = None
-    best: list[bool] = coded
+    ranked: list[tuple[tuple[int, int], list[bool]]] = []
     for counts in candidates:
         resolved = _directions_from_credit_counts(rows, counts, credit_like=credit_like)
         contradictions = 0
@@ -547,10 +569,28 @@ def _split_supported_by_codes(
                 contradictions += 1
             if is_credit != default:
                 moved += 1
-        key = (contradictions, moved)
-        if best_key is None or key < best_key:
-            best_key, best = key, resolved
-    return best
+        ranked.append(((contradictions, moved), resolved))
+    if not ranked:
+        return None
+    best_key = min(key for key, _resolved in ranked)
+    tied = [resolved for key, resolved in ranked if key == best_key]
+    if _tied_beyond_the_printed_counts(tied):
+        return None
+    return tied[0]
+
+
+def _tied_beyond_the_printed_counts(tied: list[list[bool]]) -> bool:
+    """Do two equally-ranked readings carry the same number of credit rows?
+
+    The printed credit and debit counts are the platform's certificate on this
+    choice, and they can only certify a choice between readings that DIFFER in
+    how many rows they call deposits. Two readings that rank alike and count
+    alike are past every oracle the document offers, so the reader stops.
+    """
+    if len(tied) < 2:
+        return False
+    counts = [sum(resolved) for resolved in tied]
+    return len(set(counts)) < len(counts)
 
 
 def _resolve_directions_from_balances(
@@ -574,7 +614,8 @@ def _resolve_directions_from_balances(
       them, and the reading is the shipped one to the row;
     * the balances admit several and the codes do NOT reproduce the printed
       change — the codes are contradicting the page, so the page decides which
-      split and `_split_supported_by_codes` decides which of them;
+      split and `_split_supported_by_codes` decides which of them, or refuses
+      when two of them are past every oracle the document offers;
     * the balances state nothing about this group (an odd parity, an
       unreachable target, or more work than the bounds allow) — the codes are
       all there is, and the reading stands on them.
@@ -616,6 +657,8 @@ def _resolve_directions_from_balances(
         resolved = _split_supported_by_codes(
             group, candidates, direction_code=direction_code, credit_like=credit_like
         )
+        if resolved is None:
+            continue                       # tied past every oracle: fail closed
         for i, is_credit in zip(indices, resolved):
             credits[i] = is_credit
     return credits

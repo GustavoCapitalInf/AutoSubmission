@@ -43800,22 +43800,31 @@ For each date group with a printed anchor and a printed closing balance, with
 5. More candidates or more search nodes than the bounds allow → the reader says
    nothing and the codes stand. *(fail closed)*
 
-**What this can and cannot get wrong.** Every candidate reproduces the printed
-end-of-group balance, so the group's net movement, the daily balances, the ADB
-and both direction TOTALS are identical whichever is chosen: **the ranking
-cannot move a monetary figure.** It moves which rows are called deposits, and
-therefore the credit and debit COUNTS — which TD prints and which
-`count_semantics` holds this parser to. A wrong choice is caught by evidence the
-ranking never reads.
+**What this can and cannot get wrong — corrected at review (MAJOR-1).** Every
+candidate reproduces the printed end-of-group balance, so **no AGGREGATE can
+move**: the group's net, the daily balances, the ADB and both direction TOTALS
+are identical whichever is chosen. A **per-row signed amount is not an
+aggregate and does move** — `analysis/td_can.py` publishes `+row.amount` or
+`-row.amount`, so a direction change IS a sign change on a published
+transaction amount, and it carries that row's revenue classification with it.
+This section first claimed the ranking "cannot move a monetary figure", which
+is false at the row level; TD3.1 lists every row that moved. What certifies the
+choice is the credit and debit COUNTS, which TD prints and which
+`count_semantics` holds this parser to, and where those cannot certify the
+reader refuses rather than guesses (TD15 #2).
 
 **The code reading had to become three-valued for step 4 to mean anything.**
 `_native_credit_like` collapsed "TD says this left the account" and "TD says
 nothing" into the same `False`. `_native_direction_code` /
 `_french_direction_code` return `True | False | None`, and
-`_native_credit_like` is `code is True` — the same boolean, from the same tests
-in the same order. Both halves of each channel pair are now read (`TD ATM W/D`,
-`GC <n>-CASH WITHDRA`); `CANCEL` / `RECLAIM E-TFR` stay `None`, which is what
-the shipped comment already said they were.
+`_native_credit_like` is `code is True` — **measured inert, not identical**
+(MINOR-4). A description carrying BOTH a withdrawal code and a trailing credit
+code (`TD ATM W/D 0123 PAY`, `GC 4021-CASH WITHDRA GST`) used to reach the
+trailing test and read as a credit; it now returns at the withdrawal code. That
+is the more correct answer — TD prints the channel first — and the archive is
+silent on it: **0 such rows across the 126 documents**. Both halves of each
+channel pair are now read; `CANCEL` / `RECLAIM E-TFR` stay `None`, which is
+what the shipped comment already said they were.
 
 ## TD4. Why the codes lose, on the documents' own evidence
 
@@ -43867,6 +43876,11 @@ after the heading. Measured over all 40 documents of the family:
   validate, so nothing validated was ever attributed across a boundary.
 * **8 printed sections missed**, every one on a document the ADB already
   refused, each over OCR damage to the legend or to the heading's own line.
+  Corrected at review (MINOR-6): **4 of those 8 come back and 3 are newly
+  missed** — the family reads 187 printed sections where it read 186 — and the
+  four that come back are the four that mattered. The 3 new misses are on
+  `2A0B516B` and `A7E4B895`, whose own subtotals are damaged, and each is the
+  fail-closed branch working.
 
 After the change, re-measured over the same 40: **1 binding still contains
 another heading, and it is unreachable in production.** It is on
@@ -43985,6 +43999,12 @@ to n and relabels each covered day's `source` from `reconstructed` to
 ones, with no financial figure moving anywhere. That is a `PINNED_CURRENCY`-shaped
 label ceremony, not a coverage card, and this card's brief is byte-identity
 outside its named movers.
+
+**RATIFIED at review (MINOR-5).** The reviewer verified both load-bearing
+facts independently — that `bank_daily_balance_dates_valid` is checked
+unconditionally and is REQUIRED, and that 71 of the 86 documents print a date
+twice with two different balances, 186 dates in all — and ratified the scope
+deviation. The deferral is a decision on the record, not an omission.
 
 **The trap, measured, for whoever executes it.** TD prints a balance per date
 GROUP, not per day, and a page break splits a day into two groups with two
@@ -44114,13 +44134,18 @@ hosted model call anywhere in this card, tests included.
    closest to is `960E4D60`, which carries an ambiguous date group and is
    unchanged because the code reading there already reproduces the printed
    change — the property M-INERT-1 exists to keep runnable.
-2. **The tie-break can misattribute a row, and cannot misstate money.** Where
-   two admissible splits have the same credit-row COUNT, no printed evidence
-   distinguishes them and the reader takes the smallest change from its default.
-   Every monetary figure is identical across them; what can be wrong is which
-   row is called a deposit, which feeds revenue attribution. On the 11 groups
-   this card actually resolves, the printed counts agree, so no such case is
-   live today.
+2. **A tie past every oracle REFUSES (closed at review, MAJOR-2).** The
+   reviewer built the case the first revision guessed at: amounts 400/300/200/
+   100 across a printed change of zero force a 500.00 deposit subtotal, and
+   `{300,200}` and `{400,100}` tie on contradictions, tie on rows moved, and
+   both call TWO rows deposits — so the printed COUNT is structurally blind and
+   the walk's order was deciding. The reader now returns None for such a group:
+   it stays on the code reading, which by construction does not reproduce the
+   printed change, so the ledger does not close and the document withholds.
+   Where the tied readings differ in credit-row COUNT the printed count CAN
+   certify, so the reader still takes the smallest change and the platform
+   checks it. Neither case is live on the 11 groups this card resolves; both
+   are fixtures now, and M18/M19 pin the two halves.
 3. **A `$0.00` row TD coded as a deposit is published as a withdrawal** on a
    group the new branch reaches. No money moves; the printed count is the
    evidence. Not observed on this archive, and recorded rather than guarded,
@@ -44139,3 +44164,72 @@ hosted model call anywhere in this card, tests included.
    moves no verdict and costs a label change on 86 documents including five
    pinned — a ceremony-shaped card, with a measured trap: 71 of the 86 print a
    date twice with two different balances.
+
+## TD16. Review closures (APPROVE WITH FINDINGS — 0 BLOCK, 2 MAJOR, 6 MINOR)
+
+The independent adversarial review reproduced the census (1,700 / 1,661 / 39 /
+0, and the 28 / 11 split), the count oracle moving 76 → 86 of 86, the sweep,
+the seven mutants it re-ran, the three-valued code reading, the cross-boundary
+census, the cost bound and the privacy scan; and it verified **all 10 pinned TD
+documents byte-identical on both trees**, which is stronger than the 5 of 6
+this record could show from the archive alone. The `stated_daily_balances`
+deferral was RATIFIED on both of its load-bearing facts. Everything below is
+closed on this branch.
+
+### TD16.1 MAJOR-1 — "cannot move a monetary figure" was false at the row level
+
+`td_can.py` publishes `+row.amount` or `-row.amount`, so changing a row's
+direction changes the sign of a PUBLISHED transaction amount. The claim is
+corrected in three places (TD3, the `_split_supported_by_codes` docstring,
+TD15 #2) to the one that is true: **no aggregate moves — net, daily balances,
+ADB, both direction totals — and a per-row signed amount does.**
+
+### TD3.1 The 27 published amounts that change sign
+
+Measured base → head over the eleven movers, by document and row index, with
+the description reported as a CLASS from TD's own printed code vocabulary and
+never as text (`tools/`-shaped probe; no figure or description leaves it).
+
+| sha16 | rows | classes |
+|---|---:|---|
+| `6E2635D8B95E51B0` | 1 | cancelled_e_transfer |
+| `477E2FD610A1C4A8` | 1 | uncoded |
+| `5E682B9B2C697A80` | 3 | outgoing_e_transfer, cancelled_e_transfer, returned_item |
+| `F841051765A5ABDB` | 1 | merchant_settlement |
+| `21C3FFF212E9E61D` | 2 | uncoded, outgoing_e_transfer |
+| `EA5C61862BB8DA56` | 4 | merchant_settlement ×4 |
+| `59BD662C0D4FE1A7` | 2 | merchant_settlement, uncoded |
+| `654AB29A910A5DB9` | 2 | merchant_settlement, uncoded |
+| `A3A50C108B7F4646` | 6 | merchant_settlement ×4, outgoing_virement ×2 |
+| `4DE22E685A04F9D7` | 1 | merchant_settlement |
+| `1131B8910ECF19D7` | 4 | outgoing_virement, incoming_virement ×2, transfer_to_account |
+| **total** | **27** | merchant_settlement 12 · uncoded 4 · outgoing_virement 3 · cancelled_e_transfer 2 · outgoing_e_transfer 2 · incoming_virement 2 · returned_item 1 · transfer_to_account 1 |
+
+Twelve of the 27 are `merchant_settlement`, which is exactly the class
+§COUNTSP3 measured as 53 credits against 42 debits over these documents and
+refused to key a rule on — the balances decide it here, and the printed counts
+then agree on all eleven. The reviewer priced the downstream effect: 6 rows
+enter `verified_revenue`, and it adjudicated every flip a correction.
+
+### TD16.2 MAJOR-2 — a tie past every oracle now refuses
+
+Closed in production, not in prose. `_split_supported_by_codes` returns None
+when two equally-ranked readings also call the same number of rows deposits;
+`_tied_beyond_the_printed_counts` is the predicate, the caller leaves the group
+on the code reading, and the ledger then fails to close. Fixtures: the
+reviewer's 400/300/200/100 case, the same case with one printed withdrawal code
+(which breaks the tie and publishes), and a separable tie whose credit counts
+differ (which the printed count can certify, so the reader still chooses).
+Mutants **M18** (refusal removed) and **M19** (every tie refused, including the
+separable ones) pin the two halves.
+
+### TD16.3 The six MINORs
+
+| # | closure |
+|---|---|
+| MINOR-1 | The deleted ACCOUNT-SUMMARY gate is **restored**. The measurement stands — heading marks identical on all 40 with and without it — but "no fixture can distinguish them" was a claim about the fixtures tried. The reviewer's shape (a summary line inside the next section's legend window, whose slice ends at the summary's own next heading and holds no `Subtotal:`) loses the real section entirely; it is committed, and **M13** is back with it. |
+| MINOR-2 | `_section`'s bound is the next heading MARK, and the docstring now says so. Under compound damage — this section's `Subtotal:` mangled AND the next heading's legend lost — the slice runs on. Strictly narrower than the shipped failure, which needed only the one mangled subtotal, and not zero: pinned as a named residual fixture. |
+| MINOR-3 | `re.IGNORECASE` **restored** on `_SUBTOTAL_RE`. Inert today (194 of 194 exactly cased) and a silent narrowing rather than a decision; a scanned family keeps the flag. Test over three spellings; **M20** pins it. |
+| MINOR-4 | The two "identical" claims about `_native_credit_like` are corrected to **measured inert, more correct**: a description carrying a withdrawal code AND a trailing credit code changes answer, 0 such rows across the 126. |
+| MINOR-5 | The `stated_daily_balances` ratification is recorded in TD10 with both facts. |
+| MINOR-6 | "8 printed sections missed" corrected: base misses 8, head misses 7, 186 → 187 read; the 4 that mattered recover, 3 new misses on the two damaged-subtotal documents. |

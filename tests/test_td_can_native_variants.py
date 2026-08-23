@@ -778,3 +778,66 @@ FOURTH UNCODED ROW 20.00 FEB01 100.00
 """)
         readings = {tuple(_amounts(parse_native_td_canada_statement(md))) for _ in range(8)}
         assert len(readings) == 1
+
+
+class TestATieBeyondEveryOracleRefuses:
+    """Review MAJOR-2. Four rows of 400, 300, 200 and 100 across a printed
+    change of zero: the deposits must total 500.00, and `{300, 200}` and
+    `{400, 100}` both reach it, both contradict no printed code, both move two
+    rows off the default — and both call TWO rows deposits, so the bank's own
+    printed COUNT cannot tell them apart either.
+
+    Nothing the document prints separates the two readings, so the reader does
+    not choose one. It leaves the group on the code reading, which here does
+    not reproduce the printed change, and the ledger therefore does not close:
+    the document withholds instead of publishing a coin toss.
+    """
+
+    LEDGER = """
+BALANCE FORWARD JAN31 100.00
+FIRST UNCODED ROW 400.00 FEB01
+SECOND UNCODED ROW 300.00 FEB01
+THIRD UNCODED ROW 200.00 FEB01
+FOURTH UNCODED ROW 100.00 FEB01 100.00
+"""
+
+    def test_both_readings_are_admissible_and_count_alike(self):
+        candidates = _credit_count_candidates([40000, 30000, 20000, 10000], 0)
+        assert len(candidates) == 2
+        for counts in candidates:
+            assert sum(value * n for value, n in counts.items()) == 50000
+            assert sum(counts.values()) == 2
+
+    def test_the_group_is_left_on_the_code_reading(self):
+        stmt = parse_native_td_canada_statement(_statement(self.LEDGER))
+        assert _amounts(stmt) == [-400.0, -300.0, -200.0, -100.0]
+
+    def test_and_the_document_does_not_publish(self):
+        md = _statement(self.LEDGER, credits="2 500.00", debits="2 500.00")
+        assert not reconcile(parse_native_td_canada_statement(md)).ok
+        assert not analyze_markdown(md).reconciliation.ok
+
+    def test_a_code_on_one_row_breaks_the_tie_and_the_ledger_closes(self):
+        """The same four amounts with TD's own withdrawal code on one row:
+        `{400, 100}` now contradicts a printed code and `{300, 200}` does not,
+        so the page decides and the document publishes."""
+        md = _statement(
+            self.LEDGER.replace("FIRST UNCODED ROW", "SEND E-TFR ***a1B"),
+            credits="2 500.00", debits="2 500.00",
+        )
+        stmt = parse_native_td_canada_statement(md)
+        assert _amounts(stmt) == [-400.0, 300.0, 200.0, -100.0]
+        assert reconcile(stmt).ok
+
+    def test_a_differing_credit_count_is_left_to_the_printed_counts(self):
+        """Not every tie is unbreakable. `{500}` and `{300, 200}` reach the
+        same subtotal with ONE and TWO deposit rows, so the bank's printed
+        count can certify the choice — the reader takes the smallest change and
+        the platform checks it, rather than refusing."""
+        stmt = parse_native_td_canada_statement(_statement("""
+BALANCE FORWARD JAN31 100.00
+FIRST UNCODED ROW 500.00 FEB01
+SECOND UNCODED ROW 300.00 FEB01
+THIRD UNCODED ROW 200.00 FEB01 100.00
+"""))
+        assert _amounts(stmt) == [500.0, -300.0, -200.0]

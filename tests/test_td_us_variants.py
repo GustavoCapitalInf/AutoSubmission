@@ -331,3 +331,68 @@ def test_ocr_damage_around_the_legend_does_not_lose_the_section(damage):
         "Electronic Deposits\nPOSTING DATE DESCRIPTION AMOUNT", damage, 1
     )
     assert _section(text, "Electronic Deposits")[1] == 300.00
+
+
+#: Review MINOR-1. The ACCOUNT SUMMARY's last line runs straight into the first
+#: detail legend, so the summary's `Other Withdrawals` sits inside the legend
+#: window — and the summary prints the next section's heading right beside it.
+#: Without the money gate the summary line opens a spurious `Other Withdrawals`
+#: mark whose slice ends at the summary's own `Service Charges` and holds no
+#: `Subtotal:`, and the REAL section is lost.
+_SUMMARY_RUNS_INTO_THE_LEGEND = (
+    "STATEMENT OF ACCOUNT\n"
+    "Page: 1 of 1 Statement Period: Jan 01 2026-Jan 31 2026 "
+    "Cust Ref #: 0000000000-000-X-*** Primary Account #: 000-0000000\n"
+    "TD Business Simple Checking\n"
+    "ACCOUNT SUMMARY Beginning Balance 1,000.00 Electronic Deposits 300.00\n"
+    "Other Withdrawals 40.00 Service Charges 3.00 Ending Balance 1,257.00\n"
+    "POSTING DATE DESCRIPTION AMOUNT\n"
+    "01/05 INBOUND, EXAMPLE PAYER PAYROLL 300.00\n"
+    "Subtotal: 300.00\n"
+    "Other Withdrawals\n"
+    "POSTING DATE DESCRIPTION AMOUNT\n"
+    "01/09 EXAMPLE OUTBOUND FEE 40.00\n"
+    "Subtotal: 40.00\n"
+    "Service Charges\n"
+    "POSTING DATE DESCRIPTION AMOUNT\n"
+    "01/31 EXAMPLE MONTHLY FEE 3.00\n"
+    "Subtotal: 3.00\n"
+)
+
+
+def test_a_summary_line_inside_the_legend_window_does_not_open_a_section():
+    """The legend window alone excludes the summary line on all 40 archive
+    documents, and this is the shape where it does not: the money on the
+    heading's own line is what says `<heading> <total>` is the summary."""
+    marks = [name for _s, _e, name in _heading_marks(_SUMMARY_RUNS_INTO_THE_LEGEND)]
+    assert marks == ["Other Withdrawals", "Service Charges"]
+    assert _section(_SUMMARY_RUNS_INTO_THE_LEGEND, "Other Withdrawals")[1] == 40.00
+    assert _section(_SUMMARY_RUNS_INTO_THE_LEGEND, "Service Charges")[1] == 3.00
+
+
+def test_a_subtotal_line_is_read_whatever_case_the_scan_gives_it():
+    """Review MINOR-3. This is a scanned family and `SUBTOTAL:` is a subtotal
+    line. Inert on today's archive (194 of 194 arrive exactly cased), and the
+    base pattern carried the flag, so dropping it would be a silent narrowing.
+    """
+    for spelling in ("Subtotal:", "SUBTOTAL:", "subtotal:"):
+        text = _two_sections(deposit_subtotal=f"{spelling} 300.00")
+        assert _section(text, "Electronic Deposits")[1] == 300.00
+
+
+def test_compound_damage_can_still_carry_a_section_across_a_boundary():
+    """Review MINOR-2, pinned as a RESIDUAL rather than argued away.
+
+    The bound on a section is the next heading MARK. Damage this section's
+    `Subtotal:` and the next section's legend at the same time and the next
+    heading is not a mark, so the slice runs on and this section reports the
+    next section's rows and total under its own name. Strictly narrower than
+    the shipped failure, which needed only the one mangled subtotal — and not
+    zero.
+    """
+    text = _two_sections(deposit_subtotal="Subtotal: 300,00").replace(
+        "Other Withdrawals\nPOSTING DATE DESCRIPTION AMOUNT\n",
+        "Other Withdrawals\n", 1,
+    )
+    _body, total = _section(text, "Electronic Deposits")
+    assert total == 40.00          # the NEXT section's printed subtotal
