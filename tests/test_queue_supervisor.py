@@ -206,23 +206,33 @@ def test_a_failure_that_repeats_for_every_document_drains_and_stops(supervisor, 
     assert all(supervisor.get(job_id).status == "error" for job_id in ids)
 
 
-def test_no_replacement_is_started_when_the_queue_is_empty(supervisor, monkeypatch):
-    """`_release_worker_slot` returns its decision so it can be asserted rather
-    than inferred from a race. An empty queue needs no worker: the next
-    `_enqueue_job` starts one, which is the base tree's own contract."""
-    _enqueue(supervisor, "one.pdf")
+@pytest.mark.parametrize("queued,shutting_down,expected", [
+    (0, False, False),      # nothing to do - the next upload starts a worker
+    (1, False, True),       # work is stranded unless somebody picks it up
+    (1, True, False),       # section 3: do not start OCR on the way out
+    (0, True, False),
+])
+def test_the_re_arm_decision_is_the_two_conditions(
+    supervisor, monkeypatch, queued, shutting_down, expected
+):
+    """The decision, asserted DIRECTLY rather than through a thread count.
 
-    def raising_run_job(*args, **kwargs):
-        raise RuntimeError("the worker thread died")
+    A first revision of this file asserted `threading.active_count()` around the
+    supervisor and a mutant walked straight through it: a replacement started on
+    an empty queue finds nothing, returns, and is dead again before the count is
+    read. `_release_worker_slot` returns whether it started one precisely so the
+    decision can be measured instead of raced.
+    """
+    monkeypatch.setattr(webapp_app, "run_job",
+                        lambda *args, **kwargs: None)
+    for n in range(queued):
+        _enqueue(supervisor, f"{n}.pdf")
 
-    monkeypatch.setattr(webapp_app, "run_job", raising_run_job)
-    before = threading.active_count()
+    started = webapp_app._release_worker_slot(shutting_down)
+    _join_workers()
 
-    with pytest.raises(RuntimeError):
-        webapp_app._process_job_queue()
-
-    assert threading.active_count() == before
-    assert webapp_app._job_worker_active is False
+    assert started is expected
+    assert webapp_app._job_worker_active is False   # released in every case
 
 
 # ---------------------------------------------------------------------------
