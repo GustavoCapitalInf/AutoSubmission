@@ -44378,6 +44378,20 @@ here is closer to n=5 than n=20. A printing variant this family does not
 contain is not covered by 11 validations, and the reader's answer to one would
 be a decline rather than a mis-read.
 
+**R6 — I damaged this shared log once, and the repair is in the history.**
+`ef95969` regenerated §LI8's killer column with a script that located the
+table by its header from the START of a 44,385-line file; an earlier cell's
+section carries the identical header, so the rewrite spanned from that header
+to my own paragraph and deleted 7,780 lines of other cells' sections. Caught
+by grepping for my own paragraph and finding it 7,000 lines too early;
+restored from `ef95969^` and redone scoped, with the script asserting the line
+count before writing. Net effect of this branch on the file is now 679
+insertions and ZERO deletions, which is the check a reviewer should run
+(`git diff 10cc722..HEAD -- W3_TRACKA_LOG.md | grep -c "^-[^-]"` → 0). Named
+here because the same trap is open to every cell that scripts an edit to this
+file, and because Ocean's train rebuilds each section from its branch blob —
+which would have caught it at merge, but only at merge.
+
 **R5 — `Fees` is assumed non-positive.** The `fees > 0` gate refuses a month
 whose fee term is a net credit. No member of the family prints one; a genuine
 fee-refund month would be refused rather than published with a
