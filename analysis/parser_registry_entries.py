@@ -381,6 +381,13 @@ _OVERRIDES: dict[str, dict] = {
     # reader puts them: this card's population is the census family, and
     # moving another reader's ten documents on the way past is exactly the
     # unnamed movement the wave forbids.
+    #
+    # THE PINNED CORPUS HOLDS ONE OF THE TEN, and the edge is load-bearing
+    # there. Measured both ways on `Link Bank April statement.pdf`: the
+    # claimant set before pruning is `[linkbank 0.5, core_processor_enclosures
+    # 1.0]` - the general reader scores HIGHER - and after pruning it is
+    # exactly `[linkbank 0.5]`. Without the edge that document resolves
+    # `ambiguous`, its pinned verdict moves and the corpus gate goes red.
     "burke_herbert": {"band": 10, "supersedes": frozenset({"core_processor_enclosures"})},
     "farmers_merchants": {"band": 10, "supersedes": frozenset({"core_processor_enclosures"})},
     "linkbank": {"band": 10, "supersedes": frozenset({"core_processor_enclosures"})},

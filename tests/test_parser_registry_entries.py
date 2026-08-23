@@ -321,8 +321,10 @@ def test_only_the_promoted_sub_dispatches_supersede_anything():
         # markers reach exactly 67 documents, of which burke_herbert holds 3
         # (all validated), farmers_merchants 3 (all withheld) and linkbank 4
         # (all in review). Without the edges those 10 resolve `ambiguous` and
-        # the three validated ones regress. The pinned corpus holds none of
-        # the ten.
+        # the three validated ones regress. The PINNED CORPUS holds one of the
+        # ten and the edge is load-bearing there: measured both ways, the
+        # claimant set before pruning is `[linkbank, core_processor_enclosures]`
+        # and after pruning exactly `[linkbank]`.
         "burke_herbert": ["core_processor_enclosures"],
         # W3 §JHA-CELL: `community_section` registers the core-processor
         # template these four issuers print, and claims it on the template

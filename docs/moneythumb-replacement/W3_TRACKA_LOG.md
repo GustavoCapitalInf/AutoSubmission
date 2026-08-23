@@ -44028,7 +44028,16 @@ half: a document carrying one of the three issuers' markers that the issuer's
 own reader declined would never be offered to the general reader. **Measured:
 the general reader declines all 10 at parse anyway**, so no document is lost
 today, and this card deliberately does not move another reader's 10 documents
-on the way past. The pinned corpus holds none of the ten.
+on the way past.
+
+**The pinned corpus holds ONE of the ten, and the edge is load-bearing there.**
+`AF6BD563…` is `Link Bank April statement.pdf`, one of the 109. Measured both
+ways: the claimant set before `supersedes` pruning is
+`[linkbank 0.5, core_processor_enclosures 1.0]` — the general reader scores
+HIGHER — and after pruning it is exactly `[linkbank 0.5]`. Without the edge
+that pinned document resolves `ambiguous`, its pinned verdict moves and the
+corpus gate goes red. With it the gate is GREEN, which is the strongest
+evidence this card has for any of the three edges.
 
 ## C12. The mutation table
 
