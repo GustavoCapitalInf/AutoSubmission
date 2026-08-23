@@ -52,7 +52,7 @@ import sys
 from pathlib import Path
 
 from analysis import bank_ozk, parser_registry_entries  # noqa: F401
-from analysis.parser_registry import resolve
+from analysis.parser_registry import admissible_text, resolve
 from analysis.pipeline import analyze_markdown
 from analysis.serialization import report_to_dict
 from ocr.document import StatementMarkdown
@@ -186,6 +186,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-dir", required=True)
     parser.add_argument("--sha", action="append", default=[])
     parser.add_argument("--shas-file", action="append", default=[])
+    parser.add_argument(
+        "--claims-only",
+        action="append",
+        default=[],
+        help=(
+            "score ONE registration's detection markers over every sha and "
+            "report only the claims, skipping the analysis. This is the "
+            "non-target probe: run over the whole archive it answers 'does "
+            "this registration claim anything outside its named population', "
+            "which is a different question from whether an analysis moved, and "
+            "it is answerable on documents whose analysis raises."
+        ),
+    )
     args = parser.parse_args(argv)
 
     shas: list[str] = [sha.strip().upper() for sha in args.sha if sha.strip()]
@@ -200,6 +213,32 @@ def main(argv: list[str] | None = None) -> int:
 
     artifacts = Path(args.data_dir) / "artifacts"
     tally: dict[str, int] = {}
+
+    if args.claims_only:
+        from analysis.parser_registry import by_id, score_markers
+
+        probed = [by_id(parser_id) for parser_id in args.claims_only]
+        for sha in shas:
+            document = _document(artifacts, sha)
+            if document is None:
+                tally["no_cached_text"] = tally.get("no_cached_text", 0) + 1
+                continue
+            tally["scored"] = tally.get("scored", 0) + 1
+            markdown = admissible_text(document.to_markdown())
+            for registration in probed:
+                prepared = (
+                    registration.normalize(markdown)
+                    if registration.normalize
+                    else markdown
+                )
+                detection = score_markers(registration.markers, prepared)
+                if detection.claims:
+                    print(f"{sha} CLAIMED by {registration.id} score={detection.score}")
+                    key = f"claimed:{registration.id}"
+                    tally[key] = tally.get(key, 0) + 1
+        print("SUMMARY", json.dumps(tally, sort_keys=True))
+        return 0
+
     for sha in shas:
         document = _document(artifacts, sha)
         if document is None:
