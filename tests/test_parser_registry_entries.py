@@ -105,6 +105,7 @@ EXPECTED_ORDER = [
     "truist",
     "us_bank",
     "wealthsimple",
+    "welch_state_bank",
     "wells_fargo",
     "wilson_muir",
     "woodforest",
@@ -176,8 +177,12 @@ def test_registration_count_matches_the_documented_decision_points():
     (W3 §SCANNEXT); and the batch-7 cards: the scanned Canadian
     direct-bank statement whose two money columns the scan flattens and
     whose row directions are solved from the running balance printed on
-    every row (W3 §TANGERINE)."""
-    assert len(pr.registrations()) == 75
+    every row (W3 §TANGERINE); and the batch-8 cards: the one-institution
+    Oklahoma mainframe template whose columns collapse onto one physical
+    line, whose rows print DESCRIPTION before the date, and whose printed
+    per-direction counts are the only complete-coverage oracle it has
+    (W3 §WELCH)."""
+    assert len(pr.registrations()) == 76
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():
