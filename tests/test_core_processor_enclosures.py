@@ -210,8 +210,7 @@ def test_the_service_charge_and_the_interest_are_outside_both_direction_totals()
 def test_an_interest_posting_is_admitted_only_for_the_figure_the_bank_printed():
     """The credit side may carry one row more than the printed count, and only
     when the excess is exactly the printed interest."""
-    body = (_CREDIT_BLOCK + "1/28 INTEREST PAYMENT 2.00\n"
-            + _DEBIT_BLOCK + _GRID_BLOCK)
+    body = (_CREDIT_BLOCK + "1/28 INTEREST PAYMENT 2.00\n" + _DEBIT_BLOCK)
     assert _parse(strip=_strip(interest="Interest Paid 1.00",
                               ending="Ending Balance 241.00"), body=body) is None
 
@@ -311,8 +310,9 @@ def test_the_date_order_issue_reads_its_direction_from_the_printed_sign():
 
 
 def test_a_captured_credit_count_that_disagrees_with_the_printed_one_is_refused():
-    body = (_CREDIT_BLOCK + "1/28 EXAMPLE PAYOUT THREE 5.00\n"
-            + _DEBIT_BLOCK + _GRID_BLOCK)
+    """A row of 0.00 and no grid: the COUNT is the only gate that can see it,
+    because the total and every walked balance are unmoved."""
+    body = (_CREDIT_BLOCK + "1/28 EXAMPLE PAYOUT THREE 0.00\n" + _DEBIT_BLOCK)
     assert _parse(body=body) is None
 
 
@@ -324,9 +324,11 @@ def test_a_captured_credit_total_that_disagrees_with_the_printed_one_is_refused(
 
 
 def test_a_captured_debit_count_that_disagrees_with_the_printed_one_is_refused():
+    """A cheque of 0.00 and no grid. This also pins that the extra debit row
+    the printed count is allowed to omit is admitted ONLY against a service
+    charge the bank actually billed, and none is printed here."""
     body = (_CREDIT_BLOCK + _DEBIT_BLOCK
-            + "CHECKS IN NUMBER ORDER Date Check No Amount\n1/22 1001 0.00\n"
-            + _GRID_BLOCK)
+            + "CHECKS IN NUMBER ORDER Date Check No Amount\n1/22 1001 0.00\n")
     assert _parse(body=body) is None
 
 
