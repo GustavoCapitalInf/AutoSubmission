@@ -251,23 +251,6 @@ _MONEY_RE = re.compile(r"\d[\d, ]*[.,]\d{2}(?!\d)")
 # but never from passing to failing. The cost of being wrong is a coverage
 # check that is quieter than it should be, never a false validation.
 _WRAPPED_TOTAL_LABEL = re.compile(r"^totals?\b", re.I)
-#: A date whose whole remainder is a PERCENTAGE is a rate line, not a posting.
-#: The sectioned core-processor platform prints one under `Interest Rate
-#: Changes` — `Interest Rate As Of Date  Interest Rate` and then the period's
-#: first day beside `0.0000%` — and the bank prints no transaction for it, so
-#: read as a posting it invents an activity day and fails
-#: `posting_dates_cover_source` for a reason that is not true of the document.
-#:
-#: Structure-keyed: what makes this a rate is that the remainder is ENTIRELY a
-#: number and a percent sign, which is not what a description looks like. A
-#: posting row whose description merely contains a rate ("APR 24.99% FINANCE
-#: CHARGE 45.00") keeps its date, because there the percentage is followed by
-#: more description.
-#:
-#: Direction of effect, as for `_SUMMARY_TOTAL_ROW`: this can only REMOVE
-#: dates from `source_posting_dates`, so a document can go from failing to
-#: passing but never from passing to failing.
-_RATE_ONLY_REMAINDER = re.compile(r"-?\d[\d,]*(?:[.,]\d+)?\s*%\Z")
 #: A page-number line, as the printed furniture that OPENS a page rather than
 #: as a word inside a row. `_NOT_A_POSTING_ROW` already refuses a line that
 #: carries this shape itself; this one is consulted for the line ABOVE.
@@ -410,9 +393,6 @@ def source_posting_dates(markdown: str, period_start: date, period_end: date) ->
         # `posting_dates_cover_source` is `source_dates - parsed_dates`, so the
         # check can go from failing to passing on a document, never the reverse.
         if re.fullmatch(r"balances?", remainder, re.I) and not _MONEY_RE.search(line):
-            continue
-        # An `Interest Rate Changes` row: the period's first day beside a rate.
-        if _RATE_ONLY_REMAINDER.match(remainder):
             continue
         if not _MONEY_RE.search(line):
             # THE PAGE-HEADER BLOCK. A statement's masthead line — its

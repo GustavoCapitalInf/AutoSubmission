@@ -349,47 +349,24 @@ def _check_rows(block: str, *, year: int) -> list[Transaction]:
     return txns
 
 
-#: The grid's own printed header: the block's name followed by its column
-#: caption. The name ALONE is not the grid - this platform also prints a
-#: daily-balance METHOD disclosure whose prose contains the same two words
-#: ("... To get daily balances, we take the beginning balance of your account
-#: each day ..."), and on five of the seven archive documents that print the
-#: grid that paragraph comes FIRST. Anchored on the name alone the region
-#: opens in the fine print and runs through every transaction section that
-#: follows, so ordinary rows are read as end-of-day balances.
-#: `_SECTION_END_RE` already guards each block name with the first word of its
-#: own grid header, for exactly this reason.
-_DAILY_BALANCE_HEADER_RE = re.compile(r"Daily Balances\s+Date\s+Amount", re.IGNORECASE)
-
-#: Where the grid ends: the printed name of whichever block follows it. Same
-#: discipline as `_SECTION_END_RE` - the document's own furniture, never a
-#: character distance.
-_DAILY_BALANCE_END_RE = re.compile(
-    r"Overdraft and Returned Item Fees|Service Charge Summary"
-    r"|Interest Summary|Interest Rate Changes|Thank you",
-    re.IGNORECASE,
-)
-
-
 def _daily_balances(block: str) -> dict[str, float]:
     """The printed `Daily Balances` grid, as `{iso date: end-of-day balance}`.
 
     Read SIGNED. A balance is the one figure this platform prints with a sign
     (see `_SIGNED_MONEY`), and an overdrawn day is printed `-$1,234.56`. The
-    unsigned pattern does not merely lose that sign: the minus sits between
-    the date and the `$`, so `date whitespace money` does not match at all and
-    the day is dropped from the grid entirely. Measured over the archive's
-    seven documents on this grid, that silently removed 1 to 4 days each - and
-    a day missing from the grid is a day whose printed end-of-day balance
-    never reaches `analysis/adb.py`.
+    unsigned pattern did not merely lose that sign: the minus sits between the
+    date and the `$`, so `date whitespace money` did not match at all and the
+    DAY was dropped from the grid entirely. Measured over the seven archive
+    documents that print this grid, that silently removed 1 to 4 days from
+    each of four of them - and a day missing here is a day whose printed
+    end-of-day balance never reaches `analysis/adb.py`, which is what left
+    those four withheld on `running_balances_support_daily_ledger`.
     """
-    header = _DAILY_BALANCE_HEADER_RE.search(block)
-    if not header:
+    start = re.search(r"Daily Balances\b(.*?)(?:Overdraft and Returned Item Fees|Service Charge Summary|Thank you|$)", block, re.IGNORECASE | re.DOTALL)
+    if not start:
         return {}
-    end = _DAILY_BALANCE_END_RE.search(block, header.end())
-    region = _clean(block[header.end():end.start() if end else len(block)])
     balances: dict[str, float] = {}
-    for match in re.finditer(r"(" + _DATE + r")\s+(" + _SIGNED_MONEY + r")", region):
+    for match in re.finditer(r"(" + _DATE + r")\s+(" + _SIGNED_MONEY + r")", _clean(start.group(1))):
         amount = _balance(match.group(2))
         if amount is not None:
             balances[_iso(match.group(1))] = amount

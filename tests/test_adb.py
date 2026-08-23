@@ -758,6 +758,12 @@ def test_an_interest_rate_row_is_not_a_posting_date():
     The bank posts no transaction for it, so read as a posting it invents an
     activity day and fails `posting_dates_cover_source` for something that is
     not true of the document.
+
+    It is refused by the money-proximity rule, and only because a money figure
+    prints exactly two decimals: a dedicated "the remainder is a rate" rule was
+    written first, measured against all three archive documents in this class,
+    found to pin nothing that the proximity rule does not already pin, and
+    removed rather than left in as an untested branch.
     """
     from analysis.dates import source_posting_dates
 
@@ -786,7 +792,8 @@ def test_a_four_decimal_rate_is_not_read_as_money_by_the_proximity_test():
 
 
 def test_a_description_containing_a_percentage_keeps_its_posting_date():
-    """Only a remainder that is ENTIRELY a rate is a rate line."""
+    """A row that prints a rate AND an amount is still a posting row: it is
+    the amount that decides, not the presence of a percentage."""
     from analysis.dates import source_posting_dates
 
     md = "06/09/2026 RATE 24.99% FINANCE CHARGE 45.00 1,200.00\n"

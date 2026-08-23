@@ -2305,7 +2305,7 @@ def test_parse_regions_native_text_sections():
     md = """
 Thank you for banking with Regions!
 Regions Bank Homer Georgia
-ACCOUNT # 0367816126
+ACCOUNT # 9900001234
 ADVANTAGE BUSINESS CHECKING
 May 1, 2026 through May 29, 2026
 SUMMARY
@@ -2330,7 +2330,7 @@ DAILY BALANCE SUMMARY
 """
     stmt = parse_regions_statement(md)
     assert stmt is not None
-    assert stmt.account_number == "0367816126"
+    assert stmt.account_number == "9900001234"
     assert stmt.account_name == "ADVANTAGE BUSINESS CHECKING"
     assert stmt.beginning_balance == 100.0
     assert stmt.ending_balance == 250.0
@@ -2351,7 +2351,7 @@ def _regions_with_page_break(footer: str) -> str:
     return f"""
 Thank you for banking with Regions!
 Regions Bank Homer Georgia
-ACCOUNT # 0367816126
+ACCOUNT # 9900001234
 ADVANTAGE BUSINESS CHECKING
 May 1, 2026 through May 29, 2026
 SUMMARY
