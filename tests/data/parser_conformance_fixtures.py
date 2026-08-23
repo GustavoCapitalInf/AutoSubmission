@@ -158,9 +158,9 @@ FIXTURES: dict[str, str] = {
     # over a product line whose counts LEAD their labels and whose closing
     # figure is `Balance this Statement`. Every figure invented.
     "core_processor_activity_summary": (
-        "Statement of Account Statement Dates:  1/01/26 thru 1/31/26\n"
+        "Statement of Account Statement Dates:  8/01/26 thru 8/31/26\n"
         "Activity Summary\n"
-        "Account Number 1234567 Days in Cycle 31 "
+        "Account Number 8802417 Days in Cycle 31 "
         "Average Ledger Balance $0.00 Avg Collected Balance $0.00\n"
         "Sample Free Business Checking Beginning Balance $0.00 "
         "0 Deposits/Credits $0.00 0 Checks/Debits $0.00 "
@@ -184,10 +184,10 @@ FIXTURES: dict[str, str] = {
     # to `fiserv_premier`'s registration and the cross-product proves it.
     "core_processor_signed_counts": (
         "Statement of Account SAMPLE BUSINESS CHECKING Account Title: Sample Holder\n"
-        "Beginning Balance 1/01/26 $ 0.00\n"
+        "Beginning Balance 7/02/26 $ 0.00\n"
         "Summary\n"
         "Credits (0) +$0.00 Interest Paid +$0.00 Debits (0) -$0.00\n"
-        "Ending Balance 1/31/26 $ 0.00\n"
+        "Ending Balance 7/31/26 $ 0.00\n"
     ),
     "dakota_west": "dakotawestcu.com\nThank you for being a member of Dakota West Credit Union.\n",
     "demo_national": "SAMPLE BUSINESS BANK STATEMENT\nBank: Demo National Bank\n",
