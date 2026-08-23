@@ -43704,3 +43704,359 @@ containers, every one of the 22 changed paths ends in `.account_name`.
 
 `payload_now_raises` is **0**: no document that published under the run of
 record stopped publishing at HEAD.
+
+# §WITHHELDGRIDS — the unread daily grids were four one-line defects, not a doctrine question
+
+Branch `wave8-withheldgrids`, base `10cc722`. Batch 8, card 9. The card's
+population is 22 of the withheld-61: `community_section` x7, `regions` x3
+digital, `pnc` x4, `navy_federal` x4, `zions` x2, `wells_fargo` x2 — plus the
+platform half, POSTDATE-HEURISTIC. $0.00 vendor; archive, artifact cache and
+discovery reports read-only by direct file path; no hosted model anywhere.
+
+## WG0. Summary
+
+| | |
+|---|---|
+| Withheld -> validated | **17 of 22**, each named by content_sha256 below |
+| Still withheld, honestly | 5 — `pnc` x4 (geometry, carded) and `wells_fargo` `A4E41C80` (a ratified fail-closed pin refuses the lift; see WG6) |
+| What the card predicted | "read the printed daily grid" for 14 documents. Measured: only ONE of the four defects is a grid reader. The other three are a region anchored in a disclosure paragraph, a page sign-off welded onto a row, and a compatibility branch that shifted a ledger by one row |
+| Doctrine change | **none**. `analysis/adb.py` is untouched; no check was relaxed, promoted or removed; the required-check set is byte-identical |
+| Pinned documents | 20 in the six families (navy_federal 4, pnc 5, regions 4, wells_fargo 4, first_community 1, mission_valley 1, dakota_west 1) — all byte-identical |
+
+## WG1. The cell reproduced independently, before any code changed
+
+All 22 documents were re-analysed from cached OCR text by direct artifact path
+(`analyze_markdown(..., parse_mode="deterministic")`), read-only, no sqlite
+index, no hosted model. **All 22 reproduce as withheld, and every one
+reproduces the cause the census recorded** — zero divergence.
+
+| cause (the required check that failed) | documents |
+|---|---|
+| `running_balances_support_daily_ledger` | community_section x4 |
+| `posting_dates_cover_source` | community_section x3 · navy_federal x4 · zions x2 · wells_fargo x1 |
+| `ledger_reconciles_to_closing` + `final_balance_matches_statement_closing` | regions x3 · pnc x4 |
+| `opening_balance_matches_statement` + `running_balances_support_daily_ledger` | wells_fargo `A4E41C80` |
+
+## WG2. What the card predicted, and what the documents actually said
+
+The card is built on the census headline: *42 of 61 documents PRINT
+end-of-day balance evidence the reader is not consuming*, and for this cell's
+14 grid documents the prescription was "read the printed grid". Read literally
+that is a doctrine-sized change, because a printed grid does not by itself
+satisfy `ledger_reconciles_to_closing` — that check is arithmetic on the
+TRANSACTIONS, and no amount of grid reading moves it. Had the grid been the
+answer for regions and pnc, this card would have had to relax a required check
+in `analysis/adb.py`, which is the financial core, and it would have collided
+with WITHHELD-TD, which has the identical shape.
+
+It was not the answer. Characterising each family first turned three of the
+four defects into something much smaller, and left `analysis/adb.py`
+untouched:
+
+| family | what the census said | what the measurement said |
+|---|---|---|
+| `community_section` x4 | `Ending Daily Balances` grid unread; breaks on check-listing rows | the grid IS read, and stamped onto each day's last row. It reads balances with an UNSIGNED pattern, and this platform prints an overdrawn day `-$1,234.56` — the minus sits between the date and the `$`, so the pair does not match and the DAY is dropped. 1-4 days missing per document; those days' stamped balances then disagreed with the reconstruction |
+| `regions` x3 | `DAILY BALANCE SUMMARY` grid unread | the grid is irrelevant. Exactly ONE withdrawal row per document is deleted, always the last row of a page, because the issuer's printed sign-off is flattened onto it and the row pattern is anchored on the line ENDING in its amount. Debit capture 99.1-99.9%; one row short of the printed `Total Withdrawals` |
+| `navy_federal` x4 | 2 boundary-row false positives, 2 folded card dates | 2 boundary-row false positives (heuristic), and the other 2 are not "a card date taken instead of the posting date" — the compatibility path takes a credit's date AND description from the row BELOW it whenever the balance rose, which shifts the ledger by one row |
+| `pnc` x4 | grid unread, "geometry" | confirmed geometry, and worse than the grid: the Activity Detail itself is 0-24% captured. Out of reach of this card |
+
+## WG3. POSTDATE-HEURISTIC — the platform half
+
+`source_posting_dates` exists to prove a parser did not fold several printed
+posting days into one. It is a heuristic over text whose columns the
+flattening has destroyed, and its own docstring says it is tuned to be quiet.
+It was not quiet enough in five structural places. Four rules landed; a fifth
+was written, measured, and removed.
+
+Every rule can only REMOVE a date from the source set. `posting_dates_cover_source`
+is `source_dates - parsed_dates`, so each can take a document from failing to
+passing and none can take one from passing to failing.
+
+| # | rule | the class it refuses | documents |
+|---|---|---|---|
+| 1 | a money figure prints exactly two decimals, and the decimal mark may be a comma | `<date> 0.0000%` read as the amount `0.00`; and the whole scan going blind on French statements | 3 + (see WG3.1) |
+| 2 | a moneyless candidate inside the moneyless run a page number opens is the masthead | the statement date + holder + account line reprinted at the top of every page | 1 |
+| 3 | in the column-per-line layout the row's description is the NEXT line, so the not-a-posting labels are read there | `Beginning Balance` / `Ending Balance` printed under their own date | 3 |
+| 4 | money proximity is required of every moneyless candidate, and the lookahead stops at a column caption | a marketing sentence opening with a date; and money that belongs to the table a caption announces | 2 |
+| — | REMOVED: a remainder that is entirely a percentage is a rate line | nothing rule 1 does not already refuse | 0 |
+
+### WG3.1 The comma decimal is not a nicety
+
+The first version of rule 4 was written with the existing US-only money
+pattern. Measured against the pinned 109 it removed all 16 source dates from
+the pinned `cibc_french` statement and one from the pinned `rbc` one: those
+documents print `1 234,56`, the pattern cannot see it, so "require money
+nearby" became "there is no money anywhere" and the check silently switched
+itself off on exactly the layouts whose columns are hardest to read. The check
+still PASSED on both — it can only get quieter — which is precisely why this
+would not have been caught by an outcome comparison. Widening the
+money-PRESENCE test to the comma decimal is what makes rule 4 safe to apply
+uniformly.
+
+## WG4. The three reader defects
+
+**`community_section._daily_balances` — the sign.** One token. The module's
+own header comment already states the platform's rule: *"A balance is the only
+figure this platform prints with a sign"*. The grid reader was the one reader
+in the file not following it. It read `_MONEY` (unsigned) through `_money`
+(`STRICT_UNSIGNED`) where every other balance in the file reads `_SIGNED_MONEY`
+through `_balance` (`STRICT_LEADING_SIGN`).
+
+The failure mode is not a lost sign, which would be bad enough. `-$1,234.56`
+puts the minus between the date and the `$`, so `(<date>)\s+(<money>)` does not
+match at all and the day never enters the grid. Measured on the four cause-B
+documents: 2, 3, 4 and 3 negative days dropped. With the sign read, the grid
+covers every posting day, agrees with the walked ledger on every one of them,
+and its last entry is the printed closing balance:
+
+| sha16 | grid days | posting days | grid days missing a posting day | grid/ledger disagreements |
+|---|---|---|---|---|
+| `7F33CCF581D23CCC` | 20 | 20 | 0 | 0 |
+| `D0DE1BF0A19D53A2` | 23 | 23 | 0 | 0 |
+| `D47263FDFC86F6C3` | 21 | 21 | 0 | 0 |
+| `F2931E93870A04AB` | 22 | 21 | 0 | 0 |
+| `CD7E104D7474DD68` (pinned) | 20 | 20 | 0 | 0 |
+
+A grid header anchor and a region terminator were also written, on the theory
+that the region was starting inside the platform's daily-balance METHOD
+disclosure. It is — on five of the seven documents. It changes nothing: over
+all nine archive documents on this template the anchored region and the
+words-only region produce an IDENTICAL grid, because the grid is the last
+thing in the region either way. Both were removed rather than kept as
+unexercised code (WG5).
+
+**`regions._native_rows` — the page sign-off.** `_ROW_TRAILER_RE` already cut
+two printed trailers off a row (`Total`, `For all your banking needs`). The
+issuer's page sign-off is a third and was missing. Because
+`_parse_native_section`'s row pattern is anchored on the line ENDING in its
+amount, a welded footer does not misread the row — it deletes it. One
+withdrawal row per document on three of the seven live-detected Regions
+documents; the four pinned ones print no row in that position and do not move.
+The literal is the same spelling the detector already requires of every
+Regions statement, now named once as `ISSUER_FOOTER` and shared, so the two
+cannot drift.
+
+**`navy_federal._parse_transactions` — the shifted ledger.** The compatibility
+path (text-layer documents; the four PINNED documents all take the native
+`NFCU_TX|` marker path and never reach it) reassigned a credit's date and
+description from the row below whenever the balance rose. That branch exists
+for the arrangement in which a credit's date and description are printed AFTER
+its amount pair, where the row arrives with neither. Applied to a row that
+already has both, it does not relabel one row: this row is published on the
+next row's day under the next row's description, the next row inherits that
+same day with an empty description (`"Navy Federal transaction"`), and the day
+this row was printed on is never posted — which is exactly the printed posting
+date `posting_dates_cover_source` reported missing. Restricted to
+`txn_date is None or not description`.
+
+## WG5. What the mutation table changed about the code
+
+The table was run WITHOUT `-x` on a clean tree, every mutant applied as a
+literal substitution that must appear exactly once or the harness reports
+NOT APPLIED rather than passing. The first run had **four survivors**, and the
+survivors are the most useful thing this cell produced. Each was re-measured
+against the real documents before anything was decided:
+
+| survivor | re-measured | decision |
+|---|---|---|
+| the rate-only remainder rule | all 3 archive documents lift without it | REMOVED. The money-proximity rule already refuses `<date> 0.0000%`, because a money figure prints exactly two decimals |
+| the community_section grid header anchor | the grid is IDENTICAL on all 9 archive documents with and without it | REMOVED |
+| the community_section region terminator | likewise IDENTICAL on all 9 | REMOVED |
+| the page-header lookback | disabling it really does put `595137FD` back to withheld | KEPT — the mutant survived because the fixture also carried a column caption, so the caption-stop was killing it. The caption is out of the fixture and the mutant now dies on the rule it names |
+
+Three rules deleted, one fixture corrected. The distinction matters: a rule
+that survives its mutant is either untested or unnecessary, and only
+measurement against the documents says which.
+
+## WG6. `wells_fargo A4E41C80` — the lift is refused by a ratified pin, and would not have lifted anyway
+
+The card's second Wells document is cause F+B: the printed
+`Beginning balance on 6/1` is unread because the flattening puts the amount to
+the LEFT of the label, so the reader — which takes the cell printed after each
+label, bounded by the next label — finds nothing and the opening is inferred
+from the closing, which H1 correctly refuses.
+
+The reading was implemented (take the line's leading cell for the FIRST label
+when that label's own cell is absent, and only when the text before the label
+is a cell and nothing else) and then REVERTED, for two reasons, in this order:
+
+1. `tests/test_wells_variants.py::TestFailClosed::
+   test_a_summary_cell_printed_before_its_label_is_not_claimed_by_it` pins the
+   opposite behaviour, deliberately, with an invented fixture of exactly this
+   shape and the docstring *"A text layer that emits the value column ahead of
+   the label column determines nothing"*. That is a ratified fail-closed
+   ruling from the cell that wrote this reader (`07c21fb`), and reversing it
+   is not this card's to do.
+2. It does not lift the document. With the opening read, `A4E41C80` moves from
+   `opening_balance_matches_statement` + `running_balances_support_daily_ledger`
+   to `ledger_reconciles_to_closing` + `final_balance_matches_statement_closing`
+   + `running_balances_support_daily_ledger`: the 354-row ledger genuinely does
+   not close (debit capture 99.5%). It is withheld either way.
+
+**For Ocean:** the census's "plausible lift: yes" for this document is wrong on
+both counts. No ruling is needed unless the fail-closed pin is to be revisited,
+and revisiting it buys nothing here.
+
+## WG7. `pnc` x4 — confirmed out of reach, and why
+
+Not attempted, and the reason is measured rather than asserted. The census
+called the digital documents geometry; they are, and the grid is the smaller
+half of the problem:
+
+| sha16 | credit capture vs stated | debit capture vs stated |
+|---|---|---|
+| `BE703D525955253C` | 0.0% | 93.8% |
+| `5684857C24B79344` | 0.0% | 7.7% |
+| `4145E2C82C6B8329` | 23.6% | 47.4% |
+| `1F31588B36B2E4AF` (scanned) | 100.0% | 95.3% |
+
+`ledger_reconciles_to_closing` is arithmetic on the transactions, so no grid
+reading moves it; the Activity Detail has to be read first. And the
+`Daily Balance / Date Ledger balance` grid is genuinely shredded in the
+digital text — the dates arrive in runs on their own lines and the balances in
+separate runs on theirs, so pairing them from the flattened text is a guess,
+not a reading. **Carded: PNC-ACTIVITY-DETAIL (read the Activity Detail) must
+land before PNC-DAILY-GRID (pair the grid by geometry), and the second is a
+`DocumentGeometry` job, not a text job.**
+
+Two of the four (`5684857C`, `4145E2C8`) also carried
+`posting_dates_cover_source` failures sourced from the shredded grid's own
+bare dates: the daily-balance section detector opens on PNC's `Daily Balance`
+heading and is then closed by the `Page N of M` line at the next page break,
+after which the rest of the grid's dates read as postings. Those documents
+stay withheld on cause A regardless, so this is recorded rather than fixed —
+**carded: PNC-GRID-SECTION**.
+
+## WG8. The movers, named
+
+Every document below is named by `content_sha256` (16-hex prefix shown; the
+full digests are in the branch's proof logs). All 22 were withheld under the
+run of record `2026-08-23T020128.909387-0000-356a4269`.
+
+### Withheld -> validated (17)
+
+| sha16 | parser | cause it failed on | what fixed it |
+|---|---|---|---|
+| `7F33CCF581D23CCC` | community_section | B | grid sign |
+| `D0DE1BF0A19D53A2` | community_section | B | grid sign |
+| `D47263FDFC86F6C3` | community_section | B | grid sign |
+| `F2931E93870A04AB` | community_section | B | grid sign |
+| `31F347BE1494314F` | community_section | C | heuristic (rate line) |
+| `C6E5B0D3EA9F857B` | community_section | C | heuristic (rate line) |
+| `5F1CC8C0198DB4EB` | community_section | C | heuristic (rate line) |
+| `05B4557681329483` | regions | A | page sign-off |
+| `6439032B2446B5DF` | regions | A | page sign-off |
+| `EB2D2C7B04B6A7EA` | regions | A | page sign-off |
+| `36B502B81C5D4BCA` | navy_federal | C | heuristic (boundary row) |
+| `74F34B80B54E159B` | navy_federal | C | heuristic (boundary row) |
+| `60B0EE6AF00F874D` | navy_federal | C | heuristic + the shifted ledger |
+| `6F3DEB4D5CBA5A42` | navy_federal | C | the shifted ledger |
+| `1019F3C638AB1C81` | zions | C | heuristic (dot-leader grid) |
+| `595137FD1861DCCD` | zions | C | heuristic (page header) |
+| `4BE21534DC540342` | wells_fargo | C | heuristic (marketing sentence) |
+
+Note `36B502B81C5D4BCA` and `74F34B80B54E159B`: the heuristic fix alone would
+have published these two, and it would have published the WRONG figure — the
+navy_federal date shift was still moving balances between days underneath.
+Both fixes were needed for the number to be right, not just for the check to
+pass, and their ADB changed again when the second landed. That is the reason a
+coverage lift is not finished when the gate goes green.
+
+### Still withheld (5), honestly
+
+| sha16 | parser | why |
+|---|---|---|
+| `BE703D525955253C` | pnc | Activity Detail 0% of stated credits (WG7) |
+| `5684857C24B79344` | pnc | Activity Detail 0% / 7.7% (WG7) |
+| `4145E2C82C6B8329` | pnc | Activity Detail 23.6% / 47.4% (WG7) |
+| `1F31588B36B2E4AF` | pnc | scanned; 95.3% of stated debits (WG7) |
+| `A4E41C80E7362D58` | wells_fargo | ratified fail-closed pin, and the ledger does not close either way (WG6) |
+
+## WG9. What did NOT change, deliberately
+
+* **`analysis/adb.py` is untouched.** No check added, removed, relaxed or
+  promoted; the `required` list is byte-identical. The ADB doctrine's
+  calendar-day basis, its one user-facing figure, and its bank-averages-are-
+  evidence-only rule are all unaffected. Every one of the 17 movers publishes
+  because its own ledger became correct, not because a gate was lowered.
+* **No currency line was touched** in any of the six modules.
+* **No new registration**, so no stratified non-target probe is owed; the
+  registry stays at 75 and the conformance pins are unchanged.
+* **`analysis/wells.py` is unchanged** (WG6).
+* **The daily-balance grid is still not published as `stated_daily_balances`**
+  by `community_section`. It is stamped as each day's last row's
+  `running_balance`, exactly as before. Publishing it as bank evidence would
+  change the pinned documents' payloads (`stated_daily_balance_count`, and the
+  `source` of every `DailyBalance`), which is a ceremony, and it buys nothing:
+  the four documents lift without it.
+* **`_apply_daily_balances`, `_account_block`, `_sections` and the summary
+  readers in `community_section.py` are unchanged** — HYGIENE-8 owns the
+  sibling-omission site in that file and there is no overlap with this hunk.
+
+
+## WG10. Proof floor
+
+Exit codes verbatim; every log kept in the cell's private scratchpad.
+
+| proof | result |
+|---|---|
+| full default suite | **5,875 passed**, 35 skipped, 34 deselected (base 5,857; +18) — exit 0 |
+| corpus-marked slice | PENDING |
+| `python corpus_gate.py` | PENDING |
+| CANONICAL guard set | PENDING |
+| CANONICAL conformance set | PENDING |
+| mutation table | PENDING |
+| full-archive differential | PENDING |
+
+### The archive differential
+
+`tools.regfp_zero_movement_sweep` at branch HEAD, against the run of record's
+`rows.csv` and its settings key `24675EF0…F541B5CAC`, in four chunks whose
+counts add. The instrument reports field NAMES only; where this card moves a
+field on purpose, the leaf-level evidence is in WG8 and WG4.
+
+PENDING
+
+### Privacy
+
+Standing rule (batch-7 BLOCK): no archive content in tracked source. The scan
+harvested every printed money figure, account/reference number, date token and
+capitalised multi-word name from this cell's 42 documents — the 22 named
+above plus the 20 pinned documents in the six families — **12,510 distinct
+literals**, and grepped the whole branch diff (594 added lines) for each.
+
+* raw hits: 110, of which 101 are one- or two-token coincidences of invented
+  round figures and dates (`$0.00`, `01/02`, `0000`) that any archive contains;
+* distinctive hits (a 6+ digit run, or a multi-word capitalised name): **9**;
+* of those, 8 are invented fixture values (`$1,000.00`, `$1,100.00`,
+  `01/01/2026`, and substrings of the invented account `7000000001`);
+* **1 was real** and is fixed: see WG11 item 6.
+
+**Final count of real archive literals in the branch diff: 0.**
+
+## WG11. Risks and carried findings
+
+1. **The money-presence test is now wider** (`\d[\d, ]*[.,]\d{2}(?!\d)`). It
+   can match inside a reference number that happens to carry a comma and two
+   digits. Direction of effect is unchanged — a FALSE money reading can only
+   keep a date the old code also kept, never remove one — so the worst case is
+   the check staying as quiet as it is today. The archive differential is the
+   measurement.
+2. **The page-header lookback is a position rule, not a wording rule**, and it
+   is bounded to three moneyless lines. A genuine posting row printed in a
+   moneyless run directly under a page number, with its amount more than three
+   non-empty lines away, would lose its source date. No archive document does
+   this (the differential is the evidence), and losing a source date cannot
+   produce a false validation.
+3. **`posting_dates_cover_source` got quieter on 3 pinned documents' source
+   sets** and on the named movers. On the pinned three the check outcome does
+   not move (PASS before, PASS after); the pinned surface is byte-identical.
+4. **`A4E41C80`'s underlying defect is unfixed** and now better described:
+   its ledger does not close. Not a doctrine question (WG6).
+5. **PNC-ACTIVITY-DETAIL / PNC-DAILY-GRID / PNC-GRID-SECTION** carded (WG7).
+6. **A real account number was in tracked source on main** since the Regions
+   fixture was written (`tests/test_analysis.py`, two occurrences, printed on
+   two pinned Regions statements). Replaced with an invented number in this
+   branch. Ocean should decide whether a wider sweep of existing fixtures
+   against the archive is owed — this cell's scan only covered its own 42
+   documents, and it found one hit in the first file it looked at.

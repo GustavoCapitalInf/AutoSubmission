@@ -333,6 +333,18 @@ def source_posting_dates(markdown: str, period_start: date, period_end: date) ->
     date line sitting immediately above an unrelated posting row can still be
     counted, since the money-proximity test cannot tell the two apart.
 
+    THE QUIETING IS ONE-DIRECTIONAL, and that is what makes each rule below
+    safe to add. `posting_dates_cover_source` is `source_dates - parsed_dates`,
+    so removing a date can only take a document from failing to passing, never
+    the reverse: the cost of being wrong is a check that is quieter than it
+    should be, never a false validation. Widening the corpus beyond the 101
+    found five printed shapes that open with a date and are not posting rows —
+    an interest-rate line, a page-header masthead, a Beginning/Ending Balance
+    row whose label is printed on the NEXT line, a marketing sentence, and a
+    second account's dot-leadered daily-balance grid. Each is refused by
+    structure below, and each refusal is pinned together with the thing it must
+    not touch (W3 §WITHHELDGRIDS).
+
     Layout-aware native extractors can provide a scoped
     `SOURCE_POSTING_DATES_BEGIN` block. That authoritative source list takes
     precedence over the fallback heuristic, avoiding dates from other accounts
