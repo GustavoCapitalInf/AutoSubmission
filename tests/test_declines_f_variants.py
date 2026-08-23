@@ -411,11 +411,31 @@ def test_a_month_with_no_activity_publishes_the_balances_the_bank_printed():
 def test_a_month_with_no_activity_still_needs_its_control_row():
     """Drop the control row and the block is three cells with no record.
 
-    The provenance rule refuses it first — the day count above the heading now
-    has no control row for company — and the shape test would refuse it anyway.
-    Both readings are the same answer: there is no record here.
+    On THIS printing two rules agree: the provenance rule refuses it (the day
+    count above the heading has lost the control row it needed for company) and
+    the shape test would refuse it anyway. The test below is the one that
+    isolates the shape test, and it exists because the mutation table caught
+    this one no longer doing the job its name claims.
     """
     text = dormant().replace("+ 0 0 0.00 0 0.00 0 0.00 0.00\n", "")
+    assert _summary(text) is None
+    assert parse_first_citizens_statement(text) is None
+
+
+def test_declines_a_block_that_prints_no_control_row_at_all():
+    """No control row anywhere, and nothing above the heading to refuse first.
+
+    Three unsigned cells, one day count and one signed cell all print BELOW the
+    heading, so the provenance rule never fires and the backward run is empty.
+    The only thing standing between this block and a published record is the
+    control-row requirement itself — and there is no record without one: the
+    counts and per-section totals the parse is gated on live on that row.
+    """
+    above, below = LAYOUTS["shipped"]
+    stripped = [line for line in below if line != CONTROL]
+    text = "\n".join(_grid(list(above), stripped) + BODY) + "\n"
+    anchor = _SUMMARY_ANCHOR_RE.search(text)
+    assert _summary_block(text, anchor)[0] == []
     assert _summary(text) is None
     assert parse_first_citizens_statement(text) is None
 
