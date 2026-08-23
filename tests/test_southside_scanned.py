@@ -235,6 +235,79 @@ def test_the_summary_reader_in_isolation():
 
 
 # ---------------------------------------------------------------------------
+# SS-UNIQUE-MATCH — one distinct reading per printed row (W3 §SCANHYG)
+# ---------------------------------------------------------------------------
+
+
+def test_a_required_summary_row_printed_twice_with_two_values_refuses():
+    """There is no rule that says which printing to believe, and taking the
+    first is picking one. A two-account printing under one heading is exactly
+    what produces this shape."""
+    contradicted = whole().replace(
+        "Previous Balance 1,000.00 Days in Statement Period 30\n",
+        "Previous Balance 1,000.00 Days in Statement Period 30\n"
+        "Previous Balance 9,000.00\n",
+    )
+    assert parse_southside_scanned_statement(contradicted) is None
+
+
+def test_a_required_summary_row_printed_twice_and_AGREEING_still_reads():
+    """A page header repeating itself is corroboration, not contradiction: the
+    test is on the captured values, never on the number of printings."""
+    repeated = whole().replace(
+        "Previous Balance 1,000.00 Days in Statement Period 30\n",
+        "Previous Balance 1,000.00 Days in Statement Period 30\n"
+        "Previous Balance 1,000.00 Days in Statement Period 30\n",
+    )
+    stmt = parse_southside_scanned_statement(repeated)
+    assert stmt is not None
+    assert stmt.beginning_balance == 1000.00
+    assert stmt.days_in_period == 30
+
+
+def test_an_optional_summary_row_printed_twice_with_two_values_is_unknown():
+    """The optional rows are not in the grid's identity, so a contradiction
+    there costs that row and not the document — the same answer this reader
+    already gives a count whose digit did not survive."""
+    contradicted = whole().replace(
+        "Interest Paid 0.00\n", "Interest Paid 0.00\nInterest Paid 4.19\n"
+    )
+    stmt = parse_southside_scanned_statement(contradicted)
+    assert stmt is not None
+    assert stmt.stated_interest_paid is None
+    assert stmt.beginning_balance == 1000.00
+
+
+def test_the_two_counted_rows_refuse_a_contradicting_second_printing():
+    contradicted = whole().replace(
+        "3 Checks/Debits 500.00\n", "3 Checks/Debits 500.00\n7 Checks/Debits 900.00\n"
+    )
+    assert parse_southside_scanned_statement(contradicted) is None
+
+
+def test_a_figure_on_the_line_below_a_label_does_not_answer_it():
+    """`\\s` matches a newline; a row of this grid is printed on one line. With
+    the vertical class the margin echo below would be read as a SECOND
+    `Previous Balance` and would refuse a document that is perfectly good."""
+    echoed = document(extra="Previous Balance\n2,750.00 rotated margin ink\n")
+    stmt = parse_southside_scanned_statement(echoed)
+    assert stmt is not None
+    assert stmt.beginning_balance == 1000.00
+
+
+def test_a_count_digit_the_scan_made_a_superscript_is_unknown_not_a_crash():
+    """`str.isdigit()` is True for U+00B2 and `int()` rejects it, so the
+    reader that used it raised `ValueError` out of the parser on a scan that
+    resolved this cell as a superscript. `isdecimal()` is exactly `int()`'s
+    domain, so the cell is simply illegible and the count is unknown."""
+    superscript = whole().replace("3 Checks/Debits 500.00", "² Checks/Debits 500.00")
+    stmt = parse_southside_scanned_statement(superscript)
+    assert stmt is not None
+    assert stmt.stated_debit_count is None
+    assert stmt.stated_total_debits == 500.00
+
+
+# ---------------------------------------------------------------------------
 # SF3 - a money cell whose decimal point the scan resolved as a comma
 # ---------------------------------------------------------------------------
 

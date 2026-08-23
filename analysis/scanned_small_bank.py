@@ -6,7 +6,7 @@ from datetime import date
 from .money import parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
-from .tables import compact_whitespace
+from .tables import compact_whitespace, unique_match
 from .td_can import normalize_mojibake
 
 
@@ -437,6 +437,65 @@ def _southside_money(token: str) -> float | None:
     return parse_money(re.sub(r",(\d{2})$", r".\1", token.strip()))
 
 
+#: HORIZONTAL whitespace only. Every row of this grid is printed on one line,
+#: and `\s` matches a newline: a pattern built with it would let a figure from
+#: the line below answer a label on the line above. The reader this replaces
+#: searched each line separately and so could not do that; these patterns run
+#: over the whole page through `unique_match`, and this class is what keeps the
+#: guarantee.
+_SS_H = r"[^\S\n]"
+
+#: The labelled rows of the `ACCOUNT SUMMARY` grid, each as ONE pattern over
+#: the whole page.
+#:
+#: `unique_match` (the shared helper, `analysis/tables.py`) is what reads them,
+#: and the discipline is its docstring's: a row this grid prints TWICE with two
+#: different values is the document contradicting itself about its own summary,
+#: and there is no rule that says which printing to believe — taking the first
+#: would be picking one. A repeat that AGREES is a page header doing its job
+#: and is free corroboration.
+#:
+#: This reader used to take the first printing (`found.setdefault`).
+#: `texas_first`, in this same module and the same wave lineage, already
+#: refused the contradiction, and the two-account printing under one heading is
+#: exactly what would produce one. Measured before the change over all nine
+#: archive statements this issuer prints: NO label is printed with more than
+#: one distinct value on any of them, so adopting the shared discipline moves
+#: no document (W3 §SCANHYG).
+_SS_PERIOD_RE = re.compile(
+    rf"Statement Dates{_SS_H}+(\d{{1,2}}/\d{{1,2}}/\d{{2,4}}){_SS_H}+thru"
+    rf"{_SS_H}+(\d{{1,2}}/\d{{1,2}}/\d{{2,4}})",
+    re.IGNORECASE | re.MULTILINE,
+)
+_SS_DAYS_RE = re.compile(
+    rf"Days in Statement Period{_SS_H}+(\d+)", re.IGNORECASE | re.MULTILINE
+)
+#: The two count/total rows. The count is the cell printed immediately BEFORE
+#: the label and the total is the last cell on the line, which is why this one
+#: is anchored at the line end.
+_SS_COUNTED_ROWS = (
+    ("credit", re.compile(
+        rf"(\S+)?{_SS_H}*Deposits{_SS_H}*/{_SS_H}*Credits{_SS_H}+({_SS_MONEY}){_SS_H}*$",
+        re.IGNORECASE | re.MULTILINE)),
+    ("debit", re.compile(
+        rf"(\S+)?{_SS_H}*Checks{_SS_H}*/{_SS_H}*Debits{_SS_H}+({_SS_MONEY}){_SS_H}*$",
+        re.IGNORECASE | re.MULTILINE)),
+)
+#: The four single-figure rows. The first two are required by the grid's own
+#: identity; the last two are optional and publish as unknown when the scan
+#: took them, exactly as a count does.
+_SS_FIGURE_ROWS = (
+    ("previous", re.compile(rf"Previous Balance{_SS_H}+({_SS_MONEY})",
+                            re.IGNORECASE | re.MULTILINE)),
+    ("ending", re.compile(rf"Ending Balance{_SS_H}+({_SS_MONEY})",
+                          re.IGNORECASE | re.MULTILINE)),
+    ("service", re.compile(rf"Total Service Charge{_SS_H}+({_SS_MONEY})",
+                           re.IGNORECASE | re.MULTILINE)),
+    ("interest", re.compile(rf"Interest Paid{_SS_H}+({_SS_MONEY})",
+                            re.IGNORECASE | re.MULTILINE)),
+)
+
+
 def _southside_summary(text: str) -> dict[str, object] | None:
     """The `ACCOUNT SUMMARY` grid, read as the LABELLED GRID it is printed as.
 
@@ -462,37 +521,41 @@ def _southside_summary(text: str) -> dict[str, object] | None:
 
     The grid is accepted only if its own arithmetic closes:
     `previous + credits - debits == ending`, to the cent. It closes on all nine.
+
+    EACH ROW IS READ ONCE, OVER THE WHOLE PAGE, THROUGH `unique_match`. A label
+    the grid prints twice with two different values refuses the row rather than
+    resolving it by order of appearance: see `_SS_PERIOD_RE` above for why, and
+    `analysis/tables.py::unique_match` for the discipline this shares with the
+    two core-processor templates and `texas_first`. A required row that refuses
+    refuses the document; an optional one publishes as unknown, which is what
+    this reader already does with a count whose digit did not survive.
     """
     found: dict[str, object] = {}
-    for line in text.splitlines():
-        row = line.strip()
-        m = re.search(
-            r"Statement Dates\s+(\d{1,2}/\d{1,2}/\d{2,4})\s+thru\s+(\d{1,2}/\d{1,2}/\d{2,4})",
-            row, re.IGNORECASE)
-        if m:
-            found.setdefault("start", m.group(1))
-            found.setdefault("end", m.group(2))
-        m = re.search(r"Days in Statement Period\s+(\d+)", row, re.IGNORECASE)
-        if m:
-            found.setdefault("days", int(m.group(1)))
-        for key, label in (
-            ("credit", r"Deposits\s*/\s*Credits"),
-            ("debit", r"Checks\s*/\s*Debits"),
-        ):
-            m = re.search(r"(\S+)?\s*" + label + r"\s+(" + _SS_MONEY + r")\s*$", row, re.IGNORECASE)
-            if m and key + "_total" not in found:
-                count = m.group(1)
-                found[key + "_count"] = int(count) if count and count.isdigit() else None
-                found[key + "_total"] = _southside_money(m.group(2))
-        for key, label in (
-            ("previous", r"Previous Balance"),
-            ("ending", r"Ending Balance"),
-            ("service", r"Total Service Charge"),
-            ("interest", r"Interest Paid"),
-        ):
-            m = re.search(label + r"\s+(" + _SS_MONEY + r")", row, re.IGNORECASE)
-            if m:
-                found.setdefault(key, _southside_money(m.group(1)))
+    period = unique_match(text, _SS_PERIOD_RE)
+    if period is not None:
+        found["start"], found["end"] = period.group(1), period.group(2)
+    days = unique_match(text, _SS_DAYS_RE)
+    if days is not None:
+        found["days"] = int(days.group(1))
+    for key, pattern in _SS_COUNTED_ROWS:
+        row = unique_match(text, pattern)
+        if row is None:
+            continue
+        count = row.group(1)
+        # `isdecimal`, NOT `isdigit`. `str.isdigit()` is True for the
+        # superscripts U+00B9 U+00B2 U+00B3 and `int()` rejects them, so a
+        # scan that resolved this grid's count digit as a superscript raised
+        # `ValueError` out of this parser instead of publishing the count as
+        # unknown — the crash class `tests/test_parser_crash_shapes.py` exists
+        # for, and one this reader is not entitled to when it already handles
+        # a count whose digit became a LETTER. `isdecimal()` is exactly the set
+        # `int()` accepts, so the conversion below is total.
+        found[key + "_count"] = int(count) if count and count.isdecimal() else None
+        found[key + "_total"] = _southside_money(row.group(2))
+    for key, pattern in _SS_FIGURE_ROWS:
+        figure = unique_match(text, pattern)
+        if figure is not None:
+            found[key] = _southside_money(figure.group(1))
     required_keys = ("start", "end", "days", "previous", "ending", "credit_total", "debit_total")
     if any(found.get(key) is None for key in required_keys):
         return None
