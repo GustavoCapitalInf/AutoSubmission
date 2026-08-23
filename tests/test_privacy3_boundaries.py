@@ -1090,99 +1090,15 @@ def test_the_non_terminal_vocabulary_matches_the_stores_own():
 
 
 # ---------------------------------------------------------------------------
-# 7b. MAJOR-1 — the QUEUE is not the JOB, and this cell only closed the job
+# 7b. MAJOR-1 - the QUEUE is not the JOB. CLOSED by #HYGIENE8
+# (QUEUE-SUPERVISOR): `webapp/app.py:_process_job_queue` now releases the
+# worker slot and re-arms a replacement before it re-raises, so the two
+# KNOWN_LIMITATION tests that pinned the stranding here are gone. Their
+# successors live in `tests/test_queue_supervisor.py`, which asserts the
+# behaviour this section used to assert the absence of; P8.1's three-way
+# measurement stands as the record of why the fix belongs on the supervisor
+# rather than on `run_job`'s arm.
 # ---------------------------------------------------------------------------
-
-def test_the_queue_supervisor_strands_after_a_reraise_KNOWN_LIMITATION(
-    monkeypatch, tmp_path
-):
-    """A DEFECT THIS CELL DELIBERATELY DID NOT FIX, pinned so nobody rediscovers
-    it and nobody mistakes m-7 for having closed it (adversarial review
-    MAJOR-1).
-
-    `webapp/app.py:_process_job_queue` calls `run_job` with no handler, and the
-    only place that resets `_job_worker_active` is the loop's own `return`. So
-    when `run_job` unwinds - which is exactly what this cell's `BaseException`
-    arm now (correctly) makes it do - the thread dies with the flag still
-    `True`, `_enqueue_job` never starts another worker, and every later upload
-    sits at `queued` with `error=None` forever.
-
-    IT IS NOT A REGRESSION, and that is a measurement rather than a defence.
-    Three-way, on this tree and on the base tree:
-
-        BASE   (no BaseException arm)  job1 processing/error=None ·
-                                       job2 queued · flag True · depth 1
-        BRANCH (m-7 arm, re-raises)    job1 ERROR/named reason ·
-                                       job2 queued · flag True · depth 1
-        BRANCH (arm swallowing)        job1 error · job2 error ·
-                                       flag False · depth 0
-
-    The queue half is byte-identical before and after; what m-7 changed is
-    job1, which is precisely what m-7 named ("leaves the job stuck at
-    `processing` with `error=None`"). The third row is what a fix looks like
-    and is NOT taken here: swallowing a `SystemExit` would defeat a shutdown,
-    so the supervisor is what needs the `try/finally`, and that is a change to
-    thread-lifecycle behaviour in a file this card owns only an exception
-    boundary in. Carded as **QUEUE-SUPERVISOR** for batch 8.
-
-    This test asserts the CURRENT behaviour. When QUEUE-SUPERVISOR lands it
-    will fail, and that is the point: the fix has to come here and delete it.
-    """
-    from collections import deque
-
-    from webapp import app as webapp_module
-
-    store = JobStore(Storage(tmp_path / "queue"))
-    first = store.create("one.pdf")
-    second = store.create("two.pdf")
-
-    def raising_run_job(job_id, pdf_bytes, filename, target, force_ocr=False,
-                        parse_mode="auto"):
-        target.set_status(job_id, "processing")
-        # what this cell's BaseException arm does, then re-raises
-        target.set_error(job_id, _STUCK_JOB_FAILURE)
-        raise KeyboardInterrupt("interrupted in the worker thread")
-
-    monkeypatch.setattr(webapp_module, "store", store)
-    monkeypatch.setattr(webapp_module, "run_job", raising_run_job)
-    monkeypatch.setattr(webapp_module, "_job_worker_active", True)
-    monkeypatch.setattr(webapp_module, "_job_queue", deque([
-        (first.id, b"%PDF-1", "one.pdf", False, "auto"),
-        (second.id, b"%PDF-2", "two.pdf", False, "auto"),
-    ]))
-
-    with pytest.raises(KeyboardInterrupt):
-        webapp_module._process_job_queue()
-
-    # The job boundary DID hold - that is this cell's half, and it works.
-    assert store.get(first.id).status == "error"
-    assert store.get(first.id).error == _STUCK_JOB_FAILURE
-
-    # The queue supervisor did not - that is QUEUE-SUPERVISOR's half.
-    assert webapp_module._job_worker_active is True, (
-        "QUEUE-SUPERVISOR landed: _job_worker_active is reset now, so delete "
-        "this test and its W3 P8.1 paragraph"
-    )
-    assert len(webapp_module._job_queue) == 1, (
-        "QUEUE-SUPERVISOR landed: the queue drains now"
-    )
-    assert store.get(second.id).status == "queued"
-    assert store.get(second.id).error is None
-
-
-def test_the_queue_supervisor_has_no_handler_around_run_job():
-    """The structural half of the same finding, so it cannot be fixed by
-    accident and left undocumented: the call is bare."""
-    tree = ast.parse((PROJECT_ROOT / "webapp" / "app.py").read_text(encoding="utf-8"))
-    supervisor = next(
-        node for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "_process_job_queue"
-    )
-    guarded = any(isinstance(node, (ast.Try,)) for node in ast.walk(supervisor))
-    assert not guarded, (
-        "_process_job_queue grew a try/finally - QUEUE-SUPERVISOR has landed; "
-        "update W3 P8.1 and delete the KNOWN_LIMITATION test above"
-    )
 
 
 # ---------------------------------------------------------------------------

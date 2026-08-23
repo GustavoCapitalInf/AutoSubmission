@@ -55,6 +55,57 @@ _job_queue_lock = threading.Lock()
 _job_worker_active = False
 
 
+#: The exception classes that mean "the process is going away", and the one
+#: reason a dead worker is NOT replaced. `run_job`'s own `BaseException` arm
+#: re-raises rather than swallowing, precisely so a `SystemExit` still ends a
+#: shutdown and a `KeyboardInterrupt` still ends a Ctrl-C (#PRIVACY3 P8.1);
+#: starting a fresh worker thread on the way out would undo that by beginning
+#: new OCR work on a process that has been told to stop. The queue slot is
+#: still released either way — a process that survives the signal must be able
+#: to accept the next upload.
+_SHUTDOWN_SIGNALS = (SystemExit, KeyboardInterrupt)
+
+
+def _release_worker_slot(shutting_down: bool) -> bool:
+    """Hand the one worker slot back after a worker thread dies mid-job.
+
+    #HYGIENE8 QUEUE-SUPERVISOR, closing the defect §PRIVACY3 P8.1 measured and
+    carried. `_job_worker_active` is a claim on the single worker slot, and
+    until this function existed the ONLY place that released it was the loop's
+    own `return`. So when `run_job` unwound — which is exactly what its
+    `BaseException` arm makes it do — the thread died holding the slot,
+    `_enqueue_job` never started another worker, and every later upload sat at
+    `queued` with `error=None` for the life of the process.
+
+    Two things happen here and they are separate decisions:
+
+    * **the slot is always released**, because a claim held by a thread that no
+      longer exists is not a claim; and
+    * **a replacement worker is started only when there is queued work AND the
+      process is not shutting down**. Releasing the flag alone would already
+      un-strand every FUTURE upload; the re-arm is what rescues the documents
+      that were already in the queue when the worker died, in a process where
+      no further upload ever arrives.
+
+    The re-arm cannot spin: the replacement pops from the same queue under the
+    same lock, and `run_job` marks the popped job `error` before it re-raises,
+    so a failure that repeats for every document drains the queue one document
+    per thread and stops. Nothing recurses — the dying thread starts the next
+    one and then finishes unwinding.
+
+    Returns whether a replacement was started, so a test can assert the
+    decision rather than infer it from a race.
+    """
+    global _job_worker_active
+    with _job_queue_lock:
+        _job_worker_active = False
+        pending = bool(_job_queue)
+    if pending and not shutting_down:
+        threading.Thread(target=_process_job_queue, daemon=True).start()
+        return True
+    return False
+
+
 def _process_job_queue() -> None:
     global _job_worker_active
     while True:
@@ -63,7 +114,17 @@ def _process_job_queue() -> None:
                 _job_worker_active = False
                 return
             job_id, pdf_bytes, filename, force_ocr, parse_mode = _job_queue.popleft()
-        run_job(job_id, pdf_bytes, filename, store, force_ocr, parse_mode)
+        try:
+            run_job(job_id, pdf_bytes, filename, store, force_ocr, parse_mode)
+        except BaseException as exc:
+            # The handler is on the SUPERVISOR and not on `run_job`'s arm, which
+            # is the whole shape §PRIVACY3 P8.1 argued for: the arm must keep
+            # re-raising (swallowing a shutdown is worse than a stranded queue),
+            # so the slot has to be released by whoever owns it. Nothing is
+            # swallowed here either — the `raise` below is bare, so the stderr
+            # traceback and the thread's death are unchanged.
+            _release_worker_slot(isinstance(exc, _SHUTDOWN_SIGNALS))
+            raise
 
 
 def _enqueue_job(job_id: str, pdf_bytes: bytes, filename: str, force_ocr: bool, parse_mode: str) -> None:
