@@ -829,7 +829,6 @@ def test_a_masthead_line_under_a_page_number_is_not_a_posting_date():
         "Page  1 of  2",
         "April 30, 2026 A CUSTOMER NAME 1234567890",
         "P.O. BOX 00000 A CITY, ST 00000-0000",
-        "Posting Date Description Amount",
         "04/09 A MERCHANT 42.00",
     ])
     assert source_posting_dates(md, date(2026, 4, 1), date(2026, 4, 30)) == {
