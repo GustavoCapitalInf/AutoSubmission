@@ -745,6 +745,197 @@ def test_a_total_opening_description_above_a_lone_date_is_the_known_falsifier():
     )
 
 
+# ---- POSTDATE-HEURISTIC (W3 §WITHHELDGRIDS) ---------------------------------
+#
+# Five classes of printed line that open with a date and are not posting rows.
+# Each pair below is the exclusion AND the thing it must not touch, because a
+# rule that only ever removes dates is trivially satisfiable by removing all
+# of them: the negative half is what pins the rule's edge.
+
+def test_an_interest_rate_row_is_not_a_posting_date():
+    """`Interest Rate Changes` prints the period's first day beside a rate.
+
+    The bank posts no transaction for it, so read as a posting it invents an
+    activity day and fails `posting_dates_cover_source` for something that is
+    not true of the document.
+    """
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "06/02/2026 SOME MERCHANT 42.00",
+        "Interest Rate Changes",
+        "Interest Rate As Of Date Interest Rate",
+        "06/01/2026 0.0000%",
+    ])
+    assert source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30)) == {
+        date(2026, 6, 2)
+    }
+
+
+def test_a_four_decimal_rate_is_not_read_as_money_by_the_proximity_test():
+    """The money-presence bound, isolated from the rate-remainder rule.
+
+    A rate on a line that ALSO carries description text is not caught by the
+    remainder rule, so the only thing standing between `0.0000%` and the
+    proximity test is that a money figure prints exactly two decimals.
+    """
+    from analysis.dates import source_posting_dates
+
+    md = "06/09/2026 RATE NOTICE\n0.0000%\nmore notice text\nand more\n"
+    assert source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30)) == set()
+
+
+def test_a_description_containing_a_percentage_keeps_its_posting_date():
+    """Only a remainder that is ENTIRELY a rate is a rate line."""
+    from analysis.dates import source_posting_dates
+
+    md = "06/09/2026 RATE 24.99% FINANCE CHARGE 45.00 1,200.00\n"
+    assert date(2026, 6, 9) in source_posting_dates(
+        md, date(2026, 6, 1), date(2026, 6, 30)
+    )
+
+
+def test_the_money_presence_test_reads_a_comma_decimal_amount():
+    """A French statement's rows print `1 234,56`, and the scan is shared.
+
+    Without the comma the proximity test reports "no money anywhere" for a
+    whole French document and drops every one of its posting dates, which
+    disables `posting_dates_cover_source` on exactly the layouts whose columns
+    are hardest to read.
+    """
+    from analysis.dates import source_posting_dates
+
+    md = "9 janv Virement recu UN CLIENT\n1 234,56\n"
+    assert date(2026, 1, 9) in source_posting_dates(
+        md, date(2026, 1, 1), date(2026, 1, 31)
+    )
+
+
+def test_a_masthead_line_under_a_page_number_is_not_a_posting_date():
+    """A statement's masthead — its statement date, the holder, the account —
+    is reprinted at the top of every page and begins with a date. It is
+    identified by POSITION (the moneyless run a page number opens), never by
+    its wording, which is customer data."""
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "Page  1 of  2",
+        "April 30, 2026 A CUSTOMER NAME 1234567890",
+        "P.O. BOX 00000 A CITY, ST 00000-0000",
+        "Posting Date Description Amount",
+        "04/09 A MERCHANT 42.00",
+    ])
+    assert source_posting_dates(md, date(2026, 4, 1), date(2026, 4, 30)) == {
+        date(2026, 4, 9)
+    }
+
+
+def test_a_posting_row_below_a_page_number_keeps_its_date():
+    """The lookback stops at the first line carrying money, so a real row
+    printed under a page break is not swept up with the masthead."""
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "Page  2 of  2",
+        "04/08 AN EARLIER MERCHANT 15.00 900.00",
+        "04/09",
+        "A MERCHANT",
+        "42.00 858.00",
+    ])
+    got = source_posting_dates(md, date(2026, 4, 1), date(2026, 4, 30))
+    assert {date(2026, 4, 8), date(2026, 4, 9)} == got
+
+
+def test_a_boundary_row_labelled_on_the_next_line_is_not_a_posting_date():
+    """The column-per-line layout prints a row's description BELOW its date,
+    so the not-a-posting labels have to be read where that layout puts them."""
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "Date", "Transaction Detail", "Amount($)", "Balance($)",
+        "0.00",
+        "06-01",
+        "Beginning Balance",
+        "900.00",
+        "900.00",
+        "06-02",
+        "A MERCHANT",
+        "42.00 858.00",
+        "06-30",
+        "Ending Balance",
+        "858.00",
+    ])
+    assert source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30)) == {
+        date(2026, 6, 2)
+    }
+
+
+def test_a_bare_date_with_a_real_description_below_it_keeps_its_date():
+    """The forward label test reaches exactly one line and only refuses the
+    labels `_NOT_A_POSTING_ROW` already names."""
+    from analysis.dates import source_posting_dates
+
+    md = "06-02\nA MERCHANT\n42.00 858.00\n"
+    assert date(2026, 6, 2) in source_posting_dates(
+        md, date(2026, 6, 1), date(2026, 6, 30)
+    )
+
+
+def test_a_marketing_sentence_opening_with_a_date_is_not_a_posting_date():
+    """No prose recognition: the sentence is refused because no amount is
+    printed on it or near it, which is true of every message block and of no
+    posting row."""
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "This June, be wary of scams targeting older adults",
+        "June 15 is an awareness day, and now is a great time to learn how to",
+        "- One kind of scam, described at length without a figure in sight",
+        "- Another kind of scam, also described without a figure",
+        "Remember, always be cautious when you are asked for information",
+        "6/9 A MERCHANT",
+        "42.00",
+    ])
+    assert source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30)) == {
+        date(2026, 6, 9)
+    }
+
+
+def test_the_money_lookahead_stops_at_a_column_caption():
+    """Money printed after a caption belongs to the table the caption
+    announces, not to whatever was printed above it."""
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "June 30, 2026 A CUSTOMER NAME 1234567890",
+        "P.O. BOX 00000 A CITY, ST 00000-0000",
+        "Posting Date Description Amount",
+        "06/09 A MERCHANT 42.00",
+    ])
+    got = source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30))
+    assert date(2026, 6, 30) not in got
+    assert date(2026, 6, 9) in got
+
+
+def test_a_dot_leadered_daily_balance_block_is_a_grid_not_a_ledger():
+    """One issuer prints its grid heading and caption welded to dot leaders,
+    so neither matched and a SECOND account's grid rows were read as postings
+    of the account being published."""
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "06/09 A MERCHANT 42.00 858.00",
+        "." * 40,
+        "There were no transactions this period.",
+        "Date" + "." * 30 + "Balance",
+        "06/15 $1.00",
+        "." * 40,
+    ])
+    assert source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30)) == {
+        date(2026, 6, 9)
+    }
+
+
 # ---- which average the dashboards display ------------------------------------
 
 def test_validated_computed_adb_is_preferred_over_the_bank_printed_average():

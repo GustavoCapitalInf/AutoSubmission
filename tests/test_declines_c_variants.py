@@ -442,3 +442,74 @@ def test_navy_federal_attached_and_detached_minus_read_alike():
     assert [(t.amount, t.running_balance) for t in first.transactions] == [
         (t.amount, t.running_balance) for t in second.transactions
     ]
+
+
+# --------------------------------------------- navy_federal (W3 §WITHHELDGRIDS)
+
+
+def _navy_federal_dated_credit() -> str:
+    """The same platform printing a credit's date and description ABOVE its
+    money columns, which is the arrangement the archive's text-layer documents
+    use: every row is `<date>` / `<description>` / `<amount> <balance>`.
+
+    1,000.00 + 300.00 - 200.00 = 1,100.00.
+    """
+    return (
+        "Navy Federal\n"
+        "Statement Period 01/01/26 - 01/31/26\n"
+        "Summary of your deposit accounts\n"
+        "Previous Deposits/ Withdrawals/ Ending YTD "
+        "Balance Credits Debits Balance Dividends\n"
+        "Business Checking\n"
+        "7000000001 $1,000.00 $300.00 $200.00 $1,100.00 $0.00\n"
+        "Totals $1,000.00 $300.00 $200.00 $1,100.00 $0.00\n"
+        "Checking\n"
+        "Date Transaction Detail Amount($) Balance($)\n"
+        "Business Checking - 7000000001\n"
+        "1,000.00\n"
+        "01-01\n"
+        "Beginning Balance\n"
+        "01-05\n"
+        "Example Payer Deposit\n"
+        "300.00 1,300.00\n"
+        "01-09\n"
+        "Example Vendor Purchase\n"
+        "200.00 1,100.00\n"
+        "01-31\n"
+        "Ending Balance\n"
+    )
+
+
+def test_a_credit_that_carries_its_own_date_keeps_it():
+    """The compatibility branch takes a credit's date and description from the
+    row BELOW it. That is right only where the row has neither of its own.
+
+    Where the row has both, taking the next row's does not relabel one row —
+    it shifts the ledger by one: this row is published on the next row's day
+    under the next row's description, the next row inherits that same day with
+    an empty description, and the day this row was printed on is never posted.
+    """
+    statement = parse_navy_federal_statement(_navy_federal_dated_credit())
+
+    assert statement is not None
+    assert [(t.date, t.amount) for t in statement.transactions] == [
+        ("2026-01-05", 300.00),
+        ("2026-01-09", -200.00),
+    ]
+    assert [t.description for t in statement.transactions] == [
+        "Example Payer Deposit",
+        "Example Vendor Purchase",
+    ]
+
+
+def test_the_platforms_other_row_order_still_reads_its_credit():
+    """The ablation: the branch is narrowed, not removed. In the arrangement
+    it exists for, the credit reaches its amount pair with no date and no
+    description of its own and still takes both from the row below."""
+    statement = parse_navy_federal_statement(_navy_federal("Business Checking"))
+
+    assert statement is not None
+    assert [(t.date, t.amount) for t in statement.transactions] == [
+        ("2026-01-05", -200.00),
+        ("2026-01-09", 300.00),
+    ]

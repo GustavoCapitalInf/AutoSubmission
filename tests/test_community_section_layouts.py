@@ -702,3 +702,71 @@ def test_a_joint_owner_line_between_the_heading_and_the_grid_is_stepped_over():
     assert stmt is not None
     assert stmt.account_name == "Business Checking"
     assert stmt.account_number == "XXXXXX1234"
+
+
+# ---- the printed `Daily Balances` grid (W3 §WITHHELDGRIDS) -------------------
+
+_DISCLOSURE = (
+    "DAILY BALANCE METHOD (including current transactions) To get daily balances,"
+    " we take the beginning balance of your account each day, add any new loans"
+    " and subtract any payments or credits.\n"
+)
+
+
+def _with_grid(*, grid: str, disclosure_first: bool) -> str:
+    ledger = (
+        "Business Interest Checking - XXXXXXXX1234\n"
+        "Account Summary Date Description Amount 01/01/2026 Beginning Statement Balance $100.00"
+        " 1 Credit(s) This Period $300.00 1 Debit(s) This Period $250.00"
+        " 01/03/2026 Ending Statement Balance $150.00\n"
+        "Electronic Credits Date Description Amount 01/02/2026 A CREDIT $300.00\n"
+        "Other Debits Date Description Amount 01/03/2026 A DEBIT $250.00\n"
+    )
+    block = "Daily Balances\nDate Amount " + grid + "\n" + "Overdraft and Returned Item Fees Total for this period\n"
+    return _mv((_DISCLOSURE + ledger + block) if disclosure_first else (ledger + block + _DISCLOSURE))
+
+
+@pytest.mark.parametrize("disclosure_first", [True, False])
+def test_the_grid_is_read_from_its_own_header_not_from_the_disclosure(disclosure_first):
+    """The words `daily balances` also open the platform's METHOD paragraph.
+
+    Anchored on the words alone the region begins in that paragraph — which on
+    most of this platform's documents is printed BEFORE the grid — and runs
+    through every transaction section after it, so ordinary rows are read as
+    end-of-day balances. The grid's own printed header is the anchor.
+    """
+    stmt = parse_mission_valley_statement(
+        _with_grid(grid="01/02/2026 $400.00 01/03/2026 $150.00", disclosure_first=disclosure_first)
+    )
+    assert stmt is not None
+    printed = {t.date: t.running_balance for t in stmt.transactions}
+    assert printed == {"2026-01-02": 400.0, "2026-01-03": 150.0}
+
+
+def test_an_overdrawn_day_is_read_from_the_grid_with_its_sign():
+    """This platform prints an overdrawn day `-$1,234.56`. The minus sits
+    between the date and the `$`, so an unsigned pattern does not lose the
+    sign — the pair does not match and the DAY is dropped from the grid."""
+    stmt = parse_mission_valley_statement(
+        _with_grid(grid="01/02/2026 -$400.00 01/03/2026 $150.00", disclosure_first=True)
+    )
+    assert stmt is not None
+    printed = {t.date: t.running_balance for t in stmt.transactions}
+    assert printed == {"2026-01-02": -400.0, "2026-01-03": 150.0}
+
+
+def test_a_document_that_prints_no_grid_publishes_no_printed_balances():
+    """The header anchor is required, not optional: a statement without the
+    grid must not acquire one from the disclosure paragraph."""
+    md = _mv(
+        _DISCLOSURE
+        + "Business Interest Checking - XXXXXXXX1234\n"
+        "Account Summary Date Description Amount 01/01/2026 Beginning Statement Balance $100.00"
+        " 1 Credit(s) This Period $300.00 1 Debit(s) This Period $250.00"
+        " 01/03/2026 Ending Statement Balance $150.00\n"
+        "Electronic Credits Date Description Amount 01/02/2026 A CREDIT $300.00\n"
+        "Other Debits Date Description Amount 01/03/2026 A DEBIT $250.00\n"
+    )
+    stmt = parse_mission_valley_statement(md)
+    assert stmt is not None
+    assert all(t.running_balance is None for t in stmt.transactions)
