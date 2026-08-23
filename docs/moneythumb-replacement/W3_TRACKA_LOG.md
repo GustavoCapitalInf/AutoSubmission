@@ -44088,6 +44088,15 @@ Deliberately not published:
 * `stated_credit_count` / `stated_debit_count` — not printed. The reader needs
   no count: the chain is its coverage oracle.
 
+**Field sanity over the 11, checked rather than assumed.** Twelve properties
+on every published statement: `days_in_period` equals the printed period's own
+length; every posting carries a running balance; every posting's date is
+inside the printed period; every direction is `debit` or `credit` and agrees
+with the sign of its amount; the account number is digits; both debit
+magnitudes are non-negative; both balances are present; no daily balances are
+published; the bank label is the platform; `account_name` is None. **11 of 11
+clean, over 1,818 postings.**
+
 **And what it costs the sweep.** The registration declares NO `normalize`, so
 it adds no new text preparation to a registry sweep — it reads the same
 `admissible_text` every other unnormalized registration already shares — and
