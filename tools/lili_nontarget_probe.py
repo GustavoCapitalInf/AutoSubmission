@@ -17,9 +17,18 @@ opened, nothing is written, and no model is called. Only `detect` runs — the
 question is what the registry now CLAIMS, which is the property a new
 registration can break for every other parser.
 
+THE GENRE SIBLINGS ARE REPLAYED IN THE SAME PASS. This card's reader sits
+beside four fintech readers that must stay byte-identical, and the way a new
+registration breaks a neighbour is not by editing it: it is by CLAIMING one of
+its documents, or by making a dispatch ambiguous. So for every document the
+run of record dispatched to one of `--siblings`, this tool re-runs that
+sibling's own detection and this card's, and reports any document the sibling
+stopped claiming or that both now claim.
+
 It prints counts, the strata those counts cover, and `content_sha256` values
-only where a claim lands outside the census family. No document text, amount,
-name, account number or date is read out of this tool.
+only where a claim lands outside the census family or where a sibling moved.
+No document text, amount, name, account number or date is read out of this
+tool.
 """
 from __future__ import annotations
 
@@ -88,6 +97,10 @@ def main() -> int:
     parser.add_argument("--data-dir", required=True, type=Path)
     parser.add_argument("--census", default=DEFAULT_CENSUS, type=Path)
     parser.add_argument("--family", default=DEFAULT_FAMILY)
+    parser.add_argument(
+        "--siblings", default="bluevine,mercury,relay,square_checking",
+        help="registration ids whose populations must be unmoved by this card",
+    )
     args = parser.parse_args()
 
     artifacts = args.data_dir / "artifacts"
@@ -135,7 +148,37 @@ def main() -> int:
     print(f"claimed by lili AND another      : {len(also_claimed)}")
     for sha in sorted(also_claimed):
         print(f"    AMBIGUOUS {sha}")
-    return 0 if not claims_outside and not also_claimed else 1
+
+    # --- the genre siblings, over the populations the run dispatched to them
+    by_id = {registration.id: registration for registration in registrations()}
+    lost: list[str] = []
+    shared: list[str] = []
+    print("\ngenre siblings, over the population the run of record gave each:")
+    for sibling in [s.strip() for s in args.siblings.split(",") if s.strip()]:
+        registration = by_id.get(sibling)
+        if registration is None:
+            raise SystemExit(f"no registration `{sibling}`")
+        population = [sha for sha, row in seen.items()
+                      if (row.get("parser_id") or "") == sibling]
+        still = 0
+        for sha in population:
+            markdown = cached_text(artifacts, sha)
+            if markdown is None:
+                continue
+            text = admissible_text(markdown)
+            if registration.detect(text).claims:
+                still += 1
+            else:
+                lost.append(f"{sibling} {sha}")
+            if lili.detect(text).claims:
+                shared.append(f"{sibling} {sha}")
+        print(f"  {sibling:18} {len(population):4} documents, still claimed {still:4}")
+    for entry in lost:
+        print(f"    SIBLING LOST A DOCUMENT {entry}")
+    for entry in shared:
+        print(f"    SIBLING DOCUMENT ALSO CLAIMED BY lili {entry}")
+
+    return 0 if not (claims_outside or also_claimed or lost or shared) else 1
 
 
 if __name__ == "__main__":
