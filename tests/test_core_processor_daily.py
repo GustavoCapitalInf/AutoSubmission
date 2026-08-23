@@ -378,7 +378,8 @@ def test_a_space_a_scan_put_inside_a_card_date_leaves_no_posting_behind():
     assert len(statement.transactions) == 2
 
 
-@pytest.mark.parametrize("fragment", ["18-26", "26-26", "00-02", "04-00", "04-45"])
+@pytest.mark.parametrize("fragment", ["18-26", "26-26", "13-01", "00-02", "04-00",
+                                      "04-32", "04-45"])
 def test_a_token_no_calendar_can_hold_is_not_a_posting_date(fragment):
     """The bound, one impossible field at a time. Each of these matched the
     unbounded `[0-9]{2}-[0-9]{2}` and opened a ledger cell on something no

@@ -93,7 +93,17 @@ from .tables import section_runs, unique_match
 #: whose leading `1` the scan turned into a one-shaped letter, which read one
 #: character in would post in February. A leading ZERO is a different case and
 #: is read rather than refused: see `_LEADING_ZERO`.
-_TOKEN_START = r"(?<![0-9A-Za-z.,/])"
+#:
+#: The VERTICAL BAR is in the class for exactly the letters' reason and was
+#: missing from it (W3 §CPSCAN CP8, mutant M02's test): `|` is the third mark
+#: a scan renders a `1` as, and being punctuation it slipped past a class
+#: written as "digits and letters". `l2/11` and `I2/11` were refused and
+#: `|2/11` was read as February. The asterisk deliberately stays OUT: this
+#: platform prints `*02/05` where a cheque breaks the serial sequence, and
+#: that mark is the platform's own furniture rather than a lost digit.
+#: Measured over the complex's 59 documents: **no date token is preceded by
+#: `|`, `I`, `l` or `!`** — 0 of 4,123 — so closing it costs nothing.
+_TOKEN_START = r"(?<![0-9A-Za-z.,/|])"
 #: ...and may not be continued by one.
 _DATE_END = r"(?![0-9/])"
 _FIGURE_END = r"(?![0-9.,])"
