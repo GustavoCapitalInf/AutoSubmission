@@ -44273,9 +44273,9 @@ instrument that re-derives the fingerprints without reproducing a token.
 batch 7's escalation 1.** Three two-account documents are refused because the single-account schema cannot
 carry the sibling ledger and the sibling is not idle. If the pending L-1
 decision admits publishing the primary account with the sibling declared, the
-binding is already measured — column 1, corroborated independently by the
-three-column arithmetic and by the main ledger's own chain — and the change is
-one gate. **Question: should this card's three join the L-1 population as-is,
+binding is already measured — column 1, corroborated by three independent
+readings (the three-column arithmetic, the main ledger's own chain, and the
+sibling ledger's) on all three documents — and the change is one gate. **Question: should this card's three join the L-1 population as-is,
 or does Ocean want a narrow exemption carded now?**
 
 **F3 — the internally-inconsistent summary (§LI5).** One document with 552
