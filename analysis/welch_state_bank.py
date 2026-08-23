@@ -86,10 +86,15 @@ repair (the batch-7 repair doctrine: a parser never writes an amount):
 * a ledger or check amount printed with a minus. The banner already states the
   direction, so a signed figure is the document contradicting itself; no
   archive printing does it;
-* a daily grid that does not replay: every grid day must be the period's first
-  day or a day this reader posted to, its printed balance must equal the
-  balance the replay reaches at the end of that day, the days must be distinct
-  and inside the period, and the walk must land on the printed ending balance;
+* a daily grid that does not replay, in BOTH directions. The grid's days must
+  be exactly the period's first day together with every day this reader posted
+  to — a day that moved and is not printed refuses, and so does a printed day
+  nothing posted to. Its days must be distinct and inside the period, each
+  printed balance must equal the balance the replay reaches at the end of that
+  day, and the walk must land on the printed ending balance. Requiring the
+  period's FIRST day is a measured fact about this template rather than a
+  general rule: all seventeen archive printings open the grid with it, carrying
+  the beginning balance, whether or not anything posted that day;
 * a posting or grid date the printed period does not uniquely place
   (`iso_unique_in_period`), which also refuses `02/30` and a mangled token;
 * a line inside a region that holds an anchor but is not wholly consumed by
