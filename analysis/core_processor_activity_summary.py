@@ -154,7 +154,7 @@ DETECTION_MARKERS = (
 
 detect = make_detector(DETECTION_MARKERS, detection_text)
 
-#: `Statement Dates:  4/01/26 thru 4/30/26` - a single-digit month is printed
+#: `Statement Dates:  8/01/26 thru 8/31/26` - a single-digit month is printed
 #: right-aligned, so the run of spaces is real and `\s+` is not decoration.
 _PERIOD_RE = re.compile(
     r"Statement Dates:\s+([0-9]{1,2}/[0-9]{1,2}/[0-9]{2})"
@@ -196,7 +196,7 @@ _LEDGER_COLUMNS_RE = re.compile(r"^Date\s+Description\s+Amount\s+Balance\s*$")
 #: What ENDS the ledger. Everything after it - the cheque grid and the trailing
 #: image index - RESTATES rows that are already postings.
 _LEDGER_END_RE = re.compile(r"^Checks in Number Order\s*$")
-#: `4/01 DDA REGULAR DEPOSIT $6,764.00 $47,427.99`. The two money tokens taken
+#: `8/01 SAMPLE INBOUND TRANSFER $418.62 $3,561.17`. The two money tokens taken
 #: are the LAST two on the line — the running balance is always last and the
 #: amount always second-to-last — and it is the END-OF-LINE ANCHOR that makes
 #: that true, not the greedy `(.*)`. Measured (W3 §COREISS2 mutant N14):

@@ -156,7 +156,7 @@ DETECTION_MARKERS = (
 
 detect = make_detector(DETECTION_MARKERS, detection_text)
 
-#: `Beginning Balance<NBSP>2/02/26 $ 32,049.87`. The label and its date are
+#: `Beginning Balance<NBSP>7/02/26 $ 1,234.17`. The label and its date are
 #: separated by U+00A0 on every document of this family, not by a space -
 #: `\s` covers both and neither is asserted.
 _BEGIN_RE = re.compile(
@@ -165,7 +165,7 @@ _BEGIN_RE = re.compile(
 _END_RE = re.compile(
     r"Ending Balance\s+([0-9]{1,2}/[0-9]{1,2}/[0-9]{2})\s+\$\s*(" + _SIGNED_FIG + r")"
 )
-#: `Credits (10) +$61,980.15 Interest Paid +$.00 Debits (97) -$63,086.66`.
+#: `Credits (3) +$1,326.43 Interest Paid +$.00 Debits (4) -$731.66`.
 #: The signs are matched as literal furniture and the magnitudes are read by
 #: `money.py`: the direction is the label's, never the token's.
 _SUMMARY_RE = re.compile(
@@ -207,7 +207,7 @@ _CONTINUATION_RE = re.compile(r"^Date\s+(?:Description|Check Number)\s+Amount\b(
 _LEDGER_END_RE = re.compile(r"^Summary\s+Average Ledger Bal\b")
 _DAILY_HEAD_RE = re.compile(r"^Daily Balance Information\b(.*)$")
 
-#: `2/03 PAYMENT VRBO PPD CO#... TRACE # - ... $324.98` - one amount, direction
+#: `7/03 BETA INBOUND CCD CO#... TRACE # - ... $306.29` - one amount, direction
 #: fixed by the section, and a description that cannot cross a `$` at all. The
 #: negative lookahead is what refuses a trailing-minus token here: a debit
 #: printed under the credit heading is a document this reader does not
@@ -215,22 +215,22 @@ _DAILY_HEAD_RE = re.compile(r"^Daily Balance Information\b(.*)$")
 _CREDIT_ROW_RE = re.compile(
     _DAY + r" ([^$]+?) \$(" + _FIG + r")(?![0-9,.]|" + MINUS_CLASS + r")"
 )
-#: `2/02 Account Analysis Service Chg $11.40-`, and the correction row
-#: `2/11 FR... CK DEP AS $<ref> S/B$<ref> $600.00-`. The description may cross
+#: `7/02 SAMPLE ANALYSIS CHARGE $103.71-`, and the correction row
+#: `7/03 FR... CK DEP AS $412.09 S/B$304.80 $107.29-`. The description may cross
 #: a money token ONLY when that token carries no trailing minus, so it can
 #: never span the next row's amount and merge two postings.
 _DEBIT_ROW_RE = re.compile(
     _DAY + r" ((?:\$" + _FIG + r"(?!" + MINUS_CLASS + r")|[^$])+?) "
     r"\$(" + _FIG + MINUS_CLASS + r")(?![0-9,.])"
 )
-#: `2/05 1555* $7,442.28` - date, cheque number, amount; `*` marks a gap in the
+#: `7/06 4408* $311.53` - date, cheque number, amount; `*` marks a gap in the
 #: cheque sequence and is printed, so it is published. A cheque already posted
 #: in the ledger prints `-See above-` instead of an amount and is EXCLUDED from
 #: the printed debit count; it matches nothing here, which is the same answer.
 _CHECK_ROW_RE = re.compile(
     _DAY + r" ([0-9]{1,7}\*?) \$(" + _FIG + r")(?![0-9,.])"
 )
-#: `2/02 54,410.80` - a date and a balance with NO `$` between them, which is
+#: `7/02 1,647.77` - a date and a balance with NO `$` between them, which is
 #: exactly what distinguishes a grid pair from a posting row. Read only inside
 #: the grid section, never document-wide.
 _DAILY_PAIR_RE = re.compile(_DAY + r" (" + _SIGNED_FIG + r")(?![0-9,.])")
