@@ -8,12 +8,17 @@ not occur in any of them. The issuer this reader registers is the one the page
 furniture prints: the contact domain in the summary block and the address and
 copyright line in the footer of every page.
 
-THE PRINTED SHAPE. A summary block of four terms that close on each other —
+THE PRINTED SHAPE. A summary block of four terms that close on each other.
+The figures below are INVENTED — they are the same invented figures the tests
+use, and no amount, name, account number or date from any archive document
+appears anywhere in this module, in `tests/test_eq_bank_scanned.py`, or in
+W3 §TANGERINE (`webapp_data/` is gitignored by design and no archive content
+is reproduced anywhere in this repository):
 
-    Opening balance     $242.99
-    Total deposits    + $10,451.12
-    Total withdrawals - $4,812.68
-    Closing balance   = $5,881.43
+    Opening balance     $1,037.41
+    Total deposits    + $713.26
+    Total withdrawals - $268.13
+    Closing balance   = $1,482.54
 
 — and then one `Activity details` grid, repeated under its column head on
 every page, whose columns are Date, Description, Withdrawals, Deposits and
@@ -53,7 +58,16 @@ class killers of a scanned registration, so they are named):
 * a summary term printed twice with two different values (a repeat that
   AGREES is free corroboration and is accepted);
 * a posting date the document does not determine — see `_resolve_dates`;
-* a header, account number or period that two pages disagree about.
+* a header, account number or period whose two READINGS disagree.
+
+  That last one is narrower than it first sounds and the difference is worth
+  stating rather than leaving to be discovered. `_sole` compares the MATCHES
+  its pattern found: two pages that both parse as a header and disagree refuse
+  the document. A page whose header the scan garbled BELOW the pattern is not
+  a second reading at all — it matches nothing, contributes nothing, and the
+  remaining good reading is taken. So this refuses contradiction, not
+  illegibility, and a document whose only legible header is on one page is
+  read from that page.
 
 WHAT IT DOES NOT SET, deliberately: `Statement.currency`. See §CURRENCY below.
 """
@@ -267,18 +281,36 @@ def _resolve_dates(
        the bank did not print.
 
     3. THE SEQUENCE MUST BE NON-DECREASING. This grid is printed in date
-       order, so monotonicity is a fact about the document — and it is what
-       catches a day token whose digits ARE legible and wrong: a `10` scanned
-       as `1O` reads as day 1 in the middle of a run of 9s and 11s, and no
-       amount of arithmetic would ever notice, because a misdated row still
-       sums and still reconciles. It corrupts the daily ledger, and therefore
-       the Average Daily Balance, silently.
+       order, so monotonicity is a fact about the document, and it catches a
+       day token whose digits ARE legible and WRONG in the only way anything
+       here can: a `10` scanned as `1O` reads as day 1 in the middle of a run
+       of 9s and 11s, and no arithmetic would ever notice, because a misdated
+       row still sums and still reconciles to the closing balance while
+       corrupting the daily ledger and therefore the ADB.
+
+       THE RESIDUAL, STATED. Monotonicity catches only a misread that BREAKS
+       the order. A wrong day that still lands between its neighbours does
+       not break it and is published silently: a true `18` misread as `16`
+       between a `15` and a `20` satisfies every gate in this reader. Nothing
+       in the document contradicts it — the balances, the totals and the
+       closing identity are all indifferent to which of those days a row sat
+       on — so this is a limit of the evidence rather than of the reader, and
+       it is recorded so that no one later reads the order check as a
+       guarantee that every published date is right.
     """
     latest = period_end + timedelta(days=1)
     resolved: list[date | None] = []
     for row in rows:
         month = MONTH_NUMBERS.get(row.month.strip().casefold())
-        digits = "".join(character for character in row.day_token if character.isdigit())
+        # `isdecimal`, NOT `isdigit`. `str.isdigit()` is True for the
+        # superscripts (U+00B9 U+00B2 U+00B3) and `int()` rejects them, so a
+        # scan that renders a day as a superscript would raise out of this
+        # parser instead of refusing — the crash class
+        # `tests/test_parser_crash_shapes.py` exists for. `isdecimal()` is
+        # exactly the set `int()` accepts, so the conversion below is total
+        # and a character outside it makes the token illegible, which is a
+        # refusal this function already knows how to make.
+        digits = "".join(character for character in row.day_token if character.isdecimal())
         if month is None:
             return None
         if not digits:

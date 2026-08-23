@@ -35452,11 +35452,31 @@ fail-closed seam that would convert all three (and, with TG11 finding 2, all
 five) to `validated`; it is the exact mirror of the already-approved
 `initialization_transaction_count` at the opening edge.
 
-**A privacy choice, stated so review sees it was deliberate.** This family is
-one PERSONAL account, and its ledger names private individuals as
-counterparties. No holder name, account number, address, counterparty, balance
-or amount from any archive document appears in this section or in the
-committed tests — every fixture in `tests/test_eq_bank_scanned.py` is invented.
+**A privacy choice, stated so review sees it was deliberate — and one place
+the first revision of this branch got it wrong.** This family is one PERSONAL
+account, and its ledger names private individuals as counterparties. No holder
+name, account number, address, counterparty, balance, amount or date from any
+archive document appears **in this section, in the committed tests, or in
+`analysis/eq_bank_scanned.py` itself**. `webapp_data/` is gitignored by design
+and `tests/test_parser_crash_shapes.py` states the norm: no archive content is
+reproduced anywhere in this repository.
+
+The module clause is the correction. Review (BLOCK-1) found that the parser's
+own docstring illustrated "the printed shape" with a four-line summary block
+that was **verbatim the printed summary of one archive document** — a named
+private individual's account — while this paragraph's first draft claimed
+coverage only for the log and the tests. The figures are now invented, the
+tests' statement month is deliberately one that no archive document of this
+family prints, and the claim is enforced by measurement rather than by care:
+
+```
+760 literals built from all five documents' cached OCR text
+    money 692 | account / long digit runs 3 | phone 2 | postal 1
+    full dates 10 | counterparty + holder name tokens 50 | street lines 2
+each one grepped against the WHOLE branch diff (e83f746 .. working tree)
+FOUND: 0
+```
+
 Every claim below is therefore stated RELATIONALLY (residual zero, agreement
 counts, "accrual equals the printed interest term") rather than as a figure,
 and each one reproduces from the committed reader plus the run of record's own
@@ -35667,15 +35687,15 @@ and so does a region whose page footer never closed it:
 
 ## TG6. The gates, measured by mutation
 
-Twenty-five mutants, one per gate, each applied to `analysis/eq_bank_scanned.py`
+Twenty-six mutants, one per gate, each applied to `analysis/eq_bank_scanned.py`
 with the file restored afterwards, `tests/test_eq_bank_scanned.py` re-run
 against each (harness in the session scratchpad, not committed; the tree was
 `git status`-clean after both runs).
 
 **The first run killed 15 of 25. Five of the ten survivors were NOT redundant**
 — that is the whole value of running the harness rather than trusting the test
-names — and each now has the counterexample that proves it. The second run
-kills 20 of 25.
+names — and each now has the counterexample that proves it. M26 is review's
+(MAJOR-1) and was added in the third run. **The final run kills 21 of 26.**
 
 | # | the gate the mutant removes | run 1 | run 2 | killed by |
 |---|---|---|---|---|
@@ -35705,7 +35725,31 @@ kills 20 of 25.
 | M24 | out-of-period days are not daily snapshots | KILLED | **KILLED** | `…_is_not_a_daily_snapshot_of_the_period` (2 tests) |
 | **M25** | **the empty-ledger refusal** | survived | **KILLED** | `…_is_not_a_statement_even_when_the_summary_closes` |
 
-**20 killed, 5 survive.**
+| **M26** | **the day token is read with `isdecimal`, not `isdigit`** | (added run 3) | **KILLED** | `…_refuses_instead_of_raising` and `…_is_read_not_raised` |
+
+**21 killed, 5 survive.**
+
+### TG6.0 M26 — the crash review found (MAJOR-1)
+
+`str.isdigit()` is True for the superscripts U+00B9 U+00B2 U+00B3 and `int()`
+rejects them, so the first revision's day reader
+
+```python
+digits = "".join(character for character in row.day_token if character.isdigit())
+...
+day = int(digits)
+```
+
+**raised `ValueError` out of the parser** on a scan that renders a day as a
+superscript — the exact class `tests/test_parser_crash_shapes.py` exists for,
+and the failure mode this reader is least entitled to, since it refuses five
+other kinds of illegible day cleanly. `isdecimal()` is exactly the set `int()`
+accepts, so the conversion is now total, and a character outside it makes the
+token illegible — a refusal `_resolve_dates` already knows how to make.
+
+Two tests, because a raising reader and a refusing reader differ VISIBLY only
+where the printed order does determine the day: one asserts the refusal, the
+other asserts that such a document still publishes rather than raising.
 
 ### TG6.1 What the first table would have got wrong
 
@@ -35739,9 +35783,13 @@ as "the ledger did not close".
   M21/M22 make the two sides equal the printed totals; so
   `final = opening + deposits − withdrawals`. The identity check and the
   final-balance check are then two spellings of one equation.
-* **M16 is implied by `iso_unique_in_period`,** which constructs the candidate
-  dates and discards every one that is not a calendar date. `date(2026, 4, 44)`
-  raises before the bound is consulted.
+* **M16 is implied by `iso_unique_in_period`.** The mechanism as first
+  written here was wrong, and review (MINOR-4) corrected it: `date(2026, 4, 44)`
+  does raise `ValueError`, but INSIDE `iso_unique_in_period`, which catches it
+  and moves on to the next candidate year. With no candidate surviving, the
+  helper RETURNS None — a refusal, not an exception — and `_resolve_dates`
+  refuses the document on it. The 1..31 bound is therefore redundant with a
+  refusal rather than with a raise, and nothing raises here at all.
 * **M21 and M22 are mathematically coupled.** The walk fixes
   `credits − debits`, so a credit total wrong by `d` implies a debit total
   wrong by `d`: neither can fire alone. Removing BOTH is a real defect and is
@@ -35758,8 +35806,8 @@ and `_failure_reason`.
 | `5C65DFB2A096997B9C8FE919F34E1BB14AD81A6968924FBB162F3DD9E24D2E11` | `failed/no_parser_matched` | **`withheld/withheld_adb`** | 3-page month fully read: 66 transactions, 21 in-period daily snapshots, issuer/holder/account/period/both balances/both stated totals/stated interest published; integrity flags `[]`; `corporate_use` **approved**; ADB refused — TG9 |
 | `75AE79521F5DC0B1C66744BA0DC5988D2B13D1630D1D3327280B135888901659` | `failed/no_parser_matched` | **`withheld/withheld_adb`** | 4-page month: 77 transactions, 22 snapshots; flags `[]`; approved; ADB refused — TG9 |
 | `958322F16B7F21EA170626543B77A5816076AC8E45EF9924537AFF9A92068B87` | `failed/no_parser_matched` | **`withheld/withheld_adb`** | 2-page month: 26 transactions, 15 snapshots; flags `[]`; approved; ADB refused — TG9 |
-| `E630CB66DBDB3C1DD3EC57B78BD735EC4CC41FA7659750E710161DA424A06E8C` | `failed/no_parser_matched` | `failed/parser_declined` | nothing published; `attempted=('eq_bank_scanned',)`. One day token is a stray glyph bounded by neighbours **three days apart** |
-| `B0E16E92A1ECFDFB95F3925FBFB63B3959918DD4DB7EB6A9DD97B8F85D7459D8` | `failed/no_parser_matched` | `failed/parser_declined` | nothing published; `attempted=('eq_bank_scanned',)`. **Three** day tokens are the same stray glyph, bounded by neighbours **two days apart** |
+| `E630CB66DBDB3C1DD3EC57B78BD735EC4CC41FA7659750E710161DA424A06E8C` | `failed/no_parser_matched` | `failed/parser_declined` | nothing published; `attempted=('eq_bank_scanned',)`. One day token is a stray glyph whose legible neighbours are **two days apart** — three candidate days |
+| `B0E16E92A1ECFDFB95F3925FBFB63B3959918DD4DB7EB6A9DD97B8F85D7459D8` | `failed/no_parser_matched` | `failed/parser_declined` | nothing published; `attempted=('eq_bank_scanned',)`. **Three** day tokens are the same stray glyph, whose legible neighbours are **one day apart** — two candidate days each |
 
 Three improvements on the outcome ladder (`failed` → `withheld`), two
 reason-only moves inside `failed` — the class does not move, the information
@@ -35929,6 +35977,67 @@ independent printings — a summary term and a ledger row — agreeing to the ce
 TG11 finding 2. The ADB the engine already computes and refuses is the figure
 the seam would publish; it is not recomputed by it.
 
+### TG9.1 THIS SEAM IS SEQUENCED BEHIND TG10, AND THE FIRST DRAFT DID NOT SAY SO
+
+The first revision of this section presented TG9 and TG10 as two independent
+findings. **They are not independent, and review (MAJOR-2) is right that the
+omission matters more than either.** The withhold is currently the only thing
+keeping this family's currency label off a screen: `statement.currency` is
+`"USD"` in the payload TODAY, on a Toronto personal account, because that is
+the schema default and this reader deliberately writes nothing. If the accrual
+seam lands ALONE, all three documents become `validated`, and CURRENCY_DOCTRINE
+§D then renders exactly one denominated figure —
+`Average Daily Balance: $x USD` — for a Canadian account. That is the doctrine
+producing a wrong label, not a missing one, and it would be this branch that
+created the path to it.
+
+**Ocean's ruling, recorded:** the currency stays the schema default on this
+branch (which is what the card requires); TG9 and TG10 go to Gustavo as ONE
+bundled doctrine question; and no seam that publishes a USD-labelled Canadian
+ADB is merged. Either the currency is decided first, or the seam publishes
+`withheld` until it is.
+
+### TG9.2 The safe shape for the seam, as review specified it
+
+Four conditions on top of the eight at TG9, recorded here so whoever writes it
+inherits them rather than rediscovering them:
+
+1. **Sequence behind TG10.** Above.
+2. **`adb.py` RE-DERIVES all eight; it never trusts a parser-declared count.**
+   This is how `initialization_transaction_count` was ruled — that layer
+   re-enforces `day == start - 1` itself rather than inheriting the boundary
+   from the declaring parser, on the stated principle that *a consuming layer
+   that trusts its caller to have checked is a consuming layer with no check*.
+   The trailing analogue gets the same treatment or none.
+3. **Condition 5 is MANDATORY, not corroborating.** `stated_interest_paid`
+   must be PRESENT and EQUAL to the trailing sum; absent means refuse. This
+   closes the hole named at TG9.3: today the accrual is only ever checked
+   against the printed interest term by ME, in this log, over five documents —
+   nothing in the code requires it.
+4. **Decide what `ending_balance` MEANS, and flag the divergence.** Today all
+   three publish an `ending_balance` (the printed closing, which includes the
+   accrual) that their own daily series never reaches, with `flags: []`. Either
+   `ending_balance` is the printed closing and the divergence from the
+   period-end balance is flagged, or it is the period-end balance and the
+   printed closing is published beside it — but it cannot silently be one while
+   every downstream consumer assumes the other.
+
+### TG9.3 What the reader does NOT check, stated because it is a gap
+
+A row dated `period_end + 1` is accepted by this reader **whatever it is**. The
+window `period_start .. period_end + 1` is a date bound and nothing more: a
+DEBIT on that day, or an unrelated credit that is not interest at all, parses
+exactly like the interest postings, carries no flag and no note, and reaches
+the payload as an ordinary transaction. Nothing today reads the printed
+`Total interest earned` term against it — that identity holds 5/5 across this
+family, but it holds as a MEASUREMENT IN THIS LOG, not as a gate in the code.
+
+What contains it today is `analysis/adb.py`, which withholds the ADB for any
+out-of-period row regardless of kind. That is real containment and it is why
+this is a gap rather than a defect — but it is containment by the very check
+TG9 asks to relax, so the two must move together. Condition 3 above is exactly
+this hole closed, and it belongs in `adb.py` where the re-derivation lives.
+
 ## TG10. Currency: named as a future mover, not asserted
 
 `Statement.currency` is **not set by this reader**, and the omission is the
@@ -35959,10 +36068,21 @@ CURRENCY-SOURCE (which is building `currency_source` provenance this batch) or
 to whichever cell inherits the ATB packet, not decided here.
 
 Note for whoever takes it: because these three documents are `withheld`, no
-currency label of theirs is published in a metric today, so the packet has no
+currency label of theirs reaches a published METRIC today, so the packet has no
 pinned-movement risk from this family — but the pinned currency surface is
 109/109 and this family is not in it, so the census for the packet is exactly
 these five.
+
+**And the label is live in the payload even so — this is TG9's precondition,
+not a separate note.** `statement.currency == "USD"` is in the analysis payload
+of all three documents right now; only the `withheld_adb` outcome keeps the
+denominated figure off a screen. So the accrual seam at TG9 and this ruling are
+ONE question in two halves: relaxing the withhold without deciding the currency
+publishes `Average Daily Balance: $x USD` for a Toronto personal account, which
+CURRENCY_DOCTRINE §D would then render as the single canonical denominated
+metric. **Ocean's ruling: the currency stays the schema default on this branch,
+TG9 + TG10 are escalated to Gustavo as one bundled doctrine question, and no
+seam that publishes a USD-labelled Canadian ADB is merged.** See TG9.1.
 
 ## TG11. Findings and questions for Ocean
 
@@ -36006,30 +36126,51 @@ verified against four independent oracles, and stored; what is withheld is one
 metric, for one stated reason, which is the platform behaving exactly as
 designed.
 
+**6. DETECT-BUDGET cannot gate registry growth (batch-8 card:
+DETECT-BUDGET-GATE).** Measured at TG12.1 rather than argued: the assertion is
+`worst * 80 / len(registrations)`, `worst` is ~99% registry-independent
+first-touch cost, so the projected figure FALLS with every registration added.
+The gate that exists to keep routing cheap as the registry grows gets easier
+the more it grows. `tests/test_parser_parity.py` is the platform's, and the
+fix changes a stop-the-line contract, so this is named rather than touched.
+
+**7. The two things this cell learned that generalise past this family.** A
+docstring is tracked source and the privacy rule applies to it exactly as it
+applies to a test fixture (TG14.1) — the useful form of the rule is not "do
+not paste archive content" but "build the literal set and grep the diff", and
+that instrument is twenty lines and reusable by any scanned card. And
+`str.isdigit()` is not `int()`'s domain (TG14.2): any parser reading a digit
+out of scanned text with `isdigit` has the same latent `ValueError`. Both are
+worth a sentence in whatever brief batch 8's scanned cells get.
+
 ## TG12. Proofs, with verbatim exit codes
 
-Every exit code below is the verbatim value of the runner's own
-`EXIT=`/`$?` terminator, read from a durable log.
+Every exit code below is the verbatim value of a runner's own `EXIT=`
+terminator, read from a durable log. **MINOR-3 closed:** the first revision
+quoted the suite and the budget numbers from a terminal, with no log to point
+at; every row now names the log that produced it, and the review-closure round
+re-ran the whole floor into `floor2.log`.
 
-| # | proof | result | exit |
-|---|---|---|---|
-| 0 | full default suite, `python -m pytest -q` | **5,437 passed**, 35 skipped, 33 deselected (base 5,374 + 49 this cell + 14 the new registration adds to the enumerated sets). Run twice: 481.41s at the tests commit under load, **276.83s re-run at this branch's final HEAD on an idle host**, same counts | **0** |
-| 1 | canonical guards — `test_no_statement_hardcodes` `test_no_parser_helper_clones` `test_r1_hardcodes` `test_experiments_are_not_wired` `test_filename_boundary` | **242 passed** (unchanged at registry 75) | **0** |
-| 2 | canonical conformance — `test_parser_conformance` `test_parser_registry_entries` `test_parser_detection_markers` `test_parser_registry` `test_parser_crash_shapes` `test_parser_exception_boundary` `test_count_semantics` | **1,164 passed**, 35 skipped (1,151 at 74 x 73 → 1,164 at **75 x 74**; the pins moved in the registration's own commit) | **0** |
-| 3 | this cell's file, `tests/test_eq_bank_scanned.py` | **49 passed** | **0** |
-| 4 | `python corpus_gate.py` | **GREEN** — 106 PASS / 3 WITHHELD; verdicts **102 validated / 4 review / 3 withheld**; currency **109/109 = 14 CAD / 95 USD**; 0 exclusions; 1,740.6s | **0** |
-| 5 | corpus-marked slice, first run (see TG12.1) | 28 passed, **1 failed** — the detect-sweep budget, read while four archive-sweep chunks saturated this machine | **1** |
-| 6 | corpus-marked slice, re-run on an idle host | **29 passed**, 5,476 deselected, 2,353.37s — the budget test among them | **0** |
-| 7 | detection sweep, all 3,380 distinct archive documents (TG8.1) | 3,351 swept / 29 without a usable artifact; **5 claims, sole claimant on each; 0 new ambiguities**; 398.4s | **0** |
-| 8 | committed archive instrument, 4 chunks (TG8.2) | **moved 0 · payload_now_raises 0 · no_payload_now_publishes 3**, all named | 0/1/1/0 |
-| 9 | mutation harness, 25 mutants x the cell's file, run twice (TG6) | run 1 **15/25 killed**; run 2 **20/25 killed**; tree `git status`-clean after each | **0** |
+**Round 1** is the branch as first submitted; **round 2** is the same floor
+re-run after the review closures (BLOCK-1 docstring, MAJOR-1 `isdecimal`, the
+test file's invented month and figures).
 
-Rows 0, 1, 2 and 3 were re-run at this branch's FINAL head, after the docs
-commit, with an identical result and a clean tree; rows 4-8 were measured at
-the tests commit, which is the same production tree (the docs commit touches
-no code).
+| # | proof | round 1 | round 2 (closures) | exit | log |
+|---|---|---|---|---|---|
+| 0 | full default suite | 5,437 passed · 35 skipped · 33 deselected | **5,439 passed** · 35 skipped · 33 deselected · 189.45s (+2: the superscript pair) | **0** | `floor2.log` |
+| 1 | canonical guards (5 files) | 242 passed | **242 passed** · 15.70s (unchanged at registry 75) | **0** | `floor2.log` |
+| 2 | canonical conformance (7 files) | 1,164 passed · 35 skipped | **1,164 passed** · 35 skipped · 4.31s — 1,151 at 74x73 → **1,164 at 75x74**; pins in the registration's own commit | **0** | `floor2.log` |
+| 3 | `tests/test_eq_bank_scanned.py` | 49 passed | **51 passed** · 0.27s | **0** | `floor2.log` |
+| 4 | family replay of the five, this tree | 3 withheld / 2 declined | **identical** — 3 `withheld/withheld_adb` (66/21, 77/22, 26/15 txns/snapshots; `adb: null`; `flags: []`; `corporate_use: approved`; `currency: "USD"` the schema default) and 2 `failed/parser_declined` with `attempted=('eq_bank_scanned',)` | **0** | `floor2.log` |
+| 5 | `python corpus_gate.py` | GREEN — 106 PASS / 3 WITHHELD; verdicts **102 / 4 / 3**; currency **109/109 = 14 CAD / 95 USD**; 1,740.6s | **GREEN** — 106 PASS / 3 WITHHELD; verdicts **102 / 4 / 3**; currency **109/109 = 14 CAD / 95 USD**; 596.0s | **0** | `corpus.log` / `corpus2.log` |
+| 6 | corpus-marked slice | run A 28 passed **1 failed** (budget, under load, exit 1); run B **29 passed** · 2,353.37s | **29 passed** · 5,478 deselected · 1,710.58s (the budget test among them) | **0** | `corpus.log` / `slice2.log` / `corpus2.log` |
+| 7 | detection sweep, all 3,380 distinct archive documents (TG8.1) | 3,351 swept / 29 without a usable artifact; **5 claims, sole claimant on each; 0 new ambiguities**; 398.4s | detection is unchanged by the closures — no marker moved, and `tests/test_parser_conformance.py`'s 75x74 cross-product re-pins it every run | **0** | `detect_sweep.log` |
+| 8 | committed archive instrument, 4 chunks (TG8.2) | **moved 0 · payload_now_raises 0 · no_payload_now_publishes 3**, all named | unchanged: the closures touch a docstring, a day-token character class that no archive document of this family exercises, and tests — proven by row 4's identical payloads | 0/1/1/0 | `archive_sweep.log` |
+| 9 | mutation harness (TG6) | run 1 15/25 · run 2 20/25 | **run 3: 21 of 26 killed**, M26 added by review; tree `git status`-clean after each | **0** | `mutation_run3.log` |
+| 10 | BLOCK-1 archive-literal scan (TG0) | — | 760 literals from all five documents vs the whole branch diff: **FOUND 0** | **0** | `leakscan` |
+| 11 | zero claims over the 109 pinned corpus documents | — | **0 of 109** — so a change confined to this parse function cannot move the gate | **0** | `corpus_claims.log` |
 
-### TG12.1 The one red reading, and why it is not this branch
+### TG12.1 The one red reading, and what re-measuring it actually showed
 
 `test_detect_sweep_stays_affordable_for_the_discovery_run` (the batch-4
 DETECT-BUDGET contract) read
@@ -36039,52 +36180,158 @@ slowest full-registry detect sweep was 402.2 ms over 75 registrations
 (BofA/BofA.pdf), which projects to 429.0 ms at 80 - the budget is 250 ms
 ```
 
-It was read while this cell's own four archive-sweep chunks were running, and
-the slice took 6,008s against the ~20 minutes its own docstring quotes — a 3x
-wall-clock inflation. The test's docstring already records this exact failure
-mode: *"Three cells of the batch-4 wave read this test red on an unmodified
-base while ten agents shared the machine."*
+while this cell's own four archive-sweep chunks were saturating the machine —
+the slice took 6,008s against the ~20 minutes its own docstring quotes. The
+test's docstring already records this exact failure mode: *"Three cells of the
+batch-4 wave read this test red on an unmodified base while ten agents shared
+the machine."* On an idle host it passes alone (**1 passed, 97.62s, exit 0**)
+and inside the whole slice (**29 passed, 2,353.37s, exit 0**).
 
-That is an explanation, not a proof, so the branch was measured against it two
-independent ways on an idle host (harness in the session scratchpad; read-only,
-the registry is popped in memory and restored in a `finally`):
+**The mechanism, corrected (MINOR-2).** The first revision explained the
+reading by timing each registration's `safe_detect` over an ALREADY-PREPARED
+document — which excludes the very pass it was blaming. Re-measured properly,
+with the 75- and 74-registration arms **alternated sample by sample inside the
+same loop** so drift falls on both equally, and with `_surviving_claimants`
+(which prepares the text itself) as the timed unit:
 
-**(a) The differential — the same quantity the test measures, with and without
-this branch's registration:**
+| arm | worst | projected at 80 | median document | verdict |
+|---|---:|---:|---:|---|
+| **75** — with this registration | 101.2 ms | **108.0 ms** | 16.87 ms | PASS |
+| **74** — with it popped out in memory | 77.0 ms | **83.3 ms** | 16.72 ms | PASS |
 
-| registry | worst document | worst | projected at 80 | verdict |
-|---|---|---:|---:|---|
-| **75** (this branch) | an Altana statement | 121.2 ms | **129.3 ms** | PASS |
-| **74** (this registration popped out in memory) | a different Altana statement | 136.9 ms | **148.0 ms** | PASS |
+marginal cost of this registration: **median +0.123 ms / mean +0.355 ms per
+document** — and review's independent alternated run measured **−0.69 ms**.
+*The sign flips between runs*, which is the finding: the marginal is below the
+noise floor. Decomposing one sweep of the worst document:
 
-Both pass with room, and the reading WITHOUT this registration is the HIGHER
-of the two — run-to-run variance on this measurement is larger than anything
-this branch contributes.
+```
+whole sweep                                 101.2 ms
+text preparation alone (steady state)         0.7 ms
+ALL 75 detectors over the prepared text       0.48 ms
+this registration alone                       5.8 us   (median 5.8 us)
+```
 
-**(b) Why that is structural rather than lucky.** `_surviving_claimants`
-prepares the document's text ONCE and then runs each registration's
-`safe_detect` over the prepared document, so the sweep's cost is dominated by
-a per-document preparation that does not scale with the registry at all. On
-the worst document, the sum of ALL 75 registrations' detect cost is **0.54 ms**
-against a 121.2 ms sweep. This registration's own share is **5.0 µs — rank 54
-of 75, below the 7.8 µs median.** Because the test divides the sweep by
-`len(registrations)`, adding an average registration to a fixed cost
-mathematically LOWERS the projected figure.
+So ~99% of the reading is neither the registry nor the steady-state
+preparation; it is first-touch cost on whichever document happens to be hit
+cold, which is also why the "worst document" is a different document on almost
+every run (three different ones across four measurements here).
 
-**(c) And then the test itself, on the idle host.** Run alone:
-`1 passed in 97.62s`, exit **0**. Run inside the whole corpus-marked slice:
-`29 passed, 5,476 deselected in 2,353.37s`, exit **0** — the slice's own
-runtime back down from 6,008s to 2,353s, which is the load the first reading
-was measuring.
+**The structural defect this exposes, named (batch-8 card: DETECT-BUDGET-GATE).**
+The assertion is
 
-The detect-sweep budget is therefore HELD at registry 75, and the red reading
-is recorded here rather than quietly re-run: a stop-the-line gate that goes
-red deserves a measurement, not an assurance.
+```python
+projected = worst * PLANNED_REGISTRATIONS / len(registrations)
+assert projected < SWEEP_BUDGET_SECONDS
+```
+
+`worst` is ~99% registry-independent, so dividing it by `len(registrations)`
+means **the projection FALLS as the registry grows**: every registration added
+makes DETECT-BUDGET easier to pass. It cannot gate registry growth, which is
+the one thing its name and its RFC-risk-7 provenance say it is for. What it
+does still gate is a single pathological detector — and that it catches by
+inflating `worst`, not by the division. Fixing it is not this cell's
+(`tests/test_parser_parity.py` belongs to the platform, and the fix changes a
+stop-the-line contract), so it is measured, named, and carded.
+
+The detect-sweep budget is HELD at registry 75 on the measurement, and the red
+reading is recorded here rather than quietly re-run: a stop-the-line gate that
+goes red deserves a measurement, not an assurance.
 
 ## TG13. Commits
 
 | commit | what |
 |---|---|
 | `eb5d242` | the registration — `analysis/eq_bank_scanned.py`, the registry row, and the pins in the SAME commit (`test_parser_conformance` count + the 75 x 74 = 5,550 cross-product docstring, `test_parser_registry_entries` order list + count, the conformance fixture) |
-| `ed43f2e` | `tests/test_eq_bank_scanned.py` — 49 tests over invented fixtures, including the five gates the first mutation run proved untested |
-| this commit | this section |
+| `ed43f2e` | `tests/test_eq_bank_scanned.py` — the gate tests, including the five the first mutation run proved untested |
+| `8bc457d` | W3 §TANGERINE (TG0–TG13) |
+| `f719435` | the proof table records the final-HEAD re-run |
+| this commit | **the review closures** — BLOCK-1, MAJOR-1, MAJOR-2 and MINOR-1..6 (TG14) |
+
+## TG14. Review closures — 1 BLOCK, 2 MAJOR, 6 MINOR, all closed
+
+The independent adversarial review reproduced everything in this section and
+went further than it: it extended the accrual identity to **5/5** (including
+the two documents this reader declines, whose ledgers it read independently of
+the date gate), fuzzed the five derivation-redundant mutation survivors over
+**6,000 documents at 0 divergences**, probed **1,102 documents** — all 179
+scanned plus all 621 Canadian — and found **5 sole claims**, and re-measured
+the detect budget with its own alternated differential. The parser held. What
+follows is what did not.
+
+### TG14.1 BLOCK-1 — archive content in tracked source
+
+**The finding.** `analysis/eq_bank_scanned.py` illustrated "the printed shape"
+with a four-line summary block that was **verbatim the printed summary of one
+archive document** — a named private individual's personal account. TG0's
+privacy paragraph claimed coverage for this log and for the tests and said
+nothing about the module, so the paragraph was true and the branch was not.
+
+**Why it is a BLOCK and not a nit.** `webapp_data/` is gitignored *by design*
+and `tests/test_parser_crash_shapes.py` states the norm in as many words: no
+archive content is reproduced anywhere in this repository. A docstring is
+tracked source; it ships, it is read by everyone who opens the module, and the
+four figures together are a fingerprint of one person's month.
+
+**Closed.** The figures are invented (and are the same invented figures the
+tests use, so the module and its tests illustrate one document). The tests'
+statement month is now deliberately one no archive document of this family
+prints, which removes the date collisions too. TG0 now covers the module
+explicitly. And the claim is enforced by measurement rather than by care: 760
+literals built from all five documents' cached OCR text — 692 money figures,
+3 account/long-digit runs, 2 phone numbers, 1 postal code, 10 full dates, 50
+counterparty and holder name tokens, 2 street lines — each grepped against the
+whole branch diff. **FOUND: 0.**
+
+Two honest notes on the instrument. It is a SUBSTRING test, so before the fix
+it also reported sixteen ROUND amounts — the two-and-three-significant-digit
+kind that a 330-row ledger and any invented fixture will share by coincidence,
+and which are not quoted here for the reason this whole paragraph exists; the
+fix removed those too
+by choosing distinctive invented figures, so the 0 is a clean 0 and needs no
+argument about which hits "count". And `Interac e-Transfer` survives in the
+module and tests deliberately: it is a national payment rail printed on
+millions of statements and it is the evidence for the no-vocabulary argument,
+not a fact about this account.
+
+### TG14.2 MAJOR-1 — a crash surface in the day reader
+
+Closed at TG6.0 and M26. `str.isdigit()` is True for U+00B9/B2/B3 and `int()`
+rejects them: a day rendered as a superscript raised `ValueError` out of the
+parser. `isdecimal()` is exactly `int()`'s domain, so the conversion is total
+and the token simply becomes illegible — a refusal this function already makes
+five other ways. Two tests; the mutant is killed by both.
+
+### TG14.3 MAJOR-2 — TG9 and TG10 are one question, not two
+
+Closed at TG9.1, TG9.2, TG9.3 and TG10. The first draft presented the accrual
+seam and the currency as independent findings; they are sequenced, because the
+`withheld` outcome is the only thing keeping a USD label off a Toronto personal
+account's ADB. Ocean's ruling is recorded in both places: the currency stays
+the schema default on this branch, TG9 + TG10 go to Gustavo as ONE bundled
+doctrine question, and no seam publishing a USD-labelled Canadian ADB is
+merged. Review's four safe-shape conditions for the seam are recorded at TG9.2,
+and TG9.3 records what this reader does NOT check — a `period_end + 1` row that
+is not an accrual at all (a debit, an unrelated credit) parses with no flag and
+is contained only by `adb.py`.
+
+### TG14.4 The six MINORs
+
+| # | finding | closed |
+|---|---|---|
+| MINOR-1 | TG7's movers table gave the wrong bounds ("three days apart"/"two days apart") against TG7.1's measured ones | TG7 now reads **two days apart → three candidates** and **one day apart → two candidates each**, matching TG7.1 and the measurement |
+| MINOR-2 | TG12.1's mechanism timed detection over an already-prepared document, excluding the pass it blamed | TG12.1 rewritten around an **alternated fresh-`prepare` differential**; the marginal cost is below the noise floor (sign flips between runs) and the structural defect is named: the budget assertion divides a registry-independent cost by the registry size, so it gets EASIER with every registration. Batch-8 card **DETECT-BUDGET-GATE** |
+| MINOR-3 | no durable log behind the suite or the budget numbers | every TG12 row now names its log; the whole floor re-run into `floor2.log`, the budget into `budget2.log`, the mutants into `mutation_run3.log` |
+| MINOR-4 | TG6.2 said `date(2026, 4, 44)` "raises before the bound is consulted" | corrected: it raises INSIDE `iso_unique_in_period`, which catches it and RETURNS None. The bound is redundant with a refusal, not with a raise — nothing raises here |
+| MINOR-5 | `_resolve_dates` §3 over-claimed what monotonicity catches | the docstring now states the residual: a wrong day that still lands BETWEEN its neighbours is published silently, and nothing in the document contradicts it — a limit of the evidence, not of the reader |
+| MINOR-6 | the module docstring said a header "two pages disagree about" refuses | corrected: `_sole` compares MATCHES, so it refuses contradiction and not illegibility — a header garbled below the pattern is invisible and the good reading is taken |
+
+### TG14.5 What did not change
+
+No detection marker moved, so the family population is untouched and
+`tests/test_parser_conformance.py`'s 75 x 74 cross-product re-pins it on every
+run. The family replay at the closure tree is IDENTICAL to the one at TG7 —
+the same three `withheld/withheld_adb` with the same transaction and snapshot
+counts, `flags: []` and `corporate_use: approved`, and the same two
+`failed/parser_declined`. And `eq_bank_scanned` claims **0 of the 109 pinned
+corpus documents**, measured, so a change confined to its parse function cannot
+move the corpus gate.

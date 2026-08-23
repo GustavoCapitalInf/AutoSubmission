@@ -8,8 +8,13 @@ direction can be invented; it turns some day numbers into a stray glyph so a
 posting date can be invented; and it can drop a row outright, which no total
 this template prints would notice, because it prints no counts at all.
 
-Every fixture here is INVENTED. No archive figure, name, account or date
-appears in this file.
+EVERY FIGURE, NAME, ACCOUNT NUMBER AND DATE IN THIS FILE IS INVENTED, and the
+statement month is deliberately one that no archive document of this family
+prints. `webapp_data/` is gitignored by design and no archive content is
+reproduced anywhere in this repository (`tests/test_parser_crash_shapes.py`
+states the norm); a scan over every printed money figure, name token, account
+number and date in the five archive documents finds none of them anywhere in
+this branch's diff.
 """
 from __future__ import annotations
 
@@ -24,29 +29,29 @@ from analysis.eq_bank_scanned import (
     parse_eq_bank_scanned_statement,
 )
 
-TITLE = "April 2026 Statement"
-HEADER = "Jordan Halloway Account # 900-111-222 April 1, 2026 to April 30, 2026"
+TITLE = "September 2026 Statement"
+HEADER = "Jordan Halloway Account # 840-227-593 September 1, 2026 to September 30, 2026"
 ADDRESS = "Jordan Halloway\n14 Sample Lane\nPlaceholder, ON X0X 0X0\n"
 SUMMARY = (
     "Your activity summary\n"
     "Questions?\n"
-    "Opening balance $1,000.00 Toll Free (within North America) 1-800-000-0000\n"
-    "Total deposits + $700.00 Outside of North America 1-000-000-0000\n"
-    "Total withdrawals - $250.00 Other contact options eqbank.ca/contact-us\n"
-    "Closing balance = $1,450.00 Total interest earned $1.00\n"
+    "Opening balance $1,037.41 Toll Free (within North America) 1-800-000-0000\n"
+    "Total deposits + $713.26 Outside of North America 1-000-000-0000\n"
+    "Total withdrawals - $268.13 Other contact options eqbank.ca/contact-us\n"
+    "Closing balance = $1,482.54 Total interest earned $1.07\n"
 )
 COLUMN_HEAD = "Date Description Withdrawals Deposits Balance"
 FOOTER = "Sample Tower. 1 Sample Street. Toronto, ON X0X 0X0 Page {n} of {total}"
-COPYRIGHT = "© 2026 Sample Bank. All rights reserved"
+COPYRIGHT = "(c) 2026 Sample Bank. All rights reserved"
 
-#: `1,000.00 + 700.00 - 250.00 == 1,450.00`, and the walk reproduces it.
+#: `1,037.41 + 713.26 - 268.13 == 1,482.54`, and the walk reproduces it.
 #: The last row is the following cycle's interest credit, dated the day after
 #: the period ends — which is where this template prints it.
 ROWS = (
-    "Apr 2 Inbound transfer $500.00 $1,500.00\n"
-    "Apr 3 Card Load - $250.00 $1,250.00\n"
-    "Apr 5 Inbound transfer $199.00 $1,449.00\n"
-    "May 1 Interest received $1.00 $1,450.00\n"
+    "Sep 2 Inbound transfer $531.62 $1,569.03\n"
+    "Sep 3 Card Load - $268.13 $1,300.90\n"
+    "Sep 5 Inbound transfer $180.57 $1,481.47\n"
+    "Oct 1 Interest received $1.07 $1,482.54\n"
 )
 
 
@@ -108,16 +113,16 @@ def test_the_whole_statement_publishes_what_the_bank_printed():
     assert stmt is not None
     assert stmt.bank == "EQ Bank"
     assert stmt.account_name == "Jordan Halloway"
-    assert stmt.account_number == "900-111-222"
-    assert (stmt.period_start, stmt.period_end) == ("2026-04-01", "2026-04-30")
-    assert (stmt.beginning_balance, stmt.ending_balance) == (1000.00, 1450.00)
-    assert (stmt.stated_total_credits, stmt.stated_total_debits) == (700.00, 250.00)
-    assert stmt.stated_interest_paid == 1.00
+    assert stmt.account_number == "840-227-593"
+    assert (stmt.period_start, stmt.period_end) == ("2026-09-01", "2026-09-30")
+    assert (stmt.beginning_balance, stmt.ending_balance) == (1037.41, 1482.54)
+    assert (stmt.stated_total_credits, stmt.stated_total_debits) == (713.26, 268.13)
+    assert stmt.stated_interest_paid == 1.07
     assert [(t.date, t.amount, t.direction, t.running_balance) for t in stmt.transactions] == [
-        ("2026-04-02", 500.00, "credit", 1500.00),
-        ("2026-04-03", -250.00, "debit", 1250.00),
-        ("2026-04-05", 199.00, "credit", 1449.00),
-        ("2026-05-01", 1.00, "credit", 1450.00),
+        ("2026-09-02", 531.62, "credit", 1569.03),
+        ("2026-09-03", -268.13, "debit", 1300.90),
+        ("2026-09-05", 180.57, "credit", 1481.47),
+        ("2026-10-01", 1.07, "credit", 1482.54),
     ]
 
 
@@ -145,23 +150,23 @@ def test_the_day_after_the_period_is_not_a_daily_snapshot_of_the_period():
     snapshot, and a balance dated after the period is not a balance of it."""
     stmt = parsed()
     assert [(s.date, s.balance) for s in stmt.stated_daily_balances] == [
-        ("2026-04-02", 1500.00),
-        ("2026-04-03", 1250.00),
-        ("2026-04-05", 1449.00),
+        ("2026-09-02", 1569.03),
+        ("2026-09-03", 1300.90),
+        ("2026-09-05", 1481.47),
     ]
 
 
 def test_a_days_snapshot_is_the_balance_on_its_last_printed_row():
     rows = (
-        "Apr 2 Inbound transfer $500.00 $1,500.00\n"
-        "Apr 2 Card Load - $250.00 $1,250.00\n"
-        "Apr 5 Inbound transfer $199.00 $1,449.00\n"
-        "May 1 Interest received $1.00 $1,450.00\n"
+        "Sep 2 Inbound transfer $531.62 $1,569.03\n"
+        "Sep 2 Card Load - $268.13 $1,300.90\n"
+        "Sep 5 Inbound transfer $180.57 $1,481.47\n"
+        "Oct 1 Interest received $1.07 $1,482.54\n"
     )
     stmt = parsed(rows)
     assert [(s.date, s.balance) for s in stmt.stated_daily_balances] == [
-        ("2026-04-02", 1250.00),
-        ("2026-04-05", 1449.00),
+        ("2026-09-02", 1300.90),
+        ("2026-09-05", 1481.47),
     ]
 
 
@@ -172,15 +177,15 @@ def test_a_credit_the_description_calls_a_transfer_sent_is_published_as_a_credit
     """The reversal row this family actually prints. A description vocabulary
     would get it exactly backwards; the two printed balances do not."""
     rows = (
-        "Apr 2 Inbound transfer $500.00 $1,500.00\n"
-        "Apr 3 Interac e-Transfer sent to es Someone - $250.00 $1,250.00\n"
-        "Apr 3 Interac e-Transfer sent to es Someone $250.00 $1,500.00\n"
-        "Apr 5 Card Load - $51.00 $1,449.00\n"
-        "May 1 Interest received $1.00 $1,450.00\n"
+        "Sep 2 Inbound transfer $531.62 $1,569.03\n"
+        "Sep 3 Interac e-Transfer sent to es Someone - $268.13 $1,300.90\n"
+        "Sep 3 Interac e-Transfer sent to es Someone $268.13 $1,569.03\n"
+        "Sep 5 Card Load - $87.56 $1,481.47\n"
+        "Oct 1 Interest received $1.07 $1,482.54\n"
     )
     stmt = parsed(rows, summary=ADDRESS + SUMMARY.replace(
-        "Total deposits + $700.00", "Total deposits + $751.00"
-    ).replace("Total withdrawals - $250.00", "Total withdrawals - $301.00"))
+        "Total deposits + $713.26", "Total deposits + $800.82"
+    ).replace("Total withdrawals - $268.13", "Total withdrawals - $355.69"))
     assert stmt is not None
     assert [t.direction for t in stmt.transactions] == [
         "credit", "debit", "credit", "debit", "credit"
@@ -188,17 +193,17 @@ def test_a_credit_the_description_calls_a_transfer_sent_is_published_as_a_credit
 
 
 def test_an_amount_that_is_not_the_step_between_two_printed_balances_refuses():
-    assert parsed(ROWS.replace("$500.00 $1,500.00", "$400.00 $1,500.00")) is None
+    assert parsed(ROWS.replace("$531.62 $1,569.03", "$431.62 $1,569.03")) is None
 
 
 def test_a_row_that_moves_no_money_refuses():
     """A zero step is a row the printed balances do not account for."""
     rows = (
-        "Apr 2 Inbound transfer $500.00 $1,500.00\n"
-        "Apr 3 Card Load - $250.00 $1,250.00\n"
-        "Apr 4 Adjustment $0.00 $1,250.00\n"
-        "Apr 5 Inbound transfer $199.00 $1,449.00\n"
-        "May 1 Interest received $1.00 $1,450.00\n"
+        "Sep 2 Inbound transfer $531.62 $1,569.03\n"
+        "Sep 3 Card Load - $268.13 $1,300.90\n"
+        "Sep 4 Adjustment $0.00 $1,300.90\n"
+        "Sep 5 Inbound transfer $180.57 $1,481.47\n"
+        "Oct 1 Interest received $1.07 $1,482.54\n"
     )
     assert parsed(rows) is None
 
@@ -207,18 +212,18 @@ def test_a_dropped_row_refuses_even_though_this_template_prints_no_counts():
     """The complete-coverage oracle. Delete the middle row and every remaining
     row is still internally consistent; the walk is what notices."""
     rows = (
-        "Apr 2 Inbound transfer $500.00 $1,500.00\n"
-        "Apr 5 Inbound transfer $199.00 $1,449.00\n"
-        "May 1 Interest received $1.00 $1,450.00\n"
+        "Sep 2 Inbound transfer $531.62 $1,569.03\n"
+        "Sep 5 Inbound transfer $180.57 $1,481.47\n"
+        "Oct 1 Interest received $1.07 $1,482.54\n"
     )
     assert parsed(rows) is None
 
 
 def test_a_row_dropped_from_the_end_refuses():
     rows = (
-        "Apr 2 Inbound transfer $500.00 $1,500.00\n"
-        "Apr 3 Card Load - $250.00 $1,250.00\n"
-        "Apr 5 Inbound transfer $199.00 $1,449.00\n"
+        "Sep 2 Inbound transfer $531.62 $1,569.03\n"
+        "Sep 3 Card Load - $268.13 $1,300.90\n"
+        "Sep 5 Inbound transfer $180.57 $1,481.47\n"
     )
     assert parsed(rows) is None
 
@@ -227,13 +232,13 @@ def test_a_printed_minus_the_arithmetic_contradicts_refuses():
     """The glyph and the two balances are two readings of one fact. Where they
     disagree the document is not readable with confidence."""
     assert parsed(ROWS.replace(
-        "Apr 5 Inbound transfer $199.00", "Apr 5 Inbound transfer - $199.00"
+        "Sep 5 Inbound transfer $180.57", "Sep 5 Inbound transfer - $180.57"
     )) is None
 
 
 def test_a_minus_the_scan_dropped_refuses_rather_than_inverting_a_row():
     assert parsed(ROWS.replace(
-        "Apr 3 Card Load - $250.00", "Apr 3 Card Load $250.00"
+        "Sep 3 Card Load - $268.13", "Sep 3 Card Load $268.13"
     )) is None
 
 
@@ -242,19 +247,19 @@ def test_a_minus_the_scan_dropped_refuses_rather_than_inverting_a_row():
 
 def test_a_summary_whose_own_identity_does_not_close_refuses():
     assert parsed(summary=ADDRESS + SUMMARY.replace(
-        "Closing balance = $1,450.00", "Closing balance = $1,451.00"
+        "Closing balance = $1,482.54", "Closing balance = $1,482.55"
     )) is None
 
 
 def test_a_summary_term_printed_twice_with_two_values_refuses():
     """A continuation page reprinting the summary, a two-account document, an
     OCR duplication: one reading published under another's heading."""
-    doubled = ADDRESS + SUMMARY + "Opening balance $2,000.00\n"
+    doubled = ADDRESS + SUMMARY + "Opening balance $2,031.88\n"
     assert parsed(summary=doubled) is None
 
 
 def test_a_summary_term_printed_twice_with_the_same_value_is_corroboration():
-    doubled = ADDRESS + SUMMARY + "Opening balance $1,000.00\n"
+    doubled = ADDRESS + SUMMARY + "Opening balance $1,037.41\n"
     assert parsed(summary=doubled) is not None
 
 
@@ -265,8 +270,8 @@ def test_two_grids_whose_totals_the_bank_denies_refuse():
     standing between a short grid and a published statement whose stated
     totals it does not fill."""
     assert parsed(summary=ADDRESS + SUMMARY.replace(
-        "Total deposits + $700.00", "Total deposits + $800.00"
-    ).replace("Total withdrawals - $250.00", "Total withdrawals - $350.00")) is None
+        "Total deposits + $713.26", "Total deposits + $813.26"
+    ).replace("Total withdrawals - $268.13", "Total withdrawals - $368.13")) is None
 
 
 def test_a_statement_with_no_ledger_at_all_is_not_a_statement():
@@ -281,28 +286,28 @@ def test_a_statement_with_no_ledger_at_all_is_not_a_statement():
 
 def test_two_pages_that_disagree_about_the_account_refuse():
     first = page(
-        "Apr 2 Inbound transfer $500.00 $1,500.00\n",
+        "Sep 2 Inbound transfer $531.62 $1,569.03\n",
         number=1, total=2, summary=ADDRESS + SUMMARY,
     )
     second = page(
-        "Apr 3 Card Load - $250.00 $1,250.00\n"
-        "Apr 5 Inbound transfer $199.00 $1,449.00\n"
-        "May 1 Interest received $1.00 $1,450.00\n",
+        "Sep 3 Card Load - $268.13 $1,300.90\n"
+        "Sep 5 Inbound transfer $180.57 $1,481.47\n"
+        "Oct 1 Interest received $1.07 $1,482.54\n",
         number=2, total=2,
-        header=HEADER.replace("900-111-222", "900-111-333"),
+        header=HEADER.replace("840-227-593", "840-227-664"),
     )
     assert parse_eq_bank_scanned_statement(first + second) is None
 
 
 def test_two_pages_that_agree_are_one_statement():
     first = page(
-        "Apr 2 Inbound transfer $500.00 $1,500.00\n",
+        "Sep 2 Inbound transfer $531.62 $1,569.03\n",
         number=1, total=2, summary=ADDRESS + SUMMARY,
     )
     second = page(
-        "Apr 3 Card Load - $250.00 $1,250.00\n"
-        "Apr 5 Inbound transfer $199.00 $1,449.00\n"
-        "May 1 Interest received $1.00 $1,450.00\n",
+        "Sep 3 Card Load - $268.13 $1,300.90\n"
+        "Sep 5 Inbound transfer $180.57 $1,481.47\n"
+        "Oct 1 Interest received $1.07 $1,482.54\n",
         number=2, total=2,
     )
     stmt = parse_eq_bank_scanned_statement(first + second)
@@ -312,12 +317,12 @@ def test_two_pages_that_agree_are_one_statement():
 def test_a_title_that_contradicts_the_printed_period_refuses():
     """A mis-scanned period date is exactly how a statement acquires a month
     it does not belong to; the title is the second printing that catches it."""
-    assert parsed(title="March 2026 Statement") is None
+    assert parsed(title="August 2026 Statement") is None
 
 
 def test_a_period_that_ends_before_it_starts_refuses():
     assert parsed(
-        header="Jordan Halloway Account # 900-111-222 April 30, 2026 to April 1, 2026"
+        header="Jordan Halloway Account # 840-227-593 September 30, 2026 to September 1, 2026"
     ) is None
 
 
@@ -329,8 +334,8 @@ def test_a_line_inside_the_ledger_that_is_not_a_row_refuses():
     may be incomplete, and a partial grid published as a whole one is the
     failure this refuses."""
     rows = ROWS.replace(
-        "Apr 3 Card Load - $250.00 $1,250.00\n",
-        "Apr 3 Card Load - $250.00 $1,250.00\nApr 4 Card Load - $ai.00 $1,240.00\n",
+        "Sep 3 Card Load - $268.13 $1,300.90\n",
+        "Sep 3 Card Load - $268.13 $1,300.90\nSep 4 Card Load - $ai.00 $1,290.90\n",
     )
     assert parsed(rows) is None
 
@@ -343,85 +348,85 @@ def test_a_page_whose_footer_declaration_is_illegible_refuses():
 def test_a_row_shaped_line_above_the_column_head_is_not_a_transaction():
     """Region scoping. Without it the stray line becomes a row and the walk,
     correctly, then refuses the whole document."""
-    stmt = parsed(before_head="Apr 1 Previous cycle summary $9,999.00 $9,999.00")
+    stmt = parsed(before_head="Sep 1 Previous cycle summary $4,321.09 $4,321.09")
     assert stmt is not None and len(stmt.transactions) == 4
 
 
 def test_rows_are_read_from_every_page_and_only_from_its_own_region():
     rows = _read_rows(
-        page("Apr 2 Inbound transfer $500.00 $1,500.00\n", number=1, total=2)
-        + page("Apr 3 Card Load - $250.00 $1,250.00\n", number=2, total=2)
+        page("Sep 2 Inbound transfer $531.62 $1,569.03\n", number=1, total=2)
+        + page("Sep 3 Card Load - $268.13 $1,300.90\n", number=2, total=2)
     )
     assert [row.day_token for row in rows] == ["2", "3"]
 
 
 # --- the posting date -------------------------------------------------------
 
-APRIL = dict(period_start=date(2026, 4, 1), period_end=date(2026, 4, 30))
+SEPTEMBER = dict(period_start=date(2026, 9, 1), period_end=date(2026, 9, 30))
 
 
 def resolve(rows: str):
     parsed_rows = _read_rows(page(rows))
     assert parsed_rows is not None
-    return _resolve_dates(parsed_rows, **APRIL)
+    return _resolve_dates(parsed_rows, **SEPTEMBER)
 
 
 def test_the_year_comes_from_the_printed_period_and_nowhere_else():
-    assert resolve("Apr 2 Inbound transfer $500.00 $1,500.00\n") == [date(2026, 4, 2)]
+    assert resolve("Sep 2 Inbound transfer $531.62 $1,569.03\n") == [date(2026, 9, 2)]
 
 
 def test_the_following_cycles_opening_credit_is_dated_the_day_the_bank_dated_it():
-    assert resolve("May 1 Interest received $1.00 $1,450.00\n") == [date(2026, 5, 1)]
+    assert resolve("Oct 1 Interest received $1.07 $1,482.54\n") == [date(2026, 10, 1)]
 
 
 def test_a_row_dated_two_days_past_the_period_refuses():
     """One day is the whole extension: the bank posts the next cycle's opening
     credit on `period_end + 1` and prints it here. Anything further out is a
     mis-read."""
-    assert resolve("May 2 Interest received $1.00 $1,450.00\n") is None
+    assert resolve("Oct 2 Interest received $1.07 $1,482.54\n") is None
 
 
 def test_a_row_dated_before_the_period_refuses():
-    assert resolve("Mar 31 Inbound transfer $500.00 $1,500.00\n") is None
+    assert resolve("Aug 31 Inbound transfer $531.62 $1,569.03\n") is None
 
 
 def test_a_day_no_month_has_refuses():
-    assert resolve("Apr 31 Inbound transfer $500.00 $1,500.00\n") is None
+    assert resolve("Sep 31 Inbound transfer $531.62 $1,569.03\n") is None
 
 
 def test_a_day_number_outside_the_calendar_refuses():
-    assert resolve("Apr 44 Inbound transfer $500.00 $1,500.00\n") is None
+    assert resolve("Sep 44 Inbound transfer $531.62 $1,569.03\n") is None
 
 
 def test_an_illegible_day_between_two_rows_of_the_same_day_is_derived_not_guessed():
     assert resolve(
-        "Apr 9 Inbound transfer $500.00 $1,500.00\n"
-        "Apr g Card Load - $250.00 $1,250.00\n"
-        "Apr 9 Inbound transfer $199.00 $1,449.00\n"
-    ) == [date(2026, 4, 9)] * 3
+        "Sep 9 Inbound transfer $531.62 $1,569.03\n"
+        "Sep g Card Load - $268.13 $1,300.90\n"
+        "Sep 9 Inbound transfer $180.57 $1,481.47\n"
+    ) == [date(2026, 9, 9)] * 3
 
 
 def test_an_illegible_day_between_two_different_days_refuses():
     """Two candidate days means the document does not determine the date, and
     publishing either would publish a chronology the bank did not print."""
     assert resolve(
-        "Apr 7 Inbound transfer $500.00 $1,500.00\n"
-        "Apr & Card Load - $250.00 $1,250.00\n"
-        "Apr 8 Inbound transfer $199.00 $1,449.00\n"
+        "Sep 7 Inbound transfer $531.62 $1,569.03\n"
+        "Sep & Card Load - $268.13 $1,300.90\n"
+        "Sep 8 Inbound transfer $180.57 $1,481.47\n"
     ) is None
 
 
 def test_an_illegible_first_row_is_bounded_below_by_the_period_start():
     assert resolve(
-        "Apr & Card Load - $250.00 $1,250.00\n"
-        "Apr 1 Inbound transfer $199.00 $1,449.00\n"
-    ) == [date(2026, 4, 1), date(2026, 4, 1)]
+        "Sep & Card Load - $268.13 $1,300.90\n"
+        "Sep 1 Inbound transfer $180.57 $1,481.47\n"
+    ) == [date(2026, 9, 1), date(2026, 9, 1)]
 
 
 def test_an_illegible_last_row_has_no_upper_bound_and_refuses():
     assert resolve(
-        "Apr 9 Inbound transfer $500.00 $1,500.00\n"
-        "Apr & Card Load - $250.00 $1,250.00\n"
+        "Sep 9 Inbound transfer $531.62 $1,569.03\n"
+        "Sep & Card Load - $268.13 $1,300.90\n"
     ) is None
 
 
@@ -429,46 +434,83 @@ def test_an_illegible_day_whose_derivation_lands_in_another_month_refuses():
     """The month token survived even where the day did not, and a derivation
     that contradicts it is not a derivation from this document."""
     assert resolve(
-        "May 1 Interest received $1.00 $1,450.00\n"
-        "May & Interest received $1.00 $1,451.00\n"
-        "May 1 Interest received $1.00 $1,452.00\n"
+        "Oct 1 Interest received $1.07 $1,482.54\n"
+        "Oct & Interest received $1.07 $1,483.61\n"
+        "Oct 1 Interest received $1.07 $1,484.68\n"
     ) is not None
     assert resolve(
-        "Apr 30 Inbound transfer $500.00 $1,500.00\n"
-        "May & Interest received $1.00 $1,501.00\n"
-        "Apr 30 Inbound transfer $1.00 $1,502.00\n"
+        "Sep 30 Inbound transfer $531.62 $1,569.03\n"
+        "Oct & Interest received $1.07 $1,570.10\n"
+        "Sep 30 Inbound transfer $1.07 $1,571.17\n"
     ) is None
 
 
 def test_the_digit_that_survived_a_stray_glyph_is_read():
-    assert resolve("Apr 8& Card Load - $250.00 $1,250.00\n") == [date(2026, 4, 8)]
+    assert resolve("Sep 8& Card Load - $268.13 $1,300.90\n") == [date(2026, 9, 8)]
 
 
 def test_a_legible_day_that_breaks_the_printed_order_refuses():
     """The mis-read this catches and nothing else can: a `10` scanned as `1O`
     reads as day 1 in the middle of a run of 9s and 11s. It still sums, still
     reconciles, and corrupts the daily ledger — and therefore the ADB —
-    silently."""
+    silently.
+
+    It does NOT catch a wrong day that still lands BETWEEN its neighbours; that
+    residual is stated in `_resolve_dates` and is a limit of the evidence, not
+    of the reader."""
     assert resolve(
-        "Apr 9 Inbound transfer $500.00 $1,500.00\n"
-        "Apr 1O Card Load - $250.00 $1,250.00\n"
-        "Apr 11 Inbound transfer $199.00 $1,449.00\n"
+        "Sep 9 Inbound transfer $531.62 $1,569.03\n"
+        "Sep 1O Card Load - $268.13 $1,300.90\n"
+        "Sep 11 Inbound transfer $180.57 $1,481.47\n"
     ) is None
 
 
 def test_the_whole_statement_is_still_read_when_a_day_glyph_is_recoverable():
     """End to end, not just the date solver."""
     rows = (
-        "Apr 2 Inbound transfer $500.00 $1,500.00\n"
-        "Apr 3 Card Load - $250.00 $1,250.00\n"
-        "Apr g Inbound transfer $99.00 $1,349.00\n"
-        "Apr 3 Inbound transfer $100.00 $1,449.00\n"
-        "May 1 Interest received $1.00 $1,450.00\n"
+        "Sep 2 Inbound transfer $531.62 $1,569.03\n"
+        "Sep 3 Card Load - $268.13 $1,300.90\n"
+        "Sep g Inbound transfer $92.10 $1,393.00\n"
+        "Sep 3 Inbound transfer $88.47 $1,481.47\n"
+        "Oct 1 Interest received $1.07 $1,482.54\n"
     )
     stmt = parsed(rows)
     assert stmt is not None
     assert [t.date for t in stmt.transactions] == [
-        "2026-04-02", "2026-04-03", "2026-04-03", "2026-04-03", "2026-05-01"
+        "2026-09-02", "2026-09-03", "2026-09-03", "2026-09-03", "2026-10-01"
+    ]
+
+
+# --- the day token that is a digit to Python but not to `int` ---------------
+#
+# `str.isdigit()` is True for the superscripts U+00B9 U+00B2 U+00B3 and `int()`
+# rejects them, so reading the day with `isdigit` raises ValueError out of the
+# parser instead of refusing — the crash class
+# `tests/test_parser_crash_shapes.py` exists for. Both halves are covered: the
+# refusal, and the case where the printed order DOES determine the day, which
+# is where a raising reader and a refusing reader differ visibly.
+
+SUPERSCRIPT_TWO = "²"
+
+
+def test_a_superscript_day_token_refuses_instead_of_raising():
+    rows = ROWS.replace("Sep 3 Card Load", f"Sep {SUPERSCRIPT_TWO} Card Load")
+    assert parsed(rows) is None
+    assert resolve(f"Sep {SUPERSCRIPT_TWO} Card Load - $268.13 $1,300.90\n") is None
+
+
+def test_a_superscript_day_the_printed_order_determines_is_read_not_raised():
+    rows = (
+        "Sep 2 Inbound transfer $531.62 $1,569.03\n"
+        "Sep 3 Card Load - $268.13 $1,300.90\n"
+        f"Sep {SUPERSCRIPT_TWO} Inbound transfer $92.10 $1,393.00\n"
+        "Sep 3 Inbound transfer $88.47 $1,481.47\n"
+        "Oct 1 Interest received $1.07 $1,482.54\n"
+    )
+    stmt = parsed(rows)
+    assert stmt is not None
+    assert [t.date for t in stmt.transactions] == [
+        "2026-09-02", "2026-09-03", "2026-09-03", "2026-09-03", "2026-10-01"
     ]
 
 
@@ -485,15 +527,15 @@ def test_a_period_that_ends_one_day_before_it_starts_refuses():
     still non-empty, so every row dated on the start day resolves and nothing
     else notices that the period runs backwards."""
     rows = (
-        "Apr 2 Inbound transfer $500.00 $1,500.00\n"
-        "Apr 2 Card Load - $50.00 $1,450.00\n"
+        "Sep 2 Inbound transfer $531.62 $1,569.03\n"
+        "Sep 2 Card Load - $268.13 $1,300.90\n"
     )
-    summary = ADDRESS + SUMMARY.replace("Total deposits + $700.00", "Total deposits + $500.00").replace(
-        "Total withdrawals - $250.00", "Total withdrawals - $50.00"
-    )
+    summary = ADDRESS + SUMMARY.replace(
+        "Total deposits + $713.26", "Total deposits + $531.62"
+    ).replace("Closing balance = $1,482.54", "Closing balance = $1,300.90")
     assert parsed(
         rows,
-        header="Jordan Halloway Account # 900-111-222 April 2, 2026 to April 1, 2026",
+        header="Jordan Halloway Account # 840-227-593 September 2, 2026 to September 1, 2026",
         summary=summary,
     ) is None
 
@@ -514,12 +556,12 @@ def test_a_printed_amount_the_balances_contradict_refuses_even_when_the_totals_a
     the step between two printed balances says the grid is misread; without it
     this document publishes two amounts the bank did not print."""
     rows = (
-        "Apr 2 Inbound transfer $400.00 $1,500.00\n"
-        "Apr 3 Inbound transfer $300.00 $1,700.00\n"
+        "Sep 2 Inbound transfer $431.62 $1,569.03\n"
+        "Sep 3 Inbound transfer $281.64 $1,750.67\n"
     )
     summary = ADDRESS + SUMMARY.replace(
-        "Total withdrawals - $250.00", "Total withdrawals - $0.00"
-    ).replace("Closing balance = $1,450.00", "Closing balance = $1,700.00")
+        "Total withdrawals - $268.13", "Total withdrawals - $0.00"
+    ).replace("Closing balance = $1,482.54", "Closing balance = $1,750.67")
     assert parsed(rows, summary=summary) is None
 
 
@@ -528,11 +570,11 @@ def test_a_row_that_moves_no_money_refuses_even_when_it_prints_a_minus():
     zero-step refusal is the only thing left: the printed balances do not
     account for the row, and its direction is therefore not in the document."""
     rows = (
-        "Apr 2 Inbound transfer $500.00 $1,500.00\n"
-        "Apr 3 Card Load - $250.00 $1,250.00\n"
-        "Apr 4 Adjustment - $0.00 $1,250.00\n"
-        "Apr 5 Inbound transfer $199.00 $1,449.00\n"
-        "May 1 Interest received $1.00 $1,450.00\n"
+        "Sep 2 Inbound transfer $531.62 $1,569.03\n"
+        "Sep 3 Card Load - $268.13 $1,300.90\n"
+        "Sep 4 Adjustment - $0.00 $1,300.90\n"
+        "Sep 5 Inbound transfer $180.57 $1,481.47\n"
+        "Oct 1 Interest received $1.07 $1,482.54\n"
     )
     assert parsed(rows) is None
 
@@ -542,8 +584,8 @@ def test_a_month_with_no_row_at_all_is_not_a_statement_even_when_the_summary_clo
     closing balance and matches both printed totals. The empty-ledger refusal
     is what stops a header being published as a statement."""
     summary = ADDRESS + SUMMARY.replace(
-        "Total deposits + $700.00", "Total deposits + $0.00"
-    ).replace("Total withdrawals - $250.00", "Total withdrawals - $0.00").replace(
-        "Closing balance = $1,450.00", "Closing balance = $1,000.00"
+        "Total deposits + $713.26", "Total deposits + $0.00"
+    ).replace("Total withdrawals - $268.13", "Total withdrawals - $0.00").replace(
+        "Closing balance = $1,482.54", "Closing balance = $1,037.41"
     )
     assert parsed("", summary=summary) is None
