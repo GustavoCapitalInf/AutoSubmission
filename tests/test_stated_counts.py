@@ -411,9 +411,12 @@ def test_the_table_only_names_parsers_that_assign_a_stated_count():
 
 def test_the_section_level_oracles_are_disclosed_and_not_silently_compared():
     """PNC's evidence is per SECTION and the schema cannot hold it; Wells'
-    printed Totals line is unread. Neither may appear in the semantics table
-    as if this check covered it."""
-    assert set(SECTION_LEVEL_ORACLES) == {"pnc", "wells_fargo"}
+    printed Totals line is unread; the fourth core processor's two printed
+    counts each exclude a row class its ledger posts, and the mapping schema
+    can express only one of the two (W3 §COREENC). None of the three may
+    appear in the semantics table as if this check covered it."""
+    assert set(SECTION_LEVEL_ORACLES) == {
+        "core_processor_enclosures", "pnc", "wells_fargo"}
     assert not set(SECTION_LEVEL_ORACLES) & set(SEMANTICS)
     for note in SECTION_LEVEL_ORACLES.values():
         assert len(note) > 40
