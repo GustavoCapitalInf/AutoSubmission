@@ -43994,8 +43994,9 @@ A3807F7D3956FCA20BC4309BB6BE99DE6872A51DB57CD0369A4F17B720EC0A73
 B7BC8FF5A4EE389879A6A442258A87C7AF95DE1DF5EAB034AB96592015CCCF74
 ```
 
-They belong to the open L-1 population (~70 documents including four credit
-union families from this census). **The question for Ocean is in §LI14.**
+They belong to the open L-1 population — batch 7's escalation 1 to Gustavo,
+"the single largest lever now", ~70 documents including four credit-union
+families from this same census. **The question for Ocean is in §LI14.**
 
 ## LI5. The document whose printed summary contradicts its own ledger
 
@@ -44245,15 +44246,22 @@ a47a9c9  fixtures invented AWAY from the family, and the scan that proves it
 
 ## LI14. Findings and questions for Ocean
 
-**F1 — the integrity finding (§LI2), fraud-relevant.** Five documents of one
-account carry one pasted block of historical postings across five different
-declared periods, with identical reference numbers, no depository attribution,
-broken balance chains and malformed money. They fail closed at HEAD. This is
-an underwriting-relevant finding about the submission, not about the platform,
-and it is Ocean's and Gustavo's to route. Named by sha in §LI2.
+**F1 — the integrity finding (§LI2), fraud-relevant.** This is batch 7's
+escalation 7 to Gustavo — "at least three Lili statements carry byte-identical
+2021-dated junk-row blocks pasted into 2026 periods … the batch-8 card fails
+them closed and names them" — discharged, and the count is **five, not
+three**. Five documents of one account carry one pasted block of historical
+postings across five different declared periods, with identical reference
+numbers, no depository attribution, summaries that do not close even after
+their signs are repaired, and money the shared grammar refuses. They fail
+closed at HEAD by a named gate. This is an underwriting-relevant finding about
+the SUBMISSION, not about the platform — fifteen documents of the same
+printing from four other accounts are internally consistent to the cent — and
+routing it is Ocean's and Gustavo's. Named by sha in §LI2, with a committed
+instrument that re-derives the fingerprints without reproducing a token.
 
-**F2 — the L-1 ruling is the whole gap between 11 and 14 (§LI4).** Three
-two-account documents are refused because the single-account schema cannot
+**F2 — the L-1 ruling is the whole gap between 11 and 14 (§LI4), and it is
+batch 7's escalation 1.** Three two-account documents are refused because the single-account schema cannot
 carry the sibling ledger and the sibling is not idle. If the pending L-1
 decision admits publishing the primary account with the sibling declared, the
 binding is already measured — column 1, corroborated independently by the
