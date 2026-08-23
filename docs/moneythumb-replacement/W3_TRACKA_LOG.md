@@ -43956,18 +43956,35 @@ ledger column head — because a printing that grew a column without growing a
 ledger, or the reverse, is a shape nobody has measured.
 
 **Binding the columns, for the day the ruling lands.** The census said "bind
-by header"; the header cannot be bound. These three documents print the
+by header"; the header CANNOT be bound. These three documents print the
 three-column header in two different token orders and one of them omits two
 of the header words entirely — the text layer emits the header cells
-row-major by y-position and the cells are two and three lines tall. What DOES
-bind is measured and reproducible: the checking column is the FIRST, and both
-the arithmetic (column 1 + column 2 == column 3 on every one of the five
-summary rows, on all three documents) and the chain (the main ledger walks
-from column 1's beginning to column 1's ending, zero breaks, on all three)
-say so independently. A reader that took the LAST column instead would be
-caught by the chain gate on every real document — the mutation table's M08
-proves it — but not on a month whose sibling was idle, which is why the
-column gate is there and has its own isolating test.
+row-major by y-position and the cells are two and three lines tall, so the
+words arrive interleaved and, on one document, truncated.
+
+What DOES bind is measured, reproducible and independent of the header. On
+all three documents, `tools/lili_family_replay.py`'s own helpers give:
+
+```
+                 money    ledger   col1+col2-col3   main ledger chains on   sibling
+                columns   heads    per summary row   col1      col3         chains on col2
+9A841D10…          3        2      0.00 x5          True      False        True   (1 row)
+A3807F7D…          3        2      0.00 x5          True      False        True   (2 rows)
+B7BC8FF5…          3        2      0.00 x5          True      False        True   (3 rows)
+   and each of the three columns closes its own five-term summary: residual
+   0.00 in every column of every one of the three documents.
+```
+
+Three independent readings agree that the checking account is column ONE: the
+arithmetic (column 1 + column 2 == column 3 on all five rows, all three
+documents), the main ledger's own chain (walks column 1's beginning to column
+1's ending with zero breaks — and does NOT walk column 3's), and the sibling
+ledger's chain (walks column 2's). A reader that took the LAST column instead
+would be caught by the chain gate on every one of these three — the mutation
+table's M08 is exactly that reader — but NOT on a month whose sibling was
+idle, where the total and the checking column are the same figures. That is
+why the column gate exists on top of the chain, and why it has an isolating
+test of its own.
 
 **The three, by sha:**
 
