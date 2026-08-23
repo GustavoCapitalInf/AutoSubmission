@@ -44204,6 +44204,14 @@ zero: it is measuring a stage this branch does not touch.
 `tools/desccols_movement.py` is the instrument that does exercise the changed
 code, over the same 3,380 documents, and it is committed for that reason.
 
+**And that is a measurement, not an argument.** The branch changes exactly two
+production files, `ocr/native_text.py` and `corpus_gate.py`. Importing
+`analysis.pipeline` together with the whole registry pulls in **zero** `ocr`
+and `webapp` modules — checked at runtime by reading `sys.modules` after the
+import rather than by reading import lines — so the stage the sweep recomputes
+cannot reach either file. Every reference to `ocr/native_text.py` inside
+`analysis/` is a comment.
+
 Run anyway, because the rule asks for it. Chunk 0–1000 at the branch tree:
 **1,000 documents, 749 identical, 0 moved, 0 `no_payload_now_publishes`, 0
 `payload_now_raises`**, 244 raising again, 7 with no OCR artifact, 3,183.0s.
