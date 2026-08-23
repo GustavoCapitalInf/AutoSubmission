@@ -43728,8 +43728,9 @@ seventeen summary boxes print, and 353 bank-printed daily balances.
 **The census's suggested detection furniture would have been wrong.** It named
 the masthead's `Direct Inquires To:` [sic] ladder as the reliable identity.
 That misspelling is printed by 26 archive documents belonging to at least
-three unrelated institutions on two other continents of the corpus — it is an
-industry typo, not this bank's furniture. What is this bank's, at seventeen
+three unrelated institutions — an Indiana credit union (5 documents), a South
+Carolina issuer (4), and this family (17). It is an industry misspelling of
+"inquiries", not this bank's furniture. What is this bank's, at seventeen
 hits and zero non-target hits each over the whole archive, is its home-office
 PO box, the RUNG COUNT of its branch contact ladder, and the summary box whose
 counts lead their labels.
@@ -43856,6 +43857,11 @@ is read POSITIONALLY, so a different product still publishes its own name.
 `python -m tools.welch_detection_probe --rows <run>/rows.csv --data-dir
 webapp_data --population tools/welch_population.txt`
 
+Transcribed from ONE run — the final one, `probe.json` in the cell's durable
+logs. An earlier revision of this section mixed that run's counts with an
+earlier run's elapsed time, which is the class of error this whole card is
+about, so the block is reproduced whole rather than assembled:
+
 ```
 documents 3,380 · examined 3,351 · no_ocr_text 29
 scanned examined 165 · Canadian-labelled examined 418
@@ -43863,7 +43869,7 @@ marker_hit_counts  issuer_home_office_po_box 17 · branch_contact_ladder 17
                    summary_counts_grammar 17
 claimed 17 · claimed_outside_population 0 · population_not_claimed 0
 co_claimed_with_another_registration 0
-seconds 7.2   EXIT=0
+seconds 48.8   EXIT=0
 ```
 
 This is the ≥400-document stratified non-target probe the wave rules require
@@ -43925,6 +43931,29 @@ complete-coverage oracle**, and the connection is stated in the module rather
 than left to be inferred: a row this reader fails to anchor is not silently
 dropped, it is a printed count that no longer matches and a document that
 refuses.
+
+**THE RESIDUAL THIS LEAVES, named rather than left for a reviewer to find.**
+The count gate catches a row that vanishes and a row that appears — but not
+one of each at once. A `_consume` mis-split that manufactured ONE extra
+posting on some line, cancelled by ONE genuine row lost to an anchor-free
+line, leaves both printed counts matching; and if the manufactured pair and
+the lost row happened to carry the same amount on the same day, both printed
+totals and the whole daily grid would close too. Nothing in this reader would
+then object.
+
+It is a residual and not a defect because BOTH precursors are measured absent,
+not assumed absent. A mis-split needs a description carrying a
+date-and-money-shaped token: across the family's 3,460 ledger descriptions,
+**0 contain one**, and the count of anchors found equals the count of printed
+figures inside the ledger regions on 17 of 17 documents (3,460 = 3,460), so no
+line offers the extra anchor a mis-split would need. A lost row needs an anchor-free line
+that is really a posting: every anchor-free line inside a region on all 17
+documents is one of five page-furniture shapes, enumerated in the
+characterisation above. The compound therefore requires two independent
+unobserved events to coincide and to agree on amount and date. Recorded so the
+completeness claim reads as "the counts catch every single-row error and this
+particular cancelling pair is unreachable on the observed printings", not as
+"nothing can get past the counts".
 
 **Line-scoping is also this template's answer to DESC-ATTRIB.** A description
 comes only from between two anchors of the same line, so a row cannot inherit
@@ -44044,16 +44073,37 @@ neighbour caught them and the gate under test was never reached.
 * **M23**, a posting the printed period does not contain, needed a grid that
   prints that day TOO, so that every other oracle closes on it.
 
-And one mutant changed the production code rather than the tests. **M22** asks
-what happens if the date anchors go back to the shorthand digit class. They
-had, in the first draft — and that class matches every Unicode decimal digit,
-so a mis-mapped or decorative glyph in the date position would have been
-CONVERTED into a day rather than noticed. The first draft also carried an
+And one class of mutant changed the production code rather than the tests.
+**M22** asked what happens if the ledger's date anchors go back to the
+shorthand digit class. They had been written that way in the first draft — and
+that class matches every Unicode decimal digit, which `int()` and `float()`
+accept, so a mis-mapped or decorative glyph in the date position would have
+been CONVERTED into a day rather than noticed. The first draft also carried an
 `isdecimal()` conversion guard against exactly that, which under the shorthand
-class was DEAD CODE: every character it matches is one `int()` accepts. Both
-are gone; the anchors spell `[0-9]`, such a token no longer anchors at all, the
-printed count no longer matches, and the document refuses — strictly stronger
-than a guard that could only ever drop the row silently.
+class was DEAD CODE: every character it matches is one `int()` accepts.
+
+**AND THE FIRST FIX WAS TOO NARROW — it hardened three date anchors and left
+every other reading alone**, which review caught and which this section
+previously overstated as a module-wide property. It was not. `_FIGURE` — the
+amount of every ledger row and cleared cheque, every daily-grid balance and
+all four summary money terms — plus the summary box's day count, its two
+transaction counts and its account number, the masthead's second reading of
+that account number, and both endpoints of the printed period ALL still used
+the shorthand class and all still reached `int()` or `float()`. Each of them
+would have PUBLISHED a silently converted value. Latent rather than live: no
+document in this family carries a non-ASCII decimal digit, and the
+superscripts that 370 archive documents do carry are matched by neither class,
+so they were never the exposure.
+
+Every reading that reaches a numeric conversion now spells `[0-9]`. A token
+outside it does not match, so the row does not anchor, the summary does not
+read or the period does not read — refusals this reader already makes, and
+strictly stronger than a guard that could only ever drop a reading silently.
+Twelve refusing cases pin it, one per class, over Arabic-Indic digits — which
+a test first asserts really are the class `int()` accepts and the superscripts
+really are not — and six mutants (M28–M33) revert each hardened pattern in
+turn. The two DETECTION patterns keep the broad class deliberately: the branch
+ladder and the home-office PO box match a shape and convert nothing.
 
 | # | disables | killed by |
 |---|---|---|
@@ -44084,6 +44134,12 @@ than a guard that could only ever drop the row silently.
 | M25 | the earned currency-provenance class | `test_the_currency_is_asserted_from_the_institution_and_says_so` |
 | M26 | (i) and (iv) together | `test_a_summary_that_does_not_close_refuses_the_document`, `test_a_summary_that_does_not_close_is_refused_by_the_identity_either_way` |
 | M27 | (ii) and (iii) together | `test_two_compensating_overstatements_are_caught_only_by_the_printed_totals` |
+| M28 | ASCII-only digits in every printed FIGURE | `…refuses_rather_than_converts` [ledger amount, cheque amount, grid balance, summary money term] |
+| M29 | ASCII-only digits in the summary DAY COUNT | `…refuses_rather_than_converts` [summary day count] |
+| M30 | ASCII-only digits in both printed COUNTS | `…refuses_rather_than_converts` [summary credit count, summary debit count] |
+| M31 | ASCII-only digits in both readings of the ACCOUNT NUMBER | `…refuses_rather_than_converts` [summary account number, masthead account number] |
+| M32 | ASCII-only digits in both endpoints of the PERIOD | `…refuses_rather_than_converts` [period start, period end] |
+| M33 | ASCII-only digits in the cleared-cheque NUMBER | `…refuses_rather_than_converts` [cleared cheque number] |
 
 ## W7. Two repo-wide guards fired on this branch's new files
 
@@ -44186,9 +44242,32 @@ capitalises the keyword is claimed by both or by neither. Re-measured after:
 | with `welch_state_bank` | 76 | 230.6 ms | **242.8 ms** |
 | without it | 75 | 231.2 ms | **246.6 ms** |
 
-The two arms have crossed: this registration's cost is now below the
-measurement's own noise, and because the projection divides by the
-registration count, adding it now LOWERS the projected figure.
+**PAIRED, because comparing each arm's worst document compares two different
+documents.** Review was right that the worst-document comparison above is the
+wrong statistic for "what does this branch cost": it is the statistic the TEST
+computes, so it belongs in the table, but the per-document deltas were in hand
+and are the ones that answer the question. Recomputed on a quieter host
+(9 python processes), 109 documents, best-of-5 per arm per document:
+
+```
+median +0.642 ms · mean +0.542 ms · min -28.201 ms · max +19.293 ms
+slower with the branch on 60 of 109 documents
+median as a share of the 250 ms ceiling: +0.26%
+worst document (the SAME one in both arms this time):
+    with    76 registrations  198.1 ms -> 208.5 ms at 80
+    without 75 registrations  196.6 ms -> 209.7 ms at 80
+```
+
+**The crossing survives the paired statistic, and the paired statistic
+explains it.** The registration really does cost something — about 0.6 ms per
+document, a real positive median rather than nothing — but the projection
+divides by the registration count, and 80/76 against 80/75 takes 1.3% off a
+~197 ms worst reading, which is ~2.8 ms. Adding 1.5 ms of measured cost on
+that document and removing 2.8 ms of multiplier nets −1.2 ms, which is exactly
+the gap the table shows. So the honest statement is not "this registration is
+free": it is that its cost is smaller than the arithmetic relief its own
+existence gives the projection, and both are small against a 250 ms ceiling.
+The ±20 ms tails are load, not signal.
 
 **The finding that is NOT mine, and is Ocean's to weigh.** At 76 registrations
 the projection sits within 3% of the ceiling on a loaded box, and

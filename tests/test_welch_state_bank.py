@@ -599,6 +599,68 @@ def test_a_posting_date_the_period_cannot_place_refuses_rather_than_raises(token
     assert parse_welch_state_bank_statement(document(credits=mangled)) is None
 
 
+#: Arabic-Indic digits `\u0660`-`\u0669`. Unicode category Nd, so the shorthand
+#: digit class matches them and `int()` and `float()` accept them — which is
+#: exactly why every pattern in the reader that reaches a numeric conversion
+#: spells `[0-9]` instead. `\u0660\u0666` reads as 06 to `int()`.
+ND = {str(digit): chr(0x0660 + digit) for digit in range(10)}
+
+
+def nd(text: str) -> str:
+    """`text` with every ASCII digit replaced by its Arabic-Indic counterpart."""
+    return "".join(ND.get(character, character) for character in text)
+
+
+def test_the_non_ascii_digit_class_is_the_one_that_would_have_converted():
+    """The premise of the tests below, asserted rather than assumed: these
+    glyphs really are the class `int()` and `float()` silently accept, and the
+    superscripts this archive actually carries are NOT."""
+    assert int(nd("31")) == 31 and float(nd("1000") + ".00") == 1000.00
+    for superscript in ("\u00b9", "\u00b2", "\u00b3"):
+        with pytest.raises(ValueError):
+            int(superscript)
+
+
+@pytest.mark.parametrize(
+    ("reading", "field", "value"),
+    [
+        ("ledger amount", "credits", CREDITS.replace("300.00", nd("300.00"))),
+        ("cleared cheque amount", "checks", CHECKS.replace("100.00", nd("100.00"))),
+        ("cleared cheque number", "checks", CHECKS.replace("1001", nd("1001"))),
+        ("daily grid balance", "grid", GRID.replace("1,200.00", nd("1,200.00"))),
+        ("summary money term", "summary",
+         SUMMARY.replace("Beginning Balance 1,000.00", "Beginning Balance " + nd("1,000.00"))),
+        ("summary day count", "summary",
+         SUMMARY.replace("Statement Period 30", "Statement Period " + nd("30"))),
+        ("summary credit count", "summary",
+         SUMMARY.replace("30 2 Deposits", "30 " + nd("2") + " Deposits")),
+        ("summary debit count", "summary",
+         SUMMARY.replace("500.00 3 Checks", "500.00 " + nd("3") + " Checks")),
+        ("summary account number", "summary",
+         SUMMARY.replace("Account Number 1234567", "Account Number " + nd("1234567"))),
+        ("masthead account number", "masthead",
+         MASTHEAD.replace("ACCOUNT NUMBER 1234567", "ACCOUNT NUMBER " + nd("1234567"))),
+        ("period start", "masthead",
+         MASTHEAD.replace("06/01/26-06/30/26", nd("06/01/26") + "-06/30/26")),
+        ("period end", "masthead",
+         MASTHEAD.replace("06/01/26-06/30/26", "06/01/26-" + nd("06/30/26"))),
+    ],
+)
+def test_a_reading_written_in_non_ascii_digits_refuses_rather_than_converts(
+    reading, field, value
+):
+    """MINOR-1, one case per class of reading that reaches a numeric conversion.
+
+    Each of these would have been CONVERTED — not dropped, converted — by a
+    pattern written with the shorthand digit class: an amount, a cheque number,
+    a daily balance, a day count, a transaction count, an account number and
+    both endpoints of the period. Every one of them is refused, and refused by
+    the pattern failing to match rather than by a guard downstream of it, which
+    is what makes the refusal total instead of a silent drop.
+    """
+    assert parse_welch_state_bank_statement(document(**{field: value})) is None
+
+
 def test_an_empty_document_is_declined_rather_than_crashed():
     assert parse_welch_state_bank_statement("") is None
 

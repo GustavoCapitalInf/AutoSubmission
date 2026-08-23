@@ -167,6 +167,13 @@ def test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental():
     # be flagged, so it must be a deliberate edit here and not something a
     # table change can slip past a subset check.
     assert comparable == {
+        # W3 §WELCH. Comparable and TAUTOLOGICAL on both directions: the
+        # parser refuses a document whose row count contradicts either printed
+        # count before it publishes, so the check is provably inert and the
+        # entry says so. Surveyed rather than UNSURVEYED so the silence is a
+        # recorded fact.
+        "welch_state_bank:credit",
+        "welch_state_bank:debit",
         "apex_scanned:credit",
         "apex_scanned:debit",
         "atb:credit",
@@ -293,7 +300,10 @@ def test_a_tautological_entry_says_so_rather_than_reading_as_evidence():
     `community_section` comment makes and this pins for the two cells that
     joined that class since."""
     for key in ("burke_herbert:credit", "burke_herbert:debit",
-                "first_citizens:credit"):
+                "first_citizens:credit",
+                # W3 §WELCH, which joined the class for the same reason and
+                # states it in the same idiom.
+                "welch_state_bank:credit", "welch_state_bank:debit"):
         parser_id, direction = key.split(":")
         semantics = SEMANTICS[parser_id][direction]
         assert semantics.comparable is True, key
@@ -509,7 +519,7 @@ def test_the_observer_version_moves_when_the_table_does():
         1 for table in SEMANTICS.values()
         for semantics in table.values() if semantics.mapping is not None
     )
-    assert (observer.OBSERVER_VERSION, len(SEMANTICS), comparable, mapped) == (5, 32, 60, 2)
+    assert (observer.OBSERVER_VERSION, len(SEMANTICS), comparable, mapped) == (6, 33, 62, 2)
 
 
 # ---------------------------------------------------------------------------

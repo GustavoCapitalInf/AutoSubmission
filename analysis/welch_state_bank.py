@@ -98,7 +98,34 @@ repair (the batch-7 repair doctrine: a parser never writes an amount):
 * a posting or grid date the printed period does not uniquely place
   (`iso_unique_in_period`), which also refuses `02/30` and a mangled token;
 * a line inside a region that holds an anchor but is not wholly consumed by
-  `description + anchor` pairs.
+  `description + anchor` pairs;
+* A TOKEN THAT IS NOT WRITTEN IN ASCII DIGITS, anywhere a reading reaches a
+  numeric conversion. Every such pattern here spells `[0-9]` rather than using
+  the shorthand digit class, which matches every Unicode decimal digit — and
+  `int()` and `float()` accept that whole class, so a mis-mapped or decorative
+  glyph in that category would be CONVERTED rather than noticed. The rule
+  covers all of them and not only the row dates: every printed figure
+  (`_FIGURE`, which is the amount of every ledger row and cleared cheque, every
+  daily-grid balance, and all four summary money terms), the summary box's day
+  count, its two transaction counts and its account number, the masthead's
+  second reading of that account number, and both endpoints of the printed
+  period. A token outside ASCII simply does not MATCH, so the row does not
+  anchor, the summary does not read, or the period does not read — and each of
+  those is a refusal this reader already makes. That is strictly stronger than
+  a conversion guard, which could only ever drop the reading silently.
+
+  The two DETECTION patterns keep the broad class deliberately: the branch
+  ladder and the home-office PO box match a SHAPE and convert nothing, so
+  narrowing them would only make the registration claim fewer documents for no
+  gain in safety. The product-line check keeps `str.isdigit()` for the same
+  reason in the other direction: it must reject a line carrying ANY digit-like
+  glyph, so the broadest class is the strict one there.
+
+  Latent rather than observed, and recorded as such: no archive document in
+  this family carries a non-ASCII decimal digit today. The superscripts
+  (`\u00b9\u00b2\u00b3`) that 370 archive documents do carry are matched by
+  neither class, so they were never the exposure; the exposure was the
+  Unicode-decimal category, and it is closed.
 
 WHAT IT DOES NOT PUBLISH, deliberately:
 
@@ -130,7 +157,7 @@ from .tables import unique_match
 #: A printed figure on this template: two decimals, an optional TRAILING minus.
 #: Bounded on both sides so a reference number cannot supply the head of one
 #: and a longer run cannot supply its tail.
-_FIGURE = r"(?<![\d.,])\d[\d,]{0,15}\.\d{2}-?(?![\d,.])"
+_FIGURE = r"(?<![\d.,])[0-9][0-9,]{0,15}\.[0-9]{2}-?(?![\d,.])"
 
 #: The masthead's branch contact ladder: a telephone number and the fax number
 #: printed beside it, once per branch. Institution furniture — the bank's own
@@ -163,21 +190,21 @@ _HOME_OFFICE_RE = re.compile(r"PO\s+Box\s+\d+\s+Welch,\s*OK", re.IGNORECASE)
 #: heading; read as one match, a second printing is a second match and
 #: `tables.unique_match` refuses the disagreement.
 _SUMMARY_RE = re.compile(
-    rf"Account Number\s+(?P<account>\d[\d-]*)\s+"
+    rf"Account Number\s+(?P<account>[0-9][0-9-]*)\s+"
     rf"Beginning Balance\s+(?P<beginning>{_FIGURE})\s+"
-    rf"Days in Statement Period\s+(?P<days>\d{{1,3}})\s+"
-    rf"(?P<credit_count>\d{{1,5}})\s+Deposits/Other Credits\s+(?P<credits>{_FIGURE})\s+"
-    rf"(?P<debit_count>\d{{1,5}})\s+Checks/Other Debits\s+(?P<debits>{_FIGURE})\s+"
+    rf"Days in Statement Period\s+(?P<days>[0-9]{{1,3}})\s+"
+    rf"(?P<credit_count>[0-9]{{1,5}})\s+Deposits/Other Credits\s+(?P<credits>{_FIGURE})\s+"
+    rf"(?P<debit_count>[0-9]{{1,5}})\s+Checks/Other Debits\s+(?P<debits>{_FIGURE})\s+"
     rf"Ending Balance\s+(?P<ending>{_FIGURE})",
     re.IGNORECASE,
 )
 #: The masthead's own printing of the account number — a SECOND reading, which
 #: must agree with the summary box's.
-_MASTHEAD_ACCOUNT_RE = re.compile(r"^ACCOUNT NUMBER\s+(\d[\d-]*)\s*$", re.MULTILINE)
+_MASTHEAD_ACCOUNT_RE = re.compile(r"^ACCOUNT NUMBER\s+([0-9][0-9-]*)\s*$", re.MULTILINE)
 #: The printed period. Both endpoints carry the bank's own two-digit year, so
 #: nothing here has to infer a century from the rows.
 _PERIOD_RE = re.compile(
-    r"^STATEMENT DATES\s+(\d{1,2}/\d{1,2}/\d{2,4})\s*-\s*(\d{1,2}/\d{1,2}/\d{2,4})\s*$",
+    r"^STATEMENT DATES\s+([0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4})\s*-\s*([0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4})\s*$",
     re.MULTILINE,
 )
 
@@ -471,14 +498,12 @@ def _posting_date(
     token of the right shape that no calendar holds (`02/30`) and a day this
     statement's period does not contain.
 
-    `int()` here is TOTAL, and the anchors above are why: their date groups
-    spell `[0-9]` rather than using the shorthand digit class, which matches
-    every Unicode decimal digit. A decorative or mis-mapped glyph that happened
-    to land in that category would otherwise be converted into a day rather
-    than noticed. Spelled out, such a token is not a date ANCHOR at all: its
-    row never parses, the printed count no longer matches, and the document
-    refuses — the stronger answer, because a conversion guard here could only
-    ever drop the row silently.
+    `int()` here is TOTAL, by the module-wide ASCII-digit rule stated in the
+    refusal list above: the anchors' date groups spell `[0-9]`, so a token
+    outside that set is not a date ANCHOR at all — its row never parses, the
+    printed count no longer matches, and the document refuses. Every other
+    reading in this module that reaches `int()` or `float()` is spelled the
+    same way for the same reason.
     """
     return iso_unique_in_period(
         int(span.group("month")), int(span.group("day")),

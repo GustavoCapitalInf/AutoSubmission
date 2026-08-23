@@ -297,6 +297,86 @@ MUTANTS: tuple[tuple[str, str, str, tuple[tuple[str, str], ...], str], ...] = (
         '',
     ),
     (
+        'M28',
+        MODULE,
+        'every printed FIGURE accepts non-ASCII decimal digits again',
+        (
+            (
+                '_FIGURE = r"(?<![\\d.,])[0-9][0-9,]{0,15}\\.[0-9]{2}-?(?![\\d,.])"',
+                '_FIGURE = r"(?<![\\d.,])\\d[\\d,]{0,15}\\.\\d{2}-?(?![\\d,.])"',
+            ),
+        ),
+        '',
+    ),
+    (
+        'M29',
+        MODULE,
+        'the summary box\'s DAY COUNT accepts non-ASCII decimal digits again',
+        (
+            (
+                'rf"Days in Statement Period\\s+(?P<days>[0-9]{{1,3}})\\s+"',
+                'rf"Days in Statement Period\\s+(?P<days>\\d{{1,3}})\\s+"',
+            ),
+        ),
+        '',
+    ),
+    (
+        'M30',
+        MODULE,
+        'both printed COUNTS accept non-ASCII decimal digits again',
+        (
+            (
+                'rf"(?P<credit_count>[0-9]{{1,5}})\\s+Deposits/Other Credits',
+                'rf"(?P<credit_count>\\d{{1,5}})\\s+Deposits/Other Credits',
+            ),
+            (
+                'rf"(?P<debit_count>[0-9]{{1,5}})\\s+Checks/Other Debits',
+                'rf"(?P<debit_count>\\d{{1,5}})\\s+Checks/Other Debits',
+            ),
+        ),
+        '',
+    ),
+    (
+        'M31',
+        MODULE,
+        'both readings of the ACCOUNT NUMBER accept non-ASCII decimal digits again',
+        (
+            (
+                'rf"Account Number\\s+(?P<account>[0-9][0-9-]*)\\s+"',
+                'rf"Account Number\\s+(?P<account>\\d[\\d-]*)\\s+"',
+            ),
+            (
+                'r"^ACCOUNT NUMBER\\s+([0-9][0-9-]*)\\s*$"',
+                'r"^ACCOUNT NUMBER\\s+(\\d[\\d-]*)\\s*$"',
+            ),
+        ),
+        '',
+    ),
+    (
+        'M32',
+        MODULE,
+        'both endpoints of the printed PERIOD accept non-ASCII decimal digits again',
+        (
+            (
+                'r"^STATEMENT DATES\\s+([0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4})\\s*-\\s*([0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4})\\s*$"',
+                'r"^STATEMENT DATES\\s+(\\d{1,2}/\\d{1,2}/\\d{2,4})\\s*-\\s*(\\d{1,2}/\\d{1,2}/\\d{2,4})\\s*$"',
+            ),
+        ),
+        '',
+    ),
+    (
+        'M33',
+        MODULE,
+        'the cleared-cheque NUMBER accepts non-ASCII decimal digits again',
+        (
+            (
+                'rf"(?P<number>[0-9]{{1,10}})\\*?\\s+(?P<amount>{_FIGURE})"',
+                'rf"(?P<number>\\d{{1,10}})\\*?\\s+(?P<amount>{_FIGURE})"',
+            ),
+        ),
+        '',
+    ),
+    (
         'M27',
         MODULE,
         'BOTH printed per-direction totals',

@@ -176,7 +176,24 @@ from analysis.count_semantics import (  # noqa: F401
 #:     category count against the rows of the section that category heads, so
 #:     a claimed document agrees by construction and no v5 rollup can report a
 #:     `mismatch` here without the parser having refused the document first.
-OBSERVER_VERSION = 5
+#:
+#: 6 - WELCH: one NEW registration entered the table, surveyed by the cell
+#:     that registered it — `welch_state_bank`, comparable in both
+#:     directions as a whole-direction count. The vocabulary, the
+#:     evaluation order, the mapping set and every other entry are
+#:     untouched, so this is the GRAM4 shape one wave on. What moves
+#:     between a v5 and a v6 rollup is 17 documents (the whole family,
+#:     unclaimed before this registration existed) reporting `match` in
+#:     both directions where a v5 rollup reported them
+#:     `unsurveyed_parser`. Both directions are TAUTOLOGICAL and the
+#:     entries say so: the parser refuses any document whose row count
+#:     contradicts either printed figure before it publishes, so a claimed
+#:     document agrees by construction and no v6 rollup can report a
+#:     `mismatch` here without the parser having refused the document
+#:     first. Nothing in production reads this constant — the observer is
+#:     offline (`test_the_observer_is_not_wired_into_any_production_module`)
+#:     — so the bump moves no payload and no cache key.
+OBSERVER_VERSION = 6
 
 # ----------------------------------------------------------------------
 # the closed vocabulary

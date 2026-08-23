@@ -1117,6 +1117,21 @@ SEMANTICS: dict[str, dict[str, CountSemantics]] = {
     # W3 §CITI3 card C. A new registration, surveyed here rather than left
     # UNSURVEYED because its printed counts and the rows this parser captures
     # are the same set BY CONSTRUCTION, and that construction is checked.
+    # W3 §WELCH. Comparable and TAUTOLOGICAL, and surveyed rather than
+    # left UNSURVEYED for the reason `burke_herbert` gives: the silence
+    # is a recorded fact, not an unexamined one.
+    "welch_state_bank": {
+        "credit": CountSemantics(
+            comparable=True,
+            scope="whole_direction",
+            reason="prints '<N> Deposits/Other Credits <total>' with the count LEADING its label, one printed figure per direction (analysis/welch_state_bank.py `_SUMMARY_RE`, assigned in `parse_welch_state_bank_statement`). Measured over all 17 archive documents of the family: 17/17 agree, 0 disagreements, 0 flags raised. DISCLOSURE, in the idiom of the `burke_herbert` and `community_section` entries above: that 17/17 is a TAUTOLOGY and carries no information. The parser's acceptance gate refuses any document whose count of credit rows differs from this printed figure, and the rows it counts there are the same rows it publishes with direction='credit' — the gate's set and this check's set are the same set, so a claimed document agrees by construction. There is therefore NO FALSIFIER to state: no document, real or constructed, can make this direction disagree, which is the `burke_herbert:credit` position and is exempted for the same reason. Written anyway rather than left UNSURVEYED because 'examined, and structurally silent' is a different fact from 'not yet examined'. The independent oracles for this template are the printed per-direction TOTALS and the day-by-day replay against its printed Daily Ending Balance grid, neither of which any count can reproduce.",
+        ),
+        "debit": CountSemantics(
+            comparable=True,
+            scope="whole_direction",
+            reason="prints '<N> Checks/Other Debits <total>', count leading, and the printed figure INCLUDES the separately-tabled `Checks Cleared` rows — a reader that skipped that table would be one to five rows short on most documents, which is mutant M13. 17/17 agree, and tautologically, for the reason the credit direction states: the acceptance gate refuses any document whose debit-row count differs from this figure, and those rows are exactly the ones published with direction='debit'. NO FALSIFIER, on the same argument. Recorded so nobody re-derives it: this template prints its overdraft and returned-item fees as ledger ROWS inside the debit section, not as a separate service-charge line, so this entry is NOT in the capital_one / texas_bank scope class and needs no mapping.",
+        ),
+    },
     "zions": {
         "credit": CountSemantics(
             comparable=True,
