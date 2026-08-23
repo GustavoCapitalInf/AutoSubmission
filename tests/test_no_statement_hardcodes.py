@@ -693,9 +693,19 @@ def test_no_worked_example_in_the_llm_prompt_carries_a_figure():
         f"a worked example in the LLM prompt carries a figure: {offenders}"
     )
     # The teaching the placeholders replaced must still be there, or the fix
-    # was a deletion wearing a rewrite's clothes.
+    # was a deletion wearing a rewrite's clothes. Naming the tokens is not
+    # enough and a mutant proved it: deleting the two-column example outright
+    # left every placeholder standing in the PROSE around it. So the example's
+    # own shape is asserted — a label row and a value row, on their own lines.
     for token in ("<V1>", "<V3>", "<V6>", "<N>", "BY POSITION"):
         assert token in prompt, f"the alignment example lost {token!r}"
+    lines = prompt.splitlines()
+    assert any(
+        "Previous Balance" in line and "<N>" in line for line in lines
+    ), "the alignment example lost its LABEL row"
+    assert any(
+        re.search(r"<V1>.*<V2>.*<V3>", line) for line in lines
+    ), "the alignment example lost its VALUE row"
 
 
 def test_closing_the_docstring_hole_flags_no_module():
