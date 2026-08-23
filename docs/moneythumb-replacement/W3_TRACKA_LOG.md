@@ -44365,15 +44365,15 @@ reader's own invented figures.
 python -m tools.lili_privacy_scan --data-dir <checkout>/webapp_data     --base 10cc722 --allow DIGITAL,FAMILY,February,Group,INSIDE,LONG,OPENING,True,collateral
 
 documents scanned            : 20 of 20
-branch AUTHORED (added lines): 132,079 chars
+branch AUTHORED (added lines): 160,292 chars
 adjudicated coincidences     : 9
 
 money      : 4,766 distinct family tokens ->   0 AUTHORED, 162 inherited
 digits     : 2,889 distinct family tokens ->   0 AUTHORED,   0 inherited
 dates      :   171 distinct family tokens ->   0 AUTHORED,   4 inherited
 rare_cased :   659 distinct family tokens ->   9 AUTHORED,  46 inherited  (all nine adjudicated)
-rare       :   628 distinct family tokens ->  26 AUTHORED,  79 inherited
-words      :   915 distinct family tokens -> 143 AUTHORED, 282 inherited
+rare       :   628 distinct family tokens ->  29 AUTHORED,  79 inherited
+words      :   915 distinct family tokens -> 154 AUTHORED, 282 inherited
 EXIT=0
 ```
 
