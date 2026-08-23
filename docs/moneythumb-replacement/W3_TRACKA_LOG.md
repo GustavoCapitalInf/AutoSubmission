@@ -43870,7 +43870,37 @@ the repaired text:
 | `026EE246…` · `A3539AB3…` · `FC385FC2…` | 0 → 0 | no evidence list changes |
 
 `1ADC8AD7`'s **8** rows are exactly DA6.1's "printed on 4 rows each" for two
-lenders, arrived at by a different route. And every one of these detections is
+lenders, arrived at by a different route.
+
+**The detections, one at a time.** 38 evidence rows are GAINED across the
+seven documents. Each was re-matched against the PDF word geometry, the same
+test §DESCATTRIB DA6 applied to the ones it removed:
+
+| evidence group | gained | the `matched_alias` is a literal the row prints |
+|---|---:|---|
+| `lender_evidence` (confirmed) | 23 | **23 of 23** |
+| `non_revenue_evidence` | 1 | **1 of 1** |
+| `insurance_evidence` | 10 | not applicable — see below |
+| `potential_lender_evidence` | 4 | not applicable — see below |
+| **total** | **38** | **24 of 24 where the test applies** |
+
+**The 14 "not applicable" are a property of the test, not of the detections,
+and it took a second measurement to establish that rather than a first
+impression.** The literal-substring test read them as *not* the row's own
+printing, which would have been a serious finding. They are not: all 10
+insurance rows carry `match_method=insurance_descriptor` with the canonical
+entity literally `insurance provider not identified`, and all 4
+potential-lender rows carry `match_method=explicit_financing_repayment` with a
+normalised composite alias. Neither string is a substring of ANY description —
+measured, they are absent from the PUBLISHED description too, on all 14 — so
+the alias is a LABEL for how the match was made, not the text it matched on.
+Recorded because the same instrument produced DA6's table and a future reader
+would otherwise read a count of 14 as fabrications.
+
+**What settles it is not the alias test anyway.** DC3.1's score is 0 FOREIGN
+over all 269 rows: no published description contains text the statement
+printed for a different posting. A detection cannot be matched on another
+row's text when no description holds any. And every one of these detections is
 matched on text the row itself prints — that is what DC3.1's **0 FOREIGN**
 says, from the word geometry rather than from this rung's own reading.
 
