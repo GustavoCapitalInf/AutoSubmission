@@ -78,6 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     # `parser_registry` alone gets an empty one.
     from analysis import parser_registry_entries  # noqa: F401
     from analysis.parser_registry import by_id, prepare, registrations
+    from tools.welch_shas import read_population
     from ocr.document import StatementMarkdown
     from webapp.artifact_cache import STAGE_OCR, cache_key, ocr_settings_key
 
@@ -89,11 +90,7 @@ def main(argv: list[str] | None = None) -> int:
 
     population: set[str] = set()
     if args.population is not None:
-        population = {
-            token.strip().upper()
-            for token in args.population.read_text(encoding="utf-8").split()
-            if token.strip()
-        }
+        population = set(read_population(args.population))
 
     meta: dict[str, dict[str, str]] = {}
     with args.rows.open(encoding="utf-8", newline="") as handle:

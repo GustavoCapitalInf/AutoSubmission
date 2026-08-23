@@ -125,19 +125,14 @@ def main(argv: list[str] | None = None) -> int:
 
     from ocr.document import StatementMarkdown
     from webapp.artifact_cache import STAGE_OCR, cache_key, ocr_settings_key
+    from tools.welch_shas import read_population
 
     root = args.data_dir / "artifacts"
     ocr_keys = [
         ocr_settings_key(force_ocr=force, allow_local_ocr=local, allow_visual_ocr=visual)
         for force, local, visual in itertools.product((False, True), repeat=3)
     ]
-    shas = [
-        token.strip().upper()
-        for line in args.population.read_text(encoding="utf-8").splitlines()
-        if not line.strip().startswith("#")
-        for token in line.split()
-        if token.strip()
-    ]
+    shas = read_population(args.population)
 
     printed: set[str] = set()
     documents = 0

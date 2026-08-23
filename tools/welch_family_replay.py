@@ -82,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     from ocr.document import StatementMarkdown
     from telemetry.record import classify_outcome
     from webapp.artifact_cache import STAGE_OCR, cache_key, ocr_settings_key
+    from tools.welch_shas import read_population
 
     before: dict[str, str] = {}
     if args.rows is not None:
@@ -93,11 +94,7 @@ def main(argv: list[str] | None = None) -> int:
                         sha, f"{row.get('outcome_class')}/{row.get('outcome_reason')}"
                     )
 
-    shas = [
-        token.strip().upper()
-        for token in args.population.read_text(encoding="utf-8").split()
-        if token.strip()
-    ]
+    shas = read_population(args.population)
     root = args.data_dir / "artifacts"
     ocr_keys = [
         ocr_settings_key(force_ocr=force, allow_local_ocr=local, allow_visual_ocr=visual)
