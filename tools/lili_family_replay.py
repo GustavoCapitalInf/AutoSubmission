@@ -158,6 +158,42 @@ def gate(text: str) -> str:
     return "PUBLISHED"
 
 
+def _l1_packet(text: str) -> str:
+    """The three-column packet, for a document the §L-1 gate refuses.
+
+    The reader refuses these because the single-account schema cannot carry
+    the sibling ledger. What the pending L-1 ruling needs is not that refusal
+    but the BINDING behind it — which column is the checking account — so this
+    prints the three readings that answer it independently of the header,
+    which on this printing arrives interleaved and sometimes truncated:
+
+    * the three-column arithmetic (column 1 + column 2 == column 3, per row);
+    * whether the MAIN ledger's printed chain walks column 1's beginning to
+      column 1's ending — and whether it walks column 3's;
+    * whether the SIBLING ledger's chain walks column 2's.
+    """
+    summary = lili._summary(text)
+    if summary is None or len(summary[0]) < 2:
+        return ""
+    heads = list(lili._LEDGER_HEAD_RE.finditer(text))
+    identity = [round(row[0] + row[1] - row[-1], 2) for row in summary]
+    closes = [round(c[0] + c[1] + c[2] + c[3] - c[4], 2) for c in zip(*summary)]
+    if len(heads) < 2:
+        return (f"      columns={len(summary[0])} heads={len(heads)} "
+                f"col1+col2-colN={identity} per-column sum residuals={closes}")
+    cut = heads[1].start()
+    main, sibling = lili._postings(text[:cut]), lili._postings(text[cut:])
+    on_first = main is not None and lili._chain_holds(main, summary[0][0], summary[4][0])
+    on_last = main is not None and lili._chain_holds(main, summary[0][-1], summary[4][-1])
+    on_second = sibling is not None and lili._chain_holds(sibling, summary[0][1], summary[4][1])
+    return (f"      columns={len(summary[0])} heads={len(heads)} "
+            f"col1+col2-colN={identity} per-column sum residuals={closes} "
+            f"main_rows={0 if main is None else len(main)} "
+            f"sibling_rows={0 if sibling is None else len(sibling)} "
+            f"main_chains_on_col1={on_first} on_last_col={on_last} "
+            f"sibling_chains_on_col2={on_second}")
+
+
 def _verdict(markdown: str, pages: list[str]) -> str:
     """`class/reason` the platform reaches, end to end and deterministically.
 
@@ -221,6 +257,9 @@ def main() -> int:
         rows = "" if statement is None else f"  postings={len(statement.transactions)}"
         rival_note = "" if not rivals else f"  ALSO CLAIMED BY {rivals}"
         print(f"{sha[:16]}  claimed={claims}  {outcome:24} {verdict}{rows}{rival_note}")
+        packet = _l1_packet(text)
+        if packet:
+            print(packet)
 
     print(f"\n{len(shas)} documents: claimed {claimed}, published {published}, "
           f"declined {claimed - published}, no artifact {missing}, "
