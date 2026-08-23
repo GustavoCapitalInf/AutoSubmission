@@ -560,17 +560,24 @@ def _rows(runs: list[str], *, category: _Category,
     well as a total, which is the whole reason this template is worth reading.
     """
     postings: list[Transaction] = []
+    read = []
     for run in runs:
         cells = dated_cells(run, date_pattern=_DATE_RE, value_pattern=_FIGURE_RE)
         if cells is None:
             return None
+        read.append((run, cells))
+    # The descriptions are read for the whole SECTION, not for a row or even a
+    # run at a time: what a row's span owns depends on how many rows' merchant
+    # blocks the flattened layer still had in hand when it flushed into that
+    # span, and a block outstanding when a page break ends one run lands in the
+    # FIRST span of the next (W3 §DESCATTRIB DA4.1;
+    # `tables.attributed_descriptions`).
+    described = attributed_descriptions(
+        [cells for _run, cells in read],
+        strip=_DESCRIPTION_FURNITURE, limit=_DESCRIPTION_LIMIT,
+    )
+    for (run, cells), texts in zip(read, described):
         cursor = 0
-        # The descriptions are read for the RUN, not for a row at a time: what
-        # a row's span owns depends on how many rows' merchant blocks the
-        # flattened layer still had in hand when it flushed into that span
-        # (W3 §DESCATTRIB; `tables.attributed_descriptions`).
-        described = attributed_descriptions(
-            cells, strip=_DESCRIPTION_FURNITURE, limit=_DESCRIPTION_LIMIT)
         for index, cell in enumerate(cells):
             iso = iso_within_period(cell.date.replace("-", "/"), start, end)
             amount = _magnitude(cell.value)
@@ -586,7 +593,7 @@ def _rows(runs: list[str], *, category: _Category,
                 description = f"{category.default} {serial.group(1)}" if serial \
                     else category.default
             else:
-                description = described[index] or category.default
+                description = texts[index] or category.default
             postings.append(Transaction(
                 date=iso,
                 description=description,

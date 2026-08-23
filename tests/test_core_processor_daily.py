@@ -560,7 +560,8 @@ def test_the_reader_attributes_through_the_shared_call_and_not_beside_it():
     marker = "REPLACED BY THE HARNESS"
     original = cpd.attributed_descriptions
     try:
-        cpd.attributed_descriptions = lambda cells, **kwargs: [marker] * len(cells)
+        cpd.attributed_descriptions = (
+            lambda runs, **kwargs: [[marker] * len(cells) for cells in runs])
         assert interleaved() == [marker] * 3
     finally:
         cpd.attributed_descriptions = original

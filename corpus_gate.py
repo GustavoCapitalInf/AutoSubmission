@@ -608,6 +608,16 @@ EXCLUDED_ANALYSIS_CALLERS = {
         "read-only description leaf-diff; publishes no verdict, and already "
         "supplies the reconstructed page partition"
     ),
+    # W3 §DESCATTRIB's geometry oracle. Its `detections` subcommand analyses a
+    # document to ask which classifier detections the attribution rule removes
+    # and whether the text each was matched on was ever printed for the row it
+    # was attributed to. Excused on the same two grounds: it publishes no
+    # verdict — counts, classes and booleans, never a value — and it already
+    # supplies the reconstructed page partition.
+    "tools/descattrib_oracle.py": (
+        "read-only geometry oracle; publishes no verdict, and already supplies "
+        "the reconstructed page partition"
+    ),
 }
 
 # Audited columns whose value is a path, compared without regard to separator.

@@ -57,6 +57,33 @@ TWO_CONTINUATION_LINES = (
     "10.00\n"
 )
 
+#: A section a page break split into two runs. The first run's only row ends
+#: with its block still outstanding — the layer flushed it after the amount,
+#: where no span reaches — and the second run opens with a span holding that
+#: block welded to its own. Counting per RUN restarts the bound at 0 here and
+#: reads 1; counting per SECTION reads 2 and refuses (W3 §DESCATTRIB DA4.1).
+RUN_ONE = (
+    "\nDate Description Amount\n"
+    "02-03 Preauthorized Debit 10.00\n"
+)
+RUN_TWO = (
+    "\nDate Description Amount\n"
+    "02-04 Preauthorized Debit\n"
+    "EXAMPLE FIRST PAYABLES CCD EXAMPLE SECOND PAYABLES CCD\n"
+    "20.00\n"
+)
+#: A label the layer wrapped onto a second line, with another row outstanding.
+#: The row publishes the first line of its own label — a PREFIX of its own
+#: printing, never another row's text — and the rest is dropped with the
+#: indeterminate flush it cannot be told apart from.
+WRAPPED_LABEL = (
+    "\nDate Description Amount\n"
+    "02-03 Preauthorized Debit 10.00\n"
+    "02-04 Preauthorized Debit Reversal\n"
+    "CONTINUED\n"
+    "20.00\n"
+)
+
 #: printing -> the description every row of it must publish, in row order.
 FAMILY = {
     # 1. The block is printed BELOW its own amount, so it lands in no row's
@@ -80,12 +107,25 @@ FAMILY = {
 }
 
 
-def descriptions(module, run: str) -> list[str]:
-    cells = tables.dated_cells(
-        run, date_pattern=module._DATE_RE, value_pattern=module._FIGURE_RE)
-    assert cells is not None, "the fixture is not readable as a dated grid"
+def descriptions(module, *runs: str) -> list[str]:
+    """Every row of `runs`, flattened — the runs of ONE section, in order.
+
+    Flattened because most of the family is a single run and the row order is
+    what those tests assert; `run_descriptions` keeps them apart where the
+    boundary is the thing under test.
+    """
+    return [text for run in run_descriptions(module, *runs) for text in run]
+
+
+def run_descriptions(module, *runs: str) -> list[list[str]]:
+    read = []
+    for run in runs:
+        cells = tables.dated_cells(
+            run, date_pattern=module._DATE_RE, value_pattern=module._FIGURE_RE)
+        assert cells is not None, "the fixture is not readable as a dated grid"
+        read.append(cells)
     return tables.attributed_descriptions(
-        cells,
+        read,
         strip=module._DESCRIPTION_FURNITURE,
         limit=module._DESCRIPTION_LIMIT,
     )
@@ -135,6 +175,46 @@ def test_a_row_whose_own_block_the_layer_flushed_later_still_publishes_its_label
     """A dropped block leaves the row's LABEL, never an empty description: the
     label is what the bank printed on that row's own line."""
     assert descriptions(module, INTERLEAVED)[0] == "Preauthorized Debit"
+
+
+# ---------------------------------------------------------------------------
+# The run boundary — DA4.1, the review's MAJOR-1
+# ---------------------------------------------------------------------------
+
+@READERS
+def test_a_block_outstanding_when_a_run_ends_is_counted_in_the_next_run(module):
+    """The bound is a property of the SECTION, not of a run.
+
+    A page break splits a section into runs and the layer does not restart
+    with it: a block still outstanding at the end of one run lands in the
+    first span of the next. A count that restarted per run would read 1 on a
+    span holding two rows' blocks and attribute the pair.
+    """
+    assert run_descriptions(module, RUN_ONE, RUN_TWO) == [
+        ["Preauthorized Debit"],
+        ["Preauthorized Debit"],
+    ]
+
+
+@READERS
+def test_the_same_second_run_read_alone_attributes_its_own_block(module):
+    """The other half of the pin, so the test above cannot pass by the rule
+    simply refusing every first-of-run span: read on its own — nothing
+    outstanding before it — that identical run publishes its block."""
+    assert run_descriptions(module, RUN_TWO) == [
+        ["Preauthorized Debit EXAMPLE FIRST PAYABLES CCD EXAMPLE SECOND PAYABLES CCD"],
+    ]
+
+
+@READERS
+def test_a_wrapped_label_is_cut_to_its_own_first_line_never_another_rows_text(module):
+    """MINOR-4, pinned as the documented behaviour rather than left to be
+    discovered: where the layer wraps a row's own LABEL and the row is
+    indeterminate, what it publishes is the first line of that label — still a
+    prefix of its own printing. No row of the archive is affected today."""
+    published = descriptions(module, WRAPPED_LABEL)
+    assert published == ["Preauthorized Debit", "Preauthorized Debit Reversal"]
+    assert "CONTINUED" not in " ".join(published)
 
 
 # ---------------------------------------------------------------------------

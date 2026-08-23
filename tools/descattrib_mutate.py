@@ -11,6 +11,9 @@ finding on this same complex, where two gate tests were firing through the
 wrong gate. So every mutation here is required to kill a NAMED test, and the
 harness prints the names rather than a count.
 
+M9 is the review's MAJOR-1: the PER-RUN count this cell shipped to review,
+kept as a mutant so the section-wide carry can never be undone quietly.
+
 The target files are restored in a `finally`, and the harness prints the
 restore, so a run that dies mid-way is visible as one that did not.
 """
@@ -29,51 +32,50 @@ TESTS = [
     "tests/test_core_processor_daily.py",
 ]
 
+#: The decision, verbatim, as the anchor every branch mutation rewrites.
 _BRANCH = (
-    "        if not lines:\n"
-    "            printed = label\n"
-    "        else:\n"
-    "            printed = cell.described if outstanding == 1 and len(lines) == 1 else label\n"
-    "            outstanding = 0\n"
+    "            if not lines:\n"
+    "                printed = label\n"
+    "            else:\n"
+    "                printed = (cell.described\n"
+    "                           if outstanding == 1 and len(lines) == 1 else label)\n"
+    "                outstanding = 0\n"
 )
+_TERNARY = "                           if outstanding == 1 and len(lines) == 1 else label)"
 
 #: label -> (file, [(anchor, replacement), ...]). Applied to a pristine copy.
 MUTATIONS: dict[str, tuple[str, list[tuple[str, str]]]] = {
     # M1 — the shipped defect, restored verbatim: the whole span is the row's.
     "M1_the_shipped_span_restored": (TABLES, [
-        (_BRANCH, "        printed = cell.described\n"),
+        (_BRANCH, "            printed = cell.described\n"),
     ]),
     # M2 — the OTHER candidate fix G7.7 named: attribute the flush to the row
     # BEFORE the span it landed in. It moves the same wrong name one row the
     # other way, because the flush ends with the block of the row it is in.
     "M2_attributed_to_the_row_before": (TABLES, [
-        ("    published: list[str] = []\n    outstanding = 0\n    for cell in cells:\n",
-         "    published: list[str] = []\n    outstanding = 0\n"
-         "    for _index, cell in enumerate(cells):\n"
-         "        _next = (cells[_index + 1].described.partition('\\n')[2]\n"
-         "                 if _index + 1 < len(cells) else '')\n"),
+        ("        for cell in cells:\n",
+         "        for _index, cell in enumerate(cells):\n"
+         "            _next = (cells[_index + 1].described.partition(chr(10))[2]\n"
+         "                     if _index + 1 < len(cells) else '')\n"),
         (_BRANCH,
-         "        printed = (cell.described.partition('\\n')[0] + ' ' + _next\n"
-         "                   if _next.strip() else cell.described.partition('\\n')[0])\n"),
+         "            printed = (cell.described.partition(chr(10))[0] + ' ' + _next\n"
+         "                       if _next.strip()\n"
+         "                       else cell.described.partition(chr(10))[0])\n"),
     ]),
     # M3 — the indeterminate branch dropped: any single-line flush is taken as
     # the row's own, however many rows are outstanding.
     "M3_the_count_dropped": (TABLES, [
-        ("printed = cell.described if outstanding == 1 and len(lines) == 1 else label",
-         "printed = cell.described if len(lines) == 1 else label"),
+        (_TERNARY, "                           if len(lines) == 1 else label)"),
     ]),
     # M4 — the one-line condition dropped: a span holding two flushes, or a
     # page's furniture, is taken as one block.
     "M4_the_one_line_condition_dropped": (TABLES, [
-        ("printed = cell.described if outstanding == 1 and len(lines) == 1 else label",
-         "printed = cell.described if outstanding == 1 else label"),
+        (_TERNARY, "                           if outstanding == 1 else label)"),
     ]),
     # M5 — a flush never clears what is outstanding, so no row is ever
-    # attributed after the first: fail-closed become fail-silent.
+    # attributed after the first: fail-closed becomes fail-silent.
     "M5_the_flush_never_clears": (TABLES, [
-        ("            printed = cell.described if outstanding == 1 and len(lines) == 1 else label\n"
-         "            outstanding = 0\n",
-         "            printed = cell.described if outstanding == 1 and len(lines) == 1 else label\n"),
+        (_TERNARY + "\n                outstanding = 0\n", _TERNARY + "\n"),
     ]),
     # M6 — the cap cuts at the bound again rather than at a token boundary.
     "M6_cut_through_a_token": (TABLES, [
@@ -89,7 +91,7 @@ MUTATIONS: dict[str, tuple[str, list[tuple[str, str]]]] = {
     # M8 — one reader keeps a private normaliser beside the shared call: the
     # two readers of one layer can disagree about it again.
     "M8_a_private_normaliser_returns": (DAILY, [
-        ("            else:\n                description = described[index] or default\n",
+        ("            else:\n                description = texts[index] or default\n",
          "            else:\n"
          "                description = _private_described(cell.described) or default\n"),
         ("def _row_lead(gap: str) -> str:\n",
@@ -98,6 +100,17 @@ MUTATIONS: dict[str, tuple[str, list[tuple[str, str]]]] = {
          "\n"
          "\n"
          "def _row_lead(gap: str) -> str:\n"),
+    ]),
+    # M9 — the review's MAJOR-1: the count restarts at every RUN, so a block
+    # still outstanding when a page break ends a run lands in the first span
+    # of the next one with the bound reading 1.
+    "M9_the_count_restarts_each_run": (TABLES, [
+        ("    published: list[list[str]] = []\n"
+         "    outstanding = 0\n"
+         "    for cells in runs:\n",
+         "    published: list[list[str]] = []\n"
+         "    for cells in runs:\n"
+         "        outstanding = 0\n"),
     ]),
 }
 
@@ -139,7 +152,8 @@ def main(argv: list[str]) -> int:
                 (root / target).write_text(originals[target], encoding="utf-8")
             if killed_by:
                 print(f"KILLED  {label}: {', '.join(killed_by[:6])}"
-                      f"{' …' if len(killed_by) > 6 else ''}  ({len(killed_by)} tests)")
+                      f"{' and more' if len(killed_by) > 6 else ''}"
+                      f"  ({len(killed_by)} tests)")
             else:
                 survived.append(label)
                 print(f"SURVIVED {label}")

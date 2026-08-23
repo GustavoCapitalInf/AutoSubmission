@@ -35496,13 +35496,26 @@ merchant list deciding what a row says is the inversion this platform exists to
 avoid). They ARE distinguishable by COUNTING, which is DA4.
 
 **The ground truth is the PDF's word geometry, and it was validated before it
-was used.** A test-side oracle reads each row's true description from the word
-coordinates: the row's band runs from its own date's baseline to the next
+was used.** `tools/descattrib_oracle.py` is that oracle, committed rather than
+left in a scratchpad, and every number in DA3, DA6 and DA9 is reproduced by one
+of its three subcommands:
+
+```
+python -m tools.descattrib_oracle {rows|detections|sectioned} \
+    --rows discovery_reports/2026-08-21T014415.938236-0000-7a317445/rows.csv \
+    --data-dir webapp_data --corpus "Bank Statements" \
+    --baseline-settings-key D3370EEBDCB87892A2739BCB0D882A66E72DCBFAB2553101111157B5A231DE24
+```
+
+It reads each row's true description from the word coordinates: the row's band runs from its own date's baseline to the next
 date's, and the description is every word in that band between the date and
 the amount, in reading order. Over all 21 documents the oracle's rows and the
 reader's rows agree 1:1 on **(section, date, amount) for every one of the
 1,090 rows, in document order** — so the oracle is segmenting the same rows
-the reader is, and the only thing left to compare is the description. All 21
+the reader is, and the only thing left to compare is the description. The
+tool asserts that agreement rather than assuming it: a document whose rows do
+not pair is REFUSED and not scored, so a wrong segmentation cannot quietly
+produce a number. All 21
 documents are `native-pdf-text`; the one scanned document of the complex is
 `core_processor_sectioned`'s and is out of scope.
 
@@ -35513,9 +35526,9 @@ documents are `native-pdf-text`; the one scanned document of the complex is
 | 026EE246 | counted | 24 | 24 | 0 | 0 | 0 | 0 |
 | 0853FD10 | daily | 13 | 13 | 0 | 0 | 0 | 0 |
 | 1124CC1F | daily | 61 | 61 | 0 | 0 | 0 | 0 |
-| 1468D77A | counted | 55 | 27 | 18 | 10 | 9 | 10 |
+| 1468D77A | counted | 55 | 27 | 17 | 11 | 9 | 11 |
 | 19667083 | daily | 22 | 22 | 0 | 0 | 0 | 0 |
-| 1ADC8AD7 | counted | 45 | 23 | 13 | 9 | 9 | 9 |
+| 1ADC8AD7 | counted | 45 | 23 | 12 | 10 | 9 | 10 |
 | 5DADFE84 | daily | 69 | 69 | 0 | 0 | 0 | 0 |
 | 7370DF5A | daily | 120 | 120 | 0 | 0 | 0 | 0 |
 | 79ACCAA2 | daily | 76 | 76 | 0 | 0 | 0 | 0 |
@@ -35531,14 +35544,19 @@ documents are `native-pdf-text`; the one scanned document of the complex is
 | C80C0CC8 | counted | 2 | 2 | 0 | 0 | 0 | 0 |
 | F5ED552B | daily | 160 | 160 | 0 | 0 | 0 | 0 |
 | FC385FC2 | counted | 9 | 9 | 0 | 0 | 0 | 0 |
-| **21 documents** | | **1,090** | **981** | **77** | **32** | **30** | **32** |
+| **21 documents** | | **1,090** | **981** | **75** | **34** | **30** | **34** |
 
 Read across the whole complex, against the geometry:
 
 | | exact | a prefix of the row's own printing | FOREIGN |
 |---|---:|---:|---:|
 | shipped | 97 | 963 | **30** |
-| this card | 95 | 995 | **0** |
+| this card | 93 | 997 | **0** |
+
+(The review's independent oracle, built from the extractor's line boxes rather
+than from the word boxes, read the shipped tree as 97 / 961 / 30 and the
+pre-carry branch as 95 / 993 / 0 — two instruments, the same three conclusions:
+97 exact before, zero foreign after, and 30 rows of harm.)
 
 Two things in that table are worth saying out loud. **`core_processor_daily`
 moves nothing.** All 13 of its validated documents are 100% "label only": this
@@ -35549,10 +35567,12 @@ rows are all on 4 of the 8 `core_processor_counted` documents. And **the "111
 of 279" figure was never the harm**: 77 of the rows carrying extra text carry
 their OWN extra text and are exactly right.
 
-The 30 published-foreign and the 32 movers differ by 2: two rows publish
+The 30 published-foreign and the 34 movers differ by 4: two rows publish
 exactly the truth today by luck (their flush held several rows' blocks, but the
-earlier rows printed no detail of their own) and lose it to the rule's
-over-counting. DA4 says why that is the direction to fail in.
+earlier rows printed no detail of their own), and two more are first-of-run
+spans that the section-wide carry of DA4.1 declines to claim. All four lose a
+correct description to the rule's over-counting, and DA4 says why that is the
+direction to fail in.
 
 ## DA4 The rule: a count, not a vocabulary
 
@@ -35571,15 +35591,54 @@ each had.
   provably one block, and the only row it can belong to is this one. Anything
   else → publish the bare label, and the block is published on NO row.
 
-The bound only ever OVER-counts, in two ways, and both are safe: a row that
-printed no detail contributes no block but is still counted; and a block the
-layer flushed in the gap between two rows rather than inside a span is counted
-and is not there. Over-counting drops text; it never attributes it. There is no
-construction in which the bound under-counts, because a block cannot be flushed
-before its own row's date has opened — the detail is printed at or below the
-row's own line, and the grid emits the date and the label before it.
+The bound OVER-counts in two ways, and both are safe: a row that printed no
+detail contributes no block but is still counted; and a block the layer flushed
+in the gap between two rows rather than inside a span is counted and is not
+there. Over-counting drops text; it never attributes it.
 
-Measured: **77 of 77 rows the rule attributes publish exactly what the
+**It does not under-count, and the first version of this section claimed that
+as an absolute it had not earned.** The argument — a block cannot be flushed
+before its own row's date has opened, because the detail is printed at or below
+the row's own line and the grid emits the date and the label first — is sound
+about the ORDER of the two streams and says nothing about where the counting
+starts. DA4.1 is the case it missed.
+
+### DA4.1 The run boundary, and the review's MAJOR-1
+
+`attributed_descriptions` was called once per RUN, so the count restarted at 0
+at every run boundary. A section a page break splits is several runs
+(`section_runs` keeps them apart because the furniture between them is not a
+description), and **a block still outstanding when a run ends lands in the
+FIRST span of the next run**, where a restarted count reads 1 and attributes
+the pair. The review reproduced it:
+
+```
+run 1:  02-03 Preauthorized Debit 10.00
+run 2:  02-04 Preauthorized Debit
+        <a block of the previous run's row><this row's own block>
+        20.00
+```
+
+It is not exotic. Measured on the archive: the 8 `counted` documents print 29
+described runs with 8 in-section page-break boundaries between them, and **24
+of the 29 runs end with rows still outstanding**. Six spans were first-of-run
+attributions under the per-run count; all six happened to be exact, so the
+defect cost nothing on today's archive and was never worse than shipped — but
+it was a hole in the argument, not a hole that happened to be empty.
+
+The fix is the smallest one that closes it: `attributed_descriptions` takes the
+RUNS of one section and carries `outstanding` across them, so a section is
+counted once however many pages it took. Both readers now read their runs
+first, then attribute the section, then publish. **Cost, measured: two of the
+six first-of-run attributions are given up** (77 → 75 attributed, 32 → 34
+indeterminate); the other four had nothing outstanding carried into them and
+are unchanged. The same 4 documents move, with 34 description leaves instead of
+32 — the delta is named in DA5 rather than absorbed.
+
+`M9_the_count_restarts_each_run` keeps the per-run count as a mutant, so the
+carry cannot be undone quietly.
+
+Measured: **75 of 75 rows the rule attributes publish exactly what the
 statement printed for that row**, and **1,090 of 1,090 published descriptions
 are a prefix of the row's own printing** — the invariant this card exists to
 establish.
@@ -35605,11 +35664,13 @@ compares it to what the run of record stored, twice: once with every
   the 10 `sectioned`, and 4 of the 8 `counted`.
 * **4 documents move**, all `core_processor_counted`: `1468D77A`, `1ADC8AD7`,
   `7B3B8113`, `91A2DE99`, all `validated` before and after.
-* **32 `statement.transactions[].description` leaves move, every one of them
-  `shortened`** — the new value is a PREFIX of the old one in all 32 cases,
+* **34 `statement.transactions[].description` leaves move, every one of them
+  `shortened`** — the new value is a PREFIX of the old one in all 34 cases,
   which is the signature of removing a block rather than rewriting a
-  description. **None is lengthened.** No row is added or removed.
-* 1,747 `description` leaves exist across the 31 payloads and 49 move: the 32
+  description. **None is lengthened.** No row is added or removed. (32 before
+  DA4.1's section-wide carry; the carry adds one row on `1468D77A` and one on
+  `1ADC8AD7` and moves no other document.)
+* 1,747 `description` leaves exist across the 31 payloads and 51 move: the 34
   above, and 17 more classed `replaced` at
   `detection.insurance_providers[].transactions[].description` (10),
   `detection.known_funders[]…` (6) and `detection.potential_lenders[]…` (1).
@@ -35644,29 +35705,66 @@ platform attributes the lender to. The published `lender_debits`,
 documents are therefore computed from the wrong postings — wrong dates, wrong
 amounts, wrong count.
 
-Across the 4 movers, 15 classifier detections disappear and 0 appear. Checked
-one at a time against the geometry:
+Across the 4 movers, 16 classifier detections disappear. Checked one at a time
+against the geometry (`tools.descattrib_oracle detections`):
 
 | | detections removed | matched on text the row does NOT print | matched on the row's own text |
 |---|---:|---:|---:|
 | `lender_evidence` (confirmed) | 6 | 6 | 0 |
 | `potential_lender_evidence` | 1 | 1 | 0 |
-| `insurance_evidence` | 7 | 7 | 0 |
+| `insurance_evidence` | 8 | 8 | 0 |
 | `non_revenue_evidence` | 1 | 0 | **1** |
-| **total** | **15** | **14** | **1** |
+| **total** | **16** | **15** | **1** |
 
-**14 of the 15 were fabrications** — a detection matched on a merchant printed
-for a different transaction. One was real: a lender-funding credit on
-`91A2DE99` whose alias the row genuinely prints, on a row whose span held a
-flush with four rows outstanding. The rule cannot prove that block is that
-row's, so it publishes the label and the detection is lost. That is the cost of
-the ruling, paid once on this archive, and it is the right side to fail on: a
-funder repayment schedule read as one payment on a date it was not made is a
-wrong answer to the question this platform is asked.
+**15 of the 16 were fabrications** — a detection matched on a merchant printed
+for a different transaction.
+
+**"and none appears" is the honest form of the second half, not "0 appear"**
+(the review's MINOR-1). No entity is newly IDENTIFIED anywhere. Two evidence
+lists do grow, both on `91A2DE99` and both the same row re-landing after it
+stops being read as lender funding: `potential_revenue_evidence` 6 → 7 and
+`unverified_deposit_evidence` 6 → 7.
+
+### DA6.1 The one real loss, priced
+
+The single detection that was NOT a fabrication is a merchant-cash-advance
+disbursement on `91A2DE99`: a `2026-03-17` credit of **+213,750.00** whose
+KAPITUS alias the row genuinely prints, in a span holding four welded blocks.
+The rule cannot prove the block is that row's, so the row publishes its label
+and the credit is reclassified from lender funding to an eligible revenue-side
+deposit. It is the largest single number this branch changes and it belongs in
+the ledger in full:
+
+| metric on `91A2DE99` | before | after |
+|---|---:|---:|
+| `lender_credits` | 213,750.00 | **0.0** |
+| `non_revenue_total` | 253,750.00 | **40,000.00** |
+| `eligible_deposits` / `legacy_eligible_deposits` | 331,177.10 | **544,927.10** (+64.5%) |
+| `maximum_revenue` / `potential_revenue_total` | 291,177.10 | **504,927.10** |
+| `withholding_denominator` | 331,177.10 | **544,927.10** |
+| `potential_revenue_count` / `unverified_deposit_count` | 6 | **7** |
+| `non_revenue_count` | 2 | **1** |
+
+and the corrections that run the other way on the same document, where the
+fabricated potential-lender detection goes with it:
+
+| metric on `91A2DE99` | before | after |
+|---|---:|---:|
+| `potential_lender_debits` / `potential_lender_debit_total` | 20,960.00 | **0.0** |
+| `potential_withholding_numerator` | 20,960.00 | **0.0** |
+| `potential_withholding_exposure` | 6.33% | **0.0** |
+
+`91A2DE99` is an archive document, not a pinned one, so nothing in the truth
+set moves. It is recorded at this size because it sets DESC-COLUMNS' priority:
+the same welded column that was inventing lenders is also hiding a real one,
+and the number it hides is six figures.
 
 **The residue is a real coverage hole and it is nobody's card yet.** After this
 change, `1468D77A` and `1ADC8AD7` publish NO lender detection at all, and their
-true schedules — 4 and 5 postings each — carry no attribution. The blocks that
+true schedules carry no attribution: on `1468D77A` the two lenders are printed
+on 4 and on 5 rows, and on `1ADC8AD7` they are printed on 4 rows each (the
+first version of this sentence carried `1468D77A`'s 4-and-5 across to both
+documents — the review's MINOR-2). The blocks that
 name those lenders are still in the document; they are welded to other rows'
 blocks in a text layer that lost the column. Recovering them needs the columns
 back, which is an EXTRACTION rung question (a layout-preserving re-read of a
@@ -35690,6 +35788,8 @@ zero-padded so one fixture text is a row date under both.
 | interleaved | two rows' blocks welded on one line are published on NEITHER row; a third row whose flush the layer proves is one block publishes it |
 | several rows on one line | each row keeps its own label and takes no part of the other's |
 | two continuation lines | a span holding more than one flush is indeterminate |
+| a section split into two runs | a block outstanding when a run ends is counted in the next run (DA4.1) — and the same second run read ALONE still attributes its own block, so the pin cannot pass by refusing every first-of-run span |
+| a wrapped label | a row whose own LABEL the layer wrapped publishes the first line of it — a prefix of its own printing, never another row's (MINOR-4) |
 
 plus the bound (cut at a token boundary; a first token longer than the bound
 publishes nothing rather than half of one; a description exactly at the bound
@@ -35703,7 +35803,7 @@ is re-derivable). Baseline green, each mutation applied alone to a pristine
 copy, the file restored in a `finally`:
 
 Every mutation was applied alone to a pristine copy, the three gate files run,
-and the file restored. Baseline green, **8 applied / 8 killed, harness exit 0**.
+and the file restored. Baseline green, **9 applied / 9 killed, harness exit 0**.
 
 | Mutation (in `analysis/tables.py` unless named) | The named test that dies first | tests failing |
 |---|---|---:|
@@ -35715,6 +35815,7 @@ and the file restored. Baseline green, **8 applied / 8 killed, harness exit 0**.
 | **M6** the cap cuts at the bound rather than at a token boundary | `test_a_description_over_the_bound_is_cut_at_a_token_boundary[*]` | 4 |
 | **M7** half a token published where there is no boundary to cut at | `test_a_first_token_longer_than_the_bound_publishes_nothing_rather_than_half[*]` | 2 |
 | **M8** a private normaliser returns beside the shared call (`core_processor_daily.py`) | `test_an_interleaved_block_pair_is_published_on_neither_of_its_rows` (daily) | 4 |
+| **M9** the count restarts at every run — the review's MAJOR-1, kept as a mutant | `test_a_block_outstanding_when_a_run_ends_is_counted_in_the_next_run[*]` | 2 |
 
 **M6 survived the first run**, and that is the finding worth keeping. The cap
 fixture's filler put a space exactly at the bound, so cutting AT the bound and
@@ -35750,17 +35851,20 @@ the gap, with the column header stripped. Its template prints
 `DESCRIPTION DATE AMOUNT` on the row's own line — a different span with a
 different failure mode.
 
-Censused against the same geometry oracle, adapted to read LEFT of the date,
-over its 9 native documents (the tenth is the complex's only scanned document
-and has no word geometry to read):
+Censused with the same committed oracle, `descattrib_oracle sectioned`, whose
+`description_side="left"` is the only thing that differs — the column order is
+the template's, and it is passed as data rather than forked into a second
+instrument. Over all 10 documents:
 
 * on the 5 documents where the oracle segments every row 1:1 — 19 described
   rows — **every published description is EXACTLY the row's own printing**;
-* on 4 documents the oracle could not segment every row (it sees 11 of 12,
-  1 of 2, 12 of 14, 22 of 25) and no claim is made about them. On one of those
-  — `E069F856`, a SECOND issuer inside this registration — 5 of its 21
-  non-empty descriptions are not contiguous in the page's own reading order,
-  which is either an artefact of the adapted oracle or a class of its own.
+* 5 documents are UNPAIRED and are not scored. One is the complex's only
+  scanned document (`ADE55A5B`, `local-tesseract-ocr`), which has no word
+  geometry to read at all; on the other four the oracle sees 11 of 12, 1 of 2,
+  12 of 14 and 22 of 25 rows. On the last of those — `E069F856`, a SECOND
+  issuer inside this registration — 5 of its 21 non-empty descriptions are not
+  contiguous in the page's own reading order, which is either an artefact of
+  the adapted oracle or a class of its own.
 
 **Carded, not fixed and not claimed either way: DESC-ATTRIB-SECTIONED — finish
 the geometry census of `core_processor_sectioned`'s 9 native documents and
@@ -35769,9 +35873,14 @@ and its 10 documents are byte-identical in DA5's leaf-diff.
 
 ## DA10 Risks
 
-1. **The one true detection lost** (DA6) and the coverage hole behind it. Named,
-   carded as DESC-COLUMNS. The alternative — keeping today's behaviour — is the
-   thing Gustavo's ruling forbids.
+1. **The one true detection lost** (DA6.1) and the coverage hole behind it, and
+   it is the branch's largest single number: `91A2DE99`'s +213,750.00
+   merchant-cash-advance credit stops being lender funding, taking
+   `lender_credits` to 0.0, `non_revenue_total` from 253,750.00 to 40,000.00
+   and `eligible_deposits` / `withholding_denominator` from 331,177.10 to
+   544,927.10 (+64.5%). Archive, not pinned. Named, priced, and carded as
+   DESC-COLUMNS — which this figure is what prioritises. The alternative —
+   keeping today's behaviour — is the thing Gustavo's ruling forbids.
 2. **A span that holds page furniture rather than a merchant block** would be
    attributed by this rule if the furniture were on exactly one line and no
    other row were outstanding. Not reachable on the archive (the counted
@@ -35780,11 +35889,20 @@ and its 10 documents are byte-identical in DA5's leaf-diff.
    own line), and it is not a regression: today the same furniture is published
    too, with other rows' blocks on top of it. It cannot be closed without a
    furniture vocabulary, which is the thing this design refuses.
-3. **The two accidentally-exact rows** the over-count drops (DA3). Measured,
-   named, and the direction the branch is designed to fail in.
-4. **The oracle is test-side and template-shaped.** It reads a date column, an
+3. **The four correct descriptions the over-count drops** (DA3): two rows that
+   were exact by luck, and two first-of-run spans DA4.1's carry declines to
+   claim. Measured, named, and the direction the branch is designed to fail in.
+4. **A label the layer WRAPPED is cut to its first line** on an indeterminate
+   row, because the rule cannot tell a wrapped label from a flush: both are
+   text after the span's first newline. What it publishes is still a prefix of
+   the row's own printing and never another row's, which is the invariant that
+   matters — but it is a truncation, it is the review's MINOR-4, and it is
+   fixtured as documented behaviour rather than left to be discovered. No row
+   of the 1,090 is affected today.
+5. **The oracle is test-side and template-shaped.** It reads a date column, an
    amount column and the words between them. It is validated by the 1,090-row
-   1:1 agreement on (section, date, amount) and is not shipped.
+   1:1 agreement on (section, date, amount), refuses to score a document that
+   does not pair, and is not imported by `analysis/`.
 
 ## DA11 Proofs
 
@@ -35823,14 +35941,28 @@ archive**: this card moves no document across the boundary between publishing
 and refusing. The sweep names FIELDS; what moved inside them is DA5 and DA6,
 measured with this cell's own leaf-diff.
 
+**Which tree the sweep ran on, said plainly.** It ran at `fa4ec52`, before
+DA4.1's section-wide carry. The carry is re-proved on the population rather
+than by a second 9,658-second pass over 3,380 documents: the family-level
+leaf-diff over all 31 documents of the complex, re-run at the new HEAD, finds
+**the same 4 movers and the same 27 byte-identical documents**, with 34
+description leaves instead of 32 — the two named in DA5. Nothing outside the
+complex can move, because the only production code this branch touches is
+reached from `core_processor_counted._rows` and `core_processor_daily._rows`;
+`dated_cells` and its grid callers are untouched, detection is untouched
+(conformance 1,151 pins it), and a parse runs only on a document a reader has
+claimed. Ocean's ruling at review: the 31-document replay discharges it.
+
 ### DA11.2 The proof floor, exit codes verbatim
 
 | Proof | Result | Exit |
 |---|---|---|
-| full default suite at `fa4ec52` | **5,408 passed**, 35 skipped, 33 deselected (476.06s) | **0** |
+| full default suite at the review HEAD | **5,414 passed**, 35 skipped, 33 deselected (206.93s) | **0** |
+| full default suite at `fa4ec52` (pre-review) | **5,408 passed**, 35 skipped, 33 deselected (476.06s) | **0** |
 | full default suite at `0b1e1e8` (before the caller was classified) | 1 failed / 5,407 passed — `test_every_production_caller_of_the_analysis_is_classified` | **1** |
-| CANONICAL guard set (5 files) | **242 passed** (32.13s) | **0** |
-| CANONICAL conformance set (7 files) | **1,151 passed**, 35 skipped (9.48s) | **0** |
+| CANONICAL guard set (5 files) at the review HEAD | **242 passed** (16.56s) | **0** |
+| CANONICAL conformance set (7 files) at the review HEAD | **1,151 passed**, 35 skipped (3.95s) | **0** |
+| the three attribution test files at the review HEAD | **192 passed** (0.67s) | **0** |
 | `python corpus_gate.py` | **GREEN** — 106 PASS / 3 WITHHELD; verdicts **4 review / 102 validated / 3 withheld**; currency **109/109 = 14 CAD / 95 USD**; ADB basis 109/109 (1,898.4s) | **0** |
 | corpus-marked slice, saturated host (22 concurrent python processes, nine other cells) | 1 failed / 28 passed (5,977.45s) — `test_detect_sweep_stays_affordable_for_the_discovery_run`, measured 440.9 ms/document over 74 registrations, projecting 476.7 ms against a 250 ms budget | **1** |
 | corpus-marked slice, quiet host, re-run at HEAD | **29 passed**, 5,447 deselected (2,411.13s) | **0** |
@@ -35838,9 +35970,12 @@ measured with this cell's own leaf-diff.
 | that timing test alone, quiet host, the three production files reverted to base `e83f746` | **1 passed** (107.34s) | **0** |
 | archive sweep at HEAD (DA11.1) | 3,380 documents · 4 moved, all named · 0 now-publishes · 0 now-raises | 1 on the two chunks holding findings, **0** on the other five |
 | `python -m tools.descattrib_census` | 8 counted / 13 daily / 10 sectioned at registry 74 (175.9s) | **0** |
-| `python -m tools.descattrib_movement` over the complex's 31 | 32 description leaves moved on 4 documents, all `shortened`; 27 documents byte-identical | **1** (it exits 1 whenever it finds movement) |
-| `python tools/descattrib_mutate.py .` | 8 mutations applied, **8 killed** | **0** |
-| AST identity of the three production files against `fa4ec52`, the tree every proof above ran on | **identical** (`analysis/core_processor_counted.py` differs by one comment cross-reference, `DA4` → `DA8`; the other two byte-identical) | — |
+| `python -m tools.descattrib_movement` over the complex's 31, at the review HEAD | **34** description leaves moved on the same **4** documents, all `shortened`; 27 byte-identical (38.2s) | **1** (it exits 1 whenever it finds movement) |
+| `python -m tools.descattrib_oracle rows` at the review HEAD | 1,090 rows scored, 21 documents paired 1:1, **93 exact / 997 prefix / 0 FOREIGN** | **0** |
+| `python -m tools.descattrib_oracle detections` at the review HEAD | 16 detections removed: 15 matched on text the row does not print, 1 on its own | **0** |
+| `python -m tools.descattrib_oracle sectioned` at the review HEAD | 19 rows paired on 5 documents, **19 exact**; 5 documents unpaired and not scored | **0** |
+| `python tools/descattrib_mutate.py .` at the review HEAD | **9** mutations applied, **9 killed** | **0** |
+| longest description the complex publishes, re-measured after the carry | **121 characters of a 200 bound**; 0 rows at or over it | — |
 
 **The corpus-slice failure is machine contention, and that is measured rather
 than asserted.** The failing test times a full-registry DETECT sweep; this
@@ -35859,4 +35994,5 @@ of each other on a 100s test. The saturated reading (440.9 ms) is against
 | `0b1e1e8` | `tables.attributed_descriptions`, both readers wired through it, `_described` deleted from both, the fixture family and each reader's end-to-end tests |
 | `cf8e7c4` | the movement instrument classified in `corpus_gate.EXCLUDED_ANALYSIS_CALLERS` — found by the full suite, not by reading |
 | `fa4ec52` | the mutation harness, and the cap fixture that proved nothing until it asserted its own premise |
-| this commit | this section |
+| `02bff9a` | this section, as it stood at review |
+| this commit | the review's three MAJORs and four MINORs: the section-wide carry (MAJOR-1) with its fixtures and M9, the oracle committed as `tools/descattrib_oracle.py` (MAJOR-2), and the priced loss in DA6.1 (MAJOR-3) |

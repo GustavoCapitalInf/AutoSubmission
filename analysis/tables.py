@@ -334,9 +334,9 @@ def _clip_at_a_token_boundary(text: str, limit: int) -> str:
 
 
 def attributed_descriptions(
-    cells: Sequence[DatedCell], *, strip: str, limit: int
-) -> list[str]:
-    """What each row of a dated ledger printed for ITSELF, in cell order.
+    runs: Sequence[Sequence[DatedCell]], *, strip: str, limit: int
+) -> list[list[str]]:
+    """What each row of a dated ledger printed for ITSELF, run by run.
 
     `DatedCell.described` is everything the layer printed between a row's date
     and its amount, and on the interleaving printing `dated_cells` documents
@@ -366,35 +366,53 @@ def attributed_descriptions(
     * a span holding MORE THAN ONE continuation line is more than one flush
       and is indeterminate for the same reason.
 
-    The bound only ever over-counts — a row that printed no detail at all
-    contributes no block, and a block the layer flushed between two rows
-    rather than inside a span is counted here and is not present — so the
-    branch fails closed in the direction that drops text rather than
-    misattributes it. Measured over the 1,090 described rows of the complex's
-    21 validated documents: 77 rows attribute their block and every one of the
-    77 publishes exactly what the statement printed for that row; 32 rows are
-    indeterminate and publish their bare label, 30 of which published another
-    row's merchant text before this rule; and no published description is
-    anything but a prefix of the row's own printing.
+    The bound over-counts and does not under-count, and both halves of that
+    are measured rather than asserted. It over-counts because a row that
+    printed no detail contributes no block, and because a block the layer
+    flushed between two rows rather than inside a span is counted here and is
+    not present — so the branch fails closed in the direction that drops text.
+
+    **It does not under-count only because the count is carried across the
+    runs of one section, which is why this takes the RUNS rather than one
+    run's cells.** A section broken across a page is several runs
+    (`section_runs` keeps them apart, because the furniture between them is
+    not a description), and a block still outstanding when a run ends lands in
+    the FIRST span of the next run. Counting per run restarts the bound at 0
+    there and reads 1 on a span holding two rows’ blocks — the review
+    reproduced exactly that construction. On the archive 24 of this complex’s
+    29 described runs end with rows outstanding, so the boundary is the common
+    case rather than the exotic one.
+
+    Measured over the 1,090 described rows of the complex’s 21 validated
+    documents (`tools/descattrib_oracle.py rows`, scored against the PDF word
+    coordinates the flattened layer threw away): 75 rows attribute their block
+    and every one of the 75 publishes exactly what the statement printed for
+    that row; 34 rows are indeterminate and publish their bare label, 30 of
+    which published another row’s merchant text before this rule; and no
+    published description is anything but a prefix of the row’s own printing.
 
     `strip` and `limit` are the caller's, because the punctuation a template
     prints as column furniture is template knowledge; the whitespace collapse
     is not, since a description is what the bank printed and the layer's
     spacing is not part of it.
     """
-    published: list[str] = []
+    published: list[list[str]] = []
     outstanding = 0
-    for cell in cells:
-        label, _newline, flushed = cell.described.partition("\n")
-        outstanding += 1
-        lines = [line for line in flushed.split("\n") if line.strip()]
-        if not lines:
-            printed = label
-        else:
-            printed = cell.described if outstanding == 1 and len(lines) == 1 else label
-            outstanding = 0
-        printed = re.sub(r"\s+", " ", printed).strip(strip)
-        published.append(_clip_at_a_token_boundary(printed, limit).strip())
+    for cells in runs:
+        this_run: list[str] = []
+        for cell in cells:
+            label, _newline, flushed = cell.described.partition("\n")
+            outstanding += 1
+            lines = [line for line in flushed.split("\n") if line.strip()]
+            if not lines:
+                printed = label
+            else:
+                printed = (cell.described
+                           if outstanding == 1 and len(lines) == 1 else label)
+                outstanding = 0
+            printed = re.sub(r"\s+", " ", printed).strip(strip)
+            this_run.append(_clip_at_a_token_boundary(printed, limit).strip())
+        published.append(this_run)
     return published
 
 
