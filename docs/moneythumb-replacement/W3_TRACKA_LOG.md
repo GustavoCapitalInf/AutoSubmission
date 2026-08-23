@@ -44142,18 +44142,19 @@ after one filter with a precise meaning — a literal is evidence of a leak only
 if the tracked repository did not already carry it at base. Base vocabulary:
 464 tracked text files at `10cc722`.
 
-At the final tree the raw intersection is **187** and the residual is **13**,
-and every one of the 13 is traced to its own added line rather than argued
+At the final tree the raw intersection is **215** and the residual is **14**,
+and every one of the 14 is traced to its own added line rather than argued
 away: `235.00` and `81.00` are the invented statement's fee-test ending and
 its credit-total mutation; `1/01/26`, `1/08`, `1/12`, `1/22`, `1/28` and
 `2/12` are the invented statement's own dates; `11.00-`, `130.00-`, `40.00-`
-and `5.00-` are its invented signed amounts; and `BANNER` is the identifier
-`_BANNER_RE`. `git diff -S` places twelve of the thirteen in
-`tests/test_core_processor_enclosures.py` (one of them also in the invented
-conformance fixture) and the thirteenth in the module's own source. **No
-archive-sourced literal survives anywhere in the branch**, and the collision is
-what a hundred invented round figures cost against an archive that prints
-8,442 distinct ones.
+and `5.00-` are its invented signed amounts; `BANNER` is the identifier
+`_BANNER_RE`; and `Privacy` is the word in this section's own summary row,
+which one member of the family also prints in a marketing sentence. `git diff
+-S` places twelve of the fourteen in `tests/test_core_processor_enclosures.py`
+(one of them also in the invented conformance fixture), one in the module's own
+source and one in this log. **No archive-sourced literal survives anywhere in
+the branch**, and the collision is what a hundred invented round figures cost
+against an archive that prints 8,442 distinct ones.
 
 The instrument is the private scratchpad's `privacy_scan.py`; it is not
 committed because it reads archive text, and the residual it reports is a
