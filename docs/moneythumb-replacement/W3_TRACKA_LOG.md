@@ -44147,79 +44147,74 @@ set below.
 
 ## LI8. The mutation table
 
-`python tools/lili_mutate.py .` — 32 mutants, applied one at a time to a
+`python tools/lili_mutate.py .` — **36 mutants**, applied one at a time to a
 pristine copy of `analysis/lili.py`, each anchor asserted present and each
 mutant asserted to change something before it is scored, the suite run
 **WITHOUT `-x`** so every killer is named, and the target restored in a
-`finally` that prints the restore. Run on a CLEAN tree at the branch's final
-production commit `cd2fa0b`; the log is `F_mutation.log` and it ends
-`restored analysis/lili.py` / `32 mutants, 32 KILLED, 0 survivors` / `EXIT=0`.
-The commits after `cd2fa0b` are documentation and instruments only — no
-`analysis/` byte moves — so the table below is the table for the merged tree.
+`finally` that prints the restore. Run on a CLEAN tree at `b1ba3c2`, the
+commit that closed the review's MAJOR-2; the log is `R_mutation.log`.
 
-**32 mutants, 32 KILLED, 0 survivors. EXIT=0.**
+**36 mutants, 35 KILLED, 1 survivor — and the survivor is M10, which is an
+EQUIVALENT mutant declared as one before it ran.** M10 moves §INTEGRITY to
+after the shape read; every gate in this reader answers by declining, so the
+two orders are indistinguishable at the `parse` boundary. It is in the table
+so that "gate order is not observable" is a measurement instead of a claim
+(§LI15 R3).
 
-| # | mutant | killed by, transcribed from `F_mutation.log` |
+| # | mutant | killed by, transcribed from `R_mutation.log` |
 |---|---|---|
-| M01 | the issuer marker dropped: the registration would rest on the two summary terms alone, which a core-processor statement also prints | 3 tests: `the_registration_rests_on_three_required_markers`; `a_document_without_the_platforms_support_address_is_not_claimed`; `the_summary_terms_alone_are_not_a_claim` |
-| M02 | the debit-term marker dropped: only the clean printing is claimed, and the tampered one falls through unnamed | 1 test: `the_registration_rests_on_three_required_markers` |
-| M03 | §INTEGRITY removed entirely | 4 tests: `a_posting_dated_outside_the_printed_period_refuses_the_document`; `a_posting_dated_inside_the_year_but_outside_the_period_is_refused`; `a_non_calendar_date_inside_a_description_refuses_the_document`; `a_date_inside_a_description_is_read_by_the_same_gate` |
-| M04 | §INTEGRITY compares only the YEAR | 1 test: `a_posting_dated_inside_the_year_but_outside_the_period_is_refused` |
-| M05 | §INTEGRITY skips a token that is not a calendar date instead of refusing | 1 test: `a_non_calendar_date_inside_a_description_refuses_the_document` |
-| M06 | §INTEGRITY looks only at the ledger's own date column | 2 tests: `a_non_calendar_date_inside_a_description_refuses_the_document`; `a_date_inside_a_description_is_read_by_the_same_gate` |
-| M07 | §L-1 column gate removed | 2 tests: `a_summary_that_prints_a_second_money_column_is_refused`; `a_second_money_column_is_refused_even_when_it_is_idle` |
-| M08 | §L-1 column gate removed AND the LAST column read — the census's own framing of the hazard, and the reader a two-figure read would produce | 1 test: `a_second_money_column_is_refused_even_when_it_is_idle` |
-| M09 | §L-1 ledger gate removed | 1 test: `a_second_ledger_is_refused_even_when_the_summary_has_one_column` |
-| M10 | §L-1 ledger gate weakened to “at least one” | 1 test: `a_second_ledger_is_refused_even_when_the_summary_has_one_column` |
-| M11 | a summary term may be printed twice, first reading wins | 2 tests: `a_summary_term_printed_twice_is_refused`; `the_five_terms_must_appear_in_the_order_the_template_prints_them` |
-| M12 | the five terms may appear in any order | 1 test: `the_five_terms_must_appear_in_the_order_the_template_prints_them` |
-| M13 | a ragged summary grid accepted | 1 test: `a_ragged_summary_grid_is_refused` |
-| M14 | the term patterns join on any whitespace, which spans a line break — the defect this reader's first revision actually had | 1 test: `a_term_whose_figure_is_on_the_next_line_is_refused` |
-| M15 | the Withdrawals sign unchecked | 1 test: `a_withdrawals_term_printed_as_an_inflow_is_refused` |
-| M16 | the Fees sign unchecked | 1 test: `a_fees_term_printed_as_an_inflow_is_refused` |
-| M17 | the summary sum gate removed | 1 test: `a_summary_that_does_not_close_on_itself_is_refused` |
-| M18 | the chain gate removed | 3 tests: `a_broken_chain_refuses_the_document`; `a_first_posting_that_does_not_step_from_the_printed_beginning_is_refused`; `a_dropped_posting_refuses_the_document` |
-| M19 | the chain checks only the last printed balance | 3 tests: `a_broken_chain_refuses_the_document`; `a_first_posting_that_does_not_step_from_the_printed_beginning_is_refused`; `a_dropped_posting_refuses_the_document` |
-| M20 | the chain anchored at the first row's own implied opening instead of at the printed beginning | 1 test: `a_first_posting_that_does_not_step_from_the_printed_beginning_is_refused` |
-| M21 | the gross-debit gate removed | 1 test: `a_posting_pair_the_summary_nets_out_is_refused` |
-| M22 | the gross-debit gate ignores the fee term — the reading that would have hidden the Withdrawals/Fees split | 8 tests: `the_clean_printing_publishes_its_summary_and_its_ledger`; `the_debit_total_excludes_the_fee_term_the_document_prints_separately`; `every_posting_carries_the_balance_the_document_printed_after_it`; `the_reader_claims_no_currency_and_no_product_name_of_its_own`; `a_description_that_contains_figures_does_not_steal_the_amount_column`; `a_date_inside_a_description_is_read_by_the_same_gate`, and 2 more |
-| M23 | the tolerance widened from a cent to a dollar | 1 test: `a_broken_chain_refuses_the_document` |
-| M24 | the row's two money columns unbound: the END ANCHOR removed AND the description made non-greedy (either alone is an EQUIVALENT mutant — see below) | 1 test: `a_description_that_contains_figures_does_not_steal_the_amount_column` |
-| M25 | an unreadable posting skipped instead of refusing the document | 1 test: `an_unreadable_posting_refuses_even_when_skipping_it_would_reconcile` |
-| M26 | an empty description published | 1 test: `a_description_that_cleans_away_to_nothing_refuses_the_document` |
-| M27 | no postings read as an empty statement rather than as a ledger this reader could not read | 1 test: `a_ledger_head_with_no_rows_under_it_refuses_rather_than_publishing_zero` |
-| M28 | two contradicting headers blended | 1 test: `two_headers_that_disagree_refuse_the_document` |
-| M29 | an impossible period bound RAISES instead of declining — an exception is not an answer | 1 test: `a_period_bound_the_calendar_does_not_have_refuses_the_document` |
-| M30 | the fee term folded into the debit total | 1 test: `the_debit_total_excludes_the_fee_term_the_document_prints_separately` |
-| M31 | the printed running balance not published | 8 tests: `the_clean_printing_publishes_its_summary_and_its_ledger`; `the_debit_total_excludes_the_fee_term_the_document_prints_separately`; `every_posting_carries_the_balance_the_document_printed_after_it`; `the_reader_claims_no_currency_and_no_product_name_of_its_own`; `a_description_that_contains_figures_does_not_steal_the_amount_column`; `a_date_inside_a_description_is_read_by_the_same_gate`, and 2 more |
-| M32 | a currency CODE claimed where the family prints none (the code, not its provenance: that second field may only be NAMED by its readers, the schema and the gate, and a harness is none of the three) | 1 test: `the_reader_claims_no_currency_and_no_product_name_of_its_own` |
+| M01 | issuer marker dropped | 3 tests: `the_registration_rests_on_three_required_markers`; `a_document_without_the_platforms_support_address_is_not_claimed`; `the_summary_terms_alone_are_not_a_claim` |
+| M02 | debit term marker dropped | 1 test: `the_registration_rests_on_three_required_markers` |
+| M03 | integrity gate removed | 7 tests: `a_posting_dated_outside_the_printed_period_refuses_the_document`; `a_posting_dated_inside_the_year_but_outside_the_period_is_refused`; `a_line_that_begins_with_a_date_must_be_a_posting`; `a_posting_one_day_before_the_period_is_refused`; `a_posting_one_day_after_the_period_is_refused`; `a_posting_earlier_in_the_period_start_month_is_refused`, and 1 more |
+| M04 | coverage reading removed | 1 test: `a_line_that_begins_with_a_date_must_be_a_posting` |
+| M05 | coverage counts not positions | 1 test: `a_line_that_begins_with_a_date_must_be_a_posting` |
+| M06 | period reading removed | 6 tests: `a_posting_dated_outside_the_printed_period_refuses_the_document`; `a_posting_dated_inside_the_year_but_outside_the_period_is_refused`; `a_posting_one_day_before_the_period_is_refused`; `a_posting_one_day_after_the_period_is_refused`; `a_posting_earlier_in_the_period_start_month_is_refused`; `a_posting_later_in_the_period_end_month_is_refused` |
+| M07 | lower bound slackened to the month | 1 test: `a_posting_earlier_in_the_period_start_month_is_refused` |
+| M08 | upper bound slackened to the month | 1 test: `a_posting_later_in_the_period_end_month_is_refused` |
+| M09 | period reading raises on a non date | 1 test: `a_posting_date_that_is_not_a_calendar_date_refuses_the_document` |
+| M10 | gate after the shape read EQUIVALENT | **SURVIVES — an equivalent mutant, and recorded as one (§LI15 R3): every gate here answers by declining, so ORDER is not observable at the `parse` boundary** |
+| M11 | l1 column gate removed | 2 tests: `a_summary_that_prints_a_second_money_column_is_refused`; `a_second_money_column_is_refused_even_when_it_is_idle` |
+| M12 | l1 reads the total column | 1 test: `a_second_money_column_is_refused_even_when_it_is_idle` |
+| M13 | l1 ledger gate removed | 1 test: `a_second_ledger_is_refused_even_when_the_summary_has_one_column` |
+| M14 | l1 ledger gate at least one | 1 test: `a_second_ledger_is_refused_even_when_the_summary_has_one_column` |
+| M11 | summary term uniqueness dropped | 2 tests: `a_summary_term_printed_twice_is_refused`; `the_five_terms_must_appear_in_the_order_the_template_prints_them` |
+| M12 | summary order dropped | 1 test: `the_five_terms_must_appear_in_the_order_the_template_prints_them` |
+| M13 | ragged grid accepted | 1 test: `a_ragged_summary_grid_is_refused` |
+| M14 | summary terms span a line break | 1 test: `a_term_whose_figure_is_on_the_next_line_is_refused` |
+| M15 | withdrawals sign unchecked | 1 test: `a_withdrawals_term_printed_as_an_inflow_is_refused` |
+| M16 | fees sign unchecked | 1 test: `a_fees_term_printed_as_an_inflow_is_refused` |
+| M17 | summary sum gate removed | 1 test: `a_summary_that_does_not_close_on_itself_is_refused` |
+| M18 | chain gate removed | 3 tests: `a_broken_chain_refuses_the_document`; `a_first_posting_that_does_not_step_from_the_printed_beginning_is_refused`; `a_dropped_posting_refuses_the_document` |
+| M19 | chain checks only the last balance | 3 tests: `a_broken_chain_refuses_the_document`; `a_first_posting_that_does_not_step_from_the_printed_beginning_is_refused`; `a_dropped_posting_refuses_the_document` |
+| M20 | chain anchored at the first row | 1 test: `a_first_posting_that_does_not_step_from_the_printed_beginning_is_refused` |
+| M21 | gross debit gate removed | 1 test: `a_posting_pair_the_summary_nets_out_is_refused` |
+| M22 | gross debits ignore the fee term | 13 tests: `the_clean_printing_publishes_its_summary_and_its_ledger`; `the_debit_total_excludes_the_fee_term_the_document_prints_separately`; `every_posting_carries_the_balance_the_document_printed_after_it`; `the_reader_claims_no_currency_and_no_product_name_of_its_own`; `a_description_that_contains_figures_does_not_steal_the_amount_column`; `a_non_calendar_date_inside_a_description_does_not_refuse`, and 7 more |
+| M23 | tolerance widened to a dollar | 1 test: `a_broken_chain_refuses_the_document` |
+| M24 | row columns unbound | 1 test: `a_description_that_contains_figures_does_not_steal_the_amount_column` |
+| M25 | unreadable posting skipped | 1 test: `an_unreadable_posting_refuses_even_when_skipping_it_would_reconcile` |
+| M26 | empty description published | 1 test: `a_description_that_cleans_away_to_nothing_refuses_the_document` |
+| M27 | no postings is an empty statement | 1 test: `a_ledger_head_with_no_rows_under_it_refuses_rather_than_publishing_zero` |
+| M28 | header contradiction accepted | 1 test: `two_headers_that_disagree_refuse_the_document` |
+| M29 | long date raises instead of declining | 1 test: `a_period_bound_the_calendar_does_not_have_refuses_the_document` |
+| M30 | fees folded into the debit total | 1 test: `the_debit_total_excludes_the_fee_term_the_document_prints_separately` |
+| M31 | running balance not published | 13 tests: `the_clean_printing_publishes_its_summary_and_its_ledger`; `the_debit_total_excludes_the_fee_term_the_document_prints_separately`; `every_posting_carries_the_balance_the_document_printed_after_it`; `the_reader_claims_no_currency_and_no_product_name_of_its_own`; `a_description_that_contains_figures_does_not_steal_the_amount_column`; `a_non_calendar_date_inside_a_description_does_not_refuse`, and 7 more |
+| M32 | currency claimed | 1 test: `the_reader_claims_no_currency_and_no_product_name_of_its_own` |
 
-**Two rounds of survivors were closed rather than explained away, and one
-mutant was reclassified rather than dressed up as a kill.** The first run
-killed 27 of 32. Four survivors were real coverage gaps and each now has an
-ISOLATING document — one where every other gate is satisfied, so only the gate
-under test can refuse:
-
-* an idle second money column (the sibling all zeros, so the total column and
-  the checking column agree and no arithmetic can separate them);
-* a broken opening anchor (Beginning and Deposits moved in step, so the
-  summary still closes and the last printed balance is still the ending);
-* an unreadable posting that nets to nothing (a refused balance token on a
-  zero-amount row between two rows that chain to each other);
-* a ledger head with no rows, under a summary that closes with no movement.
-
-The fifth survivor was an EQUIVALENT mutant and is recorded as one: making the
-description non-greedy cannot move the amount column, because the row
-pattern's END ANCHOR pins the last two money tokens either way. M24 now breaks
-the pair — anchor and greediness together — which is what actually binds the
-two columns.
-
-A third round found that the fees-as-inflow document did not isolate its own
-gate (its Withdrawals term had been left at the row total, so the SUM gate was
-doing the refusing and M16 survived). Corrected: that document now closes to
-0.00, chains to its printed ending, and totals its gross debits exactly, so
-the printed-sign reading is the only gate left that can refuse it. **The table
-above is the run at the final production tree.**
+**Three rounds of survivors were closed rather than explained away, one
+mutant was reclassified rather than dressed up as a kill, and one is declared
+equivalent.** Round 1 killed 27 of 32; four survivors were real coverage gaps
+and each got an ISOLATING document — one where every other gate is satisfied,
+so only the gate under test can refuse: an idle second money column; a broken
+opening anchor with Beginning and Deposits moved in step; an unreadable
+posting that nets to nothing; a ledger head with no rows under a summary that
+closes with no movement. The fifth survivor was equivalent — a non-greedy
+description cannot move the amount column, because the row pattern's end
+anchor pins the last two money tokens either way — so M24 now breaks the PAIR.
+Round 2 found the fees-as-inflow document did not isolate its own gate. Round
+3 is the review's: the §INTEGRITY mutants were retargeted onto the
+class-scoped gate, both period bounds got a mutant each, and the suite gained
+a period that does not start on the first of its month so that a bound
+slackened "to the month" is visible at all.
 
 ## LI9. The non-target probe — the whole archive, not a sample
 
