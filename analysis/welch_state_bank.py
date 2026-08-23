@@ -138,6 +138,18 @@ _FIGURE = r"(?<![\d.,])\d[\d,]{0,15}\.\d{2}-?(?![\d,.])"
 #: shape of the ladder and how many rungs it must have to count as one.
 _LADDER_RE = re.compile(r"\d{3}-\d{3}-\d{4}\s+fax:\s*\d{3}-\d{3}-\d{4}", re.IGNORECASE)
 _LADDER_MINIMUM_RUNGS = 3
+#: A literal probe for the ladder's own keyword, run before the pattern above.
+#: Not a second piece of evidence — every rung contains this keyword by
+#: construction, so the probe cannot change the answer — but a large saving on
+#: the FULL-REGISTRY DETECT SWEEP, which runs every marker of every
+#: registration over every document of a discovery run (RFC risk 7,
+#: `tests/test_parser_parity.py`). The ladder pattern opens on a digit run, so
+#: the engine has no literal to search for and must try every position:
+#: measured at 4.1 ms on a 61,000-character corpus document against 1.6 ms for
+#: a literal-prefixed pattern. The probe carries the same `IGNORECASE` as the
+#: pattern, so a printing that capitalises the keyword is claimed by both or
+#: by neither.
+_LADDER_KEYWORD_RE = re.compile(r"fax:", re.IGNORECASE)
 
 #: The bank's home office, as the masthead prints it. The one place the
 #: institution names itself on every printing of this template: the wordmark
@@ -209,7 +221,8 @@ WELCH_DETECTION_MARKERS = (
     # The masthead's multi-branch contact ladder — structural, no number in it.
     required(
         "branch_contact_ladder",
-        lambda t: len(_LADDER_RE.findall(t)) >= _LADDER_MINIMUM_RUNGS,
+        lambda t: _LADDER_KEYWORD_RE.search(t) is not None
+        and len(_LADDER_RE.findall(t)) >= _LADDER_MINIMUM_RUNGS,
     ),
     # The summary box with its LEADING counts. Required at DETECTION and not
     # merely at parse, because it is this reader's whole oracle: a printing

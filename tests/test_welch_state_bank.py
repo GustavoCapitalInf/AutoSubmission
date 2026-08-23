@@ -205,6 +205,20 @@ def test_a_two_rung_contact_ladder_is_not_a_branch_ladder():
     assert detect(document()).claims
 
 
+def test_the_ladder_keyword_probe_cannot_change_the_answer():
+    """The ladder marker runs a cheap literal probe before its pattern, purely
+    to keep this registration's share of the full-registry detect sweep down.
+    The probe carries the same case-insensitivity as the pattern, so a printing
+    that capitalises the keyword is claimed exactly as one that does not."""
+    shouted = MASTHEAD.replace("fax:", "FAX:")
+    assert "FAX:" in shouted
+    assert detect(document(masthead=shouted)).claims
+    # And a masthead with the keyword but no rungs still does not claim.
+    rungless = [line for line in MASTHEAD.splitlines() if "fax:" not in line]
+    keyword_only = "\n".join([*rungless, "fax:", ""])
+    assert not detect(document(masthead=keyword_only)).claims
+
+
 def test_the_summary_grammar_is_required_at_detection_and_not_only_at_parse():
     """A printing with no counted summary box is one this reader cannot prove
     complete, so it must not claim it and strand it."""
