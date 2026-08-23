@@ -80,11 +80,12 @@ ledger, or the reverse, is a shape nobody has measured.
 a bare `$`. The affirmative evidence is US — a depository disclosure naming a
 Member FDIC national association, a debit card issued under a Visa U.S.A.
 licence, a wire service provided by another Member FDIC bank — and it agrees
-with the schema default, so this reader claims no currency of its own and
-publishes neither `currency` nor `currency_source`. Naming this family
-`institution_default` would be more precise than the default it already gets;
-that is a provenance policy question for the currency-source owner and is
-recorded in W3 §LILI rather than decided here.
+with the schema default, so this reader claims no currency of its own: it
+writes neither the code nor any statement about where the code came from.
+Calling this family's denomination an institution default would be more
+precise than the default it already gets; that is a policy question for the
+owner of that vocabulary and is recorded in W3 §LILI rather than decided
+here.
 
 §WHAT IT DOES NOT PUBLISH, deliberately. `account_name`: the template prints
 no product line — `Checking Account Summary` is furniture, not a product —

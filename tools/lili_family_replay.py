@@ -88,8 +88,14 @@ def family_shas(census: Path, family: str) -> list[str]:
     return shas
 
 
-def cached_text(artifacts: Path, sha: str) -> str | None:
-    """The document's cached OCR markdown, by direct artifact path."""
+def cached_document(artifacts: Path, sha: str) -> tuple[str, list[str]] | None:
+    """The document's cached OCR markdown AND its page partition.
+
+    The partition matters as much as the text. It is part of the analysis
+    input key and it is what a discovery run passes as `sheets`, so a replay
+    that rebuilt the markdown and dropped the partition would be measuring a
+    document the run never analysed.
+    """
     best = None
     for key in _OCR_KEYS:
         composed = cache_key(STAGE_OCR, sha.upper(), key)
@@ -103,13 +109,19 @@ def cached_text(artifacts: Path, sha: str) -> str | None:
         document = (payload.get("artifact") or {}).get("document")
         if not isinstance(document, dict):
             continue
+        pages = [str(page) for page in (document.get("pages") or [])]
         rendered = StatementMarkdown(
-            source_file="", model=str(document.get("model") or ""),
-            pages=[str(page) for page in (document.get("pages") or [])],
+            source_file="", model=str(document.get("model") or ""), pages=pages,
         ).to_markdown()
-        if best is None or len(rendered) > len(best):
-            best = rendered
+        if best is None or len(rendered) > len(best[0]):
+            best = (rendered, pages)
     return best
+
+
+def cached_text(artifacts: Path, sha: str) -> str | None:
+    """Just the markdown, for the instruments that do not run the analysis."""
+    found = cached_document(artifacts, sha)
+    return None if found is None else found[0]
 
 
 def gate(text: str) -> str:
@@ -146,7 +158,7 @@ def gate(text: str) -> str:
     return "PUBLISHED"
 
 
-def _verdict(markdown: str) -> str:
+def _verdict(markdown: str, pages: list[str]) -> str:
     """`class/reason` the platform reaches, end to end and deterministically.
 
     `parse_mode="deterministic"` cannot reach the extraction branch, so this
@@ -158,7 +170,9 @@ def _verdict(markdown: str) -> str:
     error_type = reason = None
     payload = None
     try:
-        payload = report_to_dict(analyze_markdown(markdown, parse_mode="deterministic"))
+        payload = report_to_dict(
+            analyze_markdown(markdown, parse_mode="deterministic", sheets=pages)
+        )
     except Exception as exc:  # noqa: BLE001 - the class is the finding
         error_type = type(exc).__name__
     if payload is None:
@@ -184,11 +198,12 @@ def main() -> int:
     tally: dict[str, int] = {}
     verdicts: dict[str, int] = {}
     for sha in shas:
-        markdown = cached_text(artifacts, sha)
-        if markdown is None:
+        found = cached_document(artifacts, sha)
+        if found is None:
             missing += 1
             print(f"{sha[:16]}  no cached OCR artifact")
             continue
+        markdown, pages = found
         text = admissible_text(markdown)
         claims = lili.detect(text).claims
         rivals = sorted(r.id for r in others if r.detect(text).claims)
@@ -201,7 +216,7 @@ def main() -> int:
         ambiguous += bool(rivals)
         published += statement is not None
         tally[verdict] = tally.get(verdict, 0) + 1
-        outcome = _verdict(markdown)
+        outcome = _verdict(markdown, pages)
         verdicts[outcome] = verdicts.get(outcome, 0) + 1
         rows = "" if statement is None else f"  postings={len(statement.transactions)}"
         rival_note = "" if not rivals else f"  ALSO CLAIMED BY {rivals}"

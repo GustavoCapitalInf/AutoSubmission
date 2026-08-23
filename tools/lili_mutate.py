@@ -246,10 +246,13 @@ MUTATIONS: dict[str, tuple[str, str]] = {
         "                running_balance=balance,",
         "                running_balance=None,",
     ),
-    # M32 — a currency claimed where the family prints none.
+    # M32 — a currency claimed where the family prints none. The mutant sets
+    #       the CODE rather than any statement about where the code came from:
+    #       that second field may only be NAMED by its readers, the schema and
+    #       the gate, and this harness is none of the three.
     "M32_currency_claimed": (
         '        stated_total_credits=deposits,',
-        '        currency_source="institution_default",\n        stated_total_credits=deposits,',
+        '        currency="CAD",\n        stated_total_credits=deposits,',
     ),
 }
 
