@@ -762,14 +762,20 @@ def _run_currency_source(manifest, payloads) -> corpus_gate.Check:
     return result.checks[0]
 
 
-def test_the_currency_source_surface_is_total_over_the_pinned_manifest():
+def test_the_currency_source_surface_is_total_over_the_denominated_manifest():
+    """Total over the manifest MINUS the pinned refusals, both ways - the same
+    shape as the currency surface: a refused document publishes no statement
+    and so has no provenance to pin (composed at the batch-7 train)."""
     manifest = set(_manifest())
+    denominated = manifest - set(corpus_gate.PINNED_REFUSALS)
     pinned = set(corpus_gate.PINNED_CURRENCY_SOURCE)
-    assert pinned == manifest, {
-        "unstated": sorted(manifest - pinned),
-        "unknown": sorted(pinned - manifest),
+    assert pinned == denominated, {
+        "unstated": sorted(denominated - pinned),
+        "unknown": sorted(pinned - denominated),
     }
-    assert len(corpus_gate.PINNED_CURRENCY_SOURCE) == corpus_gate.EXPECTED_PDF_COUNT
+    assert len(corpus_gate.PINNED_CURRENCY_SOURCE) == (
+        corpus_gate.EXPECTED_PDF_COUNT - corpus_gate.EXPECTED_REFUSED
+    )
     assert set(corpus_gate.PINNED_CURRENCY_SOURCE.values()) <= set(
         corpus_gate.CURRENCY_SOURCES
     )
@@ -791,8 +797,12 @@ def test_the_pinned_provenance_split_is_the_measured_one():
     assert by_class["institution_default"] == PINNED_INSTITUTION
     assert by_class["jurisdiction_default"] == CEREMONY_CAD
     assert by_class["model_extracted"] == set()
-    assert len(by_class["schema_default"]) == 90
-    assert sum(len(names) for names in by_class.values()) == corpus_gate.EXPECTED_PDF_COUNT
+    # 90 at batch 6; 89 since the batch-7 REPAIR-DOCTRINE ceremony pinned the
+    # Columbia document as a REFUSAL (it publishes no statement, so no source).
+    assert len(by_class["schema_default"]) == 90 - corpus_gate.EXPECTED_REFUSED
+    assert sum(len(names) for names in by_class.values()) == (
+        corpus_gate.EXPECTED_PDF_COUNT - corpus_gate.EXPECTED_REFUSED
+    )
 
     # The provenance of every CAD, cross-checked against the currency map: the
     # two surfaces must describe the same documents or one of them is stale.
@@ -821,7 +831,27 @@ def test_the_currency_source_check_is_green_when_the_product_agrees():
         manifest, _source_payloads(dict(corpus_gate.PINNED_CURRENCY_SOURCE))
     )
     assert check.ok, check.details
-    assert "109/109" in check.summary
+    assert "108/108" in check.summary
+    assert "+1 pinned refusal(s)" in check.summary
+
+
+def test_a_provenance_pinned_for_a_refusal_turns_the_gate_red(monkeypatch):
+    """The mirror of the currency surface's rule: a pinned refusal publishes no
+    statement, so pinning a provenance for it asserts something the product
+    never states - and the composed surface must say so rather than report the
+    document as 'no payload was produced'."""
+    manifest = _manifest()
+    refusal = next(iter(corpus_gate.PINNED_REFUSALS))
+    widened = dict(corpus_gate.PINNED_CURRENCY_SOURCE)
+    widened[refusal] = "schema_default"
+    monkeypatch.setattr(corpus_gate, "PINNED_CURRENCY_SOURCE", widened)
+    check = _run_currency_source(
+        manifest, _source_payloads(dict(corpus_gate.PINNED_CURRENCY_SOURCE))
+    )
+    assert not check.ok
+    assert any(
+        refusal in d and "not a denominated pinned document" in d for d in check.details
+    ), check.details
 
 
 def test_a_read_that_degrades_to_a_default_turns_the_gate_red():
@@ -868,7 +898,9 @@ def test_an_unstated_or_unknown_provenance_pin_turns_the_gate_red(monkeypatch):
     monkeypatch.setattr(corpus_gate, "PINNED_CURRENCY_SOURCE", widened)
     check = _run_currency_source(manifest, _source_payloads(dict(widened)))
     assert not check.ok
-    assert any("not in the manifest" in d for d in check.details), check.details
+    assert any(
+        "not a denominated pinned document" in d for d in check.details
+    ), check.details
 
 
 def test_a_provenance_outside_the_vocabulary_turns_the_gate_red(monkeypatch):

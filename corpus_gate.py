@@ -632,7 +632,10 @@ PINNED_CURRENCY_SOURCE: dict[str, str] = {
     "Misc/Ace_Auto_Final_Cut.pdf": "institution_default",
     "Misc/Builder June 2026.pdf": "institution_default",
     "Misc/Checking Account Statements - 1_30_2026 - 4001245.pdf": "schema_default",
-    "Misc/Columbia May 26 complete.pdf": "schema_default",
+    # `Misc/Columbia May 26 complete.pdf` is deliberately absent here too: a
+    # pinned REFUSAL publishes no statement, so it has no provenance to pin.
+    # The surface is total over the manifest MINUS `PINNED_REFUSALS`, both
+    # ways, exactly like `PINNED_CURRENCY` (composed at the batch-7 train).
     "Misc/Consumers March - Monthly Statement.pdf": "schema_default",
     "Misc/Field Trucking November 2025 .pdf": "schema_default",
     "Misc/First Farmers 2026 01-document.pdf": "schema_default",
@@ -1442,14 +1445,20 @@ def check_currency_source(result: Result, manifest: list[str],
     provenance surface costs no extra analysis pass over the corpus.
     """
     details: list[str] = []
-    for rel in sorted(set(manifest) - set(PINNED_CURRENCY_SOURCE)):
+    # Total over the manifest MINUS the pinned refusals, both ways, exactly as
+    # `check_currency` is: a document that publishes no statement has no
+    # provenance to pin (composed at the batch-7 train, where REPAIR-DOCTRINE's
+    # pinned refusal met CURRENCY-SOURCE's 109-entry surface).
+    denominated = [rel for rel in manifest if rel not in PINNED_REFUSALS]
+    for rel in sorted(set(denominated) - set(PINNED_CURRENCY_SOURCE)):
         details.append(
             f"{rel}: pinned in the manifest but no expected currency source is "
             f"recorded; every pinned document must state where its currency came from"
         )
-    for rel in sorted(set(PINNED_CURRENCY_SOURCE) - set(manifest)):
+    for rel in sorted(set(PINNED_CURRENCY_SOURCE) - set(denominated)):
         details.append(
-            f"{rel}: a currency source is pinned for a path that is not in the manifest"
+            f"{rel}: a currency source is pinned for a path that is not a denominated "
+            f"pinned document"
         )
     for rel, source in sorted(PINNED_CURRENCY_SOURCE.items()):
         if source not in CURRENCY_SOURCES:
@@ -1460,7 +1469,7 @@ def check_currency_source(result: Result, manifest: list[str],
 
     counts: dict[str, int] = {}
     verified = 0
-    for rel in manifest:
+    for rel in denominated:
         expected = PINNED_CURRENCY_SOURCE.get(rel)
         payload = payloads.get(rel)
         if payload is None:
@@ -1485,8 +1494,9 @@ def check_currency_source(result: Result, manifest: list[str],
     result.add(
         "currency_source",
         not details,
-        f"{verified}/{len(manifest)} statements publish their pinned currency "
-        f"provenance: {split}",
+        f"{verified}/{len(denominated)} statements publish their pinned currency "
+        f"provenance: {split} (+{len(manifest) - len(denominated)} pinned refusal(s), "
+        f"which publish no statement and so no provenance)",
         details,
     )
 
