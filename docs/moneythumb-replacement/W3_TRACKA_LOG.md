@@ -44274,6 +44274,7 @@ python tools/desccols_mutate.py .
 | `python -m tools.desccols_movement` over 3,380 documents, at the FINAL tree with the COMMITTED instrument | 76 claimed · 3,112 unchanged, **3,096 of them byte-identical to the archive's own artifact** · 21 moved (7 + 14) · 177 lengthened / 39 replaced / **0 shortened** · 0 now-raises (4,254.4s) | **1** (it exits 1 on any movement) |
 | the same, at the reviewed tree with the instrument as first written | the identical 76 / 3,112 / 21 / 177 / 39 / 0 / 0 (3,682.1s) | **1** |
 | the fallback, on `analysis_input_sha`, 483-document stratified sample (27 scanned) | 12 claimed · **447 identical** · **0 different** · 24 no native text | **0** |
+| the same, re-derived by `tools.desccols_proofs fallback --stride 23` at the final tree | 147 sampled · 5 claimed · **132 identical** · **0 different** · 10 no native text | **0** |
 | the publish/refuse boundary, re-asked on all 37 claimed documents with no stored payload | **0 now publishes**; all 37 refuse again | **0** |
 | `python -m tools.descattrib_oracle rows` at branch HEAD | 1,090 rows · 93 exact / 997 prefix / **0 FOREIGN** — §DESCATTRIB DA11.2 reproduced | **0** |
 | `python -m tools.descattrib_movement` over the complex's 31 at branch HEAD | **0 moved descriptions, 0 movement elsewhere on all 31** — the batch-7 leaf-diff reads from STORED text and is blind to this card, which is the point | **0** |
