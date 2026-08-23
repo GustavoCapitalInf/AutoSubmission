@@ -21,6 +21,10 @@ is read out of this tool.
 
 WHAT IT PRINTS, per document: whether the registry claims it, whether any
 OTHER registration also claims it (an ambiguity this card must not create),
+the VERDICT the platform reaches on it (claimed is not validated: the reader
+publishing a `Statement` is one thing and reconciliation, the metrics and the
+withholding rules accepting it is another, so the verdict is measured through
+`analyze_markdown` and `classify_outcome` rather than assumed from a parse),
 and — where the reader declines — WHICH named gate declined it. The gate
 attribution replays `parse_lili_statement`'s own sequence of gates against the
 same helpers the reader uses, and the tool asserts on every document that the
@@ -44,8 +48,11 @@ from pathlib import Path
 
 from analysis import parser_registry_entries  # noqa: F401  — populates the registry
 from analysis import lili
-from analysis.parser_registry import admissible_text, registrations
+from analysis.parser_registry import admissible_text, registrations, resolve
+from analysis.pipeline import analyze_markdown
+from analysis.serialization import report_to_dict
 from ocr.document import StatementMarkdown
+from telemetry.record import classify_outcome
 from webapp.artifact_cache import STAGE_OCR, cache_key, ocr_settings_key
 
 REPO = Path(__file__).resolve().parent.parent
@@ -139,6 +146,29 @@ def gate(text: str) -> str:
     return "PUBLISHED"
 
 
+def _verdict(markdown: str) -> str:
+    """`class/reason` the platform reaches, end to end and deterministically.
+
+    `parse_mode="deterministic"` cannot reach the extraction branch, so this
+    stays a $0.00 measurement. It runs the WHOLE analysis, not just the
+    reader: a document whose parse succeeds can still be withheld or sent to
+    review by reconciliation, the metrics or the withholding rules, and this
+    is the number the coverage claim rests on.
+    """
+    error_type = reason = None
+    payload = None
+    try:
+        payload = report_to_dict(analyze_markdown(markdown, parse_mode="deterministic"))
+    except Exception as exc:  # noqa: BLE001 - the class is the finding
+        error_type = type(exc).__name__
+    if payload is None:
+        dispatch = resolve(markdown)
+        reason = "parser_declined" if dispatch.attempted else "no_parser_matched"
+        error_type = error_type or "RuntimeError"
+    outcome, detail = classify_outcome(payload, error_type=error_type, error_reason=reason)
+    return f"{outcome}/{detail}"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", required=True, type=Path)
@@ -152,6 +182,7 @@ def main() -> int:
 
     published = claimed = ambiguous = missing = 0
     tally: dict[str, int] = {}
+    verdicts: dict[str, int] = {}
     for sha in shas:
         markdown = cached_text(artifacts, sha)
         if markdown is None:
@@ -170,15 +201,20 @@ def main() -> int:
         ambiguous += bool(rivals)
         published += statement is not None
         tally[verdict] = tally.get(verdict, 0) + 1
+        outcome = _verdict(markdown)
+        verdicts[outcome] = verdicts.get(outcome, 0) + 1
         rows = "" if statement is None else f"  postings={len(statement.transactions)}"
         rival_note = "" if not rivals else f"  ALSO CLAIMED BY {rivals}"
-        print(f"{sha[:16]}  claimed={claims}  {verdict}{rows}{rival_note}")
+        print(f"{sha[:16]}  claimed={claims}  {outcome:24} {verdict}{rows}{rival_note}")
 
     print(f"\n{len(shas)} documents: claimed {claimed}, published {published}, "
           f"declined {claimed - published}, no artifact {missing}, "
           f"claimed by another registration {ambiguous}")
     for verdict, count in sorted(tally.items()):
         print(f"  {count:3}  {verdict}")
+    print("verdicts:")
+    for outcome, count in sorted(verdicts.items()):
+        print(f"  {count:3}  {outcome}")
     return 0
 
 

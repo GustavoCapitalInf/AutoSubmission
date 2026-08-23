@@ -417,7 +417,8 @@ def test_an_unreadable_posting_refuses_even_when_skipping_it_would_reconcile():
 def test_a_date_inside_a_description_is_read_by_the_same_gate():
     """The fee rows of this template carry a date in their text. Inside the
     period it is fine; outside it, it refuses — measured over the family's 15
-    clean members, zero of 2,738 printed date tokens fall outside."""
+    clean members, zero of 2,729 printed date tokens fall outside, and on the
+    five that are not clean, 42 do."""
     assert parse_lili_statement(SKIN_A) is not None
     assert parse_lili_statement(
         _swap(SKIN_A, "(Applies From 09/08/2027)", "(Applies From 12/09/2019)")
