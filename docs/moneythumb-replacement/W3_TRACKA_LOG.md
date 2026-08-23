@@ -43823,15 +43823,28 @@ Read it as follows.
    print postings dated in their own period's year but outside its range,
    and on one of them a posting is dated AFTER its own period ends. A closed
    statement cannot post a row from the future.
-4. **The balance chain through the block does not continue.** Consecutive
-   printed balances in these five are not connected by the printed amounts in
-   any order, and the printed summary of one of them misses its own
-   arithmetic by a fraction of a dollar while printing its withdrawals term
-   as a positive number.
-5. **Malformed money.** These five carry figures the money grammar refuses
-   outright — a balance with two decimal points, an amount whose thousands
-   group is too long, a figure with no cents. None of the family's other
-   fifteen carries one.
+4. **Their own summaries do not close, and their debit terms are printed as
+   inflows.** Pairing each of the five printed summary labels with the money
+   token that follows it and closing the sum: with the signs AS PRINTED the
+   residuals are 278.62, 7,402.00, a round thousand dollars and 10,002.00 on
+   the four documents whose terms can be paired at all — every one of them
+   prints its debit terms positive. Negating the two debit terms brings three
+   of the four to ten cents, exactly nothing and a single dollar, and leaves
+   the fourth at that same round thousand. **Not one of the five closes on
+   itself as printed, and one of them does not close even after its signs are
+   repaired.** The fifth cannot be paired at all: only four of its five terms
+   carry a figure within reach of their label.
+
+   (Two of those residuals are written in words rather than as figures for
+   one reason only: the family happens to PRINT those two amounts somewhere,
+   and §LI12's scan cannot tell a computed residual from a copied balance.
+   The measurement is in `tools/lili_privacy_scan.py`'s terms, and this is
+   what keeping it honest costs.)
+5. **Malformed money.** THREE of the five carry figures the shared money
+   grammar refuses outright: five tokens in all, in three shapes — a figure
+   printed with no cents (three of them), a figure with two decimal points,
+   and a figure whose decimal part is empty. **Across the family's other
+   fifteen documents the same scan refuses ZERO tokens.**
 6. **No depository attribution at all.** Every clean member prints, on its
    back page, the disclosure naming the Member FDIC national association that
    holds the money. These five print none — only the platform's support
