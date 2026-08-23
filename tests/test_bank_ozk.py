@@ -195,6 +195,25 @@ def test_a_row_dated_on_a_day_the_grid_does_not_carry_is_refused():
     assert parse_bank_ozk_statement(document(rows=rows)) is None
 
 
+def test_an_off_grid_row_is_refused_and_never_silently_dropped():
+    """The test above is also caught by the row-count check once the row goes
+    missing, so it does not prove this gate. This one does: the off-grid row
+    carries a ZERO amount, so DROPPING it leaves the row count, both totals and
+    every day's step intact and the document would publish. Only refusing
+    catches it. (W3 §FROSTOZK's mutation table, mutant O4.)"""
+    rows = ROWS.rstrip("\n") + " 02/04 SAMPLE EPSILON 0.00\n"
+    block = summary(credits_count=2, debits_count=3)
+    assert parse_bank_ozk_statement(document(block=block, rows=rows)) is None
+
+
+def test_a_date_shaped_token_the_period_cannot_place_is_never_silently_dropped():
+    """The same shape one level down. A token the period cannot place, printed
+    with an amount after it, would become a row the reader silently loses if it
+    were skipped rather than refused. (Mutant O15.)"""
+    rows = ROWS.rstrip("\n") + " 12/25 SAMPLE OUT OF PERIOD 99.00\n"
+    assert parse_bank_ozk_statement(document(rows=rows)) is None
+
+
 def test_a_grid_day_with_no_rows_is_refused():
     grid = GRID.replace("02/03 110.00", "02/03 110.00 02/05 110.00")
     assert parse_bank_ozk_statement(document(grid=grid)) is None
@@ -254,6 +273,23 @@ def test_a_row_survives_the_split_and_amount_traps(description):
     stmt = parse_bank_ozk_statement(document(rows=_one_row(description)))
     assert stmt is not None
     assert len(stmt.transactions) == 4
+    assert stmt.transactions[-1].amount == 10.00
+
+
+def test_the_rows_amount_is_the_last_money_token_and_the_archive_never_says():
+    """A DOCUMENTED choice, pinned as one rather than reported as measured.
+
+    After the quoted-amount mask, not one row of the eight archive documents
+    carries two money tokens, so the archive cannot distinguish `first` from
+    `last` at all. `last` is chosen because every confirmed trailing trap
+    carries no decimals (a trace number) or no amount (a wrapped description),
+    while the one confirmed LEADING extra is an amount quoted in the
+    description — so a leading extra is the shape that occurs and a trailing
+    one is not. If a printing ever puts the row's own amount first, this test
+    is what will have to change, and deliberately.
+    """
+    stmt = parse_bank_ozk_statement(document(rows=_one_row("SAMPLE MEMO 1.00 SAMPLE TAIL 10.00")))
+    assert stmt is not None
     assert stmt.transactions[-1].amount == 10.00
 
 

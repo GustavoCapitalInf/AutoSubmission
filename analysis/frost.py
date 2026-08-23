@@ -128,7 +128,14 @@ _BANNER_RE = re.compile(
 
 #: The two printed lines that head the boxed summary strip.
 _SUMMARY_HEAD_RE = re.compile(r"BALANCE LAST STATEMENT.*BALANCE THIS STATEMENT")
-_BOX_HEAD_RE = re.compile(r"\|\s*DEPOSITS\s*\|\s*WITHDRAWALS\s*\|")
+#: EITHER ORDER, deliberately. Anchoring this on `DEPOSITS` first would make
+#: `_summary_layout`'s whole reading of the box unreachable — the layout would
+#: be decided by the pattern that found the line rather than by the line — and
+#: a box printed the other way round would be refused as unrecognised rather
+#: than READ. W3 §FROSTOZK's mutation table found exactly that: with the order
+#: baked in here, a mutant that ignored the box line survived every test.
+_SIDE = r"(?:DEPOSITS|WITHDRAWALS)"
+_BOX_HEAD_RE = re.compile(rf"\|\s*{_SIDE}\s*\|\s*{_SIDE}\s*\|")
 _ISSUED_RE = re.compile(r"STATEMENT ISSUED\s+(\d{2})-(\d{2})-(\d{4})")
 
 

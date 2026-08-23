@@ -222,6 +222,18 @@ def test_a_strip_whose_arithmetic_does_not_close_is_refused():
     assert parse_frost_statement(document(values=VALUE_LINE.replace("1,799.90", "1,799.91"))) is None
 
 
+def test_the_strip_arithmetic_catches_what_the_totals_and_the_grid_cannot():
+    """The test above is caught by the grid-ends check too, so it does not
+    prove this gate is load-bearing. This one does: the printed deposit TOTAL
+    moves and a matching deposit row moves with it, so the captured totals
+    still reproduce the printed ones and both grid ends are untouched — and the
+    strip stops closing on itself. Only this check sees it. (W3 §FROSTOZK's
+    mutation table, mutant F4.)"""
+    louder = VALUE_LINE.replace("1,500.10", "1,600.10")
+    extra = DEPOSITS + "02-04            100.00     SAMPLE ELECTRONIC        SAMPLE MEMO\n"
+    assert parse_frost_statement(document(values=louder, deposits=extra)) is None
+
+
 def test_a_value_row_with_the_wrong_number_of_figures_is_refused():
     assert parse_frost_statement(document(values=VALUE_LINE.replace(" 700.20", " 700.20  7.00"))) is None
 
