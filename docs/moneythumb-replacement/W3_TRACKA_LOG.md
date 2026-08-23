@@ -44042,6 +44042,14 @@ on 12 `regions` and 2 `us_bank` documents. **Eighteen more claimed documents
 produce a byte-identical payload** although their text changed: their readers
 do not read the region the rung repaired.
 
+**And "unchanged" is checked against the archive, not only against itself.**
+Of the 3,112 documents the rung declines, **3,096 produce pages byte-identical
+to the ones the run of record's own OCR artifact holds**; the other 16 are
+documents whose stored artifact is not the native ladder's text at all (OCR'd,
+or holding no artifact), so there is nothing to compare. The comparison is
+therefore against what the archive actually stores rather than against a
+recomputation of itself.
+
 **Zero `payload_now_raises` and zero `no_payload_now_publishes`.** The 37
 claimed documents the run stored no payload for were re-asked directly — the
 analysis run on the ladder's text at this tree — and all 37 refuse again. This
@@ -44165,6 +44173,17 @@ zero: it is measuring a stage this branch does not touch.
 `tools/desccols_movement.py` is the instrument that does exercise the changed
 code, over the same 3,380 documents, and it is committed for that reason.
 
+Run anyway, because the rule asks for it. Chunk 0–1000 at the branch tree:
+**1,000 documents, 749 identical, 0 moved, 0 `no_payload_now_publishes`, 0
+`payload_now_raises`**, 244 raising again, 7 with no OCR artifact, 3,183.0s.
+Zero, exactly as the construction predicts. The same demonstration one
+population deeper: `tools/descattrib_movement.py`, batch 7's leaf-diff, run
+over all 31 documents of this complex at branch HEAD, reports **0 moved
+descriptions and no movement elsewhere on every one** — on the very documents
+where this card's real movement is largest. A stored-text instrument cannot
+see an extraction-rung card, and that is worth one paragraph in every future
+card of this shape.
+
 ## DC8.1 The branch, in hunks
 
 **1,589 insertions, 0 deletions, 8 hunks, 7 files.** Nothing existing was
@@ -44239,7 +44258,8 @@ readers already take is the right span.
 | `python tools/desccols_mutate.py .` at the reviewed tree | the same 10 / 9 / 1 | **0** |
 | `python -m tools.desccols_census --start 0 --end 600` at the final tree | 600 documents · 567 welded · 429 amount-welded · 4 clean · 29 no native text (381.5s) — the full census's proportions reproduced | **0** |
 | `python -m tools.desccols_census` over 3,380 documents | 3,189 native-text · 3,156 welded · 2,419 amount-welded · 33 clean (701.7s) | **0** |
-| `python -m tools.desccols_movement` over 3,380 documents | 76 claimed · 3,112 unchanged · 21 moved (7 + 14) · 0 now-raises (3,682.1s) | **1** (it exits 1 on any movement) |
+| `python -m tools.desccols_movement` over 3,380 documents, at the FINAL tree with the COMMITTED instrument | 76 claimed · 3,112 unchanged, **3,096 of them byte-identical to the archive's own artifact** · 21 moved (7 + 14) · 177 lengthened / 39 replaced / **0 shortened** · 0 now-raises (4,254.4s) | **1** (it exits 1 on any movement) |
+| the same, at the reviewed tree with the instrument as first written | the identical 76 / 3,112 / 21 / 177 / 39 / 0 / 0 (3,682.1s) | **1** |
 | the fallback, on `analysis_input_sha`, 483-document stratified sample (27 scanned) | 12 claimed · **447 identical** · **0 different** · 24 no native text | **0** |
 | the publish/refuse boundary, re-asked on all 37 claimed documents with no stored payload | **0 now publishes**; all 37 refuse again | **0** |
 | `python -m tools.descattrib_oracle rows` at branch HEAD | 1,090 rows · 93 exact / 997 prefix / **0 FOREIGN** — §DESCATTRIB DA11.2 reproduced | **0** |
