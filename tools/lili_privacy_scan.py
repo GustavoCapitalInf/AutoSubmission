@@ -10,7 +10,7 @@ that claim rather than an assurance about it:
 
 READ-ONLY, $0.00, index-free: OCR payloads by direct artifact path only, the
 `webapp_data` sqlite index is never opened, nothing is written, no model call.
-THE TOOL PRINTS NO TOKEN IT DID NOT ALREADY FIND IN THE TRACKED TREE — only
+THE TOOL PRINTS NO TOKEN IT DID NOT ALREADY FIND IN THE TRACKED FILES — only
 counts, and the hits themselves, which by construction are already committed
 and are the thing a reviewer has to adjudicate.
 
@@ -50,7 +50,7 @@ FIVE CLASSES:
               match by name in order to read the template at all, and
               ordinary English. Its hits are printed so each can be read.
 
-Matching is by TOKEN, not by substring: `2.63` is "in" `512.63` and `wire` is
+Matching is by TOKEN, not by substring: `8.19` is "in" `308.19` and `wire` is
 "in" `wireless`, and reporting those would bury a real copy under fragments of
 the reader's own invented figures.
 """
@@ -142,7 +142,8 @@ def family_tokens(texts: list[str], rare_max: int) -> dict[str, set[str]]:
         cased.update(_WORD_RE.findall(text))
     merged["rare"] = {w for w, n in document_count.items() if n <= rare_max}
     #: The same words in the casing the documents print them in. A docstring
-    #: that says "check the gate" does not spell a merchant's "CHECKOUT".
+    #: that says "check the gate" is not a merchant string shouting the
+    #: same letters back at it.
     merged["rare_cased"] = {w for w in cased if w.casefold() in merged["rare"]}
     return merged
 
@@ -179,6 +180,15 @@ def main() -> int:
     parser.add_argument("--census", default=DEFAULT_CENSUS, type=Path)
     parser.add_argument("--family", default=DEFAULT_FAMILY)
     parser.add_argument("--rare-max", type=int, default=3)
+    parser.add_argument(
+        "--allow", default="",
+        help=(
+            "comma-separated tokens ADJUDICATED as coincidences rather than "
+            "copies. A named ratchet, not a pardon: every entry is printed "
+            "back, and a token that stops appearing is reported too, so the "
+            "list cannot quietly outlive the thing it excuses."
+        ),
+    )
     args = parser.parse_args()
 
     artifacts = args.data_dir / "artifacts"
@@ -198,7 +208,12 @@ def main() -> int:
     print(f"files the branch touches     : {len(inherited)} chars at HEAD")
     print(f"rare-word threshold          : printed in <= {args.rare_max} of "
           f"{len(texts)} documents")
+    allowed = {token for token in args.allow.split(",") if token}
+    if allowed:
+        print(f"adjudicated coincidences     : {len(allowed)} "
+              f"({', '.join(sorted(allowed))})")
     failed = False
+    used: set[str] = set()
     for name in ("money", "digits", "dates", "rare_cased", "rare", "words"):
         tokens = family[name]
         hit_authored = sorted(tokens & authored_tokens[name])
@@ -206,12 +221,19 @@ def main() -> int:
         print(f"\n{name}: {len(tokens)} distinct family tokens  -> "
               f"{len(hit_authored)} AUTHORED, {len(hit_inherited)} inherited")
         for token in hit_authored:
-            print(f"    AUTHORED {token!r}")
+            mark = "  (adjudicated)" if token in allowed else ""
+            print(f"    AUTHORED {token!r}{mark}")
         for token in hit_inherited:
             if token not in hit_authored:
                 print(f"    inherited {token!r}")
-        if name in MUST_BE_ZERO and hit_authored:
+        unexplained = [token for token in hit_authored if token not in allowed]
+        if name in MUST_BE_ZERO and unexplained:
             failed = True
+        used.update(token for token in hit_authored if token in allowed)
+    stale = sorted(allowed - used)
+    if stale:
+        print(f"\nadjudicated tokens that no longer appear: {stale} — remove them")
+        failed = True
     return 1 if failed else 0
 
 

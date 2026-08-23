@@ -43711,8 +43711,9 @@ record stopped publishing at HEAD.
 
 Census rank 2, staffed. Twenty documents, all born-digital
 (`model=native-pdf-text`), all `failed/no_parser_matched` in the run of
-record, folder-labelled Unidentified 13 / Chime 4 / Bluevine 3 — **none of the
-three labels is the issuer**, which is the census's own point made again.
+record, folder-labelled Unidentified 13 and, for the other seven, two
+OTHER fintech platforms' names — **not one of the three labels is the
+issuer**, which is the census's own point made again.
 Registered as `lili`, registry 75 → 76.
 
 **Movement: 11 of 20 `failed/no_parser_matched` → `validated/approved`; the
@@ -43926,7 +43927,7 @@ because a gate no mutant can reach is a gate no test tests:
   reading does not.
 * the `deposits < 0` branch of the printed-sign check, unreachable for the
   same reason: a sum of positive amounts cannot be negative. The
-  `withdrawals > 0` and `fees > 0` branches STAY — each is reachable, each
+  `withdrawals > 0` and `fees > 0` branches remain — each is reachable, each
   would otherwise publish a magnitude for money the document printed coming
   in, and each is killed by a document on which every arithmetic gate closes.
 
@@ -44147,49 +44148,71 @@ cached OCR text of all twenty documents and greps the branch for every one of
 them. Two haystacks, and the distinction is the whole point: **AUTHORED** (the
 `+` lines of the diff against the base, working tree included — content this
 branch is responsible for) and **inherited** (everything else in the files the
-branch touches — lines already in the tree at the base commit). Matching is by
-TOKEN, not by substring: `2.63` is "in" `512.63` and `wire` is "in"
+branch touches — lines already in the tree at the base commit; this branch
+edits `tests/data/parser_conformance_fixtures.py`, two count pins and a
+40,000-line log, so it inherits a great deal it did not write). Matching is by
+TOKEN, not by substring: `8.19` is "in" `308.19` and `wire` is "in"
 `wireless`, and reporting those would bury a real copy under fragments of the
 reader's own invented figures.
 
 ```
-documents scanned            : 20 of 20
-branch AUTHORED (added lines): 75,566 chars
+python -m tools.lili_privacy_scan --data-dir <checkout>/webapp_data     --base 10cc722 --allow DIGITAL,FAMILY,February,Group,INSIDE,LONG,OPENING,True,collateral
 
-money      : 4,766 distinct family tokens ->  0 AUTHORED,  4 inherited
-digits     : 2,889 distinct family tokens ->  0 AUTHORED,  0 inherited
-dates      :   171 distinct family tokens ->  0 AUTHORED,  0 inherited
-rare_cased :   659 distinct family tokens ->  9 AUTHORED, 16 inherited
-words      :   915 distinct family tokens -> 123 AUTHORED, 174 inherited
+documents scanned            : 20 of 20
+branch AUTHORED (added lines): 132,079 chars
+adjudicated coincidences     : 9
+
+money      : 4,766 distinct family tokens ->   0 AUTHORED, 162 inherited
+digits     : 2,889 distinct family tokens ->   0 AUTHORED,   0 inherited
+dates      :   171 distinct family tokens ->   0 AUTHORED,   4 inherited
+rare_cased :   659 distinct family tokens ->   9 AUTHORED,  46 inherited  (all nine adjudicated)
+rare       :   628 distinct family tokens ->  26 AUTHORED,  79 inherited
+words      :   915 distinct family tokens -> 143 AUTHORED, 282 inherited
+EXIT=0
 ```
 
-**The three classes the rule names — figure, account, date — are ZERO in the
-branch's authored content.** `digits` is every printed run of five or more
-digits: account numbers, authorization codes, telephone digits. `dates` is
-every printed `m/d/y` token and every day-first long date. Zero-valued figures
-are excluded from `money` and counted: `0.00` is the additive identity and
-treating it as archive content would make the measurement meaningless. The
-four inherited money hits are pre-existing lines in OTHER parsers' conformance
-fixtures, in files this branch edits for the registry count.
+**The three classes the wave's rule names — figure, account, date — are ZERO
+in the branch's authored content.** `digits` is every printed run of five or
+more digits: account numbers, authorization codes, telephone digits, and it is
+zero on BOTH sides. `dates` is every printed `m/d/y` token and every day-first
+long date. Zero-valued figures are excluded from `money` and counted: `0.00`
+is the additive identity and treating it as archive content would make the
+measurement meaningless.
 
-**The first run of this scan was not zero, and that is what it is for.** It
-found two invented figures that happened to collide with figures the family
-prints, and two of the family's own period dates quoted in a pattern comment.
-All four are gone: every fixture now lives in a month of a calendar year the
-family does not contain, and every figure carries cents no member prints.
+`rare_cased` is the NAME class and the one that carries the risk: the family's
+customer vocabulary — alphabetic tokens printed in at most 3 of the 20
+documents, which is what separates a holder name, a street, a city or a
+merchant string from template furniture — matched in the casing the documents
+print them in. Nine tokens hit, all nine adjudicated on the record and printed
+back by the tool on every run: `DIGITAL` and `FAMILY` (the committed census's
+filename and a module constant in the instruments), `February` (the word, in a
+docstring about impossible calendar dates), `Group` (`match.group`), `INSIDE`,
+`LONG` and `OPENING` (identifiers in this reader), `True` (the Python
+literal), and `collateral` (the word, in the §L-1 docstring). **None is a
+name, an address, a city, a merchant string or an identifier of any kind.**
+The `--allow` list is a ratchet rather than a pardon: the tool fails if an
+adjudicated token stops appearing, so the list cannot outlive what it excuses.
 
-`rare_cased` is the NAME class: the family's customer vocabulary — alphabetic
-tokens printed in at most 3 of the 20 documents, which is what separates a
-holder name, a street, a city or a merchant string from template furniture —
-in the casing the documents print them in. Its nine authored hits are, in
-full: `DIGITAL` and `FAMILY` (the census filename and a module constant in the
-instruments), `February` (the word, in a docstring about impossible calendar
-dates), `Group` (`match.group`), `INSIDE`, `LONG` and `OPENING` (identifiers
-in this reader), `True` (the Python literal), and `collateral` (the word, in
-the §L-1 docstring). **None is a name, an address, a city, a merchant string
-or an identifier of any kind.** `words` cannot be zero and is not expected to
-be: it contains the template's own furniture, which a reader must match by
-name in order to read the template at all, and ordinary English.
+`words` cannot be zero and is not expected to be: it contains the template's
+own furniture, which a reader must match by name in order to read the template
+at all, and ordinary English.
+
+**FOUR ROUNDS OF THIS SCAN CHANGED THE BRANCH, which is what it is for.**
+
+1. Two invented figures happened to collide with figures the family prints,
+   and two of the family's own period dates were quoted in a pattern comment.
+   Every fixture moved to a month of a calendar year the family does not
+   contain, with cents no member prints.
+2. A worked example inside the tool's own docstring — `2.63` is "in" `512.63`
+   — spelled a figure the family prints. Replaced with two of this reader's
+   invented figures.
+3. This log's own summary named a folder LABEL the family's text also
+   contains, and two emphasis capitals collided with ALL-CAPS merchant
+   strings. Reworded.
+4. A comment in the scan explaining the casing heuristic spelled out an actual
+   merchant word from the archive to illustrate it. That is exactly the thing
+   the rule forbids, arrived at by the shortest possible route, and it is
+   gone.
 
 ## LI13. Commits
 
