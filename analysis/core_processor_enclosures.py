@@ -126,8 +126,9 @@ Two printings this module refuses rather than repairs
 * **a date that closes no cell.** Six members print one: three weld a wrapped
   description across the date column so the layer emits the row's date twice
   with a fragment between, and three carry a `mm/dd` token inside a merchant
-  description (`… Member 05/26 800-…`). Both are documents this reader cannot
-  read, not gaps to paper over: `tables.dated_cells` returns None and the
+  description (a card statement's `Member <mm>/<dd>` renewal note). Both are
+  documents this reader cannot read, not gaps to paper over:
+  `tables.dated_cells` returns None and the
   document is declined whole. Dropping the row instead would publish a ledger
   that disagrees with a printed total while still looking complete.
 
@@ -192,7 +193,7 @@ _ROW_DATE = r"(?:1[0-2]|0?[1-9])/(?:3[01]|[12][0-9]|0?[1-9])"
 
 #: A SUMMARY figure. The strip's sign is a right-aligned COLUMN rather than a
 #: mark welded to the figure: three members print an overdrawn balance as
-#: `1,211.85 -`, with the space, and four print it welded. The gap is bounded
+#: `<figure> -`, with the space, and four print it welded. The gap is bounded
 #: at two spaces because that is what the archive prints, and the sign is a
 #: separate group because no shared `AmountFormat` both admits an interior
 #: space and pads a bare `.00` — the magnitude is still read by the shared
@@ -201,7 +202,8 @@ _SUMMARY_FIGURE = (_TOKEN_START + r"\$?(" + _MONEY + r")" + _FIGURE_END
                    + r"(?:[ ]{0,2}(" + MINUS_CLASS + r"))?")
 
 #: A LEDGER figure: the sign is welded to the figure, on either side. Both are
-#: printed — `349.00-` in the sectioned issue's debit blocks, `-3.95` in the
+#: printed — `<figure>-` in the sectioned issue's debit blocks and `-<figure>`
+#: in the
 #: one issue that prints the amount before the description — and neither
 #: carries a space, so this token admits none. Without that bound the OCR
 #: layer's own `--- Page N ---` separator reads as a signed figure: measured,
@@ -254,8 +256,9 @@ _DEBIT_WORDS = r"(?:CHECKS?/DEBITS?|CHECKS?/CHARGES?|CHECKS?|DEBITS?)"
 #: **The second required marker, and the one that makes this a template rather
 #: than a phrase.** The platform's two-column block prints its credit count row
 #: in the left cell and its ledger-average statistic in the right cell of the
-#: SAME printed line, and the flattened layer welds them: `7 Deposits/Credits
-#: 52,744.59 Average Ledger 11,126.91`. Measured over the whole archive, the
+#: SAME printed line, and the flattened layer welds them into
+#: `<n> Deposits/Credits <total> Average Ledger <figure>`. Measured over the
+#: whole archive, the
 #: conjunction of this and the period sentence reaches 67 documents — the 54
 #: addressable members of the census family, the ten this platform prints under
 #: the three mastheads that already have their own readers, and three scanned
@@ -512,8 +515,9 @@ _ROLE_BANNERS = (
     ("credit", r"CREDITS", r"(?=\s*" + _COLUMN_HEADER + r")"),
     ("debit", r"DEBITS", r"(?=\s*" + _COLUMN_HEADER + r")"),
     # The cheque and deposit IMAGE appendix. It is here as a BOUNDARY, not as a
-    # block: it restates every item as `CHECK 2679 Date: 04/09 Amount:
-    # $35,875.00`, and on 30 of this family's members it follows the
+    # block: it restates every item as
+    # `CHECK <serial> Date: <mm>/<dd> Amount: $<figure>`, and on 30 of this
+    # family's members it follows the
     # daily-balance grid, whose run would otherwise swallow it and read every
     # restated amount as a grid cell. Its rows are the only ones on the page
     # that print their date and amount as LABELLED fields rather than in
