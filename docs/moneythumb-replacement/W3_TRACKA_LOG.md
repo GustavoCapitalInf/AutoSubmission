@@ -44102,7 +44102,7 @@ mutant asserted to change something before it is scored, the suite run
 | M29 | an impossible period bound RAISES instead of declining | `…period_bound_the_calendar_does_not_have_refuses…` (an exception is not an answer) |
 | M30 | the fee term folded into the debit total | `…debit_total_excludes_the_fee_term_the_document_prints_separately` |
 | M31 | the printed running balance not published | `…every_posting_carries_the_balance_the_document_printed_after_it` |
-| M32 | a currency provenance claimed where the family prints none | `…claims_no_currency_and_no_product_name_of_its_own` |
+| M32 | a currency CODE claimed where the family prints none. The mutant sets the code rather than its provenance on purpose: that second field may only be NAMED by its readers, the schema and the gate, and a mutation harness is none of the three | `…claims_no_currency_and_no_product_name_of_its_own` |
 
 **Two rounds of survivors were closed rather than explained away, and one
 mutant was reclassified rather than dressed up as a kill.** The first run
@@ -44211,6 +44211,13 @@ literal), and `collateral` (the word, in the §L-1 docstring). **None is a
 name, an address, a city, a merchant string or an identifier of any kind.**
 The `--allow` list is a ratchet rather than a pardon: the tool fails if an
 adjudicated token stops appearing, so the list cannot outlive what it excuses.
+
+The threshold does the separating, and it can be checked. The platform's
+credit-builder product name — which this section and the reader's own §L-1
+prose both use — is printed on FOUR of the twenty documents, so it falls
+outside the rare class by measurement rather than by my say-so: a name printed
+across four customers' statements is the template's furniture, which the wave
+rules admit and a reader has to be able to describe.
 
 `words` cannot be zero and is not expected to be: it contains the template's
 own furniture, which a reader must match by name in order to read the template
