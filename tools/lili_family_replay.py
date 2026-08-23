@@ -270,6 +270,7 @@ def main() -> int:
     shas = family_shas(args.census, args.family)
 
     published = claimed = ambiguous = missing = 0
+    dispatched: dict[tuple[str, str, tuple], int] = {}
     tally: dict[str, int] = {}
     verdicts: dict[str, int] = {}
     unsound: list[str] = []
@@ -303,6 +304,9 @@ def main() -> int:
             postings_published += len(statement.transactions)
             published_by_account.setdefault(
                 statement.account_number or "", []).append(statement)
+        dispatch = resolve(text)
+        key = (str(dispatch.parser_id), dispatch.outcome, tuple(sorted(dispatch.attempted)))
+        dispatched[key] = dispatched.get(key, 0) + 1
         outcome = _verdict(markdown, pages)
         verdicts[outcome] = verdicts.get(outcome, 0) + 1
         rows = "" if statement is None else f"  postings={len(statement.transactions)}"
@@ -341,6 +345,10 @@ def main() -> int:
     print(f"published statements failing a field-sanity property: {len(unsound)}")
     for entry in unsound:
         print(f"    UNSOUND {entry}")
+    print("dispatch, as the run's own telemetry would record it:")
+    for (parser_id, outcome_name, attempted), count in sorted(dispatched.items()):
+        print(f"  {count:3}  parser_id={parser_id} outcome={outcome_name} "
+              f"attempted={list(attempted)}")
     print("verdicts:")
     for outcome, count in sorted(verdicts.items()):
         print(f"  {count:3}  {outcome}")

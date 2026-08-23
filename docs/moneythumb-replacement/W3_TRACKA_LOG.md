@@ -43793,6 +43793,21 @@ the cheaper queue, the one that needs an existing reader WIDENED rather than
 a new one written. That is exactly what the second printing needs if it ever
 becomes readable: it is this platform's other printing, not another bank.
 
+**And the dispatcher agrees, which is the part that matters.** The claim
+above is about what the RUN records, so it is measured at `resolve`, not at
+`detect`:
+
+```
+ 11  parser_id=lili  outcome=claimed    attempted=[]
+  9  parser_id=None  outcome=unclaimed  attempted=['lili']
+```
+
+The nine carry `attempted=['lili']`, and that non-empty `attempted` is exactly
+what turns `no_parser_matched` into `parser_declined` in
+`discovery/runner.py`'s `_failure_reason`. No document in the family is
+ambiguous. The refusal is named to a parser in the run's own telemetry, not
+only in this log.
+
 ## LI2. THE INTEGRITY FINDING — one block, five statements (fraud-relevant)
 
 **This is the section the card asked for by name, and it is for Ocean and
