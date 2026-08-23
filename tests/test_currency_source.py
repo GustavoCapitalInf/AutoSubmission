@@ -576,6 +576,7 @@ def test_the_published_payload_carries_the_field_beside_the_currency():
 #: certify itself, and the gate that pins the surface. Nothing else — no metric,
 #: no ADB, no reconciliation, no package total, no export, no UI.
 PROVENANCE_MODULES = {
+    "analysis/bank_ozk.py",
     "analysis/bmo.py",
     "analysis/bmo_ca_business.py",
     "analysis/bmo_us_activity.py",
@@ -586,6 +587,7 @@ PROVENANCE_MODULES = {
     "analysis/extract.py",
     "analysis/farmers_merchants.py",
     "analysis/found_lead.py",
+    "analysis/frost.py",
     "analysis/mercury.py",
     "analysis/rbc.py",
     "analysis/releve_facturation.py",

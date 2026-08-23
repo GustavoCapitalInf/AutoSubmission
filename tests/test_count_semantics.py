@@ -152,6 +152,13 @@ def test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental():
         "altana:debit",
         # the chase reader, on a population that prints no debit count at all
         "chase_export:debit",
+        # W3 FROSTOZK. Measured, not unread: the printed withdrawal figure
+        # excludes two named row classes this reader posts, the excess is
+        # exactly their size on 9 of 9 archive documents, and BOTH terms are
+        # facts about our rows - so the difference is understood and still not
+        # expressible as printed evidence. The family prints no service-charge
+        # summary cell at all, so there is nothing a mapping could read.
+        "frost:debit",
     }
     # The phase-2 promotions, each earned by a measured counterfactual.
     # `bank_of_america:debit` joined them in BOFA-COUNTS: it was incomparable
@@ -173,6 +180,14 @@ def test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental():
         "atb:debit",
         "bank_of_america:credit",
         "bank_of_america:debit",
+        # W3 FROSTOZK. Comparable and TAUTOLOGICAL in both directions, and the
+        # entries say so: this layout does not print the direction of a row at
+        # all, so the reader SOLVES it against the printed daily balances and
+        # consumes these two counts as the constraint that makes the solve
+        # unique. Surveyed rather than left UNSURVEYED so the silence is a
+        # recorded fact.
+        "bank_ozk:credit",
+        "bank_ozk:debit",
         # W3 §COUNTSP3. Comparable and TAUTOLOGICAL: the parser's acceptance
         # gate already refuses a document whose row count contradicts the
         # printed count, so a claimed one agrees by construction. Surveyed
@@ -226,6 +241,12 @@ def test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental():
         "first_community:debit",
         "first_farmers:credit",
         "first_farmers:debit",
+        # W3 FROSTOZK. Comparable and NOT tautological, which took a build
+        # decision: the reader gates on the printed TOTALS and on the two ends
+        # of the daily grid, and on no printed COUNT, so this check is a live
+        # defect detector on the one direction of this bank where the printed
+        # count means our rows. Its debit twin is in the incomparable set above.
+        "frost:credit",
         "ibc:credit",
         "ibc:debit",
         "linkbank:credit",
@@ -509,7 +530,7 @@ def test_the_observer_version_moves_when_the_table_does():
         1 for table in SEMANTICS.values()
         for semantics in table.values() if semantics.mapping is not None
     )
-    assert (observer.OBSERVER_VERSION, len(SEMANTICS), comparable, mapped) == (5, 32, 60, 2)
+    assert (observer.OBSERVER_VERSION, len(SEMANTICS), comparable, mapped) == (6, 34, 63, 2)
 
 
 # ---------------------------------------------------------------------------
@@ -1053,3 +1074,58 @@ def test_the_check_is_not_wired_into_the_withholding_path():
     issue_clause = pipeline_source.split("possible_document_issue = (")[1].split(")\n")[0]
     for flag in COUNT_FLAGS:
         assert flag not in issue_clause
+
+
+# ---------------------------------------------------------------------------
+# W3 §FROSTOZK — one bank, two directions, two different answers
+# ---------------------------------------------------------------------------
+
+
+def test_the_frost_directions_disagree_with_each_other_and_that_is_the_point():
+    """A registration is not comparable or incomparable as a whole. Frost's
+    printed deposit count means our credit rows and its printed withdrawal
+    count does not mean our debit rows, and the table has to be able to say
+    both about one parser."""
+    assert counts_comparable("frost", "credit") is True
+    assert counts_comparable("frost", "debit") is False
+
+
+def test_the_frost_debit_entry_names_both_excluded_row_classes_and_its_measurement():
+    entry = SEMANTICS["frost"]["debit"]
+    assert entry.scope == "named_row_classes_excluded"
+    assert "SERVICE CHARGE/FEE" in entry.reason
+    assert "zero" in entry.reason.lower()
+    # The excess is recorded per document, so a later reader can check the
+    # claim against the instrument rather than against a summary of it.
+    assert "tools/frostozk_family_replay.py" in entry.reason
+
+
+def test_the_frost_debit_entry_explains_why_it_carries_no_mapping():
+    """The adjustment exists and is understood exactly; it is still not
+    expressible, because both of its terms are facts about OUR ROWS and
+    `PRINTED_EVIDENCE_FIELDS` admits only figures off the printed summary."""
+    entry = SEMANTICS["frost"]["debit"]
+    assert entry.mapping is None
+    assert "PRINTED_EVIDENCE_FIELDS" in entry.reason
+    assert "stated_service" in entry.reason
+
+
+def test_the_frost_credit_entry_records_that_the_reader_does_not_gate_on_it():
+    entry = SEMANTICS["frost"]["credit"]
+    assert entry.comparable and entry.mapping is None
+    assert "NOT A TAUTOLOGY" in entry.reason
+
+
+def test_the_bank_ozk_entries_disclose_that_they_are_tautological():
+    """The solver consumes the printed counts, so both directions agree by
+    construction. Written out rather than left to `UNSURVEYED`, which would
+    read as 'not yet examined'."""
+    for direction in DIRECTIONS:
+        entry = SEMANTICS["bank_ozk"][direction]
+        assert entry.comparable and entry.mapping is None
+        assert "TAUTOLOG" in entry.reason.upper()
+
+
+def test_neither_new_registration_widened_the_mapping_vocabulary():
+    assert RULES == ("plus_one_when_billed",)
+    assert PRINTED_EVIDENCE_FIELDS == ("stated_service_charge",)
