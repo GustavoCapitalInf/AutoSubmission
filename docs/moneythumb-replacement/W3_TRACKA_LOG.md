@@ -44240,6 +44240,7 @@ readers already take is the right span.
 | the fallback, on `analysis_input_sha`, 483-document stratified sample (27 scanned) | 12 claimed · **447 identical** · **0 different** · 24 no native text | **0** |
 | the publish/refuse boundary, re-asked on all 37 claimed documents with no stored payload | **0 now publishes**; all 37 refuse again | **0** |
 | `python -m tools.descattrib_oracle rows` at branch HEAD | 1,090 rows · 93 exact / 997 prefix / **0 FOREIGN** — §DESCATTRIB DA11.2 reproduced | **0** |
+| `python -m tools.descattrib_movement` over the complex's 31 at branch HEAD | **0 moved descriptions, 0 movement elsewhere on all 31** — the batch-7 leaf-diff reads from STORED text and is blind to this card, which is the point | **0** |
 | `python -m tools.descattrib_oracle sectioned` at branch HEAD | 19 rows on 5 documents, **19 exact**, 5 unpaired — §DESCATTRIB DA9 reproduced | **0** |
 | `python corpus_gate.py` | **GREEN** — 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 102 validated / 3 review / 3 withheld / 1 refused; currency 108/108 = 14 CAD / 94 USD; currency_source 108/108 = 89 schema_default / 7 institution_default / 7 product / 4 jurisdiction_default / 1 printed (1,628.1s) | **0** |
 | the geometry-oracle score, shipped vs repaired | 269 rows paired 1:1 both ways · 75 → **252** exact · **0** FOREIGN | — |
