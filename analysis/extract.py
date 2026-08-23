@@ -65,18 +65,22 @@ Rules:
   Year-to-Date" table — those are not counts; leave `stated_nsf_count` null. Never
   guess it from a dollar amount, a service charge, or a year-to-date figure.
 - SUMMARY ALIGNMENT — read carefully. Small-bank statements often print the
-  summary as a column of LABELS followed by a separate column of VALUES, e.g.:
-      Previous Balance / 3 Deposits/Credits / 26 Checks/Debits / Service Charge /
-      Interest Paid / Ending Balance   ...then...   78.68- / 7,329.22 / 3,945.12 /
-      8.00 / .00 / 3,297.42
+  summary as a column of LABELS followed by a separate column of VALUES. The
+  shape, with <V1>…<V6> standing for whatever money tokens the page prints and
+  <N> for a printed count:
+      Previous Balance / <N> Deposits/Credits / <N> Checks/Debits / Service Charge /
+      Interest Paid / Ending Balance   ...then...   <V1>- / <V2> / <V3> /
+      <V4> / <V5> / <V6>
   Align them BY POSITION: the 1st value goes with the 1st label, etc. Do NOT read a
-  count as an amount (e.g. "26 Checks/Debits" means count=26 with the amount on the
-  values side — here 3,945.12). A trailing "-" means negative (78.68- = -78.68).
+  count as an amount ("<N> Checks/Debits" means count=<N>, with that section's
+  amount on the values side — <V3> here). A trailing "-" means the value is
+  negative (<V1>- is minus <V1>).
   Sanity check yourself: beginning + credits - debits - service_charge + interest
   should equal the ending balance. If it doesn't, you mis-aligned — fix it.
 - A transaction is one real posting. List each once, in order. OCR often misplaces
-  amounts: a debit's amount may be glued into its description with the Amount cell
-  blank (e.g. "PREM PMT BCBS OF AL 32.00"); use that trailing value as the amount.
+  amounts: a debit's amount may be glued onto the END of its description with the
+  Amount cell left blank ("<description as printed> <money token>"); use that
+  trailing value as the amount.
 - Pages are separated by "--- Page N ---" markers; merge them into one statement.
 
 Statement markdown follows:
