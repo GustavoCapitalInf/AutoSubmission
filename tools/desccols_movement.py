@@ -5,12 +5,14 @@ the archive question — does any published analysis differ from what the run of
 record stored — and reports FIELD names. This tool answers the two questions a
 card that moves a field on purpose owes on top of that:
 
-1. **REACH.** For every document, is `ocr.native_text.native_statement`'s
-   output at this tree byte-identical to the generic rung's? Where it is not,
-   which rung claimed it, and did the run of record's own OCR artifact hold the
-   generic rung's text? A document the new rung does not claim keeps a
-   byte-identical analysis INPUT, so its cache key cannot rotate — that is the
-   fallback proof, and it is measured per document rather than argued.
+1. **REACH.** For every document, does `ocr.native_text.native_statement` at
+   this tree still produce the text the run of record's own OCR artifact
+   holds? A document whose pages come back identical keeps a byte-identical
+   analysis INPUT, so its cache key cannot rotate — that is the fallback
+   proof, and it is MEASURED against the archive per document rather than
+   argued. The ladder is BOUND, never recomposed, and no rung is called here:
+   `tests/test_native_rung_parity.py` is what says an instrument that reads
+   different bytes than production is not an instrument.
 2. **MOVEMENT.** For the documents it does claim, the published payload
    recomputed from the new text, compared to the stored one twice: once with
    every `description` leaf MASKED — so amounts, dates, directions, counts,
@@ -43,6 +45,10 @@ import json
 import time
 from pathlib import Path
 
+from ocr.native_text import native_statement
+
+#: The model label the rung this card adds stamps on a document it claims.
+CLAIMED_MODEL = "native-pdf-text+printed-rows"
 DESCRIPTION_LEAF = "description"
 MASK = "\x00masked\x00"
 ABSENT = "\x00absent\x00"
@@ -130,7 +136,6 @@ def main(argv: list[str] | None = None) -> int:
     from analysis.pipeline import analyze_markdown
     from analysis.serialization import report_to_dict
     from ocr.document import StatementMarkdown
-    from ocr.native_text import native_statement, parse_native_pdf_text
 
     paths, outcome = {}, {}
     with args.rows.open(encoding="utf-8", newline="") as handle:
@@ -140,10 +145,12 @@ def main(argv: list[str] | None = None) -> int:
                 paths[sha] = row["relative_path"]
                 outcome[sha] = row["outcome_class"]
 
-    counts = {"documents": 0, "ladder_unchanged": 0, "claimed": 0, "no_pdf": 0,
-              "no_native_text": 0, "stored_is_not_generic": 0, "no_payload": 0,
-              "moved": 0, "payload_now_raises": 0, "other_movement": 0,
-              "shortened": 0, "lengthened": 0, "replaced": 0}
+    counts = {"documents": 0, "ladder_unchanged": 0,
+              "ladder_identical_to_the_archive": 0, "claimed": 0, "no_pdf": 0,
+              "no_native_text": 0, "claimed_but_text_unchanged": 0,
+              "no_payload": 0, "moved": 0, "payload_now_raises": 0,
+              "other_movement": 0, "shortened": 0, "lengthened": 0,
+              "replaced": 0}
     documents = []
     began = time.time()
 
@@ -153,26 +160,26 @@ def main(argv: list[str] | None = None) -> int:
             counts["no_pdf"] += 1
             continue
         counts["documents"] += 1
-        data = pdf.read_bytes()
-        generic = parse_native_pdf_text(data)
-        if generic is None:
+        ladder = native_statement(pdf.read_bytes())
+        if ladder is None:
             counts["no_native_text"] += 1
             continue
-        ladder = native_statement(data)
-        if ladder is None or list(ladder.pages) == list(generic.pages):
+        pages, model, before = stored_document(sha, args.data_dir / "artifacts", baseline)
+        if ladder.model != CLAIMED_MODEL:
+            # Every other rung is untouched by this card, so the ladder's
+            # answer here is the one it always gave. Say so by MEASUREMENT
+            # where the archive holds the text to say it against.
             counts["ladder_unchanged"] += 1
-            continue
-        if ladder.model != "native-pdf-text+printed-rows":
-            counts["ladder_unchanged"] += 1  # an older bank rung, not this card
+            if pages is not None and list(pages) == list(ladder.pages):
+                counts["ladder_identical_to_the_archive"] += 1
             continue
         counts["claimed"] += 1
 
-        pages, model, before = stored_document(sha, args.data_dir / "artifacts", baseline)
         record = {"content_sha256": sha, "outcome": outcome[sha],
                   "stored_model": model, "pages": len(ladder.pages)}
-        if pages is not None and list(pages) != list(generic.pages):
-            counts["stored_is_not_generic"] += 1
-            record["verdict"] = "stored_text_is_not_the_generic_rung"
+        if pages is not None and list(pages) == list(ladder.pages):
+            counts["claimed_but_text_unchanged"] += 1
+            record["verdict"] = "claimed_but_text_unchanged"
             documents.append(record)
             continue
         if before is None:
