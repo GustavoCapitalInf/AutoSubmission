@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, timedelta
 
 from .money import parse_money
 from .parser_registry import make_detector, required
@@ -406,6 +406,32 @@ def _southside_day(token: str, period: tuple[str, str]) -> str | None:
     return candidates.pop().isoformat() if len(candidates) == 1 else None
 
 
+def _southside_daily_cells(
+    daily_grid: str, period: tuple[str, str]
+) -> dict[str, set[float]]:
+    """The printed daily-balance grid as `day -> every distinct balance printed
+    for it`.
+
+    One reading of this grid, used for two different things. A day the grid
+    NAMES is a day the account moved, whatever balance the cell carries — that
+    is what corroborates a reconstructed date. A day whose cell carries ONE
+    balance is additionally an amount oracle. The two are separated here rather
+    than conflated because they fail differently: a cell printed twice with two
+    values still names its day, and it is on one archive statement of the nine
+    (W3 §SCANHYG).
+    """
+    cells: dict[str, set[float]] = {}
+    for token, amount in re.findall(
+        r"([A-Za-z0-9/]{2,5})\s+(" + _SS_MONEY + r")", daily_grid
+    ):
+        day = _southside_day(token, period)
+        value = _southside_money(amount)
+        if day is None or value is None:
+            continue
+        cells.setdefault(day, set()).add(round(value, 2))
+    return cells
+
+
 def _southside_posted_days(daily_grid: str, period: tuple[str, str]) -> frozenset[str]:
     """Every day the printed daily-balance grid names.
 
@@ -415,13 +441,7 @@ def _southside_posted_days(daily_grid: str, period: tuple[str, str]) -> frozense
     cell the scan damaged may only be read as a day the bank itself says had
     activity.
     """
-    days = {
-        _southside_day(token, period)
-        for token, _amount in re.findall(
-            r"([A-Za-z0-9/]{2,5})\s+(" + _SS_MONEY + r")", daily_grid
-        )
-    }
-    return frozenset(day for day in days if day is not None)
+    return frozenset(_southside_daily_cells(daily_grid, period))
 
 
 def _southside_money(token: str) -> float | None:
@@ -635,6 +655,115 @@ def parse_southside_scanned_statement(markdown: str) -> Statement | None:
         return None
     stmt.transactions = txns
     return stmt
+
+
+def daily_grid_amount_contradictions(markdown: str, stmt: Statement) -> list[str]:
+    """The printed daily-balance grid, held against the ledger as an AMOUNT
+    oracle rather than only as a date one.
+
+    THE GAP THIS CLOSES, and it is a gap in the reader's design rather than a
+    residue. `_southside_posted_days` already consults this grid, and it
+    consults it about DATES only: a reconstructed date must name a day the
+    grid names. Nothing asked the grid what the day was WORTH. On one archive
+    statement that cost 3,000.00 of over-capture — a reader publishing more
+    debit money than the bank states, which is worse in kind than publishing
+    less, and which every other check on the document was blind to because the
+    row it came from was otherwise perfectly formed (W3 §SCANFINISH SF2,
+    carded there as SS-GRID-AMOUNTS).
+
+    WHAT THE GRID SAYS. It prints an end-of-day balance for each day the
+    account moved, so consecutive printed cells partition the period: the step
+    from one cell to the next is the bank's own statement of what the account
+    did over the days BETWEEN them, including the days it did not print
+    because nothing posted on them. The ledger's rows dated in that same span
+    must move the same money. That is a per-span comparison and it localises:
+    a span whose two readings agree is a span read correctly whatever the
+    running error elsewhere is, which a cumulative walk cannot say.
+
+    NEITHER READING IS PREFERRED AND NOTHING IS REPAIRED. The rows are the
+    figures the bank printed and the cell is the figure the bank printed; only
+    the bank can say which is wrong. The disagreement is reported — the same
+    answer `columbia_bank.daily_grid_contradictions` gives for the same shape,
+    and for the reason the repair doctrine gives: a parser that resolves this
+    by rewriting an amount is a parser whose downstream gate is its own
+    objective function.
+
+    Re-read from the DOCUMENT, not taken from the statement, so the check keeps
+    working against a reader that stops consulting the grid. Guarded by the
+    registry like every other integrity check; total by construction, because a
+    check that raises is a document routed to review for no finding.
+    """
+    if not stmt.period_start or not stmt.period_end or stmt.beginning_balance is None:
+        return []
+    try:
+        start = date.fromisoformat(stmt.period_start)
+        end = date.fromisoformat(stmt.period_end)
+    except ValueError:
+        return []
+    if end < start:
+        return []
+    source = normalize_mojibake(markdown)
+    cells = _southside_daily_cells(
+        _southside_grids(source)["daily"], (stmt.period_start, stmt.period_end)
+    )
+    notes: list[str] = []
+    printed: dict[date, float] = {}
+    for iso, values in sorted(cells.items()):
+        day = date.fromisoformat(iso)
+        if not start <= day <= end:
+            continue
+        if len(values) > 1:
+            # The grid contradicting ITSELF about one day. The day still counts
+            # as one the account moved; the cell is not an oracle.
+            notes.append(
+                f"the daily-balance grid prints {len(values)} different balances for "
+                f"{iso}, so the balance it states for that day is not readable"
+            )
+            continue
+        printed[day] = next(iter(values))
+    if not printed:
+        return notes
+
+    movement: dict[date, float] = {}
+    for txn in stmt.transactions:
+        try:
+            when = date.fromisoformat(txn.date)
+        except (TypeError, ValueError):
+            # A ledger this reader cannot date is a ledger this check cannot
+            # walk. It says so by saying nothing, which is what the guard
+            # contract asks of an answer that is unknown.
+            return notes
+        movement[when] = round(movement.get(when, 0.0) + txn.amount, 2)
+
+    previous_day, previous_balance = start - timedelta(days=1), stmt.beginning_balance
+    for day in sorted(printed):
+        moved, probe = 0.0, previous_day + timedelta(days=1)
+        while probe <= day:
+            moved = round(moved + movement.get(probe, 0.0), 2)
+            probe += timedelta(days=1)
+        step = round(printed[day] - previous_balance, 2)
+        if abs(step - moved) > 0.01:
+            span = (
+                f"on {day.isoformat()}"
+                if previous_day + timedelta(days=1) == day
+                else f"from {(previous_day + timedelta(days=1)).isoformat()} to {day.isoformat()}"
+            )
+            notes.append(
+                f"the daily-balance grid steps by {step:,.2f} {span} but the "
+                f"transactions dated in that span move {moved:,.2f}"
+            )
+        previous_day, previous_balance = day, printed[day]
+
+    # The grid's own last word against the summary's. Two printings of one
+    # figure, and neither is derived from the other.
+    if stmt.ending_balance is not None:
+        last = printed[max(printed)]
+        if abs(last - stmt.ending_balance) > 0.01:
+            notes.append(
+                f"the daily-balance grid's last printed cell is {last:,.2f} but the "
+                f"summary states an ending balance of {stmt.ending_balance:,.2f}"
+            )
+    return notes
 
 
 def _parse_two_column_mdyy_rows(block: str, *, year: int, sign: int) -> list[Transaction]:

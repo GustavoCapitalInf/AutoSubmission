@@ -20,6 +20,7 @@ from analysis.scanned_small_bank import (
     _southside_posted_days,
     _southside_row_date,
     _southside_summary,
+    daily_grid_amount_contradictions,
     detect_southside,
     parse_southside_scanned_statement,
 )
@@ -630,3 +631,114 @@ def test_a_summary_with_no_ledger_at_all_publishes_nothing():
     header_only = document(deposits="", withdrawals="", checks="")
     assert detect_southside(header_only).claims
     assert parse_southside_scanned_statement(header_only) is None
+
+
+# ---------------------------------------------------------------------------
+# SS-GRID-AMOUNTS — the printed daily grid as an AMOUNT oracle (W3 §SCANHYG)
+# ---------------------------------------------------------------------------
+
+
+def notes_for(markdown: str) -> list[str]:
+    stmt = parse_southside_scanned_statement(markdown)
+    assert stmt is not None
+    return daily_grid_amount_contradictions(markdown, stmt)
+
+
+def test_a_statement_whose_grid_the_ledger_reproduces_reports_nothing():
+    """The check is not a standing accusation: on a statement whose rows walk
+    the printed grid cell for cell it reports nothing at all."""
+    assert notes_for(whole()) == []
+
+
+def test_an_amount_read_too_large_is_caught_by_the_printed_daily_grid():
+    """The failure this whole sub-card exists for. The row is otherwise
+    perfect — a legible date, a legible description, a well-formed money
+    cell — and the summary identity is untouched, so nothing else on the
+    document notices that the reader now has more debit money than the bank
+    printed. The grid's own step for that day does."""
+    inflated = whole().replace(
+        "4/02 ONLINE PMT UTILITY CO CCD 200.00", "4/02 ONLINE PMT UTILITY CO CCD 500.00"
+    )
+    notes = notes_for(inflated)
+    assert len(notes) == 1
+    assert "2026-04-02" in notes[0]
+
+
+def test_the_walk_is_seeded_at_the_summarys_own_beginning_balance():
+    """The first printed cell is a STEP from the beginning balance, not the
+    start of the walk. A reader that seeded itself at the first cell would
+    never check the span the first cell closes."""
+    inflated = whole().replace("4/01 Regular Deposit 500.00", "4/01 Regular Deposit 800.00")
+    notes = notes_for(inflated)
+    assert len(notes) == 1
+    assert "2026-04-01" in notes[0]
+
+
+def test_a_span_covers_every_day_since_the_previous_printed_cell():
+    """The grid prints a cell only for days the account moved, so consecutive
+    cells partition the period: a row dated onto a day the grid does not name
+    still has to be inside somebody's span. Comparing only the printed day
+    would let it disappear."""
+    misdated = whole().replace(
+        "4/02 ONLINE PMT UTILITY CO CCD 200.00", "4/05 ONLINE PMT UTILITY CO CCD 200.00"
+    )
+    notes = notes_for(misdated)
+    assert len(notes) == 2
+    assert any("2026-04-02" in note for note in notes)
+    assert any("2026-04-10" in note for note in notes)
+
+
+def test_a_day_the_grid_prints_twice_with_two_balances_is_not_an_oracle():
+    """The grid contradicting ITSELF. There is no rule that says which cell to
+    believe, so that day states no balance — but it is still a day the bank
+    says the account moved, which is what a reconstructed date is checked
+    against, and that must survive."""
+    contradicted = whole().replace(
+        "4/10 1,000.00 4/15 1,300.00", "4/10 1,000.00 4/15 1,300.00\n4/10 9,999.00"
+    )
+    notes = notes_for(contradicted)
+    assert len(notes) == 1
+    assert "2026-04-10" in notes[0] and "not readable" in notes[0]
+    grids = _southside_grids(contradicted)
+    assert "2026-04-10" in _southside_posted_days(grids["daily"], PERIOD)
+
+
+def test_the_grids_last_cell_is_held_against_the_printed_ending_balance():
+    """Two printings of one figure, neither derived from the other."""
+    trailing = whole().replace(
+        "4/10 1,000.00 4/15 1,300.00", "4/10 1,000.00 4/15 1,300.00 4/20 1,250.00"
+    )
+    notes = notes_for(trailing)
+    assert any("ending balance" in note for note in notes)
+
+
+def test_the_registration_declares_the_daily_grid_amount_check():
+    from analysis import parser_registry as pr
+    from analysis.parser_registry_entries import load
+
+    registration = next(r for r in load() if r.id == "southside_scanned")
+    assert registration in pr.registrations()
+    assert daily_grid_amount_contradictions in registration.integrity_checks
+
+
+def test_the_disagreement_reaches_the_published_integrity_block():
+    from analysis.pipeline import analyze_markdown
+
+    inflated = whole().replace(
+        "4/02 ONLINE PMT UTILITY CO CCD 200.00", "4/02 ONLINE PMT UTILITY CO CCD 500.00"
+    )
+    report = analyze_markdown(inflated, parse_mode="deterministic")
+    assert "conflicting_statement_summaries" in report.integrity.flags
+
+
+def test_a_period_the_check_cannot_read_answers_nothing_rather_than_raising():
+    """A check that raises is a document routed to review for no finding."""
+    stmt = parse_southside_scanned_statement(whole())
+    assert stmt is not None
+    for broken in ("4/31/26", "", "not-a-date"):
+        maimed = stmt.model_copy(update={"period_start": broken})
+        assert daily_grid_amount_contradictions(whole(), maimed) == []
+
+
+def test_a_statement_with_no_printed_daily_grid_reports_nothing():
+    assert notes_for(document(daily="")) == []
