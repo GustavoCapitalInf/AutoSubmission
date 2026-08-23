@@ -43956,6 +43956,13 @@ The single leaf on the three is `metrics.adb.source_posting_days` (DC4.1).
 their descriptions from their own grammars and the repaired line structure
 does not change what they read.
 
+**The two measurements meet, and neither knew about the other.** All five of
+these documents' content hashes are in the archive run's claimed 76 (DC6),
+which was computed from the discovery run's own path list rather than from the
+pinned manifest — and `8DC5B0D3…`, one of DC6's two `us_bank` single-leaf
+movers, is `US Bank/US Bank 2026-04-30 Statement.pdf` here. The pinned-side
+and archive-side counts agree, which is the independent cross-check on both.
+
 **Are descriptions or that field pinned columns? No, with evidence.** The two
 audit CSVs and `tests/data/parser_expectations.json` contain the string
 `description` 0 times and `source_posting_days` 0 times; the pinned verdict
