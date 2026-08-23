@@ -43994,6 +43994,26 @@ order holding, measured rather than inferred from where the call sits. None of
 the 76 is in a Canadian-labelled folder, so no currency or provenance surface
 is anywhere near this card.
 
+### DC6.1 The fallback, proved on the hash that decides the cache key
+
+"Unchanged" above is the ladder's PAGES. What actually decides whether a
+document's cache key rotates is `analysis_input_sha(markdown, sheets)`, so
+that is what the fallback proof measures, on the one tree, with the rung
+enabled and with it forced to return None:
+
+| a 483-document stratified sample (every 7th document of the run of record) | |
+|---|---:|
+| documents | 483 |
+| scanned among them | 27 |
+| claimed by the rung | 12 |
+| the ladder answers None both ways | 24 |
+| **`analysis_input_sha` IDENTICAL with the rung on and off** | **447** |
+| **DIFFERENT** | **0** |
+
+Not one document outside the claimed set has its analysis input move by a
+byte. That is the fail-closed fallback stated as a measurement rather than as
+a property of the code.
+
 The population also discharges the stratified non-target probe the wave asks
 of a new registration: this is not a registration, but its reach is
 registration-shaped, and the probe is the whole archive — 3,380 documents,
@@ -44217,6 +44237,7 @@ readers already take is the right span.
 | `python tools/desccols_mutate.py .` | **10 applied, 9 killed, 1 named expected survivor** | **0** |
 | `python -m tools.desccols_census` over 3,380 documents | 3,189 native-text · 3,156 welded · 2,419 amount-welded · 33 clean (701.7s) | **0** |
 | `python -m tools.desccols_movement` over 3,380 documents | 76 claimed · 3,112 unchanged · 21 moved (7 + 14) · 0 now-raises (3,682.1s) | **1** (it exits 1 on any movement) |
+| the fallback, on `analysis_input_sha`, 483-document stratified sample (27 scanned) | 12 claimed · **447 identical** · **0 different** · 24 no native text | **0** |
 | the publish/refuse boundary, re-asked on all 37 claimed documents with no stored payload | **0 now publishes**; all 37 refuse again | **0** |
 | `python -m tools.descattrib_oracle rows` at branch HEAD | 1,090 rows · 93 exact / 997 prefix / **0 FOREIGN** — §DESCATTRIB DA11.2 reproduced | **0** |
 | `python -m tools.descattrib_oracle sectioned` at branch HEAD | 19 rows on 5 documents, **19 exact**, 5 unpaired — §DESCATTRIB DA9 reproduced | **0** |
