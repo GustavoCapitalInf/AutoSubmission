@@ -121,6 +121,26 @@ def test_the_slash_prefixed_counts_of_another_registration_are_not_claimed():
     assert reader.detect(other).claims is False
 
 
+@pytest.mark.parametrize(
+    "summary",
+    [
+        "Deposits/Credits (3) +$1,300.00 Interest Paid +$.00 Debits (4) -$700.00",
+        "Credits (3) +$1,300.00 Interest Paid +$.00 Checks/Debits (4) -$700.00",
+    ],
+    ids=["credit-label-slash-prefixed", "debit-label-slash-prefixed"],
+)
+def test_a_slash_prefixed_label_does_not_satisfy_the_bare_counts_marker(summary):
+    """Each label carries its own lookbehind, so each is tested on its own.
+
+    Tested together, either lookbehind could be deleted without the
+    conjunction noticing — the other half would still refuse the document.
+    """
+    text = STATEMENT.replace(
+        "Credits (3) +$1,300.00 Interest Paid +$.00 Debits (4) -$700.00", summary
+    )
+    assert reader.detect(text).claims is False
+
+
 def test_an_unsigned_credit_total_does_not_satisfy_the_counts_marker():
     text = STATEMENT.replace("Credits (3) +$1,300.00", "Credits (3) $1,300.00")
     assert reader.detect(text).claims is False
