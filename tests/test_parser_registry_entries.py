@@ -64,12 +64,20 @@ EXPECTED_ORDER = [
     "columbia_bank",
     "community_section",
     "consumers",
+    # The `Activity Summary` running-balance issue (W3 §COREISS2). Disjoint
+    # from every leading-counts reader by `Days in Cycle`, not by precedence,
+    # so it takes the ordinary band.
+    "core_processor_activity_summary",
     # The fourth summary grammar of the third core processor (W3 §GRAM4).
     # Disjoint from `core_processor_daily` below by its two required markers,
     # not by precedence, so it takes the ordinary band.
     "core_processor_counted",
     "core_processor_daily",
     "core_processor_sectioned",
+    # The SIGNED-COUNTS issue (W3 §COREISS2). Disjoint from `fiserv_premier`
+    # by two of that registration's three required markers, so likewise no
+    # band and no `supersedes` edge.
+    "core_processor_signed_counts",
     "demo_national",
     "desjardins",
     "eq_bank_scanned",
@@ -176,8 +184,13 @@ def test_registration_count_matches_the_documented_decision_points():
     (W3 §SCANNEXT); and the batch-7 cards: the scanned Canadian
     direct-bank statement whose two money columns the scan flattens and
     whose row directions are solved from the running balance printed on
-    every row (W3 §TANGERINE)."""
-    assert len(pr.registrations()) == 75
+    every row (W3 §TANGERINE); and the batch-8 card that read two more
+    printed issues of the same core processor as SIBLINGS rather than as
+    extensions of `fiserv_premier` - the signed-counts issue, whose summary
+    states each direction's count in parentheses with a signed total over two
+    DATED balances, and the `Activity Summary` issue, whose box prints `Days
+    in Cycle` over a running-balance ledger (W3 §COREISS2)."""
+    assert len(pr.registrations()) == 77
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():
