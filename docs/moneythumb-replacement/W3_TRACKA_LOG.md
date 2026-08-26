@@ -44650,7 +44650,7 @@ readers already take is the right span.
    under-reading, and NOT an inert diagnostic: `analysis/adb.py:731-741`
    computes `source_dates` once and uses it both for this leaf and for the
    REQUIRED check `posting_dates_cover_source` (`:775-776` fold that check into
-   `result.ok`). On this archive the set grew and `missing` stayed empty, so no
+   `result.ok`). The set grew here and `missing` stayed empty, so no
    check, warning, ADB value or verdict moved — measured as the required-check
    vector over all 3,380, not asserted. What this carries forward is that
    an extraction card which reveals a printed posting date its parser cannot
@@ -44793,7 +44793,7 @@ appears anywhere in the 4,609 lines this branch adds.
 
 **The thirteen, adjudicated one at a time — none is document-derived.** Five
 are MONEY and eight are WORDS. The five MONEY are three-digit round amounts
-with cents (`404.00` three times, `505.00`, `606.00`) drawn in
+with cents — three occurrences of one of them and one each of two more — drawn in
 `tests/test_printed_row_extraction.py` as a fixture ledger's own figures, at
 coordinates chosen in that file; four of the eight WORDS are the same fixture
 family's invented merchant whose FIRST word is an ordinary English noun; the
