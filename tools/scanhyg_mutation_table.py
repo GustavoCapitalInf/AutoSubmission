@@ -30,6 +30,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
+#: Line terminators as DATA rather than as escapes inside a docstring.
+CRLF = bytes((13, 10))
+NL = chr(10)
+
 TEST_FILES = (
     "tests/test_southside_scanned.py",
     "tests/test_citizens_scanned.py",
@@ -294,30 +298,23 @@ def tree_is_clean() -> tuple[bool, str]:
 
 
 def read_source(path: Path) -> tuple[str, bool]:
-    """The file as `
-`-terminated text, plus whether it is CRLF on disk.
+    r"""The file as "\n"-terminated text, plus whether it is CRLF on disk.
 
     This checkout is `core.autocrlf=true`, so every tracked file is CRLF on
-    disk while every anchor in the table above is written with `
-`. Reading
-    without normalising would match nothing across a line break; writing
-    without restoring would rewrite every line of the file and turn one mutant
-    into a whole-file diff.
+    disk while every anchor in the table above is written with a bare newline.
+    Reading without normalising would match nothing across a line break;
+    writing without restoring would rewrite every line of the file and turn
+    one mutant into a whole-file diff.
     """
     raw = path.read_bytes()
-    crlf = b"
-" in raw
+    crlf = CRLF in raw
     text = raw.decode("utf-8")
-    return (text.replace("
-", "
-") if crlf else text), crlf
+    return (text.replace(CRLF.decode(), NL) if crlf else text), crlf
 
 
 def write_retrying(path: Path, text: str, crlf: bool, attempts: int = 5) -> None:
     """OneDrive holds file handles; a transient PermissionError is not a score."""
-    payload = (text.replace("
-", "
-") if crlf else text).encode("utf-8")
+    payload = (text.replace(NL, CRLF.decode()) if crlf else text).encode("utf-8")
     for attempt in range(attempts):
         try:
             path.write_bytes(payload)
@@ -376,10 +373,13 @@ def main(argv: list[str] | None = None) -> int:
         try:
             code, killers, counts, _ = run_tests()
         finally:
+            # Restoring is the `finally`'s whole job. Deciding what to do about
+            # a failed restore is NOT: a `return` inside a `finally` swallows
+            # whatever exception was in flight, so the decision is made after.
             restore = git("checkout", "--", relative)
-            if restore.returncode != 0:
-                print(f"{identifier}: RESTORE FAILED: {restore.stderr}", file=sys.stderr)
-                return 3
+        if restore.returncode != 0:
+            print(f"{identifier}: RESTORE FAILED: {restore.stderr}", file=sys.stderr)
+            return 3
         results.append({
             "id": identifier, "gate": gate, "file": relative, "says": says,
             "verdict": "KILLED" if code != 0 else "SURVIVED",
