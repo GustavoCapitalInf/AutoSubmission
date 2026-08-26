@@ -245,10 +245,15 @@ def command_gates(args) -> int:
     import ocr.native_text as nt
 
     paths, _outcome, _parser = document_paths(args.rows)
+    only = ({line.strip() for line in args.only.read_text(encoding="utf-8").split()}
+            if args.only else None)
     counts = collections.Counter()
+    shape = collections.Counter()
     documents = []
     began = time.time()
     for sha in sorted(paths)[args.start:args.end]:
+        if only is not None and sha not in only:
+            continue
         pdf = args.corpus / paths[sha]
         if not pdf.exists():
             continue
@@ -266,7 +271,14 @@ def command_gates(args) -> int:
         marks = nt._repeated_furniture(printed)
         per = collections.Counter()
         for index, lines in enumerate(printed):
+            if lines is None:
+                # The F8 guard: a page whose boxes are malformed keeps the
+                # flattening's own text. Counted, because a guard that fires on
+                # this archive would be costing claims silently.
+                per["pages_the_box_guard_refuses"] += 1
+                continue
             if not lines:
+                per["pages_with_no_printed_line"] += 1
                 continue
             bands = nt._row_bands(lines)
             band_of = {p: b for b, band in enumerate(bands) for p in band}
@@ -293,6 +305,20 @@ def command_gates(args) -> int:
                     per["regions_G9_refuses"] += 1
                     per["bands_G9_refuses"] += len({band_of[p] for p in marked})
                     per["lines_marked_inside_a_region"] += len(marked)
+                    # What KIND of line is being marked inside a ledger: how
+                    # many pages print it at that band, and how long it is.
+                    # Running furniture repeats on every page of a section; a
+                    # coincidence repeats on two. Classes only, never text.
+                    for position in marked:
+                        line = lines[position]
+                        pages_with = {
+                            other for other, others in enumerate(printed)
+                            for candidate in (others or ())
+                            if candidate.text == line.text
+                            and nt._shares_a_band(line.top, line.bottom,
+                                                  candidate.top, candidate.bottom)}
+                        shape[f"pages={min(len(pages_with), 6)}"] += 1
+                        shape[f"tokens={min(len(line.text.split()), 6)}"] += 1
             with_gate = nt._printed_row_text(lines, flat[index], marks[index])
             without = nt._printed_row_text(lines, flat[index], frozenset())
             if with_gate != without:
@@ -323,11 +349,12 @@ def command_gates(args) -> int:
                               **{key: per[key] for key in sorted(per)}})
         counts.update(per)
     report = {"counts": dict(counts), "seconds": round(time.time() - began, 1),
-              "documents": documents}
+              "marked_line_shape": dict(shape), "documents": documents}
     if args.out:
         args.out.write_text(json.dumps(report, indent=2, sort_keys=True),
                             encoding="utf-8")
     print(json.dumps(dict(counts), sort_keys=True))
+    print("marked_line_shape " + json.dumps(dict(shape), sort_keys=True))
     print(f"seconds={report['seconds']}")
     return 1 if counts["documents_the_furniture_gate_changes"] else 0
 
@@ -360,6 +387,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="fallback: sample every Nth document")
     parser.add_argument("--base", default="10cc722",
                         help="fallback: the commit whose module is the before half")
+    parser.add_argument("--only", type=Path,
+                        help="gates: a file of content_sha256 to restrict the census to")
     args = parser.parse_args(argv)
     if args.mode == "fallback":
         return command_fallback(args)

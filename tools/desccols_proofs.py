@@ -50,6 +50,7 @@ from __future__ import annotations
 import argparse
 import collections
 import csv
+import hashlib
 import json
 from pathlib import Path
 
@@ -267,6 +268,10 @@ def command_pinned(args) -> int:
             counts["not_claimed"] += 1
             continue
         counts["claimed"] += 1
+        # The card names every mover by content_sha256; a pinned document is
+        # named by the same identity as an archive one, and the 8-hex prefix
+        # is what the log carries.
+        sha = hashlib.sha256(raw).hexdigest().upper()
         native_text.parse_native_printed_rows = lambda *a, **k: None
         native_text._native_pages_cached.cache_clear()
         before = verdict(raw)
@@ -284,7 +289,7 @@ def command_pinned(args) -> int:
         if outcomes[0] != outcomes[1]:
             counts["OUTCOME_MOVED"] += 1
         counts["leaves_moved"] += len(moved)
-        print(f"claimed  outcome {outcomes[0]} -> {outcomes[1]}  "
+        print(f"claimed  {sha[:8]}  outcome {outcomes[0]} -> {outcomes[1]}  "
               f"leaves_moved={len(moved)}  {sorted(set(moved))}")
     native_text.parse_native_printed_rows = real
     print(json.dumps(dict(counts), sort_keys=True))
