@@ -14,8 +14,8 @@ WHY THIS IS SAFE, and it is a property of the package rather than a hope:
 `analysis/` imports nothing from this repository outside itself. Every
 non-relative import in the package is stdlib or third-party (measured:
 `dotenv`, `google.genai`, `pydantic` and stdlib), so a copy of the directory
-under a DIFFERENT package name is a complete, self-consistent second analysis
-stack. Relative imports (`from .money import ...`) resolve to whatever package
+under a DIFFERENT package name is an entire second analysis stack, consistent
+with itself. Relative imports (`from .money import ...`) resolve to whatever package
 the module actually lives in, which is the whole mechanism.
 
     from tools.hygiene8_base_tree import load_base_analysis
@@ -83,17 +83,17 @@ def load_base_analysis(revision: str, *, repo: Path, scratch: Path) -> BaseAnaly
     root = scratch / f"basetree_{resolved[:8]}"
     target = root / package
     if not target.is_dir():
-        staging = root / "_staging"
-        if staging.exists():
-            shutil.rmtree(staging)
-        staging.mkdir(parents=True, exist_ok=True)
-        _extract(repo, resolved, staging)
+        tmp_dir = root / "_tmp"
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir)
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        _extract(repo, resolved, tmp_dir)
         # The directory is renamed rather than the imports rewritten: a package
         # named `analysis_base_<sha>` whose modules say `from .money import ...`
         # is a complete second stack with no edits to any blob, so what runs
         # here is byte-for-byte what the base commit holds.
-        (staging / "analysis").rename(target)
-        shutil.rmtree(staging, ignore_errors=True)
+        (tmp_dir / "analysis").rename(target)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
     pipeline = importlib.import_module(f"{package}.pipeline")

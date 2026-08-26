@@ -46,25 +46,28 @@ import json
 import sys
 from pathlib import Path
 
-#: The summary figures the Columbia fixture prints, as WHOLE CENTS. They are
+#: The summary figures the Columbia fixture prints, as WHOLE UNITS. They are
 #: rendered into money tokens at build time rather than written as money
 #: literals, so this file carries no amount-shaped string at all — which keeps
 #: an invented fixture out of the amount scans instead of arguing with them
-#: afterwards. The values are arbitrary and satisfy nothing: the poisoned
-#: period refuses long before any of them is read.
-_CENTS = {
-    "beginning": 100000,
-    "low": 90000,
-    "credits": 50000,
-    "average": 95000,
-    "debits": 40000,
+#: afterwards. Whole units rather than cents for the same reason one level down:
+#: the shared privacy scan flags any digit run of five or more, and a run that
+#: long collides with the archive's own reference numbers by coincidence. Every
+#: value here is four digits or fewer, and all of them are arbitrary — the
+#: poisoned period refuses long before any figure is read.
+_UNITS = {
+    "beginning": 1000,
+    "low": 900,
+    "credits": 500,
+    "average": 950,
+    "debits": 400,
     "interest": 0,
-    "ending": 110000,
+    "ending": 1100,
 }
 
 
 def _token(name: str) -> str:
-    return f"{_CENTS[name] / 100:,.2f}"
+    return f"{_UNITS[name]:,.2f}"
 
 
 #: An invented Columbia-shaped statement. Every label is a detection marker or
@@ -192,7 +195,7 @@ def main(argv: list[str] | None = None) -> int:
     poisoned_periods = {
         "day-out-of-range": ("February 30, 2031", "Feb 30 2031"),
         "month-length": ("Februarium 11, 2031", "Fbr 11 2031"),
-        "day-31-of-short-month": ("April 31, 2031", "Apr 31 2031"),
+        "day-31-where-30-is-the-last": ("April 31, 2031", "Apr 31 2031"),
     }
 
     trees = {"base": base.package, "branch": "analysis"}

@@ -272,8 +272,8 @@ def main(argv: list[str] | None = None) -> int:
                 over_threshold.append(
                     {
                         "content_sha256": sha,
-                        # LENGTH only. The run itself would be an account or a
-                        # reference number on a real statement.
+                        # LENGTH only: the run itself identifies an account or
+                        # a posting on whatever page printed it.
                         "digit_run_length": worst_length,
                     }
                 )
