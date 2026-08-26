@@ -43737,12 +43737,12 @@ recorded, and where they agree that is said too.
 | Base fidelity | the base side reproduces the **run of record byte for byte on 41 of 41** documents that hold a stored payload (the other 6 are the declines, which cache nothing). A branch-side difference is therefore this branch's, not the harness's |
 | PINNED SURFACE | **109 pinned documents replayed base vs branch, 0 movement** — 108 identical, 1 pinned refusal identical on both sides, `moved: 0`. **6** of the 109 are claimed by these readers: `citizens` ×4, `southside_scanned` ×1, `apex_scanned` ×1; `eq_bank_scanned` and `texas_first_scanned` own none |
 | Sub-card attribution | replayed at each commit in turn: SS-UNIQUE-MATCH **+0**, SS-GRID-AMOUNTS **+5**, SCAN-DAY-GLYPH **+0**, citizens section totals **+3**, EQ Bank residues **+0** |
-| Mutation table | **30** mutants, **25 killed**, **5 survived**, **0 unapplied**, tree clean before and after. Every survivor disclosed in SH8 with its reason; **3 of the 5 are provably equivalent mutants** and the reason is given as a proof rather than an opinion |
-| Guards | canonical guard set **253** (252 at base — the clone guard's new test), exit 0 |
+| Mutation table | **32** mutants, **28 killed**, **4 survived**, **0 unapplied** at the closure tree (30 / 25 / 5 / 0 as the card shipped), tree clean before and after. Every survivor disclosed in SH8 with its reason; **3 of the 4 are provably equivalent mutants** and the reason is given as a proof rather than an opinion. K3, the one survivor that was a real gap, is closed (SH13.1) |
+| Guards | canonical guard set **254** (252 at base; +1 the clone guard's new test, +1 its calibration pin), exit 0 |
 | Conformance | canonical conformance set **1,164 passed, 35 skipped** at registry **75**, exit 0 |
-| Privacy | `tools/privacy_scan_branch.py` over the 38-document population, 2,656 added lines: **MONEY 0, DIGITS 0, DATES 0, WORDS 2** — both WORDS hits disclosed in SH10 as two-word adjacencies between a printed section label already in tracked source at base and a Python identifier on the same line |
+| Privacy | `tools/privacy_scan_branch.py` at the TRUE final tip over a 41-document population, **4,276 added lines**: **MONEY 0, DIGITS 0, DATES 0, WORDS 2** — both WORDS hits disclosed in SH10 as two-word adjacencies between a printed section label already in tracked source at base and a Python identifier on the same line. (The card recorded 2,656 lines over 38 documents from a scan that predated its own record: review finding 2, SH10.) A whole-tree pass is separately reported in SH13.2 |
 | Control bytes | **0** across every file the branch commits (0x00–0x08, 0x0B, 0x0C, 0x0E–0x1F). **15** at the review's tip `24b5f8e` — the record said 14, having left its own file out of its own count (review finding 6) — and **16** at the closure tree, the sixteenth being the independent review's record |
-| Statement-specific constants | none added. Three archive figures REMOVED from production comments (SH10) |
+| Statement-specific constants | none added. Three archive figures REMOVED from production comments by the card (SH10), and **fourteen more, inherited, across nine comments**, restated as classes by the closure round (SH13, review finding 1) |
 
 ## SH1. The population, and how it was decided
 
@@ -44165,7 +44165,10 @@ before the first mutant and after the last. An anchor that does not match
 exactly once is recorded UNAPPLIED rather than silently skipped.
 
 **30 mutants, 25 KILLED, 5 SURVIVED, 0 UNAPPLIED**, baseline `251 passed`
-exit 0, `tree_clean_after: true`, 210.9s.
+exit 0, `tree_clean_after: true`, 210.9s — and at the CLOSURE tree, with two
+mutants added and one survivor closed, **32 / 28 KILLED / 4 SURVIVED / 0
+UNAPPLIED**, baseline `256 passed` exit 0, `tree_clean_after: true`, 230.1s
+(SH13.1). The table below is the closure tree's.
 
 | id | gate | what the mutant makes the reader say | verdict | killer(s) |
 |---|---|---|---|---|
@@ -44197,7 +44200,9 @@ exit 0, `tree_clean_after: true`, 210.9s.
 | E8 | EQ Bank reads terms through the shared helper | a term printed twice with two values is read as its first printing | KILLED | `test_a_summary_term_printed_twice_with_two_values_refuses`, `test_two_pages_that_disagree_about_the_account_refuse` |
 | K1 | the removed paraphrase may not come back | `_tf_one` is restored verbatim into the tree | KILLED | `test_no_parser_re_implements_the_one_distinct_reading_helper` |
 | K2 | the detector recognises the paraphrase | the guard stops seeing a `findall` paraphrase | KILLED | `test_no_parser_re_implements_the_one_distinct_reading_helper` (its own self-check) |
-| K3 | the helper-length bound | a three-statement paraphrase is not a helper and is not looked at | **SURVIVED** | — see below |
+| K3 | the helper-length bound | a three-statement paraphrase is not a helper and is not looked at | **KILLED** (was SURVIVED; review finding 4) | `test_the_helper_length_bound_is_where_the_measurement_put_it` |
+| D6 | a cell with NO legible glyph is answered by the printed ORDER | an illegible cell is narrowed by an enumeration that carries no evidence about it | KILLED | `test_a_cell_with_no_legible_glyph_is_answered_by_the_printed_order_alone` |
+| G7 | the grid oracle's resolution is any NON-ZERO difference | a span the grid and the ledger disagree about by exactly one cent is silent | KILLED | `test_an_over_capture_of_ONE_CENT_is_caught_and_not_rounded_away` |
 | P1 | the pinned monotonicity residual | the order gate refuses every statement whose rows are not all on one day | KILLED | 19 tests, including the pin itself: `test_a_wrong_day_that_lands_BETWEEN_its_neighbours_is_published_silently` |
 
 ### SH8.1 The five survivors, disclosed
@@ -44260,6 +44265,11 @@ records it rather than making it. Carried as SH11 finding 2.
 Every command run from the branch worktree at HEAD, sequentially, one heavy
 process at a time. Durable logs in the session's private scratchpad.
 
+*This table is the card's own tree (`24b5f8e`). Where the review closures moved
+a number — the five test files, the guard set, the mutation table, the privacy
+scan, the file count — **SH13.3 is the closure tree's, and it is the later
+measurement**. Rows not repeated there did not move.*
+
 | proof | command | result | exit |
 |---|---|---|---|
 | the branch's five test files | `python -m pytest -q tests/test_southside_scanned.py tests/test_citizens_scanned.py tests/test_eq_bank_scanned.py tests/test_shared_parser_utils.py tests/test_no_parser_helper_clones.py` | `251 passed, 1 warning` | **0** |
@@ -44297,8 +44307,20 @@ document's. Each is a CLASS now and each says so where it stands. Comment and
 docstring text only — no AST change, and the family replay is byte-identical
 across it (SH9 was re-run at the final tree after this commit).
 
-The scan at the final tree, over the 38 documents of the four readers'
-population, 2,656 added lines: **MONEY 0, DIGITS 0, DATES 0, WORDS 2.**
+~~The scan at the final tree, over the 38 documents of the four readers'
+population, 2,656 added lines: **MONEY 0, DIGITS 0, DATES 0, WORDS 2.**~~
+
+**Restated, review finding 2.** That scan was not at the final tree: the
+difference between its 2,656 added lines and the diff's own count is exactly
+the line count of this log's file, so it ran before `62d7d17` and never read
+the 572 lines the record itself added — the same file SH10 says introduced
+three collisions of its own. Re-run at the TRUE final tip, over a WIDER
+population than the record's (**41** documents, `apex_scanned` included), the
+shared instrument reports **4,276 added lines** and
+**MONEY 0, DIGITS 0, DATES 0, WORDS 2**, exit **1** (its contract on any hit).
+Both WORDS hits are the two disclosed below, unchanged. The invented tokens
+that replaced the fixture figure this round removed (SH13, finding 1) are on
+added lines and are therefore inside that MONEY 0.
 
 Both WORDS hits are two-word ADJACENCIES rather than copied text, and are
 disclosed rather than suppressed:
@@ -44306,7 +44328,7 @@ disclosed rather than suppressed:
 | hit | line | why it is not archive content |
 |---|---|---|
 | WORDS, first | `tests/test_citizens_scanned.py:460` | an assertion whose left half is the printed section label `Total Checks` — the furniture this check names its findings by, present five times in `analysis/citizens.py` and five times in this test file AT THE BASE COMMIT — and whose right half is the test's own loop variable. Two words that are neighbours in Python source and in no document |
-| WORDS, second | `tests/test_eq_bank_scanned.py:734` | a line that looks one registration up by id through the registry's own loader. Both halves are code identifiers: a function name from `analysis/parser_registry_entries.py` and a parser id |
+| WORDS, second | `tests/test_eq_bank_scanned.py:795` | a line that looks one registration up by id through the registry's own loader. Both halves are code identifiers: a function name from `analysis/parser_registry_entries.py` and a parser id |
 
 Every other class is zero, including the one that matters most for a card whose
 findings are about money: **MONEY 0 over 3,990 distinctive printed figures.**
@@ -44385,7 +44407,168 @@ Instruments, all under `tools/` and all read-only and $0.00:
 `scanhyg_family_replay.py`, `scanhyg_pinned_replay.py`, `scanhyg_gate_probe.py`,
 `scanhyg_mutation_table.py`.
 
-## SH13. What the train owes
+## SH13. Review closures — 0 BLOCK, 1 MAJOR, 5 MINOR
+
+`docs/moneythumb-replacement/reviews/BATCH8_SCANHYG_REVIEW.md`, the independent
+adversarial review at tip `24b5f8e`: **APPROVE WITH FINDINGS**. Each finding is
+closed by its own commit below — finding 1 by two, because the whole-tree scan
+it ordered found more of its own class — and each closure is a measurement
+taken on this host. The author, the completion session and the reviewer were
+all gone, so nothing here is an answer to a question; it is what the
+instruments said.
+
+| # | finding | closed by | evidence, with exit codes |
+|---|---|---|---|
+| **1** | MAJOR — a privacy claim in shipped production source that does not reproduce | `f03bb5d`, `d7dc6bf` | **fourteen inherited figures across nine comments** of `citizens.py` and `scanned_small_bank.py` restated as CLASSES, the false universal narrowed to the modules this card owns, and one archive-shaped fixture token replaced by an invented one; both modules **AST-identical** across the edit with docstrings normalised, exit 0; `scanhyg_family_replay --base f0266b1 --parsers citizens` → **21 documents, identical 21, payload_moved 0, outcome_moved 0**, exit 0 |
+| **2** | the privacy scan the record calls "at the final tree" is not | this commit | the shared instrument re-run at the true final tip; SH10 restated from that run |
+| **3** | the day gate's change is not monotone, and the record names only the narrowing | `5c35293` | `scanhyg_gate_probe --day-gate-differential` over 6,448 constructed shapes: **5,064 same / 1,015 wider / 369 stricter** before, **5,152 / 971 / 325** after, exit 0; `--parsers eq_bank_scanned` → **5 documents, identical 3, both declines raising on both sides, moved 0**, exit 0; mutant **D6** killed by name |
+| **4** | K3 is closable, and the closure is one assertion the record declines to write | `0347285` | canonical guard set **253 → 254 passed**, exit 0; the assertion fails and only it fails when the constant is lowered by hand (1 failed / 8 passed); **K3 KILLED** in the harness re-run |
+| **5** | the grid oracle's resolution is ±1 cent per span, and nothing says so | `53b137b` | `--parsers southside_scanned` → **9 documents, identical 9, payload_moved 0, outcome_moved 0**, exit 0; mutant **G7** killed by the one-cent test |
+| **6** | three bookkeeping slips in the record | `d7ee515` | files **15** at `24b5f8e` and **16** here; `git log 10cc722..` **11** at `24b5f8e`; modules **92** total, **3** shared, **89** swept |
+
+### SH13.1 The mutation table at the closure tree
+
+`python -m tools.scanhyg_mutation_table`, twice — once before and once after
+the last closure-1 commit, with identical results:
+**32 mutants, 28 KILLED, 4 SURVIVED, 0 UNAPPLIED**, baseline `256 passed`
+exit 0, `tree_clean_after: true`, 230.1s, exit **0**.
+
+| row | change |
+|---|---|
+| **K3** | **SURVIVED → KILLED** by `test_the_helper_length_bound_is_where_the_measurement_put_it` (review finding 4) |
+| **D6** *(new)* | a cell with NO legible glyph is answered by the printed order — KILLED by `test_a_cell_with_no_legible_glyph_is_answered_by_the_printed_order_alone` |
+| **G7** *(new)* | the oracle's resolution is any non-zero difference — KILLED by `test_an_over_capture_of_ONE_CENT_is_caught_and_not_rounded_away` |
+| **G1** | unchanged in substance; its anchor moved with the comparison it mutates |
+
+**The four survivors are D5, E1, E2 and E3** — the three provably equivalent
+mutants whose proof is written out in SH8.1, and D5, whose reach is the 63
+leading-zero three-glyph tokens no document of this family prints. The only
+survivor that was a real gap is closed.
+
+### SH13.2 The whole-tree privacy pass, and why this card cannot make it
+
+Review finding 1's counterexamples were inherited from the base commit, and the
+shared instrument reads **added lines only** — so it could not have seen them.
+Run as the ruling prescribes (`--base 10cc722 --include-tree --ref
+wave8-scanhyg`, the five readers' 41 claimants) it reports, over **216,352**
+lines of added-plus-whole-tree text: **MONEY 0, DIGITS 0, DATES 0, WORDS 4**,
+exit **1** — and the 4 are the two adjacencies SH10 already discloses, each
+seen once as an added line and once as a tree line. **That zero is structural,
+not evidential:** the instrument excludes every token already present in the
+tracked tree AT THE BASE, and an inherited token is by definition present
+there. `--include-tree` at this base can therefore never report one.
+
+So the question was asked a second way, with a base whose tree cannot mask
+anything: **the repository's root commit** (2 files). Over **425,263** lines:
+`MONEY 15,280, DIGITS 936, DATES 1,620, WORDS 275,394`, exit 1. **That is not
+a leak count and must not be read as one** — with the base exclusion gone the
+scan matches every coincidence, and a plain round amount or an ordinary English
+word is printed by documents and by every module's illustrative comment alike.
+Narrowed to what could carry an archive figure — WORDS dropped, round `.00`
+amounts dropped, this card's own files dropped (they are fixed, see finding 1),
+and `tests/corpus_cache/` dropped as **12 files / 842 hits** of committed OCR
+artefacts that hold archive text BY DESIGN — what remains is a **candidate**
+list of **98 files / 861 tokens**, by area:
+
+| area | files | candidate tokens |
+|---|---|---|
+| `analysis/` (production) | **19** | **34** |
+| `tests/` (fixtures, excluding the corpus cache) | 62 | 670 |
+| `docs/` | 13 | 152 |
+| `tools/`, `ocr/`, `webapp/` | 4 | 5 |
+
+The 19 production modules, by count and by name only — **no token is quoted
+here, and none was written anywhere in this closure**:
+
+```
+5 fiserv_premier.py   4 core_processor_daily.py   3 core_processor_counted.py
+3 found_lead.py       2 bluevine.py               2 community_section.py
+2 structurer/summary.py                           2 transaction_classifier.py
+1 each: balance_by_date.py  bofa.py  burke_herbert.py  capital_one.py
+        chase.py  citibusiness.py  dates.py  mercury.py  symitar.py
+        tables.py  woodforest.py
+```
+
+**This card's own files are clean of the class, measured the same way.** The
+same narrowing over the files SCAN-HYGIENE owns finds **0 MONEY candidates**
+at this tip, where before closure 1 it found six — three in `citizens.py`, two
+in `scanned_small_bank.py` and one in a southside fixture. The 18 that remain
+in owned files are all of one of three kinds and none is a figure: the
+issuer's own PO box and postal codes in the two mastheads (institution
+furniture, the call `cc64232` made for the ABA routing numbers), the invented
+fixture periods, which are months a real statement may also print, and the
+`12345` / `999999` sentinels. `analysis/citizens.py`,
+`analysis/scanned_small_bank.py` and `analysis/eq_bank_scanned.py` have **no
+candidate of any class left**.
+
+`docs/moneythumb-replacement/W3_TRACKA_LOG.md` is the single largest entry
+(154 candidates) and **0 of them are inside §SCANHYG** — including the counts
+this closure round wrote into it, which were checked for exactly that; the
+review's own file has 0. Every one of those is another cell's section or another card's file,
+which is exactly why this is the train's pass and not this card's: a
+distinctiveness rule the instrument does not currently have is what separates a
+copied figure from a fixture that happens to print a plausible one, and
+applying it across files no card owns is a whole-tree decision. The private
+logs of both runs are kept; **the hit lists are never committed**, because a
+hit list is a list of archive tokens.
+
+### SH13.3 The proofs at the closure tree
+
+| proof | result | exit |
+|---|---|---|
+| the five test files | `256 passed` (251 → 256: +3 day-gate, +1 one-cent, +1 bound pin) | **0** |
+| canonical GUARD set | `254 passed` — **253 → 254**, the bound pin lands in `tests/test_no_parser_helper_clones.py`, which is a guard file | **0** |
+| mutation harness | 32 / 28 killed / 4 survived / 0 unapplied, baseline `256 passed`, `tree_clean_after: true` | **0** |
+| family replay, all 47 | see SH13.4 | **0** |
+| PINNED replay, all 109 | see SH13.4 | **0** |
+| day-gate differential | 5,152 same / 971 wider / 325 stricter over 6,448 shapes | **0** |
+| gate probe, `--declines` | `pass_2_window_days` 3 / 2 / 1 on the three documents with damaged cells | **0** |
+| privacy, ADDED LINES at the final tip | SH10 | **1** (the tool's contract on any hit) |
+| privacy, whole tree | SH13.2 | **1** |
+| control bytes over all 16 committed files | `files checked 16, files with control bytes 0, files with a carriage return 0` | **0** |
+
+### SH13.4 The archive, replayed at the closure tree
+
+`python -m tools.scanhyg_family_replay --base 10cc722` over the whole named
+population, at the tree these closures produced:
+
+**47 documents — identical 33, payload_moved 8, `outcome_moved` 0, refused on
+both sides 6, no-artifact 0, `base_matches_run_of_record` 41 of 41,
+`base_differs_from_run_of_record` 0**, exit **0**, 141s.
+
+**That is the card's own result, unchanged to the note.** The same eight
+withheld payload movers, by `content_sha256` prefix, with the same note counts
+the record published — `0E887D8E` 6, `3B0738E9` 4, `9D7EB67A` 4, `B3110297` 6,
+`FD022A86` 4 (southside) and `675EB439` 2, `5198A34D` 1, `FA7ED54A` 1
+(citizens) — each gaining `conflicting_statement_summaries` and
+`review` → `high`, each `withheld/withheld_adb` on BOTH sides, **0 flags lost,
+0 notes lost**, and no ninth document anywhere. The one-cent resolution
+(finding 5) found nothing new on this archive and the day gate (finding 3)
+moved nothing: both were measured on their own families first and the whole
+population confirms it.
+
+`python -m tools.scanhyg_pinned_replay --base 10cc722`, all 109 pinned paths,
+not sampled: **`{"pinned":109, "identical":108, "moved":0,
+"refused_both_sides":1, "claimed_by_target_reader":6}`, `findings` empty**,
+exit **0**, 488s. The six these readers own are the same six the card names
+(`citizens` ×4, `southside_scanned` ×1, `apex_scanned` ×1) and all six are
+byte-identical. **No pinned leaf moves at the closure tree either** — which is
+the question that matters for a round that changed a date gate, since a date is
+a financial leaf and the pinned surface is where a silent one would show.
+
+**Production behaviour changed in exactly TWO places in the whole closure
+round**, both of them the ones the ruling named: the R5 comparison in
+`scanned_small_bank.daily_grid_amount_contradictions` (`> 0.01` →
+`> _GRID_CELL_EPSILON`, plus the constant it names) and the R3 pass-2 branch in
+`eq_bank_scanned._resolve_dates` for a cell with no legible glyph. Every other
+line this round added or changed in `analysis/` is a comment or a docstring,
+proved by AST identity where the file changed at all; the rest is tests,
+instruments and this log.
+
+## SH14. What the train owes
+
+*(Numbered SH13 until the review closures took that number; the review's
+"claims I could not verify" points here.)*
 
 The full default suite, the corpus-marked slice, `python corpus_gate.py` GREEN,
 and the archive-wide zero-movement sweep at the final production tree — the
@@ -44394,3 +44577,6 @@ card owes beyond what is recorded above. Nothing else: the registry is
 unchanged at 75 (so no registry pin moves and no stratified non-target probe is
 due), `ANALYSIS_STAGE_VERSION` is Ocean's at merge, and the pinned surface is
 already measured at 0 movement over all 109 by the branch's own instrument.
+
+**And one more, added by the closure round: the whole-tree privacy pass named
+in SH13.2.** It is the train's because it is about files no card owns.
