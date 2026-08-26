@@ -84,6 +84,7 @@ from . import (
     truist,
     us_bank,
     wealthsimple,
+    welch_state_bank,
     wells,
     wilson_muir,
     woodforest,
@@ -270,6 +271,12 @@ _ENTRIES: tuple[tuple[str, str, object, str, str | None, str], ...] = (
     ("truist", "Truist", truist, "DETECTION_MARKERS", None, "parse_truist_statement"),
     ("us_bank", "U.S. Bank", us_bank, "DETECTION_MARKERS", None, "parse_us_bank_statement"),
     ("wealthsimple", "Wealthsimple", wealthsimple, "DETECTION_MARKERS", None, "parse_wealthsimple_statement"),
+    # A one-institution registration whose evidence is the masthead the
+    # bank prints on every page: its home-office PO box and the
+    # multi-branch contact ladder beside it. The wordmark is printed only
+    # on the trailing check-image page, which not every statement has
+    # (W3 §WELCH).
+    ("welch_state_bank", "Welch State Bank", welch_state_bank, "WELCH_DETECTION_MARKERS", None, "parse_welch_state_bank_statement"),
     ("wells_fargo", "Wells Fargo", wells, "DETECTION_MARKERS", None, "parse_wells_statement"),
     ("wilson_muir", "Wilson & Muir Bank & Trust", wilson_muir, "DETECTION_MARKERS", None, "parse_wilson_muir_statement"),
     ("woodforest", "Woodforest National Bank", woodforest, "DETECTION_MARKERS", None, "parse_woodforest_statement"),

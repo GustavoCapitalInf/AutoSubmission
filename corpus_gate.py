@@ -788,6 +788,16 @@ EXCLUDED_ANALYSIS_CALLERS = {
     # ANALYSIS_CALL_SITES would assert that this probe should pass sheets,
     # which would be a false statement about what it measures.
     "tools/extractpriv_reachability.py": "reachability probe over a literal; asserts the call never happens",
+    # W3 §WELCH's family replay, excused on the same two grounds as §REGFP's
+    # sweep: it publishes no verdict — it prints an outcome CLASS and reason
+    # per content_sha256, row counts, and the distribution of caller-named
+    # fields, never a value from a statement — and it already supplies the
+    # page partition it reconstructed from the OCR artifact, so a declared
+    # call site would assert nothing this does not already do.
+    "tools/welch_family_replay.py": (
+        "read-only family replay; publishes no verdict, and already supplies "
+        "the reconstructed page partition"
+    ),
     # W3 §DESCATTRIB's leaf-diff, and excused on the same two grounds as
     # §REGFP's sweep beside it: it publishes no verdict — it prints leaf PATHS,
     # movement classes and string LENGTHS, never a value — and it already

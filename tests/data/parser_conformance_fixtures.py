@@ -369,6 +369,22 @@ FIXTURES: dict[str, str] = {
         "Chequing monthly statement\nWealthsimple\n"
         "DATE POSTED DATE DESCRIPTION AMOUNT (CAD) BALANCE (CAD)\n"
     ),
+    # The issuer is NOT named here, and that is the registration: this
+    # bank prints its wordmark only on a trailing check-image page that
+    # two of its archive statements do not have. What every printing
+    # carries is the masthead — the home-office PO box and the
+    # multi-branch contact ladder — plus the summary box whose LEADING
+    # counts are the reader's whole oracle (W3 §WELCH). All three are
+    # required markers, so all three are here; the digits are invented.
+    "welch_state_bank": (
+        "PO Box 1 Welch, OK 00000\n"
+        "000-000-0000 fax: 000-000-0001\n"
+        "000-000-0002 fax: 000-000-0003\n"
+        "000-000-0004 fax: 000-000-0005\n"
+        "Account Number 1234567 Beginning Balance 1,000.00 "
+        "Days in Statement Period 30 2 Deposits/Other Credits 500.00 "
+        "3 Checks/Other Debits 250.00 Ending Balance 1,250.00\n"
+    ),
     "wells_fargo": "WELLS FARGO\nWF_NATIVE_TRANSACTIONS\n",
     # The issuer, not the trade name: Zions Bancorporation prints this same
     # layout as Nevada State Bank and as Amegy Bank, and registering on

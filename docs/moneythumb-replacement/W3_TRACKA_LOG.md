@@ -49226,3 +49226,704 @@ green (**72** and **65** passed, exit 0 each), the mutation harness is green at
 its box guard changed — so the surfaces those three proofs cover are the
 surfaces the reviewed tip already proved. `ANALYSIS_STAGE_VERSION` and
 `OCR_STAGE_VERSION` are untouched here and are Ocean's at the train.
+
+# §WELCH — the family was seventeen, the masthead typo belongs to three banks, and four oracles that are really three
+
+## W0. Summary
+
+Batch 8, card 2. The census's rank-3 family
+(`welch_state_bank_more_than_free`, n=16), staffed. Registered as
+`welch_state_bank`, registry 75 → 76.
+
+**The population is SEVENTEEN, not sixteen, and it was measured rather than
+inherited.** A whole-archive marker probe over every one of the 3,380 distinct
+`content_sha256` in the run of record returns exactly seventeen documents, and
+the seventeenth is `8CCAE7DD…` — which the rank-1 verifier filed as a misfile
+out of ITS family on two claims, both of which the text contradicts. It is the
+month the rank-3 verifier itself recorded as the only one missing from the
+account's monthly run.
+
+**Movement: 17 of 17 `failed/no_parser_matched` → `validated/approved`.** Zero
+elsewhere. 3,501 postings published, which is exactly the 185 + 3,316 the
+seventeen summary boxes print, and 353 bank-printed daily balances.
+
+**The census's suggested detection furniture would have been wrong.** It named
+the masthead's `Direct Inquires To:` [sic] ladder as the reliable identity.
+That misspelling is printed by 26 archive documents belonging to at least
+three unrelated institutions — an Indiana credit union (5 documents), a South
+Carolina issuer (4), and this family (17). It is an industry misspelling of
+"inquiries", not this bank's furniture. What is this bank's, at seventeen
+hits and zero non-target hits each over the whole archive, is its home-office
+PO box, the RUNG COUNT of its branch contact ladder, and the summary box whose
+counts lead their labels.
+
+**Four printed oracles, and the algebra says they are three.** The closing
+identity, the two printed per-direction totals and the daily grid's arrival at
+the printed ending balance are four constraints of which any three imply the
+fourth. The first mutation round found this the hard way — five mutants
+survived — and the answer was not to write a test that pretends otherwise but
+to prove the dependency, disclose it in the harness, and add the PAIR mutants
+that do kill it. Twenty-seven mutants, twenty-two killed, five disclosed with
+their proofs, zero undisclosed.
+
+**Privacy: 4,889 distinctive literals from the seventeen documents, scanned
+against the whole branch diff, 0 hits.** Every figure, name, account number,
+check number and date in the module, the tests and this section is invented.
+
+---
+
+## W1. The population, re-derived
+
+The census staffs from folder merges and sampling, and its own batch-7 lesson
+is that a family's label is not its issuer. So nothing here starts from the
+census's list. `tools/welch_detection_probe.py` reads every distinct
+`content_sha256` in the run of record's `rows.csv` — 3,380 of them, of which
+3,351 hold a cached OCR text artifact and 29 hold none (the `invalid_pdf`
+refusals and the deferred scans) — and reports, per candidate marker, which
+documents carry it.
+
+The conjunction returns exactly seventeen. Sixteen are the census's list; the
+seventeenth is
+
+```
+8CCAE7DD830DF214E269F145C130A10B60DD2F83FBD679FAB2467E733EEC6C05
+```
+
+which the rank-1 (`core_enclosures_avgledger_leading_counts`) verifier
+excluded from its own cohort as a "genuine misfile — different processor",
+with the note *"the only true L-1 in the cohort: 5 separate account summary
+blocks in one PDF"*. Measured against the text:
+
+* it prints **one** summary box, not five. What repeats five times is the
+  page header — the account-number/period/page triple this template reprints
+  at the top of every continuation page — which is not a summary block and
+  carries no balance;
+* "different processor" is right about rank 1 and wrong about where it
+  belongs: it prints this family's masthead, this family's summary grammar,
+  this family's three row grammars and this family's account, and it is the
+  one month the rank-3 verifier recorded as missing from an otherwise
+  contiguous monthly run.
+
+Both halves of the misfile note therefore point HERE, and the exclusion was
+correct while the destination was not stated. The whole-archive probe is what
+settles it rather than an argument: no eighteenth document in the corpus
+carries the conjunction, and the family cannot grow.
+
+All seventeen are `failed/no_parser_matched` in the run of record, with a
+highest near-miss score of 0.166667. All seventeen are `native-pdf-text`,
+single partition, `empty:0` — this is a born-digital family and nothing here
+depends on OCR.
+
+The named population, by content hash, is committed as
+`tools/welch_population.txt` so that every number below reproduces from the
+repository rather than from a list in a report.
+
+## W2. What the census got wrong about the furniture, and what measures right
+
+The card said to register on furniture and to justify each marker. The
+justification has to be a measurement, because the census's own suggestion
+does not survive one.
+
+Counts are documents, over all 3,380 distinct hashes:
+
+| candidate evidence | documents | verdict |
+|---|---:|---|
+| `Direct Inquires To` — the [sic] masthead label the census named | **26** | at least THREE unrelated institutions; an industry typo |
+| `Welch State Bank` — the wordmark | **15** | absent from 2 of 17: they have no check-image page |
+| `Daily Ending Balance` | 519 | a core-processor idiom |
+| `Days in Statement Period` | 222 | a core-processor idiom |
+| `DnpAndE` — the stray print flag | 18 | 17 of mine, 1 elsewhere |
+| `PO Box <n> Welch, OK` — the home office | **17** | 0 non-target |
+| ≥3 rungs of `<phone> fax: <phone>` | **17** | 0 non-target, and no number written down |
+| the counted summary grammar, read whole | **17** | 0 non-target |
+| `More Than Free Business Checking` — the product | 17 | 0 non-target, but see W4.3 |
+| `Deposits/Other Credits` | 17 | 0 non-target |
+| `STATEMENT DATES mm/dd/yy-mm/dd/yy` | 17 | 0 non-target |
+
+**The `Direct Inquires` finding is worth stating plainly**, because a cell that
+took the census at its word would have registered on it. Of the 26 documents
+that print it, nine are not this family: five are an Indiana credit union's
+statements, which print it before a toll-free number, and four are a South
+Carolina issuer's, which print it before a post-office box — three
+institutions, three layouts, one shared misspelling of "inquiries". Two of the
+nine are scanned. A registration built on that label would have needed a
+second marker to do all the discriminating anyway, and the honest reading is
+that the label is doing none.
+
+**The three required markers, and the argument for each as furniture:**
+
+1. `issuer_home_office_po_box` — the bank's own home-office post-office box,
+   as the masthead prints it. This is the ONLY place the institution names
+   itself on every printing: the wordmark appears on the trailing check-image
+   page, which two of the seventeen do not have. A PO box is institution
+   furniture in exactly the class the wave rules admit alongside routing
+   numbers and contact domains — it is a fact about the bank, not about any
+   statement, and it cannot change between two statements of the same issuer.
+2. `branch_contact_ladder` — at least three rungs of `<phone> fax: <phone>`.
+   STRUCTURAL: the module writes down no telephone number, only the shape of
+   a rung and how many of them make a ladder. This is what a multi-branch
+   community bank's masthead looks like and what a single-office letterhead
+   does not.
+3. `summary_counts_grammar` — the one-line summary box with its counts LEADING
+   their labels. Required at DETECTION and not merely at parse, on the
+   §TANGERINE precedent: it is this reader's entire completeness oracle, so a
+   printing without it is one whose rows the reader could never prove complete,
+   and claiming it would strand a document some other reader could take.
+
+The product line is deliberately NOT a marker. It is read (W4.3) but not
+required, so a Welch statement for some other product is still claimed; and it
+is read POSITIONALLY, so a different product still publishes its own name.
+
+## W3. Detection, measured against the whole archive
+
+`python -m tools.welch_detection_probe --rows <run>/rows.csv --data-dir
+webapp_data --population tools/welch_population.txt`
+
+Transcribed from ONE run — the final one, `probe.json` in the cell's durable
+logs. An earlier revision of this section mixed that run's counts with an
+earlier run's elapsed time, which is the class of error this whole card is
+about, so the block is reproduced whole rather than assembled:
+
+```
+documents 3,380 · examined 3,351 · no_ocr_text 29
+scanned examined 165 · Canadian-labelled examined 418
+marker_hit_counts  issuer_home_office_po_box 17 · branch_contact_ladder 17
+                   summary_counts_grammar 17
+claimed 17 · claimed_outside_population 0 · population_not_claimed 0
+co_claimed_with_another_registration 0
+seconds 48.8   EXIT=0
+```
+
+This is the ≥400-document stratified non-target probe the wave rules require
+for a new registration, and it is the whole archive rather than a sample of
+it: every scanned document and every Canadian-labelled document in the corpus
+is inside it, because all of them are. The probe also answers the ambiguity
+question a new claimant raises — for every document this registration claims
+it re-runs the other 75 and reports any that also claim it. None do.
+
+## W4. What the documents print, and the one mechanism that reads it
+
+### W4.1 Three row grammars on a collapsed text layer
+
+This is a native PDF text layer whose composition has lost its columns. An
+entire section's rows concatenate onto ONE physical line after the column
+head; where a line does break it breaks mid-section; and the two-up check
+table and three-up daily grid are interleaved COLUMN-MAJOR, so left-to-right
+reading yields non-monotonic dates.
+
+1. **The ledger**, under a `Deposits/Other Credits` or `Other Debits` banner.
+   Field order is `DESCRIPTION → mm/dd → AMOUNT`, so a leading-date row regex
+   matches nothing — the card said so and the text confirms it. Rows are read
+   by anchoring on the `mm/dd amount` pair; amounts are unsigned and the
+   direction comes from the banner.
+2. **`Checks Cleared`**, `Listed in numerical order`: `Date Check Amount Date
+   Check Amount`, single-digit months, a `*` suffix meaning gap-in-sequence,
+   and a `(*) indicates gap in sequence` footer. Present on 15 of 17; on 12 the
+   column head opens its own line and on 3 it is welded to the sub-heading.
+   **Its rows are debits and the printed debit count includes them** — this is
+   the one to five missing rows the census measured, and it is mutant M13.
+3. **`Daily Ending Balance`**: a three-up `DATE BALANCE` grid, present on
+   17 of 17 (the census said "some printings"; the verifier corrected it and
+   the corrected number is right), spilling under a `(continued)` repeat of
+   its own banner on 3.
+
+Negative figures carry a TRAILING minus, the mainframe convention, in the
+summary box and throughout the grid. Zero of the 3,501 ledger rows carry one:
+measured, and then made a refusal (M21), because the banner already states the
+direction and a signed figure would be the document contradicting itself.
+
+### W4.2 The whole-line rule, and why it is one function and not three
+
+Characterisation before code. Over the seventeen documents, inside a ledger
+region, there are **211 lines that carry at least one anchor**. On every one of
+them the line is consumed exactly: **0 residue after the last anchor, and 0
+anchors with no description in front of them.** The anchor-free lines inside a
+region are a small closed set of page furniture — the page-break marker, the
+reprinted page header, the holder's mailing block, the mail-sort control token,
+the stray print flag.
+
+So `_consume` is one rule in two modes. A line holding an anchor must be
+consumed EXACTLY: for the ledger, every anchor preceded on THAT LINE by
+non-empty text, which becomes its description; for the check table and the
+grid, nothing at all between two pairs or after the last one. A line holding
+no anchor is furniture and is skipped.
+
+**Skipping furniture is only safe because the printed counts are a
+complete-coverage oracle**, and the connection is stated in the module rather
+than left to be inferred: a row this reader fails to anchor is not silently
+dropped, it is a printed count that no longer matches and a document that
+refuses.
+
+**THE RESIDUAL THIS LEAVES, named rather than left for a reviewer to find.**
+The count gate catches a row that vanishes and a row that appears — but not
+one of each at once. A `_consume` mis-split that manufactured ONE extra
+posting on some line, cancelled by ONE genuine row lost to an anchor-free
+line, leaves both printed counts matching; and if the manufactured pair and
+the lost row happened to carry the same amount on the same day, both printed
+totals and the whole daily grid would close too. Nothing in this reader would
+then object.
+
+It is a residual and not a defect because BOTH precursors are measured absent,
+not assumed absent. A mis-split needs a description carrying a
+date-and-money-shaped token: across the family's 3,460 ledger descriptions,
+**0 contain one**, and the count of anchors found equals the count of printed
+figures inside the ledger regions on 17 of 17 documents (3,460 = 3,460), so no
+line offers the extra anchor a mis-split would need. A lost row needs an anchor-free line
+that is really a posting: every anchor-free line inside a region on all 17
+documents is one of five page-furniture shapes, enumerated in the
+characterisation above. The compound therefore requires two independent
+unobserved events to coincide and to agree on amount and date. Recorded so the
+completeness claim reads as "the counts catch every single-row error and this
+particular cancelling pair is unreachable on the observed printings", not as
+"nothing can get past the counts".
+
+**Line-scoping is also this template's answer to DESC-ATTRIB.** A description
+comes only from between two anchors of the same line, so a row cannot inherit
+the tail of the row above it, nor the page header printed between two ledger
+lines — and this template prints a header, an address block and a control
+token in the middle of its debit section on most pages.
+
+**`analysis/tables.dated_cells` is deliberately not used**, and the reason is
+grammar rather than taste: it opens a cell AT a date and closes it at the first
+value before the next date, which is exactly the shape this template's dominant
+section does not have — here a cell CLOSES at its date/amount pair. The two
+date-leading grammars would fit it, but reading one template through two
+mechanisms would mean two extents to reason about and two places to state the
+residue rule. `tables.unique_match` IS used, for every term read once per
+document; the first revision of this branch carried a private copy of that
+discipline and `test_no_parser_helper_clones` caught it against
+`eq_bank_scanned._sole`, which is the guard doing its job.
+
+### W4.3 What is published, and what is refused rather than guessed
+
+* `account_name` carries the PRODUCT line, read positionally as the non-empty
+  line above the summary box, declined if it carries a digit. The ACCOUNT
+  HOLDER is not published: this template runs the holder's name and postal
+  address together in one undelimited mailing block, and choosing where the
+  name ends is guessing, not reading.
+* `stated_credit_count` / `stated_debit_count` / `stated_total_credits` /
+  `stated_total_debits` / `days_in_period` are printed and are published.
+  **An `analysis/count_semantics.py` entry IS added, and the first revision of
+  this card got that wrong.** The reasoning then was: the parser refuses before
+  publishing when a printed count and its rows disagree, so a `_whole` entry
+  installs a pipeline check that cannot fire — and the wave rules say an
+  unkillable gate is not a gate, so leave the parser UNSURVEYED. Review
+  pointed at the table's own precedent, which had already answered this twice:
+  `burke_herbert` and `community_section` are in exactly this position and are
+  written down anyway, because **"examined, and structurally silent" is a
+  different fact from "not yet examined"**, and `UNSURVEYED` says the second.
+  The entry is therefore comparable in both directions, `whole_direction`, and
+  its reason states the tautology in that idiom — that the gate's set and the
+  check's set are the same set, and that there is consequently NO FALSIFIER to
+  state, which is the `burke_herbert:credit` position. `OBSERVER_VERSION` moves
+  5 → 6 with a comment saying what moves (17 documents from
+  `unsurveyed_parser` to `match` in an offline rollup); the observer is wired
+  into no production module, so the bump touches no payload and no cache key,
+  and the family replay is row-identical on 17 of 17 across the change.
+* `stated_service_charge` is NOT set. The fee box prints `Total Overdraft Fees`
+  and `Total Returned Item Fees` as two separate period/year-to-date pairs.
+  Either alone is not the period's service charge, and adding them asserts
+  that the bank prints no third category — which no document here proves.
+* `bank_reported_average_balance` is not set: this template prints no average.
+  `stated_nsf_count` is not set: the fee box prints amounts, never counts.
+* `currency="USD"` with the provenance class the reader actually earned. No
+  currency token is printed anywhere on this template; the only glyph is a
+  bare `$` on the check-image page, which CURRENCY_DOCTRINE §B says is not
+  evidence of a denomination. The institution is: a home office and five
+  branch post-office boxes in one U.S. state behind one area code. That is an
+  assertion FROM IDENTITY, so it is filed in the class that owes evidence
+  rather than dressed as one that has it. The value equals the schema default,
+  so nothing moves financially; what moves is that the payload now says where
+  it came from. `analysis/welch_state_bank.py` joins the enumerated set of
+  modules allowed to name that label — the update a new reader owes.
+
+## W5. The family replay
+
+`python -m tools.welch_family_replay --population tools/welch_population.txt
+--data-dir webapp_data --rows <run>/rows.csv`
+
+```
+documents 17
+transitions   failed/no_parser_matched -> validated/approved   17
+transactions_total 3,501 · printed_daily_balances_total 353
+integrity flags: none on any document · ADB published on 17 of 17
+model_used  welch-state-bank-deterministic  (17 of 17)
+```
+
+3,501 is not a number this reader chose: it is 185 + 3,316, the sum of the
+seventeen summary boxes' own printed credit and debit counts, and the reader
+refuses any document where its rows and that box disagree. The same holds for
+the money: both printed totals reproduce exactly on all seventeen, the closing
+identity closes on all seventeen, and the day-by-day replay against the printed
+`Daily Ending Balance` grid has zero mismatched days on all seventeen.
+
+## W6. The mutation table
+
+`python -m tools.welch_mutation_table` — 27 mutants, each an exact documented
+replacement that must occur exactly once and is diffed back after writing, the
+full test file run each time with **no `-x`**, restored with `git checkout --`
+on a tree checked clean before the run and after every restore.
+
+**27 mutants · 22 killed · 5 survivors, all disclosed with proofs · 0
+undisclosed survivors · EXIT=0.**
+
+The five survivors are the finding, and they are an ALGEBRAIC fact about this
+template rather than a hole in the tests. Let `B, C, D, E` be the printed
+beginning balance, credit total, debit total and ending balance, and `c, d`
+the reader's own sums. Four gates:
+
+```
+(i)   B + C - D = E        the summary box closes
+(ii)  c = C                the printed credit total
+(iii) d = D                the printed debit total
+(iv)  B + c - d = E        the daily walk arrives at the printed ending balance
+```
+
+Substituting (ii) and (iii) into (iv) gives (i). **Any three imply the
+fourth**, so no document can isolate any one of them, and the honest response
+is to prove it and add the pair mutants:
+
+| mutant | disables | killed by |
+|---|---|---|
+| M26 | (i) AND (iv) together | the non-closing summary document |
+| M27 | (ii) AND (iii) together | a credit and a debit ON ONE DAY, each overstated by the same amount — both counts unchanged, the day's net unchanged, the whole grid unchanged, the printed box still closing |
+
+M07 — a period that ends before it starts — is a survivor for a different and
+simpler reason: a reversed period is an EMPTY date range, so
+`iso_unique_in_period` can place no posting at all, every row refuses, and a
+document with no postings refuses anyway. It is kept as a fail-fast that names
+the contradiction at the top of the reader rather than at the bottom.
+
+Two mutants survived the FIRST round for an ordinary reason and were closed
+with new fixtures rather than with an argument, because the fault was mine:
+the documents I had mutated broke a second oracle at the same time, so the
+neighbour caught them and the gate under test was never reached.
+
+* **M15**, a grid day printed twice, needed a day whose postings NET TO ZERO —
+  the only shape on which a repeated day survives the balance walk, because
+  adding zero twice lands on the same printed figure both times.
+* **M23**, a posting the printed period does not contain, needed a grid that
+  prints that day TOO, so that every other oracle closes on it.
+
+And one class of mutant changed the production code rather than the tests.
+**M22** asked what happens if the ledger's date anchors go back to the
+shorthand digit class. They had been written that way in the first draft — and
+that class matches every Unicode decimal digit, which `int()` and `float()`
+accept, so a mis-mapped or decorative glyph in the date position would have
+been CONVERTED into a day rather than noticed. The first draft also carried an
+`isdecimal()` conversion guard against exactly that, which under the shorthand
+class was DEAD CODE: every character it matches is one `int()` accepts.
+
+**AND THE FIRST FIX WAS TOO NARROW — it hardened three date anchors and left
+every other reading alone**, which review caught and which this section
+previously overstated as a module-wide property. It was not. `_FIGURE` — the
+amount of every ledger row and cleared cheque, every daily-grid balance and
+all four summary money terms — plus the summary box's day count, its two
+transaction counts and its account number, the masthead's second reading of
+that account number, and both endpoints of the printed period ALL still used
+the shorthand class and all still reached `int()` or `float()`. Each of them
+would have PUBLISHED a silently converted value. Latent rather than live: no
+document in this family carries a non-ASCII decimal digit, and the
+superscripts that 370 archive documents do carry are matched by neither class,
+so they were never the exposure.
+
+Every reading that reaches a numeric conversion now spells `[0-9]`. A token
+outside it does not match, so the row does not anchor, the summary does not
+read or the period does not read — refusals this reader already makes, and
+strictly stronger than a guard that could only ever drop a reading silently.
+Twelve refusing cases pin it, one per class, over Arabic-Indic digits — which
+a test first asserts really are the class `int()` accepts and the superscripts
+really are not — and six mutants (M28–M33) revert each hardened pattern in
+turn. The two DETECTION patterns keep the broad class deliberately: the branch
+ladder and the home-office PO box match a shape and convert nothing.
+
+| # | disables | killed by |
+|---|---|---|
+| M01 | the home-office PO box marker | `test_the_home_office_po_box_is_required_to_claim` |
+| M02 | the ladder's rung count (3 → 1) | `test_a_two_rung_contact_ladder_is_not_a_branch_ladder` |
+| M03 | the summary grammar as a DETECTION marker | `test_the_summary_grammar_is_required_at_detection_and_not_only_at_parse` |
+| M04 | the closing identity | *disclosed: constraint (i); M26* |
+| M05 | reading the summary as the SOLE printing | `test_a_summary_printed_twice_with_two_readings_refuses_the_document` |
+| M06 | masthead/summary account agreement | `test_a_masthead_account_the_summary_contradicts_refuses_the_document`, `test_two_different_mastheads_refuse_the_document` |
+| M07 | period order | *disclosed: an empty date range places nothing* |
+| M08 | reading the period as the SOLE printing | `test_two_different_periods_refuse_the_document` |
+| M09 | the printed credit COUNT | `test_a_credit_count_the_rows_do_not_match_refuses_the_document` |
+| M10 | the printed debit COUNT | `test_a_debit_count_the_rows_do_not_match_refuses_the_document` |
+| M11 | the printed credit TOTAL | *disclosed: constraint (ii); M27* |
+| M12 | the printed debit TOTAL | *disclosed: constraint (iii); M27* |
+| M13 | reading `Checks Cleared` at all | `test_the_cleared_check_is_a_debit_the_printed_debit_count_includes` + 13 others |
+| M14 | the grid replay | 7 grid tests |
+| M15 | distinct grid days | `test_a_grid_that_prints_one_day_twice_refuses_even_when_the_walk_survives` |
+| M16 | the grid naming exactly the days that moved | `test_a_grid_day_the_ledger_never_posted_to_refuses_the_document` |
+| M17 | the walk's arrival at the printed ending balance | *disclosed: constraint (iv); M26* |
+| M18 | the residue rule | `test_text_left_over_after_the_last_ledger_anchor_refuses_the_document`, `test_text_between_two_printed_check_pairs_refuses_the_document` |
+| M19 | a ledger anchor needing its own description | `test_a_ledger_anchor_with_no_description_refuses_the_document` |
+| M20 | grid/check pairs needing nothing between them | `test_text_between_two_printed_grid_pairs_refuses_the_document` |
+| M21 | refusing a signed ledger amount | `test_a_signed_ledger_amount_refuses_because_the_banner_states_direction` |
+| M22 | ASCII-only date anchors | `test_a_posting_date_the_period_cannot_place_refuses_rather_than_raises` |
+| M23 | the period bounding a posting date | `test_a_posting_outside_the_period_refuses_even_when_the_grid_agrees` |
+| M24 | declining a digit-bearing product line | `test_a_line_carrying_a_digit_is_not_published_as_a_product_line` |
+| M25 | the earned currency-provenance class | `test_the_currency_is_asserted_from_the_institution_and_says_so` |
+| M26 | (i) and (iv) together | `test_a_summary_that_does_not_close_refuses_the_document`, `test_a_summary_that_does_not_close_is_refused_by_the_identity_either_way` |
+| M27 | (ii) and (iii) together | `test_two_compensating_overstatements_are_caught_only_by_the_printed_totals` |
+| M28 | ASCII-only digits in every printed FIGURE | `…refuses_rather_than_converts` [ledger amount, cheque amount, grid balance, summary money term] |
+| M29 | ASCII-only digits in the summary DAY COUNT | `…refuses_rather_than_converts` [summary day count] |
+| M30 | ASCII-only digits in both printed COUNTS | `…refuses_rather_than_converts` [summary credit count, summary debit count] |
+| M31 | ASCII-only digits in both readings of the ACCOUNT NUMBER | `…refuses_rather_than_converts` [summary account number, masthead account number] |
+| M32 | ASCII-only digits in both endpoints of the PERIOD | `…refuses_rather_than_converts` [period start, period end] |
+| M33 | ASCII-only digits in the cleared-cheque NUMBER | `…refuses_rather_than_converts` [cleared cheque number] |
+
+## W7. Two repo-wide guards fired on this branch's new files
+
+Neither was a defect in the reader, and both are recorded because a reviewer
+should see the reasoning rather than the outcome.
+
+* `test_no_parser_helper_clones::test_no_two_functions_in_analysis_share_a_body`
+  caught the reader's private `_sole` against `eq_bank_scanned._sole`. The
+  guard's own instruction is to extend the shared module rather than to add an
+  exemption, and the shared function already existed:
+  `analysis/tables.unique_match`. The private copy is gone.
+* `test_currency_source::test_only_the_readers_the_schema_and_the_gate_know_the_provenance_exists`
+  enumerates every module permitted to NAME the currency-provenance label.
+  `analysis/welch_state_bank.py` is a reader that sets it and joins the list.
+  The two INSTRUMENTS did not, and were not added: a measurement tool is not a
+  reader, and widening a guard about production coupling to buy a tool a line
+  of output is the wrong trade. `tools/welch_family_replay.py` now takes the
+  field names it reports from the CALLER and prints only their distribution,
+  capped so that a field with more than eight distinct values across the
+  population is reported as a count rather than shown — a field that wide is
+  document content wearing a field name. `tools/welch_mutation_table.py`
+  writes its mutant as the VALUE alone, which occurs exactly once in the
+  reader and which the harness asserts.
+* `test_corpus_gate_outcomes::test_every_production_caller_of_the_analysis_is_classified`
+  swept up the replay instrument. It is excused in
+  `corpus_gate.EXCLUDED_ANALYSIS_CALLERS` on the same two grounds as §REGFP's
+  sweep beside it: it publishes no verdict, and it already supplies the page
+  partition it reconstructed from the OCR artifact.
+
+## W8. Privacy
+
+`python -m tools.welch_privacy_scan --population tools/welch_population.txt
+--data-dir webapp_data --base main`
+
+```
+documents_read 17 · printed_tokens 7,094 · already_present_at_base 2,205
+distinctive_literals_scanned 4,889 · hit_count 0     EXIT=0
+```
+
+The literal list is built FROM the documents rather than from a memory of what
+they contain: every money figure with and without separators, every digit run
+of three or more, every fully-qualified date, every alphabetic word of four
+characters or more, and every two-word sequence of those words — 7,094 tokens.
+2,205 of them already occur in a tracked source file at `main` and are dropped:
+this branch cannot have introduced those, and the class is ordinary English,
+template vocabulary, and the institution's own name, which the committed census
+already carries and which this registration exists to publish. The remaining
+**4,889 distinctive literals were grepped against every ADDED line of the whole
+branch diff — production, tests, instruments and this section alike — and the
+count is 0.** The scan is re-run after the last commit on the branch, so the
+diff it reads is the diff Ocean merges; the literal count is a property of the
+seventeen documents and does not move.
+
+A bare `mm/dd` day token is deliberately not scanned for, and the instrument's
+docstring says why rather than leaving it to be discovered: it denominates
+nothing, identifies nobody, and any invented fixture built to this template's
+shape must print some. Fully-qualified dates ARE scanned.
+
+The fixture in `tests/test_welch_state_bank.py` and the worked example in the
+module docstring are one invented statement that closes on all four oracles at
+once — which is what makes the mutation tests mean anything, since each mutant
+then breaks exactly one of them.
+
+## W9. The one proof that did not pass first time: the detect-sweep budget
+
+`tests/test_parser_parity.py::test_detect_sweep_stays_affordable_for_the_discovery_run`
+is corpus-marked, so it is not in the default suite, and it failed in the
+corpus-marked slice. It is a MACHINE measurement — the slowest full-registry
+detect sweep over the pinned 109, best-of-5, projected to
+`PLANNED_REGISTRATIONS = 80` against a 250 ms ceiling — and this host was
+running six other batch-8 cells' archive sweeps at the time. It failed twice
+naming two DIFFERENT worst documents (246.4 ms on one, 282.4 ms on another),
+which is a load signature and not a per-document cost.
+
+Measured properly instead of argued: same process, same load, the two arms
+interleaved per document so a drift in load cannot land on one of them,
+best-of-5 per document and worst document per arm — exactly the statistic the
+test computes.
+
+| arm | registrations | worst | projected at 80 |
+|---|---:|---:|---:|
+| with `welch_state_bank` | 76 | 232.5 ms | **244.8 ms** |
+| without it | 75 | 222.9 ms | **237.8 ms** |
+
+7.0 ms of projection, on a 250 ms budget, and both arms pass. That is the
+answer to "is this branch the cause": no. But 7 ms is 2.9%, and the headroom
+was 5 ms, so the reading was worth acting on rather than explaining away.
+
+**What was mine to fix.** This registration's three markers each scan the
+whole document, and the ladder pattern opens on a DIGIT RUN, so the regex
+engine has no literal to search for and must try every position: 4.1 ms on a
+61,000-character corpus document, against 1.6 ms for a literal-prefixed
+pattern. Every rung of the ladder contains the keyword `fax:` by construction,
+so probing for that literal first CANNOT change the answer — and a test proves
+the probe carries the pattern's own case-insensitivity, so a printing that
+capitalises the keyword is claimed by both or by neither. Re-measured after:
+
+| arm | registrations | worst | projected at 80 |
+|---|---:|---:|---:|
+| with `welch_state_bank` | 76 | 230.6 ms | **242.8 ms** |
+| without it | 75 | 231.2 ms | **246.6 ms** |
+
+**PAIRED, because comparing each arm's worst document compares two different
+documents.** Review was right that the worst-document comparison above is the
+wrong statistic for "what does this branch cost": it is the statistic the TEST
+computes, so it belongs in the table, but the per-document deltas were in hand
+and are the ones that answer the question. Recomputed on a quieter host
+(9 python processes), 109 documents, best-of-5 per arm per document:
+
+```
+median +0.642 ms · mean +0.542 ms · min -28.201 ms · max +19.293 ms
+slower with the branch on 60 of 109 documents
+median as a share of the 250 ms ceiling: +0.26%
+worst document (the SAME one in both arms this time):
+    with    76 registrations  198.1 ms -> 208.5 ms at 80
+    without 75 registrations  196.6 ms -> 209.7 ms at 80
+```
+
+**The crossing survives the paired statistic, and the paired statistic
+explains it.** The registration really does cost something — about 0.6 ms per
+document, a real positive median rather than nothing — but the projection
+divides by the registration count, and 80/76 against 80/75 takes 1.3% off a
+~197 ms worst reading, which is ~2.8 ms. Adding 1.5 ms of measured cost on
+that document and removing 2.8 ms of multiplier nets −1.2 ms, which is exactly
+the gap the table shows. So the honest statement is not "this registration is
+free": it is that its cost is smaller than the arithmetic relief its own
+existence gives the projection, and both are small against a 250 ms ceiling.
+The ±20 ms tails are load, not signal.
+
+**The finding that is NOT mine, and is Ocean's to weigh.** At 76 registrations
+the projection sits within 3% of the ceiling on a loaded box, and
+`PLANNED_REGISTRATIONS` is 80 — four away — while several batch-8 cells are
+registering. The next cell to add a marker set will meet this test, and the
+question of whether the ceiling, the sample count or the planned size should
+move is a wave-level decision, not a card-level one.
+
+## W10. Proof floor
+
+Every run below is at this branch's final production tree; exit codes verbatim.
+
+| proof | result | exit |
+|---|---|---|
+| `pytest -q` — full default suite | 5,930 passed, 36 skipped, 34 deselected (505.8 s) | 0 |
+| corpus-marked slice `pytest -m corpus -q` | 29 passed / 1 failed — the detect-sweep budget, W9 | 1 |
+| `python corpus_gate.py` | **GREEN** — 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 102 validated / 3 review / 3 withheld / 1 refused; currency 108/108 = 14 CAD / 94 USD (+1 pinned refusal); provenance 108/108 = 89 schema_default / 7 institution_default / 7 product / 4 jurisdiction_default / 1 printed (+1) | 0 |
+| canonical guard set (5 files) | 252 passed | 0 |
+| canonical conformance set (7 files) | 1,176 passed, 36 skipped (1,164 at 75 × 74; now 76 × 75) | 0 |
+| `tests/test_welch_state_bank.py` | 60 passed | 0 |
+| `python -m tools.welch_mutation_table` | 27 mutants / 22 killed / 5 disclosed / **0 undisclosed** | 0 |
+| `python -m tools.welch_detection_probe` (whole archive) | claimed 17 / outside 0 / unclaimed-inside 0 / co-claimed 0 | 0 |
+| pinned-corpus probe (the 109, which the discovery run does not cover) | 109 resolved, 0 unresolved, **0 claims** | 0 |
+| `python -m tools.welch_family_replay` | 17 → `validated/approved` | 0 |
+| `python -m tools.welch_privacy_scan` | 4,889 distinctive literals / **0 hits** | 0 |
+| `python -m tools.regfp_zero_movement_sweep` (3,380, seven chunks) | 2,558 identical / **0 moved** / **0 now-raising** / 17 now-publishing, all named — see below | 1 per chunk (`--fail-on-regression`'s findings code; the findings are the card's own movement) |
+
+**The archive zero-movement sweep**, run whole at this branch's final
+production tree (`HEAD=24e5a9f`, recorded in the log's first line) — seven chunks, 5,215.8 s
+
+| chunk | compared | identical | `moved` | `no_payload_now_publishes` | `payload_now_raises` | seconds |
+|---|---:|---:|---:|---:|---:|---:|
+| 0–500 | 389 | 389 | **0** | 1 | **0** | 1,286.6 |
+| 500–1000 | 360 | 360 | **0** | 3 | **0** | 998.7 |
+| 1000–1500 | 388 | 388 | **0** | 1 | **0** | 823.3 |
+| 1500–2000 | 374 | 374 | **0** | 5 | **0** | 686.1 |
+| 2000–2500 | 377 | 377 | **0** | 2 | **0** | 603.3 |
+| 2500–3000 | 385 | 385 | **0** | 3 | **0** | 484.0 |
+| 3000–3380 | 285 | 285 | **0** | 2 | **0** | 333.8 |
+| **total** | **2,558** | **2,558** | **0** | **17** | **0** | **5,215.8** |
+
+2,558 identical + 0 moved + 17 now-publishing + 0 now-raising + 776
+`no_payload_raises_again` + 29 `no_ocr_artifact` = **3,380**. Every one of the
+seventeen findings is inside the named population, checked by content hash, and
+every named document produced exactly one: **0 outside, 0 named documents
+without one.** `moved` is 0 and `payload_now_raises` is 0 — no document that
+published under the run of record changed by a byte or stopped publishing.
+
+The pinned-corpus probe is listed separately because it closes a gap the wave's
+standard probe leaves: the run of record enumerates the 3,506 DISCOVERY
+documents, and the 109 pinned corpus statements are a different set. The
+non-target probe therefore does not see them, and a registration that claimed
+one would move the truth set. It claims none.
+
+## W11. Risks, last
+
+1. **CONCENTRATION, and the census understated it even after correcting
+   itself.** All seventeen documents are the same account of the same business,
+   a monthly run that the seventeenth makes contiguous. This registration's
+   entire validation evidence is one customer's statement stream. There is no
+   template diversity in it, no second customer to prove generalisation, and
+   the printings other Welch customers would produce — a multi-account
+   statement, an interest-bearing section, a service-charge block, an
+   `Other Credits` banner with no `Deposits` one — are wholly unobserved. The
+   reader fails closed on each, which is the most that can be claimed and is
+   claimed in the module docstring rather than only here. **If validated
+   coverage is ever weighted by unique borrower or deduped by account, this
+   family is worth ONE relationship, not seventeen.**
+2. **The family is capped.** Nothing else in the corpus carries the
+   conjunction, so this module can never earn more than these seventeen
+   documents. A fact about the corpus, not about the reader.
+3. **The check-image trailer is excluded by region scoping, not by a rule about
+   check images.** The trailer reprints `Number: … Date: … Amount: …` for items
+   already counted in the check table, so a whole-document amount scan would
+   double-count. Region scoping handles it and the printed counts prove it —
+   but a printing that put a ledger banner AFTER the trailer would draw those
+   lines into a region, where the whole-line rule would refuse them. Fail
+   closed, and untested against a real printing because no archive document
+   does it.
+4. **`stated_daily_balances` is the ADB's whole evidence here.** The grid prints
+   the period's first day and then only days that moved — 17 to 23 rows against
+   28 to 31 calendar days — so `analysis/adb.py` forward-fills the rest. That is
+   the ratified calendar-day basis and is correct under the ADB doctrine; it is
+   named so that no one later reads 353 printed balances as seventeen
+   fully-enumerated months.
+5. **The `count_semantics` entry is TAUTOLOGICAL and says so (W4.3).** It
+   cannot fire while the parser refuses a contradicting document before
+   publishing, so it is a recorded silence and not a live check. If a future
+   card widens this reader so that publication no longer requires the printed
+   counts to match its rows, that entry stops being tautological in the same
+   change — and its reason, which asserts the two sets are the same set, has
+   to be re-earned rather than inherited.
+6. **A stray column head in the middle of a ledger line would be absorbed into
+   a description.** `_LEDGER_HEAD_RE` strips one head from the START of a line;
+   a second `Date Description Amount` mid-line is not a row and not residue, so
+   it would attach to the following posting's description. Nothing in the
+   seventeen does it (0 residue and 0 anomalous descriptions measured), and no
+   money oracle would notice if something did. Named rather than guarded: a
+   guard for a shape no document prints is a guess about the next one.
+7. **The detect-sweep budget (W9) is close to its ceiling at 76
+   registrations**, and this is the wave-level item, not a card-level one.
+
+## W12. MAJOR closures verified (Ocean's verification session, 2026-08-26)
+
+Read-only verification of the closure round (`61b4292`, `5f95cbc`, `e02ed12`)
+by an independent session: every closure re-measured rather than read. The
+branch's ONE MAJOR is wave-level and was routed to HYGIENE-8, so the five
+MINOR closures are what this session had to verify. Nothing on the branch was
+changed but this subsection.
+
+| finding | the check this session ran | exit | verdict |
+|---|---|---:|---|
+| MAJOR (wave-level): the detect-sweep budget | not this branch's to close — routed to HYGIENE-8 by the review, and W9 states it as a wave item. Its card-level half (does this registration cause the reading) is MINOR-4 below, and is verified. | — | **ROUTED, not this branch's** |
+| MINOR-1: the `[0-9]` hardening stopped at three date anchors | (a) static: every pattern in `analysis/welch_state_bank.py` that reaches `int()`/`float()` spells `[0-9]`; the only remaining shorthand-class uses are the two DETECTION patterns (which convert nothing) and boundary lookarounds (which can only make a match STRICTER), and the product-line check's `str.isdigit()` is a rejection, where the broadest class is the strict one. (b) `python -m pytest tests/test_welch_state_bank.py tests/test_count_semantics.py -q` → 137 passed. (c) `python -m tools.welch_mutation_table` → 33 mutants / 28 killed / 5 disclosed survivors / **0 undisclosed**, tree restored clean; M28–M33 all KILLED, each by the refusing case named in W6, and M31 by the isolating both-readings document `5f95cbc` added. | 0 | **VERIFIED** |
+| MINOR-2: the `count_semantics` entry left UNSURVEYED | the entry exists for both directions and is EXERCISED three ways, not merely present: the comparable-set equality pin in `test_the_comparable_set_is_pinned_so_a_promotion_is_never_incidental` (an equality, so removing the entry fails), the tautology list in `test_a_tautological_entry_says_so_rather_than_reading_as_evidence`, and the `(OBSERVER_VERSION, len(SEMANTICS), comparable, mapped) == (6, 33, 62, 2)` pin. All pass in the run above. | 0 | **VERIFIED** |
+| MINOR-3: the misspelling's attribution, and the mixed-run probe block | (a) an independent whole-archive scan (3,351 documents examined, artifacts by direct path across every capability partition) counts **26** documents printing the masthead misspelling — **17** of them this family and **9** outside it, so the load-bearing claim (it is an industry misspelling, not this bank's furniture) reproduces exactly. The finer attribution of those 9 to two named institutions at 5 and 4 is NOT independently reproduced here: no instrument was committed for it, and three independent groupings of the nine (masthead token signature, phone furniture, institution-kind tokens) split them 4/3/1/1, 2/1×7 and 7/2 rather than 5/4. Not contradicted, not confirmed. (b) `python -m tools.welch_detection_probe --rows <run>/rows.csv --data-dir webapp_data --population tools/welch_population.txt` re-run whole: documents 3,380 · examined 3,351 · no_ocr_text 29 · scanned 165 · Canadian-labelled 418 · all three markers 17 · claimed 17 · outside 0 · unclaimed-inside 0 · co-claimed 0 — the block reproduces figure for figure. Its `seconds` is a host quantity and reads 7.2 on this quiet host. | 0 | **VERIFIED** on the load-bearing measurement; the 5/4 split not independently reproduced |
+| MINOR-4: the worst-document A/B compared two different documents | the paired statistic recomputed from scratch by this session over the same pinned 109, best-of-5 per arm per document, arms INTERLEAVED per document, arm B being the branch registry with this one registration removed at runtime: median **+0.183 ms**, slower with the branch on **60 of 109** — the closure's own count, to the document — the worst document the SAME in both arms, and the crossing surviving (projected at 80: with 76 registrations below without 75). Absolute milliseconds are host-scaled (this host's worst reading is ~120 ms against the closure's ~197 ms), the SIGN, the share and the 60/109 are not. | 0 | **VERIFIED** |
+| MINOR-5: the cancelling residual named, its precursors measured | re-measured over the seventeen with the module's own `_consume` and anchors: **3,460 ledger descriptions**, **3,460 printed figures inside the ledger regions**, equal on **17 of 17** documents, and **0** descriptions carrying a date-shaped token, **0** carrying a money-shaped token, **0** carrying both. Reproduces the closure's figures exactly. | 0 | **VERIFIED** |
+
+**5 of 5 MINOR closures verified.** One reservation, recorded rather than
+resolved: MINOR-3(a)'s split of the nine non-target documents into two named
+institutions is the one number in this round with no committed instrument
+behind it, and it did not reproduce under three independent groupings. It
+changes no decision — the claim that carries weight is that the misspelling is
+printed outside this family at all, which is measured at 9 documents — but the
+wave rule is that a headline number reproduces from committed evidence, and
+this one does not.
