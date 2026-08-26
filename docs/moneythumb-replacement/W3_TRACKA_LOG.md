@@ -44251,13 +44251,27 @@ Run anyway, because the rule asks for it, in chunks whose counts add:
 |---|---:|---:|---:|---:|---:|---:|---:|
 | 0–1000 | 1,000 | 749 | **0** | **0** | **0** | 3,183.0 | 0 |
 | 1000–2000 | 1,000 | 762 | **0** | **0** | **0** | 2,087.0 | 0 |
+| 2000–3000 | — | — | — | — | — | — | NOT RUN |
+| 3000–3380 | — | — | — | — | — | — | NOT RUN |
 
-Zero, exactly as the construction predicts. The remaining three chunks were
-relaunched after a sibling cell's process sweep killed this cell's driver
-mid-run (it matched any `sweep.sh`, not only its own); chunk 0-1000's report
-survived that intact because the tool writes its JSON before the driver's own
-terminator, which is the argument for a durable per-chunk artifact rather than
-one log at the end. The same demonstration one
+**COVERAGE: 2,000 of 3,380, or 59%.** Two chunks ran and reported zero; the
+remaining 1,380 documents were relaunched after a sibling cell's process sweep
+killed this cell's driver mid-run (it matched any `sweep.sh`, not only its
+own) and **the relaunch produced no report — there is no exit code and no
+seconds for it, so it did not happen** (DC12 F7). Chunk 0–1000's report
+survived the kill intact because the tool writes its JSON before the driver's
+own terminator, which is the argument for a durable per-chunk artifact rather
+than one log at the end. The two chunks that did run are stated above as what
+they are: a 59% sample of a sweep this card's own construction predicts is
+blind, not a completed sweep.
+
+That is a gap in the wave's proof floor and it is left open rather than
+papered over, for one reason that is itself measured: the sweep recomputes
+analysis from the STORED OCR artifact text and this branch changes the stage
+that PRODUCES that text, so no chunk of it can report anything but zero. The
+instrument that DOES exercise the changed code ran over all 3,380 documents at
+the final tree (DC6, DC12) — that is the whole population, not 59% of it.
+The same demonstration one
 population deeper: `tools/descattrib_movement.py`, batch 7's leaf-diff, run
 over all 31 documents of this complex at branch HEAD, reports **0 moved
 descriptions and no movement elsewhere on every one** — on the very documents
