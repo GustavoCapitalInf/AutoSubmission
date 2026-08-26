@@ -481,8 +481,8 @@ def source_posting_dates(markdown: str, period_start: date, period_end: date) ->
             # A posting row prints an amount: on the row, or — in the
             # column-per-line layout — within the next few lines. Requiring
             # it of EVERY moneyless candidate is what refuses a marketing
-            # sentence that opens with a date ("June 15 is ... Day, and now is
-            # a great time to ...") without needing to recognise prose — and,
+            # sentence that opens with a date (an awareness-day message
+            # block, say) without needing to recognise prose — and,
             # since the page-header position rule above was withdrawn, it is
             # also the only thing that refuses a masthead.
             #
