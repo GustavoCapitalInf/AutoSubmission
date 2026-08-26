@@ -530,9 +530,47 @@ def test_an_opening_day_cell_that_is_not_the_opening_balance_is_refused():
 
 def test_a_grid_printing_one_day_twice_with_two_balances_is_refused():
     """The grid arrives three columns to a line; a duplicate day with two
-    readings is evidence the column recovery went wrong."""
+    readings is evidence the column recovery went wrong.
+
+    This document's duplicate makes the LAST reading the wrong one, so the
+    walked-balance comparison can see it too. The test below plants the same
+    duplication the other way round, where only `_grid`'s own check can.
+    """
     assert _parse(body=_CREDIT_BLOCK + _DEBIT_BLOCK
                   + _GRID_BLOCK + "1/08 999.00\n") is None
+
+
+def test_a_duplicated_grid_day_whose_SECOND_reading_is_the_correct_one_is_refused():
+    """The intra-block duplicate check, isolated.
+
+    A map that silently kept the last reading would publish this document: the
+    second printing of the day agrees with the walked ledger, so every gate
+    downstream of `_grid` passes. What the bank printed is one day with two
+    different balances, which is evidence the three-column recovery went wrong,
+    and the reader refuses rather than choosing one of them.
+    """
+    body = (_CREDIT_BLOCK + _DEBIT_BLOCK
+            + "DAILY BALANCE INFORMATION Date Balance Date Balance Date Balance\n"
+              "1/05 220.00 1/08 999.00 1/12 250.00\n"
+              "1/20 240.00 1/08 170.00\n")
+    assert _parse(body=body) is None
+
+
+def test_two_grid_blocks_that_disagree_on_a_shared_day_refuse_the_document():
+    """The cross-block merge check, isolated.
+
+    A document printing its daily balances under two of the template's own grid
+    banners is merged block by block, and the merge is the only place a
+    disagreement BETWEEN the two printings can be seen: as above, the second
+    block prints the reading that agrees with the walked ledger, so a merge
+    that let the last block win would publish it.
+    """
+    body = (_CREDIT_BLOCK + _DEBIT_BLOCK
+            + "DAILY BALANCE INFORMATION Date Balance Date Balance Date Balance\n"
+              "1/05 220.00 1/08 999.00 1/12 250.00\n"
+              "BALANCE BY DATE Date Balance Date Balance\n"
+              "1/08 170.00 1/20 240.00\n")
+    assert _parse(body=body) is None
 
 
 def test_a_document_that_prints_no_grid_still_publishes_its_reconciled_ledger():

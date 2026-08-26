@@ -44115,6 +44115,14 @@ and **M34**, which the review's own 29-mutant reconstruction did not reach).
 They are closed in `COREENC CLOSURE 3` and `COREENC CLOSURE 4`, and the rows
 below carry the tests that kill them.
 
+**CLOSURE 3, finding 3.** `python -m tools.coreenc_mutation_table --only
+M38,M39 --table` after the two isolating tests landed: **2 applied, 2 KILLED, 0
+survived**, restore byte-identical, tracked changes after the run none,
+`EXIT=0`. Each mutant was killed by **exactly one** test — its own — and by
+nothing else, on the first pass: 1 failed / 1,162 passed / 35 skipped in both
+runs. That is the property the card asks for and the one the branch's original
+duplicate-day test did not have.
+
 Every mutant is in `analysis/core_processor_enclosures.py`; the line is where
 its anchor opens, and the harness prints it rather than this log asserting it.
 
@@ -44157,8 +44165,8 @@ its anchor opens, and the harness prints it rather than this log asserting it.
 | M35 | `:885` | the whole grid comparison removed | the grid walked against the ledger | `test_a_grid_balance_that_disagrees_with_the_walked_ledger_is_refused` (+3 more) |
 | M36 | `:817` | the missing-day check removed | every day the ledger posts on appears in the grid | `test_a_grid_missing_a_day_the_ledger_posts_on_is_refused` |
 | M37 | `:819` | the surplus-day check removed, along with the opening-balance exception it bounds | a grid day the ledger never posts on fails the document | `test_a_grid_day_the_ledger_never_posts_on_is_refused`, `test_an_opening_day_cell_that_is_not_the_opening_balance_is_refused` |
-| M38 | `:744` | `_grid`'s intra-block duplicate-day check removed, so the LAST reading silently wins | a day printed twice INSIDE one grid block with two balances | **SURVIVES — UNDISCLOSED** (review finding 3; closed in CLOSURE 3) |
-| M39 | `:882` | `parse`'s cross-block merge check removed, so the LAST block's reading silently wins | two grid blocks disagreeing on a shared day | **SURVIVES — UNDISCLOSED** (review finding 3; closed in CLOSURE 3) |
+| M38 | `:744` | `_grid`'s intra-block duplicate-day check removed, so the LAST reading silently wins | a day printed twice INSIDE one grid block with two balances | `test_a_duplicated_grid_day_whose_SECOND_reading_is_the_correct_one_is_refused` — and NOTHING else (CLOSURE 3) |
+| M39 | `:882` | `parse`'s cross-block merge check removed, so the LAST block's reading silently wins | two grid blocks disagreeing on a shared day | `test_two_grid_blocks_that_disagree_on_a_shared_day_refuse_the_document` — and NOTHING else (CLOSURE 3) |
 | M40 | `:755` | `_TOLERANCE` widened a thousandfold, so every printed gate admits a ledger that is dollars out | the cent tolerance | `test_a_summary_whose_own_identity_does_not_close_is_refused` (+5 more) |
 
 Two rows are worth reading twice. **M06 is killed by a test named for a
