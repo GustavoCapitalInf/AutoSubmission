@@ -44208,6 +44208,27 @@ the bump those documents would be served their pre-change text out of the
 cache forever. W3 §RUNGSEAM RS6.5 declined a bump for the opposite reason —
 its ladder output was byte-identical — and the same rule requires one here.
 
+**It is completely unenforceable from this branch, and that is the finding
+rather than the disclosure** (DC12 F6). `OCR_STAGE_VERSION = 3` sits at
+`webapp/artifact_cache.py:286` and nothing here — no test, no guard, no gate —
+fails if the bump is not made. The failure mode is SILENT: the claimed
+documents keep serving their pre-change text out of a warm cache, so the card's
+whole movement is invisible rather than wrong-looking, which is the hardest
+kind of miss to notice. The branch does not bump it, because a version constant
+is Ocean's at the train and a cell that bumps one collides with every sibling
+cell of the batch.
+
+**And no `ocr_settings_key` flag is needed — measured against the two
+precedents rather than argued.** The batch-6 precedent that put a value INTO a
+settings key covers DATA (`parser_registry`'s fingerprint) or an ENVIRONMENT
+SWITCH (`generic_structurer`), because in both a key computed from the same
+capability flags could otherwise stand for two different inputs. This rung is
+unconditional code with neither: it runs for every native-text document on
+every pass, so the stage version alone separates before from after. The exact
+precedent one rung over is GEOM-1's v2 → v3 bump for
+`parse_native_woodforest`, which is this shape and took no settings-key flag
+either.
+
 **The archive sweep is structurally blind to this card, and that has to be
 said out loud.** `tools.regfp_zero_movement_sweep` recomputes each document's
 analysis from the STORED OCR artifact text. This card changes the text the OCR
