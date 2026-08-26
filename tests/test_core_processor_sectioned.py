@@ -390,13 +390,149 @@ def test_the_gates_are_blind_to_a_same_day_same_direction_redistribution():
 # Look-alike glyphs are refused, never absorbed
 # ===========================================================================
 
-def test_a_date_whose_leading_zero_ocr_read_as_a_letter_is_not_read_as_a_date():
-    """The boundary rule, measured on the archive: without it the corrupted
-    token matches one character in, as a single-digit month, and the row is
-    published on a day the bank never printed. With it the row is invisible and
-    the count check refuses the document — which is the honest outcome for a
-    scan we cannot read."""
-    assert parse(swap("1001 03/12 100.00", "1001 o3/12 100.00")) is None
+@pytest.mark.parametrize("glyph", ["o", "O"])
+def test_a_leading_zero_a_scan_printed_as_a_letter_is_still_that_zero(glyph):
+    """W3 §CPSCAN CPS4. The predecessor of this test asserted a refusal here,
+    on the reasoning that the corrupted token "matches one character in, as a
+    single-digit month, and the row is published on a day the bank never
+    printed". For a LEADING ZERO that reasoning is false: a leading zero
+    carries no value, so month 3 read out of `o3/12` is the month `03/12`
+    prints. The refusal cost 154 real rows across 10 archive documents and
+    bought nothing (`_LEADING_ZERO`)."""
+    statement = parse(swap("1001 03/12 100.00", f"1001 {glyph}3/12 100.00"))
+    assert statement is not None
+    cheque = [row for row in statement.transactions if row.description.startswith("Check")]
+    assert [(row.date, row.amount) for row in cheque] == [("2026-03-12", -100.0)]
+
+
+@pytest.mark.parametrize("glyph", ["l", "I", "|"])
+def test_a_leading_one_a_scan_printed_as_a_letter_is_refused(glyph):
+    """The half of the boundary that stands. A leading `1` IS significant, so
+    reading `l2/12` one character in would post a December row in February —
+    the silent mis-dating the boundary exists to prevent. The row goes
+    invisible instead and the printed count refuses the document."""
+    assert parse(swap("1001 03/12 100.00", f"1001 {glyph}2/12 100.00")) is None
+
+
+@pytest.mark.parametrize("token", ["26/12", "03/45", "00/12", "03/00", "13/01"])
+def test_a_token_no_calendar_can_hold_is_not_a_date(token):
+    """The bound `_LEADING_ZERO` is written inside. A scan that puts a space
+    in the middle of a `mm-dd-yy` printed in a description leaves a fragment
+    like `26/26` standing alone, and reading it as a date opens a ledger cell
+    on something that is not one."""
+    document = swap("CARD PURCHASE HARDWARE CO 03/20 500.00",
+                    f"CARD PURCHASE {token} 900.00 HARDWARE CO 03/20 500.00")
+    assert parse(document) is not None
+
+
+def test_the_serial_gap_marker_abuts_its_own_row_and_is_not_a_boundary():
+    """The platform marks a break in the cheque serial sequence with a trailing
+    `*` and prints it against the date with no space: `5359*02/05`. The
+    asterisk is the platform's own furniture, so it stays OUT of
+    `_TOKEN_START` — a boundary class that swallowed it would lose every
+    sequence-gap cheque row and refuse the document on its own count check."""
+    statement = parse(swap("1001 03/12 100.00", "1001*03/12 100.00"))
+    assert statement is not None
+    assert [row.description for row in statement.transactions if row.amount == -100.0] == [
+        "Check 1001"
+    ]
+
+
+@pytest.mark.parametrize("token", ["l2/12", "I2/12", "|2/12"])
+def test_a_one_shaped_letter_is_not_admitted_by_the_zero_class(token):
+    """The class is about the ZERO. `l2/12` is December with its leading `1`
+    scanned as a one-shaped letter, and reading it one character in would post
+    the row in February — a wrong day inside the period, which is the failure
+    the boundary exists to prevent and the one thing a zero cannot cause.
+
+    Asserted on the GRAMMAR, not on a parse. The two gates below make the
+    mis-dated row unpublishable either way, so a parse-level assertion here
+    passes whether the letter is in the class or not: it would be a test of
+    the count check, wearing this rule's name."""
+    assert re.search(module._DATE_TOKEN, f" {token} 100.00") is None
+
+
+def test_the_pattern_and_the_reading_admit_exactly_the_same_letters():
+    """Two independent admissions, and a letter has to pass both: one that the
+    pattern takes and the reading does not is refused a layer down by
+    `iso_within_period`, which splits on `/` and requires digits. That is a
+    safe failure and a silent one, so the two are pinned equal here rather
+    than left to drift apart."""
+    admitted = set(module._LEADING_ZERO.strip("[]")) - {"0"}
+    assert admitted == {chr(codepoint) for codepoint in module._ZERO_GLYPHS}
+
+
+@pytest.mark.parametrize("token", ["1o/12", "o0/12", "03/o0", "o0/o0", "1O/05"])
+def test_a_zero_shaped_letter_anywhere_but_a_leading_zero_is_not_a_date(token):
+    """The class is positional. `1o/12` is December with its ZERO-shaped mark
+    on the significant digit — reading it as month 1 would move the row eleven
+    months — and `o0/12` is a month no calendar has. Neither is a date, and
+    the row goes invisible for the count check to catch."""
+    assert re.search(module._DATE_TOKEN, f" {token} 100.00") is None
+
+
+@pytest.mark.parametrize("glyph", ["O", "o"])
+def test_a_word_initial_zero_shaped_letter_is_admitted_and_the_count_check_decides(glyph):
+    """W3 §CPSCAN CPS4, corrected under review (F4). The reviewer's probe.
+
+    The class's positional restriction proves the READING is value-preserving.
+    It does NOT prove that only a scanned digit can stand in that position:
+    `_TOKEN_START` refuses a token that begins inside another one, so a
+    zero-shaped letter BEGINNING a word is admitted exactly as a scanned
+    leading zero is. This branch reads ` O3/12 100.00` as a row; the base
+    grammar, restated inline, matches nothing in it.
+
+    So the bound is not positional exclusivity. It is the row grammar —
+    whitespace, then a cents-bearing figure, inside a named ledger section —
+    and behind it the printed count, where a row this class invented is an
+    EXTRA row, a POSITIVE count delta, and a refusal of the whole document.
+    Fail-closed, and defence in depth rather than a closed class.
+
+    Traced: the refusal is `_matches_the_printed_summary`, the gate that holds
+    the ledger to the printed credit count, debit count and both totals.
+    """
+    base_grammar = r"(?<![0-9A-Za-z.,/])([0-9]{1,2}/[0-9]{1,2})(?![0-9/])"
+    assert re.search(base_grammar, f" {glyph}3/12 100.00") is None
+    assert re.search(module._DATE_TOKEN, f" {glyph}3/12 100.00") is not None
+
+    invented = swap("1001 03/12 100.00", f"1001 03/12 100.00\n{glyph}3/22 25.00")
+    assert parse(invented) is None
+
+
+def test_the_daily_sibling_refuses_the_zero_glyph_this_reader_reads():
+    """W3 §CPSCAN CPS12 (F7) — the divergence between the two sibling readers,
+    from this side.
+
+    `core_processor_daily` deliberately does NOT admit `o`/`O` in a date: its
+    own 20 archive documents print none, and a grammar widened past its
+    evidence is a grammar nothing tests. This module's 39 print 154 such marks
+    on 10 documents, so it reads them. Both readers are right about their own
+    template and the two grammars must not converge by accident, which is what
+    this asserts.
+
+    UNIFYING them is out of scope for this card: it is a behaviour change on
+    `core_processor_daily` with no evidence behind it. If a later cell brings
+    evidence, this test is what it has to change."""
+    from analysis import core_processor_daily as daily
+
+    assert re.search(module._DATE_TOKEN, " o3/12 100.00") is not None
+    assert re.search(daily._DATE_TOKEN, " o3-12 100.00") is None
+
+
+@pytest.mark.parametrize("intra", ["NO3/12", "AUTO3/12", "Oo3/12"])
+def test_a_zero_shaped_letter_inside_a_word_is_still_refused(intra):
+    """The other half of the probe: the boundary holds where it was always
+    claimed to. A glyph that is not word-initial begins inside another token,
+    which is exactly what `_TOKEN_START` refuses."""
+    assert re.search(module._DATE_TOKEN, f" {intra} 100.00") is None
+
+
+@pytest.mark.parametrize("printed", ["1/1", "01/01", "9/30", "10/31", "12/29", "03/31"])
+def test_every_printed_calendar_field_still_matches(printed):
+    """The calendar bound is a tightening and must not cost a real date: both
+    of the month's ranges and all three of the day's have to keep matching,
+    with and without the leading zero this template prints."""
+    assert re.fullmatch(module._ROW_DATE, printed)
 
 
 def test_a_look_alike_digit_from_another_script_is_not_money():

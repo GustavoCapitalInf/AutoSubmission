@@ -45,12 +45,11 @@ They are five independent printings of the same period, so a dropped row, a
 duplicated row or a mis-read amount breaks at least two of them. A document
 that cannot satisfy all of them publishes nothing — and this template's scanned
 issues routinely cannot, because OCR substitutes look-alike letters for digits
-inside the date column (a leading zero read as a lower-case `o`), which drops
-the row that carries it. That is a fact about the scan, not a gap in this
-reader, and the honest answer is the refusal.
+inside the AMOUNT column and drops or invents cents there. That is a fact about
+the scan, not a gap in this reader, and the honest answer is the refusal.
 
-Look-alike glyphs are refused rather than absorbed
---------------------------------------------------
+Look-alike glyphs, and the one of them that is not a substitution
+-----------------------------------------------------------------
 Every date and money token in this module is matched with an explicit `[0-9]`
 class and a boundary that forbids the token from starting inside another one.
 Both halves are load-bearing:
@@ -59,11 +58,19 @@ Both halves are load-bearing:
   this archive's documents really do carry look-alike codepoints — one issuer's
   column header prints `DATE` with a Cyrillic `U+0415`. A money grammar that
   reads a look-alike as a digit publishes a figure the bank never printed;
-* without the boundary, a date whose leading zero OCR turned into a letter
-  still matches one character in, as a single-digit month — and the
-  glyph-corrupted row is then silently published on the wrong day. The
-  boundary makes the corrupted row invisible instead, which the count check
-  then catches.
+* without the boundary a date whose leading digit OCR turned into a letter
+  still matches one character in. Where that digit was a `1` — `l2/11` for
+  `12/11` — the row is then silently published ten months early, and the
+  boundary is what makes it invisible instead so the count check can catch it.
+
+An earlier form of this record claimed the same for a leading ZERO, and that
+claim was wrong (W3 §CPSCAN CPS4). A leading zero carries no value: `o2/11`
+matched one character in reads month 2, and `02/11` is month 2. Nothing moves.
+What the boundary was doing there was costing the reader 154 real ledger and
+grid rows across 10 archive documents, and then reporting their absence as a
+mis-scan. `_LEADING_ZERO` reads that mark for what it is; the one-shaped
+letters stay outside the class, because for them the boundary's argument holds
+exactly as written.
 """
 from __future__ import annotations
 
@@ -82,22 +89,119 @@ from .tables import section_runs, unique_match
 
 #: A token may not begin part-way through another token. `/` and `.` are in the
 #: class so a date cannot start inside a longer date and an amount cannot start
-#: inside a longer number; the letters are what refuse `o2/11`.
-_TOKEN_START = r"(?<![0-9A-Za-z.,/])"
+#: inside a longer number; the letters are what refuse `l2/11` — a December row
+#: whose leading `1` the scan turned into a one-shaped letter, which read one
+#: character in would post in February. A leading ZERO is a different case and
+#: is read rather than refused: see `_LEADING_ZERO`.
+#:
+#: The VERTICAL BAR is in the class for exactly the letters' reason and was
+#: missing from it (W3 §CPSCAN CPS8, mutant M02's test): `|` is the third mark
+#: a scan renders a `1` as, and being punctuation it slipped past a class
+#: written as "digits and letters". `l2/11` and `I2/11` were refused and
+#: `|2/11` was read as February. The asterisk deliberately stays OUT: this
+#: platform prints `*02/05` where a cheque breaks the serial sequence, and
+#: that mark is the platform's own furniture rather than a lost digit.
+#: Measured over the complex's 59 documents: **no date token is preceded by
+#: `|`, `I`, `l` or `!`** — 0 of 4,123 — so closing it costs nothing.
+#:
+#: THIS CLASS IS SHARED, and adding `|` narrows every pattern built on it, not
+#: only the row date (W3 §CPSCAN CPS12, F5). It feeds `_DATE_TOKEN`,
+#: `_FIGURE_TOKEN`, both `_balance_row` patterns (the opening and closing
+#: balance strip) and the OPTIONAL count prefix of `_count_row`. So a summary
+#: figure or a printed transaction count rendered against a bar is now refused
+#: as well. Every consequence is a REFUSAL and none of them can publish
+#: something wrong: a lost row goes invisible and the count check refuses; a
+#: lost count makes the count absent, and `_counts` admits an absent count
+#: only against a zero total, so the document refuses there instead. Measured
+#: over the same 59: no figure token is preceded by `|` either (0 of 5,849),
+#: and more generally **275 bars are printed and not one is immediately
+#: followed by a digit** — so the widened exclusion is unreached on today's
+#: archive in every pattern it touches, the count prefix included.
+_TOKEN_START = r"(?<![0-9A-Za-z.,/|])"
 #: ...and may not be continued by one.
 _DATE_END = r"(?![0-9/])"
 _FIGURE_END = r"(?![0-9.,])"
 
 #: `mm/dd/yy`, the form every summary and period line on this template prints.
 _SHORT_DATE = r"[0-9]{2}/[0-9]{2}/[0-9]{2}"
-#: `m/d`, the form every ledger row prints. The year is not printed and is
-#: resolved against the statement period, which is the only evidence of one.
-_ROW_DATE = r"[0-9]{1,2}/[0-9]{1,2}"
+
+#: The marks a printing puts where the bank printed a LEADING ZERO: the digit
+#: itself, and the two letters a scan of this template renders it as.
+#:
+#: Admitted ONLY in the leading position of a two-character month or day, and
+#: that restriction is what makes the READING value-preserving. A printed
+#: month whose second character is the digit `d` can only have been `0d` or
+#: `1d`; a leading `1` is rendered by the one-shaped letters `l`, `I` and `|`,
+#: never by `o` or `O`; so a zero-shaped mark in that position leaves the
+#: month `d` either way. `o2/11` and `02/11` are the SAME date, and the value
+#: published does not depend on which of them the page carries.
+#:
+#: What the position does NOT establish is that only a scanned digit can stand
+#: there. `_TOKEN_START` refuses a token that begins inside another one, so a
+#: zero-shaped letter that BEGINS a word is admitted exactly as a scanned zero
+#: is — `O3/12 100.00` after a space matches `_ROW_RE` here and matched
+#: nothing at all before this branch. The position narrows the class; it does
+#: not close it, and the record's earlier claim that positional exclusivity is
+#: the bound was stronger than the code (W3 §CPSCAN CPS12, F4).
+#:
+#: The guard is the PRINTED COUNT. An admitted token only becomes a row if the
+#: row grammar also finds whitespace and then a cents-bearing figure, inside a
+#: named ledger section — and a row this class invented is an EXTRA row, which
+#: shows up as a positive count delta against the printed credit or debit
+#: count and refuses the whole document. That is fail-closed, and it is
+#: defence in depth rather than positional exclusivity: any future change that
+#: weakens the count check weakens this class with it.
+#:
+#: The one-shaped letters are therefore deliberately NOT in this class:
+#: reading `l2/11` as February would move a December row by ten months, which
+#: is exactly the silent mis-dating `_TOKEN_START` exists to prevent. That
+#: half of the boundary's job stands; what this class corrects is the other
+#: half, where the boundary was costing rows it did not have to. Measured over
+#: the archive's 39 documents of this template: **154 ledger and grid rows on
+#: 10 documents** carry a zero-shaped letter in that position, and **none of
+#: the 29 documents this registration or its superseding sibling publishes
+#: carries one** (W3 §CPSCAN CPS4).
+_LEADING_ZERO = r"[0oO]"
+
+#: `m/d`, the form every ledger row prints, bounded to a printed CALENDAR
+#: month and day. The year is not printed and is resolved against the
+#: statement period, which is the only evidence of one.
+#:
+#: The bound is what keeps `_LEADING_ZERO` from admitting a non-date: without
+#: it `o0/11` would read as month 0, and a widening that admits a token no
+#: calendar can hold is a widening that refuses whole documents for a reading
+#: it should never have made. It is also a tightening in its own right — the
+#: `[0-9]{1,2}` this replaces called `26/26` a date — and it costs nothing:
+#: over the same 39 documents **no row or grid cell matched under the old
+#: form and fails under this one** (W3 §CPSCAN CPS4).
+_ROW_MONTH = r"(?:" + _LEADING_ZERO + r"[1-9]|1[0-2]|[1-9])"
+_ROW_DAY = r"(?:" + _LEADING_ZERO + r"[1-9]|[12][0-9]|3[01]|[1-9])"
+_ROW_DATE = _ROW_MONTH + r"/" + _ROW_DAY
 #: `1,234.56`, and the bare `.56` this platform prints for a sub-dollar figure.
 _FIGURE = r"(?:[0-9][0-9,]*\.[0-9]{2}|\.[0-9]{2})"
 
 _DATE_TOKEN = _TOKEN_START + r"(" + _ROW_DATE + r")" + _DATE_END
 _FIGURE_TOKEN = _TOKEN_START + r"(" + _FIGURE + r")" + _FIGURE_END
+
+
+#: The zero-shaped letters, as the digit they stand for. A `str.translate`
+#: table rather than a chain of replacements so the mapping is one object the
+#: class above and this reading share.
+_ZERO_GLYPHS = str.maketrans({"o": "0", "O": "0"})
+
+
+def _printed_date(token: str) -> str:
+    """A matched row date as the digits the bank printed.
+
+    `_LEADING_ZERO` admits a zero-shaped letter only where a leading zero
+    stands, so every letter this can see is that zero. The substitution is
+    therefore total and value-preserving — and it has to happen HERE rather
+    than being left to `date_tokens.iso_within_period`, which splits on `/`
+    and requires both halves to be digits: handed `o2/11` it would answer
+    "not a date", and the row this class exists to read would be lost again
+    one layer further down.
+    """
+    return token.translate(_ZERO_GLYPHS)
 
 
 def _figure(value: str) -> float | None:
@@ -627,7 +731,7 @@ def _rows(runs: list[str], *, credit: bool | None, start: date, end: date,
         for match in _ROW_RE.finditer(run):
             gap = _printed_before(run[cursor : match.start()])
             cursor = match.end()
-            iso = iso_within_period(match.group(1), start, end)
+            iso = iso_within_period(_printed_date(match.group(1)), start, end)
             amount = _figure(match.group(2))
             if iso is None or amount is None:
                 return None
@@ -649,7 +753,7 @@ def _daily_balances(runs: list[str], *, start: date, end: date) -> list[Statemen
     printed = []
     for run in runs:
         for match in _ROW_RE.finditer(run):
-            iso = iso_within_period(match.group(1), start, end)
+            iso = iso_within_period(_printed_date(match.group(1)), start, end)
             balance = _figure(match.group(2))
             if iso is None or balance is None:
                 return None

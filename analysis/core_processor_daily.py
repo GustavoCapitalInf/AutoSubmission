@@ -169,10 +169,37 @@ _TOKEN_START = r"(?<![\w.,/-])"
 _DATE_END = r"(?![\w/-])"
 _FIGURE_END = r"(?![\w.,])"
 
-#: `mm-dd`, the form every ledger row and every grid cell prints. The year is
-#: not printed and is resolved against the statement period, which is the only
-#: evidence of one.
-_ROW_DATE = r"[0-9]{2}-[0-9]{2}"
+#: `mm-dd`, the form every ledger row and every grid cell prints, bounded to a
+#: printed CALENDAR month and day. The year is not printed and is resolved
+#: against the statement period, which is the only evidence of one.
+#:
+#: The bound is the boundary's other half, and this template's scans are what
+#: showed it was missing. The docstring above explains how the LEFT-hand
+#: boundary keeps `01-26` inside a description's `mm-dd-yy` from being read as
+#: a posting date. It does that only while the printing is contiguous — and a
+#: scan is free to put a space in the middle of one:
+#:
+#:     EXAMPLETOWN XX 02- 18-26 11:02 AM XXXXXXXXXX0000
+#:
+#: There the boundary sees a space before `18-26` and lets it through, and
+#: `tables.dated_cells` then opens a cell on a date that is not one, finds no
+#: amount before the next real row, and refuses the whole document. `18` is
+#: not a month; neither is `26`. Refusing a token no calendar can hold costs
+#: nothing that a calendar can, and it is what stops a fragment of a card
+#: purchase's own date from deciding whether a statement publishes.
+#:
+#: Measured over the archive's 20 documents of this template: **4 such
+#: fragments on 2 documents**, all four in a ledger section, and **no row or
+#: grid cell that matched under the unbounded `[0-9]{2}-[0-9]{2}` fails under
+#: this one** — the 16 documents this registration and its superseding sibling
+#: publish are byte-identical (W3 §CPSCAN CPS5).
+#:
+#: The zero-shaped glyph class `core_processor_sectioned._LEADING_ZERO` reads
+#: is deliberately NOT admitted here: this template's scans do not print one.
+#: Measured over the same 20 documents, in every ledger and grid run: **zero
+#: occurrences**. A grammar widened past its evidence is a grammar nothing
+#: tests.
+_ROW_DATE = r"(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])"
 #: `1,234.56`, and the bare `.56` a sub-dollar figure is printed as.
 _FIGURE = r"(?:[0-9][0-9,]*\.[0-9]{2}|\.[0-9]{2})"
 
