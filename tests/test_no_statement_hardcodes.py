@@ -706,6 +706,15 @@ def test_no_worked_example_in_the_llm_prompt_carries_a_figure():
     assert any(
         re.search(r"<V1>.*<V2>.*<V3>", line) for line in lines
     ), "the alignment example lost its VALUE row"
+    # ...and its CONTINUATION, which the token loop above only appears to
+    # cover. A HYGIENE-8a mutant (E3) deleted `<V4> / <V5> / <V6>` outright and
+    # survived: `"<V6>" in prompt` was still true, satisfied by the prose that
+    # introduces the placeholders. A membership test over a string that also
+    # contains the legend proves the legend, not the example — the same
+    # mistake, one level down, that made mutant E5 necessary.
+    assert any(
+        re.search(r"<V4>.*<V5>.*<V6>", line) for line in lines
+    ), "the alignment example lost the CONTINUATION of its value row"
 
 
 def test_closing_the_docstring_hole_flags_no_module():
