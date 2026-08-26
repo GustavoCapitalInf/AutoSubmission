@@ -657,6 +657,16 @@ def parse_southside_scanned_statement(markdown: str) -> Statement | None:
     return stmt
 
 
+#: The resolution of the span comparison below, and it is FLOAT NOISE and
+#: nothing else. Both sides are figures already rounded to the cent — the
+#: printed cell as the page prints it, the ledger step as `round(x, 2)` leaves
+#: it — so two that agree differ by ~1e-13 at worst and two that disagree
+#: differ by at least a cent. The floor was 0.01 until W3 §SCANHYG SH13
+#: (review finding 5): it silenced a one-cent over-capture, which is the
+#: smallest instance of the exact thing the check exists to find.
+_GRID_CELL_EPSILON = 1e-6
+
+
 def daily_grid_amount_contradictions(markdown: str, stmt: Statement) -> list[str]:
     """The printed daily-balance grid, held against the ledger as an AMOUNT
     oracle rather than only as a date one.
@@ -684,6 +694,17 @@ def daily_grid_amount_contradictions(markdown: str, stmt: Statement) -> list[str
     must move the same money. That is a per-span comparison and it localises:
     a span whose two readings agree is a span read correctly whatever the
     running error elsewhere is, which a cumulative walk cannot say.
+
+    THE RESOLUTION IS ANY NON-ZERO DIFFERENCE. A span the grid and the ledger
+    disagree about by ONE CENT is a contradiction and is reported: this check
+    exists to find money the reader took that the bank did not print, and one
+    cent of it is the smallest instance of that rather than a different kind of
+    thing. `_GRID_CELL_EPSILON` is float noise between two figures already
+    rounded to the cent and is not a tolerance for disagreement (W3 §SCANHYG
+    SH3, review finding 5). The last-cell comparison at the end of this
+    function holds two figures the BANK printed against each other, which is a
+    different question, and this card's ruling scoped the change to the cell
+    against the ledger; it stays at the cent.
 
     NEITHER READING IS PREFERRED AND NOTHING IS REPAIRED. The rows are the
     figures the bank printed and the cell is the figure the bank printed; only
@@ -747,7 +768,7 @@ def daily_grid_amount_contradictions(markdown: str, stmt: Statement) -> list[str
             moved = round(moved + movement.get(probe, 0.0), 2)
             probe += timedelta(days=1)
         step = round(printed[day] - previous_balance, 2)
-        if abs(step - moved) > 0.01:
+        if abs(step - moved) > _GRID_CELL_EPSILON:
             span = (
                 f"on {day.isoformat()}"
                 if previous_day + timedelta(days=1) == day

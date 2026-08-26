@@ -43864,6 +43864,34 @@ that matters most in this section:** the new oracle says nothing about any
 document southside publishes, and everything it says is about documents the
 platform was already withholding.
 
+### SH3.1 The oracle's resolution is any non-zero difference
+
+Review finding 5, closed in this commit. The span comparison was
+`abs(step - moved) > 0.01`, so a span the grid and the ledger disagreed about
+by EXACTLY ONE CENT was silent — the smallest instance of the over-capture this
+check exists to find, discarded by the check itself, and nowhere stated. The
+comparison is now against `_GRID_CELL_EPSILON = 1e-6`: both sides are figures
+already rounded to the cent, so two that agree differ by ~1e-13 at worst and
+two that disagree differ by at least a cent. The docstring says so, the
+constant says why, and mutant **G7** (the floor put back to 0.01) is killed by
+`test_an_over_capture_of_ONE_CENT_is_caught_and_not_rounded_away`.
+
+**Measured over the nine southside documents, and nothing moves.**
+`tools.scanhyg_family_replay --base <the closure-4 commit> --parsers
+southside_scanned`: **9 documents, identical 9, `payload_moved 0`,
+`outcome_moved 0`**, exit 0. The five movers of SH3 are the same five with the
+same notes and no sixth appears — no span on this archive disagrees by a single
+cent, which is the honest reading of a resolution change that finds nothing:
+what it buys is the NEXT statement, not this population. No validated movement
+was possible either way, and the replay says so rather than the reasoning:
+all five are `withheld` on both sides and the other four are byte-identical.
+
+The last-cell comparison — the grid's own last printed cell against the
+summary's printed ending balance — holds two figures the BANK printed against
+each other rather than a cell against the ledger. That is a different question,
+this card's ruling scoped the change to the cell against the ledger, and it
+stays at the cent, stated in the docstring rather than left to be discovered.
+
 **The card expected one mover and there are five, and that is not a surprise
 to wave off.** §SCANFINISH SF2 named `3B0738E9` because that is the document
 whose over-capture was diagnosed there; the other four are the documents whose

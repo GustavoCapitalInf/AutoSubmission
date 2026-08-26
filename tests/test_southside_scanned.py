@@ -664,6 +664,21 @@ def test_an_amount_read_too_large_is_caught_by_the_printed_daily_grid():
     assert "2026-04-02" in notes[0]
 
 
+def test_an_over_capture_of_ONE_CENT_is_caught_and_not_rounded_away():
+    """The oracle's resolution, pinned. It was `> 0.01` until W3 §SCANHYG SH13
+    (review finding 5), so a span the grid and the ledger disagreed about by
+    exactly one cent was SILENT — the smallest instance of the very thing this
+    check exists to find, discarded by the check itself. Any non-zero
+    difference is a contradiction now; the epsilon is float noise between two
+    figures already rounded to the cent."""
+    inflated = whole().replace(
+        "4/02 ONLINE PMT UTILITY CO CCD 200.00", "4/02 ONLINE PMT UTILITY CO CCD 200.01"
+    )
+    notes = notes_for(inflated)
+    assert len(notes) == 1
+    assert "2026-04-02" in notes[0]
+
+
 def test_the_walk_is_seeded_at_the_summarys_own_beginning_balance():
     """The first printed cell is a STEP from the beginning balance, not the
     start of the walk. A reader that seeded itself at the first cell would

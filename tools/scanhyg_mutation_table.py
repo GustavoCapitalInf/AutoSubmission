@@ -83,8 +83,8 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
     (
         "G1", "the printed daily grid as an AMOUNT oracle",
         "analysis/scanned_small_bank.py",
-        "        if abs(step - moved) > 0.01:",
-        "        if False and abs(step - moved) > 0.01:",
+        "        if abs(step - moved) > _GRID_CELL_EPSILON:",
+        "        if False and abs(step - moved) > _GRID_CELL_EPSILON:",
         "a span whose printed step and whose ledger disagree is not a finding",
     ),
     (
@@ -114,6 +114,14 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "        if abs(last - stmt.ending_balance) > 0.01:",
         "        if False and abs(last - stmt.ending_balance) > 0.01:",
         "the grid's own last word and the summary's may disagree in silence",
+    ),
+    (
+        "G7", "the oracle's resolution is any NON-ZERO difference",
+        "analysis/scanned_small_bank.py",
+        "_GRID_CELL_EPSILON = 1e-6",
+        "_GRID_CELL_EPSILON = 0.01",
+        "a span the grid and the ledger disagree about by exactly one cent is silent — "
+        "the smallest instance of the over-capture this check exists to find",
     ),
     (
         "G6", "the southside registration declares the grid-amount check",
