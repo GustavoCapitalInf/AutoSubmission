@@ -43770,6 +43770,64 @@ resolve in the run of record and all 58 are `digital` / `failed` /
 * **DESC-COLUMNS** has no population of its own; it moves the extraction rung.
   Its subject overlaps this card in one place, named in C9.
 
+### C2.1 The 13 documents claimed OUTSIDE the census family, by `content_sha256`
+
+**Added at closure.** C0 described these as "the 10 this platform prints under
+`burke_herbert` (3), `farmers_merchants` (3) and `linkbank` (4), and 3 scanned
+printings of the same block", and C13 item 4 said the 3 scanned movers "are
+named in C0/C2". They were not: no sha for any of the 13 appeared anywhere in
+§COREENC except the pinned `AF6BD563…`. The card's rule is that every mover is
+named by `content_sha256`, and three of these are movers.
+
+They are named here from the instrument rather than from the record.
+`python -m tools.coreenc_archive_census reach --rows
+…356a4269/rows.csv --data-dir <checkout>/webapp_data --shas <the census 58>`
+→ `EXIT=0`, 19.0 s:
+
+| | |
+|---|---|
+| documents in the run | 3,380 |
+| with cached OCR text | 3,351 |
+| **claimed by this registration** | **67** |
+| claimed inside the named family | 54 |
+| claimed outside it | **13** |
+| named family members NOT claimed | 4 (the census verifier's misfiles) |
+| **outsiders this reader publishes** | **0** |
+
+That reproduces C4's 67 = 54 + 13 independently, and the 13 are:
+
+| `content_sha256` | the run of record | who holds it at HEAD | moves? |
+|---|---|---|---|
+| `5895EC7D65EB1DD1E529B04E98BD9F10A60E65BC7A7073ADA0753BB5E068B789` | `validated/approved`, `burke_herbert` | `burke_herbert` | no |
+| `58FD466044E0B614ABF00B325B68B437356EDF9DA1603D0A48D7F0D6A9B22BE8` | `validated/approved`, `burke_herbert` | `burke_herbert` | no |
+| `F1F36B2F961722AAB163673AF6D70CCCD86A97CE689D17C601EF575105EC9FAA` | `validated/approved`, `burke_herbert` | `burke_herbert` | no |
+| `4CC3DE36B4895660DD3807CEBCEA6BB2370870673DA59799979CF5F7C618CDAD` | `withheld/withheld_adb`, `farmers_merchants` | `farmers_merchants` | no |
+| `5BE314745326113857DD9476777E7537DFA5DEDFC5876F09399D8602B2C3E8F7` | `withheld/withheld_adb`, `farmers_merchants` | `farmers_merchants` | no |
+| `DAC9ED50E290AC719D69FAACFB5FF15C4E0FB13CFC99D76BCC25C4BBB098CBCD` | `withheld/withheld_adb`, `farmers_merchants` | `farmers_merchants` | no |
+| `4A38F944469B8A4333A0742FF526EC7A29B28A8367A9A9E4CDCC608113F5D6CA` | `review/integrity_flags`, `linkbank` | `linkbank` | no |
+| `931AA83E94362F528DC4B4FFC1CD07C6742DD120A1F37D8BC09E6FBA655406DF` | `review/integrity_flags`, `linkbank` | `linkbank` | no |
+| `AF6BD563A3D7165AB0686D995C5A5EB490C58AF6E767BECFC25FD87E44F44042` | `review/integrity_flags`, `linkbank` | `linkbank` | no — and it is the pinned corpus document of C11/C18.2 |
+| `E002430E81CADFE70274F7C3C71742B3C477CED1400757DAB926537FA947707D` | `review/integrity_flags`, `linkbank` | `linkbank` | no |
+| `2988BC5E90EA9FD8E202148014C6468BA1D94A7E88690A9D9B6214428B3479F1` | `failed/no_parser_matched`, no parser | nothing — this reader detects and declines | **YES → `failed/parser_declined`** |
+| `33BF261CCC7C0CCA8827CA7F3EFB5097C2561463986E8BA9478CB12B581B8B26` | `failed/no_parser_matched`, no parser | nothing — this reader detects and declines | **YES → `failed/parser_declined`** |
+| `3858F625B9881EAD6CCAA4769B0ED138E85FDFCD271EAEEE90B3B0B5AF427B8A` | `failed/no_parser_matched`, no parser | nothing — this reader detects and declines | **YES → `failed/parser_declined`** |
+
+Measured, not argued: the 10 issuer documents are each still dispatched to their
+own issuer's reader at HEAD — `dispatch.outcome == "claimed"` with the issuer's
+id, which is the `supersedes` edges of C11 doing exactly what they were added
+for — and this reader publishes **nothing** on any of the 13. The only field
+that moves anywhere in this table is `outcome_reason`, on the 3 scanned
+documents, from `no_parser_matched` to `parser_declined`: a parser recognised
+the template and could not read the scan, which is the honest reading and the
+one C13 item 4 asks Ocean to note.
+
+The four census members this registration does NOT claim are the verifier's
+four misfiles, unchanged and unclaimed:
+`0D1BCE71A83973736D970BC7FD8EEEEBED8CD5FA150D663EFEDCDC01048BA135`,
+`12EAD3A8C2CEBAFA36ABA636321912ED12A57A3896D35F7AC79DCCE40A5D3A88`,
+`5ED19A08317E0D1252A93E4A99B94577D29DE933DDD5F483876CF5A1B69B1A31` and
+`8CCAE7DD830DF214E269F145C130A10B60DD2F83FBD679FAB2467E733EEC6C05`.
+
 ## C3. The template, measured
 
 Furniture census over all 58 members of the family (occurrences per document,
@@ -44197,9 +44255,11 @@ comparison and the tolerance are load-bearing at all.
    it. One document of 58 today. A `count_semantics`-style mapping on the
    MONEY side is the fix and it is not this card's file.
 4. **The 3 scanned documents this registration newly claims** move from
-   `failed/no_parser_matched` to `failed/parser_declined`. They are named in
-   C0/C2, they belong to no other cell, and the move is the honest one: a
-   parser recognised the template and could not read the scan.
+   `failed/no_parser_matched` to `failed/parser_declined`. They are named by
+   `content_sha256` in **C2.1** (this sentence originally pointed at C0/C2,
+   where no sha appeared — corrected at closure), they belong to no other cell,
+   and the move is the honest one: a parser recognised the template and could
+   not read the scan.
 
 ## C14. Risks carried
 
