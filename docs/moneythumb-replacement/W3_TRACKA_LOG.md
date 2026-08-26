@@ -44233,3 +44233,23 @@ separable ones) pin the two halves.
 | MINOR-4 | The two "identical" claims about `_native_credit_like` are corrected to **measured inert, more correct**: a description carrying a withdrawal code AND a trailing credit code changes answer, 0 such rows across the 126. |
 | MINOR-5 | The `stated_daily_balances` ratification is recorded in TD10 with both facts. |
 | MINOR-6 | "8 printed sections missed" corrected: base misses 8, head misses 7, 186 → 187 read; the 4 that mattered recover, 3 new misses on the two damaged-subtotal documents. |
+
+## TD17. MAJOR closures verified (Ocean's verification session, 2026-08-26)
+
+Read-only verification of the closure round (`fcdc1a5`, `f52c739`, `47a07fc`)
+by an independent session. Both MAJORs were re-measured against the archive or
+re-driven on a group this session constructed; nothing on the branch was
+changed but this subsection.
+
+| finding | the check this session ran | exit | verdict |
+|---|---|---:|---|
+| MAJOR-1: "cannot move a monetary figure" was false at the row level; the 27 row-level sign corrections | the correction is in all three places (TD3, the `_split_supported_by_codes` docstring, TD15 #2) and the old claim survives only where the log narrates it. The 27 were then RE-DERIVED rather than read: `10cc722`'s `analysis/td_can.py` and `analysis/td_canada_french.py` were loaded from git into the running process as base modules (relative imports resolved inside the `analysis` package; the base French module loaded against the base `td_can`), each of the ELEVEN movers of TD3.1 was fetched by DIRECT artifact path across every capability partition, and base and head readings were compared row by row. **27 sign flips, and the per-document counts are TD3.1's to the row** (1, 1, 3, 1, 2, 4, 2, 2, 6, 1, 4), with **0** other amount moves anywhere. The mandate asked for five sampled against the printed balance; all **27** were checked instead, using the reader's own group structure: on every one, the group's head-signed amounts reproduce the printed change AND flipping that row alone breaks it — so the document's own printed balance REQUIRES the sign the branch publishes and contradicts the sign that shipped. 27/27 corrections of a shipped misreading. | 0 | **VERIFIED** |
+| MAJOR-2: count-blind ties resolved by DFS order; must REFUSE | DRIVEN on a date group this session constructed — 800/600/400/200 across a printed change of zero, which is not the reviewer's fixture and not an archive group. Deposits must total 1000; `{800,200}` and `{600,400}` both reach it, neither contradicts a printed code, both move two rows, and both call TWO rows deposits, so the printed count is blind to the difference. Measured: exactly **2** candidates, both calling 2 rows deposits; the group is left on the code reading (all four withdrawals — neither tied reading is published); `reconcile` is not ok and `analyze_markdown(..., parse_mode="deterministic")` does not publish. The same group with ONE printed withdrawal code publishes and reconciles, and a tie the counts CAN separate is still separated. | 0 | **VERIFIED** |
+| MAJOR-2, the M19 half (the tie the printed counts CAN separate) | `python -m tools.withheldtd_mutate` at the branch tree: baseline green, **20 of 20 mutants KILLED**, the INERT case reported inert, all three `analysis/` files restored and the tree clean. **M19** (`every_tie_refuses_even_a_separable_one`) is killed by `test_a_tie_the_printed_counts_can_separate_is_not_refused` and `test_and_the_printed_count_is_what_certifies_it` — so the mutant that survived at review now dies, on the ledger `47a07fc` derived for it. **M18** (the refusal removed) is killed by the two fixtures of the other half. | 0 | **VERIFIED** |
+
+**2 of 2 MAJOR closures verified.** One observation for Ocean, not a finding
+against the closure: TD3.1's table is attributed to a "`tools/`-shaped probe"
+that is not committed under `tools/`, so the 27 had no committed instrument
+behind them until this session re-derived them. The number is right; the wave
+rule about headline numbers reproducing from committed evidence is the thing
+left open.
