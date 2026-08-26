@@ -158,6 +158,14 @@ MUTANTS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "        if not 1 <= len(reading) <= 3:",
         "a three-digit reading is offered as a day of the month",
     ),
+    (
+        "D6", "a cell with NO legible glyph is answered by the printed order",
+        "analysis/eq_bank_scanned.py",
+        "        if not any(glyph.isdecimal() for glyph in rows[index].day_token):",
+        "        if False and any(glyph.isdecimal() for glyph in rows[index].day_token):",
+        "an illegible cell is narrowed by an enumeration that carries no evidence about it — "
+        "it can no longer derive a two-digit day, and it picks between the single-digit ones",
+    ),
     # --- citizens printed section totals (d66f743) ------------------------
     (
         "C1", "a section the page contradicts is named",

@@ -43905,6 +43905,11 @@ anything:
 | `75AE7952` | dispatched (withheld) | 77 | 0 | — | — |
 | `958322F1` | dispatched (withheld) | 26 | 0 | — | — |
 
+Since SH4.1 an ILLEGIBLE cell is answered at pass 2 by the printed order alone,
+so the probe reports the WIDTH of the pass-2 window rather than an intersection
+for it: `pass_2_window_days` is 3, 2 and 1 on the three documents above, in that
+order, which is the same measurement this table's last column states.
+
 Read this way the answer is unambiguous. Pass 1 (the printed period and the
 row's own printed month) leaves nine candidate days for a lone stray glyph on
 both declines, because every reading of a lone glyph is a single-digit day.
@@ -43928,6 +43933,67 @@ notice.
 Replayed at `1407286` against base: **the same 5 southside movers and nothing
 else** — the EQ Bank 5 unmoved (3 identical, 2 declined as before), which
 independently confirms the commit's own report.
+
+### SH4.1 The gate is NOT monotone, and both directions are pinned
+
+Review finding 3, closed in this commit. "Stricter" is a claim about a partial
+order, and this rewrite — from *delete every non-decimal glyph and take what is
+left* to *enumerate the readings and intersect them with what the document
+determines* — does not obey one. Measured rather than asserted:
+`python -m tools.scanhyg_gate_probe --day-gate-differential --base 10cc722`
+loads the base reader from its own blob and answers both over **6,448**
+constructed three-row shapes (13 day-cell shapes × every ordered pair of
+neighbours in an invented month; no archive text is read, exit 0):
+
+| | at `f0266b1` | at this commit |
+|---|---|---|
+| same | 5,064 | **5,152** |
+| **WIDER** — base refused, this reader dates the row | 1,015 | **971** |
+| **STRICTER** — base dated the row, this reader refuses | 369 | **325** |
+
+**The 88 shapes that moved into `same` are one class — the cell that kept NO
+legible glyph — and one rule closed both of its directions.** Such a cell says
+nothing about its own value: a lone stray glyph enumerates as the single-digit
+days only because one glyph stands for at most one digit, which is an artefact
+of the enumeration rather than something the document prints. So it is answered
+by the printed ORDER alone, and only where the two nearest legible neighbours
+AGREE on a day the row's own month admits — the rule the base reader used.
+
+* **44 shapes the branch had WIDENED, and the admission was not evidence-backed.**
+  Intersecting a neighbour window several days wide with `{1..9}` picked the one
+  single-digit day inside it. Refused now.
+* **44 shapes the branch had LOST, and the base derivation was correct.** A lone
+  glyph between two agreeing neighbours whose day is TWO digits: base derived it
+  from the printed order and was right to; the enumeration could never intersect
+  a two-digit day, so the branch refused. Derived again now — and it cannot
+  re-admit the `&`-after-a-legible-`8` bleed, because a cell holding a decimal
+  glyph never takes this path (`test_a_glyph_beside_a_legible_digit_is_never_re_dated_by_its_neighbours`:
+  `8&` between two 18ths is the 8th, breaks the printed order and refuses the
+  document). Its own price is stated too: neighbours that do not agree are
+  refused even in the one shape where the row's printed month would still name a
+  single day between them.
+
+**The 971 that remain WIDER are pinned as intended.** Every one is a cell that
+KEPT a legible digit, where the base reader deleted the glyph and read the
+survivors alone — an answer its own gates then refused (a leading stray glyph
+reads as day 0 and is out of the calendar; `&8` between a 10th and a 20th reads
+as the 8th and breaks the printed order, so base refused the whole document) —
+and where this reader's enumeration and the printed order between them leave
+exactly ONE day. That is more of the document's own evidence, not less, and a
+date is a financial leaf, so it is pinned by name rather than left to a replay:
+`test_a_glyph_before_a_digit_READS_even_where_deleting_it_breaks_the_order`.
+The 325 that remain STRICTER are the same class fail-closed — 0 or ≥2 readings
+survive the intersection — and were the card's headline all along.
+
+**Archive movement: 0, measured.** `tools.scanhyg_family_replay --base <the
+closure-1 commit> --parsers eq_bank_scanned`: 5 documents, **identical 3, both
+declines raising the same refusal on both sides, `payload_moved 0`,
+`outcome_moved 0`**, exit 0. The gate probe's per-cell census is why, and it is
+now reported as a width rather than inferred: `pass_2_window_days` is **3** on
+`E630CB66` and **2** on `B0E16E92`, so the restored rule refuses them exactly as
+the enumeration did, and **1** on `5C65DFB2` — agreeing neighbours, the one
+width at which an illegible cell resolves, which is why that document still
+publishes the same payload byte for byte.
 
 ## SH5. citizens — the printed section totals are held against what the reader takes
 

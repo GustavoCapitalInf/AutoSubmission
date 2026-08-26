@@ -486,6 +486,67 @@ def test_a_glyph_before_a_digit_READS_where_the_printed_order_leaves_one_day():
     ) == [date(2026, 9, 2), date(2026, 9, 8), date(2026, 9, 9)]
 
 
+# --- the gate is not uniformly stricter, and BOTH directions are pinned -----
+#
+# W3 §SCANHYG SH4, review finding 3. Measured base-vs-branch on `_resolve_dates`
+# over 6,448 constructed three-row shapes (13 day-cell shapes x every ordered
+# pair of neighbours in a full month): the two implementations agree on most and
+# differ in both directions. The three tests below are one case of each kind
+# that the census names.
+
+
+def test_a_glyph_before_a_digit_READS_even_where_deleting_it_breaks_the_order():
+    """THE WIDENING, stated. The reader this replaced deleted the glyph and
+    read `&8` as the 8th; between a 10th and a 20th the 8th breaks the printed
+    order, so that reader refused the whole document. The 18th is the one
+    reading of this cell the printed digit and the printed order both admit,
+    and it is what the document says. More of the document's own evidence is
+    used here, not less — and a date is a financial leaf, which is why this
+    direction is pinned rather than left to a replay to notice."""
+    assert resolve(
+        "Sep 10 Inbound transfer $531.62 $1,569.03\n"
+        "Sep &8 Card Load - $268.13 $1,300.90\n"
+        "Sep 20 Inbound transfer $180.57 $1,481.47\n"
+    ) == [date(2026, 9, 10), date(2026, 9, 18), date(2026, 9, 20)]
+
+
+def test_a_cell_with_no_legible_glyph_is_answered_by_the_printed_order_alone():
+    """THE NARROWING, stated, and it is where the enumeration must not be
+    consulted at all.
+
+    A lone stray glyph enumerates as the single-digit days — an artefact of one
+    glyph standing for at most one digit, not something the document prints. So
+    the enumeration must not narrow this cell and must not choose inside it:
+    the printed order answers, and only where it names ONE day. Both halves:
+    two agreeing neighbours name a day whatever its width, and a window two
+    days wide names none."""
+    assert resolve(
+        "Sep 12 Inbound transfer $531.62 $1,569.03\n"
+        "Sep & Card Load - $268.13 $1,300.90\n"
+        "Sep 12 Inbound transfer $180.57 $1,481.47\n"
+    ) == [date(2026, 9, 12)] * 3
+    assert resolve(
+        "Sep 9 Inbound transfer $531.62 $1,569.03\n"
+        "Sep & Card Load - $268.13 $1,300.90\n"
+        "Sep 10 Inbound transfer $180.57 $1,481.47\n"
+    ) is None
+
+
+def test_a_glyph_beside_a_legible_digit_is_never_re_dated_by_its_neighbours():
+    """THE BLEED, held against the rule above. `8&` on this family is column
+    bleed standing beside a legible 8, and the printed-order shortcut must not
+    reach it: a cell that kept a decimal glyph is answered by its enumeration,
+    which makes `8&` the 8th and nothing else. Between two 18ths it therefore
+    stays the 8th, breaks the printed order and refuses the document — it is
+    NOT quietly re-read as the 18th its neighbours agree on."""
+    assert resolve("Sep 8& Card Load - $268.13 $1,300.90\n") == [date(2026, 9, 8)]
+    assert resolve(
+        "Sep 18 Inbound transfer $531.62 $1,569.03\n"
+        "Sep 8& Card Load - $268.13 $1,300.90\n"
+        "Sep 18 Inbound transfer $180.57 $1,481.47\n"
+    ) is None
+
+
 def test_a_day_cell_wider_than_a_day_cell_never_reaches_the_enumeration():
     """The shared enumeration refuses a cell wider than
     `MAX_DAY_CELL_GLYPHS`, and on THIS reader that bound is never the binding

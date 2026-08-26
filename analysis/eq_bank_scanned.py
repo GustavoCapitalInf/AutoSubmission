@@ -303,6 +303,36 @@ def _resolve_dates(
        took what was left, so `1&` in a period containing both the 1st and the
        14th read as the 1st, silently and with nothing to notice it.
 
+       THIS GATE IS NOT UNIFORMLY STRICTER THAN THE ONE IT REPLACED, and both
+       directions are stated because a reader who assumed one of them would be
+       wrong (W3 §SCANHYG SH4, review finding 3).
+
+       * WIDER, on a cell that kept a legible digit. The reader this replaced
+         deleted the glyph and took what was left, which ignores the printed
+         order; where its answer BREAKS that order the whole document was
+         refused. Here `&8` between a 10th and a 20th is the 18th — the one
+         reading of the cell that the printed digit and the printed order both
+         admit — and the row is dated rather than the document refused. The
+         evidence is the document's own, and it is more of it than deletion
+         used, not less.
+       * STRICTER, on a cell that kept NO legible glyph. Such a cell says
+         nothing about its own value: the enumeration of a lone stray glyph
+         offers only the single-digit days, which is an artefact of one glyph
+         standing for at most one digit and not something the document states.
+         So an illegible cell is resolved by the PRINTED ORDER ALONE: its two
+         nearest legible neighbours must AGREE on a day, and that day must be
+         one the row's own printed month admits. That is the rule the reader
+         this replaced used, restored here — the enumeration had both narrowed
+         it (a lone glyph could no longer derive a two-digit day at all) and
+         widened it (it picked the one single-digit day inside a window several
+         days wide). Its own narrow cost is stated too: neighbours that do not
+         agree are refused even in the one shape where the printed month would
+         still name a single day between them, which is where the bound is
+         deliberately the older and blunter of the two.
+         A cell holding a legible digit never takes this path, so
+         `&`-after-a-legible-`8` (the column bleed this template prints) cannot
+         be re-dated by its neighbours.
+
     3. THE SEQUENCE MUST BE NON-DECREASING. This grid is printed in date
        order, so monotonicity is a fact about the document, and it catches a
        day token whose digits ARE legible and WRONG in the only way anything
@@ -359,6 +389,21 @@ def _resolve_dates(
             # one side only, and one side is not a bound.
             return None
         window = _admissible_days(months[index], lower=lower, upper=after)
+        if not any(glyph.isdecimal() for glyph in rows[index].day_token):
+            # A cell with NO legible glyph left. Its own enumeration carries no
+            # evidence about the value — a lone stray glyph enumerates as the
+            # single-digit days only because one glyph stands for at most one
+            # digit, which is a fact about the enumeration and not one the
+            # document prints — so the printed ORDER is all there is, and it
+            # answers only where the two nearest legible neighbours AGREE on a
+            # day the row's own month admits. That is the bound this reader
+            # always used; intersecting it with the enumeration lost the
+            # two-digit days it used to derive and gained a preference between
+            # the single-digit ones it never had.
+            if lower != after or len(window) != 1:
+                return None
+            resolved[index] = after
+            continue
         day = sole_day(rows[index].day_token, window)
         if day is None:
             return None
