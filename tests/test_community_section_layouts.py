@@ -707,9 +707,12 @@ def test_a_joint_owner_line_between_the_heading_and_the_grid_is_stepped_over():
 # ---- the printed `Daily Balances` grid (W3 §WITHHELDGRIDS) -------------------
 
 _DISCLOSURE = (
-    "DAILY BALANCE METHOD (including current transactions) To get daily balances,"
-    " we take the beginning balance of your account each day, add any new loans"
-    " and subtract any payments or credits.\n"
+    #: INVENTED prose. What these tests need of the platform's METHOD
+    #: paragraph is a SHAPE - a paragraph carrying the words
+    #: `daily balances` and no `date`-adjacent money - and not a wording,
+    #: so none of it is copied from a document.
+    "AN INVENTED METHOD PARAGRAPH about how daily balances are worked out,\n"
+    "written at some length and carrying no figure of any kind.\n"
 )
 
 

@@ -783,8 +783,8 @@ def test_an_interest_rate_row_is_not_a_posting_date():
 
     md = "\n".join([
         "06/02/2026 SOME MERCHANT 42.00",
-        "Interest Rate Changes",
-        "Interest Rate As Of Date Interest Rate",
+        "an invented rate block",
+        "an invented caption above it",
         "06/01/2026 0.0000%",
     ])
     assert source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30)) == {
@@ -811,7 +811,7 @@ def test_a_description_containing_a_percentage_keeps_its_posting_date():
     not the presence of a percentage."""
     from analysis.dates import source_posting_dates
 
-    md = "06/09/2026 RATE 24.99% FINANCE CHARGE 45.00 1,200.00\n"
+    md = "06/09/2026 RATE 2.34% AN INVENTED DESCRIPTOR 45.00 1,200.00\n"
     assert date(2026, 6, 9) in source_posting_dates(
         md, date(2026, 6, 1), date(2026, 6, 30)
     )
@@ -994,11 +994,11 @@ def test_a_marketing_sentence_opening_with_a_date_is_not_a_posting_date():
     from analysis.dates import source_posting_dates
 
     md = "\n".join([
-        "This June, be wary of scams targeting older adults",
-        "June 15 is an awareness day, and now is a great time to learn how to",
-        "- One kind of scam, described at length without a figure in sight",
-        "- Another kind of scam, also described without a figure",
-        "Remember, always be cautious when you are asked for information",
+        "an invented message block, printed above the ledger",
+        "6/22 is an invented awareness day, and here is an invented reason why",
+        "- an invented bullet, written at length and carrying no figure",
+        "- an invented second bullet, also carrying no figure",
+        "an invented closing line, still carrying no figure",
         "6/9 A MERCHANT",
         "42.00",
     ])
