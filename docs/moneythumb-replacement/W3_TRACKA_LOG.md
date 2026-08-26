@@ -43741,7 +43741,7 @@ recorded, and where they agree that is said too.
 | Guards | canonical guard set **253** (252 at base — the clone guard's new test), exit 0 |
 | Conformance | canonical conformance set **1,164 passed, 35 skipped** at registry **75**, exit 0 |
 | Privacy | `tools/privacy_scan_branch.py` over the 38-document population, 2,656 added lines: **MONEY 0, DIGITS 0, DATES 0, WORDS 2** — both WORDS hits disclosed in SH10 as two-word adjacencies between a printed section label already in tracked source at base and a Python identifier on the same line |
-| Control bytes | **0** across all 14 files the branch commits (0x00–0x08, 0x0B, 0x0C, 0x0E–0x1F) |
+| Control bytes | **0** across every file the branch commits (0x00–0x08, 0x0B, 0x0C, 0x0E–0x1F). **15** at the review's tip `24b5f8e` — the record said 14, having left its own file out of its own count (review finding 6) — and **16** at the closure tree, the sixteenth being the independent review's record |
 | Statement-specific constants | none added. Three archive figures REMOVED from production comments (SH10) |
 
 ## SH1. The population, and how it was decided
@@ -44080,11 +44080,13 @@ function short enough to be a helper. Swept over every module of `analysis/`
 So the constant `NEAR_CLONE_MAX_STATEMENTS = 6` sits inside a measured safe
 band of 3 – 7 and the commit's claim ("at it the only match is `unique_match`
 itself; the next candidate up needs eight") reproduces exactly. **One
-correction: the sweep covers 92 modules, not the 89 the new comment and the
-older `_modules` docstring both say.** The count is stale in both places rather
-than wrong in this branch's favour, and it is recorded in SH11 rather than
-edited, because this session changes production code only where a measurement
-proves a defect and a stale module count in a comment is not one.
+correction, and the arithmetic behind it** (review finding 6, closed at this
+tree): `_modules()` returns **92**; the sweep exempts the **3** shared
+utilities and therefore looks at **89**. "All 89 modules of `analysis/`" was
+the non-shared count wearing the total's name, and the guard's comment now
+states both numbers and which one it means. The older `_modules` docstring
+inherited the same figure from before this branch and is left where it stands;
+it is not this card's line.
 
 **The one-day closing extension is now conditional on its own evidence
 (TG9.3).** `_resolve_dates` reads rows dated `period_end + 1` because the
@@ -44270,7 +44272,7 @@ process at a time. Durable logs in the session's private scratchpad.
 | PINNED replay | `python -m tools.scanhyg_pinned_replay --base 10cc722 …` | `{"pinned":109,"identical":108,"moved":0,"refused_both_sides":1,"claimed_by_target_reader":6}` | **0** |
 | gate probe | `python -m tools.scanhyg_gate_probe --summaries --declines --clone-bound …` | SH2, SH4, SH6 | **0** |
 | privacy scan (durations elided throughout this table: a two-decimal figure has the MONEY class's own shape) | `python tools/privacy_scan_branch.py --rows … --where parser_id=southside_scanned,eq_bank_scanned,citizens,texas_first_scanned --data-dir … --base 10cc722 --ref wave8-scanhyg` | `MONEY 0, DIGITS 0, DATES 0, WORDS 2` over 38 documents / 2,656 added lines | **1** (the tool exits 1 on any hit; both hits disclosed in SH10) |
-| control bytes | byte scan of all 14 committed files for 0x00–0x08, 0x0B, 0x0C, 0x0E–0x1F | `files checked 14, files with control bytes 0` | **0** |
+| control bytes | byte scan of all **15** files committed at `24b5f8e` for 0x00–0x08, 0x0B, 0x0C, 0x0E–0x1F (the record said 14; re-scanned over **16** at the closure tree in SH13) | `files checked 15, files with control bytes 0` | **0** |
 
 **Not run here, and deliberately: the full default suite, the corpus-marked
 slice, `python corpus_gate.py`, and the archive-wide sweep
@@ -44331,11 +44333,13 @@ than as a pair. The figures above are the re-measurement after that fix.
    assertion closes it; the fix is a test change and this session did not make
    it.~~ **CLOSED** (review finding 4): the assertion is written, the bound is
    pinned in both directions and the mutant is killed by name. See SH8.1.
-3. **The new clone-guard comment says "all 89 modules of `analysis/`" and the
+3. ~~**The new clone-guard comment says "all 89 modules of `analysis/`" and the
    measured number is 92** — as does the older `_modules` docstring it inherited
-   the figure from, so the drift is not this branch's. Recorded, not edited:
-   this session changes code only where a measurement proves a defect and a
-   stale count in a comment is not one.
+   the figure from, so the drift is not this branch's. Recorded, not edited.~~
+   **CLOSED** (review finding 6): re-measured here as `_modules()` **92**,
+   shared utilities **3**, swept **89**, and the comment now names the count it
+   means. The base-era `_modules` docstring still carries the old figure and is
+   left alone: it is not this card's line.
 4. **`quality.summary_totals_reliable` moves on all 8 movers**, along with one
    `metrics.notes` entry and one `quality.notes` entry. This is the normal
    downstream of a new integrity note and every affected document is withheld
@@ -44370,6 +44374,12 @@ than as a pair. The figures above are the re-measurement after that fix.
 | `94cfaba` | SCANHYG: the mutation harness's own two defects, found by running it |
 | `62d7d17` | SCANHYG: the W3 record — 0 validated movers, 8 withheld payloads, 0 pinned movement |
 | `f0ce314` | SCANHYG: the record's own three privacy collisions, measured and removed |
+| `24b5f8e` | SCANHYG: §SCANHYG's commit table completed from git log, and SH10 records the record's own fix |
+
+**Eleven, not the ten this table listed** (review finding 6): `24b5f8e` — the
+commit that completed the table — was absent from it, which is the one entry a
+table completed from `git log` can miss. The independent review's record commit
+and this round's closure commits are listed in SH13.
 
 Instruments, all under `tools/` and all read-only and $0.00:
 `scanhyg_family_replay.py`, `scanhyg_pinned_replay.py`, `scanhyg_gate_probe.py`,

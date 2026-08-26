@@ -304,8 +304,10 @@ def test_shared_utility_modules_do_not_import_any_parser():
 
 
 #: How many statements a function may hold before it stops being a helper and
-#: starts being a reader. Calibrated by measurement over all 89 modules of
-#: `analysis/`, not chosen: at this bound the ONLY function that enumerates
+#: starts being a reader. Calibrated by measurement over the 89 NON-SHARED
+#: modules this sweep looks at — `_modules()` returns 92 and exempts the three
+#: shared utilities — not chosen: at this bound the ONLY function that
+#: enumerates
 #: regex matches and tests them for uniqueness is `tables.unique_match` itself;
 #: the next candidate up (`fiserv_premier._issuer`, which does both inside a
 #: much larger identity check that is not a helper at all) needs eight.
