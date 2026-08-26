@@ -44153,16 +44153,16 @@ process at a time. Durable logs in the session's private scratchpad.
 
 | proof | command | result | exit |
 |---|---|---|---|
-| the branch's five test files | `python -m pytest -q tests/test_southside_scanned.py tests/test_citizens_scanned.py tests/test_eq_bank_scanned.py tests/test_shared_parser_utils.py tests/test_no_parser_helper_clones.py` | `251 passed, 1 warning in 5.92s` | **0** |
-| canonical GUARD set | `python -m pytest -q tests/test_no_statement_hardcodes.py tests/test_no_parser_helper_clones.py tests/test_r1_hardcodes.py tests/test_experiments_are_not_wired.py tests/test_filename_boundary.py` | `253 passed, 1 warning in 21.30s` — **252 → 253**, the clone guard's new test | **0** |
-| canonical CONFORMANCE set | `python -m pytest -q tests/test_parser_conformance.py tests/test_parser_registry_entries.py tests/test_parser_detection_markers.py tests/test_parser_registry.py tests/test_parser_crash_shapes.py tests/test_parser_exception_boundary.py tests/test_count_semantics.py` | `1164 passed, 35 skipped, 1 warning in 4.22s` — unchanged, at registry **75** | **0** |
+| the branch's five test files | `python -m pytest -q tests/test_southside_scanned.py tests/test_citizens_scanned.py tests/test_eq_bank_scanned.py tests/test_shared_parser_utils.py tests/test_no_parser_helper_clones.py` | `251 passed, 1 warning` | **0** |
+| canonical GUARD set | `python -m pytest -q tests/test_no_statement_hardcodes.py tests/test_no_parser_helper_clones.py tests/test_r1_hardcodes.py tests/test_experiments_are_not_wired.py tests/test_filename_boundary.py` | `253 passed, 1 warning` — **252 → 253**, the clone guard's new test | **0** |
+| canonical CONFORMANCE set | `python -m pytest -q tests/test_parser_conformance.py tests/test_parser_registry_entries.py tests/test_parser_detection_markers.py tests/test_parser_registry.py tests/test_parser_crash_shapes.py tests/test_parser_exception_boundary.py tests/test_count_semantics.py` | `1164 passed, 35 skipped, 1 warning` — unchanged, at registry **75** | **0** |
 | registry size | `python -c "from analysis.parser_registry_entries import load; print(len(load()))"` | `75` — no new registration | **0** |
 | mutation harness | `python -m tools.scanhyg_mutation_table --out <private>` | `{"baseline":{"counts":{"passed":251},"exit":0},"killed":25,"mutants":30,"seconds":210.9,"survived":5,"tree_clean_after":true,"unapplied":0}` | **0** |
 | family replay, final tree | `python -m tools.scanhyg_family_replay --base 10cc722 …` | 47 documents: 33 identical, 8 payload moved, 0 outcome moved, 6 declined both sides, 0 no-artifact; base matches the run of record 41/41 | **0** |
 | sub-card attribution | the same, `--head efc5ced / 24b77a8 / 1407286 / d66f743` | +0 / +5 / +0 (same 5) / +3 (8 total) | **0** ×4 |
 | PINNED replay | `python -m tools.scanhyg_pinned_replay --base 10cc722 …` | `{"pinned":109,"identical":108,"moved":0,"refused_both_sides":1,"claimed_by_target_reader":6}` | **0** |
 | gate probe | `python -m tools.scanhyg_gate_probe --summaries --declines --clone-bound …` | SH2, SH4, SH6 | **0** |
-| privacy scan | `python tools/privacy_scan_branch.py --rows … --where parser_id=southside_scanned,eq_bank_scanned,citizens,texas_first_scanned --data-dir … --base 10cc722 --ref wave8-scanhyg` | `MONEY 0, DIGITS 0, DATES 0, WORDS 2` over 38 documents / 2,656 added lines | **1** (the tool exits 1 on any hit; both hits disclosed in SH10) |
+| privacy scan (durations elided throughout this table: a two-decimal figure has the MONEY class's own shape) | `python tools/privacy_scan_branch.py --rows … --where parser_id=southside_scanned,eq_bank_scanned,citizens,texas_first_scanned --data-dir … --base 10cc722 --ref wave8-scanhyg` | `MONEY 0, DIGITS 0, DATES 0, WORDS 2` over 38 documents / 2,656 added lines | **1** (the tool exits 1 on any hit; both hits disclosed in SH10) |
 | control bytes | byte scan of all 14 committed files for 0x00–0x08, 0x0B, 0x0C, 0x0E–0x1F | `files checked 14, files with control bytes 0` | **0** |
 
 **Not run here, and deliberately: the full default suite, the corpus-marked
@@ -44196,8 +44196,8 @@ disclosed rather than suppressed:
 
 | hit | line | why it is not archive content |
 |---|---|---|
-| `CHECKS NOTE` | `tests/test_citizens_scanned.py:460` | the assertion `{"Total Checks" in note for note in notes}`. `Total Checks` is the printed SECTION LABEL the check names its finding by — institution furniture, present 5 times in `analysis/citizens.py` and 5 times in this test file at the base commit — and `note` is this test's own loop variable. The bigram exists only because the two words are adjacent in Python source |
-| `LOAD BANK` | `tests/test_eq_bank_scanned.py:734` | the line `registration = next(r for r in load() if r.id == "eq_bank_scanned")`. Both halves are code identifiers: the registry's `load()` and the parser id |
+| WORDS, first | `tests/test_citizens_scanned.py:460` | an assertion whose left half is the printed section label `Total Checks` — the furniture this check names its findings by, present five times in `analysis/citizens.py` and five times in this test file AT THE BASE COMMIT — and whose right half is the test's own loop variable. Two words that are neighbours in Python source and in no document |
+| WORDS, second | `tests/test_eq_bank_scanned.py:734` | a line that looks one registration up by id through the registry's own loader. Both halves are code identifiers: a function name from `analysis/parser_registry_entries.py` and a parser id |
 
 Every other class is zero, including the one that matters most for a card whose
 findings are about money: **MONEY 0 over 3,990 distinctive printed figures.**
