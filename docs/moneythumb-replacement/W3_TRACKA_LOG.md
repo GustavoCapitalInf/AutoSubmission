@@ -44197,16 +44197,43 @@ ambiguity count is 0 at HEAD against 0 without the registration. Nothing
 outside those 22 sees a different claimant set, and of the 22, 14 keep the
 parser they already had (GL5).
 
-**The archive sweep.** `python -m tools.regfp_zero_movement_sweep` at the
-branch's final production tree, against the run of record's rows and its own
-baseline settings key, in four chunks whose counts add:
+**The archive sweep, and what this card actually has** (review finding 1,
+closed). This section carried four literal placeholders — `SWEEP_TABLE`,
+`SWEEP_FINDINGS`, `SWEEP_EXIT` and `DOCS_COMMIT` — where a measurement belonged,
+and the two zero-claims that followed them (`payload_now_raises` 0, `moved` 0)
+therefore stood on nothing committed. The section was committed verbatim from an
+uncommitted worktree file at the batch-8 rehydration (`4b4558d`), so the
+placeholders were the state of the evidence rather than a rendering artifact.
+**The sweep was not run at this card's tree and this card claims no result from
+it.**
 
-SWEEP_TABLE
+Under Ocean's ruling of 2026-08-26 the archive-wide zero-movement sweep is a
+TRAIN-level proof: Ocean runs `tools/regfp_zero_movement_sweep.py` once over the
+composed tree, and it is owed by the train rather than by this branch. What
+stands in its place here is not an argument but two committed instruments, and
+between them they bound the same question:
 
-Every finding is inside the NAMED population, checked by `content_sha256`:
-SWEEP_FINDINGS. `payload_now_raises` is **0** — no document that published
-under the run of record stopped publishing at HEAD — and `moved` is **0**: not
-one existing payload changed a single field.
+* **the reach is enumerated, completely.** A new registration can move a
+  document only by CLAIMING it, and `tools/glance_detection_probe.py` runs the
+  live registry over every document in the run of record. At the closure tree:
+  **3,351 probed** (29 of the 3,380 hold no OCR payload under any capability
+  partition), **22 claimed** — its own 8 and the issuer cohort's 14, and nothing
+  else — **8** sole-claimed (exactly the family), **5** publish, **17** decline,
+  **0** resolve `ambiguous` at HEAD and **0** with the registration removed.
+  Scanned stratum 165, **0** claimed; Canadian stratum 672 (605 by printed
+  token, 561 by attributed parser), **0** claimed. Exit **0**, 163s. The 22
+  claimed shas are named by prefix in GL1 and GL5 and the probe's own report
+  lists all 22;
+* **every document whose payload could have moved is byte-identical.**
+  `tools/glance_family_replay.py` replays those 22 base against branch in one
+  process, the base `analysis` tree materialised from `10cc722` git blobs: 14
+  identical / 5 new at the branch / 3 with no payload at either tree, and the
+  same 14 identical to the payload the run of record stored. Exit **0**.
+
+`payload_now_raises` over the archive and `moved` over the archive remain
+UNMEASURED by this card, and the two sentences that asserted them are gone. What
+is measured is that nothing outside the 22 sees a different claimant set, and
+that of the 22 nothing that had a payload changed one.
 
 **The three declines produce no payload before and none after**, so they land
 in `no_payload_raises_again` and are invisible to the instrument by
@@ -44301,7 +44328,12 @@ line is its own `EXIT=` terminator.
 | corpus-marked slice | **30 passed** (3455.97s) | **0** |
 | this card's module, verbose (the mutation table) | **80 passed** (1.42s) | **0** |
 | `tools.glance_detection_probe` over the run of record | 3,351 probed, 22 claimed, **0 ambiguous** (394.0s) | **0** |
-| archive differential, 4 chunks | SWEEP_EXIT | |
+| archive differential, 4 chunks | **never run at this tree** — the four placeholders in GL8 were the state of the evidence; the sweep is owed by the TRAIN under Ocean's 2026-08-26 ruling (GL8, GL12) | — |
+
+The closure round re-ran the first, second, third, fifth and seventh of those
+rows and added four instruments' runs; the current numbers, with exit codes, are
+in GL12. The rows above are the cell's own, at its final production tree before
+the review.
 
 The gate's own lines, unchanged from the handoff's stated surface:
 `Outcomes: 105 PASS / 3 WITHHELD / 1 REFUSED` · `Verdicts: 1 refused / 3 review
@@ -44337,7 +44369,11 @@ more than "it was the load":
 | `3ff7294` | the mutation table (37 killers, 3 control arms) and `tools/glance_detection_probe.py` |
 | `00f0f90` | the `wilson_muir` supersedes edge the probe found, its pin, its two-direction test, and the privacy pass that replaced every quoted archive figure |
 | `d624f63` | the reader stops naming the currency-provenance field (docstring only; CURRENCY-SOURCE's repo-wide guard) |
-| DOCS_COMMIT | this section |
+| `4b4558d` | this section, committed verbatim from the worktree file found uncommitted at the batch-8 rehydration — placeholders and all (review finding 1) |
+| `9ea7d78` | the fixtures' statement dates moved to a year the archive cannot contain |
+| `0e7f616` | the independent adversarial review's own record |
+
+The seven closure commits that follow the review are listed in GL12.
 
 ## GL11. Risks carried
 
