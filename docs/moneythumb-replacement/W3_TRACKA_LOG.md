@@ -43838,6 +43838,34 @@ words-only region produce an IDENTICAL grid, because the grid is the last
 thing in the region either way. Both were removed rather than kept as
 unexercised code (WG5).
 
+**CORRECTED (the review's MINOR-9 and MINOR-8, closures
+`WITHHELDGRIDS CLOSURE 9` and `CLOSURE 8`).** "It changes nothing" was
+measured on nine documents and is true of the RESULTING GRID on 106 — but it
+is not true of what the region reads on the way there, and that is the half
+that mattered. Re-measured on the block the parser actually passes, over
+every document of this family the run of record resolves plus the pinned ones
+it never claimed (**106 documents**,
+`tools/withheldgrids_grid_repeats.py`):
+
+| region | grid cells | cells contradicting another cell for the same day | documents |
+|---|---|---|---|
+| the words-only region, base pattern | 1,812 | **123** | 10 |
+| the words-only region, this branch's pattern | 1,850 | **129** | 10 |
+| **anchored on the grid's own `Date Amount` column header** | — | **0** | 0 |
+
+The resulting `{day: balance}` map is IDENTICAL on all 106 documents under
+both regions, which is what the nine-document measurement saw — because the
+grid is last and last-wins overwrote every contradicting cell. What the wide
+region was reading was a CHECK ROW: a check prints its number, its date and
+its amount adjacent, which is character for character the shape of a grid
+cell, so a check's AMOUNT was read as that day's ending BALANCE and then
+silently overwritten.
+
+**The anchor is therefore restored** (CLOSURE 8), and the region terminator
+stays deleted. The anchor is not decoration: it is what makes the reader able
+to refuse a genuine contradiction instead of choosing, because with it no
+archive document prints one.
+
 **`regions._native_rows` — the page sign-off.** `_ROW_TRAILER_RE` already cut
 two printed trailers off a row (`Total`, `For all your banking needs`). The
 issuer's page sign-off is a third and was missing. Because
@@ -43870,12 +43898,12 @@ NOT APPLIED rather than passing. The first run had **four survivors**, and the
 survivors are the most useful thing this cell produced. Each was re-measured
 against the real documents before anything was decided:
 
-| survivor | re-measured | decision |
-|---|---|---|
-| the rate-only remainder rule | all 3 archive documents lift without it | REMOVED. The money-proximity rule already refuses `<date> 0.0000%`, because a money figure prints exactly two decimals |
-| the community_section grid header anchor | the grid is IDENTICAL on all 9 archive documents with and without it | REMOVED |
-| the community_section region terminator | likewise IDENTICAL on all 9 | REMOVED |
-| the page-header lookback | disabling it really does put `595137FD` back to withheld | KEPT — the mutant survived because the fixture also carried a column caption, so the caption-stop was killing it. The caption is out of the fixture and the mutant now dies on the rule it names |
+| survivor | re-measured | decision | what the closure round did |
+|---|---|---|---|
+| the rate-only remainder rule | all 3 archive documents lift without it | REMOVED. The money-proximity rule already refuses `<date> 0.0000%`, because a money figure prints exactly two decimals | **the reason was wrong; the decision stands.** The rule is not dead: it removes one date over 2,558 documents, and that date is a REAL posting day (WG12 §6) |
+| the community_section grid header anchor | the grid is IDENTICAL on all 9 archive documents with and without it | REMOVED | **RESTORED** (WG12 §8). The grid is identical on 106 documents too — but only because last-wins overwrote 129 contradicting cells the unanchored region was reading out of the check listing |
+| the community_section region terminator | likewise IDENTICAL on all 9 | REMOVED | stays removed |
+| the page-header lookback | disabling it really does put `595137FD` back to withheld | KEPT — the mutant survived because the fixture also carried a column caption, so the caption-stop was killing it. The caption is out of the fixture and the mutant now dies on the rule it names | **WITHDRAWN** (WG12 §2). It bought that one lift and cost a real printed posting day on 16 documents |
 
 Three rules deleted, one fixture corrected. The distinction matters: a rule
 that survives its mutant is either untested or unnecessary, and only
