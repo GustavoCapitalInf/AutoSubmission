@@ -316,6 +316,15 @@ _ENUMERATES = {"findall", "finditer"}
 _UNIQUENESS_CALLS = {"set", "frozenset", "dict"}
 
 
+def _statements(node) -> list:
+    """A function's body without its docstring — what the length bound counts."""
+    return [
+        statement for statement in node.body
+        if not (isinstance(statement, ast.Expr)
+                and isinstance(statement.value, ast.Constant))
+    ]
+
+
 def _is_unique_match_shape(node) -> bool:
     enumerates = uniqueness = False
     for sub in ast.walk(node):
@@ -368,14 +377,60 @@ def test_no_parser_re_implements_the_one_distinct_reading_helper():
         if path.name in SHARED_UTILITIES:
             continue
         for node in _functions(path):
-            body = [
-                statement for statement in node.body
-                if not (isinstance(statement, ast.Expr)
-                        and isinstance(statement.value, ast.Constant))
-            ]
-            if len(body) <= NEAR_CLONE_MAX_STATEMENTS and _is_unique_match_shape(node):
+            if len(_statements(node)) <= NEAR_CLONE_MAX_STATEMENTS \
+                    and _is_unique_match_shape(node):
                 offenders.append(f"{_rel(path)}:{node.name}")
     assert not offenders, (
         "a private re-implementation of analysis/tables.py::unique_match — "
         f"call the shared helper instead: {offenders}"
+    )
+
+
+#: One paraphrase of `tables.unique_match`, in two lengths that differ by a
+#: single statement. Invented for this test and resembling no document.
+_PARAPHRASE = (
+    "def _row(pattern, source):\n"
+    "    text = source.strip()\n"
+    "{extra}"
+    "    found = pattern.findall(text)\n"
+    "    if not found:\n"
+    "        return None\n"
+    "    if len(set(found)) > 1:\n"
+    "        return None\n"
+    "    first = found[0]\n"
+    "    return first\n"
+)
+
+
+def test_the_helper_length_bound_is_where_the_measurement_put_it():
+    """`NEAR_CLONE_MAX_STATEMENTS` is a CALIBRATION, and until now nothing
+    pinned it: the guard above sweeps a tree in which no function of any length
+    matches the shape, so the bound could be lowered to 2 and every test would
+    still pass while the guard silently stopped seeing the three-statement
+    paraphrase it was written for (W3 §SCANHYG SH8.1 mutant K3, review
+    finding 4).
+
+    This asserts the boundary in both directions on one paraphrase written at
+    two lengths: at the shipped bound a SIX-statement re-implementation is
+    caught, and a SEVEN-statement one is a MISS — documented here rather than
+    discovered later, because a longer function is a reader rather than a
+    helper and the guard deliberately does not reach it. The sweep in W3
+    §SCANHYG SH6 is why 6 and not 3 or 8: the offender set over `analysis/` is
+    empty at every bound from 1 to 7, and the first innocent function enters
+    at 8."""
+    caught = ast.parse(_PARAPHRASE.format(extra="")).body[0]
+    missed = ast.parse(
+        _PARAPHRASE.format(extra="    text = text.replace(chr(10), ' ')\n")
+    ).body[0]
+
+    assert _is_unique_match_shape(caught) and _is_unique_match_shape(missed)
+    assert len(_statements(caught)) == 6 and len(_statements(missed)) == 7
+
+    assert len(_statements(caught)) <= NEAR_CLONE_MAX_STATEMENTS, (
+        "the bound no longer catches a six-statement re-implementation of "
+        "tables.unique_match"
+    )
+    assert len(_statements(missed)) > NEAR_CLONE_MAX_STATEMENTS, (
+        "the bound now reaches a seven-statement function, which the "
+        "calibration sweep says is a reader and not a helper"
     )

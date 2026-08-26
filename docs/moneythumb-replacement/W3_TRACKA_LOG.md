@@ -44200,7 +44200,20 @@ in three glyphs — which this template does not print, and which `_ROW_RE` caps
 at three glyphs anyway. Disclosed rather than tested: a test for `"007"` would
 pin a shape no document has.
 
-**K3 is a real, narrow gap and is left for review.** Lowering
+**K3 IS CLOSED** (review finding 4). The bound is pinned by
+`test_the_helper_length_bound_is_where_the_measurement_put_it`, which asserts
+the boundary in both directions on ONE invented paraphrase written at two
+lengths: at the shipped bound a SIX-statement re-implementation is caught and a
+SEVEN-statement one is a documented MISS. Lowering the constant to 2 makes the
+six-statement half fail, so the mutant is killed by name; the seven-statement
+half is what stops the constant drifting the other way, and the sweep in SH6 is
+why the boundary sits there (offender set empty at every bound 1–7, first
+innocent function at 8). The body-length filter the sweep applies is now one
+helper, `_statements`, so the assertion tests the guard's own predicate rather
+than a copy of it. The paragraph the session wrote when it declined to make the
+fix is kept below, because it is what the mutant table said at the time.
+
+**K3 was a real, narrow gap and was left for review.** Lowering
 `NEAR_CLONE_MAX_STATEMENTS` from 6 to 2 silently narrows the clone guard —
 the removed paraphrase is three statements long, so at a bound of 2 it would no
 longer be flagged — and no test fails, because the guard's self-check
@@ -44286,9 +44299,10 @@ than as a pair. The figures above are the re-measurement after that fix.
    withheld before and after, all five are inside the named population, and
    SH3 gives the reason the SF2 table predicts five. It is recorded here
    because a reviewer reading the card alone would expect one.
-2. **The clone guard's calibration constant is unpinned** (mutant K3). One
+2. ~~**The clone guard's calibration constant is unpinned** (mutant K3). One
    assertion closes it; the fix is a test change and this session did not make
-   it. See SH8.1.
+   it.~~ **CLOSED** (review finding 4): the assertion is written, the bound is
+   pinned in both directions and the mutant is killed by name. See SH8.1.
 3. **The new clone-guard comment says "all 89 modules of `analysis/`" and the
    measured number is 92** — as does the older `_modules` docstring it inherited
    the figure from, so the drift is not this branch's. Recorded, not edited:
