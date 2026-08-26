@@ -45,6 +45,17 @@ def blob(rev: str) -> bytes:
 
 
 def main(argv: list[str]) -> int:
+    # Optional third argument: `--section-only "# §HEADER"`. The strict shape
+    # check refuses a branch whose log carries edits OUTSIDE its own section
+    # (batch 8: a scripted substitution that rewrote four other cells' proof
+    # tables; sweep rows appended to a predecessor's table). Under this flag the
+    # rebuild takes the train's log plus the branch's OWN section — everything
+    # from the named header to end of file — and REPORTS the discarded
+    # pre-section edits, so the composition is explicit rather than silent.
+    section_only = None
+    if len(argv) == 5 and argv[3] == "--section-only":
+        section_only = argv[4].encode()
+        argv = argv[:3]
     if len(argv) != 3:
         print(__doc__)
         return 2
@@ -58,11 +69,28 @@ def main(argv: list[str]) -> int:
             print("NON-W3 CONFLICT - manual composition required; merge left in progress")
             return 3
         base, ours, theirs = blob(merge_base), blob("HEAD"), blob(branch)
-        if not theirs.startswith(base):
+        if theirs.startswith(base):
+            section = theirs[len(base):]
+        elif section_only is not None:
+            start = theirs.find(b"\n" + section_only)
+            if start < 0:
+                run("git", "merge", "--abort", check=False)
+                print("SECTION HEADER NOT FOUND in the branch log; merge aborted")
+                return 4
+            section = theirs[start + 1:]
+            pre = theirs[: start + 1]
+            discarded = sum(1 for a, b in zip(base.split(b"\n"), pre.split(b"\n")) if a != b) + abs(
+                base.count(b"\n") - pre.count(b"\n")
+            )
+            print(
+                f"SECTION-ONLY REBUILD: the branch log carried edits outside its own section "
+                f"(~{discarded} differing lines before {section_only.decode()}); they are DISCARDED "
+                f"and must be recorded in the train's log"
+            )
+        else:
             run("git", "merge", "--abort", check=False)
             print("W3 SHAPE VIOLATION: the branch log is not the merge-base log + an appended section; merge aborted")
             return 4
-        section = theirs[len(base):]
         with open(W3, "wb") as handle:
             handle.write(ours + section)
         run("git", "add", W3)
