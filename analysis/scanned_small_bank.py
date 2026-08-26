@@ -670,7 +670,11 @@ def daily_grid_amount_contradictions(markdown: str, stmt: Statement) -> list[str
     less, and which every other check on the document was blind to because the
     row it came from was otherwise perfectly formed (W3 §SCANFINISH SF2,
     carded there as SS-GRID-AMOUNTS). The size is stated as a CLASS here and
-    everywhere else in tracked source: the figure is the document's.
+    in every comment of the four modules this card owns: the figure is the
+    document's. The universal this sentence used to claim — "everywhere else
+    in tracked source" — was not measured and is not true; what the whole
+    tracked tree carries is the train's to sweep (W3 §SCANHYG SH13, review
+    finding 1).
 
     WHAT THE GRID SAYS. It prints an end-of-day balance for each day the
     account moved, so consecutive printed cells partition the period: the step
@@ -1115,7 +1119,8 @@ def parse_apex_scanned_statement(markdown: str) -> Statement | None:
 #    mis-read summary before a grid is parsed. It is a fail-fast, not
 #    independent evidence: once (1) and (2) hold it follows.
 #
-# **A negative balance prints its minus on the RIGHT** (`1,420.04 -`), the same
+# **A negative balance prints its minus on the RIGHT** (the figure, then a
+# space, then the hyphen), the same
 # convention `analysis/balance_by_date.py` documents for its average-balance
 # statistic. Three of the eight archive documents print at least one overdrawn
 # day and one of them prints three; reading those as positive would publish a

@@ -170,10 +170,11 @@ def _rows_the_total_agrees_with(
     """One section's rows, read strictly first and loosely only on evidence.
 
     A photographed statement sometimes prints an amount's decimal point as a
-    comma — `44,50` where the bank set `44.50`. Reading every such token that
-    way would be a tolerance, and a dangerous one: the same shape with a
-    THREE-digit tail (`29,444,311`) is a different accident entirely, and
-    guessing at it would publish a figure off by a factor of a thousand.
+    comma — a TWO-digit tail behind a comma where the bank set a decimal point.
+    Reading every such token that way would be a tolerance, and a dangerous
+    one: the same shape with a THREE-digit tail is an ordinary thousands
+    separator, a different accident entirely, and guessing at it would publish
+    a figure off by a factor of a thousand.
 
     So the loose reading is never taken on its own authority. The section's
     rows are read with the strict grammar; if their sum already equals the
@@ -202,9 +203,11 @@ def _debits_section(markdown: str) -> str:
     `Other Debits`, each repeating under a `(Continued)` heading on every page
     it spills onto. Reading from `Other Debits` — a sub-section heading — to
     `Deposits & Credits` therefore started AFTER any `ATM/Purchases` rows and
-    silently dropped them. Measured on the four `STATEMENTS_*-7816` statements
-    in the archive, that lost between 2,845.68 and 12,686.52 of printed debits
-    per statement and left every one of them failing reconciliation.
+    silently dropped them. Measured on the four scanned statements of this
+    family in the archive, that lost between a FOUR-figure and a FIVE-figure
+    sum of printed debits per statement and left every one of them failing
+    reconciliation. The size is a class here because the figure is the
+    document's (W3 §SCANHYG SH13, review finding 1).
 
     The container heading is the one that carries the electronic-cheque
     footnote; sub-section and `(Continued)` headings carry no dated rows of
@@ -241,7 +244,7 @@ def _debits_section(markdown: str) -> str:
 #: it, which meant a cheque grid continuing under `Checks (Cont.)` on the
 #: following page was cut off at the page break — the same "a boundary inside
 #: the section is not the end of it" defect as the debits container above, and
-#: worth 8,310.98 and 2,306.38 of unread cheques on two archive statements.
+#: worth a FOUR-figure sum of unread cheques on each of two archive statements.
 _CHECKS_END = r"(?:Total Debits|Debits\s+\*\*|Deposits & Credits|Current Balance)"
 
 #: The credit grid's own column header opens it. `Date Amount _ Description`
@@ -294,8 +297,9 @@ def _checks_the_total_agrees_with(
         return widened
     # NEITHER reading agrees with the printed total, and that is its own
     # finding rather than a default. It happens on one archive statement
-    # (W3 §SCANFINISH SF10): the strict grid reads 50.00 MORE cheque money than
-    # the page's own `Total Checks`, and the widened grid reads the same. A
+    # (W3 §SCANFINISH SF10): the strict grid reads a TWO-figure amount MORE
+    # cheque money than the page's own `Total Checks`, and the widened grid
+    # reads the same. A
     # widened read that agrees with nothing is not better evidence than the
     # strict one — it is a second guess — so the strict reading stands and the
     # disagreement survives into `reconciliation`, where the coverage ratio and
@@ -314,7 +318,8 @@ def _parse_checks(
     # out at the END of whichever grid row they sit beside - so anchoring on
     # `Total Checks` started the section one or two printed rows late. Measured
     # on the four scanned statements in the archive: two cheques lost on one of
-    # them, worth 10,200.00 of the 32,571.20 the same page states as the total.
+    # them, worth a FIVE-figure sum out of the FIVE-figure total the same page
+    # states.
     # `Check # Amount Date` is the grid's own header and it precedes every row.
     section = section_between(
         markdown, r"Check\s*#\s*Amount\s*Date", _CHECKS_END
@@ -385,7 +390,8 @@ def parse_citizens_statement(markdown: str) -> Statement | None:
     beginning, printed_checks, printed_debits, credits, ending = summary
     # NOT rounded. `_summary` used to return this sum already formed and the
     # published field carries its float artefact (one archive statement
-    # publishes `147530.16999999998`); rounding it here would move an audited
+    # publishes a SIX-figure sum whose binary-float tail runs several digits
+    # past the cent); rounding it here would move an audited
     # figure on a document this card has no business touching. The artefact is
     # real and is reported rather than silently corrected.
     debits = printed_checks + printed_debits
