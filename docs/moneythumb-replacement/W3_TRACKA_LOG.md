@@ -43704,3 +43704,558 @@ containers, every one of the 22 changed paths ends in `.account_name`.
 
 `payload_now_raises` is **0**: no document that published under the run of
 record stopped publishing at HEAD.
+
+# §GLANCE — the category partition is signed by the platform, and the collected grid is not a ledger
+
+## GL0. Summary
+
+Batch-8 census rank 9 (`accounts_at_a_glance_category_number_amount`, n=8).
+Registered as `category_partition`, registry **75 → 76**, conformance
+cross-product **76 × 75 = 5,700**.
+
+**Movement: 5 of the 8 `failed/no_parser_matched` → `validated/approved`;
+the other 3 → `failed/parser_declined`.** Not 6, and the missing one is not a
+defect of the reader: it is the card's own refusal, applied to the three
+documents that print no daily-ledger evidence at all.
+
+Two things the census named turned out to be wrong in the same direction, and
+both are in this reader:
+
+* **The family key names furniture, not the invariant.** `ACCOUNTS AT A GLANCE`
+  is absent from 1 of the 8, and that document also carries no masthead. The
+  invariant every one of the 8 prints is a `<product> SUMMARY Type : … Status :
+  …` control line over a `Category Number Amount` table, and that is what the
+  two required detection markers read.
+* **The category-to-sign map does not have to be memorised, because the
+  platform prints it.** A category of money IN carries a TRAILING PLUS on its
+  amount; a category of money OUT carries no mark. No category label appears
+  anywhere in this module's sign decision — the fixtures prove it by calling
+  their categories `Alpha Credits` and `Beta Debits` — and the reading is then
+  required to close the summary's own identity, which it does on 8/8.
+
+And the archive taught a third thing the census could not have: a **fourth
+masthead** of this template already had an issuer-specific reader
+(`wilson_muir`, 14 documents, all validated today). The general registration
+claims them, so it takes the `supersedes` edge its three predecessors took. On
+all 14 of those documents the platform prints BOTH balance grids, and they
+disagree — which is the strongest evidence this card has for its refusal, and
+it came from outside the family.
+
+## GL1. The population, by live detection replay
+
+The eight, by `content_sha256`, with what each one prints. Read from cached OCR
+text by direct artifact path; no figure, name or account number from any of
+them appears in this log, in the reader, or in its tests.
+
+| sha (8) | masthead | AAAG | ledger shape | balance grid | identity closes | outcome |
+|---|---|---|---|---|---|---|
+| `2065EFBD` | Maverick | yes | unified | DAILY | yes | **validated** |
+| `983F04D5` | Maverick | yes | unified | DAILY | yes | **validated** |
+| `A78F1E6A` | Maverick | yes | unified | DAILY | yes | **validated** |
+| `FC3FF0D3` | Maverick | yes | unified | DAILY | yes | **validated** |
+| `3A9502DF` | none | **no** | sectioned | DAILY | yes | **validated** |
+| `6E9A3A11` | 1STMERC | yes | sectioned | COLLECTED | yes | declined |
+| `889DAEBE` | 1STMERC | yes | sectioned | COLLECTED | yes | declined |
+| `C47BEFE5` | 1STMERC | yes | sectioned | COLLECTED | yes | declined |
+
+Two printed issues under one core, and the reader decides which a document is
+by what the document prints rather than by its masthead:
+
+* **UNIFIED** (4 documents) — one `STATEMENT PERIOD ACTIVITY` table,
+  `Date Check/Description Amount Balance`, a running balance on every row, and
+  a `CHECKS AND OTHER DEBITS` grid that RESTATES rows the table already
+  carries. Direction comes from the trailing plus on the amount.
+* **SECTIONED** (4 documents) — `ALL CREDIT ACTIVITY`, `ELECTRONIC DEBITS`,
+  `CHECKS AND OTHER DEBITS`, each `Date Description Amount`, no running
+  balance. Direction comes from the SECTION. The census found the printing that
+  proves why it must: one statement carries the same description string as a
+  credit in one section and as a debit in another.
+
+**A cross-document check the family gave for free.** The eight are two
+consecutive-month chains of two accounts — a four-statement chain on the
+Maverick account and a three-statement chain on the 1STMERC one — and in all
+**5** chain edges the earlier statement's printed `Ending Balance On` is the
+later statement's printed `Balance Forward From`, on the same printed account
+slot. It gates nothing (a reader may not consult another document), and it is
+worth recording: the partition figures this reader publishes are corroborated
+across statement boundaries.
+
+## GL2. The sign map, derived rather than remembered
+
+The census's risk was real: `Deposits`, `Automatic Deposits` and
+`Miscellaneous Credits` are money in, while `Debits`, `Card Activity`,
+`Automatic Withdrawals`, `Automatic Teller Withdrawals`, `Miscellaneous
+Debits`, `Miscellaneous Fees` and the service-charge total are money out. Nine
+labels across eight documents, and the wider corpus will print more.
+
+The reader memorises none of them. What it reads is the mark the platform
+prints on the amount:
+
+    Balance Forward + sum(amounts marked +) - sum(amounts unmarked) == Ending Balance
+
+closing to the cent on **8 of 8**. Three entries on that line are not
+categories and are recognised by the platform's own wording for them —
+`Balance Forward From <date>`, `Ending Balance On <date>` and
+`Average Balance (<basis>)`. Everything else is a movement category.
+
+**Three meanings, two characters, resolved by column and not by lexicon.** A
+trailing plus on an AMOUNT is a direction; a trailing minus on a BALANCE is a
+sign (the platform prints overdrawn balances and an overdrawn balance forward
+that way); a trailing minus on a category amount is a combination no document
+prints, and the reader REFUSES it rather than choosing between "a negative
+credit" and "a positive debit". Mutants M05–M10 kill each half of that.
+
+**The partition is read end to end or not at all.** The region is the remainder
+of the single line that carries `Category Number Amount`, every entry on it
+must parse, and any text no entry accounts for refuses the document (M18). A
+partly-read partition is not a weaker oracle — it is a summary this reader has
+misread, and every gate below compares the ledger against it.
+
+## GL3. THE REFUSAL: a collected balance is not a daily ledger balance
+
+The platform prints exactly one dated balance grid per statement, under a
+heading it chooses itself: `DAILY BALANCE SUMMARY` (the end-of-day LEDGER
+balance) or `COLLECTED BALANCE SUMMARY` (that balance minus uncollected float).
+Under the ADB doctrine ratified 2026-08-15 the canonical underwriting average
+is the calendar-day series of end-of-day LEDGER balances, so a collected series
+is not weak evidence of it — it is a different quantity.
+
+**The reader never reads a collected grid's cells.** It does read the seed line
+both grids print (`Beginning Ledger Balance on <date> was <amount>` — the word
+is `Ledger` on both), because that is the platform's third printing of the
+opening balance, and it gates it against the partition's.
+
+Three of the eight print only a collected grid, and they are the SECTIONED
+issue, so they print no running balance either. Everything else about them
+reads — the identity closes, both directions' counts and totals match the rows
+extracted — but **nothing in the document places any row on a DAY**, and a
+misdated row moves the average while leaving every arithmetic gate satisfied.
+So the reader declines them: `failed/parser_declined`.
+
+### GL3.1 Why the printed `Average Balance (Ledger)` cannot stand in as the oracle
+
+The obvious rescue is the bank's own printed average, and it was tested rather
+than assumed. `3A9502DF` prints `Average Balance (Ledger)` AND a ledger daily
+grid, so its daily series is independently proven — which makes it the one
+document in the archive that can price the bank's figure. Measured on it, the
+platform's six bases against the printed average:
+
+| basis | reproduces the printed `Average Balance (Ledger)`? |
+|---|---|
+| `calendar_day_printed_period` (canonical) | no |
+| `banking_day` | no |
+| `weekday_only` | no |
+| `posting_day` | no |
+| `credit_only` | no |
+| `beginning_of_day` | no |
+
+Not one of the six. The bank's printed ledger average on this platform is a
+proprietary convention that reproduces on no basis the platform computes, so it
+is evidence-only (which the ADB doctrine already says) and it is **not** a
+per-day oracle. The three collected-grid documents therefore have none, and the
+refusal stands on that measurement rather than on caution.
+
+`analysis/metrics.py` still records the disagreement as the bank-reported
+variance on the documents that publish; nothing is hidden.
+
+### GL3.2 The platform's own proof that the two series differ
+
+`wilson_muir`'s 14 documents (GL5) print BOTH grids on the same statement.
+On every one of the 14 the two disagree, on between **2 and 10** of the days
+they share, and the collected grid carries 1–2 MORE dated days than the ledger
+grid on 13 of them — float clears on days the ledger does not move. Measured by
+reading both grids with this reader's own cell grammar:
+
+| documents printing both grids | 14 of 14 |
+| documents where the two series are identical | **0** |
+| days that differ, per document | 2–10 (of 16–22 shared) |
+
+The census's refutation said the collected grid "agrees with the ledger on most
+statements and disagrees on the ones that matter". The stronger statement is
+now measured: on every document where the platform prints both, they differ.
+
+## GL4. The gates
+
+Sixteen comparisons over eight independent printings, and a document that fails
+any one of them publishes nothing.
+
+| # | gate | what it reads |
+|---|---|---|
+| 1 | the partition closes on itself | `BalFwd + credits − debits == Ending` |
+| 2 | the partition is consumed end to end | no unaccounted text on the line |
+| 3 | credit rows sum to the credit categories | printed amounts |
+| 4 | debit rows sum to the debit categories | printed amounts |
+| 5 | credit row COUNT equals the credit categories' items | printed counts |
+| 6 | debit row COUNT equals the debit categories' items | printed counts |
+| 7 | the uncounted categories equal the service-charge recap | `TOTAL SERVICE CHARGE : <x>` |
+| 8 | the period's two printings agree | `Balance Forward From`/`Ending Balance On` dates vs `This Statement Cycle Reflects N Days` |
+| 9 | the grid seed is the opening balance | `Beginning Ledger Balance on <date> was <x>` |
+| 10 | every ledger-grid cell equals the walked end-of-day balance | `DAILY BALANCE SUMMARY` |
+| 11 | the grid's days ARE the ledger's posting days | both directions |
+| 12 | no day printed twice in the grid | three-up column recovery |
+| 13 | the running balance walks onto the printed ending balance | unified issue, per ROW |
+| 14 | the cheque recap's rows are rows the unified table carries | multiset containment |
+| 15 | the relationship block lists exactly one account | L-1 |
+| 16 | the relationship roll-up equals the closing balance | `Your Total Deposits = <x>` |
+
+Three L-1 refusals sit alongside: exactly one `SUMMARY Type : … Status : …`
+control line, exactly one `Category Number Amount` line, and one distinct
+`Account No.` across every page and every appendix page.
+
+**The printed `Number` column, and the one category that has none.** Every
+category prints an item count except the service-charge total, and a category
+whose amount is `0.00` prints none either. The reader reads a zero-amount
+category as zero rows, and an uncounted category with money in it as exactly
+ONE posting — which is how this platform posts the charge it itemises in a
+recap of its own, measured on all four documents in the family that carry one,
+and gated by (7) against the recap's printed total. A printing where it is not
+one row refuses the document at (5)/(6) rather than publishing a miscounted
+ledger. M15 is that mutant.
+
+**What the gates still cannot see, named rather than left to be found.** Moving
+value between two rows that share a date and a direction holds every gate on
+the sectioned issue; on the unified issue the running-balance walk closes even
+that, unless the two rows are adjacent in printed order AND the intermediate
+balance is moved with them. Both are forgery signatures rather than OCR ones.
+
+## GL5. The archive's own finding: `wilson_muir` reads this template
+
+The non-target probe (GL7) found the general registration claiming **22** of
+the 3,351 documents with cached text: its own 8, and **14** that `wilson_muir`
+reads — a FOURTH masthead of the same core, printing the same
+`… SUMMARY Type : **REG Status : Active` control line over the same
+`Category Number Amount` table. All 14 are `validated/approved` today.
+
+Without an edge those 14 resolve `ambiguous` and go to review. Measured both
+ways over the run of record: **14 ambiguous with the registration and no edge,
+0 with the edge, 0 before the registration existed.**
+
+The edge takes the shape its three predecessors took (`b1`, `first_farmers`,
+the four `community_section` issuers): `wilson_muir` moves to band 10 and
+supersedes `category_partition`.
+
+* **Shadowing — strong.** `wilson_muir` requires the issuer's own NAME; the
+  general reader consults nothing that identifies an issuer and publishes
+  `bank=None` by construction. Neither can reach the other's evidence.
+* **Stranding — observed, and not close.** This issuer prints its account
+  number as `#` and three digits, which the general reader's account slot
+  refuses; it declines all 14 at `_summary` today. A future printing of this
+  issuer's that the general reader COULD publish would be routed to
+  `wilson_muir` and never offered to it. The archive holds none, and the same
+  is true of every supersedes edge already shipped. Named, not claimed away.
+* No pinned corpus document prints this template, so the edge moves nothing in
+  the 109.
+
+Both directions are pinned in `tests/test_category_partition.py`.
+
+## GL6. The mutation table
+
+37 killers and 3 control arms, run WITHOUT `-x`, every mutant applied as its
+row documents. Two properties are asserted about the TABLE rather than trusted:
+no mutant may leave its document unchanged, and no two mutants may produce the
+same tree (`test_the_table_has_no_duplicate_rows_and_no_mutant_that_edits_nothing`).
+The `reorder` control arm is additionally checked against the token multiset,
+because the batch-7 defect was a row that said reorder and deleted.
+
+Each row's killer was ATTRIBUTED rather than assumed: the reader's gate
+functions were wrapped and the first one to reject each mutant recorded. Every
+mutant is killed by the gate its row names — no mutant is killed by an
+unrelated gate.
+
+| id | gate | killed by |
+|---|---|---|
+| M01 | detection: the summary control line | `detect` |
+| M02 | detection: the partition column header | `detect` |
+| M03 | detection: the dated closing balance | `detect` |
+| M04 | detection: the dated balance forward | `detect` |
+| M05 | sign map: the trailing plus on a credit category | `_matches_the_printed_partition` |
+| M06 | sign map: a trailing plus added to a debit category | `_matches_the_printed_partition` |
+| M07 | sign map: a trailing MINUS on a category amount is refused | `_summary` |
+| M08 | sign map: a trailing PLUS on a grid balance is refused | `_grid` |
+| M09 | sign map: the trailing plus on a unified credit row | `_matches_the_printed_partition` |
+| M10 | sign map: a trailing minus on a unified row amount is refused | `_unified_rows` |
+| M11 | identity: the printed ending balance | `_matches_the_printed_partition` |
+| M12 | identity: the printed balance forward | `_matches_the_printed_partition` |
+| M13 | count gate: a credit category's printed count | `_matches_the_printed_partition` |
+| M14 | count gate: a debit category's printed count | `_matches_the_printed_partition` |
+| M15 | count gate: the uncounted category is exactly one posting | `_matches_the_printed_partition` |
+| M16 | amount gate: a debit row's amount | `_matches_the_printed_partition` |
+| M17 | recap gate: the printed service-charge total | `_matches_the_printed_partition` |
+| M18 | the partition is read END TO END | `_entries` |
+| M19 | period: the printed cycle length | `_period` |
+| M20 | period: a row dated outside the printed period | `_unified_rows` |
+| M21 | grid: a cell that disagrees with the walked ledger | `_matches_the_printed_grid` |
+| M22 | grid: a day the ledger posts on missing from the grid | `_matches_the_printed_grid` |
+| M23 | grid: a day printed twice | `_grid` |
+| M24 | grid seed: the amount | `_grid_seed` |
+| M25 | grid seed: the date | `_grid_seed` |
+| M26 | **the oracle itself: a collected grid leaves the sectioned issue with none** | the per-day-oracle rule in `parse` |
+| M27 | the oracle itself: no grid at all on the sectioned issue | the per-day-oracle rule in `parse` |
+| M28 | walk: a printed running balance | `_walks_to_the_printed_ending` |
+| M29 | walk: two rows swapped out of printed order | `_walks_to_the_printed_ending` |
+| M30 | unified rows carry EXACTLY two figures | `_unified_rows` |
+| M31 | the authorization stamp's own parentheses | `_sectioned_rows` |
+| M32 | direction follows the SECTION | `_matches_the_printed_partition` |
+| M33 | cheque recap: a row the unified table does not carry | `_reprints` |
+| M34 | L-1: a second account in the relationship block | `_matches_the_relationship_block` |
+| M35 | L-1: the roll-up disagrees with the closing balance | `_matches_the_relationship_block` |
+| M36 | L-1: a second account number in a page header | `_summary` |
+| M37 | L-1: a second partition on the page | `_summary` |
+| C01 | control: the grid's three-up cells out of document order | **publishes, identical** |
+| C02 | control: an extra page break inside the ledger | **publishes, identical** |
+| C03 | control: the relationship block absent entirely | **publishes, identical** |
+
+Two text-layer traps the census named are pinned by M31 and M30. The first is
+the authorization stamp `(mm/dd/yy hh:mm:ss)` welded into a description in the
+SAME notation as the row date — 51 of them on one document, and a date-anchored
+reader that admits it shatters every row it appears on. The row date is never
+parenthesised on this platform and the stamp always is, so `(` is inside the
+token-start class. The second is the page header `Statement Date:` with a
+FOUR-digit year, reprinted on every page of every document: the row-date
+grammar's right boundary is what keeps it from reading as a row date whose row
+has no amount, which would cost the whole family.
+
+## GL7. The non-target probe
+
+`tools/glance_detection_probe.py`, committed, read-only, $0 vendor, OCR
+artifacts by direct file path over every capability partition of
+`ocr_settings_key`; the `webapp_data` sqlite index is never opened. Run over
+the whole run of record rather than a sample, so it is a superset of the
+stratified probe the wave rules ask for.
+
+| | |
+|---|---|
+| documents probed | **3,351** (29 of the 3,380 hold no OCR payload under any partition) |
+| scanned stratum | 165, all included |
+| Canadian stratum | 672 — 605 by printed token (`CAD`/`Canada`/`Canadian`/`Canadien`), 561 by attributed parser |
+| claimed by the registration | 22 |
+| of those, SOLE claimant | 8 — exactly the family |
+| claimed and published | **5** |
+| claimed and declined | 17 (the 3 collected-grid documents + the 14 `wilson_muir`) |
+| scanned documents claimed | **0** |
+| Canadian documents claimed | **0** |
+| resolve `ambiguous` at HEAD | **0** |
+| resolve `ambiguous` with the registration removed | **0** |
+
+The ambiguity delta is the number that matters and it is zero in both
+directions. The first run of the same probe, before the `wilson_muir` edge,
+reported 14 — that is how the edge was found.
+
+## GL7B. The hunks, and the privacy scan
+
+**Hunks.** 7 files, 16 hunks, +1,947 / −7.
+
+| file | + | − | what |
+|---|---:|---:|---|
+| `analysis/category_partition.py` | 943 | 0 | the reader (new) |
+| `analysis/parser_registry_entries.py` | 37 | 0 | the registration and the `wilson_muir` edge |
+| `tools/glance_detection_probe.py` | 249 | 0 | the probe (new) |
+| `tests/test_category_partition.py` | 679 | 0 | 80 tests incl. the mutation table (new) |
+| `tests/data/parser_conformance_fixtures.py` | 10 | 0 | one INVENTED fixture |
+| `tests/test_parser_registry_entries.py` | 24 | 3 | the dispatch-order pin, the count, the supersedes pin |
+| `tests/test_parser_conformance.py` | 5 | 4 | the count and the cross-product |
+
+`fiserv_premier`, `core_processor_counted`, `core_processor_daily` and
+`core_processor_sectioned` are byte-identical: the diff touches none of them.
+`ACCOUNTS AT A GLANCE` is Premier furniture and the census named those four as
+the nearest readers, so the zero overlap is worth stating as a measurement —
+`fiserv_premier` requires `STATEMENT OF ACCOUNT` + `PREVIOUS BALANCE` +
+parenthesised counts, none of which this family prints, and the 76 × 75
+conformance cross-product asserts non-claiming in both directions for all four.
+
+**The privacy scan.** Every token the family's eight documents print was
+extracted by class and grepped against the WHOLE branch diff (base
+`10cc722` to the working tree), matching on token boundaries:
+
+| class | tokens scanned | hits |
+|---|---:|---:|
+| money figures (`1,234.56`) | 1,729 | **1** |
+| date tokens (`m/d/yy`, `m/d/yyyy`) | 97 | **0** |
+| digit runs of 4+ (accounts, references, sequences) | 752 | **0** |
+| masked account forms | 2 | **0** |
+| alphabetic tokens of 4+ characters | 451 | 91 |
+| **total** | **3,028** | **92** |
+
+Adjudicated:
+
+* the ONE money hit is `0.00` — the canonical printed form of zero, which the
+  fixture must print to exercise the zero-amount category, and which carries
+  no information about any account;
+* the 91 word hits are, every one of them, either platform FURNITURE the reader
+  must match (`ACCOUNTS`, `GLANCE`, `SUMMARY`, `Category`, `Balance`,
+  `Forward`, `Ending`, `ELECTRONIC`, `DEBITS`, `COLLECTED`, `DAILY`,
+  `ITEMIZED`, `SERVICE`, `CHARGE`, `Reflects`, `Cycle`, `Stmt`, …), the
+  platform's category vocabulary quoted in the reader's docstring for the
+  express purpose of saying the reader does not use it, the institution name
+  `WILSON & MUIR` (pre-existing tracked source: `analysis/wilson_muir.py`, its
+  own conformance fixture, and its registry label), or ordinary English in
+  prose (`call`, `check`, `changed`, `source`, `will`, `with`, …). **Zero are a
+  customer name, a merchant, a place, or an account.**
+
+Bare four-digit calendar years are excluded from the digit-run class by
+construction and the exclusion is declared here: the branch cites project dates
+(`ratified 2026-08-15`) and the archive prints the same years as years.
+
+Three quoted archive figures WERE found by the first run of this scan, all in
+the reader's own comments — a page-header statement date and two sub-dollar
+amounts offered as evidence for the money grammar. All three are gone
+(`00f0f90`). The fixtures' dates, figures, account numbers, cheque serial and
+page footers were likewise replaced with values measured absent from all eight
+documents before they were written.
+
+## GL8. Nothing else moves
+
+Two changes can reach a document this card never names, and each is measured
+rather than argued.
+
+**Detection.** A new registration can only move a document by claiming it. The
+probe above enumerates every document it claims — 22 of 3,351 — and the
+ambiguity count is 0 at HEAD against 0 without the registration. Nothing
+outside those 22 sees a different claimant set, and of the 22, 14 keep the
+parser they already had (GL5).
+
+**The archive sweep.** `python -m tools.regfp_zero_movement_sweep` at the
+branch's final production tree, against the run of record's rows and its own
+baseline settings key, in four chunks whose counts add:
+
+SWEEP_TABLE
+
+Every finding is inside the NAMED population, checked by `content_sha256`:
+SWEEP_FINDINGS. `payload_now_raises` is **0** — no document that published
+under the run of record stopped publishing at HEAD — and `moved` is **0**: not
+one existing payload changed a single field.
+
+**The three declines produce no payload before and none after**, so they land
+in `no_payload_raises_again` and are invisible to the instrument by
+construction. Their movement is a REASON change inside `failed`
+(`no_parser_matched` → `parser_declined`), verified directly:
+`parser_registry.resolve` returns `unclaimed` with `attempted =
+['category_partition']` on all three, which is exactly the input
+`discovery/runner.py::_failure_reason` turns into `parser_declined`. That is
+the §LCPERIOD relabel — the parser reads this grammar and refuses these
+printings on the platform's own evidence — and it improves attribution rather
+than moving an outcome class.
+
+## GL9. Findings and questions for Ocean
+
+1. **The three collected-grid refusals are the card's own, and they are
+   reversible only by a ruling, not by code.** `6E9A3A11`, `889DAEBE` and
+   `C47BEFE5` reconcile completely — the identity closes, both directions'
+   counts and totals match the extracted rows — and they would publish a
+   calendar-day ADB from the reconstructed ledger if the reader let them. What
+   they cannot do is prove any row is on the day it claims. GL3.1 prices the
+   only candidate oracle and it fails on all six bases. I refuse them. If
+   Ocean would rather publish them as `withheld` than as `failed`, that is a
+   different mechanism (the parser would have to suppress a printed opening
+   balance to force `withheld_adb`, which is manufacturing an outcome by hiding
+   evidence) and I have not built it.
+
+2. **`ACCT-SLOT-HASH` (carried, no cell).** The `wilson_muir` issue prints its
+   account number as `#` and three digits. The general reader's account slot
+   requires four or more `[X*0-9]`, so it declines that printing. Widening the
+   slot would put the general reader into contest with an issuer reader that
+   already validates all 14, so it is deliberately NOT done here and is named
+   instead.
+
+3. **The family is a future currency mover, and says so.** No document prints a
+   currency word, an ISO code or a symbol anywhere (the census measured it and
+   this reader relies on it). The reader proves no institution — `bank=None` by
+   construction — so a jurisdiction default would be an absence inference,
+   which doctrine §B forbids. The schema default stands. If the platform ever
+   proves the institution behind these four mastheads (all four are US), this
+   family moves.
+
+4. **`GLANCE-COUNTS` (not taken).** `analysis/count_semantics.py` is
+   deliberately NOT given an entry: the reader gates each direction's count
+   against the rows it read, so a reconciler comparison would be a tautology of
+   the `core_processor_counted` kind, and the table's default (INCOMPARABLE)
+   already emits nothing. Promoting it would move `OBSERVER_VERSION` for no
+   information.
+
+5. **The census's ceiling was 6 of 8 and the honest answer is 5.** The census
+   priced the three 1STMERC documents as "contingent on how the harness treats
+   COLLECTED BALANCE SUMMARY" and expected roughly one of them to survive. The
+   answer measured here is that none does, and the reason is not the harness —
+   it is that the printing carries no per-day evidence of any kind.
+
+## GL9B. Proofs, with verbatim exit codes
+
+All at the branch's final production tree, each with a durable log whose last
+line is its own `EXIT=` terminator.
+
+| proof | result | exit |
+|---|---|---:|
+| full default suite | **5,950 passed, 36 skipped, 34 deselected** (446.39s) | **0** |
+| canonical guard set (5 files) | **252 passed** | **0** |
+| canonical conformance set (7 files) | **1,176 passed, 36 skipped** (76 × 75 = 5,700) | **0** |
+| `python corpus_gate.py` | **RESULT: GREEN** (1547.7s) | **0** |
+| corpus-marked slice | **30 passed** (3455.97s) | **0** |
+| this card's module, verbose (the mutation table) | **80 passed** (1.42s) | **0** |
+| `tools.glance_detection_probe` over the run of record | 3,351 probed, 22 claimed, **0 ambiguous** (394.0s) | **0** |
+| archive differential, 4 chunks | SWEEP_EXIT | |
+
+The gate's own lines, unchanged from the handoff's stated surface:
+`Outcomes: 105 PASS / 3 WITHHELD / 1 REFUSED` · `Verdicts: 1 refused / 3 review
+/ 102 validated / 3 withheld` · `[PASS] currency: 108/108 … 14 CAD / 94 USD
+(+1 pinned refusal(s))` · `[PASS] currency_source: 108/108 … 7
+institution_default / 4 jurisdiction_default / 1 printed / 7 product / 89
+schema_default (+1 pinned refusal(s))` · `[PASS] adb_doctrine: 108/108
+statements publish the canonical basis 'calendar_day_printed_period'`.
+
+**The corpus-marked slice failed once and was exonerated, and the exoneration
+is a measurement rather than a habit.** The first run, on a box carrying 18
+concurrent Python processes from the other batch-8 cells, took 1:26:30 and
+reported `test_detect_sweep_stays_affordable_for_the_discovery_run` red at
+**251.7 ms against a 250 ms budget** — 0.7% over. That is the DETECT-BUDGET-GATE
+class batch 7 recorded, but this card ADDS a registration and therefore owes
+more than "it was the load":
+
+* re-run alone on a quiet box, `tests/test_parser_parity.py -m corpus` is
+  **12 passed, exit 0**, and the whole slice re-run is **30 passed, exit 0**;
+* and this registration's own share of the sweep was measured rather than
+  assumed. On the largest cached corpus text, best-of-5 per registration:
+  the full 76-registration sweep costs 31.00 ms, the median registration
+  0.2363 ms, and `category_partition` **0.5726 ms — 1.85% of the sweep, rank
+  12 of 76**, against a slowest registration of 1.99 ms. The budget's
+  projection divides by the registration count, so a registration at 1.85%
+  of a 76-way sweep moves the projected figure by well under a percent.
+
+## GL10. Commits
+
+| commit | what |
+|---|---|
+| `cca5f40` | the reader, the registration, and every registry pin in the SAME commit (registrations 75 → 76, the dispatch-order list, the conformance count and its 76 × 75 cross-product, an INVENTED conformance fixture) |
+| `3ff7294` | the mutation table (37 killers, 3 control arms) and `tools/glance_detection_probe.py` |
+| `00f0f90` | the `wilson_muir` supersedes edge the probe found, its pin, its two-direction test, and the privacy pass that replaced every quoted archive figure |
+| `d624f63` | the reader stops naming the currency-provenance field (docstring only; CURRENCY-SOURCE's repo-wide guard) |
+| DOCS_COMMIT | this section |
+
+## GL11. Risks carried
+
+1. **The uncounted-category rule is measured on four documents, not proven.**
+   A movement category printing no item count and a non-zero amount is read as
+   exactly ONE posting. It holds on 4 of 4 in this family and is
+   double-checked against the service-charge recap's own printed total (gate
+   7), and a printing where it is not one row is refused rather than
+   miscounted — but it is the one place the reader assumes something about the
+   platform rather than reading it.
+2. **The partition must be printed on one line.** The region is the remainder
+   of the line carrying `Category Number Amount`. All 8 documents and all 14 of
+   the `wilson_muir` cohort print it that way; a text layer that split it would
+   refuse the document. Fail-closed, and named because it is a shape
+   assumption rather than a gate.
+3. **The sectioned issue's section list is closed.** `ALL CREDIT ACTIVITY`,
+   `ELECTRONIC DEBITS` and `CHECKS AND OTHER DEBITS` are the ledger; a printing
+   with a fourth ledger section would lose those rows and be refused at the
+   count and total gates. That is the right failure, but it is a refusal this
+   family's wider corpus may well produce.
+4. **The three declined documents are a standing invitation to a wrong
+   reader.** They reconcile completely and print a grid that LOOKS like a daily
+   ledger. Any future widening of this reader, or any second reader for this
+   core, has to re-derive GL3 or it will publish an average built on collected
+   balances.
+5. **`0.00` is the one archive-printed token the branch also prints.** It is
+   the canonical printed form of zero, which the fixture must carry to
+   exercise the zero-amount category; every other figure, date, digit run and
+   masked account form of the family's eight documents is absent from the whole
+   branch diff (GL7B).
