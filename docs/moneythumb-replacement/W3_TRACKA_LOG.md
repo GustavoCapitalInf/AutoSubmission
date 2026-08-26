@@ -44504,7 +44504,9 @@ its ladder output was byte-identical — and the same rule requires one here.
 
 **It is completely unenforceable from this branch, and that is the finding
 rather than the disclosure** (DC12 F6). `OCR_STAGE_VERSION = 3` sits at
-`webapp/artifact_cache.py:286` and nothing here — no test, no guard, no gate —
+`webapp/artifact_cache.py:287` (the review's `:286` is off by one, checked at
+this tree; that file is not in this branch's diff) and nothing here — no test,
+no guard, no gate —
 fails if the bump is not made. The failure mode is SILENT: the claimed
 documents keep serving their pre-change text out of a warm cache, so the card's
 whole movement is invisible rather than wrong-looking, which is the hardest
