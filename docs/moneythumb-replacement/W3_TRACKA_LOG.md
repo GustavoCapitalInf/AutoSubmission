@@ -43705,7 +43705,7 @@ containers, every one of the 22 changed paths ends in `.account_name`.
 `payload_now_raises` is **0**: no document that published under the run of
 record stopped publishing at HEAD.
 
-# §WITHHELDGRIDS — the unread daily grids were four one-line defects, not a doctrine question
+# §WITHHELDGRIDS — the unread daily grids were three one-line reader defects and a heuristic, not a doctrine question
 
 Branch `wave8-withheldgrids`, base `10cc722`. Batch 8, card 9. The card's
 population is 22 of the withheld-61: `community_section` x7, `regions` x3
@@ -43717,9 +43717,9 @@ discovery reports read-only by direct file path; no hosted model anywhere.
 
 | | |
 |---|---|
-| Withheld -> validated | **17 of 22**, each named by content_sha256 below |
-| Still withheld, honestly | 5 — `pnc` x4 (geometry, carded) and `wells_fargo` `A4E41C80` (a ratified fail-closed pin refuses the lift; see WG6) |
-| What the card predicted | "read the printed daily grid" for 14 documents. Measured: only ONE of the four defects is a grid reader. The other three are a region anchored in a disclosure paragraph, a page sign-off welded onto a row, and a compatibility branch that shifted a ledger by one row |
+| Withheld -> validated | **16 of 22** after the closure round, each named by content_sha256 below. It was 17 at the reviewed tip; `595137FD1861DCCD` is withheld again because the rule that lifted it was withdrawn (WG12 §2) |
+| Still withheld, honestly | 6 — `pnc` x4 (geometry, carded), `wells_fargo` `A4E41C80` (a ratified fail-closed pin refuses the lift; see WG6) and `zions` `595137FD1861DCCD` (WG12 §2) |
+| What the card predicted | "read the printed daily grid" for 14 documents. Measured: **three** one-line reader defects and the heuristic. Only ONE of the three reader defects is a grid reader; the other two are a page sign-off welded onto a row and a compatibility branch that shifted a ledger by one row. (CORRECTED, the review's MINOR-11: the first version of this row counted the region anchor as a fourth defect, which WG5 had measured as a non-defect and removed. The anchor is back — see WG12 §8 — but as the fix for the CHECK-ROW contradiction, not as one of the withheld-lift defects, and it lifts nothing.) |
 | Doctrine change | **none**. `analysis/adb.py` is untouched; no check was relaxed, promoted or removed; the required-check set is byte-identical |
 | Pinned documents | corpus gate GREEN with the pinned verdicts unchanged; the 20 pinned in the six families are all byte-identical and none is among the archive's 51 movers. ONE pinned document elsewhere moved — `413AD4C2FBFB71A0` (`ibc`), one leaf, `metrics.adb.source_posting_days`, a diagnostic count; class, checks and every gated field unchanged (WG10) |
 
@@ -43822,13 +43822,26 @@ documents: 2, 3, 4 and 3 negative days dropped. With the sign read, the grid
 covers every posting day, agrees with the walked ledger on every one of them,
 and its last entry is the printed closing balance:
 
-| sha16 | grid days | posting days | grid days missing a posting day | grid/ledger disagreements |
-|---|---|---|---|---|
-| `7F33CCF581D23CCC` | 20 | 20 | 0 | 0 |
-| `D0DE1BF0A19D53A2` | 23 | 23 | 0 | 0 |
-| `D47263FDFC86F6C3` | 21 | 21 | 0 | 0 |
-| `F2931E93870A04AB` | 22 | 21 | 0 | 0 |
-| `CD7E104D7474DD68` (pinned) | 20 | 20 | 0 | 0 |
+Re-measured at the closure tree by `tools/withheldgrids_grid_repeats.py`,
+which reads the grid the production `_daily_balances` returns and compares it
+against the ledger the production parser produces:
+
+| sha16 | grid days | posting days | grid days with NO posting row |
+|---|---|---|---|
+| `7F33CCF581D23CCC` | 20 | 20 | 0 |
+| `D0DE1BF0A19D53A2` | 23 | 23 | 0 |
+| `D47263FDFC86F6C3` | 21 | 21 | 0 |
+| `F2931E93870A04AB` | 22 | 21 | **1** |
+| `CD7E104D7474DD68` (pinned) | 20 | 20 | 0 |
+
+**CORRECTED (the review's MINOR-11, closure `WITHHELDGRIDS CLOSURE 11`.)**
+The first version of this table read 0 in the last column for
+`F2931E93870A04AB` while giving it 22 grid days and 21 posting days, which
+cannot both be true: the grid prints one more day than the ledger posts, so
+exactly one grid day carries no posting row. It is a day the grid stamps
+nowhere — `_apply_daily_balances` only stamps a day that has a transaction —
+so nothing published moves, and the document lifts on the other 21. The row
+that was wrong was the arithmetic, not the reading.
 
 A grid header anchor and a region terminator were also written, on the theory
 that the region was starting inside the platform's daily-balance METHOD
@@ -43974,7 +43987,7 @@ Every document below is named by `content_sha256` (16-hex prefix shown; the
 full digests are in the branch's proof logs). All 22 were withheld under the
 run of record `2026-08-23T020128.909387-0000-356a4269`.
 
-### Withheld -> validated (17)
+### Withheld -> validated (16 after the closure round; 17 at the reviewed tip)
 
 | sha16 | parser | cause it failed on | what fixed it |
 |---|---|---|---|
@@ -43993,7 +44006,7 @@ run of record `2026-08-23T020128.909387-0000-356a4269`.
 | `60B0EE6AF00F874D` | navy_federal | C | heuristic + the shifted ledger |
 | `6F3DEB4D5CBA5A42` | navy_federal | C | the shifted ledger |
 | `1019F3C638AB1C81` | zions | C | heuristic (dot-leader grid) |
-| `595137FD1861DCCD` | zions | C | heuristic (page header) |
+| ~~`595137FD1861DCCD`~~ | zions | C | ~~heuristic (page header)~~ — **WITHDRAWN, WG12 §2: the page-header rule that lifted it is gone, and this document is withheld again** |
 | `4BE21534DC540342` | wells_fargo | C | heuristic (marketing sentence) |
 
 Note `36B502B81C5D4BCA` and `74F34B80B54E159B`: the heuristic fix alone would
@@ -44003,7 +44016,7 @@ Both fixes were needed for the number to be right, not just for the check to
 pass, and their ADB changed again when the second landed. That is the reason a
 coverage lift is not finished when the gate goes green.
 
-### Still withheld (5), honestly
+### Still withheld (6 after the closure round; 5 at the reviewed tip), honestly
 
 | sha16 | parser | why |
 |---|---|---|
@@ -44012,6 +44025,7 @@ coverage lift is not finished when the gate goes green.
 | `4145E2C82C6B8329` | pnc | Activity Detail 23.6% / 47.4% (WG7) |
 | `1F31588B36B2E4AF` | pnc | scanned; 95.3% of stated debits (WG7) |
 | `A4E41C80E7362D58` | wells_fargo | ratified fail-closed pin, and the ledger does not close either way (WG6) |
+| `595137FD1861DCCD` | zions | its masthead date is the printed period boundary, and the position rule that removed it cost a real posting day on 16 other documents (WG12 §2) |
 
 ## WG9. What did NOT change, deliberately
 
@@ -44139,7 +44153,8 @@ Standing rule (batch-7 BLOCK): no archive content in tracked source. The scan
 harvested every printed money figure, account/reference number, date token and
 capitalised multi-word name from this cell's 42 documents — the 22 named
 above plus the 20 pinned documents in the six families — **12,510 distinct
-literals**, and grepped the whole branch diff (594 added lines) for each.
+literals**, and grepped the branch diff for each (the diff size this paragraph
+quotes is corrected below).
 
 * raw hits: **113**, of which 104 are one- or two-token coincidences of
   invented round figures and dates (`$0.00`, `01/02`, `0000`) — shapes any
@@ -44157,8 +44172,26 @@ on main since that fixture was written and which this cell's new fixture had
 copied. All three occurrences are now an invented number, and the scan no
 longer finds it (WG11 item 6).
 
-**Final count of real archive literals in the branch diff: 0.** The diff is
-1,127 added lines.
+**Final count of real archive literals in the branch diff: 0.**
+
+**CORRECTED (the review's MINOR-11, closure `WITHHELDGRIDS CLOSURE 11`.)**
+This paragraph gave two different diff sizes — "594 added lines" above and
+"1,127 added lines" here — and neither was the tip it claimed to have
+scanned. Measured with `git diff --numstat 10cc722..<rev>`:
+
+| revision | added lines |
+|---|---|
+| `d4a0d6d` (the privacy-scan commit) | 559 |
+| `ca04664` | 558 |
+| `a7af98f` | 1,127 |
+| `1cdab07` (the reviewed tip) | 1,212 |
+| `f97b3d2` (the review record) | 1,732 |
+
+So the cell's own scan covered `a7af98f` and the last 85 added lines of the
+reviewed tip — all of them W3 prose — were never in it. The reviewer scanned
+the tip and found nothing hiding there; the closure round re-scans the FINAL
+tree with a committed instrument, `tools/withheldgrids_privacy_scan.py`, over
+a 44-document population, and reports the count in WG12 §11.
 
 ## WG11. Risks and carried findings
 
