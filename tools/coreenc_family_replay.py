@@ -127,7 +127,15 @@ def main(argv: list[str] | None = None) -> int:
             "content_sha256": sha,
             "outcome_class": outcome,
             "outcome_reason": reason or "",
-            "parser_id": (payload or {}).get("parser_id") or "",
+            # From the DISPATCH, which is where the claimant is reported.
+            # `analysis.serialization.report_to_dict` has no top-level
+            # `parser_id` key — its keys are `statement`, `classifications`,
+            # `reconciliation`, `metrics`, `detection`, `quality`, `integrity`,
+            # `model_used`, `escalated` — so reading it from the payload made
+            # this column the empty string on every document, including the
+            # ones the instrument reported as validated. A silent null in a
+            # measurement column is worse than no column at all.
+            "parser_id": dispatch.parser_id or "",
             "claimed_by_named_parser": (
                 args.parser in [candidate for candidate, _score in dispatch.candidates]
                 if args.parser else None),

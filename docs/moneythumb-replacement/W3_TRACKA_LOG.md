@@ -44228,7 +44228,7 @@ comparison and the tolerance are load-bearing at all.
 | the reader's own module | 46 passed | included above |
 | mutation harness — WITHDRAWN, see C12 | the uncommitted `mutate.py`'s "32 applied, 32 killed, 0 survived" is not checkable and is withdrawn; the committed harness is `tools/coreenc_mutation_table.py`, 40 mutants, table in C12.1 | final-tree run and exit code in C19 |
 | archive-wide detection + parse probe (3,380 documents, 3,351 with cached text) | 67 claimed, 0 crashes | `EXIT=0` |
-| population replay (71 named documents, real pipeline) | 57 moved / 14 unmoved, transitions in C0 and C11 | `EXIT=0` |
+| population replay (`tools/coreenc_family_replay.py`, 71 named documents, real pipeline) | 57 moved / 14 unmoved — 46 `validated/approved`, 1 `review`, 1 `withheld`, 9 `failed/parser_declined` (the 6 census ledger declines + the 3 scanned outsiders), 4 `failed/no_parser_matched` (the misfiles), and the 10 issuer documents unmoved. **Re-run at closure with the `parser_id` column repaired** (see C19, MINOR-5): populated on 58 of 71 — 48 `core_processor_enclosures`, 4 `linkbank`, 3 `farmers_merchants`, 3 `burke_herbert`; empty on the 13 that publish nothing, which is what an unpublished document is | `EXIT=0`, 65.9 s |
 | `tools.regfp_zero_movement_sweep`, six chunks over all 3,380 | **identical 2,558 / moved 0 / payload_now_raises 0 / no_payload_now_publishes 48**, all 48 inside the census family (C18.1) | chunk `EXIT=1` (the tool's findings-exist code), chain `EXIT=0` |
 
 Two red readings are recorded rather than quietly fixed. The corpus-marked
