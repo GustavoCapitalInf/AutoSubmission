@@ -43981,13 +43981,23 @@ discipline and `test_no_parser_helper_clones` caught it against
   name ends is guessing, not reading.
 * `stated_credit_count` / `stated_debit_count` / `stated_total_credits` /
   `stated_total_debits` / `days_in_period` are printed and are published.
-  **No `analysis/count_semantics.py` entry is added, and that is a decision.**
-  The parser refuses before publishing when a printed count and its rows
-  disagree, so a `_whole` entry would install a pipeline check that is
-  structurally unable to fire — an unkillable gate, which the wave rules say
-  is not a gate. `semantics_for` returns `UNSURVEYED` for an absent parser id,
-  which the module's own contract says emits nothing; that is the correct
-  default here and it is taken deliberately rather than by omission.
+  **An `analysis/count_semantics.py` entry IS added, and the first revision of
+  this card got that wrong.** The reasoning then was: the parser refuses before
+  publishing when a printed count and its rows disagree, so a `_whole` entry
+  installs a pipeline check that cannot fire — and the wave rules say an
+  unkillable gate is not a gate, so leave the parser UNSURVEYED. Review
+  pointed at the table's own precedent, which had already answered this twice:
+  `burke_herbert` and `community_section` are in exactly this position and are
+  written down anyway, because **"examined, and structurally silent" is a
+  different fact from "not yet examined"**, and `UNSURVEYED` says the second.
+  The entry is therefore comparable in both directions, `whole_direction`, and
+  its reason states the tautology in that idiom — that the gate's set and the
+  check's set are the same set, and that there is consequently NO FALSIFIER to
+  state, which is the `burke_herbert:credit` position. `OBSERVER_VERSION` moves
+  5 → 6 with a comment saying what moves (17 documents from
+  `unsurveyed_parser` to `match` in an offline rollup); the observer is wired
+  into no production module, so the bump touches no payload and no cache key,
+  and the family replay is row-identical on 17 of 17 across the change.
 * `stated_service_charge` is NOT set. The fee box prints `Total Overdraft Fees`
   and `Total Returned Item Fees` as two separate period/year-to-date pairs.
   Either alone is not the period's service charge, and adding them asserts
@@ -44353,10 +44363,13 @@ one would move the truth set. It claims none.
    the ratified calendar-day basis and is correct under the ADB doctrine; it is
    named so that no one later reads 353 printed balances as seventeen
    fully-enumerated months.
-5. **No `count_semantics` entry, by decision (W4.3).** If a future card widens
-   this reader so that publication no longer requires the printed counts to
-   match its rows, the pipeline-level check must be added in the same change —
-   the reason it is absent today is precisely that the parser refuses first.
+5. **The `count_semantics` entry is TAUTOLOGICAL and says so (W4.3).** It
+   cannot fire while the parser refuses a contradicting document before
+   publishing, so it is a recorded silence and not a live check. If a future
+   card widens this reader so that publication no longer requires the printed
+   counts to match its rows, that entry stops being tautological in the same
+   change — and its reason, which asserts the two sets are the same set, has
+   to be re-earned rather than inherited.
 6. **A stray column head in the middle of a ledger line would be absorbed into
    a description.** `_LEDGER_HEAD_RE` strips one head from the START of a line;
    a second `Date Description Amount` mid-line is not a row and not residue, so
