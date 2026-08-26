@@ -702,3 +702,147 @@ def test_a_joint_owner_line_between_the_heading_and_the_grid_is_stepped_over():
     assert stmt is not None
     assert stmt.account_name == "Business Checking"
     assert stmt.account_number == "XXXXXX1234"
+
+
+# ---- the printed `Daily Balances` grid (W3 §WITHHELDGRIDS) -------------------
+
+_DISCLOSURE = (
+    #: INVENTED prose. What these tests need of the platform's METHOD
+    #: paragraph is a SHAPE - a paragraph carrying the words
+    #: `daily balances` and no `date`-adjacent money - and not a wording,
+    #: so none of it is copied from a document.
+    "AN INVENTED METHOD PARAGRAPH about how daily balances are worked out,\n"
+    "written at some length and carrying no figure of any kind.\n"
+)
+
+
+def _with_grid(*, grid: str, disclosure_first: bool) -> str:
+    ledger = (
+        "Business Interest Checking - XXXXXXXX1234\n"
+        "Account Summary Date Description Amount 01/01/2026 Beginning Statement Balance $100.00"
+        " 1 Credit(s) This Period $300.00 1 Debit(s) This Period $250.00"
+        " 01/03/2026 Ending Statement Balance $150.00\n"
+        "Electronic Credits Date Description Amount 01/02/2026 A CREDIT $300.00\n"
+        "Other Debits Date Description Amount 01/03/2026 A DEBIT $250.00\n"
+    )
+    block = "Daily Balances\nDate Amount " + grid + "\n" + "Overdraft and Returned Item Fees Total for this period\n"
+    return _mv((_DISCLOSURE + ledger + block) if disclosure_first else (ledger + block + _DISCLOSURE))
+
+
+def test_the_grid_and_the_method_disclosure_are_not_confused():
+    """CHARACTERIZATION pin (passes at base — the disclosure paragraph prints
+    no `date`-adjacent money for the wide region to pick up).
+
+    The words `daily balances` also open the platform's METHOD paragraph,
+    which on most of these documents is printed BEFORE the grid. The region is
+    anchored on the grid's own printed `Date Amount` column header, so the
+    disclosure contributes no day whatever it prints; the test above is the
+    one that FAILS without that anchor, because a check row prints its number,
+    its date and its amount adjacent and is read as a grid cell.
+    """
+    stmt = parse_mission_valley_statement(
+        _with_grid(grid="01/02/2026 $400.00 01/03/2026 $150.00", disclosure_first=True)
+    )
+    assert stmt is not None
+    printed = {t.date: t.running_balance for t in stmt.transactions}
+    assert printed == {"2026-01-02": 400.0, "2026-01-03": 150.0}
+
+
+def test_an_overdrawn_day_is_read_from_the_grid_with_its_sign():
+    """This platform prints an overdrawn day `-$1,234.56`. The minus sits
+    between the date and the `$`, so an unsigned pattern does not lose the
+    sign — the pair does not match and the DAY is dropped from the grid."""
+    stmt = parse_mission_valley_statement(
+        _with_grid(grid="01/02/2026 -$400.00 01/03/2026 $150.00", disclosure_first=True)
+    )
+    assert stmt is not None
+    printed = {t.date: t.running_balance for t in stmt.transactions}
+    assert printed == {"2026-01-02": -400.0, "2026-01-03": 150.0}
+
+
+def test_a_document_that_prints_no_grid_publishes_no_printed_balances():
+    """The header anchor is required, not optional: a statement without the
+    grid must not acquire one from the disclosure paragraph.
+
+    Characterization pin. This one passes on the base tree too, because the
+    disclosure paragraph prints no `date`-adjacent money for the wide region
+    to pick up; what makes the anchor load-bearing is the CHECK LISTING, and
+    that is the test below.
+    """
+    md = _mv(
+        _DISCLOSURE
+        + "Business Interest Checking - XXXXXXXX1234\n"
+        "Account Summary Date Description Amount 01/01/2026 Beginning Statement Balance $100.00"
+        " 1 Credit(s) This Period $300.00 1 Debit(s) This Period $250.00"
+        " 01/03/2026 Ending Statement Balance $150.00\n"
+        "Electronic Credits Date Description Amount 01/02/2026 A CREDIT $300.00\n"
+        "Other Debits Date Description Amount 01/03/2026 A DEBIT $250.00\n"
+    )
+    stmt = parse_mission_valley_statement(md)
+    assert stmt is not None
+    assert all(t.running_balance is None for t in stmt.transactions)
+
+
+def test_a_check_row_is_not_read_as_a_daily_balance_cell():
+    """THE anchor's reason (W3 §WITHHELDGRIDS WG12, the review's MINOR-8).
+
+    A check row prints its number, its date and its amount adjacent — which is
+    character for character the shape of a grid cell. With the region opened on
+    the two words that also head the METHOD DISCLOSURE, that region runs
+    through the whole account block and reads the check's AMOUNT as that day's
+    ending BALANCE. Over the 106 documents of this family the run of record
+    resolves, the wide region produced 129 cells contradicting another cell for
+    the same day; anchored on the grid's own `Date Amount` column header it
+    produces 0, and the grid it produces is identical on all 106.
+    """
+    md = _mv(
+        _DISCLOSURE
+        + "Business Interest Checking - XXXXXXXX1234\n"
+        "Account Summary Date Description Amount 01/01/2026 Beginning Statement Balance $100.00"
+        " 1 Credit(s) This Period $300.00 1 Debit(s) This Period $250.00"
+        " 01/03/2026 Ending Statement Balance $150.00\n"
+        "Electronic Credits Date Description Amount 01/02/2026 A CREDIT $300.00\n"
+        "Checks Cleared Check Nbr Date Amount 1001 01/03/2026 $250.00\n"
+    )
+    stmt = parse_mission_valley_statement(md)
+    assert stmt is not None
+    assert all(t.running_balance is None for t in stmt.transactions)
+
+
+def test_a_grid_that_prints_one_day_twice_with_the_same_balance_reads_one_cell():
+    """NEGATIVE pin (passes at base, where last-wins gives the same answer
+    for an EQUAL repeat). A grid continued across a page break prints a day
+    twice, and the same balance printed twice is one printed fact printed
+    twice - not a contradiction."""
+    stmt = parse_mission_valley_statement(
+        _with_grid(
+            grid="01/02/2026 $400.00 01/03/2026 $150.00 01/03/2026 $150.00",
+            disclosure_first=True,
+        )
+    )
+    assert stmt is not None
+    printed = {t.date: t.running_balance for t in stmt.transactions}
+    assert printed == {"2026-01-02": 400.0, "2026-01-03": 150.0}
+
+
+def test_a_grid_that_gives_one_day_two_balances_is_refused():
+    """The contradiction. The reader does not choose the later cell, and it
+    does not choose the earlier one: it refuses, through this module's own
+    refusal channel, and the refusal names no cell.
+
+    No document in the archive reaches this branch once the region is anchored
+    (measured: 0 of 106). It is the guard that keeps `balances[iso] = amount`
+    from quietly becoming a choice again.
+    """
+    import pytest
+
+    with pytest.raises(ValueError) as caught:
+        parse_mission_valley_statement(
+            _with_grid(
+                grid="01/02/2026 $400.00 01/03/2026 $150.00 01/03/2026 $151.00",
+                disclosure_first=True,
+            )
+        )
+    message = str(caught.value)
+    assert "two different end-of-day balances" in message
+    assert "01/03" not in message and "151" not in message and "150" not in message

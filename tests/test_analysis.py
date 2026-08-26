@@ -2305,7 +2305,7 @@ def test_parse_regions_native_text_sections():
     md = """
 Thank you for banking with Regions!
 Regions Bank Homer Georgia
-ACCOUNT # 0367816126
+ACCOUNT # 9900001234
 ADVANTAGE BUSINESS CHECKING
 May 1, 2026 through May 29, 2026
 SUMMARY
@@ -2330,7 +2330,7 @@ DAILY BALANCE SUMMARY
 """
     stmt = parse_regions_statement(md)
     assert stmt is not None
-    assert stmt.account_number == "0367816126"
+    assert stmt.account_number == "9900001234"
     assert stmt.account_name == "ADVANTAGE BUSINESS CHECKING"
     assert stmt.beginning_balance == 100.0
     assert stmt.ending_balance == 250.0
@@ -2339,6 +2339,64 @@ DAILY BALANCE SUMMARY
     assert stmt.stated_average_balance == 175.0
     assert [t.amount for t in stmt.transactions] == [200.0, 100.0, -25.0, -100.0, -12.0, 40.0, -25.0, -28.0]
     assert reconcile(stmt).ok
+
+
+def _regions_with_page_break(footer: str) -> str:
+    """The same statement with its WITHDRAWALS section split by a page break.
+
+    The bank prints its sign-off at the foot of the page, and the flattening
+    welds it onto the last row above it (W3 §WITHHELDGRIDS).
+    100.00 + 300.00 - 125.00 = 275.00.
+    """
+    return f"""
+Thank you for banking with Regions!
+Regions Bank Homer Georgia
+ACCOUNT # 9900001234
+ADVANTAGE BUSINESS CHECKING
+May 1, 2026 through May 29, 2026
+SUMMARY
+Beginning Balance $100.00 Deposits & Credits $300.00 + Withdrawals $125.00 - Ending Balance $275.00
+DEPOSITS & CREDITS
+05/01 Deposit - Thank You 200.00 05/02 Bankcard Dep Merch Dep 100.00
+Total Deposits & Credits $300.00
+WITHDRAWALS
+05/03 Card Purchase Store 25.00 05/04 Kapitus Achpmt Test 100.00
+{footer}
+--- Page 2 ---
+WITHDRAWALS (CONTINUED)
+Total Withdrawals $125.00
+DAILY BALANCE SUMMARY
+"""
+
+
+def test_a_row_welded_to_the_page_sign_off_is_still_read():
+    """A row is read by a pattern ANCHORED on the line ending in its amount,
+    so a footer flattened onto the last row of a page does not misread that
+    row — it deletes it, and the ledger then misses the printed
+    `Total Withdrawals` by exactly one row and cannot close."""
+    stmt = parse_regions_statement(
+        _regions_with_page_break("Thank You For Banking With Regions!\n2026 Regions Bank Member FDIC.")
+    )
+    assert stmt is not None
+    assert [t.amount for t in stmt.transactions] == [200.0, 100.0, -25.0, -100.0]
+    assert reconcile(stmt).ok
+
+
+def test_the_sign_off_is_cut_from_the_row_and_not_from_the_document():
+    """The ablation. With no footer printed in that position the same
+    statement reads identically, so the trailer is cutting furniture off a
+    row rather than changing how rows are found."""
+    without = parse_regions_statement(_regions_with_page_break(""))
+    with_footer = parse_regions_statement(
+        _regions_with_page_break("Thank You For Banking With Regions!\n2026 Regions Bank Member FDIC.")
+    )
+    assert without is not None and with_footer is not None
+    assert [t.amount for t in without.transactions] == [
+        t.amount for t in with_footer.transactions
+    ]
+    assert [t.description for t in without.transactions] == [
+        t.description for t in with_footer.transactions
+    ]
 
 
 def test_parse_pnc_native_text_sections():

@@ -117,13 +117,39 @@ def _native_chunks(markdown: str, heading: str) -> list[str]:
     return chunks
 
 
+#: The trailers that can be printed under a section's LAST row, each cut off
+#: the row they were flattened onto. The first two were already here; the
+#: third is the sign-off this issuer prints at the foot of a page, and it is
+#: the same kind of thing - printed furniture, not row text.
+#:
+#: Why it has to be cut rather than left in place: a row is read by an
+#: ANCHORED pattern that requires the line to END in its amount
+#: (`_parse_native_section`), so a footer welded onto the last row of a page
+#: does not misread that row - it deletes it. Measured over the archive's
+#: seven live-detected Regions documents on the native path, exactly one
+#: withdrawal row per document was lost this way on three of them, which is
+#: why their ledgers missed the printed `Total Withdrawals` by a single row
+#: and could not reconcile to the printed closing balance. The other four
+#: (all four pinned) print no row in that position and do not move.
+#:
+#: Institution furniture, and the SAME spelling the detector already requires
+#: of every Regions statement (`DETECTION_MARKERS.issuer_footer`), named once
+#: here so the two cannot drift apart.
+ISSUER_FOOTER = "Thank You For Banking With Regions!"
+
+_ROW_TRAILER_RE = re.compile(
+    r"\s+Total\b|For all your banking needs\b|" + re.escape(ISSUER_FOOTER),
+    re.IGNORECASE,
+)
+
+
 def _native_rows(markdown: str, heading: str) -> list[str]:
     rows: list[str] = []
     for chunk in _native_chunks(markdown, heading):
         chunk = re.sub(r"(?im)^\s*Date\s+Check\s+No\.\s+Amount\s*", "", chunk)
         parts = re.split(r"\s+(?=\d{2}/\d{2}\s)", chunk.strip())
         for part in parts:
-            row = re.split(r"\s+Total\b|For all your banking needs\b", part.strip(), maxsplit=1, flags=re.IGNORECASE)[0].strip()
+            row = _ROW_TRAILER_RE.split(part.strip(), maxsplit=1)[0].strip()
             if re.match(r"^\d{2}/\d{2}\b", row):
                 rows.append(row)
     return rows
@@ -189,7 +215,7 @@ DETECTION_MARKERS = (
     # statement whenever Regions appears as an ACH originator - it does in all
     # three Amex documents. Require the footer Regions prints on its own
     # statements (R3_DETECTION_FINDING.md).
-    required("issuer_footer", lambda t: "THANK YOU FOR BANKING WITH REGIONS!" in t),
+    required("issuer_footer", lambda t: ISSUER_FOOTER.upper() in t),
 )
 
 detect = make_detector(DETECTION_MARKERS, detection_text)

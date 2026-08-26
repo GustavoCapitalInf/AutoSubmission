@@ -745,6 +745,357 @@ def test_a_total_opening_description_above_a_lone_date_is_the_known_falsifier():
     )
 
 
+# ---- POSTDATE-HEURISTIC (W3 §WITHHELDGRIDS) ---------------------------------
+#
+# Classes of printed line that open with a date and are not posting rows.
+# Each pair below is the exclusion AND the thing it must not touch, because a
+# rule that only ever removes dates is trivially satisfiable by removing all
+# of them: the negative half is what pins the rule's edge.
+#
+# WHICH HALF A TEST IS, stated out loud, because the review's MINOR-10 found
+# two tests believing they pinned a change they did not:
+#
+# * a GATE pin fails on the base tree (`10cc722`). It is the evidence that the
+#   rule beside it does something.
+# * a NEGATIVE pin passes on the base tree BY CONSTRUCTION - it asserts a date
+#   the rule must not take - and a REGRESSION pin passes on base because it
+#   restores base behaviour a withdrawn rule had broken. Neither is a coverage
+#   hole, and both say so in their own docstring.
+#
+# `python -m tools.withheldgrids_tests_at_base` is the instrument: it extracts
+# `10cc722`, overlays only these four test files, and reports which side of the
+# line each added test falls on.
+
+def test_an_interest_rate_row_is_not_a_posting_date():
+    """`Interest Rate Changes` prints the period's first day beside a rate.
+
+    The bank posts no transaction for it, so read as a posting it invents an
+    activity day and fails `posting_dates_cover_source` for something that is
+    not true of the document.
+
+    It is refused by the money-proximity rule, and only because a money figure
+    prints exactly two decimals: a dedicated "the remainder is a rate" rule was
+    written first, measured against all three archive documents in this class,
+    found to pin nothing that the proximity rule does not already pin, and
+    removed rather than left in as an untested branch.
+    """
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "06/02/2026 SOME MERCHANT 42.00",
+        "an invented rate block",
+        "an invented caption above it",
+        "06/01/2026 0.0000%",
+    ])
+    assert source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30)) == {
+        date(2026, 6, 2)
+    }
+
+
+def test_a_four_decimal_rate_is_not_read_as_money_by_the_proximity_test():
+    """The money-presence bound, isolated from the rate-remainder rule.
+
+    A rate on a line that ALSO carries description text is not caught by the
+    remainder rule, so the only thing standing between `0.0000%` and the
+    proximity test is that a money figure prints exactly two decimals.
+    """
+    from analysis.dates import source_posting_dates
+
+    md = "06/09/2026 RATE NOTICE\n0.0000%\nmore notice text\nand more\n"
+    assert source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30)) == set()
+
+
+def test_a_description_containing_a_percentage_keeps_its_posting_date():
+    """NEGATIVE pin (passes at base by construction). A row that prints a
+    rate AND an amount is still a posting row: it is the amount that decides,
+    not the presence of a percentage."""
+    from analysis.dates import source_posting_dates
+
+    md = "06/09/2026 RATE 2.34% AN INVENTED DESCRIPTOR 45.00 1,200.00\n"
+    assert date(2026, 6, 9) in source_posting_dates(
+        md, date(2026, 6, 1), date(2026, 6, 30)
+    )
+
+
+def test_the_money_presence_test_reads_a_comma_decimal_amount():
+    """A French statement's rows print `1 234,56`, and the scan is shared.
+
+    Without the comma the proximity test reports "no money anywhere" for a
+    whole French document and drops every one of its posting dates, which
+    disables `posting_dates_cover_source` on exactly the layouts whose columns
+    are hardest to read.
+
+    The date is printed BARE and its description on the next line, so the
+    proximity test is the only thing standing between this row and refusal on
+    the base tree as well as on this one — the first draft of this test put a
+    description on the date's own line, which took the row down the branch
+    base never applies the test to, and it passed for the wrong reason (the
+    review's MINOR-10).
+    """
+    from analysis.dates import source_posting_dates
+
+    md = "9 janv\nVirement recu UN CLIENT\n1 234,56\n"
+    assert date(2026, 1, 9) in source_posting_dates(
+        md, date(2026, 1, 1), date(2026, 1, 31)
+    )
+
+
+def test_a_masthead_line_under_a_page_number_is_not_a_posting_date():
+    """A statement's masthead — its statement date, the holder, the account —
+    is reprinted at the top of every page and begins with a date.
+
+    What refuses it is that no amount is printed on it or within three
+    non-empty lines of it, which is true of a masthead and of no posting row.
+    Never its wording, which is customer data; and — since the review's
+    MAJOR-2 — never its position either, because a real posting row printed
+    under a page break sits in exactly the same position.
+    """
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "Page  1 of  2",
+        "April 30, 2026 A CUSTOMER NAME 1234567890",
+        "P.O. BOX 00000 A CITY, ST 00000-0000",
+        "A CITY ST 00000",
+        "Member FDIC",
+        "04/09 A MERCHANT 42.00",
+    ])
+    assert source_posting_dates(md, date(2026, 4, 1), date(2026, 4, 30)) == {
+        date(2026, 4, 9)
+    }
+
+
+def test_a_masthead_whose_money_is_printed_two_lines_below_it_is_counted():
+    """DISCLOSURE pin (passes at base — base counts this date too).
+
+    The cost of refusing the masthead by PROXIMITY and not by position.
+
+    A position rule was tried — refuse a moneyless candidate inside the run of
+    moneyless lines a page number opens — and it is gone (W3 §WITHHELDGRIDS
+    WG12, the review's MAJOR-2): it fired before the lookahead and cost a real
+    printed posting day on 16 archive documents. What remains is the proximity
+    rule, and this is the shape proximity does not catch. Pinned so the
+    boundary is visible rather than implied, exactly as the wrapped-total
+    falsifier above is.
+    """
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "Page  1 of  2",
+        "April 30, 2026 A CUSTOMER NAME 1234567890",
+        "P.O. BOX 00000 A CITY, ST 00000-0000",
+        "04/09 A MERCHANT 42.00",
+    ])
+    assert date(2026, 4, 30) in source_posting_dates(
+        md, date(2026, 4, 1), date(2026, 4, 30)
+    )
+
+
+def test_a_posting_row_below_a_page_number_keeps_its_date():
+    """REGRESSION pin (passes at base). A real row printed under a page break
+    keeps its date; base does this too, and the position rule that briefly did
+    not is gone."""
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "Page  2 of  2",
+        "04/08 AN EARLIER MERCHANT 15.00 900.00",
+        "04/09",
+        "A MERCHANT",
+        "42.00 858.00",
+    ])
+    got = source_posting_dates(md, date(2026, 4, 1), date(2026, 4, 30))
+    assert {date(2026, 4, 8), date(2026, 4, 9)} == got
+
+
+def test_a_posting_row_directly_under_a_page_number_keeps_its_date():
+    """REGRESSION pin: it FAILS at the reviewed tip `f97b3d2` and passes at
+    base, which is the whole point.
+
+    THE reviewer's shape (MAJOR-2): a bare posting date printed
+    immediately under a page number, with its amount two non-empty lines below
+    it. No money line separates the page number from the date, so the
+    withdrawn position rule refused this row and deleted a printed posting day
+    — at two lines, not at the "more than three" the record claimed. Money
+    proximity vouches for the row and that is the whole test.
+    """
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "Page  1 of  2",
+        "06/09",
+        "A MERCHANT",
+        "42.00 858.00",
+    ])
+    assert source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30)) == {
+        date(2026, 6, 9)
+    }
+
+
+def test_a_posting_row_under_a_page_number_and_a_caption_keeps_its_date():
+    """REGRESSION pin (fails at the reviewed tip, passes at base). The
+    reviewer's second shape: a moneyless caption line between the page number
+    and the row. Two printed lines of furniture above a real posting row are
+    not evidence that the row is furniture."""
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "Page  1 of  2",
+        "Transaction Detail",
+        "06/09",
+        "A MERCHANT",
+        "42.00 858.00",
+    ])
+    assert source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30)) == {
+        date(2026, 6, 9)
+    }
+
+
+def test_a_boundary_row_labelled_on_the_next_line_is_not_a_posting_date():
+    """The column-per-line layout prints a row's description BELOW its date,
+    so the not-a-posting labels have to be read where that layout puts them."""
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "Date", "Transaction Detail", "Amount($)", "Balance($)",
+        "0.00",
+        "06-01",
+        "Beginning Balance",
+        "900.00",
+        "900.00",
+        "06-02",
+        "A MERCHANT",
+        "42.00 858.00",
+        "06-30",
+        "Ending Balance",
+        "858.00",
+    ])
+    assert source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30)) == {
+        date(2026, 6, 2)
+    }
+
+
+def test_a_bare_date_with_a_real_description_below_it_keeps_its_date():
+    """NEGATIVE pin (passes at base by construction). The forward label test
+    reaches exactly one line and only refuses the labels `_NOT_A_POSTING_ROW`
+    already names."""
+    from analysis.dates import source_posting_dates
+
+    md = "06-02\nA MERCHANT\n42.00 858.00\n"
+    assert date(2026, 6, 2) in source_posting_dates(
+        md, date(2026, 6, 1), date(2026, 6, 30)
+    )
+
+
+def test_a_marketing_sentence_opening_with_a_date_is_not_a_posting_date():
+    """No prose recognition: the sentence is refused because no amount is
+    printed on it or near it, which is true of every message block and of no
+    posting row."""
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "an invented message block, printed above the ledger",
+        "6/22 is an invented awareness day, and here is an invented reason why",
+        "- an invented bullet, written at length and carrying no figure",
+        "- an invented second bullet, also carrying no figure",
+        "an invented closing line, still carrying no figure",
+        "6/9 A MERCHANT",
+        "42.00",
+    ])
+    assert source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30)) == {
+        date(2026, 6, 9)
+    }
+
+
+def test_a_bare_date_row_whose_next_line_is_a_column_caption_keeps_its_date():
+    """NEGATIVE pin (passes at base — base had no such stop).
+
+    The money lookahead does NOT stop at a column caption.
+
+    A stop was tried, on the theory that money printed after a caption belongs
+    to the table the caption announces. Ablated over the 2,558 archive
+    documents the run of record resolves to cached text it changed the source
+    set of NONE of them, and adversarially it costs exactly this row its
+    printed posting date (W3 §WITHHELDGRIDS WG12, the review's MINOR-7).
+    Removed, and the shape it got wrong is pinned here.
+    """
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "06/09",
+        "Posting Date Description Amount",
+        "42.00 858.00",
+    ])
+    assert date(2026, 6, 9) in source_posting_dates(
+        md, date(2026, 6, 1), date(2026, 6, 30)
+    )
+
+
+def test_a_dot_leadered_daily_balance_block_is_a_grid_not_a_ledger():
+    """One issuer prints its grid heading and caption welded to dot leaders,
+    so neither matched and a SECOND account's grid rows were read as postings
+    of the account being published."""
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "06/09 A MERCHANT 42.00 858.00",
+        "." * 40,
+        "There were no transactions this period.",
+        "Date" + "." * 30 + "Balance",
+        "06/15 $1.00",
+        "." * 40,
+    ])
+    assert source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30)) == {
+        date(2026, 6, 9)
+    }
+
+
+def test_a_dot_leadered_heading_does_not_open_a_grid_section():
+    """NEGATIVE pin (passes at base — base matched the heading on the printed
+    line too).
+
+    The leaders are read for the grid's CAPTION and not for its HEADING, and
+    that asymmetry is a measurement: stripping them before the heading match
+    as well opens a daily-balance section on two more archive documents and
+    swallows a printed posting day each of their own ledgers posts, while
+    opening nothing the caption does not already open
+    (`tools/withheldgrids_srcdates_audit.py`, the review's MAJOR-1).
+    """
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "..... Daily Balances .....",
+        "06/09 A MERCHANT 42.00 858.00",
+        "06/15 ANOTHER MERCHANT 1.00 857.00",
+    ])
+    assert source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30)) == {
+        date(2026, 6, 9), date(2026, 6, 15)
+    }
+
+
+def test_a_bare_date_balance_caption_does_not_open_a_grid_section():
+    """NEGATIVE pin (passes at base — base had no such caption at all).
+
+    `Date` and `Balance` are two ordinary words; the leaders are what make
+    the pair a caption.
+
+    Consulted on a bare line the caption opened a daily-balance section on four
+    archive documents that print those words as ordinary text, and each lost a
+    printed posting day its own ledger posts (W3 §WITHHELDGRIDS WG12, the
+    review's MAJOR-1). The dot-leadered form above still opens the section.
+    """
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "Date Balance",
+        "06/09 A MERCHANT 42.00 858.00",
+        "06/15 ANOTHER MERCHANT 1.00 857.00",
+    ])
+    assert source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30)) == {
+        date(2026, 6, 9), date(2026, 6, 15)
+    }
+
+
 # ---- which average the dashboards display ------------------------------------
 
 def test_validated_computed_adb_is_preferred_over_the_bank_printed_average():
