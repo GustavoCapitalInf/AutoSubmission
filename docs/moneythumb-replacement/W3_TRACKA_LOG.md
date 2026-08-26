@@ -44205,6 +44205,15 @@ The eight movers' integrity NOTES carry figures at run time, as every note on
 this platform does; nothing in this record quotes one, and the replay
 instrument replaces every figure in a note with `<figure>` before printing it.
 
+**The record introduced three collisions of its own and they were measured
+and removed** (`f0ce314`): a pytest DURATION printed with two decimals has
+the MONEY class's own shape and collided with a figure one archive document
+prints, and the disclosure below originally QUOTED the two adjacencies,
+which reproduces in the log exactly the thing it discloses. Durations are
+elided from SH9 for that reason — the exit codes and the counts are the
+evidence — and each adjacency is now described by its two halves rather
+than as a pair. The figures above are the re-measurement after that fix.
+
 ## SH11. Carried risks and findings for review
 
 1. **Five southside documents move, not the one the card named.** All five are
@@ -44251,6 +44260,8 @@ instrument replaces every figure in a note with `<figure>` before printing it.
 | `7339a11` | SCANHYG: the four instruments this card's numbers come from |
 | `135a719` | SCANHYG: the archive's own figures leave three production comments |
 | `94cfaba` | SCANHYG: the mutation harness's own two defects, found by running it |
+| `62d7d17` | SCANHYG: the W3 record — 0 validated movers, 8 withheld payloads, 0 pinned movement |
+| `f0ce314` | SCANHYG: the record's own three privacy collisions, measured and removed |
 
 Instruments, all under `tools/` and all read-only and $0.00:
 `scanhyg_family_replay.py`, `scanhyg_pinned_replay.py`, `scanhyg_gate_probe.py`,
