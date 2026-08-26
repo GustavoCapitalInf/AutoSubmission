@@ -405,10 +405,41 @@ def test_a_letter_look_alike_in_a_date_is_refused_rather_than_absorbed():
     """What the archive's scans of this template really substitute: a Cyrillic
     `З` for a three, a lower-case `o` for a leading zero. The row must become
     invisible — which the totals then catch — rather than be placed on a
-    guessed day."""
+    guessed day.
+
+    The leading-zero half of that is THIS reader's choice and not the
+    complex's: the sibling `core_processor_sectioned` reads `o` and `O` as the
+    zero they stand for, on 154 rows of its own template's scans. This module
+    refuses because its own 20 documents print none — a grammar widened past
+    its evidence is a grammar nothing tests — and the divergence is pinned by
+    `test_the_sectioned_sibling_reads_the_zero_glyph_and_this_reader_does_not`
+    below (W3 §CPSCAN CPS12, F7)."""
     for corrupted in ("З0-02 ' ACH Debit", "o4-02 ' ACH Debit"):
         assert parse(document(
             debits=DEBITS.replace("04-02 ' ACH Debit", corrupted))) is None
+
+
+def test_the_sectioned_sibling_reads_the_zero_glyph_and_this_reader_does_not():
+    """W3 §CPSCAN CPS12 (F7) — the divergence between the two sibling readers,
+    pinned so that a future edit to either cannot silently converge them.
+
+    `core_processor_sectioned._LEADING_ZERO` admits `o` and `O` in the leading
+    position of a month or a day; this module's `_ROW_DATE` is digits only.
+    Both choices are measured rather than stylistic — the sectioned template's
+    scans print 154 such marks across 10 documents, this template's 20 print
+    zero — so the two grammars are asserted here against each other rather
+    than left to a pair of docstrings.
+
+    UNIFYING them is out of scope for this card: admitting the glyph here
+    would be a behaviour change on `core_processor_daily` with no archive
+    evidence behind it, and refusing it there would give back the 154 rows.
+    If a later cell brings evidence, this test is what it has to change."""
+    from analysis import core_processor_sectioned as sectioned
+
+    assert re.search(sectioned._DATE_TOKEN, " o3/12 100.00") is not None
+    assert re.search(sectioned._DATE_TOKEN, " O3/12 100.00") is not None
+    assert cpd._DATE_RE.search(" o3-12 100.00") is None
+    assert cpd._DATE_RE.search(" O3-12 100.00") is None
 
 
 def test_an_amount_whose_integer_part_is_not_ascii_is_invisible_not_zero():

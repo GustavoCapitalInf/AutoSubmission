@@ -499,6 +499,26 @@ def test_a_word_initial_zero_shaped_letter_is_admitted_and_the_count_check_decid
     assert parse(invented) is None
 
 
+def test_the_daily_sibling_refuses_the_zero_glyph_this_reader_reads():
+    """W3 §CPSCAN CPS12 (F7) — the divergence between the two sibling readers,
+    from this side.
+
+    `core_processor_daily` deliberately does NOT admit `o`/`O` in a date: its
+    own 20 archive documents print none, and a grammar widened past its
+    evidence is a grammar nothing tests. This module's 39 print 154 such marks
+    on 10 documents, so it reads them. Both readers are right about their own
+    template and the two grammars must not converge by accident, which is what
+    this asserts.
+
+    UNIFYING them is out of scope for this card: it is a behaviour change on
+    `core_processor_daily` with no evidence behind it. If a later cell brings
+    evidence, this test is what it has to change."""
+    from analysis import core_processor_daily as daily
+
+    assert re.search(module._DATE_TOKEN, " o3/12 100.00") is not None
+    assert re.search(daily._DATE_TOKEN, " o3-12 100.00") is None
+
+
 @pytest.mark.parametrize("intra", ["NO3/12", "AUTO3/12", "Oo3/12"])
 def test_a_zero_shaped_letter_inside_a_word_is_still_refused(intra):
     """The other half of the probe: the boundary holds where it was always
