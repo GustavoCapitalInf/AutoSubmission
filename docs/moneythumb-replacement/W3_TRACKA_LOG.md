@@ -44418,9 +44418,26 @@ and `5.00-` are its invented signed amounts; `BANNER` is the identifier
 which one member of the family also prints in a marketing sentence. `git diff
 -S` places twelve of the fourteen in `tests/test_core_processor_enclosures.py`
 (one of them also in the invented conformance fixture), one in the module's own
-source and one in this log. **No archive-sourced literal survives anywhere in
-the branch**, and the collision is what a hundred invented round figures cost
-against an archive that prints 8,442 distinct ones.
+source and one in this log.
+
+**Corrected at closure: this section over-claimed its own result.** It said "no
+archive-sourced literal survives anywhere in the branch", which is not true as
+written and is not what the scan can show. What the scan shows, and what this
+section should have said, is: **no archive-sourced figure, date, name, account
+number, reference or merchant string survives anywhere in the branch.** Some
+archive-sourced *vocabulary* does survive, in tracked source, by design — the
+template's printed BLOCK-banner words, which the card expressly admits
+("institution furniture … is allowed and must be justified as furniture") and
+which the module justifies at `analysis/core_processor_enclosures.py:490-500`
+as the TEMPLATE's own headings rather than a list of banks, merchants or
+products. The closure scan surfaces two of them, `Itemized` and `NUMERICAL`,
+from `SERVICE CHARGES AND ITEMIZED FEES` and `CHECKS IN NUMERICAL ORDER`. They
+are the reason the sentence needed narrowing and they are not a finding.
+
+The collision the residual reports is what a hundred invented round figures
+cost against an archive that prints thousands of distinct ones. The final-tree
+raw intersection and residual, with every residual literal adjudicated, are in
+C19.
 
 The instrument is the private scratchpad's `privacy_scan.py`; it is not
 committed because it reads archive text, and the residual it reports is a
@@ -44551,5 +44568,8 @@ because it is the reason a new registration cannot move this test: the
 assertion divides by `len(registrations)`, so a registration of average cost
 leaves the projection exactly where it was.
 
-The slice was re-run at the final tree on the quiet host and its result is in
-the table below.
+The slice was re-run at the final tree on the quiet host. **Corrected at
+closure:** this sentence pointed at "the table below", and there is no table
+below — this is the last paragraph of the section. The result is in the table
+**above**, in C15: `pytest -m corpus` → **30 passed**, 5,956 deselected,
+`CORPUS_EXIT=0`.
