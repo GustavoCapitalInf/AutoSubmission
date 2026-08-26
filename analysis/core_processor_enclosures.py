@@ -70,15 +70,18 @@ does for the same absence.
 
 The printed counts EXCLUDE two rows this ledger nonetheless posts
 -----------------------------------------------------------------
-Measured over the 54 addressable members: on every document whose captured
-credit rows outnumber the printed credit count, they outnumber it by exactly
-one and the excess is exactly the printed `Interest Paid` figure (5 documents);
-on every document whose debit rows outnumber the printed debit count, the
-excess is exactly the printed service charge (13 documents, one of them posting
-it as two rows). The bank prints `N Deposits/Credits` about its deposit
-categories and bills its own interest and its own fee on separate summary
-lines; both postings are real and are published, and the count gate is stated
-in the scope the bank counts in. That is the third class
+Measured by `tools/coreenc_count_scope.py` over the 48 members this reader
+publishes — the whole MEASURABLE population, because a document that declines
+captures no rows to count: on every document whose captured credit rows
+outnumber the printed credit count, they outnumber it by exactly one and the
+excess is exactly the printed `Interest Paid` figure (5 documents, which are
+every one that prints an interest credit at all); on every document whose debit
+rows outnumber the printed debit count, the excess is exactly the printed
+service charge (19 documents, two of them posting it as two rows — again every
+one that prints a service charge at all). The bank prints `N Deposits/Credits`
+about its deposit categories and bills its own interest and its own fee on
+separate summary lines; both postings are real and are published, and the
+count gate is stated in the scope the bank counts in. That is the third class
 `analysis/count_semantics.py` describes, which is why this parser is left at
 the table's default (`UNSURVEYED`, incomparable) and says so in
 `SECTION_LEVEL_ORACLES` rather than declaring half an adjustment: the mapping

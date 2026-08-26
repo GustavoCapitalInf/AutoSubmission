@@ -43905,12 +43905,32 @@ moves both; and all three then move the chain.
 
 ### The printed counts exclude two rows the ledger posts
 
-Measured over the 54 addressable members: every document whose captured credit
-rows outnumber the printed credit count does so by exactly one, and the excess
-is exactly the printed `Interest Paid` figure (**5 documents**); every document
-whose debit rows outnumber the printed debit count has an excess equal to
-exactly the printed service charge (**13 documents**, one posting it as two
-rows). The bank counts its deposit categories and bills its interest and its
+**Corrected at closure — the debit figure this section first published (13, one
+posting it as two rows) does not reproduce.** It is re-derived here by a
+COMMITTED instrument, `tools/coreenc_count_scope.py`, which runs the real
+reader over the cached text of each named document and compares what it
+published against what the strip printed. The measurable population is the 48
+members the reader publishes: a document that declines captures no rows, so the
+6 ledger declines and the 4 unclaimed cannot be measured on either side, and
+the "54 addressable members" this section originally gave as the denominator
+cannot produce either figure.
+
+`python -m tools.coreenc_count_scope --data-dir <checkout>/webapp_data --shas
+<the census 58>` → `EXIT=0`, 0.6 s, 48 published / 6 declined / 4 not claimed:
+
+| rows in excess of the printed count | documents | print the figure | excess money equals the printed figure |
+|---|---|---|---|
+| debit, 0 | 29 | 0 | 29/29 (nothing to match) |
+| debit, 1 | **17** | 17 | 17/17 |
+| debit, 2 | **2** | 2 | 2/2 |
+| credit, 0 | 43 | 0 | 43/43 (nothing to match) |
+| credit, 1 | **5** | 5 | 5/5 |
+
+So the debit half is **19 documents, two of them posting the charge as two
+rows** — and they are exactly the 19 of the 48 that print a service charge at
+all. The credit half reproduces as first published: **5 documents**, one excess
+row each, equal to the printed interest, and they are exactly the 5 that print
+an interest credit. The bank counts its deposit categories and bills its interest and its
 fee on separate summary lines. Both postings are published; the count gate is
 stated in the scope the bank counts in, and each allowance is admitted ONLY for
 the figure the bank printed.

@@ -1195,8 +1195,10 @@ SECTION_LEVEL_ORACLES = {
     "core_processor_enclosures": (
         "prints BOTH per-direction counts, and both EXCLUDE a row class the "
         "ledger posts: the credit count excludes the interest the bank "
-        "credited (5 of 54 archive members) and the debit count excludes the "
-        "service charge it billed (13, one posting it as two rows). A "
+        "credited (5 of the 48 archive members this parser publishes) and the "
+        "debit count excludes the service charge it billed (19 of the 48, two "
+        "of them posting it as two rows; both figures re-derived by "
+        "tools/coreenc_count_scope.py). A "
         "CountMapping could express the debit half and there is no printed "
         "evidence field for the credit half, so declaring it would flag every "
         "interest-bearing member; the parser gates both scopes internally "
