@@ -44784,30 +44784,35 @@ re-run one closure round later, on a population that has grown with the branch:
 |---|---:|---|---:|---:|
 | the core-processor complex (`--where parser_id=core_processor_counted,core_processor_sectioned,core_processor_daily`) | 31 | 1,922 MONEY · 1,025 DIGITS · 2,932 WORDS · 31 DATES | **0** | 0 |
 | the 5 pinned documents the rung claimed at the reviewed tip | 5 | 610 MONEY · 320 DIGITS · 2,060 WORDS · 13 DATES | **0** | 0 |
-| the claimed 83 + those 5 (86 distinct) | 86 | 13,516 MONEY · 8,498 DIGITS · 20,074 WORDS · 306 DATES | **13** | 1 |
+| the claimed 83 + those 5 (86 distinct) | 86 | 13,516 MONEY · 8,498 DIGITS · 20,074 WORDS · 306 DATES | **11** | 1 |
 
 **Zero DIGITS and zero DATES on every population, which is the load-bearing
 half**: no account number, no cheque or reference number, no authorisation
 code, no telephone digits and no statement date from any of 86 documents
-appears anywhere in the 4,609 lines this branch adds.
+appears anywhere in the 4,928 lines this branch adds.
 
-**The thirteen, adjudicated one at a time — none is document-derived.** Five
-are MONEY and eight are WORDS. The five MONEY are three-digit round amounts
-with cents — three occurrences of one of them and one each of two more — drawn in
+**The eleven, adjudicated one at a time — none is document-derived.** Five are
+MONEY and six are WORDS. The five MONEY are three-digit round amounts with
+cents — three occurrences of one, one each of two more — drawn in
 `tests/test_printed_row_extraction.py` as a fixture ledger's own figures, at
-coordinates chosen in that file; four of the eight WORDS are the same fixture
-family's invented merchant whose FIRST word is an ordinary English noun; the
-remaining four are two-word sequences of ordinary English out of this log's and
-the review record's prose. A fixture cannot be built whose every token is
-absent from three thousand statements, and this is the review's own
-adjudication reached again on a larger population: **what matters is that
-nothing distinctive collided, and nothing did.** The review's count was 8 over
-76+5 documents; the five new ones are two fixture amounts and two prose
-bigrams this closure round added, plus one the larger population reached.
+coordinates chosen in that file. Four of the six WORDS are that same fixture
+family's invented merchant, whose FIRST word is an ordinary English noun. The
+last two are two-word sequences of ordinary English out of prose — one in this
+log's §DESCCOLS opening, one in the review record — and both predate the
+closure round. A fixture cannot be built whose every token is absent from three
+thousand statements, and this is the review's own adjudication reached again on
+a population 13% larger: **what matters is that nothing distinctive collided,
+and nothing did.**
+
+The review counted 8 over 76+5 documents. Of the three added since, two are
+fixture amounts drawn for the F3 pins and one is that merchant name on a new
+fixture line. Two more that this round's own prose introduced were reworded
+away when the final scan reported them (`91a2853`'s successor), which is what
+the instrument is for.
 
 **Recorded for the train, as the review asked:** running this instrument over
-this branch's claimed population exits **1**, and these thirteen are the
-reason. They are adjudicated here so the next scan does not re-litigate them.
+this branch's claimed population exits **1**, and these eleven are the reason.
+They are adjudicated here so the next scan does not re-litigate them.
 
 **Control bytes.** Every file the branch touches, read as it is COMMITTED
 (`git show wave8-desccols:<path>`) rather than as it sits in the working tree,
@@ -45013,9 +45018,10 @@ payloads are byte-identical on every one of the 109.
 The shared instrument (`.claude/worktrees/mt-lead/tools/privacy_scan_branch.py`),
 `--base 10cc722 --ref wave8-desccols`, is re-run in DC10.3: the core-processor
 complex **0 hits, exit 0**; the five pinned documents **0 hits, exit 0**; the
-claimed 83 plus those five (86 distinct) **13 hits, exit 1** — five three-digit
-round fixture amounts and eight WORDS, four of them a fixture merchant's
-ordinary-English first word and four two-word sequences of English prose.
+claimed 83 plus those five (86 distinct) **11 hits, exit 1** — five three-digit
+round fixture amounts and six WORDS, four of them a fixture merchant's
+ordinary-English first word and two two-word sequences of English prose that
+predate this round.
 **Zero DIGITS and zero DATES on every population.** The review's own
 adjudication, reached again on a population 13% larger, and written down here
 so the train does not re-litigate it. Every committed file carries **no control
