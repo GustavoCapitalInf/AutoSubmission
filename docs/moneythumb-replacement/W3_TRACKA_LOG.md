@@ -43971,10 +43971,38 @@ each printed row its own line, so the count stops under-reading.
 
 Nothing downstream of it moves: `parsed_posting_days`,
 `missing_posting_dates`, the `posting_dates_cover_source` check, the ADB
-warnings, every ADB value and every ADB basis are byte-identical on all 7 and
-on all 5 pinned documents. It is a diagnostic that became accurate. It is
-named here because it is the only leaf this card moves that is not a
-description or derived from one.
+warnings, every ADB value and every ADB basis are byte-identical on every
+claimed document and on every pinned one. It is named here because it is the
+only leaf this card moves that is not a description or derived from one.
+
+**But it is NOT a diagnostic sitting beside a check — it is the SIZE of the set
+a REQUIRED check is computed from, and the two are the same object** (DC12 F2).
+`analysis/adb.py:731` builds `source_dates` ONCE and uses it twice: `:738` sets
+`result.source_posting_days = len(source_dates)`, and `:741` sets
+`checks["posting_dates_cover_source"] = not missing`, where `missing =
+sorted(source_dates - parsed_dates)`. `:775` appends that check to `required`
+and `:776` folds `required` into `result.ok`. So the leaf this card moves is
+one half of a required check's own input, and it moves UP. **A document where
+the repair reveals a printed posting date the parser produces no transaction
+for would move `posting_dates_cover_source` from True to False and WITHHOLD
+the ADB.** That is not what happened here, and the difference between "it did
+not happen" and "it cannot happen" is the whole of this note.
+
+**The measurement, stated as a measurement.** On this archive the source set
+GREW and `missing` stayed EMPTY on every document: over all 3,380 at the final
+tree, the required-check vector reports **0 moved leaf paths** under
+`posting_dates_cover_source`, `parsed_posting_days`, `missing_posting_dates`,
+`checks`, `integrity`, `flags`, `notes`, `risk`, `warnings`, `outcome`,
+`reconciliation`, `escalation` and `model_used` — and exactly **one** under
+`.metrics.adb`, which is `.metrics.adb.source_posting_days` itself
+(`python -m tools.desccols_movement`, exit 1 by design, DC10). The vector is
+printed by the committed instrument rather than read off by hand, so the next
+card re-derives it instead of trusting this paragraph.
+
+The next extraction card watches THIS leaf. A card that reveals a printed date
+its parser cannot pair to a transaction is the card that turns the check, and
+the failure it produces — a withheld ADB — is a correct answer arrived at for a
+reason nobody was watching.
 
 ## DC5 The pinned surface: five documents claimed, zero verdict movement
 
@@ -44321,10 +44349,16 @@ readers already take is the right span.
    move a line the region does not contain, so the worst case is a furniture
    block emitted as rows in the same place with the same words. Not reachable
    on this archive as measured; recorded rather than dismissed.
-4. **`metrics.adb.source_posting_days` moves** (DC4.1) — a diagnostic count
-   that stops under-reading. It moves no ADB value, no check, no warning and
-   no verdict, and it is not a pinned column. Named because it is the only
-   moved leaf that is not a description or derived from one.
+4. **`metrics.adb.source_posting_days` moves** (DC4.1) — a count that stops
+   under-reading, and NOT an inert diagnostic: `analysis/adb.py:731-741`
+   computes `source_dates` once and uses it both for this leaf and for the
+   REQUIRED check `posting_dates_cover_source` (`:775-776` fold that check into
+   `result.ok`). On this archive the set grew and `missing` stayed empty, so no
+   check, warning, ADB value or verdict moved — measured as the required-check
+   vector over all 3,380, not asserted. The risk this carries forward is that
+   an extraction card which reveals a printed posting date its parser cannot
+   pair turns that check and withholds the ADB. It is not a pinned column
+   (DC5).
 5. **Five pinned documents' analysis INPUT rotates** (DC5). Their verdicts,
    integrity blocks and every audited figure are unmoved, but their OCR
    artifacts and analysis cache entries are new by construction. This is
