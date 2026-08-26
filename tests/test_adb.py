@@ -820,9 +820,40 @@ def test_the_money_presence_test_reads_a_comma_decimal_amount():
 
 def test_a_masthead_line_under_a_page_number_is_not_a_posting_date():
     """A statement's masthead — its statement date, the holder, the account —
-    is reprinted at the top of every page and begins with a date. It is
-    identified by POSITION (the moneyless run a page number opens), never by
-    its wording, which is customer data."""
+    is reprinted at the top of every page and begins with a date.
+
+    What refuses it is that no amount is printed on it or within three
+    non-empty lines of it, which is true of a masthead and of no posting row.
+    Never its wording, which is customer data; and — since the review's
+    MAJOR-2 — never its position either, because a real posting row printed
+    under a page break sits in exactly the same position.
+    """
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "Page  1 of  2",
+        "April 30, 2026 A CUSTOMER NAME 1234567890",
+        "P.O. BOX 00000 A CITY, ST 00000-0000",
+        "A CITY ST 00000",
+        "Member FDIC",
+        "04/09 A MERCHANT 42.00",
+    ])
+    assert source_posting_dates(md, date(2026, 4, 1), date(2026, 4, 30)) == {
+        date(2026, 4, 9)
+    }
+
+
+def test_a_masthead_whose_money_is_printed_two_lines_below_it_is_counted():
+    """The cost of refusing the masthead by PROXIMITY and not by position.
+
+    A position rule was tried — refuse a moneyless candidate inside the run of
+    moneyless lines a page number opens — and it is gone (W3 §WITHHELDGRIDS
+    WG12, the review's MAJOR-2): it fired before the lookahead and cost a real
+    printed posting day on 16 archive documents. What remains is the proximity
+    rule, and this is the shape proximity does not catch. Pinned so the
+    boundary is visible rather than implied, exactly as the wrapped-total
+    falsifier above is.
+    """
     from analysis.dates import source_posting_dates
 
     md = "\n".join([
@@ -831,14 +862,14 @@ def test_a_masthead_line_under_a_page_number_is_not_a_posting_date():
         "P.O. BOX 00000 A CITY, ST 00000-0000",
         "04/09 A MERCHANT 42.00",
     ])
-    assert source_posting_dates(md, date(2026, 4, 1), date(2026, 4, 30)) == {
-        date(2026, 4, 9)
-    }
+    assert date(2026, 4, 30) in source_posting_dates(
+        md, date(2026, 4, 1), date(2026, 4, 30)
+    )
 
 
 def test_a_posting_row_below_a_page_number_keeps_its_date():
-    """The lookback stops at the first line carrying money, so a real row
-    printed under a page break is not swept up with the masthead."""
+    """A real row printed under a page break keeps its date. Regression pin:
+    base does this too, and the position rule that briefly did not is gone."""
     from analysis.dates import source_posting_dates
 
     md = "\n".join([
@@ -850,6 +881,45 @@ def test_a_posting_row_below_a_page_number_keeps_its_date():
     ])
     got = source_posting_dates(md, date(2026, 4, 1), date(2026, 4, 30))
     assert {date(2026, 4, 8), date(2026, 4, 9)} == got
+
+
+def test_a_posting_row_directly_under_a_page_number_keeps_its_date():
+    """THE reviewer's shape (MAJOR-2), pinned: a bare posting date printed
+    immediately under a page number, with its amount two non-empty lines below
+    it. No money line separates the page number from the date, so the
+    withdrawn position rule refused this row and deleted a printed posting day
+    — at two lines, not at the "more than three" the record claimed. Money
+    proximity vouches for the row and that is the whole test.
+    """
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "Page  1 of  2",
+        "06/09",
+        "A MERCHANT",
+        "42.00 858.00",
+    ])
+    assert source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30)) == {
+        date(2026, 6, 9)
+    }
+
+
+def test_a_posting_row_under_a_page_number_and_a_caption_keeps_its_date():
+    """The reviewer's second shape: a moneyless caption line between the page
+    number and the row. Two printed lines of furniture above a real posting row
+    are not evidence that the row is furniture."""
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "Page  1 of  2",
+        "Transaction Detail",
+        "06/09",
+        "A MERCHANT",
+        "42.00 858.00",
+    ])
+    assert source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30)) == {
+        date(2026, 6, 9)
+    }
 
 
 def test_a_boundary_row_labelled_on_the_next_line_is_not_a_posting_date():

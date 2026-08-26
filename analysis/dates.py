@@ -251,10 +251,29 @@ _MONEY_RE = re.compile(r"\d[\d, ]*[.,]\d{2}(?!\d)")
 # but never from passing to failing. The cost of being wrong is a coverage
 # check that is quieter than it should be, never a false validation.
 _WRAPPED_TOTAL_LABEL = re.compile(r"^totals?\b", re.I)
-#: A page-number line, as the printed furniture that OPENS a page rather than
-#: as a word inside a row. `_NOT_A_POSTING_ROW` already refuses a line that
-#: carries this shape itself; this one is consulted for the line ABOVE.
-_PAGE_NUMBER_LINE = re.compile(r"^\s*page\s*:?\s*\d+", re.I)
+# A PAGE-HEADER POSITION RULE WAS TRIED HERE AND IS GONE (W3 §WITHHELDGRIDS
+# WG12, closing the review's MAJOR-2). It refused a moneyless candidate found
+# in the run of moneyless lines a `Page N of M` line opens, on the theory that
+# a statement's masthead is identified by POSITION rather than by its wording,
+# which is customer data. The theory is sound; the rule was not. It fired
+# BEFORE the money lookahead below and was not conditioned on it, so a genuine
+# posting row printed under a page break lost its date whenever its amount was
+# printed on the next line but one. Two measurements decided it:
+#
+# * required to defer to that lookahead — the ruling's own remedy — the refusal
+#   becomes UNREACHABLE, because the lookahead is asked of every moneyless
+#   candidate and already refuses everything the position rule would have. The
+#   deferring form was built and measured against its own ablation over the
+#   2,558 archive documents the run of record resolves: identical on all of
+#   them;
+# * left as it was, it removed a printed posting day that the document's own
+#   LEDGER posts on 16 of those documents
+#   (`tools/withheldgrids_srcdates_audit.py`), which is the evidence loss the
+#   removal-only argument is supposed to make impossible.
+#
+# What it bought was one document whose masthead date is the printed period
+# boundary; that document is withheld again and named in WG12. The two shapes
+# it got wrong are pinned in tests/test_adb.py so the boundary stays visible.
 #: A table's own column caption. A line that names a date column AND a money
 #: column while carrying no money is announcing the table that FOLLOWS it, so
 #: money printed after it belongs to that table's first row and not to
@@ -407,27 +426,10 @@ def source_posting_dates(markdown: str, period_start: date, period_end: date) ->
         if re.fullmatch(r"balances?", remainder, re.I) and not _MONEY_RE.search(line):
             continue
         if not _MONEY_RE.search(line):
-            # THE PAGE-HEADER BLOCK. A statement's masthead line — its
-            # statement date, the holder and the account — is printed at the
-            # top of every page and begins with a date, so it reads as a
-            # posting row of whatever table the page goes on to print. What
-            # identifies it is not its wording (which is customer data) but
-            # its POSITION: it sits in the run of moneyless lines that a page
-            # number opens. Bounded to three lines, the same budget the
-            # lookahead below uses, so the walk cannot run up the page.
-            behind: list[str] = []
-            for candidate in reversed(lines[:index]):
-                if not candidate.strip():
-                    continue
-                if _MONEY_RE.search(candidate):
-                    break
-                behind.append(candidate)
-                if len(behind) == 3:
-                    break
-            if any(_PAGE_NUMBER_LINE.match(entry) for entry in behind):
-                continue
             if len(remainder) < 3:
-                previous = behind[0].strip() if behind else ""
+                previous = next(
+                    (l.strip() for l in reversed(lines[:index]) if l.strip()), ""
+                )
                 if _WRAPPED_TOTAL_LABEL.match(previous) and not _MONEY_RE.search(previous):
                     continue
                 # THE COLUMN-PER-LINE LAYOUT. Where the flattening puts each
@@ -449,9 +451,11 @@ def source_posting_dates(markdown: str, period_start: date, period_end: date) ->
             # column-per-line layout — within the next few lines. Requiring
             # it of EVERY moneyless candidate is what refuses a marketing
             # sentence that opens with a date ("June 15 is ... Day, and now is
-            # a great time to ...") without needing to recognise prose. The
-            # lookahead stops at a column caption because money printed after
-            # a caption belongs to the table the caption announces.
+            # a great time to ...") without needing to recognise prose — and,
+            # since the page-header position rule above was withdrawn, it is
+            # also the only thing that refuses a masthead. The lookahead stops
+            # at a column caption because money printed after a caption belongs
+            # to the table the caption announces.
             lookahead: list[str] = []
             for candidate in lines[index + 1: index + 5]:
                 if not candidate.strip():
