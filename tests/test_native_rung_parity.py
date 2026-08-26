@@ -61,6 +61,13 @@ LADDER_BINDINGS = {
     "balance_forensic_audit": "native_document",
     "build_corpus_cache": "native_document",
     "deterministic_coverage_audit": "native_statement",
+    # An INSTRUMENT, and it binds the ladder for the same reason the five
+    # oracles do: W3 §DESCCOLS measures what the new extraction rung changes,
+    # and a measurement taken through a privately composed ladder would be
+    # measuring something production does not run — GEOM-1's lesson, one
+    # directory over.
+    "tools.desccols_movement": "native_statement",
+    "tools.desccols_proofs": "native_statement",
 }
 
 #: `tests/` calls individual extractors on purpose (a rung is unit-tested by

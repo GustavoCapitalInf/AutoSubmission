@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import math
 import re
+from bisect import bisect_left
 from functools import lru_cache
 from statistics import median
 from typing import NamedTuple, TypedDict
@@ -1023,6 +1025,495 @@ def _wells_rows(page) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# The printed row: giving a described ledger back the column flattening welds
+# ---------------------------------------------------------------------------
+#
+# `_native_pages` reads MuPDF BLOCKS and joins the lines inside a block with a
+# single space. A block is MuPDF's grouping, not a printed row, so where one
+# block's lines are printed on several rows that join welds tokens from
+# different rows into one line — and no reader can find the boundary again,
+# because there is nothing in the text to find. Measured with
+# `tools/desccols_census.py` over the run of record's 3,380 documents: 3,156 of
+# the 3,189 that hold native text weld at least one line. The weld is the
+# flattening's default, not a family.
+#
+# On MOST documents the weld is harmless: an address paragraph welds its own
+# lines and nobody else's. It becomes a wrong ANSWER only on a described ledger
+# grid, where the layer emits the grid cells and the description cells as two
+# streams and flushes one against the other, so a row's span (its date to its
+# amount) comes to hold another posting's merchant text. W3 §DESCATTRIB
+# measured that harm and closed it by REFUSING to publish a welded span; the
+# text it refused is still in the document, and this rung is how it comes back
+# — by reading the printed rows out of the line boxes the flattening threw
+# away, so a row's description is its own by construction rather than by a
+# rule over a welded string.
+#
+# WHAT IS EMITTED. One line per printed ROW, its cells in printed reading
+# order; every line of the page that is not inside a repaired grid is emitted
+# exactly as `_native_pages` emits it, in the same place. So a page with no
+# repairable grid is byte-identical, and on a page with one, only the grid's
+# own lines move.
+#
+# THE GATES, and why each is here. All of them fail CLOSED: a region that does
+# not satisfy every one is left exactly as the flattening left it, and a
+# document where nothing is repaired is not claimed at all, so the ladder falls
+# through to the generic rung and the result is byte-identical to today's.
+#
+#   G1  an ANCHOR column. A row STARTS at a band whose leftmost cell shares an
+#       x with the region's first band; a band indented strictly to the right
+#       of it CONTINUES the row above. A band that starts to the LEFT ends the
+#       region — the page has moved on to something else.
+#   G2  at least three row starts. Two bands are not a grid, they are a
+#       coincidence, and this rung has no business rewriting a coincidence.
+#   G3  at least three rows carry a money cell, and those cells' right edges
+#       agree: a printed right-aligned money column, which is what makes the
+#       region a ledger rather than an indented paragraph.
+#   G4  at least three rows carry a DESCRIPTIVE cell — one that is neither the
+#       row's anchor nor its money. Without one there is no description and
+#       nothing to give back.
+#   G5  the region actually WELDS: some block spans more than one of its bands
+#       and carries a descriptive cell. Without this the flattening already
+#       prints one line per row and the repair would be a no-op that rotated
+#       every affected document's cache key for nothing.
+#   G6  no block has lines both inside and outside the region. A block that
+#       straddles the boundary cannot be half re-serialised and half left
+#       alone, and guessing which half is which is exactly the kind of repair
+#       this platform refuses. The whole DOCUMENT is refused. G6 is REDUNDANT
+#       with G7 and is kept for the fast, comprehensible refusal rather than
+#       for correctness: measured, removing it alone changes no answer,
+#       because a half-serialised block either duplicates or drops tokens and
+#       G7 then refuses the page. `tools/desccols_mutate.py` records that as a
+#       surviving mutant on purpose, with the pair mutated together to show
+#       what they hold between them.
+#   G7  TOKEN CONSERVATION. The page's whitespace-separated tokens must be the
+#       same multiset before and after. Only line boundaries and within-line
+#       order may move; nothing may be invented, dropped or altered. The check
+#       is on the emitted text, so it is a proof rather than an argument.
+#   G8  the money cell is the row's LAST printed cell. This is the gate that
+#       decides whether the repair can help at all, and it is worth stating in
+#       full: a reader's span runs from a row's date to the first figure after
+#       it, so the description is recoverable only where the amount is printed
+#       after everything else the row says. Where a template prints the amount
+#       on the row's first line and the merchant detail BELOW it, re-serialising
+#       moves the detail no closer to the span, changes the document's text for
+#       no gain, and — measured on this archive — costs one document its
+#       daily-balance grid. Templates of that shape are declined here.
+#
+#       It also subsumes the multi-column case entirely, which is why there is
+#       no separate gate for one. A balance ladder or a cheque list printed
+#       side by side carries several money cells per row, and a row's FIRST
+#       money can only be its LAST printed cell when it is the only one — so
+#       G8 excludes the whole class. An explicit `at most one money cell per
+#       row` gate was written first and `tools/desccols_mutate.py` proved it
+#       changed no answer; it is deleted, and the equivalence is pinned as a
+#       test over every arrangement of up to five cells.
+#   G9  no line of the region is REPEATED PAGE FURNITURE — text another page
+#       of the same document prints at the same band position. A repaired row
+#       carries every cell printed on its band left of its money, so a running
+#       header, a footer or a column caption that happens to sit on a
+#       posting's band would be folded into that posting's description, and
+#       the card's own WORD-box oracle cannot see it: that oracle reads a row's
+#       truth from the words printed between its date and its amount, which is
+#       exactly where the absorbed line lands. So the shape is refused rather
+#       than described. The refusal is the REGION's — the ledger it sits in
+#       falls back to the flattening's own lines, in place, and no line is
+#       repaired, dropped or moved.
+#  G10  no line of the region lies horizontally outside the ledger's own
+#       columns — left of the anchor column or right of the widest money edge.
+#       The same reasoning one axis over: what sits beside a ledger is not part
+#       of a row of it, and a row that reaches past its own money column is not
+#       the arrangement this rung reads.
+#
+# Nothing above names an institution, a product or a merchant: the region is
+# found by where the ink is, and the same code reads any bank that prints a
+# described ledger in this arrangement.
+
+#: A printed money cell, in the shared money grammar's plainest printed form.
+#: It is used to CLASS a cell, never to read a figure — nothing in this module
+#: parses a number.
+_ROW_MONEY_RE = re.compile(r"-?\$?(?:[0-9][0-9,]*\.[0-9]{2}|\.[0-9]{2})-?$")
+
+#: How far apart two cells' left edges may be and still be the same column.
+#: The same reasoning as `_FC_COLUMN_TOLERANCE`: a template lays its columns
+#: out identically on every page, so a column is tight, and only the ROW
+#: grouping needs to be generous.
+_ROW_COLUMN_TOLERANCE = 1.0
+
+#: Two bands are not a grid. Three printed rows are the smallest thing this
+#: rung will call one.
+_ROW_GRID_MINIMUM = 3
+
+
+class _PrintedLine(NamedTuple):
+    """One printed line, with the block MuPDF grouped it into."""
+
+    block: int
+    top: float
+    bottom: float
+    left: float
+    right: float
+    text: str
+
+
+def _line_box(line: object) -> tuple[float, float, float, float] | None:
+    """A printed line's box as four finite numbers, or None if it is malformed.
+
+    `line["bbox"]` unguarded raised three different exceptions out of this
+    module — `KeyError`, `ValueError: not enough values to unpack` and
+    `TypeError: unsupported operand type(s) for -` — for a missing key, a box
+    of three numbers and a box of strings. The wave rule is that a refusal is
+    an answer and an exception is not, so every one of those shapes is a
+    refusal here (the page keeps the flattening's own text). A box that is not
+    four FINITE numbers, or that is inverted or has no height, is refused for
+    the same reason: the band arithmetic below subtracts these, and a
+    degenerate box makes its answer meaningless rather than wrong-looking.
+    """
+    if not isinstance(line, dict):
+        return None
+    bbox = line.get("bbox")
+    if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+        return None
+    numbers: list[float] = []
+    for value in bbox:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        number = float(value)
+        if not math.isfinite(number):
+            return None
+        numbers.append(number)
+    x0, y0, x1, y1 = numbers
+    if x1 < x0 or y1 <= y0:
+        return None
+    return x0, y0, x1, y1
+
+
+def _printed_lines(page) -> list[_PrintedLine] | None:
+    """Every printed line of the page with its box, or None to REFUSE the page.
+
+    None is the answer for a page whose `get_text("dict")` is not the shape
+    MuPDF documents: a block, line or span that is not a mapping, a missing
+    `blocks`, `lines` or `spans` key, a line with no spans at all, or a box
+    `_line_box` refuses. The caller answers None with the flattening's own
+    text for that page, so a malformed page is left exactly as today rather
+    than crashing the OCR stage for that document. It is not reachable on
+    today's PyMuPDF — the archive run exercised this path on every native-text
+    document and raised nothing — and that is precisely the case the
+    fail-closed rule exists for.
+
+    A line whose spans print only whitespace is NOT malformed: it is a blank
+    printed line, skipped exactly as the flattening skips it, and G7 refuses
+    the page if that skip were ever to lose a token.
+    """
+    read = _page_text(page, "dict")
+    if not isinstance(read, dict):
+        return None
+    blocks = read.get("blocks")
+    if not isinstance(blocks, (list, tuple)):
+        return None
+    lines: list[_PrintedLine] = []
+    for index, block in enumerate(blocks):
+        if not isinstance(block, dict):
+            return None
+        if block.get("type") != 0:
+            continue
+        block_lines = block.get("lines")
+        if not isinstance(block_lines, (list, tuple)):
+            return None
+        for line in block_lines:
+            box = _line_box(line)
+            if box is None:
+                return None
+            spans = line.get("spans")
+            if not isinstance(spans, (list, tuple)) or not spans:
+                return None
+            pieces: list[str] = []
+            for span in spans:
+                if not isinstance(span, dict):
+                    return None
+                piece = span.get("text", "")
+                if not isinstance(piece, str):
+                    return None
+                pieces.append(piece)
+            text = "".join(pieces).strip()
+            if not text:
+                continue
+            x0, y0, x1, y1 = box
+            lines.append(_PrintedLine(index, y0, y1, x0, x1, text))
+    return lines
+
+
+def _shares_a_band(top: float, bottom: float,
+                   other_top: float, other_bottom: float) -> bool:
+    """Do two printed boxes sit on the same row of a page?
+
+    An OVERLAP test — at least half the shorter box — rather than a point
+    tolerance, because a tolerance is a constant nobody can justify across type
+    sizes and this has to hold for a template nobody has seen. This is the ONE
+    definition of a band in this module: `_row_bands` applies it down a page
+    and `_repeated_furniture` applies it across pages, so "the same band
+    position" means the same thing in both places.
+    """
+    return (min(bottom, other_bottom) - max(top, other_top)
+            >= 0.5 * min(bottom - top, other_bottom - other_top))
+
+
+def _row_bands(lines: list[_PrintedLine]) -> list[list[int]]:
+    """The lines grouped into the printed rows they share, top to bottom.
+
+    The band's extent only ever NARROWS to the lines already in it, so one tall
+    outlier cannot chain a band into the row below it.
+    """
+    order = sorted(range(len(lines)), key=lambda i: (lines[i].top, lines[i].left))
+    bands: list[list[int]] = []
+    top = bottom = None
+    for position in order:
+        line = lines[position]
+        if top is None or not _shares_a_band(top, bottom, line.top, line.bottom):
+            bands.append([position])
+            top, bottom = line.top, line.bottom
+        else:
+            bands[-1].append(position)
+            top, bottom = max(top, line.top), min(bottom, line.bottom)
+    return [sorted(band, key=lambda p: lines[p].left) for band in bands]
+
+
+def _repeated_furniture(
+    pages: list[list[_PrintedLine] | None],
+) -> list[frozenset[int]]:
+    """Which of each page's lines are REPEATED PAGE FURNITURE, page by page.
+
+    A line is furniture here when ANOTHER page of the same document prints the
+    same text at the same band position: the running header, the running
+    footer, the column caption a template repeats down the document. Same text,
+    same band — `_shares_a_band` applied across pages rather than down one, so
+    the rule that groups a row is the rule that recognises a repeat and there
+    is no second tolerance to justify.
+
+    This is a detection of a SHAPE, not of a vocabulary: nothing here names a
+    bank, a caption or a phrase, and a document whose pages print nothing twice
+    marks nothing.
+
+    Bounded rather than quadratic: the occurrences of one text are sorted by
+    their top edge and only the window that can possibly overlap is scanned,
+    because a box that starts below another's bottom cannot share its band.
+    """
+    where: dict[str, list[tuple[float, float, int]]] = {}
+    for index, lines in enumerate(pages):
+        for line in lines or ():
+            where.setdefault(line.text, []).append((line.top, line.bottom, index))
+    tallest: dict[str, float] = {}
+    for text, seen in where.items():
+        seen.sort()
+        tallest[text] = max(bottom - top for top, bottom, _page in seen)
+
+    marked: list[frozenset[int]] = []
+    for index, lines in enumerate(pages):
+        found: set[int] = set()
+        for position, line in enumerate(lines or ()):
+            seen = where[line.text]
+            window = bisect_left(seen, (line.top - tallest[line.text], -math.inf, -1))
+            for top, bottom, other in seen[window:]:
+                if top >= line.bottom:
+                    break
+                if other != index and _shares_a_band(line.top, line.bottom, top, bottom):
+                    found.add(position)
+                    break
+        marked.append(frozenset(found))
+    return marked
+
+
+def _candidate_regions(lines, bands) -> list[tuple[int, list[int]]]:
+    """`(end band, [row-start band, ...])` for each run G1/G2 admit."""
+    lead = [lines[band[0]].left for band in bands]
+    regions: list[tuple[int, list[int]]] = []
+    index = 0
+    while index < len(bands):
+        if len(bands[index]) < 2:
+            index += 1
+            continue
+        anchor = lead[index]
+        starts, end = [index], index + 1
+        while end < len(bands):
+            if abs(lead[end] - anchor) <= _ROW_COLUMN_TOLERANCE:
+                if len(bands[end]) < 2:
+                    break
+                starts.append(end)
+            elif lead[end] < anchor:
+                break
+            end += 1
+        if len(starts) >= _ROW_GRID_MINIMUM:
+            regions.append((end, starts))
+            index = end
+        else:
+            index += 1
+    return regions
+
+
+def _described_rows(lines, bands, end: int, starts: list[int],
+                    furniture: frozenset[int] = frozenset()) -> list[list[int]] | None:
+    """The region's rows, or None where G3/G4/G8/G9/G10 refuse it."""
+    rows = []
+    for order, start in enumerate(starts):
+        stop = starts[order + 1] if order + 1 < len(starts) else end
+        rows.append([p for band in range(start, stop) for p in bands[band]])
+
+    edges, described = [], 0
+    for row in rows:
+        money = [p for p in row if _ROW_MONEY_RE.match(lines[p].text)]
+        if money:
+            if money[0] != row[-1]:
+                return None                                    # G8
+            edges.append(lines[money[0]].right)
+        if any(p != row[0] and p not in money for p in row):
+            described += 1
+    if len(edges) < _ROW_GRID_MINIMUM or described < _ROW_GRID_MINIMUM:
+        return None                                            # G3 / G4
+    common = max(edges, key=lambda edge: sum(
+        1 for other in edges if abs(other - edge) <= _ROW_COLUMN_TOLERANCE))
+    if sum(1 for edge in edges
+           if abs(edge - common) <= _ROW_COLUMN_TOLERANCE) < _ROW_GRID_MINIMUM:
+        return None                                            # G3
+    if any(position in furniture for row in rows for position in row):
+        return None                                            # G9
+    left = min(lines[row[0]].left for row in rows)
+    right = max(edges)
+    if any(lines[position].right < left - _ROW_COLUMN_TOLERANCE
+           or lines[position].left > right + _ROW_COLUMN_TOLERANCE
+           for row in rows for position in row):
+        return None                                            # G10
+    return rows
+
+
+def _printed_row_page(page, flattened: str,
+                      furniture: frozenset[int] = frozenset()) -> str | None:
+    """The page with its described ledgers re-read by row, or None to refuse.
+
+    Returns `flattened` UNCHANGED when the page holds nothing this rung may
+    repair, which is the fallback the whole design rests on — and that is also
+    the answer for a page with no printed lines at all and for one whose boxes
+    `_printed_lines` refuses as malformed.
+
+    `furniture` is the page's repeated-furniture positions (G9), which only a
+    whole DOCUMENT can know; a caller with one page in hand passes none and
+    gets the other nine gates.
+    """
+    return _printed_row_text(_printed_lines(page), flattened, furniture)
+
+
+def _printed_row_text(lines: list[_PrintedLine] | None, flattened: str,
+                      furniture: frozenset[int] = frozenset()) -> str | None:
+    """`_printed_row_page` on lines already read, so a page is read once."""
+    if not lines:
+        return flattened
+    bands = _row_bands(lines)
+    blocks: dict[int, list[int]] = {}
+    for position, line in enumerate(lines):
+        blocks.setdefault(line.block, []).append(position)
+    band_of = {p: index for index, band in enumerate(bands) for p in band}
+
+    regions = []
+    for end, starts in _candidate_regions(lines, bands):
+        rows = _described_rows(lines, bands, end, starts, furniture)
+        if rows is None:
+            continue
+        members = {p for row in rows for p in row}
+        anchors = {row[0] for row in rows}
+        welded = False
+        for positions in blocks.values():
+            inside = [p for p in positions if p in members]
+            if not inside:
+                continue
+            if len(inside) != len(positions):
+                return None                                    # G6
+            if len({band_of[p] for p in inside}) > 1 and any(
+                    p not in anchors and not _ROW_MONEY_RE.match(lines[p].text)
+                    for p in inside):
+                welded = True                                  # G5
+        if welded:
+            regions.append(rows)
+    if not regions:
+        return flattened
+
+    claimed = {p for rows in regions for row in rows for p in row}
+    units = [(round(min(lines[p].top for p in positions), 1),
+              round(min(lines[p].left for p in positions), 1),
+              " ".join(lines[p].text for p in positions))
+             for positions in blocks.values() if positions[0] not in claimed]
+    units.extend((round(min(lines[p].top for p in row), 1),
+                  round(min(lines[p].left for p in row), 1),
+                  " ".join(lines[p].text for p in row))
+                 for rows in regions for row in rows)
+    units.sort()
+    text = "\n".join(unit[2] for unit in units)
+    if sorted(text.split()) != sorted(flattened.split()):
+        return None                                            # G7
+    return text
+
+
+def parse_native_printed_rows(
+    pdf_bytes: bytes, source_file: str = ""
+) -> StatementMarkdown | None:
+    """Native text whose described ledger rows are read from the line boxes.
+
+    The pages start as `parse_native_pdf_text`'s own, so the same quorum
+    decides whether the document has usable native text at all and every page
+    this rung does not repair is preserved byte for byte. A document where no
+    page changes is NOT claimed — it falls through to the generic rung, whose
+    answer it would have reproduced exactly.
+    """
+    base = parse_native_pdf_text(pdf_bytes, source_file=source_file)
+    if base is None:
+        return None
+    try:
+        import fitz
+    except Exception:
+        return None
+    try:
+        document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception:
+        return None
+
+    pages = list(base.pages)
+    try:
+        # Read every page's boxes ONCE, then decide. G9 asks whether a line
+        # repeats at the same band on another page, which no single page can
+        # answer — and reading each page twice to ask it would pay the dict
+        # read, this rung's whole cost, a second time on every native-text
+        # document in the archive.
+        printed = [_printed_lines(page) for page in document]
+        if len(printed) > len(pages):
+            return None
+        furniture = _repeated_furniture(printed)
+        for index, lines in enumerate(printed):
+            repaired = _printed_row_text(lines, pages[index], furniture[index])
+            if repaired is None:
+                return None
+            pages[index] = repaired
+    except _UnreadableTextLayer:
+        return None
+    except Exception:  # noqa: BLE001 — a refusal is an answer, an exception is not
+        # `_page_text` converts the exception classes MuPDF raises TODAY; this
+        # rung reads `get_text("dict")` on every native-text document in the
+        # archive, so a future binding that raises a class outside that family
+        # would crash the OCR stage for the document instead of falling
+        # through to the generic rung. Refusing is always available and always
+        # correct here: the caller's next rung reproduces today's answer.
+        return None
+    finally:
+        # Closed like `parse_native_woodforest` does: this rung opens a second
+        # handle on every native-text document in the archive, and a sweep that
+        # leaks one per document is a sweep that runs out of them.
+        try:
+            document.close()
+        except Exception:  # noqa: BLE001 — a close failure is not an answer
+            pass
+    if pages == list(base.pages):
+        return None
+    return StatementMarkdown(source_file=source_file,
+                             model="native-pdf-text+printed-rows", pages=pages)
+
+
+# ---------------------------------------------------------------------------
 # The native-text rung ladder — the one copy
 # ---------------------------------------------------------------------------
 
@@ -1065,5 +1556,6 @@ def native_statement(pdf_bytes: bytes, source_file: str = "") -> StatementMarkdo
         or parse_native_woodforest(pdf_bytes, source_file=source_file)
         or parse_native_desjardins(pdf_bytes, source_file=source_file)
         or parse_native_first_citizens(pdf_bytes, source_file=source_file)
+        or parse_native_printed_rows(pdf_bytes, source_file=source_file)
         or parse_native_pdf_text(pdf_bytes, source_file=source_file)
     )
