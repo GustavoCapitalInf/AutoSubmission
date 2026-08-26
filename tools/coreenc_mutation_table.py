@@ -161,7 +161,7 @@ MUTANTS: list[Mutant] = [
        "read and the eight restating members double their ledger",
        "        if running and restated:\n            continue",
        "        if False:\n            continue"),
-    _m("M14", "…and is the cheque side when the ledger prints none",
+    _m("M14", "the SUMMARY-block rule, the other direction",
        "the running-balance test dropped the other way, so the summary blocks "
        "are NEVER read and the four cheque-only members lose their debit side",
        "        if running and restated:\n            continue",
@@ -254,7 +254,7 @@ MUTANTS: list[Mutant] = [
        "the identity check removed",
        "    if abs(identity - summary.closing) > _TOLERANCE:\n        return False",
        "    if False:\n        return False"),
-    _m("M26", "…and the charge standing OUTSIDE both direction totals",
+    _m("M26", "the charge standing OUTSIDE both direction totals",
        "the service charge dropped out of the identity",
        "    identity = (summary.previous + summary.credits - summary.debits\n"
        "                - summary.service_charge + summary.interest)",
@@ -286,7 +286,7 @@ MUTANTS: list[Mutant] = [
        "        or (summary.interest > 0 and len(credits_) == summary.credit_count + 1\n"
        "            and abs(credited - summary.credits - summary.interest) <= _TOLERANCE)",
        "        or (summary.interest > 0 and len(credits_) == summary.credit_count + 1)"),
-    _m("M32", "…and to exactly ONE extra row",
+    _m("M32", "the interest allowance bounded to exactly ONE extra row",
        "the count bound removed from the credit allowance, so a ledger with "
        "FEWER credit rows than the bank printed is admitted",
        "        or (summary.interest > 0 and len(credits_) == summary.credit_count + 1\n"
@@ -299,7 +299,7 @@ MUTANTS: list[Mutant] = [
        "            and abs(debited - summary.debits - summary.service_charge) <= _TOLERANCE)",
        "        or (summary.service_charge > 0\n"
        "            and abs(debited - summary.debits - summary.service_charge) <= _TOLERANCE)"),
-    _m("M34", "…and is bounded to the printed charge",
+    _m("M34", "the fee allowance bounded to the printed charge",
        "the money bound removed from the debit allowance, so any number of "
        "extra debit rows is admitted whenever a charge was billed",
        "        or (summary.service_charge > 0 and len(debits) > summary.debit_count\n"

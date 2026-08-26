@@ -179,6 +179,21 @@ def test_the_row_description_is_what_the_bank_printed_on_the_row_s_own_line():
     ]
 
 
+def test_a_description_longer_than_the_bound_is_cut_at_a_token_boundary():
+    """The bound is this template's own, and it is what keeps a welded span out
+    of one row's description. `tables.attributed_descriptions` cuts at a token
+    boundary rather than through a word, because half a token is a string the
+    bank did not print — so what publishes is always a PREFIX of the printing,
+    never a repair of it."""
+    printed = " ".join(["EXAMPLE"] * 40)
+    stmt = _parse(body=_CREDIT_BLOCK.replace("EXAMPLE PAYOUT ONE", printed)
+                  + _DEBIT_BLOCK)
+    assert stmt is not None
+    published = stmt.transactions[0].description
+    assert len(printed) > 200 and len(published) <= 200
+    assert printed.startswith(published)
+
+
 # ---------------------------------------------------------------------------
 # The summary strip
 # ---------------------------------------------------------------------------
@@ -213,6 +228,38 @@ def test_an_interest_posting_is_admitted_only_for_the_figure_the_bank_printed():
     body = (_CREDIT_BLOCK + "1/28 INTEREST PAYMENT 2.00\n" + _DEBIT_BLOCK)
     assert _parse(strip=_strip(interest="Interest Paid 1.00",
                               ending="Ending Balance 241.00"), body=body) is None
+
+
+def test_the_interest_allowance_admits_one_more_credit_row_and_never_fewer():
+    """The allowance exists because the bank leaves the interest it credited
+    out of its own `N Deposits/Credits` count, so it is an allowance for ONE
+    EXTRA row. A ledger holding FEWER credit rows than the bank counted is a
+    ledger that lost one, and the money closing to the printed total plus the
+    printed interest does not make it whole."""
+    body = ("DEPOSITS AND OTHER CREDITS Date Description Amount\n"
+            "1/05 EXAMPLE PAYOUT ONE 201.00\n" + _DEBIT_BLOCK)
+    assert _parse(strip=_strip(interest="Interest Paid 1.00",
+                              ending="Ending Balance 241.00"), body=body) is None
+
+
+def test_the_fee_allowance_admits_more_debit_rows_and_never_fewer():
+    """`> debit_count` rather than `== debit_count + 1`, because one member
+    posts its charge as two rows — but never FEWER rows than the bank counted,
+    for the same reason as the credit side above."""
+    body = (_CREDIT_BLOCK
+            + "CHECKS AND WITHDRAWALS Date Description Amount\n"
+              "1/08 EXAMPLE CARD PURCHASE 65.00-\n")
+    assert _parse(strip=_strip(service="Service Charge 5.00",
+                               ending="Ending Balance 235.00"), body=body) is None
+
+
+def test_an_extra_debit_row_is_admitted_only_for_the_figure_the_bank_billed():
+    """The count bound on the debit side is deliberately loose and the MONEY is
+    what does the work: the excess must be exactly the service charge the bank
+    printed, to the cent."""
+    body = (_CREDIT_BLOCK + _DEBIT_BLOCK + "1/31 EXAMPLE MONTHLY FEE 6.00-\n")
+    assert _parse(strip=_strip(service="Service Charge 5.00",
+                               ending="Ending Balance 235.00"), body=body) is None
 
 
 def test_a_strip_that_prints_a_figure_twice_with_two_readings_is_refused():
@@ -255,6 +302,19 @@ def test_a_repeated_product_name_publishes_no_name_rather_than_the_repetition():
     stmt = _parse(strip=_strip(product="Business Example Checking "
                                        "Business Example Checking"))
     assert stmt is not None
+    assert stmt.account_name is None
+
+
+def test_a_product_slot_longer_than_this_template_prints_publishes_no_name():
+    """The bound is the TEMPLATE's, not a guess about how long a name is: the
+    longest product name the archive prints in that slot is 27 characters. It
+    is what keeps a page of welded furniture out of the slot on a member whose
+    strip opens with something other than a product, and a name no statement
+    carries is worse than no name."""
+    printed = "Business Example Checking Example Business Example Savings Example One"
+    stmt = _parse(strip=_strip(product=printed))
+    assert stmt is not None
+    assert len(printed) > 60
     assert stmt.account_name is None
 
 
