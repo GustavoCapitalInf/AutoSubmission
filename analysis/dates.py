@@ -286,11 +286,11 @@ _WRAPPED_TOTAL_LABEL = re.compile(r"^totals?\b", re.I)
 # posting date off a real bare-date row whose next line is a caption. Its own
 # mutant was the only thing exercising it. Deleted rather than kept as an
 # untested branch — WG5's own standard, applied to WG5's own rule.
-#: Dot leaders are typographic filler, not content. One issuer prints its
-#: daily-balance block as `.......... DAILY BALANCE` and its grid caption as
-#: `Date.......................................Balance`, so the section
-#: heading below never matches and the grid's rows are read as postings of the
-#: account whose ledger the statement publishes.
+#: Dot leaders are typographic filler, not content. One issuer prints its grid
+#: caption as `Date.......................................Balance`, so the
+#: caption below never matches and the grid's rows are read as postings of the
+#: account whose ledger the statement publishes. Stripped for the CAPTION only
+#: — see `_opens_a_daily_balance_section`.
 _DOT_LEADERS = re.compile(r"\.{3,}")
 # A date-token grid ("01/01 -225.43 01/12 4.68 01/22 -14.82") is a balance
 # summary, not a posting row: real posting rows carry one date, not several.
@@ -301,12 +301,21 @@ _DATE_TOKEN_RE = re.compile(
 )
 
 _DAILY_BALANCE_SECTION_START = re.compile(
-    r"^\s*(?:daily balances?|daily balance (?:summary|history)|balance by date"
-    #: The grid's COLUMN CAPTION, for the layouts that print no heading above
-    #: it. Two words and nothing else on the line is a caption, not a row.
-    r"|date\s+balance)\s*$",
+    r"^\s*(?:daily balances?|daily balance (?:summary|history)|balance by date)\s*$",
     re.I,
 )
+#: The grid's own COLUMN CAPTION, for the layout that prints no heading above
+#: it — and read ONLY where the issuer welded the two column names to a
+#: dot-leader rule (`Date.....................Balance`).
+#:
+#: The leaders are what make the pair a caption. `Date` and `Balance` are two
+#: ordinary words: consulted on a bare line, the caption opens a daily-balance
+#: section on four archive documents that print them as ordinary text, and
+#: swallows a printed posting day each of those documents' own ledgers posts
+#: (measured by `tools/withheldgrids_srcdates_audit.py`; the review's MAJOR-1).
+#: Gated on the leaders it opens the section on the grid it was written for and
+#: on nothing else.
+_DAILY_BALANCE_GRID_CAPTION = re.compile(r"^\s*date\s+balance\s*$", re.I)
 _DAILY_BALANCE_SECTION_END = re.compile(
     r"^\s*(?:overdraft|returned item|checks?|deposits?|withdrawals?|transactions?|"
     r"service charges?|fees?|account summary|page\b)",
@@ -324,6 +333,23 @@ def _is_posting_row(line: str) -> bool:
 
 def _without_leaders(line: str) -> str:
     return _DOT_LEADERS.sub(" ", line) if ".." in line else line
+
+
+def _opens_a_daily_balance_section(line: str) -> bool:
+    """Is this printed line the heading, or the caption, of a balance grid?
+
+    The dot leaders are read for the CAPTION and not for the heading, and that
+    asymmetry is a measurement rather than a preference. Stripping leaders
+    before the heading match as well opens a daily-balance section on two more
+    archive documents and swallows a printed posting day each of their own
+    ledgers posts; it opens nothing that the caption does not already open, so
+    it lifts nothing and costs two days (`tools/withheldgrids_srcdates_audit.py`,
+    W3 §WITHHELDGRIDS WG12).
+    """
+    if _DAILY_BALANCE_SECTION_START.match(line):
+        return True
+    stripped = _without_leaders(line)
+    return stripped is not line and bool(_DAILY_BALANCE_GRID_CAPTION.match(stripped))
 
 
 def source_posting_dates(markdown: str, period_start: date, period_end: date) -> set[date]:
@@ -347,16 +373,27 @@ def source_posting_dates(markdown: str, period_start: date, period_end: date) ->
     counted, since the money-proximity test cannot tell the two apart.
 
     THE QUIETING IS ONE-DIRECTIONAL, and that is what makes each rule below
-    safe to add. `posting_dates_cover_source` is `source_dates - parsed_dates`,
-    so removing a date can only take a document from failing to passing, never
-    the reverse: the cost of being wrong is a check that is quieter than it
-    should be, never a false validation. Widening the corpus beyond the 101
-    found five printed shapes that open with a date and are not posting rows —
-    an interest-rate line, a page-header masthead, a Beginning/Ending Balance
-    row whose label is printed on the NEXT line, a marketing sentence, and a
-    second account's dot-leadered daily-balance grid. Each is refused by
-    structure below, and each refusal is pinned together with the thing it must
-    not touch (W3 §WITHHELDGRIDS).
+    safe to add FOR THE CHECK'S OUTCOME. `posting_dates_cover_source` is
+    `source_dates - parsed_dates`, so removing a date can only take a document
+    from failing to passing, never the reverse.
+
+    IT IS NOT FREE, and the first draft of this docstring said it was. A rule
+    that removes a date the document's own LEDGER POSTS takes evidence away
+    from the one required check that exists to catch a parser folding several
+    printed posting days into one: the check still passes, and it now passes on
+    a document where it could no longer fail. So each rule below is measured on
+    both axes — the false dates it removes AND the real posting days it costs —
+    over every document the run of record resolves to cached text
+    (`tools/withheldgrids_srcdates_audit.py`, W3 §WITHHELDGRIDS WG12). Two
+    rules were withdrawn by that measurement rather than by argument, and a
+    third was narrowed.
+
+    Widening the corpus beyond the 101 found printed shapes that open with a
+    date and are not posting rows: a Beginning/Ending Balance row whose label
+    is printed on the NEXT line, a marketing sentence with no amount anywhere
+    near it, and a second account's dot-leadered daily-balance grid. Each is
+    refused by structure below, and each refusal is pinned together with the
+    thing it must not touch (W3 §WITHHELDGRIDS).
 
     Layout-aware native extractors can provide a scoped
     `SOURCE_POSTING_DATES_BEGIN` block. That authoritative source list takes
@@ -383,7 +420,7 @@ def source_posting_dates(markdown: str, period_start: date, period_end: date) ->
     found: set[date] = set()
     in_daily_balance_section = False
     for index, line in enumerate(lines):
-        if _DAILY_BALANCE_SECTION_START.match(_without_leaders(line)):
+        if _opens_a_daily_balance_section(line):
             in_daily_balance_section = True
             continue
         if in_daily_balance_section:

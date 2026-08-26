@@ -1018,6 +1018,27 @@ def test_a_dot_leadered_daily_balance_block_is_a_grid_not_a_ledger():
     }
 
 
+def test_a_bare_date_balance_caption_does_not_open_a_grid_section():
+    """`Date` and `Balance` are two ordinary words; the leaders are what make
+    the pair a caption.
+
+    Consulted on a bare line the caption opened a daily-balance section on four
+    archive documents that print those words as ordinary text, and each lost a
+    printed posting day its own ledger posts (W3 §WITHHELDGRIDS WG12, the
+    review's MAJOR-1). The dot-leadered form above still opens the section.
+    """
+    from analysis.dates import source_posting_dates
+
+    md = "\n".join([
+        "Date Balance",
+        "06/09 A MERCHANT 42.00 858.00",
+        "06/15 ANOTHER MERCHANT 1.00 857.00",
+    ])
+    assert source_posting_dates(md, date(2026, 6, 1), date(2026, 6, 30)) == {
+        date(2026, 6, 9), date(2026, 6, 15)
+    }
+
+
 # ---- which average the dashboards display ------------------------------------
 
 def test_validated_computed_adb_is_preferred_over_the_bank_printed_average():
