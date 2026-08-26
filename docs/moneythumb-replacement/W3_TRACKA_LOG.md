@@ -30374,7 +30374,7 @@ RESULT: GREEN                                                     GATE_EXIT=0
 1720 passed, 34 skipped, 1 warning                        18.61s  GUARDS_EXIT=0
 
 # 5. the poisoned-token proof alone
-334 passed                                                 1.07s  PRIVACY_EXIT=0
+334 passed                                                 1.07s  0=0
 
 # mutation kill (session scratchpad, not committed)
 14 mutants, 14 KILLED, 0 survivors
@@ -30552,7 +30552,7 @@ AST digest (docstrings stripped), BOTH sides
 
 # the poisoned-token proof alone (334 unchanged: the guard gained clauses,
 # not cases)
-334 passed                                               0.44s  PRIVACY_EXIT=0
+334 passed                                               0.44s  0=0
 
 # the two unreachable-branch mutants, on a scratch copy of `5aa4e42`
 [baseline] the shipped tree passes all three clauses     exit=0   1 passed
@@ -34743,7 +34743,7 @@ and are a reading of the host, not of this cell.
 #    test_parser_conformance.py :99 and test_parser_registry_entries.py :165
 
 # 3. the poisoned-response file alone
-61 passed, 1 warning                                  2.27s   PRIVACY_EXIT=0
+61 passed, 1 warning                                  2.27s   0=0
 
 # 4. corpus gate (python corpus_gate.py)
 Coverage: 109 pinned PDFs (103 native text, 6 committed OCR), 0 exclusions
@@ -36396,7 +36396,7 @@ contended wall clock and are a reading of the host, not of this cell.
 1151 passed, 35 skipped, 1 warning in 25.18s   CONFORMANCE_EXIT=0
 
 # this cell's proofs alone
-159 passed, 1 warning in 81.09s (0:01:21)   PRIVACY_EXIT=0
+159 passed, 1 warning in 81.09s (0:01:21)   0=0
 
 # corpus gate
 RESULT: GREEN   GATE_EXIT=0
@@ -44426,7 +44426,7 @@ so the ruling is about the file rather than about two rows.
 
 ---
 
-### §4 — MAJOR-4, closed by `2b46832` / `1c73ffe` and this section
+### §4 — MAJOR-4, closed by `2b46832`, `2dce55e` and `b6307c2`
 
 *The mutation harness that produced the 13/13 headline is not committed.*
 It is now: `tools/withheldgrids_mutation_table.py`, in the shape the sibling
@@ -44462,7 +44462,7 @@ exit 0, ~7 min. **Survivors: none — and the harness's first run at this tree
 reported M20 and M21 NOT APPLIED**, because their substitution carried the
 wrong indentation. That is the trap working: a mutant that fails to apply
 reports NOT APPLIED and scores nothing rather than looking killed. Fixed in
-`1c73ffe` and re-run.
+`2dce55e` and re-run.
 
 Two rules that are NOT in the tree are measured instead as COUNTERFACTUALS by
 `tools/withheldgrids_srcdates_audit.py --counterfactuals`, because a mutant
@@ -44599,7 +44599,7 @@ the block in `tests/test_adb.py`.
 
 ---
 
-### §11 — MINOR-11, closed by `6d95253`
+### §11 — MINOR-11, closed by `6d95253`, `06addac` and `8d821fa`
 
 The three numbers are re-measured and corrected in place: the diff sizes in
 WG10's privacy paragraph, `F2931E93870A04AB`'s row in WG4's grid table, and
@@ -44652,7 +44652,7 @@ reviewed tip — the closure round moved no pinned document and un-moved none.
 | `tools/withheldgrids_leaf_diff.py --verdicts` over the six families + `first_community` + `ibc` + all 109 pinned (552 shas) | 522 compared · 494 identical · **28 moved** · `payload_now_raises` **0** · verdict movement **16 documents, every one of them `-> approved/adb_ok=True`** | 0 |
 | the 22 named documents inside that replay | **16 lifted**, 6 withheld (`pnc` x4, `A4E41C80`, `595137FD`) — the six are byte-identical | 0 |
 | `tools/withheldgrids_tests_at_base.py` | 25 added tests · 13 fail at base · 12 pass, each labelled | 0 |
-| `tools/withheldgrids_privacy_scan.py` | **PRIVACY_LINE** | PRIVACY_EXIT |
+| `tools/withheldgrids_privacy_scan.py` | 44 documents · 16,813 harvested literals · 4,019 added lines · 339 raw intersections · **11 residual, 0 of them IDENTIFYING** · **0 files carrying a control byte** | 0 |
 
 The 28 movers in the 552 are: the 16 lifts; 10 documents moving only
 `statement.transactions[].running_balance` (one of them echoing into
@@ -44660,6 +44660,40 @@ The 28 movers in the 552 are: the 16 lifts; 10 documents moving only
 pattern dropped; and 2 moving only `metrics.adb.source_posting_days`
 (`413AD4C2`, `F627D7A6`). No `metrics.adb.underwriting_adb`, no validation, no
 verdict and no class moves outside the 16.
+
+### The privacy re-measurement, at the closure tree
+
+`tools/withheldgrids_privacy_scan.py` over the 22 named documents, `413AD4C2`,
+and every document this round measured, named or resolved by name — **44
+documents, 16,813 distinct harvested literals** (amounts with cents in both
+decimal marks, full and partial dates, digit runs of five or more, capitalised
+tokens and capitalised bigrams) — searched against **every one of the 4,019
+added lines** of `git diff 10cc722..HEAD`, then filtered against the vocabulary
+the tracked repository already carried at `10cc722`.
+
+**339 raw intersections, 11 residual, 0 of them IDENTIFYING.** The instrument
+classifies what survives on the reviewer's own distinctive-hit test: a residual
+carrying a digit run of five or more is an account number, a reference or a
+cheque number and fails the run. There are none. What remains is one
+two-decimal figure (`57.00`, a substring of an invented `857.00`), five partial
+or invented calendar dates, and four single English words out of this round's
+own prose (`DISCOUNT`, `DISCOUNTS`, `Privacy`, `TOOL`) plus `Fees Total`, which
+is the base tree's own section heading `Overdraft and Returned Item Fees`
+followed by `Total for this period` — printed platform furniture, of the same
+class as `Daily Balances` and `Service Charge Summary`, both of which are in
+tracked parser source at `10cc722`.
+
+**Control bytes (0x00–0x08, 0x0B, 0x0C, 0x0E–0x1F) in the 16 files the branch
+changed: 0.**
+
+**The scan found three fixtures the cell's own scan and the review both
+missed**, and they are fixed in `06addac` and `8d821fa`: the platform's
+daily-balance METHOD paragraph, quoted close to verbatim; the
+marketing-sentence fixture, whose wording tracked the document it was modelled
+on; and the money-proximity comment, which illustrated that sentence with an
+elided quote. Elision is not invention. All three are invented now, and each
+says in its own words that what the test needs is a SHAPE rather than a
+wording.
 
 ### What did NOT change in the closure round
 
