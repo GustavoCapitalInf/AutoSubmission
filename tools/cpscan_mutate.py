@@ -60,9 +60,15 @@ MUTATIONS: dict[str, tuple[str, list[tuple[str, str]]]] = {
          ' + r"|1[0-2]|[1-9])"'),
     ]),
     # ---- the calendar bound, widened --------------------------------------
-    "M04_sectioned_month_bound_removed": (
+    # M04 and M05 are COMPOUND and their names understate what they apply:
+    # replacing the field with `[0-9]{1,2}` drops `_LEADING_ZERO` from it as
+    # well as the calendar, so neither one isolates the bound (the review's
+    # F6). M19 below is the isolated form. They are kept as they are because
+    # the kill lists in W3 §CPSCAN CPS8 are recorded against these exact
+    # mutants; the record now says they are compound.
+    "M04_sectioned_month_bound_and_glyph_removed": (
         SECTIONED, [(_S_MONTH, '_ROW_MONTH = r"[0-9]{1,2}"')]),
-    "M05_sectioned_day_bound_removed": (
+    "M05_sectioned_day_bound_and_glyph_removed": (
         SECTIONED, [(_S_DAY, '_ROW_DAY = r"[0-9]{1,2}"')]),
     "M06_daily_month_bound_removed": (
         DAILY, [(_D_DATE, '_ROW_DATE = r"[0-9]{2}-(?:0[1-9]|[12][0-9]|3[01])"')]),
@@ -108,6 +114,17 @@ MUTATIONS: dict[str, tuple[str, list[tuple[str, str]]]] = {
     # abuts the date it precedes, so this one costs real cheque rows.
     "M18_boundary_gains_the_asterisk": (
         SECTIONED, [(_S_START, '_TOKEN_START = r"(?<![0-9A-Za-z.,/|*])"')]),
+    # ---- the calendar bound, ISOLATED --------------------------------------
+    # M19 — the bound alone, the glyph KEPT. `[0oO][0-9]` preserves every
+    # token `_LEADING_ZERO` admits and removes only the calendar, so what
+    # dies here dies for the bound and for nothing else. Added under the
+    # review's F6, which found M04/M05 compound. The reviewer additionally
+    # ran this shape as an ablation over 135 documents: 0 documents moved,
+    # 0 leaves moved — the imprecision hid nothing on today's archive.
+    "M19_sectioned_calendar_bound_removed_glyph_kept": (SECTIONED, [
+        (_S_MONTH, '_ROW_MONTH = r"(?:" + _LEADING_ZERO + r"[0-9]|[0-9]{1,2})"'),
+        (_S_DAY, '_ROW_DAY = r"(?:" + _LEADING_ZERO + r"[0-9]|[0-9]{1,2})"'),
+    ]),
 }
 
 

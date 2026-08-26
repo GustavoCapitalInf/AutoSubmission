@@ -44065,18 +44065,19 @@ as not-doable under the repair doctrine** (CPS10.3).
 
 ## CPS8. The mutation table
 
-`python tools/cpscan_mutate.py .` — 18 mutants, run without `-x` so every
-killer is named, over both test modules. Both directions are mutated on
-purpose: a widening-only harness would pass a grammar that had quietly
-stopped matching a date the platform really prints.
+`python tools/cpscan_mutate.py .` — **19 mutants** (18 as first recorded, plus
+M19 added under the review's F6), run without `-x` so every killer is named,
+over both test modules. Both directions are mutated on purpose: a
+widening-only harness would pass a grammar that had quietly stopped matching
+a date the platform really prints.
 
 | # | mutant | verdict | killed by |
 |---|---|---|---|
 | M01 | the zero-shaped letters back out of the class | KILLED | `…leading_zero_a_scan_printed_as_a_letter_is_still_that_zero[o]`, `[O]` |
 | M02 | the class widened to the ONE-shaped marks | KILLED | `…one_shaped_letter_is_not_admitted_by_the_zero_class[l2/12]`, `[I2/12]`, `[\|2/12]`, `…pattern_and_the_reading_admit_exactly_the_same_letters` |
 | M03 | the glyph allowed in the TRAILING position of the month | KILLED | `…zero_shaped_letter_anywhere_but_a_leading_zero_is_not_a_date[1o/12]`, `[1O/05]` |
-| M04 | sectioned month bound removed | KILLED | `…token_no_calendar_can_hold_is_not_a_date[26/12]`, `[00/12]`, `[13/01]`, and both glyph cases |
-| M05 | sectioned day bound removed | KILLED | `…token_no_calendar_can_hold_is_not_a_date[03/45]`, `[03/00]` |
+| M04 | sectioned month bound **and glyph** removed (compound) | KILLED | `…token_no_calendar_can_hold_is_not_a_date[26/12]`, `[00/12]`, `[13/01]`, and both glyph cases |
+| M05 | sectioned day bound **and glyph** removed (compound) | KILLED | `…token_no_calendar_can_hold_is_not_a_date[03/45]`, `[03/00]` |
 | M06 | daily month bound removed | KILLED | `…space_a_scan_put_inside_a_card_date…`, `…is_not_a_posting_date[18-26]`, `[26-26]`, `[13-01]`, `[00-02]` |
 | M07 | daily day bound removed | KILLED | `…is_not_a_posting_date[04-00]`, `[04-32]`, `[04-45]` |
 | M08 | daily month admits a thirteenth | KILLED | `…is_not_a_posting_date[13-01]` |
@@ -44090,11 +44091,24 @@ stopped matching a date the platform really prints.
 | M16 | `_TOKEN_START` dropped from the date token | KILLED | `…is_not_a_date[26/12]`, `[13/01]`, `…closing_balance_is_not_taken_from_the_disclosures_below_the_ledger` |
 | M17 | the vertical bar back out of the boundary class | KILLED | `…one_shaped_letter_is_not_admitted_by_the_zero_class[\|2/12]` |
 | M18 | the asterisk added to the boundary class | KILLED | `…serial_gap_marker_abuts_its_own_row_and_is_not_a_boundary` |
+| M19 | the sectioned calendar bound removed, **glyph KEPT** (isolated) | KILLED | `…token_no_calendar_can_hold_is_not_a_date[26/12]`, `[03/45]`, `[00/12]`, `[03/00]`, `[13/01]` and 3 more (8 tests) |
 
-**18 killed, 0 survivors.** M02's first-run survival is recorded here and in
-the harness's own comment, because the lesson is the wave's standing one: a
-test named after a gate is not a test of that gate, and here the behavioural
-test was firing through the translation table instead of through the class.
+**19 killed, 0 survivors, exit 0.** M02's first-run survival is recorded here
+and in the harness's own comment, because the lesson is the wave's standing
+one: a test named after a gate is not a test of that gate, and here the
+behavioural test was firing through the translation table instead of through
+the class.
+
+**M04 and M05 are compound, and M19 is the isolated form (F6).** Replacing a
+field with `[0-9]{1,2}` drops `_LEADING_ZERO` from it as well as the calendar
+— their own kill lists show it, in the glyph cases — so neither one tests the
+bound alone, and the table over-claimed coverage of it. M19 keeps the class
+(`[0oO][0-9]|[0-9]{1,2}`) and removes only the calendar; it dies on the five
+impossible-token cases and nothing else the glyph could explain. The bound is
+therefore pinned in isolation, and it was pinned before this row existed —
+the review ran the same shape as an ablation over 135 documents and measured
+**0 documents moved, 0 leaves moved**, so the imprecision hid nothing on
+today's archive.
 
 ## CPS9. Nothing moves, and the one thing that does
 
