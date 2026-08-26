@@ -840,6 +840,20 @@ EXCLUDED_ANALYSIS_CALLERS = {
         "read-only geometry oracle; publishes no verdict, and already supplies "
         "the reconstructed page partition"
     ),
+    # W3 §LILI's family replay. It runs the analysis over ONE named
+    # 20-document population so that the card's coverage number is a
+    # measurement rather than an inference from a successful parse — claimed
+    # is not validated, and a parse that succeeds can still be withheld or
+    # sent to review downstream. It prints that class to a console and nothing
+    # else: no user, job record or discovery row ever sees it. Excused on the
+    # same second ground as the sweeps above — it already supplies the
+    # reconstructed page partition, because a replay that fed the analysis a
+    # different partition from the one a run would feed it would measure a
+    # difference it had itself created.
+    "tools/lili_family_replay.py": (
+        "read-only family replay over a named population; publishes no "
+        "verdict, and already supplies the reconstructed page partition"
+    ),
 }
 
 # Audited columns whose value is a path, compared without regard to separator.

@@ -49927,3 +49927,942 @@ changes no decision — the claim that carries weight is that the misspelling is
 printed outside this family at all, which is measured at 9 documents — but the
 wave rule is that a headline number reproduces from committed evidence, and
 this one does not.
+
+# §LILI — two printings, and the one that prints rows from another statement
+
+## LI0. Summary
+
+Census rank 2, staffed. Twenty documents, all born-digital
+(`model=native-pdf-text`), all `failed/no_parser_matched` in the run of
+record, folder-labelled Unidentified 13 and, for the other seven, two
+OTHER fintech platforms' names — **not one of the three labels is the
+issuer**, which is the census's own point made again.
+Registered as `lili`, registry 75 → 76.
+
+**Movement: 11 of 20 `failed/no_parser_matched` → `validated/approved`; the
+other 9 → `failed/parser_declined`, each by a NAMED gate.** Nothing else in
+the archive moves. The verdict is measured end to end through
+`analyze_markdown` + `classify_outcome`, not inferred from a successful parse:
+claimed is not validated, and all 11 clear reconciliation, the metrics and the
+withholding rules with no `review` and no `withheld`.
+
+The nine refusals are the card, not its shortfall:
+
+| n | why | shas |
+|---:|---|---|
+| 5 | **§INTEGRITY** — the document prints postings dated outside the period it declares. The same historical block, pasted into five different declared periods. §LI2. | `0388628F…`, `D6945B6F…`, `E9FA142E…`, `FD250EFB…`, `FE2C9E80…` |
+| 3 | **§L-1** — the summary prints three money columns and the document carries a second ledger with its own running balance. A second account the single-account schema cannot carry. §LI4. | `9A841D10…`, `A3807F7D…`, `B7BC8FF5…` |
+| 1 | the printed summary does not close on itself: its Deposits term contradicts its own ledger, and the ledger is the half that reconciles. §LI5. | `80D07A7D…` |
+
+The card's honest expectation was 13–14, and the verifier's own floor was
+11–12 "if L-1 two-ledger support is not in scope for this cell". It is not in
+scope: the L-1 multi-account decision is open with Gustavo. **The three
+BusinessBuild documents are the entire difference between 11 and 14, they are
+named by sha in §LI4, and they convert the day that ruling lands.**
+
+**Privacy.** No amount, name, account number, authorization code or date from
+any archive document appears in this section, in `analysis/lili.py`, in
+`tests/test_lili.py`, or in any of the five instruments this branch commits.
+The fixtures are invented AWAY from the family — a month of a calendar year no
+member contains, and cents no member prints — and §LI12 is the measurement, not
+the assurance.
+
+## LI1. The population, measured before a line of code
+
+Twenty documents, five distinct accounts, four of them clean and one of them
+the defective set. The census called the family one printing; it is two, and
+the adversarial verifier was right to say so. Measured by furniture across all
+twenty (`tools/lili_family_replay.py`, and the characterisation that preceded
+it):
+
+| | Skin A | Skin B |
+|---|---:|---:|
+| documents | 15 | 5 |
+| distinct accounts | 4 | 1 |
+| `Checking Account Summary` / `Checking Account Activity - Main Account` | 15 | 0 |
+| depository disclosure on the back page | 15 | 0 |
+| header order `Account Number` then `Statement Period` | 15 | 0 |
+| header order reversed | 0 | 5 |
+| the platform's support address | 15 | 5 |
+| the five summary terms, each on its own line with its own figures | 15 | 0 |
+| the ledger column head, printed ONCE per ledger whatever the page count | 15 (18 heads: 3 print two) | 0 |
+| postings recovered by a line-anchored row reader | 2,718 | 0 |
+
+A 13-page member prints its column head once, and a 2-page member prints it
+once; the head marks a LEDGER, not a page, which is what makes counting heads
+a sound reading of how many accounts a document carries.
+
+Skin A is the easiest shape in the batch: one line per posting, one ledger
+column head, descriptions that do not wrap, and a running balance on every
+row. Skin B is not deterministically readable from its text layer at all —
+the summary labels and their figures sit on separate lines, each posting is
+spread over three or four lines in inconsistent order with a floating
+two-letter network tag, and a line-anchored row reader recovers zero rows from
+all five.
+
+**Both printings are CLAIMED on purpose.** Detection rests on three required
+markers: the platform's own support address (institution furniture — a domain
+the issuer owns, which cannot arrive as a counterparty on somebody else's
+statement) and the two summary terms this template names its directions with,
+all three present in both printings. A registration that claimed only its
+clean printing would leave the tampered five in the run's undifferentiated
+`no_parser_matched` bucket — the queue for "a bank whose layout we have never
+seen" — where nothing names them. They are claimed so that they can be
+refused BY NAME.
+
+It is also the right queue on §DISPATCH-REPORTING's own argument.
+`parser_declined` means "a parser recognised it, ran, and returned None" —
+the cheaper queue, the one that needs an existing reader WIDENED rather than
+a new one written. That is exactly what the second printing needs if it ever
+becomes readable: it is this platform's other printing, not another bank.
+
+**And the dispatcher agrees, which is the part that matters.** The claim
+above is about what the RUN records, so it is measured at `resolve`, not at
+`detect`:
+
+```
+ 11  parser_id=lili  outcome=claimed    attempted=[]
+  9  parser_id=None  outcome=unclaimed  attempted=['lili']
+```
+
+The nine carry `attempted=['lili']`, and that non-empty `attempted` is exactly
+what turns `no_parser_matched` into `parser_declined` in
+`discovery/runner.py`'s `_failure_reason`. No document in the family is
+ambiguous. The refusal is named to a parser in the run's own telemetry, not
+only in this log.
+
+## LI2. THE INTEGRITY FINDING — one block, five statements (fraud-relevant)
+
+**This is the section the card asked for by name, and it is for Ocean and
+Gustavo rather than for the reader.**
+
+Five documents of ONE account, one holder, declaring FIVE DIFFERENT statement
+periods, each print a block of postings dated in a calendar year none of their
+periods touches. The blocks are not five blocks. Measured by
+`tools/lili_integrity_fingerprint.py` — which prints one-way SHA-256 prefixes
+of the sorted date multiset and the sorted reference-number set, so the
+evidence survives without the tokens being reproduced anywhere:
+
+```
+sha16               dates  histor  drift  refs date fingerprint   reference fingerprint
+0388628F8E576D31       12       7      2    10 064c814ee689be89   336a4fc89c7c7c6b
+D6945B6F0F238A91       12       7      3    10 064c814ee689be89   336a4fc89c7c7c6b
+E9FA142EE9E0134D       12       7      0     8 064c814ee689be89   be35bac252f878ab
+FD250EFBC9599CA6       12       7      0     8 064c814ee689be89   2f44d1dac440f756
+FE2C9E80A4001C76       12       9      0    10 a4f1b09b1244f9c1   336a4fc89c7c7c6b
+   … and the other 15 documents of the family: 2,729 printed date tokens,
+   ZERO of them outside the period the document declares.
+```
+
+Read it as follows.
+
+1. **The same historical dates, in five different declared periods.**
+   `064c814ee689be89` is the fingerprint of the sorted list of postings dated
+   outside the period in a year the period does not touch: seven such
+   postings, over six distinct dates, and the fingerprint is IDENTICAL on four
+   of the five. The fifth carries nine, over eight distinct dates. The tool's
+   overlap matrix settles what the fingerprints only suggest:
+
+   ```
+   historical dates      0388628F  D6945B6F  E9FA142E  FD250EFB  FE2C9E80
+     0388628F                   6         6         6         6         6   (own 6)
+     D6945B6F                   6         6         6         6         6   (own 6)
+     E9FA142E                   6         6         6         6         6   (own 6)
+     FD250EFB                   6         6         6         6         6   (own 6)
+     FE2C9E80                   6         6         6         6         8   (own 8)
+   ```
+
+   **All five share the same six dates.** Four carry exactly those six; the
+   fifth carries those six and two more. No clean member of the family carries
+   a single out-of-period date.
+2. **And the same reference numbers.** `336a4fc89c7c7c6b` is identical on
+   three of the five — pairwise intersection 10 against own size 10, so those
+   three carry the SAME TEN reference numbers. The other two carry eight
+   each, seven of which are in that ten, and seven of which they share with
+   each other:
+
+   ```
+   references            0388628F  D6945B6F  E9FA142E  FD250EFB  FE2C9E80
+     0388628F                  10        10         7         7        10   (own 10)
+     D6945B6F                  10        10         7         7        10   (own 10)
+     E9FA142E                   7         7         8         7         7   (own 8)
+     FD250EFB                   7         7         7         8         7   (own 8)
+     FE2C9E80                  10        10         7         7        10   (own 10)
+   ```
+
+   Seven reference numbers are common to all five. Reference numbers are the
+   platform's own per-authorization identifiers: two statements of the same
+   account in different months do not share one, and five do not share seven.
+2b. **Two of them number a 2021 posting and a 2026 posting one apart.** In
+   `0388628F…` and `D6945B6F…` there is a pair of authorization codes
+   differing by exactly 1 whose dates are five years apart, and in each
+   document it is a different pair. A platform's authorization codes are
+   issued in sequence as authorizations happen; two consecutive codes cannot
+   be five years apart. Whatever produced these documents renumbered rows
+   without renumbering their dates.
+
+3. **Drifted rows on top of the pasted ones.** Two documents additionally
+   print postings dated in their own period's year but outside its range,
+   and on one of them a posting is dated AFTER its own period ends. A closed
+   statement cannot post a row from the future.
+4. **Their own summaries do not close as printed, and every one prints its
+   debit terms as inflows.** `tools/lili_integrity_fingerprint.py` pairs each
+   printed label with the first money token at or after it that no earlier
+   label has taken — a rule it states, because on this printing the labels
+   and the figures are on separate lines and the answer depends on it:
+
+   ```
+   0388628F8E576D31  as printed     278.62 | debit terms negated     0.10
+   D6945B6F0F238A91  as printed    7402.00 | debit terms negated     0.00
+   E9FA142EE9E0134D  not all five terms pair to a figure
+   FD250EFBC9599CA6  as printed   10002.00 | debit terms negated     1.00
+   FE2C9E80A4001C76  as printed   30000.00 | debit terms negated     0.00
+   ```
+
+   **Not one of the four closes on itself as printed.** Read the two debit
+   terms as debits and two of the four close EXACTLY, one is out by ten cents
+   and one by a single dollar. The fifth cannot be paired at all.
+
+   (An earlier revision of this section reported this wrongly, and the
+   correction is the reviewer's: it read the figures with the SHARED money
+   grammar, which refuses the cents-less figure one of these documents
+   prints, so that document came back "unpairable" and another's residual was
+   attributed to it — making it look worse than it is. The instrument now
+   reads these documents with a deliberately looser pattern, because the point
+   is to read what they printed, never to publish it.)
+
+5. **Malformed money.** THREE of the five carry figures the shared money
+   grammar refuses outright: five tokens in all, in three shapes — a figure
+   printed with no cents (three of them), a figure with two decimal points,
+   and a figure whose decimal part is empty. **Across the family's other
+   fifteen documents the same scan refuses ZERO tokens.**
+6. **No depository attribution at all.** Every clean member prints, on its
+   back page, the disclosure naming the Member FDIC national association that
+   holds the money. These five print none — only the platform's support
+   address and a toll-free number.
+
+**A byte-for-byte identical block of historical postings, with identical
+reference numbers, pasted into five statements that declare five different
+months, on documents that print no depository attribution and whose balance
+chains do not close, is a template-tampering signature. It is not an OCR
+defect: these are native text layers, not scans, and the other fifteen
+documents of the same family produced by the same platform are clean to the
+last of 2,729 date tokens.**
+
+Named by `content_sha256`, in full, for the record:
+
+```
+0388628F8E576D31FA02FC0271AD3D45CD84AA95EBF02BBEFF790B79D109A84E
+D6945B6F0F238A915BC2B9161DF31085A43A7C35A4D590EEBDF63C1D4B1D2CBA
+E9FA142EE9E0134D5A895D2AF3B8A34DF126E90B106A641812D760CAF9C93C1A
+FD250EFBC9599CA617C7F6C10F1AAE8E8F3A1FF8FA7FE80C220A53B298304F4D
+FE2C9E80A4001C761D6014011A6A5EEBFD5811AEFA7D70C00F6AF2AD4BB5E67B
+```
+
+All five FAIL CLOSED at HEAD, by a gate written for the fact rather than for
+the documents: **every `mm/dd/yyyy` a document prints must fall inside the
+period that document declares, and a token that is not a calendar date at all
+fails the same way.** The gate runs BEFORE the shape is read, so these are
+refused as tampered rather than as unreadable — which matters, because they
+are ALSO unreadable and a shape-first reader would have said only that.
+Measured false positives on the clean set: **0 of 2,729** printed date tokens.
+
+**No fixture reproduces any of it.** `tests/test_lili.py` exercises this gate
+on an invented document of the same SHAPE — an invented out-of-period date,
+invented reference numbers, invented figures, in a calendar year the family
+does not contain.
+
+**What this is NOT.** It is not a finding about the platform: fifteen
+documents of the same printing from four other accounts are internally
+consistent to the cent. It is a finding about five documents submitted for one
+account, and the platform's answer to them is a refusal.
+
+## LI3. The oracle, and the gates that use it
+
+The template prints a DOUBLE oracle and this reader uses both halves, plus a
+third reading that joins them.
+
+* **the summary closes on itself** — beginning + deposits + withdrawals +
+  fees == ending, with the signs the statement prints;
+* **the chain walks** — the running balance printed on every row steps from
+  the printed beginning to the printed ending, every step exact;
+* **the rows' GROSS debits equal the two printed debit terms added.** This
+  platform's `Withdrawals and other debits` term EXCLUDES its `Fees` term —
+  verified on all 15 clean members: the row-sum of negatives equals
+  withdrawals + fees to the cent on 15 of 15, and equals withdrawals ALONE on
+  only the 3 whose fee term is zero. That is why `stated_total_debits` and
+  `stated_service_charge` are published apart, and it is the reading a
+  two-field read would get wrong on twelve of these fifteen documents.
+
+Together they are a complete-coverage oracle and this template needs one,
+because it prints **no transaction count at all**. A dropped posting breaks
+the chain at the row after it; a fabricated one breaks it too; and a credit
+and its reversal — a pair the summary nets out and every printed balance
+absorbs — breaks the gross-debit reading and nothing else.
+
+**With one hole, which the review found and §INTEGRITY's coverage reading now
+closes.** All three of those readings are about MONEY, so a printed ledger
+line the row pattern cannot parse is invisible to every one of them when it
+moves no money: a zero-amount line repeating the balance above it would have
+been dropped in silence. Coverage is therefore checked on ROWS as well —
+every line that begins with a date must be a posting the pattern parsed —
+and it is pinned by `test_a_line_that_begins_with_a_date_must_be_a_posting`.
+Measured inert on the archive today (2,718 line-leading dates, 2,718 parsed
+postings, exact on all 15, and no zero-amount rows anywhere), which is
+precisely why nothing but a fixture could have found it.
+
+**Two gates were REMOVED as unreachable rather than shipped untested**, both
+by algebra over the other three rather than by taste, and both stated here
+because a gate no mutant can reach is a gate no test tests:
+
+* the rows-versus-printed-DEPOSITS reading. With the chain and the summary
+  both closed, `credits − debits == ending − beginning == deposits +
+  withdrawals + fees` and `debits == −(withdrawals + fees)`, so
+  `credits == deposits` is forced. It could refuse nothing the gross-debit
+  reading does not.
+* the `deposits < 0` branch of the printed-sign check, unreachable for the
+  same reason: a sum of positive amounts cannot be negative. The
+  `withdrawals > 0` and `fees > 0` branches remain — each is reachable, each
+  would otherwise publish a magnitude for money the document printed coming
+  in, and each is killed by a document on which every arithmetic gate closes.
+
+## LI4. §L-1 — the credit-builder second account (a ruling, not a defect)
+
+Three of the fifteen clean documents, all one account, carry a credit-builder
+card whose collateral is held in its own account. The census logged this as
+"a two-figure read grabs the wrong column". It is more than that, and the
+verifier said so: **these are two-account statements.**
+
+* the summary grows from one money column to three — checking, the sibling,
+  and their total, the third being the sum of the first two on every row;
+* a SECOND ledger follows the main one, under its own copy of the column
+  head, with its own independent running balance;
+* the sibling is NOT idle: it posts in all three, and the two ledgers are
+  double-entry against each other;
+* each sub-ledger closes perfectly on its own. A naive single-chain read of
+  these three shows exactly one break and terminates on the sibling's ending
+  balance instead of the checking one.
+
+Publishing the checking half and dropping the sibling is exactly what the L-1
+rule forbids, and the sibling is not one of the two admitted idle-sibling
+exemptions. So the reader REFUSES, and refuses on TWO independent readings of
+the same fact — more than one money column in the summary, and more than one
+ledger column head — because a printing that grew a column without growing a
+ledger, or the reverse, is a shape nobody has measured.
+
+**Binding the columns, for the day the ruling lands.** The census said "bind
+by header"; the header CANNOT be bound. These three documents print the
+three-column header in two different token orders and one of them omits two
+of the header words entirely — the text layer emits the header cells
+row-major by y-position and the cells are two and three lines tall, so the
+words arrive interleaved and, on one document, truncated.
+
+What DOES bind is measured, reproducible and independent of the header. On
+all three documents, `tools/lili_family_replay.py`'s own helpers give:
+
+```
+                 money    ledger   col1+col2-col3   main ledger chains on   sibling
+                columns   heads    per summary row   col1      col3         chains on col2
+9A841D10…          3        2      0.00 x5          True      False        True   (1 row)
+A3807F7D…          3        2      0.00 x5          True      False        True   (2 rows)
+B7BC8FF5…          3        2      0.00 x5          True      False        True   (3 rows)
+   and each of the three columns closes its own five-term summary: residual
+   0.00 in every column of every one of the three documents.
+```
+
+Three independent readings agree that the checking account is column ONE: the
+arithmetic (column 1 + column 2 == column 3 on all five rows, all three
+documents), the main ledger's own chain (walks column 1's beginning to column
+1's ending with zero breaks — and does NOT walk column 3's), and the sibling
+ledger's chain (walks column 2's). A reader that took the LAST column instead
+would be caught by the chain gate on every one of these three — the mutation
+table's M08 is exactly that reader — but NOT on a month whose sibling was
+idle, where the total and the checking column are the same figures. That is
+why the column gate exists on top of the chain, and why it has an isolating
+test of its own.
+
+**The three, by sha:**
+
+```
+9A841D10C92D6049213095E58A8A312F4CAEC7F7DA8B39DFB8C123CB85EAB9B4
+A3807F7D3956FCA20BC4309BB6BE99DE6872A51DB57CD0369A4F17B720EC0A73
+B7BC8FF5A4EE389879A6A442258A87C7AF95DE1DF5EAB034AB96592015CCCF74
+```
+
+They belong to the open L-1 population — batch 7's escalation 1 to Gustavo,
+"the single largest lever now", ~70 documents including four credit-union
+families from this same census. **The question for Ocean is in §LI14.**
+
+## LI5. The document whose printed summary contradicts its own ledger
+
+`80D07A7D64B5672D8C65BE458BD1E47F1464DF5006644DEA3F3CBCFE96E3DC0A` is a clean
+Skin-A statement of 552 postings whose chain walks from the printed beginning
+to the printed ending with zero breaks, whose gross debits total exactly to
+its two printed debit terms — and whose printed Deposits term does not close
+its own summary. The defect is printed in the document; it is not an
+extraction error, and the ledger is the half that reconciles.
+
+It is REFUSED. That is the genre's answer and this reader keeps it:
+`analysis/bluevine.py` and `analysis/community_section.py` both refuse a
+document whose stated totals disagree with its own rows. The alternative —
+publish the transactions and drop the contradicted stated figure — is a
+discard-and-flag the repair doctrine would permit, but it would hand
+underwriting a statement whose own summary block the platform had silently
+edited, and there is no channel on this template that says so. One document,
+named, and Ocean can convert it by ruling rather than by my preference.
+
+## LI6. Currency
+
+No document in this family prints a currency code; every figure is a bare
+dollar sign. The affirmative evidence is US — a depository disclosure naming a
+Member FDIC national association, a debit card issued under a Visa U.S.A.
+licence, a wire service provided by a second Member FDIC bank, and US
+account-holder addresses — and it agrees with the schema default. **The reader
+therefore claims no currency of its own: it SETS neither the code nor its
+provenance, so both fall to the schema default, and all 11 published
+documents carry `USD` / `schema_default` — measured through
+`tools/lili_family_replay.py`, not assumed.** The pinned currency surface and the pinned provenance
+surface are untouched (108/108 and 108/108, §LI11).
+
+Naming this family `institution_default` would be more precise than the
+default it already gets. That is a provenance-policy question for the
+currency-source owner rather than a decision for this card, and it is carded
+in §LI14 rather than taken.
+
+The RBC-CAD precedent does not touch this family: there is no Canadian
+institution anywhere in any of the twenty.
+
+## LI7. What the reader publishes, and what it does not
+
+Published: `bank`, `account_number`, the period and its length,
+`beginning_balance`, `ending_balance`, `stated_total_credits`,
+`stated_total_debits` (the Withdrawals term alone),
+`stated_service_charge` (the Fees term), and every posting with the running
+balance the document printed after it — 1,818 postings across the 11 (2,718
+rows are recoverable across the whole family: 2,712 in main ledgers, 6 in the
+three sibling ledgers).
+
+Deliberately not published:
+
+* `account_name` — the template prints no product line. `Checking Account
+  Summary` is furniture, not a product, and the field stays `None` rather
+  than carrying furniture.
+* `stated_daily_balances` — there is no daily grid, no average-daily-balance
+  line, no interest line and no check-image section anywhere in the family.
+  The calendar-day ADB is computed by the engine from the postings and the
+  printed opening, as the ADB doctrine intends; nothing is manufactured here.
+* `stated_credit_count` / `stated_debit_count` — not printed. The reader needs
+  no count: the chain is its coverage oracle.
+
+**Field sanity over the 11, checked rather than assumed.** Twelve properties
+on every published statement: `days_in_period` equals the printed period's own
+length; every posting carries a running balance; every posting's date is
+inside the printed period; every direction is `debit` or `credit` and agrees
+with the sign of its amount; the account number is digits; both debit
+magnitudes are non-negative; both balances are present; no daily balances are
+published; the bank label is the platform; `account_name` is None. **11 of 11
+clean, over 1,818 postings.**
+
+**A cross-document oracle no single-document gate can supply.** The 11
+published statements are 4 accounts of consecutive months, and each month's
+printed closing balance should be the next month's printed opening. Using
+only figures this reader published: **7 consecutive month pairs, 7 that join
+to the cent, 0 discontinuities.** The replay computes it and exits non-zero if
+one pair fails, so the platform's answer for this family is internally
+consistent across documents and not only inside each one.
+
+**And what it costs the sweep.** The registration declares NO `normalize`, so
+it adds no new text preparation to a registry sweep — it reads the same
+`admissible_text` every other unnormalized registration already shares — and
+its three markers are plain substring tests. Registry 76 is still inside the
+detect-budget contract's `PLANNED_REGISTRATIONS = 80`, and
+`tests/test_parser_parity.py`'s budget assertion passes in the conformance
+set below.
+
+## LI8. The mutation table
+
+`python tools/lili_mutate.py .` — **36 mutants**, applied one at a time to a
+pristine copy of `analysis/lili.py`, each anchor asserted present and each
+mutant asserted to change something before it is scored, the suite run
+**WITHOUT `-x`** so every killer is named, and the target restored in a
+`finally` that prints the restore. Run on a CLEAN tree at `b1ba3c2`, the
+commit that closed the review's MAJOR-2; the log is `R_mutation.log`.
+
+**36 mutants, 35 KILLED, 1 survivor — and the survivor is M10, which is an
+EQUIVALENT mutant declared as one before it ran.** M10 moves §INTEGRITY to
+after the shape read; every gate in this reader answers by declining, so the
+two orders are indistinguishable at the `parse` boundary. It is in the table
+so that "gate order is not observable" is a measurement instead of a claim
+(§LI15 R3).
+
+| # | mutant | killed by, transcribed from `R_mutation.log` |
+|---|---|---|
+| M01 | issuer marker dropped | 3 tests: `the_registration_rests_on_three_required_markers`; `a_document_without_the_platforms_support_address_is_not_claimed`; `the_summary_terms_alone_are_not_a_claim` |
+| M02 | debit term marker dropped | 1 test: `the_registration_rests_on_three_required_markers` |
+| M03 | integrity gate removed | 7 tests: `a_posting_dated_outside_the_printed_period_refuses_the_document`; `a_posting_dated_inside_the_year_but_outside_the_period_is_refused`; `a_line_that_begins_with_a_date_must_be_a_posting`; `a_posting_one_day_before_the_period_is_refused`; `a_posting_one_day_after_the_period_is_refused`; `a_posting_earlier_in_the_period_start_month_is_refused`, and 1 more |
+| M04 | coverage reading removed | 1 test: `a_line_that_begins_with_a_date_must_be_a_posting` |
+| M05 | coverage counts not positions | 1 test: `a_line_that_begins_with_a_date_must_be_a_posting` |
+| M06 | period reading removed | 6 tests: `a_posting_dated_outside_the_printed_period_refuses_the_document`; `a_posting_dated_inside_the_year_but_outside_the_period_is_refused`; `a_posting_one_day_before_the_period_is_refused`; `a_posting_one_day_after_the_period_is_refused`; `a_posting_earlier_in_the_period_start_month_is_refused`; `a_posting_later_in_the_period_end_month_is_refused` |
+| M07 | lower bound slackened to the month | 1 test: `a_posting_earlier_in_the_period_start_month_is_refused` |
+| M08 | upper bound slackened to the month | 1 test: `a_posting_later_in_the_period_end_month_is_refused` |
+| M09 | period reading raises on a non date | 1 test: `a_posting_date_that_is_not_a_calendar_date_refuses_the_document` |
+| M10 | gate after the shape read EQUIVALENT | **SURVIVES — an equivalent mutant, and recorded as one (§LI15 R3): every gate here answers by declining, so ORDER is not observable at the `parse` boundary** |
+| M11 | l1 column gate removed | 2 tests: `a_summary_that_prints_a_second_money_column_is_refused`; `a_second_money_column_is_refused_even_when_it_is_idle` |
+| M12 | l1 reads the total column | 1 test: `a_second_money_column_is_refused_even_when_it_is_idle` |
+| M13 | l1 ledger gate removed | 1 test: `a_second_ledger_is_refused_even_when_the_summary_has_one_column` |
+| M14 | l1 ledger gate at least one | 1 test: `a_second_ledger_is_refused_even_when_the_summary_has_one_column` |
+| M11 | summary term uniqueness dropped | 2 tests: `a_summary_term_printed_twice_is_refused`; `the_five_terms_must_appear_in_the_order_the_template_prints_them` |
+| M12 | summary order dropped | 1 test: `the_five_terms_must_appear_in_the_order_the_template_prints_them` |
+| M13 | ragged grid accepted | 1 test: `a_ragged_summary_grid_is_refused` |
+| M14 | summary terms span a line break | 1 test: `a_term_whose_figure_is_on_the_next_line_is_refused` |
+| M15 | withdrawals sign unchecked | 1 test: `a_withdrawals_term_printed_as_an_inflow_is_refused` |
+| M16 | fees sign unchecked | 1 test: `a_fees_term_printed_as_an_inflow_is_refused` |
+| M17 | summary sum gate removed | 1 test: `a_summary_that_does_not_close_on_itself_is_refused` |
+| M18 | chain gate removed | 3 tests: `a_broken_chain_refuses_the_document`; `a_first_posting_that_does_not_step_from_the_printed_beginning_is_refused`; `a_dropped_posting_refuses_the_document` |
+| M19 | chain checks only the last balance | 3 tests: `a_broken_chain_refuses_the_document`; `a_first_posting_that_does_not_step_from_the_printed_beginning_is_refused`; `a_dropped_posting_refuses_the_document` |
+| M20 | chain anchored at the first row | 1 test: `a_first_posting_that_does_not_step_from_the_printed_beginning_is_refused` |
+| M21 | gross debit gate removed | 1 test: `a_posting_pair_the_summary_nets_out_is_refused` |
+| M22 | gross debits ignore the fee term | 13 tests: `the_clean_printing_publishes_its_summary_and_its_ledger`; `the_debit_total_excludes_the_fee_term_the_document_prints_separately`; `every_posting_carries_the_balance_the_document_printed_after_it`; `the_reader_claims_no_currency_and_no_product_name_of_its_own`; `a_description_that_contains_figures_does_not_steal_the_amount_column`; `a_non_calendar_date_inside_a_description_does_not_refuse`, and 7 more |
+| M23 | tolerance widened to a dollar | 1 test: `a_broken_chain_refuses_the_document` |
+| M24 | row columns unbound | 1 test: `a_description_that_contains_figures_does_not_steal_the_amount_column` |
+| M25 | unreadable posting skipped | 1 test: `an_unreadable_posting_refuses_even_when_skipping_it_would_reconcile` |
+| M26 | empty description published | 1 test: `a_description_that_cleans_away_to_nothing_refuses_the_document` |
+| M27 | no postings is an empty statement | 1 test: `a_ledger_head_with_no_rows_under_it_refuses_rather_than_publishing_zero` |
+| M28 | header contradiction accepted | 1 test: `two_headers_that_disagree_refuse_the_document` |
+| M29 | long date raises instead of declining | 1 test: `a_period_bound_the_calendar_does_not_have_refuses_the_document` |
+| M30 | fees folded into the debit total | 1 test: `the_debit_total_excludes_the_fee_term_the_document_prints_separately` |
+| M31 | running balance not published | 13 tests: `the_clean_printing_publishes_its_summary_and_its_ledger`; `the_debit_total_excludes_the_fee_term_the_document_prints_separately`; `every_posting_carries_the_balance_the_document_printed_after_it`; `the_reader_claims_no_currency_and_no_product_name_of_its_own`; `a_description_that_contains_figures_does_not_steal_the_amount_column`; `a_non_calendar_date_inside_a_description_does_not_refuse`, and 7 more |
+| M32 | currency claimed | 1 test: `the_reader_claims_no_currency_and_no_product_name_of_its_own` |
+
+**Three rounds of survivors were closed rather than explained away, one
+mutant was reclassified rather than dressed up as a kill, and one is declared
+equivalent.** Round 1 killed 27 of 32; four survivors were real coverage gaps
+and each got an ISOLATING document — one where every other gate is satisfied,
+so only the gate under test can refuse: an idle second money column; a broken
+opening anchor with Beginning and Deposits moved in step; an unreadable
+posting that nets to nothing; a ledger head with no rows under a summary that
+closes with no movement. The fifth survivor was equivalent — a non-greedy
+description cannot move the amount column, because the row pattern's end
+anchor pins the last two money tokens either way — so M24 now breaks the PAIR.
+Round 2 found the fees-as-inflow document did not isolate its own gate. Round
+3 is the review's: the §INTEGRITY mutants were retargeted onto the
+class-scoped gate, both period bounds got a mutant each, and the suite gained
+a period that does not start on the first of its month so that a bound
+slackened "to the month" is visible at all.
+
+## LI9. The non-target probe — the whole archive, not a sample
+
+The wave asks a new registration for a stratified non-target probe of at least
+400 documents with all scanned and all Canadian included.
+`tools/lili_nontarget_probe.py` does not sample: it runs `detect` over the
+WHOLE archive the run of record enumerates, which is a superset of any
+stratified sample and contains every scanned and every Canadian document by
+construction.
+
+```
+archive rows                     : 3380 distinct content_sha256
+  with a cached OCR artifact     : 3351
+  scanned (all included)         : 176
+  Canadian by label/bank         : 694
+  distinct folder labels covered : 69
+census family                    : 20
+lili claims INSIDE the family    : 20
+lili claims OUTSIDE the family   : 0
+claimed by lili AND another      : 0
+```
+
+**Zero claims outside the named population, and zero ambiguity: no document in
+the archive is claimed by `lili` and by another registration.** 3,351 is 8.4×
+the required floor, it contains all 176 scanned documents and all 694 the run
+labels Canadian, and it spans all 69 folder labels — so the stratification the
+wave asks for is satisfied by containment rather than by sampling.
+
+**The genre siblings, in the same pass.** The card requires `bluevine`,
+`mercury`, `relay` and `square_checking` to stay byte-identical, and they do
+(`git diff 10cc722..HEAD` over those four files is zero lines). But that is
+not the risk: a new registration breaks a neighbour by CLAIMING one of its
+documents or by making a dispatch ambiguous. So for every document the run of
+record dispatched to one of the four, the probe re-runs that sibling's own
+detection and this card's:
+
+```
+  bluevine             41 documents, still claimed   41
+  mercury              31 documents, still claimed   31
+  relay                31 documents, still claimed   31
+  square_checking      32 documents, still claimed   32
+```
+
+**135 of 135 still claimed by their own sibling, and none of the 135 claimed
+by `lili`.** The archive sweep in §LI10 is the second, independent statement
+of the same property: a sibling that lost or shared a document would show
+there as a `moved` payload, and `moved` is 0.
+
+## LI10. The archive sweep
+
+`python -m tools.regfp_zero_movement_sweep --rows <run of record>/rows.csv
+--data-dir <checkout>/webapp_data --baseline-settings-key 24675EF0… --start A
+--end B`, run at the branch's final production tree in four chunks whose
+counts add. It answers the question this card owes: **does any document's
+published analysis differ from what the run of record stored for it, and is
+every difference inside the named population?**
+
+| chunk | docs | identical | moved | no_payload_now_publishes | payload_now_raises | no_payload_raises_again | no_ocr | seconds |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0–850 | 850 | 629 | 0 | 1 | 0 | 214 | 6 | 1246.8 |
+| 850–1700 | 850 | 654 | 0 | 4 | 0 | 187 | 5 | 1006.6 |
+| 1700–2550 | 850 | 645 | 0 | 4 | 0 | 190 | 11 | 706.2 |
+| 2550–3380 | 830 | 630 | 0 | 2 | 0 | 191 | 7 | 485.6 |
+| **total** | **3380** | **2558** | **0** | **11** | **0** | **782** | **29** | **3445.2** |
+
+2558 + 0 + 11 + 782 + 29 = **3380**.
+
+* **`moved` is 0.** Not one document that published under the run of record
+  publishes anything different at HEAD.
+* **`payload_now_raises` is 0.** Not one document that published under the run
+  of record stopped publishing.
+* **`no_payload_now_publishes` is 11, and it is EXACTLY the eleven** this card
+  names in §LI0 — checked by sha, not by count. The sweep prints them and the
+  set is identical to the published list:
+
+```
+22C6933C0602DDDC77F74EFAB7AB63CF3A30C62D716910C3D063BCF0F50BDFBF
+454A07BD54196A56C68578BF6E10B9F9AAF4D8C67AE31B1472FAB8B43B9EC03C
+4857279C9994E7496A2EF80551F24692ED22F4FD223EFE13428B015927587544
+687611256EA2F23F72612C7986D312EEDCC7DFD39EA50055D56AFEA575098EAF
+7F25D12A150F3BFD4C04B8408F523EA977C5BAB45A67A4550DE3E57228065403
+823941CE532B788117E8D8B1B538D0E5F725D7700E71CDAD350F65FD9E7AFD98
+9380A2576223B558E974173A4D5D5E35F22B54E868ED01A834253A76D48F6118
+A2E648774BE757F6862EC008D7551D777F1541B6C6D805E243D2B9CA1F1D06D1
+A683FCE227D9023920DA4CAD3DFC5B6EE473BFE2F1854785D5691478D859EF16
+C76CEFA267138E0C98B167C05214516AFCBBB771BEA5FCE08A129146E2B3B22E
+D33DB2B551B1F86AA14869074875E6A006389BD371FEA99C1AE93436B7AA70C8
+```
+
+The other nine of the twenty stay in `no_payload_raises_again`: they raised
+before and they raise again, and what changed is only the REASON the run
+records for them (`no_parser_matched` → `parser_declined`, §LI1), which is a
+telemetry field the sweep does not compare because the run stored no payload
+to compare it against.
+
+**This sweep is also the genre-sibling replay the card asks for.** The four
+siblings must stay byte-identical and they are — `git diff 10cc722..HEAD --
+analysis/bluevine.py analysis/mercury.py analysis/relay.py
+analysis/square_checking.py` is zero lines — but byte-identity is not the risk
+a new registration carries. A registration breaks a neighbour by CLAIMING one
+of its documents or by making a dispatch ambiguous, and either would show here
+as a `moved` payload. `moved` is 0 over 2,558 compared payloads, and
+§LI9 measures the same property directly at detection.
+
+The per-chunk exit code is 1 rather than 0 and that is the instrument being
+right: `--fail-on-regression`-style, it exits non-zero when it has findings to
+report, and the findings are the eleven expected movers. The chain's own
+terminator is `EXIT=0`.
+
+## LI11. Proofs, with verbatim exit codes
+
+Every line below has a durable log in this cell's scratchpad, each ending in
+its own `EXIT=<code>` terminator appended by the runner rather than by pytest,
+so a run that died mid-way is visible as one that did not.
+
+**Where each ran.** The chain ran at `cd2fa0b`; the guard set, the conformance
+set and the full suite were then re-run at the branch head. Between the two,
+`git diff cd2fa0b..HEAD -- analysis/ webapp/ ocr/ discovery/ telemetry/
+corpus_gate.py` is **empty except for one AST-identical docstring correction
+in `analysis/lili.py`**, proven node-by-node before it was committed — so the
+gate, the corpus-marked slice and the archive sweep, which execute only the
+production layer, carry over unchanged.
+
+| proof | result | exit |
+|---|---|---:|
+| `python -m pytest -q` (full default suite) at `cd2fa0b` | 5,919 passed, 36 skipped, 34 deselected (700.8s) | 0 |
+| `python -m pytest -q` (full default suite) at the branch head | 5,919 passed, 36 skipped, 34 deselected (868.3s) | 0 |
+| canonical guard set (5 modules) at `cd2fa0b` and at the head | 252 passed, both | 0 |
+| canonical conformance set (7 modules) at `cd2fa0b` and at the head | 1,176 passed, 36 skipped (76 × 75 = 5,700 cross-product), both | 0 |
+| `python corpus_gate.py` | **RESULT: GREEN** — 109 pinned PDFs, 105 PASS / 3 WITHHELD / 1 REFUSED; verdicts 1 refused / 3 review / 102 validated / 3 withheld; `currency 108/108 = 14 CAD / 94 USD (+1 pinned refusal)`; `currency_source 108/108 = 89 schema_default / 7 institution_default / 7 product / 4 jurisdiction_default / 1 printed (+1 pinned refusal)`; `adb_doctrine 108/108` | 0 |
+| `python -m pytest -q -m corpus` (corpus-marked slice) | 30 passed, 5,959 deselected (3,904.3s — 1:05:04 on a host running ten other cells) | 0 |
+| `python tools/lili_mutate.py .` | 32 mutants, 32 KILLED, 0 survivors | 0 |
+| `python -m tools.lili_family_replay` | 20 claimed, 11 published, 9 declined by a named gate; dispatch 11 `lili` / 9 `attempted=['lili']`, 0 ambiguous; 1,818 postings; 0 field-sanity failures; 7 of 7 consecutive month pairs join | 0 |
+| `python -m tools.lili_nontarget_probe` | 3,351 documents with cached text of 3,380; 0 claims outside the family; 0 ambiguous; 135 of 135 sibling documents still claimed by their own sibling | 0 |
+| `python -m tools.lili_integrity_fingerprint` | the five tampered members named, the overlap matrix printed | 0 |
+| `python -m tools.lili_privacy_scan` | money 0 / digits 0 / dates 0 AUTHORED; 9 adjudicated name-class coincidences | 0 |
+| `python -m tools.regfp_zero_movement_sweep` × 4 chunks | 3,380 documents, 2,558 identical, **moved 0**, **payload_now_raises 0**, `no_payload_now_publishes` 11 = exactly the named eleven (§LI10) | 0 (per-chunk 1: the instrument exits non-zero when it has findings, and the findings are the eleven) |
+
+The suite moved 5,857 → 5,919 (+62): 49 are this reader's own tests and the
+rest are the conformance cross-product growing with the 76th registration.
+The registry-count pin, the cross-product docstring and the conformance
+fixture moved in the SAME commit as the registration (`a9643a8`), as the wave
+requires.
+
+## LI12. Privacy — the measurement
+
+`tools/lili_privacy_scan.py` builds the family's printed tokens out of the
+cached OCR text of all twenty documents and greps the branch for every one of
+them. Two haystacks, and the distinction is the whole point: **AUTHORED** (the
+`+` lines of the diff against the base, working tree included — content this
+branch is responsible for) and **inherited** (everything else in the files the
+branch touches — lines already in the tree at the base commit; this branch
+edits `tests/data/parser_conformance_fixtures.py`, two count pins and a
+40,000-line log, so it inherits a great deal it did not write). Matching is by
+TOKEN, not by substring: `8.19` is "in" `308.19` and `wire` is "in"
+`wireless`, and reporting those would bury a real copy under fragments of the
+reader's own invented figures.
+
+```
+python -m tools.lili_privacy_scan --data-dir <checkout>/webapp_data     --base 10cc722 --allow DIGITAL,FAMILY,February,Group,INSIDE,LONG,OPENING,True,collateral
+
+documents scanned            : 20 of 20
+branch AUTHORED (added lines): 160,292 chars
+adjudicated coincidences     : 9
+
+money      : 4,766 distinct family tokens ->   0 AUTHORED, 162 inherited
+digits     : 2,889 distinct family tokens ->   0 AUTHORED,   0 inherited
+dates      :   171 distinct family tokens ->   0 AUTHORED,   4 inherited
+rare_cased :   659 distinct family tokens ->   9 AUTHORED,  46 inherited  (all nine adjudicated)
+rare       :   628 distinct family tokens ->  29 AUTHORED,  79 inherited
+words      :   915 distinct family tokens -> 154 AUTHORED, 282 inherited
+EXIT=0
+```
+
+**The three classes the wave's rule names — figure, account, date — are ZERO
+in the branch's authored content.** `digits` is every printed run of five or
+more digits: account numbers, authorization codes, telephone digits, and it is
+zero on BOTH sides. `dates` is every printed `m/d/y` token and every day-first
+long date. Zero-valued figures are excluded from `money` and counted: `0.00`
+is the additive identity and treating it as archive content would make the
+measurement meaningless.
+
+`rare_cased` is the NAME class and the one that carries the risk: the family's
+customer vocabulary — alphabetic tokens printed in at most 3 of the 20
+documents, which is what separates a holder name, a street, a city or a
+merchant string from template furniture — matched in the casing the documents
+print them in. Nine tokens hit, all nine adjudicated on the record and printed
+back by the tool on every run: `DIGITAL` and `FAMILY` (the committed census's
+filename and a module constant in the instruments), `February` (the word, in a
+docstring about impossible calendar dates), `Group` (`match.group`), `INSIDE`,
+`LONG` and `OPENING` (identifiers in this reader), `True` (the Python
+literal), and `collateral` (the word, in the §L-1 docstring). **None is a
+name, an address, a city, a merchant string or an identifier of any kind.**
+The `--allow` list is a ratchet rather than a pardon: the tool fails if an
+adjudicated token stops appearing, so the list cannot outlive what it excuses.
+
+The threshold does the separating, and it can be checked. The platform's
+credit-builder product name — which this section and the reader's own §L-1
+prose both use — is printed on FOUR of the twenty documents, so it falls
+outside the rare class by measurement rather than by my say-so: a name printed
+across four customers' statements is the template's furniture, which the wave
+rules admit and a reader has to be able to describe.
+
+`words` cannot be zero and is not expected to be: it contains the template's
+own furniture, which a reader must match by name in order to read the template
+at all, and ordinary English.
+
+**FOUR ROUNDS OF THIS SCAN CHANGED THE BRANCH, which is what it is for.**
+
+1. Two invented figures happened to collide with figures the family prints,
+   and two of the family's own period dates were quoted in a pattern comment.
+   Every fixture moved to a month of a calendar year the family does not
+   contain, with cents no member prints.
+2. The worked example inside the tool's own docstring, the one illustrating
+   the substring problem, spelled a figure the family prints. Replaced with
+   two of this reader's invented figures — and the irony is the point: a scan
+   that finds a copy in its own explanation of what a copy looks like is a
+   scan that is actually reading the branch.
+3. This log's own summary named a folder LABEL the family's text also
+   contains, and two emphasis capitals collided with ALL-CAPS merchant
+   strings. Reworded.
+4. A comment in the scan explaining the casing heuristic spelled out an actual
+   merchant word from the archive to illustrate it. That is exactly the thing
+   the rule forbids, arrived at by the shortest possible route, and it is
+   gone.
+
+## LI13. Commits
+
+28 commits on `wave8-lili`, base `10cc722`, never merged and never
+pushed. The tree touches 13 files: one new reader, one registry entry, two
+count pins, one conformance fixture, one `EXCLUDED_ANALYSIS_CALLERS` entry,
+one test module, five instruments and this log. `git diff 10cc722..HEAD
+--numstat` shows deleted lines in exactly two files — the two count pins —
+and **zero deleted lines in the shared W3 log**.
+
+**Production and instruments.**
+```
+a9643a8  register the Lili / Sunrise Banks business-checking printing (W3 §LILI)
+d2697a9  the gate tests, the family replay instrument and the mutation harness
+cdbd164  close the five surviving mutants and add the non-target probe
+a47a9c9  fixtures invented AWAY from the family, and the scan that proves it
+1b19041  the fees-as-inflow document did not isolate its gate
+1071690  the forensic fingerprint instrument, and the verdict in the replay
+b734bcf  two repo-wide guards the partial suites had not reached
+f95d360  the genre siblings are replayed in the probe's own pass
+dff9043  the replay prints the L-1 binding packet for every multi-column document
+d7c5e1a  the fingerprints said 'the same block'; the overlap matrix proves it
+f406a73  the registration-count docstring names what the 76th registration is
+c9c7e9a  the replay checks twelve field properties of everything it publishes
+```
+
+**Documentation.**
+```
+3bf2574  W3 §LILI — the section, with the proof numbers still to land
+2fc7c74  §LILI §LI2 - two claims replaced by their measurements
+0fcbfc6  §LILI §LI1 - why claiming the tampered printing is also the right QUEUE
+9a7708a  §LI12 privacy at EXIT=0, and the four things the scan changed
+f85ef91  §LI3 and §LI6 sharpened to what was measured
+e39a9ab  §LI4 carries the measured L-1 packet, not an assertion
+57f27f3  §LILI ties its two findings to the batch-7 escalations they discharge
+9cf586e  §LI8 M32 and §LI12 threshold note match what the tools now do
+37c8432  §LI12 round 2 no longer re-prints the figure it is about
+cd2fa0b  §LI14 F2 names all three readings that bind the checking column
+1c7db0d  §LI7 records what the registration costs a registry sweep
+8c35257  §LI8 records the mutation run at the final production tree (32/32, EXIT=0)
+ef95969  §LI8's killer column is transcribed from the log, not remembered
+25b1ae4  repair ef95969, which deleted 7,780 lines of OTHER cells' W3 sections
+0d5a11c  §LI15 R6 records the shared-log damage and the check that proves the repair
+12e1e61  §LI7 adds the twelve-property field-sanity check over the 11 published (11/11 clean, 1,818 postings)
+```
+
+## LI14. Findings and questions for Ocean
+
+**F1 — the integrity finding (§LI2), fraud-relevant.** This is batch 7's
+escalation 7 to Gustavo — "at least three Lili statements carry byte-identical
+2021-dated junk-row blocks pasted into 2026 periods … the batch-8 card fails
+them closed and names them" — discharged, and the count is **five, not
+three**. Five documents of one account carry one pasted block of historical
+postings across five different declared periods, with identical reference
+numbers, no depository attribution, summaries that do not close even after
+their signs are repaired, and money the shared grammar refuses. They fail
+closed at HEAD by a named gate. This is an underwriting-relevant finding about
+the SUBMISSION, not about the platform — fifteen documents of the same
+printing from four other accounts are internally consistent to the cent — and
+routing it is Ocean's and Gustavo's. Named by sha in §LI2, with a committed
+instrument that re-derives the fingerprints without reproducing a token.
+
+**F2 — the L-1 ruling is the whole gap between 11 and 14 (§LI4), and it is
+batch 7's escalation 1.** Three two-account documents are refused because the single-account schema cannot
+carry the sibling ledger and the sibling is not idle. If the pending L-1
+decision admits publishing the primary account with the sibling declared, the
+binding is already measured — column 1, corroborated by three independent
+readings (the three-column arithmetic, the main ledger's own chain, and the
+sibling ledger's) on all three documents — and the change is one gate. **Question: should this card's three join the L-1 population as-is,
+or does Ocean want a narrow exemption carded now?**
+
+**F3 — the internally-inconsistent summary (§LI5).** One document with 552
+postings, a chain that closes and gross debits that total exactly, refused
+because its printed Deposits term contradicts its own ledger. The genre's
+answer is refusal and I kept it. **Question: does Ocean want a
+discard-and-flag lane for a stated total the document's own rows disprove?**
+It is one document here and a class elsewhere.
+
+**F4 — currency provenance (§LI6).** This family has affirmative US evidence
+and no printed code, so `institution_default` would be more precise than the
+`schema_default` it publishes today. I did not take it: the provenance surface
+is pinned and the vocabulary is owned by CURRENCY-SOURCE. Carded, not decided.
+
+**F5 — the census's identity string is wrong for a quarter of the family, and
+its account prefix is wrong for a quarter of the clean set.** Both were called
+by the adversarial verifier and both are confirmed by measurement. The reader
+depends on neither: it identifies the platform by its support address and the
+template by its summary terms, never by an account-number prefix.
+
+## LI15. Risks carried
+
+**R1 — the §INTEGRITY gate is scoped by date CLASS, and the class is what
+was measured.** It reads ONE class: the date that BEGINS a line, which on
+this template is a posting and nothing else. Over the 15 clean members:
+**2,718 line-leading dates, every one a posting the row pattern parses, every
+one inside the period; 11 dates inside a description, every one a fee row's
+effective date; zero line-leading dates that are not postings.** Description
+text and everything outside a posting are NOT date-checked, because they make
+no claim about when money moved and the row they sit on has already had its
+date, amount and balance verified.
+
+The first revision of this reader checked every printed date anywhere, and
+the review was right that this is a false-positive channel rather than
+caution: a fee row prints the start of the plan CYCLE it bills for, and a
+cycle can begin before the period, so an ordinary statement can legitimately
+print a prior-month date. Five more clean printings do the same — a merchant
+string carrying a date, a footer print date, a terms-revision date, an
+error-resolution deadline. All six were refused; all six now publish and are
+pinned by `test_six_clean_printings_that_carry_an_out_of_period_date_publish`
+and `test_a_fee_effective_date_before_the_period_publishes`.
+
+What the narrowing costs: a pasted block whose lines do NOT begin with a date
+and which contributes no parsed posting is invisible to this gate. It also
+contributes no money, so it cannot move a figure; and if it contributed a
+parsed posting, the period reading would see it. The residual risk is a page
+footer that begins a line with a bare date, which would now be refused as an
+unparsed ledger line — fail-closed, no member of the family does it, and
+named here.
+
+**R2 — the ledger reading counts column heads, and that rests on a measured
+property of this template.** The head is printed ONCE per ledger regardless of
+page count: measured on all 15 clean members, from a 2-page statement to a
+13-page one, heads == ledgers every time. A future printing that reprinted the
+head per page would refuse a legitimate document as two-account. Fail-closed
+and visible as a decline on a family that had been validating, but named here
+so a future cell recognises it rather than rediscovering it.
+
+The two §L-1 readings are also deliberately redundant, and one is harder to
+reach than the other. A document with three columns and one ledger is refused
+by the column reading; one with one column and two ledgers by the ledger
+reading. Both have isolating tests, but the second requires a second column
+head with no rows under it, a shape the archive does not currently contain: if
+a future printing puts rows under a second head, the chain gate refuses first
+and the L-1 reason is not the one reported.
+
+**R3 — the gate ORDER is not observable at the parse boundary, and that is
+now a measurement rather than an aside.** Every gate here answers by
+declining, so no test at the `parse` boundary can distinguish the orders.
+Mutant M10 moves §INTEGRITY to run AFTER the shape read and is carried in the
+table as an EQUIVALENT mutant, expected to survive and recorded as surviving
+— which is the honest way to state it. What the order buys is the REASON the
+replay attributes, and the published reason is the same for all nine
+refusals: `parser_declined`. So the reader's own reason strings are neutral
+(`a printed date outside the declared period`, `a line that begins with a
+date is not a posting`); "tampering" appears in §LI2, where the corroborating
+evidence that justifies the word lives, and nowhere in the code.
+
+**R4 — 11 validated documents are four accounts.** The twenty documents are
+five accounts of consecutive monthly statements, so real template diversity
+here is closer to n=5 than n=20. A printing variant this family does not
+contain is not covered by 11 validations, and the reader's answer to one would
+be a decline rather than a mis-read.
+
+**R6 — I damaged this shared log once, and the repair is in the history.**
+`ef95969` regenerated §LI8's killer column with a script that located the
+table by its header from the START of a 44,385-line file; an earlier cell's
+section carries the identical header, so the rewrite spanned from that header
+to my own paragraph and deleted 7,780 lines of other cells' sections. Caught
+by grepping for my own paragraph and finding it 7,000 lines too early;
+restored from `ef95969^` and redone scoped, with the script asserting the line
+count before writing. Net effect of this branch on the file is now 873
+insertions and ZERO deletions, which is the check a reviewer should run
+(`git diff 10cc722..HEAD -- W3_TRACKA_LOG.md | grep -c "^-[^-]"` → 0). Named
+here because the same trap is open to every cell that scripts an edit to this
+file, and because Ocean's train rebuilds each section from its branch blob —
+which would have caught it at merge, but only at merge.
+
+**R5 — `Fees` is assumed non-positive.** The `fees > 0` gate refuses a month
+whose fee term is a net credit. No member of the family prints one; a genuine
+fee-refund month would be refused rather than published with a
+`stated_service_charge` that carried the wrong direction. Fail-closed and
+narrow, but it is a refusal a real document could earn.
+
+## LI16. MAJOR closures verified (Ocean's verification session, 2026-08-26)
+
+Read-only verification of the closure round (`b1ba3c2`, `b1b9a8e`, `c37ff14`,
+`2f9148e`, `7e1e71d`) by an independent session. Each MAJOR was re-measured or
+re-driven rather than read; the gate was driven with a document this session
+invented from the template SHAPE alone, in a calendar year (2031) that appears
+neither in the family nor in any fixture on this branch. Nothing on the branch
+was changed but this subsection.
+
+| finding | the check this session ran | exit | verdict |
+|---|---|---:|---|
+| MAJOR-1: §LI2 point 4's residual mis-stated, and the instrument behind it uncommitted | the instrument is committed (`tools/lili_integrity_fingerprint.py`, `_summary_residuals` and its looser money pattern landed in `b1ba3c2`) and RUNS: `python -m tools.lili_integrity_fingerprint --data-dir <checkout>/webapp_data`. Its output reproduces §LI2 point 4 line for line — the same four pairable summaries with the same two residuals under each reading, the same one reported unpairable, and the same attribution of each residual to its own document; the two overlap matrices in points 1 and 2 also reproduce cell for cell. So the corrected statement IS the measurement, not a restatement of it. | 0 | **VERIFIED** |
+| MAJOR-1, the corroboration added with it (point 2b, adjacent authorization codes) | this claim entered the log in the closure round with no committed instrument, so it was re-measured here using the tool's own reference pattern, date pattern and ±3-line block margin, associating each code with the nearest printed date inside the margin: across all **20** documents of the family, exactly **2** carry a pair of codes differing by 1 whose dates span four years or more — and they are the two the log names. Zero in the other eighteen. | 0 | **VERIFIED** (independently, on a rule this session chose) |
+| MAJOR-2: the integrity gate's false-positive channel was the `Effective Date` class, on an unpinned boundary | (a) the gate is scoped by date CLASS in code: `_LEADING_DATE_RE` is `^`-anchored and `_ledger_dates_are_sound` compares the set of line-leading date offsets against the set of parsed-row offsets, then checks the period on ROWS only. (b) DRIVEN, on this session's invented 2031 document, eleven cases, all agreeing: a description-class token outside the period PUBLISHES (as does a footer print date and an error-resolution deadline); a line-leading posting date outside the period REFUSES; a line-leading date the row pattern cannot parse REFUSES; both classes wrong at once REFUSES. (c) the boundary, driven on a period that does NOT start on the first of its month: first day publishes, last day publishes, one day earlier inside the same month refuses, one day later inside the same month refuses — so neither bound has slackened to its calendar month. (d) `python -m pytest tests/test_lili.py -q` → 58 passed. (e) `python -m tools.lili_mutate` → 36 mutants, **35 KILLED**, one survivor, and it is `M10_gate_after_the_shape_read_EQUIVALENT`, the mutant the log declares equivalent; `analysis/lili.py` restored, tree clean. Exit 1 is the harness's any-survivor code, not a finding. | 0 / 0 / 1 (harness) | **VERIFIED** |
+
+**2 of 2 MAJOR closures verified**, and the corroboration added alongside
+MAJOR-1 verified independently. No reservation recorded: every headline number
+this round rests on reproduced from a committed instrument, except point 2b,
+which had none and was re-derived here from a rule stated above.

@@ -89,6 +89,7 @@ EXPECTED_ORDER = [
     "found_lead_activity",
     "huntington",
     "ibc",
+    "lili",
     "linkbank",
     "mercury",
     "navigant",
@@ -191,7 +192,7 @@ def test_registration_count_matches_the_documented_decision_points():
     states each direction's count in parentheses with a signed total over two
     DATED balances, and the `Activity Summary` issue, whose box prints `Days
     in Cycle` over a running-balance ledger (W3 §COREISS2)."""
-    assert len(pr.registrations()) == 78
+    assert len(pr.registrations()) == 79
 
 
 def test_ids_and_bank_labels_are_unique_enough_to_dispatch_on():
