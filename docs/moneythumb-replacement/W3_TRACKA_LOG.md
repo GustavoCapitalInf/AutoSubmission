@@ -44014,10 +44014,27 @@ date it precedes, and a boundary class that swallowed it would lose every
 sequence-gap cheque row and then refuse the document on its own count check.
 M18 is the mutant that says so.
 
+**The class is shared, and the bar narrows more than a date (F5).**
+`_TOKEN_START` feeds four other patterns besides `_DATE_TOKEN`:
+`_FIGURE_TOKEN`, both `_balance_row` patterns (the opening and closing
+balance strip) and the OPTIONAL count prefix of `_count_row`. Adding `|`
+therefore also refuses a summary figure or a printed transaction count
+rendered against a bar, and this section originally described the change only
+as a date-boundary closure. Every reachable consequence is conservative and
+every one of them is a REFUSAL: a lost row goes invisible and the count check
+refuses; a lost count makes the count absent, and `_counts` admits an absent
+count only against a zero total, so the document refuses there instead. There
+is no construction in which the bar exclusion publishes something wrong.
+
 Reachability, measured over the complex's 59 documents: **no date token is
 preceded by `|`, `I`, `l` or `!` — 0 of 4,123** — and **no figure token by
-`|` — 0 of 5,849**. The closure costs nothing today and closes a mis-dating
-that would have been silent.
+`|` — 0 of 5,849**. `_count_row`'s count prefix is a bare digit run rather
+than a `_FIGURE_TOKEN`, so neither figure covers it, and the general
+statement was measured for the closure instead: over the same 59 documents,
+**275 vertical bars are printed and not one of them is immediately followed
+by a digit** (0 of 275; 93 printed count prefixes, 0 of them barred). Zero
+there is zero for every pattern the class feeds. The closure costs nothing
+today and closes a mis-dating that would have been silent.
 
 ## CPS7. What the oracle refuses, and why no reader change reaches it
 

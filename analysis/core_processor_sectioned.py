@@ -103,6 +103,20 @@ from .tables import section_runs, unique_match
 #: that mark is the platform's own furniture rather than a lost digit.
 #: Measured over the complex's 59 documents: **no date token is preceded by
 #: `|`, `I`, `l` or `!`** — 0 of 4,123 — so closing it costs nothing.
+#:
+#: THIS CLASS IS SHARED, and adding `|` narrows every pattern built on it, not
+#: only the row date (W3 §CPSCAN CPS12, F5). It feeds `_DATE_TOKEN`,
+#: `_FIGURE_TOKEN`, both `_balance_row` patterns (the opening and closing
+#: balance strip) and the OPTIONAL count prefix of `_count_row`. So a summary
+#: figure or a printed transaction count rendered against a bar is now refused
+#: as well. Every consequence is a REFUSAL and none of them can publish
+#: something wrong: a lost row goes invisible and the count check refuses; a
+#: lost count makes the count absent, and `_counts` admits an absent count
+#: only against a zero total, so the document refuses there instead. Measured
+#: over the same 59: no figure token is preceded by `|` either (0 of 5,849),
+#: and more generally **275 bars are printed and not one is immediately
+#: followed by a digit** — so the widened exclusion is unreached on today's
+#: archive in every pattern it touches, the count prefix included.
 _TOKEN_START = r"(?<![0-9A-Za-z.,/|])"
 #: ...and may not be continued by one.
 _DATE_END = r"(?![0-9/])"
