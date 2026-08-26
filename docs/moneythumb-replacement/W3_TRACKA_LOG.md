@@ -43762,7 +43762,7 @@ A rung that repaired every welded document would rewrite the analysis input of
 99% of the archive. So the load-bearing half of this card is not the emission,
 it is the GATE: what the rung declines.
 
-## DC2 What is emitted, and the nine gates that decide where
+## DC2 What is emitted, and the ten gates that decide where
 
 `parse_native_printed_rows` reads the page's printed lines with their boxes,
 groups them into bands, and emits **one line per printed ROW** — its cells in
@@ -43783,11 +43783,21 @@ the answer is exactly today's.
 | G6 | no block straddles the region | half a re-serialised block is a guess |
 | G7 | TOKEN CONSERVATION on the emitted page | nothing invented, dropped or altered — a proof, not an argument |
 | G8 | the money cell is the row's LAST printed cell | the condition under which a reader's span can hold the description at all |
+| G9 | no line of the region is REPEATED PAGE FURNITURE — text another page prints at the same band position | a repaired row absorbs every cell on its band left of its money, and the card's own oracle cannot see it (DC12 F3) |
+| G10 | no line of the region lies outside the ledger's own columns — left of the anchor or right of the widest money edge | what sits beside a ledger is not part of a row of it, and it reaches a row G8 passes |
+
+**The gate numbering is the pin's name, and it now agrees with itself.** The
+module defines G1–G10, this table lists G1–G10, and the three pins that carried
+the pre-deletion numbering (`…amount_above_its_detail…` documented as G9,
+`…block_straddling…` as G7, `…token_the_flattening_saw…` as G8) are corrected
+to G8, G6 and G7 — the gates they actually kill a mutant for. At the reviewed
+tip the heading said nine and the module defined eight; the count is ten
+because G9 and G10 landed with the F3 closure.
 
 **G8 is the gate that decides whether the repair can help, and it is the one
 measurement that changed the design.** A reader's span runs from a row's date
 to the first figure after it, so a description is recoverable only where the
-amount is printed after everything else the row says. A tenth gate — *at most
+amount is printed after everything else the row says. A FURTHER gate — *at most
 one money cell per row*, written to exclude multi-column balance ladders and
 cheque lists — was DELETED after the mutation harness proved it changed no
 answer: a row with two money cells can never have its FIRST money as its last
@@ -44169,7 +44179,8 @@ was a fixture named after a gate and declined by a DIFFERENT one:
 * the multi-column ladder was refused by amount-last, not by the
   at-most-one-money gate it was named for — so that gate was DELETED as
   provably redundant, and the redundancy is now a test over every arrangement
-  of up to five cells rather than an argument. Ten gates became nine;
+  of up to five cells rather than an argument. Nine gates became eight (the
+  two the F3 closure adds bring the module to ten);
 * the unwelded ledger was refused above the weld gate, because its rows were
   single lines and no band ever held two cells. Rebuilt — and it survived
   again, for a second real reason: the rebuilt rows were one block each, so

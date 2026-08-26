@@ -27,7 +27,20 @@ Each one pins a rule the rung must hold:
 * a multi-column balance ladder, an unwelded ledger, a two-row coincidence and
   an indented paragraph are all left exactly as the flattening left them;
 * a document with nothing to repair is not claimed at all, so the ladder falls
-  through to the generic rung and the bytes are exactly today's.
+  through to the generic rung and the bytes are exactly today's;
+* a ledger whose money right edges disagree, and a right-hand column of bare
+  reference figures, are both left alone — the two clauses of G3 the review
+  found unpinned;
+* a line another page prints at the same band position — page furniture on a
+  posting's row — refuses that ledger, while the same line printed once is
+  absorbed, which is the residual reach this seam has and the reason G9 exists;
+* a malformed line box is a REFUSAL and never an exception, on nine shapes.
+
+A note on what a pin here is worth: a test named after a gate is not a test of
+that gate, so every gate label in this file names the gate whose mutant the
+test kills in `tools/desccols_mutate.py`, and several pins assert their own
+premise (this fixture IS welded / IS repaired when the clause is satisfied)
+before they assert a refusal.
 """
 from __future__ import annotations
 
@@ -246,7 +259,7 @@ def _declined(pdf_bytes):
 
 
 def test_a_template_printing_the_amount_above_its_detail_is_declined():
-    """G9. The amount is on the row's FIRST line and the detail below it, so a
+    """G8. The amount is on the row's FIRST line and the detail below it, so a
     reader's span (date to first figure) cannot hold the detail however the
     lines are cut — re-serialising would change the text for no gain."""
     _declined(_ledger_pdf(WELDED_ROWS, amount_last=False))
@@ -466,7 +479,7 @@ def test_a_row_may_wrap_more_than_once_and_still_be_one_line():
 
 
 def test_a_block_straddling_the_ledger_boundary_refuses_the_whole_document():
-    """G7. A block with lines inside AND outside a repairable region cannot be
+    """G6. A block with lines inside AND outside a repairable region cannot be
     half re-serialised and half left alone, and guessing which half is which is
     the kind of repair this platform refuses. `_printed_row_page` is called
     directly because a straddle is a property of MuPDF's own grouping and no
@@ -560,7 +573,7 @@ def test_the_hand_built_page_is_repaired_when_its_tokens_agree():
 
 
 def test_a_token_the_flattening_saw_and_the_boxes_did_not_refuses_the_page():
-    """G8. The rung re-serialises what `get_text("dict")` reports and hands the
+    """G7. The rung re-serialises what `get_text("dict")` reports and hands the
     result to readers who were given what `get_text("blocks")` reported. The
     two are different extractions of the same page and are not contractually
     identical — a ligature, a soft hyphen or a future MuPDF could separate
